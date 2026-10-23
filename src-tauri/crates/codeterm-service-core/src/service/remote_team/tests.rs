@@ -499,3 +499,68 @@ fn a_superseded_receipt_cannot_replay_an_older_parent() {
         Some("next-parent")
     );
 }
+
+#[test]
+fn origin_transfer_routes_are_denied_to_every_remote_peer_even_with_full_access() {
+    use crate::mesh::types::AccessLevel;
+    for path in [
+        "/api/agents/reparent",
+        "/api/teams/local-team/adopt-remote?ignored=true",
+    ] {
+        for access in [
+            AccessLevel::Full,
+            AccessLevel::ReadOnly,
+            AccessLevel::AgentIsolated,
+        ] {
+            assert!(!crate::api_support::access_policy::peer_access_allowed(
+                &access,
+                "foreign",
+                &axum::http::Method::POST,
+                path,
+                |_| panic!("local origin operations never consult remote ownership")
+            ));
+        }
+    }
+}
+
+#[test]
+fn local_reparent_preserves_the_session_and_refuses_a_destination_pull() {
+    let fixture = Fixture::new();
+    let worker = {
+        let mut mux = fixture.origin.service.mux.write();
+        let workspace = mux.find_workspace_for_tab(&fixture.source).unwrap();
+        let id = mux.create_tab(&workspace).unwrap();
+        let tab = mux.get_tab_mut(&id).unwrap();
+        arm(tab, "local-worker");
+        tab.role = Some(AgentRole::Worker);
+        tab.parent_tab_id = Some(fixture.source.clone());
+        id
+    };
+    let pulling = AuthenticatedPlanCaller {
+        tab_id: Some(fixture.destination.clone()),
+        session_id: Some("destination".into()),
+        binding_nonce: Some("nonce-destination".into()),
+    };
+    assert!(fixture
+        .origin
+        .service
+        .reparent_local_worker(&pulling, &worker, &fixture.destination)
+        .is_err());
+    fixture
+        .origin
+        .service
+        .reparent_local_worker(&fixture.caller(), &worker, &fixture.destination)
+        .unwrap();
+    let mux = fixture.origin.service.mux.read();
+    let tab = mux.get_tab(&worker).unwrap();
+    assert_eq!(tab.agent_session_id.as_deref(), Some("local-worker"));
+    assert_eq!(tab.pty_id.as_deref(), Some("pty-local-worker"));
+    assert_eq!(
+        tab.parent_tab_id.as_deref(),
+        Some(fixture.destination.as_str())
+    );
+    assert_eq!(
+        tab.team_id,
+        mux.get_tab(&fixture.destination).unwrap().team_id
+    );
+}

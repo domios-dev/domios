@@ -338,6 +338,9 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
         }
     });
     match action {
+        AgentAction::Reparent { tab, to, peer } => {
+            super::remote_team::reparent(client, json, tab, to, peer)
+        }
         AgentAction::Usage { action } => {
             super::agent_runtime::handle_usage(&local_http, &base, json, action)
         }

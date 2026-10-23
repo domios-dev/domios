@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use super::remote_worker_transfer::{RemoteWorkerTransfer, RemoteWorkerTransferReceipt};
 
+mod commands;
 mod origin;
 mod store;
 mod worker;

@@ -183,6 +183,17 @@ pub(super) fn dispatch(
         "team.adopt_agent" => {
             let team_id = get_string_param(params, "team_id")?;
             let tab_id = get_string_param(params, "tab_id")?;
+            if let Some(peer) = opt_string_param(params, "peer") {
+                return codeterm_service_core::async_runtime::block_on(
+                    svc.adopt_remote_team_member(
+                        super::remote_team_rpc::caller(params),
+                        &team_id,
+                        &tab_id,
+                        &peer,
+                    ),
+                )
+                .map_err(super::remote_team_rpc::error);
+            }
             let caller_tab_id = required_caller_tab(params, "Team agent adoption")?;
             let team = codeterm_orchestration::adopt_agent_for_team(
                 svc,

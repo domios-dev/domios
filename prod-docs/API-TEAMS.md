@@ -40,8 +40,17 @@ A Team holds **at most one live Orchestrator**, enforced as a headcount of live 
 
 `domios team adopt-agent <team> <tab>` attaches a running roleless agent or a plain shell to a Team you belong to. A shell joins the Team's utility shells and keeps its process (for example a dev server); describe it with `domios tab describe`.
 
+`domios team adopt-agent <team> <tab> --peer <peer>` adopts an unbound remote Worker into the local Team and re-points reports to its live Orchestrator. `domios agent reparent <tab> --to <local-orchestrator> [--peer <peer>]` moves an unbound local or remote Worker without restarting its session. Both origin-side operations require the current parent's authenticated session and nonce, or the local owner. The destination cannot pull a Worker. Remote operations require Full-access pairing; `--mesh` cannot replace `--peer`. Task-bound Workers refuse these commands: use their Plan ownership path.
+
+| Method | Path | Body | Description |
+|--------|------|------|-------------|
+| POST | `/api/teams/{team_id}/adopt-remote` | `{tab_id, peer}` | Adopt an exact remote Worker into this local Team; caller identity comes from Domios identity headers. |
+| POST | `/api/agents/reparent` | `{tab_id, to, peer?}` | Re-parent an unbound Worker to a live local Orchestrator, preserving its session. |
+
+Success includes `team_id`, `tab_id` and, for remote Workers, `peer`, `operation_id` and the exact-session `member`. An uncertain remote response or a failed local commit retains the durable operation; repeating the same request as its authenticated caller recovers it without a second transfer. Conflicting requests refuse until that operation resolves. A peer cannot invoke these origin-side APIs to adopt a local tab; only the signed worker-side mesh operation described in API-AGENTS can change its own origin's Worker.
+
 ## Close Team (POST /api/teams/{team_id}/close)
 
 Closes every Team member through the Team cascade path, removes the Team registry entry, archives and detaches every bound plan, retires each plan owner into owner history, clears its owner/planner routing authority, finalizes open attempts and lanes, deletes Team crons, and emits one committed `mux-state-changed`. This is the only user operation that removes a Team. Ordinary tab closes keep the Team record; the one automatic exception is a pair-minted startup lease, whose forming, empty, fully owned Team is reaped once its two reserved launch attempts are gone. A present `X-CodeTerm-Tab-Id` header must identify the Team's Orchestrator or planner-profile Manager. With no caller tab header, a confirmed human sends `{force: true, confirm: "<team_id>"}` after the close dialog; the service logs this as `human-attributed (headerless, confirmed)`. Missing or mismatched confirmation is refused as Unattributed and logged. Unauthorized callers return `403`, and an unknown or already closed Team returns structured `404`. A busy Team (task `in_progress` or Worker working) returns `409` unless `force_busy: true`; plans with unfinished tasks stay active and flagged, never archived: see ORCHESTRATION-OPERATIONS.
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->
