@@ -1,6 +1,6 @@
 use super::*;
 use crate::multiplexer::state::MultiplexerState;
-use crate::service::billing::PLAN_LIMIT_LOCKED;
+use crate::service::billing::{BillingCell, PLAN_LIMIT_LOCKED};
 use crate::service::test_fixture::ServiceFixture;
 use codeterm_entitlements::{compiled_free, Authority, EffectiveAccess, Perks, Scope, ScopedLimit};
 
@@ -169,4 +169,54 @@ fn service_metadata_writes_on_locked_items_refuse() {
     ] {
         assert!(result.unwrap_err().starts_with(PLAN_LIMIT_LOCKED));
     }
+}
+
+#[test]
+fn forged_paid_hint_keeps_every_write_path_closed_while_checking() {
+    let data = tempfile::tempdir().unwrap();
+    let state = data.path().join("state/account");
+    std::fs::create_dir_all(&state).unwrap();
+    std::fs::write(state.join("plan_hint.json"), br#"{"paid":true}"#).unwrap();
+    let billing = codeterm_billing::Billing::new(std::sync::Arc::new(
+        codeterm_billing::adapters::local::Unavailable,
+    ))
+    .with_grants(
+        &codeterm_account::InstallationId::parse("fixture-installation".into()).unwrap(),
+        std::sync::Arc::new(codeterm_billing::FileGrantStore::new(data.path().into())),
+    )
+    .unwrap();
+    let session = codeterm_account::Session {
+        identity: codeterm_account::Identity {
+            uid: "fixture-user".into(),
+            email: None,
+            display_name: None,
+            provider: "fixture".into(),
+            photo_url: None,
+        },
+        id_token: codeterm_account::Secret::new("fixture-token"),
+        expires_at: None,
+    };
+    assert!(billing.prime(&session).is_some());
+    assert!(billing.snapshot(Some(&session)).checking);
+
+    let (mut mux, newest) = three_workspaces();
+    let tab = mux.create_tab(&newest).unwrap();
+    let fixture = ServiceFixture::new(mux);
+    let svc = &fixture.service;
+    assert!(svc
+        .ext::<BillingCell>()
+        .0
+        .set(std::sync::Arc::new(billing))
+        .is_ok());
+    svc.sync_limit_gate();
+    assert!(svc.limit_gate().summary().enforcing);
+    assert!(svc.is_locked(LimitKey::Workspaces, &newest));
+    assert!(svc.tab_write_lock(&tab).is_some());
+    assert!(svc.item_write_lock(LimitKey::Workspaces, &newest).is_some());
+    assert!(svc
+        .rename_workspace(&newest, "Forged")
+        .unwrap_err()
+        .starts_with(PLAN_LIMIT_LOCKED));
+    let over = svc.mux.read().list_workspaces().len();
+    assert!(svc.limit_gate().admit(LimitKey::Workspaces, over).is_err());
 }
