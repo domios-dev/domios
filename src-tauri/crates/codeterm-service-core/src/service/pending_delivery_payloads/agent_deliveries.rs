@@ -37,6 +37,11 @@ pub(crate) struct AgentDeliveryRecord {
     pub(crate) durable_delivery: Option<super::super::durable_delivery::DurableDelivery>,
     #[serde(default)]
     pub(crate) terminal_detail: Option<String>,
+    // Retained terminal records must re-emit after a crash, even after an emit claim.
+    #[serde(skip)]
+    settlement_notified: bool,
+    #[serde(skip)]
+    settlement_emitted: bool,
     owner_epoch: String,
     digest: String,
     bytes: usize,
@@ -169,6 +174,8 @@ impl AgentDeliveryStore {
                 .ok()
                 .and_then(|metadata| metadata.durable_delivery),
             terminal_detail: None,
+            settlement_notified: false,
+            settlement_emitted: false,
             owner_epoch: self.epoch.clone(),
             digest: digest(payload.as_bytes()),
             bytes: payload.len(),
@@ -227,6 +234,59 @@ impl AgentDeliveryStore {
             Ok(true)
         })?;
         settled.ok_or_else(|| "durable delivery record disappeared before settlement".into())
+    }
+
+    pub(crate) fn claim_terminal_notification(
+        &self,
+        tab_id: &str,
+        id: &str,
+    ) -> Result<bool, String> {
+        let tab = self.tab(tab_id);
+        let mut loaded = tab.index.lock();
+        let index = self.load(&tab, &mut loaded)?;
+        let Some(record) = index.records.iter_mut().find(|record| record.id == id) else {
+            return Ok(false);
+        };
+        if record.state != AgentDeliveryState::Pending
+            || record.terminal_failure.is_none()
+            || record.settlement_notified
+        {
+            return Ok(false);
+        }
+        record.settlement_notified = true;
+        Ok(true)
+    }
+
+    pub(crate) fn finish_terminal_notification(
+        &self,
+        tab_id: &str,
+        id: &str,
+    ) -> Result<(), String> {
+        let tab = self.tab(tab_id);
+        let mut loaded = tab.index.lock();
+        if let Some(record) = self
+            .load(&tab, &mut loaded)?
+            .records
+            .iter_mut()
+            .find(|record| record.id == id)
+        {
+            record.settlement_emitted = true;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn terminal_notification_emitted(
+        &self,
+        tab_id: &str,
+        id: &str,
+    ) -> Result<bool, String> {
+        let tab = self.tab(tab_id);
+        let mut loaded = tab.index.lock();
+        Ok(self
+            .load(&tab, &mut loaded)?
+            .records
+            .iter()
+            .any(|record| record.id == id && record.settlement_emitted))
     }
 
     pub(crate) fn has_pending(&self, tab_id: &str) -> Result<bool, String> {

@@ -276,7 +276,7 @@ impl ServiceContext {
             "producer_tab": delivery.producer_tab, "created_at_ms": delivery.created_at_ms,
             "status": "failed", "code": reason, "detail": detail, "bytes_written": false,
         });
-        let (receipt, created) = self
+        let (receipt, _) = self
             .ensure_agent_pad(&delivery.producer_tab)?
             .write_delivery_receipt(
                 &record.id,
@@ -284,7 +284,7 @@ impl ServiceContext {
                     .map_err(|error| error.to_string())?
                     .as_bytes(),
             )?;
-        if created {
+        if owner.claim_terminal_notification(target, &record.id)? {
             let producer_live = self
                 .mux
                 .read()
@@ -311,6 +311,9 @@ impl ServiceContext {
                 );
             }
             self.notify_event("agent-delivery-status", failure);
+            owner.finish_terminal_notification(target, &record.id)?;
+        } else if !owner.terminal_notification_emitted(target, &record.id)? {
+            return Ok(());
         }
         owner.discard_expired(target, &record.id)?;
         self.cancel_durable_expiry(target, &record.id);
