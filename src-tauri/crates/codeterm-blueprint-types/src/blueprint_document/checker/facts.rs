@@ -495,6 +495,7 @@ fn scan(
                     || word.starts_with("CODETERM_")
                     || word.starts_with("DOMIOS_")
             })
+            .or_else(|| spliced_mention(field, text))
         {
             add(
                 "mentions_domios",
@@ -503,6 +504,21 @@ fn scan(
             );
         }
     }
+}
+
+// Joining adjacent literals catches "dom" + "ios" splits; this is lint, not a boundary.
+fn spliced_mention(field: &str, text: &str) -> Option<&'static str> {
+    if field.ends_with(".with.task") || field.ends_with(".with.question") {
+        return None;
+    }
+    let joined: String = text
+        .chars()
+        .filter(|c| !(c.is_whitespace() || matches!(c, '"' | '\'' | '`' | '+' | '\\' | ',')))
+        .flat_map(char::to_lowercase)
+        .collect();
+    ["codeterm", "domios"]
+        .into_iter()
+        .find(|name| joined.contains(name))
 }
 
 fn github_outcomes(doc: &Document, node: &Node) -> Vec<String> {

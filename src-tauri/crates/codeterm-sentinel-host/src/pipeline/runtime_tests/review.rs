@@ -250,6 +250,7 @@ fn blueprint_v2_runtime_review_missing_main_refuses_before_launch() {
         &owner,
         &Default::default(),
         None,
+        &std::env::temp_dir(),
     )
     .unwrap_err();
     assert_eq!(failure.reason, "contract_violation");
