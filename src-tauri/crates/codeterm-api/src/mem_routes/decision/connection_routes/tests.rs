@@ -18,6 +18,7 @@ struct Model {
     mode: TokenMode,
     selected: parking_lot::Mutex<String>,
     unavailable: AtomicBool,
+    discovery_forbidden: AtomicBool,
 }
 impl DecisionModel for Model {
     fn id(&self) -> &str {
@@ -33,6 +34,13 @@ impl DecisionModel for Model {
         Default::default()
     }
     fn models(&self) -> Vec<DecisionModelInfo> {
+        assert!(
+            !self.discovery_forbidden.load(Ordering::SeqCst),
+            "status discovered models or resolved credentials"
+        );
+        self.cached_models()
+    }
+    fn cached_models(&self) -> Vec<DecisionModelInfo> {
         ["one", "two"]
             .into_iter()
             .map(|id| DecisionModelInfo {
@@ -82,6 +90,7 @@ impl Fixture {
                 mode,
                 selected: parking_lot::Mutex::new("one".into()),
                 unavailable: AtomicBool::new(false),
+                discovery_forbidden: AtomicBool::new(false),
             })
         })
         .collect();
@@ -108,6 +117,18 @@ impl Fixture {
             persist,
         };
         let router = Router::new()
+            .route(
+                "/api/supporter/token",
+                get(super::super::supporter_routes::supporter_token_status),
+            )
+            .route(
+                "/api/supporter/status",
+                get(super::super::supporter_routes::supporter_status),
+            )
+            .route(
+                "/api/supporter/models",
+                get(super::super::supporter_routes::supporter_models),
+            )
             .route(
                 "/api/supporter/connections",
                 get(connections_list).post(connections_connect),
@@ -291,4 +312,54 @@ async fn supporter_connections_routes_none_token_policy_and_errors() {
         StatusCode::OK
     );
     assert_eq!(f.state.config.lock().supporter.adapter, None);
+}
+
+#[tokio::test]
+async fn supporter_status_routes_use_cached_catalogues_without_waiting_for_secret_mutations() {
+    let fixture = Fixture::new();
+    fixture.state.config.lock().supporter.adapter = Some("none".into());
+    for model in &fixture.models {
+        model.discovery_forbidden.store(true, Ordering::SeqCst);
+    }
+    let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let holder = std::thread::spawn(move || {
+        let _transaction = connections::TRANSACTION.lock();
+        entered_tx.send(()).unwrap();
+        release_rx
+            .recv_timeout(std::time::Duration::from_secs(4))
+            .unwrap();
+    });
+    entered_rx.await.unwrap();
+    for path in [
+        "/api/supporter/status",
+        "/api/supporter/models",
+        "/api/supporter/connections",
+        "/api/supporter/token",
+    ] {
+        let response = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            fixture
+                .router
+                .clone()
+                .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap()),
+        )
+        .await
+        .expect("status waited for a credential mutation")
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        let bytes = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        if path == "/api/supporter/status" {
+            assert_eq!(body["state"], "active");
+            assert_eq!(body["connected"], true);
+        }
+        if let Some(adapters) = body["adapters"].as_array() {
+            assert!(adapters
+                .iter()
+                .all(|adapter| adapter["models"].as_array().unwrap().len() == 2));
+        }
+    }
+    release_tx.send(()).unwrap();
+    holder.join().unwrap();
 }

@@ -80,7 +80,7 @@ if ! command -v systemd-inhibit >/dev/null 2>&1; then
   echo "systemd-inhibit not found" >&2
   exit 127
 fi
-exec systemd-inhibit --what={what} --mode=block --who=CodeTerm --why="CodeTerm keepawake session" sleep infinity
+exec systemd-inhibit --what={what} --mode=block --who=Domios --why="Domios keepawake session" sleep infinity
 "#
     )
 }
@@ -237,7 +237,7 @@ fn systemd_daemon_reload_needed() -> Option<bool> {
 pub(crate) fn parse_systemd_inhibit_list(output: &str, what: &str) -> bool {
     output
         .lines()
-        .filter(|line| line.to_ascii_lowercase().contains("codeterm"))
+        .filter(|line| line.to_ascii_lowercase().contains("domios"))
         .any(|line| {
             line.split_whitespace()
                 .any(|part| part.split(':').any(|token| token == what))

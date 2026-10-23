@@ -53,7 +53,8 @@ export interface MultiplexerActionsContextType {
   clearNotifications: () => void;
   answerNotification: (id: string, label: string) => void;
   dismissToast: (id: string) => void;
-  setTabTitle: (workspaceId: string, tabId: string, title: string) => void;
+  /** Shows the title at once and persists it; a refused save restores the previous title and raises a toast. */
+  renameTab: (workspaceId: string, tabId: string, title: string) => void;
   setAgentType: (tabId: string, agentType: string | null) => void;
   updateTabStatus: (tabId: string, status: TabStatus) => void;
   spawnClaudeTab: (workspaceId: string, cwd?: string) => void;

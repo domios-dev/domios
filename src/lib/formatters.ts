@@ -11,6 +11,9 @@ export const SCHEDULE_PRESETS = [
 ] as const;
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+// Dates sit inside English UI copy, so they must not follow the OS locale.
+const UI_LOCALE = "en";
+const EPOCH_MS = /^\d{13}$/;
 
 function wholeNumberInRange(value: string, min: number, max: number): boolean {
   if (!/^\d+$/.test(value)) return false;
@@ -28,6 +31,7 @@ function stepValue(value: string, max: number): number | null {
 
 /** Describe a cron schedule string in human-readable form. */
 export function describeSchedule(cron: string): string {
+  if (EPOCH_MS.test(cron.trim())) return `at ${formatTime(Number(cron.trim()))}`;
   const parts = cron.trim().split(/\s+/);
   if (parts.length !== 5) return cron;
   const [min, hour, dom, mon, dow] = parts;
@@ -67,7 +71,7 @@ export function timeAgo(ts: number): string {
 
 /** Format a timestamp for display — "Apr 2, 10:30 AM". */
 export function formatTime(ms: number): string {
-  return new Date(ms).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  return new Date(ms).toLocaleString(UI_LOCALE, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
 /** Relative future time — "in 5m", "in 2h", "tomorrow 14:30", or absolute date. */
@@ -77,7 +81,7 @@ export function formatFuture(ms: number): string {
   if (diff < 86_400_000) return formatUntil(ms, Date.now());
   if (diff < 2 * 86_400_000) {
     const d = new Date(ms);
-    return `tomorrow ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+    return `tomorrow ${d.toLocaleTimeString(UI_LOCALE, { hour: "2-digit", minute: "2-digit" })}`;
   }
   return formatTime(ms);
 }

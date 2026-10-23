@@ -6,14 +6,14 @@ use axum::{
 };
 use codeterm_account::Status;
 type Error = (StatusCode, String);
-fn admit(caller: Option<&Extension<CallerIdentity>>) -> Result<(), Error> {
+pub(crate) fn admit(caller: Option<&Extension<CallerIdentity>>) -> Result<(), Error> {
     if matches!(caller.map(|c| &c.0), Some(CallerIdentity::Local)) {
         Ok(())
     } else {
         Err((StatusCode::FORBIDDEN, "Account access is local-only".into()))
     }
 }
-fn unavailable(message: String) -> Error {
+pub(crate) fn unavailable(message: String) -> Error {
     (StatusCode::SERVICE_UNAVAILABLE, message)
 }
 pub async fn status(
@@ -107,14 +107,13 @@ pub async fn logout(
     caller: Option<Extension<CallerIdentity>>,
 ) -> Result<Json<Status>, Error> {
     admit(caller.as_ref())?;
-    let account = state.svc.account().await.map_err(unavailable)?;
-    let result = account.logout().await;
+    let result = state.svc.account_logout().await;
     if let Ok(billing) = state.svc.billing().await {
         tokio::task::spawn_blocking(move || billing.snapshot(None))
             .await
             .map_err(|error| unavailable(error.to_string()))?;
     }
-    Ok(Json(result.map_err(|e| unavailable(e.to_string()))?))
+    Ok(Json(result.map_err(unavailable)?))
 }
 /// The plan snapshot plus the limits a client pre-checks creation against.
 #[derive(serde::Serialize)]

@@ -55,9 +55,9 @@ a configured preset; omit both to use the plugin's default. If no entry has tran
 `chat_backend`, no shell plugin is installed — don't assume one (e.g. never hardcode a
 specific shell id).
 
-## Pairing across API ports
+## Adding a machine to the mesh
 
-Use `domios mesh connect <instance-id-or-name> --addr <ip:port>` when UDP discovery cannot reach a different API port. This reads and records the answering identity, refuses an ID mismatch, and sends the ordinary request. The receiving owner still approves with `domios mesh approve <request-id>`. Paired means trusted; a manual sighting never grants access. See `domios docs MESH` for listener readiness and identity binding.
+New machines come only from the account: sign both in to the same account, then `domios mesh link <installation-id>` (or Add in the Mesh tab). Both must be online and directly reachable; there is no broadcast, scan or manual address. Signing out blocks the mesh without unpairing; signing back in to the same account restores it. See `domios docs MESH`.
 
 ## References
 

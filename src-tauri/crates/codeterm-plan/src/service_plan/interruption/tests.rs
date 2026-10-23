@@ -265,7 +265,14 @@ fn takeover_epoch_fences_exhausted_owner() {
             &sealed.diff_sha256,
             "base",
             "new-tab",
-            "new-session",
+            &crate::service_plan::task_assignment::AssignmentRuntimeBinding {
+                session_id: "new-session".into(),
+                session_binding_nonce: "new-nonce".into(),
+                provider: Some("target-provider".into()),
+                model: Some("target-model".into()),
+                session_model: None,
+                reasoning_effort: Some("high".into()),
+            },
             6,
         )
         .unwrap();

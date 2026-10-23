@@ -14,14 +14,6 @@
       "measuredSeconds": 4.154
     },
     {
-      "key": "service::hierarchy::plan_reminder_nudge::approval_tests::plan_reminder_choice_invalid_or_unavailable_zero_emit",
-      "measuredSeconds": 1.349
-    },
-    {
-      "key": "service::hierarchy::report_plan_ctx::tests::plan_evidence_role_test::planned_team_taskless_worker_reports_to_parent_without_plan_write",
-      "measuredSeconds": 20.095
-    },
-    {
       "key": "service::hierarchy::team_plan_creation::tests::planner_plan_creation_waits_until_the_binding_deadline",
       "measuredSeconds": 1.05
     },
@@ -40,14 +32,6 @@
     {
       "key": "service::provider_update::command::tests::provider_update_command_termination_error_blocks_further_runs",
       "measuredSeconds": 1.063
-    },
-    {
-      "key": "service::tab_chat::identity_tests::tab_chat_identity_uuidless_record_has_one_id_across_snapshot_window_live_and_backfill",
-      "measuredSeconds": 1.888
-    },
-    {
-      "key": "service::tab_chat::tailer_tests::tailer_repopulates_when_session_file_appears_late",
-      "measuredSeconds": 1.025
     },
     {
       "key": "socket::server::agent::tests::agent_report_refused_kind_routes_to_diagnostic_without_recording_report",

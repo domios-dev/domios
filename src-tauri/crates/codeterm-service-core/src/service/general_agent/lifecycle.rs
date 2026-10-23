@@ -352,7 +352,7 @@ pub fn start_general_agent(
                             "[general-agent] Clearing stale pty_id {} (session not in PtyManager)",
                             pty_id
                         );
-                        screen_state.lock().remove(&pty_id);
+                        screen_state.remove(&pty_id);
                         crate::service::stream_preview::remove(&pty_id);
                         clear_stale_general_binding(svc, mux, &pid);
                     }
@@ -792,7 +792,7 @@ fn terminate_pty_before_relaunch(
     if let Some(reaper) = reaper {
         reaper.wait_bounded(std::time::Duration::from_secs(5))?;
     }
-    screen_state.lock().remove(pty_id);
+    screen_state.remove(pty_id);
     crate::service::stream_preview::remove(pty_id);
     Ok(())
 }

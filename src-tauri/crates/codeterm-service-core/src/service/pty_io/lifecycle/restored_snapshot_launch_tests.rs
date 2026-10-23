@@ -632,10 +632,10 @@ mod restore_boot_stage_tests {
             None,
             Some("fixture-cwd"),
             false,
-            |_| {
+            |pending| {
                 fixture
                     .store
-                    .resolve(&fixture.digest)
+                    .resolve(pending.unwrap())
                     .map(Some)
                     .map_err(|error| error.to_string())
             },

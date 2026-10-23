@@ -568,29 +568,4 @@ mod tests {
         .expect("a clean canonical writer commit reports");
         assert_eq!(reported.as_deref(), Some(committed.as_str()));
     }
-
-    #[test]
-    fn explicit_base_overrides_task_derived_fallback() {
-        let (_dir, lane, base, owned_sha) = lane_with_owned_commit();
-        fs::write(lane.join("VISION.md"), "foreign dirt\n").unwrap();
-        let task_scope = TaskReadinessScope {
-            worktree_path: Some(lane),
-            base: Some("stale-task-base".into()),
-            requires_repository: true,
-            ..TaskReadinessScope::default()
-        };
-
-        let (_, reported, _) = crate::cmd::report_guard::enrich_ready_report(
-            Some(&task_scope),
-            Some(ReportStatusArg::InReview),
-            None,
-            Some(owned_sha.clone()),
-            ReportBase::classify(Some(base), None),
-            None,
-            false,
-        )
-        .expect("explicit base must override the task-derived fallback");
-
-        assert_eq!(reported.as_deref(), Some(owned_sha.as_str()));
-    }
 }

@@ -1,8 +1,10 @@
 import { chatVisibleAnchorIndex } from "./chatAnchorModel";
 
+/** `top` frames the whole row; `contentTop` is the message body, which a day separator above it never shifts. */
 export interface ChatShiftAnchor {
   id: string;
   top: number;
+  contentTop?: number;
 }
 
 export interface ChatShiftContext {
@@ -45,8 +47,12 @@ export function chatSpacerAfterLayout({ base, drift, shift, absorb }: {
   return { drift: chatSpacerDriftAfterShift(drift, base, owned), scrollBy: 0 };
 }
 
-export function chatAnchorShift(anchor: ChatShiftAnchor | null, top: number | null): number {
-  return anchor == null || top == null ? 0 : top - anchor.top;
+function shiftTop(row: ChatShiftAnchor): number {
+  return row.contentTop ?? row.top;
+}
+
+export function chatAnchorShift(anchor: ChatShiftAnchor | null, measured: ChatShiftAnchor | null | undefined): number {
+  return anchor == null || measured == null ? 0 : shiftTop(measured) - shiftTop(anchor);
 }
 
 /** The first row that still reaches into the viewport; content above it is what may shift the view. */

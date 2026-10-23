@@ -90,7 +90,7 @@ export function PluginList({
           marginBottom: 10,
         }}
       />
-      <div style={{ display: "flex", gap: 4, marginBottom: 12, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 4, marginBottom: 12, flexWrap: "nowrap", overflowX: "auto" }}>
         {FILTERS.map((f) => {
           const active = filter === f.key;
           const badge = f.key === "updates" && updateCount > 0 ? ` ${updateCount}` : "";

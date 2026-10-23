@@ -28,14 +28,34 @@ impl AccountCredentials {
 fn credential_name(provider: &str) -> String {
     format!("domios-account-{provider}-refresh")
 }
+const MESH_INSTALLATION_KEY: &str = "domios-account-mesh-installation-key";
 #[async_trait]
 impl CredentialStore for AccountCredentials {
     fn session_only(&self, provider: &str) -> bool {
         self.fallback.session_only(&credential_name(provider))
     }
     async fn load(&self, provider: &str) -> codeterm_account::Result<Option<Secret>> {
+        self.load_named(credential_name(provider)).await
+    }
+    async fn save(&self, provider: &str, token: &Secret) -> codeterm_account::Result<()> {
+        self.save_named(credential_name(provider), token).await
+    }
+    async fn delete(&self, provider: &str) -> codeterm_account::Result<()> {
+        self.delete_named(credential_name(provider)).await
+    }
+}
+#[async_trait]
+impl codeterm_account::account_mesh::InstallationKeyStore for AccountCredentials {
+    async fn load(&self) -> codeterm_account::Result<Option<Secret>> {
+        self.load_named(MESH_INSTALLATION_KEY.into()).await
+    }
+    async fn save(&self, secret: &Secret) -> codeterm_account::Result<()> {
+        self.save_named(MESH_INSTALLATION_KEY.into(), secret).await
+    }
+}
+impl AccountCredentials {
+    async fn load_named(&self, name: String) -> codeterm_account::Result<Option<Secret>> {
         let store = self.store.read().await.clone();
-        let name = credential_name(provider);
         let operation = self.operation.clone().lock_owned().await;
         let fallback = self.fallback.clone();
         let runtime = tokio::runtime::Handle::current();
@@ -57,9 +77,8 @@ impl CredentialStore for AccountCredentials {
         .map_err(|_| Error::Credentials)?;
         result
     }
-    async fn save(&self, provider: &str, token: &Secret) -> codeterm_account::Result<()> {
+    async fn save_named(&self, name: String, token: &Secret) -> codeterm_account::Result<()> {
         let store = self.store.read().await.clone();
-        let name = credential_name(provider);
         let token = token.clone();
         let operation = self.operation.clone().lock_owned().await;
         let fallback = self.fallback.clone();
@@ -88,9 +107,8 @@ impl CredentialStore for AccountCredentials {
         .map_err(|_| Error::Credentials)??;
         Ok(())
     }
-    async fn delete(&self, provider: &str) -> codeterm_account::Result<()> {
+    async fn delete_named(&self, name: String) -> codeterm_account::Result<()> {
         let store = self.store.read().await.clone();
-        let name = credential_name(provider);
         let operation = self.operation.clone().lock_owned().await;
         let fallback = self.fallback.clone();
         let runtime = tokio::runtime::Handle::current();
@@ -165,23 +183,49 @@ impl super::ServiceContext {
                 }
                 let provider =
                     codeterm_account::adapters::configured(&config).map_err(|e| e.to_string())?;
-                let analytics = self.analytics_worker().await.ok().cloned();
-                let account = Account::new(
-                    provider,
-                    Arc::new(AccountCredentials::new(self.secrets.clone())),
-                    Duration::from_secs(config.login_timeout_secs),
+                let mut observers: Vec<Arc<dyn codeterm_account::IdentityObserver>> = Vec::new();
+                if let Ok(worker) = self.analytics_worker().await {
+                    observers.push(Arc::new(AnalyticsIdentity(worker.clone())));
+                }
+                // Mesh is optional: its unavailability never prevents the account from starting.
+                if let Ok(mesh) = self.account_mesh().await {
+                    observers.push(mesh.mesh.clone());
+                }
+                let account = Arc::new(
+                    Account::new(
+                        provider,
+                        Arc::new(AccountCredentials::new(self.secrets.clone())),
+                        Duration::from_secs(config.login_timeout_secs),
+                    )
+                    .with_identity_observer(Arc::new(
+                        codeterm_account::account_mesh::IdentityObservers(observers),
+                    )),
                 );
-                let account = Arc::new(match analytics {
-                    Some(worker) => {
-                        account.with_identity_observer(Arc::new(AnalyticsIdentity(worker)))
-                    }
-                    None => account,
-                });
                 let _ = account.refresh().await;
                 Ok::<_, String>(account)
             })
             .await?;
+        self.account_mesh_restored();
         Ok(account.clone())
+    }
+    /// Mesh blocks and attempts endpoint withdrawal while this account's credentials still exist.
+    pub async fn account_logout(&self) -> Result<codeterm_account::Status, String> {
+        let account = self.account().await?;
+        let logout = account.logout();
+        let status = match self.account_mesh().await {
+            Ok(mesh) => {
+                let (_, persisted, status) = mesh.mesh.sign_out(logout).await;
+                persisted?;
+                status
+            }
+            Err(_) => {
+                let block = self.sign_out_without_account_mesh().await;
+                let status = logout.await;
+                block?;
+                status
+            }
+        };
+        status.map_err(|e| e.to_string())
     }
     pub async fn account_login(
         &self,
@@ -196,6 +240,7 @@ impl super::ServiceContext {
         let _ = self
             .refresh_billing(codeterm_billing::RefreshEvent::SignIn)
             .await;
+        self.spawn_account_mesh_refresh(codeterm_account::account_mesh::EnrollTrigger::Automatic);
         Ok(status)
     }
 }

@@ -76,6 +76,7 @@ fn extraction_retry_cap_backoff_and_parking_survive_reload() {
     assert!(last.parked);
     assert_eq!(last.retry_after, None);
     assert_eq!(last.reason.as_deref(), Some("launch failure"));
+    assert!(codeterm_util::private_file::owner_only(&path).unwrap());
     let reloaded = ExtractionRetries::load(path);
     assert!(reloaded
         .claim("extract:a", "body1", "w4", u64::MAX)

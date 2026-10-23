@@ -160,3 +160,28 @@ fn corrupt_copies_keep_only_the_newest() {
     let newest = std::fs::read_to_string(copies.last().unwrap()).unwrap();
     assert_eq!(newest, format!("broken {}", MAX_CORRUPT_COPIES + 1));
 }
+
+#[cfg(unix)]
+#[test]
+fn private_state_is_opt_in_and_generic_state_preserves_existing_permissions() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("state.json");
+    std::fs::write(&path, "before").unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
+    StateFile::new(&path).save("generic").unwrap();
+    assert_eq!(
+        std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o640
+    );
+    StateFile::new(&path)
+        .with_private_permissions()
+        .save("private")
+        .unwrap();
+    assert!(crate::private_file::owner_only(&path).unwrap());
+    for backup in StateFile::new(&path).backups() {
+        if std::fs::read_to_string(&backup).unwrap() == "private" {
+            assert!(crate::private_file::owner_only(&backup).unwrap());
+        }
+    }
+}

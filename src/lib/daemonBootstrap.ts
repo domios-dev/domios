@@ -2,6 +2,7 @@ import { createEventSubscriptionRegistry, eventStreamKey, shareEventSubscription
 import { frontendBootDiagnostic } from "./frontendBootDiagnostic";
 import { installWebDiagnosticPort } from "./webDiagnosticPort";
 import { createTransportClient, type TokenSource, type TransportClient } from "./transportClient";
+import { withStreamMux } from "./streamMux";
 
 export interface DaemonBootstrap { origin: string; token: TokenSource; frontendOrigin?: string }
 export interface ReloadCredentials { apiOrigin: string; token: string }
@@ -56,7 +57,7 @@ export function configureDaemonTransport(input: DaemonBootstrap | ReloadCredenti
   if (typeof input.token === "string" && !input.token) throw new Error("Daemon bearer token required");
   if (base && bootstrap?.origin === origin && bootstrap.token === input.token) return base;
   bootstrap = { origin, token: input.token };
-  const client = createTransportClient({ ...bootstrap, onGatewayState: gateway });
+  const client = withStreamMux(createTransportClient({ ...bootstrap, onGatewayState: gateway }));
   if (eventSubscriptions) eventSubscriptions.replace(client.subscribe);
   else eventSubscriptions = createEventSubscriptionRegistry(client.subscribe);
   base = shareEventSubscriptions(client, eventSubscriptions);
@@ -103,7 +104,7 @@ export function daemonTransportForPeer(peerId?: string): TransportClient {
         if (since) params.set("since", since);
         return client.subscribe(`/api/mesh/relay-stream?${params}`, listener, options);
       }
-      return peer.subscribe(path, listener, options);
+      return client.subscribe(`/api/mesh/relay-stream?${new URLSearchParams({ peer: peerId, path })}`, listener, options);
     } });
   }
   return peers.get(peerId)!;

@@ -29,6 +29,30 @@ pub struct ProviderSwitchOutcome {
     pub handoff_delivered: bool,
 }
 
+struct SwitchBindingCleanup<'a> {
+    service: &'a ServiceContext,
+    tab_id: &'a str,
+    interrupt_on_failure: bool,
+}
+
+impl Drop for SwitchBindingCleanup<'_> {
+    fn drop(&mut self) {
+        self.service.clear_runtime_restart_binding(self.tab_id);
+        if self.interrupt_on_failure {
+            self.service.signal_worker_interruption(
+                self.tab_id,
+                crate::service::worker_interruption::WorkerInterruptionEvent::ForcedContextReset,
+            );
+        }
+    }
+}
+
+fn prepare_handoff(handoff: &str) -> Result<crate::service::messenger::AgentInput, String> {
+    crate::service::messenger::Messenger::restore_framed_delivery(handoff)
+        .map(crate::service::messenger::AgentInput::Framed)
+        .map_err(|error| format!("provider_switch_handoff_invalid: {error}"))
+}
+
 impl ServiceContext {
     pub fn switch_provider_in_place(
         &self,
@@ -38,7 +62,7 @@ impl ServiceContext {
         effort: Option<String>,
         force: bool,
     ) -> Result<ProviderSwitchOutcome, String> {
-        let tab = {
+        let mut tab = {
             let mux = self.mux.read();
             let id = mux
                 .resolve_tab_id(tab_id)
@@ -90,7 +114,7 @@ impl ServiceContext {
             target,
             permission.is_some(),
         )
-        .map_err(|error| error.to_string())?;
+        .map_err(switch_preflight_error)?;
         self.provider_switch_auth_preflight(target)?;
         let _claim = self
             .claim_restart(&tab.id, false)
@@ -100,6 +124,11 @@ impl ServiceContext {
             .as_deref()
             .ok_or("provider_switch_binding_missing: source binding unavailable")?;
         let carry = self.authorize_provider_switch_binding(&tab.id, source, target, nonce)?;
+        tab.task_binding = self
+            .mux
+            .read()
+            .get_tab(&tab.id)
+            .and_then(|tab| tab.task_binding.clone());
         if super::restart_carries_task_attempt(tab.task_binding.as_ref()) && carry.is_none() {
             return Err("provider_switch_binding_refused: task attempt cannot be carried".into());
         }
@@ -116,8 +145,9 @@ impl ServiceContext {
         );
         let archive = pad.write_inbox_body(archive.as_bytes())?;
         let handoff = self.provider_switch_input(&tab, &messages, &archive)?;
+        let handoff = prepare_handoff(&handoff)?;
         let full_access = permission.is_some();
-        let params = SpawnAgentParams {
+        let mut params = SpawnAgentParams {
             agent: Some(target.into()),
             cwd: tab.cwd.clone(),
             model: model.clone(),
@@ -128,11 +158,20 @@ impl ServiceContext {
             permission_bypass_authorization: permission,
             ..Default::default()
         };
+        let identity_instructions =
+            self.general_provider_switch_prompt(&tab, target)
+                .or_else(|| {
+                    (route.target == TargetRoute::Runtime)
+                        .then(|| {
+                            crate::service::orchestrator::compose_runtime_system_prompt(&mut params)
+                        })
+                        .flatten()
+                });
         let input = crate::service::restored_launch::restored_fresh_launch_input(
             &self.agent_registry,
             params,
             RestorableLaunchParameters {
-                identity_instructions: self.general_provider_switch_prompt(&tab, target),
+                identity_instructions,
                 captured: true,
                 requested_model,
                 model,
@@ -181,6 +220,13 @@ impl ServiceContext {
         )?;
         self.retire_provider_switch_input(&tab.id)?;
         crate::service::orchestrator::supersede_tab_launch(&tab.id);
+        let carry_required = carry.is_some();
+        self.stage_runtime_restart_binding(&tab.id, carry);
+        let mut binding_cleanup = SwitchBindingCleanup {
+            service: self,
+            tab_id: &tab.id,
+            interrupt_on_failure: carry_required,
+        };
         match route.source {
             TargetRoute::Runtime => {
                 agent_runtime::engine::stop_blocking(self, &tab.id)?;
@@ -200,8 +246,6 @@ impl ServiceContext {
             }
         }
         self.archive_provider_switch_source(&tab.id, &tab)?;
-        let carry_required = carry.is_some();
-        self.stage_runtime_restart_binding(&tab.id, carry);
         {
             let mut mux = self.mux.write();
             let current = mux
@@ -222,8 +266,14 @@ impl ServiceContext {
                 Some(&self.mem),
             );
         }
-        let result =
-            self.provider_switch_launch(&snap, route.target, &input, prepared, carry_required);
+        let result = self.provider_switch_launch(
+            &snap,
+            route.target,
+            &input,
+            prepared,
+            carry_required,
+            force,
+        );
         if result.is_err() {
             self.clear_runtime_restart_binding(&tab.id);
             if let Err(reason) = &result {
@@ -236,23 +286,26 @@ impl ServiceContext {
                 let mut mux = self.mux.write();
                 if let Some(current) = mux.get_tab_mut(&tab.id) {
                     current.agent_booting = false;
-                    crate::service::boot_stage::apply_boot_stage(
-                        current,
-                        codeterm_types::pty::BootStage::SpawnFailed,
-                        Some(reason),
-                    );
+                    if !agent_runtime::engine::has_live_bound_session(current) {
+                        crate::service::boot_stage::apply_boot_stage(
+                            current,
+                            codeterm_types::pty::BootStage::SpawnFailed,
+                            Some(reason),
+                        );
+                    }
                 }
             }
             self.schedule_session_persist_debounced();
             self.emit_state_changed(crate::service::MuxEmitCause::AgentRestart);
         }
         let session_id = result?;
-        self.send_text(&tab.id, &crate::service::messenger::AgentInput::Framed(crate::service::messenger::Messenger::from(crate::service::messenger::MessageEnvelope::codeterm_reminder("provider-handoff")).framed_delivery(&handoff))).map_err(|error| format!("provider_switch_handoff_unconfirmed: target session {session_id} is running; input will not be replayed: {error}"))?;
+        binding_cleanup.interrupt_on_failure = false;
         self.persist_general_provider_switch(&tab, target, &input.launch_parameters, &session_id)?;
+        self.send_text(&tab.id, &handoff).map_err(|error| format!("provider_switch_handoff_unconfirmed: target session {session_id} is running; input will not be replayed: {error}"))?;
         self.schedule_session_persist_debounced();
         self.emit_state_changed(crate::service::MuxEmitCause::AgentRestart);
         Ok(ProviderSwitchOutcome {
-            tab_id: tab.id,
+            tab_id: tab.id.clone(),
             provider: target.into(),
             session_id,
             previous_provider: source.into(),
@@ -332,12 +385,13 @@ impl ServiceContext {
         input: &crate::service::restored_launch::RestoredFreshLaunchInput,
         prepared: Option<crate::service::orchestrator::PreparedAgentCommand>,
         carry_required: bool,
+        force: bool,
     ) -> Result<String, String> {
         let target = snap
             .target_provider
             .as_deref()
             .ok_or("provider switch target absent")?;
-        let mut outcome = RestartOutcome::accepted(snap, false, false);
+        let mut outcome = RestartOutcome::accepted(snap, false, force);
         match route {
             TargetRoute::Runtime => {
                 self.ensure_session_binding_nonce(&snap.tab_id);
@@ -431,9 +485,13 @@ impl ServiceContext {
             })
             .flatten();
         if let Some((binary, probe)) = probe {
-            let record = crate::service::provider_signals_probe::capture(&binary, &probe).ok_or(
-                "provider_switch_auth_unknown: target authentication could not be verified",
-            )?;
+            let record = crate::service::provider_signals_probe::capture_result(&binary, &probe)
+                .map_err(|failure| match failure {
+                    crate::service::provider_signals_probe::ProbeFailure::TimedOut =>
+                        "provider_switch_auth_timeout: target authentication check timed out; retry the switch",
+                    crate::service::provider_signals_probe::ProbeFailure::Unavailable =>
+                        "provider_switch_auth_unknown: target authentication could not be verified",
+                })?;
             let auth = self
                 .agent_registry
                 .with_provider(target, |provider| provider.parse_auth_status(&record))
@@ -446,5 +504,13 @@ impl ServiceContext {
             }
         }
         Ok(())
+    }
+}
+
+fn switch_preflight_error(error: crate::service::spawn_cli::ProviderPreflightError) -> String {
+    match error {
+        crate::service::spawn_cli::ProviderPreflightError::BinaryUnavailable { display_name, binary, .. } =>
+            format!("provider_switch_unavailable: {display_name} requires {binary}, which is not installed; install it before switching"),
+        other => format!("provider_switch_unavailable: {other}"),
     }
 }

@@ -54,14 +54,12 @@ pub fn build_service_context(
     let plan_store = Arc::new(crate::service::plan::PlanStore::new());
     let plan_turn_counter = Arc::new(crate::service::plan::reminders::TurnCounter::new());
     plan_store.bind_turn_counter(plan_turn_counter.clone());
-    let live_pending_delivery_digests =
-        crate::service::pending_delivery_payloads::live_payload_digests(
-            &states.mux.read().snapshot(),
-        );
+    let live_pending_delivery_keys =
+        crate::service::pending_delivery_payloads::live_payload_keys(&states.mux.read().snapshot());
     let pending_delivery_payloads = Arc::new(
         crate::service::pending_delivery_payloads::PendingDeliveryPayloadStore::open(
             &crate::paths::data_dir(),
-            &live_pending_delivery_digests,
+            &live_pending_delivery_keys,
         )
         .expect("pending delivery payload store init"),
     );

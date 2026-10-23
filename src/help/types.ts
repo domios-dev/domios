@@ -28,13 +28,7 @@ export type HelpShortcutSource =
   | { kind: "config"; key: keyof KeybindingsConfig }
   | { kind: "app"; id: HelpAppShortcutId };
 
-export type HelpAppShortcutId =
-  | "command_palette"
-  | "new_tab"
-  | "close_tab"
-  | "new_workspace"
-  | "settings"
-  | "toggle_sidebar";
+export type HelpAppShortcutId = "command_palette" | "toggle_sidebar";
 
 export type HelpBlock =
   | { type: "guide-link"; label: string; section: HelpSectionId }

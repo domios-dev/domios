@@ -4227,6 +4227,32 @@
           "args": [],
           "subcommands": [
             {
+              "name": "key",
+              "about": "Store an embedder API key locally from stdin, with owner-only permissions",
+              "aliases": [],
+              "args": [],
+              "subcommands": [
+                {
+                  "name": "set",
+                  "about": "Atomically write <data_dir>/secrets/<provider>-embedder.key. Pipe the key on stdin; terminal input and argv keys are refused",
+                  "aliases": [],
+                  "args": [
+                    {
+                      "name": "provider",
+                      "positional": true,
+                      "required": true,
+                      "value_name": "PROVIDER",
+                      "possible_values": [],
+                      "default": null,
+                      "help": "Provider id from `mem embedder list`",
+                      "aliases": []
+                    }
+                  ],
+                  "subcommands": []
+                }
+              ]
+            },
+            {
               "name": "list",
               "about": "List embedder providers, their models, and whether a remote one can be activated",
               "aliases": [],
@@ -6990,59 +7016,6 @@
           "subcommands": []
         },
         {
-          "name": "approve",
-          "about": "Accept an incoming pairing request",
-          "aliases": [],
-          "args": [
-            {
-              "name": "request_id",
-              "positional": true,
-              "required": true,
-              "value_name": "REQUEST_ID",
-              "possible_values": [],
-              "default": null,
-              "help": "Request ID of the pending pairing request",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
-          "name": "broadcast",
-          "about": "Start broadcasting for the configured duration",
-          "aliases": [],
-          "args": [],
-          "subcommands": []
-        },
-        {
-          "name": "connect",
-          "about": "Initiate owner-approved pairing with a discovered peer or explicit address",
-          "aliases": [],
-          "args": [
-            {
-              "name": "addr",
-              "positional": false,
-              "required": false,
-              "value_name": "ADDR",
-              "possible_values": [],
-              "default": null,
-              "help": "Read the peer identity directly at this IP:port before pairing",
-              "aliases": []
-            },
-            {
-              "name": "instance_id",
-              "positional": true,
-              "required": true,
-              "value_name": "INSTANCE_ID",
-              "possible_values": [],
-              "default": null,
-              "help": "Instance ID or advertised name; --addr also accepts a hexadecimal ID prefix",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
           "name": "disconnect",
           "about": "Disconnect (unpair) from a paired peer",
           "aliases": [],
@@ -7061,10 +7034,21 @@
           "subcommands": []
         },
         {
-          "name": "discover",
-          "about": "Trigger mesh discovery scan (list discovered peers)",
+          "name": "link",
+          "about": "Link a machine enrolled in this account. Both machines must be signed in, online to the registry and directly reachable; no approval on the other side",
           "aliases": [],
-          "args": [],
+          "args": [
+            {
+              "name": "installation_id",
+              "positional": true,
+              "required": true,
+              "value_name": "INSTALLATION_ID",
+              "possible_values": [],
+              "default": null,
+              "help": "Installation ID from the account's machine list",
+              "aliases": []
+            }
+          ],
           "subcommands": []
         },
         {
@@ -7119,7 +7103,7 @@
         },
         {
           "name": "peers",
-          "about": "List all peers (paired + discovered)",
+          "about": "List paired peers",
           "aliases": [],
           "args": [],
           "subcommands": []
@@ -7132,33 +7116,8 @@
           "subcommands": []
         },
         {
-          "name": "reject",
-          "about": "Reject and block an incoming pairing request",
-          "aliases": [],
-          "args": [
-            {
-              "name": "request_id",
-              "positional": true,
-              "required": true,
-              "value_name": "REQUEST_ID",
-              "possible_values": [],
-              "default": null,
-              "help": "Request ID of the pending pairing request",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
           "name": "status",
-          "about": "Show mesh status (identity, discovery, peers)",
-          "aliases": [],
-          "args": [],
-          "subcommands": []
-        },
-        {
-          "name": "stop-broadcast",
-          "about": "Stop broadcasting immediately",
+          "about": "Show mesh status (identity, peers)",
           "aliases": [],
           "args": [],
           "subcommands": []
@@ -7183,7 +7142,7 @@
         },
         {
           "name": "unrevoke",
-          "about": "Explicitly lift a peer identity revocation so it can pair again",
+          "about": "Explicitly lift a local peer identity revocation",
           "aliases": [],
           "args": [
             {
@@ -13365,6 +13324,16 @@
                   "aliases": []
                 },
                 {
+                  "name": "reasoning-effort",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "REASONING_EFFORT",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
                   "name": "speed",
                   "positional": false,
                   "required": false,
@@ -16194,6 +16163,13 @@
       "args": [],
       "subcommands": [
         {
+          "name": "api-token",
+          "about": "Print only the selected local instance API credential, without contacting the daemon",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
           "name": "autostart-status",
           "about": "Print whether the autostart trigger is installed and where",
           "aliases": [],
@@ -16229,7 +16205,7 @@
               "value_name": "SUPERVISOR",
               "possible_values": [],
               "default": null,
-              "help": "Override the path to the codeterm CLI supervisor. Defaults to the currently-running CLI executable",
+              "help": "Select the installed Domios CLI supervisor. Defaults to the stable installed CLI; temporary worker copies are refused",
               "aliases": []
             }
           ],
