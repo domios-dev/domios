@@ -135,15 +135,16 @@ impl BlueprintMemoryExt for ServiceContext {
         if intent.len() > 4096 {
             return Err("Blueprint intent exceeds 4096 bytes".into());
         }
-        let entries = self
-            .mem
-            .recall_blueprints(&area(&caller.workspace), intent, 5)?;
+        let recalled =
+            self.mem
+                .recall_blueprints_with_health(&area(&caller.workspace), intent, 5)?;
+        let entries = recalled.offers;
         let offers=entries.into_iter().map(|hit| {
             let entry=hit.entry;
             let yaml=entry.document.yaml()?;
             Ok(json!({"id":entry.id,"name":entry.document.name,"when_to_use":entry.when_to_use(),"intents":entry.intents,"how":entry.document.note,"uses":entry.uses,"successes":entry.successes,"last_used":entry.last_used,"yaml":yaml,"why":hit.why,"enrichment_pending":hit.enrichment_pending}))
         }).collect::<Result<Vec<_>,String>>()?;
-        Ok(json!(offers))
+        Ok(json!({"offers": offers, "degraded":recalled.degraded,"progress":recalled.progress}))
     }
     fn blueprint_apply_recipe(
         &self,

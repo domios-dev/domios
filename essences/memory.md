@@ -4,6 +4,10 @@ Memory keeps facts, notes, preferences and skills available to agents across con
 
 Persistent memory lives in Domios, never in provider side stores. It is English and its bodies carry no dates. Skills are registered through memory, never written directly into provider skill directories. Conversations are searched as sessions; durable facts are searched as memory.
 
+## Embedding transitions
+
+Recall stays on one published model and its stamped vectors while a replacement index is built. Blueprint recall exposes degradation and progress during that transition, including empty results. A stalled or failed rebuild records a cause and completed work survives restart. Selecting the published model again does not rebuild it.
+
 ## Decision recall
 
 A connected Supporter adds a second stage that judges how directly and usefully each candidate answers the query. The first stage retains ordinary hybrid retrieval; the [Supporter Agent](supporter-agent.md) judges candidates independently and orders the pool by absolute relevance. Each candidate receives one yes/no probability judgment when supported, otherwise a normalized score. Ties keep the original order.

@@ -67,3 +67,20 @@ fn mem_embedder_key_set_parses_without_an_argv_key_and_stays_local() {
         crate::transport::ApiVerdict::Unsupported(_)
     ));
 }
+
+#[test]
+fn recall_reembed_same_model_receipt_and_failed_status_are_explicit() {
+    let receipt = render_use(
+        &serde_json::json!({"already_active":true,"target":{"provider":"local","model":"L12"},"total":0}),
+    );
+    assert!(receipt.contains("already active"));
+    assert!(!receipt.contains("Re-embedding"));
+    for state in ["failed", "stalled", "cancelled"] {
+        let status = render_status(
+            &serde_json::json!({"reembed":{"state":state,"done":94,"total":901,"last_error":"worker dropped"}}),
+        );
+        assert!(status.contains(state));
+        assert!(status.contains("worker dropped"));
+        assert!(status.contains("94/901"));
+    }
+}

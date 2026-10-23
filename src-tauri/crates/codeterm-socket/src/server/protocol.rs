@@ -9,7 +9,7 @@ use super::JsonRpcError;
 
 /// Bump together with `cli/src/protocol.rs` on a breaking CLI↔daemon wire
 /// contract change — see .agents/skills/cli-contributor/SKILL.md (consumer audit).
-pub(crate) const PROTOCOL_VERSION: u64 = 6;
+pub(crate) const PROTOCOL_VERSION: u64 = 7;
 
 /// JSON-RPC server-error-band code for a protocol version mismatch.
 pub(crate) const VERSION_SKEW: i32 = -32002;
@@ -114,7 +114,7 @@ mod tests {
         assert_eq!(wire["error"]["code"], VERSION_SKEW);
         assert_eq!(wire["error"]["data"]["type"], "version_skew");
         assert_eq!(wire["error"]["data"]["client_protocol"], 2);
-        assert_eq!(wire["error"]["data"]["server_protocol"], 6);
+        assert_eq!(wire["error"]["data"]["server_protocol"], PROTOCOL_VERSION);
         assert_eq!(wire["error"]["data"]["recovery"], "recover --here");
     }
 

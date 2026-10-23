@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -27,6 +28,9 @@ pub enum ReembedState {
     Idle,
     Running,
     Completed,
+    Failed,
+    Stalled,
+    Cancelled,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -63,6 +67,7 @@ pub struct ReembedTracker {
     clock: Arc<dyn Clock>,
     generation: AtomicU64,
     progress: Mutex<ReembedProgress>,
+    storage: Mutex<Option<PathBuf>>,
 }
 
 impl ReembedTracker {
@@ -71,15 +76,78 @@ impl ReembedTracker {
             clock,
             generation: AtomicU64::new(0),
             progress: Mutex::new(ReembedProgress::default()),
+            storage: Mutex::new(None),
         }
     }
 
     pub fn snapshot(&self) -> ReembedProgress {
-        self.progress.lock().clone()
+        let mut progress = self.progress.lock();
+        if progress.state == ReembedState::Running
+            && progress
+                .updated_at
+                .is_some_and(|at| self.clock.now().signed_duration_since(at).num_seconds() >= 180)
+        {
+            progress.state = ReembedState::Stalled;
+            progress.last_error = Some(
+                "re-embed made no progress for 180 seconds; worker or provider stalled".into(),
+            );
+            progress.finished_at = Some(self.clock.now());
+        }
+        progress.clone()
     }
 
     pub fn is_current(&self, generation: u64) -> bool {
         self.generation.load(Ordering::SeqCst) == generation
+            && self.progress.lock().state == ReembedState::Running
+    }
+
+    pub(crate) fn restore(&self, path: PathBuf) {
+        if let Ok(bytes) = std::fs::read(&path) {
+            if let Ok(mut progress) = serde_json::from_slice::<ReembedProgress>(&bytes) {
+                if progress.state == ReembedState::Running {
+                    progress.state = ReembedState::Cancelled;
+                    progress.last_error = Some(
+                        "re-embed interrupted by process restart; stamped shadow work will resume"
+                            .into(),
+                    );
+                }
+                *self.progress.lock() = progress;
+            }
+        }
+        *self.storage.lock() = Some(path);
+    }
+
+    fn persist(&self, progress: &ReembedProgress) {
+        if let Some(path) = self.storage.lock().as_ref() {
+            let result = serde_json::to_vec(progress)
+                .map_err(|error| error.to_string())
+                .and_then(|bytes| {
+                    codeterm_util::private_file::write_atomic(path, &bytes)
+                        .map_err(|error| error.to_string())
+                });
+            if let Err(error) = result {
+                log::warn!("[mem.embedder] progress persistence failed: {error}");
+            }
+        }
+    }
+
+    pub(crate) fn fail(&self, generation: u64, error: String, events: &ActiveEmbedder) {
+        if self.generation.load(Ordering::SeqCst) != generation {
+            return;
+        }
+        let snapshot = {
+            let mut progress = self.progress.lock();
+            if progress.state != ReembedState::Running {
+                return;
+            }
+            progress.state = ReembedState::Failed;
+            progress.failed += 1;
+            progress.last_error = Some(error);
+            progress.finished_at = Some(self.clock.now());
+            progress.clone()
+        };
+        self.persist(&snapshot);
+        events.emit(&EmbedderEvent::Progress(snapshot));
     }
 
     pub(crate) fn start(
@@ -103,6 +171,7 @@ impl ReembedTracker {
             };
             progress.clone()
         };
+        self.persist(&snapshot);
         events.emit(&EmbedderEvent::Progress(snapshot));
         generation
     }
@@ -119,6 +188,11 @@ impl ReembedTracker {
         let now = self.clock.now();
         let snapshot = {
             let mut progress = self.progress.lock();
+            if self.generation.load(Ordering::SeqCst) != generation
+                || progress.state != ReembedState::Running
+            {
+                return false;
+            }
             progress.done += 1;
             if let Err(error) = outcome {
                 progress.failed += 1;
@@ -129,6 +203,7 @@ impl ReembedTracker {
             (progress.done % step == 0 || progress.done >= progress.total).then(|| progress.clone())
         };
         if let Some(snapshot) = snapshot {
+            self.persist(&snapshot);
             events.emit(&EmbedderEvent::Progress(snapshot));
         }
         true
@@ -141,11 +216,17 @@ impl ReembedTracker {
         let now = self.clock.now();
         let snapshot = {
             let mut progress = self.progress.lock();
+            if self.generation.load(Ordering::SeqCst) != generation
+                || progress.state != ReembedState::Running
+            {
+                return;
+            }
             progress.state = ReembedState::Completed;
             progress.updated_at = Some(now);
             progress.finished_at = Some(now);
             progress.clone()
         };
+        self.persist(&snapshot);
         events.emit(&EmbedderEvent::Progress(snapshot));
     }
 }

@@ -573,3 +573,16 @@ fn blueprint_like_appends_builtins_after_daemon_results_within_five_offers() {
         }
     }
 }
+
+#[test]
+fn recall_reembed_offer_shows_why_without_breaking_yaml() {
+    let yaml = "schema_version: 1\nname: fixture\n";
+    let offer = serde_json::json!({"when_to_use":"isolate pipeline credentials\nacross steps","why":"intent 0.90","yaml":yaml});
+    let text = super::memory::render_offer(&offer);
+    assert!(text.contains("Why: isolate pipeline credentials across steps"));
+    assert!(text.contains("Match: intent 0.90"));
+    assert_eq!(
+        serde_yaml::from_str::<serde_json::Value>(&text).unwrap(),
+        serde_yaml::from_str::<serde_json::Value>(yaml).unwrap()
+    );
+}

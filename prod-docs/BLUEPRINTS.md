@@ -26,6 +26,8 @@ domios blueprint keep <id> --when "Watch CI and report failing jobs early" --whe
 
 Recall also searches a description derived from the graph itself: the note, step names and a gist of the commands, URLs and tools, never routes or step numbers. After a keep, a hidden memory worker on `memory.worker_model` may add a summary and extra intents from the stored YAML; that text only helps search, records its model and document hash, and is regenerated when the graph changes. When workers are unavailable the keep still succeeds and the entry stays `enrichment pending` until a later backfill. Each offer carries a `why` line naming the matching intent and scores.
 
+`blueprint new --like` prints the selected solution’s when-to-use line and match reason. Its JSON response includes `offers`, `degraded` and re-embedding `progress`, even when no solution matches.
+
 Solutions are memory skills, discoverable through ordinary memory search. Equivalent structures update one recipe's statistics. Ranking and eviction consider successes, twice the reuse count, an explicit-keep bonus and failures, with age decay. Each area retains at most 1000 active entries as a storage bound; recall ranks the stored library before applying the requested result limit. A save always retains the entry being saved and returns `evicted_ids` for any archived entries; the CLI prints each archived ID. Archived entries preserve their YAML. The Dreamer considers at most 1000 entries in one area and merges at most eight pairs per cycle; it never creates solutions from runs. It can log a built-in promotion proposal. Background writes use a bounded queue; keep waits for the committed save receipt before returning while indexing continues in the background; debug logs show items added today and recall hit rate.
 
 ## One file
@@ -156,4 +158,4 @@ Both the UI and CLI export and import the same YAML. Export writes the same auth
 
 Stopped graphs and their history remain for 30 minutes before cleanup. Changed definitions create an immutable version; an unchanged apply reactivates a stopped graph under the same ID. Import uses the same name lookup and keeps the result stopped unless explicitly started. Advanced `update` accepts an internal definition file with `--expect-version` for explicit version/cause control. `history` definitions can be restored through that path, and `escalation resolve <id> <transition>` releases a held unknown case after repair. For a watch, use `show` to inspect its latest observation, progress and transitions; `log` provides pipeline journals. Unscheduled inputs omit `next_run`. Recipe examples: `domios docs BLUEPRINT-RECIPES`.
 
-<!-- revision: 46 -->
+<!-- revision: 47 -->
