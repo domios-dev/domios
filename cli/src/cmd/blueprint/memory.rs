@@ -67,7 +67,7 @@ pub(super) fn intent_response(
 ) -> Result<Value, String> {
     let scaffold = json!({
         "schema_version":2,"kind":"pipeline","name":"custom-pipeline","intent":intent,"owner":"team",
-        "trigger":{"type":"schedule","every":{"lit":"1m"}},"steps":[{"id":"finish","uses":"stop"}]
+        "trigger":{"type":"schedule","every":{"lit":"1m"}},"steps":[{"id":"inspect","run":{"lit":"echo ready"},"routes":{"done":"@stop","failed":"@stop"}}]
     });
     let yaml = serde_yaml::to_string(&scaffold).map_err(|error| error.to_string())?;
     let mut response = match recalled {

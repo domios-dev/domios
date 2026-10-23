@@ -105,7 +105,7 @@ impl Collector {
                     "budget_exhausted: import closure bound",
                 )]);
             }
-            let label = path.to_string_lossy().into_owned();
+            let label = super::path_identity::portable_path(&path);
             let mut child = crate::blueprint_document::parse(&label, &source)?;
             self.stack.push(path.clone());
             self.graph(&mut child, &path)?;
