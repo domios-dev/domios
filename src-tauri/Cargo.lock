@@ -1285,6 +1285,7 @@ dependencies = [
 name = "codeterm-blueprint-types"
 version = "0.0.0"
 dependencies = [
+ "libc",
  "regex",
  "schemars 0.8.22",
  "serde",
@@ -1294,6 +1295,7 @@ dependencies = [
  "shell-words",
  "url",
  "uuid",
+ "windows-sys 0.61.2",
  "yaml-rust2",
 ]
 

@@ -25,3 +25,4 @@ pub mod blueprint_placeholder;
 pub mod blueprint_contract;
 
 pub mod blueprint_project;
+pub mod code_source;
