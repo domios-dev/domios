@@ -331,12 +331,12 @@ fn print_report_notices(json: bool, val: &serde_json::Value) {
 
 pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) {
     let (base, _) = read_api_config();
-    let local_http = match build_local_api() {
+    let local_http = std::cell::LazyCell::new(|| match build_local_api() {
         Ok(client) => client,
         Err(error) => {
             crate::cmd::print::fail(1, format!("failed to connect to local API: {error}"));
         }
-    };
+    });
     match action {
         AgentAction::Usage { action } => {
             super::agent_runtime::handle_usage(&local_http, &base, json, action)
