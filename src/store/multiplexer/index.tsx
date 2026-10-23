@@ -13,7 +13,7 @@ import {
 import { invoke, listen, reopenClosedTab, reopenClosedGroup, restoreOrphanedTab } from "../../lib/bridge";
 import { useEntitlementRefresh } from "./useEntitlementRefresh";
 import { recordSurfaceActivity, SURFACE_ACTIVITY_EVENT } from "../../lib/surfaceActivity";
-import { IS_WEB, webJson, WebApiError } from "../../lib/webApi";
+import { IS_WEB, webJson } from "../../lib/webApi";
 import {
   loadCachedStateSync,
   loadCachedStateAsync,
@@ -44,7 +44,7 @@ import type {
   TabBootStageEvent,
   MeshPeersResponse,
 } from "../../lib/types";
-import { reducer, type Action } from "./reducer";
+import { reducer } from "./reducer";
 import { acceptsPageFocus, initialPageSelection } from "./pageSelection";
 import { loadClientPageSelection } from "../../lib/clientPageSelection";
 import { buildInitialState, HYDRATED_GENERATION } from "./initialState";
@@ -74,58 +74,16 @@ import { resumeRemoteOutputStreams } from "../../lib/outputStream";
 import { resumeRemoteTabEvents, subscribeRemoteTabEvent } from "../../lib/remoteTabEvents";
 import { spawnFreshGeneralSession, type SessionLaunchIntent } from "../../lib/generalSession";
 
+import { isSnapshotRefusal, isStorageUnavailableError, muxStateEventAction, tabBootStageEventAction } from "./stateEvents";
+export { STORAGE_UNAVAILABLE_MESSAGE, isStorageUnavailableError, isSnapshotRefusal, muxStateEventAction, tabBootStageEventAction } from "./stateEvents";
+
 export { useMultiplexer } from "./context";
 export { useMuxState, useMuxSelector } from "./selectorStore";
 export { highestTitleLevel } from "./tree";
 
-export const STORAGE_UNAVAILABLE_MESSAGE =
-  "Storage unavailable, your data is preserved, see the incident.";
-
-export function isStorageUnavailableError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return message.includes(STORAGE_UNAVAILABLE_MESSAGE);
-}
-
 /** True when this runtime already has a cache projection before reconcile. */
 export function webBootHasSyncCache(): boolean {
   return IS_WEB && loadCachedStateSync() !== null;
-}
-
-/** The daemon refuses snapshots under load or while lifecycle locks are held.
- * Distinct from a failure: the state is fine, the request was declined and a
- * state event will schedule the next read. */
-export function isSnapshotRefusal(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return (
-    (error instanceof DOMException && error.name === "AbortError") ||
-    (error instanceof WebApiError && error.status === 503 && message.includes("state snapshot")) ||
-    message.includes("state snapshot unavailable while tab state is initializing or changing") ||
-    message.includes("tab summary unavailable while tab state is initializing or changing")
-  );
-}
-
-export function muxStateEventAction(payload: unknown): "apply-snapshot" | "refresh" {
-  if (
-    payload &&
-    typeof payload === "object" &&
-    Array.isArray((payload as { workspaces?: unknown }).workspaces)
-  ) {
-    return "apply-snapshot";
-  }
-  return "refresh";
-}
-
-export function tabBootStageEventAction(payload: TabBootStageEvent): Action {
-  return {
-    type: "UPDATE_BOOT_STAGE",
-    tabId: payload.tab_id,
-    stage: payload.stage,
-    reason: payload.reason,
-    agent_booting: payload.agent_booting,
-    session_bound: payload.session_bound,
-    provisional_launch: payload.provisional_launch,
-    launchGeneration: payload.launch_generation,
-  };
 }
 
 export function MultiplexerProvider({ children }: { children: ReactNode }) {
