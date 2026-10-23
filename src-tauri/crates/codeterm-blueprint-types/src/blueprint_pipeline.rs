@@ -129,6 +129,13 @@ pub fn route_target<'a>(routes: &'a BTreeMap<String, String>, outcome: &str) -> 
         .unwrap_or(if outcome == "failed" { "stop" } else { "next" })
 }
 
+pub const COMMAND_STEP_RUNTIME_MS: u64 = 10_000;
+pub const MAX_COMMAND_STEP_RUNTIME_MS: u64 = 60_000;
+
+fn default_command_timeout_ms() -> u64 {
+    COMMAND_STEP_RUNTIME_MS
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum StepKind {
@@ -150,6 +157,8 @@ pub enum StepKind {
     },
     Command {
         command: String,
+        #[serde(default = "default_command_timeout_ms")]
+        timeout_ms: u64,
     },
     Ask {
         question: String,
@@ -541,7 +550,7 @@ pub fn validate_parts(
                     error(&mut errors, field.parameters("agent"), "agent requires text, a provider and profile, and bounded task, deadline, token and turn budgets");
                 }
             }
-            StepKind::Command { command }
+            StepKind::Command { command, .. }
                 if command.trim().is_empty()
                     || command.len() > MAX_COMMAND_BYTES
                     || command.contains('\0') =>

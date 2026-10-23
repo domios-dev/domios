@@ -57,9 +57,48 @@ Admission lowers a v2 document to the runtime representation or returns an expli
 
 A Blueprint code or command step runs with the user's own permissions, like an agent in a tab, without Domios credentials in its environment; foreign Blueprints are gated by folder trust (1.15.4). Code runs as an ordinary child process on macOS, Linux and Windows, subject to execution budgets.
 
-Supported pipeline nodes are fixed `run` commands and `uses: http`, `github`, `ask`, `filter`, `convert` and `agent`. Parameters are explicit value forms. `ask` declares its `buckets` on the node. HTTP outcomes are `up`, `down`, `failed`; GitHub outcomes depend on `resource`; filters may declare a bucket. Commands, conversion and agent tasks return `done` or `failed`. Unspecified failure routes stop; other unspecified outcomes continue. Inputs and outputs must agree with the supported media chain. `result.to` accepts `owner`, `team`, `notify` or `tab:<id>`.
+Supported pipeline nodes are `code`, fixed `run` commands and `uses: http`, `github`, `ask`, `filter`, `convert` and `agent`. Parameters are explicit value forms. `ask` declares its `buckets` on the node. HTTP outcomes are `up`, `down`, `failed`; GitHub outcomes depend on `resource`; filters may declare a bucket. Commands, conversion and agent tasks return `done` or `failed`. Unspecified failure routes stop; other unspecified outcomes continue. Inputs and outputs must agree with the supported media chain. `result.to` accepts `owner`, `team`, `notify` or `tab:<id>`.
+
+Command steps default to a 10-second runtime on every platform. Override it on the node with `timeout: {lit: 30s}` (also accepts an author input). The timeout must be positive and at most 60 seconds; invalid values receive a positioned checker diagnostic. For example:
+
+```yaml
+- id: inspect
+  run: {lit: git status --short}
+  timeout: {lit: 30s}
+```
+
+Watcher probes also default to 10 seconds on every platform. Each watcher runs concurrently, so a slow probe delays its own verdict while the scheduler and other watchers continue. Command and probe runtime budgets start when the direct child's spawn call returns, excluding its exec authorization delay. Runtime is followed by bounded cleanup of up to 500 ms (one quarter of a shorter budget): the total is runtime plus that reserve, capped by the caller's remaining run deadline. A shorter caller deadline reserves cleanup within that total and may interrupt execution earlier; expiry produces a typed `Deadline`.
 
 A schedule trigger has `every: {lit: 20s}`. Input triggers have a media `kind` and a `source` literal containing `text`, an absolute `file` path or an HTTP(S) `url`; a string source denotes text. Event triggers name an installed capability kind and explicit parameters. Runtime availability is checked at apply.
+
+## Code nodes
+
+Python bodies define `def main(value):` and return a JSON value. TypeScript bodies define `export default function main(value)` (optionally async). The host supplies a fixed harness per language; author code is a separate file. The harness reads the bounded input envelope, calls `main` with its `value`, and writes the returned value with the node’s output media and schema. Text uses a string `value` and an empty `text` field, so it is carried once. Author prints go to stderr. Raw envelope scripts are unsupported.
+
+```yaml
+- id: swatch
+  code: {lang: python, src: 'def main(value): return "linen"'}
+  out: {type: string}
+- id: caption
+  code: {lang: python, src: 'def main(value): return value.upper()'}
+  bind: {in: swatch.out}
+  in: {type: string}
+  out: {type: string}
+```
+
+`code.src` is bounded to 16 KiB. Alternatively, `code.file` names a relative regular file beneath the apply caller’s cwd; symlinks and parent traversal refuse. Apply freezes its bounded bytes into `code.src` before persisting the graph. Later file edits do not change the stored body. Canonical nodes and execution summaries carry `body_sha256`. Runtime refuses unsealed `code.file` and missing `main`.
+
+Python and TypeScript code nodes run as ordinary child processes on macOS, Linux and Windows, using Python or Node from the filtered PATH. Python uses the fixed `main(value)` harness; TypeScript uses Node's type stripping and the fixed exported `main(value)` harness.
+
+Blueprint code and command steps run with the user's own permissions, like an agent in a tab, without Domios credentials in their environment. They can access the user's files, network and subprocesses. Foreign Blueprints are gated by folder trust (1.15.4); inspect their code and commands before granting trust.
+
+`wall_ms` defaults to 3000 for code; `output_bytes` defaults to 32768 and bounds combined stdout/stderr during capture. There is **no default `mem_mb`**. An explicit code memory cap uses `RLIMIT_AS` on Linux and the existing process Job's memory limit on Windows. On macOS, the checker emits the positioned warning `mem_mb not enforced on this OS`; checking, admission and execution continue with deadline and output limits. Memory budgets on other nodes, output budgets on HTTP/agent nodes and watch limits refuse. Command/GitHub output budgets and pipeline wall deadlines remain enforced.
+
+Ordinary exceptions and non-zero code exits produce routable `failed`, reason `code_failed`, with a bounded, redacted stderr tail. Invalid contracts, deadlines and exhausted output budgets stop before routing further effects.
+
+The stdin envelope remains bounded to 32 KiB. Plain text of 20 KiB passes intact. Oversized serialized payloads become an explicit JSON truncation value with `type: truncated`, `truncated: true`, `total_bytes`, `limit_bytes` and a bounded UTF-8 `prefix`. Typed contracts validate that delivered value and may refuse a truncation marker that violates their schema.
+
+Command steps and watcher probes preserve the daemon's inherited PATH order, remove the explicitly configured Domios CLI directories, and append missing default tool directories. Other inherited variables are excluded; children receive `LANG` and, on Windows, `SystemRoot`.
 
 ## Watches and effects
 
@@ -108,7 +147,7 @@ domios blueprint log <id>
 
 The editor schema is generated from the same serde model as parsing. One checker governs offline check and live apply/import/update. Diagnostics include stable rule and atom ids, file/line/column/field, severity, message, hint, passing/failing premises and a proof tree; dependent findings are folded under the erroneous root. `--explain` renders those proofs; `--json` retains them structurally. Invalid files exit 2. Unsupported runtime constructs refuse with an explicit diagnostic; apply with `--dry-run` also checks live Team scope and installed capabilities.
 
-`--fix` previews the actual text and semantic diff. `--fix --write` writes a file; a second fix makes no change. Repairs declare missing inputs only when every use determines one type, route unknown `other` cases to creator escalation, normalize literal durations below 10s with a timing warning, and canonicalize mapping keys. Ambiguous types and executable/authority repairs refuse without changing the file. The checker never grants capabilities; `domios-cli` remains unavailable. Cross-Blueprint duplicate findings use existing scoped vector/WL comparison when an indexed identity is available, otherwise diagnostics explicitly report the unavailable comparison without a lexical substitute.
+`--fix` previews text and semantic changes only after the candidate passes checking and runtime lowering with the supplied `--set` bindings. `--fix --write` writes only that admissible candidate. Repairs can declare unambiguous missing inputs, normalize literal durations below 10s with a timing warning, and route watch `other` outcomes to creator escalation. Pipeline escalation repairs, unresolved inputs, ambiguous types and executable/authority repairs refuse without changing the file. R13 compares abstracted canonical documents and WL structure against saved solutions and live Blueprints in the caller's Team; vector comparisons without candidate embeddings are explicitly unavailable.
 
 An exact name identifies a graph in its Team/workspace. Built-in names stay stable when bindings change; apply retargets that name. Use an explicit whole `name` input in custom recipes when distinct identities are required. Applying unchanged running definitions returns `unchanged`; applying a stopped graph reactivates the same ID. Watch lifetime and initial pause settings cannot change through apply. A watch and pipeline cannot replace one another under the same name.
 
@@ -140,4 +179,6 @@ The simulation harness is internal and has no CLI verb. It records bounded deliv
 
 Blueprint results addressed to a restored PTY agent tab retain the exact saved provider and session. The durable outbox holds them for the first authenticated launch of that session, with a fixed 24-hour delivery TTL. Held messages retain the original run id and timestamp; live delivery keeps its existing body. A closed recipient, changed session or provider, failed launch, or expired TTL produces a durable failure receipt in the producer's AgentPad and a status event; a live producer also receives a failure notification. Failure receipts are idempotent by delivery id, and retained terminal states recover their original cause across a crash. Recovery re-emits the status by delivery id if settlement was interrupted; an externally edited receipt is preserved without blocking later results. A result that may already have been written remains uncertain and is never replayed. Restored chat-backend delivery uses its existing reopen path and reports reopen failures; it does not yet use this durable hold.
 
-<!-- revision: 57 -->
+R10 scans executable text lexically as defence in depth. The checker refuses domios-cli capabilities, while credential-free child environments remove instance authority; a clean lexical scan does not prove shell text safe. R13 reports unavailable comparisons explicitly; unavailable vector comparisons carry no PASS verdict.
+
+<!-- revision: 58 -->

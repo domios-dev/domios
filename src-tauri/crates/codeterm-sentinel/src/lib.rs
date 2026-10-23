@@ -30,3 +30,7 @@ pub mod test_support;
 mod command_native_tests;
 #[cfg(test)]
 mod handlers_tests;
+
+#[cfg(unix)]
+pub mod code_source;
+pub mod seal_code;

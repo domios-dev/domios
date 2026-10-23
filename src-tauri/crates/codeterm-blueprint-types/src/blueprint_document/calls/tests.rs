@@ -516,6 +516,26 @@ fn blueprint_v2_call_expanded_projection_and_semantic_diff_keep_nested_body_chan
     assert_eq!(changed.document_fields, vec!["inputs", "result"]);
 }
 #[test]
+fn blueprint_v2_call_callee_command_timeout_preserves_runtime_default_override_and_bound() {
+    use crate::blueprint_pipeline::StepKind;
+    let mut document: Document = serde_json::from_value(callee()).unwrap();
+    let node = &mut document.steps[0];
+    node.code = None;
+    node.run = Some(ValueForm::literal("echo ready"));
+    for (timeout, expected) in [(None, 10_000), (Some("30s"), 30_000), (Some("60s"), 60_000)] {
+        document.steps[0].timeout = timeout.map(ValueForm::literal);
+        let lowered = lower::node(&document, &document.steps[0]).unwrap();
+        assert!(
+            matches!(lowered.kind, StepKind::Command { timeout_ms, .. } if timeout_ms == expected)
+        );
+    }
+    for timeout in ["0s", "61s"] {
+        document.steps[0].timeout = Some(ValueForm::literal(timeout));
+        assert!(lower::node(&document, &document.steps[0]).is_err());
+    }
+}
+
+#[test]
 fn blueprint_v2_call_lowered_runtime_keeps_exact_pin_and_full_v2_document() {
     let tree = Tree::new();
     let closure = good(&tree);

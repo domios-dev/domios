@@ -260,7 +260,12 @@ fn run_fixture(
         cwd: root.path().to_string_lossy().into_owned(),
     };
     // The fixture admits the static graph separately; depth cases exercise the runtime guard.
-    let runtime = if document.nodes().any(|node| node.call.is_some()) {
+    let static_check = FrozenClosure::from_document(document.clone());
+    let runtime = if static_check.is_err() {
+        assert!(
+            simulate,
+            "invalid depth fixtures never enter durable storage"
+        );
         let mut projection = document.clone();
         projection.dependencies.clear();
         projection.blueprints.clear();
@@ -281,7 +286,6 @@ fn run_fixture(
         .lock()
         .prepare_pipeline(spec, owner, false)
         .unwrap();
-    let static_check = FrozenClosure::from_document(document.clone());
     if static_check.is_ok() {
         job.document = Some(json!(document));
     } else {
@@ -643,7 +647,10 @@ fn blueprint_v2_call_callee_grant_widening_refuses_before_any_nested_claim() {
     document.steps[0].call.as_mut().unwrap().pin = Some(callee.pin());
     document.dependencies.insert(callee.pin().key(), callee);
     let receipt = run(document, false);
-    assert_eq!(receipt.output.unwrap_err(), JournalReason::SandboxDenied);
+    assert_eq!(
+        receipt.output.unwrap_err(),
+        JournalReason::ContractViolation
+    );
     assert!(receipt.notices.is_empty());
     assert!(!receipt
         .journal

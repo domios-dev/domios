@@ -35,6 +35,7 @@ fn command(name: &str, input: IoType) -> Step {
         name: name.into(),
         input,
         kind: StepKind::Command {
+            timeout_ms: crate::blueprint_pipeline::COMMAND_STEP_RUNTIME_MS,
             command: "printf ready".into(),
         },
         on: BTreeMap::new(),

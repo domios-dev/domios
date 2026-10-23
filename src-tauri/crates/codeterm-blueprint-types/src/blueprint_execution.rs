@@ -35,7 +35,7 @@ impl ExecutionEnvelope {
                 media: "text".into(),
                 schema_id: None,
                 value: Value::String(text.into()),
-                text: text.into(),
+                text: String::new(),
             },
         }
     }
@@ -54,7 +54,13 @@ impl ExecutionEnvelope {
         self.validate_shape()?;
         let bytes = serde_json::to_vec(self).map_err(|_| JournalReason::ContractViolation)?;
         if bytes.len() > MAX_STDIN_BYTES {
-            return Err(JournalReason::ContractViolation);
+            let payload = self.payload_text();
+            return serde_json::to_vec(&Self {
+                media: "json".into(), schema_id: None, text: String::new(),
+                value: serde_json::json!({"type":"truncated", "truncated":true,
+                    "total_bytes":payload.len(), "limit_bytes":MAX_STDIN_BYTES,
+                    "prefix":payload.chars().take((MAX_STDIN_BYTES - 512) / 6).collect::<String>()}),
+            }).map_err(|_| JournalReason::ContractViolation);
         }
         Ok(bytes)
     }
@@ -63,7 +69,7 @@ impl ExecutionEnvelope {
         if !matches!(
             self.media.as_str(),
             "json" | "text" | "file" | "audio" | "video" | "image"
-        ) || (self.media == "text" && self.value.as_str() != Some(&self.text))
+        ) || (self.media == "text" && (!self.value.is_string() || !self.text.is_empty()))
             || (self.media == "json" && !self.text.is_empty())
             || self.schema_id.as_ref().is_some_and(|id| id.len() > 256)
         {
@@ -74,7 +80,7 @@ impl ExecutionEnvelope {
 
     pub fn payload_text(&self) -> String {
         if self.media == "text" {
-            self.text.clone()
+            self.value.as_str().unwrap_or_default().into()
         } else {
             self.value.to_string()
         }
@@ -102,7 +108,8 @@ impl ExecutionContract {
         envelope: &ExecutionEnvelope,
         output: bool,
     ) -> Result<(), JournalReason> {
-        envelope.encode()?;
+        let bounded = ExecutionEnvelope::decode(&envelope.encode()?)?;
+        let envelope = &bounded;
         let port = if output { &self.output } else { &self.input };
         if let Some(port) = port {
             if !port.accepts_with_types(&envelope.value, &self.types)

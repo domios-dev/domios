@@ -7,25 +7,32 @@ use std::time::Duration;
 pub struct RuntimeFailure {
     pub reason: &'static str,
     pub uncertain: bool,
+    #[cfg(any(test, feature = "test-support"))]
+    pub stderr_tail: String,
 }
 
 impl RuntimeFailure {
+    fn observed(reason: &'static str, _stderr: &str) -> Self {
+        let failure = Self::new(reason);
+        #[cfg(any(test, feature = "test-support"))]
+        let failure = Self {
+            stderr_tail: crate::probe::test_receipt::stderr_tail(_stderr),
+            ..failure
+        };
+        failure
+    }
+
     fn new(reason: &'static str) -> Self {
         Self {
             reason,
             uncertain: false,
+            #[cfg(any(test, feature = "test-support"))]
+            stderr_tail: String::new(),
         }
     }
 }
 
-pub fn platform_supported(platform: &str) -> Result<(), RuntimeFailure> {
-    if platform == "macos" {
-        Ok(())
-    } else {
-        Err(RuntimeFailure::new("unsupported_platform"))
-    }
-}
-
+#[cfg(test)]
 pub fn run(
     code: &Code,
     input: &[u8],
@@ -33,7 +40,53 @@ pub fn run(
     owner: &Arc<ProbeResourceOwner>,
     cancellation: &Cancellation,
 ) -> Result<Output, RuntimeFailure> {
-    platform_supported(std::env::consts::OS)?;
+    let receipt = crate::probe::test_receipt::Receipt::start(
+        &format!("native-code:{:?}", code.lang),
+        cancellation,
+    );
+    let result = run_with_output(
+        code,
+        input,
+        Duration::from_secs(60),
+        timeout,
+        owner,
+        cancellation,
+        None,
+    );
+    let outcome = match &result {
+        Ok(output) if output.success => "done".into(),
+        Ok(output) => format!("nonzero:{:?}", output.exit_code),
+        Err(failure) => failure.reason.to_owned(),
+    };
+    let detail = match &result {
+        Ok(output) => format!(
+            "stderr_tail={}",
+            crate::probe::test_receipt::stderr_tail(&output.stderr_text())
+        ),
+        Err(failure) => {
+            format!(
+                "runtime_failure={failure:?}; stderr_tail={:?}",
+                failure.stderr_tail
+            )
+        }
+    };
+    receipt.finish(
+        result.as_ref().is_ok_and(|output| output.success),
+        &outcome,
+        &detail,
+    );
+    result
+}
+
+pub fn run_with_output(
+    code: &Code,
+    input: &[u8],
+    limit: Duration,
+    timeout: Duration,
+    owner: &Arc<ProbeResourceOwner>,
+    cancellation: &Cancellation,
+    output: Option<&codeterm_blueprint_types::blueprint_document::Port>,
+) -> Result<Output, RuntimeFailure> {
     if code.src.as_ref().is_some_and(|source| source.len() > 16384) {
         return Err(RuntimeFailure::new("budget_exhausted"));
     }
@@ -45,51 +98,14 @@ pub fn run(
         || code.src.is_none()
         || matches!(code.lang, Language::Shell)
     {
-        return Err(RuntimeFailure::new("sandbox_denied"));
+        return Err(RuntimeFailure::new("contract_violation"));
     }
-    #[cfg(target_os = "macos")]
-    {
-        macos::run(code, input, timeout, owner, cancellation)
+    if !codeterm_blueprint_types::blueprint_document::code_contract::has_main(code) {
+        return Err(RuntimeFailure::new("contract_violation"));
     }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = (input, timeout, owner, cancellation);
-        Err(RuntimeFailure::new("unsupported_platform"))
-    }
+    child::run(code, input, limit, timeout, owner, cancellation, output)
 }
 
-pub fn run_from_directory(
-    code: &Code,
-    directory: &std::path::Path,
-    input: &[u8],
-    timeout: Duration,
-    owner: &Arc<ProbeResourceOwner>,
-    cancellation: &Cancellation,
-) -> Result<Output, RuntimeFailure> {
-    platform_supported(std::env::consts::OS)?;
-    #[cfg(target_os = "macos")]
-    let code = {
-        let mut code = code.clone();
-        if let Some(file) = code.file.take() {
-            if code.src.is_some() {
-                return Err(RuntimeFailure::new("contract_violation"));
-            }
-            code.src = Some(source::read(directory, &file)?);
-        }
-        code
-    };
-    #[cfg(not(target_os = "macos"))]
-    let code = {
-        let _ = directory;
-        code.clone()
-    };
-    run(&code, input, timeout, owner, cancellation)
-}
-
-#[cfg(target_os = "macos")]
-mod source;
-
-#[cfg(target_os = "macos")]
-mod macos;
+mod child;
 #[cfg(test)]
 mod tests;
