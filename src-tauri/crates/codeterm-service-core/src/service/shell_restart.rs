@@ -46,7 +46,7 @@ impl ServiceContext {
             self.tab_chat_backing(tab_id).is_some(),
         )?;
 
-        self.renew_utility_timeout(tab_id)?;
+        self.utility_command_finished(tab_id)?;
 
         if let Some(ref old_pty_id) = old_pty_id {
             self.pty_ownership.release_pty(old_pty_id);
