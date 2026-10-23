@@ -15,9 +15,9 @@ use super::{
     config_routes, cron_routes, debug_routes, essence_map_routes, fs_routes, health_routes,
     inbound_webhook, logs_routes, mem_routes, mesh_inventory, mesh_routes, network_routes,
     notification_routes, output_stream, pasteboard_routes, plan_routes, plugin_tab_menu_routes,
-    pty_routes, services_routes, session_routes, surface_routes, tab_agent_routes, tab_routes,
-    team_mission_control_routes, team_spend, theme_routes, updater_routes, usage_routes,
-    web_routes, webhook_routes, workspace_routes,
+    pty_routes, services_routes, session_routes, stream_mux, surface_routes, tab_agent_routes,
+    tab_routes, team_mission_control_routes, team_spend, theme_routes, updater_routes,
+    usage_routes, web_routes, webhook_routes, workspace_routes,
 };
 
 mod frontend_missing;
@@ -447,6 +447,15 @@ pub(super) fn create_router_with_preview_admission(
         )
         .route("/api/events/stream", get(web_routes::events_stream))
         .route("/api/output/stream", get(output_stream::output_stream))
+        .route("/api/stream-mux", get(stream_mux::stream_mux_open))
+        .route(
+            "/api/stream-mux/{session}/channels",
+            post(stream_mux::stream_mux_open_channel),
+        )
+        .route(
+            "/api/stream-mux/{session}/channels/{channel}",
+            axum::routing::delete(stream_mux::stream_mux_close_channel),
+        )
         .route("/api/transcribe-voice", post(web_routes::transcribe_voice))
         .route(
             "/api/tabs/{id}/chat-raw/start",

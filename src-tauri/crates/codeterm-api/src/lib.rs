@@ -67,6 +67,7 @@ pub(crate) mod session_exchange;
 pub mod session_routes;
 pub(crate) mod stream_census;
 pub(crate) mod stream_diagnostics;
+pub(crate) mod stream_mux;
 pub(crate) mod surface_routes;
 pub(crate) mod tab_adopt_routes;
 pub mod tab_agent_routes;
