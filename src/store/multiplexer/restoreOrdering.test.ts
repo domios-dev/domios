@@ -40,10 +40,12 @@ describe("restore versus user navigation ordering", () => {
     expect(after.selectionSeeds).toBe(1);
   });
 
-  it("a user tab selection made before the restore lands wins over it", () => {
+  it("user navigation after programmatic focus wins over a late restore", () => {
     let state = emptyState();
-    state = reducer(state, { type: "SET_ACTIVE_WORKSPACE", id: "w1" });
-    state = reducer(state, { type: "SET_ACTIVE_TAB", workspaceId: "w1", tabId: "a2" });
+    state = reducer(state, { type: "SET_ACTIVE_WORKSPACE", source: "program", id: "w2" });
+    state = reducer(state, { type: "SET_ACTIVE_TAB", source: "program", workspaceId: "w2", tabId: "b1" });
+    state = reducer(state, { type: "SET_ACTIVE_WORKSPACE", source: "user", id: "w1" });
+    state = reducer(state, { type: "SET_ACTIVE_TAB", source: "user", workspaceId: "w1", tabId: "a2" });
     const after = land(state);
     expect(after.active_workspace_id).toBe("w1");
     expect(after.activeTabIds.w1).toBe("a2");
@@ -51,14 +53,37 @@ describe("restore versus user navigation ordering", () => {
     expect(after.selectionSeeds ?? 0).toBe(0);
   });
 
+  it.each(["workspace", "tab", "both"])("programmatic %s selection before restore keeps the saved seed", (selection) => {
+    let state = emptyState();
+    if (selection !== "tab") state = reducer(state, { type: "SET_ACTIVE_WORKSPACE", source: "program", id: "w1" });
+    if (selection !== "workspace") state = reducer(state, { type: "SET_ACTIVE_TAB", source: "program", workspaceId: "w1", tabId: "a2" });
+    const after = land(state);
+    expect(after.active_workspace_id).toBe("w2");
+    expect(after.activeTabIds).toEqual(restored.activeTabIds);
+    expect(after.focused_tab_id).toBe("b1");
+    expect(after.selectionSeeds).toBe(1);
+  });
+
+  it.each(["workspace", "tab"])("user %s navigation still blocks restore after programmatic focus", (selection) => {
+    let state = emptyState();
+    if (selection === "workspace") state = reducer(state, { type: "SET_ACTIVE_WORKSPACE", source: "user", id: "w1" });
+    else state = reducer(state, { type: "SET_ACTIVE_TAB", source: "user", workspaceId: "w1", tabId: "a2" });
+    state = reducer(state, { type: "SET_ACTIVE_WORKSPACE", source: "program", id: "w1" });
+    state = reducer(state, { type: "SET_ACTIVE_TAB", source: "program", workspaceId: "w1", tabId: "a2" });
+    const after = land(state);
+    expect(after.active_workspace_id).toBe("w1");
+    expect(after.activeTabIds.w1).toBe("a2");
+    expect(after.selectionSeeds ?? 0).toBe(0);
+  });
+
   it("a workspace selection alone also blocks a later restore from stealing the view", () => {
-    const after = land(reducer(emptyState(), { type: "SET_ACTIVE_WORKSPACE", id: "w1" }));
+    const after = land(reducer(emptyState(), { type: "SET_ACTIVE_WORKSPACE", source: "user", id: "w1" }));
     expect(after.active_workspace_id).toBe("w1");
   });
 
   it("a user selection made after the restore landed still wins", () => {
     const seeded = land(emptyState());
-    const after = reducer(seeded, { type: "SET_ACTIVE_WORKSPACE", id: "w1" });
+    const after = reducer(seeded, { type: "SET_ACTIVE_WORKSPACE", source: "user", id: "w1" });
     expect(after.active_workspace_id).toBe("w1");
     expect(land(after).active_workspace_id).toBe("w1");
   });
