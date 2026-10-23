@@ -27,7 +27,7 @@ pub(super) fn freeze(parsed: &mut Parsed, author: &Path) -> Result<usize, Vec<Di
                 "budget_exhausted" => "Code source exceeds 16 KiB",
                 _ => "Code files require a regular file inside the Blueprint directory, reached without traversal, symlinks or junctions",
             };
-            (field.clone(), format!("{reason}: {detail}"))
+            (field.clone(), format!("{reason}: {relative}: {detail}"))
         })?;
         added = added.saturating_add(source.len());
         if added > MAX_CLOSURE_BYTES {
