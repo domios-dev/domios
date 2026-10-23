@@ -7,6 +7,7 @@ import { canonicalMentions, type CanonicalMention } from "./canonicalMentions";
 import { useChatBlockHost } from "../blocks/ChatBlockHost";
 import { useLiveBinding } from "../blocks/liveBinding";
 import { ReferenceChip } from "./ReferenceChip";
+import { splitAttachedPunctuation } from "./attachedPunctuation";
 
 export type PlanRefKind = PlanRefLinkSegment["targetKind"];
 export type OpenPlan = (planId: string, focusId?: string, focusKind?: PlanRefKind) => void;
@@ -79,13 +80,19 @@ function MentionLinkedText(props: Props) {
   if (!mentions.length) return <PlainLinkedText {...props} />;
   const nodes: React.ReactNode[] = [];
   let cursor = 0;
-  for (const mention of mentions) {
+  mentions.forEach((mention, index) => {
     nodes.push(<PlainLinkedText key={`text:${cursor}`} {...props} text={props.text.slice(cursor, mention.start)} />);
-    nodes.push(<MentionChip key={`mention:${mention.start}`} mention={mention} />);
-    cursor = mention.end;
-  }
+    const [attached] = splitAttachedPunctuation(props.text.slice(mention.end, mentions[index + 1]?.start));
+    const chip = <MentionChip key={`mention:${mention.start}`} mention={mention} />;
+    nodes.push(attached ? <NoBreakRun key={`mention:${mention.start}`}>{chip}{attached}</NoBreakRun> : chip);
+    cursor = mention.end + attached.length;
+  });
   nodes.push(<PlainLinkedText key={`text:${cursor}`} {...props} text={props.text.slice(cursor)} />);
   return <span style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{nodes}</span>;
+}
+
+function NoBreakRun({ children }: { children: React.ReactNode }) {
+  return <span style={{ whiteSpace: "nowrap" }}>{children}</span>;
 }
 
 export function MentionChip({ mention }: { mention: CanonicalMention }) {
@@ -103,8 +110,11 @@ function PlainLinkedText({ text, onOpenPlan, className, resolvePlanRef }: Props)
   return (
     <span className={className} style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
       {segments.map((seg, i) => {
-        if (seg.kind === "text") return <React.Fragment key={i}>{seg.value}</React.Fragment>;
-        return <PlanReference key={i} segment={seg} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />;
+        if (seg.kind === "text") return <React.Fragment key={i}>{segments[i - 1] ? splitAttachedPunctuation(seg.value)[1] : seg.value}</React.Fragment>;
+        const next = segments[i + 1];
+        const trailing = next?.kind === "text" ? splitAttachedPunctuation(next.value)[0] : "";
+        const ref = <PlanReference segment={seg} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />;
+        return trailing ? <NoBreakRun key={i}>{ref}{trailing}</NoBreakRun> : <React.Fragment key={i}>{ref}</React.Fragment>;
       })}
     </span>
   );

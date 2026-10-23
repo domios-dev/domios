@@ -75,11 +75,18 @@ describe("inline attachment capsules in the user bubble", () => {
     expect(button.title).toBe(path);
   });
 
+  it.each([["image", "image1", "image"], ["video", "video2", "video"], ["quote", "quote3 · a line", "quote · a line"]] as const)("never shows the generated number of a %s capsule", async (kind, label, shown) => {
+    const host = await render(formatAttachmentMarker("/tmp/a.bin", kind, label));
+    const [button] = capsules(host);
+    expect(button.textContent).toBe(shown);
+    expect(button.getAttribute("data-attachment-label")).toBe(label);
+  });
+
   it("renders each capsule where it was typed, with the surrounding text in order", async () => {
     const host = await render(
       `compare ${formatAttachmentMarker(NOTES, "text", "text1")} with ${formatAttachmentMarker(NOTES, "text", "text1 · 312 lines")} please`,
     );
-    expect(host.textContent).toBe("compare text1 with text1 · 312 lines please");
+    expect(host.textContent).toBe("compare text with text · 312 lines please");
     expect(host.textContent).not.toContain("<domios");
     expect(host.textContent).not.toContain(SHOT);
     expect(capsules(host).map((button) => button.getAttribute("aria-label"))).toEqual([
@@ -117,7 +124,7 @@ describe("inline attachment capsules in the user bubble", () => {
     select(textNode(text, "compare"), 2, textNode(text, "please"), 5);
     const { written, prevented } = await copy(text);
     expect(prevented).toBe(true);
-    expect(written["text/plain"]).toBe("mpare text1 with text1 · 312 lines plea");
+    expect(written["text/plain"]).toBe("mpare text with text · 312 lines plea");
     expect(written[DOMIOS_TEXT_MIME]).toBe(`mpare ${context} with ${notes} plea`);
   });
 
@@ -125,11 +132,11 @@ describe("inline attachment capsules in the user bubble", () => {
     const context = formatAttachmentMarker(NOTES, "text", "text1");
     const host = await render(`see ${context} now`);
     const [capsule] = capsules(host);
-    const label = [...capsule.querySelectorAll("span")].flatMap((span) => [...span.childNodes]).find((node) => node.nodeValue === "text1")!;
+    const label = [...capsule.querySelectorAll("span")].flatMap((span) => [...span.childNodes]).find((node) => node.nodeValue === "text")!;
     const text = inlineText(host);
     select(label, 3, textNode(text, "now"), 4);
     const { written } = await copy(text);
-    expect(written["text/plain"]).toBe("text1 now");
+    expect(written["text/plain"]).toBe("text now");
     expect(written[DOMIOS_TEXT_MIME]).toBe(`${context} now`);
   });
 
