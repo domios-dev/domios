@@ -100,15 +100,20 @@ fn assert_job_exit(cloned: bool) {
     assert!(!raw.is_null());
     let process = unsafe { filedescriptor::OwnedHandle::from_raw_handle(raw as _) };
     assert!(child.contains_process(raw as _).unwrap());
-    if cloned {
-        child.clone_killer().kill_tree().unwrap();
-    } else {
+    let mut killer = child.clone_killer();
+    if !cloned {
         child.kill_tree().unwrap();
     }
     let (exit_tx, exit_rx) = mpsc::channel();
+    let (waiting_tx, waiting_rx) = mpsc::channel();
     std::thread::spawn(move || {
+        waiting_tx.send(()).unwrap();
         exit_tx.send(child.wait()).unwrap();
     });
+    waiting_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    if cloned {
+        killer.kill_tree().unwrap();
+    }
     assert!(exit_rx
         .recv_timeout(Duration::from_secs(10))
         .unwrap()

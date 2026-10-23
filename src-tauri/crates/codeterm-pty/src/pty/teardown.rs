@@ -100,11 +100,56 @@ pub struct PtyReaper {
     pub(super) pty_id: String,
     pub(super) session: Arc<PtySession>,
     pub(super) kill_error: Option<String>,
+    pub(super) tree_killer: Box<dyn portable_pty::ChildKiller + Send + Sync>,
+}
+
+fn restart_after_grace(
+    process_exited: bool,
+    mut terminate: impl FnMut() -> Result<(), String>,
+    wait: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
+    if !process_exited {
+        terminate()?;
+    }
+    wait()
 }
 
 impl PtyReaper {
     pub fn pty_id(&self) -> &str {
         &self.pty_id
+    }
+
+    pub fn wait_for_restart(mut self, grace: std::time::Duration) -> Result<(), String> {
+        self.observe_exit();
+        if let Some(error) = self.kill_error.as_ref() {
+            return Err(format!(
+                "pty_tree_termination_failed: PTY {}: {error}",
+                self.pty_id
+            ));
+        }
+        let _ = self
+            .session
+            .teardown
+            .wait_for_boundary(Some(Instant::now() + grace), false);
+        let state = self.session.teardown.state.lock();
+        if let Some(error) = state.failure.as_ref() {
+            return Err(format!(
+                "pty_tree_termination_failed: PTY {}: {error}",
+                self.pty_id
+            ));
+        }
+        let process_exited = state.child_exited;
+        drop(state);
+        restart_after_grace(
+            process_exited,
+            || {
+                self.tree_killer
+                    .kill_tree()
+                    .map_err(|error| error.to_string())
+            },
+            || self.session.teardown.wait_for_boundary(None, false),
+        )
+        .map_err(|error| format!("pty_tree_termination_failed: PTY {}: {error}", self.pty_id))
     }
 
     pub fn wait_bounded(self, timeout: std::time::Duration) -> Result<(), String> {
@@ -168,9 +213,7 @@ impl PtyReaper {
             std::thread::spawn(move || {
                 if let Err(error) = std::io::copy(&mut reader, &mut std::io::sink()) {
                     if error.kind() != std::io::ErrorKind::BrokenPipe {
-                        session
-                            .teardown
-                            .mark_child_failed(format!("output drain failed: {error}"));
+                        log::debug!("PTY output drain failed: {error}");
                     }
                 }
                 drop(reader);
