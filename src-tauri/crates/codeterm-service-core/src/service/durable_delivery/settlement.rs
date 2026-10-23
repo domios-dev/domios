@@ -1,6 +1,7 @@
 use super::*;
 
 struct NotificationClaim<'a> {
+    service: &'a ServiceContext,
     owner: &'a AgentDeliveryStore,
     target: &'a str,
     id: &'a str,
@@ -8,8 +9,13 @@ struct NotificationClaim<'a> {
 
 impl Drop for NotificationClaim<'_> {
     fn drop(&mut self) {
-        self.owner
-            .release_terminal_notification(self.target, self.id);
+        if self
+            .owner
+            .release_terminal_notification(self.target, self.id)
+        {
+            self.service
+                .wake_agent_deliveries_on_state_change(self.target);
+        }
     }
 }
 
@@ -30,7 +36,12 @@ impl ServiceContext {
                 SettlementOutcome::Held
             });
         }
-        let _claim = NotificationClaim { owner, target, id };
+        let _claim = NotificationClaim {
+            service: self,
+            owner,
+            target,
+            id,
+        };
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let (receipt, _) = self.ensure_agent_pad(&delivery.producer_tab)?
                 .write_delivery_receipt(id, serde_json::to_string_pretty(&failure)
