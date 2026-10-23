@@ -1,3 +1,7 @@
 {
-  "expected": null
+  "provider": "codex",
+  "unit": "provider_screen",
+  "expected": {
+    "parsePrompt": null
+  }
 }
