@@ -101,6 +101,13 @@ export function lockedView(limit: LocalLimitKey, item: { locked?: boolean } | nu
   return item?.locked === true ? { locked: true, limit, label: `${LOCKED_NOUN[limit]} locked by the free plan` } : UNLOCKED;
 }
 
+/** A tab is locked by its own mark or by its workspace's: a locked workspace locks everything in it. */
+export function tabLockedView(tab: { locked?: boolean } | null | undefined, workspace: { locked?: boolean } | null | undefined): LockedView {
+  const own = lockedView("agent.tabs", tab);
+  if (own.locked || workspace?.locked !== true) return own;
+  return { locked: true, limit: "workspaces", label: "Tab locked: its workspace is over the free plan" };
+}
+
 export const isFreeLimitRefusal = (error: unknown): boolean => refusedLimit(error, "workspaces") !== null;
 
 /** The same coded shape the daemon returns, for a creation the client refused before calling it. */

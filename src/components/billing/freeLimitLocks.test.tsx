@@ -7,7 +7,7 @@ vi.mock("../../hooks/terminal/terminalInputWrite", async (actual) => ({ ...await
 
 import { useTerminalInput } from "../../hooks/terminal/useTerminalInput";
 import { isInputBlockedTab } from "../../lib/tabInputPolicy";
-import type { MultiplexerState, Tab } from "../../lib/types";
+import type { MultiplexerState } from "../../lib/types";
 import { useMuxState } from "../../store/multiplexer";
 import { TabItem } from "../Sidebar/TabItem";
 import { TeamUnit } from "../Sidebar/TeamUnit";
@@ -16,7 +16,8 @@ import { ChatComposerSurface } from "../Terminal/ChatComposerSurface";
 import { LockedOverlay } from "./LockBadge";
 import { openLockedPlans } from "./freeLimitGate";
 import { fakeDaemon, mountApp, modal, modalLine, seedState, setLocked, unmountAll, WORKSPACE } from "./freeLimitHarness";
-import { lockedView, type FreeLimits } from "./freeLimitModel";
+import { lockedView, tabLockedView, type FreeLimits } from "./freeLimitModel";
+import { useTabLock } from "./useTabLock";
 
 const FREE: FreeLimits = { enforcing: true, max: { workspaces: 2, teams: 6, "agent.tabs": 35 } };
 const PAID_LIMITS = { enforcing: true, workspaces: null, teams: null, "agent.tabs": null };
@@ -31,7 +32,7 @@ afterEach(async () => {
 
 const nameOf = (element: Element) => element.getAttribute("aria-label") ?? element.textContent ?? "";
 const buttons = (name: RegExp) => Array.from(document.querySelectorAll("button")).filter((button) => name.test(nameOf(button)));
-const lockMarks = () => Array.from(document.querySelectorAll("[role=img]")).filter((mark) => /locked by the free plan/.test(nameOf(mark)));
+const lockMarks = () => Array.from(document.querySelectorAll("[role=img]")).filter((mark) => / locked/.test(nameOf(mark)));
 const click = (element: Element) => act(async () => { element.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
 
 /** Real rows over the store's state; `selected` records what a normal (unlocked) click would have navigated to. */
@@ -147,12 +148,60 @@ describe("a locked tab takes no input", () => {
     expect(modalLine()).toBe(TABS);
   });
 
-  it("only the daemon's mark or a Curator round blocks input", () => {
-    const tab = (locked: boolean) => ({ role_profile: undefined, locked }) as Pick<Tab, "role_profile" | "locked">;
-    expect(isInputBlockedTab(tab(true))).toBe(true);
-    expect(isInputBlockedTab(tab(false))).toBe(false);
-    expect(isInputBlockedTab({ role_profile: "curator" })).toBe(true);
-    expect(isInputBlockedTab(undefined)).toBe(false);
+  it("only a lock or a Curator round blocks input", () => {
+    const open = { locked: false } as const;
+    const locked = lockedView("agent.tabs", { locked: true });
+    expect(isInputBlockedTab({ role_profile: undefined }, locked)).toBe(true);
+    expect(isInputBlockedTab({ role_profile: undefined }, open)).toBe(false);
+    expect(isInputBlockedTab({ role_profile: "curator" }, open)).toBe(true);
+    expect(isInputBlockedTab(undefined, open)).toBe(false);
+  });
+});
+
+describe("a locked workspace locks the tabs inside it", () => {
+  it("derives the tab lock from the workspace in the pure model", () => {
+    expect(tabLockedView({}, { locked: true })).toMatchObject({ locked: true, limit: "workspaces" });
+    expect(tabLockedView({ locked: true }, {})).toMatchObject({ locked: true, limit: "agent.tabs" });
+    expect(tabLockedView({ locked: true }, { locked: true })).toMatchObject({ limit: "agent.tabs" });
+    expect(tabLockedView({}, { locked: false })).toEqual({ locked: false });
+    expect(tabLockedView(undefined, undefined)).toEqual({ locked: false });
+  });
+
+  const lockedWorkspace = () => {
+    const state = seeded();
+    setLocked(state, [WORKSPACE], true);
+    return state;
+  };
+
+  it("marks every tab row, lists them all, and a click opens the workspaces modal", async () => {
+    const { selected } = await mountRows(lockedWorkspace());
+    expect(lockMarks().map(nameOf).filter((name) => /^Tab locked/.test(name))).toHaveLength(3);
+    expect(buttons(/^Open tab /)).toHaveLength(3);
+    await click(buttons(/^Open tab tab-2$/)[0]);
+    expect(modalLine()).toBe(WORKSPACES);
+    expect(selected).toEqual([]);
+  });
+
+  it("makes the composer locked and drops terminal keystrokes though the daemon did not mark the tab", async () => {
+    const terminal = fakeTerminal();
+    const state = lockedWorkspace();
+    expect(state.tabs["tab-0"].locked).toBeUndefined();
+    await mountRows(state, <div><Composer onSubmit={() => {}} /><TerminalProbe id="tab-0" terminal={terminal} /></div>);
+    expect(document.querySelectorAll("textarea[disabled]")).toHaveLength(1);
+    await terminal.emit("a");
+    expect(writes.writeTerminalInput).not.toHaveBeenCalled();
+  });
+
+  it("unlocks the tabs when the workspace unlocks", async () => {
+    const state = lockedWorkspace();
+    const terminal = fakeTerminal();
+    const { app } = await mountRows(state, <div><Composer onSubmit={() => {}} /><TerminalProbe id="tab-0" terminal={terminal} /></div>);
+    setLocked(state, [WORKSPACE], false);
+    await app.emit("entitlement-changed", { limits: PAID_LIMITS, locks: { workspaces: [], teams: [], "agent.tabs": [] } });
+    expect(lockMarks()).toHaveLength(0);
+    expect(document.querySelectorAll("textarea[disabled]")).toHaveLength(0);
+    await terminal.emit("b");
+    expect(writes.writeTerminalInput).toHaveBeenCalledWith("tab-0", "pty-1", "b");
   });
 });
 
@@ -185,8 +234,9 @@ describe("paying unlocks live", () => {
 /** Stand-in for ChatComposer: the real one mounts only while its tab is not locked. */
 function Composer({ onSubmit }: { onSubmit: () => void }) {
   const tab = useMuxState().tabs["tab-0"];
+  const lock = useTabLock(tab);
   return (
-    <ChatComposerSurface view={{ kind: "none" }} tab={tab}>
+    <ChatComposerSurface view={{ kind: "none" }} tab={tab} lock={lock}>
       <form onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
         <textarea aria-label="Message composer" />
         <button type="submit">Send</button>
@@ -207,12 +257,13 @@ function fakeTerminal() {
 /** The real input hook over a fake xterm, gated by the live tab exactly as TerminalTab gates it. */
 function TerminalProbe({ id, terminal }: { id: string; terminal: ReturnType<typeof fakeTerminal> }) {
   const tab = useMuxState().tabs[id];
+  const lock = useTabLock(tab);
   const termRef = useRef(terminal.term);
   const connectedPtyRef = useRef<string | null>("pty-1");
   const containerRef = useRef<HTMLDivElement | null>(null);
   useTerminalInput({
     tabId: id, termRef, connectedPtyRef, containerRef, termReady: true, terminalActive: true,
-    readOnly: isInputBlockedTab(tab), onTabKey: () => false, onNonTabKey() {}, onInputData() {},
+    readOnly: isInputBlockedTab(tab, lock), onTabKey: () => false, onNonTabKey() {}, onInputData() {},
   });
   return null;
 }

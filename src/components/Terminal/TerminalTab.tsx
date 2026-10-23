@@ -1,7 +1,7 @@
 import { isInputBlockedTab } from "../../lib/tabInputPolicy";
 import { LockedOverlay } from "../billing/LockBadge";
 import { openLockedPlans } from "../billing/freeLimitGate";
-import { lockedView } from "../billing/freeLimitModel";
+import { useTabLock } from "../billing/useTabLock";
 import { attachFrontendTerminalViewport } from "../../lib/frontendUpdate/terminal";
 import { useTabActivity } from "../../lib/useTabActivity";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -98,8 +98,8 @@ export const TerminalTab = memo(function TerminalTab({
   const tabWorkspace = useMuxSelector(workspaceSelector);
   const tabSelector = useCallback((s: Parameters<typeof selectTab>[0]) => selectTab(s, tabId), [tabId]);
   const tab = useMuxSelector(tabSelector, tabFieldsEqual);
-  const lock = lockedView("agent.tabs", tab);
-  const readOnly = isInputBlockedTab(tab);
+  const lock = useTabLock(tab);
+  const readOnly = isInputBlockedTab(tab, lock);
   const viewerLocalGeometry = terminalViewerLocalGeometry(tab, relayTarget()?.id ?? null);
   const agentActivity = useTabActivity(tabId);
   const managedView = managedTabPresentation(tab?.managed);

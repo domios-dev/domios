@@ -41,7 +41,7 @@ import { useLiveRowTab } from "./useLiveRowTab";
 import { ChecklistToggleButton, type ChecklistToggle } from "./AgentChecklist";
 import { LockBadge } from "../billing/LockBadge";
 import { openLockedPlans } from "../billing/freeLimitGate";
-import { lockedView } from "../billing/freeLimitModel";
+import { useTabLock } from "../billing/useTabLock";
 
 interface TabItemProps {
   tab: Tab;
@@ -243,7 +243,7 @@ function TabItemInner({
   checklistToggle = null,
 }: TabItemProps) {
   const tab = useLiveRowTab(rowTab);
-  const lock = lockedView("agent.tabs", tab);
+  const lock = useTabLock(tab);
   const activate = () => {
     if (!openLockedPlans(lock)) onClick();
   };
