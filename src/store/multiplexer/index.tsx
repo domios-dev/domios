@@ -9,8 +9,8 @@ import {
   useRef,
   type ReactNode,
 } from "react";
-import { invoke, reopenClosedTab, reopenClosedGroup, restoreOrphanedTab } from "../../lib/bridge";
-import { listen } from "../../lib/bridge";
+import { invoke, listen, reopenClosedTab, reopenClosedGroup, restoreOrphanedTab } from "../../lib/bridge";
+import { useEntitlementRefresh } from "./useEntitlementRefresh";
 import { recordSurfaceActivity, SURFACE_ACTIVITY_EVENT } from "../../lib/surfaceActivity";
 import { IS_WEB, webJson, WebApiError } from "../../lib/webApi";
 import {
@@ -707,6 +707,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => freeLimitGate.countWith(() => limitCounts(stateRef.current)), []);
+  useEntitlementRefresh(refreshFromBackend);
 
   const createTab = useCallback(async (workspaceId: string, cwd?: string, shell?: string) => {
     if (precheckFreeLimit(["agent.tabs"])) return undefined;

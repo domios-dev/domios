@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { localFetch } from "../../lib/webApi";
 import { checkoutTheme } from "./checkoutTheme";
-import { reachedLimit, refusedLimit, type FreeLimitKey, type FreeLimits, type LimitCounts, type LocalLimitKey, type MeshMachinesLimit } from "./freeLimitModel";
+import { reachedLimit, refusedLimit, type FreeLimitKey, type FreeLimits, type LimitCounts, type LocalLimitKey, type LockedView, type MeshMachinesLimit } from "./freeLimitModel";
 
 /** The backend checks out commercial keys only, never the bare plan name. */
 export const UPGRADE_PLAN_KEY = "pro_monthly";
@@ -43,6 +43,13 @@ export const freeLimitGate = {
 
 export function useFreeLimitPrompt(): FreeLimitPrompt | null {
   return useSyncExternalStore(freeLimitGate.subscribe, freeLimitGate.current, freeLimitGate.current);
+}
+
+/** A click on a locked item opens the plans modal in place of its normal action; true when it did. */
+export function openLockedPlans(view: LockedView): boolean {
+  if (!view.locked) return false;
+  freeLimitGate.open(view.limit);
+  return true;
 }
 
 /** Opens the modal instead of creating when the client already knows a limit is full under enforcement. */
