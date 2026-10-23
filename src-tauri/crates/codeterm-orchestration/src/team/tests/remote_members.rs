@@ -5,8 +5,10 @@ use codeterm_service_core::service::remote_team::{member_key, RemoteTeamMember};
 async fn remote_preflight_failure_retains_the_team_and_every_local_member() {
     let (mux, team, orchestrator, planner, worker) = team_members();
     let workspace = mux.find_workspace_for_tab(&orchestrator).unwrap();
-    let fixture = crate::test_fixture::ServiceFixture::new(mux);
-    let _storage = fixture.install_seeded_storage_desk();
+    let root = tempfile::tempdir().unwrap();
+    let instance = crate::test_fixture::open_instance_with_mux(root.path(), mux);
+    crate::test_fixture::install_team_close_ports(&instance, root.path());
+    let fixture = &instance.fixture;
     let member = RemoteTeamMember {
         peer_id: "offline-peer".into(),
         tab_id: "remote-worker".into(),
@@ -47,4 +49,6 @@ async fn remote_preflight_failure_retains_the_team_and_every_local_member() {
             .unwrap()[0]
             .finalized
     );
+    drop(mux);
+    codeterm_service_core::persistence_test_support::close(instance);
 }

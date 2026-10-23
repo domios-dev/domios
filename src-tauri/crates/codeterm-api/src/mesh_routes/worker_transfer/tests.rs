@@ -20,12 +20,21 @@ fn request(tab_id: &str) -> RemoteWorkerTransfer {
 fn fake_peer_wires_authenticated_origin_and_payload_into_the_worker_mutation() {
     let (mut mux, id) = MultiplexerState::new();
     let tab = mux.get_tab_mut(&id).unwrap();
+    tab.role = Some(codeterm_service_core::multiplexer::types::AgentRole::Worker);
+    tab.role_profile = Some("worker".into());
     tab.agent_type = Some("fixture-provider".into());
     tab.agent_session_id = Some("session".into());
     tab.session_binding_nonce = Some("nonce".into());
     tab.reported_session_binding_nonce = Some("nonce".into());
-    tab.report_target_mesh_peer = Some("authenticated-origin".into());
+    tab.report_target_mesh_peer = Some("OriginName".into());
     tab.report_target_tab_id = Some("parent".into());
+    tab.ownership = Some(
+        crate::agent_routes::spawn_ownership::ownership_for_spawning_peer(
+            None,
+            "authenticated-origin",
+            "OriginName",
+        ),
+    );
     let before_session = tab.agent_session_id.clone();
     let before_nonce = tab.session_binding_nonce.clone();
     let receipt = transfer_for_peer(
@@ -38,6 +47,14 @@ fn fake_peer_wires_authenticated_origin_and_payload_into_the_worker_mutation() {
     assert_eq!(receipt.origin_peer_id, "authenticated-origin");
     assert_eq!(receipt.worker_tab_id, id);
     assert_eq!(tab.report_target_tab_id.as_deref(), Some("destination"));
+    assert_eq!(
+        tab.report_target_mesh_peer.as_deref(),
+        Some("authenticated-origin")
+    );
+    assert_eq!(
+        tab.ownership.as_ref().unwrap().controller_tab_id.as_deref(),
+        Some("destination")
+    );
     assert_eq!(tab.agent_session_id, before_session);
     assert_eq!(tab.session_binding_nonce, before_nonce);
 }
