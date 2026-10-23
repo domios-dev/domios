@@ -733,7 +733,8 @@ impl ServiceContext {
             }
             Err(error) => {
                 log::error!("[agent-delivery] terminal settlement failed tab={tab}: {error}");
-                owner.block_after_refusal(tab, generation);
+                // The failed emitter's rollback wake must not restart its own failed worker.
+                owner.block_after_refusal(tab, owner.state_generation(tab));
                 AgentWriteResult::Refused
             }
         }
