@@ -11,7 +11,7 @@ import {
   type MachineStatus,
   type SelfRowView,
 } from "./accountMachines";
-import { openOnMeshRefusal } from "../billing/accountMeshLimit";
+import { openLockedMachinePlans, openOnMeshRefusal } from "../billing/accountMeshLimit";
 import {
   linkFailure,
   useAccountMeshClient,
@@ -221,6 +221,7 @@ export default function MyMachines({ account, onSignIn, onFailure, onChanged, no
           confirm={confirm?.key === row.key ? confirm.kind : null}
           register={registerControl}
           onAdd={(target) => void add(row, target)}
+          onPlans={() => openLockedMachinePlans(snapshot, row.key)}
           onAskConfirm={(kind) => setConfirm({ kind, key: row.key })}
           onCancelConfirm={(kind) => cancelConfirm(row.key, kind)}
           onRevoke={(target) => void revoke(row, target)}
@@ -375,12 +376,13 @@ function SelfRow({ self, onRename }: {
   );
 }
 
-function MachineRow({ row, busy, confirm, register, onAdd, onAskConfirm, onCancelConfirm, onRevoke, onUnpair }: {
+function MachineRow({ row, busy, confirm, register, onAdd, onPlans, onAskConfirm, onCancelConfirm, onRevoke, onUnpair }: {
   row: MachineRowView;
   busy: boolean;
   confirm: "revoke" | "unpair" | null;
   register: (key: string) => (element: HTMLElement | null) => void;
   onAdd: (target: MeshTarget) => void;
+  onPlans: () => void;
   onAskConfirm: (kind: "revoke" | "unpair") => void;
   onCancelConfirm: (kind: "revoke" | "unpair") => void;
   onRevoke: (target: MeshTarget) => void;
@@ -415,6 +417,11 @@ function MachineRow({ row, busy, confirm, register, onAdd, onAskConfirm, onCance
                 className={`${UI_BUTTON.accent} ${UI_BUTTON.compact} disabled:opacity-50`}
               >
                 {linking ? <><BusySpinner size={12} /> Linking…</> : "Add"}
+              </button>
+            )}
+            {row.status === "over_limit" && (
+              <button type="button" ref={register(`${row.key}:plans`)} onClick={onPlans} aria-label={`See plans for ${row.name}`} className={`${UI_BUTTON.accent} ${UI_BUTTON.compact}`}>
+                See plans
               </button>
             )}
             {unpairInstanceId && (
