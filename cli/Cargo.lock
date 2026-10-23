@@ -338,6 +338,7 @@ dependencies = [
  "ed25519-dalek",
  "serde",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]
