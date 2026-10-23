@@ -223,7 +223,8 @@ impl AgentDeliveryStore {
             if record.state != AgentDeliveryState::Pending {
                 return Err("claimed delivery cannot be failed as never written".into());
             }
-            if record.terminal_failure.is_none() {
+            let changed = record.terminal_failure.is_none();
+            if changed {
                 record.terminal_failure = Some(reason.into());
                 record.terminal_detail = detail.map(str::to_owned);
             }
@@ -231,7 +232,7 @@ impl AgentDeliveryStore {
                 .terminal_failure
                 .clone()
                 .map(|reason| (reason, record.terminal_detail.clone()));
-            Ok(true)
+            Ok(changed)
         })?;
         settled.ok_or_else(|| "durable delivery record disappeared before settlement".into())
     }
@@ -273,6 +274,17 @@ impl AgentDeliveryStore {
             record.settlement_emitted = true;
         }
         Ok(())
+    }
+
+    pub(crate) fn release_terminal_notification(&self, tab_id: &str, id: &str) {
+        let tab = self.tab(tab_id);
+        let mut loaded = tab.index.lock();
+        if let Some(record) = loaded.as_mut().and_then(|index|
+            index.records.iter_mut().find(|record| record.id == id)) {
+            if !record.settlement_emitted {
+                record.settlement_notified = false;
+            }
+        }
     }
 
     pub(crate) fn terminal_notification_emitted(

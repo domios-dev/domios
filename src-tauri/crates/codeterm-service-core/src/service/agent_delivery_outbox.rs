@@ -474,16 +474,7 @@ impl ServiceContext {
                 };
             }
             Ok(super::durable_delivery::PreparedDelivery::Failed(reason)) => {
-                if let Err(error) =
-                    self.fail_durable_delivery(tab_id, owner, record, payload, reason)
-                {
-                    log::error!(
-                        "[agent-delivery] terminal settlement failed tab={tab_id}: {error}"
-                    );
-                    owner.block_after_refusal(tab_id, generation);
-                    return AgentWriteResult::Refused;
-                }
-                return AgentWriteResult::Continue;
+                return self.settle_durable_record(tab_id, owner, record, payload, reason, generation);
             }
             Err(error) => {
                 log::error!("[agent-delivery] saved binding failed tab={tab_id}: {error}");
@@ -518,16 +509,9 @@ impl ServiceContext {
         let pty_claim = self.pty_ownership.acquire(tab_id);
         if self.durable_delivery_expired(payload) {
             drop(pty_claim);
-            if let Err(error) =
-                self.fail_durable_delivery(tab_id, owner, record, payload, "delivery_ttl_expired")
-            {
-                log::error!(
-                    "[agent-delivery] preclaim expiry settlement failed tab={tab_id}: {error}"
-                );
-                owner.block_after_refusal(tab_id, generation);
-                return AgentWriteResult::Refused;
-            }
-            return AgentWriteResult::Continue;
+            return self.settle_durable_record(
+                tab_id, owner, record, payload, "delivery_ttl_expired", generation,
+            );
         }
         let recovery = self.retired_delivery_recovery(tab_id, payload);
         let claim = match owner.claim_with_recovery(tab_id, &record.id, recovery) {
@@ -562,14 +546,9 @@ impl ServiceContext {
                 return AgentWriteResult::Refused;
             }
             drop(pty_claim);
-            if let Err(error) =
-                self.fail_durable_delivery(tab_id, owner, record, payload, "delivery_ttl_expired")
-            {
-                log::error!("[agent-delivery] expiry settlement failed tab={tab_id}: {error}");
-                owner.block_after_refusal(tab_id, generation);
-                return AgentWriteResult::Refused;
-            }
-            return AgentWriteResult::Continue;
+            return self.settle_durable_record(
+                tab_id, owner, record, payload, "delivery_ttl_expired", generation,
+            );
         }
         let result = self.send_queued_agent_payload(tab_id, payload);
         drop(pty_claim);
@@ -712,14 +691,33 @@ impl ServiceContext {
         payload: &AgentDeliveryPayload,
         generation: u64,
     ) -> AgentWriteResult {
-        if let Err(error) =
-            self.fail_durable_delivery(tab, owner, record, payload, "launch_ended_before_write")
-        {
-            log::error!("[agent-delivery] terminal settlement failed tab={tab}: {error}");
-            owner.block_after_refusal(tab, generation);
-            AgentWriteResult::Refused
-        } else {
-            AgentWriteResult::Continue
+        self.settle_durable_record(tab, owner, record, payload, "launch_ended_before_write", generation)
+    }
+
+    fn settle_durable_record(
+        &self,
+        tab: &str,
+        owner: &super::pending_delivery_payloads::agent_deliveries::AgentDeliveryStore,
+        record: &AgentDeliveryRecord,
+        payload: &AgentDeliveryPayload,
+        reason: &str,
+        generation: u64,
+    ) -> AgentWriteResult {
+        use super::durable_delivery::SettlementOutcome;
+        match self.fail_durable_delivery(tab, owner, record, payload, reason) {
+            Ok(SettlementOutcome::Settled) => AgentWriteResult::Continue,
+            Ok(SettlementOutcome::Held) => {
+                if owner.block_after_refusal(tab, generation) {
+                    AgentWriteResult::Refused
+                } else {
+                    AgentWriteResult::Continue
+                }
+            }
+            Err(error) => {
+                log::error!("[agent-delivery] terminal settlement failed tab={tab}: {error}");
+                owner.block_after_refusal(tab, generation);
+                AgentWriteResult::Refused
+            }
         }
     }
 
