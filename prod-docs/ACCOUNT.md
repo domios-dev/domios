@@ -28,7 +28,7 @@ The cloud service supplies subscription entitlements. Without a cloud endpoint, 
 
 ### Locked items
 
-When free-plan limits are enforced, creating one more workspace, Team or tab past the limit is refused with `free_limit_reached`. Items that already exist beyond the limit (for example after a downgrade) are never deleted or hidden: every listing still returns them. Instead the oldest items up to the limit stay usable and the newer ones are marked locked; the General workspace never counts and never locks. Acting on a locked item is refused with the stable code `plan_limit_locked`, naming the item and the limit. Workspace, tab and Team payloads carry `locked: true` on locked items; when the entitlement changes, Domios recomputes the marks and emits `entitlement-changed` without a restart. Order is fixed by each item's creation time, so reordering never moves a lock. Upgrading unlocks everything; closing older items frees their slots. Builds that do not enforce limits lock nothing.
+When free-plan limits are enforced, creating one more workspace, Team or tab past the limit is refused with `free_limit_reached`. Items that already exist beyond the limit (for example after a downgrade) are never deleted or hidden: every listing still returns them. Instead the oldest items up to the limit stay usable and the newer ones are marked locked; the General workspace never counts and never locks. Acting on a locked item is refused with the stable code `plan_limit_locked`, naming the item and the limit. Workspace, tab and Team payloads carry `locked: true` on locked items; when the entitlement changes, Domios recomputes the marks and emits `entitlement-changed` without a restart. Order is fixed by each item's creation time, so reordering never moves a lock. Upgrading unlocks everything; closing older items frees their slots. Builds that do not enforce limits lock nothing. The app shows a lock badge on locked items, treats every tab inside a locked workspace as locked, and opens the plans dialog when one is clicked; its terminal and composer take no input. Opening a locked item from the command palette or keyboard lands on a view that already shows the lock overlay and locked composer.
 
 ## Product analytics
 
@@ -99,4 +99,4 @@ Local callers only.
 
 Mesh enrollment never fails sign-in. Only a `mesh.machines` refusal (`{reason, limit, active_count}`) opens the plans dialog; offline, rate, authentication and verification refusals do not. A machine refused that way reports `traffic: "plan_limit_locked"` in the snapshot: its Mesh edges stay blocked, its rows stay listed, and a plan change re-enrolls it live.
 
-<!-- revision: 14 -->
+<!-- revision: 15 -->

@@ -10,6 +10,9 @@ import { RowMenuButton } from "../shared/RowMenuButton";
 import { FolderIcon, ShieldCheckIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
 import { SidebarDisclosure } from "./SidebarDisclosure";
+import { LockBadge } from "../billing/LockBadge";
+import { openLockedPlans } from "../billing/freeLimitGate";
+import { lockedView } from "../billing/freeLimitModel";
 import { LiveWorkspaceNavigationActions, WorkspaceNavigationActions } from "./WorkspaceNavigationActions";
 import type { TabStatus, Workspace } from "../../lib/types";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
@@ -61,6 +64,10 @@ function WorkspaceItemInner({
 }: WorkspaceItemProps) {
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(workspace.name);
+  const lock = lockedView("workspaces", workspace);
+  const activate = () => {
+    if (!openLockedPlans(lock)) onClick();
+  };
 
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -219,7 +226,7 @@ function WorkspaceItemInner({
         ) : detailHeader ? (
           <div
             className={`flex items-center min-w-0 ${touchMode ? "gap-2.5" : "gap-2"}`}
-            onClick={onClick}
+            onClick={activate}
           >
             <span
               className={`${touchMode ? workspaceTouchText : workspaceText} font-medium truncate`}
@@ -236,7 +243,7 @@ function WorkspaceItemInner({
             type="button"
             aria-label={`Open workspace ${workspace.name}`}
             className={`flex items-center min-w-0 bg-transparent border-0 p-0 text-inherit font-inherit cursor-pointer ${touchMode ? "gap-2.5" : "gap-2"}`}
-            onClick={onClick}
+            onClick={activate}
           >
             {workspace.protected ? (
               <span className="relative shrink-0 flex items-center justify-center w-[14px] h-[14px]">
@@ -250,6 +257,7 @@ function WorkspaceItemInner({
             </span>
           </button>
         )}
+        <LockBadge view={lock} />
         {workspace.cwd_missing && <span role="img" aria-label={`Folder missing for ${workspace.name}`} title={`Folder not found: ${workspace.cwd}`} className="shrink-0 text-[var(--ct-red)]"><AlertTriangle size={13} aria-hidden /></span>}
         <span className={`${workspaceCountText} text-[var(--ct-muted)]`}>
           {workspace.tabs.length}
@@ -290,6 +298,7 @@ function workspacePropsEqual(prev: WorkspaceItemProps, next: WorkspaceItemProps)
     prev.workspace.id === next.workspace.id &&
     prev.workspace.name === next.workspace.name &&
     prev.workspace.cwd === next.workspace.cwd &&
+    prev.workspace.locked === next.workspace.locked &&
     prev.workspace.tabs.length === next.workspace.tabs.length
   );
 }

@@ -6,6 +6,7 @@ import {
   isFreeLimitRefusal,
   limitCounts,
   limitHeadline,
+  lockedView,
   meshMachinesDetail,
   meshMachinesRefusal,
   parseFreeLimits,
@@ -102,5 +103,26 @@ describe("free-limit model", () => {
     expect(limitHeadline("agent.tabs")).toBe("The free version allows 35 tabs running at once.");
     expect(limitHeadline("workspaces", 3)).toBe("The free version includes 3 workspaces.");
     expect(limitHeadline("mesh.machines", 2)).toBe("The free version includes 2 machines in your mesh.");
+  });
+});
+
+describe("lockedView", () => {
+  it("is locked only when the daemon marked the item, and names the limit its click opens", () => {
+    expect(lockedView("workspaces", { locked: true })).toMatchObject({ locked: true, limit: "workspaces" });
+    expect(lockedView("teams", { locked: true })).toMatchObject({ locked: true, limit: "teams" });
+    expect(lockedView("agent.tabs", { locked: true })).toMatchObject({ locked: true, limit: "agent.tabs" });
+  });
+
+  it.each([[{ locked: false }], [{}], [null], [undefined]])("is open for %j", (item) => {
+    expect(lockedView("workspaces", item)).toEqual({ locked: false });
+  });
+
+  it("gives each kind its own accessible label", () => {
+    const labels = (["workspaces", "teams", "agent.tabs"] as const).map((key) => {
+      const view = lockedView(key, { locked: true });
+      return view.locked ? view.label : "";
+    });
+    expect(new Set(labels).size).toBe(3);
+    expect(labels.every(Boolean)).toBe(true);
   });
 });

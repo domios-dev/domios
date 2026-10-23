@@ -18,6 +18,8 @@ export interface Workspace {
   cwd: string | null;
   cwd_missing?: boolean;
   protected?: boolean;
+  /** Over the plan limit: visible but not usable until the plan allows it. */
+  locked?: boolean;
   /** Sibling ordinal among workspaces; the sidebar sorts by it. */
   sort_order?: number;
 }
@@ -272,6 +274,8 @@ export interface Tab {
    *  the chat-view AgentStateIndicator. Absent until the backend classifies. */
   agent_state?: TabAgentState | null;
   protected?: boolean;
+  /** Over the plan limit: visible but takes no input until the plan allows it. */
+  locked?: boolean;
   connected_services?: string[];
   hidden?: boolean;
   show_in_tabbar?: boolean;
@@ -341,6 +345,8 @@ export interface Team {
   workspace_id: string;
   /** Set only on a synthesized remote Team; shows the origin peer once in the header. */
   remote_peer_name?: string | null;
+  /** Over the plan limit: visible but not usable until the plan allows it. */
+  locked?: boolean;
 }
 
 /** Result of the one atomic spawn command (`mux_spawn_tab`). */
