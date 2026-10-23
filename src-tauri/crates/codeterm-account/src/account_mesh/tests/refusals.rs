@@ -28,7 +28,7 @@ async fn account_mesh_third_machine_refusal_keeps_sign_in_and_raises_one_owned_n
     );
     let state = harness.state();
     assert_eq!(state.signed_in_account(), Some(account_id(UID).as_str()));
-    assert_eq!(state.traffic(), Traffic::Open);
+    assert_eq!(state.traffic(), Traffic::PlanLimitLocked);
     assert_eq!(state.enrollment, Enrollment::Refused);
     assert!(state.membership.is_none());
     let notice = state.limit_notice.clone().expect("notice");
@@ -88,6 +88,52 @@ async fn account_mesh_third_machine_refusal_keeps_sign_in_and_raises_one_owned_n
     assert_ne!(retry.request_id, notice.request_id);
     assert_eq!(retry.trigger, EnrollTrigger::Explicit);
     assert_eq!(harness.registry.slot(UID), None, "no slot is consumed");
+}
+
+#[tokio::test]
+async fn account_mesh_machine_over_limit_refuses_links_with_plan_limit_code_until_paid() {
+    let harness = refused(LIMIT).await;
+    harness
+        .mesh
+        .refresh(EnrollTrigger::Automatic)
+        .await
+        .unwrap_err();
+    let state = harness.state();
+    assert!(state.plan_limit_locked());
+    assert_eq!(
+        serde_json::to_value(state.view()).unwrap()["traffic"],
+        "plan_limit_locked"
+    );
+    let request = LinkAuthorization {
+        transcript: [6u8; 32],
+        local_installation_id: INSTALLATION.into(),
+        peer_installation_id: PEER.into(),
+        account_id: account_id(UID),
+    };
+    let refusal = harness.mesh.authorize_link(request).await.unwrap_err();
+    assert_eq!(refusal, AccountMeshRefusal::PlanLimitLocked);
+    assert_eq!(
+        serde_json::to_value(refusal).unwrap(),
+        serde_json::json!({"reason": "plan_limit_locked"})
+    );
+
+    harness.registry.script.lock().unwrap().membership = None;
+    harness.mesh.refresh(EnrollTrigger::Lease).await.unwrap();
+    let paid = harness.state();
+    assert!(!paid.plan_limit_locked());
+    assert_eq!(paid.traffic(), Traffic::Open);
+}
+
+#[tokio::test]
+async fn account_mesh_unenrolled_sign_in_is_not_plan_locked() {
+    let harness = refused(RegistryRefusal::Unavailable).await;
+    harness
+        .mesh
+        .refresh(EnrollTrigger::Automatic)
+        .await
+        .unwrap_err();
+    assert!(!harness.state().plan_limit_locked());
+    assert_eq!(harness.state().traffic(), Traffic::Open);
 }
 
 #[tokio::test]

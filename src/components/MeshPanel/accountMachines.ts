@@ -59,6 +59,7 @@ export interface MyMachinesInput {
 }
 
 const NO_CONTROLS: MachineControls = { add: null, revoke: null, unpairInstanceId: null };
+export const PLAN_LOCKED_COPY = "Locked — this machine is outside your plan's machine limit";
 const SLOT_NOTE = "Signing out blocks Mesh on this machine but keeps its pairings and its account slot.";
 const CLEANUP_PENDING_NOTE = "Address cleanup is pending: this machine could not confirm its endpoint was withdrawn.";
 
@@ -89,16 +90,17 @@ export function myMachinesView({ account, snapshot, listFailure = null, linking,
     };
   }
   const blocked = snapshot.traffic === "blocked_signed_out";
+  const locked = snapshot.traffic === "plan_limit_locked";
   const pairs = snapshot.pairs;
   const registry = snapshot.registry?.rows ?? [];
   const known = new Set(registry.map((row) => row.installation_id));
   const saved = pairs
     .filter((pair) => !pair.installation_id || !known.has(pair.installation_id))
-    .map((pair) => blocked ? blockedRow(pair, "Mesh is blocked until your account finishes resuming") : savedPairRow(pair));
+    .map((pair) => blocked ? blockedRow(pair, "Mesh is blocked until your account finishes resuming") : locked ? lockedRow(pair) : savedPairRow(pair));
   return {
     kind: "account",
     self: selfRow(snapshot),
-    machines: registryRows(snapshot, pairs, linking, now, !blocked),
+    machines: registryRows(snapshot, pairs, linking, now, !blocked && !locked),
     saved,
     notes: [...notes, ...registryNotes(snapshot, listFailure)],
   };
@@ -206,6 +208,10 @@ function signedOutLegacyRow(pair: LocalPairFact): MachineRowView {
   };
 }
 
+function lockedRow(pair: LocalPairFact): MachineRowView {
+  return { key: pairKey(pair), name: pair.name, status: "over_limit", detail: PLAN_LOCKED_COPY, online: pair.online, target: null, controls: { ...NO_CONTROLS, unpairInstanceId: pair.instance_id } };
+}
+
 function blockedRow(pair: LocalPairFact, detail: string): MachineRowView {
   return { key: pairKey(pair), name: pair.name, status: "blocked", detail, online: null, target: null, controls: NO_CONTROLS };
 }
@@ -245,6 +251,7 @@ export function failureMessage(failure: AccountMeshFailure): string {
     case "signed-out": return SIGNED_OUT_COPY;
     case "revoked": return "That machine was removed from your account.";
     case "cancelled": return "The account changed before the request finished. Try again.";
+    case "plan_limit_locked": return PLAN_LOCKED_COPY;
     case "verification-unavailable": return "Machine membership could not be verified right now. Try again later.";
     case "unauthenticated":
     case "app-check": return "Your account session could not be verified. Sign in again.";

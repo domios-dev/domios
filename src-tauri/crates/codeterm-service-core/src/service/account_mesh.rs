@@ -232,6 +232,18 @@ impl ServiceContext {
         });
     }
 
+    /// A plan change may lift the machine limit: re-enroll so a locked machine reopens live.
+    pub(crate) fn unlock_account_mesh_after_plan_change(&self) {
+        let locked = self
+            .extensions
+            .try_get::<AccountMeshCell>()
+            .and_then(|cell| cell.0.get())
+            .is_some_and(|service| service.mesh.state().plan_limit_locked());
+        if locked {
+            self.spawn_account_mesh_refresh(EnrollTrigger::Lease);
+        }
+    }
+
     /// Transport reports the listener once it is reachable from the Tailnet, or `None`.
     pub async fn set_account_mesh_listener(&self, endpoint: Option<MeshEndpoint>) {
         let Ok(service) = self.account_mesh().await else {
