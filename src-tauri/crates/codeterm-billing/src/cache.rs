@@ -30,6 +30,7 @@ pub const CHECKING_DEADLINE_SECS: u64 = 15;
 pub enum RefreshEvent {
     SignIn,
     Focus,
+    Explicit,
     CheckoutReturned,
     /// The verdict reached `refresh_after` while the daemon ran.
     Deadline,

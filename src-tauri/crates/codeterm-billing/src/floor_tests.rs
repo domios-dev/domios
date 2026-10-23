@@ -252,3 +252,32 @@ async fn clock_two_minutes_behind_refresh_keeps_paid_access() {
     assert_eq!(snapshot.access.unwrap().authority, Authority::Billing);
     assert!(store.load_hint().unwrap());
 }
+
+#[tokio::test]
+async fn explicit_and_checkout_refresh_bypass_focus_throttle() {
+    let provider = GrantReplies::new(vec![Ok(paid_grant()), Ok(paid_grant()), Ok(paid_grant())]);
+    let (_, clock) = clock(ISSUED + 60);
+    let billing = Billing::new(provider.clone()).with_test_grants(
+        activation("fixture-online-v1"),
+        "fixture-installation",
+        Arc::new(MemoryGrants::default()),
+        clock,
+    );
+    let user = session("fixture-user");
+    let instant = Instant::now();
+    billing
+        .refresh(Some(&user), RefreshEvent::SignIn, instant)
+        .await;
+    billing
+        .refresh(Some(&user), RefreshEvent::Focus, instant)
+        .await;
+    assert_eq!(provider.count(), 1);
+    billing
+        .refresh(Some(&user), RefreshEvent::Explicit, instant)
+        .await;
+    assert_eq!(provider.count(), 2);
+    billing
+        .refresh(Some(&user), RefreshEvent::CheckoutReturned, instant)
+        .await;
+    assert_eq!(provider.count(), 3);
+}

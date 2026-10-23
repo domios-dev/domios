@@ -178,14 +178,32 @@ pub async fn portal(
         .map_err(unavailable)?;
     Ok(Json(serde_json::json!({"opened": true})))
 }
+#[derive(Default, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlanRefresh {
+    #[serde(default)]
+    focus: bool,
+}
+
+impl PlanRefresh {
+    fn event(&self) -> codeterm_billing::RefreshEvent {
+        if self.focus {
+            codeterm_billing::RefreshEvent::Focus
+        } else {
+            codeterm_billing::RefreshEvent::Explicit
+        }
+    }
+}
+
 pub async fn refresh_plan(
     State(state): State<AppState>,
+    Query(input): Query<PlanRefresh>,
     caller: Option<Extension<CallerIdentity>>,
 ) -> Result<Json<PlanView>, Error> {
     admit(caller.as_ref())?;
     let snapshot = state
         .svc
-        .refresh_billing(codeterm_billing::RefreshEvent::Focus)
+        .refresh_billing(input.event())
         .await
         .map_err(unavailable)?;
     Ok(plan_view(&state, snapshot))
