@@ -21,6 +21,7 @@ pub mod rpc;
 pub mod send_dedupe;
 pub mod worker_dispatch;
 pub mod worker_observation;
+pub mod worker_transfer;
 pub use worker_observation::mesh_worker_observation;
 
 pub use account_link::{
