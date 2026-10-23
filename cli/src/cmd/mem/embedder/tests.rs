@@ -105,3 +105,16 @@ fn recall_priority_status_prints_live_queue_separately_from_pending() {
         assert!(status.contains(field), "missing {field}: {status}");
     }
 }
+
+#[test]
+fn shadow_residency_status_names_published_target_and_explicit_recovery() {
+    let status = render_status(&serde_json::json!({
+        "provider":"local", "model":"published", "dimension":384,
+        "reembed":{"state":"failed","target":{"provider":"local","model":"target","dimension":768}, "last_error":"outage"}
+    }));
+    for field in ["model      published", "target     local/target",
+        "retry checkpointed work with `domios mem embedder use local --model target --dimension 768`",
+        "discard shadow work with `domios mem embedder use local --model published --dimension 384`"] {
+        assert!(status.contains(field), "missing {field}: {status}");
+    }
+}

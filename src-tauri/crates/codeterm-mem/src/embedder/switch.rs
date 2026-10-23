@@ -85,6 +85,14 @@ impl ReembedTracker {
         self.progress.lock().clone()
     }
 
+    pub(crate) fn retain_local_models(&self, events: &ActiveEmbedder) {
+        let progress = self.progress.lock();
+        let target = (progress.state == ReembedState::Running)
+            .then_some(progress.target.as_ref())
+            .flatten();
+        super::local::retain_models(&events.identity(), target);
+    }
+
     pub fn is_current(&self, generation: u64) -> bool {
         self.generation.load(Ordering::SeqCst) == generation
             && self.progress.lock().state == ReembedState::Running
@@ -132,6 +140,11 @@ impl ReembedTracker {
                 return;
             }
             progress.state = ReembedState::Failed;
+            log::warn!(
+                "[mem.embedder] re-embed generation {generation} failed at {}/{}: {error}",
+                progress.done,
+                progress.total
+            );
             progress.last_error = Some(error);
             progress.finished_at = Some(self.clock.now());
             progress.clone()
@@ -145,7 +158,7 @@ impl ReembedTracker {
         let snapshot = {
             let mut progress = self.progress.lock();
             let generation = self.generation.load(Ordering::SeqCst);
-            if progress.state != ReembedState::Running {
+            if !matches!(progress.state, ReembedState::Running | ReembedState::Failed) {
                 return true;
             }
             if self.claimed.load(Ordering::SeqCst) == generation {
