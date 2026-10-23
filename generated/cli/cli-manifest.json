@@ -16163,6 +16163,13 @@
       "args": [],
       "subcommands": [
         {
+          "name": "api-token",
+          "about": "Print only the selected local instance API credential, without contacting the daemon",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
           "name": "autostart-status",
           "about": "Print whether the autostart trigger is installed and where",
           "aliases": [],

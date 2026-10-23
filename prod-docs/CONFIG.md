@@ -32,9 +32,7 @@ qa = 2
 [diagnostics]
 terminal_transport = false
 protocol_recording = false
-
 # [notifications]: levels, surfaces, sound and push — domios docs NOTIFICATIONS
-
 [orchestration]
 plan_reminders = true
 nudge_interval_secs = 2700  # 45 minutes
@@ -42,7 +40,6 @@ nudge_interval_secs = 2700  # 45 minutes
 # Templates accept {count}, {in_review}, {jobs}, {agent_tabs}, {idle_utility_shells}, {idle_workers}, {finished_lanes}, {lane_candidates}, {plan_id}.
 [orchestration.reflect]
 every_gates = 15  # emit a one-shot self-review block every N gate/bounce events (0 disables)
-
 [orchestration.map]
 enabled = false  # opt in to the workspace essence map and its boundary Cartographer
 [keybindings]  # Ctrl maps to Cmd on macOS
@@ -240,4 +237,4 @@ Notification settings: `domios docs NOTIFICATIONS`. Integration settings: `domio
 Utility limits apply to each Team and purpose (`build`, `dev`, `qa`, `deploy`, `logs`, `db`, `shell`). At the limit, creation restarts the oldest confirmed idle tab with the new command and description; busy or unknown tabs are refused. Use `domios tab new --description "Runs focused tests" --purpose qa --icon bug`; icon names are Lucide kebab-case names. Structured provider access refusals are always observed from the tab's bound session, independently of optional structured-signal settings. Incident levels and recovery are in the notification document above. Capability plugins may declare `permissions.projectFiles` as config selectors such as `["/root", "/profiles/*/root"]`. These configured, existing absolute directories become read roots. They remain read-only until the owner explicitly approves `domios plugin config <id> --grant project_write`. Approval records canonical roots in `grants.yaml`; changing a profile root never transfers that write grant. Revoke with `--revoke project_write`. Reload the plugin after root or grant changes. Symlink roots, traversal and symlink escapes are refused, including writes below missing parents. Project-file plugins use the confined filesystem even in DEV; they cannot rewrite their own `grants.yaml`. A separately granted arbitrary subprocess remains outside the file-tool confinement contract.
 Domios account sign-in and product analytics settings: `domios docs ACCOUNT`.
 
-<!-- revision: 123 -->
+<!-- revision: 124 -->
