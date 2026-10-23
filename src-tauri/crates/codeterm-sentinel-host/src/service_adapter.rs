@@ -119,6 +119,10 @@ pub trait SentinelExt {
         transition_id: &str,
     ) -> Result<Sentinel, String>;
     fn sentinel_list(&self, caller: &SentinelCaller) -> Result<Vec<Sentinel>, String>;
+    fn sentinel_quarantined(
+        &self,
+        caller: &SentinelCaller,
+    ) -> Result<Vec<crate::storage::quarantine::Quarantined>, String>;
     fn sentinel_show(&self, caller: &SentinelCaller, id: &str) -> Result<Sentinel, String>;
     fn sentinel_stop(&self, caller: &SentinelCaller, id: &str) -> Result<Sentinel, String>;
 }
@@ -323,17 +327,25 @@ impl SentinelExt for ServiceContext {
         Ok(resolved)
     }
 
+    fn sentinel_quarantined(
+        &self,
+        caller: &SentinelCaller,
+    ) -> Result<Vec<crate::storage::quarantine::Quarantined>, String> {
+        let team_owner = list_authority(self, caller)?;
+        let handle = self
+            .host_extension::<Handle>()
+            .ok_or("blueprints not initialized")?;
+        let store = handle.store.lock();
+        store.ensure_available()?;
+        Ok(store
+            .quarantined_in(&caller.workspace, caller.team.as_deref())
+            .into_iter()
+            .filter(|entry| team_owner || entry.creator_tab_id == caller.tab)
+            .collect())
+    }
+
     fn sentinel_list(&self, caller: &SentinelCaller) -> Result<Vec<Sentinel>, String> {
-        let team_owner = {
-            let mux = self.mux.read();
-            if !caller_is_live(&mux, caller) {
-                return Err("blueprint caller scope changed".into());
-            }
-            mux.get_tab(&caller.tab).is_some_and(|tab| {
-                tab.has_team_orchestrator_authority()
-                    || tab.role_profile.as_deref() == Some("curator")
-            })
-        };
+        let team_owner = list_authority(self, caller)?;
         let handle = self
             .host_extension::<Handle>()
             .ok_or("blueprints not initialized")?;
@@ -582,4 +594,14 @@ pub mod tests {
         }
         .owns(&pipeline));
     }
+}
+
+fn list_authority(service: &ServiceContext, caller: &SentinelCaller) -> Result<bool, String> {
+    let mux = service.mux.read();
+    if !caller_is_live(&mux, caller) {
+        return Err("blueprint caller scope changed".into());
+    }
+    Ok(mux.get_tab(&caller.tab).is_some_and(|tab| {
+        tab.has_team_orchestrator_authority() || tab.role_profile.as_deref() == Some("curator")
+    }))
 }

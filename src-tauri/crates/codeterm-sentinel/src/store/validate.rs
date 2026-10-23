@@ -17,7 +17,7 @@ pub fn validate(jobs: Vec<Sentinel>) -> Result<Vec<Sentinel>, String> {
     }
     let mut ids = std::collections::BTreeSet::new();
     for job in &jobs {
-        crate::storage::codec::representable(job)?;
+        crate::storage::codec::import_head(job)?;
         codeterm_blueprint_types::automation_name::validate_note(job.note.as_deref())?;
         if job.pipeline().is_none() {
             machine::validate(&job.buckets, &job.matches, true, job.interval_ms)?;

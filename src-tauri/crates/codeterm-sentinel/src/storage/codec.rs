@@ -523,12 +523,15 @@ pub fn create(job: &Sentinel, associate: &[String]) -> Result<SentinelCreate, St
     })
 }
 
-/// Whether the typed store can hold this job; amendment history is stored per update.
-pub fn representable(job: &Sentinel) -> Result<(), String> {
-    stage_identity(job)?;
-    scenario(job)?;
-    definition(job)?;
-    Ok(())
+/// Representability of a stored stage: Storage owns the earlier lineage window, so only
+/// the head amendment must be importable.
+pub fn import_head(job: &Sentinel) -> Result<SentinelImport, String> {
+    if job.amendments.len() <= 1 {
+        return import(job);
+    }
+    let mut head = job.clone();
+    head.amendments.drain(..job.amendments.len() - 1);
+    import(&head)
 }
 
 /// Exact existing state for the immutable import path; nothing here can start work.

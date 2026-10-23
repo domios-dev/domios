@@ -388,7 +388,7 @@ fn sentinel_schema_v4_update_definition_appends_lineage_and_advances_generation_
     let base = stored(&storage, &job.id).record;
     let update = |expect: u64, at: u64| {
         let mut definition = base.definition.definition.clone();
-        definition.question = format!("Revision {at}?");
+        reask(&mut definition, &format!("Revision {at}?"));
         let amendment = DefinitionUpdate {
             definition,
             author_tab_id: "author".into(),
@@ -484,16 +484,18 @@ fn sentinel_schema_v4_prompt_response_requires_observed_tab_on_both_backends() {
         assert_eq!(storage.revision(), before, "nothing was submitted");
     }
 
-    let mut answering = base.clone();
-
-    answering.set_observe(Some(TabBinding::Tab("observed-agent".into())));
-    answering.routes.insert(
-        "done".into(),
-        vec![Handler {
-            id: "answer".into(),
-            action: Route::RespondPrompt(SafeKind::Onboarding),
-            target: None,
-        }],
+    let mut observed = params(
+        false,
+        json!({"done": [{"id":"answer","uses":"respond_prompt","with":{"target":{"lit":"onboarding"}}}]}),
+    );
+    observed["steps"][0] = json!({"id":"source","uses":"observe","with":{"kind":{"lit":"tab"},"id":{"lit":"observed-agent"}},"every":{"lit":"10s"},"timeout":{"lit":"1h"}});
+    let answering = legacy
+        .lock()
+        .prepare_document(observed, owner(None), false)
+        .expect("observed tab prompt response admitted");
+    assert_eq!(
+        answering.observe(),
+        Some(&TabBinding::Tab("observed-agent".into()))
     );
     assert_eq!(answering.pending_capability(), None);
     for store in [&legacy, &typed_store] {

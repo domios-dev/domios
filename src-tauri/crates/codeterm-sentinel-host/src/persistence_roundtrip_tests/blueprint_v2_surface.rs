@@ -73,9 +73,13 @@ fn blueprint_v2_surface_check_apply_export_update_and_reopen_refuses_v1_before_m
             .unwrap()
             .contains("schema_version: 2"));
         let assignments = if definition["kind"] == "pipeline" {
-            vec!["source=opaque-message".into()]
+            vec!["source=opaque-message".into(), "pattern=(?s).*".into()]
         } else {
-            vec!["command=echo alldone".into()]
+            vec![
+                "command=echo alldone".into(),
+                "pattern=alldone".into(),
+                "question=classify-all-work".into(),
+            ]
         };
         assert_eq!(
             svc.blueprint_import(&caller, exported, &assignments, false)
@@ -116,18 +120,18 @@ fn blueprint_v2_surface_check_apply_export_update_and_reopen_refuses_v1_before_m
     }
     let mut unsupported = saved[0].1.clone();
     unsupported["steps"] = json!([{"id":"code","code":{"lang":"python","src":"raise RuntimeError('must never execute')","caps":[],"limits":{}}}]);
-    assert!(svc
+    let refused = svc
         .blueprint_apply(&caller, unsupported, false)
         .unwrap_err()
-        .to_string()
-        .contains("code execution"));
+        .to_string();
+    assert!(refused.contains("steps[0].code.src"), "{refused}");
     let mut unsupported = saved[0].1.clone();
     unsupported["steps"] = json!([{"id":"call","call":{"ref":"missing","with":{}}}]);
-    assert!(svc
+    let refused = svc
         .blueprint_apply(&caller, unsupported, false)
         .unwrap_err()
-        .to_string()
-        .contains("call execution"));
+        .to_string();
+    assert!(refused.contains("Unresolved call missing"), "{refused}");
     assert_eq!(
         before,
         serde_json::to_value(&handle.store.lock().jobs).unwrap()
@@ -212,6 +216,9 @@ fn blueprint_v2_surface_memory_cleanup_preserves_v2_and_unrelated_records_and_sh
         .unwrap();
         conn.execute("INSERT INTO blueprint_index(item_id,document_hash,canon,gists,signature_json) VALUES (?1,'hash','canon','gists','{}')",[id]).unwrap();
     }
+    // The fixture predates the one-shot v1 cleanup, so its completion receipt must be absent.
+    conn.execute("DELETE FROM blueprint_v1_cleanup_receipt", [])
+        .unwrap();
     let old_blob: String = conn
         .query_row(
             "SELECT body_blob_path FROM mem_items WHERE id=?1",
@@ -248,12 +255,13 @@ fn blueprint_v2_surface_memory_cleanup_preserves_v2_and_unrelated_records_and_sh
         );
         assert_eq!(
             conn.query_row(
-                "SELECT count(*) FROM mem_item_history WHERE item_id=?1",
+                "SELECT count(*) FROM mem_item_history WHERE item_id=?1 AND change_type='delete' AND changed_by='system:blueprint-v2'",
                 [&ids[0]],
                 |r| r.get::<_, i64>(0)
             )
             .unwrap(),
-            0
+            1,
+            "the one-shot cleanup leaves exactly one audit record"
         );
         assert_eq!(
             conn.query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |r| r

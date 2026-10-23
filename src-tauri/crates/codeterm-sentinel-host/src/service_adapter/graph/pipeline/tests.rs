@@ -31,6 +31,7 @@ fn project_snapshot(
         edges: Vec::new(),
         truncated: false,
         configured_fallback: Value::Null,
+        quarantined: Vec::new(),
         runs: vec![],
         blueprints: vec![],
     };

@@ -125,6 +125,7 @@ pub struct Store {
     pub committed_revisions: BTreeMap<ScopeKey, String>,
     pub changes: BTreeMap<ScopeKey, String>,
     pub pending_stop_notices: Vec<StopNotice>,
+    pub quarantined: Vec<crate::storage::quarantine::Quarantined>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

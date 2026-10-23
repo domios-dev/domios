@@ -255,7 +255,10 @@ impl AutomationGraphExt for ServiceContext {
             .try_ext::<codeterm_service_core::CronState>()
             .map(|state| connected_crons(&state.lock(), &jobs, workspace, team))
             .unwrap_or_default();
-        let now = handle.store.lock().clock.now_ms();
+        let (now, quarantined) = {
+            let store = handle.store.lock();
+            (store.clock.now_ms(), store.quarantined_in(workspace, team))
+        };
         let executor = self.automation_configured_fallback();
         with_graph_mux(self, workspace, team, &jobs, crons.values(), |mux| {
             let mut snapshot = graph::project(
@@ -277,6 +280,7 @@ impl AutomationGraphExt for ServiceContext {
             );
             retained::project(&mut snapshot, &jobs, &journals, &definitions)?;
             graph::project_worker_states(&mut snapshot, mux, |tab| self.resolved_tab_status(tab));
+            snapshot.quarantined = quarantined;
             Ok(snapshot)
         })
     }
@@ -304,7 +308,16 @@ impl AutomationGraphExt for ServiceContext {
                 scope.push(job.clone());
             }
         }
-        let now = handle.store.lock().clock.now_ms();
+        let (now, quarantined) = {
+            let store = handle.store.lock();
+            let quarantined: Vec<_> = store
+                .quarantined
+                .iter()
+                .filter(|entry| entry.workspace_id == workspace)
+                .cloned()
+                .collect();
+            (store.clock.now_ms(), quarantined)
+        };
         let executor = self.automation_configured_fallback();
         let grouped: Vec<_> = grouped
             .into_iter()
@@ -395,6 +408,7 @@ impl AutomationGraphExt for ServiceContext {
                 graph::project_worker_states(&mut combined, mux, |tab| {
                     self.resolved_tab_status(tab)
                 });
+                combined.quarantined = quarantined;
                 Ok(combined)
             },
         )

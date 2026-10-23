@@ -53,7 +53,11 @@ fn blueprint_import_persists_stopped_and_visible_in_scratch_team() {
     assert!(service
         .blueprint_import(&scratch_caller, recipe.clone(), &[], true)
         .is_err());
-    let assignments = vec!["command=printf ready".into()];
+    let assignments = vec![
+        "command=printf ready".into(),
+        "pattern=ready".into(),
+        "question=State?".into(),
+    ];
     let imported = service
         .blueprint_import(&scratch_caller, recipe, &assignments, true)
         .unwrap();

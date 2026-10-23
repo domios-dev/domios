@@ -260,7 +260,7 @@ impl BlueprintMemoryExt for ServiceContext {
                 .join("; ")
         })?;
         let result = self
-            .blueprint_apply(caller, definition, dry_run)
+            .blueprint_apply_recipe_document(caller, definition, dry_run, id)
             .map_err(|error| error.to_string())?;
         if !dry_run {
             self.mem.record_blueprint_reuse(id);
