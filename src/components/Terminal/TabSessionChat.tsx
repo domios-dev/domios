@@ -279,12 +279,14 @@ function TabSessionChatBody({
     allMessages,
     enrichedMessages,
     hiddenMessageCount,
+    olderMessageLabel,
     newerMessageCount,
     canBackfillOlder,
     backfillLoading,
     backfillNotice,
     loadOlder,
     loadHistoryGap,
+    historyGapLabel,
     showLatest,
     prepareMessage,
     setHistoryReading,
@@ -846,7 +848,10 @@ function TabSessionChatBody({
     <LocalArtifactScope tabId={tabId}>
     <ChatBlockHostProvider value={chatBlockHost}>
     <PluginNameProvider resolve={resolvePluginName}>
-    <HistoryGapProvider onLoad={loadHistoryGap}>
+    <HistoryGapProvider label={historyGapLabel} onLoad={async message => {
+      prepareForHistoryPrepend();
+      await loadHistoryGap(message);
+    }}>
     <div
       ref={chatRootRef}
       className="ct-chat-shell w-full h-full flex flex-col relative"
@@ -911,7 +916,7 @@ function TabSessionChatBody({
             <button
               type="button"
               data-testid="chat-load-older"
-              aria-label="Show older messages"
+              aria-label={olderMessageLabel}
               onClick={() => {
                 prepareForHistoryPrepend();
                 void loadOlder();
@@ -926,14 +931,14 @@ function TabSessionChatBody({
             >
               {backfillLoading
                 ? <TabLoadingIndicator label="Searching older messages" compact deferred={false} />
-                : hiddenMessageCount > 0 ? `Show older (${hiddenMessageCount})` : "Show older"}
+                : olderMessageLabel}
             </button>
           </div>
         )}
         {backfillNotice === "stalled_cursor"
           ? <InlineErrorNotice error="Older history could not be read." operation="loading older messages" />
           : backfillNotice && <p role="status" className="text-center text-xs text-[var(--ct-muted-fg)]">
-            {backfillNotice === "limit" ? "No messages in this section. Show older to keep searching." : "No earlier messages."}
+            {backfillNotice === "limit" ? "History scan limit reached. Load previous to continue." : "No earlier messages."}
           </p>}
         {isActive && (reportPlacement.afterIndex.get(-1) ?? []).map(renderOutboundReport)}
         {isActive && (askPlacement.afterIndex.get(-1) ?? []).map(renderAsk)}

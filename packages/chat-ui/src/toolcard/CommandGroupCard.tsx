@@ -118,7 +118,6 @@ export function CommandGroupCard({ event, rows, expanded, onToggle, ...navigatio
         cap={capped ? COMMAND_TREE_CAP : undefined}
         openIndex={openRow}
         onLine={toggleRow}
-        onMore={() => onToggle(true)}
         renderDetail={(index) => <SegmentDetail event={event} row={rows[index]} index={index} navigation={navigation} />}
       />
       <div id={regionId} role="region" aria-label="Command output" hidden={!expanded} className="px-3 pb-2">
