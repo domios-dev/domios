@@ -36,13 +36,13 @@ zeroize = "1"
 # Transliteration for `tab find` — lets users search "далтон" → "Dalton"
 # without minding the input language.
 deunicode = "1"
-codeterm-util = { path = "../src-tauri/crates/codeterm-util" }
 codeterm-mem-store = { path = "../crates/mem-store" }
 codeterm-plugins = { path = "../src-tauri/crates/codeterm-plugins" }
 # In-process reuse of the daemon's strict PluginManifest + QuickJS loader for
 # `plugin validate` — the CLI never grows its own manifest interpretation.
 codeterm-plugin = { path = "../src-tauri/crates/codeterm-plugin" }
 codeterm-build-info = { path = "../src-tauri/crates/codeterm-build-info" }
+codeterm-util = { path = "../src-tauri/crates/codeterm-util" }
 codeterm-paths = { path = "../src-tauri/crates/codeterm-paths" }
 codeterm-process-identity = { path = "../src-tauri/crates/codeterm-process-identity" }
 # The notification level set is defined once in the daemon-shared crate; the CLI

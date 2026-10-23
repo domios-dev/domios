@@ -585,7 +585,6 @@ pub fn launch_agent_in_background_with_env(
         };
         let screen = svc
             .screen_state
-            .lock()
             .get_screen_text(&pty_id)
             .unwrap_or_default();
         let provider_tui_visible = registry

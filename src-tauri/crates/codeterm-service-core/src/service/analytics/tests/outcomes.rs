@@ -55,8 +55,10 @@ async fn product_subscription_changed_uses_authoritative_refresh_and_closed_enum
             email: None,
             display_name: None,
             provider: "fake".into(),
+            photo_url: None,
         },
         id_token: codeterm_account::Secret::new("private-token"),
+        expires_at: None,
     };
     let now = std::time::Instant::now();
     billing
@@ -98,8 +100,10 @@ async fn product_checkout_started_records_browser_open_with_closed_plan_only() {
             email: None,
             display_name: None,
             provider: "fake".into(),
+            photo_url: None,
         },
         id_token: codeterm_account::Secret::new("private-token"),
+        expires_at: None,
     };
     billing
         .checkout_url(&session, codeterm_billing::CheckoutKey::ProMonthly)
@@ -197,7 +201,7 @@ async fn product_mesh_peer_paired_requires_successful_save_and_deduplicates() {
     );
     assert_eq!(machines.load(std::sync::atomic::Ordering::Relaxed), 1);
     let peer: PairedPeer = serde_json::from_value(serde_json::json!({"instance_id":"private-peer","instance_name":"private-name","addresses":[],"api_port":7685,"public_key":"private-key","paired_at":"private-date","last_seen":null,"version":null})).unwrap();
-    mesh.complete_explicit_pairing(peer);
+    mesh.paired_peers.insert(peer.instance_id.clone(), peer);
     assert!(mesh.save_with(|| Err("disk failed".into())).is_err());
     assert!(sink.events().await.is_empty());
     assert_eq!(machines.load(std::sync::atomic::Ordering::Relaxed), 1);

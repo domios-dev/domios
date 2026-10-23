@@ -9,6 +9,12 @@ it("sends checklist review snapshot and amendment through the authenticated tab 
   expect(calls[0]).toMatchObject({ method: "POST", path: "/api/tabs/worker/todos/review", body: request, opts: { callerTabId: "parent" } });
 });
 
+it("sends a tab rename as the title field the daemon requires", async () => {
+  const { transport, calls } = fixture();
+  await transport.mux_rename_tab({ workspaceId: "ws", tabId: "tab", title: "Renamed" });
+  expect(calls[0]).toMatchObject({ method: "POST", path: "/api/workspaces/ws/tabs/tab/rename", body: { title: "Renamed" } });
+});
+
 it("carries the client's known window to chat attach", async () => {
   const { transport, calls } = fixture();
   const knownWindow = { source_session_id: "own", session_binding_nonce: "nonce", end_offset: 123, file_length: 125, cursor: "opaque" };

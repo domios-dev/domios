@@ -614,7 +614,6 @@ fn general_agent_existing_live_authenticated_binding_seals_agent_ready() {
     .expect("spawn live PTY");
     service
         .screen_state
-        .lock()
         .process(pty_id, format!("{provider_id} is running").as_bytes());
     let mut app_config = crate::config::schema::AppConfig::default();
     app_config.general_agent.agent_provider = provider_id.into();
@@ -785,7 +784,7 @@ fn general_agent_launch_claim_blocks_initial_shell_exit_teardown() {
 
 #[test]
 fn agent_output_readiness_wakes_on_screen_event() {
-    let screen_state = Arc::new(TimedMutex::new("screen_state", ScreenState::new()));
+    let screen_state = Arc::new(ScreenState::new());
     let registry = Arc::new(AgentRegistry::new());
     registry.register_provider(Box::new(MockProvider::new("agent-marker")));
     let subscription = super::ScreenChangeSubscription::arm(&screen_state, "pty-1");
@@ -808,17 +807,17 @@ fn agent_output_readiness_wakes_on_screen_event() {
     });
 
     armed_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-    screen_state.lock().process("pty-1", b"agent-marker ready");
+    screen_state.process("pty-1", b"agent-marker ready");
 
     assert!(done_rx.recv_timeout(Duration::from_secs(1)).unwrap());
     waiter.join().unwrap();
     drop(subscription);
-    assert_eq!(screen_state.lock().screen_change_subscriber_count(), 0);
+    assert_eq!(screen_state.screen_change_subscriber_count(), 0);
 }
 
 #[test]
 fn authoritative_binding_is_launch_readiness_evidence() {
-    let screen_state = Arc::new(TimedMutex::new("screen_state", ScreenState::new()));
+    let screen_state = Arc::new(ScreenState::new());
     let registry = AgentRegistry::new();
     let subscription = super::ScreenChangeSubscription::arm(&screen_state, "pty-1");
 
@@ -835,7 +834,7 @@ fn authoritative_binding_is_launch_readiness_evidence() {
 
 #[test]
 fn agent_output_deadline_releases_its_subscription() {
-    let screen_state = Arc::new(TimedMutex::new("screen_state", ScreenState::new()));
+    let screen_state = Arc::new(ScreenState::new());
     let registry = AgentRegistry::new();
 
     assert!(!super::await_agent_output(
@@ -844,39 +843,37 @@ fn agent_output_deadline_releases_its_subscription() {
         "pty-1",
         Duration::ZERO,
     ));
-    assert_eq!(screen_state.lock().screen_change_subscriber_count(), 0);
+    assert_eq!(screen_state.screen_change_subscriber_count(), 0);
 }
 
 #[test]
 fn agent_output_cleanup_does_not_close_paste_render_waiter() {
-    let screen_state = Arc::new(TimedMutex::new("screen_state", ScreenState::new()));
-    let paste_signal = screen_state.lock().arm_screen_change_signal("pty-1");
+    let screen_state = Arc::new(ScreenState::new());
+    let paste_signal = screen_state.arm_screen_change_signal("pty-1");
     let generation = paste_signal.generation();
     let subscription = super::ScreenChangeSubscription::arm(&screen_state, "pty-1");
 
     drop(subscription);
-    screen_state.lock().process("pty-1", b"paste rendered");
+    screen_state.process("pty-1", b"paste rendered");
 
     assert!(paste_signal.wait_after(generation, Duration::ZERO));
-    assert_eq!(screen_state.lock().screen_change_subscriber_count(), 0);
+    assert_eq!(screen_state.screen_change_subscriber_count(), 0);
 }
 
 #[test]
 fn lifecycle_subscriber_drop_keeps_concurrent_waiter_live() {
-    let screen_state = Arc::new(TimedMutex::new("screen_state", ScreenState::new()));
+    let screen_state = Arc::new(ScreenState::new());
     let first = super::ScreenChangeSubscription::arm(&screen_state, "pty-1");
     let second = super::ScreenChangeSubscription::arm(&screen_state, "pty-1");
     let generation = second.signal.generation();
 
     drop(first);
-    assert_eq!(screen_state.lock().screen_change_subscriber_count(), 1);
-    screen_state
-        .lock()
-        .process("pty-1", b"second waiter remains live");
+    assert_eq!(screen_state.screen_change_subscriber_count(), 1);
+    screen_state.process("pty-1", b"second waiter remains live");
 
     assert!(second.signal.wait_after(generation, Duration::ZERO));
     drop(second);
-    assert_eq!(screen_state.lock().screen_change_subscriber_count(), 0);
+    assert_eq!(screen_state.screen_change_subscriber_count(), 0);
 }
 
 #[test]
@@ -898,10 +895,8 @@ fn agent_output_teardown_closes_armed_waiter() {
         })
     }
     .expect("spawn PTY");
-    let screen_state = Arc::new(TimedMutex::new("screen_state", ScreenState::new()));
-    assert!(screen_state
-        .lock()
-        .bind_pty_generation("pty-1", session.generation));
+    let screen_state = Arc::new(ScreenState::new());
+    assert!(screen_state.bind_pty_generation("pty-1", session.generation));
     let registry = Arc::new(AgentRegistry::new());
     let subscription = super::ScreenChangeSubscription::arm(&screen_state, "pty-1");
     let signal = subscription.signal.clone();
@@ -933,34 +928,34 @@ fn agent_output_teardown_closes_armed_waiter() {
     assert!(!done_rx.recv_timeout(Duration::from_secs(1)).unwrap());
     waiter.join().unwrap();
     drop(subscription);
-    assert_eq!(screen_state.lock().screen_change_subscriber_count(), 0);
+    assert_eq!(screen_state.screen_change_subscriber_count(), 0);
     pty.lock().kill("pty-1").expect("cleanup PTY");
 }
 
 #[test]
 fn stale_provider_pty_allows_relaunch_and_cleans_screen_state() {
     let pty = Arc::new(TimedMutex::new("pty", PtyManager::new()));
-    let screen_state = Arc::new(TimedMutex::new("screen_state", ScreenState::new()));
-    screen_state.lock().process("stale-pty", b"old output");
-    let signal = screen_state.lock().arm_screen_change_signal("stale-pty");
+    let screen_state = Arc::new(ScreenState::new());
+    screen_state.process("stale-pty", b"old output");
+    let signal = screen_state.arm_screen_change_signal("stale-pty");
 
     super::terminate_pty_before_relaunch(&pty, &screen_state, "stale-pty")
         .expect("already-removed PTY must allow the configured provider to relaunch");
 
-    assert!(screen_state.lock().get_screen_text("stale-pty").is_none());
-    assert_eq!(screen_state.lock().screen_change_subscriber_count(), 0);
+    assert!(screen_state.get_screen_text("stale-pty").is_none());
+    assert_eq!(screen_state.screen_change_subscriber_count(), 0);
     assert!(!signal.wait_after(signal.generation(), Duration::ZERO));
 }
 
 #[test]
 fn repeated_lifecycle_subscriptions_release_screen_state_entries() {
-    let screen_state = Arc::new(TimedMutex::new("screen_state", ScreenState::new()));
+    let screen_state = Arc::new(ScreenState::new());
 
     for _ in 0..3 {
         let subscription = super::ScreenChangeSubscription::arm(&screen_state, "pty-1");
-        assert_eq!(screen_state.lock().screen_change_subscriber_count(), 1);
+        assert_eq!(screen_state.screen_change_subscriber_count(), 1);
         drop(subscription);
-        assert_eq!(screen_state.lock().screen_change_subscriber_count(), 0);
+        assert_eq!(screen_state.screen_change_subscriber_count(), 0);
     }
 }
 
@@ -992,7 +987,10 @@ impl crate::agent::provider::AgentProvider for ScreenLockProbeProvider {
         false
     }
     fn detect_from_output(&self, _: &str) -> bool {
-        let free = self.screen_state.try_lock().is_some();
+        let free = self
+            .screen_state
+            .existing("pty-1")
+            .is_some_and(|screen| screen.try_lock().is_some());
         self.screen_free_during_call.lock().push(free);
         true
     }
@@ -1009,8 +1007,8 @@ impl crate::agent::provider::AgentProvider for ScreenLockProbeProvider {
 
 #[test]
 fn agent_output_readiness_releases_screen_state_before_provider_detection() {
-    let screen_state = Arc::new(TimedMutex::new("screen_state", ScreenState::new()));
-    screen_state.lock().process("pty-1", b"provider banner");
+    let screen_state = Arc::new(ScreenState::new());
+    screen_state.process("pty-1", b"provider banner");
     let screen_free_during_call = Arc::new(Mutex::new(Vec::new()));
     let registry = AgentRegistry::new();
     registry.register_provider(Box::new(ScreenLockProbeProvider {

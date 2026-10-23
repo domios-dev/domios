@@ -13,57 +13,29 @@ fn mesh_listener_refusal_is_an_error_response() {
 }
 
 #[test]
-fn mesh_connect_addr_parse_and_wire_body() {
+fn mesh_link_parses_one_installation_and_maps_to_the_account_route() {
     use clap::Parser;
-    for address in ["100.84.159.37:7686", "[fd7a:115c:a1e0::1]:7686"] {
-        let command = crate::Cli::try_parse_from([
-            "codeterm", "mesh", "connect", "2895951d", "--addr", address,
-        ])
+    let command = crate::Cli::try_parse_from(["codeterm", "mesh", "link", "inst-1"])
         .unwrap()
         .command;
-        let crate::Commands::Mesh {
-            action:
-                crate::mesh_cli::MeshAction::Connect {
-                    ref instance_id,
-                    ref addr,
-                },
-        } = command
-        else {
-            panic!("mesh connect must parse");
-        };
-        let body = super::connect_body(instance_id, addr.as_ref());
-        assert_eq!(body["instance_id"], "2895951d");
-        assert_eq!(body["addr"], address);
-        let (method, path, relay_body) = crate::mesh_cli::api_map::cli_command_to_api(&command);
-        assert_eq!(method, "POST");
-        assert_eq!(path, "/api/mesh/connect");
-        assert_eq!(
-            serde_json::from_str::<serde_json::Value>(&relay_body.unwrap()).unwrap(),
-            body
+    let (method, path, body) = crate::mesh_cli::api_map::cli_command_to_api(&command);
+    assert_eq!(method, "POST");
+    assert_eq!(path, "/api/mesh/link");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&body.unwrap()).unwrap(),
+        serde_json::json!({"installation_id": "inst-1"})
+    );
+    for removed in [
+        "connect",
+        "approve",
+        "reject",
+        "discover",
+        "broadcast",
+        "stop-broadcast",
+    ] {
+        assert!(
+            crate::Cli::try_parse_from(["codeterm", "mesh", removed, "x"]).is_err(),
+            "{removed}"
         );
     }
-    let command = crate::Cli::try_parse_from(["codeterm", "mesh", "connect", "peer-name"])
-        .unwrap()
-        .command;
-    let crate::Commands::Mesh {
-        action: crate::mesh_cli::MeshAction::Connect { instance_id, addr },
-    } = command
-    else {
-        panic!("mesh connect must parse");
-    };
-    assert!(addr.is_none());
-    assert_eq!(
-        super::connect_body(&instance_id, None),
-        serde_json::json!({"instance_id": "peer-name"})
-    );
-    assert!(crate::Cli::try_parse_from([
-        "codeterm",
-        "mesh",
-        "connect",
-        "peer",
-        "--addr",
-        "host:7686"
-    ])
-    .is_err());
-    assert!(crate::Cli::try_parse_from(["codeterm", "mesh", "connect", "peer", "--addr"]).is_err());
 }

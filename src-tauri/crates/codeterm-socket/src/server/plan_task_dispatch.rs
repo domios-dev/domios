@@ -31,7 +31,7 @@ pub(crate) mod remote_recovery;
 mod routing;
 pub(crate) mod startup;
 mod tab_reservation;
-mod todo_seed;
+pub(super) mod todo_seed;
 mod unplanned;
 mod workspace_admission;
 

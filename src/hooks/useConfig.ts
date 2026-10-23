@@ -107,7 +107,6 @@ export function defaultConfig(): AppConfig {
     mesh: {
       enabled: false,
       instance_name: "",
-      broadcast_duration_secs: 180,
     },
     ui: {
       memory_tab_enabled: true,

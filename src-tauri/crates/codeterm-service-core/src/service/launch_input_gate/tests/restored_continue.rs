@@ -3,7 +3,11 @@ use crate::lock_hold::TimedRwLock;
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::request_continue;
 use crate::service::boot_stage::BootStage;
-use crate::service::turn_resume::{step, Step};
+use crate::service::turn_resume::{RuntimeReadiness, Step};
+
+fn step(mux: &crate::multiplexer::commands::MuxState, tab_id: &str, start_epoch: &str) -> Step {
+    crate::service::turn_resume::step(mux, tab_id, start_epoch, RuntimeReadiness::Unsupported)
+}
 use std::sync::Arc;
 
 #[test]
@@ -53,7 +57,7 @@ fn restored_owed_continue_waits_for_first_composer_then_claims_once() {
         panic!("composer-ready own session must release the owed original");
     };
     assert_eq!(claim.session_id, "own-saved-session");
-    assert_eq!(claim.pty_id, "restored-pty");
+    assert_eq!(claim.pty_id.as_deref(), Some("restored-pty"));
     assert_eq!(claim.binding_nonce, "current-nonce");
     assert_eq!(claim.prompt.as_deref(), Some("opaque-continue"));
     assert_eq!(step(&mux, &tab_id, "current-start"), Step::Settled);

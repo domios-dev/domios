@@ -77,6 +77,11 @@ fn host_handoff_carries_identity_and_archive_reference_as_data() {
         .service
         .provider_switch_input(&tab, &[], std::path::Path::new("archive-token"))
         .unwrap();
+    assert_eq!(prepare_handoff(&input).unwrap().text(), input);
+    assert!(prepare_handoff("opaque invalid frame")
+        .err()
+        .unwrap()
+        .starts_with("provider_switch_handoff_invalid:"));
     let frame = codeterm_wire::message_markers::parse_host_injected(&input).unwrap();
     assert_eq!(frame.kind, "system");
     assert_eq!(
@@ -94,6 +99,117 @@ fn host_handoff_carries_identity_and_archive_reference_as_data() {
     assert_eq!(context["cwd"], "cwd-token");
     assert!(!context["pad_path"].as_str().unwrap().is_empty());
     assert!(input.len() <= provider_handoff::input::MAX_INPUT_BYTES);
+}
+
+#[test]
+fn source_archive_failure_releases_authority_and_fences_the_attempt() {
+    let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
+    let tab = mux.get_tab_mut(&id).unwrap();
+    tab.agent_type = Some("source-provider".into());
+    tab.agent_session_id = Some("source-thread".into());
+    tab.session_binding_nonce = Some("source-nonce".into());
+    tab.reported_session_binding_nonce = Some("source-nonce".into());
+    let fixture = ServiceFixture::new(mux);
+    let store = &fixture.service.plan_store;
+    let mut plan = Plan::new(
+        "archive failure".into(),
+        fixture.temp.path().display().to_string(),
+        OrchestratorRef::from_tab("orchestrator"),
+    );
+    plan.mode = PlanMode::Execution;
+    store.save(&mut plan, 1).unwrap();
+    let task = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "opaque work".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    store
+        .assign_task_with_runtime_binding(
+            &plan.id,
+            &task,
+            &id,
+            None,
+            Some("worker"),
+            Some(&AssignmentRuntimeBinding {
+                session_id: "source-thread".into(),
+                session_binding_nonce: "source-nonce".into(),
+                provider: Some("source-provider".into()),
+                model: None,
+                session_model: None,
+                reasoning_effort: None,
+            }),
+            None,
+            3,
+        )
+        .unwrap();
+    store
+        .with_plan(&plan.id, 4, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|entry| entry.id == task)
+                .unwrap();
+            task.interruption.execution_intent = crate::plan::ExecutionIntent::Mutating;
+            task.lane.worktree_path = Some(fixture.temp.path().display().to_string());
+            Ok(())
+        })
+        .unwrap();
+    let carry = fixture
+        .service
+        .authorize_provider_switch_binding(
+            &id,
+            "source-provider",
+            "target-provider",
+            "source-nonce",
+        )
+        .unwrap();
+    assert!(carry.is_some());
+    let source = fixture.service.mux.read().get_tab(&id).unwrap().clone();
+    let _claim = fixture.service.claim_restart(&id, false).unwrap();
+    fixture.service.stage_runtime_restart_binding(&id, carry);
+    let (tx, rx) = std::sync::mpsc::channel();
+    let listener = fixture.ui.listen("coordination-incident", move |payload| {
+        if payload["kind"] == "worker_interruption_checkpoint_failed" {
+            tx.send(()).unwrap();
+        }
+    });
+    let retire = || -> Result<(), String> {
+        let _cleanup = SwitchBindingCleanup {
+            service: &fixture.service,
+            tab_id: &id,
+            interrupt_on_failure: true,
+        };
+        assert!(!fixture.service.signal_worker_interruption(
+            &id,
+            crate::service::worker_interruption::WorkerInterruptionEvent::ForcedContextReset
+        ));
+        assert!(fixture.service.mux.write().remove_tab(&id).is_some());
+        fixture
+            .service
+            .archive_provider_switch_source(&id, &source)?;
+        Ok(())
+    };
+    assert!(retire()
+        .unwrap_err()
+        .contains("tab closed after source retirement"));
+    rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+    fixture.ui.unlisten(listener);
+    let fenced = store.show_task(&task).unwrap().task;
+    assert!(fenced.interruption.handoff_required);
+    assert!(fenced.execution_attempts[0].closed_at.is_some());
+    assert_eq!(
+        fenced.execution_attempts[0].interruption.reason.as_deref(),
+        Some("forced_context_reset")
+    );
+    assert!(!fixture
+        .service
+        .carry_authorized_runtime_restart_binding(&id, "foreign-thread", "foreign-nonce")
+        .unwrap());
 }
 
 #[test]
@@ -276,6 +392,10 @@ fn provider_switch_restores_plan_attempt_for_acknowledgement_and_report() {
         tab.session_binding_nonce = Some("target-nonce".into());
         tab.reported_session_binding_nonce = Some("target-nonce".into());
     }
+    fixture
+        .service
+        .finalize_runtime_worker_session(&tab_id, "target-thread", "target-nonce")
+        .unwrap();
     assert!(fixture
         .service
         .finalize_authorized_runtime_restart_binding(&tab_id, "target-thread", "target-nonce")
@@ -439,4 +559,20 @@ fn provider_switch_refuses_an_attempt_owned_by_another_tab_before_mutation() {
         attempt.session_binding_nonce.as_deref(),
         Some("source-nonce")
     );
+}
+
+#[test]
+fn unavailable_switch_details_omit_the_executable_search_path() {
+    let error = crate::service::spawn_cli::ProviderPreflightError::BinaryUnavailable {
+        provider_id: "target".into(),
+        display_name: "Target".into(),
+        binary: "target-cli".into(),
+        searched: vec![std::path::PathBuf::from("opaque-private-path".repeat(1000))],
+        install_hint: None,
+    };
+    let message = super::switch_preflight_error(error);
+    assert!(message.starts_with("provider_switch_unavailable:"));
+    assert!(message.contains("target-cli"));
+    assert!(!message.contains("opaque-private-path"));
+    assert!(message.len() < 256);
 }

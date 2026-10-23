@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 // Caller: build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe/dev-prebuilt; scripts tests/release-input-reuse.test.mjs
+import { devResourceRoot, devServerPath } from "./dev-native-layout.mjs";
 import crypto from "node:crypto";
 import { StringDecoder } from "node:string_decoder";
 import { runDevApp, nativeLocatorRecord, prebuiltReadinessPhase } from "./dev-app-process.mjs";
 import { devRuntimeEnvironment } from "./dev-runtime-environment.mjs";
+import { waitForReady } from "./server-readiness.mjs";
 import {
   accessSync,
   constants,
@@ -58,6 +60,8 @@ const inputPathspecs = [
   "scripts/dev-server.mjs",
   "scripts/dev-server-bootstrap.ps1",
   "scripts/server-artifact.mjs",
+  "scripts/dev-macos-bundle.mjs",
+  "scripts/dev-native-layout.mjs",
   "scripts/package-server-component-manifest.mjs",
   "scripts/dev-app-process.mjs",
   "scripts/dev-runtime-environment.mjs",
@@ -75,10 +79,6 @@ const inputPathspecs = [
   "scripts/build-gateway.sh",
   "scripts/release-signing.sh",
 ];
-
-function devResourceRoot(app) {
-  return isWin ? dirname(app) : resolve(dirname(app), "../lib/codeterm");
-}
 
 function run(cmd, args, opts = {}) {
   const res = spawnSync(cmd, args, {
@@ -261,7 +261,7 @@ function artifactPaths(options) {
     app: option(options, "--app"),
     cli: option(options, "--cli"),
     frontend: option(options, "--frontend"),
-    server: join(devResourceRoot(option(options, "--app")), "domios-server", isWin ? "domios-server.exe" : "domios-server"),
+    server: devServerPath(option(options, "--app")),
     inventory: join(devResourceRoot(option(options, "--app")), "server-component.json"),
     resources: devResourceRoot(option(options, "--app")),
   };
@@ -559,6 +559,8 @@ async function launchPrebuilt(options) {
   let child;
   let deadline;
   let phase=0;
+  let checkingReadiness = false;
+  const startupWait = new AbortController();
   try {
     await new Promise((resolveReady, rejectReady) => {
       const fail = (error) => rejectReady(error instanceof Error ? error : new Error(String(error)));
@@ -574,7 +576,11 @@ async function launchPrebuilt(options) {
         },
       );
       child.on("message", (message) => {
-        if (message?.type === "ready") resolveReady(message.signal);
+        if (message?.type === "ready" && !checkingReadiness) {
+          checkingReadiness = true;
+          void waitForReady({ origin: `http://127.0.0.1:${apiPort}`, signal: startupWait.signal })
+            .then(() => resolveReady(message.signal), fail);
+        }
         else if (message?.type === "failed") fail(new Error(message.error));
         else if (message?.type === "phase" && Number.isInteger(message.phase) && message.phase === phase+1 && message.phase <= 2) {
           phase=message.phase;
@@ -597,6 +603,7 @@ async function launchPrebuilt(options) {
     await terminateOwnedChild(child);
     throw error;
   } finally {
+    startupWait.abort();
     if (deadline) clearTimeout(deadline);
     if (child) child.removeAllListeners();
   }

@@ -17,8 +17,8 @@ mkdir -p \
   "$FIXTURE/home/.domios-dev-missing/bin" \
   "$FIXTURE/hostile"
 
-printf '%s\n' 'token = "canonical-token"' > "$FIXTURE/home/.domios-dev/config.toml"
-printf '%s\n' 'token = "named-token"' > "$FIXTURE/home/.domios-dev-named-instance/config.toml"
+printf '%s\n' 'canonical-token' > "$FIXTURE/home/.domios-dev/.secrets"
+printf '%s\n' 'named-token' > "$FIXTURE/home/.domios-dev-named-instance/.secrets"
 
 printf '%s\n' \
   '#!/usr/bin/env bash' \
@@ -32,10 +32,10 @@ printf '%s\n' \
   '  printf '\''{"connection":{"data_dir":"%s","host":"127.0.0.1","port":%s,"socket_path":"%s","instance":%s}}\n'\'' "$data_dir" "$port" "$socket" "$instance"' \
   '  exit 0' \
   'fi' \
-  'if [ "${1:-}" = config ] && [ "${2:-}" = get ] && [ "${3:-}" = api.token ]; then' \
+  'if [ "${1:-}" = system ] && [ "${2:-}" = api-token ]; then' \
   '  case "${CODETERM_INSTANCE:-}" in' \
   '    *missing*) echo "Error: CodeTerm socket '\''domios-dev-missing.sock'\'' is not live" >&2; exit 1;;' \
-  '    *) printf '\''{"key":"api.token","value":"named-token"}\n'\''; exit 0;;' \
+  '    *) cat "$CODETERM_DATA_DIR/.secrets"; exit $?;;' \
   '  esac' \
   'fi' \
   'printf "DEV_CLI_WON token=%s port=%s api_url=%s data_dir=%s vite=%s cdp=%s socket=%s instance=%s\n" "$CODETERM_API_TOKEN" "$CODETERM_API_PORT" "$CODETERM_API_URL" "$CODETERM_DATA_DIR" "$CODETERM_VITE_PORT" "$CODETERM_CDP_PORT" "$CODETERM_SOCKET_PATH" "$CODETERM_INSTANCE"' \
@@ -46,10 +46,10 @@ printf '%s\n' \
   '  printf '\''{"connection":{"data_dir":"%s","host":"127.0.0.1","port":7788,"socket_path":"domios-dev-named-instance.sock","instance":"  Named_Instance  "}}\n'\'' "$HOME/.domios-dev-named-instance"' \
   '  exit 0' \
   'fi' \
-  'if [ "${1:-}" = config ] && [ "${2:-}" = get ] && [ "${3:-}" = api.token ]; then' \
+  'if [ "${1:-}" = system ] && [ "${2:-}" = api-token ]; then' \
   '  case "${CODETERM_INSTANCE:-}" in' \
   '    *missing*) echo "Error: CodeTerm socket '\''domios-dev-missing.sock'\'' is not live" >&2; exit 1;;' \
-  '    *) printf '\''{"key":"api.token","value":"named-token"}\n'\''; exit 0;;' \
+  '    *) cat "$CODETERM_DATA_DIR/.secrets"; exit $?;;' \
   '  esac' \
   'fi' \
   'printf "NAMED_DEV_CLI_WON token=%s port=%s api_url=%s data_dir=%s vite=%s cdp=%s socket=%s instance=%s\n" "$CODETERM_API_TOKEN" "$CODETERM_API_PORT" "$CODETERM_API_URL" "$CODETERM_DATA_DIR" "$CODETERM_VITE_PORT" "$CODETERM_CDP_PORT" "$CODETERM_SOCKET_PATH" "$CODETERM_INSTANCE"' \
@@ -68,7 +68,7 @@ printf '%s\n' \
 printf '%s\n' \
   '#!/usr/bin/env bash' \
   '[ -z "${CURL_LOG:-}" ] || printf '\''%s\n'\'' "$*" >> "$CURL_LOG"' \
-  'body="{\"status\":\"ok\",\"instance\":{\"name\":\"${HEALTH_INSTANCE:-}\",\"api_port\":\"${HEALTH_API_PORT:-7686}\",\"vite_port\":\"${HEALTH_VITE_PORT:-1420}\",\"cdp_port\":\"${HEALTH_CDP_PORT:-9223}\"}}"' \
+  'body="{\"status\":\"ok\",\"startup\":{\"state\":\"${HEALTH_STATE:-ready}\"},\"build_sha\":\"1111111111111111111111111111111111111111\",\"instance\":{\"name\":\"${HEALTH_INSTANCE:-}\",\"api_port\":\"${HEALTH_API_PORT:-7686}\",\"vite_port\":\"${HEALTH_VITE_PORT:-1420}\",\"cdp_port\":\"${HEALTH_CDP_PORT:-9223}\"}}"' \
   'case "$*" in' \
   '  *"%{http_code}"*) printf '\''%s\n200\n'\'' "$body";;' \
   '  *) printf '\''%s\n'\'' "$body";;' \
@@ -171,8 +171,8 @@ if ! grep -q "instance='missing'" <<<"$missing_output"; then
   echo "resolution error did not name the requested instance: $missing_output" >&2
   exit 1
 fi
-if ! grep -Fq "resolved_path='$FIXTURE/home/.domios-dev-missing/config.toml'" <<<"$missing_output"; then
-  echo "resolution error did not name the missing config path: $missing_output" >&2
+if ! grep -Fq "resolved_path='$FIXTURE/home/.domios-dev-missing/.secrets'" <<<"$missing_output"; then
+  echo "resolution error did not name the missing credential path: $missing_output" >&2
   exit 1
 fi
 if ! grep -Fq "expected_data_dir='$FIXTURE/home/.domios-dev-missing'" <<<"$missing_output"; then
@@ -209,6 +209,19 @@ default_named_status=$?
 set -e
 if [ "$default_named_status" -eq 0 ] || ! grep -q 'named instance resolved to a default API port' <<<"$default_named_output"; then
   echo "bench resolution accepted a named instance on the default DEV port: $default_named_output" >&2
+  exit 1
+fi
+
+chmod +x "$FIXTURE/home/.domios-dev/bin/codeterm"
+set +e
+starting_output="$(
+  HOME="$FIXTURE/home" PATH="$FIXTURE/hostile:$PATH" HEALTH_STATE=starting \
+    bash -c 'source "$1"; dc tab list' _ "$LIB" 2>&1
+)"
+starting_status=$?
+set -e
+if [ "$starting_status" -eq 0 ] || grep -q DEV_CLI_WON <<<"$starting_output" || ! grep -Fq "ERROR [dev-target]" <<<"$starting_output"; then
+  echo "starting daemon was treated as ready: $starting_output" >&2
   exit 1
 fi
 

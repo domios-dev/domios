@@ -85,13 +85,14 @@ function snapshot(generation: number, options: { withGeneral?: boolean; mainTitl
 
 /** Scripted daemon: every read and every mux-state-changed bind stays pending
  * until the test settles it, and an event emitted before a bind is lost. */
-function createBackend() {
+function createBackend(commands: Record<string, () => unknown> = {}) {
   const reads: Array<Deferred<MultiplexerState>> = [];
   const binds: Array<Deferred<void>> = [];
   const listeners = new Map<string, Set<Handler>>();
   let muxReads = 0;
   return {
     invoke: async <T,>(cmd: string): Promise<T> => {
+      if (commands[cmd]) return await commands[cmd]() as T;
       if (cmd === "mux_get_state") {
         muxReads++;
         const read = deferred<MultiplexerState>();
@@ -156,9 +157,10 @@ const mounted: Array<{ root: Root; host: HTMLElement }> = [];
 async function mountPage(backend: Backend) {
   bridge.__setInvokeForTest(backend.invoke);
   bridge.__setListenForTest(backend.listen);
-  const holder: { state: ExtendedState | null } = { state: null };
+  const holder: { state: ExtendedState | null; actions: ReturnType<Store["useMultiplexer"]> | null } = { state: null, actions: null };
   function Probe() {
     holder.state = store.useMuxState() as ExtendedState;
+    holder.actions = store.useMultiplexer();
     return null;
   }
   const host = document.createElement("div");
@@ -170,6 +172,10 @@ async function mountPage(backend: Backend) {
   });
   return {
     root,
+    actions: () => {
+      if (!holder.actions) throw new Error("mux actions not rendered");
+      return holder.actions;
+    },
     state: () => {
       if (!holder.state) throw new Error("mux state not rendered");
       return holder.state;
@@ -218,6 +224,158 @@ afterEach(async () => {
 });
 
 describe("webview reload rehydration", () => {
+  it("refetches when an off-chain command snapshot makes the reducer decline a stream delta", async () => {
+    const backend = createBackend({ spawn_general_agent_session: () => ({
+      snapshot: snapshot(100), tab_id: MAIN_ID, workspace_id: GENERAL_ID,
+    }) });
+    const page = await mountPage(backend);
+    await hydrate(backend);
+    await act(async () => backend.takeRead().resolve({ ...snapshot(10), tab_statuses: { [MAIN_ID]: "Working" } }));
+    await act(async () => { await page.actions().spawnAgentTab(GENERAL_ID, "fixture", "/general", undefined, undefined, undefined, "fresh_general"); });
+    expect(page.state().generation).toBe(100);
+    await act(async () => backend.emit("mux-state-changed", {
+      base_generation: 10, generation: 11,
+      status_deltas: { [MAIN_ID]: { status: "Idle", agent_state: { state: "idle" } } },
+    }));
+    expect(page.state().muxResyncRequired).toBe(true);
+    expect(backend.muxReads).toBe(2);
+    await act(async () => backend.takeRead().resolve({ ...snapshot(11), tab_statuses: { [MAIN_ID]: "Idle" } }));
+    expect(page.state().generation).toBe(11);
+    expect(page.state().muxResyncRequired).toBe(false);
+    await act(async () => backend.emit("mux-state-changed", {
+      base_generation: 11, generation: 12,
+      status_deltas: { [MAIN_ID]: { status: null, agent_state: null } },
+    }));
+    expect(page.state().generation).toBe(12);
+    expect(page.state().tabStatuses[MAIN_ID]).toBeUndefined();
+    expect(page.state().tabs[MAIN_ID].agent_state).toBeNull();
+    expect(backend.muxReads).toBe(2);
+  });
+
+  it("restores a rejected close from an unchanged published generation", async () => {
+    const close = deferred<void>();
+    const backend = createBackend({ mux_close_tab: () => close.promise });
+    const page = await mountPage(backend);
+    await hydrate(backend);
+    await act(async () => backend.takeRead().resolve(snapshot(10)));
+    await act(async () => page.actions().closeTab(ORDINARY_ID, ORDINARY_TAB_ID));
+    expect(page.state().tabs[ORDINARY_TAB_ID]).toBeUndefined();
+    await act(async () => close.reject(new Error("fixture close refusal")));
+    expect(backend.muxReads).toBe(2);
+    await act(async () => backend.takeRead().resolve(snapshot(10)));
+    expect(page.state().generation).toBe(10);
+    expect(page.state().tabs[ORDINARY_TAB_ID]).toBeDefined();
+    expect(page.state().workspaces.find((workspace) => workspace.id === ORDINARY_ID)?.tabs).toEqual([ORDINARY_TAB_ID]);
+    expect(page.state().pendingCloses).toEqual([]);
+  });
+
+  it.each(["reorder", "move"])("restores a rejected %s without a structural generation change", async (operation) => {
+    const mutation = deferred<void>();
+    const backend = createBackend({ [operation === "move" ? "mux_move_tab" : "mux_reorder_workspace"]: () => mutation.promise });
+    const page = await mountPage(backend);
+    await hydrate(backend);
+    const current = snapshot(10);
+    current.tabs.spare = { id: "spare", title: "Spare" } as Tab;
+    current.workspaces.find((workspace) => workspace.id === ORDINARY_ID)!.tabs.push("spare");
+    current.workspaces.push({ id: "target", name: "Target", tabs: [], active_tab_id: null, cwd: null, sort_order: 2 });
+    await act(async () => backend.takeRead().resolve(current));
+    await act(async () => {
+      if (operation === "move") page.actions().moveTab(ORDINARY_TAB_ID, ORDINARY_ID, "target");
+      else page.actions().reorderWorkspaces([GENERAL_ID, "target", ORDINARY_ID]);
+    });
+    if (operation === "move") expect(page.state().workspaces.find((workspace) => workspace.id === "target")?.tabs).toContain(ORDINARY_TAB_ID);
+    else expect(page.state().workspaces.find((workspace) => workspace.id === ORDINARY_ID)?.sort_order).toBe(2);
+    await act(async () => mutation.reject(new Error("fixture mutation refusal")));
+    expect(backend.muxReads).toBe(2);
+    await act(async () => backend.takeRead().resolve(structuredClone(current)));
+    expect(page.state().generation).toBe(10);
+    expect(page.state().workspaces.find((workspace) => workspace.id === ORDINARY_ID)?.sort_order).toBe(1);
+    expect(page.state().workspaces.find((workspace) => workspace.id === ORDINARY_ID)?.tabs).toEqual([ORDINARY_TAB_ID, "spare"]);
+    expect(page.state().workspaces.find((workspace) => workspace.id === "target")?.tabs).toEqual([]);
+  });
+
+  it("does not let an older forced rollback read overwrite a newer status delta", async () => {
+    const close = deferred<void>();
+    const backend = createBackend({ mux_close_tab: () => close.promise });
+    const page = await mountPage(backend);
+    await hydrate(backend);
+    await act(async () => backend.takeRead().resolve(snapshot(10)));
+    await act(async () => page.actions().closeTab(ORDINARY_ID, ORDINARY_TAB_ID));
+    await act(async () => close.reject(new Error("fixture close refusal")));
+    const rollbackRead = backend.takeRead();
+    await act(async () => backend.emit("mux-state-changed", {
+      base_generation: 10, generation: 12,
+      status_deltas: { [MAIN_ID]: { status: "Idle", agent_state: { state: "idle" } } },
+    }));
+    await act(async () => rollbackRead.resolve(snapshot(10)));
+    expect(page.state().generation).toBe(12);
+    expect(page.state().tabStatuses[MAIN_ID]).toBe("Idle");
+    expect(backend.muxReads).toBe(3);
+    await act(async () => backend.takeRead().resolve({ ...snapshot(12), tab_statuses: { [MAIN_ID]: "Idle" } }));
+    expect(page.state().tabs[ORDINARY_TAB_ID]).toBeDefined();
+    expect(page.state().generation).toBe(12);
+  });
+
+  it("applies a status burst without reads, refetches once for a gap, and resumes deltas", async () => {
+    const backend = createBackend();
+    const page = await mountPage(backend);
+    await hydrate(backend);
+    await act(async () => backend.takeRead().resolve(snapshot(10)));
+    await settleUntil(() => page.state().generation === 10);
+    const workspaces = page.state().workspaces;
+    await act(async () => {
+      for (let i = 0; i < 126; i++) backend.emit("mux-state-changed", {
+        base_generation: 10 + i * 3, generation: 13 + i * 3,
+        status_deltas: { [MAIN_ID]: { status: i % 2 ? "Idle" : "Working", agent_state: { state: i % 2 ? "idle" : "working" } } },
+      });
+    });
+    expect(page.state().generation).toBe(388);
+    expect(page.state().tabStatuses[MAIN_ID]).toBe("Idle");
+    expect(page.state().tabs[MAIN_ID].agent_state).toEqual({ state: "idle" });
+    expect(page.state().workspaces).toBe(workspaces);
+    expect(backend.muxReads).toBe(1);
+
+    await act(async () => {
+      backend.emit("mux-state-changed", { base_generation: 391, generation: 394, status_deltas: {} });
+      backend.emit("mux-state-changed", { base_generation: 394, generation: 397, status_deltas: {} });
+    });
+    expect(backend.muxReads).toBe(2);
+    await act(async () => backend.takeRead().resolve(snapshot(400)));
+    await settleUntil(() => page.state().generation === 400);
+    expect(backend.muxReads).toBe(2);
+    await act(async () => backend.emit("mux-state-changed", {
+      base_generation: 400, generation: 403,
+      status_deltas: { [MAIN_ID]: { status: "Working", agent_state: { state: "working" } } },
+    }));
+    expect(page.state().generation).toBe(403);
+    expect(page.state().tabStatuses[MAIN_ID]).toBe("Working");
+    expect(backend.muxReads).toBe(2);
+  });
+
+  it("keeps newer deltas when an older read completes and resets the base after a daemon restart", async () => {
+    const backend = createBackend();
+    const page = await mountPage(backend);
+    await hydrate(backend);
+    await act(async () => backend.takeRead().resolve(snapshot(10)));
+    await settleUntil(() => page.state().generation === 10);
+    await act(async () => backend.emit("mux-state-changed"));
+    const oldRead = backend.takeRead();
+    await act(async () => backend.emit("mux-state-changed", {
+      base_generation: 10, generation: 15,
+      status_deltas: { [MAIN_ID]: { status: "Idle", agent_state: { state: "idle" } } },
+    }));
+    await act(async () => oldRead.resolve(snapshot(12)));
+    expect(page.state().generation).toBe(15);
+    expect(page.state().tabStatuses[MAIN_ID]).toBe("Idle");
+    await act(async () => window.dispatchEvent(new Event("codeterm-web-boot-changed")));
+    await act(async () => backend.emit("mux-state-changed", {
+      base_generation: 1, generation: 2, status_deltas: {},
+    }));
+    expect(backend.muxReads).toBe(3);
+    await act(async () => backend.takeRead().resolve(snapshot(3)));
+    expect(page.state().generation).toBe(3);
+  });
+
   it("issues the first authoritative read only after the mux event listener is bound", async () => {
     const backend = createBackend();
     const page = await mountPage(backend);

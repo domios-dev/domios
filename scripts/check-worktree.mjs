@@ -1,14 +1,9 @@
 // Caller: build.sh check-queue; scripts/check-worktree.test.mjs
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
-
-function git(directory, args) {
-  const result = spawnSync('git', ['-C', directory, ...args], { encoding: 'utf8', timeout: 120000, maxBuffer: 64 * 1024 * 1024, windowsHide: true });
-  if (result.status !== 0) throw new Error(`check-worktree git ${args[0]} failed (${result.status}): ${result.stderr || result.error?.message}`);
-  return result.stdout.trim();
-}
+import { checkWorktreeRoot, git, noLinkedPath, registeredWorktree } from './check-worktree-paths.mjs';
+export { registeredWorktree } from './check-worktree-paths.mjs';
 
 export function verifyCheckWorktree(directory, sha, expectedTree) {
   if (git(directory, ['rev-parse', 'HEAD']) !== sha ||
@@ -22,16 +17,6 @@ export function verifyCheckWorktree(directory, sha, expectedTree) {
     }
   }
   git(directory, ['diff-files', '--quiet', '--ignore-submodules=none']);
-}
-
-const samePath = (a, b) => {
-  const normalize = value => path.resolve(value).toLowerCase();
-  return process.platform === 'win32' ? normalize(a) === normalize(b) : path.resolve(a) === path.resolve(b);
-};
-
-export function registeredWorktree(repository, directory) {
-  return git(repository, ['worktree', 'list', '--porcelain']).split('\n')
-    .some(line => line.startsWith('worktree ') && samePath(line.slice('worktree '.length).trim(), directory));
 }
 
 const ancestors = file => {
@@ -72,16 +57,25 @@ export function carryUnchangedMtimes(repository, from, to, sha) {
 
 export async function prepareCheckWorktree({ repository, gateway, sha, jobId, beforePublish = async () => {} }) {
   if (!/^[a-zA-Z0-9-]+$/.test(jobId)) throw new Error('Invalid check-worktree job identity');
-  gateway = path.resolve(gateway);
+  const root = fs.realpathSync(gateway);
+  gateway = checkWorktreeRoot(repository, root);
+  noLinkedPath(root, gateway);
+  fs.mkdirSync(gateway, { recursive: true });
   const current = path.join(gateway, 'check-worktree');
   const staging = path.join(gateway, `check-worktree.pending-${jobId}`);
   const previous = path.join(gateway, `check-worktree.previous-${jobId}`);
   const journal = path.join(gateway, 'check-worktree-publication.json');
+  const temporaryJournal = `${journal}.${jobId}`;
+  const checkPaths = () => {
+    for (const directory of [current, staging, previous, journal, temporaryJournal]) noLinkedPath(root, directory);
+  };
+  checkPaths();
   const owned = name => {
     const resolved = path.resolve(name);
     if (path.dirname(resolved) !== gateway || !/^check-worktree\.(pending|previous)-[a-zA-Z0-9-]+$/.test(path.basename(resolved))) {
       throw new Error('Refusing check-worktree publication path outside gateway');
     }
+    noLinkedPath(root, resolved);
     return resolved;
   };
   const move = (from, to) => git(repository, ['worktree', 'move', from, to]);
@@ -123,8 +117,8 @@ export async function prepareCheckWorktree({ repository, gateway, sha, jobId, be
   verifyCheckWorktree(staging, sha, expectedTree);
   if (fs.existsSync(path.join(current, '.git'))) carryUnchangedMtimes(repository, current, staging, sha);
   await beforePublish(staging);
+  checkPaths();
   verifyCheckWorktree(staging, sha, expectedTree);
-  const temporaryJournal = `${journal}.${jobId}`;
   fs.writeFileSync(temporaryJournal, JSON.stringify({ staging, previous, sha, expectedTree }));
   fs.renameSync(temporaryJournal, journal);
   try {

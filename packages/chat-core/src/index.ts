@@ -25,6 +25,7 @@ export type { FrameKind } from "./gen/FrameKind";
 export type { SystemSend } from "./gen/SystemSend";
 export { sessionChanges, fileDiffFromEdit, type SessionChanges, type ChangesTurn, type RecordedFileChange } from "./sessionChanges";
 export { SYSTEM_ORIGIN_LABEL, systemOriginLabel } from "./originLabels";
+export { readableSystemReminder, type ReadableSystemReminder, type SystemReminderSection } from "./systemReminderText";
 export { automationOrigin, type AutomationSource } from "./automationOrigin";
 export {
   DOMIOS_CLOSE_TAG,

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke, listen } from "../../lib/bridge";
-import type { MeshStatus, MeshPeersResponse, PairedPeer, DiscoveredPeer } from "../../lib/types";
+import type { MeshStatus, MeshPeersResponse, PairedPeer } from "../../lib/types";
 import { DEV_BUILD } from "../../lib/devBuild";
 import type { Service } from "./types";
 import { buildHash } from "../../lib/buildStamp";
@@ -215,9 +215,8 @@ export function useMeshData(refreshKey: number): MeshDataResult {
       const status = await invoke<MeshStatus>("mesh_get_status").catch(
         () => null,
       );
-      const meshPeers = await invoke<MeshPeersResponse>("mesh_list_peers").catch(
-        () => ({ paired: [], discovered: [], incoming_requests: [], local_instance_name: "" }),
-      );
+      // A failed peer list is an error state, never an authoritative "0 peers".
+      const meshPeers = await invoke<MeshPeersResponse>("mesh_list_peers");
       const paired: PeerStatus[] = (meshPeers.paired ?? []).map(
         (p: PairedPeer) => ({
           instance_id: p.instance_id,
@@ -230,26 +229,6 @@ export function useMeshData(refreshKey: number): MeshDataResult {
           relay_protocol_version: p.relay_protocol_version,
         }),
       );
-
-      // Vouched-but-not-yet-paired peers: render in the Paired section with "will auto-pair when online" so users don't see a manual button.
-      const pairedIds = new Set(paired.map((p) => p.instance_id));
-      const pairedNamesById = new Map(paired.map((p) => [p.instance_id, p.name] as const));
-      const pending: PeerStatus[] = (meshPeers.discovered ?? [])
-        .filter((d: DiscoveredPeer) => d.vouched_by.length > 0 && !pairedIds.has(d.instance_id))
-        .map((d: DiscoveredPeer) => ({
-          instance_id: d.instance_id,
-          name: d.instance_name,
-          ip: d.addresses[0]?.ip ?? "",
-          api_port: d.api_port,
-          online: false,
-          access_level: "pending",
-          last_seen: null,
-          relay_protocol_version: 0,
-          pending: true,
-          vouched_by_names: d.vouched_by
-            .map((id) => pairedNamesById.get(id))
-            .filter((n): n is string => Boolean(n)),
-        }));
 
       // (stale-flagged) services instead of vanishing (#119/#127).
       const remotePromises = paired
@@ -300,7 +279,7 @@ export function useMeshData(refreshKey: number): MeshDataResult {
           name: status?.instance_name ?? "this",
           ip: status?.local_ip ?? status?.tailscale_ip ?? "",
         },
-        peers: [...peersWithServiceState, ...pending],
+        peers: peersWithServiceState,
         services: mergeServicesView(local, remoteWithCached),
       };
       liveAcceptedRef.current = true;

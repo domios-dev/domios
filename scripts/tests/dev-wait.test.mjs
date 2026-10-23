@@ -1,10 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { healthReady as serverReady } from "../server-readiness.mjs";
 
 const healthReady = (health, apiPort) =>
-  health?.status === "ok" && String(health.instance?.api_port) === String(apiPort);
+  serverReady(health) && String(health.instance?.api_port) === String(apiPort);
 
 const pollFixture = (observations, apiPort) => {
   for (const observation of observations) {
@@ -17,14 +20,15 @@ const pollFixture = (observations, apiPort) => {
 };
 
 test("dev_wait_health accepts already-present healthy dev health", () => {
-  const health = pollFixture([{ health: { status: "ok", instance: { api_port: 7686 } } }], 7686);
+  const health = pollFixture([{ health: { status: "ok", startup: { state: "ready" }, instance: { api_port: 7686 } } }], 7686);
   assert.equal(health.status, "ok");
 });
 
 test("dev_wait_health observes eventual health in the detector sequence", () => {
   const health = pollFixture([
     { health: { status: "starting", instance: { api_port: 7686 } } },
-    { health: { status: "ok", instance: { api_port: 7686 } } },
+    { health: { status: "ok", startup: { state: "starting" }, instance: { api_port: 7686 } } },
+    { health: { status: "ok", startup: { state: "ready" }, instance: { api_port: 7686 } } },
   ], 7686);
   assert.equal(health.instance.api_port, 7686);
 });
@@ -79,13 +83,14 @@ const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' 
 for (const role of ['server', 'combined']) {
   test(`actual DEV health validator preserves exact server identity for ${role}`, () => {
     const sha = 'a'.repeat(40);
-    const health = { status: 'ok', build_sha: sha, instance: { name: 'fixture', api_port: '7786',
+    const health = { status: 'ok', startup: { state: 'ready' }, build_sha: sha, instance: { name: 'fixture', api_port: '7786',
       ...(role === 'combined' ? { vite_port: '1420', cdp_port: '9223', identifier: 'fixture.dev' } : {}) } };
     const check = value => spawnSync(bash, ['-c', `${healthFunctions}\nvalidate_dev_health "$@"`, '--',
       sha, 'fixture', '7786', '1420', '9223', 'fixture.dev', JSON.stringify(value), role], { encoding: 'utf8' });
     assert.equal(check(health).status, 0);
     for (const value of [
       { ...health, status: 'starting' }, { ...health, build_sha: 'b'.repeat(40) }, { ...health, build_sha: sha.slice(0, 8) },
+      { ...health, startup: { state: 'starting' } }, { ...health, startup: { state: 'failed' } }, { ...health, startup: undefined },
       { ...health, instance: { ...health.instance, name: 'other' } },
       { ...health, instance: { ...health.instance, api_port: '7685' } },
     ]) assert.notEqual(check(value).status, 0);
@@ -120,4 +125,42 @@ dev_notify_health_proof parent
     if (admitted) assert.equal(result.stdout, `reported:${'a'.repeat(40)}:20`);
     else assert.equal(result.stdout, '');
   }
+});
+
+
+test('bench startup waits on the launcher acknowledgement before startup events', () => {
+  const lib = readFileSync(new URL('../../evals/_lib/lib.sh', import.meta.url), 'utf8').replaceAll('\r\n', '\n');
+  const functions = ['dev_wait_ready', 'dev_start_bg'].map(name => lib.match(new RegExp(`^${name}\\(\\) \\{[^]*?^\\}`, 'm'))[0]).join('\n');
+  const directory = mkdtempSync(path.join(tmpdir(), 'bench-startup-'));
+  try {
+    for (const exit of [0, 17]) {
+      const result = spawnSync(bash, ['-c', `set -eu
+${functions}
+EVAL_LIB_REPO_ROOT="$PWD"
+dev_data_dir() { printf '%s' "$STARTUP_FIXTURE_DIR"; }
+dev_api_url() { printf 'http://127.0.0.1:7786'; }
+dev_run() {
+  if [ "$1" = node ]; then
+    [ "$3" = wait ] && [ "$4" = http://127.0.0.1:7786 ] || return 91
+    printf 'startup-events'
+  else
+    [ "$2 $3 $4" = 'build.sh dev --wait' ] || return 92
+    return ${exit}
+  fi
+}
+dev_start_bg
+dev_wait_ready 10
+`], { encoding: 'utf8', env: { ...process.env, STARTUP_FIXTURE_DIR: directory } });
+      assert.equal(result.status, exit === 0 ? 0 : 1, result.stderr);
+      assert.equal(result.stdout, exit === 0 ? 'startup-events' : '');
+    }
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('bench startup refuses an acknowledgement descriptor owned by its caller', () => {
+  const lib = readFileSync(new URL('../../evals/_lib/lib.sh', import.meta.url), 'utf8').replaceAll('\r\n', '\n');
+  const start = lib.match(/^dev_start_bg\(\) \{[^]*?^\}/m)[0];
+  const result = spawnSync(bash, ['-c', `${start}\nexec 9</dev/null\ndev_start_bg`], { encoding: 'utf8' });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /already in use/);
 });

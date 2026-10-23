@@ -59,6 +59,8 @@ fn set(root: &Path, provider: &str, input: impl Read, is_terminal: bool) -> Resu
     if !secrets.starts_with(&root) || secrets == root {
         return Err("refusing a secrets directory outside the resolved data directory".into());
     }
+    private_file::restrict_dir(&secrets)
+        .map_err(|error| format!("protect secrets directory: {error}"))?;
     let path = secrets.join(format!("{provider}-embedder.key"));
     private_file::write_atomic(&path, key.trim().as_bytes())
         .map_err(|error| format!("write embedder key file: {error}"))?;

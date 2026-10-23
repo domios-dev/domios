@@ -85,6 +85,33 @@ fn attempt_model_fields_round_trip() {
 }
 
 #[test]
+fn respawn_explicit_reasoning_effort_overrides_the_source_attempt() {
+    let (_dir, store, plan_id, task_id) = super::bound_report_store();
+    let attempt_id = store.show_task(&task_id).unwrap().task.execution_attempts[0]
+        .id
+        .clone();
+    let draft = store
+        .build_task_respawn_draft(
+            &plan_id,
+            &task_id,
+            task_attempts::TaskRespawnRequest {
+                attempt_id,
+                reasoning_effort: Some("opaque-effort".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(draft.reasoning_effort.as_deref(), Some("opaque-effort"));
+    let replacement = store
+        .record_task_respawn_attempt(&plan_id, &task_id, "replacement", &draft, Some("worker"), 5)
+        .unwrap();
+    assert_eq!(
+        replacement.attempt.reasoning_effort.as_deref(),
+        Some("opaque-effort")
+    );
+}
+
+#[test]
 fn respawn_uses_source_resolved_model_instead_of_conflicting_task_model() {
     let (_dir, store, plan_id, task_id) = super::bound_report_store();
     let source_attempt_id = store.show_task(&task_id).unwrap().task.execution_attempts[0]

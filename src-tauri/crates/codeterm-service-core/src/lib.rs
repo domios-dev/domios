@@ -72,7 +72,7 @@ use service::ServiceState;
 
 pub type PtyState = Arc<lock_hold::TimedMutex<PtyManager>>;
 pub type OutputBufferState = Arc<lock_hold::TimedMutex<OutputBuffer>>;
-pub type ScreenStateHandle = Arc<lock_hold::TimedMutex<ScreenState>>;
+pub type ScreenStateHandle = Arc<ScreenState>;
 pub type AgentTrackerState = Arc<lock_hold::TimedMutex<agent::status::TabStatusTracker>>;
 pub type ShellCapabilityState = Arc<Mutex<agent::command_detection::ShellCapabilityTracker>>;
 pub type ReportStoreState = Arc<Mutex<agent::reports::ReportStore>>;

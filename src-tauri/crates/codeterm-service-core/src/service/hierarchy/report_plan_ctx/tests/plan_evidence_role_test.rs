@@ -60,6 +60,9 @@ fn planned_team_taskless_worker_reports_to_parent_without_plan_write() {
     );
     assert_eq!(h.plan(), plan_before);
     assert!(h.reports().contains(token));
+    let deliveries = h._root_recipient.texts.lock();
+    assert_eq!(deliveries.len(), 1);
+    assert!(deliveries[0].contains(token));
 }
 
 #[test]

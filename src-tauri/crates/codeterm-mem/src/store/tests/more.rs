@@ -167,10 +167,19 @@ fn tail_recent_returns_items_newest_first() {
     let a = with_changed_by("user", || {
         insert(&conn, &mk_item("tail a", "a"), &blobs).unwrap()
     });
-    std::thread::sleep(std::time::Duration::from_millis(2));
     let b = with_changed_by("dreaming:rem", || {
         insert(&conn, &mk_item("tail b", "b"), &blobs).unwrap()
     });
+    for (id, updated_at) in [
+        (&a, "2000-01-01T00:00:00+00:00"),
+        (&b, "2000-01-02T00:00:00+00:00"),
+    ] {
+        conn.execute(
+            "UPDATE mem_items SET updated_at = ?1 WHERE id = ?2",
+            params![updated_at, id],
+        )
+        .unwrap();
+    }
 
     let rows = tail_recent(&conn, None, 10).unwrap();
     assert_eq!(rows.len(), 2);
@@ -255,15 +264,12 @@ fn get_bumps_updated_at_when_source_file_changes() {
     )
     .unwrap();
 
-    let initial_updated_at: String = conn
-        .query_row(
-            "SELECT updated_at FROM mem_items WHERE id = ?1",
-            params![&id],
-            |r| r.get(0),
-        )
-        .unwrap();
-
-    std::thread::sleep(std::time::Duration::from_millis(10));
+    let initial_updated_at = "2000-01-01T00:00:00+00:00";
+    conn.execute(
+        "UPDATE mem_items SET updated_at = ?1 WHERE id = ?2",
+        params![initial_updated_at, &id],
+    )
+    .unwrap();
 
     let new_body = "# v2\n\nedited content longer to change size";
     std::fs::write(&skill_md, new_body).unwrap();
@@ -271,7 +277,7 @@ fn get_bumps_updated_at_when_source_file_changes() {
     let got = get(&conn, &id, &blobs).unwrap().unwrap();
     assert_eq!(got.body, new_body, "body must be re-read from disk");
     assert!(
-        got.updated_at > initial_updated_at,
+        got.updated_at.as_str() > initial_updated_at,
         "updated_at must bump when source file content changes (initial={}, after_get={})",
         initial_updated_at,
         got.updated_at,

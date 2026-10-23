@@ -11,7 +11,7 @@ afterEach(closeScenario);
 describe("free", () => {
   it("allows a second workspace beside General, then opens the modal", async () => {
     const scenario = await openScenario(PLAN_PAYLOADS.free, { workspaces: 1 });
-    expect(scenario.tray).toBe("free (active)");
+    expect(scenario.tray).toBe("Free · active");
     await scenario.createWorkspace("/new/second");
     expect(scenario.modalLine()).toBeNull();
     expect(scenario.app.state().workspaces).toHaveLength(3);

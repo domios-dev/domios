@@ -51,6 +51,6 @@ fn readiness(
 ) -> crate::service::output_feed::delivery_readiness::DeliveryReadiness {
     crate::service::output_feed::delivery_readiness::DeliveryReadiness {
         pty_id: pty_id.into(),
-        generation: svc.screen_state.lock().pty_generation(pty_id),
+        generation: svc.screen_state.pty_generation(pty_id),
     }
 }

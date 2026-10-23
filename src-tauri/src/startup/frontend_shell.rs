@@ -1,6 +1,7 @@
 use codeterm_client_shell::app_runtime::WebviewWindow;
 #[cfg(debug_assertions)]
 mod assets;
+mod readiness;
 
 pub fn application_context(
     context: tauri::Context<codeterm_client_shell::app_runtime::Runtime>,
@@ -752,6 +753,7 @@ async fn frontend_url(
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|error| error.to_string())?;
+    readiness::wait(&client, origin).await?;
     let available = tokio::time::timeout(Duration::from_secs(10), async {
         let response = client.get(target.clone()).send().await?;
         let success = response.status().is_success();
