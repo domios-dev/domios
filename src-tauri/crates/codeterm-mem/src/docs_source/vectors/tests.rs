@@ -231,3 +231,88 @@ fn recall_reembed_docs_build_pins_provider_across_switch() {
         .all(|vector| vector.len() == 8));
     assert_eq!(active.identity().dimension, 16);
 }
+
+#[test]
+fn docs_vectors_incremental_cache_reuses_unchanged_sections_after_edits_and_failure() {
+    let dir = tempdir().unwrap();
+    let mut sections = vec![
+        section("A", "First", "first", "original"),
+        section("B", "Second", "second", "original"),
+    ];
+    let calls = std::cell::RefCell::new(Vec::new());
+    let embed = |text: &str| {
+        calls.borrow_mut().push(text.to_owned());
+        Ok(vec![1.0, 2.0])
+    };
+    load_or_build(dir.path(), &sections, "model", 2, &embed).unwrap();
+    assert_eq!(calls.borrow().len(), 2);
+    calls.borrow_mut().clear();
+    sections[1].text = "changed".into();
+    load_or_build(dir.path(), &sections, "model", 2, &embed).unwrap();
+    assert_eq!(*calls.borrow(), vec!["B > Second\nchanged"]);
+    sections.push(section("C", "Third", "third", "new"));
+    assert!(load_or_build(
+        dir.path(),
+        &sections,
+        "model",
+        2,
+        &|_| Err("offline".into())
+    )
+    .is_err());
+    calls.borrow_mut().clear();
+    load_or_build(dir.path(), &sections, "model", 2, &embed).unwrap();
+    assert_eq!(*calls.borrow(), vec!["C > Third\nnew"]);
+    load_or_build(dir.path(), &sections, "model", 2, &|_| {
+        panic!("unchanged boot embedded")
+    })
+    .unwrap();
+    calls.borrow_mut().clear();
+    load_or_build(dir.path(), &sections, "different", 2, &embed).unwrap();
+    assert_eq!(calls.borrow().len(), 3);
+}
+
+#[test]
+fn docs_vectors_split_unicode_into_bounded_inferences_and_pool_all_chunks() {
+    let calls = std::cell::Cell::new(0);
+    let vector = embed_section(&"界".repeat(INFERENCE_CHARS * 2 + 1), 2, &|text| {
+        assert!(text.chars().count() <= INFERENCE_CHARS);
+        calls.set(calls.get() + 1);
+        Ok(vec![1.0, 0.0])
+    })
+    .unwrap();
+    assert_eq!(calls.get(), 3);
+    assert_eq!(vector, vec![1.0, 0.0]);
+}
+
+#[test]
+fn docs_vectors_completed_sections_survive_an_interrupted_initial_build() {
+    let dir = tempdir().unwrap();
+    let sections = vec![
+        section("A", "First", "first", "first content"),
+        section("B", "Second", "second", "second content"),
+    ];
+    assert!(load_or_build(dir.path(), &sections, "model", 2, &|text| {
+        if text.starts_with("B >") {
+            Err("interrupted".into())
+        } else {
+            Ok(vec![1.0, 0.0])
+        }
+    })
+    .is_err());
+    let progress = std::cell::Cell::new(0);
+    let calls = std::cell::RefCell::new(Vec::new());
+    load_or_build_with_progress(
+        dir.path(),
+        &sections,
+        "model",
+        2,
+        &|text| {
+            calls.borrow_mut().push(text.to_owned());
+            Ok(vec![1.0, 0.0])
+        },
+        || progress.set(progress.get() + 1),
+    )
+    .unwrap();
+    assert_eq!(*calls.borrow(), vec!["B > Second\nsecond content"]);
+    assert_eq!(progress.get(), 2);
+}

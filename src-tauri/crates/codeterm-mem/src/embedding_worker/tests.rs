@@ -502,3 +502,65 @@ fn shadow_retirement_keeps_published_recall_after_rejecting_a_late_target() {
     assert_eq!(cache.entries.len(), 1);
     assert_eq!(cache.entries[0].0.model, L12.model);
 }
+
+#[test]
+fn docs_build_query_preempts_small_inferences_within_recall_budget() {
+    let (worker, receivers) = channels();
+    let worker = Arc::new(worker);
+    let (entered, started) = mpsc::channel();
+    let (release, resume) = mpsc::channel();
+    let resume = Mutex::new(resume);
+    let passages = AtomicUsize::new(0);
+    let thread = std::thread::spawn(move || {
+        run(
+            receivers,
+            cpu_pool,
+            |_| Ok(()),
+            |_, text| {
+                if text == "recall" {
+                    return Ok(vec![passages.load(Ordering::SeqCst) as f32, 1.0]);
+                }
+                assert!(text.chars().count() <= 256);
+                if passages.fetch_add(1, Ordering::SeqCst) == 0 {
+                    entered.send(()).unwrap();
+                    resume.lock().recv_timeout(Duration::from_secs(1)).unwrap();
+                }
+                Ok(vec![1.0, 0.0])
+            },
+        );
+    });
+    let docs = {
+        let worker = worker.clone();
+        std::thread::spawn(move || {
+            crate::docs_source::embed_section(&"d".repeat(4000), 2, &|text| {
+                worker.embed(L12, text, false)
+            })
+            .unwrap()
+        })
+    };
+    started.recv_timeout(Duration::from_secs(1)).unwrap();
+    let (reply, response) = mpsc::sync_channel(1);
+    worker
+        .query
+        .try_send(Request {
+            model: L12,
+            text: "recall".into(),
+            reply,
+            caller: "fixture:query".into(),
+        })
+        .unwrap();
+    let _ = worker.wake.try_send(());
+    let started = std::time::Instant::now();
+    release.send(()).unwrap();
+    assert_eq!(
+        response
+            .recv_timeout(crate::embedder::recall_priority::QUERY_BUDGET)
+            .unwrap()
+            .unwrap(),
+        vec![1.0, 1.0]
+    );
+    assert!(started.elapsed() < crate::embedder::recall_priority::QUERY_BUDGET);
+    assert_eq!(docs.join().unwrap(), vec![1.0, 0.0]);
+    drop(worker);
+    thread.join().unwrap();
+}

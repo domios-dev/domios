@@ -42,6 +42,8 @@ impl MemManager {
         let reembed = self.reembed.snapshot();
         // A build or a failed build leaves recall fully semantic on the published model.
         let degraded = !self.embedder.is_available() || index.as_ref() != Some(&identity);
+        let mut queue = self.embed_queue.status(!self.embedder.is_available());
+        crate::docs_source::work::add_status(&mut queue);
         EmbedderStatus {
             provider: identity.provider.clone(),
             model: identity.model.clone(),
@@ -52,7 +54,7 @@ impl MemManager {
             index,
             vectors,
             pending,
-            queue: self.embed_queue.status(!self.embedder.is_available()),
+            queue,
             degraded,
             reembed,
         }
