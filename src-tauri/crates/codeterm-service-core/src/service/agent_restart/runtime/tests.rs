@@ -670,3 +670,71 @@ fn provider_update_version_mismatch_recovers_once_then_reports_failure() {
         "fixture-runtime"
     );
 }
+
+#[test]
+fn locked_tab_refuses_restart_switch_runtime_and_shared_launch_before_side_effects() {
+    let (mut mux, _) = MultiplexerState::new();
+    let workspace = mux.list_workspaces()[0].id.clone();
+    let mut access = codeterm_entitlements::compiled_free();
+    access.limits.agent_tabs.max = Some(0);
+    mux.set_limit_gate(crate::service::billing::LimitGate::new(access, true));
+    let tab = mux.create_tab(&workspace).unwrap();
+    let fixture = ServiceFixture::new(mux);
+    let svc = &fixture.service;
+    for result in [
+        svc.agent_restart_observed_with_options(&tab, RestartOptions::default()),
+        svc.restart_runtime_agent(&tab, true, false),
+    ] {
+        assert!(
+            matches!(result, Err(RestartAttemptError::Request(AgentRestartError::BadRequest(ref message))) if message.starts_with("plan_limit_locked: "))
+        );
+    }
+    assert!(svc
+        .switch_provider_in_place(&tab, "opaque-provider", None, None, true)
+        .err()
+        .unwrap()
+        .starts_with("plan_limit_locked: "));
+    assert!(svc
+        .accept_provider_switch(
+            &tab,
+            super::super::provider_switch::ProviderSwitchRequest {
+                provider: "opaque-provider".into(),
+                model: None,
+                reasoning_effort: None,
+                force: true,
+            },
+            None,
+            None,
+        )
+        .err()
+        .unwrap()
+        .starts_with("plan_limit_locked: "));
+    let (tx, mut rx) = tokio::sync::oneshot::channel();
+    assert!(crate::service::launch_agent_in_background_with_env(
+        svc.clone(),
+        tab.clone(),
+        String::from("must-not-run"),
+        String::from("opaque-provider"),
+        crate::service::AgentLaunchOrigin::RestoredSnapshot,
+        false,
+        None,
+        None,
+        None,
+        Default::default(),
+        None,
+        Some(tx),
+        None,
+    )
+    .is_none());
+    assert!(rx
+        .try_recv()
+        .unwrap()
+        .unwrap_err()
+        .starts_with("plan_limit_locked: "));
+    assert!(svc.mux.read().get_tab(&tab).unwrap().pty_id.is_none());
+    assert!(svc
+        .ext::<super::super::RestartTracker>()
+        .lock()
+        .in_progress
+        .is_empty());
+}

@@ -27,6 +27,27 @@ pub struct LimitGateChange {
 }
 
 impl MultiplexerState {
+    pub(crate) fn admit_restored_items(&self, staged: &Self) -> Result<(), String> {
+        let counts = |state: &Self| {
+            [
+                (
+                    LimitKey::Workspaces,
+                    state.workspaces.iter().filter(|w| !w.protected).count(),
+                ),
+                (LimitKey::Teams, state.teams.len()),
+                (LimitKey::AgentTabs, state.tabs.len()),
+            ]
+        };
+        for ((limit, before), (_, after)) in counts(self).into_iter().zip(counts(staged)) {
+            for count in before..after {
+                self.limit_gate
+                    .admit(limit, count)
+                    .map_err(|error| error.to_string())?;
+            }
+        }
+        Ok(())
+    }
+
     pub fn set_limit_gate(&mut self, gate: LimitGate) -> LimitGateChange {
         if self.limit_gate == gate {
             return LimitGateChange::default();

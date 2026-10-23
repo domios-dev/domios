@@ -40,6 +40,9 @@ impl ServiceContext {
         force: bool,
         fresh: bool,
     ) -> Result<RestartOutcome, RestartAttemptError> {
+        if let Some(refusal) = self.tab_write_lock(tab_id) {
+            return Err(AgentRestartError::BadRequest(refusal.to_string()).into());
+        }
         self.require_background_work_safe(tab_id, force)?;
         let _claim = self.claim_restart(tab_id, false)?;
         let tab = self
