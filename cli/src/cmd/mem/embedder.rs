@@ -166,11 +166,20 @@ pub(crate) fn render_status(value: &Value) -> String {
 pub(crate) fn render_use(value: &Value) -> String {
     let target = &value["target"];
     if value["already_active"].as_bool() == Some(true) {
-        return format!(
+        let mut out = format!(
             "Embedder {}/{} is already active.\n",
             str_of(target, "provider"),
             str_of(target, "model")
         );
+        let cancelled = &value["cancelled"];
+        if !cancelled.is_null() {
+            out.push_str(&format!(
+                "Cancelled the re-embed to {}/{}.\n",
+                str_of(cancelled, "provider"),
+                str_of(cancelled, "model")
+            ));
+        }
+        return out;
     }
     let plan = &value["plan"];
     let mut out = format!(

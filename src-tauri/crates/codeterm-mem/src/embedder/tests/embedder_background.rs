@@ -29,7 +29,7 @@ fn recall_reembed_search_keeps_old_vectors_until_atomic_swap() {
         let status = fx.mem.embedder_status();
         assert_eq!(status.reembed.state, ReembedState::Running);
         assert_eq!(status.reembed.done, done);
-        assert!(status.degraded);
+        assert!(!status.degraded);
         assert_eq!(status.index, Some(old.identity()));
         assert_eq!(vector_rows(&fx.mem), rows);
         let hits = fx
