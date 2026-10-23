@@ -26,3 +26,26 @@ async fn plan_payload_never_carries_unsigned_envelope_authority() {
         assert!(payload.get("grant").is_none());
     }
 }
+
+#[tokio::test]
+async fn displayed_plan_follows_verified_label_and_expiry_over_unsigned_envelope() {
+    let mut reading = paid_grant();
+    reading.entitlements.as_mut().unwrap().plan = Plan::Sponsor;
+    let (time, clock) = clock(1_700_000_060);
+    let billing = Billing::new(GrantReplies::new(vec![Ok(reading)])).with_test_grants(
+        activation("fixture-online-v1"),
+        "fixture-installation",
+        Arc::new(MemoryGrants::default()),
+        clock,
+    );
+    let user = session("fixture-user");
+    let snapshot = billing
+        .refresh(Some(&user), RefreshEvent::SignIn, Instant::now())
+        .await;
+    assert_eq!(snapshot.entitlements.plan, Plan::Pro);
+    assert_eq!(snapshot.access.unwrap().authority, Authority::Billing);
+    time.store(1_700_086_400, std::sync::atomic::Ordering::SeqCst);
+    let snapshot = billing.snapshot(Some(&user));
+    assert_eq!(snapshot.entitlements.plan, Plan::Free);
+    assert_eq!(snapshot.access.unwrap().authority, Authority::Free);
+}

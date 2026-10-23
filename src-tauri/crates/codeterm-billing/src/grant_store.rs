@@ -119,18 +119,37 @@ pub(crate) fn authenticate(
     cached: Option<&VerifiedGrant>,
     now: u64,
 ) -> std::result::Result<VerifiedGrant, Refusal> {
+    authenticate_observed(raw, authority, uid, installation_id, cached, now, |_| {})
+}
+
+pub(crate) fn authenticate_observed(
+    raw: &serde_json::Value,
+    authority: &dyn EntitlementAuthority,
+    uid: &str,
+    installation_id: &str,
+    cached: Option<&VerifiedGrant>,
+    now: u64,
+    observe: impl FnOnce(u64),
+) -> std::result::Result<VerifiedGrant, Refusal> {
     let detached: DetachedGrant =
         serde_json::from_value(raw.clone()).map_err(|_| Refusal::Malformed)?;
-    authority
-        .verify(
-            &detached,
-            &Binding {
-                uid,
-                installation_id,
-            },
-            cached,
-            now,
-        )
+    let result = authority.verify(
+        &detached,
+        &Binding {
+            uid,
+            installation_id,
+        },
+        cached,
+        now,
+    );
+    let issued_at = match &result {
+        Ok(accepted) => Some(accepted.grant.payload().issued_at),
+        Err(rejected) => rejected.facets.authenticated_issued_at,
+    };
+    if let Some(issued_at) = issued_at {
+        observe(issued_at);
+    }
+    result
         .map(|accepted| accepted.grant)
         .map_err(|rejected| rejected.refusal)
 }

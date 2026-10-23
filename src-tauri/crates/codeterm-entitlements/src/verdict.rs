@@ -14,7 +14,7 @@ pub enum TimeState {
 
 impl TimeState {
     pub fn of(payload: &GrantPayload, now: u64) -> Self {
-        if now < payload.not_before {
+        if now < effective_start(payload) {
             Self::NotYetValid
         } else if now >= effective_end(payload) {
             Self::Expired
@@ -33,7 +33,7 @@ impl TimeState {
 /// The next instant the time state changes after `now`; `None` once the grant has expired.
 pub fn next_transition(payload: &GrantPayload, now: u64) -> Option<u64> {
     [
-        payload.not_before,
+        effective_start(payload),
         payload.refresh_after,
         effective_end(payload),
     ]
@@ -47,6 +47,12 @@ fn effective_end(payload: &GrantPayload) -> u64 {
     payload
         .period_end
         .map_or(payload.expires_at, |end| end.min(payload.expires_at))
+}
+
+fn effective_start(payload: &GrantPayload) -> u64 {
+    payload
+        .not_before
+        .saturating_sub(crate::verify::MAX_CLOCK_SKEW_SECS)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

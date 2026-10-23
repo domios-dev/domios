@@ -187,7 +187,7 @@ async fn requires_inventory_keeps_previous_entitlements_stale() {
         .await;
     assert!(second.stale);
     assert_eq!(second.entitlements, first.entitlements);
-    assert_eq!(second.entitlements.plan, Plan::Pro);
+    assert_eq!(second.entitlements.plan, Plan::Free);
     assert_eq!(second.access.unwrap().authority, Authority::Free);
     assert!(!billing.entitlement_allows(Some(&session), Capability::PaidFeatures));
 }
@@ -213,7 +213,7 @@ async fn stale_cache_transport_failure() {
         .refresh(Some(&session), RefreshEvent::CheckoutReturned, now)
         .await;
     assert!(stale.stale);
-    assert_eq!(stale.entitlements, paid());
+    assert_eq!(stale.entitlements.plan, Plan::Free);
     let other = session_for_other();
     let failed = billing
         .refresh(Some(&other), RefreshEvent::SignIn, now)
@@ -488,6 +488,26 @@ impl GrantStore for MemoryGrants {
         Ok(())
     }
 }
+fn store_verified(store: &MemoryGrants, raw: &serde_json::Value) {
+    let authority = codeterm_entitlements::PinnedAuthority::new(activation("fixture-online-v1"));
+    let verified = crate::grant_store::authenticate(
+        raw,
+        &authority,
+        "fixture-user",
+        "fixture-installation",
+        None,
+        1_700_000_060,
+    )
+    .unwrap();
+    store.save(raw).unwrap();
+    let mut floors = crate::Floors::default();
+    floors.revisions.insert(
+        crate::Floors::key("fixture-user", "fixture-installation"),
+        codeterm_entitlements::RevisionFloor::raised(None, &verified),
+    );
+    store.save_floors(&floors).unwrap();
+}
+
 struct GrantReplies {
     replies: parking_lot::Mutex<std::collections::VecDeque<Result<Reading>>>,
     calls: std::sync::atomic::AtomicUsize,
@@ -557,7 +577,7 @@ async fn malformed_grant_with_paid_envelope_is_compiled_free() {
             Instant::now(),
         )
         .await;
-    assert_eq!(snapshot.entitlements, reading.entitlements.unwrap());
+    assert_eq!(snapshot.entitlements.plan, Plan::Free);
     assert_eq!(snapshot.access.unwrap().authority, Authority::Free);
     assert!(snapshot.grant.is_none());
     assert!(store.load().unwrap().is_none());
@@ -642,7 +662,7 @@ async fn grant_reload_reverifies_and_signout_epoch_and_refusal_remove_it() {
     let user = session("fixture-user");
     let raw = paid_grant().grant.unwrap();
     let store = Arc::new(MemoryGrants::default());
-    store.save(&raw).unwrap();
+    store_verified(&store, &raw);
     let (_, injected_clock) = clock(1_700_000_060);
     let make = |epoch| {
         Billing::new(GrantReplies::new(vec![])).with_test_grants(
@@ -660,7 +680,7 @@ async fn grant_reload_reverifies_and_signout_epoch_and_refusal_remove_it() {
     assert_eq!(store.load().unwrap(), Some(raw.clone()));
     billing.snapshot(None);
     assert!(store.load().unwrap().is_none());
-    store.save(&raw).unwrap();
+    store_verified(&store, &raw);
     let changed = make("new-epoch");
     assert!(changed
         .refresh(Some(&user), RefreshEvent::SignIn, Instant::now())
@@ -984,6 +1004,13 @@ fn single_grant_verification_timing() {
 }
 
 fn signed_paid_revisions() -> (codeterm_entitlements::Activation, Reading, Reading) {
+    signed_paid_revisions_at(1_700_000_000, 1_700_000_000)
+}
+
+fn signed_paid_revisions_at(
+    newer_issued: u64,
+    older_issued: u64,
+) -> (codeterm_entitlements::Activation, Reading, Reading) {
     use base64::{
         engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
         Engine,
@@ -1013,7 +1040,17 @@ fn signed_paid_revisions() -> (codeterm_entitlements::Activation, Reading, Readi
             .unwrap(),
     )
     .unwrap();
-    let mut sign = |revision| {
+    let mut sign = |revision, issued| {
+        for (field, delta) in [
+            ("issued_at", 0),
+            ("not_before", 0),
+            ("refresh_after", 3_600),
+            ("expires_at", 86_400),
+            ("grace_until", 86_400),
+            ("period_end", 604_800),
+        ] {
+            payload[field] = serde_json::json!(issued + delta);
+        }
         payload["revision"] = serde_json::json!(revision);
         let bytes = codeterm_entitlements::jcs::encode(&payload).unwrap();
         let mut reading = original.clone();
@@ -1022,7 +1059,7 @@ fn signed_paid_revisions() -> (codeterm_entitlements::Activation, Reading, Readi
         );
         reading
     };
-    (activation, sign(11), sign(10))
+    (activation, sign(11, newer_issued), sign(10, older_issued))
 }
 
 async fn assert_reply_retains_cached_grant(reply: Reading) {
