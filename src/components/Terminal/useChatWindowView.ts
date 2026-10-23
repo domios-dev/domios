@@ -1,3 +1,4 @@
+import { useChatHistoryGaps } from "./useChatHistoryGaps";
 import { useLatestCallback } from "../../hooks/useLatestCallback";
 import { type MutableRefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
@@ -5,7 +6,6 @@ import {
   captureSendEchoBoundary,
   projectContextEpochs,
   projectTranscript,
-  reduceToolEvents,
   stabilizeTimelineItems,
   timestampMs,
   transcriptBackfillCursor,
@@ -16,7 +16,8 @@ import {
   type TranscriptState,
   type TranscriptAuthority,
 } from "@codeterm/chat-core";
-import { enrichTimelineItems, type EnrichmentCache } from "./chatEnrichment";
+import { type EnrichmentCache } from "./chatEnrichment";
+import { CHAT_PAGE_SIZE, CHAT_READING_SIZE, conversationEntries, earlierMessageLabel, revealEarlierMessages } from "./chatPagingModel";
 import {
   addChatSend,
   readChatSendDismissalMarkers,
@@ -37,8 +38,6 @@ import {
   chatWindowProjection,
   chatWindowRange,
   rekeyedChatWindowAnchor,
-  slideChatWindowOlder,
-  olderChatAction,
   timelineItemKey,
   type ChatWindowAnchorIdentity,
 } from "./chatWindow";
@@ -59,6 +58,7 @@ export function useChatWindowView({
   anchorKey,
   followTailRef,
   loadOlderPage,
+  loadHistoryPage,
 }: {
   tabId: string;
   windowKey: string;
@@ -67,12 +67,17 @@ export function useChatWindowView({
   anchorKey: string | null;
   followTailRef: MutableRefObject<boolean>;
   loadOlderPage: (beforeOffset: number, maxBytes: number) => Promise<OlderChatPage | null>;
+  loadHistoryPage?: (message: NormalizedChatMessage) => Promise<NormalizedChatMessage[] | null>;
 }) {
   const { sends, hydration, dismissalRevision } = useChatSendSnapshot(tabId);
   useChatSendDismissals(tabId);
   const [backfillLoading, setBackfillLoading] = useState(false);
   const backfillInFlightRef = useRef(false);
   const [pendingReveal, setPendingReveal] = useState(false);
+  const [readingSize, setReadingSize] = useState({ key: windowKey, size: CHAT_PAGE_SIZE });
+  const windowSize = readingSize.key === windowKey ? readingSize.size : CHAT_PAGE_SIZE;
+  const setWindowSize = (size: number) => setReadingSize({ key: windowKey, size });
+  const initialFillRef = useRef<string | null>(null);
   const [backfillNotice, setBackfillNotice] = useState<"limit" | "exhausted" | "stalled_cursor" | null>(null);
 
   const updateWindowAnchor = useLatestCallback((next: string | null) => {
@@ -107,12 +112,18 @@ export function useChatWindowView({
 
   // Both layers reuse prior objects for unchanged messages so MessageBubble
   // memo keeps skipping the ~220 untouched bubbles on every streamed chunk.
+  const enrichmentCacheRef = useRef<EnrichmentCache>(new WeakMap());
+  const gaps = useChatHistoryGaps(windowKey, loadHistoryPage);
+  const baseEntries = useMemo(() => conversationEntries(allMessages, enrichmentCacheRef.current), [allMessages]);
+  const gapEntries = useMemo(() => gaps.project(baseEntries), [baseEntries, gaps.project]);
+  const leadingGap = gapEntries[0]?.msg.timelineMarker?.kind === "history_gap" ? gapEntries[0].msg : null;
+  const allEntries = useMemo(() => leadingGap ? gapEntries.slice(1) : gapEntries, [gapEntries, leadingGap]);
   const timelineRef = useRef<TimelineItem[] | undefined>(undefined);
   const allTimelineItems = useMemo(() => {
-    const stabilized = stabilizeTimelineItems(timelineRef.current, reduceToolEvents(allMessages));
+    const stabilized = stabilizeTimelineItems(timelineRef.current, allEntries.map(entry => entry.item));
     timelineRef.current = stabilized;
     return stabilized;
-  }, [allMessages]);
+  }, [allEntries]);
 
   // A re-keyed or committed anchor row keeps the reading window in the same render,
   // so the tail is never projected under a detached reader in between.
@@ -146,25 +157,23 @@ export function useChatWindowView({
   anchorIdentityRef.current = anchorIdentity;
 
   const windowRange = useMemo(
-    () => chatWindowRange(allTimelineItems, loadedAnchorKey),
-    [allTimelineItems, loadedAnchorKey],
+    () => chatWindowRange(allTimelineItems, loadedAnchorKey, windowSize),
+    [allTimelineItems, loadedAnchorKey, windowSize],
   );
-  const windowAnchorIsLoaded = anchorKey == null || loadedAnchorKey != null;
 
   const windowProjection = useMemo(
-    () => chatWindowProjection(allTimelineItems, loadedAnchorKey),
-    [allTimelineItems, loadedAnchorKey],
+    () => chatWindowProjection(allTimelineItems, loadedAnchorKey, windowSize),
+    [allTimelineItems, loadedAnchorKey, windowSize],
   );
   const diagnosticTail = allTimelineItems.length > 0 ? timelineItemKey(allTimelineItems[allTimelineItems.length - 1]) : null;
   useLayoutEffect(() => {
     chatScrollDiagnostic(windowKey, "window", { anchorKey, loadedAnchorKey, newerCount: windowProjection.newerCount,
       followTail: followTailRef.current, tail: diagnosticTail });
   }, [anchorKey, loadedAnchorKey, windowProjection.newerCount, diagnosticTail, followTailRef, windowKey]);
-  const enrichmentCacheRef = useRef<EnrichmentCache>(new WeakMap());
-  const enrichedMessages = useMemo(
-    () => enrichTimelineItems(windowProjection.items, enrichmentCacheRef.current),
-    [windowProjection],
-  );
+  const enrichedMessages = useMemo(() => {
+    const byId = new Map(allEntries.map(entry => [entry.msg.id, entry]));
+    return windowProjection.items.map(item => byId.get(timelineItemKey(item))!);
+  }, [allEntries, windowProjection]);
 
   useLayoutEffect(() => {
     if (enrichedMessages.length === 0) return;
@@ -173,50 +182,74 @@ export function useChatWindowView({
 
   useLayoutEffect(() => () => cancelChatStartPaintTiming(tabId), [tabId]);
 
-  const hiddenMessageCount = transcript.evictedOlder + windowRange.start;
+  const hiddenMessageCount = windowRange.start;
   const backfillCursor = transcriptBackfillCursor(transcript);
-  const canBackfillOlder = backfillCursor != null && backfillCursor > 0;
+  const canReadServer = backfillCursor != null && backfillCursor > 0;
+  const canBackfillOlder = canReadServer || leadingGap != null;
+  const olderMessageLabel = earlierMessageLabel(hiddenMessageCount, canBackfillOlder);
 
-  const loadOlder = useLatestCallback(async () => {
-    followTailRef.current = false;
+  const revealOlder = useLatestCallback(() => {
+    const next = revealEarlierMessages(allTimelineItems, loadedAnchorKey, windowSize);
+    setWindowSize(next.size);
+    updateWindowAnchor(next.anchor);
+  }, [allTimelineItems, loadedAnchorKey, windowSize, updateWindowAnchor]);
+
+  const loadOlder = useLatestCallback(async (initial = false) => {
+    if (backfillInFlightRef.current) return;
+    if (!initial) followTailRef.current = false;
     setBackfillNotice(null);
-    const action = olderChatAction(allTimelineItems, loadedAnchorKey, windowAnchorIsLoaded, backfillCursor, backfillInFlightRef.current);
-    if (action.kind === "reveal") {
-      updateWindowAnchor(action.anchorKey);
+    if (hiddenMessageCount >= CHAT_PAGE_SIZE || !canBackfillOlder) {
+      if (!initial) revealOlder();
       return;
     }
-    if (action.kind !== "backfill") return;
+    const first = allTimelineItems[windowRange.start];
+    const firstKey = first ? timelineItemKey(first) : null;
+    const tail = allTimelineItems[windowRange.end - 1];
+    if (!initial) {
+      setWindowSize(windowRange.end - windowRange.start);
+      if (tail) updateWindowAnchor(timelineItemKey(tail));
+    }
     backfillInFlightRef.current = true;
     setBackfillLoading(true);
     try {
-      const result = await searchOlderChatHistory(action.beforeOffset, loadOlderPage);
-      if (result.kind === "reveal") setPendingReveal(true);
-      else if (result.kind === "stop") setBackfillNotice(result.reason);
-      else if (result.kind === "error") setBackfillNotice(result.reason);
+      if (!canReadServer && leadingGap) {
+        await gaps.load(leadingGap);
+        if (!initial) setPendingReveal(true);
+        return;
+      }
+      const result = await searchOlderChatHistory(backfillCursor!, loadOlderPage, undefined, page => {
+        if (!page.messages) return page.rows >= CHAT_PAGE_SIZE;
+        const entries = conversationEntries(page.messages);
+        return firstKey == null ? entries.length >= CHAT_PAGE_SIZE
+          : entries.findIndex(entry => entry.msg.id === firstKey) >= CHAT_PAGE_SIZE;
+      });
+      if (!initial && (result.kind === "reveal" || result.kind === "stop")) setPendingReveal(true);
+      if (result.kind === "stop" || result.kind === "error") setBackfillNotice(result.reason);
+    } catch {
+      setBackfillNotice("stalled_cursor");
     } finally {
       backfillInFlightRef.current = false;
       setBackfillLoading(false);
     }
-  }, [
-    allTimelineItems,
-    backfillCursor,
-    followTailRef,
-    loadedAnchorKey,
-    loadOlderPage,
-    updateWindowAnchor,
-    windowAnchorIsLoaded,
-  ]);
+  }, [allTimelineItems, backfillCursor, canBackfillOlder, followTailRef, hiddenMessageCount,
+    canReadServer, gaps.load, leadingGap, loadOlderPage, revealOlder, updateWindowAnchor, windowRange]);
 
-  // Reveal a merged backfill page as soon as it lands in the timeline —
-  // state-change driven, never timer driven.
   useLayoutEffect(() => {
     if (!pendingReveal) return;
     setPendingReveal(false);
-    updateWindowAnchor(slideChatWindowOlder(allTimelineItems, loadedAnchorKey));
-  }, [allTimelineItems, loadedAnchorKey, pendingReveal, updateWindowAnchor]);
+    revealOlder();
+  }, [allTimelineItems, pendingReveal, revealOlder]);
+
+  useEffect(() => {
+    if (initialFillRef.current === windowKey || transcript.authority == null) return;
+    initialFillRef.current = windowKey;
+    if (allTimelineItems.length >= CHAT_PAGE_SIZE || !canBackfillOlder || backfillInFlightRef.current) return;
+    void loadOlder(true);
+  }, [allTimelineItems.length, backfillCursor, canBackfillOlder, loadOlder, loadOlderPage, transcript.authority, windowKey]);
 
   const showLatest = useLatestCallback(() => {
     followTailRef.current = true;
+    setWindowSize(CHAT_PAGE_SIZE);
     updateWindowAnchor(null);
   }, [followTailRef, updateWindowAnchor]);
 
@@ -263,11 +296,21 @@ export function useChatWindowView({
     addOptimistic,
     allMessages,
     backfillLoading,
-    backfillNotice,
+    backfillNotice: backfillNotice ?? (initialFillRef.current === windowKey && !backfillLoading
+      && canBackfillOlder && enrichedMessages.length < CHAT_PAGE_SIZE ? "limit" : null),
     canBackfillOlder,
     committedRows,
     enrichedMessages,
     hiddenMessageCount,
+    olderMessageLabel,
+    historyGapLabel: gaps.label,
+    loadHistoryGap: async (message: NormalizedChatMessage) => {
+      followTailRef.current = false;
+      const tail = allTimelineItems[windowRange.end - 1];
+      if (tail) updateWindowAnchor(timelineItemKey(tail));
+      const count = await gaps.load(message);
+      if (count > 0) setWindowSize(Math.min(CHAT_READING_SIZE, windowSize + count));
+    },
     newerMessageCount: windowProjection.newerCount,
     loadOlder,
     setHistoryReading,

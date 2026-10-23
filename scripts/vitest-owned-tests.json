@@ -1,4 +1,6 @@
 [
+  "src/components/Terminal/chatPagingModel.test.ts",
+  "src/components/Terminal/useChatWindowView.paging.test.tsx",
   "src/components/Jobs/jobsCount.test.ts",
   "src/components/Canvas/missionControl/ConnectedPlanSettings.test.tsx",
   "src/hooks/useAppNotices.test.tsx",

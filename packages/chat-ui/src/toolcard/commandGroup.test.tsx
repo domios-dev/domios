@@ -205,7 +205,7 @@ describe("compact command tree", () => {
     expect(leads(host)).toEqual(["plan doctor", "plan decision list", "task show"]);
     expect(operators(host)).toEqual([]);
     const more = host.querySelector('[data-testid="chat-command-tree-more"]');
-    expect(more?.textContent).toContain("+1 more");
+    expect(more?.textContent).toContain("Show all 1 remaining step");
 
     await click(more);
     expect(host.querySelector('[data-testid="chat-command-tree-more"]')).toBeNull();
