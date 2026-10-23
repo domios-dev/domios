@@ -278,7 +278,7 @@ export interface AgentProvider {
   sessionResume?(): SessionResumeCapability;
   authStatusProbe?(): {args: string[]; timeoutMs: number} | null;
   tracksBackgroundWork?(): boolean;
-  parseBackgroundWork?(record: unknown): {id:string;state:"running"|"completed"|"failed"|"killed"}[];
+  parseBackgroundWork?(record: unknown): {id:string;state:"running"|"completed"|"failed"|"killed"|"session_boundary"}[];
   reasoningEffortLaunchArgsForModel?(model: string | null, effort: string): string[];
   modelCatalogueSeed?(): ModelInfo[];
   parseAuthStatus?(record: unknown): ProviderAuthStatus | null;

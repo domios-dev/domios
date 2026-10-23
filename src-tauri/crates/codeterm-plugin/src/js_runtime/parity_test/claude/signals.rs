@@ -51,6 +51,11 @@ fn parity_claude_background_work_and_fork_capabilities() {
     );
     for record in [
         json!({"toolUseResult":{"backgroundTaskId":"shell"}}),
+        json!({"type":"system","subtype":"compact_boundary"}),
+        json!({"type":"summary"}),
+        json!({"type":"user","isCompactSummary":true}),
+        json!({"type":"system","subtype":"init"}),
+        json!({"type":"system","subtype":"resume"}),
         json!({"toolUseResult":{"agentId":"agent","status":"async_launched"}}),
         json!({"type":"user","message":{"content":"<task-notification><task-id>shell</task-id><status>completed</status></task-notification>"}}),
         json!({"attachment":{"prompt":"<task-notification><task-id>agent</task-id><status>killed</status></task-notification>"}}),
@@ -61,6 +66,36 @@ fn parity_claude_background_work_and_fork_capabilities() {
             js.parse_background_work(&record)
         );
     }
+    let fixture =
+        std::fs::read_to_string(plugin_fixture_root().join("tests/fixtures/background-work.jsonl"))
+            .unwrap();
+    let mut native_roster = codeterm_types::agent::background_work::BackgroundRoster::default();
+    let mut js_roster = native_roster.clone();
+    for line in fixture.lines() {
+        let value: serde_json::Value = serde_json::from_str(line).unwrap();
+        for observation in native.parse_background_work(&value) {
+            native_roster.observe(&observation, "");
+        }
+        for observation in js.parse_background_work(&value) {
+            js_roster.observe(&observation, "");
+        }
+    }
+    assert_eq!(native_roster, js_roster);
+    assert_eq!(
+        native_roster
+            .running
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        ["live"]
+    );
+    assert!(native_roster.unknown.contains_key("dropped"));
+    assert!(native_roster.ended.contains_key("finished"));
+    let replay: serde_json::Value = serde_json::from_str(fixture.lines().next().unwrap()).unwrap();
+    for observation in native.parse_background_work(&replay) {
+        native_roster.observe(&observation, "");
+    }
+    assert!(!native_roster.running.contains_key("dropped"));
 }
 
 #[test]

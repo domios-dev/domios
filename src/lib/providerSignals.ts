@@ -16,7 +16,7 @@ export function providerErrorReason(error: ProviderErrorKind | null | undefined)
 }
 
 export interface ProviderSignals {
-  background?: { running: Record<string, string>; overflow: boolean; history_incomplete: boolean; history_initialized: boolean };
+  background?: { running: Record<string, string>; unknown?: Record<string, string>; ended?: Record<string, string>; overflow: boolean; history_incomplete: boolean; history_initialized: boolean };
   capabilities?: ProbeSnapshot | null;
   auth: {loggedIn: boolean; authMethod: string | null; subscriptionType: string | null; configDirectory: string | null} | null;
   api_error: ProviderErrorKind | null;
