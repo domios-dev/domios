@@ -12,9 +12,15 @@ pub(super) fn recall(
     if !caller_is_live(&svc.mux.read(), caller) {
         return Err("Blueprint caller is no longer live".into());
     }
-    let result = svc
-        .mem
-        .recall_authoring_blueprints(&area(&caller.workspace), intent, limit)?;
+    let result = svc.mem.recall_authoring_blueprints(
+        &area(&caller.workspace),
+        caller
+            .team
+            .as_deref()
+            .ok_or("Typed call recall requires a Team")?,
+        intent,
+        limit,
+    )?;
     response(result)
 }
 
@@ -72,6 +78,8 @@ fn signature(port: &Port, document: &Document, depth: usize) -> Result<Value, St
 
 fn card(hit: BlueprintHit) -> Result<Value, String> {
     let document = &hit.entry.document;
+    let mut body = document.clone();
+    body.dependencies.clear();
     let id = if hit.entry.id.starts_with("catalog:") || hit.entry.id.starts_with("mem:") {
         hit.entry.id.clone()
     } else {
@@ -98,7 +106,7 @@ fn card(hit: BlueprintHit) -> Result<Value, String> {
         *node_kinds.entry(node.kind()).or_default() += 1;
     }
     Ok(json!({
-        "id":id,"provenance":format!("{provenance}:"),"hash":projection::identity(document)?,"score":hit.score,
+        "id":id,"provenance":format!("{provenance}:"),"hash":projection::identity(&body)?,"score":hit.score,
         "when_to_use":one_line(&hit.entry.when_to_use()),"why":one_line(&hit.why),
         "signature":{"inputs":inputs,"result":result},"node_kinds":node_kinds,
         "enrichment_pending":hit.enrichment_pending,

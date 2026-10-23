@@ -7,6 +7,7 @@ use codeterm_blueprint_types::{
 use rusqlite::{params, Connection};
 use std::sync::atomic::{AtomicU64, Ordering};
 pub mod authoring;
+mod call_revisions;
 pub mod catalog;
 pub(crate) mod cleanup;
 pub mod dedupe;
@@ -43,7 +44,8 @@ pub(crate) enum Pending {
 }
 
 pub(crate) fn initialize(conn: &Connection) -> Result<(), String> {
-    index::initialize(conn)
+    index::initialize(conn)?;
+    call_revisions::initialize(conn)
 }
 
 fn load_entries(
@@ -61,6 +63,16 @@ pub(crate) fn load_entries_in(
     area: &str,
     validate: bool,
 ) -> Result<Vec<Entry>, String> {
+    load_entries_scoped(conn, blobs, area, validate, None)
+}
+
+fn load_entries_scoped(
+    conn: &Connection,
+    blobs: &std::path::Path,
+    area: &str,
+    validate: bool,
+    team: Option<&str>,
+) -> Result<Vec<Entry>, String> {
     let mut stmt=conn.prepare("SELECT m.id FROM mem_items m JOIN solution_metadata s ON s.item_id=m.id WHERE m.kind='skill' AND (?1='' OR m.area=?1) AND m.source=?2 ORDER BY json_extract(s.metadata_json,'$.blueprint.successes') DESC, json_extract(s.metadata_json,'$.blueprint.last_used') DESC, m.id").map_err(|error|error.to_string())?;
     let ids = stmt
         .query_map(params![area, SOURCE], |row| row.get::<_, String>(0))
@@ -69,6 +81,9 @@ pub(crate) fn load_entries_in(
         .map_err(|error| error.to_string())?;
     let mut result = Vec::new();
     for id in ids {
+        if team.is_some() && !call_revisions::same_scope(conn, &id, area, team)? {
+            continue;
+        }
         let item = store::get(conn, &id, blobs)?.ok_or("Blueprint solution disappeared")?;
         let stats = metadata::read(conn, &id)?
             .and_then(|record| record.blueprint)
@@ -134,6 +149,7 @@ fn write_entry(
         },
         blobs,
     )?;
+    call_revisions::retain(conn, &entry.id, document)?;
     metadata::write(conn, &entry.id, &record)
 }
 
@@ -244,12 +260,28 @@ impl MemManager {
             document,
             intents,
             evidence,
+            team,
             index: mut index_row,
         } = prepared;
-        let yaml = document.yaml()?;
         let conn = self.conn.lock();
         let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+        let document =
+            call_revisions::freeze(&tx, &self.blobs_dir, area, team.as_deref(), document)?;
+        if !model::safe_template(&document, &intents.join("; ")) {
+            return Err("Unsafe callee closure cannot be saved".into());
+        }
+        if team.is_some() {
+            index_row = qualification::index_row(&document, &intents);
+        }
+        let yaml = document.yaml()?;
         let mut library = load_entries(&tx, &self.blobs_dir, area, !evidence.kept)?;
+        let mut scoped = Vec::new();
+        for entry in library {
+            if call_revisions::same_scope(&tx, &entry.id, area, team.as_deref())? {
+                scoped.push(entry);
+            }
+        }
+        library = scoped;
         let now = chrono::Utc::now();
         let existing = merge
             .then(|| model::duplicate(&library, &document))
@@ -282,6 +314,9 @@ impl MemManager {
             }
             next.id = existing.id.clone();
             record.observe(&evidence, now.timestamp());
+            if let Some(team) = &team {
+                call_revisions::scope(&tx, &next.id, area, team)?;
+            }
             write_entry(&tx, &self.blobs_dir, &next, record)?;
             let id = next.id.clone();
             library.retain(|entry| entry.id != id);
@@ -317,6 +352,9 @@ impl MemManager {
             };
             let mut record = SolutionMetadata::default();
             record.observe(&evidence, now.timestamp());
+            if let Some(team) = &team {
+                call_revisions::scope(&tx, &next.id, area, team)?;
+            }
             write_entry(&tx, &self.blobs_dir, &next, record)?;
             index::write_row(&tx, &id, &index_row)?;
             library.push(next);
@@ -514,6 +552,9 @@ impl MemManager {
                 }
             }
             for merge in model::dream_merges(&library, MERGE_BUDGET) {
+                if !call_revisions::merge_allowed(&tx, &merge.keeper.id, &merge.superseded)? {
+                    continue;
+                }
                 let mut record =
                     metadata::read(&tx, &merge.keeper.id)?.ok_or("Blueprint metadata absent")?;
                 record.merge(

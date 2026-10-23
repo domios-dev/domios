@@ -5,6 +5,7 @@ use crate::client::SocketClient;
 use crate::cmd::print::{fail, print_json};
 mod apply_output;
 mod authoring;
+mod call_view;
 mod memory;
 mod pipeline_spec;
 mod recipe_files;
@@ -35,6 +36,22 @@ fn read_text_input_file(path: &std::path::Path) -> Result<String, String> {
 }
 
 fn render(job: &Value) {
+    let calls = call_view::text(job);
+    if !calls.is_empty() {
+        println!("{calls}");
+    }
+    if job["saved_solution"] == true {
+        if let Ok(body) = serde_json::to_string_pretty(&job["call_graph"]) {
+            println!("{body}");
+        }
+        println!(
+            "{} [callable] {}@{}",
+            job["name"].as_str().unwrap_or("?"),
+            job["id"].as_str().unwrap_or("?"),
+            job["hash"].as_str().unwrap_or("?")
+        );
+        return;
+    }
     if let Some(note) = job["note"].as_str().filter(|note| !note.is_empty()) {
         println!("Note: {note}");
     }
@@ -245,6 +262,7 @@ pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: Blue
         } => Some(intent.clone()),
         _ => None,
     };
+    let checking = matches!(&action, BlueprintAction::Check { .. });
     let recipe_list = matches!(&action, BlueprintAction::Recipe { name: None });
     let apply_source = match &action {
         BlueprintAction::Apply { source, .. } => Some(source.clone()),
@@ -280,6 +298,32 @@ pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: Blue
         }
         fail(1, error.to_string())
     });
+    if checking {
+        if json_mode {
+            print_json(
+                &json!({"ok":true,"diagnostics":result["diagnostics"],"definition":result["after"],"call_drift":result["call_drift"]}),
+            );
+        } else {
+            if let Ok(diagnostics) = serde_json::from_value::<
+                Vec<codeterm_blueprint_types::blueprint_document::Diagnostic>,
+            >(result["diagnostics"].clone())
+            {
+                print!(
+                    "{}",
+                    codeterm_blueprint_types::blueprint_document::checker::render(
+                        &diagnostics,
+                        true
+                    )
+                );
+            }
+            print!("{}", call_view::drift(&result));
+            println!("Valid Blueprint (host admission)");
+        }
+        return;
+    }
+    if !json_mode {
+        print!("{}", call_view::drift(&result));
+    }
     if method == "blueprint.recall" {
         if !recipe_list {
             result = memory::offers(result, &intent);
@@ -321,6 +365,9 @@ pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: Blue
             print_json(&result)
         } else {
             println!("{}", memory::save_receipt(&result));
+            if let Some(hash) = result["hash"].as_str() {
+                println!("Hash: {hash}");
+            }
         }
         return;
     }
@@ -410,7 +457,7 @@ pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: Blue
         }
     } else {
         render(&result);
-        if method == "blueprint.show" {
+        if method == "blueprint.show" && result["saved_solution"] != true {
             let source = input_source_line(&result)
                 .or_else(|| pipeline_input_source_line(&result))
                 .or_else(|| {
@@ -452,7 +499,13 @@ fn request(
             stopped: _,
             start,
         } => {
-            let definition = authoring::load_checked(&file.to_string_lossy(), &set)?;
+            let bundle = authoring::local_bundle(&file.to_string_lossy())?;
+            let definition = bundle
+                .document
+                .bind(&set)
+                .map_err(|errors| format!("{errors:?}"))?;
+            params["local_callees"] =
+                serde_json::to_value(bundle.local_callees).map_err(|e| e.to_string())?;
             params["recipe"] = json!({"schema_version":2,"definition":definition});
             params["set"] = json!([]);
             params["stopped"] = json!(!start);
@@ -493,8 +546,16 @@ fn request(
             params["intent"] = json!(intent);
             "blueprint.recall"
         }
-        BlueprintAction::Keep { id, when } => {
-            params["id"] = json!(id);
+        BlueprintAction::Keep { id, file, when } => {
+            if let Some(file) = file {
+                let bundle = authoring::local_bundle(&file.to_string_lossy())?;
+                params["definition"] =
+                    serde_json::to_value(bundle.document).map_err(|e| e.to_string())?;
+                params["local_callees"] =
+                    serde_json::to_value(bundle.local_callees).map_err(|e| e.to_string())?;
+            } else {
+                params["id"] = json!(id.ok_or("keep requires id or --file")?);
+            }
             params["when"] =
                 json!(codeterm_blueprint_types::blueprint_memory::validate_intents(&when)?);
             "blueprint.keep"
@@ -519,7 +580,19 @@ fn request(
             note,
             dry_run,
         } => {
-            let mut definition = authoring::load_checked(&source, &set)?;
+            let bundle = authoring::local_bundle(&source)?;
+            if bundle.document.kind == codeterm_blueprint_types::blueprint_document::Kind::Pipeline
+                && bundle.document.trigger.is_none()
+                && bundle.document.result.port.is_some()
+            {
+                return Err("Callable Blueprints are saved with `blueprint keep --file`; reuse them via call".into());
+            }
+            let mut definition = bundle
+                .document
+                .bind(&set)
+                .map_err(|errors| format!("{errors:?}"))?;
+            params["local_callees"] =
+                serde_json::to_value(bundle.local_callees).map_err(|e| e.to_string())?;
             if let Some(note) = note {
                 definition["note"] = json!(note);
             }
@@ -527,7 +600,30 @@ fn request(
             params["dry_run"] = json!(dry_run);
             "blueprint.apply"
         }
-        BlueprintAction::Check { .. } | BlueprintAction::New { .. } | BlueprintAction::Schema => {
+        BlueprintAction::Check {
+            source, set, fix, ..
+        } => {
+            let bundle = authoring::local_bundle(&source)?;
+            if fix
+                && (bundle.document.nodes().any(|node| node.call.is_some())
+                    || !bundle.document.imports.is_empty())
+            {
+                return Err("--fix on call documents requires host resolution and is not supported; check without --fix".into());
+            }
+            params["definition"] = if bundle.document.trigger.is_none()
+                && bundle.document.result.port.is_some()
+                && set.is_empty()
+            {
+                serde_json::to_value(&bundle.document).map_err(|e| e.to_string())?
+            } else {
+                bundle.document.bind(&set).map_err(|e| format!("{e:?}"))?
+            };
+            params["local_callees"] =
+                serde_json::to_value(bundle.local_callees).map_err(|e| e.to_string())?;
+            params["dry_run"] = json!(true);
+            "blueprint.apply"
+        }
+        BlueprintAction::New { .. } | BlueprintAction::Schema => {
             return Err("Blueprint command is handled offline".into())
         }
         BlueprintAction::List => "blueprint.list",
@@ -576,7 +672,13 @@ fn request(
         } => {
             params["id"] = json!(id);
             params["expect_version"] = json!(expect_version);
-            let mut definition = authoring::load_checked(&from_file.to_string_lossy(), &[])?;
+            let bundle = authoring::local_bundle(&from_file.to_string_lossy())?;
+            let mut definition = bundle
+                .document
+                .bind(&[])
+                .map_err(|errors| format!("{errors:?}"))?;
+            params["local_callees"] =
+                serde_json::to_value(bundle.local_callees).map_err(|e| e.to_string())?;
             if let Some(note) = note {
                 definition["note"] = json!(note);
             }

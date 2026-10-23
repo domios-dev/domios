@@ -73,9 +73,9 @@ steps:
   code:
     lang: python
     src: |
-      def main(r):
-          online = [x["name"] for x in r["runners"] if x["status"] == "online"]
-          offline = sorted(x["name"] for x in r["runners"] if x["status"] != "online")
+      def main(value):
+          online = [x["name"] for x in value["runners"] if x["status"] == "online"]
+          offline = sorted(x["name"] for x in value["runners"] if x["status"] != "online")
           return {"online": len(online), "offline": len(offline), "offline_names": offline}
   in:
     $ref: Runners

@@ -35,11 +35,12 @@ impl MemManager {
     pub fn recall_authoring_blueprints(
         &self,
         area: &str,
+        team: &str,
         intent: &str,
         limit: usize,
     ) -> Result<AuthoringRecall, String> {
-        if area.is_empty() {
-            return Err("Intent recall requires a workspace scope".into());
+        if area.is_empty() || team.is_empty() {
+            return Err("Typed call recall requires a Team and workspace scope".into());
         }
         if intent.trim().is_empty() || intent.len() > 4096 || intent.contains('\0') {
             return Err("Intent must contain 1..4096 UTF-8 bytes without NUL".into());
@@ -71,7 +72,7 @@ impl MemManager {
                 unavailable,
             });
         };
-        let mut candidates = self.candidates(area, Some(&identity))?;
+        let mut candidates = self.scoped_candidates(area, team, &identity)?;
         candidates.extend(self.catalog_candidates(&identity, &mut unavailable)?);
         state.vectors_pending = unavailable
             .iter()
@@ -132,6 +133,24 @@ impl MemManager {
             state,
             unavailable,
         })
+    }
+
+    fn scoped_candidates(
+        &self,
+        area: &str,
+        team: &str,
+        identity: &EmbedderIdentity,
+    ) -> Result<Vec<Candidate>, String> {
+        let conn = self.conn.lock();
+        let mut candidates = Vec::new();
+        for entry in super::load_entries_scoped(&conn, &self.blobs_dir, area, true, Some(team))? {
+            candidates.push(Candidate {
+                row: index::read_row(&conn, &entry.id)?,
+                vectors: index::read_vectors(&conn, &entry.id, identity)?,
+                entry,
+            });
+        }
+        Ok(candidates)
     }
 
     fn catalog_candidates(

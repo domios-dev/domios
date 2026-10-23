@@ -73,7 +73,7 @@ fn blueprint_v2_intent_requires_vectors_and_an_explicit_scope_before_returning_c
     let mem = MemManager::open_in_memory().unwrap();
     mem.set_blueprint_embedder(WordEmbedder::new(false));
     let recalled = mem
-        .recall_authoring_blueprints("workspace", "opaque integer operation", 3)
+        .recall_authoring_blueprints("workspace", "team", "opaque integer operation", 3)
         .unwrap();
     assert!(recalled.hits.is_empty());
     assert_eq!(recalled.state.status, "degraded");
@@ -84,15 +84,20 @@ fn blueprint_v2_intent_requires_vectors_and_an_explicit_scope_before_returning_c
         .contains("no lexical substitute"));
     for limit in [0, 21, usize::MAX] {
         assert!(mem
-            .recall_authoring_blueprints("workspace", "intent", limit)
+            .recall_authoring_blueprints("workspace", "team", "intent", limit)
             .is_err());
     }
     for intent in ["", " ", "bad\0intent"] {
         assert!(mem
-            .recall_authoring_blueprints("workspace", intent, 3)
+            .recall_authoring_blueprints("workspace", "team", intent, 3)
             .is_err());
     }
-    assert!(mem.recall_authoring_blueprints("", "intent", 3).is_err());
+    assert!(mem
+        .recall_authoring_blueprints("", "team", "intent", 3)
+        .is_err());
+    assert!(mem
+        .recall_authoring_blueprints("workspace", "", "intent", 3)
+        .is_err());
 }
 
 #[test]
@@ -100,11 +105,14 @@ fn blueprint_v2_intent_scopes_candidates_before_ranking_and_limit() {
     let mem = MemManager::open_in_memory().unwrap();
     mem.set_blueprint_embedder(WordEmbedder::new(true));
     let mut local = Vec::new();
-    for (scope, name) in [
-        ("workspace", "one"),
-        ("workspace", "two"),
-        ("workspace", "three"),
-        ("foreign", "secret"),
+    let mut foreign = String::new();
+    for (scope, team, name) in [
+        ("workspace", Some("team"), "one"),
+        ("workspace", Some("team"), "two"),
+        ("workspace", Some("team"), "three"),
+        ("workspace", Some("other-team"), "foreign-team"),
+        ("workspace", None, "legacy-unscoped"),
+        ("foreign", Some("team"), "foreign-workspace"),
     ] {
         let saved = mem
             .save_blueprint_without_merge(
@@ -117,23 +125,43 @@ fn blueprint_v2_intent_scopes_candidates_before_ranking_and_limit() {
                 },
             )
             .unwrap();
+        if let Some(team) = team {
+            super::super::call_revisions::scope(&mem.conn.lock(), &saved.id, scope, team).unwrap();
+        }
         mem.index_blueprint(&saved.id).unwrap();
-        if scope == "workspace" {
+        if scope == "workspace" && team == Some("team") {
             local.push(saved.id);
+        } else if name == "foreign-team" {
+            foreign = saved.id;
         }
     }
+    crate::store::update(
+        &mem.conn.lock(),
+        &foreign,
+        &crate::store::MemUpdate {
+            body: Some("schema_version: 1\nprivate: foreign body".into()),
+            ..Default::default()
+        },
+        &mem.blobs_dir,
+    )
+    .unwrap();
     let result = mem
-        .recall_authoring_blueprints("workspace", "opaque integer operation", 3)
+        .recall_authoring_blueprints("workspace", "team", "opaque integer operation", 3)
         .unwrap();
     assert_eq!(result.hits.len(), 3);
     assert!(result.hits.iter().all(|hit| local.contains(&hit.entry.id)));
     assert!(result.hits.windows(2).all(|w| w[0].score >= w[1].score));
     let first = mem
-        .recall_authoring_blueprints("workspace", "opaque integer operation", 1)
+        .recall_authoring_blueprints("workspace", "team", "opaque integer operation", 1)
         .unwrap();
     assert_eq!(first.hits.len(), 1);
     assert_eq!(first.hits[0].entry.id, result.hits[0].entry.id);
     assert_eq!(first.hits[0].score, result.hits[0].score);
+    assert_eq!(
+        mem.get(&foreign).unwrap().unwrap().kind,
+        "skill",
+        "recall must not parse or archive a foreign Team's body"
+    );
 }
 
 #[test]

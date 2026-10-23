@@ -4,9 +4,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
+pub mod calls;
 pub mod checker;
 pub use checker::Diagnostic;
-
 mod positions;
 pub mod schema;
 mod types;
@@ -40,6 +40,8 @@ pub struct Document {
     pub types: BTreeMap<String, Port>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub imports: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub dependencies: BTreeMap<String, calls::FrozenCallee>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trigger: Option<Trigger>,
     pub steps: Vec<Node>,
@@ -68,7 +70,7 @@ pub struct Check {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub definition: Option<Value>,
 }
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 pub struct Location {
     pub file: String,
     pub line: usize,
