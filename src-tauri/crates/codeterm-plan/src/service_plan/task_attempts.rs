@@ -765,10 +765,12 @@ impl PlanStore {
                 .find(|attempt| {
                     attempt.id == attempt_id
                         && attempt.executor_tab_id == tab_id
-                        && attempt.closed_at.is_none()
                         && attempt.retired_at.is_none()
                 })
                 .ok_or(PlanError::TaskNotFound)?;
+            if attempt.closed_at.is_some() {
+                return Ok(None);
+            }
             if attempt.reasoning_effort == reasoning_effort {
                 return Ok(None);
             }

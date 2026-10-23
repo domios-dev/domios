@@ -979,6 +979,16 @@ Run dreaming consolidation via the daemon. Phases: light, deep, normalize, all (
 
 The one embedder behind all of mem: list providers, show status, switch
 
+#### `domios mem embedder key`
+
+Store an embedder API key locally from stdin, with owner-only permissions
+
+#### `domios mem embedder key set`
+
+Atomically write <data_dir>/secrets/<provider>-embedder.key. Pipe the key on stdin; terminal input and argv keys are refused
+
+- `<provider>` — Provider id from `mem embedder list`
+
 #### `domios mem embedder list`
 
 List embedder providers, their models, and whether a remote one can be activated
@@ -3498,7 +3508,7 @@ Remove the OS-level autostart trigger created by `enable-autostart`. Idempotent 
 Install an OS login trigger for the external crash-aware supervisor. The supervisor alone applies clean-exit, backoff, and loop policy; platform wrappers never restart the app independently
 
 - `--binary` — Override the path to the Domios executable. Defaults to the installed app binary for the current platform
-- `--supervisor` — Override the path to the codeterm CLI supervisor. Defaults to the currently-running CLI executable
+- `--supervisor` — Select the installed Domios CLI supervisor. Defaults to the stable installed CLI; temporary worker copies are refused
 
 #### `domios tab`
 

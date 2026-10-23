@@ -1,3 +1,5 @@
+import { dismissTopSurface } from "../../lib/backDismissal";
+
 const GUARD_KEY = "codetermWebHistoryGuard";
 
 type GuardState = Record<string, unknown> & { [GUARD_KEY]?: "root" | "guard" };
@@ -15,6 +17,7 @@ export function installWebHistoryGuard(): () => void {
     if (state[GUARD_KEY] === "guard") return;
     const url = `${window.location.pathname}${window.location.search}${window.location.hash}`;
     window.history.pushState({ ...state, [GUARD_KEY]: "guard" }, "", url);
+    dismissTopSurface();
   };
   window.addEventListener("popstate", restore);
   return () => window.removeEventListener("popstate", restore);

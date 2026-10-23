@@ -75,8 +75,11 @@ function TabRenameField({ title, onDone }: { title: string; onDone: (title: stri
         onDone(trimmed && trimmed !== title ? trimmed : null);
       }}
       onKeyDown={(event) => {
+        if (event.key !== "Enter" && event.key !== "Escape") return;
+        event.preventDefault();
+        event.stopPropagation();
         if (event.key === "Enter") event.currentTarget.blur();
-        else if (event.key === "Escape") onDone(null);
+        else onDone(null);
       }}
       className="min-w-0 rounded border border-[var(--ct-border)] bg-[var(--ct-bg)] px-1.5 text-[12px] text-[var(--ct-fg)] outline-none"
       style={{ height: TAB_BAR_CONTROL_H }}

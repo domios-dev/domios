@@ -6,6 +6,7 @@ export type FallbackKeyEvent = Pick<KeyboardEvent, "altKey" | "ctrlKey" | "isCom
 
 type FallbackDispatchEvent = FallbackKeyEvent & Pick<KeyboardEvent, "preventDefault"> & {
   defaultPrevented?: boolean;
+  target?: EventTarget | null;
 };
 
 const interactiveRoles = new Set([
@@ -30,6 +31,8 @@ export function forwardTerminalFallback(
   mode: TabUiMode = "terminal",
 ): boolean {
   if (mode !== "terminal" || event.defaultPrevented || blocksTerminalFallback(active)) return false;
+  // An editable that handled the key may blur or unmount itself first, leaving focus on body.
+  if (event.target instanceof Element && blocksTerminalFallback(event.target)) return false;
   const data = terminalFallbackData(event);
   if (!data) return false;
   event.preventDefault();

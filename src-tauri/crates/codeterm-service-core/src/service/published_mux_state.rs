@@ -3,33 +3,30 @@ use bytes::Bytes;
 use serde::Serialize;
 use std::sync::Arc;
 
+mod status_delta;
+
 struct Snapshot {
     generation: u64,
     /// Newest generation offered, which may carry content identical to `json`.
     latest: u64,
     json: Bytes,
-    content_start: usize,
+    value: Arc<serde_json::Value>,
 }
 
 impl Snapshot {
     fn new(generation: u64, value: &impl Serialize) -> Result<Self, serde_json::Error> {
-        let json = Bytes::from(serde_json::to_vec(value)?);
-        let prefix = format!("{{\"generation\":{generation}");
-        let content_start = if json.starts_with(prefix.as_bytes()) {
-            prefix.len()
-        } else {
-            0
-        };
+        let value = Arc::new(serde_json::to_value(value)?);
+        let json = Bytes::from(serde_json::to_vec(value.as_ref())?);
         Ok(Self {
             generation,
             latest: generation,
             json,
-            content_start,
+            value,
         })
     }
 
-    fn content(&self) -> &[u8] {
-        &self.json[self.content_start..]
+    fn same_content(&self, other: &Self) -> bool {
+        status_delta::equal_except(&self.value, &other.value, &["generation"])
     }
 }
 
@@ -48,35 +45,55 @@ impl PublishedMuxState {
         self.current.load().json.clone()
     }
 
+    pub(super) fn read_value(&self) -> serde_json::Value {
+        self.current.load().value.as_ref().clone()
+    }
+
     pub(super) fn read_versioned(&self) -> (u64, Bytes) {
         let snapshot = self.current.load();
         (snapshot.generation, snapshot.json.clone())
     }
 
-    /// True only when `value` is newer and its content, generation excluded,
-    /// differs from the published body; an identical one keeps the body and its
-    /// generation but still fences off older publications.
-    pub(super) fn publish(
+    pub(super) fn publish_change(
         &self,
         generation: u64,
         value: &impl Serialize,
-    ) -> Result<bool, serde_json::Error> {
+    ) -> Result<Option<serde_json::Value>, serde_json::Error> {
         let next = Arc::new(Snapshot::new(generation, value)?);
         let previous = self.current.rcu(|current| {
             if generation <= current.latest {
                 current.clone()
-            } else if next.content() == current.content() {
+            } else if next.same_content(current) {
                 Arc::new(Snapshot {
                     generation: current.generation,
                     latest: generation,
                     json: current.json.clone(),
-                    content_start: current.content_start,
+                    value: current.value.clone(),
                 })
             } else {
                 next.clone()
             }
         });
-        Ok(generation > previous.latest && next.content() != previous.content())
+        Ok(
+            (generation > previous.latest && !next.same_content(&previous)).then(|| {
+                status_delta::event(
+                    previous.generation,
+                    &previous.value,
+                    generation,
+                    &next.value,
+                )
+            }),
+        )
+    }
+
+    #[cfg(test)]
+    pub(super) fn publish(
+        &self,
+        generation: u64,
+        value: &impl Serialize,
+    ) -> Result<bool, serde_json::Error> {
+        self.publish_change(generation, value)
+            .map(|event| event.is_some())
     }
 }
 

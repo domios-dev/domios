@@ -1,6 +1,37 @@
 use super::*;
 use crate::service::general_agent::{ensure_general_workspace, GENERAL_ALIAS, MAIN_ALIAS};
 
+#[test]
+fn fresh_spawn_response_uses_the_published_generation_and_includes_the_new_tab() {
+    let (mux, _, request) = fixture();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let tab_id = create_fresh_tab(
+        &mut fixture.service.mux.write(),
+        &request.workspace_id,
+        true,
+    )
+    .unwrap();
+    let result = published_spawn_result(&fixture.service, tab_id.clone(), request.workspace_id);
+    let published: serde_json::Value =
+        serde_json::from_slice(&fixture.service.published_mux_state()).unwrap();
+    assert_eq!(result.snapshot, published);
+    assert_eq!(
+        serde_json::to_value(&result).unwrap()["snapshot"],
+        published
+    );
+    assert_eq!(result.snapshot["tabs"][&tab_id]["id"], tab_id);
+    assert_eq!(
+        result.snapshot["generation"],
+        fixture.service.published_mux_state_versioned().0
+    );
+    let off_chain = fixture.service.mux.read().snapshot();
+    assert!(off_chain.generation > result.snapshot["generation"].as_u64().unwrap());
+    assert_eq!(
+        fixture.service.published_mux_state_versioned().0,
+        result.snapshot["generation"]
+    );
+}
+
 fn fixture() -> (
     MultiplexerState,
     crate::config::schema::GeneralAgentConfig,

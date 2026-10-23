@@ -180,8 +180,8 @@ impl AccountMesh {
         if let Some(binding) = known.as_ref().filter(|binding| binding.key_id == key_id) {
             return Ok(binding.generation);
         }
-        let expected_generation = known.map_or(0, |binding| binding.generation);
-        let generation = expected_generation
+        let expected_generation = known.as_ref().map_or(0, |binding| binding.generation);
+        let mut generation = expected_generation
             .checked_add(1)
             .ok_or(AccountMeshRefusal::Invalid)?;
         let body = InstallationKeyBody {
@@ -198,9 +198,27 @@ impl AccountMesh {
             .prove(signed, ProofEndpoint::EnrollInstallation, &body, generation)
             .await?;
         let request = InstallationEnrollment { body, proof };
-        let enrolled = self
+        let enrolled = match self
             .call(self.ports.registry.enroll_key(&signed.session, &request))
-            .await?;
+            .await
+        {
+            Err(AccountMeshRefusal::Conflict) if known.is_none() => {
+                generation = 2;
+                let body = InstallationKeyBody {
+                    installation_id: self.installation(),
+                    public_key_spki_base64: signed.key.spki_base64(),
+                    operation: KeyOperation::Recover,
+                    expected_generation: 1,
+                };
+                let proof = self
+                    .prove(signed, ProofEndpoint::EnrollInstallation, &body, generation)
+                    .await?;
+                let request = InstallationEnrollment { body, proof };
+                self.call(self.ports.registry.enroll_key(&signed.session, &request))
+                    .await?
+            }
+            result => result?,
+        };
         if enrolled.key_id != key_id || enrolled.generation != generation {
             return Err(AccountMeshRefusal::Invalid);
         }
@@ -256,7 +274,10 @@ impl AccountMesh {
             .iter()
             .find(|row| row.installation_id == self.installation())
             .filter(|row| {
-                row.key_id == signed.key.key_id() && row.key_generation > 0 && row.slot_revision > 0
+                row.active
+                    && row.key_id == signed.key.key_id()
+                    && row.key_generation > 0
+                    && row.slot_revision > 0
             })
         else {
             return Ok(None);
@@ -304,17 +325,27 @@ impl AccountMesh {
         };
         let result = match self.admission(&signed, operation).await {
             Ok(result) => result,
-            Err(refusal @ (AccountMeshRefusal::Conflict | AccountMeshRefusal::Forbidden)) => {
-                let Some(slot_revision) = self.reconcile_slot(&signed).await? else {
-                    return Err(refusal);
-                };
-                self.admission(
-                    &signed,
-                    MeshOperation::Renew {
-                        expected_slot_revision: slot_revision,
-                    },
-                )
-                .await?
+            Err(AccountMeshRefusal::Conflict | AccountMeshRefusal::Forbidden) => {
+                match self.reconcile_slot(&signed).await? {
+                    Some(slot_revision) => {
+                        self.admission(
+                            &signed,
+                            MeshOperation::Renew {
+                                expected_slot_revision: slot_revision,
+                            },
+                        )
+                        .await?
+                    }
+                    None => {
+                        self.admission(
+                            &signed,
+                            MeshOperation::Enroll {
+                                expected_slot_revision: 0,
+                            },
+                        )
+                        .await?
+                    }
+                }
             }
             Err(refusal) => return Err(refusal),
         };

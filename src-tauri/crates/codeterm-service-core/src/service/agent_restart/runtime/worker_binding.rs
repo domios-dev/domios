@@ -236,6 +236,9 @@ impl ServiceContext {
         let Some(binding) = tab.task_binding else {
             return Ok(None);
         };
+        if binding.plan_id.is_none() && binding.task_id.is_none() && binding.attempt_id.is_none() {
+            return Ok(None);
+        }
         let (Some(plan), Some(task), Some(attempt)) =
             (binding.plan_id, binding.task_id, binding.attempt_id)
         else {
@@ -319,6 +322,16 @@ impl ServiceContext {
     }
 
     pub(crate) fn carry_authorized_runtime_restart_binding(
+        &self,
+        tab_id: &str,
+        thread: &str,
+        nonce: &str,
+    ) -> Result<bool, PlanBindingFailure> {
+        self.try_carry_authorized_runtime_restart_binding(tab_id, thread, nonce)
+            .inspect_err(|_| self.clear_runtime_restart_binding(tab_id))
+    }
+
+    fn try_carry_authorized_runtime_restart_binding(
         &self,
         tab_id: &str,
         thread: &str,

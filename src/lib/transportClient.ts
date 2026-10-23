@@ -34,7 +34,7 @@ export interface TransportClient {
   json<T>(method: HttpMethod, path: string, body?: unknown, opts?: { signal?: AbortSignal; timeoutMs?: number; callerTabId?: string }): Promise<T>;
   localJson<T>(method: string, path: string, body?: unknown, opts?: { signal?: AbortSignal; callerTabId?: string }): Promise<T>;
   upload<T>(path: string, form: FormData, opts?: { signal?: AbortSignal }): Promise<T>;
-  subscribe(stream: string, onEvent: (name: string, data: unknown) => void | Promise<void>, opts?: { signal?: AbortSignal; onEnd?: (end: StreamEnd) => void; raw?: boolean; onActivity?: () => void; onReady?: () => void }): Unsubscribe;
+  subscribe(stream: string, onEvent: (name: string, data: unknown) => void | Promise<void>, opts?: { signal?: AbortSignal; onEnd?: (end: StreamEnd) => void; raw?: boolean; requireEventStream?: boolean; onActivity?: () => void; onReady?: () => void }): Unsubscribe;
   currentToken(): string | null;
   origin(): string;
 }
@@ -246,6 +246,10 @@ export function createTransportClient(options: TransportOptions): TransportClien
             ? `/api/mesh/relay-stream?${new URLSearchParams({ peer: options.relayPeerId, path })}` : path;
           const response = await localFetch(streamPath, { headers: { Accept: "text/event-stream", "X-CodeTerm-Client-Id": streamClientId }, signal: controller.signal });
           if (!response.ok) throw new TransportError(response.status, path, await response.text());
+          if (init.requireEventStream && response.headers.get("content-type")?.split(";")[0] !== "text/event-stream") {
+            await response.body?.cancel();
+            throw new Error("Daemon response is not an event stream");
+          }
           if (!response.body) throw new Error("Daemon SSE response has no body");
           if (!controller.signal.aborted) init.onReady?.();
           reader = response.body.getReader();

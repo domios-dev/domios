@@ -62,6 +62,32 @@ async function run() {
   assert(snipCard.querySelector("code")?.textContent === "https://developer.apple.com/", "inline code renders");
   assert(fileCard?.querySelector('button[aria-label="Preview file run.log"]'), "a notice's file marker renders as a file chip");
 
+  for (const [id, body, fragment] of [
+    ["worker-reminder", '<codeterm-worker-charter task="task_q">\nworker-frag\n</codeterm-worker-charter>', "worker-frag"],
+    ["orchestrator-reminder", '<codeterm-orchestrator-heartbeat plan="pl_q">\norchestrator-frag\n</codeterm-orchestrator-heartbeat>', "orchestrator-frag"],
+    ["orphan-close-reminder", "orphan-frag\n</codeterm-worker-charter>", "orphan-frag"],
+    ["prototype-name-reminder", "<codeterm-constructor>proto-frag</codeterm-constructor>", "proto-frag"],
+  ] as const) {
+    const reminderHost = document.createElement("div");
+    document.body.appendChild(reminderHost);
+    const reminderRoot = createRoot(reminderHost);
+    await act(async () => {
+      reminderRoot.render(<MessageBubble message={{ id, type: "user", content: body, inboundKind: "system", fromContext: "system" }} />);
+    });
+    const toggle = reminderHost.querySelector<HTMLButtonElement>('[data-testid="chat-system-event"] button[aria-expanded]');
+    assert(toggle, `${id}: the reminder renders as a System notice`);
+    assert(/^System/.test(toggle.textContent ?? ""), `${id}: the capsule is labelled System`);
+    assert(!toggle.textContent?.includes("codeterm-"), `${id}: no internal marker in the capsule`);
+    if (toggle.getAttribute("aria-expanded") !== "true") await act(async () => toggle.click());
+    const text = reminderHost.querySelector('[data-testid="chat-system-event"]')?.textContent ?? "";
+    assert(text.includes(fragment), `${id}: readable body shows`);
+    assert(!text.includes("codeterm-"), `${id}: raw marker never shows`);
+    await act(async () => toggle.click());
+    assert(toggle.getAttribute("aria-expanded") === "false", `${id}: the notice closes`);
+    await act(async () => reminderRoot.unmount());
+    reminderHost.remove();
+  }
+
   await act(async () => root.unmount());
   host.remove();
   console.log("ok - notice cards render markdown and attachments");

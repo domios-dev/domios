@@ -19,10 +19,12 @@ import {
 } from "./tree";
 import type { RemoteTransportAvailability, RemoteTransportChannel } from "../../lib/remoteTabTransportState";
 import { shareSnapshotState } from "./structuralShare";
+import { applyStatusDelta, type MuxStatusDelta } from "./statusDelta";
 
 export type Action =
+  | { type: "APPLY_STATUS_DELTA"; delta: MuxStatusDelta }
   | { type: "UPDATE_SHELL_STATE"; tabId: string; ptyId: string; state: ShellCommandState }
-  | { type: "SET_STATE"; state: MultiplexerState; pageOwnedSelection?: boolean; initialSelection?: PageSelection }
+  | { type: "SET_STATE"; state: MultiplexerState; force?: boolean; pageOwnedSelection?: boolean; initialSelection?: PageSelection }
   | { type: "ADD_WORKSPACE"; workspace: Workspace; tab: Tab }
   | { type: "SET_ACTIVE_WORKSPACE"; id: string }
   | { type: "CLOSE_WORKSPACE"; id: string }
@@ -49,6 +51,7 @@ export type Action =
   | { type: "CLEAR_NOTIFICATIONS" }
   | { type: "DISMISS_TOAST"; id: string }
   | { type: "SET_TAB_TITLE"; tabId: string; title: string; level?: TitleLevel }
+  | { type: "REVERT_TAB_TITLE"; tabId: string; attempted: string; title: string; level?: TitleLevel }
   | { type: "SET_AGENT_TYPE"; tabId: string; agentType: string | null }
   | { type: "UPDATE_TAB_STATUS"; tabId: string; status: TabStatus }
   | { type: "UPDATE_BOOT_STAGE"; tabId: string; stage: BootStage; reason?: string | null; agent_booting?: boolean; session_bound?: boolean; provisional_launch?: Tab["provisional_launch"]; launchGeneration?: TabBootStageEvent["launch_generation"] }
@@ -128,6 +131,8 @@ function addPendingCloses(current: string[], tabIds: string[]): string[] {
 
 export function reducer(state: ExtendedState, action: Action): ExtendedState {
   switch (action.type) {
+    case "APPLY_STATUS_DELTA":
+      return applyStatusDelta(state, action.delta);
     case "UPDATE_REMOTE_CHANNEL": {
       const tab = state.tabs[action.tabId];
       if (!tab?.remote_peer_id || tab.remote_channels?.[action.channel] === action.availability) return state;
@@ -162,6 +167,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         generation: -1,
         pendingCloses: [],
         storageUnavailable: false,
+        muxResyncRequired: false,
       };
 
     case "STORAGE_UNAVAILABLE":
@@ -169,7 +175,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
 
     case "SET_STATE": {
       const incomingGen = action.state.generation;
-      if (typeof incomingGen === "number" && incomingGen <= state.generation) {
+      if (!action.force && typeof incomingGen === "number" && incomingGen <= state.generation) {
         return state;
       }
       // This snapshot is accepted. Apply optimistic-close tombstones now, so a
@@ -271,6 +277,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
           typeof incomingGen === "number" ? incomingGen : state.generation,
         pendingCloses: stillPending,
         storageUnavailable: false,
+        muxResyncRequired: false,
       });
     }
 
@@ -515,6 +522,19 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
             title_level: newLevel,
             title_pending_local: true,
           },
+        },
+      };
+    }
+
+    // A newer title since the refused rename wins; only the attempted one is rolled back.
+    case "REVERT_TAB_TITLE": {
+      const tab = state.tabs[action.tabId];
+      if (!tab || tab.title !== action.attempted) return state;
+      return {
+        ...state,
+        tabs: {
+          ...state.tabs,
+          [action.tabId]: { ...tab, title: action.title, title_level: action.level, title_pending_local: false },
         },
       };
     }

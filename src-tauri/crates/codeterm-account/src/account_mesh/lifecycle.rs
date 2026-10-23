@@ -133,6 +133,7 @@ pub(super) struct Inner {
     notice_epoch: Option<u64>,
     lease: u64,
     lease_failures: u32,
+    store_unreadable: bool,
 }
 
 impl Inner {
@@ -209,6 +210,7 @@ impl AccountMesh {
                 notice_epoch: None,
                 lease: 0,
                 lease_failures: 0,
+                store_unreadable: false,
             }),
             watch: watch::channel(state).0,
             persist_lock: tokio::sync::Mutex::new(()),
@@ -236,13 +238,28 @@ impl AccountMesh {
 
     pub(super) async fn persist(&self) {
         let _guard = self.persist_lock.lock().await;
-        let record = self.with(|inner| inner.record.clone());
+        let record = self.with(|inner| (!inner.store_unreadable).then(|| inner.record.clone()));
+        let Some(record) = record else {
+            return;
+        };
         if let Err(error) = self.ports.store.save(&record).await {
             log::debug!(
                 "[account-mesh] lifecycle persistence failed: {:?}",
                 error.kind()
             );
         }
+    }
+
+    async fn persist_checked(&self) -> Result<(), String> {
+        let _guard = self.persist_lock.lock().await;
+        let record = self
+            .with(|inner| (!inner.store_unreadable).then(|| inner.record.clone()))
+            .ok_or_else(|| "Account Mesh sign-out could not be persisted".to_owned())?;
+        self.ports
+            .store
+            .save(&record)
+            .await
+            .map_err(|_| "Account Mesh sign-out could not be persisted".to_owned())
     }
 
     /// Transport always receives the latest snapshot, in order, after each change.
@@ -256,6 +273,8 @@ impl AccountMesh {
     pub async fn load(&self) {
         let loaded = self.ports.store.load().await;
         self.with(|inner| {
+            let unreadable = loaded.is_err();
+            inner.store_unreadable = unreadable;
             let record = loaded.unwrap_or_else(|_| AccountMeshRecord {
                 signed_out: true,
                 ..AccountMeshRecord::default()
@@ -274,6 +293,12 @@ impl AccountMesh {
                 } else {
                     Cleanup::None
                 };
+                state.enrollment = if unreadable {
+                    Enrollment::Refused
+                } else {
+                    Enrollment::Idle
+                };
+                state.last_refusal = unreadable.then_some(AccountMeshRefusal::Unavailable);
             });
         });
         self.push().await;
@@ -296,6 +321,7 @@ impl AccountMesh {
                     .owner
                     .get_or_insert_with(|| account.clone())
                     .clone();
+                let store_unreadable = inner.store_unreadable;
                 inner.update(&self.watch, |state| {
                     state.account_epoch += 1;
                     state.presence = Presence::SignedIn {
@@ -303,8 +329,13 @@ impl AccountMesh {
                     };
                     state.owner = Some(owner);
                     state.membership = None;
-                    state.enrollment = Enrollment::Idle;
-                    state.last_refusal = None;
+                    state.enrollment = if store_unreadable {
+                        Enrollment::Refused
+                    } else {
+                        Enrollment::Idle
+                    };
+                    state.last_refusal =
+                        store_unreadable.then_some(AccountMeshRefusal::Unavailable);
                     state.limit_notice = None;
                     state.self_installation = None;
                     state.registry = None;
@@ -351,14 +382,17 @@ impl AccountMesh {
 
     /// Explicit sign-out: block durably, withdraw once while the account's credentials still
     /// exist, then `release` them. Only identity changes racing the release are ignored.
-    pub async fn sign_out<T>(&self, release: impl Future<Output = T>) -> (Cleanup, T) {
+    pub async fn sign_out<T>(
+        &self,
+        release: impl Future<Output = T>,
+    ) -> (Cleanup, Result<(), String>, T) {
         let _window = LogoutWindow(self);
-        let cleanup = self.block_and_withdraw().await;
-        (cleanup, release.await)
+        let (cleanup, persisted) = self.block_and_withdraw().await;
+        (cleanup, persisted, release.await)
     }
 
     /// Without a signed-in account there is nothing to sign out of, so legacy continuity stays.
-    async fn block_and_withdraw(&self) -> Cleanup {
+    async fn block_and_withdraw(&self) -> (Cleanup, Result<(), String>) {
         let session = self.ports.sessions.session().await.ok().flatten();
         let Some((account, published)) = self.with(|inner| {
             let account = inner.state.signed_in_account()?.to_owned();
@@ -366,10 +400,10 @@ impl AccountMesh {
             Self::block(inner, &self.watch);
             Some((account, inner.record.published))
         }) else {
-            return self.state().cleanup;
+            return (self.state().cleanup, Ok(()));
         };
         self.push().await;
-        self.persist().await;
+        let mut persisted = self.persist_checked().await;
         let cleanup = if !published {
             Cleanup::Confirmed
         } else {
@@ -395,9 +429,11 @@ impl AccountMesh {
                 state.publication = Publication::None;
             });
         });
-        self.persist().await;
+        if let Err(error) = self.persist_checked().await {
+            persisted = Err(error);
+        }
         self.push().await;
-        cleanup
+        (cleanup, persisted)
     }
 
     /// Single-flight enrollment/renewal for the current account epoch. Concurrent triggers join
