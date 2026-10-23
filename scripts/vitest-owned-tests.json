@@ -303,6 +303,8 @@
   "src/lib/appShortcuts.test.ts",
   "src/components/CommandPalette/CommandPalette.dialog.test.tsx",
   "src/store/multiplexer/createdSelection.test.tsx",
+  "src/store/multiplexer/restoreOrdering.test.ts",
+  "src/store/multiplexer/restoreNavigation.test.tsx",
   "src/lib/restTimeoutPolicy.test.ts",
   "src/lib/streamMuxModel.test.ts",
   "src/lib/streamMux.wiring.test.ts",

@@ -1,7 +1,7 @@
 import { updateNotificationAnswer, type AnswerUpdate } from "../../lib/notificationAnswer";
 import { admitBellNotification } from "../../lib/notificationAdmission";
 import { applyShellState, type ShellCommandState } from "../../lib/shellCommandState";
-import { reconcilePageSelection, type PageSelection } from "./pageSelection";
+import { reconcilePageSelection, seededSelection, type PageSelection } from "./pageSelection";
 import { TitleLevel } from "../../lib/types";
 import type {
   MultiplexerState,
@@ -252,7 +252,8 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
           : state.focused_tab_id && attached.tabs[state.focused_tab_id]
             ? state.focused_tab_id
             : null;
-      const selection = action.initialSelection ?? reconcilePageSelection(state, {
+      const seed = seededSelection(state.selectionNavigated === true, action.initialSelection);
+      const selection = seed ?? reconcilePageSelection(state, {
         focused_tab_id,
         active_workspace_id: action.state.active_workspace_id,
         activeTabIds,
@@ -264,6 +265,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         tabs: attached.tabs,
         teams: action.state.teams ?? [],
         ...selection,
+        ...(seed ? { selectionSeeds: (state.selectionSeeds ?? 0) + 1 } : {}),
         // Prefer the authoritative recently closed list when it is present.
         recently_closed: action.state.recently_closed ?? state.recently_closed,
         closed_structures: action.state.closed_structures ?? [],
@@ -291,7 +293,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
     }
 
     case "SET_ACTIVE_WORKSPACE":
-      return { ...state, active_workspace_id: action.id };
+      return { ...state, active_workspace_id: action.id, selectionNavigated: true };
 
     case "CLOSE_WORKSPACE": {
       const ws = state.workspaces.find((w) => w.id === action.id);
@@ -471,6 +473,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
       return {
         ...state,
         activeTabIds: { ...state.activeTabIds, [action.workspaceId]: action.tabId },
+        selectionNavigated: true,
       };
 
     case "REMOVE_PENDING_CLOSE": {
