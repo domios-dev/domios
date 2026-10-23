@@ -262,13 +262,21 @@ fn blueprint_v2_call_durable_r3_restart_after_receipt_publication_recovers_statu
     assert!(created);
     assert!(owner.claim_terminal_notification(&tab, &id).unwrap());
     assert!(!owner.claim_terminal_notification(&tab, &id).unwrap());
-    assert!(!fixture
+    let before_crash: Vec<_> = fixture
         .ui
         .0
         .lock()
         .iter()
-        .any(|(kind, event)| kind == "agent-delivery-status" && event["delivery_id"] == id));
-    // Restart after the receipt and emit claim, before any event was emitted.
+        .filter(|(kind, event)| kind == "agent-delivery-status" && event["delivery_id"] == id)
+        .map(|(_, event)| event.clone())
+        .collect();
+    assert_eq!(
+        before_crash,
+        [serde_json::json!({
+            "tab_id": tab, "delivery_id": id, "status": "pending",
+            "producer": "original-run", "created_at_ms": 1000, "bytes_written": false,
+        })]
+    );
     let next = restarted(&fixture, clock);
     let writes = next.record_agent_deliveries(&tab);
     let owner = &next.service.pending_delivery_payloads.agent_deliveries;
@@ -282,9 +290,17 @@ fn blueprint_v2_call_durable_r3_restart_after_receipt_publication_recovers_statu
     let failures: Vec<_> = events
         .iter()
         .filter(|(kind, event)| kind == "agent-delivery-status" && event["delivery_id"] == id)
+        .map(|(_, event)| event.clone())
         .collect();
-    assert_eq!(failures.len(), 1);
-    assert_eq!(failures[0].1, failure);
+    assert_eq!(failures, [failure]);
+    assert_eq!(
+        before_crash
+            .iter()
+            .chain(failures.iter())
+            .filter(|event| event["status"] == "failed")
+            .count(),
+        1
+    );
     assert_eq!(
         next.service
             .notif
@@ -324,7 +340,20 @@ fn blueprint_v2_call_durable_r3_edited_receipt_preserves_file_and_unblocks_later
     else {
         panic!("later durable admission");
     };
-    writes.wait_for_flush();
+    assert!(
+        !owner.start_worker(&tab),
+        "the held head is parked until an authority state change"
+    );
+    assert_eq!(
+        owner
+            .records(&tab)
+            .unwrap()
+            .iter()
+            .map(|record| record.id.as_str())
+            .collect::<Vec<_>>(),
+        [id.as_str(), later_id.as_str()]
+    );
+    assert!(writes.texts.lock().is_empty());
     fixture
         .service
         .fail_durable_delivery(&tab, owner, &record, &payload, "recipient_gone")
