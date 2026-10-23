@@ -113,7 +113,7 @@ export function EmbedderCard({ config }: { config: AppConfig }) {
           aria-label="Embedder"
           className="ct-field w-72"
           value={selected}
-          disabled={busy || isReembedding(status)}
+          disabled={busy}
           onChange={(event) => void choose(event.target.value)}
         >
           {options.map((option) => (

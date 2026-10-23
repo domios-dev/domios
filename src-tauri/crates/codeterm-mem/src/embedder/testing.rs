@@ -24,6 +24,7 @@ pub(crate) struct MockProvider {
     down: AtomicBool,
     pub calls: AtomicUsize,
     gate: Mutex<Option<Gate>>,
+    failures: Mutex<Vec<(String, EmbedError, bool)>>,
 }
 
 impl MockProvider {
@@ -36,6 +37,7 @@ impl MockProvider {
             down: AtomicBool::new(false),
             calls: AtomicUsize::new(0),
             gate: Mutex::new(None),
+            failures: Mutex::new(Vec::new()),
         })
     }
 
@@ -50,6 +52,20 @@ impl MockProvider {
         let (release, release_rx) = mpsc::channel();
         *self.gate.lock() = Some((started_tx, Arc::new(Mutex::new(release_rx))));
         (started, release)
+    }
+
+    /// Every later passage containing `word` fails with `error`.
+    pub fn fail_on(&self, word: &str, error: EmbedError) {
+        self.failures.lock().push((word.into(), error, false));
+    }
+
+    /// The next passage containing `word` fails with `error`, later ones succeed.
+    pub fn fail_once(&self, word: &str, error: EmbedError) {
+        self.failures.lock().push((word.into(), error, true));
+    }
+
+    pub fn ungate(&self) {
+        *self.gate.lock() = None;
     }
 
     pub fn vector(&self, text: &str) -> Vec<f32> {
@@ -81,6 +97,19 @@ impl MockProvider {
         }
         if self.down.load(Ordering::SeqCst) {
             return Err(EmbedError::Unavailable("mock outage".into()));
+        }
+        if gated {
+            let mut failures = self.failures.lock();
+            if let Some(index) = failures
+                .iter()
+                .position(|(word, _, _)| text.contains(word.as_str()))
+            {
+                let error = failures[index].1.clone();
+                if failures[index].2 {
+                    failures.remove(index);
+                }
+                return Err(error);
+            }
         }
         self.calls.fetch_add(1, Ordering::SeqCst);
         Ok(self.vector(&text))

@@ -56,10 +56,15 @@ impl ActiveEmbedder {
     }
 
     pub fn replace(&self, provider: SharedProvider) {
+        let identity = self.replace_silent(provider);
+        self.emit(&EmbedderEvent::Switched(identity));
+    }
+
+    pub(crate) fn replace_silent(&self, provider: SharedProvider) -> EmbedderIdentity {
         let identity = provider.identity();
         *self.provider.write() = provider;
         self.available.store(true, Ordering::SeqCst);
-        self.emit(&EmbedderEvent::Switched(identity));
+        identity
     }
 
     pub fn subscribe(&self, observer: Observer) {
@@ -158,7 +163,7 @@ impl ActiveEmbedder {
                     self.emit(&EmbedderEvent::Recovered);
                 }
             }
-            Err(EmbedError::Unavailable(reason)) => {
+            Err(EmbedError::Unavailable(reason) | EmbedError::NotBuilt(reason)) => {
                 if self.available.swap(false, Ordering::SeqCst) {
                     log::warn!("[mem.embedder] provider unavailable: {reason}");
                     self.emit(&EmbedderEvent::Unavailable(reason.clone()));
