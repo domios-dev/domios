@@ -186,6 +186,14 @@ List available models for a specific provider
 
 List available agent providers (claude, codex, ...) with their display names, default models, and capability flags
 
+#### `domios agent reparent`
+
+Move an unbound running worker under a live local Team Orchestrator without restarting it
+
+- `--peer` — Peer that owns the worker; --to always names an Orchestrator on this machine
+- `<tab>`
+- `--to`
+
 #### `domios agent report`
 
 Send a report to your parent in the hierarchy
@@ -3835,8 +3843,9 @@ Team registry, 1:1 plan binding, and paired creation
 
 #### `domios team adopt-agent`
 
-Attach an already-running roleless agent or plain shell tab to a Team (a shell becomes a utility shell, process kept)
+Attach a running roleless agent or shell locally, or adopt an unbound remote worker with --peer
 
+- `--peer` — Peer that owns the running remote worker; the Team stays local
 - `<tab_id>` — Tab ID of the running agent or shell
 - `<team_id>` — Team ID
 
