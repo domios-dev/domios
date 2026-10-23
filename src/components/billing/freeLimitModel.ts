@@ -102,11 +102,12 @@ export function lockedView(limit: LocalLimitKey, item: { locked?: boolean } | nu
   return item?.locked === true ? { locked: true, limit, label: `${LOCKED_NOUN[limit]} locked by the free plan` } : UNLOCKED;
 }
 
-/** A tab is locked by its own mark or by its workspace's: a locked workspace locks everything in it. */
-export function tabLockedView(tab: { locked?: boolean } | null | undefined, workspace: { locked?: boolean } | null | undefined): LockedView {
+export function tabLockedView(tab: { locked?: boolean } | null | undefined, workspace: { locked?: boolean } | null | undefined, team?: { locked?: boolean } | null): LockedView {
   const own = lockedView("agent.tabs", tab);
-  if (own.locked || workspace?.locked !== true) return own;
-  return { locked: true, limit: "workspaces", label: "Tab locked: its workspace is over the free plan" };
+  if (own.locked) return own;
+  if (workspace?.locked === true) return { locked: true, limit: "workspaces", label: "Tab locked: its workspace is over the free plan" };
+  if (team?.locked === true) return { locked: true, limit: "teams", label: "Tab locked: its Team is over the free plan" };
+  return own;
 }
 
 /** Muted look for a locked item's title and icon; the lock badge itself is never dimmed. */
