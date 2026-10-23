@@ -398,9 +398,23 @@ export function SettingsPanel({
 
                 <SettingsCard icon={<Keyboard size={16} />} title="Keybindings">
                   <KeybindGroup title="Tabs" bindings={[
+                    ["new_tab", "New Tab"],
+                    ["close_tab", "Close Tab"],
                     ["next_tab", "Next Tab / Plan Entry"],
                     ["prev_tab", "Previous Tab / Plan Entry"],
                     ["reopen_tab", "Reopen Closed Tab"],
+                    ["new_workspace", "New Workspace"],
+                  ]} config={localConfig} onUpdate={saveDraft} />
+                  <KeybindGroup title="Terminal" bindings={[
+                    ["copy", "Copy Selection"],
+                    ["paste", "Paste"],
+                    ["search", "Find"],
+                  ]} config={localConfig} onUpdate={saveDraft} />
+                  <KeybindGroup title="View" bindings={[
+                    ["zoom_in", "Zoom In"],
+                    ["zoom_out", "Zoom Out"],
+                    ["zoom_reset", "Reset Zoom"],
+                    ["open_settings", "Settings"],
                   ]} config={localConfig} onUpdate={saveDraft} />
                 </SettingsCard>
               </SettingsPage>

@@ -35,6 +35,17 @@ pub(crate) fn dispatch(cli: Cli) -> Option<Cli> {
             None
         }
 
+        Commands::Mem {
+            action:
+                MemAction::Embedder {
+                    action: crate::MemEmbedderAction::Key { action },
+                },
+        } => {
+            let crate::MemEmbedderKeyAction::Set { provider } = action;
+            cmd::mem::embedder::key_set::handle(json, &provider);
+            None
+        }
+
         // stale CODETERM_SOCKET_PATH inherited from a previous daemon PID (e.g. after update install --auto restarts the binary) doesn't make the worker exit 1 before it can do any work.
         Commands::Mem {
             action: MemAction::RunWorker { kind, db_path },

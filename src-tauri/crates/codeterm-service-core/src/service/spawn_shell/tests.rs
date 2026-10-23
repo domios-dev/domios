@@ -127,7 +127,7 @@ fn failed_shell_build_leaves_no_pty_link() {
 }
 
 #[test]
-fn worker_owned_utility_shell_inherits_task_context_and_reports_to_worker() {
+fn worker_owned_utility_shell_has_no_task_authority_and_reports_to_worker() {
     let (mut mux, orchestrator_id) = MultiplexerState::new();
     mux.set_orchestrator_role(&orchestrator_id).unwrap();
     let team_id = mux
@@ -164,23 +164,6 @@ fn worker_owned_utility_shell_inherits_task_context_and_reports_to_worker() {
         .plan_store
         .assign_task(&plan.id, &task_id, &worker_id, None, 3)
         .unwrap();
-    let assigned_task = fixture
-        .service
-        .plan_store
-        .get(&plan.id)
-        .unwrap()
-        .tasks
-        .into_iter()
-        .find(|task| task.id == task_id)
-        .unwrap();
-    let attempt_id = assigned_task
-        .execution_attempts
-        .iter()
-        .rev()
-        .find(|attempt| attempt.executor_tab_id == worker_id && attempt.closed_at.is_none())
-        .unwrap()
-        .id
-        .clone();
     let delivered =
         fixture.bind_recorded_agent_recipient(&worker_id, "worker-session", "worker-nonce");
 
@@ -206,50 +189,84 @@ fn worker_owned_utility_shell_inherits_task_context_and_reports_to_worker() {
     assert_eq!(tab.team_id.as_deref(), Some(team_id.as_str()));
     assert_eq!(tab.role, None);
 
-    let env = fixture.service.tab_env(&shell.tab_id);
-    assert_eq!(
-        env.get("CODETERM_PARENT_TAB_ID").map(String::as_str),
-        Some(worker_id.as_str())
-    );
-    assert_eq!(env.get("CODETERM_ROLE").map(String::as_str), Some("Worker"));
-    assert_eq!(
-        env.get("CODETERM_PLAN_ID").map(String::as_str),
-        Some(plan.id.as_str())
-    );
-    assert_eq!(
-        env.get("CODETERM_TASK_ID").map(String::as_str),
-        Some(task_id.as_str())
-    );
-    assert_eq!(
-        env.get("CODETERM_ATTEMPT_ID").map(String::as_str),
-        Some(attempt_id.as_str())
-    );
+    for env in [
+        fixture.service.tab_env(&shell.tab_id),
+        fixture.service.frontend_pty_env(Some(&shell.tab_id)),
+    ] {
+        assert_eq!(
+            env.get("CODETERM_PARENT_TAB_ID").map(String::as_str),
+            Some(worker_id.as_str())
+        );
+        assert_eq!(env["CODETERM_TEAM_ID"], team_id);
+        for key in [
+            "CODETERM_ROLE",
+            "CODETERM_PLAN_ID",
+            "CODETERM_TASK_ID",
+            "CODETERM_ATTEMPT_ID",
+            "CODETERM_LANE_BASE",
+            "CODETERM_WORKER_ID",
+        ] {
+            assert!(!env.contains_key(key), "{key} leaked into a utility shell");
+        }
+    }
 
-    let report = fixture
-        .service
-        .submit_report(
-            &shell.tab_id,
-            "UTILITY_SHELL_REPORT_PAYLOAD",
-            ReportDetails::default(),
-            None,
-            None,
-            None,
-        )
-        .unwrap();
+    let before = serde_json::to_value(fixture.service.plan_store.get(&plan.id)).unwrap();
+    for (index, (plan_hint, task_hint)) in [
+        (None, None),
+        (Some(plan.id.as_str()), None),
+        (Some(plan.id.as_str()), Some(task_id.as_str())),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let payload = format!("utility-result-{index}");
+        let report = fixture
+            .service
+            .submit_report(
+                &shell.tab_id,
+                &payload,
+                ReportDetails {
+                    plan_id: plan_hint.map(str::to_string),
+                    task_id: task_hint.map(str::to_string),
+                    attempt_id: Some("stale-parent-attempt".into()),
+                    status: task_hint.map(|_| crate::agent::reports::ReportStatus::InReview),
+                    caller_tab_id: Some(shell.tab_id.clone()),
+                    session_binding_nonce: Some("shell-without-agent-session".into()),
+                    ..Default::default()
+                },
+                plan_hint,
+                task_hint,
+                None,
+            )
+            .unwrap();
 
-    assert_eq!(report.orchestrator_tab_id, worker_id);
-    assert!(delivered
-        .texts
-        .lock()
-        .iter()
-        .any(|text| text.contains("UTILITY_SHELL_REPORT_PAYLOAD")));
-    assert!(fixture
-        .service
-        .report_store
-        .lock()
-        .get(&worker_id, false)
-        .iter()
-        .any(|entry| entry.message.contains("UTILITY_SHELL_REPORT_PAYLOAD")));
+        assert_eq!(report.orchestrator_tab_id, worker_id);
+        assert!(report.persisted_task.is_none());
+        assert!(report.persisted_plan_evidence.is_none());
+        assert!(report.rejected_task_transition.is_none());
+        assert_eq!(
+            delivered
+                .texts
+                .lock()
+                .iter()
+                .filter(|text| text.contains(&payload))
+                .count(),
+            1
+        );
+        let stored = fixture.service.report_store.lock().get(&worker_id, false);
+        let entry = stored
+            .iter()
+            .find(|entry| entry.message == payload)
+            .unwrap();
+        assert!(entry.plan_id.is_none());
+        assert!(entry.task_id.is_none());
+        assert!(entry.attempt_id.is_none());
+        assert!(entry.status.is_none());
+    }
+    assert_eq!(
+        serde_json::to_value(fixture.service.plan_store.get(&plan.id)).unwrap(),
+        before
+    );
 }
 
 #[test]

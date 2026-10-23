@@ -2,7 +2,7 @@
 
 import { describe, expect, finish, it } from "../../test/standaloneTest";
 import type { Tab } from "../../lib/types";
-import { buildSidebarDragModel, unitsInOrder, withSiblingOrder, workspaceTabOrder, type DragUnit } from "./sidebarDragModel";
+import { buildSidebarDragModel, localWorkspaceTabIds, unitsInOrder, withSiblingOrder, workspaceTabOrder, type DragUnit } from "./sidebarDragModel";
 import { surfaceAttachmentsByOwner } from "./surfaceAttachmentModel";
 
 const TOP = ["general", "solo-a", "lead", "w1", "w2", "solo-b", "hidden"];
@@ -21,6 +21,7 @@ interface TabSpec {
   role?: "Manager" | "Worker";
   profile?: string;
   surface?: boolean;
+  peer?: string;
 }
 
 function makeTabs(specs: readonly TabSpec[]): Tab[] {
@@ -32,6 +33,7 @@ function makeTabs(specs: readonly TabSpec[]): Tab[] {
     team_id: spec.team ?? null,
     role: spec.role ?? null,
     role_profile: spec.profile ?? null,
+    remote_peer_id: spec.peer ?? null,
     ...(spec.surface ? { backing: { kind: "surface" } } : {}),
   }) as unknown as Tab);
 }
@@ -71,6 +73,43 @@ const LOOSE_TREE = makeTabs([
 ]);
 
 describe("sidebar drag model", () => {
+  it("excludes mesh ids from rendered and hidden persistence orders", () => {
+    expect(workspaceTabOrder(["a", "mesh:peer/worker", "b", "mesh:peer/hidden"], [
+      { key: "b", kind: "tab", tabIds: ["b", "mesh:peer/worker"] },
+    ])).toEqual(["b", "a"]);
+  });
+
+  it("persists a local order while a remote child stays with its controller", () => {
+    const tabs = makeTabs([
+      { id: "controller", order: 0 },
+      { id: "mesh:peer/worker", order: 10, parent: "controller", peer: "peer" },
+      { id: "solo", order: 1 },
+      { id: "remote-metadata", order: 20, parent: "controller", peer: "peer" },
+    ]);
+    const { model } = modelOf(tabs);
+    const ids = localWorkspaceTabIds(tabs);
+    expect(ids).toEqual(["controller", "solo"]);
+    const order = workspaceTabOrder(ids, unitsInOrder(model.units, ["solo", "controller"]));
+    expect(order).toEqual(["solo", "controller"]);
+    const persisted = tabs.map((tab) => order.includes(tab.id) ? { ...tab, sort_order: order.indexOf(tab.id) } : tab);
+    expect(displayed(persisted)).toEqual(["solo", "controller", "mesh:peer/worker", "remote-metadata"]);
+  });
+
+  it("ignores a remote sibling's drag position while moving local blocks", () => {
+    const tabs = makeTabs([
+      { id: "controller", order: 0 },
+      { id: "a", order: 1, parent: "controller" },
+      { id: "mesh:peer/worker", order: 2, parent: "a", peer: "peer" },
+      { id: "b", order: 3, parent: "controller" },
+    ]);
+    const { model } = modelOf(tabs);
+    const units = withSiblingOrder(model.units, ["mesh:peer/worker", "b", "a"], model.blockOf);
+    const order = workspaceTabOrder(localWorkspaceTabIds(tabs), units);
+    expect(order).toEqual(["controller", "b", "a"]);
+    const persisted = tabs.map((tab) => order.includes(tab.id) ? { ...tab, sort_order: order.indexOf(tab.id) } : tab);
+    expect(displayed(persisted)).toEqual(["controller", "b", "a", "mesh:peer/worker"]);
+  });
+
   it("moves a whole team as one block and keeps every workspace tab", () => {
     const order = workspaceTabOrder(TOP, unitsInOrder(UNITS, ["general", "team-1", "solo-a", "solo-b"]));
     expect(order).toEqual(["general", "lead", "w1", "w2", "solo-a", "solo-b", "hidden"]);

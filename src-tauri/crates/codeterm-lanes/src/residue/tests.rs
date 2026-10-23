@@ -68,7 +68,10 @@ fn residue_sweep_removes_only_artifacts_and_rechecks_registration() {
     assert!(inventory(cwd, &[])
         .unwrap()
         .iter()
-        .any(|row| row.path == raced && row.refusal.is_none()));
+        .any(|row| crate::worker_lane::same_path(
+            &row.path.to_string_lossy(),
+            &raced.to_string_lossy()
+        ) && row.refusal.is_none()));
     git(
         cwd,
         &[
@@ -132,4 +135,38 @@ fn residue_sweep_unlinks_node_modules_junction_without_entering_target() {
         std::fs::read_to_string(outside.join("proof")).unwrap(),
         "preserved"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn residue_sweep_accepts_symlinked_ancestor_and_protects_linked_lane() {
+    let (temp, project, root) = fixture();
+    let alias = temp.path().join("alias");
+    std::os::unix::fs::symlink(temp.path(), &alias).unwrap();
+    let aliased_project = alias.join("project");
+    let aliased_root = alias.join("project-worktrees");
+    let residue = root.join("orphan");
+    std::fs::create_dir_all(residue.join("target")).unwrap();
+    std::fs::write(residue.join("target/artifact"), "removed").unwrap();
+    let outside = project.join("outside");
+    std::fs::create_dir(&outside).unwrap();
+    std::fs::write(outside.join("proof"), "preserved").unwrap();
+    std::os::unix::fs::symlink(&outside, residue.join("node_modules")).unwrap();
+    std::os::unix::fs::symlink(&outside, root.join("linked-lane")).unwrap();
+    let cwd = aliased_project.to_str().unwrap();
+    let rows = inventory(cwd, &[]).unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows.iter().filter(|row| row.refusal.is_none()).count(), 1);
+    assert!(remove(cwd, &aliased_root.join("linked-lane"), &[])
+        .unwrap_err()
+        .contains("reparse point or symlink"));
+    assert!(remove(cwd, &residue.join("node_modules"), &[]).is_err());
+    remove(cwd, &aliased_root.join("orphan"), &[]).unwrap();
+    assert!(!residue.exists());
+    assert_eq!(
+        std::fs::read_to_string(outside.join("proof")).unwrap(),
+        "preserved"
+    );
+    assert!(root.join("linked-lane").is_symlink());
+    std::fs::remove_file(&alias).unwrap();
 }

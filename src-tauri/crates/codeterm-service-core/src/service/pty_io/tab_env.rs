@@ -191,30 +191,34 @@ impl ServiceContext {
             .map(|pad| pad.env_value());
         let session_binding_nonce = self.ensure_session_binding_nonce(tab_id);
         let shell_nonce = self.ensure_shell_integration_nonce(tab_id);
-        let (mut identity, child_binding_task, parent_binding_task, parent_tab_id, parent_role) = {
+        let (mut identity, mut task, utility_shell, team_shell) = {
             let mux = self.mux.read();
             mux.get_tab(tab_id)
                 .map(|tab| {
-                    let parent = if tab.is_utility_shell() && tab.team_id.is_some() {
-                        tab.parent_tab_id
-                            .as_deref()
-                            .and_then(|parent_id| mux.get_tab(parent_id))
-                            .filter(|parent| parent.team_id.as_deref() == tab.team_id.as_deref())
+                    let task = if tab.is_utility_shell() {
+                        HashMap::new()
                     } else {
-                        None
+                        task_binding_env(tab)
                     };
                     (
                         tab_identity_env(tab),
-                        task_binding_env(tab),
-                        parent.map(task_binding_env).unwrap_or_default(),
-                        parent.map(|parent| parent.id.clone()),
-                        parent.and_then(|parent| parent.role),
+                        task,
+                        tab.is_utility_shell(),
+                        tab.is_utility_shell()
+                            && tab.team_id.is_some()
+                            && !tab
+                                .shell_profile
+                                .as_ref()
+                                .is_some_and(|p| p.wsl_distro.is_some()),
                     )
                 })
                 .unwrap_or_default()
         };
-        if parent_role == Some(crate::multiplexer::types::AgentRole::Worker) {
-            identity.insert("CODETERM_ROLE".into(), "Worker".into());
+        if !utility_shell {
+            task.extend(tab_task_env(&self.plan_store, tab_id));
+        }
+        if team_shell {
+            super::super::spawn_shell::apply_team_shell_path(&mut identity);
         }
         TabLaunchEnv {
             tab_id: tab_id.to_string(),
@@ -222,16 +226,7 @@ impl ServiceContext {
             session_binding_nonce,
             shell_nonce,
             identity,
-            task: {
-                let mut task = HashMap::new();
-                if let Some(parent_tab_id) = parent_tab_id.as_deref() {
-                    task.extend(parent_binding_task);
-                    task.extend(tab_task_env(&self.plan_store, parent_tab_id));
-                }
-                task.extend(child_binding_task);
-                task.extend(tab_task_env(&self.plan_store, tab_id));
-                task
-            },
+            task,
         }
     }
 

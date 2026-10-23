@@ -10,8 +10,10 @@ fn session(uid: &str) -> codeterm_account::Session {
             email: None,
             display_name: None,
             provider: "fake".into(),
+            photo_url: None,
         },
         id_token: codeterm_account::Secret::new("fixture"),
+        expires_at: None,
     }
 }
 fn paid() -> Entitlements {

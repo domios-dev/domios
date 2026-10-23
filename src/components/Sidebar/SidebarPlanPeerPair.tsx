@@ -1,5 +1,4 @@
 import { memo } from "react";
-import { invoke } from "../../lib/bridge";
 import type { Tab, TabStatus } from "../../lib/types";
 import type { Plan } from "../Canvas/types";
 import type { TabTabActivity } from "../Canvas/tabTabActivity";
@@ -189,7 +188,3 @@ export const SidebarSingleTabRow = memo(function SidebarSingleTabRow({
     </SortableRow>
   );
 }, sameSingleTabRow);
-
-export function persistTabRename(workspaceId: string, tabId: string, title: string): void {
-  invoke("mux_rename_tab", { workspaceId, tabId, title }).catch(() => {});
-}

@@ -9,19 +9,30 @@ impl ServiceContext {
     }
 
     fn write_spawn_bytes(&self, pty_id: &str, bytes: &[u8]) -> Result<usize, String> {
+        self.write_spawn_bytes_recorded(pty_id, bytes, &std::cell::Cell::new(0))
+    }
+
+    fn write_spawn_bytes_recorded(
+        &self,
+        pty_id: &str,
+        bytes: &[u8],
+        queued: &std::cell::Cell<usize>,
+    ) -> Result<usize, String> {
         #[cfg(windows)]
         {
-            let signal = self.screen_state.lock().arm_screen_change_signal(pty_id);
+            let signal = self.screen_state.arm_screen_change_signal(pty_id);
             let generation = signal.generation();
             self.pty
                 .lock()
                 .write(pty_id, bytes)
                 .map_err(|e| e.to_string())?;
+            queued.set(bytes.len());
             signal.wait_after(generation, super::PASTE_RENDER_WINDOW);
             self.pty
                 .lock()
                 .write(pty_id, b"\r")
                 .map_err(|e| e.to_string())?;
+            queued.set(bytes.len() + 1);
             return Ok(bytes.len() + 1);
         }
         #[cfg(not(windows))]
@@ -30,8 +41,42 @@ impl ServiceContext {
                 .lock()
                 .write(pty_id, bytes)
                 .map_err(|e| e.to_string())?;
+            queued.set(bytes.len());
             Ok(bytes.len())
         }
+    }
+
+    pub(crate) fn submit_restarted_shell_command(
+        &self,
+        tab_id: &str,
+        pty_id: &str,
+        command: &str,
+    ) -> Result<crate::service::ShellCommandSubmission, String> {
+        crate::service::ShellCommandSubmission::attempt(pty_id, |queued| {
+            self.await_shell_ready(pty_id);
+            let profile = {
+                let mux = self.mux.read();
+                let tab = mux.get_tab(tab_id).ok_or("restart tab disappeared")?;
+                if tab.pty_id.as_deref() != Some(pty_id) {
+                    return Err("restart PTY changed before submission".into());
+                }
+                tab.shell_profile.clone()
+            };
+            self.feed_input_parser(pty_id, command, true);
+            if let Some(bytes) = profile
+                .as_ref()
+                .map(|profile| profile.utility_command(command))
+                .transpose()?
+                .flatten()
+            {
+                self.pty.lock().write(pty_id, &bytes)?;
+                queued.set(bytes.len());
+                return Ok(());
+            }
+            let bytes = build_spawn_dispatch(command).map_err(|error| error.to_string())?;
+            self.write_spawn_bytes_recorded(pty_id, &bytes, queued)
+                .map(|_| ())
+        })
     }
 
     pub fn send_shell_spawn_observed(
@@ -122,7 +167,6 @@ impl ServiceContext {
         {
             let screen = self
                 .screen_state
-                .lock()
                 .get_screen_text(pty_id)
                 .unwrap_or_default();
             if crate::service::agent_restart::screen_shows_agent_tui(&self.agent_registry, &screen)
@@ -167,10 +211,7 @@ impl ServiceContext {
                     }
                 }
                 VerifySubmitStrategy::None => Err(HelperErr::Timeout(
-                    self.screen_state
-                        .lock()
-                        .tail_text(pty_id, 8)
-                        .unwrap_or_default(),
+                    self.screen_state.tail_text(pty_id, 8).unwrap_or_default(),
                 )),
             };
             match res {

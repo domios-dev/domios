@@ -90,7 +90,12 @@ pub fn configured_model(
     if cfg
         .connection(id)
         .model
-        .or_else(|| adapter.models().first().map(|model| model.id.clone()))
+        .or_else(|| {
+            adapter
+                .cached_models()
+                .first()
+                .map(|model| model.id.clone())
+        })
         .as_deref()
         .is_some_and(|model| adapter.model_id().as_deref() != Some(model))
     {
@@ -186,6 +191,10 @@ impl DecisionModel for BudgetedModel {
     }
     fn select_model(&self, id: &str) -> bool {
         self.model.select_model(id)
+    }
+
+    fn cached_models(&self) -> Vec<DecisionModelInfo> {
+        self.model.cached_models()
     }
 
     fn decide_questions(

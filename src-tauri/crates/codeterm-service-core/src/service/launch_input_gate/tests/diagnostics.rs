@@ -160,11 +160,12 @@ fn diagnostic_onboarding_deadline_records_unknown_unevaluated_predicates() {
         .unwrap()
         .role = Some(codeterm_types::agent::roles::AgentRole::Worker);
     let observed_screen = {
-        let mut screens = fixture.service.screen_state.lock();
-        screens.resize(&attempt.pty_id, 180, 40);
+        let screens = fixture.service.screen_state.pty(&attempt.pty_id);
+        let mut screens = screens.lock_for_update();
+        screens.resize(180, 40);
         let frame = screen.lines().collect::<Vec<_>>().join("\r\n");
-        screens.process(&attempt.pty_id, frame.as_bytes());
-        screens.get_screen_text(&attempt.pty_id).unwrap()
+        screens.process(frame.as_bytes());
+        screens.get_screen_text().unwrap()
     };
     assert!(
         fixture

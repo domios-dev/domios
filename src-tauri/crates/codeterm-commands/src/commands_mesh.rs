@@ -20,7 +20,7 @@ pub async fn fetch_peer_services_view(
             .get(instance_id)
             .ok_or_else(|| format!("Peer {} not paired", instance_id))?;
         let token = m
-            .sign_request()
+            .sign_request_for(instance_id)
             .map_err(|e| format!("sign_request: {}", e))?;
         (
             codeterm_service_core::mesh::types::sanitize_addresses(&peer.addresses),
@@ -147,7 +147,7 @@ async fn peer_authed_request_with_body(
             .get(instance_id)
             .ok_or_else(|| format!("Peer {} not paired", instance_id))?;
         let token = m
-            .sign_request()
+            .sign_request_for(instance_id)
             .map_err(|e| format!("sign_request: {}", e))?;
         (
             codeterm_service_core::mesh::types::sanitize_addresses(&peer.addresses),

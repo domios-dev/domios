@@ -9,10 +9,7 @@ use codeterm_util::persisted_state::{Loaded, StateFile};
 pub(super) const SALVAGED_CONFIG_MARKER: &str =
     "# Domios salvaged config; remove this marker after reviewing or restoring the corrupt copy.";
 
-/// Cache the parsed config, keyed by file mtime. `load_config()` runs on hot
-/// paths (mesh heartbeats, request handlers), so the file is re-parsed only when
-/// its mtime changes. The lock is held across the fill so a token for a
-/// tokenless config is generated exactly once.
+// Reload settings on file changes while retaining the startup credential snapshot.
 pub(super) type ConfigCache = Mutex<Option<(Option<std::time::SystemTime>, AppConfig)>>;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -32,16 +29,17 @@ pub fn load_config() -> AppConfig {
     static CACHE: OnceLock<ConfigCache> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(None));
     match super::config_path() {
-        Ok(path) => load_config_cached(&path, cache),
+        Ok(path) => load_config_cached_at(&path, &codeterm_paths::data_dir_path(), cache),
         Err(e) => {
-            log::warn!("Cannot determine config path: {}. Using defaults.", e);
-            with_generated_token(AppConfig::default()).0
+            panic!("Cannot determine protected instance config path: {e}")
         }
     }
 }
 
 pub(super) fn config_file(path: &Path) -> StateFile {
-    StateFile::new(path).with_validator(validate_config)
+    StateFile::new(path)
+        .with_private_permissions()
+        .with_validator(validate_config)
 }
 
 fn validate_config(text: &str) -> Result<(), String> {
@@ -57,7 +55,12 @@ fn parse_config(text: &str) -> Result<(AppConfig, String), String> {
     Ok((config, text.to_string()))
 }
 
+#[cfg(test)]
 pub(super) fn load_config_cached(path: &Path, cache: &ConfigCache) -> AppConfig {
+    load_config_cached_at(path, path.parent().unwrap(), cache)
+}
+
+fn load_config_cached_at(path: &Path, data_root: &Path, cache: &ConfigCache) -> AppConfig {
     let mut guard = cache.lock();
     let mtime = std::fs::metadata(path).ok().and_then(|m| m.modified().ok());
     if let Some((cached_mtime, cfg)) = guard.as_ref() {
@@ -66,42 +69,74 @@ pub(super) fn load_config_cached(path: &Path, cache: &ConfigCache) -> AppConfig 
         }
     }
     let last_known = guard.as_ref().map(|(_, cfg)| cfg.clone());
-    let cfg = load_config_uncached_at(path, last_known);
+    if last_known.is_none() {
+        codeterm_util::private_file::restrict_if_present(&data_root.join(".secrets"))
+            .unwrap_or_else(|error| panic!("Cannot protect instance credential: {error}"));
+    }
+    codeterm_util::private_file::restrict_if_present(path)
+        .unwrap_or_else(|error| panic!("Cannot protect instance config: {error}"));
+    let cfg = load_config_uncached_at(path, data_root, last_known);
     // Re-read after the fill: a generated token or a restored backup rewrites the file.
     let post_mtime = std::fs::metadata(path).ok().and_then(|m| m.modified().ok());
     *guard = Some((post_mtime, cfg.clone()));
     cfg
 }
 
-fn load_config_uncached_at(path: &Path, last_known: Option<AppConfig>) -> AppConfig {
+fn load_config_uncached_at(
+    path: &Path,
+    data_root: &Path,
+    last_known: Option<AppConfig>,
+) -> AppConfig {
     let file = config_file(path);
+    let cached_token = last_known.as_ref().map(|config| config.api.token.clone());
     if let Ok(contents) = std::fs::read_to_string(path) {
         if is_salvaged_config(&contents) {
             file.hold_for_repair();
             if let Ok((config, contents)) = parse_config(&contents) {
-                return finish_loaded(&file, config, &contents, TokenPolicy::KeepConfigured);
+                return finish_loaded(
+                    &file,
+                    data_root,
+                    config,
+                    &contents,
+                    TokenPolicy::KeepConfigured,
+                    cached_token.as_ref(),
+                );
             }
         }
     }
     match file.load(parse_config) {
-        Loaded::Parsed((config, contents)) => {
-            finish_loaded(&file, config, &contents, TokenPolicy::GenerateWhenMissing)
-        }
+        Loaded::Parsed((config, contents)) => finish_loaded(
+            &file,
+            data_root,
+            config,
+            &contents,
+            TokenPolicy::GenerateWhenMissing,
+            cached_token.as_ref(),
+        ),
         Loaded::Recovered {
             value: (config, contents),
             ..
-        } => finish_loaded(&file, config, &contents, TokenPolicy::KeepConfigured),
-        Loaded::Unrecoverable { raw } => held_config(&file, last_known, raw.as_deref()),
-        Loaded::Missing if file.held().is_some() => held_config(&file, last_known, None),
-        Loaded::Missing => create_default(&file),
+        } => finish_loaded(
+            &file,
+            data_root,
+            config,
+            &contents,
+            TokenPolicy::KeepConfigured,
+            cached_token.as_ref(),
+        ),
+        Loaded::Unrecoverable { raw } => held_config(&file, data_root, last_known, raw.as_deref()),
+        Loaded::Missing if file.held().is_some() => held_config(&file, data_root, last_known, None),
+        Loaded::Missing => create_default(&file, data_root, cached_token.as_ref()),
     }
 }
 
 fn finish_loaded(
     file: &StateFile,
+    data_root: &Path,
     mut config: AppConfig,
     contents: &str,
     tokens: TokenPolicy,
+    cached_token: Option<&Option<String>>,
 ) -> AppConfig {
     let migrated_agent_access = agent_access::migrate(&mut config, contents);
     let migrated_kpi_default = kpi_default::migrate(&mut config);
@@ -120,42 +155,86 @@ fn finish_loaded(
         config.mesh.enabled = false;
     }
     log::info!("Config loaded from {}", file.path().display());
-    let generated = if tokens == TokenPolicy::GenerateWhenMissing {
-        let (with_token, generated) = with_generated_token(config);
-        config = with_token;
-        generated
-    } else {
-        false
-    };
-    if generated || migrated_agent_access || migrated_kpi_default {
-        if let Ok(toml_str) = toml::to_string_pretty(&config) {
-            if let Err(error) = file.save(&toml_str) {
-                log::warn!("Failed to persist config update: {error}");
+    let migrated_token =
+        match apply_instance_token(data_root, &mut config, contents, tokens, cached_token) {
+            Ok(migrated) => migrated,
+            Err(error) => {
+                file.hold_after_error(&error);
+                return config;
             }
-        }
+        };
+    if migrated_token || migrated_agent_access || migrated_kpi_default {
+        persist_migrated_config(file, &config, |contents| {
+            if file.held().is_some() {
+                file.replace_held_recovery(&mark_salvaged_config(contents))
+            } else {
+                file.save(contents)
+            }
+        });
     }
     config
 }
 
-fn create_default(file: &StateFile) -> AppConfig {
-    let (config, _) = with_generated_token(AppConfig::default());
+fn persist_migrated_config(
+    file: &StateFile,
+    config: &AppConfig,
+    write: impl FnOnce(&str) -> Result<(), String>,
+) {
+    let result = toml::to_string_pretty(config)
+        .map_err(|error| error.to_string())
+        .and_then(|contents| write(&contents));
+    if let Err(error) = result {
+        file.hold_after_error(&format!(
+            "Cannot persist migrated config: {error}; runtime credential retained and writes held"
+        ));
+    }
+}
+
+fn create_default(
+    file: &StateFile,
+    data_root: &Path,
+    cached_token: Option<&Option<String>>,
+) -> AppConfig {
+    let mut config = AppConfig::default();
+    normalize_runtime_defaults(&mut config);
+    apply_instance_token(
+        data_root,
+        &mut config,
+        "",
+        TokenPolicy::GenerateWhenMissing,
+        cached_token,
+    )
+    .unwrap_or_else(|error| panic!("Cannot initialize instance API credential: {error}"));
     let toml_str = toml::to_string_pretty(&config).unwrap_or_else(|_| super::default_config_toml());
     match file.save(&toml_str) {
         Ok(()) => log::info!("Default config created at {}", file.path().display()),
-        Err(e) => log::warn!("Failed to write default config: {}", e),
+        Err(error) => file.hold_after_error(&format!(
+            "Cannot persist default config: {error}; runtime credential retained and writes held"
+        )),
     }
     config
 }
 
-/// The in-memory config while `config.toml` is held after a failed load. A
-/// token is never generated here: rotating it would lock out every client that
-/// holds the configured one.
-fn held_config(file: &StateFile, last_known: Option<AppConfig>, raw: Option<&str>) -> AppConfig {
+/// Recover intact settings without generating authority when none can be recovered.
+fn held_config(
+    file: &StateFile,
+    data_root: &Path,
+    last_known: Option<AppConfig>,
+    raw: Option<&str>,
+) -> AppConfig {
+    let cached_token = last_known.as_ref().map(|config| config.api.token.clone());
     let (mut config, contents) = match (last_known, raw) {
-        (Some(config), _) => {
-            let contents = toml::to_string_pretty(&config)
-                .ok()
-                .map(|contents| mark_salvaged_config(&contents));
+        (Some(config), raw) => {
+            let contents = toml::to_string_pretty(&config).ok().map(|contents| {
+                let legacy = raw.and_then(|raw| salvaged_critical_values(raw).0);
+                if let Some(token) = legacy.filter(|token| config.api.token.as_ref() == Some(token))
+                {
+                    let mut tables = contents.parse::<toml::Table>().unwrap_or_default();
+                    insert_nested_value(&mut tables, &["api", "token"], toml::Value::String(token));
+                    return mark_salvaged_config(&toml::to_string_pretty(&tables).unwrap());
+                }
+                mark_salvaged_config(&contents)
+            });
             (config, contents)
         }
         (None, Some(raw)) => {
@@ -165,7 +244,22 @@ fn held_config(file: &StateFile, last_known: Option<AppConfig>, raw: Option<&str
         }
         (None, None) => (AppConfig::default(), None),
     };
+    let migration = apply_instance_token(
+        data_root,
+        &mut config,
+        contents.as_deref().unwrap_or(""),
+        TokenPolicy::KeepConfigured,
+        cached_token.as_ref(),
+    );
+    if let Err(error) = &migration {
+        file.hold_after_error(error);
+    }
     if let Some(contents) = contents {
+        let contents = if migration.is_ok() {
+            remove_legacy_token(&contents)
+        } else {
+            contents
+        };
         if let Err(error) = file.create_held_recovery(&contents) {
             log::warn!("[config] could not write salvaged config: {error}");
         }
@@ -173,7 +267,7 @@ fn held_config(file: &StateFile, last_known: Option<AppConfig>, raw: Option<&str
     normalize_runtime_defaults(&mut config);
     if config.api.token.as_ref().map_or(true, |t| t.is_empty()) {
         log::warn!(
-            "[config] no API token could be read from the preserved config; token-authenticated API calls are refused until config.toml is fixed or restored"
+            "[config] no API credential could be recovered; token-authenticated calls are refused"
         );
     }
     config
@@ -333,25 +427,63 @@ fn lookup<'a>(table: &'a toml::Table, keys: &[&str]) -> Option<&'a toml::Value> 
     Some(value)
 }
 
-pub(super) fn with_generated_token(mut config: AppConfig) -> (AppConfig, bool) {
-    normalize_runtime_defaults(&mut config);
-    if config.api.token.as_ref().map_or(true, |t| t.is_empty()) {
-        let token = uuid::Uuid::new_v4().to_string().replace("-", "");
-        log::info!("[config] auto-generated API token (none was configured)");
-        config.api.token = Some(token);
-        return (config, true);
+fn apply_instance_token(
+    data_root: &Path,
+    config: &mut AppConfig,
+    contents: &str,
+    policy: TokenPolicy,
+    cached_token: Option<&Option<String>>,
+) -> Result<bool, String> {
+    let raw = toml::from_str::<toml::Value>(contents).ok();
+    let legacy = raw
+        .as_ref()
+        .and_then(|value| value.get("api"))
+        .and_then(|api| api.get("token"));
+    let legacy_token = legacy
+        .and_then(toml::Value::as_str)
+        .filter(|token| !token.trim().is_empty());
+    config.api.token = match (cached_token, legacy_token) {
+        (Some(token), _) => token.clone(),
+        (None, Some(legacy_token)) => {
+            match codeterm_util::instance_token::migrate_at(data_root, legacy_token) {
+                Ok(token) => Some(token),
+                Err(error) => {
+                    config.api.token = Some(legacy_token.to_owned());
+                    return Err(format!("Instance API credential rotation failed: {error}; the legacy credential remains active and config writes are held until restart"));
+                }
+            }
+        }
+        (None, None) => codeterm_util::instance_token::initialize_at(
+            data_root,
+            None,
+            policy == TokenPolicy::GenerateWhenMissing,
+        )
+        .unwrap_or_else(|error| panic!("Cannot initialize instance API credential: {error}")),
+    };
+    if legacy_token.is_some() && config.api.token.as_deref() == legacy_token {
+        return Err("Instance API credential rotation is pending; the legacy credential remains active and config writes are held until restart".into());
     }
-    (config, false)
+    Ok(legacy.is_some())
+}
+
+fn remove_legacy_token(contents: &str) -> String {
+    let Ok(mut value) = contents.parse::<toml::Table>() else {
+        return contents.to_owned();
+    };
+    if let Some(api) = value.get_mut("api").and_then(toml::Value::as_table_mut) {
+        api.remove("token");
+    }
+    let body = toml::to_string_pretty(&value)
+        .unwrap_or_else(|error| panic!("Cannot serialize recovered config: {error}"));
+    if is_salvaged_config(contents) {
+        mark_salvaged_config(&body)
+    } else {
+        body
+    }
 }
 
 #[cfg(test)]
 mod tests;
 
 #[cfg(test)]
-mod isolation_tests {
-    #[test]
-    #[should_panic(expected = "Ambient user config is forbidden in unit tests")]
-    fn ambient_user_config_is_refused_before_reading_home() {
-        super::load_config();
-    }
-}
+mod isolation_tests;

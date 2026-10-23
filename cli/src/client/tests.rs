@@ -515,6 +515,37 @@ fn socket_transport_remains_primary_when_available() {
 }
 
 #[test]
+fn credentialed_fallback_skips_health_and_socket_rediscovery() {
+    let choice = select_startup_transport::<()>(
+        Err("pipe unavailable".into()),
+        || http_fallback_config_from(None, Some("7687"), Some("opaque-token")),
+        || panic!("credentialed fallback must start with RPC, not health"),
+        || panic!("credentialed fallback must not rescan sockets"),
+    )
+    .unwrap();
+    assert!(matches!(choice, TransportChoice::Http(_)));
+}
+
+#[test]
+fn credentialless_fallback_waits_before_reconnecting_to_ready_socket() {
+    let ready = std::cell::Cell::new(false);
+    let choice = select_startup_transport(
+        Err("pipe unavailable".into()),
+        || Err("token is unavailable".into()),
+        || {
+            ready.set(true);
+            Ok(true)
+        },
+        || {
+            assert!(ready.get());
+            Ok("ready socket")
+        },
+    )
+    .unwrap();
+    assert!(matches!(choice, TransportChoice::Socket("ready socket")));
+}
+
+#[test]
 fn dead_socket_uses_loopback_http_when_credentials_are_present() {
     let config = http_fallback_config_from(None, Some("7687"), Some("opaque-token"))
         .expect("port and API token configure HTTP fallback");
@@ -585,6 +616,21 @@ fn http_fallback_refuses_non_loopback_urls() {
 }
 
 #[test]
+fn startup_discovery_needs_only_a_confined_target_without_control_credentials() {
+    assert_eq!(
+        http_base_url_from(None, Some("7686")).unwrap(),
+        "http://127.0.0.1:7686"
+    );
+    for target in [
+        "http://192.168.1.2:7686",
+        "http://127.0.0.1:7686/other",
+        "http://user@127.0.0.1:7686",
+    ] {
+        assert!(http_base_url_from(Some(target), None).is_err());
+    }
+}
+
+#[test]
 fn http_rpc_result_preserves_payloads_with_an_inner_error_field() {
     let result = http_rpc_result(
         reqwest::StatusCode::OK,
@@ -597,9 +643,55 @@ fn http_rpc_result_preserves_payloads_with_an_inner_error_field() {
     assert_eq!(result["accepted"], false);
 }
 
+#[test]
+fn early_http_rpc_refusal_keeps_starting_phase_through_shared_renderer() {
+    let refusal = http_rpc_result(
+        reqwest::StatusCode::SERVICE_UNAVAILABLE,
+        serde_json::json!({
+            "ok": false,
+            "error": { "code": "starting" },
+            "startup": { "state": "starting", "phases": { "providers": "starting" } },
+        }),
+    )
+    .unwrap_err();
+    let error = crate::cmd::print::CliError::from(refusal);
+    assert_eq!(error.message, "Domios is starting (phase providers)");
+    assert_eq!(error.data.as_ref().unwrap()["error"]["code"], "starting");
+}
+
 fn restore_env(key: &str, value: Option<String>) {
     match value {
         Some(value) => std::env::set_var(key, value),
         None => std::env::remove_var(key),
     }
+}
+
+#[test]
+fn http_fallback_refuses_an_inherited_url_for_another_instance() {
+    let selected = crate::cmd::identify::ResolvedApiConfig {
+        data_dir: std::path::PathBuf::from("selected-dev"),
+        data_dir_source: ResolutionSource::CodeTermInstance,
+        host: "127.0.0.1".into(),
+        host_source: ResolutionSource::Default,
+        port: 7791,
+        port_source: ResolutionSource::Config,
+        token: Some("selected-instance-token".into()),
+    };
+    let error = http_fallback_for_instance(&selected, Some("http://127.0.0.1:7685"))
+        .err()
+        .expect("foreign URL must refuse fallback");
+    assert!(error.contains("differs from the selected instance address"));
+    assert!(!error.contains("selected-instance-token"));
+    assert_eq!(
+        http_fallback_for_instance(&selected, Some("http://127.0.0.1:7791/"))
+            .unwrap()
+            .base_url,
+        "http://127.0.0.1:7791"
+    );
+    assert_eq!(
+        http_fallback_for_instance(&selected, None)
+            .unwrap()
+            .base_url,
+        "http://127.0.0.1:7791"
+    );
 }

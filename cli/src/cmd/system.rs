@@ -3,7 +3,16 @@
 
 use crate::SystemAction;
 
+mod installed;
+mod registration;
+
+use installed::{canonical_file, AutostartState, InstalledSupervisor};
+
 pub fn handle_system(json_mode: bool, action: SystemAction) {
+    if matches!(action, SystemAction::ApiToken) {
+        handle_api_token(false);
+        return;
+    }
     let result: Result<serde_json::Value, String> = match action {
         SystemAction::EnableAutostart { binary, supervisor } => {
             enable_autostart(binary.as_deref(), supervisor.as_deref())
@@ -11,6 +20,7 @@ pub fn handle_system(json_mode: bool, action: SystemAction) {
         SystemAction::DisableAutostart => disable_autostart(),
         SystemAction::AutostartStatus => autostart_status(),
         SystemAction::Supervise { binary, once } => supervise(binary.as_deref(), once),
+        SystemAction::ApiToken => unreachable!("handled before result rendering"),
     };
     crate::cmd::print::handle_result(json_mode, result);
 }
@@ -27,14 +37,12 @@ fn resolve_app_binary(override_path: Option<&str>) -> Result<std::path::PathBuf,
 }
 
 fn resolve_supervisor_binary(override_path: Option<&str>) -> Result<std::path::PathBuf, String> {
-    if let Some(p) = override_path {
-        let path = std::path::PathBuf::from(p);
-        if !path.exists() {
-            return Err(format!("override supervisor not found: {}", path.display()));
-        }
-        return Ok(path);
-    }
-    std::env::current_exe().map_err(|e| e.to_string())
+    InstalledSupervisor::discover()
+        .resolve(override_path.map(std::path::Path::new), canonical_file)
+        .map_err(|reason| format!(
+            "stable installed Domios CLI supervisor unavailable ({reason:?}); open the installed Domios app to restore its CLI, then run `{}`; --supervisor must select an installed CLI outside temporary directories",
+            installed::REPAIR_COMMAND,
+        ))
 }
 
 const LOOP_WINDOW_SECS: i64 = 300;
@@ -525,9 +533,9 @@ fn enable_autostart(
     binary_override: Option<&str>,
     supervisor_override: Option<&str>,
 ) -> Result<serde_json::Value, String> {
-    mark_supervisor_enabled()?;
     let bin = resolve_app_binary(binary_override)?;
     let supervisor = resolve_supervisor_binary(supervisor_override)?;
+    mark_supervisor_enabled()?;
     let bin_str = bin.to_string_lossy().to_string();
     let supervisor_str = supervisor.to_string_lossy().to_string();
     let tr = build_windows_task_command(&supervisor_str, &bin_str);
@@ -567,16 +575,26 @@ fn disable_autostart() -> Result<serde_json::Value, String> {
 #[cfg(target_os = "windows")]
 fn autostart_status() -> Result<serde_json::Value, String> {
     let out = std::process::Command::new("schtasks")
-        .args(["/Query", "/TN", WIN_TASK_NAME, "/FO", "CSV", "/NH"])
+        .args(["/Query", "/TN", WIN_TASK_NAME, "/XML"])
         .output()
         .map_err(|e| format!("schtasks: {}", e))?;
     let enabled = out.status.success() && !out.stdout.is_empty();
-    Ok(serde_json::json!({
+    let raw = registration::windows_task_text(&out.stdout);
+    let target = registration::windows_target(&raw);
+    let state = AutostartState::assess(
+        enabled,
+        enabled,
+        target.as_deref(),
+        &InstalledSupervisor::discover(),
+        canonical_file,
+    );
+    Ok(state.apply(serde_json::json!({
         "ok": true,
         "platform": "windows",
         "enabled": enabled,
         "task_name": WIN_TASK_NAME,
-    }))
+        "supervisor": target,
+    })))
 }
 
 #[cfg(any(target_os = "windows", test))]
@@ -623,9 +641,9 @@ fn enable_autostart(
     binary_override: Option<&str>,
     supervisor_override: Option<&str>,
 ) -> Result<serde_json::Value, String> {
-    mark_supervisor_enabled()?;
     let bin = resolve_app_binary(binary_override)?;
     let supervisor = resolve_supervisor_binary(supervisor_override)?;
+    mark_supervisor_enabled()?;
     let plist_path = mac_plist_path()?;
     let body = build_macos_plist(
         MAC_LABEL,
@@ -687,14 +705,25 @@ fn autostart_status() -> Result<serde_json::Value, String> {
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false);
-    Ok(serde_json::json!({
+    let target = std::fs::read_to_string(&plist_path)
+        .ok()
+        .and_then(|raw| registration::macos_target(&raw));
+    let state = AutostartState::assess(
+        exists || loaded,
+        exists && loaded,
+        target.as_deref(),
+        &InstalledSupervisor::discover(),
+        canonical_file,
+    );
+    Ok(state.apply(serde_json::json!({
         "ok": true,
         "platform": "macos",
         "enabled": exists && loaded,
         "label": MAC_LABEL,
         "plist": plist_path.to_string_lossy(),
         "loaded": loaded,
-    }))
+        "supervisor": target,
+    })))
 }
 
 #[cfg(any(target_os = "macos", test))]
@@ -759,9 +788,9 @@ fn enable_autostart(
     binary_override: Option<&str>,
     supervisor_override: Option<&str>,
 ) -> Result<serde_json::Value, String> {
-    mark_supervisor_enabled()?;
     let bin = resolve_app_binary(binary_override)?;
     let supervisor = resolve_supervisor_binary(supervisor_override)?;
+    mark_supervisor_enabled()?;
     let unit_path = linux_unit_path()?;
     let body = build_linux_unit(&supervisor.to_string_lossy(), &bin.to_string_lossy());
 
@@ -814,14 +843,25 @@ fn autostart_status() -> Result<serde_json::Value, String> {
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false);
-    Ok(serde_json::json!({
+    let target = std::fs::read_to_string(&unit_path)
+        .ok()
+        .and_then(|raw| registration::linux_target(&raw));
+    let state = AutostartState::assess(
+        exists || enabled || active,
+        exists && enabled,
+        target.as_deref(),
+        &InstalledSupervisor::discover(),
+        canonical_file,
+    );
+    Ok(state.apply(serde_json::json!({
         "ok": true,
         "platform": "linux",
         "enabled": exists && enabled,
         "active": active,
         "unit": LINUX_UNIT_NAME,
         "path": unit_path.to_string_lossy(),
-    }))
+        "supervisor": target,
+    })))
 }
 
 #[cfg(target_os = "linux")]
@@ -868,3 +908,22 @@ fn systemd_quote(value: &str) -> String {
 
 #[cfg(test)]
 mod tests;
+
+fn instance_api_token(data_root: &std::path::Path, remote: bool) -> Result<String, String> {
+    if remote {
+        return Err("Instance API credentials are local-only; run on the owning machine".into());
+    }
+    codeterm_util::instance_token::read_at(data_root)?
+        .ok_or_else(|| "No local instance API credential; start Domios first".into())
+}
+
+#[cfg(test)]
+#[path = "system/token_tests.rs"]
+mod token_tests;
+
+pub fn handle_api_token(remote: bool) {
+    match instance_api_token(&crate::data_root(), remote) {
+        Ok(token) => print!("{token}"),
+        Err(error) => crate::cmd::print::fail(if remote { 7 } else { 1 }, error),
+    }
+}

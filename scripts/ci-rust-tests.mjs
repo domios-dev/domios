@@ -4,14 +4,14 @@ import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { classifyInventory } from './ci-rust-classification.mjs';
-import { archiveTargets, loadReleaseRust, overlayExclusions } from './ci-rust-archives.mjs';
+import { overlayExclusions } from './ci-rust-archives.mjs';
 import { classifyTarget } from './ci-classifier-cache.mjs';
+import { FULL_LANES, testTargetDir } from './rust-test-lanes.mjs';
 import { renderedCompilerErrors } from './collect-rust-warnings.mjs';
 
 // The catalogue's release tier names every package and target, including path dependencies outside the workspace.
-const { runners: RELEASE_RUST, overlay: OVERLAY } = loadReleaseRust(path.resolve(import.meta.dirname, '..'));
-const WORKSPACE = { lane: 'workspace', manifest: 'src-tauri/Cargo.toml', targets: ['--no-default-features', ...archiveTargets('workspace', RELEASE_RUST)] };
-const CLI = { lane: 'cli', manifest: 'cli/Cargo.toml', targets: archiveTargets('cli', RELEASE_RUST) };
+const OVERLAY = JSON.parse(fs.readFileSync(new URL('../tests/catalogue.overlay.json', import.meta.url), 'utf8'));
+const [WORKSPACE, CLI] = FULL_LANES;
 const INPUT = { lane: 'input', manifest: 'src-tauri/Cargo.toml', targets: ['--no-default-features', '--lib', '-p', 'codeterm-input-macos', '-p', 'codeterm-input-windows'], whole: true };
 const EMBEDDINGS = { lane: 'embeddings', manifest: 'src-tauri/Cargo.toml', targets: ['--no-default-features', '--features', 'codeterm-service-core/embeddings,codeterm-mem/embeddings', '-p', 'codeterm-service-core', '-p', 'codeterm-mem', '--lib'] };
 // The full suite runs once on one runner; each OS runs only its cfg-gated tests and the native input crates.
@@ -220,11 +220,6 @@ export function verifyReceipts(receipts) {
     receipts.map((r) => `| ${r.mode} | ${r.runner} | ${r.os} | ${r.arch} | ${r.executed} | ${r.seconds.toFixed(1)} s |`).join('\n');
 }
 
-// Each workspace keeps its own warm target outside the checkout, so clean checkouts never erase it.
-export function laneTargetDir(manifest, root) {
-  return root ? path.join(root, path.dirname(manifest).replace(/[\/]/g, '-')) : undefined;
-}
-
 const tomlConfig = (filter, listener) => `[profile.default]\ndefault-filter = ${JSON.stringify(filter)}\nretries = 0\nfail-fast = false\n${listener ? 'test-threads = 1\n' : ''}slow-timeout = { period = "60s", terminate-after = 5 }\n`;
 
 async function run(mode) {
@@ -232,20 +227,26 @@ async function run(mode) {
   if (!lanes) throw new Error('usage: node scripts/ci-rust-tests.mjs full|platform|embeddings | verify DIR');
   for (const name of ['CODETERM_CONPTY_DIR', 'CODETERM_PLAN_ID', 'CODETERM_TASK_ID']) delete process.env[name];
   const env = { ...process.env, TEST_CAP_SECS: '1800', CODETERM_CONPTY_TEST_ISOLATION: '1' };
-  const os = process.env.RUNNER_OS;
+  const os = process.env.RUNNER_OS || { win32: 'Windows', darwin: 'macOS', linux: 'Linux' }[process.platform];
   const plan = timingPlan({ release: process.env.CI_RELEASE_TESTS === 'true', os });
   const start = performance.now();
   const receipt = { mode, os, arch: process.env.RUNNER_ARCH, runner: process.env.RUNNER_NAME, sha: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), executed: 0, exit: 1, seconds: 0 };
   const directory = path.resolve('ci-rust-receipts');
   fs.mkdirSync(directory, { recursive: true });
+  const targetEnv = { ...env };
   try {
     for (const planned of lanes) {
       const lane = mode === 'platform' && !planned.whole ? narrowToPlatformPackages(planned) : planned;
       if (!lane) { console.log(`[platform] ${planned.lane}: no package holds cfg-gated tests; nothing to compile`); continue; }
       if (lane !== planned) console.log(`[platform] ${lane.lane}: compiling ${lane.targets.filter((arg, index) => lane.targets[index - 1] === '-p').join(', ')}`);
-      const targetDir = laneTargetDir(lane.manifest, process.env.CI_TARGET_ROOT);
+      const targetDir = testTargetDir(lane, { env: targetEnv, mode });
       if (targetDir) process.env.CARGO_TARGET_DIR = env.CARGO_TARGET_DIR = targetDir;
+      console.log(`[rust-tests] ${mode}/${lane.lane} target=${targetDir}`);
       const messages = compile(lane);
+      const compiled = messages.split('\n').filter(Boolean).flatMap(line => {
+        try { const message = JSON.parse(line); return message.reason === 'compiler-artifact' && !message.fresh ? [message] : []; } catch { return []; }
+      }).length;
+      console.log(`[rust-tests] ${mode}/${lane.lane} compiled=${compiled}`);
       const config = path.join(directory, `${mode}-${lane.lane}.toml`);
       fs.writeFileSync(config, tomlConfig('all()', false));
       let scope = mode === 'embeddings' ? 'package(=codeterm-mem) | (package(=codeterm-service-core) & test(/^mem::/))' : 'all()';

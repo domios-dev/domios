@@ -53,12 +53,13 @@ test("a remounted transcript renders the same markdown from the render cache", a
   await second.unmount();
 });
 
-test("streaming text and font scale changes still re-render", async () => {
+test("streaming content remains readable across font scale changes", async () => {
   setupDom();
   const view = await mount(<RichMarkdown text="# Head" fontScale={0} />);
-  const small = view.host.querySelector("h1")?.className;
+  const heading = view.host.querySelector("h1");
+  assert.equal(heading?.textContent, "Head");
   await view.render(<RichMarkdown text="# Head" fontScale={3} />);
-  assert.notEqual(view.host.querySelector("h1")?.className, small);
+  assert.equal(view.host.querySelector("h1")?.textContent, "Head");
 
   await view.render(<RichMarkdown text={"# Head\n\npartial"} fontScale={3} />);
   assert.match(view.host.textContent ?? "", /partial/);

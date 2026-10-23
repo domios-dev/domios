@@ -10,6 +10,8 @@ Domios exposes local secret storage through Settings → Secrets, `domios mem se
 
 Secrets are local-only. `--mesh PEER mem secret …` is rejected with exit code `7`, and secret routes are never relayed over mesh.
 
+The daemon's own instance API credential always uses the local `<data_dir>/.secrets` entry `domios.instance:api_token`, independently of the selected secret backend. Startup rotates an existing `[api].token`, persists its replacement there, then removes the legacy entry from `config.toml`. Retained config backups and corrupt copies keep their original bytes and contain a dead bearer after successful migration. A replacement already persisted before config cleanup is reused. If rotation fails, the old credential stays active, the config is preserved, writes are held until restart, and an error is reported. The daemon reads it once and retains it across config reloads. Secret updates serialize read-modify-write transactions with an OS file lock on the owner-only, empty `.secrets.lock` sidecar; this file holds no credentials. Contended writes fail immediately with a busy error; they never wait while holding the in-process cache lock. Opening a secret bucket does not rewrite data-root ACLs. `domios system api-token` prints only the selected local instance credential without contacting the daemon; `--mesh` is refused. Treat this command and the secrets file as instance authority. DEV and production use separate data directories and credentials.
+
 ## Quick start
 
 Local storage needs no login:
@@ -145,4 +147,4 @@ Bitwarden owns vault encryption. Domios passes the master password and session t
 
 A process running as the same OS user can read that file. The mock backend has no security guarantees.
 
-<!-- revision: 15 -->
+<!-- revision: 18 -->

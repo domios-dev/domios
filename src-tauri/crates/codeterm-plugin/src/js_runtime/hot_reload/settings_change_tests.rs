@@ -73,4 +73,13 @@ fn config_edit_refreshes_the_catalog_and_notifies_without_a_vm_rebuild() {
         *registrar.settings_changed.lock(),
         vec![PLUGIN_ID.to_string()]
     );
+
+    write(&config, "model: gamma\n");
+    set_mtime(&config, prior + Duration::from_secs(4));
+    assert!(tick_until(&watcher, || first_model(&caps).as_deref() == Some("gamma")));
+    assert_eq!(watcher.load_count(), 1, "repeated edits must keep the VM");
+    assert_eq!(
+        *registrar.settings_changed.lock(),
+        vec![PLUGIN_ID.to_string(), PLUGIN_ID.to_string()]
+    );
 }

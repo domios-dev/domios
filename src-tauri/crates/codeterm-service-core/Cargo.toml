@@ -162,6 +162,7 @@ codeterm-recall = { path = "../codeterm-recall", features = ["test-support"] }
 codeterm-supporter = { path = "../codeterm-supporter", features = ["test-support"] }
 codeterm-worker-services = { path = "../codeterm-worker-services", features = ["test-support"] }
 codeterm-lanes = { path = "../codeterm-lanes", features = ["test-support"] }
+codeterm-mesh = { path = "../codeterm-mesh", features = ["test-support"] }
 codeterm-agent-model = { path = "../codeterm-agent-model", features = ["test-support"] }
 codeterm-plugin = { path = "../codeterm-plugin", features = ["test-support"] }
 codeterm-sentinel = { path = "../codeterm-sentinel", features = ["test-support"] }

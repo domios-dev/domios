@@ -354,8 +354,7 @@ pub(super) fn dispatch(
         }
         "mesh.peers" => {
             let mesh = svc.ext::<codeterm_service_core::MeshStateHandle>();
-            let mut manager = mesh.lock();
-            manager.cleanup_expired_requests();
+            let manager = mesh.lock();
             return serde_json::to_value(manager.peers_response()).map_err(|error| JsonRpcError {
                 code: -32603,
                 message: error.to_string(),

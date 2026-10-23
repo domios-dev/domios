@@ -40,7 +40,7 @@ interface Entry {
   pluginId: string;
   key: string | null;
   value: BubbleData | null | undefined;
-  inFlight: boolean;
+  inFlight: Promise<void> | null;
   pendingRefresh: boolean;
   subscribers: Map<string, Subscriber>;
 }
@@ -91,7 +91,7 @@ function getOrCreateEntry(pluginId: string, key: string | null): Entry {
   }
   let entry = byKey.get(key);
   if (!entry) {
-    entry = { pluginId, key, value: undefined, inFlight: false, pendingRefresh: false, subscribers: new Map() };
+    entry = { pluginId, key, value: undefined, inFlight: null, pendingRefresh: false, subscribers: new Map() };
     byKey.set(key, entry);
   }
   return entry;
@@ -120,24 +120,24 @@ function pickTabId(entry: Entry): string {
   return "";
 }
 
-function computeNow(entry: Entry): void {
+function computeNow(entry: Entry, invalidated = false): Promise<void> {
   if (entry.inFlight) {
-    entry.pendingRefresh = true;
-    return;
+    entry.pendingRefresh ||= invalidated;
+    return entry.inFlight;
   }
-  entry.inFlight = true;
-  fetcher(entry.pluginId, entry.key, pickTabId(entry))
+  entry.inFlight = fetcher(entry.pluginId, entry.key, pickTabId(entry))
     .then((value) => {
       entry.value = value;
       notify(entry);
     })
     .catch(() => {})
     .finally(() => {
-      entry.inFlight = false;
+      entry.inFlight = null;
       const shouldRefresh = entry.pendingRefresh && activeCount(entry) > 0;
       entry.pendingRefresh = false;
-      if (shouldRefresh) computeNow(entry);
+      if (shouldRefresh) return computeNow(entry);
     });
+  return entry.inFlight;
 }
 
 /** Subscribe once per (plugin, repo, tab) identity; call the returned
@@ -179,7 +179,7 @@ export function invalidatePluginBubble(pluginId: string, cwd: string | null | un
   if (cwd === undefined) return;
   const entry = cache.get(pluginId)?.get(keyFor(cwd));
   if (!entry || activeCount(entry) === 0) return;
-  computeNow(entry);
+  void computeNow(entry, true);
 }
 
 /** The single action a repository-changed event takes: one computation per
@@ -187,14 +187,14 @@ export function invalidatePluginBubble(pluginId: string, cwd: string | null | un
 export function invalidatePluginBubblesForRepo(identity: string): void {
   for (const byKey of cache.values()) {
     const entry = byKey.get(identity);
-    if (entry && activeCount(entry) > 0) computeNow(entry);
+    if (entry && activeCount(entry) > 0) void computeNow(entry, true);
   }
 }
 
 export function invalidateActivePluginBubbles(): void {
   for (const byKey of cache.values()) {
     for (const entry of byKey.values()) {
-      if (activeCount(entry) > 0) computeNow(entry);
+      if (activeCount(entry) > 0) void computeNow(entry, true);
     }
   }
 }
@@ -203,4 +203,8 @@ export function __resetPluginBubbleCacheForTest(): void {
   cache.clear();
   canonical.clear();
   fetcher = defaultFetcher;
+}
+
+export async function __waitForPluginBubbleCacheForTest(): Promise<void> {
+  await Promise.all([...cache.values()].flatMap(byKey => [...byKey.values()].map(entry => entry.inFlight)));
 }

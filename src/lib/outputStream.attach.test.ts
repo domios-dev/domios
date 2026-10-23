@@ -322,7 +322,7 @@ it("retains byte cursors across a capacity end and decodes once for multiple sin
 });
 
 
-it.each(["local", "mesh"])("delivers captured terminal bytes through synthesized %s SSE to an xterm writer", async (route) => {
+it.each(["local", "mesh"])("delivers captured terminal bytes through the multiplexed %s SSE to an xterm writer", async (route) => {
   vi.resetModules();
   localStorage.clear();
   sessionStorage.setItem("codeterm-web-output-boot", capture.boot);
@@ -342,10 +342,18 @@ it.each(["local", "mesh"])("delivers captured terminal bytes through synthesized
     });
   } };
   const frame = { tab_id: capture.tabId, pty_id: capture.ptyId, boot: capture.boot, offset: capture.bytes, b64: capture.b64 };
-  const wire = new TextEncoder().encode(`data: ${JSON.stringify(frame)}\n\n`);
-  const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(new ReadableStream<Uint8Array>({ start(controller) {
-    for (let index = 0; index < wire.length; index += 17) controller.enqueue(wire.slice(index, index + 17));
-  } })));
+  let pushWire!: (bytes: Uint8Array) => void;
+  const channelPaths: string[] = [];
+  const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
+    if (new URL(String(input)).pathname === "/api/stream-mux") {
+      return new Response(new ReadableStream<Uint8Array>({ start(controller) { pushWire = (bytes) => controller.enqueue(bytes); } }));
+    }
+    const opened = JSON.parse(String(init?.body)) as { channel: string; path: string };
+    channelPaths.push(opened.path);
+    const wire = new TextEncoder().encode(`data: ${JSON.stringify({ channel: opened.channel, data: frame })}\n\n`);
+    for (let index = 0; index < wire.length; index += 17) pushWire(wire.slice(index, index + 17));
+    return Response.json({ ok: true });
+  });
   vi.stubGlobal("fetch", fetch);
   const client = configureDaemonTransport({ origin: window.location.origin, token: "fixture-token" });
   output.bindOutputStreamTransport(client);
@@ -363,7 +371,8 @@ it.each(["local", "mesh"])("delivers captured terminal bytes through synthesized
     const text = Array.from({ length: buffer.length }, (_, index) => buffer.getLine(index)!.translateToString(true)).join("\n");
     expect(text).toContain("Merge");
     expect(createHash("sha256").update(Uint8Array.from(written)).digest("hex")).toBe(capture.sha256);
-    const requested = new URL(String(fetch.mock.calls[0][0]));
+    expect(new URL(String(fetch.mock.calls[0][0])).pathname).toBe("/api/stream-mux");
+    const requested = new URL(channelPaths[0], window.location.origin);
     expect(requested.pathname).toBe(route === "local" ? "/api/output/stream" : "/api/mesh/relay-stream");
     expect(atob(capture.b64.replace(/-/g, "+").replace(/_/g, "/")).length).toBe(capture.bytes);
   } finally { stop(); output.resetOutputStream(); term.dispose(); }

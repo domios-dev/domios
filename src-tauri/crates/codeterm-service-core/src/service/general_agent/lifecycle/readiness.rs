@@ -55,7 +55,7 @@ pub(super) fn await_agent_output_with_signal(
     let mut generation = signal.generation();
     let mut on_wait_armed = Some(on_wait_armed);
     loop {
-        let screen = screen_state.lock().get_screen_text(pty_id);
+        let screen = screen_state.get_screen_text(pty_id);
         let detected = screen.is_some_and(|screen| registry.detect_from_output(&screen).is_some());
         if detected || has_authoritative_binding() {
             return true;
@@ -81,7 +81,7 @@ pub(super) struct ScreenChangeSubscription {
 
 impl ScreenChangeSubscription {
     pub fn arm(screen_state: &crate::ScreenStateHandle, pty_id: &str) -> Self {
-        let signal = screen_state.lock().subscribe_screen_changes(pty_id);
+        let signal = screen_state.subscribe_screen_changes(pty_id);
         Self {
             screen_state: screen_state.clone(),
             pty_id: pty_id.to_string(),
@@ -93,7 +93,6 @@ impl ScreenChangeSubscription {
 impl Drop for ScreenChangeSubscription {
     fn drop(&mut self) {
         self.screen_state
-            .lock()
             .unsubscribe_screen_changes(&self.pty_id, &self.signal);
     }
 }

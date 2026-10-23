@@ -17,6 +17,7 @@ const SHOT_1 = String.raw`C:\Users\User\AppData\Local\Temp\codeterm-chat\a1-past
 const SHOT_2 = String.raw`C:\Users\User\AppData\Local\Temp\codeterm-chat\b2-pasted-image-2.png`;
 const stored = vi.hoisted(() => ({
   path: String.raw`C:\Users\User\AppData\Local\Temp\codeterm-chat\c3-pasted-text.txt`,
+  pending: null as Promise<void> | null,
   blobs: [] as { name: string; text: Promise<string> }[],
 }));
 const TEXT_FILE = stored.path;
@@ -25,6 +26,7 @@ vi.mock("./voice/audio", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./voice/audio")>()),
   storeBlob: async (blob: Blob, name: string) => {
     stored.blobs.push({ name, text: blob.text() });
+    await stored.pending;
     return stored.path;
   },
 }));
@@ -41,6 +43,7 @@ let host: HTMLDivElement | null = null;
 afterEach(async () => {
   await act(async () => root?.unmount()); root = null; host?.remove(); host = null;
   __setInvokeForTest(null); __setListenForTest(null);
+  stored.pending = null; vi.restoreAllMocks();
   try { window.localStorage.clear(); } catch { /* storage may be unavailable */ }
 });
 
@@ -226,4 +229,38 @@ it("typing after a chip appends normally over an inert mirror", async () => {
   expect(mirror()?.textContent).toBe(textarea.value);
   expect(mirror()?.getAttribute("aria-hidden")).not.toBeNull();
   expect(mirror()?.querySelectorAll("button, a, input, [tabindex]")).toHaveLength(0);
+});
+
+it("keeps a deferred paste in its receiving composer after switching to another mounted tab", async () => {
+  const first = await renderComposer("paste-owner");
+  const firstRoot = root!;
+  const firstHost = host!;
+  const second = await renderComposer("paste-other");
+  let resolve!: () => void;
+  stored.pending = new Promise<void>(done => { resolve = done; });
+  try {
+    first.textarea.focus();
+    await paste(first.textarea, Array.from({ length: 50 }, (_, i) => `line ${i}`).join("\n"));
+    firstHost.hidden = true;
+    second.textarea.focus();
+    vi.spyOn(first.textarea, "focus").mockImplementation(() => {});
+    const edit = vi.fn((_command: string, _show?: boolean, text?: string) => {
+      const target = document.activeElement as HTMLTextAreaElement;
+      target.setRangeText(text ?? "", target.selectionStart, target.selectionEnd, "end");
+      target.dispatchEvent(new Event("input", { bubbles: true }));
+      return true;
+    });
+    Object.defineProperty(document, "execCommand", { configurable: true, value: edit });
+    await act(async () => resolve());
+    expect(document.activeElement).toBe(second.textarea);
+    expect(second.textarea.value).toBe("");
+    expect(first.textarea.value).toBe(`${capsuleToken("text1 · 50 lines")} `);
+    expect(edit).not.toHaveBeenCalled();
+    firstHost.hidden = false;
+    expect(await sendAndRead(first.textarea, second.calls)).toEqual([formatAttachmentMarker(TEXT_FILE, "text", "text1 · 50 lines")]);
+    expect(second.calls.filter(call => call.command === "chat_send_text").map(call => call.args.tabId)).toEqual(["paste-owner"]);
+  } finally {
+    Reflect.deleteProperty(document, "execCommand");
+    await act(async () => firstRoot.unmount()); firstHost.remove();
+  }
 });

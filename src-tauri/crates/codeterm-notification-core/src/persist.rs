@@ -212,7 +212,7 @@ impl Persistence {
         if rendered == self.written {
             return;
         }
-        match codeterm_util::atomic_write::write_atomic(&self.path, rendered.as_bytes()) {
+        match codeterm_util::private_file::write_atomic(&self.path, rendered.as_bytes()) {
             Ok(()) => self.written = rendered,
             Err(error) => log::warn!(
                 "[notify-persist] {} could not be written: {error}",

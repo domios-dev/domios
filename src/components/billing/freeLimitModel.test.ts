@@ -6,6 +6,8 @@ import {
   isFreeLimitRefusal,
   limitCounts,
   limitHeadline,
+  meshMachinesDetail,
+  meshMachinesRefusal,
   parseFreeLimits,
   reachedLimit,
   refusedLimit,
@@ -63,6 +65,30 @@ describe("free-limit model", () => {
     expect(refusedLimit(freeLimitBlocked("teams"), "workspaces")).toBe("teams");
   });
 
+  it("never reads the account Mesh limit from daemon text", () => {
+    expect(refusedLimit(refusal("mesh.machines"), "workspaces")).toBeNull();
+    expect(isFreeLimitRefusal(freeLimitBlocked("mesh.machines"))).toBe(false);
+  });
+
+  it("reads the Mesh machine limit only from the server's structured refusal and count", () => {
+    expect(meshMachinesRefusal({ reason: "mesh.machines", limit: 2, active_count: 2 })).toEqual({ limit: 2, activeCount: 2 });
+    expect(meshMachinesRefusal({ reason: "mesh.machines", limit: 5, active_count: 7 })).toEqual({ limit: 5, activeCount: 7 });
+    expect(meshMachinesRefusal({ reason: "mesh.machines", limit: 2, active_count: 1 })).toBeNull();
+    expect(meshMachinesRefusal({ reason: "mesh.machines", limit: 2 })).toBeNull();
+    expect(meshMachinesRefusal({ reason: "mesh.machines", limit: 0, active_count: 0 })).toBeNull();
+    expect(meshMachinesRefusal({ reason: "mesh.machines", limit: "2", active_count: 2 })).toBeNull();
+    expect(meshMachinesRefusal({ reason: "mesh-allowance", limit: 2, active_count: 2 })).toBeNull();
+    expect(meshMachinesRefusal("mesh.machines")).toBeNull();
+    expect(meshMachinesRefusal([{ reason: "mesh.machines", limit: 2, active_count: 2 }])).toBeNull();
+    expect(meshMachinesRefusal(null)).toBeNull();
+  });
+
+  it("explains which actions free a Mesh slot", () => {
+    const detail = meshMachinesDetail({ limit: 2, activeCount: 2 });
+    expect(detail).toContain("2 active machines");
+    expect(detail).toMatch(/Revoking a machine from your account frees its slot; signing out or unpairing locally does not\./);
+  });
+
   it("never blocks a folder the daemon would reuse", () => {
     const workspaces = [{ id: "a", cwd: "C:\\Repo\\App\\" }] as Workspace[];
     expect(reusesWorkspace(workspaces, "c:/repo/app")).toBe(true);
@@ -75,5 +101,6 @@ describe("free-limit model", () => {
     expect(limitHeadline("teams")).toBe("The free version includes 6 Teams across all workspaces.");
     expect(limitHeadline("agent.tabs")).toBe("The free version allows 35 tabs running at once.");
     expect(limitHeadline("workspaces", 3)).toBe("The free version includes 3 workspaces.");
+    expect(limitHeadline("mesh.machines", 2)).toBe("The free version includes 2 machines in your mesh.");
   });
 });

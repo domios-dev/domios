@@ -305,6 +305,8 @@ fn pending_interruption_fences_duplicate_process_exit_event() {
 fn production_adoption_binds_exact_authenticated_session_and_epoch() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.agent_type = Some("target-provider".into());
+    tab.agent_provider_resolved_model = Some("target-model".into());
     tab.agent_session_id = Some("new-session".into());
     tab.session_binding_nonce = Some("nonce".into());
     tab.reported_session_binding_nonce = Some("nonce".into());
@@ -408,11 +410,106 @@ fn production_adoption_binds_exact_authenticated_session_and_epoch() {
         )
         .unwrap();
 
+    let stale = crate::multiplexer::types::TaskBinding {
+        plan_id: Some(plan.id.clone()),
+        task_id: Some(task_id.clone()),
+        attempt_id: Some(attempt_id.clone()),
+        spawn_handle: Some("opaque-spawn-handle".into()),
+        bound_at: 3,
+    };
+    for conflicting in [
+        crate::multiplexer::types::TaskBinding {
+            plan_id: Some("foreign-plan".into()),
+            ..stale.clone()
+        },
+        crate::multiplexer::types::TaskBinding {
+            task_id: Some("foreign-task".into()),
+            ..stale.clone()
+        },
+        crate::multiplexer::types::TaskBinding {
+            attempt_id: Some("foreign-attempt".into()),
+            ..stale.clone()
+        },
+    ] {
+        fixture
+            .service
+            .mux
+            .write()
+            .get_tab_mut(&tab_id)
+            .unwrap()
+            .task_binding = Some(conflicting.clone());
+        let before = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+        assert!(fixture
+            .service
+            .adopt_worker_checkpoint_sync(&task_id, &tab_id, "new-session", 6)
+            .unwrap_err()
+            .contains("different task attempt"));
+        assert_eq!(
+            fixture
+                .service
+                .mux
+                .read()
+                .get_tab(&tab_id)
+                .unwrap()
+                .task_binding
+                .as_ref(),
+            Some(&conflicting)
+        );
+        let after = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+        assert_eq!(
+            after.execution_attempts.len(),
+            before.execution_attempts.len()
+        );
+        assert_eq!(after.interruption, before.interruption);
+    }
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab_id)
+        .unwrap()
+        .task_binding = Some(stale);
     let (epoch, _) = fixture
         .service
         .adopt_worker_checkpoint_sync(&task_id, &tab_id, "new-session", 6)
         .unwrap();
     assert_eq!(epoch, 2);
+    let adopted = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+    let latest = adopted.execution_attempts.last().unwrap();
+    assert_eq!(latest.provider.as_deref(), Some("target-provider"));
+    assert_eq!(
+        latest.provider_resolved_model.as_deref(),
+        Some("target-model")
+    );
+    assert_eq!(latest.session_binding_nonce.as_deref(), Some("nonce"));
+    assert_eq!(
+        fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .unwrap()
+            .task_binding
+            .as_ref()
+            .unwrap()
+            .spawn_handle
+            .as_deref(),
+        Some("opaque-spawn-handle")
+    );
+    assert_eq!(
+        fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .unwrap()
+            .task_binding
+            .as_ref()
+            .unwrap()
+            .attempt_id
+            .as_deref(),
+        Some(latest.id.as_str())
+    );
     assert!(fixture
         .service
         .verify_task_owner_session(&task_id, &tab_id, "stale-session", 2)

@@ -34,12 +34,12 @@ export interface InlineAttachment {
 export type InlineAttachmentSink = ((items: InlineAttachment[]) => void) & { upload?: (blob: Blob, name: string) => Promise<string | null | undefined> };
 
 /** Replaces a textarea range through the editing command so native undo keeps the step; falls back where the command is missing. */
-export function replaceTextareaRange(el: HTMLTextAreaElement, start: number, end: number, text: string) {
+export function replaceTextareaRange(el: HTMLTextAreaElement, start: number, end: number, text: string, focus = true) {
   const expected = el.value.slice(0, start) + text + el.value.slice(end);
-  el.focus({ preventScroll: true });
+  if (focus) el.focus({ preventScroll: true });
   el.setSelectionRange(start, end);
   try {
-    if (typeof document.execCommand === "function") document.execCommand(text ? "insertText" : "delete", false, text);
+    if (document.activeElement === el && typeof document.execCommand === "function") document.execCommand(text ? "insertText" : "delete", false, text);
   } catch {
     // Fall through to the direct edit below.
   }
@@ -51,13 +51,13 @@ export function replaceTextareaRange(el: HTMLTextAreaElement, start: number, end
 }
 
 /** Pads a capsule insert with spaces only where it would otherwise touch a word. */
-function insertWithPadding(el: HTMLTextAreaElement, text: string) {
+function insertWithPadding(el: HTMLTextAreaElement, text: string, focus = true) {
   const { start, end } = expandToCapsules(el.value, el.selectionStart, el.selectionEnd);
   const before = el.value.slice(0, start);
   const after = el.value.slice(end);
   const lead = before && !/\s$/.test(before) ? " " : "";
   const trail = /^\s/.test(after) ? "" : " ";
-  replaceTextareaRange(el, start, end, `${lead}${text}${trail}`);
+  replaceTextareaRange(el, start, end, `${lead}${text}${trail}`, focus);
 }
 
 export function useComposerCapsules({ tabId, textareaRef, sinkRef, onError }: {
@@ -90,6 +90,7 @@ export function useComposerCapsules({ tabId, textareaRef, sinkRef, onError }: {
 
   const uploads = useComposerUploads({
     registry: () => registryRef.current, commit,
+    draft: () => textareaRef.current?.value,
     insert: (capsule) => { const el = textareaRef.current; if (el) insertWithPadding(el, capsuleToken(capsule.label)); },
   });
   const clear = () => { uploads.clear(); commit(EMPTY_CAPSULES); };
@@ -97,7 +98,7 @@ export function useComposerCapsules({ tabId, textareaRef, sinkRef, onError }: {
   const insert = useCallback<InlineAttachmentSink>((items) => {
     const el = textareaRef.current;
     if (!el || items.length === 0) return;
-    const added = capsulesForPaths(registryRef.current, items);
+    const added = capsulesForPaths(registryRef.current, items, el.value);
     commit(added.registry);
     insertWithPadding(el, added.text);
   }, [commit, textareaRef]);
@@ -129,15 +130,14 @@ export function useComposerCapsules({ tabId, textareaRef, sinkRef, onError }: {
     insert(items);
   }, [insert, textareaRef]);
 
-  const storeLongText = useCallback(async (text: string) => {
+  const storeLongText = useCallback(async (text: string, el: HTMLTextAreaElement) => {
     const lines = countLines(text);
     try {
       const path = await storeBlob(new Blob([text], { type: "text/plain" }), `pasted-text-${Date.now()}.txt`);
-      const el = textareaRef.current;
-      if (!path.trim() || !el) return;
-      const added = addCapsule(registryRef.current, { kind: "text", path, lines });
+      if (!path.trim() || !el.isConnected || textareaRef.current !== el) return;
+      const added = addCapsule(registryRef.current, { kind: "text", path, lines }, el.value);
       commit(added.registry);
-      insertWithPadding(el, capsuleToken(added.capsule.label));
+      insertWithPadding(el, capsuleToken(added.capsule.label), false);
     } catch (error) {
       onErrorRef.current(error instanceof Error ? error.message : String(error));
     }
@@ -160,7 +160,7 @@ export function useComposerCapsules({ tabId, textareaRef, sinkRef, onError }: {
     }
     if (!isLongPaste(text)) return false;
     event.preventDefault();
-    void storeLongText(text);
+    void storeLongText(text, el);
     return true;
   }, [commit, storeLongText]);
 

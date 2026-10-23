@@ -703,7 +703,6 @@ export interface BitwardenSettings {
 export interface MeshConfig {
   enabled: boolean;
   instance_name: string;
-  broadcast_duration_secs: number;
 }
 
 export interface OrchestrationConfig {
@@ -715,14 +714,10 @@ export interface MeshStatus {
   enabled: boolean;
   instance_id: string;
   instance_name: string;
-  discovery_active: boolean;
-  broadcast_active: boolean;
-  broadcast_expires_at: number | null;
   tailscale_ip: string | null;
   local_ip: string | null;
   api_port: number;
   paired_count: number;
-  discovered_count: number;
 }
 
 export interface PeerAddress {
@@ -758,33 +753,8 @@ export interface WebUiAnnouncement {
   endpoints: WebUiEndpoint[];
 }
 
-export interface DiscoveredPeer {
-  instance_id: string;
-  instance_name: string;
-  addresses: PeerAddress[];
-  api_port: number;
-  discovery_method: "mdns" | "tailscale" | "udp" | "gossip" | "manual";
-  last_seen: number;
-  dev: boolean;
-  mesh_id: string | null;
-  /** instance_ids of paired peers who told us about this peer via gossip. */
-  vouched_by: string[];
-}
-
-export interface MeshPairingRequest {
-  request_id: string;
-  from_instance_id: string;
-  from_instance_name: string;
-  from_address: string;
-  from_port: number;
-  timestamp: number;
-  status: "pending" | "accepted" | "rejected" | "expired";
-}
-
 export interface MeshPeersResponse {
   paired: PairedPeer[];
-  discovered: DiscoveredPeer[];
-  incoming_requests: MeshPairingRequest[];
   local_instance_name: string;
 }
 

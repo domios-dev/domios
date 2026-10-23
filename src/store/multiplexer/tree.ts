@@ -19,6 +19,7 @@ export interface ExtendedState extends MultiplexerState {
   generation: number;
   pendingCloses: string[];
   storageUnavailable?: boolean;
+  muxResyncRequired?: boolean;
 }
 
 export function reconcileBackendWorkspaceTabs(
