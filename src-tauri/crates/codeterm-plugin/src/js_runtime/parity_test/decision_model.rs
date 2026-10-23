@@ -207,6 +207,7 @@ fn parity_decision_model_matches_shared_fixtures() {
         assert_eq!(native.token_mode(), javascript.token_mode());
         assert_eq!(native.primitives(), javascript.primitives());
         assert_eq!(native.models(), javascript.models());
+        assert_eq!(native.cached_models(), javascript.cached_models());
         assert_eq!(native.model_id(), javascript.model_id());
         assert_eq!(native.pricing(), javascript.pricing());
         assert_eq!(native.metadata(), javascript.metadata());
