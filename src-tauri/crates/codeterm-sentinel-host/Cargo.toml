@@ -11,8 +11,8 @@ workspace = true
 name = "codeterm_sentinel_host"
 
 [dependencies]
-codeterm-mem = { path = "../codeterm-mem", default-features = false }
 codeterm-service-core = { path = "../codeterm-service-core", default-features = false }
+codeterm-mem = { path = "../codeterm-mem", default-features = false }
 codeterm-sentinel = { path = "../codeterm-sentinel" }
 codeterm-blueprint-types = { path = "../codeterm-blueprint-types" }
 codeterm-cron = { path = "../codeterm-cron" }

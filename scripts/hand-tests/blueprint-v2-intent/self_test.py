@@ -94,12 +94,22 @@ class OracleTests(unittest.TestCase):
             result = subprocess.run([sys.executable, '-I', str(HERE / 'sink.py'), str(effect)],
                                     input=json.dumps(envelope), text=True, capture_output=True, timeout=5)
             self.assertEqual(result.returncode, 0, result.stderr)
-            log = [{'step_name': '$run', 'state': 'done'}, {'state': 'done', 'result_summary': 'code completed'}]
+            source = 'def main(value): return value'
+            log = [{'step_name': '$run', 'state': 'done'},
+                   {'state': 'done', 'result_summary': 'code completed; body_sha256=' + digest(source)}]
             verify_run({}, log, effect, 73)
+            show = {'pin': PIN, 'expanded': {'steps': [{'code': {'src': source}}]}}
+            verify_run(show, log, effect, 73, PIN)
+            show['expanded']['steps'][0]['code']['src'] = 'a different callee'
+            with self.assertRaises(ValueError):
+                verify_run(show, log, effect, 73, PIN)
             with self.assertRaises(ValueError):
                 verify_run({}, log, effect, 11)
             with self.assertRaises(ValueError):
                 verify_run({}, [{'step_name': '$run', 'state': 'done'}], effect, 73)
+            for summary in ['code completed', 'code completed; body_sha256=' + 'g' * 64]:
+                with self.assertRaises(ValueError):
+                    verify_run({}, [log[0], {'state': 'done', 'result_summary': summary}], effect, 73)
             self.assertNotIn('73', (HERE / 'sink.py').read_text())
 
     def test_prompt_decision_is_the_accepted_bytes_and_keeps_the_generic_example(self):

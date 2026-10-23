@@ -17,13 +17,7 @@ pub fn validate(jobs: Vec<Sentinel>) -> Result<Vec<Sentinel>, String> {
     }
     let mut ids = std::collections::BTreeSet::new();
     for job in &jobs {
-        let document = job
-            .document
-            .as_ref()
-            .ok_or("Only native v2 Blueprint documents can be restored")?;
-        codeterm_blueprint_types::blueprint_document::Document::from_definition(document)?
-            .lower()
-            .map_err(|errors| format!("{errors:?}"))?;
+        crate::storage::codec::import(job)?;
         codeterm_blueprint_types::automation_name::validate_note(job.note.as_deref())?;
         if job.pipeline().is_none() {
             machine::validate(&job.buckets, &job.matches, true, job.interval_ms)?;
@@ -179,10 +173,17 @@ pub fn validate(jobs: Vec<Sentinel>) -> Result<Vec<Sentinel>, String> {
 impl Store {
     pub fn prepare_pipeline(
         &self,
-        spec: codeterm_blueprint_types::blueprint_pipeline::BlueprintSpec,
+        mut spec: codeterm_blueprint_types::blueprint_pipeline::BlueprintSpec,
         owner: Owner,
         connected: bool,
     ) -> Result<Sentinel, String> {
+        for step in &mut spec.steps {
+            if let codeterm_blueprint_types::blueprint_pipeline::StepKind::Code { code } =
+                &mut step.kind
+            {
+                crate::seal_code::code(code, std::path::Path::new(&owner.cwd))?;
+            }
+        }
         let every = match &spec.trigger {
             codeterm_blueprint_types::blueprint_pipeline::Trigger::Schedule { every } => {
                 every.clone()

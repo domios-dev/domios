@@ -625,3 +625,47 @@ fn curator_saves_blueprint_among_unrelated_facts_and_other_scopes() {
 }
 
 mod recall_regressions;
+
+#[test]
+fn blueprint_v2_check_v1_cleanup_keeps_history_and_runs_once() {
+    let mem = MemManager::open_in_memory().unwrap();
+    let conn = mem.conn.lock();
+    let obsolete = "schema_version: 1\nname: obsolete\nwatch: {}\n";
+    let id = store::insert(
+        &conn,
+        &NewMemItem {
+            kind: MemKind::Skill,
+            scope: MemScope::Global,
+            title: "Obsolete Blueprint".into(),
+            summary: None,
+            area: Some("project".into()),
+            tags: vec![],
+            body: obsolete.into(),
+            source: Some(SOURCE.into()),
+            importance: 0.5,
+            source_path: None,
+            pinned: false,
+        },
+        &mem.blobs_dir,
+    )
+    .unwrap();
+    assert_eq!(cleanup::remove_v1(&conn, &mem.blobs_dir).unwrap(), 1);
+    let history: String = conn
+        .query_row(
+            "SELECT old_body FROM mem_item_history WHERE item_id=?1 ORDER BY id DESC LIMIT 1",
+            [&id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(history, obsolete);
+    assert_eq!(cleanup::remove_v1(&conn, &mem.blobs_dir).unwrap(), 0);
+    assert_eq!(
+        conn.query_row(
+            "SELECT removed_count FROM blueprint_v1_cleanup_receipt",
+            [],
+            |r| r.get::<_, i64>(0)
+        )
+        .unwrap(),
+        1
+    );
+}

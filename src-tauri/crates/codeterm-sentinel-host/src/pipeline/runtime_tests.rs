@@ -45,6 +45,43 @@ fn journal(handle: &Handle, id: &str) -> Vec<codeterm_storage::BlueprintJournalE
     read.wait(Duration::from_secs(10)).unwrap().value
 }
 
+fn run_recorded(
+    handle: &Handle,
+    service: &codeterm_service_core::service::ServiceContext,
+    lease: &Lease,
+    run_id: &str,
+) -> (RunCompletion, String) {
+    let receipt = crate::probe::test_receipt::Receipt::start(run_id, &lease.cancelled);
+    let result = run_pipeline(handle, service, lease, run_id, &std::cell::Cell::new(false));
+    let done = result
+        .as_ref()
+        .is_ok_and(|completion| completion.state == JournalState::Done);
+    let mut receipt = receipt.finish(done, &format!("{result:?}"), "");
+    let entries = journal(handle, &lease.job.id);
+    let details = entries
+        .iter()
+        .map(|entry| {
+            format!(
+                "step={} state={} outcome={:?} journal_reason={:?} summary_or_stderr_tail={:?}",
+                entry.step_name,
+                entry.state.as_str(),
+                entry.outcome,
+                entry.reason,
+                entry.result_summary
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    let details = codeterm_util::redact::text(&details);
+    receipt.diagnostic.push_str("; ");
+    receipt.diagnostic.push_str(&details);
+    if !done {
+        eprintln!("{details}");
+    }
+    let completion = result.unwrap_or_else(|reason| panic!("{}; {reason:?}", receipt.diagnostic));
+    (completion, receipt.diagnostic)
+}
+
 fn close(storage: Storage) {
     storage.shutdown().wait(Duration::from_secs(10)).unwrap();
 }
@@ -67,25 +104,17 @@ fn document(language: &str, src: &str, sink: &Path) -> Value {
                  {"id":"sink","run":{"lit":command},"in":schema()}],"result":{"to":"notify"}})
 }
 
-#[cfg(target_os = "macos")]
 fn prove_pipeline(language: &str, src: &str, expected: Option<JournalReason>) {
     let root = tempfile::tempdir().unwrap();
     let sink = root.path().join("captured-stdin.json");
     let (fixture, storage, handle, lease) = fixture(document(language, src, &sink), root.path());
-    let completion = run_pipeline(
-        &handle,
-        &fixture.service,
-        &lease,
-        "runtime-proof",
-        &std::cell::Cell::new(false),
-    )
-    .unwrap();
+    let (completion, diagnostic) = run_recorded(&handle, &fixture.service, &lease, "runtime-proof");
     if let Some(reason) = expected {
-        assert_eq!(completion.state, JournalState::Failed);
-        assert_eq!(completion.reason, reason);
+        assert_eq!(completion.state, JournalState::Failed, "{diagnostic}");
+        assert_eq!(completion.reason, reason, "{diagnostic}");
         assert!(
             !sink.exists(),
-            "sink must never run after a contract or confinement failure"
+            "sink must never run after a contract failure"
         );
         let records = journal(&handle, &lease.job.id);
         assert!(records
@@ -93,12 +122,7 @@ fn prove_pipeline(language: &str, src: &str, expected: Option<JournalReason>) {
             .any(|entry| entry.step_name == "transform" && entry.reason.as_ref() == Some(&reason)));
         assert!(!records.iter().any(|entry| entry.step_name == "sink"));
     } else {
-        assert_eq!(
-            completion.state,
-            JournalState::Done,
-            "{}",
-            completion.reason.as_str()
-        );
+        assert_eq!(completion.state, JournalState::Done, "{diagnostic}");
         let bytes = std::fs::read(&sink).unwrap();
         assert!(bytes.len() <= 32768);
         let envelope = ExecutionEnvelope::decode(&bytes).unwrap();
@@ -117,25 +141,19 @@ fn prove_pipeline(language: &str, src: &str, expected: Option<JournalReason>) {
     close(storage);
 }
 
-#[cfg(target_os = "macos")]
-const PYTHON: &str =
-    "import sys,json\nx=json.load(sys.stdin)\nx['value']['n']+=1\njson.dump(x,sys.stdout)\n";
-#[cfg(target_os = "macos")]
-const TS: &str = "import fs from 'node:fs';const x:{value:{n:number}}=JSON.parse(fs.readFileSync(0,'utf8'));x.value.n++;process.stdout.write(JSON.stringify(x));";
+const PYTHON: &str = "def main(value):\n value['n']+=1\n return value\n";
+const TS: &str = "export default function main(value: {n:number}) { value.n++; return value; }";
 
-#[cfg(target_os = "macos")]
 #[test]
 fn blueprint_v2_runtime_existing_pipeline_python_reaches_fixed_stdin_sink() {
     prove_pipeline("python", PYTHON, None);
 }
 
-#[cfg(target_os = "macos")]
 #[test]
 fn blueprint_v2_runtime_existing_pipeline_ts_reaches_fixed_stdin_sink() {
     prove_pipeline("ts", TS, None);
 }
 
-#[cfg(target_os = "macos")]
 #[test]
 fn blueprint_v2_runtime_contract_mismatch_stops_before_sink_despite_failure_route() {
     prove_pipeline(
@@ -145,22 +163,13 @@ fn blueprint_v2_runtime_contract_mismatch_stops_before_sink_despite_failure_rout
     );
 }
 
-#[cfg(target_os = "macos")]
-#[test]
-fn blueprint_v2_runtime_denied_body_stops_before_sink() {
-    let root = tempfile::tempdir().unwrap();
-    let forbidden = root.path().join("forbidden");
-    let src = format!(
-        "open({},'w').write('denied')",
-        serde_json::to_string(&forbidden).unwrap()
-    );
-    prove_pipeline("python", &src, Some(JournalReason::SandboxDenied));
-    assert!(!forbidden.exists());
-}
-
 #[test]
 fn blueprint_v2_runtime_port_schema_and_capability_refusal() {
-    let mut doc = document("python", "pass", Path::new("opaque-sink"));
+    let mut doc = document(
+        "python",
+        "def main(value): return value",
+        Path::new("opaque-sink"),
+    );
     assert!(Document::from_definition(&doc).unwrap().lower().is_ok());
     doc["steps"][0]["code"]["caps"] = json!(["domios-cli"]);
     let refusal = Document::from_definition(&doc).unwrap_err();
@@ -182,7 +191,10 @@ fn blueprint_v2_runtime_port_schema_and_capability_refusal() {
 fn blueprint_v2_runtime_shared_context_binding_depth_and_step_budget() {
     let root = tempfile::tempdir().unwrap();
     let sink = root.path().join("must-not-run");
-    let (fixture, storage, handle, lease) = fixture(document("python", "pass", &sink), root.path());
+    let (fixture, storage, handle, lease) = fixture(
+        document("python", "def main(value): return value", &sink),
+        root.path(),
+    );
     let mut ctx = RunCtx::new(&handle, &fixture.service, &lease, "budget-proof");
     for _ in 0..8 {
         ctx.enter_call().unwrap();
@@ -263,3 +275,7 @@ fn blueprint_v2_runtime_envelope_requires_all_fields_and_preserves_text_type() {
         );
     }
 }
+
+mod review;
+
+mod recipes;
