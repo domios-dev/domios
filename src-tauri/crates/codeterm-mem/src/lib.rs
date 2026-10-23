@@ -100,6 +100,8 @@ pub struct MemManager {
     pub(crate) embedder: Arc<embedder::ActiveEmbedder>,
     pub(crate) reembed: embedder::switch::ReembedTracker,
     pub(crate) docs_dir: Option<PathBuf>,
+    pub(crate) vector_transition: parking_lot::RwLock<()>,
+    pub(crate) reembed_busy: std::sync::atomic::AtomicBool,
     pub(crate) heavy_ops_permits: Arc<Semaphore>,
     pub(crate) layout: graph_layout::LayoutState,
     pub(crate) extraction: Arc<ExtractionAuthority>,
@@ -188,10 +190,15 @@ impl MemManager {
             embedder,
             reembed: embedder::switch::ReembedTracker::new(clock),
             docs_dir,
+            vector_transition: Default::default(),
+            reembed_busy: Default::default(),
             heavy_ops_permits,
             layout,
             extraction: Arc::new(ExtractionAuthority::new()),
         });
+        manager
+            .reembed
+            .restore(mem_dir.join("reembed-progress.json"));
         manager.subscribe_recovery();
         Ok(manager)
     }
@@ -227,6 +234,8 @@ impl MemManager {
             embedder,
             reembed: embedder::switch::ReembedTracker::new(Arc::new(embedder::SystemClock)),
             docs_dir: None,
+            vector_transition: Default::default(),
+            reembed_busy: Default::default(),
             heavy_ops_permits: Arc::new(Semaphore::new(HEAVY_OPS_PERMITS)),
             layout,
             extraction: Arc::new(ExtractionAuthority::new()),
@@ -278,6 +287,8 @@ impl MemManager {
             embedder: embedder::ActiveEmbedder::global(),
             reembed: embedder::switch::ReembedTracker::new(Arc::new(embedder::SystemClock)),
             docs_dir: None,
+            vector_transition: Default::default(),
+            reembed_busy: Default::default(),
             heavy_ops_permits: Arc::new(Semaphore::new(HEAVY_OPS_PERMITS)),
             layout,
             extraction: Arc::new(ExtractionAuthority::new()),

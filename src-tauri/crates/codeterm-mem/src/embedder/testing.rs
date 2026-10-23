@@ -52,6 +52,10 @@ impl MockProvider {
         (started, release)
     }
 
+    pub fn ungate(&self) {
+        *self.gate.lock() = None;
+    }
+
     pub fn vector(&self, text: &str) -> Vec<f32> {
         let mut vector = vec![0.0f32; self.dimension];
         for word in text.split_whitespace() {

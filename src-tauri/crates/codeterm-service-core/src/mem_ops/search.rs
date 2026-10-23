@@ -30,7 +30,11 @@ pub fn execute_search(
     p: SearchParams,
 ) -> Result<serde_json::Value, SearchError> {
     let cfg = svc.configuration().supporter;
-    resolve_search(&**svc, &svc.supporter_models, &cfg, p)
+    let mut result = resolve_search(&**svc, &svc.supporter_models, &cfg, p)?;
+    let health = svc.mem.recall_health();
+    result["degraded"] = serde_json::json!(health.degraded);
+    result["vector_progress"] = serde_json::json!(health.progress);
+    Ok(result)
 }
 
 #[cfg(test)]

@@ -142,7 +142,7 @@ fn blueprint_usage_breaks_equal_retrieval_scores() {
 }
 
 #[test]
-fn blueprint_recall_refuses_unrelated_vectors_even_when_the_only_solution_is_kept() {
+fn recall_reembed_lone_unrelated_kept_solution_is_rejected_despite_rrf_rank() {
     let mem = MemManager::open_in_memory().unwrap();
     mem.set_blueprint_embedder(Arc::new(DeploymentEmbedder));
     let id = mem
@@ -266,4 +266,34 @@ fn blueprint_vectors_follow_the_active_embedder_and_refuse_stale_stamps() {
             .id,
         id
     );
+}
+
+#[test]
+fn recall_reembed_blueprint_semantic_hits_and_health_survive_shadow_build() {
+    use crate::embedder::testing::{fixture_for, MockProvider, DEADLINE};
+    let fx = fixture_for(Arc::new(DeploymentEmbedder));
+    let id = fx
+        .mem
+        .save_blueprint(
+            "project",
+            document("done"),
+            &when("Detect stalled deployments"),
+            evidence(),
+        )
+        .unwrap()
+        .id;
+    assert!(fx.mem.embed_queue.wait_idle(DEADLINE));
+    let new = MockProvider::new("new", "new", 768);
+    let (started, release) = new.gated();
+    fx.mem.switch_embedder(new).unwrap();
+    started.recv_timeout(DEADLINE).unwrap();
+    let result = fx
+        .mem
+        .recall_blueprints_with_health("project", "Identify frozen releases", 5)
+        .unwrap();
+    drop(release);
+    assert_eq!(result.offers[0].entry.id, id);
+    assert!(result.degraded);
+    assert_eq!(result.progress.done, 0);
+    assert!(result.progress.total > 0);
 }

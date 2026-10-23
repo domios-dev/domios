@@ -29,19 +29,23 @@ struct CacheHeader {
     corpus_hash: String,
 }
 
-type StampedDocs = (EmbedderIdentity, Arc<DocVectors>);
+type StampedDocs = (Arc<ActiveEmbedder>, Arc<DocVectors>);
+
+pub(crate) struct PreparedDocs {
+    embedder: Arc<ActiveEmbedder>,
+    vectors: DocVectors,
+}
 
 fn vector_store() -> &'static RwLock<Option<StampedDocs>> {
     static STORE: OnceLock<RwLock<Option<StampedDocs>>> = OnceLock::new();
     STORE.get_or_init(|| RwLock::new(None))
 }
 
-/// Published vectors, only while they belong to the active embedder.
-pub(super) fn ready_vectors() -> Option<Arc<DocVectors>> {
-    let active = ActiveEmbedder::global().identity();
+/// Published vectors and the provider pinned to their stamp.
+pub(super) fn ready_vectors() -> Option<StampedDocs> {
     let store = vector_store().try_read()?;
-    let (identity, vectors) = store.as_ref()?;
-    (*identity == active).then(|| vectors.clone())
+    let (embedder, vectors) = store.as_ref()?;
+    Some((embedder.clone(), vectors.clone()))
 }
 
 pub(super) fn start_background_build(data_dir: &Path) {
@@ -91,14 +95,15 @@ fn build(
     publish: bool,
 ) -> Result<usize, String> {
     let started = Instant::now();
-    let identity = embedder.identity();
+    let pinned = ActiveEmbedder::new(embedder.provider());
+    let identity = pinned.identity();
     let result = load_or_build(
         &data_dir.join("mem").join("docs-vectors"),
         sections,
         &cache_model_key(&identity),
         identity.dimension,
         &|text: &str| {
-            let stamped = embedder.passage(text).map_err(|error| error.to_string())?;
+            let stamped = pinned.passage(text).map_err(|error| error.to_string())?;
             if stamped.identity != identity {
                 return Err("the embedder switched during the docs build".into());
             }
@@ -108,8 +113,8 @@ fn build(
     match result {
         Ok((vectors, cached)) => {
             let chunks = vectors.ids.len();
-            if publish {
-                publish_vectors(identity, vectors);
+            if publish && embedder.identity() == identity {
+                publish_vectors(pinned, vectors);
             }
             log::info!(
                 "[docs.vectors] ready chunks={chunks} cached={cached} ms={}",
@@ -131,14 +136,45 @@ fn log_unavailable(reason: &str) {
     );
 }
 
-fn publish_vectors(identity: EmbedderIdentity, vectors: DocVectors) {
-    let mut store = vector_store().write();
-    if store
-        .as_ref()
-        .is_none_or(|(current, _)| *current != identity)
-    {
-        *store = Some((identity, Arc::new(vectors)));
+pub(crate) fn prepare(
+    data_dir: &Path,
+    embedder: &ActiveEmbedder,
+    progress: impl Fn(),
+) -> Result<PreparedDocs, String> {
+    let pinned = ActiveEmbedder::new(embedder.provider());
+    let identity = pinned.identity();
+    let (vectors, cached) = load_or_build(
+        &data_dir.join("mem").join("docs-vectors"),
+        super::corpus_sections(),
+        &cache_model_key(&identity),
+        identity.dimension,
+        &|text| {
+            let vector = pinned.passage(text).map_err(|error| error.to_string())?;
+            progress();
+            Ok(vector.vector)
+        },
+    )?;
+    if cached {
+        for _ in &vectors.ids {
+            progress();
+        }
     }
+    Ok(PreparedDocs {
+        embedder: pinned,
+        vectors,
+    })
+}
+
+pub(crate) fn publish(prepared: PreparedDocs, active: &Arc<ActiveEmbedder>) {
+    if Arc::ptr_eq(active, &ActiveEmbedder::global())
+        && prepared.embedder.identity() == active.identity()
+    {
+        publish_vectors(prepared.embedder, prepared.vectors);
+    }
+}
+
+fn publish_vectors(embedder: Arc<ActiveEmbedder>, vectors: DocVectors) {
+    *vector_store().write() = Some((embedder, Arc::new(vectors)));
 }
 
 fn load_or_build<F>(
@@ -533,216 +569,4 @@ fn cosine_similarity(left: &[f32], right: &[f32]) -> f64 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use tempfile::tempdir;
-
-    fn section(doc_name: &'static str, title: &str, anchor: &str, text: &str) -> DocSection {
-        DocSection {
-            doc_name,
-            section_title: title.into(),
-            anchor: anchor.into(),
-            heading_path: vec![title.into()],
-            text: text.into(),
-        }
-    }
-
-    fn store(sections: &[DocSection], vectors: Vec<Vec<f32>>) -> DocVectors {
-        DocVectors {
-            ids: sections
-                .iter()
-                .map(|section| section_id(section.doc_name, &section.anchor))
-                .collect(),
-            vectors,
-        }
-    }
-
-    #[test]
-    fn docs_vectors_absent_is_bm25_identical() {
-        let index = Index::from_sections(vec![
-            section("A", "Vault unlock", "vault-unlock", "unlock secret"),
-            section("B", "Memory search", "memory-search", "search items"),
-        ]);
-        let expected = index.search("vault secret", 2);
-        let actual = hybrid_search_with_embedder(&index, "vault secret", 2, None, &|_| {
-            panic!("absent vectors must not embed")
-        });
-        assert_eq!(actual, expected);
-    }
-
-    #[test]
-    fn docs_vectors_rrf_promotes_vector_only_section() {
-        let mut sections = vec![
-            section("A", "Alpha first", "alpha-first", "alpha alpha"),
-            section("B", "Alpha second", "alpha-second", "alpha"),
-            section("C", "Vector match", "vector-match", "unrelated text"),
-        ];
-        sections.extend((0..20).map(|index| {
-            section(
-                "D",
-                &format!("Vector distractor {index}"),
-                &format!("vector-distractor-{index}"),
-                "unrelated text",
-            )
-        }));
-        let index = Index::from_sections(sections.clone());
-        let bm25 = index.search("alpha", 2);
-        assert_eq!(bm25.len(), 2);
-        let vectors = store(
-            &sections,
-            sections
-                .iter()
-                .map(|section| {
-                    if section.anchor == "vector-match" {
-                        vec![1.0, 0.0]
-                    } else if section.anchor.starts_with("vector-distractor") {
-                        vec![0.9, 0.1]
-                    } else {
-                        vec![-1.0, 0.0]
-                    }
-                })
-                .collect(),
-        );
-
-        let query_calls = std::sync::atomic::AtomicUsize::new(0);
-        let result = hybrid_search(&index, "alpha", 2, &vectors, &|_| {
-            query_calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            Ok(vec![1.0, 0.0])
-        });
-
-        assert_eq!(query_calls.load(std::sync::atomic::Ordering::Relaxed), 1);
-        assert_eq!(result.len(), 2);
-        assert!(result
-            .iter()
-            .any(|candidate| candidate.anchor == "vector-match"));
-        assert_eq!(
-            vectors
-                .ids
-                .iter()
-                .zip(&vectors.vectors)
-                .max_by(|(_, a), (_, b)| cosine_similarity(&[1.0, 0.0], a)
-                    .total_cmp(&cosine_similarity(&[1.0, 0.0], b)))
-                .map(|(id, _)| id.as_str()),
-            Some("C\0vector-match")
-        );
-        assert!(!bm25
-            .iter()
-            .any(|candidate| candidate.anchor == "vector-match"));
-    }
-
-    #[test]
-    fn docs_vectors_ties_break_by_bm25_rank() {
-        let sections = vec![
-            section("A", "First", "first", "alpha"),
-            section("B", "Second", "second", "alpha"),
-        ];
-        let index = Index::from_sections(sections.clone());
-        let vectors = store(&sections, vec![vec![-1.0], vec![1.0]]);
-
-        let result = hybrid_search(&index, "alpha", 2, &vectors, &|_| Ok(vec![1.0]));
-
-        assert_eq!(result[0].anchor, "first");
-        assert_eq!(result[1].anchor, "second");
-    }
-
-    #[test]
-    fn docs_vectors_query_embed_error_falls_back() {
-        let sections = vec![
-            section("A", "Vault unlock", "vault-unlock", "unlock secret"),
-            section("B", "Memory search", "memory-search", "search items"),
-        ];
-        let index = Index::from_sections(sections.clone());
-        let vectors = store(&sections, vec![vec![1.0], vec![2.0]]);
-        let expected = index.search("vault secret", 2);
-
-        let actual = hybrid_search(&index, "vault secret", 2, &vectors, &|_| {
-            Err("fake query failure".into())
-        });
-
-        assert_eq!(actual, expected);
-    }
-
-    #[test]
-    fn docs_vectors_cache_round_trip_keyed_by_hash() {
-        let dir = tempdir().unwrap();
-        let sections = vec![section("A", "Vault", "vault", "unlock secret")];
-        let calls = std::sync::atomic::AtomicUsize::new(0);
-        let embedder = |text: &str| {
-            calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            Ok(vec![text.len() as f32, 1.0])
-        };
-        let (built, cached) =
-            load_or_build(dir.path(), &sections, "fake-model", 2, &embedder).unwrap();
-        assert!(!cached);
-        assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 1);
-        let entries = corpus_entries(&sections);
-        let hash = corpus_hash(&entries, "fake-model");
-        let expected_file = format!("{hash}.bin");
-        assert_eq!(
-            cache_path(dir.path(), &hash)
-                .file_name()
-                .and_then(|name| name.to_str()),
-            Some(expected_file.as_str())
-        );
-
-        let (loaded, cached) = load_or_build(dir.path(), &sections, "fake-model", 2, &|_| {
-            panic!("cache hit must not embed")
-        })
-        .unwrap();
-
-        assert!(cached);
-        assert_eq!(loaded, built);
-        assert_ne!(
-            cache_path(dir.path(), &corpus_hash(&entries, "other-model")),
-            cache_path(dir.path(), &hash)
-        );
-        let changed = vec![section("A", "Vault", "vault", "changed text")];
-        assert_ne!(
-            cache_path(
-                dir.path(),
-                &corpus_hash(&corpus_entries(&changed), "fake-model")
-            ),
-            cache_path(dir.path(), &hash)
-        );
-        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
-    }
-
-    #[test]
-    fn docs_vectors_cache_mismatch_rebuilds() {
-        let dir = tempdir().unwrap();
-        let sections = vec![section("A", "Vault", "vault", "unlock secret")];
-        let calls = std::sync::atomic::AtomicUsize::new(0);
-        let embedder = |_: &str| {
-            calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            Ok(vec![1.0, 2.0])
-        };
-        let (_, cached) = load_or_build(dir.path(), &sections, "fake-model", 2, &embedder).unwrap();
-        assert!(!cached);
-        assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 1);
-        let entries = corpus_entries(&sections);
-        let hash = corpus_hash(&entries, "fake-model");
-        let path = cache_path(dir.path(), &hash);
-
-        for (field, value) in [("corpus_hash", "wrong-hash"), ("dim", "3")] {
-            let bytes = fs::read(&path).unwrap();
-            let header_len = u32::from_le_bytes(bytes[..4].try_into().unwrap()) as usize;
-            let mut header: serde_json::Value =
-                serde_json::from_slice(&bytes[4..4 + header_len]).unwrap();
-            header[field] = if field == "dim" {
-                serde_json::json!(value.parse::<usize>().unwrap())
-            } else {
-                serde_json::json!(value)
-            };
-            let header = serde_json::to_vec(&header).unwrap();
-            let mut mutated = (header.len() as u32).to_le_bytes().to_vec();
-            mutated.extend_from_slice(&header);
-            mutated.extend_from_slice(&bytes[4 + header_len..]);
-            fs::write(&path, mutated).unwrap();
-
-            let (_, cached) =
-                load_or_build(dir.path(), &sections, "fake-model", 2, &embedder).unwrap();
-            assert!(!cached, "{field} mismatch must rebuild");
-        }
-        assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 3);
-    }
-}
+mod tests;

@@ -326,6 +326,17 @@ pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: Blue
         print!("{}", call_view::drift(&result));
     }
     if method == "blueprint.recall" {
+        let degraded = result["degraded"].as_bool().unwrap_or(false);
+        let progress = result["progress"].clone();
+        result = result["offers"].take();
+        if !json_mode && degraded {
+            eprintln!(
+                "WARNING: recall degraded; vectors: {}/{} re-embedding ({})",
+                progress["done"],
+                progress["total"],
+                progress["state"].as_str().unwrap_or("unavailable")
+            );
+        }
         if !recipe_list {
             result = memory::offers(result, &intent);
         }
@@ -335,7 +346,9 @@ pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: Blue
                 .map(|(name, _)| *name)
                 .collect::<Vec<_>>();
             if json_mode {
-                print_json(&json!({"built_in":builtins,"stored":result}));
+                print_json(
+                    &json!({"built_in":builtins,"stored":result,"degraded":degraded,"progress":progress}),
+                );
             } else {
                 for name in builtins {
                     println!("{name}");
@@ -351,9 +364,9 @@ pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: Blue
                 }
             }
         } else if json_mode {
-            print_json(&json!({"offers":result}));
+            print_json(&json!({"offers":result,"degraded":degraded,"progress":progress}));
         } else if let Some(offer) = result.as_array().and_then(|offers| offers.first()) {
-            print!("{}", offer["yaml"].as_str().unwrap_or(""));
+            print!("{}", memory::render_offer(offer));
         } else {
             println!(
                 "No proven graph matches this intent. Choose a built-in with blueprint recipe."
