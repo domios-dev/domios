@@ -314,5 +314,8 @@
   "src/components/WebPeerPicker/WebPeerPicker.test.tsx",
   "src/lib/consumerFlight.test.ts",
   "src/lib/pluginRequestLifetime.test.ts",
-  "src/components/Terminal/chatStartFlight.test.ts"
+  "src/components/Terminal/chatStartFlight.test.ts",
+  "src/components/Sidebar/sidebarDropGeometry.test.ts",
+  "src/components/Sidebar/sortable.stableDrag.test.tsx",
+  "src/components/Terminal/useChatSession.failure.test.tsx"
 ]

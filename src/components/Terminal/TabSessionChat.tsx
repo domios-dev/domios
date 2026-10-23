@@ -118,6 +118,7 @@ interface Props {
   onOpenTerminalFallback?: () => void;
   uiFontScale?: number;
   isVisible?: boolean;
+  sessionActive?: boolean;
   /** Tab is backed by a plugin chatBackend (no PTY). Sends route through the
    *  tab send seam, and PTY-only affordances (terminal fallback, screen poll)
    *  are suppressed. */
@@ -193,6 +194,7 @@ function TabSessionChatBody({
   onOpenTerminalFallback,
   uiFontScale,
   isVisible = true,
+  sessionActive,
   chatBackend = false,
 }: Props) {
   if (isCodeTermFrontendTestMode()) {
@@ -270,6 +272,7 @@ function TabSessionChatBody({
     loading,
     recovering,
     error,
+    retry: retryAttachment,
     attachmentState,
     snapshotReady,
     transcriptUnavailable,
@@ -293,7 +296,7 @@ function TabSessionChatBody({
     agentSessionId,
     sessionBindingNonce: tab?.session_binding_nonce,
     onError,
-    active: isActive,
+    active: sessionActive ?? isActive,
     retainAttachment: true,
     diagnosticSink: chatProjectionMonitor.sink,
     allowUnboundAuthority: effectiveChatBackend,
@@ -344,15 +347,17 @@ function TabSessionChatBody({
   const runtimeReplacement = runtimeUnavailable ? runtimeBadge : undefined;
   const runtimeFailed = runtime.state?.state === "unloaded" || runtime.state?.state === "degraded";
   const remoteChatReconnecting = tab?.remote_channels?.chat === "reconnecting";
-  const chatChannelLoading = !runtimeFailed && (loading || recovering || (!hasTranscript && remoteChatReconnecting));
-  const chatLoading = chatChannelLoading || error != null;
-  const setupView = runtimeUnavailable && snapshotReady && bootSetupView.kind !== "launch_failed" ? { kind: "none" as const } : chatBodyView({
+  const chatChannelLoading = !tabLock.locked && attachmentState !== "failed" && !runtimeFailed && (loading || recovering || (!hasTranscript && remoteChatReconnecting));
+  const chatLoading = chatChannelLoading;
+  const setupView = runtimeUnavailable && snapshotReady && !tabLock.locked && attachmentState !== "failed" && bootSetupView.kind !== "launch_failed" ? { kind: "none" as const } : chatBodyView({
     hasTranscript,
     hasHeldWindow,
     snapshotReady,
     chatLoading,
     unavailable: transcriptUnavailable,
     bootView: bootSetupView,
+    attachmentError: attachmentState === "failed" ? error : null,
+    locked: tabLock.locked,
   });
 
   const renderedEnrichedMessages = useMemo(
@@ -1001,6 +1006,8 @@ function TabSessionChatBody({
           providerIconColor={provider?.iconColor}
           providerIconHint={provider?.iconHint}
           onEscape={focusComposer}
+          onRetry={retryAttachment}
+          lock={tabLock}
         />
       <MessageSelectionBar
         count={messageSelection.count}

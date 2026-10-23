@@ -15,7 +15,8 @@ import {
   SortableContext as DndSortableContext,
   useSortable,
 } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
+import { sidebarDropEdge, sidebarDropTarget } from "./sidebarDropGeometry";
+import { SidebarDragPreview } from "./SidebarDragPreview";
 import { sortableSensorConfiguration } from "./sortableSensors";
 export { POINTER_DRAG_ACTIVATION_DISTANCE } from "./sortableSensors";
 
@@ -91,25 +92,23 @@ export function SortableRow({
   layoutStyle?: CSSProperties;
   children: ReactNode;
 }) {
-  const { setNodeRef, transform, transition, attributes, listeners, isDragging } =
+  const { setNodeRef, attributes, listeners, isDragging, items } =
     useSortable({ id, data, disabled });
-  const { activatorEvent } = useDndContext();
-  const isTouchDragging = isDragging && activatorEvent?.type === "touchstart";
+  const { active, over } = useDndContext();
+  const edge = active && over?.id === id
+    ? sidebarDropEdge(items.map(String), String(active.id), id) : null;
   return (
     <div
       ref={setNodeRef}
+      data-dnd-id={id}
       data-dnd-group={`${data.group}:${data.groupKey}`}
       data-dnd-dragging={isDragging ? "true" : undefined}
       data-dnd-disabled={disabled ? "true" : undefined}
       style={{
         ...layoutStyle,
         touchAction: "auto",
-        transform: CSS.Translate.toString(transform),
-        transition,
         position: "relative",
-        zIndex: isDragging ? 10 : undefined,
-        boxShadow: isTouchDragging ? "0 3px 8px rgb(0 0 0 / 18%)" : undefined,
-        scale: isTouchDragging ? "1.02" : undefined,
+        opacity: isDragging ? 0.35 : undefined,
       }}
       {...attributes}
       aria-disabled={undefined}
@@ -128,6 +127,10 @@ export function SortableRow({
       }}
     >
       {children}
+      {edge && <div aria-hidden="true" data-dnd-indicator={edge} style={{
+        position: "absolute", left: 0, right: 0, [edge]: 0, height: 2,
+        background: "var(--ct-accent)", pointerEvents: "none", zIndex: 1,
+      }} />}
     </div>
   );
 }
@@ -161,10 +164,11 @@ export function SidebarDnd({
       sensors={sensors}
       collisionDetection={sameGroupCollision}
       modifiers={LIST_AXIS_MODIFIERS}
-      autoScroll={VERTICAL_AUTO_SCROLL}
+      autoScroll={false}
       onDragEnd={onDragEnd}
     >
       {children}
+      <SidebarDragPreview />
     </DndContext>
   );
 }
@@ -174,8 +178,6 @@ export const lockListRowsToVerticalAxis: Modifier = ({ active, transform }) => {
   const group = (active?.data.current as SortableGroupData | undefined)?.group;
   return group && group !== "workspace" ? { ...transform, x: 0 } : transform;
 };
-
-const VERTICAL_AUTO_SCROLL = { threshold: { x: 0, y: 0.2 } };
 
 function sameGroup(a: SortableGroupData | undefined, b: SortableGroupData | undefined): boolean {
   return Boolean(a && b && a.group === b.group && a.groupKey === b.groupKey);
@@ -187,10 +189,21 @@ function sameGroup(a: SortableGroupData | undefined, b: SortableGroupData | unde
  */
 export const sameGroupCollision: CollisionDetection = (args) => {
   const activeData = args.active.data.current as SortableGroupData | undefined;
+  const containers = args.droppableContainers.filter((container) =>
+    !container.disabled && sameGroup(activeData, container.data.current as SortableGroupData | undefined));
+  if (activeData?.group !== "workspace" && args.pointerCoordinates) {
+    const rows = containers.flatMap(container => {
+      const rect = args.droppableRects.get(container.id);
+      return rect ? [{ id: String(container.id), top: rect.top, bottom: rect.bottom }] : [];
+    }).sort((a, b) => a.top - b.top);
+    const target = sidebarDropTarget(rows, String(args.active.id),
+      args.pointerCoordinates?.y ?? args.collisionRect.top + args.collisionRect.height / 2);
+    const container = containers.find(candidate => String(candidate.id) === target);
+    return container ? [{ id: container.id, data: { droppableContainer: container, value: 1 } }] : [];
+  }
   return closestCenter({
     ...args,
-    droppableContainers: args.droppableContainers.filter((container) =>
-      !container.disabled && sameGroup(activeData, container.data.current as SortableGroupData | undefined)),
+    droppableContainers: containers,
   });
 };
 
