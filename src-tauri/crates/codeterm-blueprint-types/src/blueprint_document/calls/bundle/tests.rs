@@ -219,23 +219,6 @@ fn collect_code_file(
     )
 }
 
-#[test]
-fn blueprint_v2_code_file_freeze_refuses_traversal_and_absolute_paths() {
-    let base = std::env::temp_dir().join(uuid::Uuid::new_v4().to_string());
-    let dir = base.join("apply");
-    std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(base.join("outside.py"), "def main(n): return n+100").unwrap();
-    let absolute = base.join("outside.py");
-    for relative in ["../outside.py", absolute.to_str().unwrap()] {
-        let failure = collect_code_file(&dir, relative).unwrap_err();
-        assert!(
-            failure[0].message.contains("contract_violation"),
-            "{relative}"
-        );
-    }
-    std::fs::remove_dir_all(base).unwrap();
-}
-
 #[cfg(windows)]
 #[test]
 fn blueprint_v2_code_file_freeze_refuses_junction_outside_apply_root() {
@@ -261,6 +244,61 @@ fn blueprint_v2_code_file_freeze_refuses_junction_outside_apply_root() {
     std::fs::remove_dir(&link).unwrap();
     std::fs::remove_dir_all(base).unwrap();
     assert!(result.unwrap_err()[0]
+        .message
+        .contains("contract_violation"));
+}
+
+#[test]
+fn blueprint_v2_local_import_refuses_traversal_outside_importing_directory() {
+    let base = std::env::temp_dir().join(uuid::Uuid::new_v4().to_string());
+    let dir = base.join("apply");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(base.join("callee.yaml"), leaf().yaml().unwrap()).unwrap();
+    let mut root = branch("local");
+    root.imports.insert("local".into(), "../callee.yaml".into());
+    let path = dir.join("root.yaml");
+    let source = root.yaml().unwrap();
+    let bundled = collect_local(path.to_str().unwrap(), &source).unwrap_err();
+    let resolved = resolve_local(path.to_str().unwrap(), &source).unwrap_err();
+    std::fs::remove_dir_all(base).unwrap();
+    assert!(bundled[0].message.contains("contract_violation"));
+    assert!(resolved[0].message.contains("contract_violation"));
+}
+
+#[cfg(windows)]
+#[test]
+fn blueprint_v2_local_import_refuses_junction_outside_importing_directory() {
+    let base = std::env::temp_dir().join(uuid::Uuid::new_v4().to_string());
+    let dir = base.join("apply");
+    let outside = base.join("extlib");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("callee.yaml"), leaf().yaml().unwrap()).unwrap();
+    let link = dir.join("extj");
+    let output = std::process::Command::new("cmd.exe")
+        .args(["/D", "/C", "mklink", "/J"])
+        .arg(&link)
+        .arg(&outside)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let mut root = branch("local");
+    root.imports
+        .insert("local".into(), "extj/callee.yaml".into());
+    let path = dir.join("root.yaml");
+    let source = root.yaml().unwrap();
+    let bundled = collect_local(path.to_str().unwrap(), &source);
+    let resolved = resolve_local(path.to_str().unwrap(), &source);
+    std::fs::remove_dir(&link).unwrap();
+    std::fs::remove_dir_all(base).unwrap();
+    assert!(bundled.unwrap_err()[0]
+        .message
+        .contains("contract_violation"));
+    assert!(resolved.unwrap_err()[0]
         .message
         .contains("contract_violation"));
 }

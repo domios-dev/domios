@@ -6,8 +6,12 @@ use std::io::Read;
 use std::os::fd::{AsRawFd, FromRawFd};
 use std::path::{Component, Path};
 
-#[cfg(unix)]
 pub fn read(directory: &Path, relative: &str) -> Result<String, &'static str> {
+    read_bounded(directory, relative, 16384)
+}
+
+#[cfg(unix)]
+pub fn read_bounded(directory: &Path, relative: &str, max: usize) -> Result<String, &'static str> {
     let parts = Path::new(relative)
         .components()
         .map(|component| match component {
@@ -57,10 +61,10 @@ pub fn read(directory: &Path, relative: &str) -> Result<String, &'static str> {
         return Err("contract_violation");
     }
     let mut text = String::new();
-    file.take(16385)
+    file.take(max as u64 + 1)
         .read_to_string(&mut text)
         .map_err(|_| "contract_violation")?;
-    if text.len() > 16384 {
+    if text.len() > max {
         return Err("budget_exhausted");
     }
     Ok(text)
@@ -69,4 +73,4 @@ pub fn read(directory: &Path, relative: &str) -> Result<String, &'static str> {
 #[cfg(windows)]
 mod windows;
 #[cfg(windows)]
-pub use windows::read;
+pub use windows::read_bounded;
