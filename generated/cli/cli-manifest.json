@@ -16765,7 +16765,7 @@
               "value_name": "TIMEOUT",
               "possible_values": [],
               "default": null,
-              "help": "Agent-owned shell lifetime: positive duration (30s, 10m, 2h), or none. Requires a live creating agent (CODETERM_TAB_ID); omit for human shells",
+              "help": "Agent-owned per-command timeout (60m recommended), or none; dev servers take none. Requires a live creating agent (CODETERM_TAB_ID); omit for human shells",
               "aliases": []
             },
             {
@@ -16993,7 +16993,7 @@
               "value_name": "TIMEOUT",
               "possible_values": [],
               "default": null,
-              "help": "Fresh shell lifetime (30s, 10m, 2h, none); defaults to the previous duration",
+              "help": "Per-command timeout (30s, 60m, 2h, none); defaults to the previous bound",
               "aliases": []
             }
           ],
@@ -17055,7 +17055,7 @@
         },
         {
           "name": "timeout",
-          "about": "Reset an owned utility shell's lifetime from now, or disable it with none",
+          "about": "Bound current and future commands from each command start, or disable with none",
           "aliases": [],
           "args": [
             {
