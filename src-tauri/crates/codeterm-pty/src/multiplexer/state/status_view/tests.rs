@@ -4,7 +4,9 @@ use super::*;
 fn snapshot_shell_command_state_follows_authoritative_idle_status() {
     use crate::multiplexer::types::{ShellActivity, ShellCommandState};
 
-    let (mut mux, tab_id) = MultiplexerState::new();
+    let mut mux = MultiplexerState::empty();
+    let workspace = mux.create_workspace("Shell".into(), None);
+    let tab_id = mux.create_tab(&workspace.id).unwrap();
     mux.link_pty(&tab_id, "shell-pty".into());
     let running = ShellCommandState {
         activity: ShellActivity::Running,
