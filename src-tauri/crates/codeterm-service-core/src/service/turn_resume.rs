@@ -125,6 +125,45 @@ fn resumable_session(tab: &Tab) -> Result<&str, &'static str> {
         .ok_or(NO_AGENT_SESSION)
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum RuntimeReadiness {
+    Unsupported,
+    Loading,
+    Loaded,
+}
+
+fn runtime_readiness(svc: &ServiceContext, tab_id: &str) -> RuntimeReadiness {
+    if !super::agent_runtime::requested_for_tab(svc, tab_id) {
+        RuntimeReadiness::Unsupported
+    } else if super::agent_runtime::engine::for_tab(tab_id).is_some_and(|session| {
+        session
+            .thread_loaded
+            .load(std::sync::atomic::Ordering::Acquire)
+    }) {
+        RuntimeReadiness::Loaded
+    } else {
+        RuntimeReadiness::Loading
+    }
+}
+
+fn resumable_runtime_session(tab: &Tab, runtime: RuntimeReadiness) -> Result<&str, &'static str> {
+    if matches!(tab.backing, TabBacking::ChatBackend { .. })
+        && matches!(runtime, RuntimeReadiness::Unsupported)
+    {
+        return Err(NO_AGENT_SESSION);
+    }
+    resumable_session(tab)
+}
+
+pub(crate) fn step_for_service(svc: &ServiceContext, tab_id: &str, start_epoch: &str) -> Step {
+    step(
+        &svc.mux,
+        tab_id,
+        start_epoch,
+        runtime_readiness(svc, tab_id),
+    )
+}
+
 fn ready_binding_on_own_session(tab: &Tab, session_id: &str) -> Option<(Option<String>, String)> {
     if tab.boot_stage != Some(BootStage::AgentReady)
         || !tab.launch_session_authenticated()
@@ -204,7 +243,12 @@ pub(crate) fn owed_tab_ids(mux: &MuxState, start_epoch: &str) -> BTreeSet<String
 
 /// Advance one owed tab. The claim and its settlement commit under one mux
 /// write, so exactly one caller per tab and start ever receives `Claimed`.
-pub(crate) fn step(mux: &MuxState, tab_id: &str, start_epoch: &str) -> Step {
+pub(crate) fn step(
+    mux: &MuxState,
+    tab_id: &str,
+    start_epoch: &str,
+    runtime: RuntimeReadiness,
+) -> Step {
     let mut mux = mux.write();
     let Some(tab) = mux.get_tab_mut(tab_id) else {
         return Step::Settled;
@@ -216,12 +260,14 @@ pub(crate) fn step(mux: &MuxState, tab_id: &str, start_epoch: &str) -> Step {
     else {
         return Step::Settled;
     };
-    if let Err(reason) = resumable_session(tab) {
+    if let Err(reason) = resumable_runtime_session(tab, runtime) {
         return skip(tab, start_epoch, reason);
     }
     if tab.boot_stage != Some(BootStage::AgentReady)
         || (matches!(tab.backing, TabBacking::Pty) && tab.pty_id.is_none())
         || !tab.launch_session_authenticated()
+        || (matches!(tab.backing, TabBacking::ChatBackend { .. })
+            && !matches!(runtime, RuntimeReadiness::Loaded))
     {
         return Step::Waiting;
     }
@@ -311,15 +357,15 @@ impl Wave {
 }
 
 fn advance_consider(
-    mux: &MuxState,
     tab_id: &str,
     wave: &Wave,
     shutting_down: bool,
+    advance: impl FnOnce() -> Step,
 ) -> Option<Step> {
     if !wave.is_pending(tab_id) || shutting_down {
         return None;
     }
-    let result = step(mux, tab_id, wave.start_epoch);
+    let result = advance();
     if !matches!(&result, Step::Waiting) {
         wave.finish(tab_id);
     }
@@ -345,8 +391,6 @@ fn settle_deadline(
     wave.finish(tab_id);
     DeadlineOutcome::Expired(reason)
 }
-
-static WAVE: std::sync::OnceLock<Wave> = std::sync::OnceLock::new();
 
 /// Arm this start's wave after unconditional tab restore.
 pub fn arm(svc: &ServiceContext) {
@@ -389,7 +433,10 @@ pub fn arm(svc: &ServiceContext) {
         owed.len(),
         owed
     );
-    let wave = WAVE.get_or_init(|| Wave::new(start_epoch, owed));
+    let wave = svc
+        .extensions
+        .get_or_init(|| std::sync::Arc::new(Wave::new(start_epoch, owed)))
+        .clone();
     for tab_id in wave.pending_ids() {
         svc.consider_turn_resume(&tab_id);
     }
@@ -408,7 +455,7 @@ pub fn arm(svc: &ServiceContext) {
                         super::agent_runtime::engine::validate_binding(&service, &session).is_ok()
                             && session.process.lock().as_ref().is_some_and(|process| process.ended.borrow().is_none())
                     });
-                match settle_deadline(&service.mux, &tab_id, wave, provider_live) {
+                match settle_deadline(&service.mux, &tab_id, &wave, provider_live) {
                     DeadlineOutcome::Retained => {
                         log::warn!("[turn-resume] tab={tab_id} outcome=skipped reason=live_binding_pending owed_continue=retained");
                     }
@@ -511,8 +558,7 @@ impl ServiceContext {
         prompt: &str,
     ) -> Result<(), String> {
         request_enabled(self.configuration().agent.continue_after_restart)?;
-        let start_epoch =
-            crate::crash::lifecycle::current_start_epoch().ok_or("start epoch is not recorded")?;
+        let runtime = runtime_readiness(self, caller_tab_id);
         let mut mux = self.mux.write();
         let resolved = mux
             .resolve_tab_id(tab_id)
@@ -521,7 +567,9 @@ impl ServiceContext {
             .get_tab_mut(&resolved)
             .ok_or_else(|| format!("Tab {tab_id} not found"))?;
         request_targets_caller(caller_tab_id, &resolved)?;
-        let session_id = resumable_session(tab)?.to_string();
+        let session_id = resumable_runtime_session(tab, runtime)?.to_string();
+        let start_epoch =
+            crate::crash::lifecycle::current_start_epoch().ok_or("start epoch is not recorded")?;
         let sender = TurnResumeSender {
             tab_id: caller_tab_id.to_string(),
             label: tab.title.clone(),
@@ -609,14 +657,14 @@ impl ServiceContext {
 
     /// A start that is already stopping leaves owed marks for the next start.
     pub(crate) fn consider_turn_resume(&self, tab_id: &str) {
-        let Some(wave) = WAVE.get() else {
+        let Some(wave) = self.try_ext::<std::sync::Arc<Wave>>() else {
             return;
         };
         let Some(result) = advance_consider(
-            &self.mux,
             tab_id,
             wave,
             crate::crash::shutdown::is_shutting_down(),
+            || step_for_service(self, tab_id, wave.start_epoch),
         ) else {
             return;
         };
@@ -659,9 +707,12 @@ impl ServiceContext {
                 )
             },
             || {
+                let runtime = runtime_readiness(self, tab_id);
                 self.mux.read().get_tab(tab_id).is_some_and(|tab| {
-                    ready_binding_on_own_session(tab, &claim.session_id)
-                        == Some((claim.pty_id.clone(), claim.binding_nonce.clone()))
+                    (!matches!(tab.backing, TabBacking::ChatBackend { .. })
+                        || matches!(runtime, RuntimeReadiness::Loaded))
+                        && ready_binding_on_own_session(tab, &claim.session_id)
+                            == Some((claim.pty_id.clone(), claim.binding_nonce.clone()))
                 })
             },
             |body, claim| {

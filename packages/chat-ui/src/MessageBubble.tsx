@@ -4,7 +4,7 @@ import type {
   NormalizedChatMessage as ChatMessage,
   TimelineItem,
 } from "@codeterm/chat-core";
-import { isTabMarkerPlaceholderLabel, shortTabRef, systemOriginLabel, toolCommand, userMessageAttachments } from "@codeterm/chat-core";
+import { isTabMarkerPlaceholderLabel, readableSystemReminder, shortTabRef, systemOriginLabel, toolCommand, userMessageAttachments } from "@codeterm/chat-core";
 import {
   Send,            // generic chat (telegram / service)
   Network,         // mesh
@@ -234,6 +234,7 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
       const prompt = effectiveOrigin.kind === "system_prompt";
       const curatorStarted = !prompt && effectiveOrigin.context
         ? /^curator:round_started:(\d+)$/.exec(effectiveOrigin.context) : null;
+      const reminder = prompt ? null : readableSystemReminder(message.content);
       return (
         <ChatNoticeCard
           testId={prompt ? "chat-system-prompt-card" : "chat-system-event"}
@@ -241,12 +242,14 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
           tone={prompt ? "var(--ct-green)" : undefined}
           icon={<Info size={14} strokeWidth={2} aria-hidden="true" />}
           title={curatorStarted ? `Curator round ${curatorStarted[1]} started` : prompt ? "System prompt" : systemOriginLabel(effectiveOrigin.context)}
-          subtitle={prompt ? "This is the shell system prompt." : undefined}
+          subtitle={prompt ? "This is the shell system prompt." : reminder?.title}
           expanded={expanded}
           onToggle={() => setExpandedPersistent(!expanded)}
           bodyClassName={`${userText} ${TEXT_WRAP_CLASS}`}
         >
-          <CompactMessageContent segments={message.segments} text={message.content} fontScale={fontScale} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} collapseAfter={Number.POSITIVE_INFINITY} />
+          {reminder
+            ? <CompactMessageContent text={reminder.text} fontScale={fontScale} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} collapseAfter={Number.POSITIVE_INFINITY} />
+            : <CompactMessageContent segments={message.segments} text={message.content} fontScale={fontScale} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} collapseAfter={Number.POSITIVE_INFINITY} />}
         </ChatNoticeCard>
       );
     }

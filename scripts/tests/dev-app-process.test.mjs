@@ -269,7 +269,10 @@ test('prebuilt launch partitions bounded verification bootstrap and attachment w
   const timers=[],cleared=[];
   let stopped=0;
   let now=0;
-  const launch=new Function('resolve','option','process','existsSync','statSync','spawn','node','fileURLToPath','repo','console','setTimeout','clearTimeout','terminateOwnedChild',`${definition}\nreturn launchPrebuilt;`)(path.resolve,(options,key)=>options.get(key),{env:{}},()=>true,()=>({isFile:()=>true}),()=>{
+  const readiness=Promise.withResolvers(), checking=Promise.withResolvers();
+  let complete=false;
+  let startupSignal;
+  const launch=new Function('resolve','option','process','existsSync','statSync','spawn','node','fileURLToPath','repo','console','setTimeout','clearTimeout','terminateOwnedChild','waitForReady',`${definition}\nreturn launchPrebuilt;`)(path.resolve,(options,key)=>options.get(key),{env:{}},()=>true,()=>({isFile:()=>true}),()=>{
     const child=new EventEmitter();child.pid=123;child.unref=()=>{};
     queueMicrotask(()=>{
       now=29000;
@@ -283,8 +286,16 @@ test('prebuilt launch partitions bounded verification bootstrap and attachment w
       child.emit('message',{type:'ready',signal:'validated attachment'});
     });
     return child;
-  },'node',()=>'/fixture/dev-prep.mjs','/fixture',{log(){}},(callback,ms)=>{const timer={callback,ms,expires:now+ms};timers.push(timer);return timer;},timer=>cleared.push(timer),async()=>{stopped++;});
-  await launch(new Map([['--app','/fixture/codeterm.exe'],['--log','/fixture/log'],['--api-port','7686']]));
+  },'node',()=>'/fixture/dev-prep.mjs','/fixture',{log(){}},(callback,ms)=>{const timer={callback,ms,expires:now+ms};timers.push(timer);return timer;},timer=>cleared.push(timer),async()=>{stopped++;},options=>{
+    assert.equal(options.origin,'http://127.0.0.1:7686');startupSignal=options.signal;checking.resolve();return readiness.promise;
+  });
+  const result=launch(new Map([['--app','/fixture/codeterm.exe'],['--log','/fixture/log'],['--api-port','7686']])).then(()=>{complete=true;});
+  await checking.promise;
+  assert.equal(complete,false);
+  assert.equal(cleared.length,2);
+  readiness.resolve();
+  await result;
+  assert.equal(startupSignal.aborted,true);
   assert.equal(timers.length,3);assert.ok(timers.every(timer=>timer.ms===30000));
   assert.deepEqual(timers.map(timer=>timer.expires),[30000,59000,88000]);
   assert.deepEqual(cleared,timers);assert.equal(stopped,0);

@@ -55,6 +55,43 @@ async fn account_mesh_sign_in_enrolls_once_and_restart_renews_the_same_slot() {
 }
 
 #[tokio::test]
+async fn account_mesh_unreadable_record_surfaces_a_refusal_and_keeps_sign_out_blocked() {
+    let harness = Harness::new().await;
+    *harness.store.corrupt.lock().unwrap() = true;
+    harness.mesh.load().await;
+
+    let state = harness.state();
+    assert_eq!(state.presence, Presence::SignedOut);
+    assert_eq!(state.enrollment, Enrollment::Refused);
+    assert_eq!(state.last_refusal, Some(AccountMeshRefusal::Unavailable));
+    assert_eq!(state.traffic(), Traffic::BlockedSignedOut);
+
+    harness.sign_in(UID).await;
+    assert_eq!(harness.state().enrollment, Enrollment::Refused);
+    assert_eq!(
+        harness.state().last_refusal,
+        Some(AccountMeshRefusal::Unavailable)
+    );
+}
+
+#[tokio::test]
+async fn account_mesh_sign_out_returns_a_persistence_failure() {
+    let harness = Harness::new().await;
+    harness.sign_in(UID).await;
+    *harness.store.fail_save.lock().unwrap() = true;
+
+    let (_, persisted, released) = harness.mesh.sign_out(async { true }).await;
+
+    assert_eq!(
+        persisted,
+        Err("Account Mesh sign-out could not be persisted".into())
+    );
+    assert!(released);
+    assert_eq!(harness.state().presence, Presence::SignedOut);
+    assert_eq!(harness.state().traffic(), Traffic::BlockedSignedOut);
+}
+
+#[tokio::test]
 async fn account_mesh_reconciles_lost_enroll_and_renew_replies_from_the_registry() {
     let harness = Harness::new().await;
     harness.sign_in(UID).await;
@@ -133,6 +170,48 @@ async fn account_mesh_reconciles_lost_enroll_and_renew_replies_from_the_registry
             .get(&account_id(UID)),
         Some(&4)
     );
+}
+
+#[tokio::test]
+async fn account_mesh_recovers_when_the_enroll_key_reply_is_lost() {
+    let harness = Harness::new().await;
+    harness.sign_in(UID).await;
+    harness.registry.script.lock().unwrap().lose_key_reply = Some(RegistryRefusal::Offline);
+
+    assert_eq!(
+        harness.mesh.refresh(EnrollTrigger::Explicit).await,
+        Err(AccountMeshRefusal::Offline)
+    );
+    assert_eq!(harness.calls("enroll_key"), 1);
+
+    harness.mesh.refresh(EnrollTrigger::Explicit).await.unwrap();
+    assert_eq!(harness.calls("enroll_key"), 2);
+    assert_eq!(harness.calls("recover_key"), 1);
+    assert_eq!(harness.registry.slot(UID), Some(1));
+    assert_eq!(harness.state().enrollment, Enrollment::Enrolled);
+    assert_eq!(
+        harness
+            .store
+            .record
+            .lock()
+            .unwrap()
+            .keys
+            .get(&account_id(UID))
+            .map(|binding| binding.generation),
+        Some(2)
+    );
+}
+
+#[tokio::test]
+async fn account_mesh_reenrolls_when_its_remote_row_is_inactive() {
+    let harness = enrolled().await;
+    harness.registry.revoke_self(UID);
+
+    harness.mesh.refresh(EnrollTrigger::Explicit).await.unwrap();
+
+    assert_eq!(harness.calls("enroll"), 2);
+    assert_eq!(harness.registry.slot(UID), Some(1));
+    assert_eq!(harness.state().enrollment, Enrollment::Enrolled);
 }
 
 #[tokio::test]

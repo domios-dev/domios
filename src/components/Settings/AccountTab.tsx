@@ -15,14 +15,9 @@ import { SettingsCardAnchor } from "./SettingsCardAnchor";
 import type { SettingsCardAnchorId } from "./sections";
 import { useMultiplexer } from "../../store/multiplexer";
 import { billingFailureToast } from "./accountFailureToast";
-import type { LoginHint } from "./accountModel";
+import { accountInitials, type LoginHint } from "./accountModel";
 
 const MUTED = "m-0 text-xs text-[var(--ct-muted-fg)]";
-
-function initialsOf(name: string): string {
-  const parts = name.replace(/@.*/, "").split(/[\s._-]+/).filter(Boolean);
-  return (parts.length > 1 ? parts[0][0] + parts[1][0] : name.slice(0, 2)).toUpperCase();
-}
 
 export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) {
   const { model, signIn, signOut } = useAccount();
@@ -57,7 +52,7 @@ export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) 
         return <div className="flex flex-col gap-3">
           <div className="flex items-center gap-3">
             <span aria-hidden className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[color-mix(in_srgb,var(--ct-accent)_18%,transparent)] text-sm font-semibold text-[var(--ct-accent)]">
-              {initialsOf(name)}
+              {accountInitials(name)}
             </span>
             <div className="flex min-w-0 flex-1 flex-col">
               <span className="truncate text-sm font-medium text-[var(--ct-fg)]">{name}</span>

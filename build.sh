@@ -403,7 +403,19 @@ run_workspace_lib_tests() {
   done
 }
 
+rust_test_package() {
+  case "$1" in
+    app|service-core) printf '%s\n' codeterm-service-core ;;
+    root|shell|codeterm) printf '%s\n' codeterm ;;
+    domios-server|codeterm-*) printf '%s\n' "$1" ;;
+    api|socket|commands|sentinel-host|billing|account|analytics|plan|pty|util|browser|types|wire|sentinel|decision|provider-signals|storage|mem|mem-store|paths|mesh|plugin|plugins|agent-detect|notification-core|repowatch|usage|blueprint-types|local-recording|cli)
+      printf 'codeterm-%s\n' "$1" ;;
+    *) echo "Unknown test scope: $1" >&2; return 2 ;;
+  esac
+}
+
 run_nextest_scope() {
+  local CARGO_TARGET_DIR="${CARGO_TARGET_DIR-}"
   [ "$#" -le 2 ] || {
     echo "usage: ./build.sh nextest <scope> [filterset]" >&2
     return 2
@@ -415,11 +427,16 @@ run_nextest_scope() {
   local targets=(--no-default-features)
   local filter_args=()
 
+  case "$scope:$filterset" in
+    workspace:*|app:*|codeterm:*|service-core:*|codeterm-service-core:*|shell:*|*rdeps\(*)
+      prepare_dev_frontend_dist "$(pwd -P)"
+      prepare_bundle_stubs
+      ;;
+  esac
+
   case "$scope" in
     workspace)
       # One feature resolution for every crate, so shared dependencies compile once.
-      prepare_dev_frontend_dist "$(pwd -P)"
-      prepare_bundle_stubs
       local lane_args cli_args=() arg
       lane_args="$(node scripts/rust-test-lanes.mjs workspace)" || return $?
       targets=()
@@ -485,8 +502,6 @@ run_nextest_scope() {
   esac
 
   if [ "$scope" = "app" ] || [ "$scope" = "codeterm" ] || [ "$scope" = "service-core" ] || [ "$scope" = "codeterm-service-core" ] || [ "$scope" = "shell" ]; then
-    prepare_dev_frontend_dist "$(pwd -P)"
-    prepare_bundle_stubs
     prepare_exceptional_worktree_target
   fi
 
@@ -2401,7 +2416,7 @@ dev_health_fields() {
     process.stdin.on("end", () => {
       const json=JSON.parse(input);
       const instance=json.instance ?? {};
-      process.stdout.write([json.status ?? "", json.build_sha ?? "", instance.name ?? "", instance.api_port ?? "", instance.vite_port ?? "", instance.cdp_port ?? "", instance.identifier ?? ""].join("\n"));
+      process.stdout.write([json.status ?? "", json.build_sha ?? "", instance.name ?? "", instance.api_port ?? "", instance.vite_port ?? "", instance.cdp_port ?? "", instance.identifier ?? "", json.startup?.state ?? ""].join("\n"));
     });
   '
 }
@@ -2410,7 +2425,7 @@ validate_dev_health() {
   local expected_sha="$1" expected_instance="$2" expected_port="$3" expected_vite="$4" expected_cdp="$5" expected_identifier="$6" health="$7"
   local role="${8:-combined}"
   case "$role" in combined|server) ;; *) echo "Unknown DEV health role" >&2; return 1 ;; esac
-  local status sha instance port vite cdp identifier fields
+  local status sha instance port vite cdp identifier fields startup
   fields="$(printf '%s' "$health" | dev_health_fields 2>/dev/null || true)"
   status="$(printf '%s\n' "$fields" | sed -n '1p')"
   sha="$(printf '%s\n' "$fields" | sed -n '2p')"
@@ -2419,8 +2434,13 @@ validate_dev_health() {
   vite="$(printf '%s\n' "$fields" | sed -n '5p')"
   cdp="$(printf '%s\n' "$fields" | sed -n '6p')"
   identifier="$(printf '%s\n' "$fields" | sed -n '7p')"
+  startup="$(printf '%s\n' "$fields" | sed -n '8p')"
   if [ "$status" != "ok" ]; then
     echo "Health endpoint did not report status=ok" >&2
+    return 1
+  fi
+  if [ "$startup" != "ready" ]; then
+    echo "Health endpoint did not report startup.state=ready" >&2
     return 1
   fi
   if [[ ! "$expected_sha" =~ ^[0-9a-f]{40}$ ]] || [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]] || [ "$sha" != "$expected_sha" ]; then
@@ -3114,7 +3134,7 @@ EOF
     test_filter="${3:?test-one requires a test name or filter}"
     case "$test_scope" in
       cli|codeterm-cli)
-        SLOW_UNIT_TESTS_MEASUREMENT="${SLOW_UNIT_TESTS_MEASUREMENT:-off}" run_nextest_scope cli "test(~$test_filter)"
+        SLOW_UNIT_TESTS_MEASUREMENT="${SLOW_UNIT_TESTS_MEASUREMENT:-off}" run_nextest_scope cli "package(=codeterm-cli) & test(~$test_filter)"
         exit $?
         ;;
       frontend-bundle|codeterm-frontend-bundle|input-macos|input-windows|pty-fork) ;;
@@ -3122,7 +3142,8 @@ EOF
         if [ "$test_filter" != build_identity_required ]; then
           # Same workspace feature resolution as every other test run, so the warm build is reused.
           [ -z "${RUST_TEST_THREADS:-}" ] || export NEXTEST_TEST_THREADS="${NEXTEST_TEST_THREADS:-$RUST_TEST_THREADS}"
-          SLOW_UNIT_TESTS_MEASUREMENT="${SLOW_UNIT_TESTS_MEASUREMENT:-off}" run_nextest_scope workspace "test(~$test_filter)"
+          test_package="$(rust_test_package "$test_scope")" || exit $?
+          SLOW_UNIT_TESTS_MEASUREMENT="${SLOW_UNIT_TESTS_MEASUREMENT:-off}" run_nextest_scope workspace "package(=$test_package) & test(~$test_filter)"
           exit $?
         fi
         ;;
@@ -3405,17 +3426,18 @@ EOF
       echo "ERROR: --seconds must be 1..3600 and --out FILE is required" >&2; exit 2;
     }
     source evals/_lib/lib.sh
+    dev_resolve
     storm_tabs="$(dev_get /api/tabs)"
     storm_tab="$(printf '%s' "$storm_tabs" | python3 -c 'import json,sys; tabs=json.load(sys.stdin); print(tabs[0]["id"] if tabs else "")')"
     [ -n "$storm_tab" ] || { echo "ERROR: DEV needs an existing tab" >&2; exit 1; }
-    storm_log="$(dev_data_dir)/logs/codeterm.log"
+    storm_log="$(dev_data_dir)/logs/domios.log"
     storm_bash="$BASH"
     if is_windows; then
       storm_bash="$(cygpath -m "$storm_bash")"
       storm_log="$(cygpath -m "$storm_log")"
       storm_out="$(cygpath -m "$storm_out")"
     fi
-    python3 - "$storm_seconds" "$storm_out" "$storm_tab" "$storm_log" "$storm_bash" <<'LOCK_STORM_PY'
+    dev_run python3 - "$storm_seconds" "$storm_out" "$storm_tab" "$storm_log" "$storm_bash" <<'LOCK_STORM_PY'
 import collections
 import concurrent.futures
 import datetime
@@ -3456,18 +3478,10 @@ def lock_histogram(lines, start, end):
 
 
 WORKER = r'''
-source evals/_lib/lib.sh
-err="$(mktemp)"
-trap 'rm -f "$err"' EXIT
 while IFS= read -r route; do
   route="${route%$'\r'}"
-  rc=0
-  CODETERM_HTTP_STATUS_LOG=1 dev_get "$route" > /dev/null 2> "$err" || rc=$?
-  status=transport_error
-  while IFS= read -r line; do
-    if [[ "$line" == "[dev-http] "* && "$line" =~ HTTP\ ([0-9]{3}) ]]; then status="${BASH_REMATCH[1]}"; fi
-  done < "$err"
-  printf '%s %s\n' "$rc" "$status"
+  curl -sS --max-time 30 -o /dev/null -w '%{time_total} %{http_code}\n' \
+    -H "Authorization: Bearer $CODETERM_API_TOKEN" "$CODETERM_API_URL$route" || true
 done
 '''
 
@@ -3478,14 +3492,13 @@ def measure(route, deadline):
                           stdout=subprocess.PIPE, text=True) as worker:
         next_tick = time.monotonic()
         while time.monotonic() < deadline:
-            before = time.monotonic()
             worker.stdin.write(route + "\n")
             worker.stdin.flush()
             response = worker.stdout.readline().split()
-            values.append((time.monotonic() - before) * 1000)
             if len(response) != 2:
                 raise RuntimeError(f"DEV helper exited for {route}")
-            statuses[response[1]] += 1
+            values.append(float(response[0]) * 1000)
+            statuses[response[1] if response[1] != "000" else "transport_error"] += 1
             next_tick += 0.250
             # Cadence generates load; it never establishes readiness or success.
             if next_tick < time.monotonic():
@@ -3509,7 +3522,7 @@ def main():
     with log.open(encoding="utf-8", errors="replace") as stream:
         holds = lock_histogram(stream, start, end)
     result = {"start_epoch": start, "end_epoch": end, "requested_seconds": seconds,
-              "cadence_ms": 250, "latency_scope": "dev_get including DEV identity checks",
+              "cadence_ms": 250, "latency_scope": "direct HTTP time_total; DEV identity checked once before sampling",
               "log_window_precision": "inclusive boundary seconds", "log_path": str(log),
               "routes": measurements, "lock_holds": holds}
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -3524,7 +3537,7 @@ def main():
         if not holds[group]:
             print("      0  (none)")
     print(f"Unmatched LOCK-HOLD lines: {holds['unmatched']}; JSON: {out}")
-    print("Latency includes dev_get checks. Log window includes both boundary seconds.")
+    print("Latency measures direct HTTP requests. Log window includes both boundary seconds.")
 
 
 if __name__ == "__main__":
@@ -3813,8 +3826,7 @@ LOCK_STORM_PY
     ta_run "plugin"     pnpm -s test:plugins
 
     PYTHON_BIN="$(command -v python3 || command -v python)"
-    DEV_STATUS=$(dev_health_status | "$PYTHON_BIN" -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true)
-    if [ "$DEV_STATUS" = "ok" ]; then
+    if dev_health_status | node scripts/server-readiness.mjs health-ready; then
       ta_run "e2e-pytest" bash -c "cd tests/e2e && '$PYTHON_BIN' -m pip install -q -r requirements.txt 2>/dev/null && CODETERM_API_URL=http://127.0.0.1:${CT_PORT} '$PYTHON_BIN' -m pytest -m 'not llm' -q"
     else
       echo

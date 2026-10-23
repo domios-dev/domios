@@ -14,8 +14,8 @@ pub enum SystemAction {
         /// installed app binary for the current platform.
         #[arg(long)]
         binary: Option<String>,
-        /// Override the path to the codeterm CLI supervisor. Defaults to the
-        /// currently-running CLI executable.
+        /// Select the installed Domios CLI supervisor. Defaults to the stable
+        /// installed CLI; temporary worker copies are refused.
         #[arg(long)]
         supervisor: Option<String>,
     },

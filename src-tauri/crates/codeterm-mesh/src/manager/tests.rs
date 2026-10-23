@@ -26,6 +26,16 @@ fn make_mesh_with_peer(peer_id: &str, addrs: Vec<&str>) -> MeshManager {
 }
 
 #[test]
+fn unpair_returns_a_persistence_failure() {
+    let mut manager = make_mesh_with_peer("peer-a", vec!["100.64.0.5"]);
+    let error = manager
+        .unpair_with("peer-a", |_| Err("persistence refused".into()))
+        .expect_err("unpair must surface its failed save");
+    assert_eq!(error, "persistence refused");
+    assert!(manager.paired_peers.contains_key("peer-a"));
+}
+
+#[test]
 fn apply_announce_replaces_address_list_wholesale() {
     let mut m = make_mesh_with_peer("peer-A", vec!["192.168.1.5", "100.64.0.5"]);
     let ann = PeerAnnounce {

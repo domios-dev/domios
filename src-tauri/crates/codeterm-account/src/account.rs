@@ -258,7 +258,7 @@ impl Account {
             .is_some_and(|expires_at| token_expiring(expires_at))
         {
             if let Err(error) = self.refresh_locked().await {
-                if matches!(error, Error::Credentials | Error::Provider) {
+                if error == Error::Credentials {
                     let expired =
                         {
                             let mut state = self.state.lock().await;

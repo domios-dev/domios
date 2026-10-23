@@ -324,7 +324,6 @@ pub async fn hook_permission(
                 let clean = state
                     .svc
                     .screen_state
-                    .lock()
                     .get_screen_text(&pty_id)
                     .unwrap_or_default();
                 log::debug!(

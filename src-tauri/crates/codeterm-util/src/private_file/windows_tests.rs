@@ -97,3 +97,16 @@ fn a_new_secret_lock_is_owner_only_under_a_broad_inheritable_root() {
     assert_eq!(masks(root.path(), WinWorldSid), before);
     drop(lock);
 }
+
+#[test]
+fn private_directory_tightening_preserves_explicit_grants_and_removes_broad_access() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("secrets");
+    fs::create_dir(&path).unwrap();
+    grant(&path, WinBuiltinAdministratorsSid);
+    grant(&path, WinWorldSid);
+    let explicit = masks(&path, WinBuiltinAdministratorsSid);
+    restrict_dir(&path).unwrap();
+    assert_eq!(masks(&path, WinBuiltinAdministratorsSid), explicit);
+    assert!(masks(&path, WinWorldSid).is_empty());
+}

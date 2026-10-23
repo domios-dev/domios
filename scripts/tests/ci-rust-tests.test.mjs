@@ -54,13 +54,14 @@ test('platform selection keeps only cfg-gated, non-ignored tests per Cargo binar
   assert.throws(() => platformFilter([{ ...row('x', true), package: 'bad) | all(' }]), /Unsupported/);
 });
 
-test('the full suite runs the catalogue release set and leaves the native input crates to each OS', () => {
+test('the full suite covers workspace members and retains the native platform lane', () => {
   assert.deepEqual(MODES.full.map((lane) => lane.lane), ['workspace', 'cli']);
   assert.deepEqual(MODES.platform.map((lane) => lane.lane), ['workspace', 'cli', 'input']);
   const workspace = MODES.full[0].targets;
   for (const pkg of ['codeterm', 'codeterm-mem-store', 'codeterm-paths', 'codeterm-sentinel']) assert.ok(workspace.includes(pkg), pkg);
-  assert.ok(!workspace.includes('codeterm-input-macos') && !workspace.includes('portable-pty'));
-  assert.deepEqual(workspace.slice(-3), ['--lib', '--test', 'main']);
+  for (const pkg of ['codeterm-orchestration', 'codeterm-client-shell', 'codeterm-update', 'codeterm-frontend-shell', 'codeterm-input-macos']) assert.ok(workspace.includes(pkg), pkg);
+  assert.ok(workspace.includes('portable-pty'));
+  assert.equal(workspace.at(-1), '--tests');
   assert.equal(MODES.platform[2].whole, true);
   assert.ok(workspace.includes('--no-default-features'));
   assert.deepEqual(MODES.embeddings.map(lane => lane.lane), ['embeddings']);

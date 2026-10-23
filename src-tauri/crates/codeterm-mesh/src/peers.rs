@@ -279,9 +279,6 @@ pub(crate) fn save_peers_at(
     ledger: &LinkLedger,
 ) -> Result<(), String> {
     let ledger_json = serde_json::to_string_pretty(ledger).map_err(|e| e.to_string())?;
-    account_mesh_ledger_file(path)
-        .save(&ledger_json)
-        .map_err(|e| e.to_string())?;
     let on_disk: HashMap<String, PairedPeerDisk> = peers
         .iter()
         .map(|(id, p)| {
@@ -309,7 +306,12 @@ pub(crate) fn save_peers_at(
         account_mesh: Some(ledger.clone()),
     };
     let json = serde_json::to_string_pretty(&file).map_err(|e| e.to_string())?;
-    peers_file(path).save(&json)
+    // `peers.json` carries the same provenance. Save it first so a held or
+    // unreadable peer file cannot be replaced by a stripped sidecar ledger.
+    peers_file(path).save(&json).map_err(|e| e.to_string())?;
+    account_mesh_ledger_file(path)
+        .save(&ledger_json)
+        .map_err(|e| e.to_string())
 }
 
 // ── Revocation list ─────────────────────────────────────────────────

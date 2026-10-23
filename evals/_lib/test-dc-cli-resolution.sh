@@ -68,7 +68,7 @@ printf '%s\n' \
 printf '%s\n' \
   '#!/usr/bin/env bash' \
   '[ -z "${CURL_LOG:-}" ] || printf '\''%s\n'\'' "$*" >> "$CURL_LOG"' \
-  'body="{\"status\":\"ok\",\"build_sha\":\"1111111111111111111111111111111111111111\",\"instance\":{\"name\":\"${HEALTH_INSTANCE:-}\",\"api_port\":\"${HEALTH_API_PORT:-7686}\",\"vite_port\":\"${HEALTH_VITE_PORT:-1420}\",\"cdp_port\":\"${HEALTH_CDP_PORT:-9223}\"}}"' \
+  'body="{\"status\":\"ok\",\"startup\":{\"state\":\"${HEALTH_STATE:-ready}\"},\"build_sha\":\"1111111111111111111111111111111111111111\",\"instance\":{\"name\":\"${HEALTH_INSTANCE:-}\",\"api_port\":\"${HEALTH_API_PORT:-7686}\",\"vite_port\":\"${HEALTH_VITE_PORT:-1420}\",\"cdp_port\":\"${HEALTH_CDP_PORT:-9223}\"}}"' \
   'case "$*" in' \
   '  *"%{http_code}"*) printf '\''%s\n200\n'\'' "$body";;' \
   '  *) printf '\''%s\n'\'' "$body";;' \
@@ -209,6 +209,19 @@ default_named_status=$?
 set -e
 if [ "$default_named_status" -eq 0 ] || ! grep -q 'named instance resolved to a default API port' <<<"$default_named_output"; then
   echo "bench resolution accepted a named instance on the default DEV port: $default_named_output" >&2
+  exit 1
+fi
+
+chmod +x "$FIXTURE/home/.domios-dev/bin/codeterm"
+set +e
+starting_output="$(
+  HOME="$FIXTURE/home" PATH="$FIXTURE/hostile:$PATH" HEALTH_STATE=starting \
+    bash -c 'source "$1"; dc tab list' _ "$LIB" 2>&1
+)"
+starting_status=$?
+set -e
+if [ "$starting_status" -eq 0 ] || grep -q DEV_CLI_WON <<<"$starting_output" || ! grep -Fq "ERROR [dev-target]" <<<"$starting_output"; then
+  echo "starting daemon was treated as ready: $starting_output" >&2
   exit 1
 fi
 

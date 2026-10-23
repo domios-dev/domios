@@ -196,6 +196,7 @@ impl MemManager {
     }
 
     pub fn open_in_memory() -> Result<Arc<Self>, String> {
+        embeddings::ensure_extension_registered();
         let conn = Connection::open_in_memory().map_err(|e| format!("open :memory:: {}", e))?;
         store::init_schema(&conn).map_err(|e| format!("init schema: {}", e))?;
         solution_metadata::initialize(&conn)?;

@@ -359,7 +359,7 @@ import json, pathlib, re, sys
 health = json.load(sys.stdin)
 name, port, vite, cdp, record_path = sys.argv[1:]
 instance = health.get("instance", {})
-valid = (health.get("status") == "ok" and
+valid = (health.get("status") == "ok" and health.get("startup", {}).get("state") == "ready" and
          re.fullmatch("[a-f0-9]{40}", health.get("build_sha", "")) is not None and
          (instance.get("name") or "").strip() == name and str(instance.get("api_port", "")) == port)
 actual_vite, actual_cdp = str(instance.get("vite_port") or ""), str(instance.get("cdp_port") or "")
@@ -528,28 +528,37 @@ dev_kill_hard() {
   sleep 2
 }
 
-# Polls /api/health until dev responds. Default timeout 120s.
 dev_wait_ready() {
-  local timeout="${1:-120}" elapsed=0
-  while [ "$elapsed" -lt "$timeout" ]; do
-    if curl -s --max-time 1 "$(dev_api_url)/api/health" > /dev/null 2>&1; then
-      return 0
+  local deadline=$((SECONDS + ${1:-120})) result
+  if [ -n "${EVAL_LIB_STARTUP_FD:-}" ]; then
+    if ! IFS= read -r -t "${1:-120}" -u "$EVAL_LIB_STARTUP_FD" result; then
+      exec 9<&-
+      unset EVAL_LIB_STARTUP_FD
+      echo "ERROR: dev launcher did not acknowledge readiness before its deadline" >&2
+      return 1
     fi
-    sleep 3
-    elapsed=$((elapsed + 3))
-  done
-  echo "ERROR: dev not ready after ${timeout}s" >&2
-  return 1
+    exec 9<&-
+    unset EVAL_LIB_STARTUP_FD
+    [ "$result" = 0 ] || { echo "ERROR: dev launcher failed (exit=$result)" >&2; return 1; }
+  fi
+  [ "$SECONDS" -lt "$deadline" ] || return 1
+  dev_run node "$EVAL_LIB_REPO_ROOT/scripts/server-readiness.mjs" wait "$(dev_api_url)" "$((deadline - SECONDS))"
 }
 
 # Start dev in the background. Caller is responsible for waiting.
 dev_start_bg() {
-  (
+  if { : <&9; } 2>/dev/null; then
+    echo "ERROR: dev startup acknowledgement descriptor is already in use" >&2
+    return 1
+  fi
+  local log_dir; log_dir="$(dev_data_dir)/logs" || return 7
+  mkdir -p "$log_dir"
+  EVAL_LIB_STARTUP_FD=9
+  exec 9< <(
     cd "$EVAL_LIB_REPO_ROOT" || exit 1
-    local log_dir; log_dir="$(dev_data_dir)/logs" || exit 7
-    mkdir -p "$log_dir"
-    dev_run "${BASH:-bash}" build.sh dev > "$log_dir/codeterm-stdout.log" 2> "$log_dir/codeterm-stderr.log" < /dev/null &
-    disown "$!" 2>/dev/null || true
+    local result=0
+    dev_run "${BASH:-bash}" build.sh dev --wait > "$log_dir/codeterm-stdout.log" 2> "$log_dir/codeterm-stderr.log" < /dev/null || result=$?
+    printf '%s\n' "$result"
   )
 }
 

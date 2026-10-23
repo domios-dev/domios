@@ -512,13 +512,23 @@ impl super::ServiceContext {
         checkpoint: InterruptionCheckpoint,
         now_ms: u64,
     ) -> Result<(u64, String), String> {
-        let binding = self
-            .mux
-            .read()
-            .get_tab(new_tab_id)
-            .and_then(crate::service::task_assignment::authenticated_tab_binding)
+        let mut mux = self.mux.write();
+        let tab = mux
+            .get_tab_mut(new_tab_id)
+            .ok_or("adoption tab disappeared")?;
+        let binding = crate::service::task_assignment::authenticated_tab_binding(tab)
             .filter(|binding| binding.session_id == new_session_id)
             .ok_or("adoption session binding changed")?;
+        let prior = tab.task_binding.clone().unwrap_or_default();
+        if prior.plan_id.as_deref().is_some_and(|id| id != plan_id)
+            || prior.task_id.as_deref().is_some_and(|id| id != task_id)
+            || prior
+                .attempt_id
+                .as_deref()
+                .is_some_and(|id| id != checkpoint.attempt_id)
+        {
+            return Err("adoption tab already owns a different task attempt".into());
+        }
         let adopted = self
             .plan_store
             .adopt_interrupted_task(
@@ -531,15 +541,14 @@ impl super::ServiceContext {
                 now_ms,
             )
             .map_err(|error| error.to_string())?;
-        if let Some(tab) = self.mux.write().get_tab_mut(new_tab_id) {
-            tab.task_binding = Some(crate::multiplexer::types::TaskBinding {
-                plan_id: Some(plan_id.into()),
-                task_id: Some(task_id.into()),
-                attempt_id: Some(adopted.1.clone()),
-                bound_at: now_ms,
-                ..Default::default()
-            });
-        }
+        tab.task_binding = Some(crate::multiplexer::types::TaskBinding {
+            plan_id: Some(plan_id.into()),
+            task_id: Some(task_id.into()),
+            attempt_id: Some(adopted.1.clone()),
+            spawn_handle: prior.spawn_handle,
+            bound_at: now_ms,
+        });
+        drop(mux);
         self.persist_current_attempt_session_model(new_tab_id);
         Ok(adopted)
     }

@@ -1158,7 +1158,7 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 | A build in one worktree could reuse a cached artifact built from a different worktree's sources (codeterm#327). Never reproduced on demand — this is a configuration hazard, not an observed rebuild; see `scripts/check-sccache-basedir-isolation.sh`. | `scripts/cache-policy.sh` and `scripts/test-capped.sh` defaulted `SCCACHE_BASEDIRS` to the current worktree root. That tells sccache to strip the worktree path before hashing, so two worktrees sharing one `SCCACHE_DIR`/server can derive the same cache key even though their absolute paths differ. | Basedir rewriting is disabled for this repo: `ct_reject_basedir_rewriting` in `scripts/cache-policy.sh` unsets `SCCACHE_BASEDIRS` (warning if a parent shell leaked one in) before every `ct_configure_sccache`/`ct_require_prestarted_sccache` call, and `scripts/test-capped.sh` no longer sets it. Machine-level `sccache` and per-worktree `CARGO_TARGET_DIR` isolation are unaffected. Verify with `bash scripts/check-sccache-basedir-isolation.sh`; do not reintroduce `SCCACHE_BASEDIRS` for this repo. |
 | `rustc` exits with `0xc0000005 (STATUS_ACCESS_VIOLATION)` while compiling an unchanged dependency | The Windows compiler process crashed before producing a source diagnostic; this is not a Rust assertion or test failure. | Rerun the same bounded `build.ps1` operation once so completed artifacts are reused. If it repeats, stop, preserve the exact rustc command and Windows crash evidence, and report the toolchain fault; do not clean targets or raise test deadlines. |
 | After an OS crash, `rustc` panics while linking with `Invalid archive terminator` | A generated `.rlib` in the canonical Cargo target was truncated; incremental metadata cleanup cannot repair the archive payload. | Confirm no dev build is running, run `./build.ps1 clean`, then restart the original named operation. Do not delete individual archives or reuse the damaged target. |
-| Dev compiles and opens but port 7686 never listens, with a trust-boundary policy error in `~/.codeterm-dev/logs/codeterm.log` | The retained dev config requests a non-loopback host without a bearer token, or contains a wildcard/malformed CORS origin. | Keep dev local by setting `api.host = "127.0.0.1"`, or configure a token for an intentional network-facing instance. Remove `*` and malformed entries from `api.cors_allow_origins`; an empty list is valid and denies all cross-origin browser requests. |
+| Dev compiles and opens but port 7686 never listens, with a trust-boundary policy error in `~/.domios-dev/logs/domios.log` | The retained dev config requests a non-loopback host without a bearer token, or contains a wildcard/malformed CORS origin. | Keep dev local by setting `api.host = "127.0.0.1"`, or configure a token for an intentional network-facing instance. Remove `*` and malformed entries from `api.cors_allow_origins`; an empty list is valid and denies all cross-origin browser requests. |
 | Windows `build.ps1 kill` reports that the clean shutdown deadline elapsed after a high-tab-count dev fixture | Closing many PTYs and watcher leases can exceed the bounded graceful-shutdown window even though the instance is otherwise healthy. | Let the named operation use its port-scoped force-stop fallback, then verify 7686 is free and 7685 still listens. Never replace it with a process-name kill. |
 | `test-one plan` fails to compile old `Task` fixtures after an orchestration schema change | The app gate compiled the plan crate as a dependency but did not compile its own unit-test fixtures. | Update every direct `Task` fixture and changed helper signature, then rerun the exact `test-one plan` filter. Do not remove the plan gate or move it to an app filter. |
 | `test-one plan` reports E0599 for `ReportStatus::InProgress` in a new fixture | The fixture confused task lifecycle status with the separate report-status enum. | Use the existing `ReportStatus::Partial` for a non-review progress report, preserve the rejection assertion, and rerun the failed focused selector before remaining gates. |
@@ -1222,6 +1222,12 @@ A moved repository-watcher source guard can fail with “expected the repository
 `./build.sh test-one analytics tests::` runs the isolated product analytics crate
 through the capped Rust runner in canonical. Workers type-check touched crates with four jobs and format their Rust sources;
 its HTTP fixtures use a local fake destination with synthetic retry timestamps.
+
+## macOS endpoint-security hazard
+
+On managed Macs an Endpoint Security agent (seen: BeyondTrust `defendpointd`, with CrowdStrike Falcon also present) evaluates every fresh executable on first exec. Under the `nextest --list` burst of many large fresh test binaries it can block one with a bare SIGKILL (signal 9, no AMFI or kernel line), different crate each time; the same binary runs fine by hand afterwards. Tiny fresh binaries do not trigger it. The same exec latency can also fail in-test deadlines spuriously.
+
+Diagnose before treating it as a test failure: `systemextensionsctl list`, then `/usr/bin/log show --start '<t-30s>' --end '<t+30s>' --predicate 'process == "defendpointd" OR eventMessage CONTAINS "Blocking"'` around the kill (call `/usr/bin/log` explicitly: zsh's builtin `log` shadows it). A `Blocking <pid> <path>` line for the test binary confirms it. The fix is environmental: exclude the developer build directories in the endpoint policy (owner/IT decision). The gateway does not retry killed binaries.
 
 ## Related documents
 
@@ -1306,7 +1312,7 @@ found", and plugin generation or the unit runner reports ERR_MODULE_NOT_FOUND fo
 esbuild or tsx. Run
 pnpm install --frozen-lockfile in the lane's Team QA shell, then rerun the affected
 non-Rust checks. A failed dependency lookup selected no executable tests.
-<!-- revision: 51 -->
+<!-- revision: 52 -->
 
 ### Lane and batch scopes
 
@@ -1337,6 +1343,14 @@ A gateway DEV build records physical artifact paths through the existing provena
 writer, so standalone `dev-prebuilt` verifies after the mapped drive is released.
 For a same-build restart, call `dev-prebuilt --wait` directly: provenance and runtime
 preflight precede dev-only stop. Never prepend `kill` to a prebuilt restart.
+
+DEV readiness requires healthy status, `startup.state=ready`, exact build and
+instance identity, and authenticated native attachment. The prebuilt launcher
+waits on startup events inside its existing 30-second phase deadline; listener
+availability alone cannot finish launch. An unsupported startup-event endpoint
+is an explicit failure. Preserve that receipt and rebuild the intended source,
+without extending the deadline. Focused tooling coverage is
+`node --test scripts/tests/server-readiness.test.mjs scripts/tests/dev-wait.test.mjs scripts/tests/dev-app-process.test.mjs`.
 
 DEV Cargo runs at the gateway's Windows `X:` cwd: default target directories are
 `X:/src-tauri/target` and `X:/cli/target` (the physical checkout targets). Named
@@ -1605,6 +1619,18 @@ Actual production/debug start, refusal and frontend-authentication proofs are
 parent-owned platform rows; source fixtures and compilation do not execute them.
 
 ### Diagnose an unchanged-SHA test rebuild
+
+`test-one <scope> <filter>` qualifies the filter with the owning Cargo package.
+The shared workspace selection includes every Cargo workspace member and all
+test targets, plus catalogue path dependencies; membership metadata is cached
+by manifest and lockfile contents. CLI target selection is local to its nextest
+invocation. Reverse-dependency scopes prepare frontend and bundle resources
+before compiling, including in a fresh checkout.
+
+Orphan lane collection requires absolute lane provenance. Rustc can emit
+workspace-relative dep-info (for example `crates/codeterm-orchestration/src/lib.rs`)
+without its original cwd; those units are retained until reliable provenance
+exists. Never resolve that path against whichever checkout runs GC.
 
 Nextest logs `[test-loop]` phases for gateway, sccache, resource preparation,
 listing and Cargo metadata. Record two unchanged canonical runs on BLACKSTAR,

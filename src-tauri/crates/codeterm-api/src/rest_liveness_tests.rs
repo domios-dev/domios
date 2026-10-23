@@ -54,6 +54,12 @@ async fn rest_liveness_health_completes_while_auth_waits_on_config() {
         StatusCode::UNAUTHORIZED
     );
     assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 16 * 1024)
+        .await
+        .unwrap();
+    let health: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(health["status"], "ok");
+    assert_eq!(health["startup"]["state"], "ready");
     assert!(
         elapsed < Duration::from_millis(50),
         "health took {elapsed:?}"

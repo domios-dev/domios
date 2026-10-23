@@ -5,6 +5,7 @@ import crypto from "node:crypto";
 import { StringDecoder } from "node:string_decoder";
 import { runDevApp, nativeLocatorRecord, prebuiltReadinessPhase } from "./dev-app-process.mjs";
 import { devRuntimeEnvironment } from "./dev-runtime-environment.mjs";
+import { waitForReady } from "./server-readiness.mjs";
 import {
   accessSync,
   constants,
@@ -558,6 +559,8 @@ async function launchPrebuilt(options) {
   let child;
   let deadline;
   let phase=0;
+  let checkingReadiness = false;
+  const startupWait = new AbortController();
   try {
     await new Promise((resolveReady, rejectReady) => {
       const fail = (error) => rejectReady(error instanceof Error ? error : new Error(String(error)));
@@ -573,7 +576,11 @@ async function launchPrebuilt(options) {
         },
       );
       child.on("message", (message) => {
-        if (message?.type === "ready") resolveReady(message.signal);
+        if (message?.type === "ready" && !checkingReadiness) {
+          checkingReadiness = true;
+          void waitForReady({ origin: `http://127.0.0.1:${apiPort}`, signal: startupWait.signal })
+            .then(() => resolveReady(message.signal), fail);
+        }
         else if (message?.type === "failed") fail(new Error(message.error));
         else if (message?.type === "phase" && Number.isInteger(message.phase) && message.phase === phase+1 && message.phase <= 2) {
           phase=message.phase;
@@ -596,6 +603,7 @@ async function launchPrebuilt(options) {
     await terminateOwnedChild(child);
     throw error;
   } finally {
+    startupWait.abort();
     if (deadline) clearTimeout(deadline);
     if (child) child.removeAllListeners();
   }

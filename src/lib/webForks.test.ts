@@ -29,7 +29,7 @@ interface ForkSite {
 const INVENTORY: ForkSite[] = [
   {"file": "src/lib/transportParityScan.ts", "anchor": "if (!markerAssignment && ((ts.isPropertyAccessExpression(node) && [\"__TAURI_INTERNALS__\", \"__TAURI__\"].includes(node.name.text))", "ordinal": 1, "cls": "capability-gate", "note": "Audits direct native runtime access without choosing a frontend transport"},
   {"file": "src/lib/transportParityScan.ts", "anchor": "&& [\"__TAURI_INTERNALS__\", \"__TAURI__\"].includes(node.argumentExpression.text)))) {", "ordinal": 1, "cls": "capability-gate", "note": "Audits indexed native runtime access without choosing a frontend transport"},
-  {"file": "src/store/multiplexer/index.tsx", "anchor": "dispatch({ type: \"SET_STATE\", state: guarded, pageOwnedSelection: IS_WEB,", "ordinal": 1, "cls": "platform-adaptation", "note": "Browser page owns its selection independently of desktop focus and restores its own persisted initial selection"},
+  {"file": "src/store/multiplexer/index.tsx", "anchor": "dispatch({ type: \"SET_STATE\", state: guarded, force, pageOwnedSelection: IS_WEB,", "ordinal": 1, "cls": "platform-adaptation", "note": "Browser page owns its selection independently of desktop focus and restores its own persisted initial selection"},
   {"file": "src/store/multiplexer/index.tsx", "anchor": "if (!acceptsPageFocus(stateRef.current, tabId, IS_WEB)) return;", "ordinal": 1, "cls": "platform-adaptation", "note": "Browser page filters daemon focus against its local selection"},
   {"file": "src/store/multiplexer/index.tsx", "anchor": "if (IS_WEB) dispatch({ type: \"SET_FOCUSED_TAB\", tabId });", "ordinal": 1, "cls": "platform-adaptation", "note": "Browser focus updates the page selection locally"},
 

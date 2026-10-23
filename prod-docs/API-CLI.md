@@ -5,11 +5,13 @@ Immediate `domios send` exits 1 with its reason on stderr whenever the result is
 Cron JSON exposes `protected: true` for system jobs. System jobs refuse deletion and schedule/task edits; use `domios cron enable <id>` or `domios cron disable <id>` to control them.
 
 
-CLI identity rules, environment variables, agent integration, and desktop behavior.
-
 ## CLI
 
 Use `domios <command> --help` for the installed CLI contract. `codeterm` remains a fully working alias; both names show canonical `domios` help and usage.
+
+### Startup readiness
+
+With the socket unavailable, credentialed CLI fallback probes RPC directly. A `starting` reply waits on startup events for up to 30 seconds before repeating the identify probe and submitting the first command. Without credentials, discovery checks the selected instance's loopback health first. REST recovery refuses immediately. Errors name the phase; JSON codes `starting`/`startup_failed` preserve `data.startup`. Fallback uses the selected local secret-store credential when absent from the environment. Commands never replay.
 
 ### Remote task locations
 
@@ -83,7 +85,9 @@ With `--json` commands print exactly one JSON object on stdout for success and f
 
 ### Sandboxed CLI transport
 
-The CLI uses the local named pipe or Unix socket first. If that transport cannot be discovered or connected, socket RPC and REST-backed CLI commands can use the authenticated `POST /api/cli/rpc` loopback endpoint. The fallback resolves the selected instance credential through the local secret-store boundary, using `CODETERM_API_TOKEN` for an ordinary tab connection or the selected instance's `<data_dir>/.secrets` outside a tab. A DEV tab can use its environment credential when its callback URL matches the selected instance, including a future scoped tab token. A different explicit DEV selection uses the selected instance's secret store and never falls back to an inherited production token. An explicit DEV selection needs a configured or explicit port before an inherited tab token can match; HTTP fallback refuses a callback URL that differs from the resolved address. The listener address comes from `CODETERM_API_PORT`, `CODETERM_API_URL`, or local configuration; it always targets `http://127.0.0.1:<port>`, disables proxies and redirects, and refuses any configured URL that is not exactly an HTTP IPv4 loopback origin. Custom dev ports also need `CODETERM_INSTANCE` or an explicit socket path, so the CLI never guesses the default DEV socket for a named target. The endpoint dispatches the same RPC methods as the local socket. This includes `api.request`, used for REST-backed commands such as plan reads, tab inspection, notifications, and agent-pad access. The token must be the local API token and the TCP peer must be loopback; mesh peer credentials are refused. HTTP success wraps the daemon value in `{result: ...}`, so result objects may contain their own `error` field without being mistaken for transport failures.
+The CLI tries its local pipe/socket first, then authenticated loopback `POST /api/cli/rpc` for socket and REST-backed commands. Credentials resolve through one local secret-store boundary: `CODETERM_API_TOKEN` for a matching tab connection, otherwise the selected instance's `<data_dir>/.secrets`. An explicit DEV selection needs a configured or explicit port before its callback origin can match an inherited token; foreign selections never reuse a production token. Both startup discovery and RPC fallback refuse a callback URL differing from the resolved instance address.
+
+HTTP fallback requires exactly `http://127.0.0.1:<port>` without credentials, path, query or fragment; proxies and redirects are disabled. Named custom-port targets also need `CODETERM_INSTANCE` or an explicit socket path. It dispatches the same socket methods, including `api.request` for REST-backed commands. The credential must be the local API token and the TCP peer loopback; mesh peer tokens are refused. Success wraps data in `{result: ...}`; an inner `error` remains ordinary data.
 
 ### Mesh CLI failures
 
@@ -190,4 +194,4 @@ provider's own machine. Completion verifies the account and resumes the tab's
 same thread without restarting or replaying input. Only one sign-in per provider
 can be pending; Cancel releases it before a retry.
 
-<!-- revision: 59 -->
+<!-- revision: 60 -->

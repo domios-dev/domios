@@ -296,6 +296,30 @@ fn account_mesh_known_local_revoke_blocks_immediately() {
     );
 }
 
+#[test]
+fn account_mesh_state_change_retries_a_previously_refused_legacy_adoption() {
+    let clock = clock();
+    let (a, b) = (machine(1, &clock), machine(2, &clock));
+    a.sign_in(1, ACCOUNT, START + MEMBERSHIP_TTL);
+    let mut manager = a.mesh.lock();
+    assert!(manager.begin_adoption(&b.id()));
+    manager.finish_adoption(
+        &b.id(),
+        &Err(AdmissionRefusal::handshake("temporary refusal")),
+    );
+    assert!(!manager.begin_adoption(&b.id()));
+
+    let mut changed = manager.account_state().clone();
+    changed
+        .revoked_installations
+        .insert("revoked-installation".into());
+    manager.apply_account_state(changed);
+    assert!(
+        manager.begin_adoption(&b.id()),
+        "an updated account revocation state permits a fresh adoption attempt"
+    );
+}
+
 #[tokio::test]
 async fn account_mesh_new_link_needs_both_fresh_permits_and_records_both_sides() {
     let clock = clock();
@@ -484,7 +508,7 @@ fn account_mesh_unpair_removes_provenance_for_good() {
     let clock = clock();
     let (a, b) = (machine(1, &clock), machine(2, &clock));
     legacy_pair(&a, &b);
-    a.mesh.lock().unpair(&b.id());
+    a.mesh.lock().unpair(&b.id()).unwrap();
     let mut manager = a.mesh.lock();
     assert!(manager.link_record(&b.id()).is_none());
     assert!(manager.is_revoked(&b.id()));

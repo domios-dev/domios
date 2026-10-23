@@ -45,7 +45,7 @@ impl CredentialStore for RefreshStore {
 
 struct RefreshProvider {
     refreshes: AtomicUsize,
-    reject: bool,
+    failure: Option<Error>,
 }
 impl RefreshProvider {
     fn tokens() -> Tokens {
@@ -78,7 +78,10 @@ impl IdentityProvider for RefreshProvider {
     }
     async fn refresh(&self, token: &Secret) -> Result<Tokens> {
         self.refreshes.fetch_add(1, Ordering::SeqCst);
-        if self.reject || token.expose() != "refresh-credential" {
+        if let Some(error) = self.failure {
+            return Err(error);
+        }
+        if token.expose() != "refresh-credential" {
             return Err(Error::Credentials);
         }
         Ok(Self::tokens())
@@ -196,7 +199,7 @@ async fn generation_refusal_is_attributed_to_publication_before_saving() {
 async fn current_session_refreshes_an_expired_id_token_with_the_saved_credential() {
     let provider = Arc::new(RefreshProvider {
         refreshes: AtomicUsize::new(0),
-        reject: false,
+        failure: None,
     });
     let account = Account::new(
         provider.clone(),
@@ -215,7 +218,7 @@ async fn current_session_refreshes_an_expired_id_token_with_the_saved_credential
 async fn current_session_returns_one_refresh_failure_without_using_the_expired_token() {
     let provider = Arc::new(RefreshProvider {
         refreshes: AtomicUsize::new(0),
-        reject: true,
+        failure: Some(Error::Credentials),
     });
     let account = Account::new(
         provider.clone(),
@@ -231,4 +234,28 @@ async fn current_session_returns_one_refresh_failure_without_using_the_expired_t
     assert_eq!(provider.refreshes.load(Ordering::SeqCst), 1);
     assert!(account.session().await.is_none());
     assert!(account.status().await.identity.is_none());
+}
+
+#[tokio::test]
+async fn current_session_keeps_session_after_a_transient_refresh_failure() {
+    let provider = Arc::new(RefreshProvider {
+        refreshes: AtomicUsize::new(0),
+        failure: Some(Error::Transport),
+    });
+    let account = Account::new(
+        provider.clone(),
+        Arc::new(RefreshStore),
+        Duration::from_secs(1),
+    );
+    let expired = expired_session();
+    account.state.lock().await.session = Some(expired.clone());
+
+    assert_eq!(
+        account.current_session().await.unwrap_err(),
+        Error::Transport
+    );
+    assert_eq!(provider.refreshes.load(Ordering::SeqCst), 1);
+    let retained = account.session().await.expect("session remains available");
+    assert_eq!(retained.id_token.expose(), expired.id_token.expose());
+    assert_eq!(retained.identity.uid, expired.identity.uid);
 }
