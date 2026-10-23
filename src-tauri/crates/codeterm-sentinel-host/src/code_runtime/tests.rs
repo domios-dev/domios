@@ -210,3 +210,41 @@ fn blueprint_v2_runtime_child_environment_removes_credentials_and_cli_path() {
         }
     }
 }
+
+#[test]
+fn blueprint_v2_runtime_code_runs_in_blueprint_cwd_with_user_identity() {
+    let root = tempfile::tempdir().unwrap();
+    let owner = Arc::new(ProbeResourceOwner::new());
+    let code = body(
+        Language::Python,
+        "import getpass, os, tempfile\ndef main(value):\n return {'cwd': os.getcwd(), 'user': bool(getpass.getuser()), 'home': os.path.expanduser('~') != '~', 'temp': tempfile.gettempdir()}\n",
+    );
+    let output = run_with_output(
+        &code,
+        INPUT,
+        Duration::from_secs(60),
+        Duration::from_secs(10),
+        &owner,
+        &Cancellation::default(),
+        None,
+        root.path(),
+    )
+    .unwrap();
+    assert!(output.success, "{}", output.text);
+    let value: serde_json::Value = serde_json::from_str(&output.stdout_text()).unwrap();
+    let value = &value["value"];
+    assert_eq!(
+        std::path::Path::new(value["cwd"].as_str().unwrap())
+            .canonicalize()
+            .unwrap(),
+        root.path().canonicalize().unwrap()
+    );
+    assert_eq!(value["user"], true);
+    assert_eq!(value["home"], true);
+    assert_eq!(
+        std::path::Path::new(value["temp"].as_str().unwrap())
+            .canonicalize()
+            .unwrap(),
+        std::env::temp_dir().canonicalize().unwrap()
+    );
+}

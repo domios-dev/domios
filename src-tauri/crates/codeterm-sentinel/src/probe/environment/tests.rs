@@ -42,14 +42,18 @@ fn sentinel_probe_environment_strips_instance_credentials_and_cli_path() {
         &[bin.to_str().unwrap()],
     );
     let variables: std::collections::BTreeMap<_, _> = environment.variables.into_iter().collect();
-    assert_eq!(variables.len(), 2);
+    assert!(variables.keys().all(|key| {
+        let key = key.to_string_lossy().to_ascii_uppercase();
+        !key.starts_with("CODETERM") && !key.starts_with("DOMIOS")
+    }));
     assert_eq!(
         std::env::split_paths(&variables[OsStr::new("PATH")]).collect::<Vec<_>>(),
         vec![normal]
     );
-    assert!(!variables.contains_key(OsStr::new("HOME")));
     assert_eq!(variables[OsStr::new("LANG")], "C.UTF-8");
-    assert!(!variables.contains_key(OsStr::new("TMP")));
+    let kept = if cfg!(windows) { "TMP" } else { "HOME" };
+    assert_eq!(variables[OsStr::new(kept)], dir.path().as_os_str());
+    assert_eq!(variables.len(), 3);
 }
 
 #[test]
@@ -189,4 +193,66 @@ fn blueprint_v2_runtime_windows_environment_keeps_executable_resolution() {
             .1,
         ".COM;.EXE;.BAT;.CMD"
     );
+}
+
+#[test]
+fn blueprint_v2_runtime_environment_keeps_user_identity_and_drops_authority() {
+    let inherited = || {
+        [
+            "USERNAME",
+            "userprofile",
+            "HOMEDRIVE",
+            "HOMEPATH",
+            "TEMP",
+            "TMP",
+            "APPDATA",
+            "LOCALAPPDATA",
+            "HOME",
+            "USER",
+            "LOGNAME",
+            "TMPDIR",
+            "CODETERM_API_TOKEN",
+            "DOMIOS_DATA_DIR",
+            "GH_TOKEN",
+        ]
+        .map(|name| {
+            (
+                OsString::from(name),
+                OsString::from(format!("opaque-{name}")),
+            )
+        })
+    };
+    for (windows, kept) in [
+        (
+            true,
+            &[
+                "USERNAME",
+                "userprofile",
+                "HOMEDRIVE",
+                "HOMEPATH",
+                "TEMP",
+                "TMP",
+                "APPDATA",
+                "LOCALAPPDATA",
+            ][..],
+        ),
+        (false, &["HOME", "USER", "LOGNAME", "TMPDIR"][..]),
+    ] {
+        let environment = Environment::for_command_on_platform(inherited(), None, &[], windows);
+        let keys: Vec<_> = environment
+            .variables
+            .iter()
+            .map(|(key, _)| key.to_string_lossy().into_owned())
+            .filter(|key| key != "LANG" && key != "PATH")
+            .collect();
+        assert_eq!(keys, kept, "windows={windows}");
+        for (key, value) in &environment.variables {
+            if kept.contains(&key.to_string_lossy().as_ref()) {
+                assert_eq!(
+                    value,
+                    &OsString::from(format!("opaque-{}", key.to_string_lossy()))
+                );
+            }
+        }
+    }
 }

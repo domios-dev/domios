@@ -39,6 +39,7 @@ pub(super) fn run(
         step.execution
             .as_ref()
             .and_then(|contract| contract.output.as_ref()),
+        Path::new(&lease.job.cwd),
     ) {
         Ok(output) => completed(
             output,
