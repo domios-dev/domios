@@ -12,6 +12,22 @@ const PASSES: usize = 8;
 /// Consecutive unavailable units that mean the provider itself is down.
 const OUTAGE_STREAK: usize = 5;
 
+pub(crate) fn watch_progress(
+    mut receive: impl FnMut(Duration) -> Result<(), String>,
+    current: impl Fn() -> bool,
+    fail: impl Fn(String),
+) {
+    loop {
+        if let Err(error) = receive(Duration::from_secs(180)) {
+            fail(format!("re-embed worker stopped advancing: {error}"));
+            return;
+        }
+        if !current() {
+            return;
+        }
+    }
+}
+
 struct Unit {
     id: String,
     blueprint: bool,
@@ -195,13 +211,17 @@ impl MemManager {
                         (None, Some(format!("{}: {reason}", unit.id)))
                     }
                 };
-                self.conn
-                    .lock()
-                    .execute(
+                {
+                    let conn = self.conn.lock();
+                    if !self.reembed.is_current(generation) {
+                        return Err("re-embed cancelled".into());
+                    }
+                    conn.execute(
                         "INSERT OR REPLACE INTO reembed.shadow(target,unit_key,text_hash,vectors) VALUES (?1,?2,?3,?4)",
                         params![stamp, unit.key(), unit.hash(), vectors],
                     )
                     .map_err(|error| error.to_string())?;
+                }
                 if !self
                     .reembed
                     .advance(generation, error.map_or(Ok(()), Err), &self.embedder)
@@ -215,13 +235,15 @@ impl MemManager {
                     return Err("re-embed cancelled".into());
                 }
                 if let Ok(blob) = embed_unit(&target, &identity, unit) {
-                    self.conn
-                        .lock()
-                        .execute(
-                            "UPDATE reembed.shadow SET vectors=?3 WHERE target=?1 AND unit_key=?2",
-                            params![stamp, unit.key(), blob],
-                        )
-                        .map_err(|error| error.to_string())?;
+                    let conn = self.conn.lock();
+                    if !self.reembed.is_current(generation) {
+                        return Err("re-embed cancelled".into());
+                    }
+                    conn.execute(
+                        "UPDATE reembed.shadow SET vectors=?3 WHERE target=?1 AND unit_key=?2",
+                        params![stamp, unit.key(), blob],
+                    )
+                    .map_err(|error| error.to_string())?;
                     self.reembed.recovered(generation);
                 }
                 let _ = changed.send(());
@@ -339,18 +361,16 @@ impl MemManager {
         let manager = self.clone();
         std::thread::Builder::new()
             .name("mem-reembed-watchdog".into())
-            .spawn(move || loop {
-                if let Err(error) = progress.recv_timeout(Duration::from_secs(180)) {
-                    manager.reembed.fail(
-                        generation,
-                        format!("re-embed worker stopped advancing: {error}"),
-                        &manager.embedder,
-                    );
-                    return;
-                }
-                if !manager.reembed.is_current(generation) {
-                    return;
-                }
+            .spawn(move || {
+                watch_progress(
+                    |timeout| {
+                        progress
+                            .recv_timeout(timeout)
+                            .map_err(|error| error.to_string())
+                    },
+                    || manager.reembed.is_current(generation),
+                    |error| manager.reembed.fail(generation, error, &manager.embedder),
+                );
             })
             .map_err(|error| format!("start re-embed watchdog: {error}"))?;
         Ok(())

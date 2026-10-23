@@ -10,7 +10,7 @@ pub mod openai;
 pub mod pending;
 pub mod provider;
 pub mod recall_priority;
-mod shadow;
+pub(crate) mod shadow;
 pub mod switch;
 
 #[cfg(test)]
