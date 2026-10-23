@@ -1,25 +1,9 @@
-use crate::activation::{Activation, Phase, ACTIVATION};
 use crate::gate::{
-    admit, enforcing, LimitGate, LimitKey, LimitRefusal, LockCandidate, LockedRefusal,
-    FREE_LIMIT_REACHED, PLAN_LIMIT_LOCKED,
+    admit, LimitGate, LimitKey, LimitRefusal, LockCandidate, LockedRefusal, FREE_LIMIT_REACHED,
+    PLAN_LIMIT_LOCKED,
 };
-use crate::payload::{Authority, Enforcement, Mode, Perks, Scope, ScopedLimit};
+use crate::payload::{Authority, Perks, Scope, ScopedLimit};
 use crate::verdict::{compiled_free, EffectiveAccess};
-
-fn activation(phase: Phase, enabled: bool) -> Activation {
-    Activation {
-        phase,
-        project: "demo-domios",
-        mode: Mode::Test,
-        policy_version: 2,
-        policy_epoch: "fixture",
-        enforcement: Enforcement {
-            enabled,
-            rollback: false,
-        },
-        keys: &[],
-    }
-}
 
 fn unlimited() -> EffectiveAccess {
     let mut access = compiled_free();
@@ -36,20 +20,6 @@ fn unlimited() -> EffectiveAccess {
         };
     }
     access
-}
-
-#[test]
-fn this_build_ships_dormant() {
-    assert_eq!(ACTIVATION, None);
-    assert!(!enforcing(ACTIVATION.as_ref()));
-}
-
-#[test]
-fn only_phase_b_with_enforcement_on_enforces() {
-    assert!(!enforcing(None));
-    assert!(!enforcing(Some(&activation(Phase::A, true))));
-    assert!(!enforcing(Some(&activation(Phase::B, false))));
-    assert!(enforcing(Some(&activation(Phase::B, true))));
 }
 
 #[test]

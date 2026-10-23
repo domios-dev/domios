@@ -1,14 +1,5 @@
 use crate::payload::{Enforcement, Mode};
 use crate::policy::{Policy, PolicyError, PolicySpec, TrustedKey};
-use crate::verdict::Verdict;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Phase {
-    /// Verify and shadow; access keeps reading the schema-2 envelope.
-    A,
-    /// Access reads the signed verdict.
-    B,
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CompiledKey {
@@ -16,10 +7,9 @@ pub struct CompiledKey {
     pub spki_der_base64: &'static str,
 }
 
-/// Release-pinned verification inputs; changing any field is a code change shipped in a release.
+/// Build-pinned verification inputs; changing any field is a code change shipped in a release.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Activation {
-    pub phase: Phase,
     pub project: &'static str,
     pub mode: Mode,
     pub policy_version: u64,
@@ -28,8 +18,39 @@ pub struct Activation {
     pub keys: &'static [CompiledKey],
 }
 
-/// No reviewed production epoch or signing key is pinned yet, so nothing is verified or enforced.
-pub const ACTIVATION: Option<Activation> = None;
+const ENFORCE: Enforcement = Enforcement {
+    enabled: true,
+    rollback: false,
+};
+
+pub const PRODUCTION: Activation = Activation {
+    project: "domios-d9357",
+    mode: Mode::Live,
+    policy_version: 1,
+    policy_epoch: "live-v1",
+    enforcement: ENFORCE,
+    keys: &[CompiledKey {
+        key_id: "live-pending-t3",
+        spki_der_base64: "MCowBQYDK2VwAyEAaQp6opvPShfljv9ougf3ikOeGcy9ZFJqkat9th3DN8k=",
+    }],
+};
+
+pub const TEST: Activation = Activation {
+    project: "domios-test",
+    mode: Mode::Test,
+    policy_version: 1,
+    policy_epoch: "test-v1",
+    enforcement: ENFORCE,
+    keys: &[CompiledKey {
+        key_id: "test-pending-t3",
+        spki_der_base64: "MCowBQYDK2VwAyEAtXQE+LXeu/VsbJ48oN1SdqkSerOt+OJpvkqLjLrDXa4=",
+    }],
+};
+
+#[cfg(not(debug_assertions))]
+pub const ACTIVATION: Activation = PRODUCTION;
+#[cfg(debug_assertions)]
+pub const ACTIVATION: Activation = TEST;
 
 impl Activation {
     pub fn policy(&self) -> Result<Policy, PolicyError> {
@@ -48,21 +69,5 @@ impl Activation {
                 })
                 .collect(),
         })
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AccessSource {
-    Envelope,
-    Verdict,
-    CompiledFree,
-}
-
-/// Phase B never falls back to the unsigned envelope: without a verdict it grants compiled free.
-pub fn access_source(phase: Phase, verdict: Option<&Verdict>) -> AccessSource {
-    match (phase, verdict) {
-        (Phase::A, _) => AccessSource::Envelope,
-        (Phase::B, Some(_)) => AccessSource::Verdict,
-        (Phase::B, None) => AccessSource::CompiledFree,
     }
 }

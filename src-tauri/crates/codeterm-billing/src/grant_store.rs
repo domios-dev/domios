@@ -1,5 +1,5 @@
 use crate::Result;
-use codeterm_entitlements::{verify, Binding, DetachedGrant, Policy, Refusal, VerifiedGrant};
+use codeterm_entitlements::{Binding, DetachedGrant, EntitlementAuthority, Refusal, VerifiedGrant};
 use std::{fs, path::PathBuf};
 
 pub trait GrantStore: Send + Sync {
@@ -46,7 +46,7 @@ impl GrantStore for FileGrantStore {
 
 pub(crate) fn authenticate(
     raw: &serde_json::Value,
-    policy: &Policy,
+    authority: &dyn EntitlementAuthority,
     uid: &str,
     installation_id: &str,
     cached: Option<&VerifiedGrant>,
@@ -54,16 +54,16 @@ pub(crate) fn authenticate(
 ) -> std::result::Result<VerifiedGrant, Refusal> {
     let detached: DetachedGrant =
         serde_json::from_value(raw.clone()).map_err(|_| Refusal::Malformed)?;
-    verify(
-        &detached,
-        policy,
-        &Binding {
-            uid,
-            installation_id,
-        },
-        cached,
-        now,
-    )
-    .map(|accepted| accepted.grant)
-    .map_err(|rejected| rejected.refusal)
+    authority
+        .verify(
+            &detached,
+            &Binding {
+                uid,
+                installation_id,
+            },
+            cached,
+            now,
+        )
+        .map(|accepted| accepted.grant)
+        .map_err(|rejected| rejected.refusal)
 }
