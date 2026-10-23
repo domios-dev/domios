@@ -133,6 +133,7 @@ fn check_ir_on_platform(
             "Use blueprint schema and correct this field",
         ));
     }
+    fold_into_document_errors(&mut diagnostics);
     diagnostics.extend(memory_warnings(&parsed, platform));
     schema_errors(&parsed, &mut diagnostics);
     diagnostics.extend(context.call_diagnostics.clone());
@@ -168,6 +169,21 @@ fn check_ir_on_platform(
     });
     diagnostics.dedup_by(|a, b| a.id == b.id);
     diagnostics
+}
+fn fold_into_document_errors(diagnostics: &mut Vec<Diagnostic>) {
+    let (mut roots, rest): (Vec<_>, Vec<_>) = std::mem::take(diagnostics)
+        .into_iter()
+        .partition(|d| d.rule == "IR");
+    for diagnostic in rest {
+        match roots
+            .iter_mut()
+            .find(|root| !root.field.is_empty() && root.field == diagnostic.field)
+        {
+            Some(root) => root.folded.push(diagnostic),
+            None => diagnostics.push(diagnostic),
+        }
+    }
+    diagnostics.append(&mut roots);
 }
 fn memory_warnings(parsed: &Parsed, platform: &str) -> Vec<Diagnostic> {
     if matches!(platform, "linux" | "windows") {
@@ -336,28 +352,36 @@ fn schema_errors(parsed: &Parsed, diagnostics: &mut Vec<Diagnostic>) {
 
 pub fn render(diagnostics: &[Diagnostic], explain: bool) -> String {
     fn tree(proof: &Proof, indent: &str, out: &mut String) {
+        let location = &proof.atom.location;
+        let at = if location.file.is_empty() {
+            format!(" @ {}", proof.atom.field)
+        } else {
+            format!(" @ {}:{}:{}", location.file, location.line, location.column)
+        };
         out.push_str(&format!(
-            "{indent}{}{}({}) [{}] @ {}:{}:{}\n",
+            "{indent}{}{}({}) [{}]{at}\n",
             if proof.atom.present { "" } else { "!" },
             proof.atom.predicate,
             proof.atom.arguments.join(", "),
             proof.rule,
-            proof.atom.location.file,
-            proof.atom.location.line,
-            proof.atom.location.column
         ));
         for child in &proof.children {
             tree(child, &format!("{indent}  "), out);
         }
     }
     fn finding(d: &Diagnostic, indent: &str, explain: bool, out: &mut String) {
+        let at = if d.file.is_empty() {
+            String::new()
+        } else {
+            format!("{}:{}:{}: ", d.file, d.line, d.column)
+        };
         out.push_str(&format!(
-            "{indent}{}:{}:{}: {}: {} {}: {}\n{indent}  hint: {}\n",
-            d.file, d.line, d.column, d.severity, d.rule, d.field, d.message, d.hint
+            "{indent}{at}{}: {} {}: {}\n{indent}  hint: {}\n",
+            d.severity, d.rule, d.field, d.message, d.hint
         ));
         if explain {
             tree(&d.proof, &format!("{indent}  "), out);
-            for (label, atoms) in [("FAILING", &d.failing), ("PASSING", &d.passing)] {
+            for (label, atoms) in [("CAUSED BY", &d.failing), ("GIVEN", &d.passing)] {
                 out.push_str(&format!(
                     "{indent}  {label}: {}\n",
                     atoms

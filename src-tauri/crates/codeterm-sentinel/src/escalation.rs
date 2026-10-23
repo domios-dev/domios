@@ -71,7 +71,9 @@ pub fn validate(job: &Sentinel) -> Result<(), String> {
             .iter()
             .any(|transition| transition.id == *held && transition.bucket == OTHER_BUCKET);
         if escalation_count == 0 || !accepted {
-            return Err("invalid blueprint hold".into());
+            return Err(format!(
+                "blueprint is held on evaluation {held} awaiting an answer to its `other` escalation, and the new definition no longer escalates `other`. Answer or dismiss the escalation, or stop the Blueprint, then apply again"
+            ));
         }
     }
     Ok(())

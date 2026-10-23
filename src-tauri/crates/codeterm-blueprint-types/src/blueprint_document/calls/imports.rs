@@ -13,7 +13,7 @@ pub(super) fn digest(bytes: &[u8]) -> String {
         .collect()
 }
 pub(super) fn read(path: &Path) -> Result<String, String> {
-    let file = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let file = std::fs::File::open(path).map_err(|e| format!("{}: {e}", portable_path(path)))?;
     let metadata = file.metadata().map_err(|e| e.to_string())?;
     if !metadata.is_file() || metadata.len() > MAX_CLOSURE_BYTES as u64 {
         return Err("Imports require regular files of at most 256 KiB".into());
@@ -416,7 +416,7 @@ impl Resolver<'_> {
             vec![finding(
                 parsed,
                 field,
-                format!("Missing import {}: {e}", candidate.display()),
+                format!("Missing import {}: {e}", portable_path(&candidate)),
             )]
         })?;
         let id = format!("file:{}", portable_path(&path));
