@@ -73,6 +73,9 @@ impl ServiceContext {
         tab_id: &str,
         payload: &crate::service::messenger::AgentDeliveryPayload,
     ) -> bool {
+        if !self.saved_delivery_target_matches(tab_id, payload) {
+            return false;
+        }
         let Some(binding) = self.queued_agent_binding(tab_id) else {
             return false;
         };
@@ -93,6 +96,13 @@ impl ServiceContext {
         tab_id: &str,
         payload: &crate::service::messenger::AgentDeliveryPayload,
     ) -> Result<(), String> {
+        if !self.saved_delivery_target_matches(tab_id, payload) {
+            return Err(DeliveryError::TabBusyRefused {
+                tab: tab_id.to_string(),
+                detail: "saved delivery recipient session or provider changed".into(),
+            }
+            .ledger_message());
+        }
         let Some(_expected_binding_nonce) = payload.expected_binding_nonce.as_deref() else {
             return Err(DeliveryError::TabBusyRefused {
                 tab: tab_id.to_string(),

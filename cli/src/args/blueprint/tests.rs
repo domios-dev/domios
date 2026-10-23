@@ -169,3 +169,73 @@ fn blueprint_authoring_verbs_and_legacy_flag_refusal() {
         }
     ));
 }
+
+#[test]
+fn blueprint_v2_intent_flags_preserve_text_and_bound_limits() {
+    let parse = |tail: &[&str]| {
+        Cli::try_parse_from(
+            ["domios", "blueprint", "new"]
+                .into_iter()
+                .chain(tail.iter().copied()),
+        )
+    };
+    let Commands::Blueprint {
+        action: BlueprintAction::New { intent, limit, .. },
+    } = parse(&["--intent", "  opaque\nintent λ  ", "--json"])
+        .unwrap()
+        .command
+    else {
+        panic!("wrong command")
+    };
+    assert_eq!(intent.as_deref(), Some("  opaque\nintent λ  "));
+    assert_eq!(limit, 3);
+    for limit in ["1", "20"] {
+        assert!(parse(&["--intent", "query", "--limit", limit]).is_ok());
+    }
+    for limit in ["0", "21", "-1", "999999", "x"] {
+        assert!(parse(&["--intent", "query", "--limit", limit]).is_err());
+    }
+    for args in [
+        vec!["--intent", ""],
+        vec!["--intent", " "],
+        vec!["--intent", "query", "watch"],
+        vec!["--intent", "query", "--like", "another"],
+        vec!["--limit", "1"],
+    ] {
+        assert!(parse(&args).is_err(), "{args:?}");
+    }
+}
+
+#[test]
+fn blueprint_v2_call_keep_file_and_id_are_mutually_exclusive() {
+    use clap::Parser;
+    assert!(Cli::try_parse_from([
+        "codeterm",
+        "blueprint",
+        "keep",
+        "--file",
+        "callable.yaml",
+        "--when",
+        "Increment typed data"
+    ])
+    .is_ok());
+    assert!(Cli::try_parse_from([
+        "codeterm",
+        "blueprint",
+        "keep",
+        "graph",
+        "--file",
+        "callable.yaml",
+        "--when",
+        "Increment typed data"
+    ])
+    .is_err());
+    assert!(Cli::try_parse_from([
+        "codeterm",
+        "blueprint",
+        "keep",
+        "--when",
+        "Increment typed data"
+    ])
+    .is_err());
+}

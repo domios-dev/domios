@@ -1,7 +1,9 @@
-# Check and apply this file with codeterm blueprint.
-schema_version: 1
-name: Cron {{cron_name_or_id}}
+# Native Blueprint v2. Check with explicit author bindings before apply.
+schema_version: 2
+kind: watch
+name: Cron Run Watch
 note: Observe one named cron's run and notify when it finishes.
+intent: Observe one named cron's run and notify when it finishes.
 inputs:
   cron_name_or_id:
     type: string
@@ -9,16 +11,34 @@ inputs:
   finished_pattern:
     type: string
     description: Finished pattern
-watch:
-  observe: cron-run:{{cron_name_or_id}}
-  question: classify-run-state
+steps:
+- id: source
+  uses: observe
+  with:
+    kind:
+      lit: cron_run
+    id:
+      input: cron_name_or_id
+  every:
+    lit: 20s
+  timeout:
+    lit: 1h
+- id: decide
+  uses: ask
+  with:
+    question:
+      lit: classify-run-state
   buckets:
   - waiting
   - finished
-  matches:
-    finished: '{{finished_pattern}}'
-  until: finished
-  timeout: 1h
   routes:
-    waiting: none
-    finished: notify
+    waiting: '@stop'
+    finished: finished_1
+  matches:
+    finished:
+      input: finished_pattern
+  until: finished
+- id: finished_1
+  uses: notify
+  routes:
+    done: '@stop'

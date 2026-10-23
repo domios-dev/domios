@@ -49,6 +49,7 @@ fn early_send_nonce_survives_initial_launch_registration() {
         let nonce =
             super::super::generation::reserve_binding_nonce(&fixture.service, &tab_id, session);
         let mut payload = crate::service::messenger::AgentDeliveryPayload {
+            durable_delivery: None,
             trace_id: None,
             transport: crate::service::messenger::Messenger::from(
                 crate::service::messenger::MessageEnvelope::from_codeterm(),
@@ -218,6 +219,7 @@ fn deferred_structured_preparation_adopts_the_restored_reservation_a_send_pinned
     )
     .expect("a restored relaunch reserves on the caller's thread");
     let mut payload = crate::service::messenger::AgentDeliveryPayload {
+        durable_delivery: None,
         trace_id: None,
         transport: crate::service::messenger::Messenger::from(
             crate::service::messenger::MessageEnvelope::from_codeterm(),

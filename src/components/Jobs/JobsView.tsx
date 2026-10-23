@@ -23,7 +23,8 @@ import { ScopedScenarioPanel } from "../Automation/ScopedScenarioPanel";
 import { blueprintScenarioJobs } from "../Automation/scenarios";
 import { AUTOMATION_TONE, AUTOMATION_TOOL } from "../Automation/styles";
 import type { AutomationGraphAdapter } from "../Automation/types";
-import { BlueprintPipelineCanvas } from "../Automation/BlueprintPipelineCanvas";
+import { BlueprintPipelineView } from "../Automation/BlueprintPipelineView";
+import { BlueprintProjectList } from "./BlueprintProjectList";
 import { BlueprintExportButton } from "../Automation/BlueprintExportButton";
 import { BlueprintImportForm } from "./BlueprintImportForm";
 import { JobConfirmationDialog } from "./JobConfirmationDialog";
@@ -251,7 +252,7 @@ function JobsSurface({ solutionsApi, adapter, connectionId, sources, cronWorkspa
       </div>
       <div className="min-w-0 px-4 py-3">
         {openedBlueprint
-          ? <BlueprintPipelineCanvas pipeline={openedBlueprint.pipeline} initialRunId={initialRunId} />
+          ? <BlueprintPipelineView pipeline={openedBlueprint.pipeline} workspaceId={openedBlueprint.workspaceId} attachment={graphFor(openedBlueprint.workspaceId)!.attachment} adapter={adapter} refresh={graphFor(openedBlueprint.workspaceId)!.refresh} initialRunId={initialRunId} />
           : graphsRead ? <InlineErrorNotice error={{ code: "blueprint_unavailable", raw: "" }} /> : graphsFailed ? <p role="status" className="ct-job-note">Blueprint is unavailable.</p> : <p role="status" className="ct-job-note">Reading Blueprint…</p>}
       </div>
     </section>;
@@ -289,6 +290,7 @@ function JobsSurface({ solutionsApi, adapter, connectionId, sources, cronWorkspa
           : <JobRow key={key} jobKey={key} icon={<Network size={15} aria-hidden="true" />} name={job.title} {...sentinelRowText(job.sentinel, job.title)} type={job.sentinel.type} tone="blueprint" state={sentinelStateLabel(job.sentinel)} actionItems={actionItems} onOpen={() => setSelection({ kind: "scenario", id: job.sentinel.scenario.id })} onTriggerRef={onTriggerRef} error={actionErrors[key] || null} />;
       })}
     </ul>}
+    {sources.map((workspaceId) => <BlueprintProjectList key={workspaceId} workspaceId={workspaceId} />)}
     <SavedSolutions api={solutionsApi} sources={sources} revision={solutionRevision} />
     {confirmation && <JobConfirmationDialog
       title={confirmation.kind === "delete" ? deleteJobConfirmation(confirmation.job).title : "Clear stopped jobs?"}

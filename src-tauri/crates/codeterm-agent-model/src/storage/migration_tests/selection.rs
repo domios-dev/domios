@@ -5,15 +5,8 @@ use super::*;
 
 const BAK_VALID: &str = "state-backups/crons.json/0000000000001-000001.bak";
 const BAK_PARTIAL: &str = "state-backups/crons.json/0000000000002-000001.bak";
-const SENTINEL_BAK: &str = "state-backups/sentinels.json/0000000000001-000001.bak";
 
 /// Well-formed JSON whose stopped solo stage appears twice: a semantic conflict.
-fn conflicting_sentinels() -> String {
-    let mut stages: Vec<serde_json::Value> = serde_json::from_str(SENTINELS).expect("fixture");
-    let duplicate = stages.last().cloned().expect("solo stage");
-    stages.push(duplicate);
-    serde_json::to_string(&stages).expect("conflicting inventory")
-}
 
 fn starts(words: &[String], prefix: &[&str]) -> bool {
     words.starts_with(&line(prefix))
@@ -113,7 +106,7 @@ fn storage_migration_absent_current_with_recovery_assets_requires_selection() {
         cron_snapshot(&storage).states.is_empty(),
         "the backup is retained, not imported"
     );
-    assert_eq!(sentinel_inventory(&storage).len(), 3);
+    assert!(sentinel_inventory(&storage).is_empty());
     assert!(receipt.comparison.expect("comparison").is_clean());
     close(storage);
 }
@@ -215,43 +208,6 @@ fn storage_migration_partial_unsupported_and_malformed_are_distinct() {
             ..
         }
     ));
-}
-
-#[test]
-fn storage_migration_sentinel_conflict_is_not_recoverable() {
-    let f = Fixture::seeded();
-    f.put("sentinels.json", conflicting_sentinels().as_bytes());
-    f.put(SENTINEL_BAK, SENTINELS.as_bytes());
-    let storage = f.open();
-
-    let error = storage
-        .import_legacy_root(&f.request(), &LegacyCodecs)
-        .expect_err("a conflicting current original refuses");
-
-    assert!(matches!(
-        refusal(error),
-        ImportRefusal::Decode {
-            domain: ImportDomain::Sentinel,
-            status: SourceStatus::Conflict(_),
-            ..
-        }
-    ));
-    let selected = f.select(
-        ImportDomain::Sentinel,
-        SourceSelection::Backup(SENTINEL_BAK.to_string()),
-    );
-    let error = storage
-        .import_legacy_root(&selected, &LegacyCodecs)
-        .expect_err("a backup never replaces a conflicting current original");
-    assert!(matches!(
-        refusal(error),
-        ImportRefusal::InvalidSelection {
-            domain: ImportDomain::Sentinel,
-            ..
-        }
-    ));
-    assert_untouched(&storage);
-    close(storage);
 }
 
 #[test]

@@ -1,8 +1,5 @@
 use super::*;
 use codeterm_blueprint_types::blueprint_journal::{JournalMarker, JournalState};
-use codeterm_blueprint_types::blueprint_pipeline::{
-    BlueprintOwner, BlueprintResult, BlueprintSpec, IoType, ResultTarget, Step, StepKind, Trigger,
-};
 use codeterm_storage::{BlueprintJournalWrite, SentinelId};
 
 fn create_pipeline(store: &Mutex<Store>, owner: Owner) -> Sentinel {
@@ -10,52 +7,18 @@ fn create_pipeline(store: &Mutex<Store>, owner: Owner) -> Sentinel {
 }
 
 fn create_pipeline_with_steps(store: &Mutex<Store>, owner: Owner, count: usize) -> Sentinel {
-    let mut spec = BlueprintSpec {
-        note: None,
-        name: "journal pipeline".into(),
-        owner: BlueprintOwner::Tab,
-        trigger: Trigger::Schedule {
-            every: "20s".into(),
-        },
-        steps: vec![
-            Step {
-                name: "emit".into(),
-                input: IoType::Text,
-                kind: StepKind::Command {
-                    command: "printf ready".into(),
-                },
-                on: Default::default(),
-            },
-            Step {
-                name: "match".into(),
-                input: IoType::Text,
-                kind: StepKind::Filter {
-                    pattern: "^ready$".into(),
-                    bucket: Some("matched".into()),
-                },
-                on: Default::default(),
-            },
-        ],
-        result: BlueprintResult {
-            to: ResultTarget::Owner,
-        },
+    let steps = if count == 2 {
+        json!([
+            {"id":"emit","run":{"lit":"printf ready"}},
+            {"id":"match","uses":"filter","with":{"pattern":{"lit":"^ready$"},"bucket":{"lit":"matched"}}}
+        ])
+    } else {
+        serde_json::Value::Array((0..count).map(|index|json!({"id":format!("step-{index}"),"uses":"filter","with":{"pattern":{"lit":"ready"}}})).collect())
     };
-    if count != 2 {
-        spec.steps = (0..count)
-            .map(|index| Step {
-                name: format!("step-{index}"),
-                input: IoType::Text,
-                kind: StepKind::Filter {
-                    pattern: "ready".into(),
-                    bucket: None,
-                },
-                on: Default::default(),
-            })
-            .collect();
-    }
+    let document = json!({"schema_version":2,"kind":"pipeline","name":"journal pipeline","owner":"tab","trigger":{"type":"schedule","every":{"lit":"20s"}},"steps":steps,"result":{"to":"owner"}});
     let job = store
         .lock()
-        .prepare_pipeline(spec, owner, false)
+        .prepare_document(document, owner, false)
         .expect("pipeline definition");
     commit(store, |current| current.stage_insert(job)).expect("pipeline creation")
 }
@@ -86,6 +49,8 @@ fn blueprint_journal_claim_refuses_replay_after_reopen() {
     let first = done(storage.sentinels().write_blueprint_journal(
         journal_id(&job),
         BlueprintJournalWrite::Claim {
+            definition_version: None,
+            parent: None,
             run_id: "run_first".into(),
             marker: JournalMarker::Step(0),
             step_name: "emit".into(),
@@ -100,6 +65,8 @@ fn blueprint_journal_claim_refuses_replay_after_reopen() {
     let second = done(storage.sentinels().write_blueprint_journal(
         journal_id(&job),
         BlueprintJournalWrite::Claim {
+            definition_version: None,
+            parent: None,
             run_id: "run_reopen".into(),
             marker: JournalMarker::Step(0),
             step_name: "emit".into(),
@@ -174,6 +141,8 @@ fn blueprint_pipeline_journal_records_each_step_boundary_in_order() {
         done(storage.sentinels().write_blueprint_journal(
             journal_id(&job),
             BlueprintJournalWrite::Claim {
+                definition_version: None,
+                parent: None,
                 run_id: run_id.into(),
                 marker: JournalMarker::Step(step_index as u16),
                 step_name: step_name.into(),
@@ -225,6 +194,8 @@ fn blueprint_journal_retains_a_complete_sixty_four_step_run_and_derives_its_clos
         let name = format!("step-{index}");
         for write in [
             BlueprintJournalWrite::Claim {
+                definition_version: None,
+                parent: None,
                 run_id: "long-run".into(),
                 marker,
                 step_name: name.clone(),
@@ -327,6 +298,8 @@ fn blueprint_journal_body_reference_round_trips_outside_summary_and_held_close_i
     done(storage.sentinels().write_blueprint_journal(
         journal_id(&job),
         BlueprintJournalWrite::Claim {
+            definition_version: None,
+            parent: None,
             run_id: "result-run".into(),
             marker: JournalMarker::Result,
             step_name: "$result".into(),

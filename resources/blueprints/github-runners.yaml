@@ -1,8 +1,9 @@
-# Check and apply this file with codeterm blueprint.
-schema_version: 1
-name: Runners {{repo}} {{label}}
+# Native Blueprint v2. Check with explicit author bindings before apply.
+schema_version: 2
+kind: pipeline
+name: Github Runners
 note: Watch labelled self-hosted runner availability and its online count.
-owner: team
+intent: Watch labelled self-hosted runner availability and its online count.
 inputs:
   interval:
     type: string
@@ -19,22 +20,27 @@ inputs:
     type: integer
     default: 60000
     description: Probe timeout in milliseconds
-pipeline:
-  trigger:
-    type: schedule
-    every: '{{interval}}'
-  steps:
-  - name: Check source
-    input: text
-    uses: github
-    with:
-      repo: '{{repo}}'
-      resource: runners
-      label: '{{label}}'
-      timeout_ms: '{{timeout_ms}}'
-    'on':
-      online: next
-      offline: next
-      failed: stop
-  result:
-    to: owner
+owner: team
+trigger:
+  type: schedule
+  every:
+    input: interval
+steps:
+- id: step_1
+  name: Check source
+  uses: github
+  with:
+    repo:
+      input: repo
+    resource:
+      lit: runners
+    label:
+      input: label
+    timeout_ms:
+      input: timeout_ms
+  routes:
+    online: '@next'
+    offline: '@next'
+    failed: '@stop'
+result:
+  to: owner

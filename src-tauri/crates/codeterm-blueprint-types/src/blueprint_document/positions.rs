@@ -3,7 +3,7 @@ use yaml_rust2::parser::{Event, Parser};
 
 #[derive(Default)]
 pub(super) struct Positions {
-    locations: BTreeMap<String, (usize, usize)>,
+    pub locations: BTreeMap<String, (usize, usize)>,
     pub duplicates: Vec<(String, usize, usize)>,
 }
 struct Frame {

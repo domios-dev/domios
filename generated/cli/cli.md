@@ -407,7 +407,7 @@ Show immutable definition versions
 
 #### `domios blueprint import`
 
-Import a portable recipe into the caller's Team (stopped by default)
+Import a native v2 recipe into the caller's Team (stopped by default)
 
 - `<file>`
 - `--set`
@@ -475,7 +475,7 @@ Stop one blueprint
 
 #### `domios blueprint update`
 
-Replace one definition at the expected version
+Replace one native v2 YAML definition at the expected version
 
 - `--cause`
 - `--dry-run` — Validate and print the resulting graph without updating it

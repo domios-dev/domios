@@ -291,6 +291,14 @@ mod tests {
     use super::*;
     use codeterm_sentinel_host::SentinelExt;
 
+    fn native_watch(name: &str, kind: &str, target: &str) -> Value {
+        json!({"schema_version":2,"kind":"watch","name":name,"steps":[
+            {"id":"source","uses":"probe","with":{"command":{"lit":"status"}},"timeout":{"lit":"1h"}},
+            {"id":"decide","uses":"ask","with":{"question":{"lit":"state?"}},"buckets":["done"],"matches":{"done":{"lit":"done"}},"routes":{"done":"effect"}},
+            {"id":"effect","uses":kind,"with":if kind=="notify"{json!({})}else{json!({"target":{"lit":target}})}}
+        ]})
+    }
+
     #[test]
     fn blueprint_event_ingress_refusal_statuses_cover_admission_table() {
         use codeterm_plugin::graph_events::AdmitRefusal::*;
@@ -468,12 +476,43 @@ mod tests {
             }
 
             fn create(&self) -> codeterm_sentinel_host::store::Sentinel {
+                self.create_native("Supplied scenario", "notify", "")
+            }
+
+            fn create_native(
+                &self,
+                name: &str,
+                kind: &str,
+                target: &str,
+            ) -> codeterm_sentinel_host::store::Sentinel {
                 let caller = self
                     .runtime
                     .service
                     .sentinel_caller(&self.creator, Some("fixture-nonce"))
                     .unwrap();
-                self.runtime.service.sentinel_create(&caller,serde_json::from_value(json!({"name":"Supplied scenario","probe":"status","question":"state?","buckets":["done"],"matches":{"done":"done"},"timeout":"1h"})).unwrap()).unwrap()
+                let document =
+                    codeterm_blueprint_types::blueprint_document::Document::from_definition(
+                        &native_watch(name, kind, target),
+                    )
+                    .unwrap();
+                let runtime = document.lower().unwrap();
+                let mut job = self
+                    .runtime
+                    .service
+                    .prepare_sentinel_create(
+                        &caller,
+                        serde_json::from_value(runtime["create"].clone()).unwrap(),
+                    )
+                    .unwrap();
+                job.document = Some(serde_json::to_value(document).unwrap());
+                job.agent_authored = true;
+                let handle = self
+                    .runtime
+                    .service
+                    .host_extension::<codeterm_sentinel_host::scheduler::Handle>()
+                    .unwrap();
+                let staged = handle.store.lock().stage_insert(job);
+                staged.settle(&handle.store).unwrap()
             }
 
             async fn request(
@@ -828,12 +867,7 @@ mod tests {
         ) {
             let fixture = Fixture::new(None);
             let cron=fixture.state.cron.lock().create(serde_json::from_value(json!({"name":"nightly-ci-review","workspace_id":fixture.workspace,"creator_tab_id":fixture.creator,"schedule":"0 * * * *","task":"private task"})).unwrap()).unwrap();
-            let caller = fixture
-                .runtime
-                .service
-                .sentinel_caller(&fixture.creator, Some("fixture-nonce"))
-                .unwrap();
-            fixture.runtime.service.sentinel_create(&caller,serde_json::from_value(json!({"name":"cron-result-watch","probe":"status","question":"state?","buckets":["done"],"matches":{"done":"done"},"timeout":"1h","routes":{"done":format!("cron:{}",cron.id)}})).unwrap()).unwrap();
+            fixture.create_native("cron-result-watch", "cron", &cron.id);
             let before = fixture
                 .runtime
                 .service
@@ -924,12 +958,7 @@ mod tests {
                 .agent_tracker
                 .lock()
                 .set_idle("fixture-graph-pty");
-            let caller = fixture
-                .runtime
-                .service
-                .sentinel_caller(&fixture.creator, Some("fixture-nonce"))
-                .unwrap();
-            fixture.runtime.service.sentinel_create(&caller,serde_json::from_value(json!({"name":"agent-result-notify","probe":"status","question":"state?","buckets":["done"],"matches":{"done":"done"},"timeout":"1h","routes":{"done":format!("send:{worker}")}})).unwrap()).unwrap();
+            fixture.create_native("agent-result-notify", "send", &worker);
             let before = fixture
                 .runtime
                 .service

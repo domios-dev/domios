@@ -1,19 +1,16 @@
 use super::*;
-use codeterm_blueprint_types::blueprint_pipeline::{
-    BlueprintResult, BlueprintSpec, IoType, Step, StepKind, Trigger,
-};
-use codeterm_blueprint_types::sentinel_input::{DataRef, MediaKind};
-
 #[test]
 fn probe_cadence_never_backs_off_on_unchanged_results() {
-    let job: Sentinel = serde_json::from_value(serde_json::json!({
-        "id":"watch", "creator_tab_id":"creator", "team_id":null, "workspace_id":"ws", "cwd":".",
-        "probe":"status", "question":"status?", "buckets":["waiting"], "routes":{"waiting":[]},
-        "matches":{}, "until":null, "expires_at":null, "interval_ms":60000, "next_run":1000,
-        "machine":{"stopped":false,"paused":false,"last_hash":"same","last_bucket":"waiting"},
-        "last_reason":"unchanged"
-    }))
-    .unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::new(
+        root.path().join("fixture.json"),
+        codeterm_cron::clock::MockClock::starting_at(1000),
+    );
+    let mut job=store.prepare_document(serde_json::json!({"schema_version":2,"kind":"watch","name":"cadence fixture","steps":[{"id":"source","uses":"probe","with":{"command":{"lit":"status"}},"every":{"lit":"60s"},"timeout":{"lit":"1h"}},{"id":"decide","uses":"ask","with":{"question":{"lit":"status?"}},"buckets":["waiting"],"matches":{"waiting":{"lit":"waiting"}}}]}),Owner{creator_tab_id:"creator".into(),team_id:None,workspace_id:"ws".into(),cwd:".".into()},false).unwrap();
+    job.id = "watch".into();
+    job.machine.last_hash = Some("same".into());
+    job.machine.last_bucket = Some("waiting".into());
+    job.last_reason = Some("unchanged".into());
     let mut jobs = vec![job];
     let mut active = HashMap::new();
     let mut wakes = BTreeSet::new();
@@ -35,26 +32,8 @@ fn blueprint_input_due_is_once_per_activation_and_amendment_without_interval_run
     let clock = codeterm_cron::clock::MockClock::starting_at(1_000);
     let store = Store::new(temp.path().join("input.json"), clock);
     let mut job = store
-        .prepare_pipeline(
-            BlueprintSpec {
-                note: None,
-                name: "one-shot-input".into(),
-                owner: codeterm_blueprint_types::blueprint_pipeline::BlueprintOwner::Tab,
-                trigger: Trigger::Input {
-                    kind: MediaKind::Text,
-                    source: DataRef::Text("hello".into()),
-                },
-                steps: vec![Step {
-                    name: "filter".into(),
-                    input: IoType::Text,
-                    kind: StepKind::Filter {
-                        pattern: "hello".into(),
-                        bucket: None,
-                    },
-                    on: Default::default(),
-                }],
-                result: BlueprintResult::default(),
-            },
+        .prepare_document(
+            serde_json::json!({"schema_version":2,"kind":"pipeline","name":"one-shot-input","owner":"tab","trigger":{"type":"input","kind":{"lit":"text"},"source":{"lit":{"text":"hello"}}},"steps":[{"id":"filter","uses":"filter","with":{"pattern":{"lit":"hello"}}}]}),
             Owner {
                 creator_tab_id: "creator".into(),
                 team_id: None,

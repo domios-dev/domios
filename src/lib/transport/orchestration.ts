@@ -1,3 +1,4 @@
+import type { BlueprintProjectEntry, BlueprintProjectView, BlueprintViewerHistory } from "../blueprintApi";
 import type { Plan } from "../../components/Canvas/types";
 import type { PlanIndexEntry } from "../../components/Canvas/plansApi";
 import type { AutomationGraph, AutomationIdentity } from "../../components/Automation/types";
@@ -71,6 +72,9 @@ export function createOrchestrationTransport(client: OrchestrationClient) {
     automation_graph_stop_blueprint: (args: GraphScope & CallerClaim & { id: string }) => client.json<{ id: string; state: string; reason: string }>("POST", `${blueprintPath(args.id)}/stop`, { ...scopeBody(args), ...claimBody(args) }),
     automation_graph_delete_blueprint: (args: GraphScope & { id: string }) => client.json<void>("DELETE", blueprintPath(args.id), scopeBody(args)),
     automation_node_files: (args: { identity: AutomationIdentity; bucket?: string | null; handler?: string | null }) => client.json<NodeFile[]>("POST", "/api/automation/node-files", args),
+    blueprint_viewer_history: (args: GraphScope & { id: string }) => client.json<BlueprintViewerHistory>("GET", `/api/automation/blueprints/viewer/history?${scopeQuery(args)}&id=${enc(args.id)}`),
+    blueprint_project_list: ({ workspaceId }: { workspaceId: string }) => client.json<BlueprintProjectEntry[]>("GET", `/api/automation/blueprints/project?workspace_id=${enc(required(workspaceId, "Workspace identity"))}`),
+    blueprint_project_show: ({ workspaceId, path }: { workspaceId: string; path: string }) => client.json<BlueprintProjectView>("GET", `/api/automation/blueprints/project?workspace_id=${enc(required(workspaceId, "Workspace identity"))}&path=${enc(path)}`),
     blueprint_export_file: (args: GraphScope & { id: string }) => client.json<unknown>("POST", "/api/automation/blueprints/export", { ...scopeBody(args), id: args.id }),
     blueprint_import_file: (args: { callerTabId: string; recipe: unknown; assignments: string[] }) => client.json<unknown>("POST", "/api/automation/blueprints/import", { caller_tab_id: args.callerTabId, recipe: args.recipe, assignments: args.assignments }),
     bridge_thread_state: ({ tabId }: { tabId: string }) => client.json<ThreadState>("GET", `${tabPath(tabId)}/bridge/thread`),

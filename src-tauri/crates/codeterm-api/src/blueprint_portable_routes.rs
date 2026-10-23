@@ -82,8 +82,7 @@ fn import_recipe(source: &Value, assignments: &[String]) -> Result<Recipe, Strin
             .join("\n"));
     }
     Ok(Recipe {
-        schema_version: 1,
-        placeholders: Default::default(),
+        schema_version: 2,
         definition: checked.definition.ok_or("Missing checked Blueprint")?,
     })
 }

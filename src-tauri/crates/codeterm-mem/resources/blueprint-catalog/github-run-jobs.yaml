@@ -1,0 +1,92 @@
+schema_version: 2
+kind: pipeline
+name: github-run-jobs
+note: Read one GitHub Actions workflow run's jobs and return its conclusion and the
+  failing job names.
+intent: find out which jobs failed in a GitHub Actions workflow run
+anchors: []
+inputs:
+  repo:
+    type: string
+    description: Repository as owner/name
+  id:
+    type: integer
+    description: Workflow run id
+types:
+  Job:
+    type: object
+    additionalProperties: false
+    required:
+    - conclusion
+    - name
+    properties:
+      conclusion:
+        type: string
+      name:
+        type: string
+  Jobs:
+    type: object
+    additionalProperties: false
+    required:
+    - jobs
+    properties:
+      jobs:
+        type: array
+        items:
+          $ref: Job
+  RunVerdict:
+    type: object
+    additionalProperties: false
+    required:
+    - conclusion
+    - failing_jobs
+    properties:
+      conclusion:
+        enum:
+        - success
+        - failure
+        - running
+      failing_jobs:
+        type: array
+        items:
+          type: string
+steps:
+- id: jobs
+  uses: github
+  with:
+    repo:
+      input: repo
+    resource:
+      lit: jobs
+    id:
+      input: id
+  out:
+    $ref: Jobs
+  routes:
+    done: verdict
+    failing: verdict
+    failed: stop
+- id: verdict
+  does: Failure if any job failed, running if any job has no conclusion yet, else
+    success
+  code:
+    lang: python
+    src: |
+      def main(value):
+          failing = sorted(x["name"] for x in value["jobs"] if x["conclusion"] in ("failure", "timed_out", "cancelled"))
+          running = any(x["conclusion"] in ("", "in_progress", "queued", "pending") for x in value["jobs"])
+          conclusion = "failure" if failing else ("running" if running else "success")
+          return {"conclusion": conclusion, "failing_jobs": failing}
+  in:
+    $ref: Jobs
+  bind:
+    in: jobs.out
+  out:
+    $ref: RunVerdict
+  routes:
+    done: next
+    failed: stop
+result:
+  type:
+    $ref: RunVerdict
+  from: verdict.out

@@ -42,55 +42,36 @@ fn blueprint_description(
     let mut kinds = BTreeSet::new();
     let mut sources = BTreeSet::new();
     let mut sinks = BTreeSet::new();
-    if let Some(pipeline) = &document.pipeline {
-        for key in ["type", "kind"] {
-            if let Some(source) = pipeline["trigger"][key].as_str() {
-                sources.insert(source.to_owned());
+    use codeterm_blueprint_types::blueprint_document::{NodeKind, Trigger};
+    if let Some(trigger) = &document.trigger {
+        sources.insert(
+            match trigger {
+                Trigger::Schedule { .. } => "schedule",
+                Trigger::Event { .. } => "event",
+                Trigger::Input { .. } => "input",
             }
+            .to_owned(),
+        );
+    }
+    for node in document.nodes() {
+        kinds.insert(node.kind().to_owned());
+        if matches!(
+            node.uses,
+            Some(NodeKind::Probe | NodeKind::Observe | NodeKind::Input | NodeKind::Terminal)
+        ) {
+            sources.insert(node.kind().to_owned());
         }
-        for step in pipeline["steps"].as_array().into_iter().flatten() {
-            let kind = if step.get("run").is_some() {
-                "command"
-            } else {
-                step["uses"].as_str().unwrap_or_default()
-            };
-            if !kind.is_empty() {
-                kinds.insert(kind.to_owned());
-            }
-        }
-        if let Some(sink) = pipeline["result"]["to"].as_str() {
-            sinks.insert(sink.to_owned());
+        if node.uses.as_ref().is_some_and(NodeKind::effect) {
+            sinks.insert(node.kind().to_owned());
         }
     }
-    if let Some(watch) = &document.watch {
-        if watch.get("probe").is_some() {
-            kinds.insert("command".into());
-        }
-        if watch.get("observe").is_some() {
-            kinds.insert("observe".into());
-        }
-        for key in ["probe", "observe", "input", "terminal", "session"] {
-            if watch.get(key).is_some() {
-                sources.insert(key.to_owned());
-            }
-        }
-        if let Some(routes) = watch["routes"].as_object() {
-            for target in routes.values().filter_map(serde_json::Value::as_str) {
-                sinks.insert(target.to_owned());
-            }
-        }
-        if let Some(handlers) = watch["handlers"].as_object() {
-            for handler in handlers
-                .values()
-                .filter_map(serde_json::Value::as_array)
-                .flatten()
-            {
-                if let Some(kind) = handler["type"].as_str() {
-                    kinds.insert(kind.to_owned());
-                    sinks.insert(kind.to_owned());
-                }
-            }
-        }
+    if let Some(to) = document
+        .result
+        .to
+        .as_ref()
+        .and_then(codeterm_blueprint_types::blueprint_document::ResultTarget::fixed)
+    {
+        sinks.insert(to.to_owned());
     }
     let join = |values: BTreeSet<String>| values.into_iter().collect::<Vec<_>>().join(", ");
     format!(

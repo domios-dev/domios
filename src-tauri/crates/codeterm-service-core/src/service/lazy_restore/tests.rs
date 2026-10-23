@@ -243,3 +243,37 @@ fn frozen_address_materializes_before_delivery() {
     events.push("deliver");
     assert_eq!(events, ["materialize", "deliver"]);
 }
+
+#[test]
+fn blueprint_v2_call_durable_review_lazy_failure_wakes_and_preserves_materializer_cause() {
+    use crate::service::messenger::{Delivery, MessageEnvelope, Messenger};
+    let (mut mux, id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&id).unwrap();
+    tab.agent_type = Some("fixture".into());
+    tab.agent_session_id = Some("saved-session".into());
+    let fixture = ServiceFixture::new(MultiplexerState::from_session_snapshot(
+        &mux.to_session_snapshot(),
+    ));
+    let writes = fixture.record_agent_deliveries(&id);
+    let mut envelope = MessageEnvelope::codeterm_reminder("blueprint:result");
+    envelope.durable_delivery = Some(fixture.service.durable_delivery("run", &id));
+    assert!(matches!(
+        Messenger::deliver(&fixture.service, &id, envelope, "result"),
+        Ok(Delivery::Pending { .. })
+    ));
+    writes.wait_for_flush();
+    let reason = "fixture materializer refused missing workspace";
+    assert_eq!(
+        wake_with(&fixture.service, &id, true, |_, _| Err(reason.into())),
+        Err(reason.into())
+    );
+    writes.wait_for_flush();
+    let events = fixture.ui.0.lock();
+    let failure = events
+        .iter()
+        .find(|(kind, value)| kind == "agent-delivery-status" && value["status"] == "failed")
+        .expect("lazy restore failure settles pending result");
+    assert_eq!(failure.1["code"], "recipient_launch_failed");
+    assert_eq!(failure.1["detail"], reason);
+    assert!(writes.texts.lock().is_empty());
+}
