@@ -104,7 +104,7 @@ export function tabActivity(tab: TabActivityInput | null | undefined, status?: T
   const lastTurnMs = kind === "idle" && matchingLive && typeof live?.elapsed_ms === "number" ? live.elapsed_ms : undefined;
   const label = question || providerReason || (utility && !launching && kind !== "failed" ? shellStateLabel(shell)
     : providerLine
-      || (kind === "failed" ? "Launch failed" : kind === "starting" ? "Starting…"
+      || (kind === "failed" ? status === "Dead" ? "Ended" : "Launch failed" : kind === "starting" ? "Starting…"
         : kind === "working" ? matchingLive && live?.phase === "compacting" ? "Compacting" : "Working"
           : kind === "idle" && matchingLive && live?.phase && idleOutcomeLabels[live.phase] ? idleOutcomeLabels[live.phase]
           : kind === "waiting-on-user" ? questionLabels[subtype ?? "unknown"]
