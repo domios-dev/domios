@@ -98,6 +98,7 @@ export function describeError(input: unknown, context: ErrorContext = {}): Error
   }
   if (kind === "reorder_failed") return result("Could not save the new order", message || "Refresh the workspace and try again.", ["retry"]);
   if (kind === "tab_rename_failed") return result("Could not rename the tab", message || "The previous name was restored. Try again.", ["retry"]);
+  if (kind === "tab_close_refused") return result(message || "The close was refused.", "The tab stays open.", []);
   const spawn = /spawn|createprocess|executable|shell/i.test(raw);
   // OS codes are interpreted only in spawn errors; e.g. ENOENT elsewhere may mean an attachment.
   const inferred = !code;

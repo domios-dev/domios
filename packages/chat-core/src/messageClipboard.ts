@@ -1,4 +1,4 @@
-import { attachmentMarkerSegments } from "./attachmentMarker";
+import { attachmentMarkerSegments, visibleAttachmentLabel } from "./attachmentMarker";
 import { fileDiffText } from "./fileDiffs";
 import { toolCommandLabel } from "./shellComposition";
 import type { ToolEvent } from "./toolEvents";
@@ -25,12 +25,13 @@ function baseName(path: string): string {
   return path.replace(/[\\/]+$/, "").split(/[\\/]/).filter(Boolean).pop() ?? path;
 }
 
-/** Every attachment tag replaced by the capsule label a bubble shows for it. */
+/** Every attachment tag replaced by the capsule label a bubble shows for it; a tag cut off at the end is dropped. */
 export function attachmentTagsAsLabels(source: string): string {
   if (!source.includes("<domios")) return source;
   return attachmentMarkerSegments(source)
-    .map((segment) => ("text" in segment ? segment.text : segment.attachment.label ?? baseName(segment.attachment.path)))
-    .join("");
+    .map((segment) => ("text" in segment ? segment.text : visibleAttachmentLabel(segment.attachment.label ?? baseName(segment.attachment.path))))
+    .join("")
+    .replace(/<domios\b[^>]*$/, "");
 }
 
 const ESCAPABLE = /\\([\\`*_{}[\]()#+\-.!>~|])/g;

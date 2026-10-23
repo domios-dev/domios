@@ -183,7 +183,7 @@ describe("attachment markers in the user bubble", () => {
 
 it("opens a labeled marker image through the named thumbnail control", async () => {
   const host = await render(userTurn(`${formatAttachmentMarker(PATH, "image", "image1")}caption`));
-  const button = host.querySelector<HTMLButtonElement>('button[aria-label="Open image image1"]')!;
+  const button = host.querySelector<HTMLButtonElement>(`button[aria-label="Open image ${NAME}"]`)!;
   expect(button.disabled).toBe(false);
   await act(async () => button.click());
   expect(viewer()?.querySelector(`img[alt="${NAME}"]`)?.getAttribute("src")).toBe(PNG);

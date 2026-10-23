@@ -230,6 +230,25 @@ test("canvas keyboard controls navigate and zoom with accessible focus", async (
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
+test("zoom keys work as soon as the image preview opens, without clicking the canvas", async () => {
+  frames.clear();
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  const images = [{ name: "a", src: "data:image/png;base64,AA" }];
+  try {
+    await act(async () => root.render(<ImageFullscreen image={images[0]} images={images} anchorRef={{ current: host }} onClose={() => {}} />));
+    const region = document.querySelector<HTMLElement>('[aria-label="Zoomable canvas"]')!;
+    assert.equal(document.activeElement, region);
+    const key = (code: string) => (document.activeElement as HTMLElement).dispatchEvent(new window.KeyboardEvent("keydown", { code, bubbles: true, cancelable: true }));
+    await act(async () => key("Digit0"));
+    assert.equal(document.querySelector('[aria-label="Zoom level"]')!.textContent, "100%");
+    await act(async () => key("Minus"));
+    assert.equal(document.querySelector('[aria-label="Zoom level"]')!.textContent, "80%");
+    await act(async () => key("Home"));
+    assert.equal(document.querySelector('[aria-label="Fit all"]')!.getAttribute("aria-pressed"), "true");
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
 test("touch selection invokes its callback directly and suppresses a subsequent native click", async () => {
   const selections: number[] = [];
   const host = document.createElement("div"); document.body.append(host);
