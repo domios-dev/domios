@@ -445,6 +445,7 @@ struct MemoryGrants(
     parking_lot::Mutex<Option<serde_json::Value>>,
     std::sync::atomic::AtomicUsize,
     std::sync::atomic::AtomicUsize,
+    parking_lot::Mutex<bool>,
 );
 impl GrantStore for MemoryGrants {
     fn load(&self) -> Result<Option<serde_json::Value>> {
@@ -458,6 +459,13 @@ impl GrantStore for MemoryGrants {
     fn clear(&self) -> Result<()> {
         self.2.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         *self.0.lock() = None;
+        Ok(())
+    }
+    fn load_hint(&self) -> Result<bool> {
+        Ok(*self.3.lock())
+    }
+    fn save_hint(&self, paid: bool) -> Result<()> {
+        *self.3.lock() = paid;
         Ok(())
     }
 }
@@ -1080,3 +1088,5 @@ fn missing_verdict_while_enforcing_is_compiled_free_and_locks() {
 mod checkout_theme;
 #[path = "plan_payload_tests.rs"]
 mod plan_payload;
+#[path = "startup_tests.rs"]
+mod startup;

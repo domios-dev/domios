@@ -14,9 +14,14 @@ pub struct Snapshot {
     pub entitlements: Entitlements,
     pub stale: bool,
     pub access: Option<Access>,
+    /// No verified answer yet for an account last seen paid: show no locks until it arrives.
+    pub checking: bool,
     #[serde(skip)]
     pub grant: Option<Verdict>,
 }
+
+/// Failure bound for the checking state when the first refresh never answers.
+pub const CHECKING_DEADLINE_SECS: u64 = 15;
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum RefreshEvent {
     SignIn,
@@ -33,6 +38,7 @@ struct Cache {
     observed: bool,
     verified: Option<VerifiedGrant>,
     loaded: bool,
+    checking_until: Option<u64>,
 }
 #[derive(Clone)]
 pub struct Billing {
@@ -105,7 +111,37 @@ impl Billing {
                     .map_or_else(codeterm_entitlements::compiled_free, Verdict::effective),
             )
         });
+        snapshot.checking = self.checking(cache);
         snapshot
+    }
+    fn checking(&self, cache: &Cache) -> bool {
+        cache
+            .checking_until
+            .is_some_and(|deadline| (self.clock)() < deadline)
+    }
+    /// Startup: verify the stored grant offline before the first lock projection. Blocking IO.
+    /// Returns the checking deadline when only the paid hint stands between the user and locks.
+    pub fn prime(&self, session: &codeterm_account::Session) -> Option<u64> {
+        let generation = {
+            let mut cache = self.cache.lock();
+            self.bind(&mut cache, Some(session));
+            cache.generation
+        };
+        let grants = self.grants.as_ref()?;
+        let now = (self.clock)();
+        let current = self
+            .load_grant(generation, session)
+            .is_some_and(|grant| grant.verdict(now).state.retains_grant());
+        if current || !grants.store.load_hint().unwrap_or(false) {
+            return None;
+        }
+        let mut cache = self.cache.lock();
+        if cache.generation != generation {
+            return None;
+        }
+        let deadline = now + CHECKING_DEADLINE_SECS;
+        cache.checking_until = Some(deadline);
+        Some(deadline)
     }
     pub fn with_observer(mut self, observer: ProductObserver) -> Self {
         self.observer = Some(observer);
@@ -122,8 +158,16 @@ impl Billing {
                     }
                 }
             }
+            if cache.uid.is_some() {
+                if let Some(grants) = &self.grants {
+                    if let Err(error) = grants.store.save_hint(false) {
+                        log::debug!("Plan hint reset failed: {error}");
+                    }
+                }
+            }
             cache.verified = None;
             cache.loaded = false;
+            cache.checking_until = None;
             cache.uid = uid;
             cache.generation += 1;
             cache.snapshot = Snapshot::default();
@@ -139,18 +183,19 @@ impl Billing {
     }
     /// Limits bind through the verified verdict, or compiled free without one.
     pub fn limit_gate(&self) -> LimitGate {
-        let enforcing = self
-            .grants
-            .as_ref()
-            .map_or_else(codeterm_entitlements::enforcing, |grants| {
-                grants.authority.enforcement().enabled
-            });
-        let verdict = self
-            .cache
-            .lock()
+        let cache = self.cache.lock();
+        let enforcing = !self.checking(&cache)
+            && self
+                .grants
+                .as_ref()
+                .map_or_else(codeterm_entitlements::enforcing, |grants| {
+                    grants.authority.enforcement().enabled
+                });
+        let verdict = cache
             .verified
             .as_ref()
             .map(|grant| grant.verdict((self.clock)()));
+        drop(cache);
         let access = verdict
             .as_ref()
             .map_or_else(codeterm_entitlements::compiled_free, Verdict::effective);
@@ -313,6 +358,7 @@ impl Billing {
         let mut product_event = None;
         if cache.generation == generation {
             if let Ok(reading) = &result {
+                cache.checking_until = None;
                 if let (Some(grants), Some(session)) = (&self.grants, session) {
                     let accepted = reading.grant.as_ref().map(|raw| {
                         crate::grant_store::authenticate(
@@ -337,6 +383,14 @@ impl Billing {
                             log::debug!("Reply grant refused; retaining cached grant: {refusal:?}");
                         }
                         None => log::debug!("Reply has no grant; retaining cached grant"),
+                    }
+                    let now = (self.clock)();
+                    let paid = cache.verified.as_ref().is_some_and(|grant| {
+                        grant.verdict(now).effective().authority
+                            != codeterm_entitlements::Authority::Free
+                    });
+                    if let Err(error) = grants.store.save_hint(paid) {
+                        log::debug!("Plan hint persistence failed: {error}");
                     }
                 }
             }
@@ -368,6 +422,7 @@ impl Billing {
                         entitlements,
                         stale: false,
                         access: Some(access),
+                        checking: false,
                         grant: None,
                     };
                 }
