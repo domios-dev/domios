@@ -10,8 +10,8 @@ pub(super) fn document(doc: &Document) -> Errors {
         ));
     }
     if let Some(key) = whole_input(&doc.name) {
-        if !doc.inputs.contains_key(key) {
-            errors.push(("name".into(), format!("Undeclared input {key}")));
+        if key.is_empty() {
+            errors.push(("name".into(), "Name input must be nonempty".into()));
         }
     } else if let Err(e) = crate::automation_name::validate_sentinel_name(&doc.name) {
         errors.push(("name".into(), e));
@@ -46,11 +46,6 @@ pub(super) fn document(doc: &Document) -> Errors {
             "trigger".into(),
             "Watch timing belongs on its source node".into(),
         ));
-    }
-    if let Some(ResultTarget::Input { input }) = &doc.result.to {
-        if !doc.inputs.contains_key(input) {
-            errors.push(("result.to".into(), format!("Undeclared input {input}")));
-        }
     }
     if serde_json::to_vec(doc).map_or(true, |bytes| bytes.len() > MAX_RECIPE_BYTES) {
         errors.push((String::new(), "Blueprint document exceeds 256 KiB".into()));
@@ -153,14 +148,14 @@ fn port(p: &Port, path: &str, types: &BTreeMap<String, Port>, depth: usize, erro
 fn nodes(
     steps: &[Node],
     other: &[Node],
-    inputs: &BTreeMap<String, Input>,
+    _inputs: &BTreeMap<String, Input>,
     types: &BTreeMap<String, Port>,
     prefix: &str,
     errors: &mut Errors,
 ) {
     let all = steps.iter().chain(other).collect::<Vec<_>>();
-    if steps.is_empty() || all.len() > 64 {
-        errors.push((format!("{prefix}steps"), "Declare 1..64 nodes".into()));
+    if steps.is_empty() {
+        errors.push((format!("{prefix}steps"), "Declare at least one node".into()));
     }
     let ids = all
         .iter()
@@ -224,39 +219,16 @@ fn nodes(
                 ));
             }
         }
-        for cap in node
-            .caps
-            .iter()
-            .chain(node.code.iter().flat_map(|c| &c.caps))
-        {
-            if cap == "domios-cli" {
-                errors.push((
-                    format!("{path}.caps"),
-                    "domios-cli capability is not approved".into(),
-                ));
-            }
-        }
         let mut buckets = BTreeSet::new();
-        if node.buckets.len() > 32
-            || node
-                .buckets
-                .iter()
-                .any(|b| b.is_empty() || b.len() > 128 || b == "other" || !buckets.insert(b))
+        if node
+            .buckets
+            .iter()
+            .any(|b| b.is_empty() || b.len() > 128 || b == "other" || !buckets.insert(b))
         {
             errors.push((
                 format!("{path}.buckets"),
-                "Declare at most 32 unique bounded buckets; other is reserved".into(),
+                "Declare unique bounded buckets; other is reserved".into(),
             ));
-        }
-        for (outcome, target) in &node.routes {
-            if !matches!(target.as_str(), "@next" | "@stop" | "next" | "stop")
-                && !ids.get(target.as_str()).is_some_and(|j| *j > i)
-            {
-                errors.push((
-                    format!("{path}.routes.{outcome}"),
-                    "Route must name a later node, @next or @stop".into(),
-                ));
-            }
         }
         for (field, value) in node
             .params
@@ -277,32 +249,13 @@ fn nodes(
             }))
         {
             match value {
-                ValueForm::Input { input } if !inputs.contains_key(input) => errors.push((
-                    format!("{path}.{field}"),
-                    format!("Undeclared input {input}"),
-                )),
                 ValueForm::Bind { bind } => {
-                    if !(matches!(node.kind(), "notify" | "send")
-                        && matches!(field.as_str(), "with.text" | "with.payload"))
-                        && node.call.is_none()
-                    {
-                        errors.push((
-                            format!("{path}.{field}"),
-                            "bind is legal only in data slots".into(),
-                        ));
-                    }
                     binding(bind, &ids, i, &format!("{path}.{field}"), errors);
                 }
                 _ => {}
             }
         }
         for (field, bind) in &node.bind {
-            if field != "in" || !matches!(node.kind(), "code" | "ask" | "agent" | "call") {
-                errors.push((
-                    format!("{path}.bind.{field}"),
-                    "Bind only a node's data input port".into(),
-                ));
-            }
             binding(bind, &ids, i, &format!("{path}.bind.{field}"), errors);
         }
         for (field, p) in [("in", &node.input), ("out", &node.output)] {
