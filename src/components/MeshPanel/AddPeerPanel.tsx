@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNod
 import { RefreshCw } from "lucide-react";
 import { UI_BUTTON, UI_TEXT } from "../shared/design";
 import { BusySpinner } from "../shared/BusyState";
+import { RegionLoader } from "../shared/RegionLoader";
 import { SettingsPill } from "../Settings/shared";
 import {
   myMachinesView,
@@ -239,7 +240,7 @@ export default function MyMachines({ account, onSignIn, onFailure, onChanged, no
             <p role="status" className={UI_TEXT.meta}>My machines could not be loaded.</p>
             {refresh}
           </div>
-        ) : <p role="status" className={UI_TEXT.metaMuted}>Loading your machines…</p>}
+        ) : <RegionLoader label="Loading your machines" className="min-h-40" />}
       </section>
     );
   }
