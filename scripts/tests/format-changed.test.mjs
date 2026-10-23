@@ -56,27 +56,31 @@ test('selects committed, staged, unstaged and untracked files while skipping del
   ]);
 });
 
-test('formats a changed Rust file with its package edition', () => {
+test('formats package sources and external example modules with their package edition', () => {
   const root = mkdtempSync(path.join(os.tmpdir(), 'codeterm-fmt-rust-'));
   temporaryDirectories.push(root);
   write(root, 'rust-toolchain.toml', readFileSync(new URL('../../rust-toolchain.toml', import.meta.url), 'utf8'));
   git(root, 'init', '-b', 'develop');
   git(root, 'config', 'user.name', 'Fixture');
   git(root, 'config', 'user.email', 'fixture@example.invalid');
-  write(root, 'src-tauri/Cargo.toml', '[package]\nname = "fmt-fixture"\nversion = "0.1.0"\nedition = "2018"\n');
+  write(root, 'src-tauri/Cargo.toml', '[package]\nname = "fmt-fixture"\nversion = "0.1.0"\nedition = "2018"\n\n[[example]]\nname = "external"\npath = "../evals/runner/main.rs"\n');
   write(root, 'src-tauri/src/lib.rs', 'pub fn answer() -> u32 { 0 }\n');
+  write(root, 'evals/runner/main.rs', 'mod helper;\nfn main() {}\n');
+  write(root, 'evals/runner/helper.rs', 'pub async fn answer() -> u32 { 0 }\n');
   git(root, 'add', '.');
   git(root, 'commit', '-m', 'base');
   git(root, 'branch', 'origin/develop');
   git(root, 'switch', '-c', 'work');
   write(root, 'src-tauri/src/lib.rs', 'pub fn answer()->u32{42}\n');
+  write(root, 'evals/runner/helper.rs', 'pub async fn answer()->u32{42}\n');
   git(root, 'add', '.');
   git(root, 'commit', '-m', 'changed Rust source');
 
   const result = formatChangedFiles(root, 'develop');
-  assert.deepEqual(result.rustFiles, ['src-tauri/src/lib.rs']);
+  assert.deepEqual(result.rustFiles, ['evals/runner/helper.rs', 'src-tauri/src/lib.rs']);
   assert.deepEqual(result.biomeFiles, []);
   assert.match(readFileSync(path.join(root, 'src-tauri/src/lib.rs'), 'utf8'), /pub fn answer\(\) -> u32 \{\n    42\n\}/);
+  assert.match(readFileSync(path.join(root, 'evals/runner/helper.rs'), 'utf8'), /pub async fn answer\(\) -> u32 \{\n    42\n\}/);
 });
 
 test('batches quoted Windows paths within the budget without losing order', () => {

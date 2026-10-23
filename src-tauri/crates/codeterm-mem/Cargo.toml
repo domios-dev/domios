@@ -4,6 +4,10 @@ name = "codeterm-mem"
 version = "0.0.0"
 edition = "2021"
 
+[[example]]
+name = "blueprint_recall_eval"
+path = "../../../evals/blueprint-recall/runner/main.rs"
+
 [dependencies]
 codeterm-blueprint-types = { path = "../codeterm-blueprint-types" }
 codeterm-types = { path = "../codeterm-types" }
