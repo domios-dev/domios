@@ -67,6 +67,28 @@ impl Environment {
         let path = probe_path(inherited_path, path_defaults).unwrap_or_default();
         let mut paths: Vec<PathBuf> = std::env::split_paths(&path).collect();
         let mut variables = vec![("LANG".into(), "C.UTF-8".into())];
+        let identity: &[&str] = if windows {
+            &[
+                "USERNAME",
+                "USERPROFILE",
+                "HOMEDRIVE",
+                "HOMEPATH",
+                "TEMP",
+                "TMP",
+                "APPDATA",
+                "LOCALAPPDATA",
+            ]
+        } else {
+            &["HOME", "USER", "LOGNAME", "TMPDIR"]
+        };
+        variables.extend(
+            inherited
+                .iter()
+                .filter(|(key, value)| {
+                    !value.is_empty() && identity.iter().any(|name| key.eq_ignore_ascii_case(name))
+                })
+                .cloned(),
+        );
         if let Some((_, root)) = inherited
             .iter()
             .find(|(key, _)| key.eq_ignore_ascii_case("SystemRoot"))

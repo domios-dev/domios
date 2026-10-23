@@ -105,7 +105,7 @@ Python bodies define `def main(value):` and return a JSON value. TypeScript bodi
 
 Python and TypeScript code nodes run as ordinary child processes on macOS, Linux and Windows, using Python or Node from the filtered PATH. Python uses the fixed `main(value)` harness; TypeScript uses Node's type stripping and the fixed exported `main(value)` harness.
 
-Blueprint code and command steps run with the user's own permissions, like an agent in a tab, without Domios credentials in their environment. They can access the user's files, network and subprocesses, including Domios data directories and the instance credentials stored there. Foreign Blueprints are gated by folder trust (1.15.4); inspect their code and commands before granting trust.
+Blueprint code and command steps run with the user's own permissions, like an agent in a tab, without Domios credentials in their environment. They can access the user's files, network and subprocesses, including Domios data directories and the instance credentials stored there. Code nodes and command steps both run in the Blueprint's cwd and keep the user's identity, home and temp variables (`USERNAME`, `USERPROFILE`, `HOMEDRIVE`, `HOMEPATH`, `TEMP`, `TMP`, `APPDATA`, `LOCALAPPDATA` on Windows; `HOME`, `USER`, `LOGNAME`, `TMPDIR` elsewhere); `CODETERM*`/`DOMIOS*` variables and other credentials are dropped. Foreign Blueprints are gated by folder trust (1.15.4); inspect their code and commands before granting trust.
 
 `wall_ms` defaults to 3000 for code; `output_bytes` defaults to 32768 and bounds combined stdout/stderr during capture. There is **no default `mem_mb`**. An explicit code memory cap uses `RLIMIT_AS` on Linux and the existing process Job's memory limit on Windows. On macOS, the checker emits the positioned warning `mem_mb not enforced on this OS`; checking, admission and execution continue with deadline and output limits. Memory budgets on other nodes, output budgets on HTTP/agent nodes and watch limits refuse. Command/GitHub output budgets and pipeline wall deadlines remain enforced.
 
@@ -202,4 +202,4 @@ Blueprint results addressed to a restored PTY agent tab retain the exact saved p
 
 R10 is a hygiene lint, not a security boundary. It scans executable text lexically, also joining split string literals, and refuses domios-cli capabilities; obfuscated code still passes, and a clean scan does not prove shell text safe. Child environments drop the running instance's credentials and every Domios or CodeTerm CLI directory from `PATH` only to prevent accidental inheritance. A child that reads the user's Domios data directory or launches a CLI by absolute path still acts with the user's own authority. R13 reports unavailable comparisons explicitly; unavailable vector comparisons carry no PASS verdict.
 
-<!-- revision: 61 -->
+<!-- revision: 62 -->

@@ -52,6 +52,7 @@ pub fn run(
         owner,
         cancellation,
         None,
+        &std::env::temp_dir(),
     );
     let outcome = match &result {
         Ok(output) if output.success => "done".into(),
@@ -86,6 +87,7 @@ pub fn run_with_output(
     owner: &Arc<ProbeResourceOwner>,
     cancellation: &Cancellation,
     output: Option<&codeterm_blueprint_types::blueprint_document::Port>,
+    cwd: &std::path::Path,
 ) -> Result<Output, RuntimeFailure> {
     if code.src.as_ref().is_some_and(|source| source.len() > 16384) {
         return Err(RuntimeFailure::new("budget_exhausted"));
@@ -103,7 +105,16 @@ pub fn run_with_output(
     if !codeterm_blueprint_types::blueprint_document::code_contract::has_main(code) {
         return Err(RuntimeFailure::new("contract_violation"));
     }
-    child::run(code, input, limit, timeout, owner, cancellation, output)
+    child::run(
+        code,
+        input,
+        limit,
+        timeout,
+        owner,
+        cancellation,
+        output,
+        cwd,
+    )
 }
 
 mod child;

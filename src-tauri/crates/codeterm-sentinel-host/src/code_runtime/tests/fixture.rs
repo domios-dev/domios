@@ -36,6 +36,7 @@ pub(super) fn run(
             cancellation,
             None,
             environment,
+            &std::env::temp_dir(),
         ),
         None => super::super::run(&code, input, timeout, owner, cancellation),
     }
