@@ -2,10 +2,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::{BTreeMap, BTreeSet};
 pub const MIN_INTERVAL_MS: u64 = 10000;
 pub const MAX_BUCKETS: usize = 16;
-#[cfg(windows)]
 pub const COMMAND_RUNTIME_MS: u64 = 10000;
-#[cfg(not(windows))]
-pub const COMMAND_RUNTIME_MS: u64 = 3000;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -30,9 +27,7 @@ impl CommandParameters {
             return Err("command label requires nonempty display text of at most 256 bytes".into());
         }
         if self.timeout_ms == 0 || self.timeout_ms > COMMAND_RUNTIME_MS {
-            return Err(
-                "command timeout_ms must be positive and within the platform probe runtime".into(),
-            );
+            return Err("command timeout_ms must be positive and at most 10 seconds".into());
         }
         Ok(())
     }

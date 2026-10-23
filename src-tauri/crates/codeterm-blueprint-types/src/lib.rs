@@ -13,6 +13,7 @@ pub mod sentinel_input;
 pub mod blueprint_github;
 
 pub mod blueprint_document;
+pub mod blueprint_execution;
 pub mod blueprint_http;
 pub mod blueprint_memory;
 pub mod blueprint_source;

@@ -273,30 +273,26 @@ fn sentinel_routes_are_closed_set() {
     }
 }
 
+fn native_params() -> serde_json::Value {
+    let buckets = buckets();
+    let effects=buckets.iter().map(|bucket|serde_json::json!({"id":crate::handlers::Handler::notify(bucket).id,"uses":"notify"})).collect::<Vec<_>>();
+    let routes = buckets
+        .iter()
+        .zip(&effects)
+        .map(|(bucket, node)| (bucket.clone(), node["id"].clone()))
+        .collect::<serde_json::Map<_, _>>();
+    let mut steps = vec![
+        serde_json::json!({"id":"source","uses":"probe","with":{"command":{"lit":"check-ci"}},"every":{"lit":"10s"},"timeout":{"lit":"1h"}}),
+        serde_json::json!({"id":"decide","uses":"ask","with":{"question":{"lit":"CI result?"}},"buckets":buckets,"routes":routes,"model_classification":true}),
+    ];
+    steps.extend(effects);
+    serde_json::json!({"schema_version":2,"kind":"watch","name":"ci-result-watch","steps":steps})
+}
 fn create_params() -> super::store::Create {
-    super::store::Create {
-        note: None,
-        terminal: None,
-        session: false,
-        name: Some("ci-result-watch".into()),
-        probe: Some("check-ci".into()),
-        observe: None,
-        input: None,
-        question: "CI result?".into(),
-        buckets: buckets(),
-        every: "10s".into(),
-        routes: BTreeMap::new(),
-        matches: BTreeMap::new(),
-        model_classification: true,
-        rearm_on_change: Default::default(),
-        until: None,
-        timeout: None,
-        paused: false,
-        handlers: None,
-        escalation_timeout_ms: None,
-        max_transitions: None,
-        max_actions: None,
-    }
+    let document =
+        codeterm_blueprint_types::blueprint_document::Document::from_definition(&native_params())
+            .unwrap();
+    serde_json::from_value(document.lower().unwrap()["create"].clone()).unwrap()
 }
 
 #[test]
@@ -387,8 +383,8 @@ pub(super) fn store(
 
 pub(super) fn create(store: &mut super::store::Store, team: &str) -> super::store::Sentinel {
     store
-        .create(
-            create_params(),
+        .create_document(
+            native_params(),
             crate::store::Owner {
                 creator_tab_id: "creator".into(),
                 team_id: Some(team.into()),
@@ -429,10 +425,10 @@ fn sentinel_timeout_and_cadence_use_cron_clock() {
     let dir = tempfile::tempdir().unwrap();
     let clock = codeterm_service_core::cron::clock::MockClock::starting_at(1000);
     let mut store = store(dir.path(), clock.clone());
-    let mut params = create_params();
-    params.timeout = Some("20s".into());
+    let mut params = native_params();
+    params["steps"][0]["timeout"] = serde_json::json!({"lit":"20s"});
     let job = store
-        .create(
+        .create_document(
             params,
             crate::store::Owner {
                 creator_tab_id: "creator".into(),
@@ -655,10 +651,12 @@ fn sentinel_create_patterns_and_routes_are_validated_before_admission() {
         )
         .is_err());
     assert!(store.list().is_empty());
-    params.routes.insert("passed".into(), "stop".into());
+    let mut native = native_params();
+    native["steps"][1]["matches"] = serde_json::json!({"passed":{"lit":"success"}});
+    native["steps"][3]["uses"] = serde_json::json!("stop");
     let job = store
-        .create(
-            params,
+        .create_document(
+            native,
             crate::store::Owner {
                 creator_tab_id: "creator".into(),
                 team_id: None,

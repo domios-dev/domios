@@ -4,10 +4,9 @@ use std::time::Duration;
 use super::run_binding::{
     active_event_run, cron_fired_event, replacement_event, PendingRunBinding,
 };
-use crate::handlers::{Definition, Parameters};
-use crate::source::{RunBinding, TabBinding};
+use crate::source::RunBinding;
 use crate::storage::commit;
-use crate::store::{Create, Owner, Sentinel, Store};
+use crate::store::{Owner, Sentinel, Store};
 use codeterm_service_core::cron::clock::MockClock;
 use codeterm_service_core::cron::store::{CronJob, CronRunInfo, CronRunStatus};
 use codeterm_service_core::storage::{Storage, StorageConfig};
@@ -47,50 +46,17 @@ fn insert_with_options(
     escalating: bool,
     max_transitions: Option<u16>,
 ) -> Sentinel {
-    let handlers = escalating.then(|| {
-        [(
-            "other".to_string(),
-            vec![Definition {
-                id: "escalate".into(),
-                kind: "escalate".into(),
-                parameters: Parameters {
-                    target: Some("creator".into()),
-                    ..Parameters::default()
-                },
-            }],
-        )]
-        .into_iter()
-        .collect()
-    });
     let index = store.lock().list().len();
-    let job = store
+    let mut job = store
         .lock()
-        .prepare(
-            Create {
-                note: None,
-                terminal: None,
-                session: false,
-                name: Some(format!("cron-run-watch-{index}")),
-                probe: None,
-                observe: Some(TabBinding::CronRun("cron-nightly".into())),
-                input: None,
-                question: "Which run state?".into(),
-                buckets: vec!["waiting".into()],
-                every: "10s".into(),
-                routes: Default::default(),
-                model_classification: false,
-                matches: [("waiting".to_string(), ".*".to_string())]
-                    .into_iter()
-                    .collect(),
-                rearm_on_change: Default::default(),
-                until: None,
-                timeout: escalating.then(|| "1h".into()),
-                paused: false,
-                handlers,
-                max_transitions,
-                max_actions: None,
-                escalation_timeout_ms: escalating.then_some(5_000),
-            },
+        .prepare_document(
+            codeterm_sentinel::test_support::watch(
+                serde_json::json!(format!("cron-run-watch-{index}")),
+                serde_json::json!({"uses":"observe","with":{"kind":{"lit":"cron_run"},"id":{"lit":"cron-nightly"}},"every":{"lit":"10s"},"timeout":{"lit":"1h"}}),
+                serde_json::json!({"with":{"question":{"lit":"Which run state?"}},"buckets":["waiting"],"matches":{"waiting":{"lit":".*"}},"escalation_timeout_ms":escalating.then_some(5_000)}),
+                if escalating {serde_json::json!({"waiting":[{"id":"waiting_notice","uses":"notify"}],"other":[{"id":"escalate","uses":"escalate","with":{"target":{"lit":"creator"}}}]})} else {serde_json::Value::Null},
+                serde_json::Value::Null,
+            ),
             Owner {
                 creator_tab_id: "creator-tab".into(),
                 team_id: Some("team-one".into()),
@@ -100,6 +66,7 @@ fn insert_with_options(
             false,
         )
         .unwrap();
+    job.max_transitions = max_transitions.unwrap_or(job.max_transitions);
     commit(store, |store| store.stage_insert(job)).unwrap()
 }
 

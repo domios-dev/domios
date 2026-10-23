@@ -1029,14 +1029,32 @@ impl ServiceContext {
         } = detected;
         let source = binding_source(detection.source);
         let session_id = detection.session_id;
-        let claim = match crate::service::hook_session_binding::bind_detected_session(
-            &self.mux,
-            self.agent_registry.as_ref(),
-            tab_id,
-            &provider_id,
-            &session_id,
-            &binding_nonce,
-        ) {
+        let service = self.clone();
+        let target = tab_id.to_string();
+        let provider = provider_id.clone();
+        let session = session_id.clone();
+        let nonce = binding_nonce.clone();
+        let committed = crate::async_runtime::spawn_blocking(move || {
+            service.commit_session_binding_custody(&target, || {
+                crate::service::hook_session_binding::bind_detected_session(
+                    &service.mux,
+                    service.agent_registry.as_ref(),
+                    &target,
+                    &provider,
+                    &session,
+                    &nonce,
+                )
+            })
+        })
+        .await;
+        let committed = match committed {
+            Ok(committed) => committed,
+            Err(error) => {
+                log::error!("[launch-session-detection] custody task failed tab={tab_id}: {error}");
+                return;
+            }
+        };
+        let claim = match committed {
             Ok(claim) => claim,
             Err((status, message, _)) => {
                 log::info!(

@@ -8,11 +8,18 @@ pub(super) fn start(
     tab: &str,
     provider: &str,
     command: String,
+    reserved_nonce: Option<String>,
 ) -> Preparation {
     let (done, result) = mpsc::sync_channel(1);
     let (svc, tab, provider) = (svc.clone(), tab.to_owned(), provider.to_owned());
     std::thread::spawn(move || {
-        let command = crate::service::codex_rpc::launch::prepare(&svc, &tab, &provider, command);
+        let command = crate::service::codex_rpc::launch::prepare(
+            &svc,
+            &tab,
+            &provider,
+            command,
+            reserved_nonce.as_deref(),
+        );
         let _ = done.send(command);
     });
     Preparation(result)

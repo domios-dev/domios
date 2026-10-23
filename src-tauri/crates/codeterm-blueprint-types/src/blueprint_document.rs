@@ -1,57 +1,66 @@
 use crate::blueprint_recipe::{Recipe, MAX_RECIPE_BYTES, SCHEMA_VERSION};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::collections::BTreeMap;
 
+pub mod calls;
+pub mod checker;
+pub use checker::Diagnostic;
 mod positions;
 pub mod schema;
+mod types;
+pub use types::*;
+pub mod code_contract;
+mod lower;
+pub mod projection;
 #[cfg(test)]
 mod tests;
 mod validate;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Input {
-    #[serde(rename = "type")]
-    pub kind: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub default: Option<Value>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    #[serde(default, rename = "enum", skip_serializing_if = "Option::is_none")]
-    pub choices: Option<Vec<Value>>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Document {
+    #[serde(deserialize_with = "version")]
+    #[schemars(range(min = 2, max = 2))]
     pub schema_version: u32,
+    pub kind: Kind,
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub intent: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub anchors: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub inputs: BTreeMap<String, Input>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub types: BTreeMap<String, Port>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub imports: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub dependencies: BTreeMap<String, calls::FrozenCallee>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub watch: Option<Value>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pipeline: Option<Value>,
+    pub trigger: Option<Trigger>,
+    pub steps: Vec<Node>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub other: Vec<Node>,
+    #[serde(default)]
+    pub result: ResultPort,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub blueprints: BTreeMap<String, SubBlueprint>,
 }
-
-fn team_owner() -> String {
-    "team".into()
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct Diagnostic {
-    pub file: String,
-    pub line: usize,
-    pub column: usize,
-    pub field: String,
-    pub severity: String,
-    pub message: String,
-    pub hint: String,
+fn version<'de, D: serde::Deserializer<'de>>(d: D) -> Result<u32, D::Error> {
+    let version = u32::deserialize(d)?;
+    if version == SCHEMA_VERSION {
+        Ok(version)
+    } else {
+        Err(serde::de::Error::custom(
+            "Only schema_version: 2 is supported",
+        ))
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -61,115 +70,232 @@ pub struct Check {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub definition: Option<Value>,
 }
-
-pub fn check(file: &str, source: &str, assignments: &[String]) -> Check {
-    let mut diagnostics = Vec::new();
-    let positions = positions::Positions::parse(if source.len() <= MAX_RECIPE_BYTES {
-        source
-    } else {
-        ""
-    });
-    for (field, line, column) in &positions.duplicates {
-        diagnostics.push(Diagnostic {
-            file: file.into(),
-            line: *line,
-            column: *column,
-            field: field.clone(),
-            severity: "error".into(),
-            message: "Duplicate mapping key".into(),
-            hint: "Keep one value per key".into(),
-        });
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
+pub struct Location {
+    pub file: String,
+    pub line: usize,
+    pub column: usize,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Parsed {
+    pub document: Document,
+    pub locations: BTreeMap<String, Location>,
+}
+impl Parsed {
+    pub fn ir(&self) -> projection::PositionedIr {
+        projection::PositionedIr {
+            canonical: projection::canonical(&self.document),
+            locations: self.locations.clone(),
+        }
     }
-    let mut emit = |field: &str, message: &str, hint: &str, warning: bool| {
-        let (line, column) = positions.at(field);
-        diagnostics.push(Diagnostic {
-            file: file.into(),
-            line,
-            column,
-            field: field.into(),
-            severity: if warning { "warning" } else { "error" }.into(),
-            message: message.into(),
-            hint: hint.into(),
-        });
-    };
-    let value = if source.len() > MAX_RECIPE_BYTES {
-        emit(
+
+    pub fn at(&self, field: &str) -> Location {
+        let mut path = field.to_owned();
+        loop {
+            if let Some(location) = self.locations.get(&path) {
+                return location.clone();
+            }
+            let Some(end) = path.rfind(['.', '[']) else {
+                return Location {
+                    file: String::new(),
+                    line: 1,
+                    column: 1,
+                };
+            };
+            path.truncate(end);
+        }
+    }
+}
+
+pub fn parse(file: &str, source: &str) -> Result<Parsed, Vec<Diagnostic>> {
+    if source.len() > MAX_RECIPE_BYTES {
+        return Err(vec![diagnostic(
+            file,
+            "",
             "",
             "Blueprint document exceeds 256 KiB",
-            "Split this definition into smaller Blueprints",
-            false,
-        );
-        None
-    } else {
-        match serde_yaml::from_str::<Value>(source) {
-            Ok(value) => Some(value),
-            Err(error) => {
-                let location = error.location();
-                diagnostics.push(Diagnostic { file: file.into(), line: location.as_ref().map_or(1, |p| p.line()),
-                    column: location.as_ref().map_or(1, |p| p.column()), field: String::new(), severity: "error".into(),
-                    message: error.to_string(), hint: "Use a single YAML mapping with unique string keys; tags and includes are unsupported".into() });
-                None
+            "Split the graph",
+        )]);
+    }
+    let positions = positions::Positions::parse(source);
+    if !positions.duplicates.is_empty() {
+        return Err(positions
+            .duplicates
+            .iter()
+            .map(|(field, line, column)| {
+                Diagnostic::error(
+                    Location {
+                        file: file.into(),
+                        line: *line,
+                        column: *column,
+                    },
+                    field,
+                    "Duplicate mapping key",
+                    "Keep one value per key",
+                )
+            })
+            .collect());
+    }
+    let document: Document = serde_yaml::from_str(source).map_err(|error| {
+        let loc = error.location();
+        vec![Diagnostic::error(
+            Location {
+                file: file.into(),
+                line: loc.as_ref().map_or(1, |l| l.line()),
+                column: loc.as_ref().map_or(1, |l| l.column()),
+            },
+            "",
+            &error.to_string(),
+            "Use the native v2 schema; values use lit, input or bind",
+        )]
+    })?;
+    let locations = positions
+        .locations
+        .into_iter()
+        .map(|(path, (line, column))| {
+            (
+                path,
+                Location {
+                    file: file.into(),
+                    line,
+                    column,
+                },
+            )
+        })
+        .collect();
+    Ok(Parsed {
+        document,
+        locations,
+    })
+}
+
+pub fn check(file: &str, source: &str, assignments: &[String]) -> Check {
+    check_with_context(file, source, assignments, &checker::CheckContext::default())
+}
+
+pub fn check_with_context(
+    file: &str,
+    source: &str,
+    assignments: &[String],
+    context: &checker::CheckContext,
+) -> Check {
+    let parsed = match parse(file, source) {
+        Ok(parsed) => parsed,
+        Err(diagnostics) => {
+            return Check {
+                ok: false,
+                diagnostics,
+                definition: None,
             }
         }
     };
-    let definition = value.and_then(|value| {
-        validate::document(&value, &mut |field, message, hint, warning| {
-            let (line,column) = positions.at(field);
-            diagnostics.push(Diagnostic {file:file.into(),line,column,field:field.into(),severity:if warning {"warning"} else {"error"}.into(),message:message.into(),hint:hint.into()});
-        });
-        let document: Document = match serde_json::from_value(value) {
-            Ok(document) => document,
-            Err(error) => {
-                diagnostics.push(Diagnostic{file:file.into(),line:1,column:1,field:String::new(),severity:"error".into(),message:error.to_string(),hint:"Use blueprint schema to inspect the document fields".into()});
-                return None;
-            },
+    let mut diagnostics = checker::check_ir(&parsed.ir(), context);
+    if checker::has_errors(&diagnostics) {
+        return Check {
+            ok: false,
+            diagnostics,
+            definition: None,
         };
-        match document.bind(assignments) {
-            Ok(definition) => {
-                validate::definition(&definition, &mut |field, message, hint, warning| {
-                    let (line,column) = positions.at(field);
-                    diagnostics.push(Diagnostic {file:file.into(),line,column,field:field.into(),severity:if warning {"warning"} else {"error"}.into(),message:message.into(),hint:hint.into()});
-                });
-                Some(definition)
-            }
-            Err(errors) => {
-                for (field,message) in errors {
-                    let (line,column) = positions.at(&field);
-                    diagnostics.push(Diagnostic {file:file.into(),line,column,field,severity:"error".into(),message,hint:"Declare a matching typed input and supply its default or --set key=value".into()});
-                }
-                None
-            }
+    }
+    let definition = match parsed.document.bind(assignments) {
+        Ok(definition) => definition,
+        Err(errors) => {
+            diagnostics.extend(errors.into_iter().map(|(field, message)| {
+                Diagnostic::error(
+                    parsed.at(&field),
+                    &field,
+                    &message,
+                    "Use explicit --set key=value bindings",
+                )
+            }));
+            return Check {
+                ok: false,
+                diagnostics,
+                definition: None,
+            };
         }
-    });
-    let ok = definition.is_some() && !diagnostics.iter().any(|d| d.severity == "error");
+    };
+    let bound: Document = match serde_json::from_value(definition.clone()) {
+        Ok(doc) => doc,
+        Err(error) => {
+            diagnostics.push(Diagnostic::error(
+                parsed.at(""),
+                "",
+                &error.to_string(),
+                "Correct the bound document",
+            ));
+            return Check {
+                ok: false,
+                diagnostics,
+                definition: None,
+            };
+        }
+    };
+    let bound_ir = Parsed {
+        document: bound.clone(),
+        locations: parsed.locations,
+    }
+    .ir();
+    diagnostics = checker::check_ir(&bound_ir, context);
+    if !checker::has_errors(&diagnostics) {
+        if let Err(errors) = bound.lower() {
+            diagnostics.extend(errors.into_iter().map(|(field, message)| {
+                let mut diagnostic = diagnostic(
+                    file,
+                    source,
+                    &field,
+                    &message,
+                    "Use a construct supported by the runtime",
+                );
+                diagnostic.rule = "runtime".into();
+                diagnostic.name = "runtime_validation".into();
+                diagnostic.id = format!("runtime:{}", diagnostic.proof.atom.id);
+                diagnostic
+            }));
+        }
+    }
+    let ok = !checker::has_errors(&diagnostics);
     Check {
         ok,
         diagnostics,
-        definition: if ok { definition } else { None },
+        definition: ok.then_some(definition),
     }
 }
 
 impl Document {
     pub fn template_errors(&self) -> Vec<(String, String)> {
-        let value = match serde_json::to_value(self) {
-            Ok(value) => value,
-            Err(error) => return vec![(String::new(), error.to_string())],
-        };
-        let mut errors = Vec::new();
-        validate::document(&value, &mut |field, message, _, warning| {
-            if !warning {
-                errors.push((field.into(), message.into()));
-            }
-        });
-        errors
+        validate::document(self)
     }
-
+    pub fn from_definition(value: &Value) -> Result<Self, String> {
+        let doc: Self = serde_json::from_value(value.clone()).map_err(|e| e.to_string())?;
+        let errors = doc.template_errors();
+        if errors.is_empty() {
+            Ok(doc)
+        } else {
+            Err(errors
+                .into_iter()
+                .map(|(p, m)| format!("{p}: {m}"))
+                .collect::<Vec<_>>()
+                .join("; "))
+        }
+    }
+    pub fn from_recipe(recipe: &Recipe) -> Result<Self, String> {
+        recipe.validate()?;
+        Self::from_definition(&recipe.definition)
+    }
+    pub fn yaml(&self) -> Result<String, String> {
+        let errors = self.template_errors();
+        if !errors.is_empty() {
+            return Err(format!("Invalid v2 document: {errors:?}"));
+        }
+        serde_yaml::to_string(self).map_err(|e| e.to_string())
+    }
     pub fn bind(&self, assignments: &[String]) -> Result<Value, Vec<(String, String)>> {
-        let mut errors = Vec::new();
+        let mut errors = self.template_errors();
         let mut values = self
             .inputs
             .iter()
-            .filter_map(|(key, input)| input.default.clone().map(|value| (key.clone(), value)))
+            .filter_map(|(key, p)| p.default.clone().map(|v| (key.clone(), v)))
             .collect::<BTreeMap<_, _>>();
         let mut seen = std::collections::BTreeSet::new();
         for assignment in assignments {
@@ -184,16 +310,15 @@ impl Document {
             if !seen.insert(key) {
                 errors.push((format!("inputs.{key}"), "Duplicate input assignment".into()));
             }
-            let value = if input.kind == "string" {
+            let value = if input.kind == "string"
+                || input.accepts_with_types(&Value::String(raw.into()), &self.types)
+            {
                 Value::String(raw.into())
             } else {
                 match serde_json::from_str(raw) {
-                    Ok(value) => value,
-                    Err(error) => {
-                        errors.push((
-                            format!("inputs.{key}"),
-                            format!("Invalid JSON input value: {error}"),
-                        ));
+                    Ok(v) => v,
+                    Err(e) => {
+                        errors.push((format!("inputs.{key}"), e.to_string()));
                         continue;
                     }
                 }
@@ -201,365 +326,137 @@ impl Document {
             values.insert(key.into(), value);
         }
         for (key, input) in &self.inputs {
-            if !crate::blueprint_placeholder::valid_key(key) {
-                errors.push((format!("inputs.{key}"), "Use an input key of letters, digits, dots, underscores or hyphens, without a leading dot".into()));
-            }
             match values.get(key) {
-                Some(value) if input.accepts(value) => {}
+                Some(v) if input.accepts_with_types(v, &self.types) => {}
                 Some(_) => errors.push((
                     format!("inputs.{key}"),
-                    format!("Expected {} input", input.kind),
+                    format!("Value violates input schema {}", input.kind),
                 )),
                 None => errors.push((format!("inputs.{key}"), "Missing required input".into())),
             }
         }
-        let mut document =
-            serde_json::to_value(self).map_err(|error| vec![(String::new(), error.to_string())])?;
-        document
-            .as_object_mut()
-            .map(|fields| fields.remove("inputs"));
-        // Names expose identities in lists and notifications; URL credentials stay private.
-        let name_values = values
-            .iter()
-            .map(|(key, value)| {
-                let safe = value
-                    .as_str()
-                    .and_then(|raw| {
-                        let parsed = url::Url::parse(raw).ok()?;
-                        if !matches!(parsed.scheme(), "http" | "https") {
-                            return None;
-                        }
-                        let host = parsed.host_str()?;
-                        let port = parsed
-                            .port()
-                            .map(|port| format!(":{port}"))
-                            .unwrap_or_default();
-                        Some(json!(format!("{host}{port}{}", parsed.path())))
-                    })
-                    .unwrap_or_else(|| value.clone());
-                (key.clone(), safe)
-            })
-            .collect::<BTreeMap<_, _>>();
-        let mut safe_name = json!(self.name);
-        substitute(&mut safe_name, "name", &name_values, &mut errors);
-        substitute(&mut document, "", &values, &mut errors);
-        document["name"] = safe_name;
         if !errors.is_empty() {
             return Err(errors);
         }
-        let resolved_name = document["name"].as_str().unwrap_or("");
-        if crate::blueprint_placeholder::tokens(&self.name)
-            .iter()
-            .any(|token| token.key.is_some())
-            && resolved_name.chars().count() > 40
-        {
-            let hash = resolved_name
-                .bytes()
-                .fold(0xcbf29ce484222325u64, |hash, byte| {
-                    (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
-                });
-            let prefix = resolved_name
-                .chars()
-                .map(|ch| {
-                    if ch.is_alphanumeric() || ch == '-' {
-                        ch
-                    } else {
-                        '-'
-                    }
-                })
-                .take(33)
-                .collect::<String>();
-            let prefix = prefix.trim_matches('-');
-            let prefix = if prefix.is_empty() {
-                "blueprint"
-            } else {
-                prefix
-            };
-            document["name"] = json!(format!("{prefix}-{:06x}", hash & 0xffffff));
+        let mut bound = self.clone();
+        if let Some(key) = whole_input(&bound.name) {
+            bound.name = values
+                .get(key)
+                .and_then(Value::as_str)
+                .ok_or_else(|| vec![("name".into(), "Name requires a string input".into())])?
+                .into();
         }
-        let mut definition =
-            if let Some(pipeline) = document.get_mut("pipeline").filter(|p| p.is_object()) {
-                let mut spec = pipeline.clone();
-                for key in ["name", "note"] {
-                    spec[key] = document[key].clone();
-                }
-                spec["owner"] = document.get("owner").cloned().unwrap_or(json!("team"));
-                if let Some(steps) = spec["steps"].as_array_mut() {
-                    for step in steps {
-                        let kind = if let Some(run) = step.get("run") {
-                            json!({"kind":"command","command":run})
-                        } else {
-                            let uses = step["uses"].as_str().unwrap_or("");
-                            let params = step.get("with").cloned().unwrap_or(json!({}));
-                            if matches!(uses, "http" | "github") {
-                                json!({"kind":uses,"probe":params})
-                            } else {
-                                let mut kind = params;
-                                if let Some(fields) = kind.as_object_mut() {
-                                    fields.insert("kind".into(), json!(uses));
-                                }
-                                kind
-                            }
-                        };
-                        if let Some(fields) = step.as_object_mut() {
-                            fields.remove("uses");
-                            fields.remove("with");
-                            fields.remove("run");
-                            fields.insert("kind".into(), kind);
-                        }
-                    }
-                }
-                json!({"spec":spec})
-            } else if let Some(watch) = document.get("watch").filter(|p| p.is_object()) {
-                let mut create = watch.clone();
-                for key in ["name", "note"] {
-                    create[key] = document[key].clone();
-                }
-                if let Some(observe) = create
-                    .get("observe")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned)
-                {
-                    let (kind, id) = observe.split_once(':').ok_or_else(|| {
-                        vec![(
-                            "watch.observe".into(),
-                            "Use tab:<id> or cron-run:<id>".into(),
-                        )]
-                    })?;
-                    create["observe"] =
-                        json!({"kind":if kind=="cron-run" {"cron_run"} else {kind},"id":id});
-                }
-                let mut typed: crate::blueprint_watch::Create = serde_json::from_value(create)
-                    .map_err(|error| vec![("watch".into(), error.to_string())])?;
-                typed.normalize_handlers();
-                json!({"create":typed})
-            } else {
-                return Err(vec![(
-                    String::new(),
-                    "Choose exactly one watch or pipeline mapping".into(),
-                )]);
-            };
-        if let Some(spec) = definition.get_mut("spec") {
-            if let Some(steps) = spec["steps"].as_array_mut() {
-                for step in steps {
-                    if step.pointer("/kind/kind").and_then(Value::as_str) == Some("http") {
-                        if let Some(status) = step.pointer_mut("/kind/probe/expected_status") {
-                            if status.is_number() {
-                                *status = json!(status.to_string());
-                            }
-                        }
-                    }
+        for (index, node) in bound.steps.iter_mut().chain(&mut bound.other).enumerate() {
+            for (key, form) in node.params.iter_mut().chain(&mut node.matches) {
+                resolve_form(
+                    form,
+                    &values,
+                    &format!("steps[{index}].with.{key}"),
+                    &mut errors,
+                );
+            }
+            for form in node
+                .run
+                .iter_mut()
+                .chain(&mut node.every)
+                .chain(&mut node.timeout)
+            {
+                resolve_form(form, &values, &format!("steps[{index}]"), &mut errors);
+            }
+            if let Some(call) = &mut node.call {
+                for (key, form) in &mut call.arguments {
+                    resolve_form(
+                        form,
+                        &values,
+                        &format!("steps[{index}].call.with.{key}"),
+                        &mut errors,
+                    );
                 }
             }
-            crate::blueprint_recipe::normalize_pipeline_inputs(spec)
-                .map_err(|error| vec![("pipeline".into(), error)])?;
         }
-        Ok(definition)
-    }
-
-    pub fn from_definition(definition: &Value) -> Result<Self, String> {
-        let (key, body) = if let Some(spec) = definition.get("spec") {
-            ("pipeline", spec)
+        if let Some(trigger) = &mut bound.trigger {
+            match trigger {
+                Trigger::Schedule { every } => {
+                    resolve_form(every, &values, "trigger.every", &mut errors)
+                }
+                Trigger::Event { kind, params } => {
+                    resolve_form(kind, &values, "trigger.kind", &mut errors);
+                    for (key, form) in params {
+                        resolve_form(form, &values, &format!("trigger.params.{key}"), &mut errors);
+                    }
+                }
+                Trigger::Input { kind, source } => {
+                    resolve_form(kind, &values, "trigger.kind", &mut errors);
+                    resolve_form(source, &values, "trigger.source", &mut errors);
+                }
+            }
+        }
+        if let Some(ResultTarget::Input { input }) = &bound.result.to {
+            let target = values.get(input).and_then(Value::as_str).ok_or_else(|| {
+                vec![(
+                    "result.to".into(),
+                    "Result target requires a string author input".into(),
+                )]
+            })?;
+            bound.result.to = Some(ResultTarget::Fixed(target.into()));
+        }
+        bound.inputs.clear();
+        errors.extend(bound.template_errors());
+        if errors.is_empty() {
+            serde_json::to_value(bound).map_err(|e| vec![(String::new(), e.to_string())])
         } else {
-            (
-                "watch",
-                definition.get("create").ok_or("Expected spec or create")?,
-            )
-        };
-        let mut body = body.clone();
-        let fields = body.as_object_mut().ok_or("Definition must be an object")?;
-        let name = fields
-            .remove("name")
-            .and_then(|v| v.as_str().map(str::to_owned))
-            .ok_or("Blueprint name required")?;
-        let note = fields
-            .remove("note")
-            .and_then(|v| v.as_str().map(str::to_owned));
-        let owner = fields
-            .remove("owner")
-            .and_then(|v| v.as_str().map(str::to_owned))
-            .unwrap_or_else(team_owner);
-        if key == "pipeline" {
-            if let Some(steps) = body["steps"].as_array_mut() {
-                for step in steps {
-                    let Some(fields) = step.as_object_mut() else {
-                        continue;
-                    };
-                    let mut kind = fields.remove("kind").ok_or("Step kind required")?;
-                    let uses = kind["kind"]
-                        .as_str()
-                        .ok_or("Step kind required")?
-                        .to_owned();
-                    if uses == "command" {
-                        fields.insert("run".into(), kind["command"].clone());
-                    } else {
-                        kind.as_object_mut()
-                            .ok_or("Step kind must be an object")?
-                            .remove("kind");
-                        let params = if matches!(uses.as_str(), "http" | "github") {
-                            kind["probe"].clone()
-                        } else {
-                            kind
-                        };
-                        fields.insert("uses".into(), json!(uses));
-                        fields.insert("with".into(), params);
-                    }
-                }
-            }
+            Err(errors)
         }
-        if key == "watch" {
-            if let Some(fields) = body.as_object_mut() {
-                fields.retain(|_, value| !value.is_null());
-            }
-        }
-        Ok(Self {
-            schema_version: SCHEMA_VERSION,
-            name,
-            note,
-            owner: if key == "pipeline" { Some(owner) } else { None },
-            inputs: BTreeMap::new(),
-            watch: if key == "watch" {
-                Some(body.clone())
-            } else {
-                None
-            },
-            pipeline: if key == "pipeline" { Some(body) } else { None },
-        })
     }
-
-    pub fn from_recipe(recipe: &Recipe) -> Result<Self, String> {
-        let mut document = Self::from_definition(&recipe.definition)?;
-        document.inputs = recipe
-            .placeholders
-            .iter()
-            .map(|(key, description)| {
-                (
-                    key.clone(),
-                    Input {
-                        kind: "string".into(),
-                        default: None,
-                        description: Some(description.clone()),
-                        choices: None,
-                    },
-                )
-            })
-            .collect();
-        Ok(document)
+    pub fn lower(&self) -> Result<Value, Vec<(String, String)>> {
+        lower::lower(self)
     }
-
-    pub fn yaml(&self) -> Result<String, String> {
-        serde_yaml::to_string(self).map_err(|error| error.to_string())
+    pub fn nodes(&self) -> impl Iterator<Item = &Node> {
+        self.steps.iter().chain(&self.other)
     }
 }
-
-impl Input {
-    pub fn accepts(&self, value: &Value) -> bool {
-        if self
-            .choices
-            .as_ref()
-            .is_some_and(|choices| !choices.contains(value))
-        {
-            return false;
-        }
-        match self.kind.as_str() {
-            "string" => value.is_string(),
-            "integer" => value.is_i64() || value.is_u64(),
-            "number" => value.is_number(),
-            "boolean" => value.is_boolean(),
-            "object" => value.is_object(),
-            "array" => value.is_array(),
-            _ => false,
-        }
-    }
-}
-
-fn substitute(
-    value: &mut Value,
-    path: &str,
+fn resolve_form(
+    form: &mut ValueForm,
     values: &BTreeMap<String, Value>,
+    path: &str,
     errors: &mut Vec<(String, String)>,
 ) {
-    match value {
-        Value::String(text) => {
-            let source = text.clone();
-            let mut offset = 0;
-            let mut result = String::new();
-            for token in crate::blueprint_placeholder::tokens(&source) {
-                result.push_str(&source[offset..token.span.start]);
-                match token
-                    .key
-                    .and_then(|key| values.get(key).map(|value| (key, value)))
-                {
-                    Some((_, replacement)) if token.span == (0..source.len()) => {
-                        *value = replacement.clone();
-                        return;
-                    }
-                    Some((_, Value::String(replacement))) => result.push_str(replacement),
-                    Some((_, replacement))
-                        if replacement.is_number() || replacement.is_boolean() =>
-                    {
-                        result.push_str(&replacement.to_string())
-                    }
-                    Some((key, _)) => errors.push((
-                        path.into(),
-                        format!("Input {key} must occupy the whole value"),
-                    )),
-                    None => result.push_str(&source[token.span.clone()]),
-                }
-                offset = token.span.end;
-            }
-            result.push_str(&source[offset..]);
-            *text = result;
+    if let ValueForm::Input { input } = form {
+        match values.get(input) {
+            Some(value) => *form = ValueForm::literal(value.clone()),
+            None => errors.push((path.into(), format!("Undeclared input {input}"))),
         }
-        Value::Array(items) => {
-            for (i, item) in items.iter_mut().enumerate() {
-                substitute(item, &format!("{path}[{i}]"), values, errors)
-            }
-        }
-        Value::Object(fields) => {
-            for (key, value) in fields {
-                if !crate::blueprint_placeholder::tokens(key).is_empty() {
-                    errors.push((path.into(), "Inputs are allowed only in values".into()));
-                }
-                let next = if path.is_empty() {
-                    key.clone()
-                } else {
-                    format!("{path}.{key}")
-                };
-                substitute(value, &next, values, errors);
-            }
-        }
-        _ => {}
     }
 }
-
-pub fn definition_errors(definition: &Value) -> Vec<(String, String)> {
-    let mut errors = Vec::new();
-    if definition.as_object().is_none_or(|fields| {
-        fields.len() != 1 || (!fields.contains_key("spec") && !fields.contains_key("create"))
-    }) {
-        return vec![(
-            String::new(),
-            "Choose exactly one spec or create wire definition".into(),
-        )];
-    }
-    validate::definition(definition, &mut |field, message, _, warning| {
-        if !warning {
-            errors.push((field.into(), message.into()))
-        }
-    });
-    errors
+pub(super) fn whole_input(text: &str) -> Option<&str> {
+    text.strip_prefix("{{").and_then(|s| s.strip_suffix("}}"))
 }
-
+pub fn definition_errors(value: &Value) -> Vec<(String, String)> {
+    let document: Document = match serde_json::from_value(value.clone()) {
+        Ok(document) => document,
+        Err(error) => return vec![(String::new(), error.to_string())],
+    };
+    let diagnostics = checker::check_document(&document, &checker::CheckContext::default());
+    if checker::has_errors(&diagnostics) {
+        diagnostics
+            .into_iter()
+            .filter(|d| d.severity == "error")
+            .map(|d| (d.field.clone(), checker::render(&[d], true)))
+            .collect()
+    } else {
+        document.lower().err().unwrap_or_default()
+    }
+}
 pub fn diagnostic(file: &str, source: &str, field: &str, message: &str, hint: &str) -> Diagnostic {
     let (line, column) = positions::Positions::parse(source).at(field);
-    Diagnostic {
-        file: file.into(),
-        line,
-        column,
-        field: field.into(),
-        message: message.into(),
-        hint: hint.into(),
-        severity: "error".into(),
-    }
+    Diagnostic::error(
+        Location {
+            file: file.into(),
+            line,
+            column,
+        },
+        field,
+        message,
+        hint,
+    )
 }

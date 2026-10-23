@@ -1,7 +1,7 @@
 use codeterm_blueprint_types::blueprint_contract::{FieldCheck, PipelinePreview};
 use codeterm_blueprint_types::blueprint_pipeline::{
-    ensure_trigger_available, BlueprintOwner, BlueprintSpec, ConverterEdge, ResultTarget,
-    StepField, StepKind, Trigger, ValidationError, ValidationPath,
+    BlueprintOwner, BlueprintSpec, ConverterEdge, ResultTarget, StepField, StepKind, Trigger,
+    ValidationError, ValidationPath,
 };
 use serde_json::{json, Value};
 
@@ -20,38 +20,7 @@ pub trait BlueprintExt {
         caller: &crate::service_adapter::SentinelCaller,
         spec: BlueprintSpec,
     ) -> Result<PipelinePreview, String>;
-    fn blueprint_pipeline_create(
-        &self,
-        caller: &crate::service_adapter::SentinelCaller,
-        spec: BlueprintSpec,
-    ) -> Result<Value, String>;
-    fn blueprint_pipeline_create_stopped(
-        &self,
-        caller: &crate::service_adapter::SentinelCaller,
-        spec: BlueprintSpec,
-        stopped: bool,
-    ) -> Result<Value, String>;
-    fn blueprint_pipeline_validate_update(
-        &self,
-        caller: &crate::service_adapter::SentinelCaller,
-        id: &str,
-        expect_version: u64,
-        spec: BlueprintSpec,
-    ) -> Result<PipelinePreview, String>;
-    fn blueprint_pipeline_update(
-        &self,
-        caller: &crate::service_adapter::SentinelCaller,
-        id: &str,
-        expect_version: u64,
-        spec: BlueprintSpec,
-        cause: Option<String>,
-    ) -> Result<crate::store::Sentinel, String>;
-    fn pipeline_update_current(
-        &self,
-        caller: &crate::service_adapter::SentinelCaller,
-        id: &str,
-        expect_version: u64,
-    ) -> Result<crate::store::Sentinel, String>;
+
     fn blueprint_pipeline_nodes(&self) -> Value;
     fn validate_pipeline(&self, spec: &BlueprintSpec) -> Result<(), String>;
     fn validate_event_trigger(&self, spec: &BlueprintSpec) -> Result<(), String>;
@@ -141,7 +110,10 @@ impl BlueprintExt for ServiceContext {
                 StepKind::Github { .. } => {
                     checks.push(field_check(&format!("steps[{index}].github"), &errors));
                 }
-                StepKind::Command { .. } => {}
+                StepKind::Command { .. }
+                | StepKind::Code { .. }
+                | StepKind::Call { .. }
+                | StepKind::Effect { .. } => {}
             }
         }
         checks.push(field_check("result.to", &errors));
@@ -180,202 +152,6 @@ impl BlueprintExt for ServiceContext {
             id: None,
             expect_version: None,
         })
-    }
-
-    fn blueprint_pipeline_create(
-        &self,
-        caller: &crate::service_adapter::SentinelCaller,
-        spec: BlueprintSpec,
-    ) -> Result<Value, String> {
-        self.blueprint_pipeline_create_stopped(caller, spec, false)
-    }
-
-    fn blueprint_pipeline_create_stopped(
-        &self,
-        caller: &crate::service_adapter::SentinelCaller,
-        spec: BlueprintSpec,
-        stopped: bool,
-    ) -> Result<Value, String> {
-        self.authorize_role_blueprint(
-            &caller.tab,
-            None,
-            codeterm_service_core::service::role_policy::BlueprintAction::Create,
-        )?;
-        self.validate_pipeline(&spec)?;
-        self.validate_event_trigger(&spec)?;
-        ensure_trigger_available(&spec.trigger)
-            .map_err(|error| format!("{}: {}", error.field, error.reason))?;
-        if spec.owner == BlueprintOwner::Team && caller.team.is_none() {
-            return Err("owner: --owner team requires the creating tab to belong to a Team".into());
-        }
-        {
-            let mux = self.mux.read();
-            if !crate::service_adapter::caller_is_live(&mux, caller) {
-                return Err("blueprint creator or Team is gone".into());
-            }
-            validate_pipeline_result_scope(&mux, caller, spec.owner, &spec.result.to)?;
-        }
-        let handle = self
-            .host_extension::<Handle>()
-            .ok_or("blueprints not initialized")?;
-        let mut job = handle.store.lock().prepare_pipeline(
-            spec.clone(),
-            crate::store::Owner {
-                creator_tab_id: caller.tab.clone(),
-                team_id: caller.team.clone(),
-                workspace_id: caller.workspace.clone(),
-                cwd: caller.cwd.clone(),
-            },
-            true,
-        )?;
-        {
-            let mux = self.mux.read();
-            if !crate::service_adapter::caller_is_live(&mux, caller) {
-                return Err("blueprint creator or Team is gone".into());
-            }
-            validate_result_scope(&mux, &job, &spec.result.to)?;
-            let tab = mux.get_tab(&caller.tab).ok_or("blueprint creator gone")?;
-            job.agent_authored = tab.agent_type.is_some() && tab.session_binding_nonce.is_some();
-        }
-        job.machine.stopped = stopped;
-        let staged = handle.store.lock().stage_insert(job.clone());
-        let job = staged.settle(&handle.store)?;
-        handle.notify();
-        self.record_product_feature(codeterm_analytics::Feature::BlueprintCreated);
-        let owner = match spec.owner {
-            BlueprintOwner::Tab => json!({"kind":"tab", "id":caller.tab}),
-            BlueprintOwner::Team => json!({"kind":"team", "id":caller.team}),
-        };
-        Ok(json!({
-            "id": job.id,
-            "owner": owner,
-            "chain": chain_summary(&spec),
-            "blueprint": job
-        }))
-    }
-
-    fn blueprint_pipeline_validate_update(
-        &self,
-        caller: &crate::service_adapter::SentinelCaller,
-        id: &str,
-        expect_version: u64,
-        spec: BlueprintSpec,
-    ) -> Result<PipelinePreview, String> {
-        let current = self.pipeline_update_current(caller, id, expect_version)?;
-        let mut preview = self.blueprint_pipeline_validate(caller, spec.clone())?;
-        preview.checks.push(FieldCheck::new(
-            "trigger.params",
-            self.validate_event_trigger(&spec),
-        ));
-        let owner_matches = current.pipeline().map(|pipeline| pipeline.owner) == Some(spec.owner);
-        preview.checks.push(FieldCheck::new(
-            "owner",
-            if owner_matches {
-                Ok(())
-            } else {
-                Err("pipeline owner is immutable".into())
-            },
-        ));
-        preview.id = Some(id.into());
-        preview.expect_version = Some(expect_version);
-        Ok(preview)
-    }
-
-    fn blueprint_pipeline_update(
-        &self,
-        caller: &crate::service_adapter::SentinelCaller,
-        id: &str,
-        expect_version: u64,
-        spec: BlueprintSpec,
-        cause: Option<String>,
-    ) -> Result<crate::store::Sentinel, String> {
-        let curator = self.authorize_role_blueprint(
-            &caller.tab,
-            Some(id),
-            codeterm_service_core::service::role_policy::BlueprintAction::Apply,
-        )?;
-        let current = self.pipeline_update_current(caller, id, expect_version)?;
-        if curator
-            && !crate::blueprint_apply::retarget_only(
-                &serde_json::to_value(current.pipeline()).map_err(|e| e.to_string())?,
-                &serde_json::to_value(&spec).map_err(|e| e.to_string())?,
-            )
-        {
-            return Err("Curator pipeline amendments may only retarget".into());
-        }
-        self.validate_pipeline(&spec)?;
-        self.validate_event_trigger(&spec)?;
-        ensure_trigger_available(&spec.trigger)
-            .map_err(|error| format!("{}: {}", error.field, error.reason))?;
-        if current.pipeline().map(|pipeline| pipeline.owner) != Some(spec.owner) {
-            return Err("owner: pipeline owner is immutable".into());
-        }
-        {
-            let mux = self.mux.read();
-            if !crate::service_adapter::caller_is_live(&mux, caller) {
-                return Err("blueprint caller scope changed".into());
-            }
-            validate_result_scope(&mux, &current, &spec.result.to)?;
-        }
-        let mut next = current.clone();
-        next.name = Some(spec.name.clone());
-        next.note = spec.note.clone();
-        if let codeterm_blueprint_types::blueprint_pipeline::Trigger::Schedule { every } =
-            &spec.trigger
-        {
-            next.interval_ms = crate::store::duration_ms(every)?;
-        }
-        next.set_pipeline(Some(spec));
-        let handle = self
-            .host_extension::<Handle>()
-            .ok_or("blueprints not initialized")?;
-        let authored_at = handle.store.lock().clock.now_ms();
-        if next.pipeline().is_some_and(|pipeline| {
-            matches!(
-                &pipeline.trigger,
-                codeterm_blueprint_types::blueprint_pipeline::Trigger::Input { .. }
-            )
-        }) {
-            next.next_run = authored_at;
-        }
-        let staged = handle.store.lock().stage_update_definition(
-            expect_version,
-            &caller.tab,
-            authored_at,
-            crate::amend::PreparedUpdate {
-                job: next,
-                cause_transition_id: cause,
-                note: None,
-            },
-        );
-        let updated = staged.settle(&handle.store)?;
-        handle.notify();
-        Ok(updated)
-    }
-
-    fn pipeline_update_current(
-        &self,
-        caller: &crate::service_adapter::SentinelCaller,
-        id: &str,
-        expect_version: u64,
-    ) -> Result<crate::store::Sentinel, String> {
-        let handle = self
-            .host_extension::<Handle>()
-            .ok_or("blueprints not initialized")?;
-        let store = handle.store.lock();
-        store.ensure_available()?;
-        let current = store
-            .get(id)
-            .filter(|job| caller.can_amend(job))
-            .cloned()
-            .ok_or_else(|| format!("blueprint not found in this workspace and Team: {id}"))?;
-        if current.pipeline().is_none() {
-            return Err("blueprint has no pipeline definition".into());
-        }
-        if current.definition_version != expect_version {
-            return Err(crate::amend::version_conflict(current.definition_version));
-        }
-        Ok(current)
     }
 
     fn blueprint_pipeline_nodes(&self) -> Value {
@@ -642,7 +418,7 @@ fn chain_summary(spec: &BlueprintSpec) -> String {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use codeterm_blueprint_types::blueprint_pipeline::{BlueprintResult, IoType, Step, Trigger};
+    use crate::BlueprintApplyExt;
     use codeterm_service_core::multiplexer::state::MultiplexerState;
     use codeterm_service_core::service::test_fixture::ServiceFixture;
 
@@ -651,39 +427,29 @@ pub mod tests {
         let (mut mux, creator) = MultiplexerState::new();
         let workspace = mux.find_workspace_for_tab(&creator).unwrap();
         mux.get_tab_mut(&creator).unwrap().cwd = Some(".".into());
+        let team = codeterm_types::team::Team::new(&workspace, 1);
+        mux.upsert_team(team.clone());
+        mux.get_tab_mut(&creator).unwrap().team_id = Some(team.id.clone());
         let fixture = ServiceFixture::new(mux);
         let caller = crate::service_adapter::SentinelCaller {
             tab: creator,
-            team: None,
+            team: Some(team.id),
             workspace,
             cwd: ".".into(),
             nonce: None,
         };
-        let spec = BlueprintSpec {
-            note: None,
-            name: "create-target-refusal".into(),
-            owner: BlueprintOwner::Tab,
-            trigger: Trigger::Schedule {
-                every: "20s".into(),
-            },
-            steps: vec![Step {
-                name: "emit".into(),
-                input: IoType::Text,
-                kind: StepKind::Command {
-                    command: "echo result".into(),
-                },
-                on: Default::default(),
-            }],
-            result: BlueprintResult {
-                to: ResultTarget::Tab("missing_target".into()),
-            },
-        };
-
+        let store = crate::store::Store::new(
+            fixture.temp.path().join("refusal.json"),
+            codeterm_service_core::cron::clock::MockClock::starting_at(1000),
+        );
+        let handle = crate::scheduler::fixture_handle_with_ui(store, fixture.service.ui.clone());
+        crate::manage_fixture_ports(&fixture.service, &handle);
+        let document = json!({"schema_version":2,"kind":"pipeline","name":"create-target-refusal","owner":"tab","trigger":{"type":"schedule","every":{"lit":"20s"}},"steps":[{"id":"emit","run":{"lit":"echo result"}}],"result":{"to":"tab:missing_target"}});
         let error = fixture
             .service
-            .blueprint_pipeline_create(&caller, spec)
+            .blueprint_apply(&caller, document, false)
             .unwrap_err();
 
-        assert_eq!(error, "result.to: tab not found");
+        assert!(error.to_string().contains("tab not found"), "{error}");
     }
 }

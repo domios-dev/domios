@@ -29,9 +29,28 @@ pub(crate) struct AgentDeliveryRecord {
     pub(crate) sequence: u64,
     pub(crate) state: AgentDeliveryState,
     pub(crate) idempotency_key: Option<String>,
+    #[serde(default)]
+    pub(crate) saved_launch: Option<super::super::durable_delivery::SavedLaunch>,
+    #[serde(default)]
+    pub(crate) terminal_failure: Option<String>,
+    #[serde(default)]
+    pub(crate) durable_delivery: Option<super::super::durable_delivery::DurableDelivery>,
+    #[serde(default)]
+    pub(crate) terminal_detail: Option<String>,
+    // Retained terminal records must re-emit after a crash, even after an emit claim.
+    #[serde(skip)]
+    settlement_notified: bool,
+    #[serde(skip)]
+    settlement_emitted: bool,
     owner_epoch: String,
     digest: String,
     bytes: usize,
+}
+
+#[derive(Deserialize)]
+struct DeliveryMetadata {
+    #[serde(default)]
+    durable_delivery: Option<super::super::durable_delivery::DurableDelivery>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -70,6 +89,8 @@ pub(crate) struct AgentDeliveryReceipt {
 struct AgentDeliveryIndex {
     version: u8,
     next_sequence: u64,
+    #[serde(default)]
+    tab_id: String,
     records: Vec<AgentDeliveryRecord>,
 }
 
@@ -78,6 +99,7 @@ impl Default for AgentDeliveryIndex {
         Self {
             version: 2,
             next_sequence: 1,
+            tab_id: String::new(),
             records: Vec::new(),
         }
     }
@@ -146,6 +168,14 @@ impl AgentDeliveryStore {
             sequence: index.next_sequence,
             state: AgentDeliveryState::Pending,
             idempotency_key,
+            saved_launch: None,
+            terminal_failure: None,
+            durable_delivery: serde_json::from_str::<DeliveryMetadata>(payload)
+                .ok()
+                .and_then(|metadata| metadata.durable_delivery),
+            terminal_detail: None,
+            settlement_notified: false,
+            settlement_emitted: false,
             owner_epoch: self.epoch.clone(),
             digest: digest(payload.as_bytes()),
             bytes: payload.len(),
@@ -162,6 +192,115 @@ impl AgentDeliveryStore {
         }
         *index = next;
         Ok(id)
+    }
+
+    pub(crate) fn bind_saved_launch(
+        &self,
+        tab_id: &str,
+        id: &str,
+        launch: super::super::durable_delivery::SavedLaunch,
+    ) -> Result<super::super::durable_delivery::SavedLaunch, String> {
+        let mut result = None;
+        self.update(tab_id, id, |record| {
+            if record.state != AgentDeliveryState::Pending || record.terminal_failure.is_some() {
+                return Err("durable delivery cannot bind a claimed or failed record".into());
+            }
+            result = Some(record.saved_launch.get_or_insert(launch.clone()).clone());
+            Ok(true)
+        })?;
+        result.ok_or_else(|| "durable delivery record disappeared".into())
+    }
+
+    pub(crate) fn mark_terminal_failure(
+        &self,
+        tab_id: &str,
+        id: &str,
+        reason: &str,
+        detail: Option<&str>,
+    ) -> Result<(String, Option<String>), String> {
+        let mut settled = None;
+        self.update(tab_id, id, |record| {
+            if record.state != AgentDeliveryState::Pending {
+                return Err("claimed delivery cannot be failed as never written".into());
+            }
+            let changed = record.terminal_failure.is_none();
+            if changed {
+                record.terminal_failure = Some(reason.into());
+                record.terminal_detail = detail.map(str::to_owned);
+            }
+            settled = record
+                .terminal_failure
+                .clone()
+                .map(|reason| (reason, record.terminal_detail.clone()));
+            Ok(changed)
+        })?;
+        settled.ok_or_else(|| "durable delivery record disappeared before settlement".into())
+    }
+
+    pub(crate) fn claim_terminal_notification(
+        &self,
+        tab_id: &str,
+        id: &str,
+    ) -> Result<bool, String> {
+        let tab = self.tab(tab_id);
+        let mut loaded = tab.index.lock();
+        let index = self.load(&tab, &mut loaded)?;
+        let Some(record) = index.records.iter_mut().find(|record| record.id == id) else {
+            return Ok(false);
+        };
+        if record.state != AgentDeliveryState::Pending
+            || record.terminal_failure.is_none()
+            || record.settlement_notified
+        {
+            return Ok(false);
+        }
+        record.settlement_notified = true;
+        Ok(true)
+    }
+
+    pub(crate) fn finish_terminal_notification(
+        &self,
+        tab_id: &str,
+        id: &str,
+    ) -> Result<(), String> {
+        let tab = self.tab(tab_id);
+        let mut loaded = tab.index.lock();
+        if let Some(record) = self
+            .load(&tab, &mut loaded)?
+            .records
+            .iter_mut()
+            .find(|record| record.id == id)
+        {
+            record.settlement_emitted = true;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn release_terminal_notification(&self, tab_id: &str, id: &str) {
+        let tab = self.tab(tab_id);
+        let mut loaded = tab.index.lock();
+        if let Some(record) = loaded
+            .as_mut()
+            .and_then(|index| index.records.iter_mut().find(|record| record.id == id))
+        {
+            if !record.settlement_emitted {
+                record.settlement_notified = false;
+            }
+        }
+    }
+
+    pub(crate) fn terminal_notification_emitted(
+        &self,
+        tab_id: &str,
+        id: &str,
+    ) -> Result<bool, String> {
+        let tab = self.tab(tab_id);
+        let mut loaded = tab.index.lock();
+        Ok(self
+            .load(&tab, &mut loaded)?
+            .records
+            .iter()
+            .any(|record| record.id == id && record.settlement_emitted))
     }
 
     pub(crate) fn has_pending(&self, tab_id: &str) -> Result<bool, String> {
@@ -227,7 +366,10 @@ impl AgentDeliveryStore {
             return Ok(false);
         };
         let record = &index.records[position];
-        if record.state != AgentDeliveryState::Pending || record.owner_epoch != self.epoch {
+        if record.state != AgentDeliveryState::Pending
+            || record.owner_epoch != self.epoch
+            || record.terminal_failure.is_some()
+        {
             return Ok(false);
         }
         let mut next = index.clone();
@@ -417,10 +559,50 @@ impl AgentDeliveryStore {
         tab.blocked_on_refusal.store(false, Ordering::Release);
     }
 
-    fn records(&self, tab_id: &str) -> Result<Vec<AgentDeliveryRecord>, String> {
+    pub(crate) fn records(&self, tab_id: &str) -> Result<Vec<AgentDeliveryRecord>, String> {
         let tab = self.tab(tab_id);
         let mut index = tab.index.lock();
         Ok(self.load(&tab, &mut index)?.records.clone())
+    }
+
+    pub(crate) fn persisted_tab_ids(&self) -> Result<Vec<String>, String> {
+        let entries = match fs::read_dir(&self.root) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(error.to_string()),
+        };
+        let mut tabs = Vec::new();
+        for entry in entries {
+            let result = (|| -> Result<Option<String>, String> {
+                let entry = entry.map_err(|error| error.to_string())?;
+                if !entry
+                    .file_type()
+                    .map_err(|error| error.to_string())?
+                    .is_dir()
+                {
+                    return Ok(None);
+                }
+                let index: AgentDeliveryIndex = serde_json::from_slice(&read_bounded(
+                    &entry.path().join("index.json"),
+                    MAX_INDEX_BYTES,
+                )?)
+                .map_err(|error| error.to_string())?;
+                self.validate(&index)?;
+                if index.tab_id.is_empty() {
+                    return Ok(None);
+                }
+                if entry.file_name() != std::ffi::OsStr::new(&digest(index.tab_id.as_bytes())) {
+                    return Err("agent delivery directory identity mismatch".into());
+                }
+                Ok(Some(index.tab_id))
+            })();
+            match result {
+                Ok(Some(tab)) => tabs.push(tab),
+                Ok(None) => {}
+                Err(error) => log::error!("[agent-delivery] outbox discovery failed: {error}"),
+            }
+        }
+        Ok(tabs)
     }
 
     fn update(
@@ -479,7 +661,7 @@ impl AgentDeliveryStore {
             drop(initialized);
             owner_directory(&tab.dir)?;
             let path = tab.dir.join("index.json");
-            let index = match fs::symlink_metadata(&path) {
+            let index: AgentDeliveryIndex = match fs::symlink_metadata(&path) {
                 Ok(_) => serde_json::from_slice(&read_bounded(&path, MAX_INDEX_BYTES)?)
                     .map_err(|_| "agent delivery index is invalid")?,
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -488,6 +670,9 @@ impl AgentDeliveryStore {
                 Err(error) => return Err(format!("agent delivery persistence: {error}")),
             };
             self.validate(&index)?;
+            if !index.tab_id.is_empty() && index.tab_id != tab.tab_id {
+                return Err("agent delivery tab identity mismatch".into());
+            }
             let mut index = index;
             let retired = index
                 .records
@@ -605,8 +790,11 @@ impl AgentDeliveryStore {
 
     fn persist(&self, tab: &AgentDeliveryTab, index: &AgentDeliveryIndex) -> Result<(), String> {
         self.validate(index)?;
+        let mut stored = index.clone();
+        stored.tab_id = tab.tab_id.clone();
+        self.validate(&stored)?;
         let bytes =
-            serde_json::to_vec(index).map_err(|_| "agent delivery index serialization failed")?;
+            serde_json::to_vec(&stored).map_err(|_| "agent delivery index serialization failed")?;
         let temporary = tab.dir.join("index.next.json");
         write_replace(&temporary, &bytes)?;
         atomic_replace(&temporary, &tab.dir.join("index.json"))?;
