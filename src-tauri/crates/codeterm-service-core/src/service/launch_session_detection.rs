@@ -838,7 +838,9 @@ fn provider_owns_resume_session(
     cwd: &str,
     session_id: &str,
 ) -> bool {
-    resume_session_binding_allowed(provider.session_exists(cwd, session_id))
+    // A saved session proves identity, not that this process has finished its startup hooks.
+    !provider.has_hooks()
+        && resume_session_binding_allowed(provider.session_exists(cwd, session_id))
 }
 
 impl ServiceContext {
