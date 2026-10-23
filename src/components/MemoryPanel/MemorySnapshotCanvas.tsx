@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { CanvasToolbar } from "../Canvas/CanvasToolbar";
+import { CanvasToolbar } from "@codeterm/chat-ui";
 import Sigma from "sigma";
 import Graph from "graphology";
 import EdgeCurveProgram from "@sigma/edge-curve";
