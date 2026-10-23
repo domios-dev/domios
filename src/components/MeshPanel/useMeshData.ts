@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke, listen } from "../../lib/bridge";
 import type { MeshStatus, MeshPeersResponse, PairedPeer } from "../../lib/types";
 import { DEV_BUILD } from "../../lib/devBuild";
+import { notifyMeshPeersLoaded } from "../../lib/localInstanceName";
 import type { Service } from "./types";
 import { buildHash } from "../../lib/buildStamp";
 import {
@@ -288,6 +289,7 @@ export function useMeshData(refreshKey: number): MeshDataResult {
       liveAcceptedRef.current = true;
       setData({ ...next, loading: false, error: null, loaded: true });
       void writeCache(next);
+      notifyMeshPeersLoaded();
     } catch (e) {
       refreshFailedRef.current = true;
       if (DEV_BUILD) console.debug("[mesh] local inventory fetch failed", e);
