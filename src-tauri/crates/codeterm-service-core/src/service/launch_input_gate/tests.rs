@@ -75,7 +75,7 @@ fn readiness_deadline_without_provider_tui_keeps_generic_reason() {
 
 #[test]
 fn provider_cursor_composer_matches_captured_bottom_region_fixture() {
-    let mut screens = codeterm_pty::pty::screen_state::ScreenState::new();
+    let screens = codeterm_pty::pty::screen_state::ScreenState::new();
     screens.resize("cursor", 120, 24);
     let text = include_str!(
         "../../../../../../plugins/provider-cursor/tests/fixtures/composer-readiness/cursor-ready.txt"
@@ -103,7 +103,7 @@ fn provider_cursor_composer_matches_captured_bottom_region_fixture() {
 }
 
 fn codex_live_composer_fixture_is_ready(fixture: &str) -> bool {
-    let mut screens = codeterm_pty::pty::screen_state::ScreenState::new();
+    let screens = codeterm_pty::pty::screen_state::ScreenState::new();
     screens.resize("codex-live", 160, 32);
     let text = fixture.lines().collect::<Vec<_>>().join("\r\n");
     screens.process(
@@ -593,7 +593,7 @@ fn owner_prompt_cleared_on_binding_provider_keeps_binding_path() {
     };
     arm(attempt.clone());
     owner_prompt_pending(tab_id, "opaque-binding-question");
-    let mut screens = codeterm_pty::pty::screen_state::ScreenState::new();
+    let screens = codeterm_pty::pty::screen_state::ScreenState::new();
     let signal = screens.arm_screen_change_signal(&attempt.pty_id);
     let generation = signal.generation();
 

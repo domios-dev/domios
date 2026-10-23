@@ -2,7 +2,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { discoverTests, selectRelatedTests } from "./run-ts-unit-tests.mjs";
 
 const scriptRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -92,8 +92,7 @@ function changedFiles(options) {
 }
 
 function normalizeRepoPath(file, repoRoot) {
-  const absolute = path.isAbsolute(file) ? path.resolve(file) : null;
-  const relative = absolute ? path.relative(repoRoot, absolute) : file;
+  const relative = path.relative(repoRoot, path.resolve(repoRoot, file));
   if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
     throw new Error(`changed file is outside the repository: ${file}`);
   }
@@ -442,7 +441,29 @@ function main() {
   printSelection(options, files);
 }
 
-try {
+export function relatedSelection(files, { repo = scriptRoot, metadata = "" } = {}) {
+  const inputs = [...new Set(files.map(file => normalizeRepoPath(file, repo)))];
+  if (!inputs.length) throw new Error("test-related requires at least one file");
+  for (const file of inputs) {
+    if (!existsSync(path.join(repo, file))) throw new Error(`file does not exist: ${file}`);
+  }
+  const commands = [];
+  const packages = loadPackageSets({ repo, metadata }, inputs);
+  for (const { package: pkg, files: owned } of affectedPackages(repo, rustInputs(inputs), packages)) {
+    const filters = owned.map(file => file.endsWith(".rs") ? modulePathForRust(repo, file, pkg) : null);
+    const filter = filters.every(Boolean) ? [...new Set(filters)].map(moduleFilter).join(" | ") : "all()";
+    commands.push(["./build.sh", "nextest", packageScope(pkg, owned[0]), filter]);
+  }
+  const ts = selectedTsFiles(inputs);
+  if (ts.length) {
+    commands.push(["pnpm", "exec", "vitest", "related", "--run", "--maxWorkers=2", "--passWithNoTests", ...ts]);
+    if (customUnitFiles(repo, inputs).length) commands.push(["pnpm", "test:unit", "--", "--related", ...ts]);
+  }
+  if (!commands.length) throw new Error("no Rust or TypeScript tests own these files");
+  return commands;
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) try {
   main();
 } catch (error) {
   console.error(`affected-tests: ${error.message}`);

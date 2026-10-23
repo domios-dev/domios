@@ -224,10 +224,12 @@ impl ServiceContext {
         {
             return Err("the session changed before the live picker response".into());
         }
-        let screen_state = self.screen_state.lock();
-        let screen = screen_state
-            .get_screen_text(&target.pty_id)
-            .unwrap_or_default();
+        let screen_state = self
+            .screen_state
+            .existing(&target.pty_id)
+            .ok_or_else(|| "the command screen is unavailable".to_owned())?;
+        let screen_state = screen_state.lock();
+        let screen = screen_state.get_screen_text().unwrap_or_default();
         picker.respond(&screen, |keys| self.pty.lock().write(&target.pty_id, keys))
     }
 

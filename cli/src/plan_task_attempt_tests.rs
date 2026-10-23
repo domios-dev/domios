@@ -32,6 +32,8 @@ fn plan_task_attempts_and_respawn_parse() {
         "codex",
         "--model",
         "gpt-5.5",
+        "--reasoning-effort",
+        "high",
         "--parent",
         "tab_parent",
         "--workspace",
@@ -47,6 +49,7 @@ fn plan_task_attempts_and_respawn_parse() {
                             attempt,
                             provider,
                             model,
+                            reasoning_effort,
                             parent,
                             workspace,
                             ..
@@ -56,6 +59,7 @@ fn plan_task_attempts_and_respawn_parse() {
             assert_eq!(attempt, "attempt_1");
             assert_eq!(provider.as_deref(), Some("codex"));
             assert_eq!(model.as_deref(), Some("gpt-5.5"));
+            assert_eq!(reasoning_effort.as_deref(), Some("high"));
             assert_eq!(parent.as_deref(), Some("tab_parent"));
             assert_eq!(workspace.as_deref(), Some("ws_1"));
         }

@@ -23,6 +23,33 @@ pub fn send(
     input: &crate::service::messenger::AgentInput,
     send_id: Option<&str>,
 ) -> Result<(), DeliveryError> {
+    send_inner(svc, tab, input, send_id, None)
+}
+
+pub(crate) fn send_pinned(
+    svc: &ServiceContext,
+    tab: &str,
+    input: &crate::service::messenger::AgentInput,
+    send_id: &str,
+    session_id: &str,
+    binding_nonce: &str,
+) -> Result<(), DeliveryError> {
+    send_inner(
+        svc,
+        tab,
+        input,
+        Some(send_id),
+        Some((session_id, binding_nonce)),
+    )
+}
+
+fn send_inner(
+    svc: &ServiceContext,
+    tab: &str,
+    input: &crate::service::messenger::AgentInput,
+    send_id: Option<&str>,
+    pinned: Option<(&str, &str)>,
+) -> Result<(), DeliveryError> {
     let rendered = input.text();
     let text = rendered.as_ref();
     svc.require_admitted_input_allowed(tab, send_id)
@@ -52,8 +79,12 @@ pub fn send(
             detail: "Runtime handoff already claimed; replay refused".into(),
         });
     }
-    let session = crate::async_runtime::block_on(engine::ensure(svc, tab))
-        .map_err(|error| before_write(tab, error))?;
+    let session = if pinned.is_some() {
+        engine::for_tab(tab).ok_or_else(|| before_write(tab, RuntimeFailure::Superseded))?
+    } else {
+        crate::async_runtime::block_on(engine::ensure(svc, tab))
+            .map_err(|error| before_write(tab, error))?
+    };
     let _permit =
         super::blocking::deadline(std::time::Duration::from_secs(30), session.gate.acquire())
             .map_err(|_| before_write(tab, RuntimeFailure::Deadline))?
@@ -61,6 +92,20 @@ pub fn send(
     let context = session.context.lock().clone();
     if context.binding_nonce != expected {
         return Err(before_write(tab, RuntimeFailure::Superseded));
+    }
+    if let Some((thread, nonce)) = pinned {
+        if context.thread_id.as_deref() != Some(thread)
+            || context.binding_nonce != nonce
+            || !session.thread_loaded.load(std::sync::atomic::Ordering::Acquire)
+            || !svc.mux.read().get_tab(tab).is_some_and(|tab| {
+                tab.launch_session_authenticated()
+                    && tab.agent_session_id.as_deref() == Some(thread)
+                    && tab.session_binding_nonce.as_deref() == Some(nonce)
+                    && matches!(&tab.backing, crate::multiplexer::types::TabBacking::ChatBackend { session_id, .. } if session_id == thread)
+            })
+        {
+            return Err(before_write(tab, RuntimeFailure::Superseded));
+        }
     }
     let process = session
         .process

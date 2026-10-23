@@ -142,3 +142,9 @@ export function visibleDeliveryRows(
   const reconciled = echoes ? sends.map((send) => ({ ...send, echo: send.echo ?? echoes.get(send.id) })) : sends;
   return rows.filter((row) => !sendForRow(reconciled, row)?.dismissed);
 }
+
+export function canRetryChatSend(send: DeliverySend): boolean {
+  if (send.dismissed || send.status?.system_send || deliveryState(send) !== "failed") return false;
+  const draft = send.draft;
+  return !draft || Boolean(draft.text.trim() || draft.attachments.length || draft.recordedVoiceAttachments.length || draft.reply);
+}

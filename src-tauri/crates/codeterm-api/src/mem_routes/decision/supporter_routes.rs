@@ -63,7 +63,7 @@ pub async fn supporter_token_clear(
 }
 
 pub async fn supporter_token_status(
-    AxumState(state): AxumState<AppState>,
+    AxumState(state): AxumState<ConnectionState>,
     Query(query): Query<AdapterQuery>,
 ) -> RouteResult {
     let id = query
@@ -71,8 +71,7 @@ pub async fn supporter_token_status(
         .or_else(|| state.config.lock().supporter.adapter.clone())
         .ok_or_else(no_active)?;
     let mode = state
-        .svc
-        .supporter_models
+        .registry
         .get(&id)
         .ok_or_else(|| {
             super::connection_routes::error(connections::ConnectionError {
@@ -82,21 +81,19 @@ pub async fn supporter_token_status(
         })?
         .token_mode();
     token_io(move || {
-        let _transaction = connections::TRANSACTION.lock();
-        let status = token_store().status(&id)?;
+        let status = state.store.status(&id)?;
         Ok(token_status_json(&id, &status, mode))
     })
     .await
     .map(Json)
 }
 
-pub async fn supporter_status(AxumState(state): AxumState<AppState>) -> RouteResult {
+pub async fn supporter_status(AxumState(state): AxumState<ConnectionState>) -> RouteResult {
     token_io(move || {
-        let _transaction = connections::TRANSACTION.lock();
         let cfg = state.config.lock().supporter.clone();
-        let models = &state.svc.supporter_models;
-        let runtime = codeterm_service_core::service::supporter::runtime_with_notifications(&state.svc);
-        let store = token_store();
+        let models = &state.registry;
+        let runtime = state.runtime;
+        let store = state.store;
         let mut adapters = registered_adapters(models);
         for adapter in &mut adapters {
             if let Some(id) = adapter["id"].as_str() {
@@ -131,12 +128,11 @@ pub async fn supporter_status(AxumState(state): AxumState<AppState>) -> RouteRes
     }).await.map(Json)
 }
 
-pub async fn supporter_models(AxumState(state): AxumState<AppState>) -> RouteResult {
+pub async fn supporter_models(AxumState(state): AxumState<ConnectionState>) -> RouteResult {
     token_io(move || {
-        let _transaction = connections::TRANSACTION.lock();
         let cfg = state.config.lock().supporter.clone();
-        let model = cfg.active_id().and_then(|id| cfg.connection(id).model.or_else(|| state.svc.supporter_models.get(id).and_then(|adapter| adapter.models().first().map(|model| model.id.clone()))));
-        Ok(json!({ "adapter": cfg.adapter, "model": model, "adapters": registered_adapters(&state.svc.supporter_models) }))
+        let model = cfg.active_id().and_then(|id| cfg.connection(id).model.or_else(|| state.registry.get(id).and_then(|adapter| adapter.cached_models().first().map(|model| model.id.clone()))));
+        Ok(json!({ "adapter": cfg.adapter, "model": model, "adapters": registered_adapters(&state.registry) }))
     }).await.map(Json)
 }
 

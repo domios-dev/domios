@@ -31,10 +31,10 @@ impl SecretStoreVault {
         std::thread::scope(|scope| {
             scope
                 .spawn(move || {
-                    crate::async_runtime::block_on(tokio::time::timeout(
-                        VAULT_TIMEOUT,
-                        call(store, name),
-                    ))
+                    // The timer must be created inside the runtime, not on this bare thread.
+                    crate::async_runtime::block_on(async move {
+                        tokio::time::timeout(VAULT_TIMEOUT, call(store, name)).await
+                    })
                 })
                 .join()
         })

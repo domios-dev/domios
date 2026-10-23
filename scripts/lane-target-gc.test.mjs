@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { spawnSync } from 'node:child_process';
 import { trimLaneTargets } from './lane-target-gc.mjs';
 
 const DAY = 86400000;
@@ -23,7 +24,7 @@ function fixture(t) {
     stamp(output, now - age * DAY);
     return output;
   };
-  const run = options => trimLaneTargets(canonical, { now, runner: () => ({ status: 0, stdout: '' }), log: () => {}, ...options });
+  const run = options => trimLaneTargets(canonical, { now, runner: (program, args, options) => program === 'git' ? { status: 0, stdout: '' } : spawnSync(program, args, options), log: () => {}, ...options });
   return { base, canonical, root, target, run };
 }
 
@@ -44,7 +45,7 @@ test('lane target GC removes expired outputs, keeps fresh artifacts and source',
   fs.utimesSync(path.join(freshArtifact, 'artifact'), new Date(now), new Date(now));
   const source = path.join(f.root, 'old-0', 'main.rs');
   fs.writeFileSync(source, 'source');
-  assert.ok(f.run({}) > 0);
+  assert.equal(f.run({}), 36);
   for (const output of old) assert.equal(fs.existsSync(output), false);
   assert.equal(fs.existsSync(recent), true);
   assert.equal(fs.existsSync(freshArtifact), true);
@@ -64,7 +65,7 @@ test('lane target GC respects preview, current checkout, retention and tracked c
   assert.equal(fs.existsSync(output), true);
 });
 
-test('lane target GC unlinks output junctions and protects linked lanes', t => {
+test('lane target GC protects output junctions and linked lanes', t => {
   const f = fixture(t);
   const output = f.target('old', 4);
   const outside = path.join(f.base, 'outside');
@@ -76,6 +77,6 @@ test('lane target GC unlinks output junctions and protects linked lanes', t => {
   fs.utimesSync(output, new Date(now - 4 * DAY), new Date(now - 4 * DAY));
   fs.symlinkSync(outside, path.join(f.root, 'linked-lane'), process.platform === 'win32' ? 'junction' : 'dir');
   f.run({});
-  assert.equal(fs.existsSync(output), false);
+  assert.equal(fs.existsSync(output), true);
   assert.equal(fs.readFileSync(path.join(outside, 'proof'), 'utf8'), 'preserved');
 });

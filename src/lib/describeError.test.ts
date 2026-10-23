@@ -1,6 +1,20 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { describeError, isPendingRuntimeDeadline, type ErrorAction } from "./describeError";
+import { reorderFailureToast } from "../store/multiplexer/reorderFailure";
+
+test("reorder failures retain their reason through transport and notification serialization", () => {
+  const reason = "opaque-reorder-reason-27";
+  const body = JSON.stringify({ ok: false, error: { code: "reorder_failed", message: reason } });
+  for (const error of [{ body, status: 400 }, new Error(`HTTP 400: ${body}`), new Error(reason), reason]) {
+    const notice = reorderFailureToast("workspace", error);
+    assert.equal(notice.workspaceId, "workspace");
+    const description = describeError(notice.detail);
+    assert.equal(description.cause, reason);
+    assert.deepEqual(description.actions, ["retry"]);
+    assert.equal(description.pending, undefined);
+  }
+});
 
 const fixtures: { input: unknown; title: string; actions: ErrorAction[] }[] = [
   { input: { code: "constructor", raw: "opaque" }, title: "Something went wrong while opening this file", actions: ["retry"] },
@@ -69,4 +83,19 @@ test("model switch incidents remain failures when their details mention a deadli
     assert.equal(view.pending, undefined);
     assert.equal(isPendingRuntimeDeadline(input), false);
   }
+});
+
+
+test("provider switch failures name auth deadlines and bound transport details", () => {
+  for (const input of ["provider_switch_auth_timeout: opaque", { code: "provider_switch_auth_timeout", message: "opaque" }, new Error("provider_switch_auth_timeout: opaque")]) {
+    const view = describeError(input, { operation: "switching the provider" });
+    assert.match(view.title, /authentication check timed out/);
+    assert.deepEqual(view.actions, ["retry"]);
+    assert.equal(view.pending, undefined);
+  }
+  const unavailable = describeError("provider_switch_unavailable: Provider not installed: opaque shell", { operation: "switching the provider" });
+  assert.equal(unavailable.title, "The target provider is unavailable");
+  const failed = describeError("shell spawn failure " + "opaque".repeat(1000), { operation: "switching the provider" });
+  assert.equal(failed.title, "The provider could not be switched");
+  assert.ok(failed.raw.length <= 2048);
 });

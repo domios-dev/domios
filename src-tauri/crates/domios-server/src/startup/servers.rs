@@ -444,52 +444,28 @@ pub(crate) fn start_servers(
                     if let Some(mesh) = weak_mesh.upgrade() {
                         let changed = {
                             let mut state = mesh.lock();
-                            let changed = state.ready_listeners != ready;
-                            state.ready_listeners = ready;
-                            changed
+                            state.set_ready_listeners(ready)
                         };
-                        if changed {
-                            codeterm_service_core::mesh::discovery::stop_broadcast(&mesh);
-                            if mesh_config.lock().mesh.enabled {
-                                codeterm_service_core::async_runtime::spawn(async move {
-                                    let report = codeterm_service_core::mesh::broadcast_announce(
-                                        &mesh, None,
-                                    )
-                                    .await;
-                                    if !report.errors.is_empty() {
-                                        log::warn!(
-                                            "[mesh] listener-set announcement failed: {:?}",
-                                            report.errors
-                                        );
-                                    }
-                                });
-                            }
+                        if changed && mesh_config.lock().mesh.enabled {
+                            codeterm_service_core::async_runtime::spawn(async move {
+                                let report =
+                                    codeterm_service_core::mesh::broadcast_announce(&mesh, None)
+                                        .await;
+                                if !report.errors.is_empty() {
+                                    log::warn!(
+                                        "[mesh] listener-set announcement failed: {:?}",
+                                        report.errors
+                                    );
+                                }
+                            });
                         }
                     }
                 }),
             );
-            let bind_addr = codeterm_service_core::config::canonical_api_bind_addr(&api_config)
-                .expect("validated API host must have a canonical socket address");
             states
                 .rest_api
-                .set_runtime_policy(super::RestApiRuntimePolicy {
-                    enabled: true,
-                    cors: api_config.cors,
-                    cors_allow_origins: if api_config.cors {
-                        api_config.cors_allow_origins.clone()
-                    } else {
-                        Vec::new()
-                    },
-                });
-            let port = api_config.port;
-            if !bind_addr.ip().is_loopback() {
-                log::warn!(
-                    "[api] explicit non-loopback listener {bind_addr} exposes authenticated control to the network"
-                );
-            }
-            std::env::set_var("CODETERM_API_PORT", port.to_string());
-            let control = states.rest_api.clone();
-            codeterm_service_core::startup::rest_api::spawn(control, bind_addr.to_string(), router);
+                .listeners
+                .publish(states.rest_api.listeners.ready());
         }
         bundles
     };
@@ -528,18 +504,15 @@ pub(crate) fn start_servers(
         start_restored_pty_backends(service_state.clone(), restore_initialized);
     }
 
-    // Start mesh listeners if enabled (no broadcasting — user triggers that manually)
     {
         let mesh_config = states.config.lock().mesh.clone();
         if mesh_config.enabled {
             let mesh = states.mesh.clone();
             mesh::discovery::detect_tailscale(&mesh);
             mesh::discovery::detect_local_ip(&mesh);
-            if let Err(e) = mesh::discovery::start_listeners(mesh) {
-                log::error!("[mesh] Listener start failed: {}", e);
-            }
         }
     }
+    service_state.start_account_mesh_transport();
 
     let integrations = states.config.lock().integrations.clone();
     if integrations.telegram_enabled {

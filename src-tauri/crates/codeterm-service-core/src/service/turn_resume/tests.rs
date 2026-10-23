@@ -11,6 +11,16 @@ const FIRST: &str = "start-1";
 const SECOND: &str = "start-2";
 const THIRD: &str = "start-3";
 
+fn step(mux: &MuxState, tab_id: &str, start_epoch: &str) -> Step {
+    super::step(mux, tab_id, start_epoch, RuntimeReadiness::Unsupported)
+}
+
+fn advance_consider(mux: &MuxState, tab_id: &str, wave: &Wave, stopping: bool) -> Option<Step> {
+    super::advance_consider(tab_id, wave, stopping, || {
+        step(mux, tab_id, wave.start_epoch)
+    })
+}
+
 fn agent_tab(state: TimelineState) -> (MultiplexerState, String) {
     let (mut mux, tab_id) = MultiplexerState::new();
     let tab = mux.get_tab_mut(&tab_id).expect("fixture tab");
@@ -146,7 +156,7 @@ fn after_update_prompt_replaces_the_owed_general_agent_prompt_once() {
             session_id: "session-a".into(),
             prompt: Some("opaque-after-update".into()),
             sender: Some(sender),
-            pty_id: "pty-2".into(),
+            pty_id: Some("pty-2".into()),
             binding_nonce: "nonce-2".into(),
         })
     );
@@ -375,7 +385,7 @@ fn continue_is_claimed_once_across_two_starts() {
         session_id: "session-a".into(),
         prompt: None,
         sender: None,
-        pty_id: "pty-2".into(),
+        pty_id: Some("pty-2".into()),
         binding_nonce: "nonce-2".into(),
     };
     assert_eq!(step(&second, &tab_id, SECOND), Step::Claimed(claim));
@@ -411,7 +421,7 @@ fn consideration_drains_one_tab_after_its_single_resume_claim() {
             pty_id,
             binding_nonce,
             ..
-        })) if session_id == "session-a" && pty_id == "pty-2" && binding_nonce == "nonce-2"
+        })) if session_id == "session-a" && pty_id.as_deref() == Some("pty-2") && binding_nonce == "nonce-2"
     ));
     assert!(wave.pending_ids().is_empty());
     assert!(advance_consider(&mux, &tab_id, &wave, false).is_none());
@@ -469,8 +479,11 @@ fn tab_restored_as_a_shell_expires_with_its_reason() {
     tab.boot_stage = Some(BootStage::ShellReady);
     let restored = shared(restored);
 
-    assert_eq!(step(&restored, &tab_id, SECOND), Step::Waiting);
     assert_eq!(expire(&restored, &tab_id, SECOND), Some(NO_AGENT_SESSION));
+    assert_eq!(
+        mark(&restored, &tab_id).unwrap().settled.unwrap().outcome,
+        TurnResumeOutcome::Skipped(NO_AGENT_SESSION.into())
+    );
     assert_eq!(expire(&restored, &tab_id, SECOND), None);
     assert!(owed_tab_ids(&restored, SECOND).is_empty());
 }
@@ -492,27 +505,49 @@ fn unauthenticated_resume_waits_then_expires_unverified() {
 }
 
 #[test]
-fn chat_backend_tab_never_receives_a_pty_continue() {
+fn chat_tab_without_a_resumable_agent_is_skipped_with_a_durable_reason() {
     let (mut mux, tab_id) = agent_tab(TimelineState::Idle);
-    let tab = mux.get_tab_mut(&tab_id).expect("tab");
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
     tab.backing = TabBacking::ChatBackend {
-        plugin_id: "opaque-plugin".into(),
+        plugin_id: "opaque".into(),
+        session_id: "opaque".into(),
+    };
+    request_continue(&mut tab.turn_resume, "session-a", FIRST, "opaque".into());
+    tab.agent_type = None;
+    tab.agent_session_id = None;
+    let mux = shared(restart(&mux));
+    assert_eq!(step(&mux, &tab_id, SECOND), Step::Skipped(NO_AGENT_SESSION));
+    assert_eq!(
+        mark(&mux, &tab_id).unwrap().settled.unwrap().outcome,
+        TurnResumeOutcome::Skipped(NO_AGENT_SESSION.into())
+    );
+    assert_eq!(step(&mux, &tab_id, SECOND), Step::Settled);
+}
+
+#[test]
+fn after_update_message_arms_a_chat_runtime_session() {
+    let (mut mux, tab_id) = agent_tab(TimelineState::Idle);
+    mux.get_tab_mut(&tab_id).unwrap().backing = TabBacking::ChatBackend {
+        plugin_id: "opaque".into(),
         session_id: "session-a".into(),
     };
-    tab.agent_state = Some(
-        TabVerdict {
-            state: TimelineState::Working,
-            subtype: None,
-        }
-        .into(),
-    );
-    assert!(!record_turn_edge(tab, FIRST));
-
-    request_continue(&mut tab.turn_resume, "session-a", FIRST, "opaque".into());
-    let mux = shared(mux);
+    let mut restored = restart(&mux);
+    restored.register_alias(crate::service::general_agent::GENERAL_ALIAS, &tab_id);
+    let mux = shared(restored);
     assert_eq!(
-        step(&mux, &tab_id, SECOND),
-        Step::Skipped(NO_PTY_AGENT_SESSION)
+        stage_after_update_prompt(
+            &mux,
+            SECOND,
+            &crate::service::post_update::PendingMessage {
+                text: "opaque-after-update".into(),
+                sender: None
+            }
+        ),
+        Some(tab_id.clone())
+    );
+    assert_eq!(
+        mark(&mux, &tab_id).unwrap().prompt.as_deref(),
+        Some("opaque-after-update")
     );
 }
 
@@ -543,7 +578,7 @@ fn caller_request_and_working_mark_yield_one_continue() {
             session_id: "session-a".into(),
             prompt: Some("opaque-request".into()),
             sender: None,
-            pty_id: "pty-2".into(),
+            pty_id: Some("pty-2".into()),
             binding_nonce: "nonce-2".into(),
         })]
     );

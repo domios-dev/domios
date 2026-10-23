@@ -278,14 +278,10 @@ impl SubmitTransport for PtySubmitTransport<'_> {
             .and_then(|evidence| evidence.first_materialization.clone());
         *self.evidence_binding_nonce.borrow_mut() = binding_nonce;
         self.evidence_pty_generation
-            .set(self.svc.screen_state.lock().pty_generation(self.pty_id));
+            .set(self.svc.screen_state.pty_generation(self.pty_id));
         *self.turn_evidence_cursor.borrow_mut() =
             crate::service::chat_send_evidence::ExactTurnCursor::for_anchor(anchor.as_ref());
-        *self.signal.borrow_mut() = self
-            .svc
-            .screen_state
-            .lock()
-            .arm_screen_change_signal(self.pty_id);
+        *self.signal.borrow_mut() = self.svc.screen_state.arm_screen_change_signal(self.pty_id);
         self.output_generation_at_start
             .set(self.submit_cycle.output_generation());
         self.turn_status_generation_at_start
@@ -309,10 +305,9 @@ impl SubmitTransport for PtySubmitTransport<'_> {
     }
 
     fn observe(&self) -> Option<Observation> {
-        let state = self.svc.screen_state.lock();
-        state
-            .tail_text(self.pty_id, TAIL_ROWS)
-            .map(|tail| Observation { tail })
+        let state = self.svc.screen_state.existing(self.pty_id)?;
+        let state = state.lock();
+        state.tail_text(TAIL_ROWS).map(|tail| Observation { tail })
     }
 
     fn draft_evidence_count(&self, text: &str) -> usize {
@@ -363,7 +358,7 @@ impl SubmitTransport for PtySubmitTransport<'_> {
                         == evidence_binding_nonce.as_deref())
                 && tab.pty_id.as_deref() == Some(self.pty_id)
         });
-        let current_generation = self.svc.screen_state.lock().pty_generation(self.pty_id);
+        let current_generation = self.svc.screen_state.pty_generation(self.pty_id);
         if !current_binding || current_generation != self.evidence_pty_generation.get() {
             return false;
         }
@@ -462,11 +457,7 @@ impl SubmitTransport for PtySubmitTransport<'_> {
         if text.is_empty() {
             return Ok(0);
         }
-        let live_bracketed_paste_mode = self
-            .svc
-            .screen_state
-            .lock()
-            .bracketed_paste_mode(self.pty_id);
+        let live_bracketed_paste_mode = self.svc.screen_state.bracketed_paste_mode(self.pty_id);
         let input = paste_encoding::encode_paste_payload(
             text,
             self.force_bracketed_paste,
@@ -568,7 +559,7 @@ impl SubmitTransport for PtySubmitTransport<'_> {
     }
 
     fn write_submit_key(&self, key: &[u8], deadline: Instant) -> Result<(), InjectionError> {
-        let composer_generation = { self.svc.screen_state.lock().pty_generation(self.pty_id) };
+        let composer_generation = { self.svc.screen_state.pty_generation(self.pty_id) };
         let session = self
             .svc
             .pty
@@ -649,13 +640,16 @@ fn composer_draft_evidence(svc: &ServiceContext, pty_id: &str, text: &str) -> us
     if text.is_empty() {
         return 1;
     }
-    let state = svc.screen_state.lock();
+    let Some(state) = svc.screen_state.existing(pty_id) else {
+        return 0;
+    };
+    let state = state.lock();
     let lines = state
-        .lines_and_tail(pty_id, TAIL_ROWS)
+        .lines_and_tail(TAIL_ROWS)
         .map(|(lines, _)| lines)
         .unwrap_or_default();
     let cursor_row = state
-        .cursor_input_state(pty_id)
+        .cursor_input_state()
         .map(|(_, _, row, _)| row as usize)
         .unwrap_or_else(|| lines.len().saturating_sub(1));
     screen_echo_evidence_count(&composer_region_text(&lines, cursor_row), text)
@@ -884,7 +878,7 @@ pub(crate) fn submit_text_with_key_claimed_revalidated(
     );
     let submit_generation = claim.generation;
     let (wake_tx, wake_rx) = mpsc::sync_channel(1);
-    let signal = svc.screen_state.lock().arm_screen_change_signal(pty_id);
+    let signal = svc.screen_state.arm_screen_change_signal(pty_id);
     let status_signal = svc.agent_tracker.lock().arm_status_change_signal(pty_id);
     let output_generation_at_start = submit_cycle.output_generation();
     let turn_status_generation_at_start = status_signal.generation();

@@ -476,7 +476,7 @@ pub(crate) fn macos_self_tailscale_ip() -> Option<String> {
         .as_array()?
         .iter()
         .filter_map(|v| v.as_str())
-        .find(|ip| super::discovery::is_tailscale_ip(ip))
+        .find(|ip| crate::types::is_tailscale_ip(ip))
         .map(String::from)
 }
 

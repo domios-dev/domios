@@ -3,8 +3,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { collectCargoBuilds, mapCheckouts, trimBuildDirectories } from './cargo-build-gc.mjs';
+import { collectCargoBuilds } from './cargo-build-gc.mjs';
+import { trimGatewayCaches } from './gateway-cache-gc.mjs';
 import { trimLaneTargets } from './lane-target-gc.mjs';
+import { collectCheckWorktrees } from './check-worktree-paths.mjs';
 
 const DAY = 86400000;
 const markerName = '.codeterm-cache.json';
@@ -146,44 +148,15 @@ export function retain(gateway, checkout, { dryRun = false, automatic = false, n
   }
   if (total > capBytes) log(`cap exceeded by protected targets: ${total} bytes retained`);
   if (sweep) {
-    sweepCheckout(checkout, dryRun, maxAgeDays, runner);
-    trimCheckoutBuilds(checkout, dryRun, runner);
+    reclaimed += trimGatewayCaches(gateway, { dryRun, now, maxAgeDays, runner, log });
     const common = runner('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: checkout, encoding: 'utf8' });
     if (common.status === 0 && typeof common.stdout === 'string' && path.isAbsolute(common.stdout.trim())) {
       reclaimed += trimLaneTargets(path.dirname(common.stdout.trim()), { checkout, dryRun, maxAgeDays, now, runner, log });
     } else log('lane target trim refused: canonical checkout unavailable');
   }
   if (!dryRun) writeJson(stamp, { lastRun: now });
-  log(`${dryRun ? 'would reclaim' : 'reclaimed'} ${reclaimed} exceptional bytes`);
+  log(`${dryRun ? 'would reclaim' : 'reclaimed'} ${reclaimed} bytes total`);
   return reclaimed;
-}
-
-// cargo-sweep keys on access time, which NTFS keeps fresh, so build directories are trimmed by unit identity instead.
-function trimCheckoutBuilds(checkout, dryRun, runner) {
-  try {
-    trimBuildDirectories(mapCheckouts([checkout], { runner }), { dryRun, runner });
-  } catch (error) { log(`build-directory trim refused: ${error.message}; build continues`); }
-}
-
-function sweepCheckout(checkout, dryRun, maxAgeDays, runner) {
-  const available = runner('cargo-sweep', ['--version'], { stdio: 'ignore' }).status === 0;
-  if (!available) { log(`Install cargo-sweep (cargo install cargo-sweep) to prune checkout artifacts after ${maxAgeDays} days.`); return; }
-  for (const relative of ['src-tauri/target', 'cli/target']) {
-    const dir = path.join(checkout, relative);
-    if (!fs.existsSync(dir)) continue;
-    try {
-      const parent = physical(path.dirname(dir));
-      if (parent !== path.join(checkout, path.dirname(relative))) throw new Error('unsafe sweep parent');
-      candidate(parent, dir);
-      const before = bytes(dir);
-      const args = ['sweep', '--time', String(maxAgeDays)];
-      if (dryRun) args.push('--dry-run');
-      const result = runner('cargo', args, { cwd: parent, stdio: 'inherit',
-        env: { ...process.env, CARGO_TARGET_DIR: dir } });
-      if (result.status !== 0) log(`cargo sweep failed for ${dir}; build continues`);
-      else log(`${dryRun ? 'sweep preview' : `sweep reclaimed ${before - bytes(dir)} bytes`}: ${dir}`);
-    } catch (error) { log(`refused sweep ${dir}: ${error.message}`); }
-  }
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -192,16 +165,19 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     const [operation, gateway, checkout, target, home = gateway] = process.argv.slice(2);
     if (operation === 'mark') mark(gateway, checkout, target, Date.now(), process.ppid, home);
     else if (operation === 'gc' || operation === 'auto') {
+      if (operation === 'gc') collectCheckWorktrees(checkout, gateway, { dryRun: target === '--dry-run', log });
+      let collected = 0;
       if (process.env.CT_BUILD_GATEWAY_SCOPE !== 'fixture' && (operation === 'gc' || retentionDue(gateway, Date.now()))) {
         try {
-          collectCargoBuilds(checkout, { dryRun: target === '--dry-run', record: path.join(gateway, 'stable-build-dirs.json') });
+          collected = collectCargoBuilds(checkout, { dryRun: target === '--dry-run', record: path.join(gateway, 'stable-build-dirs.json') });
         } catch (error) {
           if (operation === 'gc') throw error;
           log(`orphan build collection refused: ${error.message}; build continues`);
         }
       }
-      retain(gateway, checkout, { automatic: operation === 'auto', dryRun: target === '--dry-run',
+      const retained = retain(gateway, checkout, { automatic: operation === 'auto', dryRun: target === '--dry-run',
         sweep: process.env.CT_BUILD_GATEWAY_SCOPE !== 'fixture', home });
+      log(`${target === '--dry-run' ? 'would free' : 'freed'} ${collected + retained} bytes across all caches`);
     }
     else throw new Error('unknown cache retention operation');
   } catch (error) { console.error(`[cache-policy] ${error.message}`); process.exitCode = 2; }
