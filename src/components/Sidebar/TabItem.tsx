@@ -402,9 +402,12 @@ function TabItemInner({
               if (trimmed && trimmed !== canonicalTitle && _onRename) _onRename(trimmed);
             }}
             onKeyDown={(e) => {
+              if (e.key !== "Enter" && e.key !== "Escape") return;
+              e.preventDefault();
+              e.stopPropagation();
               if (e.key === "Enter") {
                 (e.target as HTMLInputElement).blur();
-              } else if (e.key === "Escape") {
+              } else {
                 setEditName(canonicalTitle);
                 setEditing(false);
               }

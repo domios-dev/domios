@@ -108,6 +108,9 @@ test('Cargo-compatible held lock protects an orphan; released lock allows remova
   t.after(() => child.kill());
   const exited = once(child, 'exit');
   await once(child.stdout, 'data');
+  const tree = spawnSync(python, [helper, '--tree', path.dirname(dir), dir], { encoding: 'utf8' });
+  assert.equal(tree.status, 0, tree.stderr);
+  assert.equal(JSON.parse(tree.stdout).status, 'protected');
   assert.equal(f.run(dir, true).status, 'protected');
   assert.equal(f.run(dir).status, 'protected');
   assert.equal(fs.existsSync(dir), true);
@@ -218,4 +221,30 @@ test('a held Cargo lock protects the whole build directory from trim', async (t)
   child.stdin.end('x');
   assert.equal((await exited)[0], 0);
   assert.equal(JSON.parse(f.trim([f.stale]).stdout).status, 'trimmed');
+});
+
+
+test('stable alias reads manifests from the physical checkout while metadata keeps the alias', (t) => {
+  const f = fixture(t);
+  const alias = path.join(f.root, 'alias');
+  fs.mkdirSync(alias);
+  const calls = [];
+  const mappings = mapCheckouts([alias], { indexCheckout: () => f.root, runner: (program, args, options) => {
+    calls.push({ program, args, cwd: options.cwd });
+    if (program === 'git') {
+      assert.equal(options.cwd, f.root);
+      return { status: 0, stdout: 'src-tauri/Cargo.toml\0' };
+    }
+    assert.equal(options.cwd, alias);
+    return { status: 0, stdout: JSON.stringify({ workspace_root: alias, build_directory: path.join(f.root, 'ab', '1'.repeat(14)) }) };
+  } });
+  assert.equal(mappings.length, 1);
+  assert.equal(calls.length, 2);
+});
+
+test('stale registered worktree with an unusable git index does not abort GC', (t) => {
+  const f = fixture(t);
+  assert.deepEqual(mapCheckouts([f.root], { runner: () => ({ status: 128, stderr: 'not a git repository' }) }), []);
+  let calls = 0;
+  assert.throws(() => mapCheckouts([f.root], { runner: () => ++calls === 1 ? { status: 128, stderr: 'index error' } : { status: 0 } }), /index error/);
 });

@@ -60,8 +60,9 @@ export function ComposerActionButton({
           }
           void startVoice(e);
         }}
-        onPointerUp={() => {
-          if (voice.recording || voicePressed) return;
+        onPointerUp={(e) => {
+          // Secondary buttons open the schedule through onContextMenu instead of sending.
+          if (e.button !== 0 || voice.recording || voicePressed) return;
           if (mainIsSend) onSend();
         }}
         onTouchStart={(e) => {

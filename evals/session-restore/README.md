@@ -48,8 +48,8 @@ Fixes (PR #54):
 
 Prereqs:
 - dev daemon running on port 7686 (`./build.sh dev`)
-- dev API token + socket path (the script reads them from
-  `~/.codeterm-dev/config.toml` + the well-known pipe name)
+- dev API credential and socket resolved through `evals/_lib/lib.sh` and the
+  selected instance's local-only `domios system api-token` command
 
 ```bash
 bash evals/session-restore/run.sh

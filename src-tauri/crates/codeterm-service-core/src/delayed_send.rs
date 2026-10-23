@@ -606,7 +606,9 @@ impl DelayedSendQueue {
 /// The strict validator keeps a hand-edited queue whose records no longer all
 /// parse: the next save preserves it as a corrupt copy instead of dropping them.
 fn queue_file(path: &Path) -> StateFile {
-    StateFile::new(path).with_validator(validate_queue_strict)
+    StateFile::new(path)
+        .with_private_permissions()
+        .with_validator(validate_queue_strict)
 }
 
 fn queue_records(root: &serde_json::Value) -> Result<&Vec<serde_json::Value>, String> {

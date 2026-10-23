@@ -64,6 +64,8 @@ void (async () => {
     assert(calls === 0, "cached snapshot needs no fetch");
     assert(await coalescer.request(8), "new generation succeeds");
     assert(Number(calls) === 1, "new snapshot fetches once");
+    assert(await coalescer.request(6), "older signal is already covered");
+    assert(Number(calls) === 1, "late signals need no fetch");
     await coalescer.request();
     assert(Number(calls) === 2, "unversioned requests always fetch");
   });
@@ -77,12 +79,28 @@ void (async () => {
       return result;
     }, undefined, () => cached);
     const first = coalescer.request(2);
-    const queued = coalescer.request(2);
+    const queued = coalescer.request(2, true);
     backend.releaseNext();
     await tick();
     await tick();
     assert(backend.calls() === 1, "queued duplicate needs no second fetch");
     assert((await Promise.all([first, queued])).every(Boolean), "both requests succeed");
+  });
+
+  await test("a rollback queued behind a normal read retains forced snapshot acceptance", async () => {
+    const backend = controllable();
+    const forced: boolean[] = [];
+    const coalescer = createRefreshCoalescer((force) => {
+      forced.push(force);
+      return backend.run();
+    });
+    const initial = coalescer.request();
+    const rollback = coalescer.request(undefined, true);
+    backend.releaseNext();
+    await tick();
+    assert(forced.length === 2 && forced[0] === false && forced[1] === true, "queued rollback forces only its own read");
+    backend.releaseNext();
+    assert((await Promise.all([initial, rollback])).every(Boolean), "both reads finish");
   });
 
   await test("a burst of 200 requests costs two fetches, never two at once", async () => {

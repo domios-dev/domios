@@ -699,6 +699,7 @@ async fn ensure_locked(
         backfill::continue_in_background(port, replay, reopen);
     }
     svc.emit_state_changed(MuxEmitCause::TabLifecycle);
+    svc.on_turn_resume_binding_changed(tab);
     Ok(())
 }
 
@@ -1144,6 +1145,26 @@ pub fn publish(svc: &ServiceContext, tab: &str, session: &Session) {
             })
         {
             target.record_activity();
+        }
+        if value["state"] == "loaded"
+            && context.thread_id.is_some()
+            && target.agent_session_id == context.thread_id
+            && target.reported_session_binding_nonce.as_deref()
+                == Some(context.binding_nonce.as_str())
+            && session
+                .thread_loaded
+                .load(std::sync::atomic::Ordering::Acquire)
+            && session
+                .process
+                .lock()
+                .as_ref()
+                .is_some_and(|process| process.ended.borrow().is_none())
+        {
+            crate::service::boot_stage::apply_boot_stage(
+                target,
+                codeterm_types::pty::BootStage::AgentReady,
+                None,
+            );
         }
         target.agent_runtime_state = Some(value.clone());
         target.agent_booting = value["state"] == "loading";

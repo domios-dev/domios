@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { useAgentDescriptors } from "../../lib/useAgentDescriptor";
 import { useTabActivity } from "../../lib/useTabActivity";
+import { isProviderSelectable } from "../../lib/providerAvailability";
 import { reasoningEffortsForModel, resolveEffort, resolveProviderModel } from "../../lib/newSessionChoice";
 import type { Tab } from "../../lib/types";
 import { getTabProviderApi } from "./tabProviderApi";
@@ -10,7 +11,7 @@ import { supportsProviderHandoff, switchTabProvider, type ProviderSwitchResult, 
 export function useProviderSwitch(tab: Tab, initialProviderId: string) {
   const providers = useAgentDescriptors().filter((provider) => supportsProviderHandoff(provider) && provider.id !== tab.agent_type);
   const [providerId, setProviderId] = useState(initialProviderId);
-  const provider = providers.find((candidate) => candidate.id === providerId);
+  const provider = providers.find((candidate) => candidate.id === providerId && isProviderSelectable(candidate));
   const [selectedModel, setModel] = useState<string>();
   const model = resolveProviderModel(provider, selectedModel) ?? selectedModel;
   const [selectedEffort, setEffort] = useState<string>();

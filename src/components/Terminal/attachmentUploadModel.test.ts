@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { TransportError } from "../../lib/transportClient";
 import { canRetryUpload, classifyUploadFailure, createAttachmentUploads, uploadCardPresence, type AttachmentUpload } from "./attachmentUploadModel";
 
 test("interrupted and malformed multipart uploads allow retry, permanent rejection does not", () => {
-  for (const error of [new TypeError("network"), Object.assign(new Error("interrupted"), { name: "AbortError" }), Object.assign(new Error("Error parsing multipart/form-data request"), { status: 400 }), Object.assign(new Error("busy"), { status: 503 })]) {
+  for (const error of [new TransportError(400, "/api/attachments/upload", "Error parsing multipart/form-data request"), new TypeError("network"), Object.assign(new Error("interrupted"), { name: "AbortError" }), Object.assign(new Error("Error parsing multipart/form-data request"), { status: 400 }), Object.assign(new Error("busy"), { status: 503 })]) {
     assert.equal(classifyUploadFailure(error).retryable, true);
   }
   for (const status of [400, 401, 403, 413]) assert.equal(classifyUploadFailure(Object.assign(new Error("rejected"), { status })).retryable, false);

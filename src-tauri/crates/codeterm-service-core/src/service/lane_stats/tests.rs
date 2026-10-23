@@ -44,22 +44,6 @@ fn git_text(cwd: &Path, args: &[&str]) -> String {
 #[test]
 fn lane_turn_stats_capture_unstaged_staged_and_untracked_files() {
     let root = repository();
-    fs::write(root.path().join("tracked.txt"), "base\nstaged\n").unwrap();
-    git(root.path(), &["add", "tracked.txt"]);
-    fs::write(root.path().join("tracked.txt"), "base\nstaged\nunstaged\n").unwrap();
-    fs::write(root.path().join("new.txt"), "untracked\n").unwrap();
-
-    let (unstaged, staged, untracked) =
-        capture_change_stats(root.path(), Instant::now() + Duration::from_secs(4)).unwrap();
-
-    assert!(unstaged.starts_with("1\t0\ttracked.txt"));
-    assert!(staged.starts_with("1\t0\ttracked.txt"));
-    assert_eq!(untracked, 1);
-}
-
-#[test]
-fn lane_turn_stats_never_rewrite_the_lane_index() {
-    let root = repository();
     let index = root.path().join(".git").join("index");
     let tracked = root.path().join("tracked.txt");
     let rewritten_at = fs::metadata(&index).unwrap().modified().unwrap() + Duration::from_secs(2);
@@ -78,6 +62,18 @@ fn lane_turn_stats_never_rewrite_the_lane_index() {
     assert_eq!(fs::read(&index).unwrap(), before);
     assert!(unstaged.trim().is_empty(), "{unstaged}");
     assert!(staged.trim().is_empty(), "{staged}");
+
+    fs::write(root.path().join("tracked.txt"), "base\nstaged\n").unwrap();
+    git(root.path(), &["add", "tracked.txt"]);
+    fs::write(root.path().join("tracked.txt"), "base\nstaged\nunstaged\n").unwrap();
+    fs::write(root.path().join("new.txt"), "untracked\n").unwrap();
+
+    let (unstaged, staged, untracked) =
+        capture_change_stats(root.path(), Instant::now() + Duration::from_secs(4)).unwrap();
+
+    assert!(unstaged.starts_with("1\t0\ttracked.txt"));
+    assert!(staged.starts_with("1\t0\ttracked.txt"));
+    assert_eq!(untracked, 1);
 }
 
 #[test]

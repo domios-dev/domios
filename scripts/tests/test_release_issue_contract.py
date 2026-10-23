@@ -183,6 +183,16 @@ class ReleaseIssueContractTest(unittest.TestCase):
                 ["rollacode/codeterm#652"],
             )
 
+            mid_line = resolve(
+                "release: parser\n\nA merge subject on master declares "
+                "(Repository-Issue: rollacode/codeterm#652). The closing\nparenthesis was accepted."
+            )
+            self.assertEqual(mid_line.returncode, 0, mid_line.stderr)
+            self.assertEqual(
+                [issue["reference"] for issue in json.loads(mid_line.stdout)["repository_issues"]],
+                ["rollacode/codeterm#652"],
+            )
+
             rejected = resolve("merge: lane (Repository-Issue: codeterm#518)")
             self.assertEqual(rejected.returncode, 2)
             self.assertIn("malformed Repository-Issue metadata", rejected.stderr)

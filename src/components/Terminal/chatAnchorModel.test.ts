@@ -5,7 +5,7 @@ import { captureChatAnchor, chatAnchorIdentities, chatRevealIndex, resolveChatAn
 import { captureChatContentAnchor } from "./chatScrollAnchor";
 
 describe("chat anchor identity and pixels", () => {
-  it("uses the mounted row frame when a day separator precedes the message body", () => {
+  it("measures the anchor offset from the message body when a day separator precedes it", () => {
     const scroll = document.createElement("div");
     scroll.scrollTop = 500;
     const frame = document.createElement("div");
@@ -17,7 +17,26 @@ describe("chat anchor identity and pixels", () => {
     scroll.getBoundingClientRect = () => ({ top: 100 } as DOMRect);
     frame.getBoundingClientRect = () => ({ top: 50, height: 1000 } as DOMRect);
     message.getBoundingClientRect = () => ({ top: 80, height: 970 } as DOMRect);
-    expect(captureChatContentAnchor(scroll)).toEqual({ id: "opaque-row", key: "opaque-row", ordinal: 0, offset: -50 });
+    expect(captureChatContentAnchor(scroll)).toEqual({ id: "opaque-row", key: "opaque-row", ordinal: 0, offset: -20 });
+  });
+  it("keeps the anchor body still when its day separator moves onto a prepended page", () => {
+    const separator = 28;
+    const [first, second] = chatAnchorIdentities([{ id: "first" }, { id: "second" }]);
+    const before = [
+      { ...first, top: 0, height: separator + 50, contentTop: separator },
+      { ...second, top: separator + 50, height: 50, contentTop: separator + 50 },
+    ];
+    const scrollTop = 10;
+    const anchor = captureChatAnchor(before, scrollTop)!;
+    const prepended = 400;
+    const after = [
+      { ...first, top: prepended, height: 50, contentTop: prepended },
+      { ...second, top: prepended + 50, height: 50, contentTop: prepended + 50 },
+    ];
+    const nextScrollTop = resolveChatAnchorTop(after, anchor)!;
+    for (const [index, row] of after.entries()) {
+      expect(row.contentTop - nextScrollTop).toBe(before[index].contentTop - scrollTop);
+    }
   });
   const identities = chatAnchorIdentities([{ id: "range-a", sourceMessageId: "duplicate" }, { id: "range-b", sourceMessageId: "duplicate" }, { id: "range-c" }]);
   it("captures the first intersecting row with its viewport offset", () => {

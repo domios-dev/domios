@@ -55,21 +55,8 @@ export async function recordSmokeReceipt(receipt, outputDirectory, summary = pro
   }
 }
 
-export function parseApiToken(config) {
-  const section = /^\s*\[([^\]]+)\]\s*$/;
-  let inApi = false;
-  let token;
-  for (const line of config.split(/\r?\n/)) {
-    const header = section.exec(line);
-    if (header) { inApi = header[1] === 'api'; continue; }
-    if (!inApi) continue;
-    const match = /^\s*token\s*=\s*("(?:[^"\\]|\\.)*")\s*(?:#.*)?$/.exec(line);
-    if (match) {
-      if (token !== undefined) fail('isolated API config has duplicate tokens');
-      token = JSON.parse(match[1]);
-    }
-  }
-  if (typeof token !== 'string' || !token || /[\r\n]/.test(token)) fail('isolated API token is missing or invalid');
+export function validateApiToken(token) {
+  if (typeof token !== 'string' || !token.trim() || /[\r\n]/.test(token)) fail('isolated API credential is missing or invalid');
   return token;
 }
 
@@ -153,14 +140,14 @@ function waitForExit(child, signal) {
   });
 }
 
-async function runCli(binary, env, signal, execution) {
-  const command = targetCommand(binary, ['identify', '--json'], execution);
+async function runCli(binary, env, signal, execution, args = ['identify', '--json']) {
+  const command = targetCommand(binary, args, execution);
   const child = spawn(command.binary, command.args, { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
   const chunks = [];
   child.stdout.on('data', bytes => { if (chunks.reduce((size, part) => size + part.length, 0) < 65536) chunks.push(bytes); });
   const code = await waitForExit(child, signal);
   if (code !== 0) fail('packaged CLI authenticated identify failed');
-  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  return Buffer.concat(chunks).toString('utf8');
 }
 
 // The supervised server discards its own stderr and the scratch directory is deleted, so its log is the only cause left.
@@ -219,13 +206,15 @@ export async function smokePackagedPair({ target, tag, version, sourceSha, stage
     await waitForReady(child, manifest.server_build, port, deadline, refusals);
     const healthResponse = await fetch(`http://127.0.0.1:${port}/api/health`, { signal: deadline });
     if (!healthResponse.ok || (await healthResponse.json()).build_sha !== manifest.server_build) fail('packaged server health build differs from manifest');
-    const token = parseApiToken(await readFile(path.join(config, 'config.toml'), 'utf8'));
+    const tokenEnv = { ...process.env, CODETERM_DATA_DIR: data };
+    for (const key of ['CODETERM_API_TOKEN', 'CODETERM_API_URL', 'CODETERM_API_PORT', 'CODETERM_SOCKET_PATH', 'CODETERM_INSTANCE']) delete tokenEnv[key];
+    const token = validateApiToken(await runCli(cli, tokenEnv, deadline, execution, ['system', 'api-token']));
     const nonce = randomUUID();
     const env = { ...process.env, CODETERM_DATA_DIR: data, CODETERM_API_URL: `http://127.0.0.1:${port}`,
       CODETERM_API_TOKEN: token, CODETERM_INSTANCE: `verify-smoke-${nonce}`,
       CODETERM_SOCKET_PATH: `domios-dev-verify-smoke-${nonce}.sock` };
     delete env.CODETERM_API_PORT;
-    const identity = await runCli(cli, env, deadline, execution);
+    const identity = JSON.parse(await runCli(cli, env, deadline, execution));
     if (identity.cli?.build_sha !== sourceSha || identity.connection?.instance !== `verify-smoke-${nonce}`) {
       fail('packaged CLI identity differs from source or isolated instance');
     }

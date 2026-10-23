@@ -1,7 +1,26 @@
 use crate::sign_in_diagnostic::SignInAttempt;
 use crate::*;
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::Arc,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 use tokio::sync::{oneshot, Mutex};
+
+const ID_TOKEN_REFRESH_WINDOW_SECONDS: u64 = 60;
+
+fn unix_time() -> Option<u64> {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .map(|duration| duration.as_secs())
+}
+
+fn token_expiring(expires_at: u64) -> bool {
+    match unix_time() {
+        Some(now) => expires_at <= now.saturating_add(ID_TOKEN_REFRESH_WINDOW_SECONDS),
+        None => true,
+    }
+}
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct Status {
@@ -170,6 +189,10 @@ impl Account {
     }
     pub async fn refresh(&self) -> Result<Status> {
         let _operation = self.operation.try_lock().map_err(|_| Error::Pending)?;
+        self.refresh_locked().await?;
+        Ok(self.status().await)
+    }
+    async fn refresh_locked(&self) -> Result<()> {
         let generation = self.state.lock().await.generation;
         tokio::time::timeout(self.deadline, async {
             let token = self
@@ -183,7 +206,7 @@ impl Account {
         })
         .await
         .map_err(|_| Error::Timeout)??;
-        Ok(self.status().await)
+        Ok(())
     }
     pub async fn logout(&self) -> Result<Status> {
         let token = {
@@ -212,6 +235,57 @@ impl Account {
     }
     pub async fn session(&self) -> Option<Session> {
         self.state.lock().await.session.clone()
+    }
+    pub async fn current_session(&self) -> Result<Option<Session>> {
+        let current = self.state.lock().await.session.clone();
+        let Some(current) = current else {
+            return Ok(None);
+        };
+        let Some(expires_at) = current.expires_at else {
+            return Ok(Some(current));
+        };
+        if !token_expiring(expires_at) {
+            return Ok(Some(current));
+        }
+
+        let _operation = self.operation.lock().await;
+        let current = self.state.lock().await.session.clone();
+        let Some(current) = current else {
+            return Ok(None);
+        };
+        if current
+            .expires_at
+            .is_some_and(|expires_at| token_expiring(expires_at))
+        {
+            if let Err(error) = self.refresh_locked().await {
+                if error == Error::Credentials {
+                    let expired =
+                        {
+                            let mut state = self.state.lock().await;
+                            if state.session.as_ref().is_some_and(|session| {
+                                session.expires_at.is_some_and(token_expiring)
+                            }) {
+                                state.generation += 1;
+                                state.session = None;
+                                true
+                            } else {
+                                false
+                            }
+                        };
+                    if expired {
+                        if let Some(observer) = &self.observer {
+                            observer.changed(None).await;
+                        }
+                    }
+                }
+                return Err(error);
+            }
+        }
+        let current = self.state.lock().await.session.clone();
+        Ok(current.filter(|session| match session.expires_at {
+            None => true,
+            Some(expires_at) => unix_time().is_some_and(|now| expires_at > now),
+        }))
     }
 }
 

@@ -1,5 +1,6 @@
 // Run: npx tsx src/components/Terminal/TabSessionChat.watcher.test.tsx
 
+import { mock } from "node:test";
 import { act } from "react";
 import { Window } from "happy-dom";
 import { createRoot, type Root } from "react-dom/client";
@@ -101,7 +102,7 @@ function muxActions(
     deleteNotification: noop,
     clearNotifications: noop,
     dismissToast: noop,
-    setTabTitle: noop,
+    renameTab: noop,
     setAgentType: noop,
     updateTabStatus: noop,
     spawnClaudeTab: noop,
@@ -498,32 +499,37 @@ test("launch failure uses the shared failure surface without an automatic retry"
 });
 
 test("T7 awaiting-store keeps the composer identity, draft, and focus", async () => {
-  const tabId = "pending-composer-tab";
-  const state = muxStateFor({
-    [tabId]: tabBase(tabId, { agent_session_id: "bound-session" }),
-  });
-  const { host, root, commands } = await renderTabSessionChat(
-    tabId,
-    state,
-    () => ({ text: "", offset: 0, pending: true }),
-  );
-  const composer = host.querySelector('[data-testid="chat-composer"]') as HTMLTextAreaElement | null;
-  assert(composer, "empty chat keeps its composer available");
-  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
-  setter?.call(composer, "typing without reset");
-  composer.dispatchEvent(new Event("input", { bubbles: true }));
-  composer.setSelectionRange(7, 7);
-  composer.focus();
+  mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"] });
+  try {
+    const tabId = "pending-composer-tab";
+    const state = muxStateFor({
+      [tabId]: tabBase(tabId, { agent_session_id: "bound-session" }),
+    });
+    const { host, root, commands } = await renderTabSessionChat(
+      tabId,
+      state,
+      () => ({ text: "", offset: 0, pending: true }),
+    );
+    const composer = host.querySelector('[data-testid="chat-composer"]') as HTMLTextAreaElement | null;
+    assert(composer, "empty chat keeps its composer available");
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+    setter?.call(composer, "typing without reset");
+    composer.dispatchEvent(new Event("input", { bubbles: true }));
+    composer.setSelectionRange(7, 7);
+    composer.focus();
 
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 1_100)));
+    await act(async () => mock.timers.tick(1_100));
 
-  const currentComposer = host.querySelector('[data-testid="chat-composer"]') as HTMLTextAreaElement | null;
-  assert(currentComposer === composer, "pending empty chat did not remount the composer");
-  assert(currentComposer.value === "typing without reset", "typed draft survived pending chat state");
-  assert(currentComposer.selectionStart === 7, "caret position survived pending chat state");
-  assert(document.activeElement === composer, "composer focus survived pending chat state");
-  assert(commands.filter((command) => command === "chat_start").length === 1, "awaiting-store chat does not poll or remount");
-  await act(async () => root.unmount());
+    const currentComposer = host.querySelector('[data-testid="chat-composer"]') as HTMLTextAreaElement | null;
+    assert(currentComposer === composer, "pending empty chat did not remount the composer");
+    assert(currentComposer.value === "typing without reset", "typed draft survived pending chat state");
+    assert(currentComposer.selectionStart === 7, "caret position survived pending chat state");
+    assert(document.activeElement === composer, "composer focus survived pending chat state");
+    assert(commands.filter((command) => command === "chat_start").length === 1, "awaiting-store chat does not poll or remount");
+    await act(async () => root.unmount());
+  } finally {
+    mock.timers.reset();
+  }
 });
 
 test("snapshot failure stays on the chat loading row", async () => {

@@ -1,3 +1,4 @@
+pub mod account_mesh_routes;
 pub mod account_routes;
 pub mod analytics_routes;
 mod attachment_upload;
@@ -66,6 +67,7 @@ pub(crate) mod session_exchange;
 pub mod session_routes;
 pub(crate) mod stream_census;
 pub(crate) mod stream_diagnostics;
+pub(crate) mod stream_mux;
 pub(crate) mod surface_routes;
 pub(crate) mod tab_adopt_routes;
 pub mod tab_agent_routes;
@@ -102,3 +104,6 @@ mod process_split_contract;
 pub mod test_support;
 
 pub mod app_quit_routes;
+
+#[cfg(test)]
+mod ui_status_tests;

@@ -434,7 +434,7 @@ impl PlanStore {
         expected_digest: &str,
         expected_base_head: &str,
         new_tab_id: &str,
-        new_session_id: &str,
+        binding: &super::task_assignment::AssignmentRuntimeBinding,
         now_ms: u64,
     ) -> Result<(u64, String), PlanError> {
         let mut adopted = None;
@@ -461,13 +461,21 @@ impl PlanStore {
                 Some("worker"),
                 now_ms,
             );
-            attempt.session_id = Some(new_session_id.to_string());
+            attempt.session_id = Some(binding.session_id.clone());
+            attempt.session_binding_nonce = Some(binding.session_binding_nonce.clone());
+            attempt.provider = binding.provider.clone();
+            attempt.agent_type = binding.provider.clone();
+            attempt.requested_model = binding.model.clone();
+            attempt.model = binding.model.clone();
+            attempt.provider_resolved_model = binding.model.clone();
+            attempt.session_model = binding.session_model.clone();
+            attempt.reasoning_effort = binding.reasoning_effort.clone();
             attempt.interruption.owner_epoch = epoch;
             let attempt_id = attempt.id.clone();
             task.execution_attempts.push(attempt);
             task.interruption.owner_epoch = epoch;
             task.interruption.owner_tab_id = Some(new_tab_id.to_string());
-            task.interruption.owner_session_id = Some(new_session_id.to_string());
+            task.interruption.owner_session_id = Some(binding.session_id.clone());
             task.interruption.handoff_required = false;
             task.assigned_tab_id = Some(new_tab_id.to_string());
             task.lane.tab_id = Some(new_tab_id.to_string());

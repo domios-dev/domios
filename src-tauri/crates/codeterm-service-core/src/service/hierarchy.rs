@@ -431,6 +431,29 @@ impl ServiceContext {
         milestone_kind: Option<&str>,
         source_outcome: Option<ReportOutcomeClass>,
     ) -> Result<ReportResult, ReportSubmissionError> {
+        let utility_shell = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .is_some_and(|tab| tab.is_utility_shell() && !tab.agent_booting);
+        let (details, plan_id, task_id, milestone_kind, source_outcome) = if utility_shell {
+            (
+                ReportDetails {
+                    plan_id: None,
+                    task_id: None,
+                    owner_epoch: None,
+                    attempt_id: None,
+                    status: None,
+                    ..details
+                },
+                None,
+                None,
+                None,
+                None,
+            )
+        } else {
+            (details, plan_id, task_id, milestone_kind, source_outcome)
+        };
         let mut report_outcome = (source_outcome == Some(ReportOutcomeClass::DeliveredUnattached))
             .then_some(ReportOutcomeClass::DeliveredUnattached);
         let (task_status, mut task_transition_refusal) =

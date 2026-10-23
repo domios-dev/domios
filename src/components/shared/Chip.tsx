@@ -18,7 +18,7 @@ const VARIANT_EXTRA: Record<ChipVariant, string> = {
   success: "border-[var(--ct-green)]/40 text-[var(--ct-green)]",
   danger: "border-[var(--ct-red)]/40 text-[var(--ct-red)]",
   warning: "border-[var(--ct-yellow,#d97706)]/40 text-[var(--ct-yellow,#d97706)]",
-  muted: "border-transparent text-[var(--ct-muted)]",
+  muted: "border-[var(--ct-border)] text-[var(--ct-muted-fg)]",
 };
 
 export function Chip({

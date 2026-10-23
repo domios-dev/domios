@@ -466,19 +466,18 @@ fn pending_delivery_failure_reverts_task_dispatch_and_rolls_back_tab() {
     let fallback_spec =
         crate::service::launch_delivery::fallback_delivery_spec(None, params.task.as_deref(), None)
             .unwrap();
-    use sha2::Digest;
-    let digest = format!(
-        "{:x}",
-        sha2::Sha256::digest(fallback_spec.payload.as_bytes())
-    );
-    std::fs::write(
-        fixture
-            .service
-            .pending_delivery_payloads
-            .path_for_test(&digest),
-        b"conflicting payload at expected digest",
-    )
-    .unwrap();
+    let payload_dir = fixture
+        .service
+        .pending_delivery_payloads
+        .path_for_test(&crate::multiplexer::types::PendingDeliveryRecord::new(
+            crate::service::launch_delivery::pending_delivery(&fallback_spec.payload).digest,
+            fallback_spec.channel.clone(),
+        ))
+        .parent()
+        .unwrap()
+        .to_path_buf();
+    std::fs::remove_dir(&payload_dir).unwrap();
+    std::fs::write(&payload_dir, b"store unavailable").unwrap();
     let error = create_pending_delivery_or_rollback_dispatch(
         &fixture.service,
         &params,
@@ -486,7 +485,7 @@ fn pending_delivery_failure_reverts_task_dispatch_and_rolls_back_tab() {
         &fallback_spec,
     )
     .unwrap_err();
-    assert!(error.contains("digest mismatch"), "{error}");
+    assert!(error.contains("pending delivery payload"), "{error}");
     assert!(fixture.service.mux.read().get_tab(&tab_id).is_some());
     fixture.service.rollback_failed_agent_spawn(&tab_id, &error);
     let mux = fixture.service.mux.read();

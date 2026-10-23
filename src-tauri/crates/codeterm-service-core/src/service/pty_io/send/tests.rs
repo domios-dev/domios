@@ -11,7 +11,6 @@ use crate::multiplexer::state::MultiplexerState;
 // shell_ready_wait_tests
 
 use codeterm_pty::pty::screen_state::ScreenState;
-use codeterm_util::lock_hold::TimedMutex;
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -22,7 +21,7 @@ const MACOS_BASH_BANNER_PROMPT: &[u8] = b"The default interactive shell is now z
     rollacode-bot:general dev$ ";
 
 fn handle() -> crate::ScreenStateHandle {
-    Arc::new(TimedMutex::new("screen_state", ScreenState::new()))
+    Arc::new(ScreenState::new())
 }
 
 #[test]
@@ -155,7 +154,7 @@ fn stuck_after_write_reports_submit_unconfirmed_not_ok() {
 #[test]
 fn a_torn_down_readiness_signal_re_arms_instead_of_reporting_a_deadline() {
     let screen_state = handle();
-    assert!(screen_state.lock().bind_pty_generation("pty-1", 1));
+    assert!(screen_state.bind_pty_generation("pty-1", 1));
 
     let (armed_tx, armed_rx) = mpsc::channel();
     let (done_tx, done_rx) = mpsc::channel();
@@ -170,10 +169,8 @@ fn a_torn_down_readiness_signal_re_arms_instead_of_reporting_a_deadline() {
     });
 
     assert_eq!(armed_rx.recv_timeout(Duration::from_secs(5)).unwrap(), 0);
-    assert!(screen_state.lock().bind_pty_generation("pty-1", 2));
-    assert!(screen_state
-        .lock()
-        .process_if_generation("pty-1", 2, MACOS_BASH_BANNER_PROMPT));
+    assert!(screen_state.bind_pty_generation("pty-1", 2));
+    assert!(screen_state.process_if_generation("pty-1", 2, MACOS_BASH_BANNER_PROMPT));
 
     let (ready, elapsed) = done_rx.recv_timeout(Duration::from_secs(10)).unwrap();
     waiter.join().unwrap();
@@ -199,10 +196,8 @@ fn readiness_armed_before_the_reader_binds_still_completes() {
     });
 
     assert_eq!(armed_rx.recv_timeout(Duration::from_secs(5)).unwrap(), 0);
-    assert!(screen_state.lock().bind_pty_generation("pty-1", 1));
-    assert!(screen_state
-        .lock()
-        .process_if_generation("pty-1", 1, MACOS_BASH_BANNER_PROMPT));
+    assert!(screen_state.bind_pty_generation("pty-1", 1));
+    assert!(screen_state.process_if_generation("pty-1", 1, MACOS_BASH_BANNER_PROMPT));
 
     assert!(done_rx.recv_timeout(Duration::from_secs(10)).unwrap());
     waiter.join().unwrap();
@@ -211,10 +206,8 @@ fn readiness_armed_before_the_reader_binds_still_completes() {
 #[test]
 fn a_prompt_already_on_screen_returns_without_waiting() {
     let screen_state = handle();
-    assert!(screen_state.lock().bind_pty_generation("pty-1", 1));
-    assert!(screen_state
-        .lock()
-        .process_if_generation("pty-1", 1, MACOS_BASH_BANNER_PROMPT));
+    assert!(screen_state.bind_pty_generation("pty-1", 1));
+    assert!(screen_state.process_if_generation("pty-1", 1, MACOS_BASH_BANNER_PROMPT));
 
     assert!(await_shell_prompt(
         &screen_state,
@@ -226,7 +219,7 @@ fn a_prompt_already_on_screen_returns_without_waiting() {
 #[test]
 fn an_expired_deadline_reports_not_ready() {
     let screen_state = handle();
-    assert!(screen_state.lock().bind_pty_generation("pty-1", 1));
+    assert!(screen_state.bind_pty_generation("pty-1", 1));
 
     assert!(!await_shell_prompt(&screen_state, "pty-1", Duration::ZERO));
 }

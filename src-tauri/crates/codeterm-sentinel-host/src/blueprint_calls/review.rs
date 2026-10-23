@@ -142,13 +142,16 @@ fn blueprint_v2_call_review_nested_callable_check_preserves_signature_and_stays_
 #[test]
 fn blueprint_v2_call_review_simulate_refuses_code_agent_and_http_before_launch() {
     for body in [
-        json!({"id":"increment","code":{"lang":"python","src":"raise RuntimeError('must not execute')"}}),
+        json!({"id":"increment","code":{"lang":"python","src":"def main(value):\n raise RuntimeError('must not execute')"}}),
         json!({"id":"increment","uses":"agent","with":{"task":{"lit":"must not execute"}}}),
         json!({"id":"increment","uses":"http","with":{"url":{"lit":"https://must-not-execute.invalid"}}}),
     ] {
         let mut document = source(false);
         edit_callee(&mut document, |callee| {
             callee.steps[0] = serde_json::from_value(body).unwrap();
+            if let Some(code) = &callee.steps[0].code {
+                assert!(blueprint_document::code_contract::has_main(code));
+            }
         });
         let receipt = run(document, true);
         assert_eq!(
@@ -158,6 +161,10 @@ fn blueprint_v2_call_review_simulate_refuses_code_agent_and_http_before_launch()
         assert!(receipt.notices.is_empty());
         assert!(receipt.effects.is_empty());
         assert!(receipt.journal.is_empty());
+        assert!(
+            receipt.child_pids.is_empty(),
+            "simulation must never launch a child"
+        );
     }
 }
 

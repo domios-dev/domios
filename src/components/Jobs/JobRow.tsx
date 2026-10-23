@@ -50,13 +50,13 @@ export function JobRow({ jobKey: key, icon, name, meta, idHint, type, tone, stat
         </span>
         <span className="flex shrink-0 items-center gap-1.5 text-xs text-[var(--ct-muted-fg)]"><span className={`h-1.5 w-1.5 rounded-full ${stateTone(state)}`} aria-hidden="true" />{state}</span>
       </button>
-      {actionItems.length > 0 && <DropdownMenu
+      {actionItems.length > 0 ? <DropdownMenu
         menuLabel={actionsLabel}
         items={actionItems}
         onOpenChange={setMenuOpen}
         className={`relative z-[1] flex shrink-0 items-center transition-opacity ${reveal}`}
         trigger={<RowMenuButton ref={onTriggerRef} label={actionsLabel} touchMode={touchMode} />}
-      />}
+      /> : <span aria-hidden="true" className="w-7 shrink-0" />}
     </div>
     {error && <InlineErrorNotice error={error} operation="updating this job" blocking />}
   </li>;

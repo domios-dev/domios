@@ -2,27 +2,34 @@
 
 ## Core Principles
 
-1. **Paired = trusted.** Not paired = doesn't exist.
-2. **AccessLevel** (Full/ReadOnly/AgentIsolated) is per-peer, per-machine. Each machine decides locally what a peer can do. Default = Full.
-3. **No crown, no king, no trust declarations, no TTL.** Flat peer-to-peer model.
-4. **Disconnect revokes by default.** A local owner can explicitly lift that revocation with `domios mesh unrevoke <instance-id>` before pairing that identity again.
+1. **The account is the only source of new links.** A machine joins the mesh only by linking a machine enrolled in the same account. There is no LAN broadcast, mDNS, UDP beacon, Tailnet-wide scan, manual address pairing, pairing request or introduction.
+2. **Paired is necessary, not sufficient.** Traffic on a paired edge also needs that edge's admission to be open right now (see *Admission and sign-out*).
+3. **AccessLevel** (Full/ReadOnly/AgentIsolated) is per-peer, per-machine and independent of account membership. Each machine decides locally what a peer can do. Default = Full.
+4. **Only explicit removal deletes a pair.** `domios mesh disconnect` (local unpair) or an account revoke removes it; sign-out, expiry, outage and account switches never do.
 5. **One machine = one mesh.** Cannot be in two meshes simultaneously.
 
-## Discovery
+## Adding a machine
 
-Discovery (mDNS/UDP/Tailscale) finds peers on the network. Paired peers are shown in the mesh, unpaired peers appear in the "Discovered" list. UDP discovery broadcasts every 30 seconds.
-
-Mesh pairing and peer calls require both daemons to run Domios 1.15.0 or later. A 1.14.9 peer receives a version error explaining that both peers must be upgraded; update peers through the updater before pairing or using the mesh.
-
-Broadcast requires a live, health-proven remote listener. A loopback-only or unready instance refuses with `mesh_listener_not_remotely_ready` before enabling broadcast; it never advertises LAN access merely because that interface exists. Discovery records carry the development flag and only addresses served by the ready listener set. An empty discovery snapshot is not proof that asynchronous resolution has ended.
-
-When discovery cannot cross API ports, connect directly:
+Both machines must be signed in to the same account, enrolled, online to the account registry and directly reachable (for example over the same Tailnet). Pick the machine from the account's machine list, or run:
 
 ```bash
-domios mesh connect <instance-id-or-name> --addr <ip:port>
+domios mesh link <installation-id>
 ```
 
-The address must be a literal IP and port (IPv6 uses `[ip]:port`). Both instances need ready remote listeners. The caller reads the peer's signed identity at that exact socket, checks a fresh address-bound challenge and the requested identity (full ID, hexadecimal ID prefix of at least six characters, or exact advertised name), and records a manual discovery sighting. A mismatch fails before registration or pairing. Redirects and HTTP proxies are disabled on this path. The response proves possession of the advertised key; it does not establish trust. The ordinary pairing request remains pending until the receiving owner runs `domios mesh approve <request-id>`. Manual sightings preserve revocations and blocks. Same-port UDP discovery is unchanged; the peer must support the direct identity endpoint.
+The registry supplies the target's single published endpoint; no address is ever typed. Each side verifies the other's signed membership and installation-key possession over a transcript binding both installations, both Mesh keys, the account and two fresh nonces, then EACH side obtains its own fresh online link authorization. Neither side stores the pair until both authorizations are held, and the other machine needs no human approval. Offline linking has no path: a cached machine list, a cached membership, an old request, a replayed or foreign proof, or a backend-offline participant cannot create a link. A refused free machine slot returns the typed `mesh.machines` refusal with `limit` and `active_count`.
+
+Mesh pairing and peer calls require both daemons to run Domios 1.15.0 or later. A 1.14.9 peer receives a version error explaining that both peers must be upgraded.
+
+## Admission and sign-out
+
+Every paired edge carries a durable admission:
+
+- **legacy** — exactly the pairs persisted before the account gate existed. The upgrade snapshots them once, atomically with the peer records, so already-paired machines (including peers still on an older version) keep their keys, access levels and working traffic without signing in and without a deadline. Pending requests, discovered rows and anything paired later never become legacy, and a removed legacy edge can never come back through this path.
+- **adopted** — linked or adopted under the account. When both sides of a legacy edge are signed in to the same account, they adopt it in place over the existing authenticated channel, with no re-pair, key rotation or drop. Adoption is one-way: an adopted edge never falls back to legacy on outage, expiry or an invalid proof.
+
+Adopted edges carry traffic backend-free until the earlier of both machines' original signed membership expiries (at most 3600 seconds, renewed around 1800 seconds and delivered peer to peer on announces). There is no grace period. Expiry blocks protected traffic but keeps the pair record and all local work; a verified renewal reopens it.
+
+Explicit sign-out blocks every edge, legacy and adopted, before any cleanup: inbound and outbound requests, relay, RPC, remote-authenticated non-`/api/mesh` routes and already-open streams. The pair records stay. The UI shows "Signed out — sign in to use the mesh". Signing back in to the same account restores the saved edges without re-pairing; a different account does not, because the first account a machine signs in with stays bound to its legacy edges. Upgrading without ever signing in is not a sign-out.
 
 ## Local REST availability
 
@@ -32,61 +39,20 @@ Replacement readiness is queued to the liveness owner with a monotonic recovery 
 
 ## Auth Model
 
-Every paired peer has an Ed25519 keypair. Requests between peers are signed with the sender's private key and verified against known public keys.
+Every paired peer has an Ed25519 keypair. Requests between peers are signed with the sender's private key and verified against the keys of paired peers whose edge is currently open.
 
-- `sign_request()` — signs a request with this peer's private key
-- `verify_signed_request()` — verifies signature against known paired peer public keys
-- Paired = allowed. Not paired = rejected.
+- Inbound: a request is accepted only from a paired peer with open admission; a blocked edge is rejected exactly like an unknown key.
+- Outbound: requests, sync, announces and streams go only to peers with open admission.
 - Normal peer requests and relayed requests use the same `AccessLevel` policy.
 - Secret-vault routes and mesh token minting are local-only at every access level.
-
-## Flows
-
-### Flow 1: Creating a Mesh (First Pair)
-
-1. A and B see each other via discovery (both standalone)
-2. A clicks "Connect" on B — PairingRequest sent to B
-3. B sees request — clicks Approve
-4. Both exchange Ed25519 public keys
-5. Both machines paired — mesh created
-6. Introductions broadcast to all existing peers
-
-### Flow 2: Joining an Existing Mesh
-
-1. C enables mesh — discovery finds peers
-2. C clicks "Add to Mesh" — request sent to the peer
-3. Peer approves — pubkey exchange
-4. Peer sends introductions to all existing peers
-5. C is now in the mesh. All peers know about C.
-
-### Vouched introductions
-
-1. A is paired with B; B discovers C and sends C's identity and addresses to A.
-2. A records C as discovered and shows a pending pairing request with an `action_needed` notification.
-3. When A's owner approves, A sends the ordinary pairing request to C.
-4. C's owner approves the request; the correlated acceptance completes pairing on A and C.
-
-### Flow 3: Disconnecting a Peer
-
-1. The local owner clicks "Disconnect" on a peer.
-2. The peer key is removed locally and the identity is tombstoned locally.
-3. Other machines keep their independent pairings until their owners disconnect them.
-
-### Flow 4: Re-pairing a Disconnected Identity
-
-1. Each endpoint owner runs `domios mesh unrevoke <instance-id>` for the identity revoked in that endpoint's local mesh state.
-2. Each local revocation entry is removed and logged; blocked identities remain blocked.
-3. The peers complete the ordinary discovery, connect, and manual approval flow again.
-
-Pairing records are keyed only by peer identity. Matching names or network addresses never replace a different identity. Development daemons derive a distinct advertised mesh name from their instance/data directory, and child agents receive that instance's CLI directory first on `PATH`.
 
 ## Security
 
 - Ed25519 signed requests with 5-minute expiry and nonce (replay protection)
-- Every pairing request, including a vouched introduction, stays pending until the receiving owner approves it. The request raises an `action_needed` notification. Discovery and introductions never pair a peer.
-- Public keys exchanged during pairing, verified on every request
-- Disconnect removes only the local pairing and records a local revocation by default; it does not cascade through third parties.
-- Only an owner authenticated with the local API token can lift a revocation; pairing never clears one implicitly.
+- New links need both machines' fresh online account authorizations bound to one handshake transcript; no other path creates a pair.
+- A changed endpoint is metadata; it never replaces a peer's paired key.
+- Disconnect removes only the local pairing and tombstones that identity locally; it does not cascade through third parties and frees no account machine slot.
+- Only an owner authenticated with the local API token can lift a local revocation with `domios mesh unrevoke <instance-id>`; an explicit account link of that machine also lifts it.
 
 ### Peer access levels
 
@@ -94,10 +60,10 @@ Access is enforced on direct signed requests and relayed requests. Secret routes
 
 | Level | Permitted operations |
 |---|---|
-| Full | All peer API operations except local-only secret routes and token minting. May announce addresses, sync peer introductions, and introduce peers. |
-| ReadOnly | `GET` routes permitted by peer policy, excluding local-only secret routes and token minting. `POST /api/mesh/sync` carries only the sender's liveness and identity; announce and third-party introductions are refused. |
+| Full | All peer API operations except local-only secret routes and token minting. Sync may refresh metadata of peers this machine already paired. |
+| ReadOnly | `GET` routes permitted by peer policy, excluding local-only secret routes and token minting. `POST /api/mesh/sync` carries only the sender's liveness and identity. |
 | AgentIsolated | Spawn agents; list only tabs spawned by this peer; read tab text and send input or attachments, exec, respond, report, or clear only on those tabs. It cannot read other tabs or workspace lists, mesh inventory, memory, configuration, secrets, or notifications. |
-| Custom | Only operations granted by the configured `Permission` values; `Admin` grants ordinary peer API access and sender-only sync, except local-only routes and Full-only announce/introduction controls. |
+| Custom | Only operations granted by the configured `Permission` values; `Admin` grants ordinary peer API access and sender-only sync, except local-only routes. |
 
 AgentIsolated ownership is stamped from the authenticated signed peer identity when an agent is spawned. Caller-supplied ownership fields cannot claim another peer's tabs. Every tab-scoped route checks the stored owner before dispatch.
 
@@ -187,9 +153,9 @@ Moving a Telegram bridge between peers (CLI, orchestration steps, secret localit
 
 ## Mesh-disabled gate (503)
 
-When `config.mesh.enabled = false`, the auth middleware short-circuits every `/api/mesh/*` path (other than `/api/mesh/ping`) with `503 Mesh networking is disabled`. The same 503 also fires for any caller authenticated via the mesh signed-token path — so other peers attempting to relay into us also get rejected, not just the local UI. The local Bearer token (`api.token`) keeps working for non-mesh routes regardless.
+When `config.mesh.enabled = false`, the auth middleware short-circuits every `/api/mesh/*` path (other than `/api/mesh/ping`) with `503 Mesh networking is disabled`. The same 503 also fires for any caller authenticated via the mesh signed-token path — so other peers attempting to relay into us also get rejected, not just the local UI. The local instance Bearer credential keeps working for non-mesh routes regardless.
 
-**Disabling mid-session** (PATCH `/api/config mesh.enabled=false`) additionally: stops the discovery broadcast, marks every paired peer `online = false`, clears the discovered-peers list, and emits `mesh-state-changed` so the UI updates immediately. Re-enabling restores the routes; broadcast and peer state pick back up on the next discovery / ping tick. Mesh off rejects remote access, though outbound health pings to paired peers may continue.
+**Disabling mid-session** (PATCH `/api/config mesh.enabled=false`) additionally marks every paired peer `online = false` and emits `mesh-state-changed` so the UI updates immediately. Re-enabling restores the routes; peer state picks back up on the next ping tick. Mesh off rejects remote access, though outbound health pings to paired peers may continue.
 
 Peer reachability updates automatically and emits `mesh-state-changed`.
 
@@ -201,4 +167,4 @@ Mesh inventory is target-authoritative: machine-qualified rows carry provenance 
 
 Inventory opens as a full-screen searchable List beside the existing Mesh network graph. One shared mode bubble switches between the List and the graph of connected computers. Keyboard navigation preserves resource identity and focus; peer detail separates Services and Schedules and labels cached, offline, denied, and partial states.
 
-<!-- revision: 56 -->
+<!-- revision: 58 -->

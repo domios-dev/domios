@@ -133,7 +133,7 @@ fn emit(service: ServiceContext, snapshot_requested: bool, focuses: Vec<String>,
     }
 }
 
-fn emit_snapshot(service: &ServiceContext, causes: u64) {
+pub(super) fn emit_snapshot(service: &ServiceContext, causes: u64) {
     let stats = service.ext::<Arc<MuxEmitStats>>();
     stats.pending_since_ms.store(0, Ordering::Relaxed);
     service
@@ -147,17 +147,16 @@ fn emit_snapshot(service: &ServiceContext, causes: u64) {
     );
     let unchanged = match service
         .ext::<Arc<PublishedMuxState>>()
-        .publish(snapshot.generation, &snapshot)
+        .publish_change(snapshot.generation, &snapshot)
     {
-        Ok(true) => {
-            let signal = serde_json::json!({"generation": snapshot.generation});
+        Ok(Some(signal)) => {
             service
                 .events
                 .publish_generic("mux-state-changed", signal.clone());
             service.events.broadcast("mux-state-changed", signal);
             false
         }
-        Ok(false) => {
+        Ok(None) => {
             stats.unchanged.fetch_add(1, Ordering::Relaxed);
             true
         }
@@ -178,7 +177,7 @@ fn emit_snapshot(service: &ServiceContext, causes: u64) {
         stats.causes.fire(causes);
         service.ui.emit_native(
             "mux-state-changed",
-            serde_json::to_value(&snapshot).unwrap_or_default(),
+            serde_json::json!({"generation": snapshot.generation}),
         );
     }
 }

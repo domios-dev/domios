@@ -84,8 +84,12 @@ fn get_updates_accessed_at_and_access_count() {
     )
     .unwrap();
 
-    // Sleep 1 ms so rfc3339 timestamps differ even on fast CI hardware.
-    std::thread::sleep(std::time::Duration::from_millis(2));
+    let previous = "2000-01-01T00:00:00+00:00";
+    conn.execute(
+        "UPDATE mem_items SET created_at = ?1, accessed_at = ?1 WHERE id = ?2",
+        params![previous, &id],
+    )
+    .unwrap();
 
     let got = get(&conn, &id, &blobs).unwrap().unwrap();
     let created = got.created_at.clone();
@@ -101,11 +105,14 @@ fn get_updates_accessed_at_and_access_count() {
     );
     assert_eq!(got.access_count, 1, "first get bumps access_count to 1");
 
-    // Second get bumps again.
-    std::thread::sleep(std::time::Duration::from_millis(2));
+    conn.execute(
+        "UPDATE mem_items SET accessed_at = ?1 WHERE id = ?2",
+        params![previous, &id],
+    )
+    .unwrap();
     let got2 = get(&conn, &id, &blobs).unwrap().unwrap();
     assert_eq!(got2.access_count, 2);
-    assert!(got2.accessed_at.unwrap() > accessed);
+    assert!(got2.accessed_at.unwrap().as_str() > previous);
 }
 
 #[test]

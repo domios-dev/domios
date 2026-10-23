@@ -375,6 +375,10 @@ function fileDiffFromEdit(edit) {
   };
 }
 
+// packages/chat-core/src/systemReminderText.ts
+var MARKER_TOKEN = /<\/?codeterm-[a-z][a-z-]*(?:\s+[a-z_]+="[^"]*")*\s*>/;
+var STRAY_MARKER = new RegExp(MARKER_TOKEN.source, "g");
+
 // packages/chat-core/src/domios.ts
 var DOMIOS_PASTED_MARKER = "pasted by Domios";
 var PASTED_MARKER_TAIL = `

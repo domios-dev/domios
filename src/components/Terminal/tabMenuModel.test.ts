@@ -241,4 +241,16 @@ for (const surface of SURFACES) {
     expect(entries.map(entry => entry.id)).toEqual(["close"]);
   });
 }
+it("disables unavailable provider targets on both menu surfaces", () => {
+  for (const surface of SURFACES) {
+    const entries = buildTabMenu(input(surface, { descriptors: [CURRENT, { ...OTHER, availability: "unavailable" }] }));
+    const target = child(submenu(entries, "provider"), `provider-${OTHER.id}`);
+    expect(target?.kind).toBe("item");
+    if (target?.kind !== "item") throw new Error("Missing target");
+    expect(target.disabled).toBe(true);
+    expect(target.action).toBe(null);
+    expect(target.hint).toBe("not installed");
+  }
+});
+
 finish();

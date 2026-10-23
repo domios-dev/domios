@@ -533,6 +533,7 @@ pub(super) fn mem_to_api(action: &MemAction) -> (String, String, Option<String>)
         MemAction::Embedder { action } => {
             use crate::MemEmbedderAction;
             match action {
+                MemEmbedderAction::Key { .. } => unsupported("embedder keys are local-only; run on the owning machine"),
                 MemEmbedderAction::List => ("GET".into(), "/api/mem/embedder/providers".into(), None),
                 MemEmbedderAction::Status => ("GET".into(), "/api/mem/embedder".into(), None),
                 MemEmbedderAction::Use { provider, model, dimension } => (

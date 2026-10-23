@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { TabItem } from "./TabItem";
 import type { Tab } from "../../lib/types";
 import type { ShellPurpose } from "../../lib/shellCommandState";
+import { forwardTerminalFallback } from "../../lib/terminalFallbackInput";
 import { act, createRoot, createSuite, setupDom } from "./SidebarWorkspaceTabs.testkit";
 
 setupDom();
@@ -69,6 +70,45 @@ test("shell context menu retains rename and close actions", async () => {
     await act(async () => close.click());
     assert.equal(closed, 1);
   } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("Enter commits a rename once and is consumed before the terminal fallback", async () => {
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  const renames: string[] = [];
+  const writes: string[] = [];
+  const fallback = (event: KeyboardEvent) => {
+    forwardTerminalFallback(event, document.activeElement, (data) => writes.push(data));
+  };
+  window.addEventListener("keydown", fallback);
+  try {
+    await act(async () => root.render(<TabItem tab={shell} index={0} isActive={false} onClick={() => {}}
+      onClose={() => {}} canClose workspaceId="workspace" onRename={(title) => renames.push(title)} />));
+    const target = host.querySelector('[role="group"]');
+    assert.ok(target);
+    await act(async () => {
+      target.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    });
+    const rename = document.querySelector<HTMLButtonElement>('[role="menuitem"][data-testid="tab-menu-rename"]');
+    assert.ok(rename);
+    await act(async () => rename.click());
+    const input = host.querySelector<HTMLInputElement>('[aria-label="Rename tab Utility"]');
+    assert.ok(input);
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, "Renamed");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const enter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+    await act(async () => input.dispatchEvent(enter));
+    assert.equal(enter.defaultPrevented, true);
+    assert.deepEqual(renames, ["Renamed"]);
+    assert.deepEqual(writes, [], "the rename Enter never reaches the PTY");
+  } finally {
+    window.removeEventListener("keydown", fallback);
     await act(async () => root.unmount());
     host.remove();
   }

@@ -1,3 +1,5 @@
+import { ensurePluginSnapshot, __resetPluginSnapshotStoreForTest } from "../../lib/pluginSnapshotStore";
+import { supportsPluginBubble } from "../../lib/pluginBubbleModel";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, afterEach, describe, expect, it } from "vitest";
@@ -12,8 +14,12 @@ import { usePluginTabMenu } from "../../lib/pluginTabMenu";
 import { __setInvokeForTest } from "../../lib/bridge";
 import { __setPluginBubbleFetcherForTest } from "../../lib/pluginBubbleCache";
 
-beforeEach(() => {
-  __setInvokeForTest(async <T,>() => ({ title: "Receiver", nodes: [] }) as T);
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+beforeEach(async () => {
+  __resetPluginSnapshotStoreForTest();
+  __setInvokeForTest(async <T,>(command: string) => (command === "plugin_manager_snapshot" ? { plugins: [{ id: "real-receiver", capabilities: { status_bubble: true } }, { id: "future-receiver", capabilities: { status_bubble: true } }] } : { title: "Receiver", nodes: [] }) as T);
+  await ensurePluginSnapshot();
   __setPluginBubbleFetcherForTest(async () => null);
 });
 afterEach(() => { __setInvokeForTest(null); __setPluginBubbleFetcherForTest(null); });
@@ -200,5 +206,30 @@ describe("receiver_target_mark", () => {
     expect(rootHost.querySelector("button[data-receiver-plugin-id]")).toBeNull();
     cleanup(root, rootHost);
     __setPluginTabMenuForTest({ items: [], receiverTargets: {} }, host);
+  });
+});
+
+
+describe("bubble capability decisions", () => {
+  it("requires an explicit capability", () => {
+    for (const plugin of [undefined, {}, { capabilities: null }, { capabilities: {} }, { capabilities: { status_bubble: false } }]) {
+      expect(supportsPluginBubble(plugin)).toBe(false);
+    }
+    expect(supportsPluginBubble({ capabilities: { status_bubble: true } })).toBe(true);
+  });
+
+  it("keeps providerless receiver controls without requesting a bubble", async () => {
+    __resetPluginSnapshotStoreForTest();
+    __setInvokeForTest(async <T,>() => ({ plugins: [{ id: "pebble", capabilities: { status_bubble: false } }] }) as T);
+    await ensurePluginSnapshot();
+    const calls: string[] = [];
+    __setPluginBubbleFetcherForTest(async (id) => { calls.push(id); return null; });
+    const menu = menuState({ pebble: "tab-a", "real-receiver": "tab-a" });
+    menu.items.push({ ...menu.items[0], pluginId: "pebble" });
+    const { host, root } = renderSurface(menu);
+    await flush();
+    expect(host.querySelector('[aria-label="Show pebble receiver status"]')).not.toBeNull();
+    expect(calls).toEqual([]);
+    cleanup(root, host);
   });
 });
