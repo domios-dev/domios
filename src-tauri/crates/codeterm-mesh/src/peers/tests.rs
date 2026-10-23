@@ -113,6 +113,7 @@ fn unreadable_peers_file_does_not_overwrite_link_ledger() {
     std::fs::write(&ledger_path, serde_json::to_vec(&original).unwrap()).unwrap();
     let original_bytes = std::fs::read(&ledger_path).unwrap();
     std::fs::write(&path, b"{ unreadable").unwrap();
+    assert!(load_peers_at(&path).is_empty());
 
     assert!(save_peers_at(&path, &HashMap::new(), &LinkLedger::default()).is_err());
     assert_eq!(std::fs::read(&ledger_path).unwrap(), original_bytes);
