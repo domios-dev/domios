@@ -3128,6 +3128,7 @@ dependencies = [
  "codeterm-events",
  "codeterm-frontend-bundle",
  "codeterm-frontend-shell",
+ "codeterm-mem",
  "codeterm-orchestration",
  "codeterm-plan",
  "codeterm-plugin",
