@@ -94,7 +94,7 @@ class OracleTests(unittest.TestCase):
             result = subprocess.run([sys.executable, '-I', str(HERE / 'sink.py'), str(effect)],
                                     input=json.dumps(envelope), text=True, capture_output=True, timeout=5)
             self.assertEqual(result.returncode, 0, result.stderr)
-            log = [{'step_name': '$run', 'state': 'done'}, {'state': 'done', 'result_summary': 'confined code completed'}]
+            log = [{'step_name': '$run', 'state': 'done'}, {'state': 'done', 'result_summary': 'code completed'}]
             verify_run({}, log, effect, 73)
             with self.assertRaises(ValueError):
                 verify_run({}, log, effect, 11)

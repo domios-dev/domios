@@ -159,6 +159,31 @@ fn blueprint_v2_intent_no_fit_keeps_irrelevant_vectors_out() {
 }
 
 #[test]
+fn blueprint_v2_intent_catalog_vectors_are_available_on_every_platform() {
+    let mem = MemManager::open_in_memory().unwrap();
+    mem.set_blueprint_embedder(WordEmbedder::new(true));
+    let mut unavailable = Vec::new();
+    let candidates = mem
+        .catalog_candidates(&mem.embedder.identity(), &mut unavailable)
+        .unwrap();
+    assert_eq!(
+        candidates
+            .iter()
+            .map(|candidate| candidate.entry.id.as_str())
+            .collect::<Vec<_>>(),
+        catalog::ENTRIES
+            .iter()
+            .map(|entry| entry.id)
+            .collect::<Vec<_>>()
+    );
+    assert!(unavailable.is_empty());
+    assert!(candidates.iter().all(|candidate| {
+        candidate.vectors.slot(Slot::Intent).next().is_some()
+            && candidate.vectors.slot(Slot::Canon).next().is_some()
+    }));
+}
+
+#[test]
 fn blueprint_v2_intent_never_uses_vectors_for_replaced_intents_or_stale_enrichment() {
     let mut value = candidate("mem:changed", 1.0);
     value.entry.intents = vec!["replacement intent".into()];

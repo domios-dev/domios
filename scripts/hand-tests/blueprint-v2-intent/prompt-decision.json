@@ -9,7 +9,7 @@
   "source_bytes": 815,
   "source_sha256": "bf77023a394f71dfce8bc1bbc0ec5b47c5b8f04002e7714905a71c3fa6d708a9",
   "product_path": "prod-docs/BLUEPRINT-AUTHORING.md",
-  "product_sha256": "1ff22ebac7c3eb08ee85b5c08e6143b39de717ccff31b4175f5a4657a2876af7",
+  "product_sha256": "62a2e591a74d9de10fd37e484a3201b54efd7394a3e0f466c595854472ef3994",
   "evidence_paths": [
     "eval/nodes_bind/RESULTS.md",
     "eval/nodes_bind/VALIDATION.md",
@@ -41,5 +41,9 @@
     "haiku_correct": true,
     "codex_correct": true,
     "each_model_run_median_saving_at_least_20pct": true
-  }
+  },
+  "product_adaptations": [
+    "Product CLI recall/call/check/apply protocol",
+    "owner-input-18-no-os-sandbox.md: ordinary child processes, credential-free environment, execution budgets and folder trust (1.15.4)"
+  ]
 }

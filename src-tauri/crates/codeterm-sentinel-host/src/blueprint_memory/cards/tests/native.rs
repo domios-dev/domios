@@ -112,9 +112,14 @@ fn blueprint_v2_intent_catalog_native_checks_fan_in() {
 }
 #[test]
 fn blueprint_v2_intent_catalog_native_command_lines() {
+    let command = if cfg!(windows) {
+        "Write-Output 'disk ok', '', 'mem ok'"
+    } else {
+        "printf 'disk ok\\n\\nmem ok\\n'"
+    };
     qualify(
         "catalog:command-lines",
-        json!({"command":"printf 'disk ok\\n\\nmem ok\\n'"}),
+        json!({"command":command}),
         json!({"count":2,"lines":["disk ok","mem ok"]}),
     );
 }

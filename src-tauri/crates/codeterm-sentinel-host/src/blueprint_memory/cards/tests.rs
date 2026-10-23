@@ -82,5 +82,4 @@ fn blueprint_v2_intent_catalog_card_and_mem_prefix_are_stable() {
     }
 }
 
-#[cfg(target_os = "macos")]
 mod native;
