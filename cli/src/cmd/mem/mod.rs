@@ -259,6 +259,9 @@ fn empty_render(response: &serde_json::Value) -> String {
 }
 
 fn append_envelope_notice(out: &mut String, response: &serde_json::Value) {
+    if let Some(reason) = response.get("degraded").and_then(serde_json::Value::as_str) {
+        out.push_str(&format!("degraded: {reason}\n"));
+    }
     if let Some(notice) = supporter_render::envelope_notice(response) {
         out.push_str(&notice);
         out.push('\n');

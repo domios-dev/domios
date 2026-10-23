@@ -36,6 +36,10 @@ pub(crate) enum SubmitOutcome {
 }
 
 impl EmbedSchedule {
+    pub fn queued_chunks(&self) -> usize {
+        self.items.values().map(|item| item.chunks.len()).sum()
+    }
+
     pub fn is_idle(&self) -> bool {
         self.rotation.is_empty()
     }

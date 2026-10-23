@@ -2,6 +2,18 @@ use crate::{Cli, Commands, MemAction};
 use serde_json::json;
 
 #[test]
+fn recall_priority_degradation_is_visible_with_hits_and_empty_results() {
+    for hits in [json!([]), json!([{"item":{"id":"fts"},"score":0.5}])] {
+        let response = json!({"hits":hits,"degraded":"semantic pending"});
+        assert!(super::render_search_hits(&response).contains("degraded: semantic pending"));
+        assert_eq!(
+            super::compact_search_json(&response)["degraded"],
+            "semantic pending"
+        );
+    }
+}
+
+#[test]
 fn mem_search_human_output_keeps_full_search_details() {
     let value = json!({"hits": [
         {"item": {"id": "mem_1", "title": "First", "kind": "fact", "summary": "short summary", "body": "ignored"}, "score": 0.8754},

@@ -5,6 +5,34 @@ use std::sync::Arc;
 static L12: &LocalModel = &crate::embedder::local::MODELS[0];
 
 #[test]
+fn recall_priority_queries_preempt_a_full_bulk_lane_at_the_next_boundary() {
+    let (worker, receivers) = channels();
+    for _ in 0..QUEUE_CAPACITY {
+        let (reply, _) = mpsc::sync_channel(1);
+        worker
+            .bulk
+            .try_send(Request {
+                model: L12,
+                text: "bulk".into(),
+                reply,
+            })
+            .unwrap();
+    }
+    assert_eq!(receivers.next().unwrap().text, "bulk");
+    let (reply, _) = mpsc::sync_channel(1);
+    worker
+        .query
+        .try_send(Request {
+            model: L12,
+            text: "recall".into(),
+            reply,
+        })
+        .unwrap();
+    assert_eq!(receivers.next().unwrap().text, "recall");
+    assert_eq!(receivers.next().unwrap().text, "bulk");
+}
+
+#[test]
 fn cold_query_waits_for_model_readiness_and_returns_the_vector() {
     let (worker, receivers) = channels();
     let (load_started, started) = mpsc::channel();
