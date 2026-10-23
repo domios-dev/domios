@@ -18,11 +18,20 @@ use super::graph_layout::cache::LayoutCache;
 
 const QUEUE_CAPACITY: usize = 1024;
 
+#[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct QueueStatus {
+    pub queued: usize,
+    pub in_flight: usize,
+    pub failed: u64,
+    pub unavailable: bool,
+}
+
 #[derive(Default)]
 struct QueueState {
     schedule: EmbedSchedule,
     busy: bool,
     closed: bool,
+    failed: u64,
 }
 
 #[derive(Default)]
@@ -54,6 +63,22 @@ pub struct EmbedQueue {
 }
 
 impl EmbedQueue {
+    pub fn status(&self, unavailable: bool) -> QueueStatus {
+        let Some(shared) = self.shared() else {
+            return QueueStatus {
+                unavailable: true,
+                ..QueueStatus::default()
+            };
+        };
+        let state = shared.state.lock();
+        QueueStatus {
+            queued: state.schedule.queued_chunks(),
+            in_flight: usize::from(state.busy),
+            failed: state.failed,
+            unavailable: unavailable || state.closed,
+        }
+    }
+
     pub fn disabled() -> Self {
         Self { handle: None }
     }
@@ -111,11 +136,14 @@ impl EmbedQueue {
                 drop(state);
                 shared.work.notify_one();
             }
-            SubmitOutcome::Full => log::warn!(
-                "[mem] embed queue full ({} items pending), dropping {}",
-                state.schedule.pending_items(),
-                id
-            ),
+            SubmitOutcome::Full => {
+                state.failed += 1;
+                log::warn!(
+                    "[mem] embed queue full ({} items pending), dropping {}",
+                    state.schedule.pending_items(),
+                    id
+                );
+            }
         }
     }
 
@@ -203,7 +231,12 @@ fn run_worker(
             .as_ref()
             .and_then(|h| h.block_on(heavy_ops_permits.clone().acquire_owned()).ok());
         process_unit(&conn, &shared, &layout, &embedder, &unit);
-        shared.state.lock().schedule.finish(&unit);
+        let mut state = shared.state.lock();
+        state.schedule.finish(&unit);
+        state.busy = false;
+        if state.schedule.is_idle() {
+            shared.idle.notify_all();
+        }
     }
 
     log::info!("[mem] embed queue worker exiting (queue closed)");
@@ -222,6 +255,7 @@ fn process_unit(
     let vector = match embedder.passage(&unit.text) {
         Ok(vector) => vector,
         Err(EmbedError::Unavailable(reason)) => {
+            shared.state.lock().failed += 1;
             let dropped = shared.state.lock().schedule.abandon(unit);
             if let Err(error) = pending::mark(conn, &unit.id, &reason) {
                 log::warn!("[mem] embed {}: {error}", unit.id);
@@ -233,6 +267,7 @@ fn process_unit(
             return;
         }
         Err(error) => {
+            shared.state.lock().failed += 1;
             shared.state.lock().schedule.abandon(unit);
             log::debug!(
                 "[mem] embed {} chunk {}: {error}",
@@ -264,7 +299,10 @@ fn process_unit(
                 unit.id
             );
         }
-        Err(e) => log::warn!("[mem] embed index {}: {}", unit.id, e),
+        Err(e) => {
+            shared.state.lock().failed += 1;
+            log::warn!("[mem] embed index {}: {}", unit.id, e);
+        }
     }
 }
 

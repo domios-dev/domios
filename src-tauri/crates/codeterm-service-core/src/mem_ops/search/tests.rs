@@ -1,6 +1,15 @@
 use super::*;
 
 #[test]
+fn recall_priority_search_response_preserves_fts_hits_and_flags_degradation() {
+    let hits = serde_json::json!({"hits":[{"id":"fts-hit"}]});
+    assert_eq!(search_status(hits.clone(), false), hits);
+    let degraded = search_status(hits.clone(), true);
+    assert_eq!(degraded["hits"], hits["hits"]);
+    assert_eq!(degraded["degraded"], "semantic pending");
+}
+
+#[test]
 fn decision_http_search_does_not_block_runtime() {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .build()

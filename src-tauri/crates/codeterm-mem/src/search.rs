@@ -644,7 +644,7 @@ pub(crate) fn hybrid_rrf_with_embedding(
     cfg: &SearchConfig,
     embedding: Option<&StampedVector>,
 ) -> Result<Vec<SearchHit>, String> {
-    if matches!(cfg.mode, SearchMode::VectorFirstRerank) {
+    if matches!(cfg.mode, SearchMode::VectorFirstRerank) && embedding.is_some() {
         return vector_first_with_embedding(conn, q, blobs_dir, cfg, embedding);
     }
     let limit = q.limit.unwrap_or(5).clamp(1, 50);

@@ -1,6 +1,45 @@
 use super::*;
 
 #[test]
+fn live_queue_status_reports_backlog_in_flight_failures_and_unavailability() {
+    let shared = Arc::new(Shared::default());
+    let queue = EmbedQueue {
+        handle: Some(Arc::new(Handle(shared.clone()))),
+    };
+    for i in 0..410 {
+        shared
+            .state
+            .lock()
+            .schedule
+            .submit(&i.to_string(), vec!["passage".into()], QUEUE_CAPACITY);
+    }
+    assert_eq!(queue.status(false).queued, 410);
+    let unit = next_unit(&shared).unwrap();
+    let status = queue.status(false);
+    assert_eq!(
+        (status.queued, status.in_flight, status.failed),
+        (409, 1, 0)
+    );
+    let json = serde_json::to_value(status).unwrap();
+    assert_eq!(json["queued"], 409);
+    assert_eq!(json["in_flight"], 1);
+    {
+        let mut state = shared.state.lock();
+        state.schedule.finish(&unit);
+        state.busy = false;
+        state.failed = 2;
+        state.closed = true;
+    }
+    let status = queue.status(false);
+    assert_eq!(
+        (status.queued, status.in_flight, status.failed),
+        (409, 0, 2)
+    );
+    assert!(status.unavailable);
+    assert!(EmbedQueue::disabled().status(false).unavailable);
+}
+
+#[test]
 fn enqueue_when_disabled_is_noop() {
     let q = EmbedQueue::disabled();
     q.enqueue("abc", "hello world");
