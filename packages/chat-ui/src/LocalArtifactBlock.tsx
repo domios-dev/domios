@@ -1,3 +1,4 @@
+import { attachmentPathName as fileName } from "@codeterm/chat-core";
 import { BoundedMessageContent } from "./BoundedMessageContent";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileText, RefreshCw, Maximize2, FolderOpen, X } from "lucide-react";
@@ -20,11 +21,6 @@ type LoadState =
   | { status: "loading"; file: null; error: "" }
   | { status: "ready"; file: LocalPreviewFile; error: "" }
   | { status: "error"; file: null; error: string };
-
-function fileName(path: string): string {
-  const segments = path.split(/[\\/]/).filter(Boolean);
-  return segments[segments.length - 1] ?? path;
-}
 
 interface LocalArtifactProps {
   directive: LocalArtifactDirective;
