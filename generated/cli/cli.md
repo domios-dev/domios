@@ -3495,6 +3495,10 @@ Open a plugin surface as a tab nested under its owner
 
 OS-level integration: autostart, supervision, install hooks. Each subcommand is local-only and writes to platform-specific places (schtasks on Windows, LaunchAgents on macOS, user systemd on Linux)
 
+#### `domios system api-token`
+
+Print only the selected local instance API credential, without contacting the daemon
+
 #### `domios system autostart-status`
 
 Print whether the autostart trigger is installed and where
