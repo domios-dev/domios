@@ -91,6 +91,12 @@ impl MultiplexerState {
         )
     }
 
+    /// Title and description are writes too: a locked tab keeps its last metadata.
+    pub(crate) fn refuse_locked_tab(&self, tab_id: &str) -> Result<(), String> {
+        self.tab_write_lock(tab_id)
+            .map_or(Ok(()), |refusal| Err(refusal.to_string()))
+    }
+
     /// A write into a workspace or Team (spawn, plan/team mutation) is refused when it is locked.
     pub fn item_write_lock(&self, limit: LimitKey, id: &str) -> Option<LockedRefusal> {
         self.write_lock(std::iter::once((limit, id.to_string())))

@@ -30,6 +30,18 @@ impl TimeState {
     }
 }
 
+/// The next instant the time state changes after `now`; `None` once the grant has expired.
+pub fn next_transition(payload: &GrantPayload, now: u64) -> Option<u64> {
+    [
+        payload.not_before,
+        payload.refresh_after,
+        effective_end(payload),
+    ]
+    .into_iter()
+    .filter(|instant| *instant > now)
+    .min()
+}
+
 /// An earlier authoritative period end stops paid access before the signed expiry, with no tail.
 fn effective_end(payload: &GrantPayload) -> u64 {
     payload

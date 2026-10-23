@@ -118,6 +118,10 @@ impl VerifiedGrant {
         &self.key_id
     }
 
+    pub fn next_transition(&self, now: u64) -> Option<u64> {
+        crate::verdict::next_transition(&self.payload, now)
+    }
+
     /// The cached verdict moves only with time; a missing fresh grant never changes it.
     pub fn verdict(&self, now: u64) -> Verdict {
         Verdict::of(&self.payload, now)

@@ -1,6 +1,24 @@
 use crate::Result;
-use codeterm_entitlements::{Binding, DetachedGrant, EntitlementAuthority, Refusal, VerifiedGrant};
-use std::{fs, path::PathBuf};
+use codeterm_entitlements::{
+    Binding, DetachedGrant, EntitlementAuthority, Refusal, RevisionFloor, VerifiedGrant,
+};
+use serde::{Deserialize, Serialize};
+use std::{collections::BTreeMap, fs, path::PathBuf};
+
+/// Anti-rollback state that survives restarts: the latest wall time seen and, per account and
+/// installation, the highest accepted grant revision.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Floors {
+    pub observed_at: u64,
+    pub revisions: BTreeMap<String, RevisionFloor>,
+}
+
+impl Floors {
+    pub fn key(uid: &str, installation_id: &str) -> String {
+        format!("{uid}@{installation_id}")
+    }
+}
 
 pub trait GrantStore: Send + Sync {
     fn load(&self) -> Result<Option<serde_json::Value>>;
@@ -9,11 +27,15 @@ pub trait GrantStore: Send + Sync {
     /// Whether the account was paid at the last definite answer; it never grants, only delays locks.
     fn load_hint(&self) -> Result<bool>;
     fn save_hint(&self, paid: bool) -> Result<()>;
+    /// `Ok(None)` when absent; an unreadable floor is an error and callers fail closed.
+    fn load_floors(&self) -> Result<Option<Floors>>;
+    fn save_floors(&self, floors: &Floors) -> Result<()>;
 }
 
 pub struct FileGrantStore {
     path: PathBuf,
     hint: PathBuf,
+    floors: PathBuf,
 }
 impl FileGrantStore {
     pub fn new(data_dir: PathBuf) -> Self {
@@ -21,6 +43,7 @@ impl FileGrantStore {
         Self {
             path: dir.join("grant.json"),
             hint: dir.join("plan_hint.json"),
+            floors: dir.join("grant_floor.json"),
         }
     }
 }
@@ -65,6 +88,19 @@ impl GrantStore for FileGrantStore {
             &self.hint,
             serde_json::json!({ "paid": paid }).to_string().as_bytes(),
         )
+    }
+    fn load_floors(&self) -> Result<Option<Floors>> {
+        match fs::read(&self.floors) {
+            Ok(bytes) => serde_json::from_slice(&bytes)
+                .map(Some)
+                .map_err(|error| error.to_string()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error.to_string()),
+        }
+    }
+    fn save_floors(&self, floors: &Floors) -> Result<()> {
+        let bytes = serde_json::to_vec(floors).map_err(|e| e.to_string())?;
+        write_private(&self.floors, &bytes)
     }
     fn clear(&self) -> Result<()> {
         match fs::remove_file(&self.path) {

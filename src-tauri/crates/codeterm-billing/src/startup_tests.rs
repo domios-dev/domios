@@ -48,7 +48,7 @@ async fn invalid_cache_with_paid_hint_checks_then_locks_after_deadline_offline()
     let user = session("fixture-user");
     let deadline = billing.prime(&user).expect("checking");
     assert_eq!(deadline, now + CHECKING_DEADLINE_SECS);
-    assert!(!billing.limit_gate().summary().enforcing);
+    assert_free_and_enforcing(&billing);
     let offline = billing
         .refresh(Some(&user), RefreshEvent::SignIn, Instant::now())
         .await;
@@ -77,6 +77,37 @@ fn tampered_cache_is_free_and_removed() {
         Authority::Free
     );
     assert!(store.load().unwrap().is_none());
+}
+
+fn assert_free_and_enforcing(billing: &Billing) {
+    let gate = billing.limit_gate();
+    let summary = gate.summary();
+    assert!(summary.enforcing);
+    assert_eq!(
+        summary.workspaces,
+        codeterm_entitlements::COMPILED_FREE_LIMITS.workspaces.max
+    );
+    let over = codeterm_entitlements::COMPILED_FREE_LIMITS
+        .workspaces
+        .max
+        .unwrap() as usize;
+    assert!(gate
+        .admit(codeterm_entitlements::LimitKey::Workspaces, over)
+        .is_err());
+}
+
+#[test]
+fn forged_paid_hint_never_relaxes_enforcement_across_restarts() {
+    let store = stored(None, true);
+    for restart in 0..3 {
+        let (billing, time) = billing_with(true, store.clone(), vec![], ISSUED + 60);
+        let user = session("fixture-user");
+        let deadline = billing.prime(&user).expect("checking");
+        assert!(billing.snapshot(Some(&user)).checking, "restart {restart}");
+        assert_free_and_enforcing(&billing);
+        time.store(deadline - 1, Ordering::SeqCst);
+        assert_free_and_enforcing(&billing);
+    }
 }
 
 #[test]

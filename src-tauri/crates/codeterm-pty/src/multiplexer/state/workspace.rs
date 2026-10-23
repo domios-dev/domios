@@ -1,5 +1,6 @@
 use super::{short_id, MultiplexerState, PreparedWorkspaceClose, WorkspaceInfo};
 use crate::multiplexer::types::Workspace;
+use codeterm_entitlements::LimitKey;
 
 impl MultiplexerState {
     pub fn create_workspace(&mut self, name: String, cwd: Option<String>) -> WorkspaceInfo {
@@ -179,6 +180,9 @@ impl MultiplexerState {
     }
 
     pub fn rename_workspace(&mut self, id: &str, name: &str) -> Result<(), String> {
+        if let Some(refusal) = self.item_write_lock(LimitKey::Workspaces, id) {
+            return Err(refusal.to_string());
+        }
         let ws = self
             .workspaces
             .iter_mut()

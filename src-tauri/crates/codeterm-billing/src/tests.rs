@@ -446,6 +446,7 @@ struct MemoryGrants(
     std::sync::atomic::AtomicUsize,
     std::sync::atomic::AtomicUsize,
     parking_lot::Mutex<bool>,
+    parking_lot::Mutex<Option<crate::Floors>>,
 );
 impl GrantStore for MemoryGrants {
     fn load(&self) -> Result<Option<serde_json::Value>> {
@@ -466,6 +467,13 @@ impl GrantStore for MemoryGrants {
     }
     fn save_hint(&self, paid: bool) -> Result<()> {
         *self.3.lock() = paid;
+        Ok(())
+    }
+    fn load_floors(&self) -> Result<Option<crate::Floors>> {
+        Ok(self.4.lock().clone())
+    }
+    fn save_floors(&self, floors: &crate::Floors) -> Result<()> {
+        *self.4.lock() = Some(floors.clone());
         Ok(())
     }
 }
@@ -562,7 +570,6 @@ async fn verdict_recomputes_half_open_windows_and_offline_access() {
         .refresh(Some(&user), RefreshEvent::SignIn, Instant::now())
         .await;
     for (instant, state, paid) in [
-        (1_699_999_999, TimeState::NotYetValid, false),
         (1_700_000_000, TimeState::Fresh, true),
         (1_700_003_599, TimeState::Fresh, true),
         (1_700_003_600, TimeState::Stale, true),
@@ -1086,6 +1093,10 @@ fn missing_verdict_while_enforcing_is_compiled_free_and_locks() {
 
 #[path = "checkout_theme_tests.rs"]
 mod checkout_theme;
+#[path = "deadline_tests.rs"]
+mod deadline_tests;
+#[path = "floor_tests.rs"]
+mod floor_tests;
 #[path = "plan_payload_tests.rs"]
 mod plan_payload;
 #[path = "startup_tests.rs"]

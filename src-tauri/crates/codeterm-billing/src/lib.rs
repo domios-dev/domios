@@ -3,10 +3,10 @@ mod build_config;
 mod cache;
 mod envelope;
 mod grant_store;
-pub use grant_store::{FileGrantStore, GrantStore};
+pub use grant_store::{FileGrantStore, Floors, GrantStore};
 mod model;
 use async_trait::async_trait;
-pub use cache::{Billing, RefreshEvent, Snapshot, CHECKING_DEADLINE_SECS};
+pub use cache::{Billing, DeadlineTick, RefreshEvent, Snapshot, CHECKING_DEADLINE_SECS};
 use codeterm_account::Session;
 pub use envelope::{
     Access, ApplicationAccess, ApplicationEnvelope, Authority, BillingInventory, Capabilities,
