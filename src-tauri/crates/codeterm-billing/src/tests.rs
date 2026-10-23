@@ -556,10 +556,10 @@ async fn verdict_recomputes_half_open_windows_and_offline_access() {
     for (instant, state, paid) in [
         (1_699_999_999, TimeState::NotYetValid, false),
         (1_700_000_000, TimeState::Fresh, true),
-        (1_700_001_799, TimeState::Fresh, true),
-        (1_700_001_800, TimeState::Stale, true),
-        (1_700_003_599, TimeState::Stale, true),
-        (1_700_003_600, TimeState::Expired, false),
+        (1_700_003_599, TimeState::Fresh, true),
+        (1_700_003_600, TimeState::Stale, true),
+        (1_700_086_399, TimeState::Stale, true),
+        (1_700_086_400, TimeState::Expired, false),
     ] {
         now.store(instant, std::sync::atomic::Ordering::SeqCst);
         let snapshot = billing.snapshot(Some(&user));
@@ -594,7 +594,7 @@ async fn focus_bypasses_throttle_while_stale_checkout_still_bypasses() {
         .refresh(Some(&user), RefreshEvent::Focus, focus)
         .await;
     assert_eq!(provider.count(), 1);
-    for instant in [1_700_001_800, 1_700_003_599] {
+    for instant in [1_700_003_600, 1_700_086_399] {
         now.store(instant, std::sync::atomic::Ordering::SeqCst);
         let snapshot = billing
             .refresh(Some(&user), RefreshEvent::Focus, focus)
@@ -843,7 +843,7 @@ fn file_grant_store_persists_detached_bytes_only() {
     )
     .unwrap();
     assert_eq!(
-        verified.verdict(1_700_003_600).state,
+        verified.verdict(1_700_086_400).state,
         codeterm_entitlements::TimeState::Expired
     );
     let changed = codeterm_entitlements::PinnedAuthority::new(activation("new-epoch"));

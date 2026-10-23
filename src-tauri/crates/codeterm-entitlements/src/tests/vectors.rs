@@ -13,7 +13,7 @@ use sha2::{Digest, Sha256};
 
 const PACKET: &[u8] = include_bytes!("../../vectors/grant-vectors.json");
 // The producer repository pins the same digest; a one-sided edit fails both suites.
-const PACKET_SHA256: &str = "ff69e6f66ab1e25b9abfe83bd40ca1fcb3c1b621e92b0a39ec27500ce1160226";
+const PACKET_SHA256: &str = "f18139a3a1870d7cccca6a9dad50d370575ace27606f6dcc69a0219935f98808";
 
 fn packet() -> Value {
     serde_json::from_slice(PACKET).expect("grant-vectors.json")
