@@ -111,7 +111,7 @@ The bridge logs every transcription attempt:
 Tail the dev daemon log:
 
 ```bash
-tail -f ~/.codeterm-dev/logs/codeterm.log | grep "bridge\] voice"
+tail -f ~/.domios-dev/logs/domios.log | grep "bridge\] voice"
 ```
 
 ## Internal references

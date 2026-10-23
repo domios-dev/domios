@@ -200,20 +200,23 @@ fn malformed_or_uninstalled_registration_is_broken() {
 
 #[test]
 fn registered_symlink_must_resolve_to_the_installed_binary() {
-    let canonical = |path: &Path| match path.to_str()? {
-        "/usr/bin/domios" | "/home/owner/.domios/bin/domios" => {
-            Some("/usr/lib/domios/cli/domios".into())
-        }
-        _ => None,
+    let aliases = [
+        Path::new("/usr/bin/domios"),
+        Path::new("/home/owner/.domios/bin/domios"),
+    ];
+    let canonical = |path: &Path| {
+        aliases
+            .contains(&path)
+            .then(|| PathBuf::from("/usr/lib/domios/cli/domios"))
     };
-    assert_eq!(
-        AutostartState::assess(
-            true,
-            true,
-            Some(Path::new("/usr/bin/domios")),
-            &model("linux"),
-            canonical
-        ),
-        AutostartState::Enabled
-    );
+    for target in [
+        PathBuf::from("/usr/bin/domios"),
+        Path::new("/usr/bin").join("domios"),
+        Path::new("/home/owner/.domios/bin").join("domios"),
+    ] {
+        assert_eq!(
+            AutostartState::assess(true, true, Some(&target), &model("linux"), canonical),
+            AutostartState::Enabled
+        );
+    }
 }

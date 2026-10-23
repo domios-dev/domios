@@ -99,7 +99,7 @@ fn negotiation_ignores_other_modes_and_string_payloads() {
 
 #[test]
 fn screen_mode_is_per_pty_and_generation() {
-    let mut screens = crate::pty::screen_state::ScreenState::new();
+    let screens = crate::pty::screen_state::ScreenState::new();
     screens.bind_pty_generation("one", 1);
     assert!(screens.process_if_generation("one", 1, b"\x1b[?9001h"));
     assert!(screens.win32_input_mode("one"));

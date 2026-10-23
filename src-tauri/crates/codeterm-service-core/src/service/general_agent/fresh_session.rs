@@ -68,12 +68,30 @@ fn create_fresh_tab(
     Ok(tab_id)
 }
 
+fn published_spawn_result(
+    service: &ServiceContext,
+    tab_id: String,
+    workspace_id: String,
+) -> AtomicSpawn<serde_json::Value> {
+    service.emit_state_changed(MuxEmitCause::GeneralAgent);
+    super::super::mux_emitter::emit_snapshot(service, MuxEmitCause::GeneralAgent.bit());
+    AtomicSpawn {
+        snapshot: service
+            .ext::<std::sync::Arc<super::super::PublishedMuxState>>()
+            .read_value(),
+        tab_id,
+        workspace_id,
+        launch_command: None,
+        warning: None,
+    }
+}
+
 impl ServiceContext {
     pub fn spawn_fresh_general_session(
         &self,
         config: &crate::config::ConfigState,
         request: FreshGeneralSessionRequest,
-    ) -> Result<AtomicSpawn, String> {
+    ) -> Result<AtomicSpawn<serde_json::Value>, String> {
         let general = config.lock().general_agent.clone();
         let mut selection = super::session_contract::FreshLaunchSelection {
             model: request.model.clone(),
@@ -156,14 +174,7 @@ impl ServiceContext {
                 selection,
             );
         });
-        self.emit_state_changed(MuxEmitCause::GeneralAgent);
-        Ok(AtomicSpawn {
-            snapshot: self.mux.read().snapshot(),
-            tab_id,
-            workspace_id: request.workspace_id,
-            launch_command: None,
-            warning: None,
-        })
+        Ok(published_spawn_result(self, tab_id, request.workspace_id))
     }
 }
 

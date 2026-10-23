@@ -488,6 +488,7 @@ export function NewSessionPicker({
         <div className="relative mt-4 flex justify-end">
           <Button
             variant="primary"
+            className="text-xs"
             data-testid="picker-confirm"
             disabled={!canStart}
             loading={busy}

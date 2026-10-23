@@ -2,6 +2,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { beforeEach, expect, it, vi } from "vitest";
 import type { TransportClient } from "../lib/transportClient";
+import type { StartupPhase } from "../lib/serverReadiness";
 const fixture = vi.hoisted(() => ({ listener: undefined as ((client: TransportClient) => void) | undefined, initialize: vi.fn(), wait: vi.fn(), stop: vi.fn() }));
 vi.mock("../lib/daemonBootstrap", () => ({ FRONTEND_BOOT_KEY: "codeterm.frontend.boot", baseDaemonTransport: vi.fn(), onDaemonTransport: (listener: (client: TransportClient) => void) => { fixture.listener = listener; return fixture.stop; } }));
 vi.mock("../lib/frontendUpdate/browser", () => ({ initializeBrowserFrontendUpdates: fixture.initialize }));
@@ -98,5 +99,30 @@ it("keeps the app unmounted when server initialization fails", async () => {
     expect(fixture.initialize).not.toHaveBeenCalled();
     expect(host.querySelector("button")).toBeNull();
     expect(host.querySelector("[role=alert]")).not.toBeNull();
+  } finally { await act(async () => root.unmount()); }
+});
+
+it("shows service and plan progress while keeping application requests gated", async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  let publish!: (phase: StartupPhase | null) => void;
+  let finish!: () => void;
+  fixture.wait.mockImplementation((_client, _signal, onPhase) => {
+    publish = onPhase;
+    return new Promise<void>(resolve => { finish = resolve; });
+  });
+  fixture.initialize.mockResolvedValue({ dispose: vi.fn() });
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<DaemonFrontendBootstrap><button>App ready</button></DaemonFrontendBootstrap>));
+    await act(async () => { fixture.listener!({} as TransportClient); });
+    await act(async () => publish("service"));
+    expect(host.querySelector("[role=status]")?.textContent).toContain("service");
+    await act(async () => publish("plans"));
+    expect(host.querySelector("[role=status]")?.textContent).toContain("plans");
+    expect(fixture.initialize).not.toHaveBeenCalled();
+    expect(host.querySelector("button")).toBeNull();
+    await act(async () => finish());
+    expect(host.querySelector("button")).not.toBeNull();
   } finally { await act(async () => root.unmount()); }
 });

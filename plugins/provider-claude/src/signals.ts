@@ -2,7 +2,7 @@ import {classifyAccessError, observationExtras} from "../../provider-shared/acce
 import type {ProviderAuthStatus, ProviderSessionObservations} from "@codeterm/plugin-sdk";
 
 export function authStatusProbe() {
-  return {args:["auth", "status"], timeoutMs:3000};
+  return {args:["auth", "status"], timeoutMs:15000};
 }
 
 function object(value: unknown): Record<string, unknown> | null {

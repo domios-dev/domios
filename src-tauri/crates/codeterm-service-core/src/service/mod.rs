@@ -181,6 +181,7 @@ mod session_resume;
 pub(crate) mod shell_exec;
 pub use shell_exec::ExecWaiter;
 mod shell_restart;
+pub use shell_restart::{ShellCommandSubmission, ShellRestartOutcome};
 pub mod smart_add;
 pub mod spawn;
 pub mod spawn_capability;

@@ -110,6 +110,22 @@ test("send scheduling and disabled state remain unchanged", async () => {
   assert(schedules === 1, "schedule callback did not fire");
 });
 
+test("right-clicking send opens the schedule without sending", async () => {
+  let sends = 0;
+  let schedules = 0;
+  const { button } = await renderButton(voiceHandle(), {
+    onSend: () => { sends++; },
+    onSchedule: () => { schedules++; },
+  });
+  await act(async () => {
+    button.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, button: 2 }));
+    button.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true, button: 2 }));
+    button.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 }));
+  });
+  assert(sends === 0, "a secondary-button release must not send");
+  assert(schedules === 1, "right-click must open the schedule exactly once");
+});
+
 test("voice hold starts recording and exposes lock affordance", async () => {
   let starts = 0;
   const voiceUi = voiceHandle({

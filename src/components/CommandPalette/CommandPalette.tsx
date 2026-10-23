@@ -1,9 +1,14 @@
-import { useState, useEffect, useCallback, useId, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useId, useRef, useMemo, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { FolderPlus, Palette, PanelLeft, Search, Settings as SettingsIcon, SquarePlus, SquareTerminal, X } from "lucide-react";
 import { isMac } from "../../lib/keybindings";
 import { appShortcutBinding, type AppShortcutAction, type AppShortcutBindings } from "../../lib/appShortcuts";
 import { defaultSpawnProviderId, getAgentDescriptor } from "../../lib/agentDescriptorCache";
+import { AgentIcon } from "../AgentIcon";
+import { SECTION_ICONS } from "../Settings/sections";
 import type { PaletteTabTarget } from "./paletteTabs";
+
+const Bell = SECTION_ICONS.notifications;
 
 // Types
 
@@ -12,7 +17,7 @@ export interface CommandItem {
   label: string;
   /** Extra text the query matches without being shown, such as a Tab's workspace. */
   keywords?: string;
-  icon?: string; // SVG path data (16x16 viewBox)
+  icon?: ReactNode;
   shortcut?: string; // Display string like "Cmd+T"
   section?: string;
   action: () => void;
@@ -36,19 +41,16 @@ interface CommandPaletteProps {
   commands: CommandItem[];
 }
 
-// Icons (16x16 viewBox SVG path data).
-
+const ICON_SIZE = 16;
 const ICONS = {
-  tab: "M2 3.5A1.5 1.5 0 0 1 3.5 2h9A1.5 1.5 0 0 1 14 3.5v9a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 12.5v-9ZM3.5 3a.5.5 0 0 0-.5.5V5h10V3.5a.5.5 0 0 0-.5-.5h-9ZM13 6H3v6.5a.5.5 0 0 0 .5.5h9a.5.5 0 0 0 .5-.5V6Z",
-  close: "M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L9.06 8l3.22 3.22a.75.75 0 1 1-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 0 1-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z",
-  workspace: "M1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25V2.75C0 1.784.784 1 1.75 1Zm12.5 1.5H1.75a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25Z",
-  settings: "M8 0a1 1 0 0 1 1 1v.1a6.97 6.97 0 0 1 2.186.86l.071-.07a1 1 0 0 1 1.415 1.414l-.072.07A6.97 6.97 0 0 1 13.46 5.5h.04a1 1 0 1 1 0 2h-.1a6.97 6.97 0 0 1-.86 2.186l.07.071a1 1 0 0 1-1.414 1.415l-.07-.072A6.97 6.97 0 0 1 9 11.96V12a1 1 0 1 1-2 0v-.1a6.97 6.97 0 0 1-2.186-.86l-.071.07a1 1 0 0 1-1.415-1.414l.072-.07A6.97 6.97 0 0 1 2.54 7.5H2.5a1 1 0 0 1 0-2h.1a6.97 6.97 0 0 1 .86-2.186L3.39 3.24a1 1 0 0 1 1.414-1.415l.07.072A6.97 6.97 0 0 1 7 1.04V1a1 1 0 0 1 1-1Zm0 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5Z",
-  sidebar: "M1 3.25A2.25 2.25 0 0 1 3.25 1h9.5A2.25 2.25 0 0 1 15 3.25v9.5A2.25 2.25 0 0 1 12.75 15h-9.5A2.25 2.25 0 0 1 1 12.75ZM3.25 2.5a.75.75 0 0 0-.75.75v9.5c0 .414.336.75.75.75H5v-11ZM6.5 2.5v11h6.25a.75.75 0 0 0 .75-.75v-9.5a.75.75 0 0 0-.75-.75Z",
-  theme: "M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1ZM1.5 8a6.5 6.5 0 1 1 13 0 6.5 6.5 0 0 1-13 0ZM8 3a5 5 0 0 0 0 10V3Z",
-  claude: "M5.75 7.5a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5a.75.75 0 0 1 .75-.75Zm5.25.75a.75.75 0 0 0-1.5 0v1.5a.75.75 0 0 0 1.5 0ZM6 1h4a4 4 0 0 1 4 4v6a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V5a4 4 0 0 1 4-4Z",
-  cron: "M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0ZM8 3.5a.75.75 0 0 1 .75.75v3.19l2.03 2.03a.75.75 0 0 1-1.06 1.06l-2.25-2.25A.75.75 0 0 1 7.25 8V4.25A.75.75 0 0 1 8 3.5Z",
-  bell: "M8 16a2 2 0 0 0 1.985-1.75c.017-.137-.097-.25-.235-.25h-3.5c-.138 0-.252.113-.235.25A2 2 0 0 0 8 16ZM3 5a5 5 0 0 1 10 0c0 1.862.818 2.726 1.49 3.434.233.246.46.485.653.752.19.262.357.571.357.974 0 .593-.477 1.09-1.107 1.168C13.477 11.44 12.025 11.5 8 11.5c-4.025 0-5.477-.06-6.393-.172C.977 11.24.5 10.743.5 10.16c0-.403.167-.712.356-.974a6.96 6.96 0 0 0 .653-.752C2.182 7.726 3 6.862 3 5Z",
-  search: "M11.5 7a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0Zm-.82 4.74a6 6 0 1 1 1.06-1.06l3.04 3.04a.75.75 0 1 1-1.06 1.06l-3.04-3.04Z",
+  tab: <SquarePlus size={ICON_SIZE} />,
+  close: <X size={ICON_SIZE} />,
+  workspace: <FolderPlus size={ICON_SIZE} />,
+  settings: <SettingsIcon size={ICON_SIZE} />,
+  sidebar: <PanelLeft size={ICON_SIZE} />,
+  theme: <Palette size={ICON_SIZE} />,
+  bell: <Bell size={ICON_SIZE} />,
+  goToTab: <SquareTerminal size={ICON_SIZE} />,
 };
 
 // Helpers
@@ -250,16 +252,7 @@ export function CommandPalette({ commands }: CommandPaletteProps) {
             borderBottom: "1px solid rgba(255, 255, 255, 0.06)",
           }}
         >
-          {/* Search icon */}
-          <svg
-            width={16}
-            height={16}
-            viewBox="0 0 16 16"
-            fill="currentColor"
-            style={{ flexShrink: 0, opacity: 0.4 }}
-          >
-            <path fillRule="evenodd" d={ICONS.search} />
-          </svg>
+          <Search size={ICON_SIZE} aria-hidden="true" style={{ flexShrink: 0, opacity: 0.4 }} />
 
           <input
             ref={inputRef}
@@ -389,15 +382,9 @@ export function CommandPalette({ commands }: CommandPaletteProps) {
                     >
                       {/* Icon */}
                       {cmd.icon && (
-                        <svg
-                          width={16}
-                          height={16}
-                          viewBox="0 0 16 16"
-                          fill="currentColor"
-                          style={{ flexShrink: 0, opacity: 0.5 }}
-                        >
-                          <path fillRule="evenodd" d={cmd.icon} />
-                        </svg>
+                        <span aria-hidden="true" style={{ display: "flex", flexShrink: 0, opacity: 0.5, fontSize: ICON_SIZE }}>
+                          {cmd.icon}
+                        </span>
                       )}
 
                       {/* Label */}
@@ -529,7 +516,7 @@ export function buildDefaultCommands(actions: CommandActions, context: CommandCo
     {
       id: "spawn-claude",
       label: `Spawn ${defaultProvider?.display_name ?? "Agent"}`,
-      icon: ICONS.claude,
+      icon: <AgentIcon providerId={defaultSpawnProviderId()} />,
       section: "Agents",
       action: actions.spawnClaude,
     },
@@ -550,7 +537,7 @@ export function buildDefaultCommands(actions: CommandActions, context: CommandCo
         id: `go-to-tab:${target.tabId}`,
         label: target.title,
         keywords: target.workspaceName,
-        icon: ICONS.tab,
+        icon: ICONS.goToTab,
         section: "Go to Tab",
         action: () => goToTab(target.workspaceId, target.tabId),
       });

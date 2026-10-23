@@ -434,9 +434,10 @@ fn unattended_launch_prompt_fallback_runs_the_deterministic_responder() {
     let (fixture, _guard) = fixture_for(mux);
     let pty = pty_of(&fixture, &tab_id);
     {
-        let mut screen_state = fixture.service.screen_state.lock();
-        screen_state.resize(&pty, 120, 40);
-        screen_state.process(&pty, NO_FIRST.as_bytes());
+        let screen_state = fixture.service.screen_state.pty(&pty);
+        let mut screen_state = screen_state.lock_for_update();
+        screen_state.resize(120, 40);
+        screen_state.process(NO_FIRST.as_bytes());
     }
     let declared = trust_target(NO_FIRST).choice;
     for verdict in [
@@ -631,11 +632,10 @@ fn sentinel_respond_prompt_preapproved_folder_trust_uses_declared_target() {
     tab.pending_prompt_kind = Some(codeterm_types::pty::PromptKind::DirectoryTrust);
     let (fixture, _guard) = fixture_for(mux);
     let pty = pty_of(&fixture, &tab_id);
-    fixture.service.screen_state.lock().resize(&pty, 120, 40);
+    fixture.service.screen_state.resize(&pty, 120, 40);
     fixture
         .service
         .screen_state
-        .lock()
         .process(&pty, PREAPPROVED_LOCAL_NO_FIRST.as_bytes());
     let target = fixture
         .service
@@ -715,8 +715,8 @@ fn sentinel_respond_prompt_login_is_refused_before_dispatch() {
     tab.pending_prompt = Some(prompt.clone());
     tab.pending_prompt_kind = Some(codeterm_types::pty::PromptKind::Provider);
     let (fixture, _guard) = fixture_for(mux);
-    fixture.service.screen_state.lock().resize(&pty, 120, 40);
-    fixture.service.screen_state.lock().process(
+    fixture.service.screen_state.resize(&pty, 120, 40);
+    fixture.service.screen_state.process(
         &pty,
         include_str!(
             "../../../../../../../../plugins/provider-claude/tests/fixtures/tab-state/auth-login.txt"
