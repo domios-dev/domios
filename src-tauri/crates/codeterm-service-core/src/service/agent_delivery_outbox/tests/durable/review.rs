@@ -121,6 +121,7 @@ fn blueprint_v2_call_durable_review_restart_finds_an_orphaned_outbox() {
     )
     .unwrap();
     let restarted = ServiceFixture::new_at(mux, &data);
+    let finished = restarted.record_agent_deliveries(&tab);
     let (event_tx, event_rx) = mpsc::channel();
     restarted.ui.listen("agent-delivery-status", move |event| {
         let _ = event_tx.send(event.clone());
@@ -131,7 +132,121 @@ fn blueprint_v2_call_durable_review_restart_finds_an_orphaned_outbox() {
     let failure = event_rx
         .recv_timeout(Duration::from_secs(5))
         .expect("startup settles orphaned durable authority");
+    finished.wait_for_flush();
     assert_eq!(failure["delivery_id"], id);
     assert_eq!(failure["code"], "recipient_gone");
     assert!(!restarted.has_pending_agent_delivery(&tab));
+}
+
+#[test]
+fn blueprint_v2_call_durable_review_expiry_is_checked_before_any_durable_claim() {
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    struct ExpiringClock {
+        reads: AtomicUsize,
+        saw_claimed: Arc<AtomicBool>,
+        index: std::path::PathBuf,
+    }
+    impl crate::cron::clock::Clock for ExpiringClock {
+        fn now_ms(&self) -> u64 {
+            if self.reads.fetch_add(1, Ordering::SeqCst) == 0 {
+                return 1000;
+            }
+            let value: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(&self.index).unwrap()).unwrap();
+            self.saw_claimed
+                .store(value["records"][0]["state"] == "claimed", Ordering::SeqCst);
+            1000 + DELIVERY_TTL_MS
+        }
+    }
+    let (mux, tab) = MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let writes = fixture.bind_recorded_agent_recipient(&tab, "live-session", "live-launch");
+    let owner = &fixture.service.pending_delivery_payloads.agent_deliveries;
+    let mut payload = super::super::payload();
+    payload.expected_pty_id = Some(format!("recorded-{tab}"));
+    payload.expected_session_id = Some("live-session".into());
+    payload.expected_binding_nonce = Some("live-launch".into());
+    payload.durable_delivery = Some(crate::service::durable_delivery::DurableDelivery {
+        producer: "original-run".into(),
+        producer_tab: tab.clone(),
+        created_at_ms: 1000,
+        saved_target: None,
+    });
+    let id = owner
+        .enqueue(&tab, &serde_json::to_string(&payload).unwrap(), None)
+        .unwrap();
+    let directory = fixture
+        .service
+        .agent_pad_data_dir
+        .join("agent-delivery-outbox");
+    let index = std::fs::read_dir(directory)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path()
+        .join("index.json");
+    let saw_claimed = Arc::new(AtomicBool::new(false));
+    assert!(fixture
+        .service
+        .set_ext(DurableDeliveryRuntime::with_clock(Arc::new(
+            ExpiringClock {
+                reads: AtomicUsize::new(0),
+                saw_claimed: saw_claimed.clone(),
+                index,
+            }
+        )))
+        .is_ok());
+    let record = owner.pending_head(&tab).unwrap().unwrap();
+    fixture.service.flush_agent_delivery_record(
+        &tab,
+        owner,
+        &record,
+        &payload,
+        owner.state_generation(&tab),
+    );
+    assert!(
+        !saw_claimed.load(Ordering::SeqCst),
+        "TTL expiry must be observed while the record is still Pending"
+    );
+    assert!(writes.texts.lock().is_empty());
+    assert_failed(&fixture, &tab, &id, "delivery_ttl_expired");
+}
+
+#[test]
+fn blueprint_v2_call_durable_review_authentication_persistence_failure_never_allows_later_adoption()
+{
+    let (fixture, tab, _) = restored();
+    let writes = fixture.record_agent_deliveries(&tab);
+    let id = admit(&fixture, &tab);
+    writes.wait_for_flush();
+    let owner = &fixture.service.pending_delivery_payloads.agent_deliveries;
+    owner.state_changed(&tab);
+    assert!(owner.start_worker(&tab));
+    let root = fixture
+        .service
+        .agent_pad_data_dir
+        .join("agent-delivery-outbox");
+    let blocked_write = std::fs::read_dir(root)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path()
+        .join("index.next.json");
+    std::fs::create_dir(&blocked_write).unwrap();
+    fixture.resume_recorded_agent_recipient(&tab, "saved-session", "L1");
+    assert!(owner
+        .pending_head(&tab)
+        .unwrap()
+        .unwrap()
+        .saved_launch
+        .is_none());
+    std::fs::remove_dir(blocked_write).unwrap();
+    fixture.resume_recorded_agent_recipient(&tab, "saved-session", "L2");
+    owner.finish_worker(&tab);
+    fixture.service.wake_agent_deliveries_on_state_change(&tab);
+    writes.wait_for_flush();
+    assert!(writes.texts.lock().is_empty());
+    assert_failed(&fixture, &tab, &id, "launch_authority_unavailable");
 }

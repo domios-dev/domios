@@ -22,14 +22,7 @@ pub(super) fn restored() -> (ServiceFixture, String, Arc<crate::cron::clock::Moc
 pub(super) fn admit(fixture: &ServiceFixture, tab: &str) -> String {
     let mut envelope = MessageEnvelope::codeterm_reminder("blueprint:restored-result");
     envelope.durable_delivery = Some(fixture.service.durable_delivery("original-run", tab));
-    match Messenger::deliver(
-        &fixture.service,
-        tab,
-        envelope,
-        "Original run: original-run; timestamp: 1000\nRead result.json",
-    )
-    .unwrap()
-    {
+    match Messenger::deliver(&fixture.service, tab, envelope, "Read result.json").unwrap() {
         Delivery::Pending { delivery_id } => delivery_id,
         other => panic!("restored result must be held: {other:?}"),
     }

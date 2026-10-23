@@ -149,7 +149,12 @@ impl ServiceContext {
     }
 
     pub fn schedule_restored_agent_delivery_reconciliation(&self) {
-        let tab_ids = self
+        let service = self.clone();
+        crate::async_runtime::spawn_blocking(move || service.reconcile_restored_agent_deliveries());
+    }
+
+    fn reconcile_restored_agent_deliveries(&self) {
+        let mut tab_ids = self
             .mux
             .read()
             .snapshot()
@@ -157,6 +162,16 @@ impl ServiceContext {
             .into_values()
             .map(|tab| tab.id)
             .collect::<Vec<_>>();
+        match self
+            .pending_delivery_payloads
+            .agent_deliveries
+            .persisted_tab_ids()
+        {
+            Ok(persisted) => tab_ids.extend(persisted),
+            Err(error) => log::error!("[agent-delivery] outbox discovery failed: {error}"),
+        }
+        tab_ids.sort();
+        tab_ids.dedup();
         for tab_id in tab_ids {
             let owner = Arc::clone(&self.pending_delivery_payloads.agent_deliveries);
             if !owner.start_worker(&tab_id) {
@@ -449,7 +464,7 @@ impl ServiceContext {
         generation: u64,
     ) -> AgentWriteResult {
         let mut prepared = payload.clone();
-        match self.prepare_saved_delivery(tab_id, owner, record, &mut prepared) {
+        match self.prepare_saved_delivery(tab_id, record, &mut prepared) {
             Ok(super::durable_delivery::PreparedDelivery::Ready) => {}
             Ok(super::durable_delivery::PreparedDelivery::Held) => {
                 return if owner.block_after_refusal(tab_id, generation) {
@@ -501,6 +516,19 @@ impl ServiceContext {
             return AgentWriteResult::Continue;
         }
         let pty_claim = self.pty_ownership.acquire(tab_id);
+        if self.durable_delivery_expired(payload) {
+            drop(pty_claim);
+            if let Err(error) =
+                self.fail_durable_delivery(tab_id, owner, record, payload, "delivery_ttl_expired")
+            {
+                log::error!(
+                    "[agent-delivery] preclaim expiry settlement failed tab={tab_id}: {error}"
+                );
+                owner.block_after_refusal(tab_id, generation);
+                return AgentWriteResult::Refused;
+            }
+            return AgentWriteResult::Continue;
+        }
         let recovery = self.retired_delivery_recovery(tab_id, payload);
         let claim = match owner.claim_with_recovery(tab_id, &record.id, recovery) {
             Ok(claim) => claim,
