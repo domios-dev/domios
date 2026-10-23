@@ -12,10 +12,11 @@ export interface LockedSurfaces {
 export function lockedSurfaces(state: Pick<MultiplexerState, "workspaces" | "tabs" | "teams">): LockedSurfaces {
   const lockedWorkspaces = new Map(state.workspaces.map((workspace) => [workspace.id, workspace.locked === true]));
   const ownerOf = new Map(state.workspaces.flatMap((workspace) => workspace.tabs.map((id) => [id, workspace] as const)));
+  const lockedTeams = new Set((state.teams ?? []).filter((team) => team.locked).map((team) => team.id));
   return {
     workspaces: state.workspaces.filter((workspace) => lockedView("workspaces", workspace).locked).map((workspace) => workspace.id),
     tabs: Object.values(state.tabs)
-      .filter((tab) => tabLockedView(tab, { locked: lockedWorkspaces.get(tab.workspace_id ?? ownerOf.get(tab.id)?.id ?? "") === true }).locked)
+      .filter((tab) => tabLockedView(tab, { locked: lockedWorkspaces.get(tab.workspace_id ?? ownerOf.get(tab.id)?.id ?? "") === true }, { locked: lockedTeams.has(tab.team_id ?? "") }).locked)
       .map((tab) => tab.id),
     teams: (state.teams ?? []).filter((team) => lockedView("teams", team).locked).map((team) => team.id),
   };
