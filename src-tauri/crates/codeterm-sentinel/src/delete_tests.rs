@@ -7,7 +7,7 @@ fn job(id: &str, scenario: &str, creator: &str, team: Option<&str>, stopped: boo
         root.path().join("fixture.json"),
         codeterm_cron::clock::MockClock::starting_at(0),
     );
-    let mut job=store.prepare_document(json!({"schema_version":2,"kind":"watch","name":"delete fixture","steps":[{"id":"source","uses":"probe","with":{"command":{"lit":"status"}},"every":{"lit":"10s"},"timeout":{"lit":"1h"}},{"id":"decide","uses":"ask","with":{"question":{"lit":"Ready?"}},"buckets":["ready"],"matches":{"ready":{"lit":"ready"}}}]}),crate::store::Owner{creator_tab_id:creator.into(),team_id:team.map(str::to_owned),workspace_id:"workspace".into(),cwd:"/tmp".into()},false).unwrap();
+    let mut job=store.prepare_document(json!({"schema_version":2,"kind":"watch","name":format!("delete {id}"),"steps":[{"id":"source","uses":"probe","with":{"command":{"lit":"status"}},"every":{"lit":"10s"},"timeout":{"lit":"1h"}},{"id":"decide","uses":"ask","with":{"question":{"lit":"Ready?"}},"buckets":["ready"],"matches":{"ready":{"lit":"ready"}}}]}),crate::store::Owner{creator_tab_id:creator.into(),team_id:team.map(str::to_owned),workspace_id:"workspace".into(),cwd:"/tmp".into()},false).unwrap();
     job.id = id.into();
     job.machine.stopped = stopped;
     job.scenario_id = Some(scenario.into());

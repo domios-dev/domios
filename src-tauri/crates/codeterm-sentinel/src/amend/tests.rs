@@ -192,11 +192,12 @@ fn sentinel_update_refuses_observe_rebind_and_non_creator_command_text() {
 }
 
 #[test]
-fn sentinel_update_keeps_bounded_immutable_json_history() {
+fn sentinel_update_stage_carries_only_its_immutable_head_lineage() {
     let (_root, store, first) = fixture();
     let store = Arc::new(Mutex::new(store));
     let mut current = first;
-    for version in 1..=18 {
+    let updates = MAX_AMENDMENTS as u64 + 2;
+    for version in 1..=updates {
         current = apply(
             &store,
             &current,
@@ -208,11 +209,25 @@ fn sentinel_update_keeps_bounded_immutable_json_history() {
     }
     let history = history(&current);
 
-    assert_eq!(current.amendments.len(), MAX_AMENDMENTS);
-    assert_eq!(history.versions.len(), MAX_AMENDMENTS + 1);
+    assert_eq!(current.definition_version, updates + 1);
+    assert_eq!(current.amendments.len(), 1);
+    let head = &current.amendments[0];
+    assert_eq!(
+        (head.version, head.replaced_version),
+        (updates + 1, updates)
+    );
+    assert_eq!(history.versions.len(), 2);
     assert!(history.history_truncated);
     assert_eq!(
+        history.versions[0].definition.question,
+        format!("question {}", updates - 1)
+    );
+    assert_eq!(
         history.versions.last().unwrap().version,
+        current.definition_version
+    );
+    assert_eq!(
+        store.lock().get(&current.id).unwrap().definition_version,
         current.definition_version
     );
 }
