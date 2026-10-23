@@ -147,29 +147,74 @@ pub fn compare_documents(
     use codeterm_blueprint_types::blueprint_memory::{
         abstract_document, semantic_canon::canonical_json,
     };
-    let normalize = |document: &codeterm_blueprint_types::blueprint_document::Document| {
-        let mut document = abstract_document(document.clone());
+    let unnamed = |document: &codeterm_blueprint_types::blueprint_document::Document| {
+        let mut document = document.clone();
         document.name = "candidate".into();
         document.note = None;
         document.intent = None;
         document.anchors.clear();
         document
     };
-    let (a, b) = (normalize(a), normalize(b));
-    let (signature_a, signature_b) = (blueprint_wl::signature(&a), blueprint_wl::signature(&b));
+    let (a, b) = (unnamed(a), unnamed(b));
+    let (shape_a, shape_b) = (abstract_document(a.clone()), abstract_document(b.clone()));
+    let (signature_a, signature_b) = (
+        blueprint_wl::signature(&shape_a),
+        blueprint_wl::signature(&shape_b),
+    );
+    let same_content = behaviour(&a) == behaviour(&b);
     let scores = Scores {
-        exact: canonical_json(&a) == canonical_json(&b),
-        same_hash: signature_a.hash == signature_b.hash,
+        // Saved solutions are stored generalized, so a candidate also matches its own generalization.
+        exact: canonical_json(&a) == canonical_json(&b)
+            || canonical_json(&shape_a) == canonical_json(&b)
+            || canonical_json(&a) == canonical_json(&shape_b),
+        same_hash: signature_a.hash == signature_b.hash && same_content,
         s_struct: blueprint_wl::kernel(&signature_a.features, &signature_b.features),
         cos_desc: 0.0,
         cos_intent: 0.0,
     };
     let verdict = decide(&scores, &Thresholds::default());
+    let content = if same_content {
+        "same code, commands and literals"
+    } else {
+        "code, commands or literals differ"
+    };
     Comparison {
         verdict,
         scores,
-        why: format!(
-            "{verdict:?}: abstracted canonical documents; WL h=3; candidate vectors unavailable"
-        ),
+        why: format!("{verdict:?}: WL h=3 shape over abstracted documents; {content}; candidate vectors unavailable"),
     }
+}
+
+// Twins refuse admission, so they must agree on what runs, not only on the graph shape.
+fn behaviour(document: &codeterm_blueprint_types::blueprint_document::Document) -> Vec<String> {
+    let mut parts = document
+        .nodes()
+        .map(|node| {
+            serde_json::json!([
+                node.uses,
+                node.run,
+                node.code,
+                node.call,
+                node.params,
+                node.matches,
+                node.every,
+                node.timeout,
+                node.until
+            ])
+            .to_string()
+        })
+        .collect::<Vec<_>>();
+    parts.sort();
+    parts.push(serde_json::to_string(&document.trigger).unwrap_or_default());
+    parts.push(
+        serde_json::to_string(
+            &document
+                .inputs
+                .iter()
+                .map(|(key, input)| (key, &input.default))
+                .collect::<Vec<_>>(),
+        )
+        .unwrap_or_default(),
+    );
+    parts
 }

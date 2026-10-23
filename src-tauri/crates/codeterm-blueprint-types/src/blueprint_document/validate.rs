@@ -32,6 +32,15 @@ pub(super) fn document(doc: &Document) -> Errors {
     {
         errors.push(("owner".into(), "Use tab or team".into()));
     }
+    if let Some(target) = doc.result.to.as_ref().and_then(ResultTarget::fixed) {
+        if serde_json::from_value::<crate::blueprint_pipeline::ResultTarget>(target.into()).is_err()
+        {
+            errors.push((
+                "result.to".into(),
+                format!("Unknown result target `{target}`; use owner, team, notify or tab:<id>"),
+            ));
+        }
+    }
     if doc.kind == Kind::Pipeline
         && doc.trigger.is_none()
         && (doc.result.port.is_none() || doc.result.from.is_none())

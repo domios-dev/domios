@@ -417,7 +417,7 @@ impl Resolver<'_> {
             vec![finding(
                 parsed,
                 field,
-                format!("Missing import {}: {e}", candidate.display()),
+                format!("Missing import {}: {e}", portable_path(&candidate)),
             )]
         })?;
         let source = read(author, target).map_err(|e| vec![finding(parsed, field, e)])?;
