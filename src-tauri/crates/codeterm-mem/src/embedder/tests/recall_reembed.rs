@@ -14,9 +14,16 @@ fn seeded(bodies: &[&str]) -> (Fixture, Arc<MockProvider>, Vec<String>) {
     let fx = fixture(old.clone(), StepClock::new());
     let ids = bodies
         .iter()
-        .enumerate()
-        .map(|(n, body)| fx.mem.save(note(&format!("Item {n}"), body)).unwrap())
-        .collect();
+        .map(|body| {
+            fx.mem
+                .save(note(body, &format!("{body} kept as a fixture memory body")))
+                .unwrap()
+        })
+        .collect::<Vec<String>>();
+    assert_eq!(
+        ids.iter().collect::<std::collections::HashSet<_>>().len(),
+        bodies.len()
+    );
     assert!(fx.mem.embed_queue.wait_idle(DEADLINE));
     (fx, old, ids)
 }
