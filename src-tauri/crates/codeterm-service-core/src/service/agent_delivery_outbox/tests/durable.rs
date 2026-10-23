@@ -2,7 +2,7 @@ use super::*;
 use crate::service::durable_delivery::{DurableDeliveryRuntime, DELIVERY_TTL_MS};
 use crate::service::messenger::{MessageEnvelope, Messenger};
 
-fn restored() -> (ServiceFixture, String, Arc<crate::cron::clock::MockClock>) {
+pub(super) fn restored() -> (ServiceFixture, String, Arc<crate::cron::clock::MockClock>) {
     let (mut mux, id) = MultiplexerState::new();
     let tab = mux.get_tab_mut(&id).unwrap();
     tab.agent_type = Some("saved-provider".into());
@@ -19,7 +19,7 @@ fn restored() -> (ServiceFixture, String, Arc<crate::cron::clock::MockClock>) {
     (fixture, id, clock)
 }
 
-fn admit(fixture: &ServiceFixture, tab: &str) -> String {
+pub(super) fn admit(fixture: &ServiceFixture, tab: &str) -> String {
     let mut envelope = MessageEnvelope::codeterm_reminder("blueprint:restored-result");
     envelope.durable_delivery = Some(fixture.service.durable_delivery("original-run", tab));
     match Messenger::deliver(
@@ -35,7 +35,7 @@ fn admit(fixture: &ServiceFixture, tab: &str) -> String {
     }
 }
 
-fn assert_failed(fixture: &ServiceFixture, tab: &str, id: &str, reason: &str) {
+pub(super) fn assert_failed(fixture: &ServiceFixture, tab: &str, id: &str, reason: &str) {
     assert!(!fixture.has_pending_agent_delivery(tab));
     let event = fixture
         .ui
@@ -289,3 +289,6 @@ fn blueprint_v2_call_durable_first_authenticated_launch_cannot_be_replaced_after
     done_rx.recv_timeout(Duration::from_secs(30)).unwrap();
     assert_failed(&fixture, &tab, &id, "launch_ended_before_write");
 }
+
+#[path = "durable/review.rs"]
+mod review;
