@@ -1,6 +1,6 @@
 use super::*;
 use codeterm_service_core::mesh::types::{
-    AccessLevel, PairedPeer, RelayCommand, RELAY_PROTOCOL_VERSION,
+    AccessLevel, PairedPeer, RelayCommand, RelayResponse, RELAY_PROTOCOL_VERSION,
 };
 
 const ISOLATED_PEER: &str = "peer-isolated";
@@ -67,8 +67,7 @@ fn app_state(fixture: &codeterm_service_core::service::test_fixture::ServiceFixt
     let mut mesh = codeterm_service_core::mesh::MeshManager::new("relay-owner-gate".into(), 0);
     mesh.disk_persist = false;
     mesh.paired_peers.clear();
-    mesh.paired_peers
-        .insert(ISOLATED_PEER.into(), isolated_peer());
+    mesh.insert_legacy_pair_for_test(isolated_peer());
     AppState {
         frontend_dev_url: None,
         svc: std::sync::Arc::new(fixture.service.clone()),
@@ -99,6 +98,33 @@ fn app_state(fixture: &codeterm_service_core::service::test_fixture::ServiceFixt
         events: fixture.service.events.clone(),
         web_dist: None,
     }
+}
+
+#[test]
+fn relay_fences_a_closed_peer_before_forwarding() {
+    let (mux, _) = mux_with_tabs();
+    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    let state = app_state(&fixture);
+    assert!(state.mesh.lock().traffic_open(ISOLATED_PEER));
+
+    let completed = RelayResponse {
+        ok: true,
+        status: StatusCode::OK.as_u16(),
+        error: None,
+        data: Some(serde_json::json!({"protected": "mesh data"})),
+    };
+    state.mesh.lock().unpair(ISOLATED_PEER).unwrap();
+
+    assert!(relay_prewrite_refusal(&state, ISOLATED_PEER).is_some());
+    assert!(
+        completed.ok,
+        "a completed PTY result is never replaced by a later gate change"
+    );
+    assert!(
+        outcome_holds_dedupe(&completed),
+        "the written result remains deduped"
+    );
+    assert_eq!(completed.data.unwrap()["protected"], "mesh data");
 }
 
 fn relay_command(method: &str, path: String) -> RelayCommand {

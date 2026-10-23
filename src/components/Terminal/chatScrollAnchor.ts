@@ -9,7 +9,7 @@ function renderedRows(el: HTMLElement): ChatAnchorGeometry[] {
     const rect = (row.closest<HTMLElement>("[data-chat-window-row]") ?? row).getBoundingClientRect();
     return { ...identities[index],
       ordinal: row.dataset.sourceMessageOrdinal == null ? identities[index].ordinal : Number(row.dataset.sourceMessageOrdinal),
-      top: rect.top - origin, height: rect.height };
+      top: rect.top - origin, height: rect.height, contentTop: row.getBoundingClientRect().top - origin };
   });
 }
 

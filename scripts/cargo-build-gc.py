@@ -60,9 +60,10 @@ def inventory(directory):
     return files
 
 
-def collect(root, directory, dry_run=False):
+def collect(root, directory, dry_run=False, tree=False):
     root, directory = safe_path(root), safe_path(directory)
-    if directory.parent.parent != root or not re.fullmatch('[a-f0-9]{14}', directory.name) or not re.fullmatch('[a-f0-9]{2}', directory.parent.name):
+    hashed = directory.parent.parent == root and re.fullmatch('[a-f0-9]{14}', directory.name) and re.fullmatch('[a-f0-9]{2}', directory.parent.name)
+    if not (directory.parent == root if tree else hashed):
         raise ValueError('candidate is outside the two-level Cargo hash root')
     files = inventory(directory)
     with contextlib.ExitStack() as stack:
@@ -134,7 +135,10 @@ if __name__ == '__main__':
                 listed = json.load(handle)
             print(json.dumps(trim(sys.argv[2], sys.argv[3], listed, '--dry-run' in sys.argv[5:])))
             sys.exit(0)
-        print(json.dumps(collect(sys.argv[1], sys.argv[2], '--dry-run' in sys.argv[3:])))
+        if sys.argv[1] == '--tree':
+            print(json.dumps(collect(sys.argv[2], sys.argv[3], '--dry-run' in sys.argv[4:], tree=True)))
+        else:
+            print(json.dumps(collect(sys.argv[1], sys.argv[2], '--dry-run' in sys.argv[3:])))
     except Exception as error:
         print(str(error), file=sys.stderr)
         sys.exit(2)

@@ -1,5 +1,5 @@
 import { memo, useCallback, useMemo, useState } from "react";
-import { invoke } from "../../lib/bridge";
+import { invoke, webCapability } from "../../lib/bridge";
 import { X, TerminalSquare, FolderOpen, Sparkles, SquarePlus, AlertTriangle } from "lucide-react";
 import { isMac } from "../../lib/keybindings";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
@@ -148,9 +148,12 @@ function WorkspaceItemInner({
       },
     ];
     if (workspace.cwd) {
+      const reveal = webCapability("open_folder");
       items.push({
         label: isMac ? "Show in Finder" : "Show in Explorer",
         icon: <FolderOpen size={11} strokeWidth={1.5} />,
+        unavailable: !reveal.supported,
+        description: reveal.supported ? undefined : "Available only in the desktop app",
         onClick: () => {
           invoke("open_folder", { path: workspace.cwd }).catch(() => {});
         },

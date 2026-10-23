@@ -49,14 +49,14 @@ fn tab_hook_target<'a>(method: &Method, path: &'a str) -> Option<(&'a str, &'a s
     matches!(event, "session_start" | "provider_event" | "stop").then_some((tab_id, event))
 }
 
+/// The link handshake authenticates by signed membership, installation possession and
+/// both online permits; nothing on these paths can create a pair without them.
 pub(crate) const PUBLIC_PATHS: &[&str] = &[
     "/api/health",
     "/api/mesh/ping",
-    "/api/mesh/pair/request",
-    "/api/mesh/pair/identity",
-    "/api/mesh/pair/accept",
-    "/api/mesh/pair/confirm",
-    "/api/mesh/pair/reject",
+    "/api/mesh/link/hello",
+    "/api/mesh/link/confirm",
+    "/api/mesh/link/commit",
 ];
 
 fn bearer_exempt(method: &Method, path: &str) -> bool {
@@ -150,13 +150,19 @@ fn remote_network_allowed(mesh_enabled: bool, address: Option<SocketAddr>) -> bo
 
 /// Paths whose handlers authenticate independently and must skip bearer middleware.
 /// This is an EXACT allowlist on purpose: an earlier `starts_with("/api/mesh/peers/")`
-/// prefix match exempted every peer sub-route (services, approve, add-manual,
-/// addr, …) whose handlers only call the no-op `check_auth`, leaving them fully
-/// unauthenticated — an anonymous caller on the network could self-approve a
-/// pairing. Only `relay`, `introduce`, and the unpair handler
-/// (`DELETE /api/mesh/peers/{id}`) self-verify.
+/// prefix match exempted every peer sub-route whose handlers only call the no-op
+/// `check_auth`, leaving them unauthenticated. Only `relay`, the adoption pair and
+/// the unpair handler (`DELETE /api/mesh/peers/{id}`) self-verify against open edges;
+/// announce verifies identity only to accept a renewed membership.
 pub(crate) fn is_custom_auth(method: &Method, path: &str) -> bool {
-    if path == "/api/mesh/relay" || path == "/api/mesh/introduce" {
+    if matches!(
+        path,
+        "/api/mesh/relay" | "/api/mesh/adopt/offer" | "/api/mesh/adopt/commit"
+    ) {
+        return true;
+    }
+    // Announce verifies its sender itself so an adopted peer can deliver a renewed membership.
+    if method == Method::POST && path == "/api/mesh/announce" {
         return true;
     }
     if is_inbound_webhook_path(method, path) {
@@ -366,6 +372,7 @@ pub async fn auth_middleware(
     }
     #[cfg(debug_assertions)]
     let queued = std::time::Instant::now();
+    let mesh = state.mesh.clone();
     let outcome = tokio::task::spawn_blocking(move || {
         #[cfg(debug_assertions)]
         let (started, route, queue_ms) = (
@@ -389,7 +396,17 @@ pub async fn auth_middleware(
     match outcome {
         Ok(AuthOutcome::Allowed(req, false)) => next.run(req).await,
         Ok(AuthOutcome::Allowed(req, true)) => {
-            super::peer_redaction::redact_peer_response(next.run(req).await).await
+            let peer_id = match req.extensions().get::<CallerIdentity>() {
+                Some(CallerIdentity::Peer { instance_id, .. }) => Some(instance_id.clone()),
+                _ => None,
+            };
+            let response = super::peer_redaction::redact_peer_response(next.run(req).await).await;
+            match peer_id {
+                Some(peer_id) => {
+                    crate::mesh_routes::account_link::fence_response(response, mesh, peer_id)
+                }
+                None => response,
+            }
         }
         Ok(AuthOutcome::Rejected(response)) => response,
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
@@ -563,455 +580,4 @@ fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use codeterm_service_core::api_support::access_policy::check_access;
-
-    #[test]
-    fn remote_ownership_release_accepts_only_local_identity() {
-        assert!(ownership_release_is_local(CallerIdentity::Local));
-        assert!(!ownership_release_is_local(CallerIdentity::Peer {
-            instance_id: "peer-eight".into(),
-            access_level: AccessLevel::Full,
-            relay_protocol_version: codeterm_service_core::mesh::types::RELAY_PROTOCOL_VERSION,
-        }));
-    }
-
-    #[test]
-    fn hook_auth_context_only_matches_binding_events() {
-        assert_eq!(
-            tab_hook_target(&Method::POST, "/api/tabs/tab-1/hook/session_start"),
-            Some(("tab-1", "session_start")),
-        );
-        assert_eq!(
-            tab_hook_target(&Method::POST, "/api/tabs/tab-1/hook/provider_event"),
-            Some(("tab-1", "provider_event")),
-        );
-        assert_eq!(
-            tab_hook_target(&Method::POST, "/api/tabs/tab-1/hook/stop"),
-            Some(("tab-1", "stop")),
-        );
-        assert_eq!(
-            tab_hook_target(&Method::GET, "/api/tabs/tab-1/hook/stop"),
-            None,
-        );
-        assert_eq!(
-            tab_hook_target(&Method::POST, "/api/tabs/tab-1/hook/permission"),
-            None,
-        );
-    }
-
-    #[test]
-    fn plugin_ui_document_and_assets_require_bearer_authentication() {
-        for path in [
-            "/api/plugins/example/ui/index.html",
-            "/api/plugins/example/ui/app.js",
-            "/api/plugins/example/ui/icon.svg",
-        ] {
-            assert!(!bearer_exempt(&Method::GET, path));
-        }
-        assert!(bearer_exempt(&Method::GET, "/api/health"));
-        assert!(bearer_exempt(&Method::GET, "/frontend/index.html"));
-    }
-
-    #[test]
-    fn custom_auth_only_exempts_self_verifying_paths() {
-        // Self-verifying: skip the bearer middleware.
-        assert!(is_custom_auth(&Method::POST, "/api/mesh/relay"));
-        assert!(is_custom_auth(&Method::POST, "/api/mesh/introduce"));
-        assert!(is_custom_auth(&Method::DELETE, "/api/mesh/peers/abc123")); // unpair
-                                                                            // Relayed plugin-UI asset proxy: iframe src, handler self-verifies query token.
-        assert!(is_custom_auth(
-            &Method::GET,
-            "/api/mesh/relay-asset/peer1/plugins/foo/ui/index.html"
-        ));
-        // The bare route without a peer segment is not the proxy — not exempt.
-        assert!(!is_custom_auth(&Method::GET, "/api/mesh/relay-asset"));
-
-        // therefore fully unauthenticated. They must NOT be custom-auth.
-        assert!(!is_custom_auth(
-            &Method::GET,
-            "/api/mesh/peers/abc123/services"
-        ));
-        assert!(!is_custom_auth(&Method::POST, "/api/mesh/peers/add-manual"));
-        assert!(!is_custom_auth(
-            &Method::POST,
-            "/api/mesh/peers/approve/abc123"
-        ));
-        assert!(!is_custom_auth(
-            &Method::POST,
-            "/api/mesh/peers/reject/abc123"
-        ));
-        assert!(!is_custom_auth(
-            &Method::POST,
-            "/api/mesh/peers/abc123/addr"
-        ));
-        // Unpair must be DELETE — a GET on the same path is not exempt.
-        assert!(!is_custom_auth(&Method::GET, "/api/mesh/peers/abc123"));
-
-        assert!(is_inbound_webhook_path(
-            &Method::POST,
-            "/api/plugins/pebble/webhook"
-        ));
-        assert!(is_custom_auth(&Method::POST, "/api/plugins/pebble/webhook"));
-        assert!(!is_inbound_webhook_path(
-            &Method::GET,
-            "/api/plugins/pebble/webhook"
-        ));
-        assert!(!is_inbound_webhook_path(
-            &Method::POST,
-            "/api/plugins/pebble/webhook/extra"
-        ));
-        assert!(!is_inbound_webhook_path(
-            &Method::POST,
-            "/api/plugins/pebble/ui/webhook"
-        ));
-        assert!(!is_inbound_webhook_path(
-            &Method::POST,
-            "/api/plugins/other/webhook"
-        ));
-        assert!(!is_custom_auth(&Method::POST, "/api/plugins/other/webhook"));
-        assert!(!is_custom_auth(
-            &Method::POST,
-            "/api/plugins/pebble/webhook/extra"
-        ));
-    }
-
-    #[test]
-    fn v1_14_9_peer_protocol_is_refused_with_a_version_upgrade_message() {
-        crate::test_support::install_app_version();
-        let ancient_protocol = codeterm_service_core::mesh::types::RELAY_PROTOCOL_VERSION - 1;
-        let refusal = peer_protocol_refusal(ancient_protocol).unwrap();
-        assert!(refusal.contains(&format!(
-            "both peers on Domios {}",
-            crate::test_support::TEST_APP_VERSION
-        )));
-        assert!(refusal.contains("upgrade both peers through the updater"));
-        for path in ["/api/mesh/announce", "/api/mesh/sync"] {
-            assert!(!peer_protocol_allowed(ancient_protocol, path));
-        }
-        assert!(!peer_protocol_allowed(
-            ancient_protocol,
-            "/api/events/stream"
-        ));
-        assert!(!peer_protocol_allowed(ancient_protocol, "/api/config"));
-        assert!(!peer_protocol_allowed(
-            ancient_protocol,
-            "/api/tabs/abc/send"
-        ));
-
-        for version in codeterm_service_core::mesh::types::RELAY_PROTOCOL_VERSION
-            ..=codeterm_service_core::mesh::types::MAX_SUPPORTED_RELAY_PROTOCOL_VERSION
-        {
-            assert!(peer_protocol_allowed(version, "/api/mesh/announce"));
-            assert!(peer_protocol_allowed(version, "/api/events/stream"));
-            assert!(peer_protocol_allowed(version, "/api/tabs/abc/send"));
-        }
-    }
-
-    #[test]
-    fn v1_14_peer_gets_empty_gossip_on_sync_and_upgrade_required_elsewhere() {
-        crate::test_support::install_app_version();
-        let ancient = codeterm_service_core::mesh::types::RELAY_PROTOCOL_VERSION - 1;
-        let current = codeterm_service_core::mesh::types::RELAY_PROTOCOL_VERSION;
-
-        assert_eq!(
-            stored_protocol_answer(&Method::POST, "/api/mesh/sync", ancient),
-            StoredProtocolAnswer::EmptyGossip
-        );
-        assert!(matches!(
-            stored_protocol_answer(&Method::GET, "/api/mesh/inventory", ancient),
-            StoredProtocolAnswer::UpgradeRequired(_)
-        ));
-        assert!(matches!(
-            stored_protocol_answer(&Method::GET, "/api/mesh/sync", ancient),
-            StoredProtocolAnswer::UpgradeRequired(_)
-        ));
-        assert_eq!(
-            stored_protocol_answer(&Method::POST, "/api/mesh/announce", ancient),
-            StoredProtocolAnswer::Proceed
-        );
-        for (method, path) in [
-            (Method::POST, "/api/mesh/sync"),
-            (Method::GET, "/api/mesh/inventory"),
-        ] {
-            assert_eq!(
-                stored_protocol_answer(&method, path, current),
-                StoredProtocolAnswer::Proceed
-            );
-        }
-        assert_eq!(
-            serde_json::to_value(empty_gossip_snapshot()).unwrap(),
-            serde_json::json!({ "peers": [], "generation": 0 })
-        );
-    }
-
-    #[test]
-    fn upgraded_peer_announce_refreshes_a_stored_v1_record_then_other_routes_pass() {
-        use codeterm_service_core::mesh::types::{
-            PairedPeer, PeerAddress, PeerAnnounce, RELAY_PROTOCOL_VERSION,
-        };
-        let mut mesh = codeterm_service_core::mesh::MeshManager::new("auth-test".into(), 7685);
-        mesh.disk_persist = false;
-        mesh.paired_peers.insert(
-            "air".into(),
-            PairedPeer {
-                instance_id: "air".into(),
-                instance_name: "air".into(),
-                addresses: vec![PeerAddress::from_ip("100.64.0.7")],
-                api_port: 7685,
-                public_key: String::new(),
-                paired_at: "then".into(),
-                last_seen: None,
-                online: true,
-                is_primary: false,
-                access_level: AccessLevel::Full,
-                version: None,
-                web_ui: None,
-                relay_protocol_version: 1,
-                consecutive_misses: 0,
-                last_active_ms: None,
-            },
-        );
-        let stored = |mesh: &codeterm_service_core::mesh::MeshManager| {
-            mesh.paired_peers["air"].relay_protocol_version
-        };
-        let announce = |relay_protocol_version| PeerAnnounce {
-            instance_id: "air".into(),
-            instance_name: "air".into(),
-            addresses: vec![PeerAddress::from_ip("100.64.0.7")],
-            api_port: 7685,
-            online: true,
-            web_ui: None,
-            relay_protocol_version,
-        };
-
-        assert!(
-            stored_protocol_refusal(&Method::GET, "/api/mesh/inventory", stored(&mesh)).is_some()
-        );
-        assert!(stored_protocol_refusal(&Method::POST, "/api/mesh/sync", stored(&mesh)).is_some());
-        assert!(
-            stored_protocol_refusal(&Method::POST, "/api/mesh/announce", stored(&mesh)).is_none()
-        );
-
-        assert!(mesh.apply_announce("air", &announce(1)).is_err());
-        assert_eq!(stored(&mesh), 1);
-
-        mesh.apply_announce("air", &announce(RELAY_PROTOCOL_VERSION))
-            .expect("v2 announce accepted over a stored v1 record");
-        assert_eq!(stored(&mesh), RELAY_PROTOCOL_VERSION);
-        assert!(
-            stored_protocol_refusal(&Method::GET, "/api/mesh/inventory", stored(&mesh)).is_none()
-        );
-        assert!(stored_protocol_refusal(&Method::POST, "/api/mesh/sync", stored(&mesh)).is_none());
-    }
-
-    #[test]
-    fn only_the_announce_post_bypasses_the_stored_protocol() {
-        assert!(stored_protocol_refusal(&Method::GET, "/api/mesh/announce", 1).is_some());
-        assert!(stored_protocol_refusal(&Method::POST, "/api/mesh/announce/all", 1).is_some());
-        assert!(stored_protocol_refusal(&Method::POST, "/api/tabs/abc/send", 1).is_some());
-    }
-
-    #[test]
-    fn full_access_allows_everything() {
-        assert!(check_access(
-            &AccessLevel::Full,
-            &Method::GET,
-            "/api/config"
-        ));
-        assert!(check_access(
-            &AccessLevel::Full,
-            &Method::POST,
-            "/api/tabs/abc/send"
-        ));
-        assert!(check_access(
-            &AccessLevel::Full,
-            &Method::DELETE,
-            "/api/crons/123"
-        ));
-    }
-
-    #[test]
-    fn read_only_blocks_writes() {
-        assert!(check_access(
-            &AccessLevel::ReadOnly,
-            &Method::GET,
-            "/api/tabs"
-        ));
-        assert!(check_access(
-            &AccessLevel::ReadOnly,
-            &Method::GET,
-            "/api/config"
-        ));
-        assert!(!check_access(
-            &AccessLevel::ReadOnly,
-            &Method::POST,
-            "/api/tabs/abc/send"
-        ));
-        assert!(!check_access(
-            &AccessLevel::ReadOnly,
-            &Method::DELETE,
-            "/api/crons/123"
-        ));
-    }
-
-    #[test]
-    fn agent_isolated_allows_agent_ops() {
-        let level = AccessLevel::AgentIsolated;
-        assert!(check_access(&level, &Method::GET, "/api/tabs"));
-        assert!(check_access(&level, &Method::GET, "/api/tabs/abc/text"));
-        assert!(check_access(&level, &Method::POST, "/api/tabs/abc/send"));
-        assert!(check_access(&level, &Method::POST, "/api/tabs/abc/exec"));
-        assert!(check_access(&level, &Method::POST, "/api/tabs/abc/respond"));
-        assert!(check_access(&level, &Method::POST, "/api/agents/spawn"));
-        assert!(check_access(&level, &Method::POST, "/api/tabs/abc/report"));
-        assert!(check_access(&level, &Method::POST, "/api/tabs/abc/clear"));
-        assert!(!check_access(&level, &Method::GET, "/api/config"));
-        assert!(!check_access(&level, &Method::GET, "/api/mem/search"));
-        assert!(!check_access(&level, &Method::GET, "/api/notifications"));
-        assert!(!check_access(&level, &Method::GET, "/api/workspaces"));
-        assert!(!check_access(&level, &Method::POST, "/api/config"));
-        assert!(!check_access(&level, &Method::DELETE, "/api/crons/123"));
-        assert!(!check_access(
-            &level,
-            &Method::POST,
-            "/api/mesh/broadcast/start"
-        ));
-    }
-
-    #[test]
-    fn agent_isolated_limited_to_spawned_tabs() {
-        let (mut mux, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
-        let tab_id = mux.snapshot().workspaces[0].tabs[0].clone();
-        mux.get_tab_mut(&tab_id).unwrap().ownership = Some(codeterm_types::pty::RemoteOwnership {
-            controller_title: "remote".into(),
-            controller_tab_id: None,
-            peer_id: "peer-a".into(),
-            peer_name: "Peer A".into(),
-            team: None,
-        });
-        let level = AccessLevel::AgentIsolated;
-        for (method, path) in [
-            (Method::GET, "/api/tabs/abc/text"),
-            (Method::POST, "/api/tabs/abc/send"),
-            (Method::POST, "/api/tabs/abc/exec"),
-            (Method::POST, "/api/tabs/abc/prompt/respond"),
-            (Method::POST, "/api/tabs/abc/report"),
-            (Method::POST, "/api/tabs/abc/prompt/clear"),
-            (Method::POST, "/api/tabs/abc/attachments"),
-        ] {
-            let owner_is = |owner: &'static str| {
-                peer_access_allowed(&level, "peer-a", &method, path, |_| Some(owner.into()))
-            };
-            assert!(owner_is("peer-a"));
-            assert!(!owner_is("peer-b"));
-        }
-        assert!(!peer_access_allowed(
-            &level,
-            "peer-a",
-            &Method::POST,
-            "/api/tabs/abc/send",
-            |_| None
-        ));
-        assert!(peer_owns_tab("peer-a", mux.get_tab(&tab_id).unwrap()));
-    }
-
-    #[test]
-    fn custom_permissions() {
-        use codeterm_service_core::mesh::types::Permission;
-
-        let level = AccessLevel::Custom(vec![Permission::ReadTabs, Permission::SendInput]);
-        assert!(check_access(&level, &Method::GET, "/api/tabs"));
-        assert!(check_access(&level, &Method::POST, "/api/tabs/abc/send"));
-        assert!(!check_access(&level, &Method::POST, "/api/agents/spawn"));
-        assert!(!check_access(&level, &Method::POST, "/api/config"));
-
-        let admin = AccessLevel::Custom(vec![Permission::Admin]);
-        assert!(check_access(&admin, &Method::POST, "/api/config"));
-        assert!(check_access(&admin, &Method::DELETE, "/api/crons/123"));
-    }
-
-    #[test]
-    fn public_paths_recognized() {
-        for p in PUBLIC_PATHS {
-            assert!(PUBLIC_PATHS.iter().any(|pp| pp == p));
-        }
-        assert!(!PUBLIC_PATHS.contains(&"/api/providers"));
-        assert!(!PUBLIC_PATHS.contains(&"/api/mesh/connect"));
-        assert!(!PUBLIC_PATHS.contains(&"/api/mesh/approve"));
-        assert!(!PUBLIC_PATHS.contains(&"/api/mesh/peers/add-manual"));
-    }
-
-    #[test]
-    fn remote_network_follows_mesh_toggle() {
-        let local = "127.0.0.1:7685".parse().unwrap();
-        let remote = "192.0.2.10:7685".parse().unwrap();
-
-        assert!(remote_network_allowed(false, None));
-        assert!(remote_network_allowed(false, Some(local)));
-        assert!(!remote_network_allowed(false, Some(remote)));
-        assert!(remote_network_allowed(true, Some(remote)));
-    }
-
-    #[test]
-    fn custom_auth_paths() {
-        assert!(is_custom_auth(&Method::POST, "/api/mesh/relay"));
-        assert!(is_custom_auth(&Method::POST, "/api/mesh/introduce"));
-        // Unpair self-verifies; only the DELETE on the bare id is exempt.
-        assert!(is_custom_auth(&Method::DELETE, "/api/mesh/peers/some-id"));
-        assert!(!is_custom_auth(&Method::GET, "/api/mesh/peers/some-id"));
-        assert!(!is_custom_auth(&Method::GET, "/api/mesh/peers"));
-        assert!(!is_custom_auth(&Method::GET, "/api/mesh/status"));
-        assert!(!is_custom_auth(&Method::POST, "/api/tabs/abc/send"));
-    }
-
-    #[test]
-    fn service_push_allowed_on_send() {
-        assert!(is_service_push_allowed("POST", "/api/tabs/abc123/send"));
-        assert!(is_service_push_allowed("POST", "/api/tabs/general/send"));
-        assert!(is_service_push_allowed(
-            "POST",
-            "/api/tabs/tab-with-dashes_and_underscores/send"
-        ));
-    }
-
-    #[test]
-    fn local_inventory_read_does_not_require_mesh_network() {
-        assert!(!requires_mesh_network(&Method::GET, "/api/mesh/inventory"));
-        assert!(requires_mesh_network(&Method::POST, "/api/mesh/inventory"));
-        assert!(requires_mesh_network(&Method::GET, "/api/mesh/peers"));
-        assert!(requires_mesh_network(
-            &Method::GET,
-            "/api/mesh/inventory/other"
-        ));
-        assert!(!bearer_exempt(&Method::GET, "/api/mesh/inventory"));
-    }
-
-    #[test]
-    fn service_push_rejected_on_config() {
-        assert!(!is_service_push_allowed("POST", "/api/config"));
-    }
-
-    #[test]
-    fn service_push_rejected_on_spawn() {
-        assert!(!is_service_push_allowed("POST", "/api/agents/spawn"));
-    }
-
-    #[test]
-    fn service_push_rejected_on_get() {
-        assert!(!is_service_push_allowed("GET", "/api/tabs/abc123/send"));
-        assert!(!is_service_push_allowed("DELETE", "/api/tabs/abc123/send"));
-        assert!(!is_service_push_allowed("PUT", "/api/tabs/abc123/send"));
-    }
-
-    #[test]
-    fn service_push_rejected_on_tab_root() {
-        assert!(!is_service_push_allowed("POST", "/api/tabs/abc123"));
-        assert!(!is_service_push_allowed("POST", "/api/tabs/abc123/exec"));
-        assert!(!is_service_push_allowed("POST", "/api/tabs/abc123/clear"));
-        assert!(!is_service_push_allowed("POST", "/api/tabs//send"));
-        assert!(!is_service_push_allowed("POST", "/api/tabs/abc/extra/send"));
-        assert!(!is_service_push_allowed("POST", "/api/tabs"));
-    }
-}
+mod tests;

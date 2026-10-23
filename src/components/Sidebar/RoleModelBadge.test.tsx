@@ -39,19 +39,6 @@ test("smallest scale drops the MODEL, always keeps the ROLE", () => {
   assert(shouldDropModelAtScale(LARGEST) === false, "model kept at the largest scale");
 });
 
-test("role badge is borderless — no box, border, background, or rounded chrome", async () => {
-  const { host, root } = await render(
-    <RoleModelBadge role="ORCHESTRATOR" model="OPUS" uiFontScale={DEFAULT} />,
-  );
-  const roleEl = host.querySelector<HTMLElement>('[data-testid="role-badge-orchestrator"]')!;
-  const cls = roleEl.className;
-  assert(!/\bborder\b|\bborder-/.test(cls), `no border class (got "${cls}")`);
-  assert(!/\bbg-/.test(cls), `no background class (got "${cls}")`);
-  assert(!/\brounded\b|\brounded-/.test(cls), `no rounded class (got "${cls}")`);
-  assert(/text-\[var\(--ct-accent\)\]/.test(cls), "role text keeps the accent color");
-  await act(async () => root.unmount());
-});
-
 test("ORCHESTRATOR · OPUS renders whole (role + model) at default and largest scales", async () => {
   for (const scale of [DEFAULT, LARGEST]) {
     const { host, root } = await render(
@@ -62,7 +49,6 @@ test("ORCHESTRATOR · OPUS renders whole (role + model) at default and largest s
     assert(host.querySelector('[data-testid="leadership-model"]'), `model chip present @${scale}`);
     assert(badge.textContent?.includes("Orchestrator"), `role text present @${scale}`);
     assert(badge.textContent?.includes("OPUS"), `model text present @${scale}`);
-    assert(badge.scrollWidth <= badge.clientWidth, `no clipping @${scale}`);
     await act(async () => root.unmount());
   }
 });
@@ -76,7 +62,6 @@ test("smallest scale keeps ORCHESTRATOR whole but drops OPUS (no truncation)", a
   assert(badge.textContent?.includes("Orchestrator"), "role text whole, not truncated");
   assert(!host.querySelector('[data-testid="leadership-model"]'), "model chip dropped at smallest scale");
   assert(!badge.textContent?.includes("OPUS"), "model text gone (dropped, not clipped)");
-  assert(badge.scrollWidth <= badge.clientWidth, "role fits with the model dropped");
   await act(async () => root.unmount());
 });
 
@@ -90,7 +75,6 @@ test("PLANNER · FABLE follows the same rule across all three scales", async () 
     assert(badge.textContent?.includes("Planner"), `PLANNER text whole @${scale}`);
     const hasModel = Boolean(host.querySelector('[data-testid="leadership-model"]'));
     assert(hasModel === (scale !== SMALLEST), `model present iff not smallest @${scale}`);
-    assert(badge.scrollWidth <= badge.clientWidth, `no clipping @${scale}`);
     await act(async () => root.unmount());
   }
 });

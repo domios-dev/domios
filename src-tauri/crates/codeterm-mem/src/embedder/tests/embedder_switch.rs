@@ -4,7 +4,7 @@ use crate::embedder::index;
 use crate::embedder::local;
 use crate::embedder::provider::EmbeddingProvider;
 use crate::embedder::testing::{
-    fixture_with_docs, note, vector_rows, wait_for, MockProvider, StepClock, DEADLINE,
+    connection, fixture_with_docs, note, vector_rows, wait_for, MockProvider, StepClock, DEADLINE,
 };
 use crate::embedder::{EmbedderEvent, ReembedState, StampedVector};
 use crate::{Entity, SearchQuery};
@@ -114,7 +114,7 @@ fn switch_recreates_the_index_at_the_new_dimension_and_reembeds_items_entities_a
 
 #[test]
 fn an_unstamped_legacy_index_is_adopted_as_l12_and_never_relabelled() {
-    let conn = rusqlite::Connection::open_in_memory().unwrap();
+    let conn = connection();
     let legacy = crate::embedder::legacy_identity();
     index::recreate(&conn, &legacy).unwrap();
     conn.execute("DELETE FROM mem_embedder", []).unwrap();

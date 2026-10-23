@@ -158,7 +158,7 @@ fn readiness(provider: &str, capabilities: &SpawnCapabilities) {
         .timeout_secs
         .expect("observable readiness must carry a bounded deadline");
     assert!((1..=30).contains(&timeout));
-    let mut screen = ScreenState::new();
+    let screen = ScreenState::new();
     assert!(screen.bind_pty_generation(provider, 1));
     let signal = screen.arm_shell_ready_signal(provider);
     assert!(!signal.is_ready());

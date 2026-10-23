@@ -23,7 +23,9 @@ fn parse(raw: &str) -> Result<Selections, String> {
 
 impl RecordingSelectionStore {
     pub fn open(path: PathBuf) -> Self {
-        let file = StateFile::new(path).with_validator(|raw| parse(raw).map(|_| ()));
+        let file = StateFile::new(path)
+            .with_private_permissions()
+            .with_validator(|raw| parse(raw).map(|_| ()));
         let (selections, readable) = match file.load(parse) {
             Loaded::Parsed(selections)
             | Loaded::Recovered {

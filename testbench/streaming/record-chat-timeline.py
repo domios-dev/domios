@@ -21,28 +21,20 @@ import time
 import urllib.request
 from pathlib import Path
 
-DEV_PORT = "7686"
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "evals" / "_lib"))
+from dev_connection import dev_api_url, dev_environment, dev_token
 
 
-def dev_token() -> str:
-    cfg = Path.home() / ".codeterm-dev" / "config.toml"
-    if cfg.exists():
-        for line in cfg.read_text(encoding="utf-8").splitlines():
-            if line.strip().startswith("token = "):
-                return line.split('"', 2)[1]
-    return ""
-
-
-def request(path: str, token: str, timeout_s: float):
+def request(path: str, token: str, timeout_s: float, api_url: str):
     req = urllib.request.Request(
-        f"http://127.0.0.1:{DEV_PORT}{path}",
+        f"{api_url}{path}",
         headers={"Authorization": f"Bearer {token}"} if token else {},
     )
     return urllib.request.urlopen(req, timeout=timeout_s)
 
 
-def read_chat(tab_id: str, since: int, token: str) -> dict:
-    with request(f"/api/tabs/{tab_id}/chat?since={since}", token, 5) as resp:
+def read_chat(tab_id: str, since: int, token: str, api_url: str) -> dict:
+    with request(f"/api/tabs/{tab_id}/chat?since={since}", token, 5, api_url) as resp:
         return json.load(resp)
 
 
@@ -70,12 +62,12 @@ def write_messages(sink, seen: int, messages: list[dict]) -> int:
 
 # Polling, not SSE: `tab-chat-{id}` deltas are only emitted while a Chat UI
 # sink is attached, so the general event stream is silent for headless probes.
-def poll_chat(tab_id: str, token: str, sink, duration_s: int, interval_ms: int) -> None:
+def poll_chat(tab_id: str, token: str, sink, duration_s: int, interval_ms: int, api_url: str) -> None:
     seen = 0
     deadline = time.monotonic() + duration_s
     while time.monotonic() < deadline:
         try:
-            doc = read_chat(tab_id, seen, token)
+            doc = read_chat(tab_id, seen, token, api_url)
         except Exception as error:  # noqa: BLE001 — sampler keeps going
             print(f"chat read failed: {error}", file=sys.stderr)
             time.sleep(interval_ms / 1000)
@@ -95,13 +87,15 @@ def main() -> int:
     parser.add_argument("--interval-ms", type=int, default=150)
     args = parser.parse_args()
 
-    token = dev_token()
+    connection = dev_environment()
+    token = dev_token(connection)
+    api_url = dev_api_url(connection)
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("w", encoding="utf-8") as sink:
         sink.write(json.dumps({"kind": "start", "wall_ms": int(time.time() * 1000), "tab": args.tab}) + "\n")
         sink.flush()
-        poll_chat(args.tab, token, sink, args.duration_s, args.interval_ms)
+        poll_chat(args.tab, token, sink, args.duration_s, args.interval_ms, api_url)
     return 0
 
 

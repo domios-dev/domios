@@ -8,14 +8,6 @@ use crate::service::pty_io::lifecycle::{
 };
 use crate::service::pty_io::tab_env::{active_tab_lane_base, tab_task_env};
 
-fn apply_enter(text: &str, enter: bool) -> String {
-    if enter && !text.ends_with('\r') && !text.ends_with('\n') {
-        format!("{}\r", text)
-    } else {
-        text.to_string()
-    }
-}
-
 #[test]
 fn send_created_agent_pty_uses_bounded_width() {
     assert_eq!(SEND_AGENT_BACKEND_COLS, 240);
@@ -160,7 +152,6 @@ fn restore_resolves_payload_into_launch_option() {
         &std::collections::HashSet::new(),
     )
     .unwrap();
-    store.write(&digest, payload).unwrap();
     let (mut state, tab_id) = MultiplexerState::new();
     let tab = state.get_tab_mut(&tab_id).unwrap();
     tab.agent_type = Some("fixture-provider".into());
@@ -171,7 +162,15 @@ fn restore_resolves_payload_into_launch_option() {
         crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
     ));
     let mux: MuxState = Arc::new(TimedRwLock::new("restore-payload-test", state));
-    let resolved = store.resolve(&digest).unwrap();
+    let pending = mux
+        .read()
+        .get_tab(&tab_id)
+        .unwrap()
+        .pending_delivery
+        .clone()
+        .unwrap();
+    store.write(&pending, payload).unwrap();
+    let resolved = store.resolve(&pending).unwrap();
     let observed = std::sync::Arc::new(parking_lot::Mutex::new(None));
     let sink = observed.clone();
 
@@ -230,9 +229,9 @@ fn restore_missing_payload_spawnfailed_zero_launch_pending() {
         None,
         Some("fixture-cwd"),
         false,
-        |_| {
+        |pending| {
             store
-                .resolve(&digest)
+                .resolve(pending.unwrap())
                 .map(Some)
                 .map_err(|error| error.to_string())
         },
@@ -351,51 +350,6 @@ fn restored_pty_boot_claim_excludes_lazy_materialization() {
     )
     .unwrap()
     .is_none());
-}
-
-#[test]
-fn enter_true_appends_cr_when_missing() {
-    assert_eq!(apply_enter("ls -la", true), "ls -la\r");
-}
-
-#[test]
-fn enter_true_no_double_cr() {
-    assert_eq!(apply_enter("ls -la\r", true), "ls -la\r");
-}
-
-#[test]
-fn enter_false_passthrough() {
-    assert_eq!(apply_enter("partial text", false), "partial text");
-}
-
-#[test]
-fn enter_false_preserves_trailing_cr() {
-    assert_eq!(apply_enter("text\r", false), "text\r");
-}
-
-#[test]
-fn empty_text_enter_true_sends_just_cr() {
-    assert_eq!(apply_enter("", true), "\r");
-}
-
-#[test]
-fn empty_text_enter_false_sends_nothing() {
-    assert_eq!(apply_enter("", false), "");
-}
-
-#[test]
-fn enter_true_text_ending_newline() {
-    assert_eq!(apply_enter("echo hello\n", true), "echo hello\n");
-}
-
-#[test]
-fn text_with_embedded_cr_but_not_trailing() {
-    assert_eq!(apply_enter("line1\rline2", true), "line1\rline2\r");
-}
-
-#[test]
-fn multiline_text_enter_true() {
-    assert_eq!(apply_enter("line1\nline2", true), "line1\nline2\r");
 }
 
 /// Script-exec path must not contain bracketed-paste markers on Unix, else bare

@@ -5,9 +5,9 @@
 
 set -euo pipefail
 
-# Auto-detect dev instance
-export CT_API="${CODETERM_API_URL:-http://127.0.0.1:7686}"
-export CT_TOKEN="${CODETERM_API_TOKEN:-$(grep 'token' "$USERPROFILE/.domios-dev/config.toml" 2>/dev/null | sed 's/.*"\(.*\)".*/\1/' || echo '')}"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/evals/_lib/lib.sh"
+export CT_API="$(dev_api_url)"
+export CT_TOKEN="$(dev_token)"
 
 _ct() { curl -s "$CT_API$1" -H "Authorization: Bearer $CT_TOKEN" "${@:2}"; }
 _ct_json() { _ct "$1" -H "Content-Type: application/json" "${@:2}"; }

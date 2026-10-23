@@ -1,23 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "../../../lib/bridge";
 import {
+  normalizeRefusal,
   parseOption,
   statusFromEvent,
   type EmbedderListing,
   type EmbedderStatus,
-  type Refusal,
   type SwitchPreview,
 } from "./embedderModel";
 
 export const EMBEDDER_CHANGED_EVENT = "mem-embedder-changed";
 
 async function readJson<T>(response: Response): Promise<T> {
-  const body = await response.json();
-  if (!response.ok) {
-    const refusal: Refusal = body?.error ?? { message: `HTTP ${response.status}`, hints: [] };
-    throw refusal;
-  }
-  return body as T;
+  if (response.ok) return response.json();
+  const body: unknown = await response.json();
+  const reason = body !== null && typeof body === "object" && "error" in body ? body.error : body;
+  throw normalizeRefusal(reason ?? `HTTP ${response.status}`);
 }
 
 export function useEmbedder(apiBase: string, apiHeaders: HeadersInit) {
@@ -36,7 +34,7 @@ export function useEmbedder(apiBase: string, apiHeaders: HeadersInit) {
       setStatus(next.status);
       setError(null);
     } catch (reason) {
-      setError((reason as Refusal)?.message ?? String(reason));
+      setError(normalizeRefusal(reason).message);
     }
   }, [apiBase]);
 

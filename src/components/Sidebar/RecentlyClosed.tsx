@@ -49,6 +49,19 @@ function groupClosedAt(group: ClosedGroup): number {
   return group.tabs.reduce((max, p) => Math.max(max, p.closed_at ?? 0), 0);
 }
 
+export type ClosedEntry =
+  | { kind: "structure"; record: ClosedStructureView }
+  | { kind: "group"; group: ClosedGroup };
+
+/** One list across closed Teams/workspaces and closed Tabs, newest close first; ties keep their source order. */
+export function newestClosedFirst(structures: readonly ClosedStructureView[], groups: readonly ClosedGroup[]): ClosedEntry[] {
+  const entries: Array<{ entry: ClosedEntry; closedAt: number }> = [
+    ...structures.map((record) => ({ entry: { kind: "structure", record } as const, closedAt: record.closed_at })),
+    ...groups.map((group) => ({ entry: { kind: "group", group } as const, closedAt: groupClosedAt(group) })),
+  ];
+  return entries.sort((a, b) => b.closedAt - a.closedAt).map(({ entry }) => entry);
+}
+
 /** Header label for a multi-tab group — just the workspace name or the
  *  orchestrator's title. The tab count lives in the adjacent count pill, so
  *  it's deliberately left out of the text. */
@@ -201,16 +214,20 @@ function RecentlyClosedInner({
               No closed tabs
             </div>
           )}
-          {inventories.map((record) => <div key={record.id} className="flex items-center gap-2 p-2">
-            <span className="min-w-0 flex-1">
-              <span className={`${text} block truncate`}>{closedLabel(record)}</span>
-              <span className={`${metaText} block text-[var(--ct-muted)]`}>{describeRestore(record)}</span>
-            </span>
-            <button type="button" aria-label={`Restore ${closedLabel(record)}`} disabled={restoring !== null}
-              className="shrink-0 rounded-md border border-[var(--ct-border)] px-2 py-0.5 text-[11px] text-[var(--ct-fg)] hover:bg-[var(--ct-surface-hover,var(--ct-surface))] disabled:opacity-50"
-              onClick={() => { void restore(record.id); }}>Restore</button>
-          </div>)}
-          {groups.map((group) => {
+          {newestClosedFirst(inventories, groups).map((entry) => {
+            if (entry.kind === "structure") {
+              const record = entry.record;
+              return <div key={record.id} data-testid="recently-closed-structure" className="flex items-center gap-2 p-2">
+                <span className="min-w-0 flex-1">
+                  <span className={`${text} block truncate`}>{closedLabel(record)}</span>
+                  <span className={`${metaText} block text-[var(--ct-muted)]`}>{describeRestore(record)}</span>
+                </span>
+                <button type="button" aria-label={`Restore ${closedLabel(record)}`} disabled={restoring !== null}
+                  className="shrink-0 rounded-md border border-[var(--ct-border)] px-2 py-0.5 text-[11px] text-[var(--ct-fg)] hover:bg-[var(--ct-surface-hover,var(--ct-surface))] disabled:opacity-50"
+                  onClick={() => { void restore(record.id); }}>Restore</button>
+              </div>;
+            }
+            const group = entry.group;
             if (group.kind === "single") return tabRow(group.tabs[0], false);
 
             const isOpen = expanded.has(group.id);

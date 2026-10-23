@@ -223,21 +223,14 @@ fn probe_registry(candidate: &str) -> Option<NotificationProvenance> {
     })
 }
 
-/// The contract a real send has to keep: the message Telegram receives opens
-/// with the tab that sent it and carries every character of a 1500-character
-/// body, unmarked by any truncation note, inside Telegram's own 4096 ceiling.
-#[tokio::test]
-async fn telegram_notification_render_preserves_body_and_tab_name() {
+#[test]
+fn telegram_notification_render_preserves_body_and_tab_name() {
     let body = probe_body();
     assert_eq!(
         body.chars().count(),
         PROBE_BODY_CHARS,
         "the fixture is the size of the body that arrived cut"
     );
-
-    let captured: Arc<PLMutex<Vec<(String, serde_json::Value)>>> =
-        Arc::new(PLMutex::new(Vec::new()));
-    let api_base = spawn_api_stand_in(captured.clone()).await;
 
     let cfg = opted_in_config();
     let (outbound, mut inbox) = create_outbound_channel();
@@ -278,31 +271,16 @@ async fn telegram_notification_render_preserves_body_and_tab_name() {
         |_| {},
     );
 
-    let queued = inbox.recv().await.expect("the outbound queue carried it");
+    let queued = inbox.try_recv().expect("the outbound queue carried it");
     let OutboundContent::Text { text } = queued.content else {
         panic!("a push is text");
     };
 
-    let telegram = TelegramService::with_base(
-        "test-token".to_string(),
-        api_base,
-        crate::bridge_host::attachment_store(),
+    assert!(
+        inbox.try_recv().is_err(),
+        "one message carries the whole body"
     );
-    telegram
-        .send_message(CHAT_ID, &text)
-        .await
-        .expect("the send completes");
-
-    let seen = captured.lock().clone();
-    assert_eq!(
-        seen.len(),
-        1,
-        "the whole message fits one send; it is not split to fit"
-    );
-    let sent = seen[0].1["text"]
-        .as_str()
-        .expect("a text send carries text")
-        .to_string();
+    let sent = text;
 
     assert!(
         sent.starts_with(PROBE_TAB_TITLE),

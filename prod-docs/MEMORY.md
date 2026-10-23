@@ -2,21 +2,11 @@
 
 Persistent memory survives restarts, provider switches and upgrades.
 
-## TL;DR
+## Overview
 
-- **Storage** — one local database at `~/.domios/mem/knowledge.db` plus large bodies as files beside it
-- **Search** — text and semantic matches combined; filters narrow results, and Supporter re-rank works automatically when connected
-- **Graph** — temporal entity-relation triples (people, projects; NO tech nodes)
-- **L1 selection** — pinned items first, then ranked by importance, use, workspace and recency; budget defaults to 300 tokens (`[memory] l1_budget_tokens`)
-- **Pins** — `mem pin <id>` / `mem unpin <id>` set `is_pinned_wakeup`; pinned items always load in L1 (subject to budget)
-- **Workers** — hidden headless agents that extract entities, build graph, dedup; `mem worker spawn` for ad-hoc enrichment
-- **Skills** — folder skills (`SKILL.md` + scripts) registered via `mem skill new/add`, indexed alongside other items
-- **Librarian** — periodic file-sync daemon: re-vectorizes source-tracked items when their on-disk file changes, flags deletions
-- **Dreaming** — 6 AM consolidation (0..30 min jitter): `POST /api/mem/dream` runs light, deep, normalize and calibration SQL phases, then REM handles structural cleanup and diary. REM cannot change calibration; merges archive, never delete.
-- **Session lifecycle** — hooks bind sessions and report completion; terminal scrollback is never exported into memory.
-- **Protocol** — behavioral rules injected into every agent session
+One local database, `~/.domios/mem/knowledge.db`, holds text/vector indexes and temporal people/project relations; large bodies live beside it. Pins lead wake-up selection, followed by importance, use, workspace and recency (default budget 300 tokens). Folder skills are indexed too. Hidden workers enrich memory; the Librarian syncs source files. Dreaming starts at 6 AM with 0..30 minutes of jitter and runs light, deep, normalize, calibration and REM cleanup; merges archive rather than delete. Hooks track sessions without exporting scrollback.
 
-Save only durable facts; session/task instructions stay in conversation or plan. If unsure, do not save; ask only on explicit remember. Remember durable facts now; remember session instructions only if the user says permanent.
+Save durable facts immediately when asked to remember. Keep session/task instructions in conversation or the plan unless the user says they are permanent.
 
 ## Mem vs past-session search
 
@@ -73,12 +63,19 @@ domios mem embedder use openai --model text-embedding-3-small --dimension 512
   1. `<data_dir>/secrets/<provider>-embedder.key`: `~/.domios/secrets/` on prod, `~/.domios-dev/secrets/` on DEV, or the named instance's own data directory. It is readable only by its owner (mode 0600 on Unix; on Windows an ACL for the current user only);
   2. the Domios secret store entry `<provider>-embedder`.
 
-  The owner stores it via stdin, never argv. For prod on Unix (use the selected instance's data directory for DEV):
-  ```bash
-  umask 077; mkdir -p ~/.domios/secrets; cat > ~/.domios/secrets/openai-embedder.key && chmod 600 ~/.domios/secrets/openai-embedder.key   # paste the key, then Ctrl-D
-  # or: domios mem secret save --name openai-embedder   (key on stdin)
-  ```
-  Agent-assisted path: when the owner explicitly asks an agent to set it up, the agent pipes the value the owner gave into one of those commands on stdin (never as an argument, never echoed, logged or saved in mem), then runs `domios mem embedder use <provider>`.
+  Use `domios mem embedder key set <provider>` first: it reads piped stdin only, writes atomically with owner-only permissions on every OS, and prints the path, never the key. It follows the selected prod, DEV or named instance and refuses a secrets directory outside its resolved data directory. Terminal input, argv keys and `--mesh` are refused.
+
+  Clipboard examples (the key never appears in the command):
+  - macOS: `pbpaste | domios mem embedder key set openai`
+  - Windows PowerShell: `Get-Clipboard -Raw | domios mem embedder key set openai`
+  - Linux: pipe your password manager's stdout into `domios mem embedder key set openai`.
+
+  Manual fallbacks use the selected instance's secrets directory:
+  - **Unix:** `umask 077; mkdir -p ~/.domios/secrets; cat > ~/.domios/secrets/openai-embedder.key && chmod 600 ~/.domios/secrets/openai-embedder.key` (paste, then Ctrl-D).
+  - **Windows PowerShell:** create an empty `<data_dir>/secrets/openai-embedder.key` as `$file`; resolve `$owner = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name`, run `icacls $file /reset`, then `icacls $file /inheritance:r /grant:r "${owner}:(F)"` before writing the key from stdin as UTF-8 without a BOM. This replaces inherited permissions with the current user's full-control DACL.
+  - **Secret store:** `domios mem secret save --name openai-embedder` (key on stdin).
+
+  When the owner explicitly asks an agent to set it up, pipe the supplied value into `domios mem embedder key set <provider>`, then activate with `domios mem embedder use <provider>`. Never put the key in argv, output, logs or mem.
 
 ### Supporter Agent memory re-rank
 
@@ -88,36 +85,29 @@ A second stage over `mem search` that runs automatically when an adapter is conn
 - **JSON.** CLI `--json` hits contain only an item `id` (or a doc pointer), `source`, optional `via`, baseline `score`, and Supporter `relevance`; titles, bodies, summaries and tags are omitted. The Supporter envelope retains its status, fallback reason and low-confidence fields. Use `domios mem get <id> --json` for a full memory record. The HTTP search response keeps item details for the Memory UI.
 - **Envelope.** The `supporter` object reports `applied` (with `adapter`, `low_confidence`, `max_relevance`), `fallback` (an adapter failure, deadline, missing adapter or exhausted budget; plain recall hits are returned with a `reason`, including `budget`), or `skipped` (`reason: legacy_rerank`). The human render prints one line for fallback/skipped with the reason. Without the key the output is exactly the plain recall render.
 - **Graph source.** `[supporter.memory_rerank.sources]` sets the pool: `recall` hits (default 30) plus up to `graph` extra candidates (default 3; `0` turns the graph source off). Graph candidates are live mem items linked by an active relation to an entity whose id contains a query keyword, ranked by how many matched entities they link to, then importance and recency; they are found by SQL alone, never by a model or embedding. Items already in the recall pool are not added twice. With `graph > 0` an applied search tags every hit `via: "recall"|"graph"` and the envelope adds `sources: {recall, graph}` (pool counts). With both `graph = 0` and `docs = 0`, applied output carries neither key; every fallback also carries neither and matches the plain recall contract.
-- **Docs source.** `[supporter.memory_rerank.sources].docs` adds up to 10 embedded documentation sections (default 3; `0` turns the docs source off), selected by keyword match. It includes the embedded docs (`domios docs`) and the CLI reference as `CLI`, chunked by command heading. `supporter.memory_rerank.docs_hybrid` defaults to `false`; when enabled and cached vectors are ready, the docs source fuses keyword and semantic matches. Missing vectors or a query embedding error leaves the keyword ordering unchanged. Applied hits use `{source: "doc", doc, section, anchor, pointer, relevance, via: "docs"}`; embedded docs point to `domios docs <NAME>` and CLI sections point to `domios <command> --help`. The envelope's `sources` counts include `docs`. The index never reads memory items or records access. Docs candidates appear only in applied output; off and fallback results retain the plain recall contract.
-- **Sessions source.** `[supporter.memory_rerank.sources].sessions` adds up to five recent matching snippets (default 0; `0` disables the source), using the same in-process provider search as `domios sessions search`. The snippet sent to the adapter contains its title, provider, date, and matched excerpt, capped by `max_body_chars`. Search runs under the rerank deadline and skips the source on error, timeout, or worker saturation. Applied hits use `{source: "session", session_id, provider, title, excerpt, pointer, relevance, via: "sessions"}` and point to `domios sessions get <id>`. Session and docs hits never record mem access. They appear only in applied output; off and fallback results retain the plain recall contract.
+- **Docs source.** `[supporter.memory_rerank.sources].docs` adds 0..10 embedded doc sections (default 3), including CLI command headings. Keyword selection is default; `supporter.memory_rerank.docs_hybrid = true` adds semantic matching when vectors are ready, falling back to keyword order on missing vectors/errors. Applied hits contain `source: "doc"`, `doc`, `section`, `anchor`, `pointer`, `relevance`, `via: "docs"`; pointers run `domios docs <NAME>` or `domios <command> --help`. The envelope counts docs.
+- **Sessions source.** `[supporter.memory_rerank.sources].sessions` adds up to five recent matching snippets (default 0), through provider session search under the rerank deadline; errors, timeouts or saturation skip it. The adapter sees title, provider, date and a capped excerpt. Applied hits contain `source: "session"`, `session_id`, `provider`, `title`, `excerpt`, `pointer`, `relevance`, `via: "sessions"`, pointing to `domios sessions get <id>`. Docs and sessions never record mem access and appear only after successful re-ranking, never in off/fallback results.
 - **Access.** Pool candidates, recall or graph, record no access while they are graded. Only the hits the search returns count as accessed, once each.
 - **Low confidence.** `low_confidence: true` means even the best hit scored below `low_confidence_threshold`: nothing relevant was found. The human render says so in one line; treat the hits as weak leads, not answers.
-- **Token mode.** Each adapter declares `required`, `optional`, or `none`. TypeSafe Jev requires its token. In plugin manifests, legacy bare `"decisionModel": true` means optional; `{ "tokenMode": "required" | "optional" | "none" }` is the explicit form. A selected, registered optional or none adapter connects without a token. A required adapter connects with a usable stored token. Connected status is `active`, or `budget_reached` when its shared call budget is exhausted; no selected adapter reports `not_connected`. Token-related states explain why a required adapter cannot connect.
-- **Token.** Adapter tokens never enter `config.toml` or argv. `printf %s "$TOKEN" | domios supporter token set` (or `pbpaste | ...`) reads stdin only and refuses a terminal; `token clear`, `token status [--adapter]` and `status` show `token_mode`, presence, path and `mode_ok`, never the value. A none-mode adapter reports that it needs no token and ignores token writes. The token lives in `<data dir>/supporter/<adapter>.json`: Unix uses a `0600` file in a `0700` directory, and Windows uses protected DACLs granting only the current user full control on the file and directory. Each instance keeps its own: `~/.domios/` for prod, `~/.domios-dev/` for dev. These commands use bearer HTTP on the local machine and never cross `--mesh`.
+- **Tokens.** Adapters declare `required`, `optional` or `none` (`"decisionModel": true` means optional). Only required adapters need a usable stored token. Use `pbpaste | domios supporter token set --adapter <adapter>`; terminal input is refused. Tokens never enter config or argv. `token status` shows presence, path and `mode_ok`, never the value. Storage is `<data dir>/supporter/<adapter>.json`, owner-only: Unix 0600 in a 0700 directory; Windows restricts broad access while preserving explicit narrow runtime grants. Each instance keeps its own. Token commands use local bearer HTTP and refuse `--mesh`; none-mode adapters ignore writes.
 
 Decision adapters target deterministic models such as [TypeSafe Jev](https://typesafe.ai). Fine-tunes and general LLMs may differ in accuracy and latency. Calibrated choice/noul probabilities describe decisions; sampled-text logprobs describe generated tokens and are not equivalent.
 
-The Guide's local-model run missed all 80 deadlines; that evidence applies to the measured model. Re-rank stays on Jev. Shared-state requests need fresh quality and latency comparisons before shipping.
-
-The adapter, model and token are managed in **Settings > Agents > Supporter Agent** or with `domios supporter`.
-
-Keys and bounds: `domios docs RUNTIME-CONFIG`. Routes: `domios docs API-MEMORY`.
+The adapter, model and token are managed in **Settings > Agents > Supporter Agent** or with `domios supporter`. Keys and bounds: `domios docs RUNTIME-CONFIG`; routes: `domios docs API-MEMORY`.
 
 ### Supporter Agent
 
-The Supporter re-ranks memory, observes tab lifecycle events and supports bounded General Agent recovery. Connection enables it automatically; disconnected behavior is unchanged.
+The Supporter re-ranks memory, observes tab lifecycle events and supports bounded General Agent recovery. Connecting enables it automatically; disconnected behavior is unchanged.
 
-- **Connect.** Use Connect another adapter in Settings > Agents, choose its model and supply a token according to its declared token mode. The Connect & make active action keeps previous connections saved. For CLI setup, discover adapters with `domios supporter models`; save a required token first with `pbpaste | domios supporter token set --adapter <adapter>`, then run `domios supporter use <adapter> [--model <id>]`. Optional and token-free adapters connect without a token. Each saved row has its own remembered model and Make active action. `domios supporter disconnect <adapter>` removes that connection and token; removing active stops the Supporter without choosing another. Check `domios supporter status` for connection, activity, verdicts and budget.
-- **Budget and fallback.** Requests have no cap by default. Optional `supporter.calls_per_hour` accepts 0 to 100000; absent or 0 means unlimited. Every physical HTTP attempt is counted and journaled; local decisions cost no request. Batched shared-state questions use one request; sequential adapters may use one per question. Per-candidate mode uses one per candidate. Only an explicit positive cap refuses calls at the limit: search returns baseline hits with reason `budget`, observation is skipped, and status shows `budget_reached` and the next free time. Unlimited status reports `calls_per_hour: null` with live hourly and daily counts. Adapter failures also return normal results. The stage deadline defaults to 3000 ms.
-- **What is sent.** Memory queries and candidate titles/bodies, capped at `supporter.memory_rerank.max_body_chars` (default 2000), plus matching docs or session excerpts if configured. Tab observations send recent screen or chat text and runtime context. Jev receives this at TypeSafe; a local adapter sends it to its configured server. Tokens stay in protected local storage.
-- **Prompt answers.** On agent-, Team-, worker- and cron-owned tabs, one calibrated Supporter choice at 0.80 or above can answer folder-trust, tool-permission and update prompts by selecting a provider-declared option through the existing response surface. Missing, failed, capped, `other` or low-confidence answers fall back to the structural responder; unresolved prompts notify the owner. Folder trust at launch or in cron does not require host provenance for this choice. Direct owner-launched tabs keep owner-facing prompts. Login, authentication, unavailable-model and quota prompts are never answered automatically. Details: `domios docs TAB-LIFECYCLE`.
-- **Recovery.** At most two automatic General Agent restarts per recovery episode, then a failure notification and no further automatic recovery until the owner acts. A confirmed crash resumes a verified session only if the provider is absent from that tab's process tree. Startup failure and an error loop each allow one attempt within the overall limit. Automatic model-authorized recovery remains notify-only until its separate accuracy qualification passes. Details: `domios docs AGENT-CONTROL`.
-- **Models.** Jev remains the calibrated re-rank model, billed to the TypeSafe account. Configure local models through OpenCode with `domios model-provider`; its optional decision adapter declares no calibrated choice confidence. Local models use the local machine; their latency and generated-token probabilities differ from Jev's decision probabilities.
-- **Spend.** Domios estimates today and month spend from each response's `usage` and adapter-declared prices; unpriced adapters have no estimate. HTTP 402 or explicit credit exhaustion sends one `failure` alert and uses deterministic results until a later request probe succeeds.
-- **Activity.** The Mission Control feed shows recent decisions and verdicts. The bounded `<data dir>/supporter/journal.jsonl` records automatic actions, budget transitions, answer distributions, adapter-reported model identities and criteria hashes. Inputs are hashes, never raw screen text or tokens. No verdict for `other` triggers an action or hint.
-- **Diagnostic override.** `domios mem search --supporter off` skips re-rank for one search. Clearing a required token makes the active adapter unusable but keeps its saved connection; optional and token-free adapters remain connected without it.
+- **Connections.** Discover with `domios supporter models`, save any required token, then `domios supporter use <adapter> [--model <id>]`. Settings can keep several connections with remembered models and Make active actions. `domios supporter disconnect <adapter>` removes its connection and token; removing active stops the Supporter without selecting another. `domios supporter status` shows activity, verdicts and budget.
+- **Budget.** `supporter.calls_per_hour` is unlimited when absent or 0; positive values up to 100000 cap physical HTTP attempts. Local decisions cost no request. Batches count once, sequential calls separately. At the cap, search returns baseline hits with reason `budget`, observation skips, and status shows `budget_reached` plus the next free time. Unlimited status has `calls_per_hour: null`. Adapter failures also return baseline results; the default stage deadline is 3000 ms.
+- **Sent data.** Memory queries and candidate titles/bodies (default cap 2000 characters), plus configured docs/session excerpts; observations send recent screen/chat text and runtime context. Jev receives this at TypeSafe; local adapters use their configured server. Tokens remain local.
+- **Prompt answers.** On agent-, Team-, worker- and cron-owned tabs, a calibrated choice >=0.80 may answer folder-trust, tool-permission or update prompts through a provider-declared option. Failed, capped, `other` or low-confidence answers use the structural responder; unresolved cases notify the owner. Direct owner tabs retain prompts. Authentication, login, unavailable-model and quota prompts are never auto-answered. See `domios docs TAB-LIFECYCLE`.
+- **Recovery.** At most two General Agent automatic restarts per episode, then a failure notification until owner action. A crash resumes only a verified session whose provider is absent from the tab's process tree. Startup failure and error loops each allow one attempt within the overall cap. Model-authorized recovery stays notify-only pending qualification. See `domios docs AGENT-CONTROL`.
+- **Models and spend.** Jev remains the calibrated re-rank model, billed to TypeSafe. `domios model-provider` configures OpenCode local models; their optional decision adapter has no calibrated confidence. Estimates use response usage and declared prices; unpriced adapters have none. Credit exhaustion sends one failure alert and uses deterministic results until a later probe succeeds.
+- **Activity.** Mission Control shows recent verdicts. The bounded `<data dir>/supporter/journal.jsonl` records actions, budget transitions, answer distributions, model identities and criteria hashes, never raw inputs or tokens. `other` triggers no action or hint. `domios mem search --supporter off` skips re-rank once. Clearing a required token keeps the saved connection but makes it unusable.
 
-The in-app Guide opens from a standalone `@ds-guide supporter-agent` paragraph. More about Jev: https://docs.typesafe.ai.
+The Guide opens from a standalone `@ds-guide supporter-agent` paragraph. Jev: https://docs.typesafe.ai.
 
 ### Wake-up selection
 
@@ -205,4 +195,4 @@ The prior deletion receipt must establish conversation kind, `flush:<tab> pre-co
 
 Check row/byte counts and compaction outcomes. Blob unlink, VACUUM and WAL checkpoint reclaim storage, without secure erasure. Backups, snapshots, old WAL copies, filesystem free space and provider transcripts remain untouched. No global orphan sweep runs.
 
-<!-- revision: 51 -->
+<!-- revision: 53 -->

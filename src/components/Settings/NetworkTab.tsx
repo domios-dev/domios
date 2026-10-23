@@ -1,6 +1,7 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useEffect, useState } from "react";
 import { invoke } from "../../lib/bridge";
+import { currentToken, relayTarget } from "../../lib/webApi";
 import {
   buildWebAccessUrls,
   planServeSetup,
@@ -123,8 +124,8 @@ function WebAccessSection() {
   useEffect(() => {
     void (async () => {
       try {
-        const cfg = await invoke<{ api?: { token?: string; port?: number } }>("get_config");
-        setToken(cfg.api?.token ?? null);
+        const cfg = await invoke<{ api?: { port?: number } }>("get_config");
+        setToken(relayTarget() ? null : currentToken());
         await refresh(cfg.api?.port ?? 7685);
       } catch {
         /* settings panel stays usable without this section's data */

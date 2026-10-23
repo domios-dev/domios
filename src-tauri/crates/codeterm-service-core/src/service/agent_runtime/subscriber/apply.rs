@@ -291,6 +291,7 @@ fn apply(svc: &ServiceContext, session: &Arc<Session>, epoch: u64, at: u64, even
                     .filter(|_| !matches!(state, RuntimeTurnState::Idle)),
             );
             crate::agent::state_verdict::apply_live(&svc.mux, &context.tab_id, &thread_id, live);
+            svc.record_turn_resume_edge(&context.tab_id);
             session.context.lock().active_turn_id = match state {
                 RuntimeTurnState::Idle => None,
                 _ => turn_id,

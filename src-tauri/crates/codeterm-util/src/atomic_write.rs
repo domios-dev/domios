@@ -1,3 +1,4 @@
+use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -16,60 +17,49 @@ pub fn unique_tmp_path(path: &Path) -> PathBuf {
 
 // Unique-temp write + fsync + atomic rename; best-effort cleanup of the temp on failure.
 pub fn write_atomic(path: &Path, contents: impl AsRef<[u8]>) -> io::Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
+    write_with_policy(path, contents.as_ref(), false)
+}
+
+pub(crate) fn write_private_atomic(path: &Path, contents: &[u8]) -> io::Result<()> {
+    write_with_policy(path, contents, true)
+}
+
+fn write_with_policy(path: &Path, contents: &[u8], private: bool) -> io::Result<()> {
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        if private {
+            crate::private_file::create_dir_all(parent)?;
+        } else {
+            fs::create_dir_all(parent)?;
+        }
     }
     let tmp = unique_tmp_path(path);
-    let result = (|| -> io::Result<()> {
-        let mut file = std::fs::File::create(&tmp)?;
-        file.write_all(contents.as_ref())?;
+    let result = (|| {
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        if private {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&tmp)?;
+        if private {
+            crate::private_file::prepare_replacement(path, &tmp)?;
+        } else {
+            crate::private_file::preserve_permissions(path, &tmp)?;
+        }
+        file.write_all(contents)?;
         file.sync_all()?;
-        std::fs::rename(&tmp, path)?;
-        Ok(())
+        drop(file);
+        fs::rename(&tmp, path)
     })();
     if result.is_err() {
-        let _ = std::fs::remove_file(&tmp);
+        let _ = fs::remove_file(&tmp);
     }
     result
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn unique_tmp_paths_are_disjoint_and_hidden() {
-        let dir = tempfile::tempdir().unwrap();
-        let base = dir.path().join("plan.json");
-        let a = unique_tmp_path(&base);
-        let b = unique_tmp_path(&base);
-        assert_ne!(a, b);
-        assert_ne!(a, base);
-        let name = a.file_name().unwrap().to_str().unwrap();
-        assert!(name.starts_with(".plan.json."));
-        assert!(name.ends_with(".tmp"));
-    }
-
-    #[test]
-    fn write_atomic_creates_parents_and_leaves_no_tmp() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("nested/deep/plan.json");
-        write_atomic(&path, b"{\"k\":1}").unwrap();
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "{\"k\":1}");
-        let leftovers: Vec<_> = std::fs::read_dir(path.parent().unwrap())
-            .unwrap()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_name().to_str().unwrap().ends_with(".tmp"))
-            .collect();
-        assert!(leftovers.is_empty(), "temp file left behind: {leftovers:?}");
-    }
-
-    #[test]
-    fn write_atomic_overwrites_existing_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("plan.json");
-        write_atomic(&path, b"old").unwrap();
-        write_atomic(&path, b"new").unwrap();
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "new");
-    }
-}
+mod tests;

@@ -7,12 +7,8 @@ use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::sync::Arc;
 use std::time::Duration;
 
-/// Bounded FAILURE deadline for a channel wait. A positive oracle fails when
-/// it expires; a negative oracle passes when it expires.
+/// A positive oracle fails when this deadline expires.
 pub const DEADLINE: Duration = Duration::from_secs(20);
-/// Silence window for a negative oracle. Comfortably past the 200ms debounce
-/// so a real event would already have been delivered.
-pub const SILENCE: Duration = Duration::from_secs(3);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SinkEvent {
@@ -90,18 +86,6 @@ pub fn collected(rx: &Receiver<SinkEvent>) -> Vec<SinkEvent> {
         out.push(event);
     }
     out
-}
-
-/// Expiry of the bounded window IS the pass condition.
-pub fn expect_silence(rx: &Receiver<SinkEvent>, what: &str) {
-    match rx.recv_timeout(SILENCE) {
-        Ok(SinkEvent::Changed(id)) => panic!("{what} must emit no event, got change for {id}"),
-        Ok(SinkEvent::Unavailable(id, reason)) => {
-            panic!("{what} must emit no event, got {reason:?} for {id}")
-        }
-        Err(RecvTimeoutError::Timeout) => {}
-        Err(RecvTimeoutError::Disconnected) => {}
-    }
 }
 
 fn same_path(a: &str, b: &str) -> bool {
