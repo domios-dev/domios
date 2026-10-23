@@ -13,7 +13,6 @@ use crate::storage::{
     ImportRequest, LegacyDecoder, MigrationError, Storage,
 };
 use codeterm_pty::session::store::legacy_decode;
-use codeterm_sentinel::storage::{legacy_import, LegacySentinelError};
 use codeterm_storage::{
     DeskAgentSessionIdentity, DeskLayoutNode, DeskSnapshot, DeskTab, DeskTeam, DeskTeamLifecycle,
     DeskWorkspace, LiveRootImportRequest, WorkspaceId, WorkspaceRecord,
@@ -35,14 +34,7 @@ impl LegacyDecoder for LegacyCodecs {
             ImportDomain::Cron => decode_legacy_cron_file(bytes)
                 .map(DomainImport::Cron)
                 .map_err(cron_failure),
-            ImportDomain::Sentinel => {
-                let text = std::str::from_utf8(bytes).map_err(|error| {
-                    DecodeFailure::new(DecodeFailureKind::Malformed, error.to_string())
-                })?;
-                legacy_import(text)
-                    .map(DomainImport::Sentinel)
-                    .map_err(sentinel_failure)
-            }
+            ImportDomain::Sentinel => Ok(DomainImport::Sentinel(Vec::new())),
             ImportDomain::Desk => Err(DecodeFailure::new(
                 DecodeFailureKind::Unsupported,
                 "desk sources require their snapshot and identity catalogue",
@@ -297,18 +289,6 @@ fn json_shape(bytes: &[u8]) -> Result<(), DecodeFailure> {
             DecodeFailureKind::Malformed,
             error.to_string(),
         )),
-    }
-}
-
-/// Valid JSON that breaks a Sentinel invariant is a conflict, never recoverable damage.
-fn sentinel_failure(error: LegacySentinelError) -> DecodeFailure {
-    match error {
-        LegacySentinelError::Malformed(detail) => {
-            DecodeFailure::new(DecodeFailureKind::Malformed, detail)
-        }
-        LegacySentinelError::Conflict(detail) => {
-            DecodeFailure::new(DecodeFailureKind::Conflict, detail)
-        }
     }
 }
 

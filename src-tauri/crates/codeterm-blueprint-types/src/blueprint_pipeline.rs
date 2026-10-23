@@ -116,6 +116,8 @@ pub struct Step {
     pub name: String,
     pub input: IoType,
     pub kind: StepKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution: Option<crate::blueprint_execution::ExecutionContract>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub on: BTreeMap<String, String>,
 }
@@ -127,9 +129,19 @@ pub fn route_target<'a>(routes: &'a BTreeMap<String, String>, outcome: &str) -> 
         .unwrap_or(if outcome == "failed" { "stop" } else { "next" })
 }
 
+pub const COMMAND_STEP_RUNTIME_MS: u64 = 10_000;
+pub const MAX_COMMAND_STEP_RUNTIME_MS: u64 = 60_000;
+
+fn default_command_timeout_ms() -> u64 {
+    COMMAND_STEP_RUNTIME_MS
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum StepKind {
+    Code {
+        code: crate::blueprint_document::Code,
+    },
     Http {
         probe: crate::blueprint_http::HttpProbe,
     },
@@ -138,6 +150,8 @@ pub enum StepKind {
     },
     Command {
         command: String,
+        #[serde(default = "default_command_timeout_ms")]
+        timeout_ms: u64,
     },
     Ask {
         question: String,
@@ -165,7 +179,11 @@ impl StepKind {
     pub const DESCRIPTORS: &'static [crate::blueprint_catalog::NodeDescriptor] =
         crate::blueprint_catalog::STEPS;
     pub fn name(&self) -> &'static str {
+        if matches!(self, Self::Code { .. }) {
+            return "code";
+        }
         Self::DESCRIPTORS[match self {
+            Self::Code { .. } => unreachable!(),
             Self::Command { .. } => 0,
             Self::Ask { .. } => 1,
             Self::Filter { .. } => 2,
@@ -183,6 +201,7 @@ impl StepKind {
             Self::Http { .. }
             | Self::Github { .. }
             | Self::Command { .. }
+            | Self::Code { .. }
             | Self::Ask { .. }
             | Self::Filter { .. }
             | Self::Agent { .. } => IoType::Text,
@@ -204,6 +223,7 @@ impl StepKind {
             }
             Self::Github { .. }
             | Self::Command { .. }
+            | Self::Code { .. }
             | Self::Convert { .. }
             | Self::Agent { .. } => Ok(["done".into(), "failed".into()].into()),
             Self::Ask { buckets, .. } => {
@@ -513,7 +533,7 @@ pub fn validate_parts(
                     error(&mut errors, field.parameters("agent"), "agent requires text, a provider and profile, and bounded task, deadline, token and turn budgets");
                 }
             }
-            StepKind::Command { command }
+            StepKind::Command { command, .. }
                 if command.trim().is_empty()
                     || command.len() > MAX_COMMAND_BYTES
                     || command.contains('\0') =>

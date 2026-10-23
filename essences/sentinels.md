@@ -4,7 +4,7 @@ A Blueprint graph is an agent's recurring action written once as a program. It r
 
 ## Authoring and validation
 
-A Blueprint has one versioned YAML authoring document: a name and purpose note, typed reusable inputs, and either a watch or a pipeline. Built-in recipes use that same format. Offline checking reports source positions and hints for all recoverable authoring errors; warnings do not reject the file. Editor schema output supports authoring, while live admission owns plugin availability, target scope and permissions.
+A Blueprint has one native v2 YAML authoring document: a name and purpose note, typed reusable inputs and ports, stable node identities, explicit value bindings and either a watch or a pipeline. Earlier formats and stored v1 Blueprints are deleted without conversion; unrelated memory and workspaces remain. Code and call metadata round-trip, while execution refuses unsupported features before effects. Built-in recipes use that same format. Offline checking reports source positions and hints for all recoverable authoring errors; warnings do not reject the file. Editor schema output supports authoring, while live admission owns plugin availability, target scope and permissions.
 
 Applying a recipe or document resolves an exact name within the caller's Team and workspace. An unchanged running definition keeps its identity and version; applying a stopped definition reactivates it under that identity through versioned admission. Names are unique in each Team/workspace across creation and import paths. Immutable watch creation settings cannot change through apply. A dry run shows the proposed change without mutation. Export and import use the same authoring format with explicit inputs for sensitive commands, data and local targets. Import starts stopped unless explicitly started.
 
@@ -21,6 +21,8 @@ Probes have bounded runtime and output, and their cadence is requested work, not
 ## What a graph may do
 
 A graph may act on anything its owning agent may: observe, run creator-authored commands, message tabs, trigger crons, activate stages, request a prompt answer through the existing [safe prompt-answer path](supporter-agent.md#provider-declared-prompt-answers), and stop. That path revalidates the live prompt and kind, then chooses only a provider-declared option; the graph supplies neither an option nor PTY keys. It never exceeds the owning agent's authority or its creator, Team, workspace and machine scope. Timeouts and finite transition and action budgets bound every graph; exhausting one stops the graph with a recorded reason. Each action is claimed durably before it runs and is never replayed after a restart; an uncertain outcome stays unconfirmed.
+
+Blueprint code and command steps run with the user's own permissions, like an agent in a tab, without Domios credentials in their environment. Filesystem, network and subprocess access follow those user permissions. Foreign Blueprints are gated by folder trust (1.15.4). Deadline and output budgets apply on every supported OS; explicit memory limits are enforced on Linux and Windows, while macOS emits a warning and continues without a memory cap. There is no default memory limit.
 
 ## Other, escalation and rewrite
 

@@ -82,7 +82,7 @@ fn blueprint_memory_requests_offer_without_applying_and_preserve_identity() {
         .unwrap()
         .iter()
         .any(|offer| offer["id"] == "http-health"));
-    let yaml = "schema_version: 1\nname: frozen\nwatch:\n  probe: '{{command}}'\n  question: Frozen?\n  buckets: [frozen]\n  routes: {frozen: notify}\n";
+    let yaml = authoring::scaffold("watch").unwrap();
     let stored = json!([{"id":"skill_vector","yaml":yaml,"intents":["Detect stalled deployments"],"uses":0,"successes":1,"why":"intent 0.81"}]);
     let offers = memory::offers(stored, "Identify frozen releases HTTP endpoint");
     assert_eq!(offers[0]["id"], "memory:skill_vector");
@@ -118,23 +118,29 @@ fn blueprint_text_input_wire_preserves_file_body_and_identity() {
 }
 
 #[test]
-fn update_handler_definitions_generate_ids_for_buckets_and_other() {
-    let mut definition = json!({
-        "buckets": ["passed"],
-        "handlers": {"passed": [{"type":"notify", "parameters":{}}]},
-        "on_other": [{"type":"escalate", "parameters":{"target":"creator"}}]
-    });
-
-    normalize_update_handlers(definition.as_object_mut().unwrap()).unwrap();
-
-    assert_eq!(
-        definition["handlers"]["passed"][0]["id"],
-        "notify-on-passed"
-    );
-    assert_eq!(
-        definition["on_other"][0]["id"],
-        "escalate-to-owner-on-other"
-    );
+fn blueprint_update_refuses_unversioned_definitions_and_history() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("old.json");
+    for old in [
+        json!({"buckets":["done"],"handlers":{}}),
+        json!({"current_version":1,"versions":[]}),
+        json!({"schema_version":1,"watch":{}}),
+    ] {
+        std::fs::write(&path, old.to_string()).unwrap();
+        assert!(request(
+            BlueprintAction::Update {
+                note: None,
+                id: "graph".into(),
+                expect_version: 1,
+                from_file: path.clone(),
+                cause: None,
+                dry_run: false
+            },
+            None,
+            None
+        )
+        .is_err());
+    }
 }
 
 #[test]
@@ -167,19 +173,7 @@ fn sentinel_update_cli_json_round_trip_preserves_definition_and_history_request(
 
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("definition.json");
-    let definition = json!({
-        "name": "Updated graph",
-        "question": "Did it finish?",
-        "buckets": ["done"],
-        "every": "30s",
-        "routes": {"done": "notify"},
-        "matches": {"done": "^done$"},
-        "until": "done",
-        "on_other": [],
-        "max_transitions": 8,
-        "max_actions": 12,
-        "note": "new completion condition"
-    });
+    let definition = authoring::load_checked("echo", &["message=opaque".into()]).unwrap();
     std::fs::write(&path, serde_json::to_vec(&definition).unwrap()).unwrap();
     let cli = crate::args::cli::Cli::try_parse_from([
         "codeterm",
@@ -202,9 +196,8 @@ fn sentinel_update_cli_json_round_trip_preserves_definition_and_history_request(
     assert_eq!(params["caller_tab_id"], "editor");
     assert_eq!(params["session_binding_nonce"], "nonce");
     assert_eq!(params["expect_version"], 3);
-    let mut expected = definition;
-    expected["cause"] = json!("transition_2");
-    assert_eq!(params["update"], expected);
+    assert_eq!(params["definition"], definition);
+    assert_eq!(params["cause"], "transition_2");
 
     let cli = crate::args::cli::Cli::try_parse_from([
         "codeterm",
@@ -222,7 +215,7 @@ fn sentinel_update_cli_json_round_trip_preserves_definition_and_history_request(
         panic!("unexpected command")
     };
     let (method, _) = request(action, Some("editor".into()), Some("nonce".into())).unwrap();
-    assert_eq!(method, "blueprint.validate.update");
+    assert_eq!(method, "blueprint.update");
 
     let cli =
         crate::args::cli::Cli::try_parse_from(["codeterm", "blueprint", "history", "sentinel_a"])
@@ -357,7 +350,7 @@ fn blueprint_apply_and_import_use_the_same_checked_document() {
         } else {
             &params["definition"]
         };
-        assert_eq!(definition["spec"]["steps"][0]["kind"]["probe"]["id"], 42);
+        assert_eq!(definition["steps"][0]["with"]["id"]["lit"], 42);
         assert_eq!(params["caller_tab_id"], "caller");
         assert_eq!(params["session_binding_nonce"], "nonce");
     }
@@ -378,18 +371,19 @@ fn blueprint_apply_note_and_dry_run_are_explicit() {
     )
     .unwrap();
     assert_eq!(params["dry_run"], true);
-    assert_eq!(params["definition"]["spec"]["note"], "Health check");
+    assert_eq!(params["definition"]["note"], "Health check");
 }
 #[test]
 fn human_apply_diff_uses_authoring_paths_and_hides_wire_wrappers() {
-    let before = json!({"spec":{"name":"CI watch","owner":"team","trigger":{"type":"schedule","every":"20s"},"steps":[{"name":"ci","input":"text","kind":{"kind":"github","probe":{"repo":"owner/repo","resource":"run","id":1}},"on":{"done":"stop"}}]}});
+    let before =
+        authoring::load_checked("github", &["repo=owner/repo".into(), "id=1".into()]).unwrap();
     let mut after = before.clone();
-    after["spec"]["steps"][0]["kind"]["probe"]["id"] = json!(2);
+    after["steps"][0]["with"]["id"]["lit"] = json!(2);
     let output = apply_output::summary(
         &json!({"action":"update","name":"CI watch","id":"blueprint_a","state":"running","before":before,"after":after}),
     );
     assert!(output.starts_with("update CI watch blueprint_a"));
-    assert!(output.contains("pipeline.steps[0].with.id: 1 -> 2"));
+    assert!(output.contains("steps[0].with.id.lit: 1 -> 2"));
     assert!(!output.contains("kind.probe"));
     assert!(!output.contains("spec."));
 }
@@ -427,21 +421,28 @@ mod command_tests {
     }
 
     #[test]
-    fn sentinel_update_input_field_passes_through_read_update() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("definition.json");
-        let definition = json!({
-            "question": "transcribed?",
-            "buckets": ["done"],
-            "input": {"data": {"file": "/tmp/clip.wav"}, "convert_to": "text"}
-        });
-        std::fs::write(&path, serde_json::to_vec(&definition).unwrap()).unwrap();
-        let update = read_update(&path, Some("transition_1")).unwrap();
-        assert_eq!(
-            update["input"],
-            json!({"data": {"file": "/tmp/clip.wav"}, "convert_to": "text"})
-        );
-        assert_eq!(update["cause"], "transition_1");
+    fn native_v2_update_preserves_explicit_data_inputs() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("update.yaml");
+        let definition = authoring::load_checked("echo", &["message=opaque input".into()]).unwrap();
+        std::fs::write(&path, serde_yaml::to_string(&definition).unwrap()).unwrap();
+        let (method, params) = request(
+            BlueprintAction::Update {
+                note: None,
+                id: "graph".into(),
+                expect_version: 2,
+                from_file: path,
+                cause: Some("transition_1".into()),
+                dry_run: true,
+            },
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(method, "blueprint.update");
+        assert_eq!(params["definition"], definition);
+        assert_eq!(params["cause"], "transition_1");
+        assert_eq!(params["dry_run"], true);
     }
 
     #[test]
@@ -473,36 +474,27 @@ mod command_tests {
     }
 
     #[test]
-    fn blueprint_history_json_round_trips_into_pipeline_update() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("history.json");
-        let spec = json!({
-            "name":"echo",
-            "trigger":{"type":"schedule","every":"20s"},
-            "steps":[{"name":"emit","input":"text","kind":{"kind":"command","command":"printf ready"}}],
-            "result":{"to":"owner"}
-        });
-        let history = json!({
-            "sentinel_id":"sentinel_echo",
-            "current_version":2,
-            "versions":[{"version":2,"definition":{"pipeline":spec}}]
-        });
-        std::fs::write(&path, serde_json::to_vec(&history).unwrap()).unwrap();
-        let (method, params) = request(
+    fn blueprint_history_json_is_not_an_authoring_document() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("history.json");
+        std::fs::write(
+            &path,
+            json!({"current_version":2,"versions":[]}).to_string(),
+        )
+        .unwrap();
+        assert!(request(
             BlueprintAction::Update {
                 note: None,
-                id: "sentinel_echo".into(),
+                id: "graph".into(),
                 expect_version: 2,
                 from_file: path,
                 cause: None,
-                dry_run: false,
+                dry_run: false
             },
-            Some("creator".into()),
             None,
+            None
         )
-        .unwrap();
-        assert_eq!(method, "blueprint.pipeline.update");
-        assert_eq!(params["spec"], spec);
+        .is_err());
     }
 }
 

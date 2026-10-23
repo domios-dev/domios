@@ -10,28 +10,17 @@ use crate::machine::{EscalateTarget, Machine, Route, SafeKind};
 use crate::source::{RunBinding, TabBinding};
 use crate::store::Sentinel;
 use codeterm_storage::{
-    AmendmentRecord, BatchFence, BucketDefinition, CaptureRecord, CommandParameters,
-    CommandResultRecord, CommandStatus as StoredCommandStatus, DefinitionProvenance,
-    DefinitionUpdate, EscalateTarget as StoredEscalateTarget, HandlerAction, HandlerDefinition,
-    HandlerResultRecord, HandlerStatus, NewTransition, ObserveKind, ObserveSource, RunRecord,
-    RuntimeOutcome, SafeKind as StoredSafeKind, SentinelCreate, SentinelId, SentinelIdentity,
-    SentinelImport, SentinelScope, StageDefinition, StageRuntime, StageSource, StoredDefinition,
-    StoredSentinel, TargetIdentity, TransitionRecord,
+    AmendmentRecord, BatchFence, BucketDefinition, CaptureRecord, CommandResultRecord,
+    CommandStatus as StoredCommandStatus, DefinitionProvenance, DefinitionUpdate,
+    EscalateTarget as StoredEscalateTarget, HandlerAction, HandlerDefinition, HandlerResultRecord,
+    HandlerStatus, NewTransition, ObserveKind, ObserveSource, RunRecord, RuntimeOutcome,
+    SafeKind as StoredSafeKind, SentinelCreate, SentinelId, SentinelIdentity, SentinelImport,
+    SentinelScope, StageDefinition, StageRuntime, StageSource, StoredDefinition, StoredSentinel,
+    TargetIdentity, TransitionRecord,
 };
 
 pub fn id(id: &str) -> Result<SentinelId, String> {
     SentinelId::new(id).map_err(|error| format!("invalid blueprint identity: {error}"))
-}
-
-fn safe_kind(kind: &SafeKind) -> StoredSafeKind {
-    match kind {
-        SafeKind::DirectoryTrust => StoredSafeKind::DirectoryTrust,
-        SafeKind::Onboarding => StoredSafeKind::Onboarding,
-        SafeKind::Update => StoredSafeKind::Update,
-        SafeKind::Permission => StoredSafeKind::Permission,
-        SafeKind::Structured => StoredSafeKind::Structured,
-        SafeKind::Other(kind) => StoredSafeKind::Other(kind.clone()),
-    }
 }
 
 fn domain_safe_kind(kind: StoredSafeKind) -> SafeKind {
@@ -46,25 +35,7 @@ fn domain_safe_kind(kind: StoredSafeKind) -> SafeKind {
 }
 
 fn action(route: &Route) -> HandlerAction {
-    match route {
-        Route::Notify => HandlerAction::Notify,
-        Route::Stop => HandlerAction::Stop,
-        Route::Send(target) => HandlerAction::Send(target.clone()),
-        Route::Cron(target) => HandlerAction::Cron(target.clone()),
-        Route::Sentinel(target) => HandlerAction::Sentinel(target.clone()),
-        Route::Command(parameters) => HandlerAction::Command(CommandParameters {
-            command: parameters.command.clone(),
-            label: parameters.label.clone(),
-            timeout_ms: parameters.timeout_ms,
-        }),
-        Route::RespondPrompt(kind) => HandlerAction::RespondPrompt(safe_kind(kind)),
-        Route::Escalate(EscalateTarget::Creator) => {
-            HandlerAction::Escalate(StoredEscalateTarget::Creator)
-        }
-        Route::Escalate(EscalateTarget::Agent(tab)) => {
-            HandlerAction::Escalate(StoredEscalateTarget::Agent(tab.clone()))
-        }
-    }
+    HandlerAction::from_route(route)
 }
 
 fn route(action: HandlerAction) -> Route {
@@ -332,6 +303,9 @@ fn domain_transition(record: TransitionRecord) -> Transition {
 
 /// Refuses any definition whose source, buckets, routes and matches would not round-trip.
 fn definition(job: &Sentinel) -> Result<StageDefinition, String> {
+    job.document
+        .as_ref()
+        .ok_or("Only native v2 Blueprint documents can be persisted")?;
     let declared: BTreeSet<&String> = job.buckets.iter().collect();
     let exact = declared.len() == job.buckets.len()
         && job.routes.len() == job.buckets.len()
@@ -361,7 +335,8 @@ fn definition(job: &Sentinel) -> Result<StageDefinition, String> {
             handlers: job.routes[bucket].iter().map(handler_definition).collect(),
         })
         .collect();
-    Ok(StageDefinition {
+    let definition = StageDefinition {
+        document: job.document.clone(),
         note: job.note.clone(),
         model_classification: job.model_classification,
         session: job.session,
@@ -375,7 +350,9 @@ fn definition(job: &Sentinel) -> Result<StageDefinition, String> {
         max_actions: job.max_actions,
         buckets,
         on_other: job.on_other.iter().map(handler_definition).collect(),
-    })
+    };
+    definition.validate_native_document()?;
+    Ok(definition)
 }
 
 pub fn update_definition(
@@ -436,6 +413,7 @@ pub fn history_version(stored: StoredDefinition) -> DefinitionVersion {
         }
         .into(),
         definition: DefinitionSnapshot {
+            document: definition.document,
             model_classification: definition.model_classification,
             terminal,
             session: definition.session,
@@ -611,6 +589,7 @@ pub fn decode(stored: &StoredSentinel) -> Sentinel {
     }
     let runtime = record.runtime;
     Sentinel {
+        document: definition.document,
         creation_options: record.identity.creation_options,
         source: super::super::stage_source::StageSource::from_parts(
             probe, observe, input, terminal, pipeline,

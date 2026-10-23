@@ -4,8 +4,38 @@ use super::super::index::Slot;
 use super::*;
 use codeterm_blueprint_types::blueprint_memory::{parse_document, Evidence};
 
-const LOGS: &str = "schema_version: 1\nname: log-rotate\nnote: Keep disks tidy.\npipeline:\n  trigger: {type: schedule, every: 1d}\n  steps:\n    - {name: rotate, input: text, run: logrotate --force /etc/logrotate.conf}\n  result: {to: notify}\n";
-const BACKUP: &str = "schema_version: 1\nname: backup\nnote: Copy the database every night.\npipeline:\n  trigger: {type: schedule, every: 1d}\n  steps:\n    - {name: dump, input: text, uses: http, with: {url: 'https://backup.example.com/run'}}\n  result: {to: notify}\n";
+const LOGS: &str = r#"schema_version: 2
+kind: pipeline
+name: log-rotate
+note: Keep disks tidy.
+trigger:
+  type: schedule
+  every:
+    lit: 1d
+steps:
+- id: rotate
+  run:
+    lit: logrotate --force /etc/logrotate.conf
+result:
+  to: notify
+"#;
+const BACKUP: &str = r#"schema_version: 2
+kind: pipeline
+name: backup
+note: Copy the database every night.
+trigger:
+  type: schedule
+  every:
+    lit: 1d
+steps:
+- id: dump
+  uses: http
+  with:
+    url:
+      lit: https://backup.example.com/run
+result:
+  to: notify
+"#;
 
 fn evidence() -> Evidence {
     Evidence {

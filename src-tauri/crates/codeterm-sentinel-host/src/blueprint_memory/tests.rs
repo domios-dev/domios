@@ -29,7 +29,7 @@ fn worker_keep_is_refused_and_saved_recipe_applies_only_in_its_project() {
         .blueprint_keep(&caller, "missing", &["Watch CI failures".into()])
         .unwrap_err()
         .contains("Orchestrator"));
-    let document=Document::from_definition(&json!({"create":{"name":"Concrete watch","note":"Watch CI","probe":"echo private-instance","question":"Ready?","buckets":["done"],"every":"20s","matches":{"done":"ready"},"routes":{"done":"notify"},"until":"done","timeout":"1h"}})).unwrap();
+    let document=Document::from_definition(&json!({"schema_version":2,"kind":"watch","name":"Concrete watch","note":"Watch CI","steps":[{"id":"source","uses":"probe","with":{"command":{"lit":"echo private-instance"}},"every":{"lit":"20s"},"timeout":{"lit":"1h"}},{"id":"decide","uses":"ask","with":{"question":{"lit":"Ready?"}},"buckets":["done"],"matches":{"done":{"lit":"ready"}},"until":"done","routes":{"done":"notice"}},{"id":"notice","uses":"notify"}]})).unwrap();
     let id = service
         .mem
         .save_blueprint(

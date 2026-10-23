@@ -37,15 +37,9 @@ fn stop_paths_record_time_and_completed_watch_update_gets_a_fresh_budget() {
         workspace_id: "workspace".into(),
         cwd: "/tmp".into(),
     };
-    let create = |until: Option<&str>, timeout: Option<&str>| {
-        serde_json::from_value(serde_json::json!({
-            "name":if until.is_some(){"completed release watcher"}else{"expiring release watcher"}, "probe":"status", "question":"Done?", "buckets":["done"],
-            "matches":{"done":"done"}, "until":until, "timeout":timeout, "max_transitions":1
-        }))
-        .unwrap()
-    };
+    let create = |until: Option<&str>, timeout: Option<&str>| serde_json::json!({"schema_version":2,"kind":"watch","name":if until.is_some(){"completed release watcher"}else{"expiring release watcher"},"steps":[{"id":"source","uses":"probe","with":{"command":{"lit":"status"}},"timeout":{"lit":timeout.unwrap_or("1h")}},{"id":"decide","uses":"ask","with":{"question":{"lit":"Done?"}},"buckets":["done"],"matches":{"done":{"lit":"done"}},"until":until,"routes":{"done":"notice"}},{"id":"notice","uses":"notify"}]});
     let expiring = store
-        .create(create(None, Some("1m")), owner(), false)
+        .create_document(create(None, Some("1m")), owner(), false)
         .unwrap();
     clock.set_ms(61_000);
     assert!(store.due().unwrap().is_empty());
@@ -55,7 +49,7 @@ fn stop_paths_record_time_and_completed_watch_update_gets_a_fresh_budget() {
     );
 
     let completed = store
-        .create(create(Some("done"), None), owner(), false)
+        .create_document(create(Some("done"), None), owner(), false)
         .unwrap();
     let lease = store.due().unwrap().remove(0);
     let mut job = lease.job.clone();

@@ -1,444 +1,336 @@
-use crate::blueprint_pipeline::{self, Step, Trigger};
-use serde_json::Value;
-type Emit<'a> = dyn FnMut(&str, &str, &str, bool) + 'a;
-
-pub(super) fn document(value: &Value, emit: &mut Emit<'_>) {
-    lint_inputs(value, "", value["inputs"].as_object(), emit);
-    let schema = super::schema::schema();
-    shape(value, &schema, &schema, "", emit);
-    if value.get("watch").is_some() == value.get("pipeline").is_some() {
-        emit(
-            "",
-            "Choose exactly one watch or pipeline",
-            "Remove one section or add watch/pipeline",
-            false,
-        );
+use super::*;
+use std::collections::BTreeSet;
+type Errors = Vec<(String, String)>;
+pub(super) fn document(doc: &Document) -> Errors {
+    let mut errors = Vec::new();
+    if doc.schema_version != SCHEMA_VERSION {
+        errors.push((
+            "schema_version".into(),
+            "Only schema_version: 2 is supported".into(),
+        ));
     }
-    if value["note"].as_str().is_none_or(|s| s.trim().is_empty()) {
-        emit(
-            "note",
-            "A note helps explain why this Blueprint exists",
-            "Add a short note",
-            true,
-        );
-    }
-    if let Some(inputs) = value["inputs"].as_object() {
-        for (name, input) in inputs {
-            if let Ok(input) = serde_json::from_value::<super::Input>(input.clone()) {
-                if input
-                    .default
-                    .as_ref()
-                    .is_some_and(|value| !input.accepts(value))
-                {
-                    emit(
-                        &format!("inputs.{name}.default"),
-                        "Default does not match the declared input type",
-                        "Use a value of the declared type",
-                        false,
-                    );
-                }
-            }
+    if let Some(key) = whole_input(&doc.name) {
+        if key.is_empty() {
+            errors.push(("name".into(), "Name input must be nonempty".into()));
         }
+    } else if let Err(e) = crate::automation_name::validate_sentinel_name(&doc.name) {
+        errors.push(("name".into(), e));
     }
-    if value.get("watch").is_some() && value.get("owner").is_some() {
-        emit(
-            "owner",
-            "Watch ownership is fixed to its creator in the caller Team",
-            "Remove owner; owner is a pipeline option",
-            false,
-        )
+    if doc.name.contains("{{") && whole_input(&doc.name).is_none() {
+        errors.push((
+            "name".into(),
+            "Inputs occupy a whole value; name templates are unsupported".into(),
+        ));
     }
-    if let Some(steps) = value.pointer("/pipeline/steps").and_then(Value::as_array) {
-        for (i, step) in steps.iter().enumerate() {
-            if step["uses"] == "github" && step.pointer("/with/id").is_some_and(Value::is_number) {
-                emit(
-                    &format!("pipeline.steps[{i}].with.id"),
-                    "Hardcoded run or PR ID limits reuse",
-                    "Declare an integer input and use '{{id}}'",
-                    true,
-                );
-            }
-        }
+    if let Err(e) = crate::automation_name::validate_note(doc.note.as_deref()) {
+        errors.push(("note".into(), e));
     }
-}
-
-fn shape(value: &Value, schema: &Value, root: &Value, path: &str, emit: &mut Emit<'_>) {
-    if value.as_str().is_some_and(|s| {
-        crate::blueprint_placeholder::tokens(s)
-            .iter()
-            .any(|token| token.key.is_some())
-    }) {
-        return;
-    }
-    if let Some(reference) = schema["$ref"].as_str() {
-        if let Some(schema) = root.pointer(reference.trim_start_matches('#')) {
-            shape(value, schema, root, path, emit)
-        }
-        return;
-    }
-    if path.starts_with("pipeline.steps[") && !path.contains("].") {
-        if let Some(uses) = value["uses"].as_str() {
-            if !crate::blueprint_catalog::STEPS
-                .iter()
-                .any(|node| node.name == uses && uses != "command")
-            {
-                emit(
-                    &format!("{path}.uses"),
-                    &format!("Unknown node {uses}"),
-                    "Choose http, github, ask, filter, convert, agent; use run for commands",
-                    false,
-                );
-                return;
-            }
-        }
-    }
-    if let Some(variants) = schema
-        .get("oneOf")
-        .or_else(|| schema.get("anyOf"))
-        .and_then(Value::as_array)
+    if doc
+        .owner
+        .as_deref()
+        .is_some_and(|s| !matches!(s, "tab" | "team"))
     {
-        if schema.get("type").is_none() {
-            let selected = if value.get("run").is_some() {
-                variants.first()
-            } else {
-                None
-            }
-            .or_else(|| {
-                variants.iter().find(|variant| {
-                    let Some(properties) = variant["properties"].as_object() else {
-                        return variant["type"]
-                            .as_str()
-                            .is_some_and(|kind| type_matches(value, kind));
-                    };
-                    properties
-                        .iter()
-                        .filter(|(_, rule)| rule.get("const").is_some())
-                        .all(|(key, rule)| value.get(key) == rule.get("const"))
-                        && variant["required"].as_array().is_none_or(|keys| {
-                            keys.iter()
-                                .all(|key| value.get(key.as_str().unwrap_or("")).is_some())
-                        })
-                })
-            })
-            .or_else(|| {
-                variants.iter().find(|variant| {
-                    variant["properties"].as_object().is_some_and(|properties| {
-                        properties.iter().any(|(key, rule)| {
-                            rule.get("const").is_some() && value.get(key) == rule.get("const")
-                        })
-                    })
-                })
-            });
-            if let Some(selected) = selected {
-                shape(value, selected, root, path, emit)
-            } else {
-                emit(
-                    path,
-                    "Unknown node kind, missing fields, or incompatible value",
-                    "Use a known uses node with with parameters, or run with command text",
-                    false,
-                );
-            }
-            return;
-        }
+        errors.push(("owner".into(), "Use tab or team".into()));
     }
-    if let Some(kind) = schema["type"].as_str() {
-        if !type_matches(value, kind) {
-            emit(
-                path,
-                &format!("Expected {kind}"),
-                "Use the declared field type",
-                false,
-            );
-            return;
-        }
-    }
-    if schema
-        .get("const")
-        .is_some_and(|expected| expected != value)
-        || schema["enum"]
-            .as_array()
-            .is_some_and(|values| !values.contains(value))
+    if doc.kind == Kind::Pipeline
+        && doc.trigger.is_none()
+        && (doc.result.port.is_none() || doc.result.from.is_none())
     {
-        emit(
-            path,
-            &format!("Unsupported value {value}"),
-            &format!(
-                "Choose {}",
-                schema
-                    .get("enum")
-                    .or_else(|| schema.get("const"))
-                    .unwrap_or(&Value::Null)
-            ),
-            false,
+        errors.push((
+            "trigger".into(),
+            "A pipeline requires a trigger or a typed callable result".into(),
+        ));
+    }
+    if doc.kind == Kind::Watch && doc.trigger.is_some() {
+        errors.push((
+            "trigger".into(),
+            "Watch timing belongs on its source node".into(),
+        ));
+    }
+    if serde_json::to_vec(doc).map_or(true, |bytes| bytes.len() > MAX_RECIPE_BYTES) {
+        errors.push((String::new(), "Blueprint document exceeds 256 KiB".into()));
+    }
+    ports(&doc.inputs, "inputs", &doc.types, &mut errors);
+    ports(&doc.types, "types", &doc.types, &mut errors);
+    nodes(
+        &doc.steps,
+        &doc.other,
+        &doc.inputs,
+        &doc.types,
+        "",
+        &mut errors,
+    );
+    for (name, sub) in &doc.blueprints {
+        let path = format!("blueprints.{name}");
+        ports(
+            &sub.inputs,
+            &format!("{path}.inputs"),
+            &sub.types,
+            &mut errors,
+        );
+        ports(
+            &sub.types,
+            &format!("{path}.types"),
+            &sub.types,
+            &mut errors,
+        );
+        nodes(
+            &sub.steps,
+            &sub.other,
+            &sub.inputs,
+            &sub.types,
+            &format!("{path}."),
+            &mut errors,
         );
     }
-    if let Some(fields) = value.as_object() {
-        if let Some(required) = schema["required"].as_array() {
-            for key in required.iter().filter_map(Value::as_str) {
-                if !fields.contains_key(key) {
-                    emit(
-                        &join(path, key),
-                        "Missing required field",
-                        &format!("Add {key}"),
-                        false,
-                    );
-                }
-            }
-        }
-        for (key, value) in fields {
-            let field = join(path, key);
-            if let Some(rule) = schema["properties"].get(key) {
-                shape(value, rule, root, &field, emit)
-            } else if schema["additionalProperties"] == false {
-                emit(
-                    &field,
-                    "Unknown field",
-                    "Remove this field; use blueprint schema to inspect supported fields",
-                    false,
-                )
-            } else if schema["additionalProperties"].is_object() {
-                shape(value, &schema["additionalProperties"], root, &field, emit)
-            }
-        }
-    }
-    if let Some(items) = value.as_array() {
-        if schema["minItems"]
-            .as_u64()
-            .is_some_and(|min| items.len() < (min as usize))
-            || schema["maxItems"]
-                .as_u64()
-                .is_some_and(|max| items.len() > (max as usize))
-        {
-            emit(
-                path,
-                "Array length is outside the supported bounds",
-                "Adjust the number of items",
-                false,
-            );
-        }
-        for (i, item) in items.iter().enumerate() {
-            if schema.get("items").is_some() {
-                shape(item, &schema["items"], root, &format!("{path}[{i}]"), emit)
-            }
-        }
-    }
-    if let Some(text) = value.as_str() {
-        if schema["minLength"]
-            .as_u64()
-            .is_some_and(|min| text.chars().count() < (min as usize))
-            || schema["maxLength"]
-                .as_u64()
-                .is_some_and(|max| text.chars().count() > (max as usize))
-        {
-            emit(
-                path,
-                "Text length is outside the supported bounds",
-                "Use nonempty bounded text",
-                false,
-            );
-        }
-    }
-    if let Some(number) = value.as_f64() {
-        if schema["minimum"].as_f64().is_some_and(|min| number < min)
-            || schema["maximum"].as_f64().is_some_and(|max| number > max)
-        {
-            emit(
-                path,
-                "Number is outside the supported bounds",
-                "Use a value within the schema minimum and maximum",
-                false,
-            );
-        }
-    }
+    errors
 }
-fn type_matches(value: &Value, kind: &str) -> bool {
-    match kind {
-        "object" => value.is_object(),
-        "array" => value.is_array(),
-        "string" => value.is_string(),
-        "integer" => value.is_i64() || value.is_u64(),
-        "number" => value.is_number(),
-        "boolean" => value.is_boolean(),
-        "null" => value.is_null(),
-        _ => true,
-    }
-}
-fn join(path: &str, key: &str) -> String {
-    if path.is_empty() {
-        key.into()
-    } else {
-        format!("{path}.{key}")
-    }
-}
-
-pub(super) fn definition(value: &Value, emit: &mut Emit<'_>) {
-    if let Some(spec) = value.get("spec") {
-        let trigger = decode::<Trigger>(&spec["trigger"], "pipeline.trigger", emit);
-        let steps = spec["steps"]
-            .as_array()
-            .map(|steps| {
-                steps
-                    .iter()
-                    .enumerate()
-                    .map(|(index, step)| {
-                        decode::<Step>(step, &format!("pipeline.steps[{index}]"), emit)
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        let result = spec
-            .get("result")
-            .map(|result| {
-                decode::<blueprint_pipeline::BlueprintResult>(result, "pipeline.result", emit)
-            })
-            .unwrap_or(Some(Default::default()));
-        if let Err(errors) = blueprint_pipeline::validate_parts(
-            spec["name"].as_str().unwrap_or(""),
-            spec["note"].as_str(),
-            trigger.as_ref(),
-            &steps,
-            result.as_ref(),
-            None,
-        ) {
-            for error in errors {
-                emit(
-                    &error.path.document_field(),
-                    &error.reason,
-                    "Check node input types, duration units and forward route names",
-                    false,
-                );
-            }
-        }
-        for (index, step) in steps.iter().enumerate() {
-            if step.as_ref().is_some_and(|step| {
-                matches!(step.kind, blueprint_pipeline::StepKind::Convert { .. })
-            }) {
-                emit(
-                    &format!("pipeline.steps[{index}].with"),
-                    "Converter availability is checked at apply",
-                    "Ensure the required converter plugin is installed",
-                    true,
-                );
-            }
-        }
-        if matches!(trigger, Some(Trigger::Event { .. })) {
-            emit(
-                "pipeline.trigger",
-                "Event source availability is checked at apply",
-                "Install the event source plugin before applying",
-                true,
-            );
-        }
-        if steps.iter().all(Option::is_some) {
-            unreachable(&steps.into_iter().flatten().collect::<Vec<_>>(), emit);
-        }
-    }
-    if let Some(watch) = value.get("create") {
-        watch_checks(watch, emit)
-    }
-}
-fn decode<T: serde::de::DeserializeOwned>(
-    value: &Value,
+fn ports(
+    ps: &BTreeMap<String, Port>,
     path: &str,
-    emit: &mut Emit<'_>,
-) -> Option<T> {
-    match serde_json::from_value(value.clone()) {
-        Ok(value) => Some(value),
-        Err(error) => {
-            emit(
-                path,
-                &error.to_string(),
-                "Supply required fields with their declared types",
-                false,
-            );
-            None
-        }
-    }
-}
-fn unreachable(steps: &[Step], emit: &mut Emit<'_>) {
-    let mut reached = std::collections::BTreeSet::from([0]);
-    for (i, step) in steps.iter().enumerate() {
-        if !reached.contains(&i) {
-            emit(
-                &format!("pipeline.steps[{i}].name"),
-                "Unreachable stage",
-                "Route an earlier outcome here or remove this stage",
-                false,
-            );
-            continue;
-        }
-        let outcomes = step.kind.outcomes().unwrap_or_default();
-        for outcome in outcomes {
-            let target = blueprint_pipeline::route_target(&step.on, &outcome);
-            if target == "next" {
-                reached.insert(i + 1);
-            } else if let Some(index) = steps.iter().position(|s| s.name == target) {
-                reached.insert(index);
-            }
-        }
-    }
-}
-fn watch_checks(watch: &Value, emit: &mut Emit<'_>) {
-    match serde_json::from_value::<crate::blueprint_watch::Create>(watch.clone()) {
-        Ok(create) => {
-            for (field, message) in create.admission_errors() {
-                let field = if matches!(field.as_str(), "name" | "note") {
-                    field
-                } else {
-                    format!("watch.{field}")
-                };
-                emit(
-                    &field,
-                    &message,
-                    "Use a declared bucket, bounded duration and valid handler parameters",
-                    false,
-                )
-            }
-        }
-        Err(error) => emit(
-            "watch",
-            &error.to_string(),
-            "Use blueprint schema to inspect watch fields",
-            false,
-        ),
-    }
-}
-
-fn lint_inputs(
-    value: &Value,
-    path: &str,
-    inputs: Option<&serde_json::Map<String, Value>>,
-    emit: &mut Emit<'_>,
+    types: &BTreeMap<String, Port>,
+    errors: &mut Errors,
 ) {
-    match value {
-        Value::String(text) => {
-            for token in crate::blueprint_placeholder::tokens(text) {
-                if let Some(key) = token
-                    .key
-                    .filter(|key| inputs.is_none_or(|inputs| !inputs.contains_key(*key)))
-                {
-                    emit(
-                        path,
-                        &format!("Undeclared input {key}; kept as literal text"),
-                        "Declare this input or keep the literal command template",
-                        true,
-                    );
-                }
-            }
-        }
-        Value::Object(fields) => {
-            for (key, value) in fields {
-                if key != "inputs" {
-                    lint_inputs(value, &join(path, key), inputs, emit)
-                }
-            }
-        }
-        Value::Array(items) => {
-            for (index, value) in items.iter().enumerate() {
-                lint_inputs(value, &format!("{path}[{index}]"), inputs, emit)
-            }
-        }
-        _ => {}
+    for (k, p) in ps {
+        port(p, &format!("{path}.{k}"), types, 0, errors);
     }
+}
+fn port(p: &Port, path: &str, types: &BTreeMap<String, Port>, depth: usize, errors: &mut Errors) {
+    if depth > 32 {
+        errors.push((path.into(), "Port schema exceeds depth 32".into()));
+        return;
+    }
+    if !matches!(
+        p.kind.as_str(),
+        "" | "string" | "integer" | "number" | "boolean" | "object" | "array" | "null"
+    ) {
+        errors.push((path.into(), "Unsupported JSON Schema type".into()));
+    }
+    if let Some(reference) = &p.reference {
+        if !types.contains_key(reference) {
+            errors.push((path.into(), format!("Unknown port type {reference}")));
+        }
+        if !p.kind.is_empty() || !p.properties.is_empty() {
+            errors.push((
+                path.into(),
+                "A $ref cannot be combined with an inline type".into(),
+            ));
+        }
+    }
+    if p.reference.is_none() && p.kind.is_empty() && p.choices.is_none() {
+        errors.push((path.into(), "Declare a type, enum or $ref".into()));
+    }
+    if p.default
+        .as_ref()
+        .is_some_and(|v| !p.accepts_with_types(v, types))
+    {
+        errors.push((
+            format!("{path}.default"),
+            "Default violates input schema".into(),
+        ));
+    }
+    for (k, child) in &p.properties {
+        port(
+            child,
+            &format!("{path}.properties.{k}"),
+            types,
+            depth + 1,
+            errors,
+        );
+    }
+    if let Some(items) = &p.items {
+        port(items, &format!("{path}.items"), types, depth + 1, errors);
+    }
+    if p.required.iter().any(|k| !p.properties.contains_key(k)) {
+        errors.push((path.into(), "Required property is not declared".into()));
+    }
+}
+fn nodes(
+    steps: &[Node],
+    other: &[Node],
+    inputs: &BTreeMap<String, Input>,
+    types: &BTreeMap<String, Port>,
+    prefix: &str,
+    errors: &mut Errors,
+) {
+    let all = steps.iter().chain(other).collect::<Vec<_>>();
+    if steps.is_empty() {
+        errors.push((format!("{prefix}steps"), "Declare at least one node".into()));
+    }
+    if all.len() > 64 {
+        errors.push((
+            format!("{prefix}steps"),
+            "Blueprint exceeds 64 nodes".into(),
+        ));
+    }
+    let ids = all
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (n.id.as_str(), i))
+        .collect::<BTreeMap<_, _>>();
+    let mut seen = BTreeSet::new();
+    for (i, node) in all.iter().enumerate() {
+        let path = if i < steps.len() {
+            format!("{prefix}steps[{i}]")
+        } else {
+            format!("{prefix}other[{}]", i - steps.len())
+        };
+        if node.id.is_empty()
+            || node.id.len() > 64
+            || !node
+                .id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
+            || matches!(node.id.as_str(), "next" | "stop")
+            || !seen.insert(&node.id)
+        {
+            errors.push((
+                format!("{path}.id"),
+                "Use a unique bounded node id; next and stop are reserved".into(),
+            ));
+        }
+        if usize::from(node.uses.is_some())
+            + usize::from(node.run.is_some())
+            + usize::from(node.code.is_some())
+            + usize::from(node.call.is_some())
+            != 1
+        {
+            errors.push((
+                path.clone(),
+                "Choose exactly one uses, run, code or call".into(),
+            ));
+        }
+        errors.extend(super::code_contract::errors(node, &path));
+        if let Some(code) = &node.code {
+            if code.src.is_some() == code.file.is_some() {
+                errors.push((
+                    format!("{path}.code"),
+                    "Choose exactly one src or file".into(),
+                ));
+            }
+            if code.file.as_ref().is_some_and(|p| {
+                std::path::Path::new(p).is_absolute() || p.split(['/', '\\']).any(|c| c == "..")
+            }) {
+                errors.push((
+                    format!("{path}.code.file"),
+                    "Use a local relative file without parent traversal".into(),
+                ));
+            }
+        }
+        if let Some(call) = &node.call {
+            if call.reference.is_empty() {
+                errors.push((
+                    format!("{path}.call.ref"),
+                    "A call needs a local or inline reference".into(),
+                ));
+            }
+        }
+        if node.buckets.len() > 32 || node.outcomes.len() > 32 || node.routes.len() > 32 {
+            errors.push((
+                path.clone(),
+                "Node exceeds the 32 bucket/outcome/route bound".into(),
+            ));
+        }
+        if node
+            .caps
+            .iter()
+            .chain(node.code.iter().flat_map(|c| &c.caps))
+            .any(|cap| cap == "domios-cli")
+        {
+            errors.push((
+                format!("{path}.caps"),
+                "domios-cli capability is not approved".into(),
+            ));
+        }
+        for (outcome, target) in &node.routes {
+            if !matches!(target.as_str(), "next" | "@next" | "stop" | "@stop")
+                && !ids.get(target.as_str()).is_some_and(|target| *target > i)
+            {
+                errors.push((
+                    format!("{path}.routes.{outcome}"),
+                    "Routes must target a known forward node or @next/@stop".into(),
+                ));
+            }
+        }
+        let mut buckets = BTreeSet::new();
+        if node
+            .buckets
+            .iter()
+            .any(|b| b.is_empty() || b.len() > 128 || b == "other" || !buckets.insert(b))
+        {
+            errors.push((
+                format!("{path}.buckets"),
+                "Declare unique bounded buckets; other is reserved".into(),
+            ));
+        }
+        for (field, value) in node
+            .params
+            .iter()
+            .map(|(k, v)| (format!("with.{k}"), v))
+            .chain(
+                node.matches
+                    .iter()
+                    .map(|(k, v)| (format!("matches.{k}"), v)),
+            )
+            .chain(node.run.iter().map(|v| ("run".into(), v)))
+            .chain(node.every.iter().map(|v| ("every".into(), v)))
+            .chain(node.timeout.iter().map(|v| ("timeout".into(), v)))
+            .chain(node.call.iter().flat_map(|c| {
+                c.arguments
+                    .iter()
+                    .map(|(k, v)| (format!("call.with.{k}"), v))
+            }))
+        {
+            match value {
+                ValueForm::Bind { bind } => {
+                    if !data_slot(node, &field) {
+                        errors.push((
+                            format!("{path}.{field}"),
+                            "Runtime binds are allowed only in data slots".into(),
+                        ));
+                    }
+                    binding(bind, &ids, i, &format!("{path}.{field}"), errors);
+                }
+                ValueForm::Input { input } if !inputs.contains_key(input) => {
+                    errors.push((
+                        format!("{path}.{field}"),
+                        format!("Undeclared input {input}"),
+                    ));
+                }
+                _ => {}
+            }
+        }
+        for (field, bind) in &node.bind {
+            if !data_slot(node, field) {
+                errors.push((
+                    format!("{path}.bind.{field}"),
+                    "Runtime binds are allowed only in data slots".into(),
+                ));
+            }
+            binding(bind, &ids, i, &format!("{path}.bind.{field}"), errors);
+        }
+        for (field, p) in [("in", &node.input), ("out", &node.output)] {
+            if let Some(p) = p {
+                port(p, &format!("{path}.{field}"), types, 0, errors);
+            }
+        }
+    }
+}
+fn binding(bind: &str, ids: &BTreeMap<&str, usize>, order: usize, path: &str, errors: &mut Errors) {
+    let parts = bind.split('.').collect::<Vec<_>>();
+    if parts.len() < 2 || parts[1] != "out" || !ids.get(parts[0]).is_some_and(|i| *i < order) {
+        errors.push((
+            path.into(),
+            "Bind a preceding node's out port, optionally a field".into(),
+        ));
+    }
+}
+
+fn data_slot(node: &Node, slot: &str) -> bool {
+    matches!(
+        (node.kind(), slot),
+        ("notify", "with.text")
+            | ("send", "with.payload")
+            | ("code" | "ask" | "agent" | "call", "in")
+    ) || node.call.is_some() && slot.starts_with("call.with.")
 }
