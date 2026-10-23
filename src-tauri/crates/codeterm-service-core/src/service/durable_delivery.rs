@@ -10,6 +10,7 @@ use std::collections::HashMap;
 
 mod binding_failure;
 mod custody;
+mod settlement;
 mod wall_deadline;
 
 pub const DELIVERY_TTL_MS: u64 = 24 * 60 * 60 * 1000;
@@ -71,6 +72,12 @@ pub(super) enum PreparedDelivery {
     Ready,
     Held,
     Failed(&'static str),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum SettlementOutcome {
+    Settled,
+    Held,
 }
 
 impl ServiceContext {
@@ -250,7 +257,7 @@ impl ServiceContext {
         record: &AgentDeliveryRecord,
         payload: &AgentDeliveryPayload,
         reason: &str,
-    ) -> Result<(), String> {
+    ) -> Result<SettlementOutcome, String> {
         let delivery = payload
             .durable_delivery
             .as_ref()
@@ -276,53 +283,25 @@ impl ServiceContext {
             "producer_tab": delivery.producer_tab, "created_at_ms": delivery.created_at_ms,
             "status": "failed", "code": reason, "detail": detail, "bytes_written": false,
         });
-        let (receipt, _) = self
-            .ensure_agent_pad(&delivery.producer_tab)?
-            .write_delivery_receipt(
-                &record.id,
-                serde_json::to_string_pretty(&failure)
-                    .map_err(|error| error.to_string())?
-                    .as_bytes(),
-            )?;
-        if owner.claim_terminal_notification(target, &record.id)? {
-            let producer_live = self
-                .mux
-                .read()
-                .get_tab(&delivery.producer_tab)
-                .is_some_and(|tab| tab.agent_type.is_some());
-            let notice = if producer_live {
-                self.create_agent_notification_reported(
-            "Durable result delivery failed".into(),
-            Some(format!("Producer: {}\nOriginal timestamp: {}\nRecipient: {target}\nReason: {reason}\nDelivery: {}\nThe result was not written and will not be replayed.", delivery.producer, delivery.created_at_ms, record.id)),
-            Some("error"), None, Some(true),
-            super::notification::NotificationOrigin::local_tab(delivery.producer_tab.clone()),
-            super::notification::PushIntent {
-                level: Some(codeterm_notification_core::contract::NotifyLevel::Failure),
-                event_key: Some(format!("durable-delivery-failed:{}", record.id)),
-            }, None,
-        ).map(|_| ())
-            } else {
-                Ok(())
-            };
-            if let Err(error) = notice {
-                log::error!(
-                    "[agent-delivery] producer failure notice unavailable: {error}; receipt={}",
-                    receipt.display()
-                );
-            }
-            self.notify_event("agent-delivery-status", failure);
-            owner.finish_terminal_notification(target, &record.id)?;
-        } else if !owner.terminal_notification_emitted(target, &record.id)? {
-            return Ok(());
+        if self.emit_durable_failure(owner, target, &record.id, delivery, &reason, failure)?
+            == SettlementOutcome::Held
+        {
+            return Ok(SettlementOutcome::Held);
         }
-        owner.discard_expired(target, &record.id)?;
+        let discarded = owner.discard_expired(target, &record.id)?;
         self.cancel_durable_expiry(target, &record.id);
         self.durable_runtime()
             .binding_failures
             .lock()
             .records
             .remove(&(target.into(), record.id.clone()));
-        Ok(())
+        if discarded {
+            owner.state_changed(target);
+            if owner.has_pending(target)? {
+                self.schedule_agent_delivery_flush(target);
+            }
+        }
+        Ok(SettlementOutcome::Settled)
     }
 
     pub(super) fn schedule_durable_expiry(

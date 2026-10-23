@@ -5,6 +5,8 @@ use crate::service::messenger::{Delivery, MessageEnvelope, Messenger};
 use crate::service::test_fixture::ServiceFixture;
 use std::sync::Arc;
 
+mod settlement;
+
 fn held() -> (ServiceFixture, String, String, Arc<MockClock>) {
     let (mut mux, tab) = MultiplexerState::new();
     let value = mux.get_tab_mut(&tab).unwrap();
@@ -363,6 +365,7 @@ fn blueprint_v2_call_durable_r3_edited_receipt_preserves_file_and_unblocks_later
         b"externally edited receipt"
     );
     assert_eq!(owner.pending_head(&tab).unwrap().unwrap().id, later_id);
+    writes.wait_for_flush();
     fixture.resume_recorded_agent_recipient(&tab, "saved-session", "first-launch");
     writes.wait_for_flush();
     assert_eq!(
