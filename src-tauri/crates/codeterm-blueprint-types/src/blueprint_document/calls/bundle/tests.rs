@@ -204,3 +204,63 @@ fn blueprint_v2_call_review_host_persists_safe_dependency_labels() {
         assert!(!std::path::Path::new(&location.file).is_absolute());
     }
 }
+
+fn collect_code_file(
+    dir: &std::path::Path,
+    relative: &str,
+) -> Result<LocalBundle, Vec<Diagnostic>> {
+    let mut root = leaf();
+    let code = root.steps[0].code.as_mut().unwrap();
+    code.src = None;
+    code.file = Some(relative.into());
+    collect_local(
+        dir.join("root.yaml").to_str().unwrap(),
+        &root.yaml().unwrap(),
+    )
+}
+
+#[test]
+fn blueprint_v2_code_file_freeze_refuses_traversal_and_absolute_paths() {
+    let base = std::env::temp_dir().join(uuid::Uuid::new_v4().to_string());
+    let dir = base.join("apply");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(base.join("outside.py"), "def main(n): return n+100").unwrap();
+    let absolute = base.join("outside.py");
+    for relative in ["../outside.py", absolute.to_str().unwrap()] {
+        let failure = collect_code_file(&dir, relative).unwrap_err();
+        assert!(
+            failure[0].message.contains("contract_violation"),
+            "{relative}"
+        );
+    }
+    std::fs::remove_dir_all(base).unwrap();
+}
+
+#[cfg(windows)]
+#[test]
+fn blueprint_v2_code_file_freeze_refuses_junction_outside_apply_root() {
+    let base = std::env::temp_dir().join(uuid::Uuid::new_v4().to_string());
+    let dir = base.join("apply");
+    let outside = base.join("extlib");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("inc.py"), "def main(n): return n+100").unwrap();
+    let link = dir.join("extj");
+    let output = std::process::Command::new("cmd.exe")
+        .args(["/D", "/C", "mklink", "/J"])
+        .arg(&link)
+        .arg(&outside)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let result = collect_code_file(&dir, "extj/inc.py");
+    std::fs::remove_dir(&link).unwrap();
+    std::fs::remove_dir_all(base).unwrap();
+    assert!(result.unwrap_err()[0]
+        .message
+        .contains("contract_violation"));
+}
