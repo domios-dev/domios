@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { ComposerActionButton } from "./ComposerActionButton";
 import { ComposerAttachButton } from "./ComposerAttachButton";
+import { ComposerScheduleButton } from "./ComposerScheduleButton";
 import type { ComposerVoiceHandle } from "./voice/useComposerVoice";
 
 type TestFn = () => void | Promise<void>;
@@ -79,6 +80,18 @@ async function renderAttachButton(props: { uploading?: boolean; onClick?: () => 
   return { button: host.querySelector("button") as HTMLButtonElement, root };
 }
 
+async function renderScheduleButton(onSchedule: () => void): Promise<{ button: HTMLButtonElement; root: Root }> {
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  await act(async () => {
+    root.render(
+      <ComposerScheduleButton onSchedule={onSchedule} />,
+    );
+  });
+  return { button: host.querySelector('[data-testid="composer-schedule-button"]') as HTMLButtonElement, root };
+}
+
 test("send preserves label, callback, type, and interaction class", async () => {
   let sends = 0;
   const { button } = await renderButton(voiceHandle(), { onSend: () => { sends++; } });
@@ -97,6 +110,11 @@ test("composer icon actions remain round and preserve their callbacks", async ()
 
   const { button: disabledAttach } = await renderAttachButton({ uploading: true });
   assert(disabledAttach.disabled, "uploading attach must remain disabled");
+
+  let schedules = 0;
+  const { button: schedule } = await renderScheduleButton(() => { schedules++; });
+  await act(async () => schedule.click());
+  assert(schedules === 1, "schedule callback did not fire exactly once");
 });
 
 test("send scheduling and disabled state remain unchanged", async () => {
