@@ -54,6 +54,12 @@ async function main() {
   assert(!old.nodes.find((node) => node.key === blueprintNodeKey(["invoke"], "invoke"))?.journal);
   const orphan = await build({ ...repeated, nested_run: { ...repeated.nested_run, nodes: [repeated.nested_run.nodes[0]] } }, new Set(expanded));
   assert(!orphan.nodes.some((node) => node.journal));
+  const unavailable = await build({ ...run, historical_graph_available: false }, new Set(expanded));
+  assert.deepEqual(unavailable, { nodes: [], edges: [] });
+  const wrongVersion = await build({ ...run, graph_definition_version: 2, nested_run: { ...run.nested_run!, definition_version: 1 } }, new Set(expanded));
+  assert(!wrongVersion.nodes.some((node) => node.journal));
+  const retained = await build({ ...run, graph_definition_version: 1, nested_run: { ...run.nested_run!, definition_version: 1, nodes: run.nested_run!.nodes.map((row) => ({ ...row, run_id: run.runId!, definition_version: 1 })) } }, new Set(expanded));
+  assert.equal(retained.nodes.find((node) => node.key === blueprintNodeKey(["invoke"], "return-count"))?.journal?.reason, "contract_violation");
   const http = await build({ ...pipeline, call_graph: { ...document, steps: [{ id: "health", uses: "http" }, { id: "ask", uses: "ask", buckets: ["ready"] }] } });
   assert.deepEqual(http.edges.filter((edge) => edge.from === blueprintNodeKey([], "health")).map((edge) => edge.label), ["up", "down", "failed"]);
   assert.deepEqual(http.edges.filter((edge) => edge.from === blueprintNodeKey([], "ask")).map((edge) => edge.label), ["ready", "other"]);

@@ -114,6 +114,7 @@ function PipelineChain({ pipeline }: { pipeline: PipelineView }) {
   const [expanded, setExpanded] = useState<BlueprintExpansion>(new Set());
   const [selected, setSelected] = useState<string | null>(null);
   const { graph, error } = useBlueprintGraph(pipeline, expanded);
+  if (pipeline.historical_graph_available === false) return <p role="status" aria-label="Historical graph unavailable">Historical expanded graph unavailable. The retained journal is shown above.</p>;
   if (error || pipeline.projection_error) return <p role="alert">{error ?? pipeline.projection_error}</p>;
   if (!graph) return <p role="status">Building Blueprint graph…</p>;
   const { layout, model } = graph;

@@ -50,6 +50,7 @@ export interface BlueprintExpandedCall {
 }
 export interface BlueprintCallFrame extends BlueprintCallPin { node: string }
 export interface BlueprintJournalNode {
+  run_id?: string;
   step_index?: number;
   definition_version?: number | null;
   parent_step_index?: number | null;
@@ -64,9 +65,11 @@ export interface BlueprintJournalNode {
   [key: string]: unknown;
 }
 export interface BlueprintProjection {
+  historical_graph_available?: boolean;
+  graph_definition_version?: number | null;
   call_graph?: BlueprintDocument | null;
   expanded_calls?: readonly BlueprintExpandedCall[];
-  nested_run?: { id: string | null; nodes: readonly BlueprintJournalNode[] } | null;
+  nested_run?: { id: string | null; definition_version?: number | null; nodes: readonly BlueprintJournalNode[] } | null;
   projection_error?: string | null;
 }
 export interface BlueprintSemanticDiff {
