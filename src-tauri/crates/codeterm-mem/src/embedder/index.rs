@@ -68,13 +68,17 @@ pub fn recreate(conn: &Connection, identity: &EmbedderIdentity) -> Result<(), St
     super::pending::init(conn)?;
     let tx = rusqlite::Transaction::new_unchecked(conn, rusqlite::TransactionBehavior::Immediate)
         .map_err(|e| format!("begin index recreate: {e}"))?;
-    tx.execute_batch("DROP TABLE IF EXISTS mem_vectors")
-        .map_err(|e| format!("drop mem_vectors: {e}"))?;
-    create_table(&tx, identity.dimension)?;
-    write_stamp(&tx, identity)?;
-    super::pending::clear_all(&tx)?;
+    recreate_in(&tx, identity)?;
     tx.commit()
         .map_err(|e| format!("commit index recreate: {e}"))
+}
+
+pub(crate) fn recreate_in(conn: &Connection, identity: &EmbedderIdentity) -> Result<(), String> {
+    conn.execute_batch("DROP TABLE IF EXISTS mem_vectors")
+        .map_err(|e| format!("drop mem_vectors: {e}"))?;
+    create_table(conn, identity.dimension)?;
+    write_stamp(conn, identity)?;
+    super::pending::clear_all(conn)
 }
 
 pub fn check(conn: &Connection, identity: &EmbedderIdentity) -> Result<(), String> {

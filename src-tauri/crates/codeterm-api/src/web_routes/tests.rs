@@ -418,3 +418,38 @@ async fn newer_mux_generation_returns_body_and_new_validator() {
         "new snapshot"
     );
 }
+
+#[tokio::test]
+async fn web_tab_close_refuses_a_protected_tab_with_a_typed_status() {
+    use axum::extract::{Path, State};
+    use codeterm_service_core::multiplexer::state::MultiplexerState;
+    use codeterm_service_core::service::test_fixture::ServiceFixture;
+
+    let (mut mux, tab) = MultiplexerState::new();
+    mux.get_tab_mut(&tab).unwrap().protected = true;
+    let workspace = mux.find_workspace_for_tab(&tab).unwrap();
+    let fixture = ServiceFixture::new(mux);
+    let state = crate::test_support::app_state(&fixture);
+
+    let refused = super::tab_close(
+        State(state.clone()),
+        axum::http::HeaderMap::new(),
+        Path((workspace.clone(), tab.clone())),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(refused.0, StatusCode::FORBIDDEN);
+    assert!(refused.1.contains("protected Tab"));
+    assert!(state.svc.mux.read().get_tab(&tab).is_some());
+
+    let reservation = state.svc.mux.write().reserve_tab_close(&tab).unwrap();
+    let locked = super::tab_close(
+        State(state.clone()),
+        axum::http::HeaderMap::new(),
+        Path((workspace, tab)),
+    )
+    .await
+    .unwrap_err();
+    state.svc.mux.write().abort_tab_close(&reservation);
+    assert_eq!(locked.0, StatusCode::CONFLICT);
+}

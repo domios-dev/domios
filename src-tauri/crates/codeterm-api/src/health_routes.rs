@@ -17,6 +17,15 @@ const IDENTIFY_FEATURES: &[&str] = &[
     REMOTE_TASK_DISPATCH_FEATURE,
 ];
 
+/// Liveness must never wait on the mesh lock, so a contended read reports no name.
+fn local_display_name(state: &AppState) -> String {
+    state
+        .mesh
+        .try_lock()
+        .map(|mesh| mesh.ident.instance_name.clone())
+        .unwrap_or_default()
+}
+
 pub async fn health(AxumState(state): AxumState<AppState>) -> Json<serde_json::Value> {
     match codeterm_service_core::dispatch::health_result() {
         Ok(r) => {
@@ -49,6 +58,7 @@ pub async fn health(AxumState(state): AxumState<AppState>) -> Json<serde_json::V
                     "instance".into(),
                     serde_json::json!({
                         "name": std::env::var("CODETERM_INSTANCE").unwrap_or_default(),
+                        "display_name": local_display_name(&state),
                         "api_port": std::env::var("CODETERM_API_PORT").unwrap_or_default(),
                         "vite_port": std::env::var("CODETERM_VITE_PORT").unwrap_or_default(),
                         "cdp_port": std::env::var("CODETERM_CDP_PORT").unwrap_or_default(),

@@ -730,12 +730,7 @@ impl ServiceContext {
             submit,
             submit_key,
             strategy,
-            crate::service::inject_verify::VerifyOpts {
-                require_prompt_first: false,
-                verify_echo: true,
-                verify_submit: submit,
-                ..Default::default()
-            },
+            plain_input_verify_opts(submit, agent_type.is_some()),
             None,
             track_exact_session_turn,
             claim,
@@ -1108,6 +1103,19 @@ impl ServiceContext {
             self.set_and_lock_tab_agent_type(&tab_id, provider_id);
             self.emit_state_changed(MuxEmitCause::AgentIdentity);
         }
+    }
+}
+
+/// A shell produces no agent submit evidence, so its send completes once written.
+pub(in crate::service::pty_io) fn plain_input_verify_opts(
+    submit: bool,
+    agent: bool,
+) -> crate::service::inject_verify::VerifyOpts {
+    crate::service::inject_verify::VerifyOpts {
+        require_prompt_first: false,
+        verify_echo: true,
+        verify_submit: submit && agent,
+        ..Default::default()
     }
 }
 

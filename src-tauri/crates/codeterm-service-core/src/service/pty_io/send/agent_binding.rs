@@ -1,5 +1,8 @@
 use super::super::lifecycle::RestoredLaunchStart;
-use super::{optimistic_agent_pty_target, public_agent_input_readiness, AuthenticatedPtyDelivery};
+use super::{
+    is_pre_ready_launch_stage, optimistic_agent_pty_target, public_agent_input_readiness,
+    AuthenticatedPtyDelivery,
+};
 use crate::service::{delivery_error::DeliveryError, ServiceContext};
 
 impl ServiceContext {
@@ -183,7 +186,11 @@ fn delivery_binding(
     let provisional = tab.provisional_launch.as_ref().is_some_and(|launch| {
         Some(&launch.pty_id) == pty_id.as_ref() && launch.binding_nonce == nonce
     });
+    // The launch thread clears agent_booting before readiness settles; its pre-ready stage
+    // still names the launch that owns this nonce.
+    let launch_in_flight = tab.boot_stage.is_some_and(is_pre_ready_launch_stage);
     (tab.agent_booting
+        || launch_in_flight
         || provisional
         || tab.launch_session_authenticated()
         || tab.boot_stage == Some(codeterm_types::pty::BootStage::AgentReady))

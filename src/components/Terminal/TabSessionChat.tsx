@@ -19,6 +19,7 @@ import { AskRow, ChatTranscriptRow, OutboundReportRow, type ChatTranscriptRowCon
 import { chatWindowRows } from "./chatWindowRowsModel";
 import { chatLiveOperationLabel, projectChatTranscriptActivity } from "./chatTranscriptActivity";
 import { LocalArtifactScope } from "@codeterm/chat-ui";
+import { chatMessageAccessibleName } from "./chatMessageAccessibleName";
 import { documentsFromTranscript } from "./chatDocuments";
 import { chatDocumentsStore } from "./chatDocumentsStore";
 import { chatChangesStore } from "./chatChangesStore";
@@ -143,17 +144,6 @@ function isMicrophonePermissionError(message: string): boolean {
     normalized.includes("permission denied") ||
     normalized.includes("not allowed by the user agent")
   );
-}
-
-// Runs for every row on every streamed chunk; only the head of a long message can reach the excerpt.
-const ACCESSIBLE_NAME_SCAN_CHARS = 1_000;
-
-function chatMessageAccessibleName(type: string, content: string): string {
-  const head = content.length > ACCESSIBLE_NAME_SCAN_CHARS ? content.slice(0, ACCESSIBLE_NAME_SCAN_CHARS) : content;
-  let compact = head.replace(/\s+/g, " ").trim();
-  if (compact.length <= 80 && head.length < content.length) compact = content.replace(/\s+/g, " ").trim();
-  const excerpt = compact.length > 80 ? `${compact.slice(0, 77)}…` : compact;
-  return excerpt ? `${type} message: ${excerpt}` : `${type} message`;
 }
 
 function OriginProviderAvatar({ providerId }: { providerId: string | null | undefined }) {

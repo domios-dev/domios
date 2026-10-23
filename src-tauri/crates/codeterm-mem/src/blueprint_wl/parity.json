@@ -89,12 +89,12 @@
   },
   {
    "id": "dx-standup-summary",
-   "yaml": "schema_version: 1\nname: Standup digest\nnote: Each morning gather yesterday's commit log and have an agent write a short standup digest for the team.\nowner: team\ninputs:\n  repo_path:\n    type: string\n    description: Local repository path\npipeline:\n  trigger: {type: schedule, every: 24h}\n  steps:\n    - name: commits\n      input: text\n      run: git -C '{{repo_path}}' log --since=yesterday --oneline\n      on: {done: next, failed: stop}\n    - name: digest\n      input: text\n      uses: agent\n      with: {provider: claude, profile: writer, task: Summarize these commits as a three-line standup update, deadline_ms: 60000, max_tokens: 800, max_turns: 1}\n      on: {done: stop, failed: stop}\n  result: {to: team}\n",
+   "yaml": "schema_version: 1\nname: Standup digest\nnote: Each morning gather yesterday's commit log and have an agent write a short standup digest for the team.\nowner: team\ninputs:\n  repo_path:\n    type: string\n    description: Local repository path\npipeline:\n  trigger: {type: schedule, every: 24h}\n  steps:\n    - name: commits\n      input: text\n      run: git -C '{{repo_path}}' log --since=yesterday --oneline\n      on: {done: next, failed: stop}\n    - name: digest\n      input: text\n      uses: agent\n      with: {provider: opaque-provider, profile: writer, task: Summarize these commits as a three-line standup update, deadline_ms: 60000, max_tokens: 800, max_turns: 1}\n      on: {done: stop, failed: stop}\n  result: {to: team}\n",
    "hash": "81636ed174546a7150ac49938fab276123a9032dda0ef44c935b5fb3fabc077a"
   },
   {
    "id": "dx-translate-note",
-   "yaml": "schema_version: 1\nname: Translate a note\nnote: Take pasted text and have an agent translate it into English for the owner.\nowner: tab\ninputs:\n  text:\n    type: string\n    description: Text to translate\npipeline:\n  trigger: {type: input, kind: text, source: {text: '{{text}}'}}\n  steps:\n    - name: translate\n      input: text\n      uses: agent\n      with: {provider: claude, profile: translator, task: Translate the input into plain English, deadline_ms: 30000, max_tokens: 1200, max_turns: 1}\n      on: {done: stop, failed: stop}\n  result: {to: owner}\n",
+   "yaml": "schema_version: 1\nname: Translate a note\nnote: Take pasted text and have an agent translate it into English for the owner.\nowner: tab\ninputs:\n  text:\n    type: string\n    description: Text to translate\npipeline:\n  trigger: {type: input, kind: text, source: {text: '{{text}}'}}\n  steps:\n    - name: translate\n      input: text\n      uses: agent\n      with: {provider: opaque-provider, profile: translator, task: Translate the input into plain English, deadline_ms: 30000, max_tokens: 1200, max_turns: 1}\n      on: {done: stop, failed: stop}\n  result: {to: owner}\n",
    "hash": "a6138846046d091d8eb7e956fa2f09ed660a912f9356b7bb9c7c5871b21c8260"
   },
   {

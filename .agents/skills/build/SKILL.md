@@ -903,6 +903,7 @@ initialization. Smoke the produced bundled CLI directly as well.
 | PowerShell drops the standalone `--` before `--nocapture`, so Cargo rejects `--nocapture` as its own option | Native argument forwarding consumed the test-harness separator before Git Bash received it | Run the exact wrapper command through `bash -lc 'scripts/test-capped.sh ... <filter> -- --nocapture'` so the separator reaches Cargo's test binary. |
 | `verify` fails `daemon_windows_spawns_use_no_window_helper` after adding a Rust test fixture that invokes Git | The fixture constructed `std::process::Command` directly, so Windows could flash a console and the repository spawn audit rejected it | Build the command in a mutable variable and call `crate::process_util::no_window_std(&mut command)` before execution; run the spawn audit and the owning focused test, then retry `verify`. |
 | A fresh lane's focused Rust test reports missing `../dist` or `bundled-cli/*` | Ignored Tauri resource directories have not been staged in that worktree | Run `node scripts/dev-resource-preflight.mjs` and `node scripts/prepare-cli-stub.js`, then rerun the same focused test. Do not substitute a frontend build. |
+| `fmt` cannot find a Cargo manifest for a relocated example | The example's source is outside its owning package directory | Declare its path in the owning Cargo manifest; the formatter resolves external target directories and their child modules through Cargo metadata. Run `node --test scripts/tests/format-changed.test.mjs`, then retry `build.sh fmt`. |
 | Direct `bash scripts/clippy-gate.sh` fails in a fresh lane with a missing `bundled-cli` resource | The direct gate assumes Tauri's ignored compile resources are staged. | Run authorized `./build.sh check-tests` first; its resource preflight prepares frontend and CLI stubs. Then rerun the direct clippy gate. |
 | macOS `local-install-cache.test.mjs` refuses ordinary fixtures under `/var` as redirected | `realpath` expands macOS's standard `/var` alias to `/private/var`, so comparing the whole lexical target to its real path mistakes an ancestor alias for a redirected cache leaf | Compare the real target with the real parent plus the expected cache basename, retain an explicit redirected-leaf refusal test, then rerun the focused Node test and `release-preflight`. |
 | `sccache: incremental compilation is prohibited` | `CARGO_INCREMENTAL=1` was combined with the shared sccache wrapper | Keep `CARGO_INCREMENTAL=0`; reuse the persistent completed target and sccache entries instead. |
@@ -1312,7 +1313,7 @@ found", and plugin generation or the unit runner reports ERR_MODULE_NOT_FOUND fo
 esbuild or tsx. Run
 pnpm install --frozen-lockfile in the lane's Team QA shell, then rerun the affected
 non-Rust checks. A failed dependency lookup selected no executable tests.
-<!-- revision: 52 -->
+<!-- revision: 53 -->
 
 ### Lane and batch scopes
 

@@ -3,7 +3,9 @@ use std::time::Duration;
 
 use codeterm_mem::embedder::catalog::{self, BuildContext, BuildError, EmbedderSelection};
 use codeterm_mem::embedder::key::{self, ApiKey, KeyPresence, KeySources, KeyVault};
-use codeterm_mem::embedder::{EmbedderIdentity, EmbedderStatus, ProviderDescriptor, SwitchPlan};
+use codeterm_mem::embedder::{
+    EmbedderIdentity, EmbedderStatus, ProviderDescriptor, ReembedState, SwitchPlan,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::config::ConfigState;
@@ -177,6 +179,8 @@ impl UseParams {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct SwitchPreview {
+    pub already_active: bool,
+    pub cancelled: Option<EmbedderIdentity>,
     pub target: EmbedderIdentity,
     pub remote: bool,
     pub warning: Option<&'static str>,
@@ -205,6 +209,13 @@ pub fn preview(svc: &ServiceState, params: &UseParams) -> Result<SwitchPreview, 
     .err()
     .map(|refusal| Refusal::from(&BuildError::Refused(refusal)));
     Ok(SwitchPreview {
+        cancelled: None,
+        already_active: svc.mem.embedder().identity()
+            == EmbedderIdentity {
+                provider: descriptor.id.clone(),
+                model: model.model.clone(),
+                dimension,
+            },
         target: EmbedderIdentity {
             provider: descriptor.id.clone(),
             model: model.model,
@@ -218,8 +229,8 @@ pub fn preview(svc: &ServiceState, params: &UseParams) -> Result<SwitchPreview, 
     })
 }
 
-/// Activate a provider through the remote gate, persist it as
-/// `memory.embedder`, then switch and re-embed in the background.
+/// Activate a provider through the remote gate, switch and re-embed in the
+/// background, then persist it as `memory.embedder` once the switch is accepted.
 pub fn use_provider(svc: &ServiceState, params: &UseParams) -> Result<SwitchPreview, Refusal> {
     let selection = params.selection();
     let opt_in = config(svc).remote_opt_in;
@@ -227,7 +238,11 @@ pub fn use_provider(svc: &ServiceState, params: &UseParams) -> Result<SwitchPrev
         .map_err(|error| Refusal::from(&error))?;
     let target = provider.identity();
     let remote = provider.remote();
-    persist(svc, &target)?;
+    let already_active = svc.mem.embedder().identity() == target;
+    let running = svc.mem.embedder_status().reembed;
+    let cancelled = (already_active && running.state == ReembedState::Running)
+        .then_some(running.target)
+        .flatten();
     let plan = svc
         .mem
         .switch_embedder(provider)
@@ -235,7 +250,10 @@ pub fn use_provider(svc: &ServiceState, params: &UseParams) -> Result<SwitchPrev
             message,
             hints: Vec::new(),
         })?;
+    persist(svc, &target)?;
     Ok(SwitchPreview {
+        already_active,
+        cancelled,
         target,
         remote,
         warning: remote.then_some(key::REMOTE_WARNING),
@@ -304,6 +322,24 @@ fn activate_configured(svc: &ServiceState) {
             }
         }
     };
+    if let Some(stamp) = svc
+        .mem
+        .embedder_status()
+        .index
+        .filter(|stamp| *stamp != provider.identity())
+    {
+        match catalog::activate(&stamped_selection(&stamp), &ctx, configured.remote_opt_in) {
+            Ok(published) => {
+                svc.mem.adopt_published(published);
+            }
+            Err(error) => {
+                log::warn!(
+                    "[mem.embedder] published provider unavailable during resume: {}",
+                    error.message()
+                );
+            }
+        }
+    }
     match svc.mem.reconcile_embedder(provider) {
         Ok(Some(plan)) => log::info!(
             "[mem.embedder] startup switch re-embeds {} items in the background",

@@ -10,6 +10,7 @@ pub(super) fn run(
     owner: &Arc<ProbeResourceOwner>,
     cancellation: &Cancellation,
     output: Option<&codeterm_blueprint_types::blueprint_document::Port>,
+    cwd: &std::path::Path,
 ) -> Result<Output, RuntimeFailure> {
     execute(
         code,
@@ -20,6 +21,7 @@ pub(super) fn run(
         cancellation,
         output,
         &crate::probe_env::command(),
+        cwd,
     )
 }
 
@@ -32,6 +34,7 @@ pub(super) fn execute(
     cancellation: &Cancellation,
     output: Option<&codeterm_blueprint_types::blueprint_document::Port>,
     environment: &crate::probe::environment::Environment,
+    cwd: &std::path::Path,
 ) -> Result<Output, RuntimeFailure> {
     let started = std::time::Instant::now();
     let names: &[&str] = match code.lang {
@@ -94,7 +97,7 @@ pub(super) fn execute(
     let result = executable::run_limited(
         &interpreter,
         &args,
-        temp,
+        cwd,
         limit.saturating_sub(started.elapsed()),
         runtime,
         owner,

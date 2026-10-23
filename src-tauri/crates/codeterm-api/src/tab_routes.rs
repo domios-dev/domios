@@ -703,13 +703,17 @@ pub(crate) fn map_close_error(e: String) -> (StatusCode, String) {
         || e.starts_with(codeterm_service_core::service::AGENT_TAB_CLOSE_REFUSAL_PREFIX)
         || e.starts_with(codeterm_service_core::service::TEAM_CLOSE_REFUSAL_PREFIX)
         || e.starts_with("Cannot close protected workspace")
+        || e.starts_with("Cannot close protected Tab")
     {
         StatusCode::FORBIDDEN
     } else if e.starts_with("Workspace not found:")
+        || e.starts_with("Tab not found")
         || (e.starts_with("Team ") && e.contains(" not found"))
     {
         StatusCode::NOT_FOUND
     } else if e.starts_with("Workspace is closing:")
+        || e.starts_with("Tab close reservation lost")
+        || e.starts_with("Tab is closing:")
         || e.starts_with("Workspace close reservation lost:")
         || e.starts_with("Workspace changed while closing:")
         || e.starts_with(codeterm_service_core::service::BUSY_WORKER_CLOSE_REFUSAL_PREFIX)

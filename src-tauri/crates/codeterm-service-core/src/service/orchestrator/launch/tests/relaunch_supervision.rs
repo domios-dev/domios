@@ -242,11 +242,7 @@ fn deferred_structured_preparation_adopts_the_restored_reservation_a_send_pinned
         Some(reserved.as_str())
     );
     assert_eq!(
-        crate::service::codex_rpc::launch::deferred_launch_nonce(
-            &fixture.service,
-            &tab_id,
-            Some(&reserved)
-        ),
+        super::super::deferred_launch_nonce(&fixture.service, &tab_id, Some(&reserved), false,),
         reserved
     );
     fixture
@@ -272,8 +268,11 @@ fn deferred_structured_preparation_adopts_the_restored_reservation_a_send_pinned
         .service
         .agent_delivery_binding_matches(&tab_id, &payload));
     assert!(LAUNCH_REGISTRY.lock().finish(&launch));
-    let unreserved =
-        crate::service::codex_rpc::launch::deferred_launch_nonce(&fixture.service, &tab_id, None);
+    assert_eq!(
+        super::super::deferred_launch_nonce(&fixture.service, &tab_id, None, true),
+        reserved
+    );
+    let unreserved = super::super::deferred_launch_nonce(&fixture.service, &tab_id, None, false);
     assert_ne!(unreserved, reserved);
     assert!(!fixture
         .service

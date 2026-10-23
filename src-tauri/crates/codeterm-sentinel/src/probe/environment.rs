@@ -67,6 +67,28 @@ impl Environment {
         let path = probe_path(inherited_path, path_defaults).unwrap_or_default();
         let mut paths: Vec<PathBuf> = std::env::split_paths(&path).collect();
         let mut variables = vec![("LANG".into(), "C.UTF-8".into())];
+        let identity: &[&str] = if windows {
+            &[
+                "USERNAME",
+                "USERPROFILE",
+                "HOMEDRIVE",
+                "HOMEPATH",
+                "TEMP",
+                "TMP",
+                "APPDATA",
+                "LOCALAPPDATA",
+            ]
+        } else {
+            &["HOME", "USER", "LOGNAME", "TMPDIR"]
+        };
+        variables.extend(
+            inherited
+                .iter()
+                .filter(|(key, value)| {
+                    !value.is_empty() && identity.iter().any(|name| key.eq_ignore_ascii_case(name))
+                })
+                .cloned(),
+        );
         if let Some((_, root)) = inherited
             .iter()
             .find(|(key, _)| key.eq_ignore_ascii_case("SystemRoot"))
@@ -91,7 +113,9 @@ impl Environment {
                 ));
             }
         }
-        paths.retain(|path| !cli_dirs.iter().any(|cli| same_directory(path, cli)));
+        paths.retain(|path| {
+            !cli_dirs.iter().any(|cli| same_directory(path, cli)) && !holds_domios_cli(path)
+        });
         variables.push((
             "PATH".into(),
             std::env::join_paths(paths).unwrap_or_default(),
@@ -117,6 +141,15 @@ impl Environment {
         }
         block
     }
+}
+
+// Any instance's launcher (prod, dev, named dev) is excluded, not only the running one.
+fn holds_domios_cli(directory: &Path) -> bool {
+    ["domios", "codeterm"].iter().any(|name| {
+        ["", ".exe", ".cmd", ".bat", ".ps1"]
+            .iter()
+            .any(|extension| directory.join(format!("{name}{extension}")).is_file())
+    })
 }
 
 fn same_directory(left: &Path, right: &Path) -> bool {

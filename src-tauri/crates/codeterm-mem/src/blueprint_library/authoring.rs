@@ -17,6 +17,7 @@ pub struct RecallState {
     pub embedder: EmbedderIdentity,
     pub vectors_pending: usize,
     pub enrichment_pending: usize,
+    pub reembed: crate::embedder::ReembedProgress,
 }
 
 pub struct AuthoringRecall {
@@ -55,6 +56,7 @@ impl MemManager {
             embedder: identity.clone(),
             vectors_pending: 0,
             enrichment_pending: 0,
+            reembed: self.reembed.snapshot(),
         };
         let mut unavailable = catalog::UNAVAILABLE
             .iter()
