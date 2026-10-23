@@ -1,8 +1,9 @@
-interface Observation {id:string;state:"running"|"completed"|"killed"|"failed"}
+interface Observation {id:string;state:"running"|"completed"|"killed"|"failed"|"session_boundary"}
 function object(value:unknown):Record<string,unknown>|null {return value && typeof value==="object" && !Array.isArray(value) ? value as Record<string,unknown> : null;}
 export function parseBackgroundWork(value:unknown):Observation[] {
   const row=object(value);
   if (!row) return [];
+  if (row.type === "summary" || row.isCompactSummary === true || (row.type === "system" && ["compact_boundary", "init", "resume"].includes(String(row.subtype)))) return [{id:"",state:"session_boundary"}];
   const result=object(row.toolUseResult);
   const events:Observation[]=[];
   for (const [key,state] of [["backgroundTaskId","running"],["agentId",result?.status==="async_launched" || result?.status==="running" ? "running" : result?.status]] as const) {

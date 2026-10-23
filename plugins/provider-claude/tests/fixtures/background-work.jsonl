@@ -1,0 +1,5 @@
+{"toolUseResult":{"backgroundTaskId":"dropped"}}
+{"type":"system","subtype":"compact_boundary"}
+{"toolUseResult":{"backgroundTaskId":"finished"}}
+{"message":{"content":"<task-notification><task-id>finished</task-id><status>completed</status></task-notification>"}}
+{"toolUseResult":{"backgroundTaskId":"live"}}

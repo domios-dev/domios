@@ -176,7 +176,10 @@ flag, the provider's automatic compaction policy remains authoritative.
 resumes the source with those arguments, and accepts only a distinct session
 proved by the new launch's nonce. No session id is prebound for a fork.
 `tracksBackgroundWork()` plus `parseBackgroundWork(record)` declare structured
-background task observations. The bounded per-tab roster is session-scoped;
+background task observations. A structural compaction, summary, resume or harness
+initialization emits `{id:"",state:"session_boundary"}` to invalidate prior live
+evidence. Historical launches project unknown; only own-session append observations
+can establish running. Completion projects ended. The bounded roster is session-scoped;
 `background_work_guard` defaults false. When enabled, restart refuses live work,
 provider updates wait for a roster change event, and explicit force is reported.
 

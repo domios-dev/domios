@@ -34,6 +34,19 @@ fn tag<'a>(text: &'a str, name: &str) -> Option<&'a str> {
     )
 }
 pub(super) fn parse(row: &Value) -> Vec<BackgroundWorkObservation> {
+    if row["type"] == "summary"
+        || row["isCompactSummary"] == true
+        || (row["type"] == "system"
+            && matches!(
+                row["subtype"].as_str(),
+                Some("compact_boundary" | "init" | "resume")
+            ))
+    {
+        return vec![BackgroundWorkObservation {
+            id: String::new(),
+            state: BackgroundWorkState::SessionBoundary,
+        }];
+    }
     let mut events = Vec::new();
     let result = &row["toolUseResult"];
     add(
@@ -68,3 +81,6 @@ pub(super) fn parse(row: &Value) -> Vec<BackgroundWorkObservation> {
     }
     events
 }
+
+#[cfg(test)]
+mod tests;

@@ -637,6 +637,7 @@ function object3(value) {
 function parseBackgroundWork(value) {
   const row = object3(value);
   if (!row) return [];
+  if (row.type === "summary" || row.isCompactSummary === true || row.type === "system" && ["compact_boundary", "init", "resume"].includes(String(row.subtype))) return [{ id: "", state: "session_boundary" }];
   const result = object3(row.toolUseResult);
   const events = [];
   for (const [key, state] of [["backgroundTaskId", "running"], ["agentId", result?.status === "async_launched" || result?.status === "running" ? "running" : result?.status]]) {

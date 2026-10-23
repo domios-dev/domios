@@ -105,6 +105,17 @@ pub async fn finish_session_binding(
             .map_err(|error| (StatusCode::CONFLICT, error.reason))?;
         }
     }
+    if claim.nonce_verified && session_binding_hook_succeeded {
+        let mut mux = svc.mux.write();
+        if let Some(tab) = mux.get_tab_mut(tab_id).filter(|tab| {
+            tab.agent_type.as_deref() == Some(provider_id)
+                && tab.agent_session_id.as_deref() == Some(sid)
+                && tab.session_binding_nonce.as_deref() == report_nonce
+        }) {
+            tab.provider_signals.background.invalidate();
+            tab.provider_signals.background.history_initialized = false;
+        }
+    }
     bind_planner_session_after_claim(svc, tab_id).await?;
     if claim.nonce_verified {
         let service = svc.clone();
