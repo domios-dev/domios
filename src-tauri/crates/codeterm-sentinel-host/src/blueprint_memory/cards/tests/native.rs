@@ -18,7 +18,13 @@ fn qualify(id: &str, arguments: Value, expected: Value) {
     let assignments = document
         .inputs
         .keys()
-        .map(|key| format!("{key}={}", arguments[key]))
+        .map(|key| {
+            let value = arguments[key]
+                .as_str()
+                .map(str::to_owned)
+                .unwrap_or_else(|| arguments[key].to_string());
+            format!("{key}={value}")
+        })
         .collect::<Vec<_>>();
     let mut definition = document.bind(&assignments).unwrap();
     definition["trigger"] = json!({"type":"schedule","every":{"lit":"1h"}});
@@ -73,8 +79,9 @@ fn qualify(id: &str, arguments: Value, expected: Value) {
         text: String::new(),
     };
     for step in &lease.job.pipeline().unwrap().steps {
-        let result = execute_step(&mut context, step, output)
-            .expect("native node must execute; no simulation fallback");
+        let result = execute_step(&mut context, step, output).unwrap_or_else(|reason| {
+            panic!("{id}/{}: native execution refused: {reason:?}", step.name)
+        });
         assert_eq!(
             result.state,
             JournalState::Done,
@@ -143,7 +150,7 @@ fn blueprint_v2_intent_catalog_native_log_dedupe() {
 fn blueprint_v2_intent_catalog_native_rule_classifier() {
     qualify(
         "catalog:rule-classifier",
-        json!({"args":{"text":"Checkout returns HTTP 500","rules":{"outage":["\\b5\\d\\d\\b"]}}}),
+        json!({"args":{"text":"Checkout returns HTTP 500","rules":{"outage":[r"\b5\d\d\b"]}}}),
         json!({"bucket":"outage","matched":"500"}),
     );
 }

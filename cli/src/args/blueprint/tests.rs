@@ -205,3 +205,37 @@ fn blueprint_v2_intent_flags_preserve_text_and_bound_limits() {
         assert!(parse(&args).is_err(), "{args:?}");
     }
 }
+
+#[test]
+fn blueprint_v2_call_keep_file_and_id_are_mutually_exclusive() {
+    use clap::Parser;
+    assert!(Cli::try_parse_from([
+        "codeterm",
+        "blueprint",
+        "keep",
+        "--file",
+        "callable.yaml",
+        "--when",
+        "Increment typed data"
+    ])
+    .is_ok());
+    assert!(Cli::try_parse_from([
+        "codeterm",
+        "blueprint",
+        "keep",
+        "graph",
+        "--file",
+        "callable.yaml",
+        "--when",
+        "Increment typed data"
+    ])
+    .is_err());
+    assert!(Cli::try_parse_from([
+        "codeterm",
+        "blueprint",
+        "keep",
+        "--when",
+        "Increment typed data"
+    ])
+    .is_err());
+}

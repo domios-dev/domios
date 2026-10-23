@@ -59,20 +59,31 @@ pub(super) fn dispatch(
         .and_then(Value::as_str);
     let caller = svc.sentinel_caller(&tab, nonce).map_err(error)?;
     let result = match method {
-        "blueprint.keep" => svc
-            .blueprint_keep(
-                &caller,
-                &get_string_param(params, "id")?,
-                &serde_json::from_value::<Vec<String>>(
-                    params
-                        .as_ref()
-                        .and_then(|args| args.get("when"))
-                        .cloned()
-                        .unwrap_or(json!([])),
-                )
-                .map_err(|e| error(e.to_string()))?,
+        "blueprint.keep" => {
+            let args = params
+                .as_ref()
+                .ok_or_else(|| error("parameters required"))?;
+            let when = serde_json::from_value::<Vec<String>>(
+                args.get("when").cloned().unwrap_or(json!([])),
             )
-            .map_err(error),
+            .map_err(|e| error(e.to_string()))?;
+            if let Some(definition) = args.get("definition") {
+                if args.get("id").is_some() {
+                    return Err(error("keep id and file definition are mutually exclusive"));
+                }
+                let document =
+                    codeterm_blueprint_types::blueprint_document::Document::from_definition(
+                        definition,
+                    )
+                    .map_err(error)?;
+                let local = local_callees(params)?;
+                svc.blueprint_keep_callable(&caller, document, &local, &when)
+                    .map_err(error)
+            } else {
+                svc.blueprint_keep(&caller, &get_string_param(params, "id")?, &when)
+                    .map_err(error)
+            }
+        }
         "blueprint.recall" => {
             let intent = get_string_param(params, "intent")?;
             let args = params
@@ -119,6 +130,15 @@ pub(super) fn dispatch(
                 .and_then(|p| p.get("dry_run"))
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
+            let document = codeterm_blueprint_types::blueprint_document::Document::from_definition(
+                &definition,
+            )
+            .map_err(error)?;
+            let local = local_callees(params)?;
+            let document =
+                codeterm_sentinel_host::blueprint_calls::pin_bundle(svc, &caller, document, &local)
+                    .map_err(error)?;
+            let definition = serde_json::to_value(document).map_err(|e| error(e.to_string()))?;
             svc.blueprint_apply(&caller, definition, dry_run)
                 .map_err(apply_error)
         }
@@ -133,8 +153,21 @@ pub(super) fn dispatch(
                 .and_then(|p| p.get("recipe"))
                 .cloned()
                 .ok_or_else(|| error("recipe required"))?;
-            let recipe = serde_json::from_value(recipe)
-                .map_err(|e| error(format!("invalid recipe: {e}")))?;
+            let mut recipe: codeterm_blueprint_types::blueprint_recipe::Recipe =
+                serde_json::from_value(recipe)
+                    .map_err(|e| error(format!("invalid recipe: {e}")))?;
+            let document = codeterm_blueprint_types::blueprint_document::Document::from_definition(
+                &recipe.definition,
+            )
+            .map_err(error)?;
+            let document = codeterm_sentinel_host::blueprint_calls::pin_bundle(
+                svc,
+                &caller,
+                document,
+                &local_callees(params)?,
+            )
+            .map_err(error)?;
+            recipe.definition = serde_json::to_value(document).map_err(|e| error(e.to_string()))?;
             let assignments: Vec<String> = serde_json::from_value(
                 params
                     .as_ref()
@@ -172,11 +205,48 @@ pub(super) fn dispatch(
             .map_err(|e| error(e.to_string())),
         "blueprint.show" => {
             let id = get_string_param(params, "id")?;
+            if codeterm_blueprint_types::blueprint_document::calls::saved_reference(&id) {
+                return codeterm_sentinel_host::blueprint_calls::show_callable(svc, &caller, &id)
+                    .map_err(error);
+            }
             let job = svc.sentinel_show(&caller, &id).map_err(error)?;
             let mut value = serde_json::to_value(&job).map_err(|e| error(e.to_string()))?;
             if let Some(spec) = &job.pipeline().cloned() {
                 let entries = svc.blueprint_log(&caller, &id, 200).map_err(error)?;
                 add_pipeline_show(&mut value, spec, &entries);
+                let recorded_version = entries.first().and_then(|row| row.definition_version);
+                let document =
+                    if entries.is_empty() || recorded_version == Some(job.definition_version) {
+                        job.document.clone()
+                    } else if let Some(version) = recorded_version {
+                        svc.sentinel_history(&caller, &id)
+                            .ok()
+                            .and_then(|history| {
+                                history
+                                    .versions
+                                    .into_iter()
+                                    .find(|row| row.version == version)
+                            })
+                            .and_then(|row| row.definition.document)
+                    } else {
+                        None
+                    };
+                let document = document.and_then(|raw| {
+                    serde_json::from_value::<
+                            codeterm_blueprint_types::blueprint_document::Document,
+                        >(raw)
+                        .ok()
+                });
+                let projection = codeterm_sentinel_host::blueprint_calls::project_retained(
+                    document.as_ref(),
+                    &entries,
+                    recorded_version,
+                )
+                .map_err(error)?;
+                if let (Some(value), Some(fields)) = (value.as_object_mut(), projection.as_object())
+                {
+                    value.extend(fields.clone());
+                }
             }
             Ok(value)
         }
@@ -221,6 +291,18 @@ pub(super) fn dispatch(
                 .get("definition")
                 .cloned()
                 .ok_or_else(|| error("native v2 definition required"))?;
+            let document = codeterm_blueprint_types::blueprint_document::Document::from_definition(
+                &definition,
+            )
+            .map_err(error)?;
+            let document = codeterm_sentinel_host::blueprint_calls::pin_bundle(
+                svc,
+                &caller,
+                document,
+                &local_callees(params)?,
+            )
+            .map_err(error)?;
+            let definition = serde_json::to_value(document).map_err(|e| error(e.to_string()))?;
             let cause = args.get("cause").and_then(Value::as_str).map(str::to_owned);
             svc.blueprint_apply_document(
                 &caller,
@@ -308,17 +390,17 @@ fn add_pipeline_show(
         .map(|(index, step)| {
             let accepted = step.kind.outcomes().unwrap_or_default().into_iter().collect::<Vec<_>>();
             let outcome = run_entries.iter().find(|entry| {
-                entry.step_index == index as i64
+                root_step_entry(step,entry)
                     && entry.outcome.as_ref().is_some_and(|outcome| accepted.iter().any(|value| value == outcome.as_str()))
             }).or_else(|| {
                 run_entries.iter().find(|entry| {
-                    entry.step_index == index as i64
+                    root_step_entry(step,entry)
                         && matches!(entry.state.as_str(), "running" | "skipped")
                 })
             });
             let summary = run_entries
                 .iter()
-                .find(|entry| entry.step_index == index as i64 && entry.result_summary.is_some());
+                .find(|entry| root_step_entry(step,entry) && entry.result_summary.is_some());
             json!({
                 "index":index,
                 "name":step.name,
@@ -333,6 +415,25 @@ fn add_pipeline_show(
             })
         })
         .collect::<Vec<_>>());
+}
+
+fn root_step_entry(
+    step: &codeterm_blueprint_types::blueprint_pipeline::Step,
+    entry: &codeterm_service_core::storage::BlueprintJournalEntry,
+) -> bool {
+    entry.step_name == step.name
+        && if matches!(
+            step.kind,
+            codeterm_blueprint_types::blueprint_pipeline::StepKind::Call { .. }
+        ) {
+            entry.call_stack.len() == 1
+                && entry
+                    .call_stack
+                    .first()
+                    .is_some_and(|frame| frame.node == step.name)
+        } else {
+            entry.call_stack.is_empty()
+        }
 }
 
 fn step_kind_name(kind: &codeterm_blueprint_types::blueprint_pipeline::StepKind) -> &'static str {
@@ -390,4 +491,17 @@ mod tests {
         );
         assert_eq!(error.data.as_ref().unwrap()["current_version"], 9);
     }
+}
+
+fn local_callees(
+    params: &Option<Value>,
+) -> Result<Vec<codeterm_blueprint_types::blueprint_document::calls::LocalCallee>, JsonRpcError> {
+    serde_json::from_value(
+        params
+            .as_ref()
+            .and_then(|args| args.get("local_callees"))
+            .cloned()
+            .unwrap_or(json!([])),
+    )
+    .map_err(|e| error(format!("Invalid local callee bundle: {e}")))
 }

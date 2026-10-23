@@ -5,6 +5,7 @@ pub use codeterm_sentinel::{
 };
 pub(crate) mod actions;
 pub mod blueprint_apply;
+pub mod blueprint_calls;
 pub mod blueprint_memory;
 pub use blueprint_memory::BlueprintMemoryExt;
 pub mod blueprint_pipeline;

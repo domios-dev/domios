@@ -151,7 +151,7 @@ impl AgentPad {
         }
     }
 
-    fn write_inbox_body_inner(&self, body: &[u8]) -> Result<PathBuf, String> {
+    fn inbox_directory(&self) -> Result<PathBuf, String> {
         let inbox = self.path.join("inbox");
         fs::create_dir_all(&inbox).map_err(|e| format!("create AgentPad inbox: {e}"))?;
         let root = self
@@ -164,6 +164,55 @@ impl AgentPad {
         if !inbox.starts_with(&root) || inbox == root {
             return Err("AgentPad inbox escapes the current tab pad".into());
         }
+        Ok(inbox)
+    }
+
+    pub(crate) fn write_delivery_receipt(
+        &self,
+        id: &str,
+        body: &[u8],
+    ) -> Result<(PathBuf, bool), String> {
+        uuid::Uuid::parse_str(id).map_err(|_| "invalid delivery receipt id")?;
+        let inbox = self.inbox_directory()?;
+        let path = inbox.join(format!("delivery-{id}.json"));
+        let mut temporary =
+            tempfile::NamedTempFile::new_in(&inbox).map_err(|error| error.to_string())?;
+        temporary
+            .write_all(body)
+            .map_err(|error| error.to_string())?;
+        temporary
+            .as_file()
+            .sync_all()
+            .map_err(|error| error.to_string())?;
+        let created = match temporary.persist_noclobber(&path) {
+            Ok(_) => true,
+            Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => {
+                let metadata = fs::symlink_metadata(&path).map_err(|error| error.to_string())?;
+                if !metadata.file_type().is_file()
+                    || metadata.len() != body.len() as u64
+                    || fs::read(&path).map_err(|error| error.to_string())? != body
+                {
+                    log::error!(
+                        "[agent-delivery] retaining edited delivery receipt: {}",
+                        path.display()
+                    );
+                }
+                false
+            }
+            Err(error) => return Err(error.to_string()),
+        };
+        #[cfg(unix)]
+        fs::File::open(&inbox)
+            .and_then(|directory| directory.sync_all())
+            .map_err(|error| error.to_string())?;
+        Ok((
+            self.path.join("inbox").join(format!("delivery-{id}.json")),
+            created,
+        ))
+    }
+
+    fn write_inbox_body_inner(&self, body: &[u8]) -> Result<PathBuf, String> {
+        let inbox = self.inbox_directory()?;
         prune_inbox(&inbox)?;
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

@@ -72,9 +72,9 @@ steps:
   code:
     lang: python
     src: |
-      def main(j):
-          failing = sorted(x["name"] for x in j["jobs"] if x["conclusion"] in ("failure", "timed_out", "cancelled"))
-          running = any(x["conclusion"] in ("", "in_progress", "queued", "pending") for x in j["jobs"])
+      def main(value):
+          failing = sorted(x["name"] for x in value["jobs"] if x["conclusion"] in ("failure", "timed_out", "cancelled"))
+          running = any(x["conclusion"] in ("", "in_progress", "queued", "pending") for x in value["jobs"])
           conclusion = "failure" if failing else ("running" if running else "success")
           return {"conclusion": conclusion, "failing_jobs": failing}
   in:

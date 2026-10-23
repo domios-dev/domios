@@ -50,7 +50,11 @@ pub enum BlueprintAction {
     },
     /// Keep a generalised solution (Team Orchestrator only); give 3-5 --when intents
     Keep {
-        id: String,
+        #[arg(required_unless_present = "file", conflicts_with = "file")]
+        id: Option<String>,
+        /// Save a triggerless typed callable without scheduling it
+        #[arg(long, conflicts_with = "id")]
+        file: Option<std::path::PathBuf>,
         /// One "when would someone want this" request; repeat 1-5 times, 3-5 phrased differently
         #[arg(long, required = true, action = clap::ArgAction::Append)]
         when: Vec<String>,
