@@ -3632,7 +3632,7 @@ Plain shell tab, inheriting the calling tab's workspace and Team. For an AI tab 
 - `--purpose` — Utility shell purpose shown in the sidebar
 - `--shell` — Shell profile id (discover with --list-shells)
 - `--team` — Explicit Team membership cross-check. Ordinary shells already inherit the calling Tab's Team
-- `--timeout` — Agent-owned shell lifetime: positive duration (30s, 10m, 2h), or none. Requires a live creating agent (CODETERM_TAB_ID); omit for human shells
+- `--timeout` — Agent-owned per-command timeout (60m recommended), or none; dev servers take none. Requires a live creating agent (CODETERM_TAB_ID); omit for human shells
 - `--title` — Tab title
 - `--workspace` — Target workspace id. Defaults to the calling tab's own workspace, then the focused workspace for a caller with no tab identity
 
@@ -3680,7 +3680,7 @@ Replace a plain shell's process in the same tab, preserving tab identity and met
 - `--cmd` — Command to execute after the replacement shell is ready
 - `--cwd` — Working directory for the replacement shell
 - `--tab` — Tab ID to restart (default: current tab)
-- `--timeout` — Fresh shell lifetime (30s, 10m, 2h, none); defaults to the previous duration
+- `--timeout` — Per-command timeout (30s, 60m, 2h, none); defaults to the previous bound
 
 #### `domios tab search`
 
@@ -3702,7 +3702,7 @@ Interrupt the agent's current generation (NOT a clean exit). Sends the provider'
 
 #### `domios tab timeout`
 
-Reset an owned utility shell's lifetime from now, or disable it with none
+Bound current and future commands from each command start, or disable with none
 
 - `--tab`
 - `--timeout`
