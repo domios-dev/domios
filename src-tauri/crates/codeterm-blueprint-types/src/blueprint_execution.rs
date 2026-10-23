@@ -40,6 +40,32 @@ impl ExecutionEnvelope {
         }
     }
 
+    /// Trigger text is a string; it is read as JSON only when the first node's input schema rejects the string.
+    pub fn from_trigger_text(text: &str, first: Option<&ExecutionContract>) -> Self {
+        let literal = Self {
+            media: "text".into(),
+            schema_id: None,
+            value: Value::String(text.into()),
+            text: String::new(),
+        };
+        let Some((port, types)) = first.and_then(|c| c.input.as_ref().map(|p| (p, &c.types)))
+        else {
+            return literal;
+        };
+        if port.accepts_with_types(&literal.value, types) {
+            return literal;
+        }
+        match serde_json::from_str::<Value>(text) {
+            Ok(value) if port.accepts_with_types(&value, types) => Self {
+                media: "json".into(),
+                schema_id: None,
+                value,
+                text: String::new(),
+            },
+            _ => literal,
+        }
+    }
+
     pub fn decode(bytes: &[u8]) -> Result<Self, JournalReason> {
         if bytes.len() > MAX_STDIN_BYTES {
             return Err(JournalReason::ContractViolation);
@@ -108,23 +134,49 @@ impl ExecutionContract {
         envelope: &ExecutionEnvelope,
         output: bool,
     ) -> Result<(), JournalReason> {
+        self.violation(envelope, output)?
+            .map_or(Ok(()), |_| Err(JournalReason::ContractViolation))
+    }
+
+    /// `Err` means the envelope is malformed or oversize; `Ok(Some(_))` names the mismatched port and value.
+    pub fn violation(
+        &self,
+        envelope: &ExecutionEnvelope,
+        output: bool,
+    ) -> Result<Option<String>, JournalReason> {
         let bounded = ExecutionEnvelope::decode(&envelope.encode()?)?;
         let envelope = &bounded;
+        let side = if output { "output" } else { "input" };
         let port = if output { &self.output } else { &self.input };
-        if let Some(port) = port {
-            if !port.accepts_with_types(&envelope.value, &self.types)
-                || port
-                    .media
-                    .as_ref()
-                    .is_some_and(|media| media != &envelope.media)
-                || port
-                    .reference
-                    .as_ref()
-                    .is_some_and(|id| envelope.schema_id.as_ref() != Some(id))
-            {
-                return Err(JournalReason::ContractViolation);
-            }
+        let Some(port) = port else {
+            return Ok(None);
+        };
+        let mismatched = !port.accepts_with_types(&envelope.value, &self.types)
+            || port.media.as_ref().is_some_and(|m| m != &envelope.media)
+            || port
+                .reference
+                .as_ref()
+                .is_some_and(|id| envelope.schema_id.as_ref() != Some(id));
+        if !mismatched {
+            return Ok(None);
         }
-        Ok(())
+        let schema = serde_json::to_string(port).unwrap_or_default();
+        Ok(Some(format!(
+            "{side} expected {} got {} {}",
+            clip(&schema, 80),
+            envelope.media,
+            clip(&envelope.value.to_string(), 50),
+        )))
     }
 }
+
+fn clip(text: &str, limit: usize) -> String {
+    let mut clipped: String = text.chars().take(limit).collect();
+    if text.chars().count() > limit {
+        clipped.push('…');
+    }
+    clipped
+}
+
+#[cfg(test)]
+mod tests;

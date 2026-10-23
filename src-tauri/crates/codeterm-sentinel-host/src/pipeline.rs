@@ -267,6 +267,11 @@ fn run_pipeline(
             ),
             text: String::new(),
         }
+    } else if input_kind == Some(MediaKind::Text) {
+        ExecutionEnvelope::from_trigger_text(
+            &text,
+            spec.steps.first().and_then(|step| step.execution.as_ref()),
+        )
     } else {
         ExecutionEnvelope::from_text(&text)
     };
