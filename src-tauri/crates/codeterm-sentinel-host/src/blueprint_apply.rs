@@ -14,6 +14,7 @@ use codeterm_service_core::service::ServiceContext;
 use serde_json::{json, Value};
 
 mod admission;
+pub(crate) mod mux;
 
 pub trait BlueprintApplyExt {
     fn blueprint_apply_document(
@@ -247,50 +248,78 @@ fn apply_document(
             )?
         };
         candidate.document = Some(definition.clone());
-        let mux = service.mux.read();
-        if !crate::service_adapter::caller_is_live(&mux, caller) {
-            return Err("Blueprint caller scope changed".into());
-        }
-        if let Some(spec) = candidate.pipeline() {
-            crate::blueprint_pipeline::validate_result_scope(&mux, &candidate, &spec.result.to)?;
-        } else {
-            if let Some(crate::source::TabBinding::Tab(tab)) = candidate.observe() {
-                crate::source::validate_tab_scope(&mux, &candidate, tab)?;
+        with_apply_mux(service, caller, candidate, |mux, mut candidate| {
+            validate_candidate_scope(mux, caller, &candidate)?;
+            let tab = mux.get_tab(&caller.tab).ok_or("Blueprint caller is gone")?;
+            candidate.agent_authored = stopped.is_some()
+                || (tab.agent_type.is_some() && tab.session_binding_nonce.is_some());
+            let mut result = storage::commit(&handle.store, move |store| {
+                let staged = stage_apply(
+                    store,
+                    caller,
+                    ApplyIntent {
+                        candidate,
+                        definition,
+                        update,
+                        dry_run,
+                        stopped,
+                        curator,
+                        authorized_id,
+                    },
+                );
+                match staged {
+                    Ok(staged) => staged.map(Ok),
+                    Err(error) => Staged::ready(Ok(Err(error))),
+                }
+            })??;
+            result["call_drift"] = call_drift;
+            result["diagnostics"] =
+                serde_json::to_value(diagnostics).map_err(|error| error.to_string())?;
+            handle.notify();
+            if !dry_run && result["action"] == "create" {
+                service.record_product_feature(codeterm_analytics::Feature::BlueprintCreated);
             }
-            crate::service_adapter::validate_send_scope(&mux, &candidate)?;
-        }
-        let tab = mux.get_tab(&caller.tab).ok_or("Blueprint caller is gone")?;
-        candidate.agent_authored =
-            stopped.is_some() || (tab.agent_type.is_some() && tab.session_binding_nonce.is_some());
-        let mut result = storage::commit(&handle.store, move |store| {
-            let staged = stage_apply(
-                store,
-                caller,
-                ApplyIntent {
-                    candidate,
-                    definition,
-                    update,
-                    dry_run,
-                    stopped,
-                    curator,
-                    authorized_id,
-                },
-            );
-            drop(mux);
-            match staged {
-                Ok(staged) => staged.map(Ok),
-                Err(error) => Staged::ready(Ok(Err(error))),
-            }
-        })??;
-        result["call_drift"] = call_drift;
-        result["diagnostics"] =
-            serde_json::to_value(diagnostics).map_err(|error| error.to_string())?;
-        handle.notify();
-        if !dry_run && result["action"] == "create" {
-            service.record_product_feature(codeterm_analytics::Feature::BlueprintCreated);
-        }
-        Ok(result)
+            Ok(result)
+        })
     }
+}
+
+fn validate_candidate_scope(
+    mux: &dyn mux::ScopeView,
+    caller: &SentinelCaller,
+    candidate: &Sentinel,
+) -> Result<(), ApplyError> {
+    if !crate::service_adapter::caller_is_live_in_view(mux, caller) {
+        return Err("Blueprint caller scope changed".into());
+    }
+    if let Some(spec) = candidate.pipeline() {
+        crate::blueprint_pipeline::validate_result_scope(mux, candidate, &spec.result.to)?;
+    } else {
+        if let Some(crate::source::TabBinding::Tab(tab)) = candidate.observe() {
+            let observed = mux.get_tab(tab).ok_or("observation tab not found")?;
+            crate::source::validate_tab_scope_metadata(
+                observed,
+                mux.find_workspace_for_tab(tab).as_deref(),
+                candidate,
+            )?;
+        }
+        crate::service_adapter::validate_send_scope_in_view(mux, candidate)?;
+    }
+    Ok(())
+}
+
+fn with_apply_mux<T>(
+    service: &ServiceContext,
+    caller: &SentinelCaller,
+    candidate: Sentinel,
+    admit: impl FnOnce(&dyn mux::ScopeView, Sentinel) -> Result<T, ApplyError>,
+) -> Result<T, ApplyError> {
+    let references = mux::References::collect(caller, &candidate);
+    let snapshot = {
+        let guard = service.mux.read();
+        mux::Snapshot::capture(&guard, caller, references)
+    };
+    admit(&snapshot, candidate)
 }
 
 struct ApplyIntent {

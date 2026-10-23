@@ -352,7 +352,7 @@ fn validate_pipeline_result_scope(
 }
 
 pub(crate) fn validate_result_scope(
-    mux: &codeterm_service_core::multiplexer::state::MultiplexerState,
+    mux: &dyn crate::blueprint_apply::mux::ScopeView,
     job: &crate::store::Sentinel,
     target: &ResultTarget,
 ) -> Result<(), String> {
@@ -382,7 +382,7 @@ pub(crate) fn validate_result_scope(
 }
 
 fn team_result_recipient(
-    mux: &codeterm_service_core::multiplexer::state::MultiplexerState,
+    mux: &dyn crate::blueprint_apply::mux::ScopeView,
     team_id: Option<&str>,
     workspace_id: &str,
 ) -> Result<String, String> {
