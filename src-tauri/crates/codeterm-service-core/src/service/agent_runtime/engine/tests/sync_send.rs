@@ -12,7 +12,29 @@ impl Drop for Cleanup {
     }
 }
 
+pub(super) const RUNTIME_FIXTURE_SOURCE: &str = r#"
+module.exports = {
+  runtimePlan(ctx, op) {
+    const method = {initialize:'fixture/initialize',resumeThread:'fixture/resume',readHistory:'fixture/history',submitTurn:'fixture/submit'}[op.kind];
+    return {action:{kind:'request',call:{method,params:op}},state:null};
+  },
+  runtimeResponse(ctx, op, state, reply) {
+    if (op.kind === 'initialize') return {kind:'complete',result:{kind:'initialized'}};
+    if (op.kind === 'resumeThread') return {kind:'complete',result:{kind:'threadLoaded',threadId:op.threadId,settings:op.settings}};
+    if (op.kind === 'readHistory') return {kind:'complete',result:{kind:'historyPage',threadId:op.threadId,items:[],openItems:[],order:op.order}};
+    return {kind:'complete',result:{kind:'turnAccepted',threadId:op.threadId,sendId:op.sendId,turnId:reply.value.turnId}};
+  },
+  runtimeReduce(ctx, state, frames) { return {state:null,events:[]}; }
+};
+"#;
+
 pub(super) fn runtime_fixture() -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
+    runtime_fixture_with(RUNTIME_FIXTURE_SOURCE)
+}
+
+pub(super) fn runtime_fixture_with(
+    source: &str,
+) -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
     const PROVIDER: &str = "sync-send-fixture";
     let (mut mux, tab_id) = MultiplexerState::new();
     let nonce = uuid::Uuid::new_v4().to_string();
@@ -40,21 +62,6 @@ pub(super) fn runtime_fixture() -> (ServiceFixture, String, tokio::io::DuplexStr
                 "requestMethods":{"initialize":["fixture/initialize"],"resumeThread":["fixture/resume"],"readHistory":["fixture/history"],"submitTurn":["fixture/submit"]},"notificationMethods":[]}},
         "permissions":{"subprocess":{"allow":["fixture-cli"]}}
     }).to_string()).unwrap();
-    let source = r#"
-module.exports = {
-  runtimePlan(ctx, op) {
-    const method = {initialize:'fixture/initialize',resumeThread:'fixture/resume',readHistory:'fixture/history',submitTurn:'fixture/submit'}[op.kind];
-    return {action:{kind:'request',call:{method,params:op}},state:null};
-  },
-  runtimeResponse(ctx, op, state, reply) {
-    if (op.kind === 'initialize') return {kind:'complete',result:{kind:'initialized'}};
-    if (op.kind === 'resumeThread') return {kind:'complete',result:{kind:'threadLoaded',threadId:op.threadId,settings:op.settings}};
-    if (op.kind === 'readHistory') return {kind:'complete',result:{kind:'historyPage',threadId:op.threadId,items:[],openItems:[],order:op.order}};
-    return {kind:'complete',result:{kind:'turnAccepted',threadId:op.threadId,sendId:op.sendId,turnId:reply.value.turnId}};
-  },
-  runtimeReduce(ctx, state, frames) { return {state:null,events:[]}; }
-};
-"#;
     fixture
         .service
         .agent_registry
