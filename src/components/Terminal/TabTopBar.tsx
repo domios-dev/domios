@@ -15,6 +15,7 @@ import { UsageBubble } from "../Usage/UsageBubble";
 import { PluginBubbles } from "../Extensions/PluginBubbles";
 import type { ModelGroup, Tab } from "../../lib/types";
 import { TAB_BAR_CONTROL_H } from "./tabBarConstants";
+import { TabLockMark } from "./TabLockMark";
 import { WatcherStatusBadge } from "./WatcherStatusBadge";
 import { TabActionsMenu } from "./TabActionsMenu";
 import { matchesBinding } from "../../lib/keybindings";
@@ -287,6 +288,7 @@ export function TabTopBar({
             chatPty={showSwitch}
           />
         )}
+        <TabLockMark tab={menuTab} />
       </div>
       <div className="ml-auto flex min-w-0 flex-1 items-start justify-end gap-1 sm:gap-1.5">
       <div

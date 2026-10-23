@@ -12,7 +12,7 @@ import { AgentIcon } from "../AgentIcon";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { LockBadge } from "../billing/LockBadge";
 import { openLockedPlans } from "../billing/freeLimitGate";
-import { lockedView } from "../billing/freeLimitModel";
+import { lockedDimClass, lockedView } from "../billing/freeLimitModel";
 import { LiveWorkspaceNavigationActions, WorkspaceNavigationActions } from "./WorkspaceNavigationActions";
 import type { TabStatus, Workspace } from "../../lib/types";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
@@ -207,10 +207,10 @@ function WorkspaceItemInner({
           <div className={`flex items-center min-w-0 ${touchMode ? "gap-2.5" : "gap-2"}`}>
             {!detailHeader && (workspace.protected ? (
               <span className="relative shrink-0 flex items-center justify-center w-[14px] h-[14px]">
-                <ShieldCheckIcon style={{ stroke: "var(--ct-muted-fg)" }} className="shrink-0" />
+                <ShieldCheckIcon style={{ stroke: "var(--ct-muted-fg)" }} className={`shrink-0 ${lockedDimClass(lock)}`} />
               </span>
             ) : (
-              <FolderIcon open={isExpanded} className="shrink-0" />
+              <FolderIcon open={isExpanded} className={`shrink-0 ${lockedDimClass(lock)}`} />
             ))}
             <input
               autoFocus
@@ -247,12 +247,12 @@ function WorkspaceItemInner({
           >
             {workspace.protected ? (
               <span className="relative shrink-0 flex items-center justify-center w-[14px] h-[14px]">
-                <ShieldCheckIcon style={{ stroke: "var(--ct-muted-fg)" }} className="shrink-0" />
+                <ShieldCheckIcon style={{ stroke: "var(--ct-muted-fg)" }} className={`shrink-0 ${lockedDimClass(lock)}`} />
               </span>
             ) : (
-              <FolderIcon open={isExpanded} className="shrink-0" />
+              <FolderIcon open={isExpanded} className={`shrink-0 ${lockedDimClass(lock)}`} />
             )}
-            <span className={`${touchMode ? workspaceTouchText : workspaceText} font-medium truncate`} onDoubleClick={handleDoubleClick} title={workspace.cwd || undefined}>
+            <span className={`${touchMode ? workspaceTouchText : workspaceText} font-medium truncate ${lockedDimClass(lock)}`} onDoubleClick={handleDoubleClick} title={workspace.cwd || undefined}>
               {workspace.name}
             </span>
           </button>
