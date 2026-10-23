@@ -745,7 +745,10 @@ pub(crate) fn write_journal(handle: &Handle, job: &Sentinel, write: BlueprintJou
     let written = storage::commit(&handle.store, |store| {
         store.stage_pipeline_journal(&job.id, write)
     })
-    .unwrap_or(false);
+    .unwrap_or_else(|error| {
+        log::warn!("[blueprint] {} journal write failed: {error}", job.id);
+        false
+    });
     handle.notify();
     written
 }

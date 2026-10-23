@@ -354,6 +354,10 @@ fn classify(error: StorageError) -> (Option<LoadFailure>, String) {
         StorageError::Backpressure { .. } | StorageError::Busy { .. } => {
             (None, format!("blueprint_store_busy: not applied: {error}"))
         }
+        StorageError::Invalid { .. } => (
+            None,
+            format!("blueprint_write_refused: not applied: {error}"),
+        ),
         StorageError::Unconfirmed { .. } => {
             (Some(LoadFailure::PersistenceUnconfirmed), error.to_string())
         }
@@ -619,9 +623,7 @@ pub fn reconcile(store: &Mutex<Store>) -> Result<bool, String> {
     let repo = {
         let store = store.lock();
         match (&store.backend, store.unavailable) {
-            (Backend::Sqlite(backend), Some(LoadFailure::PersistenceUnconfirmed)) => {
-                backend.repo.clone()
-            }
+            (Backend::Sqlite(backend), Some(_)) => backend.repo.clone(),
             _ => return Ok(false),
         }
     };
@@ -630,7 +632,7 @@ pub fn reconcile(store: &Mutex<Store>) -> Result<bool, String> {
         .wait(COMMIT_DEADLINE)
         .map_err(|error| format!("sentinel reconciliation failed: {error}"))?;
     let mut store = store.lock();
-    if store.unavailable != Some(LoadFailure::PersistenceUnconfirmed) {
+    if store.unavailable.is_none() {
         return Ok(false);
     }
     store.install(settled.value, settled.receipt.revision)?;

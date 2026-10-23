@@ -159,10 +159,10 @@ impl BlueprintJournalWrite {
                 reason,
                 ..
             } => {
-                if !matches!(state, JournalState::Done | JournalState::Failed) {
+                if matches!(state, JournalState::Running) {
                     return Err(StorageError::invalid(
                         "journal state",
-                        "must be done or failed",
+                        "a finish must resolve the step",
                     ));
                 }
                 (
