@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 // DEV-only QA issuer: serves getEntitlements on loopback with verdicts signed by the TEST key.
 // Release builds pin the PRODUCTION key and endpoint, so nothing it signs is accepted there.
-import { createPrivateKey, createPublicKey, sign } from 'node:crypto';
+import { createPrivateKey, createPublicKey, sign, verify } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const KEY_ID = 'test-2026-10';
 const SPKI = 'MCowBQYDK2VwAyEA2nQy+tOBmjHHrGnun9ZlMCKQ9fdd7HlkpF5NrykMl7A=';
@@ -19,6 +20,7 @@ const MODE_FILE = join(tmpdir(), 'domios-dev-issuer-mode');
 
 const usage = `usage:
   node scripts/dev-entitlements-issuer.mjs serve [--port 15200]
+  node scripts/dev-entitlements-issuer.mjs smoke
   node scripts/dev-entitlements-issuer.mjs mode <${MODES.join('|')}>
   node scripts/dev-entitlements-issuer.mjs mode`;
 
@@ -56,8 +58,15 @@ const loadKey = () => {
   return key;
 };
 
-const tokenUid = (header) => {
+export const tokenUid = (header, installationId) => {
   const token = /^Bearer (.+)$/.exec(header ?? '')?.[1];
+  if (token?.startsWith('domios-local-dev.')) {
+    const claims = new URLSearchParams(token.slice('domios-local-dev.'.length));
+    if (claims.get('uid') !== 'local-dev-user' || !installationId || claims.get('installation_id') !== installationId) {
+      throw new Error('invalid local DEV identity or installation');
+    }
+    return claims.get('uid');
+  }
   const claims = token && JSON.parse(Buffer.from(token.split('.')[1] ?? '', 'base64url').toString() || 'null');
   const uid = claims?.user_id ?? claims?.sub;
   if (typeof uid !== 'string' || !uid) throw new Error('missing ID token subject');
@@ -70,7 +79,7 @@ const PLANS = {
   sponsor: { label: 'sponsor', authority: 'billing', limit: null, mem: null, sponsor: true },
 };
 
-const verdict = (key, project, mode, uid, inst) => {
+export const verdict = (key, project, mode, uid, inst) => {
   const now = Math.floor(Date.now() / 1000);
   const plan = PLANS[mode === 'expired' ? 'pro' : mode];
   const issuedAt = mode === 'expired' ? now - LEASE_SECS - 60 : now;
@@ -122,10 +131,7 @@ const verdict = (key, project, mode, uid, inst) => {
   };
 };
 
-const serve = (port) => {
-  const key = loadKey();
-  const project = secret('DOMIOS_QA_PROJECT_ID');
-  if (!project) throw new Error('DOMIOS_QA_PROJECT_ID is not in the secret store');
+export const createIssuer = (key, project, readMode = currentMode) =>
   createServer((req, res) => {
     let body = '';
     req.on('data', (chunk) => (body += chunk));
@@ -134,36 +140,56 @@ const serve = (port) => {
         res.writeHead(status, { 'content-type': 'application/json' });
         res.end(JSON.stringify(value));
       };
-      const mode = currentMode();
+      const mode = readMode();
       if (req.method !== 'POST' || !req.url?.endsWith('/getEntitlements')) {
         return reply(404, { error: { status: 'NOT_FOUND', message: 'DEV issuer serves getEntitlements only' } });
       }
       if (mode === 'offline') return reply(503, { error: { status: 'UNAVAILABLE', message: 'offline mode' } });
       try {
-        const uid = tokenUid(req.headers.authorization);
         const inst = JSON.parse(body).data?.installation_id;
         if (typeof inst !== 'string' || !inst) throw new Error('missing installation_id');
+        const uid = tokenUid(req.headers.authorization, inst);
         console.log(`${new Date().toISOString()} ${mode} uid=${uid} inst=${inst}`);
         reply(200, { result: verdict(key, project, mode, uid, inst) });
       } catch (error) {
         reply(400, { error: { status: 'INVALID_ARGUMENT', message: String(error.message ?? error) } });
       }
     });
-  }).listen(port, '127.0.0.1', () => {
+  });
+
+const serve = (port) => {
+  const key = loadKey();
+  const project = secret('DOMIOS_QA_PROJECT_ID');
+  if (!project) throw new Error('DOMIOS_QA_PROJECT_ID is not in the secret store');
+  createIssuer(key, project).listen(port, '127.0.0.1', () => {
     console.log(`DEV issuer on http://127.0.0.1:${port}/ (mode ${currentMode()}, key ${KEY_ID})`);
   });
 };
 
-const [command, ...rest] = process.argv.slice(2);
-if (command === 'serve') {
-  const flag = rest.indexOf('--port');
-  serve(flag >= 0 ? Number(rest[flag + 1]) : 15200);
-} else if (command === 'mode' && rest.length === 0) {
-  console.log(currentMode());
-} else if (command === 'mode' && MODES.includes(rest[0])) {
-  writeFileSync(MODE_FILE, rest[0]);
-  console.log(`mode ${rest[0]}`);
-} else {
-  console.error(usage);
-  process.exit(2);
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const [command, ...rest] = process.argv.slice(2);
+  if (command === 'serve') {
+    const flag = rest.indexOf('--port');
+    serve(flag >= 0 ? Number(rest[flag + 1]) : 15200);
+  } else if (command === 'smoke') {
+    const inst = 'smoke-installation';
+    const uid = tokenUid(`Bearer domios-local-dev.uid=local-dev-user&installation_id=${inst}`, inst);
+    const project = secret('DOMIOS_QA_PROJECT_ID');
+    if (!project) throw new Error('missing QA project');
+    const grant = verdict(loadKey(), project, 'sponsor', uid, inst).grant;
+    const payload = Buffer.from(grant.payload, 'base64url');
+    const publicKey = createPublicKey({ key: Buffer.from(SPKI, 'base64'), format: 'der', type: 'spki' });
+    if (!verify(null, payload, publicKey, Buffer.from(grant.signature, 'base64url'))) throw new Error('invalid TEST signature');
+    const claims = JSON.parse(payload);
+    if (claims.sub !== uid || claims.inst !== inst || claims.aud.project !== project || !claims.perks.sponsor) throw new Error('invalid Sponsor claims');
+    console.log('PASS: local-dev-user Sponsor verdict verifies with pinned TEST key and QA project');
+  } else if (command === 'mode' && rest.length === 0) {
+    console.log(currentMode());
+  } else if (command === 'mode' && MODES.includes(rest[0])) {
+    writeFileSync(MODE_FILE, rest[0]);
+    console.log(`mode ${rest[0]}`);
+  } else {
+    console.error(usage);
+    process.exit(2);
+  }
 }

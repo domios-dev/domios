@@ -72,21 +72,36 @@ impl Cloud {
             installation_id: id,
         }
     }
+    fn request(
+        &self,
+        session: &Session,
+        name: &str,
+        data: serde_json::Value,
+    ) -> Result<reqwest::RequestBuilder> {
+        let url = self
+            .base
+            .join(name)
+            .map_err(|_| "Invalid billing endpoint")?;
+        #[cfg(debug_assertions)]
+        let local_bearer = self.local_dev_bearer(session, &url);
+        #[cfg(debug_assertions)]
+        let bearer = local_bearer.as_deref().unwrap_or(session.id_token.expose());
+        #[cfg(not(debug_assertions))]
+        let bearer = session.id_token.expose();
+        Ok(self
+            .client
+            .post(url)
+            .bearer_auth(bearer)
+            .json(&serde_json::json!({"data":data})))
+    }
     async fn call<T: DeserializeOwned>(
         &self,
         session: &Session,
         name: &str,
         data: serde_json::Value,
     ) -> Result<T> {
-        let url = self
-            .base
-            .join(name)
-            .map_err(|_| "Invalid billing endpoint")?;
         let response = self
-            .client
-            .post(url)
-            .bearer_auth(session.id_token.expose())
-            .json(&serde_json::json!({"data":data}))
+            .request(session, name, data)?
             .send()
             .await
             .map_err(|_| "Billing server unreachable")?;
@@ -104,6 +119,21 @@ impl Cloud {
                 .ok_or("Invalid callable response")?,
         )
         .map_err(|_| "Invalid billing response".into())
+    }
+    #[cfg(debug_assertions)]
+    fn local_dev_bearer(&self, session: &Session, target: &url::Url) -> Option<String> {
+        if !dev_issuer(target)
+            || target != &self.base.join("getEntitlements").ok()?
+            || session.identity.provider != "local"
+            || session.identity.uid != "local-dev-user"
+        {
+            return None;
+        }
+        let claims = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("uid", &session.identity.uid)
+            .append_pair("installation_id", self.installation_id.as_str())
+            .finish();
+        Some(format!("domios-local-dev.{claims}"))
     }
     async fn browser_url(
         &self,
