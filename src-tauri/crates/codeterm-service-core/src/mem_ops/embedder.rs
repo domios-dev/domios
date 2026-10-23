@@ -330,10 +330,7 @@ fn activate_configured(svc: &ServiceState) {
     {
         match catalog::activate(&stamped_selection(&stamp), &ctx, configured.remote_opt_in) {
             Ok(published) => {
-                if let Err(error) = svc.mem.reconcile_embedder(published) {
-                    log::warn!("[mem.embedder] published provider restore failed: {error}");
-                    return;
-                }
+                svc.mem.adopt_published(published);
             }
             Err(error) => {
                 log::warn!(

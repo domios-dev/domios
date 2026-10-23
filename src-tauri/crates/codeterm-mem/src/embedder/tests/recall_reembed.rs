@@ -350,3 +350,76 @@ fn recall_reembed_1k_items_need_one_provider_and_no_enrichment() {
     assert_eq!(new.calls.load(Ordering::SeqCst), 1000);
     assert!(enricher.jobs.lock().is_empty());
 }
+
+#[test]
+fn recall_reembed_watchdog_cannot_fail_a_claimed_publication() {
+    let provider = MockProvider::new("old", "old", 384);
+    let active = crate::embedder::ActiveEmbedder::new(provider.clone());
+    let tracker = crate::embedder::switch::ReembedTracker::new(StepClock::new());
+    let generation = tracker.start(
+        provider.identity(),
+        crate::embedder::SwitchPlan::default(),
+        &active,
+    );
+    assert!(tracker.claim(generation));
+    tracker.fail(generation, "worker stopped advancing".into(), &active);
+    assert_eq!(tracker.snapshot().state, ReembedState::Running);
+    assert!(!tracker.cancel("late cancel".into(), &active));
+    tracker.finish(generation, &active);
+    assert_eq!(tracker.snapshot().state, ReembedState::Completed);
+}
+
+#[test]
+fn recall_reembed_worker_beats_around_each_diff_and_publication() {
+    let (fx, _, _) = seeded(&["apples orchard"]);
+    let new = MockProvider::new("new", "new", 768);
+    fx.mem.prepare_shadow(&new.identity()).unwrap();
+    let generation =
+        fx.mem
+            .reembed
+            .start(new.identity(), fx.mem.reembed_plan().unwrap(), &fx.embedder);
+    let (beat, beats) = std::sync::mpsc::channel();
+    fx.mem
+        .run_shadow(
+            generation,
+            crate::embedder::ActiveEmbedder::new(new.clone()),
+            &beat,
+        )
+        .unwrap();
+    // pass start, diff done, one unit, before publication, after publication
+    assert_eq!(beats.try_iter().count(), 5);
+    assert_eq!(stamp(&fx), Some(new.identity()));
+}
+
+#[test]
+fn recall_reembed_unavailable_unit_is_retried_once_before_publication() {
+    let (fx, _, ids) = seeded(&["apples orchard", "flaky pears", "plums"]);
+    let new = MockProvider::new("new", "new", 768);
+    new.fail_once("flaky", EmbedError::Unavailable("timeout".into()));
+    fx.mem.switch_embedder(new.clone()).unwrap();
+    let progress = settled(&fx, ReembedState::Completed);
+    assert_eq!(progress.failed, 0);
+    assert!(vector_rows(&fx.mem)
+        .iter()
+        .any(|row| row.starts_with(&ids[1])));
+    assert!(!pending::ids(&fx.mem.conn.lock()).unwrap().contains(&ids[1]));
+}
+
+#[test]
+fn recall_reembed_startup_removes_a_shadow_left_by_a_crash() {
+    let (fx, old, _) = seeded(&["apples orchard"]);
+    let main: String = fx
+        .mem
+        .conn
+        .lock()
+        .query_row(
+            "SELECT file FROM pragma_database_list WHERE name='main'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let orphan = format!("{main}.reembed");
+    std::fs::write(&orphan, b"left by a crash").unwrap();
+    assert_eq!(fx.mem.reconcile_embedder(old).unwrap(), None);
+    assert!(!std::path::Path::new(&orphan).exists());
+}

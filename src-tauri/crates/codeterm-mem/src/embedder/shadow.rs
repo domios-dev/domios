@@ -145,6 +145,7 @@ impl MemManager {
         let stamp = serde_json::to_string(&identity).map_err(|error| error.to_string())?;
         let mut docs = None;
         for pass in 0..PASSES {
+            let _ = changed.send(());
             let stale = {
                 let conn = self.conn.lock();
                 let units = self.shadow_units(&conn)?;
@@ -167,7 +168,9 @@ impl MemManager {
                 }
                 stale
             };
+            let _ = changed.send(());
             let mut streak = 0;
+            let mut unavailable = Vec::new();
             for unit in &stale {
                 if !self.reembed.is_current(generation) {
                     return Err("re-embed cancelled".into());
@@ -185,6 +188,7 @@ impl MemManager {
                                 "provider unavailable for {streak} consecutive items: {reason}"
                             ));
                         }
+                        unavailable.push(unit);
                         (None, Some(format!("{}: {reason}", unit.id)))
                     }
                     Err(EmbedError::Refused(reason)) => {
@@ -206,6 +210,22 @@ impl MemManager {
                 }
                 let _ = changed.send(());
             }
+            for unit in unavailable {
+                if !self.reembed.is_current(generation) {
+                    return Err("re-embed cancelled".into());
+                }
+                if let Ok(blob) = embed_unit(&target, &identity, unit) {
+                    self.conn
+                        .lock()
+                        .execute(
+                            "UPDATE reembed.shadow SET vectors=?3 WHERE target=?1 AND unit_key=?2",
+                            params![stamp, unit.key(), blob],
+                        )
+                        .map_err(|error| error.to_string())?;
+                    self.reembed.recovered(generation);
+                }
+                let _ = changed.send(());
+            }
             if docs.is_none() {
                 if let Some(data_dir) = &self.docs_dir {
                     docs = Some(crate::docs_source::prepare_reembed(
@@ -218,7 +238,10 @@ impl MemManager {
                     )?);
                 }
             }
-            if self.publish_shadow(generation, &target, &stamp)? {
+            let _ = changed.send(());
+            let published = self.publish_shadow(generation, &target, &stamp)?;
+            let _ = changed.send(());
+            if published {
                 if let Some(docs) = docs {
                     crate::docs_source::publish_reembed(docs, &self.embedder);
                 }
