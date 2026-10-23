@@ -959,6 +959,9 @@ pub(super) fn apply_middleware(router: Router<AppState>, state: AppState) -> Rou
     #[cfg(debug_assertions)]
     let router = router.layer(middleware::from_fn(super::request_census::record));
     router
+        .layer(middleware::from_fn(
+            super::plan_quota_status::typed_plan_refusal,
+        ))
         .layer(CatchPanicLayer::new())
         .layer(middleware::from_fn(
             mem_routes::decision::supporter_error_envelope,
