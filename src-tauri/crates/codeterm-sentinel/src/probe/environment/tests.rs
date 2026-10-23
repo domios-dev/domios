@@ -164,7 +164,10 @@ fn blueprint_v2_runtime_windows_environment_keeps_executable_resolution() {
     assert_eq!(variables[OsStr::new("PATHEXT")], ".EXE;.CMD;.CUSTOM");
     assert_eq!(
         variables[OsStr::new("COMSPEC")],
-        root.path().join("System32/cmd.exe").into_os_string()
+        root.path()
+            .join("System32")
+            .join("cmd.exe")
+            .into_os_string()
     );
     assert_eq!(
         std::env::split_paths(&variables[OsStr::new("PATH")]).collect::<Vec<_>>(),
