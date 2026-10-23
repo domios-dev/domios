@@ -205,8 +205,8 @@ async fn route(State(api): State<EarlyApi>, request: Request) -> Response {
         .extensions()
         .get::<ConnectInfo<SocketAddr>>()
         .is_some_and(|peer| peer.0.ip().is_loopback());
-    if read && path == "/api/startup/events" {
-        let authenticated = api.token.as_ref().is_some_and(|token| {
+    let authenticated = local
+        || api.token.as_ref().is_some_and(|token| {
             request
                 .headers()
                 .get(axum::http::header::AUTHORIZATION)
@@ -214,7 +214,8 @@ async fn route(State(api): State<EarlyApi>, request: Request) -> Response {
                     value.as_bytes().strip_prefix(b"Bearer ") == Some(token.as_bytes())
                 })
         });
-        if !local && !authenticated {
+    if read && path == "/api/startup/events" {
+        if !authenticated {
             return StatusCode::FORBIDDEN.into_response();
         }
         let mut changes = api.changes.subscribe();
@@ -243,7 +244,9 @@ async fn route(State(api): State<EarlyApi>, request: Request) -> Response {
             .unwrap_or_else(|error| match error {});
     }
     if read && path == "/api/health" {
-        // Remote health proofs need liveness too; this contains no credentials or user state.
+        if !authenticated {
+            return StatusCode::FORBIDDEN.into_response();
+        }
         return Json(serde_json::json!({
             "status": if readiness.state == PhaseState::Failed { "error" } else { "ok" }, "startup": readiness,
             "version": codeterm_build_info::version(),

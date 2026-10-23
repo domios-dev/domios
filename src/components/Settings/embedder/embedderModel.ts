@@ -27,6 +27,19 @@ export interface Refusal {
   hints: string[];
 }
 
+export function normalizeRefusal(reason: unknown): Refusal {
+  if (typeof reason === "string") return { message: reason, hints: [] };
+  if (reason !== null && typeof reason === "object") {
+    return {
+      message: "message" in reason && typeof reason.message === "string" ? reason.message : "The embedder request failed.",
+      hints: "hints" in reason && Array.isArray(reason.hints)
+        ? reason.hints.filter((hint): hint is string => typeof hint === "string")
+        : [],
+    };
+  }
+  return { message: "The embedder request failed.", hints: [] };
+}
+
 export interface ProviderModel {
   model: string;
   dimension: number;
@@ -41,7 +54,29 @@ export interface ProviderListing {
   remote: boolean;
   models: ProviderModel[];
   active: boolean;
+  key?: {
+    file: { path: string; present: boolean; owner_only: boolean | null };
+    in_vault: boolean;
+  } | null;
   refusal: Refusal | null;
+}
+
+export function refusalForPlatform(reason: unknown, provider: ProviderListing | undefined, remoteOptIn: boolean, platform: string): Refusal {
+  const refusal = normalizeRefusal(reason);
+  if (!provider?.remote) return refusal;
+  const hints: string[] = [];
+  const key = provider.key;
+  if (!key || (key.file.present ? key.file.owner_only !== true : !key.in_vault)) {
+    hints.push(`Pipe the key on stdin to: domios mem embedder key set ${provider.id}`);
+    const file = key?.file.path ?? `<data_dir>/secrets/${provider.id}-embedder.key`;
+    hints.push(/^win/i.test(platform)
+      ? `Manual Windows fallback: create ${file} as an empty file, disable inheritance and grant an owner-only ACL with icacls before writing the key (domios docs MEMORY).`
+      : `Manual Unix fallback: create ${file} with umask 077 and chmod 600 before writing the key (domios docs MEMORY).`);
+  }
+  if (!remoteOptIn) {
+    hints.push("After reading the warning that memory text goes to a third party: domios config set memory.embedder.remote_opt_in true");
+  }
+  return normalizeRefusal({ message: refusal.message, hints });
 }
 
 export interface EmbedderListing {

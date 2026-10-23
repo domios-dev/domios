@@ -11,6 +11,10 @@ CLI identity rules, environment variables, agent integration, and desktop behavi
 
 Use `domios <command> --help` for the installed CLI contract. `codeterm` remains a fully working alias; both names show canonical `domios` help and usage.
 
+### Startup readiness
+
+When the socket is unavailable, CLI discovery checks the selected instance's loopback health without credentials. Normal daemon commands wait on startup events within one 30-second deadline before sending their first command; REST listener recovery refuses immediately. Errors name the phase and use `starting` or `startup_failed`, preserving the snapshot in JSON `data.startup`. HTTP fallback reads the selected configuration's token when absent from the environment. Commands never replay.
+
 ### Remote task locations
 
 `agent providers --json` exposes an optional `remote_task` capability on the provider itself. Its `mode` identifies an explicit execution location; `availability` and `environments` determine whether Cloud can start. A declared location does not establish live account access.
@@ -190,4 +194,4 @@ provider's own machine. Completion verifies the account and resumes the tab's
 same thread without restarting or replaying input. Only one sign-in per provider
 can be pending; Cancel releases it before a retry.
 
-<!-- revision: 56 -->
+<!-- revision: 57 -->

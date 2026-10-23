@@ -4,6 +4,67 @@ use serde_json::json;
 use std::sync::mpsc;
 use std::time::Duration;
 
+fn status_snapshot(generation: u64) -> serde_json::Value {
+    json!({"generation": generation, "workspaces": [], "tabs": {
+        "a": {"id": "a", "title": "A", "agent_state": {"state": "working"}},
+        "b": {"id": "b", "title": "B", "agent_state": null}
+    }, "tab_statuses": {"a": "Working", "b": "Idle"}})
+}
+
+#[test]
+fn status_delta_uses_last_published_generation_and_carries_removals() {
+    let initial = status_snapshot(1);
+    let published = PublishedMuxState::new(1, &initial).unwrap();
+    assert!(published
+        .publish_change(10, &status_snapshot(10))
+        .unwrap()
+        .is_none());
+    let mut next = status_snapshot(20);
+    next["tabs"]["a"]["agent_state"] = json!({"state": "idle"});
+    next["tab_statuses"].as_object_mut().unwrap().remove("a");
+    assert_eq!(
+        published.publish_change(20, &next).unwrap(),
+        Some(json!({
+            "generation": 20, "base_generation": 1,
+            "status_deltas": {"a": {"status": null, "agent_state": {"state": "idle"}}}
+        }))
+    );
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&published.read()).unwrap(),
+        next
+    );
+    assert!(published.publish_change(19, &initial).unwrap().is_none());
+}
+
+#[test]
+fn any_structural_change_falls_back_to_refetch_including_mixed_status_batches() {
+    for (field, value) in [
+        ("title", json!("renamed")),
+        ("cwd", json!("/changed")),
+        ("pending_prompt", json!({"kind": "attention"})),
+    ] {
+        let initial = status_snapshot(1);
+        let published = PublishedMuxState::new(1, &initial).unwrap();
+        let mut next = status_snapshot(3);
+        next["tabs"]["a"][field] = value;
+        next["tab_statuses"]["a"] = json!("Idle");
+        assert_eq!(
+            published.publish_change(3, &next).unwrap(),
+            Some(json!({"generation": 3}))
+        );
+    }
+    for field in ["tabs", "workspaces", "teams", "focused_tab_id"] {
+        let initial = status_snapshot(1);
+        let published = PublishedMuxState::new(1, &initial).unwrap();
+        let mut next = status_snapshot(4);
+        next[field] = json!(null);
+        assert_eq!(
+            published.publish_change(4, &next).unwrap(),
+            Some(json!({"generation": 4}))
+        );
+    }
+}
+
 #[test]
 fn first_read_has_a_complete_snapshot_and_shares_its_buffer() {
     let initial = json!({ "generation": 1, "tabs": {} });

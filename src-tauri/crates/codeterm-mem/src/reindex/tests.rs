@@ -41,7 +41,6 @@ fn blueprint_embedding_starts_with_intent_and_describes_structure() {
 #[cfg(feature = "embeddings")]
 #[test]
 fn reindex_existing_blueprint_uses_saved_intent_in_canonical_description() {
-    crate::embeddings::ensure_extension_registered();
     let mem = crate::MemManager::open_in_memory().unwrap();
     let document = codeterm_blueprint_types::blueprint_document::Document::from_definition(
         &serde_json::json!({"create":{"name":"watch-ci", "probe":"echo ready", "question":"Ready?",

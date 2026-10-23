@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useBackDismissal } from "../lib/backDismissal";
 import { SHELL_NARROW_QUERY } from "../lib/shellBreakpoint";
 
 const SLIDE_OUT_MS = 300;
@@ -61,6 +62,7 @@ export function useSidebarViewport(): SidebarViewport {
   }, [open, phone]);
 
   const close = useCallback(() => setOpen(false), []);
+  useBackDismissal(phone && open, close);
   const toggle = useCallback(() => setOpen((value) => !value), []);
   const closeOnPhone = useCallback(() => {
     if (isPhoneViewport()) setOpen(false);

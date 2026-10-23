@@ -403,6 +403,11 @@ pub enum MemEmbedderAction {
     List,
     /// Show the active provider, model, dimension, re-embed progress and vector-pending count.
     Status,
+    /// Store an embedder API key locally from stdin, with owner-only permissions.
+    Key {
+        #[command(subcommand)]
+        action: MemEmbedderKeyAction,
+    },
     /// Switch the embedder and re-embed every item in the background. A remote
     /// provider needs its stored key and memory.embedder.remote_opt_in.
     Use {
@@ -414,6 +419,16 @@ pub enum MemEmbedderAction {
         /// Vector dimension, for models that accept one; defaults to the model's own.
         #[arg(long)]
         dimension: Option<usize>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum MemEmbedderKeyAction {
+    /// Atomically write <data_dir>/secrets/<provider>-embedder.key.
+    /// Pipe the key on stdin; terminal input and argv keys are refused.
+    Set {
+        /// Provider id from `mem embedder list`.
+        provider: String,
     },
 }
 

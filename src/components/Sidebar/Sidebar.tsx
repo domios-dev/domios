@@ -129,7 +129,7 @@ export const Sidebar = memo(function Sidebar({
     reopenGroup,
     restoreOrphaned,
     setActiveTab,
-    setTabTitle,
+    renameTab,
     spawnAgentTab,
     createOrchestrationPair,
     selectTabByTab,
@@ -714,7 +714,7 @@ export const Sidebar = memo(function Sidebar({
     activateWorkspace: (workspaceId) => { setActiveWorkspace(workspaceId); onNavigateToTab?.(); },
     activateTab: (workspaceId, tabId) => { setActiveTab(workspaceId, tabId); onNavigateToTab?.(); },
     closeTab: animatedCloseTab,
-    renameTab: setTabTitle,
+    renameTab,
     renameWorkspace,
     closeWorkspace: requestWorkspaceClose,
     newTerminal: (workspaceId, shell) => createTab(workspaceId, undefined, shell),
@@ -727,7 +727,7 @@ export const Sidebar = memo(function Sidebar({
     renameTeam: teamActions?.onRenameTeam,
     addTeamMember: teamActions?.onAddTeamMember,
     closeTeam: teamActions?.onCloseTeam ? requestTeamClose : undefined,
-  }), [setActiveWorkspace, onNavigateToTab, setActiveTab, animatedCloseTab, setTabTitle, renameWorkspace, requestWorkspaceClose,
+  }), [setActiveWorkspace, onNavigateToTab, setActiveTab, animatedCloseTab, renameTab, renameWorkspace, requestWorkspaceClose,
     createTab, handleNewSession, handleAgentSpawn, onOpenWorkspaceMap, onOpenWorkspaceAutomation, handleRenamePlan,
     teamActions?.onRenameTeam, teamActions?.onAddTeamMember, teamActions?.onCloseTeam, requestTeamClose]);
   const dndHandlers = useMemo(

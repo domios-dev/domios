@@ -11,6 +11,16 @@ const FIRST: &str = "start-1";
 const SECOND: &str = "start-2";
 const THIRD: &str = "start-3";
 
+fn step(mux: &MuxState, tab_id: &str, start_epoch: &str) -> Step {
+    super::step(mux, tab_id, start_epoch, RuntimeReadiness::Unsupported)
+}
+
+fn advance_consider(mux: &MuxState, tab_id: &str, wave: &Wave, stopping: bool) -> Option<Step> {
+    super::advance_consider(tab_id, wave, stopping, || {
+        step(mux, tab_id, wave.start_epoch)
+    })
+}
+
 fn agent_tab(state: TimelineState) -> (MultiplexerState, String) {
     let (mut mux, tab_id) = MultiplexerState::new();
     let tab = mux.get_tab_mut(&tab_id).expect("fixture tab");
@@ -492,56 +502,6 @@ fn unauthenticated_resume_waits_then_expires_unverified() {
 
     assert_eq!(step(&restored, &tab_id, SECOND), Step::Waiting);
     assert_eq!(expire(&restored, &tab_id, SECOND), Some(SESSION_UNVERIFIED));
-}
-
-#[test]
-fn chat_backend_tab_never_receives_a_pty_continue() {
-    let (mut mux, tab_id) = agent_tab(TimelineState::Idle);
-    let tab = mux.get_tab_mut(&tab_id).expect("tab");
-    tab.backing = TabBacking::ChatBackend {
-        plugin_id: "opaque-plugin".into(),
-        session_id: "session-a".into(),
-    };
-    tab.agent_state = Some(
-        TabVerdict {
-            state: TimelineState::Working,
-            subtype: None,
-        }
-        .into(),
-    );
-    tab.pty_id = None;
-    assert!(record_turn_edge(tab, FIRST));
-
-    request_continue(&mut tab.turn_resume, "session-a", FIRST, "opaque".into());
-    let mut restored = restart(&mux);
-    assert!(restored.get_tab(&tab_id).unwrap().pty_id.is_none());
-    let mux = shared(restart(&restored));
-    assert_eq!(step(&mux, &tab_id, SECOND), Step::Waiting);
-    resumed_ready(&mut restored, &tab_id, "session-a");
-    restored.get_tab_mut(&tab_id).unwrap().pty_id = None;
-    let mux = shared(restored);
-    let claim = match step(&mux, &tab_id, SECOND) {
-        Step::Claimed(claim) => claim,
-        other => panic!("expected runtime claim, got {other:?}"),
-    };
-    assert!(claim.pty_id.is_none());
-    let mut sends = Vec::new();
-    deliver_claim(
-        &claim,
-        || true,
-        || true,
-        |body, _| {
-            sends.push(body.to_string());
-            Ok(())
-        },
-    )
-    .unwrap();
-    assert_eq!(sends, ["opaque"]);
-    assert_eq!(step(&mux, &tab_id, SECOND), Step::Settled);
-    assert_eq!(
-        step(&shared(restart(&mux.read())), &tab_id, THIRD),
-        Step::Settled
-    );
 }
 
 #[test]

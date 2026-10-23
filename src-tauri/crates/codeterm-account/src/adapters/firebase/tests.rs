@@ -226,6 +226,35 @@ fn backend_error_codes_are_logged_only_when_they_match_the_safe_pattern() {
     assert_eq!(safe_backend_error_code(None), "unrecognized");
 }
 
+#[test]
+fn refresh_http_failures_sign_out_only_for_credential_rejections() {
+    for status in [429, 500, 503] {
+        assert_eq!(classify_http_error(status, None), Error::Transport);
+        assert_eq!(
+            classify_http_error(
+                status,
+                Some(&json!({"error":{"message":"INVALID_REFRESH_TOKEN"}}))
+            ),
+            Error::Transport
+        );
+    }
+    assert_eq!(
+        classify_http_error(
+            400,
+            Some(&json!({"error":{"message":"INVALID_REFRESH_TOKEN"}}))
+        ),
+        Error::Credentials
+    );
+    assert_eq!(
+        classify_http_error(400, Some(&json!({"error":{"message":"USER_DISABLED"}}))),
+        Error::Credentials
+    );
+    assert_eq!(
+        classify_http_error(400, Some(&json!({"error":{"message":"SOME_OTHER_ERROR"}}))),
+        Error::Transport
+    );
+}
+
 fn fixture_config() -> Config {
     Config {
         provider: "firebase".into(),
