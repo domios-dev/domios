@@ -1,5 +1,5 @@
 use super::ServiceContext;
-use codeterm_billing::{adapters, Billing, Entitlements, RefreshEvent, Snapshot};
+use codeterm_billing::{adapters, Billing, RefreshEvent, Snapshot};
 pub use codeterm_entitlements::{
     LimitGate, LimitKey, LimitRefusal, LimitSummary, LockedRefusal, FREE_LIMIT_REACHED,
     PLAN_LIMIT_LOCKED,
@@ -12,14 +12,15 @@ use std::{sync::Arc, time::Instant};
 pub struct BillingCell(pub Arc<tokio::sync::OnceCell<Arc<Billing>>>);
 
 impl ServiceContext {
-    /// Capture before taking the mux lock. Dormant unless this build pins Phase B enforcement;
-    /// before billing starts it is the compiled free baseline, as Phase B grants without a verdict.
+    /// Capture before taking the mux lock. Before billing starts it is the compiled free baseline.
     pub fn limit_gate(&self) -> LimitGate {
-        if !codeterm_entitlements::enforcing(codeterm_entitlements::ACTIVATION.as_ref()) {
-            return LimitGate::dormant();
-        }
         self.ext::<BillingCell>().0.get().map_or_else(
-            || LimitGate::new(codeterm_entitlements::compiled_free(), true),
+            || {
+                LimitGate::new(
+                    codeterm_entitlements::compiled_free(),
+                    codeterm_entitlements::enforcing(),
+                )
+            },
             |billing| billing.limit_gate(),
         )
     }
@@ -52,34 +53,6 @@ impl ServiceContext {
                         config.get("endpoint").and_then(|v| v.as_str()),
                         installation_id.clone(),
                     )?,
-                    "local" if cfg!(debug_assertions) => {
-                        let origin = url::Url::parse(
-                            config
-                                .get("origin")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("http://127.0.0.1:15100/"),
-                        )
-                        .map_err(|_| "Invalid local billing origin")?;
-                        if origin.scheme() != "http"
-                            || origin.host_str() != Some("127.0.0.1")
-                            || !origin.username().is_empty()
-                            || origin.password().is_some()
-                        {
-                            return Err("Local billing requires loopback HTTP".into());
-                        }
-                        Arc::new(adapters::local::Local {
-                            origin,
-                            read: Box::new(move || {
-                                let value = state.lock().billing.get("entitlements").cloned();
-                                match value {
-                                    Some(value) => serde_json::from_value(value)
-                                        .map_err(|_| "Invalid local entitlements".into()),
-                                    None => Ok(Entitlements::default()),
-                                }
-                            }),
-                        })
-                    }
-                    "fake" if cfg!(debug_assertions) => Arc::new(adapters::fake::Fake::default()),
                     _ => return Err("Unknown or unavailable billing provider".into()),
                 };
                 let mut billing = Billing::new(adapter).with_grants(
@@ -92,7 +65,29 @@ impl ServiceContext {
                     billing =
                         billing.with_observer(super::analytics::billing_observer(worker.clone()));
                 }
-                Ok::<_, String>(Arc::new(billing))
+                let billing = Arc::new(billing);
+                if let Some(session) = self.account().await?.session().await {
+                    let primer = billing.clone();
+                    let deadline = tokio::task::spawn_blocking(move || primer.prime(&session))
+                        .await
+                        .ok()
+                        .flatten();
+                    if let Some(deadline) = deadline {
+                        let wait = deadline.saturating_sub(
+                            std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_secs(),
+                        );
+                        let service = self.clone();
+                        // Failure bound only: a refresh answer re-syncs the gate sooner.
+                        crate::async_runtime::spawn(async move {
+                            tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+                            service.sync_limit_gate();
+                        });
+                    }
+                }
+                Ok::<_, String>(billing)
             })
             .await?;
         Ok(billing.clone())

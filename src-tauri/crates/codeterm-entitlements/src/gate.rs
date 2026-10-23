@@ -1,4 +1,3 @@
-use crate::activation::{Activation, Phase};
 use crate::payload::Limits;
 use crate::verdict::{compiled_free, EffectiveAccess};
 use std::collections::BTreeSet;
@@ -114,12 +113,6 @@ impl LockSet {
     pub fn iter(&self) -> impl Iterator<Item = &str> {
         self.0.iter().map(String::as_str)
     }
-}
-
-/// Only a Phase B activation with enforcement on makes limits binding.
-pub fn enforcing(activation: Option<&Activation>) -> bool {
-    activation
-        .is_some_and(|activation| activation.phase == Phase::B && activation.enforcement.enabled)
 }
 
 /// What a client needs to pre-check creation; the gate's own refusal stays the authority.

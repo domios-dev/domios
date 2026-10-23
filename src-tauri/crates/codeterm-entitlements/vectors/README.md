@@ -8,7 +8,7 @@ The RFC 8032 key in these packets is public test material; production never trus
 - `limits-vectors.json`: shared limit-shape cases for `teams` and `agent.tabs` (see below).
 
 ## Online epoch time model
-- `refresh_after = issued_at + 1800`, `expires_at = issued_at + 3600`, `grace_until = expires_at`. There is no offline grace and no paid tail.
+- `refresh_after = issued_at + 3600`, `expires_at = issued_at + 86400`, `grace_until = expires_at`. There is no offline grace and no paid tail.
 - Access ends at `min(expires_at, period_end)`: an earlier authoritative `period_end` stops paid access before the signed expiry.
 - States are half-open: `not-yet-valid` before `not_before`, `expired` from the effective end, `fresh` before `refresh_after`, `stale` otherwise.
 - The epoch supersedes the earlier seven-day paid lease, fourteen-day grace and admin 24 h + 72 h windows; grants built on those equations fail `check_invariants`.

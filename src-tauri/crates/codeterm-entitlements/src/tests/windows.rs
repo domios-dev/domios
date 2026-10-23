@@ -1,5 +1,4 @@
 use super::support::{admin, free, paid, with, LocalSigner, T};
-use crate::activation::{access_source, AccessSource, Phase};
 use crate::payload::{Authority, TransitionReason};
 use crate::verdict::{compiled_free, TimeState};
 use serde_json::json;
@@ -12,7 +11,7 @@ fn online_windows_are_half_open() {
         let p = grant.payload();
         assert_eq!(
             (p.refresh_after, p.expires_at, p.grace_until),
-            (T + 1_800, T + 3_600, T + 3_600)
+            (T + 3_600, T + 86_400, T + 86_400)
         );
         let cases = [
             (T - 1, TimeState::NotYetValid),
@@ -35,10 +34,10 @@ fn earlier_period_end_ends_paid_access_without_a_tail() {
     let early = signer.accept(&with(paid(), json!({"period_end": T + 900})), T);
     assert_eq!(early.verdict(T + 899).state, TimeState::Fresh);
     assert_eq!(early.verdict(T + 900).state, TimeState::Expired);
-    let mid = signer.accept(&with(paid(), json!({"period_end": T + 2_700})), T);
-    assert_eq!(mid.verdict(T + 2_699).state, TimeState::Stale);
-    assert_eq!(mid.verdict(T + 2_700).state, TimeState::Expired);
-    assert_eq!(mid.verdict(T + 2_700).effective(), compiled_free());
+    let mid = signer.accept(&with(paid(), json!({"period_end": T + 43_200})), T);
+    assert_eq!(mid.verdict(T + 43_199).state, TimeState::Stale);
+    assert_eq!(mid.verdict(T + 43_200).state, TimeState::Expired);
+    assert_eq!(mid.verdict(T + 43_200).effective(), compiled_free());
 }
 
 #[test]
@@ -60,20 +59,4 @@ fn effective_access_falls_back_to_compiled_free_outside_retention() {
         );
         assert_eq!(verdict.revision, 10);
     }
-}
-
-#[test]
-fn phases_choose_the_access_source() {
-    let signer = LocalSigner::new();
-    let verdict = signer.accept(&paid(), T).verdict(T);
-    assert_eq!(
-        access_source(Phase::A, Some(&verdict)),
-        AccessSource::Envelope
-    );
-    assert_eq!(access_source(Phase::A, None), AccessSource::Envelope);
-    assert_eq!(
-        access_source(Phase::B, Some(&verdict)),
-        AccessSource::Verdict
-    );
-    assert_eq!(access_source(Phase::B, None), AccessSource::CompiledFree);
 }

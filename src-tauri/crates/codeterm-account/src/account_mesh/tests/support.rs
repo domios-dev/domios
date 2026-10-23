@@ -4,7 +4,7 @@ use crate::{Identity, InstallationId, Secret, Session};
 use async_trait::async_trait;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use base64::Engine;
-use codeterm_entitlements::DetachedGrant;
+use codeterm_entitlements::{Activation, CompiledKey, DetachedGrant, Mode, PinnedAuthority};
 use ed25519_dalek::{Signature, Signer, SigningKey};
 use serde_json::json;
 use std::collections::HashMap;
@@ -68,12 +68,26 @@ impl Issuer {
         Self(SigningKey::from_bytes(&[7u8; 32]))
     }
     pub fn trust(&self) -> MembershipTrust {
-        MembershipTrust::new(
-            PROJECT.into(),
-            "test",
-            EPOCH.into(),
-            vec![(ISSUER_KEY.into(), self.0.verifying_key())],
-        )
+        let mut der = vec![
+            0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00,
+        ];
+        der.extend_from_slice(self.0.verifying_key().as_bytes());
+        let spki: &'static str = Box::leak(STANDARD.encode(der).into_boxed_str());
+        let keys: &'static [CompiledKey] = Box::leak(Box::new([CompiledKey {
+            key_id: ISSUER_KEY,
+            spki_der_base64: spki,
+        }]));
+        MembershipTrust::new(Arc::new(PinnedAuthority::new(Activation {
+            project: PROJECT,
+            mode: Mode::Test,
+            policy_version: 1,
+            policy_epoch: EPOCH,
+            enforcement: codeterm_entitlements::Enforcement {
+                enabled: true,
+                rollback: false,
+            },
+            keys,
+        })))
     }
     pub fn sign(&self, payload: &serde_json::Value) -> DetachedGrant {
         let text = codeterm_entitlements::jcs::encode(payload).unwrap();

@@ -1,11 +1,9 @@
 use super::key::sha256_hex;
 use super::wire::{MeshTarget, MESH_LINK_PERMIT_SECONDS};
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::Engine;
 use codeterm_entitlements::text::{scalar_text, valid_id, valid_installation_id};
-use codeterm_entitlements::{DetachedGrant, Mode, Policy};
-use ed25519_dalek::{Signature, VerifyingKey};
+use codeterm_entitlements::{DetachedGrant, EntitlementAuthority, Mode, Refusal};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 pub const MEMBERSHIP_ISSUER: &str = "domios-mesh-membership";
 pub const MAX_MEMBERSHIP_SECONDS: u64 = 3600;
@@ -22,60 +20,37 @@ pub fn account_id(uid: &str) -> String {
     sha256_hex(format!("{ACCOUNT_DOMAIN}{uid}").as_bytes())
 }
 
-/// Release-pinned issuer trust; the same keys sign grants, but only a Mesh payload verifies here.
+/// Issuer trust delegated to the entitlement authority; only a Mesh payload verifies here.
 #[derive(Clone)]
 pub struct MembershipTrust {
-    project: String,
+    authority: Arc<dyn EntitlementAuthority>,
+    project: &'static str,
     env: &'static str,
-    policy_epoch: String,
-    keys: Vec<(String, VerifyingKey)>,
+    policy_epoch: &'static str,
 }
 
 impl MembershipTrust {
-    pub fn new(
-        project: String,
-        env: &'static str,
-        policy_epoch: String,
-        keys: Vec<(String, VerifyingKey)>,
-    ) -> Self {
+    pub fn new(authority: Arc<dyn EntitlementAuthority>) -> Self {
+        let activation = authority.activation();
         Self {
-            project,
-            env,
-            policy_epoch,
-            keys,
+            project: activation.project,
+            env: match activation.mode {
+                Mode::Test => "test",
+                Mode::Live => "live",
+            },
+            policy_epoch: activation.policy_epoch,
+            authority,
         }
     }
 
-    pub fn from_policy(policy: &Policy) -> Option<Self> {
-        let spec = policy.spec();
-        let env = match spec.mode {
-            Mode::Test => "test",
-            Mode::Live => "live",
-        };
-        let keys = spec
-            .keys
-            .iter()
-            .map(|key| {
-                codeterm_entitlements::policy::parse_spki(&key.spki_der_base64)
-                    .map(|verifying| (key.key_id.clone(), verifying))
-            })
-            .collect::<Option<Vec<_>>>()?;
-        Some(Self::new(
-            spec.project.clone(),
-            env,
-            spec.policy_epoch.clone(),
-            keys,
-        ))
-    }
-
     pub fn project(&self) -> &str {
-        &self.project
+        self.project
     }
     pub fn mode(&self) -> &'static str {
         self.env
     }
     pub fn policy_epoch(&self) -> &str {
-        &self.policy_epoch
+        self.policy_epoch
     }
 }
 
@@ -190,25 +165,15 @@ fn signed_payload(
     if grant.alg != codeterm_entitlements::verify::ED25519 {
         return Err(R::Algorithm);
     }
-    let key = trust
-        .keys
-        .iter()
-        .find(|(id, _)| *id == grant.key_id)
-        .map(|(_, key)| key)
-        .ok_or(R::UnknownKey)?;
-    let signature = URL_SAFE_NO_PAD
-        .decode(&grant.signature)
-        .ok()
-        .and_then(|bytes| <[u8; 64]>::try_from(bytes.as_slice()).ok())
-        .ok_or(R::Encoding)?;
-    let bytes = URL_SAFE_NO_PAD
-        .decode(&grant.payload)
-        .map_err(|_| R::Encoding)?;
-    if bytes.len() > MAX_PAYLOAD_BYTES || URL_SAFE_NO_PAD.encode(&bytes) != grant.payload {
-        return Err(R::Encoding);
-    }
-    key.verify_strict(&bytes, &Signature::from_bytes(&signature))
-        .map_err(|_| R::Signature)?;
+    let bytes = trust
+        .authority
+        .authenticate(grant, MAX_PAYLOAD_BYTES)
+        .map_err(|refusal| match refusal {
+            Refusal::Algorithm => R::Algorithm,
+            Refusal::UnknownKey => R::UnknownKey,
+            Refusal::Signature => R::Signature,
+            _ => R::Encoding,
+        })?;
     let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(|_| R::Malformed)?;
     let canonical = codeterm_entitlements::jcs::encode(&value).map_err(|_| R::NonCanonical)?;
     if canonical.as_bytes() != bytes.as_slice() {
