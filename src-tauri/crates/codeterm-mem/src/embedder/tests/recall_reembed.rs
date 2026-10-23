@@ -423,3 +423,42 @@ fn recall_reembed_startup_removes_a_shadow_left_by_a_crash() {
     assert_eq!(fx.mem.reconcile_embedder(old).unwrap(), None);
     assert!(!std::path::Path::new(&orphan).exists());
 }
+
+#[test]
+fn shadow_residency_failed_run_can_be_discarded_then_retried_cleanly() {
+    let (fx, old, ids) = seeded(&["one", "two", "three", "four", "five", "six"]);
+    let new = MockProvider::new("new", "new", 768);
+    new.set_down(true);
+    fx.mem.switch_embedder(new.clone()).unwrap();
+    settled(&fx, ReembedState::Failed);
+    let shadow: String = fx
+        .mem
+        .conn
+        .lock()
+        .query_row(
+            "SELECT file FROM pragma_database_list WHERE name='reembed'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(std::path::Path::new(&shadow).exists());
+    assert_eq!(fx.mem.embedder_status().model, old.identity().model);
+    assert_eq!(
+        fx.mem.embedder_status().reembed.target,
+        Some(new.identity())
+    );
+    fx.mem.switch_embedder(old.clone()).unwrap();
+    assert!(!std::path::Path::new(&shadow).exists());
+    assert_eq!(
+        fx.mem.embedder_status().reembed.state,
+        ReembedState::Cancelled
+    );
+    assert_eq!(stamp(&fx), Some(old.identity()));
+    assert_eq!(top(&fx, "three").as_ref(), Some(&ids[2]));
+    new.set_down(false);
+    fx.mem.switch_embedder(new.clone()).unwrap();
+    settled(&fx, ReembedState::Completed);
+    assert_eq!(stamp(&fx), Some(new.identity()));
+    assert!(!std::path::Path::new(&shadow).exists());
+    assert_eq!(top(&fx, "three").as_ref(), Some(&ids[2]));
+}

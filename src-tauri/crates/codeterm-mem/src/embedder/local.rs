@@ -97,6 +97,23 @@ pub fn find(model: &str) -> Option<&'static LocalModel> {
     MODELS.iter().find(|row| row.model == model)
 }
 
+pub(super) fn retain_models(
+    published: &provider::EmbedderIdentity,
+    target: Option<&provider::EmbedderIdentity>,
+) {
+    #[cfg(feature = "embeddings")]
+    {
+        let models = std::iter::once(published)
+            .chain(target)
+            .filter(|identity| identity.provider == ID)
+            .map(|identity| identity.model.clone())
+            .collect();
+        crate::embedding_worker::retain_models(models);
+    }
+    #[cfg(not(feature = "embeddings"))]
+    let _ = (published, target);
+}
+
 pub struct LocalProvider {
     model: &'static LocalModel,
 }

@@ -12,6 +12,7 @@ fn recall_priority_queries_preempt_a_full_bulk_lane_at_the_next_boundary() {
         worker
             .bulk
             .try_send(Request {
+                caller: "fixture".into(),
                 model: L12,
                 text: "bulk".into(),
                 reply,
@@ -23,6 +24,7 @@ fn recall_priority_queries_preempt_a_full_bulk_lane_at_the_next_boundary() {
     worker
         .query
         .try_send(Request {
+            caller: "fixture".into(),
             model: L12,
             text: "recall".into(),
             reply,
@@ -74,6 +76,7 @@ fn queries_run_before_queued_bulk_work() {
     worker
         .bulk
         .try_send(Request {
+            caller: "fixture".into(),
             model: L12,
             text: "bulk".into(),
             reply: reply.clone(),
@@ -82,6 +85,7 @@ fn queries_run_before_queued_bulk_work() {
     worker
         .query
         .try_send(Request {
+            caller: "fixture".into(),
             model: L12,
             text: "query".into(),
             reply,
@@ -100,6 +104,7 @@ fn full_bulk_queue_refuses_without_waiting_for_the_model() {
         worker
             .bulk
             .try_send(Request {
+                caller: "fixture".into(),
                 model: L12,
                 text: String::new(),
                 reply,
@@ -234,6 +239,7 @@ fn request_arriving_during_pool_join_runs_without_a_second_wake() {
     worker
         .query
         .send(Request {
+            caller: "fixture".into(),
             model: L12,
             text: "during join".into(),
             reply,
@@ -270,6 +276,7 @@ fn queued_requests_share_one_cpu_pool() {
         worker
             .bulk
             .send(Request {
+                caller: "fixture".into(),
                 model: L12,
                 text: text.into(),
                 reply: reply.clone(),
@@ -309,12 +316,17 @@ fn queued_requests_share_one_cpu_pool() {
 #[test]
 fn recall_reembed_1k_requests_load_one_model() {
     let loads = AtomicUsize::new(0);
-    let mut model = None;
+    let mut model = ModelCache {
+        entries: Vec::new(),
+    };
+    let residency = Mutex::new(None);
     for _ in 0..1000 {
         let (reply, response) = mpsc::sync_channel(1);
         process(
             &mut model,
+            &residency,
             Request {
+                caller: "fixture".into(),
                 model: L12,
                 text: "ordinary memory fixture".into(),
                 reply,
@@ -328,4 +340,133 @@ fn recall_reembed_1k_requests_load_one_model() {
         assert_eq!(response.recv().unwrap().unwrap(), vec![1.0]);
     }
     assert_eq!(loads.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn shadow_residency_alternating_requests_load_twice_and_never_trip_watchdog() {
+    use std::cell::Cell;
+    let target = &crate::embedder::local::MODELS[1];
+    let residency = Mutex::new(None);
+    let mut cache = ModelCache {
+        entries: Vec::new(),
+    };
+    let loads = Cell::new(0);
+    let now = Cell::new(0u64);
+    let load = |_: &'static LocalModel| {
+        loads.set(loads.get() + 1);
+        now.set(now.get() + 90);
+        Ok(())
+    };
+    let mut request = |descriptor| {
+        let (reply, response) = mpsc::sync_channel(1);
+        process(
+            &mut cache,
+            &residency,
+            Request {
+                model: descriptor,
+                text: "fixture".into(),
+                reply,
+                caller: "fixture".into(),
+            },
+            &load,
+            |_, _| {
+                now.set(now.get() + 1);
+                Ok(vec![1.0])
+            },
+        );
+        assert_eq!(response.recv().unwrap().unwrap(), vec![1.0]);
+    };
+    request(L12);
+    *residency.lock() = Some(vec![L12.model.into(), target.model.into()]);
+    let mut previous = now.get();
+    let mut gaps = Vec::new();
+    for _ in 0..1000 {
+        request(target);
+        for _ in 0..20 {
+            request(L12);
+        }
+        gaps.push(Duration::from_secs(now.get() - previous));
+        previous = now.get();
+    }
+    assert_eq!(loads.get(), 2);
+    let remaining = Cell::new(gaps.len());
+    let mut gaps = gaps.into_iter();
+    crate::embedder::shadow::watch_progress(
+        |timeout| {
+            let gap = gaps.next().unwrap();
+            if gap >= timeout {
+                return Err("virtual deadline expired".into());
+            }
+            remaining.set(remaining.get() - 1);
+            Ok(())
+        },
+        || remaining.get() > 0,
+        |error| panic!("{error}"),
+    );
+    assert_eq!(remaining.get(), 0);
+}
+
+#[test]
+fn shadow_residency_releases_retired_models_and_rejects_late_requests() {
+    let target = &crate::embedder::local::MODELS[1];
+    for retained in [L12, target] {
+        let residency = Mutex::new(Some(vec![retained.model.into()]));
+        let mut cache = ModelCache {
+            entries: vec![(L12, ()), (target, ())],
+        };
+        cache.retain(&residency.lock());
+        assert_eq!(cache.entries.len(), 1);
+        assert_eq!(cache.entries[0].0.model, retained.model);
+        let retired = if retained == L12 { target } else { L12 };
+        let (reply, response) = mpsc::sync_channel(1);
+        process(
+            &mut cache,
+            &residency,
+            Request {
+                model: retired,
+                text: "late".into(),
+                reply,
+                caller: "fixture".into(),
+            },
+            &|_| panic!("retired model loaded"),
+            |_, _| panic!("retired model ran"),
+        );
+        assert_eq!(
+            response.recv().unwrap().unwrap_err(),
+            "embedding model retired"
+        );
+        assert_eq!(cache.entries.len(), 1);
+    }
+}
+
+#[test]
+fn shadow_residency_bulk_progresses_under_continuous_queries() {
+    let (worker, receivers) = channels();
+    for _ in 0..QUERY_BURST + 1 {
+        let (reply, _) = mpsc::sync_channel(1);
+        worker
+            .query
+            .try_send(Request {
+                model: L12,
+                text: "query".into(),
+                reply,
+                caller: "fixture".into(),
+            })
+            .unwrap();
+    }
+    let (reply, _) = mpsc::sync_channel(1);
+    worker
+        .bulk
+        .try_send(Request {
+            model: L12,
+            text: "shadow".into(),
+            reply,
+            caller: "fixture".into(),
+        })
+        .unwrap();
+    for _ in 0..QUERY_BURST {
+        assert_eq!(receivers.try_next().unwrap().text, "query");
+    }
+    assert_eq!(receivers.try_next().unwrap().text, "shadow");
+    assert_eq!(receivers.try_next().unwrap().text, "query");
 }
