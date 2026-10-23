@@ -108,3 +108,5 @@ pub mod app_quit_routes;
 
 #[cfg(test)]
 mod ui_status_tests;
+
+pub mod blueprint_viewer_routes;

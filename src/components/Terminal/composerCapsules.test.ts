@@ -193,3 +193,17 @@ console.log("composerCapsules tests passed");
   const batch = capsulesForPaths(first.registry, [{ path: SHOT_2 }, { path: "/u/c.png" }], "");
   assert.deepEqual(capsuleSpans(batch.text).map((span) => span.label), ["image1", "image2"], "one batch numbers after itself");
 }
+
+// a generated ordinal stays in the label but never in the visible token text
+{
+  const { registry, text } = capsulesForPaths(EMPTY_CAPSULES, [{ path: SHOT_1 }, { path: SHOT_2 }, { path: "/u/a.mp4" }]);
+  const visible = text.replace(/[\u2060\u2068\u2069\u2007\u00A0]/g, "");
+  assert.equal(/\d/.test(visible), false, "no digit is visible in a capsule token");
+  assert.deepEqual(capsuleSpans(text).map((span) => span.label), ["image1", "image2", "video1"]);
+  assert.deepEqual(capsulesInDraft(text, registry).map((capsule) => capsule.label), ["image1", "image2", "video1"]);
+  const sent = serializeCapsuleDraft(text, registry);
+  assert.ok(sent.includes('label="image2"') && sent.includes('label="video1"'), "the payload keeps the reference label");
+  const lines = capsulesForPaths(EMPTY_CAPSULES, [{ path: NOTES, kind: "text", label: "text3 · 312 lines" }]).text;
+  assert.deepEqual(capsuleSpans(lines).map((span) => span.label), ["text3 · 312 lines"]);
+  assert.ok(!lines.includes("text3") && lines.includes("text\u2060\u2060\u2060\u00A0"), "typed name carries the ordinal as invisible marks");
+}

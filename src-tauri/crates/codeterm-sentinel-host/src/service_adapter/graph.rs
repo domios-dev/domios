@@ -2,6 +2,7 @@ mod files;
 pub use files::AutomationFilesExt;
 mod pipeline;
 use pipeline::project_pipeline_contract;
+mod retained;
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -246,6 +247,7 @@ impl AutomationGraphExt for ServiceContext {
         graph::validate_scope(&self.mux.read(), workspace, team)?;
         let (jobs, live_leases) = storage::committed_scope(&handle.store, workspace, team)?;
         let journals = pipeline_journals(&handle, &jobs)?;
+        let definitions = retained::definitions(&handle, &jobs, &journals)?;
         let crons = self
             .try_ext::<codeterm_service_core::CronState>()
             .map(|state| connected_crons(&state.lock(), &jobs, workspace, team))
@@ -270,6 +272,7 @@ impl AutomationGraphExt for ServiceContext {
             &live_leases,
             self.ext::<codeterm_plugin::graph_events::SubscriptionTable>(),
         );
+        retained::project(&mut snapshot, &jobs, &journals, &definitions)?;
         graph::project_worker_states(&mut snapshot, &mux, |tab| self.resolved_tab_status(tab));
         Ok(snapshot)
     }
@@ -284,6 +287,7 @@ impl AutomationGraphExt for ServiceContext {
         }
         let (jobs, live_leases) = storage::committed_workspace(&handle.store, workspace)?;
         let journals = pipeline_journals(&handle, &jobs)?;
+        let definitions = retained::definitions(&handle, &jobs, &journals)?;
         let mut grouped: BTreeMap<Option<String>, Vec<Sentinel>> = BTreeMap::new();
         for job in jobs.iter().filter(|job| job.is_scenario_root()) {
             grouped.entry(job.team_id.clone()).or_default();
@@ -369,6 +373,7 @@ impl AutomationGraphExt for ServiceContext {
             &live_leases,
             self.ext::<codeterm_plugin::graph_events::SubscriptionTable>(),
         );
+        retained::project(&mut combined, &jobs, &journals, &definitions)?;
         graph::project_worker_states(&mut combined, &mux, |tab| self.resolved_tab_status(tab));
         Ok(combined)
     }
@@ -447,7 +452,7 @@ fn pipeline_journals(
 ) -> Result<BTreeMap<String, Vec<BlueprintJournalEntry>>, String> {
     let ids = jobs
         .iter()
-        .filter(|job| job.pipeline().is_some())
+        .filter(|job| job.document.is_some() && job.is_scenario_root())
         .map(|job| job.id.clone())
         .collect::<Vec<_>>();
     if ids.is_empty() {

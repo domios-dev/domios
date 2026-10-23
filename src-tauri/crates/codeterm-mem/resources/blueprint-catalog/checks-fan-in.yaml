@@ -1,0 +1,89 @@
+schema_version: 2
+kind: pipeline
+name: checks-fan-in
+note: Fold N named pass/fail checks into one ready flag and the list of blockers.
+intent: combine several readiness checks into one go or no-go with the reasons it
+  is blocked
+anchors: []
+inputs:
+  args:
+    $ref: Args
+    description: Typed named arguments
+types:
+  Check:
+    type: object
+    additionalProperties: false
+    required:
+    - detail
+    - name
+    - ok
+    properties:
+      detail:
+        type: string
+      name:
+        type: string
+      ok:
+        type: boolean
+  Args:
+    type: object
+    additionalProperties: false
+    required:
+    - checks
+    properties:
+      checks:
+        type: array
+        items:
+          $ref: Check
+  Gate:
+    type: object
+    additionalProperties: false
+    required:
+    - blockers
+    - passed
+    - ready
+    - summary
+    properties:
+      blockers:
+        type: array
+        items:
+          type: string
+      passed:
+        type: integer
+      ready:
+        type: boolean
+      summary:
+        type: string
+steps:
+- id: fold
+  does: Ready only when every check is ok; list each failing check as a blocker with
+    its detail
+  code:
+    lang: python
+    src: |
+      def main(value):
+          checks = value["checks"]
+          blockers = [f"{c['name']}: {c['detail']}" for c in checks if not c["ok"]]
+          passed = len(checks) - len(blockers)
+          ready = bool(checks) and not blockers
+          summary = f"{passed}/{len(checks)} checks pass" + ("" if ready else "; blocked by " +
+                    ", ".join(c["name"] for c in checks if not c["ok"]) if blockers else "; no checks given")
+          return {"ready": ready, "blockers": blockers, "passed": passed, "summary": summary}
+  in:
+    type: object
+    additionalProperties: false
+    required:
+    - checks
+    properties:
+      checks:
+        type: array
+        items:
+          $ref: Check
+  out:
+    $ref: Gate
+  routes:
+    done: next
+    failed: stop
+result:
+  type:
+    $ref: Gate
+  from: fold.out

@@ -370,8 +370,11 @@ Create or update a YAML file or recipe by name in the caller's Team
 
 Validate a YAML file or built-in recipe without a daemon
 
+- `--explain` — Include positioned atoms and proof trees in human-readable diagnostics
+- `--fix` — Print deterministic safe repairs and the semantic diff
 - `--set`
 - `<source>`
+- `--write` — With --fix, write the repaired YAML file in place
 
 #### `domios blueprint delete`
 
@@ -407,7 +410,7 @@ Show immutable definition versions
 
 #### `domios blueprint import`
 
-Import a portable recipe into the caller's Team (stopped by default)
+Import a native v2 recipe into the caller's Team (stopped by default)
 
 - `<file>`
 - `--set`
@@ -426,6 +429,7 @@ Deliver a text body to a running text input stage
 
 Keep a generalised solution (Team Orchestrator only); give 3-5 --when intents
 
+- `--file` — Save a triggerless typed callable without scheduling it
 - `<id>`
 - `--when` — One "when would someone want this" request; repeat 1-5 times, 3-5 phrased differently
 
@@ -442,14 +446,30 @@ List bounded run journal entries, newest first
 
 #### `domios blueprint new`
 
-Print a commented YAML scaffold from a recipe or node kind
+Start from intent recall cards and a native v2 scaffold, or a named recipe
 
+- `--intent` — Recall scoped typed solutions before authoring; bodies open with blueprint show
 - `<kind>`
 - `--like` — Offer proven graphs matching this intent before authoring
+- `--limit` — Maximum recall cards (1..20)
 
 #### `domios blueprint nodes`
 
 List trigger, step, converter and event-source capabilities
+
+#### `domios blueprint project`
+
+Discover repository Blueprints without running, applying or approving them
+
+#### `domios blueprint project list`
+
+List source path, name and intent under .domios/blueprints/
+
+#### `domios blueprint project show`
+
+View a native v2 source; no execution or approval is performed
+
+- `<path>`
 
 #### `domios blueprint recipe`
 
@@ -475,7 +495,7 @@ Stop one blueprint
 
 #### `domios blueprint update`
 
-Replace one definition at the expected version
+Replace one native v2 YAML definition at the expected version
 
 - `--cause`
 - `--dry-run` — Validate and print the resulting graph without updating it

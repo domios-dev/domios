@@ -7,7 +7,7 @@ use serde_json::json;
 use super::handlers::{Definition, Effect, Parameters, Status};
 use super::machine::{self, EscalateTarget, Route, Verdict};
 use super::provenance::{Classification, Failure, Scope};
-use super::store::{Create, Owner, Sentinel, Store};
+use super::store::{Owner, Sentinel, Store};
 
 fn owner() -> Owner {
     Owner {
@@ -18,40 +18,28 @@ fn owner() -> Owner {
     }
 }
 
-fn create_params(other: serde_json::Value) -> Create {
+fn create_params(other: serde_json::Value) -> serde_json::Value {
     let other_handlers = if other.is_array() {
         other
     } else {
         json!([other])
     };
-    serde_json::from_value(json!({
-        "name": "escalation-state-watch",
-        "probe": "status",
-        "question": "Did it finish?",
-        "buckets": ["done"],
-        "every": "10s",
-        "timeout": "1h",
-        "matches": {"done": "^done$"},
-        "handlers": {
-            "done": [{"id": "done_notice", "type": "notify", "parameters": {}}],
-            "other": other_handlers
-        },
-        "escalation_timeout_ms": 5000
-    }))
-    .unwrap()
+    json!(codeterm_sentinel::test_support::watch(
+        serde_json::json!("escalation-state-watch"),
+        serde_json::json!({"uses":"probe","with":{"command":{"lit":"status"}},"every":{"lit":"10s"},"timeout":{"lit":"1h"}}),
+        serde_json::json!({"with":{"question":{"lit":"Did it finish?"}},"buckets":["done"],"escalation_timeout_ms":5000,"matches":{"done":{"lit":"^done$"}}}),
+        serde_json::json!({"done":[{"id":"done_notice","uses":"notify","with":{}}],"other":other_handlers}),
+        serde_json::json!(null)
+    ))
 }
 
 fn escalation_definition() -> serde_json::Value {
-    json!({
-        "id": "ask_creator",
-        "type": "escalate",
-        "parameters": {"target": "creator"}
-    })
+    json!({"id":"ask_creator","uses":"escalate","with":codeterm_sentinel::test_support::literal_params(json!({"target": "creator"}))})
 }
 
 fn create_escalating(store: &mut Store) -> Sentinel {
     store
-        .create(create_params(escalation_definition()), owner(), false)
+        .create_document(create_params(escalation_definition()), owner(), false)
         .unwrap()
 }
 
@@ -335,14 +323,13 @@ fn sentinel_escalate_cause_cooldown_refuses_and_journals_until_five_minutes() {
     )));
     let mut params = create_params(json!([
         escalation_definition(),
-        {
-            "id": "other_notice",
-            "type": "notify",
-            "parameters": {}
-        }
+        {"id":"other_notice","uses":"notify","with":codeterm_sentinel::test_support::literal_params(json!({}))}
     ]));
-    params.escalation_timeout_ms = Some(600_000);
-    let job = store.lock().create(params, owner(), false).unwrap();
+    params["steps"][1]["escalation_timeout_ms"] = json!(600_000);
+    let job = store
+        .lock()
+        .create_document(params, owner(), false)
+        .unwrap();
     let first_lease = store.lock().due().unwrap().remove(0);
     let (first_hold, first_transition) =
         hold_other(&mut store.lock(), &first_lease.job, b"unknown");
@@ -465,13 +452,9 @@ fn sentinel_escalate_forbidden_on_other_kinds_fail_create_and_amend() {
         dir.path().join("sentinels.json"),
         codeterm_service_core::cron::clock::MockClock::starting_at(1000),
     );
-    let invalid = json!({
-        "id": "bad_action",
-        "type": "send",
-        "parameters": {"target": "agent"}
-    });
+    let invalid = json!({"id":"bad_action","uses":"send","with":codeterm_sentinel::test_support::literal_params(json!({"target": "agent"}))});
     assert!(store
-        .prepare(create_params(invalid.clone()), owner(), false)
+        .prepare_document(create_params(invalid.clone()), owner(), false)
         .is_err());
 
     let job = create_escalating(&mut store);

@@ -1,5 +1,5 @@
 use super::{close, ServiceInstance};
-use crate::SentinelExt;
+use crate::{BlueprintApplyExt, SentinelExt};
 use codeterm_service_core::cron::clock;
 
 #[test]
@@ -7,6 +7,10 @@ fn sentinel_create_update_and_stop_round_trip_expected_pass() {
     let root = tempfile::tempdir().unwrap();
     let (mut mux, tab_id) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
     mux.get_tab_mut(&tab_id).unwrap().cwd = Some(root.path().to_string_lossy().into_owned());
+    let workspace = mux.find_workspace_for_tab(&tab_id).unwrap();
+    let team = codeterm_types::team::Team::new(&workspace, 1);
+    mux.upsert_team(team.clone());
+    mux.get_tab_mut(&tab_id).unwrap().team_id = Some(team.id);
     let instance = ServiceInstance::open_with_mux(root.path(), mux);
     let store = crate::store::Store::with_storage(&instance.storage, clock::system_clock());
     let handle =
@@ -17,41 +21,35 @@ fn sentinel_create_update_and_stop_round_trip_expected_pass() {
         .service
         .sentinel_caller(&tab_id, None)
         .expect("resolve caller through ServiceContext");
+    let mut document = serde_json::json!({"schema_version":2,"kind":"watch","name":"round-trip sentinel","steps":[
+        {"id":"source","uses":"probe","with":{"command":{"lit":"status"}},"every":{"lit":"1m"},"timeout":{"lit":"1h"}},
+        {"id":"decide","uses":"ask","with":{"question":{"lit":"initial question"}},"buckets":["done"],"matches":{"done":{"lit":"done"}},"routes":{"done":"notice"}},
+        {"id":"notice","uses":"notify"}
+    ]});
+    let applied = instance
+        .fixture
+        .service
+        .blueprint_apply(&caller, document.clone(), false)
+        .unwrap();
     let created = instance
         .fixture
         .service
-        .sentinel_create(
-            &caller,
-            serde_json::from_value(serde_json::json!({
-                "name": "round-trip sentinel",
-                "probe": "status",
-                "question": "initial question",
-                "buckets": ["done"],
-                "every": "1m",
-                "matches": {"done": "done"}
-            }))
-            .unwrap(),
-        )
-        .expect("create sentinel through ServiceContext");
+        .sentinel_show(&caller, applied["id"].as_str().unwrap())
+        .unwrap();
+    document["name"] = serde_json::json!("updated sentinel");
+    document["steps"][0]["every"] = serde_json::json!({"lit":"2m"});
+    document["steps"][1]["with"]["question"] = serde_json::json!({"lit":"updated question"});
     instance
         .fixture
         .service
-        .sentinel_update(
+        .blueprint_apply_document(
             &caller,
-            &created.id,
-            created.definition_version,
-            serde_json::from_value(serde_json::json!({
-                "name": "updated sentinel",
-                "question": "updated question",
-                "buckets": ["done"],
-                "every": "2m",
-                "matches": {"done": "done"},
-                "max_transitions": created.max_transitions,
-                "max_actions": created.max_actions
-            }))
-            .unwrap(),
+            document,
+            false,
+            None,
+            Some((created.id.clone(), created.definition_version, None)),
         )
-        .expect("update sentinel through ServiceContext");
+        .unwrap();
     instance
         .fixture
         .service

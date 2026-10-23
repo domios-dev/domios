@@ -16,6 +16,7 @@ pub trait BlueprintEnricher: Send + Sync {
 
 #[derive(Default)]
 pub(crate) struct BlueprintServices {
+    pub(super) catalog: Mutex<super::authoring::CatalogCache>,
     pub(crate) queue: Mutex<Option<SyncSender<Pending>>>,
     pub(super) enricher: RwLock<Option<Arc<dyn BlueprintEnricher>>>,
 }

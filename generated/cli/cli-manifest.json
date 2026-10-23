@@ -1541,6 +1541,26 @@
           "aliases": [],
           "args": [
             {
+              "name": "explain",
+              "positional": false,
+              "required": false,
+              "value_name": "EXPLAIN",
+              "possible_values": [],
+              "default": null,
+              "help": "Include positioned atoms and proof trees in human-readable diagnostics",
+              "aliases": []
+            },
+            {
+              "name": "fix",
+              "positional": false,
+              "required": false,
+              "value_name": "FIX",
+              "possible_values": [],
+              "default": null,
+              "help": "Print deterministic safe repairs and the semantic diff",
+              "aliases": []
+            },
+            {
               "name": "set",
               "positional": false,
               "required": false,
@@ -1558,6 +1578,16 @@
               "possible_values": [],
               "default": null,
               "help": null,
+              "aliases": []
+            },
+            {
+              "name": "write",
+              "positional": false,
+              "required": false,
+              "value_name": "WRITE",
+              "possible_values": [],
+              "default": null,
+              "help": "With --fix, write the repaired YAML file in place",
               "aliases": []
             }
           ],
@@ -1685,7 +1715,7 @@
         },
         {
           "name": "import",
-          "about": "Import a portable recipe into the caller's Team (stopped by default)",
+          "about": "Import a native v2 recipe into the caller's Team (stopped by default)",
           "aliases": [],
           "args": [
             {
@@ -1775,9 +1805,19 @@
           "aliases": [],
           "args": [
             {
+              "name": "file",
+              "positional": false,
+              "required": false,
+              "value_name": "FILE",
+              "possible_values": [],
+              "default": null,
+              "help": "Save a triggerless typed callable without scheduling it",
+              "aliases": []
+            },
+            {
               "name": "id",
               "positional": true,
-              "required": true,
+              "required": false,
               "value_name": "ID",
               "possible_values": [],
               "default": null,
@@ -1834,9 +1874,19 @@
         },
         {
           "name": "new",
-          "about": "Print a commented YAML scaffold from a recipe or node kind",
+          "about": "Start from intent recall cards and a native v2 scaffold, or a named recipe",
           "aliases": [],
           "args": [
+            {
+              "name": "intent",
+              "positional": false,
+              "required": false,
+              "value_name": "INTENT",
+              "possible_values": [],
+              "default": null,
+              "help": "Recall scoped typed solutions before authoring; bodies open with blueprint show",
+              "aliases": []
+            },
             {
               "name": "kind",
               "positional": true,
@@ -1856,6 +1906,16 @@
               "default": null,
               "help": "Offer proven graphs matching this intent before authoring",
               "aliases": []
+            },
+            {
+              "name": "limit",
+              "positional": false,
+              "required": false,
+              "value_name": "LIMIT",
+              "possible_values": [],
+              "default": "3",
+              "help": "Maximum recall cards (1..20)",
+              "aliases": []
             }
           ],
           "subcommands": []
@@ -1866,6 +1926,39 @@
           "aliases": [],
           "args": [],
           "subcommands": []
+        },
+        {
+          "name": "project",
+          "about": "Discover repository Blueprints without running, applying or approving them",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "list",
+              "about": "List source path, name and intent under .domios/blueprints/",
+              "aliases": [],
+              "args": [],
+              "subcommands": []
+            },
+            {
+              "name": "show",
+              "about": "View a native v2 source; no execution or approval is performed",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "path",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "PATH",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
         },
         {
           "name": "recipe",
@@ -1930,7 +2023,7 @@
         },
         {
           "name": "update",
-          "about": "Replace one definition at the expected version",
+          "about": "Replace one native v2 YAML definition at the expected version",
           "aliases": [],
           "args": [
             {

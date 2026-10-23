@@ -66,7 +66,8 @@ export function PlanSidePanel({
 
   const showFull = () => onOpenPlanTarget({ ...route, taskId: task?.id ?? taskRef, presentation: "full" });
   const openFullPlan = () => onOpenPlanTarget({ ...route, presentation: "full" });
-  const openTask = (taskId: string) => onOpenPlanTarget({ ...route, taskId });
+  const openTask = (taskId: string) => onOpenPlanTarget({ ...route, taskId, nestedFromPlan: !key || target.nestedFromPlan });
+  const backToPlan = key && target.nestedFromPlan ? () => onOpenPlanTarget(route) : undefined;
 
   const title = key ? task?.name : plan?.title;
   const subject = key ? `Task ${key}` : "plan";
@@ -76,7 +77,7 @@ export function PlanSidePanel({
     : (loading ? "Loading plan…" : "This plan is not available.");
 
   return (
-    <SidePanelFrame panelRef={panelRef} state={state} label={dialogLabel} backLabel={target.returnTo ? "Chat" : "originating view"} onClose={onClose} contentKey={contentKey} replaced={content.replaced}
+    <SidePanelFrame panelRef={panelRef} state={state} label={dialogLabel} onBack={backToPlan} backLabel="plan" onClose={onClose} contentKey={contentKey} replaced={content.replaced}
       data-testid="plan-side-panel" data-kind={key ? "task" : "plan"} data-plan-id={target.planId} data-task-id={task?.id ?? taskRef}
       title={<>
         {key && (

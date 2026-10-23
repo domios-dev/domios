@@ -1,5 +1,6 @@
 mod journal;
-pub use journal::{BlueprintJournalEntry, BlueprintJournalWrite};
+mod native;
+pub use journal::{BlueprintJournalEntry, BlueprintJournalWrite, NestedClaimParent};
 mod source;
 mod transition;
 pub use source::{ObserveKind, ObserveSource, SourceKind, StageSource};
@@ -125,6 +126,7 @@ pub struct BucketDefinition {
 /// Authored configuration of one stage; runtime state never lives here.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StageDefinition {
+    pub document: Option<serde_json::Value>,
     pub note: Option<String>,
     pub model_classification: bool,
     pub session: bool,
@@ -582,6 +584,8 @@ impl StageDefinition {
     }
 
     pub(super) fn validate(&self) -> Result<(), StorageError> {
+        self.validate_native_document()
+            .map_err(|error| StorageError::invalid("blueprint document", error))?;
         if let Some(terminal) = self.terminal() {
             terminal
                 .validate()

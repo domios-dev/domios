@@ -93,4 +93,5 @@ export { chatLocalDay, chatDaySeparators, messageTimeLabels, showChatTimeGutter,
 export { messageRowTime } from "./messageRowTime";
 export { ImageFullscreen, type FullscreenImage } from "./ImageFullscreen";
 
+export { CanvasToolbar, type CanvasToolbarProps } from "./CanvasToolbar";
 export { Button, type ButtonProps, type ButtonSize, type ButtonVariant } from "./Button";

@@ -16,11 +16,11 @@ fn owner() -> Owner {
 fn definition() -> Value {
     static NEXT_NAME: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let index = NEXT_NAME.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    json!({
-        "name": format!("handler-result-watch-{index}"),
-        "probe": "status", "question": "state?", "buckets": ["done"],
-        "every": "10s", "matches": {"done": "^done$"}, "timeout": "1h"
-    })
+    json!({"schema_version":2,"kind":"watch","name":format!("handler-result-watch-{index}"),"steps":[
+      {"id":"source","uses":"probe","with":{"command":{"lit":"status"}},"every":{"lit":"10s"},"timeout":{"lit":"1h"}},
+      {"id":"decide","uses":"ask","with":{"question":{"lit":"state?"}},"buckets":["done"],"matches":{"done":{"lit":"^done$"}},"routes":{"done":"notice"}},
+      {"id":"notice","uses":"notify"}
+    ]})
 }
 
 #[test]
@@ -41,13 +41,7 @@ fn sentinel_handlers_current_create_evaluate_and_reload_positive() {
     let clock = codeterm_cron::clock::MockClock::starting_at(1000);
     let path = dir.path().join("sentinels.json");
     let mut store = Store::new(path.clone(), clock.clone());
-    let mut job = store
-        .create(
-            serde_json::from_value(definition()).unwrap(),
-            owner(),
-            false,
-        )
-        .unwrap();
+    let mut job = store.create_document(definition(), owner(), false).unwrap();
     assert_eq!(Route::parse("notify").unwrap(), Route::Notify);
     let scope = Scope::from(&job);
     let outcome = machine::evaluate(
@@ -85,9 +79,9 @@ fn sentinel_handlers_paused_creation_is_persisted_and_never_due() {
     let path = dir.path().join("sentinels.json");
     let mut store = Store::new(path.clone(), clock.clone());
     let mut value = definition();
-    value["paused"] = json!(true);
-    let params: Create = serde_json::from_value(value).expect("paused definition must be admitted");
-    let job = store.create(params, owner(), false).unwrap();
+    value["steps"][0]["paused"] = json!(true);
+    let params = value;
+    let job = store.create_document(params, owner(), false).unwrap();
     let mut paused = job.machine.clone();
     let outcome = machine::evaluate(
         &mut paused,
@@ -116,12 +110,12 @@ fn sentinel_handlers_declared_array_roundtrips_order_and_ids() {
         codeterm_cron::clock::MockClock::starting_at(1000),
     );
     let mut value = definition();
-    value["handlers"] = json!({"done": [
-        {"id": "notice", "type": "notify", "parameters": {}},
-        {"id": "finish", "type": "stop", "parameters": {}}
-    ]});
-    let params: Create = serde_json::from_value(value).expect("declared handlers must be admitted");
-    let job = store.create(params, owner(), false).unwrap();
+    value["steps"][2] = json!({"id":"notice","uses":"notify","routes":{"done":"finish"}});
+    value["steps"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"id":"finish","uses":"stop"}));
+    let job = store.create_document(value, owner(), false).unwrap();
     let stored = serde_json::to_value(&job).unwrap();
     assert_eq!(stored["routes"]["done"][0]["id"], "notice");
     assert_eq!(stored["routes"]["done"][1]["id"], "finish");
@@ -174,10 +168,11 @@ fn sentinel_respond_prompt_shell_probe_source_is_refused() {
         codeterm_cron::clock::MockClock::starting_at(1000),
     );
     let mut value = definition();
-    value["routes"] = json!({"done": "respond_prompt:onboarding"});
-    let params: Create = serde_json::from_value(value).unwrap();
+    value["steps"][2] =
+        json!({"id":"notice","uses":"respond_prompt","with":{"target":{"lit":"onboarding"}}});
+    let params = value;
     assert!(store
-        .create(params, owner(), false)
+        .create_document(params, owner(), false)
         .unwrap_err()
         .contains("tab observation source"));
 }
@@ -209,13 +204,7 @@ fn sentinel_handlers_claim_reload_never_replays_unconfirmed_attempt() {
     let path = dir.path().join("sentinels.json");
     let clock = codeterm_cron::clock::MockClock::starting_at(1000);
     let mut store = Store::new(path.clone(), clock.clone());
-    let job = store
-        .create(
-            serde_json::from_value(definition()).unwrap(),
-            owner(),
-            false,
-        )
-        .unwrap();
+    let job = store.create_document(definition(), owner(), false).unwrap();
     let (job, transition) = transition(&mut store, &job);
     let handler = &job.routes["done"][0];
     let claim = store
@@ -242,11 +231,9 @@ fn sentinel_handlers_paused_expiry_preserves_creation_lifetime() {
     let clock = codeterm_cron::clock::MockClock::starting_at(1000);
     let mut store = Store::new(dir.path().join("sentinels.json"), clock.clone());
     let mut value = definition();
-    value["paused"] = json!(true);
-    value["timeout"] = json!("10s");
-    let job = store
-        .create(serde_json::from_value(value).unwrap(), owner(), false)
-        .unwrap();
+    value["steps"][0]["paused"] = json!(true);
+    value["steps"][0]["timeout"] = json!({"lit":"10s"});
+    let job = store.create_document(value, owner(), false).unwrap();
     assert_eq!(store.next_deadline(), 10_000);
     clock.advance_ms(10_000);
     assert!(store.due().unwrap().is_empty());
@@ -260,21 +247,11 @@ fn sentinel_handlers_activation_refuses_exact_scope_and_terminal_targets() {
     let dir = tempfile::tempdir().unwrap();
     let clock = codeterm_cron::clock::MockClock::starting_at(1000);
     let mut store = Store::new(dir.path().join("sentinels.json"), clock.clone());
-    let source = store
-        .create(
-            serde_json::from_value(definition()).unwrap(),
-            owner(),
-            false,
-        )
-        .unwrap();
+    let source = store.create_document(definition(), owner(), false).unwrap();
     let mut paused = definition();
-    paused["paused"] = json!(true);
+    paused["steps"][0]["paused"] = json!(true);
     let target = store
-        .create(
-            serde_json::from_value(paused.clone()).unwrap(),
-            owner(),
-            false,
-        )
+        .create_document(paused.clone(), owner(), false)
         .unwrap();
     assert!(store.validate_target(&source, &target.id).is_ok());
     assert!(store.validate_target(&source, &source.id).is_err());
@@ -295,21 +272,15 @@ fn sentinel_handlers_activation_refuses_exact_scope_and_terminal_targets() {
     ] {
         paused["name"] = json!(format!("foreign-target-{}", store.list().len()));
         let foreign = store
-            .create(
-                serde_json::from_value(paused.clone()).unwrap(),
-                changed,
-                false,
-            )
+            .create_document(paused.clone(), changed, false)
             .unwrap();
         assert!(store.validate_target(&source, &foreign.id).is_err());
     }
     store.stop(&target.id, "explicit").unwrap();
     assert!(store.validate_target(&source, &target.id).is_err());
     paused["name"] = json!("expired-target");
-    paused["timeout"] = json!("10s");
-    let expired = store
-        .create(serde_json::from_value(paused).unwrap(), owner(), false)
-        .unwrap();
+    paused["steps"][0]["timeout"] = json!({"lit":"10s"});
+    let expired = store.create_document(paused, owner(), false).unwrap();
     clock.advance_ms(10_000);
     assert!(store.validate_target(&source, &expired.id).is_err());
 }
@@ -320,13 +291,7 @@ fn sentinel_handlers_claim_and_result_save_failures_preserve_durable_claim() {
     let path = dir.path().join("sentinels.json");
     let clock = codeterm_cron::clock::MockClock::starting_at(1000);
     let mut store = Store::new(path.clone(), clock.clone());
-    let job = store
-        .create(
-            serde_json::from_value(definition()).unwrap(),
-            owner(),
-            false,
-        )
-        .unwrap();
+    let job = store.create_document(definition(), owner(), false).unwrap();
     let (job, transition) = transition(&mut store, &job);
     let handler = &job.routes["done"][0];
     std::fs::rename(&path, dir.path().join("saved.json")).unwrap();
@@ -372,31 +337,34 @@ fn sentinel_handlers_definition_validation_and_budgets_are_finite() {
         dir.path().join("sentinels.json"),
         codeterm_cron::clock::MockClock::starting_at(1000),
     );
-    for handlers in [
-        json!({"done":[{"id":"h","type":"notify","parameters":{}},{"id":"h","type":"stop","parameters":{}}]}),
-        json!({"undeclared":[{"id":"h","type":"notify","parameters":{}}]}),
-        json!({"done":[{"id":"h","type":"command","parameters":{}}]}),
-        json!({"done":[{"id":"h","type":"unknown","parameters":{}}]}),
+    for node in [
+        json!({"id":"source","uses":"notify"}),
+        json!({"id":"notice","uses":"command"}),
+        json!({"id":"notice","uses":"unknown"}),
     ] {
         let mut value = definition();
-        value["handlers"] = handlers;
-        assert!(store
-            .prepare(serde_json::from_value(value).unwrap(), owner(), false)
-            .is_err());
+        value["steps"][2] = node;
+        assert!(store.prepare_document(value, owner(), false).is_err());
     }
-    for field in ["max_transitions", "max_actions"] {
-        let mut value = definition();
-        value[field] = json!(0);
-        assert!(store
-            .prepare(serde_json::from_value(value).unwrap(), owner(), false)
-            .is_err());
+    for transitions in [true, false] {
+        let document =
+            codeterm_blueprint_types::blueprint_document::Document::from_definition(&definition())
+                .unwrap();
+        let mut params: Create =
+            serde_json::from_value(document.lower().unwrap()["create"].clone()).unwrap();
+        if transitions {
+            params.max_transitions = Some(0);
+        } else {
+            params.max_actions = Some(0);
+        }
+        assert!(store.prepare(params, owner(), false).is_err());
     }
-    let mut value = definition();
-    value["max_actions"] = json!(1);
-    value["max_transitions"] = json!(1);
-    let job = store
-        .create(serde_json::from_value(value).unwrap(), owner(), false)
+    let mut job = store
+        .prepare_document(definition(), owner(), false)
         .unwrap();
+    job.max_actions = 1;
+    job.max_transitions = 1;
+    let job = store.insert(job).unwrap();
     let (accepted, id) = transition(&mut store, &job);
     let claim = store
         .claim_handler(&accepted, &id, &accepted.routes["done"][0])
@@ -425,36 +393,23 @@ fn sentinel_handlers_active_and_total_caps_include_dormant_inventory() {
     let mut jobs = Vec::new();
     for index in 0..256 {
         let mut value = definition();
-        value["paused"] = json!(index >= 64);
-        jobs.push(
-            seed.prepare(serde_json::from_value(value).unwrap(), owner(), false)
-                .unwrap(),
-        );
+        value["steps"][0]["paused"] = json!(index >= 64);
+        jobs.push(seed.prepare_document(value, owner(), false).unwrap());
     }
     std::fs::write(&path, serde_json::to_vec(&jobs[..64]).unwrap()).unwrap();
     let mut store = Store::new(path.clone(), clock.clone());
     assert!(store
-        .prepare(
-            serde_json::from_value(definition()).unwrap(),
-            owner(),
-            false
-        )
+        .prepare_document(definition(), owner(), false)
         .is_err());
     let mut paused = definition();
-    paused["paused"] = json!(true);
+    paused["steps"][0]["paused"] = json!(true);
     assert!(store
-        .create(
-            serde_json::from_value(paused.clone()).unwrap(),
-            owner(),
-            false
-        )
+        .create_document(paused.clone(), owner(), false)
         .is_ok());
     std::fs::write(&path, serde_json::to_vec(&jobs).unwrap()).unwrap();
     let store = Store::new(path, clock);
     assert_eq!(store.list().len(), 256);
-    assert!(store
-        .prepare(serde_json::from_value(paused).unwrap(), owner(), false)
-        .is_err());
+    assert!(store.prepare_document(paused, owner(), false).is_err());
 }
 
 #[test]
@@ -476,13 +431,7 @@ fn sentinel_handlers_unsupported_and_corrupt_stores_preserve_bytes_and_refuse_wo
         } else {
             "blueprint_store_load_failed:"
         }));
-        assert!(store
-            .create(
-                serde_json::from_value(definition()).unwrap(),
-                owner(),
-                false
-            )
-            .is_err());
+        assert!(store.create_document(definition(), owner(), false).is_err());
         assert!(store.stop("old", "explicit").is_err());
         assert!(store.due().is_err());
         assert!(store.take_changes().is_empty());
@@ -512,13 +461,7 @@ fn sentinel_handlers_io_failure_and_corruption_after_load_hold_the_original_path
         codeterm_cron::clock::MockClock::starting_at(1000),
     );
     assert!(store.ensure_available().is_ok());
-    let job = store
-        .create(
-            serde_json::from_value(definition()).unwrap(),
-            owner(),
-            false,
-        )
-        .unwrap();
+    let job = store.create_document(definition(), owner(), false).unwrap();
     let corrupt = b"{externally-corrupted";
     std::fs::write(&path, corrupt).unwrap();
     assert!(store.stop(&job.id, "explicit").is_err());
@@ -537,13 +480,7 @@ fn sentinel_handlers_real_execution_id_is_preserved_independently_from_durable_c
     let path = dir.path().join("sentinels.json");
     let clock = codeterm_cron::clock::MockClock::starting_at(1000);
     let mut store = Store::new(path.clone(), clock.clone());
-    let job = store
-        .create(
-            serde_json::from_value(definition()).unwrap(),
-            owner(),
-            false,
-        )
-        .unwrap();
+    let job = store.create_document(definition(), owner(), false).unwrap();
     let (job, transition) = transition(&mut store, &job);
     let handler = &job.routes["done"][0];
     let claim = store
@@ -581,25 +518,25 @@ fn sentinel_handlers_array_limits_unknown_fields_and_long_bucket_ids_are_checked
         codeterm_cron::clock::MockClock::starting_at(1000),
     );
     let mut value = definition();
-    value["handlers"] = json!({"done":(0..17).map(|index| json!({"id":format!("h_{index}"),"type":"notify","parameters":{}})).collect::<Vec<_>>()});
-    assert!(store
-        .prepare(serde_json::from_value(value).unwrap(), owner(), false)
-        .is_err());
-    for handler in [
-        json!({"id":"h","type":"notify","parameters":{},"unknown":true}),
-        json!({"id":"h","type":"notify","parameters":{"unknown":true}}),
+    let effects=(0..17).map(|index|json!({"id":format!("h_{index}"),"uses":"notify","routes":{"done":if index==16 {"@stop".into()}else{format!("h_{}",index+1)}}})).collect::<Vec<_>>();
+    value["steps"].as_array_mut().unwrap().truncate(2);
+    value["steps"].as_array_mut().unwrap().extend(effects);
+    value["steps"][1]["routes"] = json!({"done":"h_0"});
+    assert!(store.prepare_document(value, owner(), false).is_err());
+    for node in [
+        json!({"id":"notice","uses":"notify","unknown":true}),
+        json!({"id":"notice","uses":"notify","with":{"unknown":{"lit":true}}}),
     ] {
         let mut value = definition();
-        value["handlers"] = json!({"done":[handler]});
-        assert!(serde_json::from_value::<Create>(value).is_err());
+        value["steps"][2] = node;
+        assert!(store.prepare_document(value, owner(), false).is_err());
     }
     let bucket = "x".repeat(64);
     let mut value = definition();
-    value["buckets"] = json!([bucket]);
-    value["matches"] = json!({(bucket.clone()):"done"});
-    assert!(store
-        .prepare(serde_json::from_value(value).unwrap(), owner(), false)
-        .is_ok());
+    value["steps"][1]["buckets"] = json!([bucket]);
+    value["steps"][1]["matches"] = json!({(bucket.clone()):{"lit":"done"}});
+    value["steps"][1]["routes"] = json!({(bucket):"notice"});
+    assert!(store.prepare_document(value, owner(), false).is_ok());
 }
 
 #[test]
@@ -611,9 +548,8 @@ fn sentinel_handlers_activation_requires_durable_declared_claim_and_checks_activ
     let mut jobs: Vec<_> = (0..65)
         .map(|index| {
             let mut value = definition();
-            value["paused"] = json!(index == 64);
-            seed.prepare(serde_json::from_value(value).unwrap(), owner(), false)
-                .unwrap()
+            value["steps"][0]["paused"] = json!(index == 64);
+            seed.prepare_document(value, owner(), false).unwrap()
         })
         .collect();
     let target = jobs[64].id.clone();
@@ -641,23 +577,16 @@ fn sentinel_causal_run_json_activation_and_downstream_accept_survive_reopen() {
     let clock = codeterm_cron::clock::MockClock::starting_at(1000);
     let mut store = Store::new(path.clone(), clock.clone());
     let mut child_definition = definition();
-    child_definition["paused"] = json!(true);
+    child_definition["steps"][0]["paused"] = json!(true);
     let child = store
-        .create(
-            serde_json::from_value(child_definition).unwrap(),
-            owner(),
-            false,
-        )
+        .create_document(child_definition, owner(), false)
         .unwrap();
     let mut parent_definition = definition();
-    parent_definition["handlers"] =
-        json!({"done":[{"id":"child","type":"blueprint","parameters":{"target":child.id}}]});
+    parent_definition["steps"][1]["routes"] = json!({"done":"child"});
+    parent_definition["steps"][2] =
+        json!({"id":"child","uses":"blueprint","with":{"target":{"lit":child.id}}});
     let parent = store
-        .create(
-            serde_json::from_value(parent_definition).unwrap(),
-            owner(),
-            false,
-        )
+        .create_document(parent_definition, owner(), false)
         .unwrap();
     let (parent, id) = transition(&mut store, &parent);
     store

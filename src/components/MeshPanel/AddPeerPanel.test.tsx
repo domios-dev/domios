@@ -6,7 +6,7 @@ import { SIGN_IN_COPY, SIGNED_OUT_COPY, type AccountPresence } from "./accountMa
 import { AccountMeshClientProvider, type AccountMeshSnapshot } from "./accountMeshClient";
 import { AccountMeshRefusalError } from "../billing/accountMeshLimit";
 import { freeLimitGate } from "../billing/freeLimitGate";
-import { airRow, deferred, FakeAccountMeshClient, lenovoRow, macRow, NOW, pair, selfRow, snapshot, targetOf } from "./accountMachines.testdata";
+import { airRow, deferred, FakeAccountMeshClient, lenovoRow, machine, macRow, NOW, pair, selfRow, snapshot, targetOf } from "./accountMachines.testdata";
 
 let host: HTMLDivElement;
 let root: Root;
@@ -298,5 +298,34 @@ describe("My machines management", () => {
     await mount(client, "pending");
     expect(host.querySelector("button")).toBeNull();
     expect(host.querySelector('section[aria-label="My machines"]')?.getAttribute("aria-busy")).toBe("true");
+  });
+});
+
+describe("My machines over the plan's machine limit", () => {
+  afterEach(() => act(() => freeLimitGate.close()));
+
+  it("opens the plans modal from an over-limit row and keeps the row listed", async () => {
+    const limitRow = machine("inst-limit-b", "Limit", { eligibility: "mesh-allowance" });
+    const client = new FakeAccountMeshClient(snapshot({
+      registry: { observed_at: NOW, rows: [selfRow, macRow, limitRow] },
+      last_refusal: { reason: "mesh.machines", limit: 2, active_count: 3 },
+    }));
+    await mount(client, "signed_in");
+    await click(button("See plans for Limit"));
+    expect(freeLimitGate.current()).toMatchObject({ key: "mesh.machines", limit: 2, activeCount: 3 });
+    expect(account("Limit")?.dataset.status).toBe("over_limit");
+  });
+
+  it("keeps a locked machine's legacy pairing listed with a plans control", async () => {
+    const client = new FakeAccountMeshClient(snapshot({
+      traffic: "plan_limit_locked",
+      pairs: [pair("peer-legacy", "Old box", { admission: "legacy" })],
+    }));
+    await mount(client, "signed_in");
+    const saved = row("Saved pairings", "Old box");
+    expect(saved?.dataset.status).toBe("over_limit");
+    await click(button("See plans for Old box"));
+    expect(freeLimitGate.current()?.key).toBe("mesh.machines");
+    expect(row("Saved pairings", "Old box")).not.toBeNull();
   });
 });

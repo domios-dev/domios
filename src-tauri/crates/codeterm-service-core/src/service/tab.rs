@@ -356,6 +356,9 @@ impl ServiceContext {
             self.forget_evicted_tab_todos(evicted);
         }
         let pty_ids = close_result?;
+        if let Err(error) = self.settle_closed_durable_deliveries(&canonical_tab_id) {
+            log::error!("[agent-delivery] closed recipient settlement failed tab={canonical_tab_id}: {error}");
+        }
         if let Some(policy) = role_policy {
             if let Err(error) = policy.tab_closed(self, &canonical_tab_id) {
                 log::error!("[tab-close] role settlement {canonical_tab_id}: {error}");
@@ -583,6 +586,11 @@ impl ServiceContext {
     }
 
     pub(crate) fn reconcile_authenticated_agent_input(&self, tab_id: &str) {
+        if let Err(error) = self.bind_authenticated_durable_deliveries(tab_id) {
+            log::error!(
+                "[agent-delivery] authenticated launch binding failed tab={tab_id}: {error}"
+            );
+        }
         let pty_id = self.mux.read().get_tab(tab_id).and_then(|tab| {
             tab.launch_session_authenticated()
                 .then(|| tab.pty_id.clone())

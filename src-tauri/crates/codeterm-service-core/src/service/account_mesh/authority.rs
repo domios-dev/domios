@@ -24,6 +24,7 @@ pub fn mesh_state(state: &account::LifecycleState) -> mesh::AccountMeshState {
                 verified: verified(&membership.verified),
             }),
         revoked_installations: state.revoked_installations.clone(),
+        plan_limit_locked: state.plan_limit_locked(),
     }
 }
 
@@ -72,6 +73,7 @@ pub fn admission_refusal(refusal: AccountMeshRefusal) -> mesh::AdmissionRefusal 
         },
         AccountMeshRefusal::Revoked | AccountMeshRefusal::Forbidden => M::Revoked,
         AccountMeshRefusal::SignedOut => M::SignedOut,
+        AccountMeshRefusal::PlanLimitLocked => M::PlanLimitLocked,
         AccountMeshRefusal::Cancelled => M::Cancelled,
         AccountMeshRefusal::Invalid
         | AccountMeshRefusal::Conflict

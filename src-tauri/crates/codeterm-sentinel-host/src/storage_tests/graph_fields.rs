@@ -9,51 +9,101 @@ use crate::machine::SafeKind;
 use crate::source::TabBinding;
 use codeterm_storage::{SentinelId, StorageError, MAX_SENTINEL_LINEAGE};
 
-/// Every graph field at once: cron-run source with a bound run, prompt answers, `other`
-/// handlers with an exact escalation target, a hold and an imported amended head.
-const GRAPH: &str = r#"{"id":"sentinel_graph","team_id":"team","creator_tab_id":"creator",
- "workspace_id":"workspace","cwd":"/projects/one","probe":"","question":"Which launch state?",
- "buckets":["trust","working"],"interval_ms":10000,
- "routes":{
-  "trust":[{"id":"answer","action":{"kind":"respond_prompt","target":"directory_trust"},"target":null}],
-  "working":[{"id":"permit","action":{"kind":"respond_prompt","target":"permission"},"target":null},
-   {"id":"tool-permit","action":{"kind":"respond_prompt","target":"tool_permission_special"},"target":null}]},
- "matches":{},"until":null,"expires_at":9000000,"next_run":21000,
- "machine":{"last_hash":"abc123","last_bucket":"trust","stopped":false,"paused":false,
-  "held":"eval-other"},
- "last_reason":"other","revision":4,"agent_authored":true,"name":"Launch gate",
- "scenario_id":null,"max_transitions":64,"max_actions":256,
- "transitions":[{"id":"eval-other","bucket":"other","accepted_at":1500,"terminal":false,
-  "handlers":[{"handler_id":"ask","status":"unconfirmed","claim_id":"claim-1",
-   "execution_id":null,"accepted_at":1501,"reason":null}]}],
- "observe":{"kind":"cron_run","id":"nightly"},
- "run":{"run_id":"run-7","tab_id":"run-tab","bound_at":1400},
- "on_other":[
-  {"id":"ask","action":{"kind":"escalate","target":{"agent":"helper-tab"}},
-   "target":{"kind":"worker","id":"helper-tab","workspace_id":"workspace","team_id":"team",
-    "owner_tab_id":null}},
-  {"id":"tell","action":{"kind":"notify"},"target":null},
-  {"id":"note","action":{"kind":"notify"},"target":null}],
- "escalation_timeout_ms":1800000,"definition_version":3,
- "amendments":[{"version":3,"replaced_version":2,"author_tab_id":"helper-tab",
-  "cause_transition_id":"eval-other","at":1450}]}"#;
+fn native_fixture(document: Value) -> Sentinel {
+    let root = temp_root();
+    let store = Store::new(
+        root.path().join("native.json"),
+        MockClock::starting_at(1000),
+    );
+    let mut job = store
+        .prepare_document(
+            document,
+            Owner {
+                creator_tab_id: "creator".into(),
+                team_id: Some("team".into()),
+                workspace_id: "workspace".into(),
+                cwd: "/projects/one".into(),
+            },
+            true,
+        )
+        .expect("native graph fixture");
+    job.agent_authored = true;
+    job.max_transitions = 64;
+    job.max_actions = 256;
+    job
+}
 
-/// A creation-shaped graph stage: tab source, one prompt answer and one escalation.
-const FRESH: &str = r#"{"id":"sentinel_fresh","team_id":"team","creator_tab_id":"creator",
- "workspace_id":"workspace","cwd":"/projects/one","probe":"","question":"Which prompt?",
- "buckets":["trust"],"interval_ms":10000,
- "routes":{"trust":[{"id":"answer","action":{"kind":"respond_prompt","target":"onboarding"},
-  "target":null}]},
- "matches":{},"until":null,"expires_at":null,"next_run":1000,
- "machine":{"last_hash":null,"last_bucket":null,"stopped":false,"paused":false},
- "last_reason":null,"revision":0,"agent_authored":true,"name":null,"scenario_id":null,
- "max_transitions":64,"max_actions":256,"transitions":[],
- "observe":{"kind":"tab","id":"agent-tab"},
- "on_other":[{"id":"ask","action":{"kind":"escalate","target":"creator"},"target":null}],
- "escalation_timeout_ms":600000}"#;
+fn fresh_fixture() -> Sentinel {
+    let document = codeterm_sentinel::test_support::watch(
+        json!("Fresh launch gate"),
+        json!({"uses":"observe","with":{"kind":{"lit":"tab"},"id":{"lit":"agent-tab"}},"every":{"lit":"10s"},"timeout":{"lit":"1h"}}),
+        json!({"with":{"question":{"lit":"Which prompt?"}},"buckets":["trust"],"escalation_timeout_ms":600000}),
+        json!({"trust":[{"id":"answer","uses":"respond_prompt","with":{"target":{"lit":"onboarding"}}}],"other":[{"id":"ask","uses":"escalate","with":{"target":{"lit":"creator"}}}]}),
+        Value::Null,
+    );
+    let mut job = native_fixture(document);
+    job.id = "sentinel_fresh".into();
+    job.scenario_id = Some(job.id.clone());
+    job
+}
 
-fn fixture(raw: &str) -> Sentinel {
-    serde_json::from_str(raw).expect("graph fixture")
+fn graph_fixture() -> Sentinel {
+    let document = codeterm_sentinel::test_support::watch(
+        json!("Launch gate"),
+        json!({"uses":"observe","with":{"kind":{"lit":"cron_run"},"id":{"lit":"nightly"}},"every":{"lit":"10s"},"timeout":{"lit":"1h"}}),
+        json!({"with":{"question":{"lit":"Which launch state?"}},"buckets":["trust","working"],"escalation_timeout_ms":1800000}),
+        json!({"trust":[{"id":"answer","uses":"respond_prompt","with":{"target":{"lit":"directory_trust"}}}],"working":[{"id":"permit","uses":"respond_prompt","with":{"target":{"lit":"permission"}}},{"id":"tool-permit","uses":"respond_prompt","with":{"target":{"lit":"tool_permission_special"}}}],"other":[{"id":"ask","uses":"escalate","with":{"target":{"lit":"agent:helper-tab"}}},{"id":"tell","uses":"notify"},{"id":"note","uses":"notify"}]}),
+        Value::Null,
+    );
+    let mut job = native_fixture(document);
+    job.id = "sentinel_graph".into();
+    job.scenario_id = Some(job.id.clone());
+    job.expires_at = Some(9_000_000);
+    job.next_run = 21_000;
+    job.machine.last_hash = Some("abc123".into());
+    job.machine.last_bucket = Some("trust".into());
+    job.machine.held = Some("eval-other".into());
+    job.last_reason = Some("other".into());
+    job.revision = 4;
+    job.run = Some(crate::source::RunBinding {
+        run_id: "run-7".into(),
+        tab_id: "run-tab".into(),
+        bound_at: 1400,
+    });
+    job.on_other[0].target = Some(codeterm_sentinel::identity::Identity {
+        kind: "worker".into(),
+        id: "helper-tab".into(),
+        workspace_id: "workspace".into(),
+        team_id: Some("team".into()),
+        owner_tab_id: None,
+    });
+    job.transitions = vec![crate::handlers::Transition {
+        causal_run: None,
+        decision: None,
+        id: "eval-other".into(),
+        bucket: "other".into(),
+        accepted_at: 1500,
+        terminal: false,
+        handlers: vec![crate::handlers::ResultRecord {
+            handler_id: "ask".into(),
+            status: Status::Unconfirmed,
+            claim_id: Some("claim-1".into()),
+            execution_id: None,
+            accepted_at: Some(1501),
+            reason: None,
+            command_result: None,
+        }],
+    }];
+    job.definition_version = 3;
+    job.amendments = vec![Amendment {
+        version: 3,
+        replaced_version: 2,
+        author_tab_id: "helper-tab".into(),
+        cause_transition_id: Some("eval-other".into()),
+        at: 1450,
+        previous_definition: None,
+    }];
+    job
 }
 
 fn read_only(root: &Path) -> rusqlite::Connection {
@@ -97,7 +147,7 @@ fn sentinel_schema_v4_migration_upgrades_an_empty_previous_schema_root_in_place(
     let storage = open(root.path());
     let kept = done(storage.workspaces().list()).value;
     assert_eq!(kept.workspaces[0].record.name, "Kept");
-    let fresh = fixture(FRESH);
+    let fresh = fresh_fixture();
     let created = done(
         storage
             .sentinels()
@@ -180,7 +230,7 @@ fn sentinel_schema_v4_migration_refuses_a_previous_schema_root_holding_stages() 
 
 #[test]
 fn sentinel_schema_v4_graph_fields_round_trip_on_both_backends() {
-    let (fresh, graph) = (fixture(FRESH), fixture(GRAPH));
+    let (fresh, graph) = (fresh_fixture(), graph_fixture());
     let both = values(&[fresh.clone(), graph.clone()]);
     let root = temp_root();
     let storage = open(root.path());
@@ -251,7 +301,7 @@ fn blueprint_terminal_session_definition_and_budgets_survive_typed_reload() {
     let storage = open(root.path());
     let clock = MockClock::starting_at(1_000);
     let store = typed(&storage, &clock);
-    let mut job = fixture(FRESH);
+    let mut job = fresh_fixture();
     job.set_terminal(Some(codeterm_blueprint_types::blueprint_terminal::Config {
         pattern: Some("ready".into()),
         idle_ms: Some(200),
@@ -262,6 +312,17 @@ fn blueprint_terminal_session_definition_and_budgets_survive_typed_reload() {
     job.on_other.clear();
     job.escalation_timeout_ms = None;
     job.routes = std::collections::BTreeMap::from([("trust".into(), vec![])]);
+    let document = job.document.as_mut().unwrap();
+    document["steps"].as_array_mut().unwrap().truncate(2);
+    document["steps"][0]["uses"] = json!("terminal");
+    document["steps"][0]["with"]["pattern"] = json!({"lit":"ready"});
+    document["steps"][0]["with"]["idle_ms"] = json!({"lit":200});
+    document["steps"][0]["session"] = json!(true);
+    document["steps"][1]["routes"] = json!({"trust":"@stop"});
+    document["steps"][1]
+        .as_object_mut()
+        .unwrap()
+        .remove("escalation_timeout_ms");
     crate::store::validate(vec![job.clone()]).expect("valid terminal session fixture");
     let inserted = commit(&store, |store| store.stage_insert(job.clone())).unwrap();
     assert_eq!(inserted.terminal().cloned(), job.terminal().cloned());
@@ -298,7 +359,7 @@ fn blueprint_insert_refuses_orphan_escalation_timeout_before_persistence() {
         root.path().join("sentinels.json"),
         clock.clone(),
     )));
-    let mut job = fixture(FRESH);
+    let mut job = fresh_fixture();
     job.on_other.clear();
     for store in [&typed_store, &legacy] {
         let revision = storage.revision();
@@ -398,7 +459,7 @@ fn sentinel_schema_v4_prompt_response_requires_observed_tab_on_both_backends() {
     let legacy = Arc::new(Mutex::new(Store::new(legacy_path.clone(), clock.clone())));
     let base = legacy
         .lock()
-        .prepare(params(false, json!({})), owner(None), false)
+        .prepare_document(params(false, json!({})), owner(None), false)
         .expect("admitted definition");
 
     let mut shell_answer = base.clone();
@@ -441,10 +502,10 @@ fn sentinel_schema_v4_prompt_response_requires_observed_tab_on_both_backends() {
         assert!(store.lock().get(&answering.id).is_some());
     }
 
-    let shell_prompt = legacy.lock().prepare(
+    let shell_prompt = legacy.lock().prepare_document(
         params(
             false,
-            json!({"done": [{"id": "answer", "type": "respond_prompt", "parameters": {"target": "permission"}}]}),
+            json!({"done": [{"id":"answer","uses":"respond_prompt","with":codeterm_sentinel::test_support::literal_params(json!({"target": "permission"}))}]}),
         ),
         owner(None),
         false,

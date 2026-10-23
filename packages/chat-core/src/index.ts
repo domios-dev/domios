@@ -73,6 +73,7 @@ export {
   isImagePath,
   isVideoPath,
   videoMimeType,
+  visibleAttachmentLabel,
   parseAttachmentMarkers,
   splitReplyAttachment,
   type AttachmentKind,

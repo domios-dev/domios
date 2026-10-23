@@ -1,0 +1,1 @@
+protected_credentials::tests::unavailable_vault_keeps_refresh_credential_in_memory_only -> protected_credentials::tests::unavailable_private_file_keeps_refresh_credential_in_memory_only

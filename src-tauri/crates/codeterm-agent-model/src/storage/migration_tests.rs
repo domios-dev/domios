@@ -9,6 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
+mod blueprint_v2_surface;
 mod bounds;
 mod capture;
 mod conservation;
@@ -321,10 +322,6 @@ fn decoded_cron() -> CronImport {
     crate::cron::store::decode_legacy_cron_file(CRONS.as_bytes()).expect("cron fixture")
 }
 
-fn decoded_sentinels() -> Vec<SentinelImport> {
-    codeterm_sentinel::storage::legacy_import(SENTINELS).expect("sentinel fixture")
-}
-
 /// Every file under `root` by forward-slash relative path.
 fn tree(root: &Path) -> BTreeMap<String, Vec<u8>> {
     let mut files = BTreeMap::new();
@@ -412,13 +409,6 @@ impl Fixed {
             sentinel: Vec::new(),
         }
     }
-
-    fn sentinel(sentinel: Vec<SentinelImport>) -> Self {
-        Fixed {
-            cron: CronImport::default(),
-            sentinel,
-        }
-    }
 }
 
 impl LegacyDecoder for Fixed {
@@ -483,19 +473,6 @@ fn run(id: &str, started_at: u64) -> CronRunRecord {
 }
 
 /// `count` distinct stages derived from the stopped solo fixture stage.
-fn stages(count: usize) -> Vec<SentinelImport> {
-    let solo = decoded_sentinels()
-        .into_iter()
-        .find(|record| record.identity.id.as_str() == "sentinel_solo")
-        .expect("solo stage");
-    (0..count)
-        .map(|index| {
-            let mut stage = solo.clone();
-            stage.identity.id = SentinelId::new(format!("stage-{index}")).expect("stage id");
-            stage
-        })
-        .collect()
-}
 
 /// Imports the seeded fixture through the production entry point.
 fn import_seeded(fixture: &Fixture, storage: &Storage) -> ImportReceipt {

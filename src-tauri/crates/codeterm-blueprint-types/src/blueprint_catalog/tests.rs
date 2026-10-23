@@ -17,6 +17,7 @@ fn blueprint_catalog_equals_enum_names_and_shared_golden_fixture() {
             },
         },
         StepKind::Command {
+            timeout_ms: crate::blueprint_pipeline::COMMAND_STEP_RUNTIME_MS,
             command: "status".into(),
         },
         StepKind::Ask {

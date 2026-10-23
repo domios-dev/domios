@@ -37,6 +37,9 @@ pub enum Traffic {
     #[default]
     Open,
     BlockedSignedOut,
+    /// Signed in but refused a slot by the account's machine limit; pairings stay listed.
+    #[serde(rename = "plan_limit_locked")]
+    PlanLimitLocked,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize)]
@@ -85,6 +88,9 @@ pub enum AccountMeshRefusal {
     RateLimited { retry_after_seconds: u64 },
     #[serde(rename = "mesh.machines")]
     MachineLimit { limit: u32, active_count: u32 },
+    /// Local refusal of link traffic while this machine is outside the machine limit.
+    #[serde(rename = "plan_limit_locked")]
+    PlanLimitLocked,
     #[serde(rename = "authority-unavailable")]
     AuthorityUnavailable,
     #[serde(rename = "unavailable")]
@@ -197,8 +203,19 @@ impl LifecycleState {
     pub fn traffic(&self) -> Traffic {
         match self.presence {
             Presence::SignedOut => Traffic::BlockedSignedOut,
+            _ if self.plan_limit_locked() => Traffic::PlanLimitLocked,
             _ => Traffic::Open,
         }
+    }
+
+    /// Only the server's own machine-limit refusal locks; a dormant release never enrolls.
+    pub fn plan_limit_locked(&self) -> bool {
+        self.signed_in_account().is_some()
+            && self.membership.is_none()
+            && matches!(
+                self.last_refusal,
+                Some(AccountMeshRefusal::MachineLimit { .. })
+            )
     }
 
     pub fn binding(&self) -> Binding {

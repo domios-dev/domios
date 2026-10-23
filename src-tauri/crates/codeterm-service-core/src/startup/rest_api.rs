@@ -516,17 +516,24 @@ fn probe_address(address: SocketAddr) -> SocketAddr {
     }
 }
 
-async fn prove_health(address: SocketAddr, deadline: tokio::time::Instant) -> Result<(), String> {
+async fn prove_health(
+    address: SocketAddr,
+    bearer: Option<&str>,
+    deadline: tokio::time::Instant,
+) -> Result<(), String> {
     let client = reqwest::Client::builder()
         .no_proxy()
         .build()
         .map_err(|error| format!("health proof client for {address} failed: {error}"))?;
     let url = format!("http://{}/api/health", probe_address(address));
     let status = tokio::time::timeout_at(deadline, async {
-        let response = client
+        let mut request = client
             .get(url)
-            .header(reqwest::header::CONNECTION, "close")
-            .send()
+            .header(reqwest::header::CONNECTION, "close");
+        if let Some(bearer) = bearer {
+            request = request.bearer_auth(bearer);
+        }
+        let response = request.send()
             .await?;
         let status = response.status();
         response.bytes().await?;
@@ -903,7 +910,13 @@ pub async fn start(control: RestApiControlState, bind_addr: String, router: axum
             generation_router,
             control.listeners.clone(),
         ));
-        let health = listeners::prove_set(local_addr, remote_addr, control.health_proof_budget());
+        let proof_token = control.listeners.proof_token();
+        let health = listeners::prove_set(
+            local_addr,
+            remote_addr,
+            proof_token.as_deref(),
+            control.health_proof_budget(),
+        );
         tokio::pin!(health);
 
         let event = loop {

@@ -1,0 +1,16 @@
+{
+  "owner": "Chair",
+  "team_id": "FILL_ISOLATED_DEV_TEAM",
+  "workspace_id": "FILL_ISOLATED_DEV_WORKSPACE",
+  "orchestrator_tab": "FILL_KEEP_AUTHORIZED_DEV_TAB",
+  "codex_tab": "FILL_DEV_CLI_ACTOR",
+  "claude_tab": "FILL_DEV_CLI_ACTOR",
+  "no_fit_tab": "FILL_DEV_CLI_ACTOR",
+  "codex_binary": "/opt/homebrew/bin/codex",
+  "claude_binary": "/Users/dev/.local/bin/claude",
+  "claude_model": "FILL_VERIFIED_PROVIDER_MODEL",
+  "call_sha": "FILL_40_HEX_ACCEPTED_CALL_SHA",
+  "runtime_main_sha": "FILL_40_HEX_ACCEPTED_BLU_41_SHA",
+  "budget_runtime_sha": "FILL_40_HEX_ACCEPTED_BLU_44_SHA",
+  "isolated_dev_sha": "FILL_40_HEX_ACCEPTED_ISOLATED_DEV_SHA"
+}

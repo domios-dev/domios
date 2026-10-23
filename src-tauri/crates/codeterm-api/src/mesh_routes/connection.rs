@@ -18,7 +18,9 @@ pub struct AccountLinkBody {
 
 pub(crate) fn refusal_status(refusal: &AdmissionRefusal) -> StatusCode {
     match refusal {
-        AdmissionRefusal::MachineLimit { .. } => StatusCode::PAYMENT_REQUIRED,
+        AdmissionRefusal::MachineLimit { .. } | AdmissionRefusal::PlanLimitLocked => {
+            StatusCode::PAYMENT_REQUIRED
+        }
         AdmissionRefusal::SignedOut | AdmissionRefusal::Unauthenticated => StatusCode::UNAUTHORIZED,
         AdmissionRefusal::Revoked => StatusCode::FORBIDDEN,
         AdmissionRefusal::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,

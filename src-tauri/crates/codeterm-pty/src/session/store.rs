@@ -32,6 +32,8 @@ pub struct WorkspaceSnapshot {
     pub provisioned_cwd: Option<String>,
     #[serde(default)]
     pub protected: bool,
+    #[serde(default)]
+    pub created_at_ms: u64,
     /// Sibling ordinal among workspaces. Legacy snapshots default to 0.
     #[serde(default)]
     pub sort_order: i32,
@@ -142,6 +144,8 @@ pub enum SplitNodeSnapshot {
         icon: Option<String>,
         #[serde(default)]
         utility_created_at: u64,
+        #[serde(default)]
+        created_at_ms: u64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         close_restore: Option<crate::multiplexer::types::CloseRestoreTabState>,
         #[serde(default)]

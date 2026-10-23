@@ -24,6 +24,12 @@ struct State {
     wake: Option<Weak<dyn Wake>>,
     #[cfg(any(test, feature = "test-support"))]
     wait_observer: Option<std::sync::mpsc::Sender<WaitPhase>>,
+    #[cfg(any(test, feature = "test-support"))]
+    spawn_observer: Option<std::sync::mpsc::Sender<u32>>,
+    #[cfg(any(test, feature = "test-support"))]
+    diagnostics: Vec<String>,
+    #[cfg(any(test, feature = "test-support"))]
+    deadline_receipt: Option<super::process::DeadlineReceipt>,
     #[cfg(all(any(test, feature = "test-support"), windows))]
     fixture_argv: Option<Arc<[String]>>,
 }
@@ -149,6 +155,14 @@ pub enum WaitPhase {
 
 #[cfg(any(test, feature = "test-support"))]
 impl Cancellation {
+    pub fn record_deadlines(&self, deadlines: super::process::Deadlines) {
+        self.state.lock().deadline_receipt = Some(deadlines.receipt());
+    }
+
+    pub fn deadline_receipt(&self) -> Option<super::process::DeadlineReceipt> {
+        self.state.lock().deadline_receipt
+    }
+
     pub fn with_readiness(
         ready: impl Fn() -> Result<super::process::Deadlines, String> + Send + Sync + 'static,
     ) -> Self {
@@ -187,6 +201,31 @@ impl Cancellation {
         match readiness {
             Some(ready) => ready(),
             None => Ok(deadlines),
+        }
+    }
+
+    pub fn record_diagnostic(&self, diagnostic: String) {
+        let mut state = self.state.lock();
+        if state.spawn_observer.is_some() {
+            state.diagnostics.push(diagnostic);
+        }
+    }
+
+    pub fn finish_observation(&self) -> Vec<String> {
+        let mut state = self.state.lock();
+        state.spawn_observer = None;
+        std::mem::take(&mut state.diagnostics)
+    }
+
+    pub fn observe_spawned(&self) -> std::sync::mpsc::Receiver<u32> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.state.lock().spawn_observer = Some(tx);
+        rx
+    }
+
+    pub(super) fn spawned(&self, pid: u32) {
+        if let Some(observer) = &self.state.lock().spawn_observer {
+            let _ = observer.send(pid);
         }
     }
 

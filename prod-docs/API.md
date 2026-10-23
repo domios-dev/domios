@@ -55,6 +55,8 @@ Health `status: "ok"` proves liveness; `startup.state: "ready"` proves readiness
 | GET | `/api/health` | — | Health check. Returns `version`, `build` (git short hash), `name`, `platform`, `status`. |
 | POST | `/api/automation/blueprints/export` | `{workspace_id, team_id, id}` | Local host `{name, yaml}` authoring file; see BLUEPRINTS. |
 | POST | `/api/automation/blueprints/import` | `{caller_tab_id, recipe, assignments}` | Local host apply by name, stopped; recipe is YAML text or the matching document object; see BLUEPRINTS. |
+| GET | `/api/automation/blueprints/project` | Query `workspace_id`, optional `path` | Local host read-only repository listing or bounded source view. No execution or approval. |
+| GET | `/api/automation/blueprints/viewer/history` | Query `workspace_id`, explicit `team_id` (empty for no Team), `id` | Retained definition versions with actual root/callee semantic diffs. |
 | GET | `/api/identify` | — | Version, platform, features |
 | POST | `/api/cli/rpc` | `{method, params?, protocol_version}` | Internal CLI fallback for authenticated loopback callers only. It dispatches the same RPC methods as the local socket; mesh peer tokens are refused. See API-CLI. |
 | GET | `/api/network` | — | Local IP, Tailscale IP, API URLs |
@@ -177,4 +179,4 @@ A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or `c
 
 Related docs: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-INTEGRATIONS`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, and `TELEGRAM-SETUP`. Local analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 217 -->
+<!-- revision: 218 -->
