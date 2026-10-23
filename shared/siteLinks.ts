@@ -3,4 +3,7 @@ export const siteLinks = {
   repository: 'https://github.com/rollacode/codeterm',
   discord: 'https://discord.gg/JrmVwXEeZA',
   telegram: 'https://t.me/domi_os',
+  terms: 'https://domios.dev/terms',
+  privacy: 'https://domios.dev/privacy',
+  license: 'https://domios.dev/license',
 };

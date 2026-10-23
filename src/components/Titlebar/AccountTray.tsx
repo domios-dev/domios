@@ -10,6 +10,7 @@ import { DropdownMenu, type DropdownMenuEntry } from "../shared/DropdownMenu";
 import { Skeleton, SkeletonBlock } from "../shared/Skeleton";
 import { UI_TRAY_BTN } from "../shared/design";
 import { communityMenu } from "../shared/CommunityLinks";
+import { legalMenuItems } from "../shared/LegalLinks";
 import { accountTrayModel } from "./accountTrayModel";
 import { AccountAvatar } from "./AccountAvatar";
 import { useMultiplexer } from "../../store/multiplexer/context";
@@ -39,6 +40,8 @@ export function AccountTray({ onOpenPlans }: { onOpenPlans: () => void }) {
       icon: <AccountAvatar url={model.avatarUrl} initial={model.initial} label="" size="menu" /> },
     { label: model.plan, disabled: true },
     { label: billing.pending ? "Opening subscription…" : "Manage subscription", disabled: billing.pending, onClick: () => void manageSubscription() },
+    ...legalMenuItems(["terms", "privacy"]),
+    { separator: true, key: "sign-out" },
     { label: "Sign out", onClick: () => void account.signOut() },
   ] : pending ? [
     { label: "Loading account…", disabled: true },

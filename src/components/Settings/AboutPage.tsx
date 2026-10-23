@@ -1,5 +1,6 @@
-import { ExternalLink, Info, MessagesSquare, Users } from "lucide-react";
+import { ExternalLink, Info, MessagesSquare, Scale, Users } from "lucide-react";
 import { CommunityLinks } from "../shared/CommunityLinks";
+import { LegalLink } from "../shared/LegalLinks";
 import { useOptionalUpdatePanel } from "../../hooks/useUpdatePanel";
 import { useUpdate } from "../../hooks/useUpdate";
 import type { AppConfig } from "../../lib/types";
@@ -61,6 +62,14 @@ export function AboutPage({ config, onUpdate }: {
                 </div>
               </div>
             ))}
+          </div>
+        </SettingsCard>
+
+        <SettingsCard icon={<Scale size={16} />} title="Legal">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <LegalLink document="terms" />
+            <LegalLink document="privacy" />
+            <LegalLink document="license" />
           </div>
         </SettingsCard>
       </div>

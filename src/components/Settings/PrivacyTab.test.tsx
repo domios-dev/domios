@@ -5,6 +5,9 @@ import { PRODUCT_EVENT_CATALOG } from "../../lib/productAnalytics.generated";
 
 const localJson = vi.hoisted(() => vi.fn().mockResolvedValue({ consent: "off", queued: 0, has_device_id: false, has_user_id: false }));
 vi.mock("../../lib/webApi", async (importOriginal) => ({ ...await importOriginal<typeof import("../../lib/webApi")>(), localJson }));
+const openUrl = vi.hoisted(() => vi.fn());
+vi.mock("../../lib/nativeBridge", () => ({ nativeBridge: { openUrl } }));
+import { siteLinks } from "../../../shared/siteLinks";
 import { PrivacyTab } from "./PrivacyTab";
 
 it("the collection link opens the catalog without emitting analytics", async () => {
@@ -50,6 +53,23 @@ it("keeps a failed background status read quiet and announces a failed consent a
     expect(toggle).not.toBeNull();
     await act(async () => toggle!.click());
     expect(host.querySelectorAll('section[role="status"][aria-label]')).toHaveLength(1);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+it("opens the privacy policy in the system browser", async () => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  try {
+    localJson.mockReset().mockResolvedValue({ consent: "off", queued: 0, has_device_id: false, has_user_id: false });
+    await act(async () => root.render(<PrivacyTab />));
+    const link = Array.from(host.querySelectorAll("a")).find(element => element.textContent === "Privacy Policy");
+    await act(async () => link!.click());
+    expect(openUrl).toHaveBeenCalledExactlyOnceWith(siteLinks.privacy);
   } finally {
     await act(async () => root.unmount());
     host.remove();

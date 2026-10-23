@@ -305,6 +305,23 @@ for (const signedIn of [false,true]) it(`opens community links in the system bro
   } finally {await act(async () => root.unmount());host.remove();state.signedIn=false;}
 });
 
+for (const signedIn of [false,true]) it(`offers terms and privacy links only when signed in (signedIn=${signedIn})`, async () => {
+  state.signedIn = signedIn;
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<AccountTrayWithActions />));
+    for (const [label,url] of [["Terms of Service",siteLinks.terms],["Privacy Policy",siteLinks.privacy]]) {
+      await act(async () => host.querySelector("button")!.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true})));
+      const item = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent === label);
+      if (!signedIn) { expect(item).toBeUndefined(); continue; }
+      await act(async () => item!.click());
+      expect(openUrl).toHaveBeenLastCalledWith(url);
+    }
+    expect(openUrl).toHaveBeenCalledTimes(signedIn ? 2 : 0);
+  } finally {await act(async () => root.unmount());host.remove();state.signedIn=false;}
+});
+
 const PHOTO = "https://lh3.googleusercontent.com/a/fixture=s96-c";
 async function renderSignedIn(photoUrl: string | null) {
   state.signedIn = true;
