@@ -2,7 +2,8 @@ use crate::assets::{self, AssetId, AssetRef};
 use crate::error::{sqlite_error, StorageError};
 use crate::owner::{Storage, WriteCx};
 use crate::repositories::{
-    created_sql, expect_matches, from_sql_u64, to_sql_u64, Committed, Completion, Expect, Read, Revision,
+    created_sql, expect_matches, from_sql_u64, to_sql_u64, Committed, Completion, Expect, Read,
+    Revision,
 };
 use crate::schema::{self, WORKSPACE_ORDER_REVISION};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -550,8 +551,7 @@ fn raw_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawWorkspace> {
 }
 
 fn decode(raw: RawWorkspace, assets: Vec<WorkspaceAsset>) -> Result<StoredWorkspace, StorageError> {
-    let (id, name, cwd, provisioned_cwd, protected, task_key_prefix, next, revision, created) =
-        raw;
+    let (id, name, cwd, provisioned_cwd, protected, task_key_prefix, next, revision, created) = raw;
     let id = WorkspaceId::new(id).map_err(|_| StorageError::Corrupt {
         detail: "malformed workspace id".to_string(),
     })?;

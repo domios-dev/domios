@@ -103,6 +103,7 @@ fn team_snapshot_roundtrip() {
     let wsid = state.create_workspace("Team WS".to_string(), None).id;
 
     let team = Team {
+        locked: false,
         id: "team_abc123".into(),
         name: Some("Alpha".into()),
         lifecycle: TeamLifecycle::Active,

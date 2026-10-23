@@ -121,6 +121,7 @@ fn runtime_team_projection_preserves_persisted_order_and_appends_new_teams() {
         .into_iter()
         .enumerate()
         .map(|(index, id)| Team {
+            locked: false,
             id: id.into(),
             name: None,
             lifecycle: TeamLifecycle::Active,
@@ -139,6 +140,7 @@ fn runtime_team_projection_preserves_persisted_order_and_appends_new_teams() {
     );
 
     mux.upsert_team(Team {
+        locked: false,
         id: "team-new".into(),
         name: None,
         lifecycle: TeamLifecycle::Forming,

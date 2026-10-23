@@ -28,7 +28,7 @@ The cloud service supplies subscription entitlements. Without a cloud endpoint, 
 
 ### Locked items
 
-When free-plan limits are enforced, creating one more workspace, Team or tab past the limit is refused with `free_limit_reached`. Items that already exist beyond the limit (for example after a downgrade) are never deleted or hidden: every listing still returns them. Instead the oldest items up to the limit stay usable and the newer ones are marked locked; the General workspace never counts and never locks. Acting on a locked item is refused with the stable code `plan_limit_locked`, naming the item and the limit. Upgrading unlocks everything; closing older items frees their slots. Builds that do not enforce limits lock nothing.
+When free-plan limits are enforced, creating one more workspace, Team or tab past the limit is refused with `free_limit_reached`. Items that already exist beyond the limit (for example after a downgrade) are never deleted or hidden: every listing still returns them. Instead the oldest items up to the limit stay usable and the newer ones are marked locked; the General workspace never counts and never locks. Acting on a locked item is refused with the stable code `plan_limit_locked`, naming the item and the limit. Workspace, tab and Team payloads carry `locked: true` on locked items; when the entitlement changes, Domios recomputes the marks and emits `entitlement-changed` without a restart. Order is fixed by each item's creation time, so reordering never moves a lock. Upgrading unlocks everything; closing older items frees their slots. Builds that do not enforce limits lock nothing.
 
 ## Product analytics
 

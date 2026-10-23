@@ -477,6 +477,7 @@ fn from_desk_snapshot(snapshot: DeskSnapshot) -> Result<SessionSnapshot, String>
             .teams
             .into_iter()
             .map(|team| codeterm_types::team::Team {
+                locked: false,
                 id: team.id,
                 name: team.name,
                 lifecycle: match team.lifecycle {

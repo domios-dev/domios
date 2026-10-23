@@ -70,18 +70,28 @@ impl MultiplexerState {
             .generation
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
             .wrapping_add(1);
+        let locks = self.locks();
         let mut tabs = self.tabs.clone();
         for tab in tabs.values_mut() {
+            tab.locked = locks.agent_tabs.contains(&tab.id);
             if let Some(managed) = &mut tab.managed {
                 if !self.tabs.contains_key(&managed.manager_tab_id) {
                     managed.manager_closed = true;
                 }
             }
         }
+        let mut workspaces = self.live_workspace_tabs();
+        for workspace in &mut workspaces {
+            workspace.locked = locks.workspaces.contains(&workspace.id);
+        }
+        let mut teams = self.list_teams();
+        for team in &mut teams {
+            team.locked = locks.teams.contains(&team.id);
+        }
         MultiplexerSnapshot {
-            workspaces: self.live_workspace_tabs(),
+            workspaces,
             tabs,
-            teams: self.list_teams(),
+            teams,
             active_workspace_id: self.active_workspace_id.clone(),
             focused_tab_id: self.focused_tab_id.clone(),
             generation,
@@ -309,6 +319,7 @@ impl MultiplexerState {
         let mut tabs = HashMap::new();
         let workspaces: Vec<Workspace> = snapshot.workspaces.iter().map(|ws| {
             Workspace {
+                locked: false,
                 task_keys: ws.task_keys.clone(),
                 id: ws.id.clone(),
                 name: ws.name.clone(),
@@ -357,6 +368,7 @@ impl MultiplexerState {
             pending_closed_history: Vec::new(),
             workspace_close_reservations: HashMap::new(),
             tab_close_reservations: HashMap::new(),
+            limit_gate: codeterm_entitlements::LimitGate::dormant(),
         };
         state.backfill_creation_order();
         state
@@ -436,6 +448,7 @@ impl MultiplexerState {
                         .filter(|active| added_tab_ids.contains(active))
                         .or_else(|| added_tab_ids.first().cloned());
                     self.workspaces.push(Workspace {
+                        locked: false,
                         task_keys: ws_snap.task_keys.clone(),
                         id: ws_snap.id.clone(),
                         name: ws_snap.name.clone(),
@@ -635,6 +648,7 @@ fn install_leaf(
     tabs.insert(
         tab_id.clone(),
         Tab {
+            locked: false,
             id: tab_id.clone(),
             sort_order: 0,
             pty_id: None,

@@ -182,6 +182,27 @@ fn storage_desk_import_round_trips_normalized_layout_and_identity_rows() {
 }
 
 #[test]
+fn storage_desk_round_trips_workspace_creation_stamp() {
+    let (_root, storage) = storage();
+    let mut expected = desk();
+    expected.workspaces[0].record.created_at_ms = Some(1_700_000_000_123);
+    storage
+        .desk()
+        .import(expected.clone())
+        .wait(Duration::from_secs(5))
+        .unwrap();
+    let actual = storage
+        .desk()
+        .snapshot()
+        .wait(Duration::from_secs(5))
+        .unwrap();
+    assert_eq!(
+        actual.value.snapshot.workspaces[0].record.created_at_ms,
+        Some(1_700_000_000_123)
+    );
+}
+
+#[test]
 fn storage_desk_empty_inventory_round_trips_without_fabricating_workspace() {
     let (_root, storage) = storage();
     let empty = DeskSnapshot {

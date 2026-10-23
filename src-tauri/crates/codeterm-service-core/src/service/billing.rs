@@ -4,7 +4,7 @@ pub use codeterm_entitlements::{
     LimitGate, LimitKey, LimitRefusal, LimitSummary, LockedRefusal, FREE_LIMIT_REACHED,
     PLAN_LIMIT_LOCKED,
 };
-pub use locks::{LockItems, LockProjection};
+pub use locks::ENTITLEMENT_CHANGED_EVENT;
 
 mod locks;
 use std::{sync::Arc, time::Instant};
@@ -22,17 +22,6 @@ impl ServiceContext {
             || LimitGate::new(codeterm_entitlements::compiled_free(), true),
             |billing| billing.limit_gate(),
         )
-    }
-
-    /// The single authority for "is this item locked"; dormant builds lock nothing.
-    pub fn locks(&self) -> LockProjection {
-        let gate = self.limit_gate();
-        let items = LockItems::from_mux(&self.mux.read());
-        LockProjection::project(&gate, &items)
-    }
-
-    pub fn is_locked(&self, limit: LimitKey, id: &str) -> bool {
-        self.locks().is_locked(limit, id)
     }
 
     pub async fn installation_id(&self) -> Result<codeterm_account::InstallationId, String> {
@@ -114,9 +103,12 @@ impl ServiceContext {
             if let Some(billing) = self.ext::<crate::service::billing::BillingCell>().0.get() {
                 snapshot_off_runtime(billing.clone(), None).await?;
             }
+            self.sync_limit_gate();
             return Ok(Snapshot::default());
         }
-        snapshot_off_runtime(self.billing().await?, session).await
+        let snapshot = snapshot_off_runtime(self.billing().await?, session).await;
+        self.sync_limit_gate();
+        snapshot
     }
     pub async fn refresh_billing(&self, event: RefreshEvent) -> Result<Snapshot, String> {
         let account = self.account().await?;
@@ -125,6 +117,7 @@ impl ServiceContext {
             if let Some(billing) = self.ext::<crate::service::billing::BillingCell>().0.get() {
                 snapshot_off_runtime(billing.clone(), None).await?;
             }
+            self.sync_limit_gate();
             return Ok(Snapshot::default());
         }
         let billing = self.billing().await?;
@@ -133,7 +126,9 @@ impl ServiceContext {
             .await;
         self.unlock_account_mesh_after_plan_change();
         let current = account.session().await;
-        snapshot_off_runtime(billing, current).await
+        let snapshot = snapshot_off_runtime(billing, current).await;
+        self.sync_limit_gate();
+        snapshot
     }
     /// `theme` applies to checkout only; the portal is Paddle's own page.
     pub async fn billing_open(

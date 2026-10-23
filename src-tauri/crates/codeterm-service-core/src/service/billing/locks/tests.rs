@@ -1,4 +1,6 @@
 use super::*;
+use crate::multiplexer::state::MultiplexerState;
+use crate::service::test_fixture::ServiceFixture;
 use codeterm_entitlements::{compiled_free, Authority, EffectiveAccess, Perks, Scope, ScopedLimit};
 
 fn paid() -> EffectiveAccess {
@@ -18,53 +20,53 @@ fn paid() -> EffectiveAccess {
     access
 }
 
-fn candidates(prefix: &str, count: u64) -> Vec<LockCandidate> {
-    (0..count)
-        .map(|n| LockCandidate {
-            id: format!("{prefix}-{n:02}"),
-            created_at: n,
-            exempt: false,
-        })
-        .collect()
-}
-
-#[test]
-fn lock_state_follows_the_entitlement_snapshot_without_restart() {
-    let items = LockItems {
-        workspaces: candidates("ws", 3),
-        teams: candidates("team", 7),
-        agent_tabs: candidates("tab", 36),
-    };
-    let free = LimitGate::new(compiled_free(), true);
-    let upgraded = LimitGate::new(paid(), true);
-    let states: Vec<bool> = [&free, &upgraded, &free]
-        .into_iter()
-        .map(|gate| LockProjection::project(gate, &items).is_locked(LimitKey::Teams, "team-06"))
-        .collect();
-    assert_eq!(states, [true, false, true]);
-    let projection = LockProjection::project(&free, &items);
-    assert!(projection.is_locked(LimitKey::Workspaces, "ws-02"));
-    assert!(projection.is_locked(LimitKey::AgentTabs, "tab-35"));
-    assert!(!projection.is_locked(LimitKey::AgentTabs, "tab-34"));
-    assert_eq!(
-        LockProjection::project(&LimitGate::dormant(), &items),
-        LockProjection::default()
-    );
-}
-
-#[test]
-fn projection_from_mux_marks_without_hiding_and_exempts_general() {
+fn three_workspaces() -> (MultiplexerState, String) {
     let (mut mux, _) = MultiplexerState::new();
     let general = mux.list_workspaces()[0].id.clone();
     mux.set_workspace_protected(&general, true);
-    for name in ["a", "b", "c"] {
-        mux.create_workspace(name.into(), None);
-    }
-    let before = mux.list_workspaces().len();
-    let items = LockItems::from_mux(&mux);
-    let projection = LockProjection::project(&LimitGate::new(compiled_free(), true), &items);
-    assert_eq!(projection.workspaces.len(), 1);
-    assert!(!projection.is_locked(LimitKey::Workspaces, &general));
-    assert_eq!(mux.list_workspaces().len(), before);
-    assert_eq!(items.workspaces.len(), before);
+    let newest = ["a", "b", "c"]
+        .map(|name| mux.create_workspace(name.into(), None).id)
+        .last()
+        .cloned()
+        .unwrap();
+    (mux, newest)
+}
+
+fn entitlement_events(fixture: &ServiceFixture) -> usize {
+    fixture
+        .ui
+        .0
+        .lock()
+        .iter()
+        .filter(|(event, _)| event == ENTITLEMENT_CHANGED_EVENT)
+        .count()
+}
+
+#[test]
+fn lock_state_follows_free_paid_free_without_restart() {
+    let (mux, newest) = three_workspaces();
+    let fixture = ServiceFixture::new(mux);
+    let svc = &fixture.service;
+    assert!(!svc.is_locked(LimitKey::Workspaces, &newest));
+    let free = LimitGate::new(compiled_free(), true);
+    let states: Vec<bool> = [free.clone(), LimitGate::new(paid(), true), free]
+        .into_iter()
+        .map(|gate| {
+            svc.apply_limit_gate(gate);
+            svc.is_locked(LimitKey::Workspaces, &newest)
+        })
+        .collect();
+    assert_eq!(states, [true, false, true]);
+    assert_eq!(entitlement_events(&fixture), 3);
+    assert_eq!(svc.mux.read().list_workspaces().len(), 4);
+}
+
+#[test]
+fn unchanged_gate_emits_nothing_and_this_build_stays_dormant() {
+    let (mux, newest) = three_workspaces();
+    let fixture = ServiceFixture::new(mux);
+    fixture.service.sync_limit_gate();
+    assert_eq!(entitlement_events(&fixture), 0);
+    assert!(fixture.service.locks().workspaces.is_empty());
+    assert!(!fixture.service.is_locked(LimitKey::Workspaces, &newest));
 }
