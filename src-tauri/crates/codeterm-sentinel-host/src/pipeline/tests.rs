@@ -164,23 +164,14 @@ fn blueprint_delivery_result_targets_persist_before_delivery_without_resend() {
                 assert!(packet.contains(path.to_str().unwrap()));
                 attempted_targets.push(target.to_string());
                 if pending {
-                    Ok(
-                        codeterm_service_core::service::messenger::Delivery::Pending {
-                            delivery_id: "parked-result".into(),
-                        },
-                    )
+                    Err("result_delivery_deadline".into())
                 } else {
-                    Ok(codeterm_service_core::service::messenger::Delivery::Pty {
-                        text: packet.into(),
-                    })
+                    Ok(())
                 }
             },
         );
         assert_eq!(result.body_ref.as_deref(), Some(body_ref.as_str()));
-        assert_eq!(
-            result.state,
-            if pending { "unconfirmed" } else { "delivered" }
-        );
+        assert_eq!(result.state, if pending { "failed" } else { "delivered" });
         assert_eq!(attempted_targets.len(), attempts_before + 1);
     }
 
