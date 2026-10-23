@@ -220,3 +220,14 @@ fn forged_paid_hint_keeps_every_write_path_closed_while_checking() {
     let over = svc.mux.read().list_workspaces().len();
     assert!(svc.limit_gate().admit(LimitKey::Workspaces, over).is_err());
 }
+
+#[test]
+fn deadline_announce_reaches_the_ui_even_when_the_gate_is_unchanged() {
+    let (mux, newest) = three_workspaces();
+    let fixture = ServiceFixture::new(mux);
+    fixture.service.sync_limit_gate();
+    assert_eq!(entitlement_events(&fixture), 1);
+    fixture.service.announce_limit_gate();
+    assert_eq!(entitlement_events(&fixture), 2);
+    assert!(fixture.service.is_locked(LimitKey::Workspaces, &newest));
+}
