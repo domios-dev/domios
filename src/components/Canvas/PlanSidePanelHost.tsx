@@ -10,6 +10,7 @@ import { useMultiplexer, useMuxSelector } from "../../store/multiplexer";
 import { planNavContextEqual, selectPlanNavContext } from "../../store/multiplexer/selectors";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 import { revealAssignedAgentTab } from "./planRevealAgentTab";
+import { selectDrawerContextKey, usePlanSidePanelContextBinding } from "./planSidePanelContext";
 import { planSidePanelStore, usePlanSidePanelEntry, type PlanSidePanelTarget } from "./planSidePanelStore";
 import { fetchPlan } from "./plansApi";
 import { useFullPlans } from "./PlansProvider";
@@ -123,6 +124,7 @@ function OpenPlanSidePanel({ api, onExited }: { api: ApiConfig; onExited: () => 
 
 /** App-level host: one side panel over chat, terminal tabs and the team view alike, mounted until its exit finishes. */
 export function PlanSidePanelHost({ api }: { api: ApiConfig }) {
+  usePlanSidePanelContextBinding(useMuxSelector(selectDrawerContextKey));
   const open = usePlanSidePanelEntry() !== null;
   const [mounted, setMounted] = useState(open);
   if (open && !mounted) setMounted(true);
