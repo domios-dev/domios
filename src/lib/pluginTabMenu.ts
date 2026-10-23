@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { invoke, listen, type UnlistenFn } from "./bridge";
 import { hostBridgeAvailable } from "./hostBridge";
-import { invalidateActivePluginBubbles } from "./pluginBubbleCache";
+import { invalidateActivePluginBubbles, refreshPluginBubble } from "./pluginBubbleCache";
 
 export type PluginTabMenuAction = "receiverTarget";
 
@@ -41,7 +41,13 @@ const bridgeHost: PluginTabMenuHost = {
       itemId: item.itemId,
       tabId,
     }),
-  watch: (onChange) => listen("contributions-changed", () => onChange()),
+  watch: (onChange) => listen<{ kind: string }>("contributions-changed", ({ payload }) => {
+    if (payload.kind.startsWith("status_bubble:")) {
+      refreshPluginBubble(payload.kind.slice("status_bubble:".length));
+    } else {
+      onChange();
+    }
+  }),
 };
 
 const EMPTY: PluginTabMenuState = { items: [], receiverTargets: {} };
