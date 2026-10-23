@@ -123,10 +123,11 @@ impl Billing {
         };
         let now = self.now();
         let mut floors = match grants.store.load_floors() {
-            Ok(floors) => floors.unwrap_or_default(),
+            Ok(Some(floors)) => floors,
+            Ok(None) => return,
             Err(error) => {
-                log::debug!("Grant floor unreadable; rewriting observed time only: {error}");
-                Floors::default()
+                log::debug!("Grant floor unreadable: {error}");
+                return;
             }
         };
         if floors.observed_at >= now {
@@ -151,6 +152,17 @@ impl Billing {
                     .map_or_else(codeterm_entitlements::compiled_free, Verdict::effective),
             )
         });
+        snapshot.entitlements.plan = snapshot
+            .grant
+            .as_ref()
+            .filter(|verdict| verdict.state.retains_grant())
+            .map_or(Plan::Free, |verdict| match verdict.label {
+                codeterm_entitlements::Label::Admin | codeterm_entitlements::Label::Pro => {
+                    Plan::Pro
+                }
+                codeterm_entitlements::Label::Sponsor => Plan::Sponsor,
+                codeterm_entitlements::Label::Free => Plan::Free,
+            });
         snapshot.checking = self.checking(cache);
         snapshot
     }
@@ -168,10 +180,10 @@ impl Billing {
             cache.generation
         };
         let grants = self.grants.as_ref()?;
-        let now = self.now();
         let current = self
             .load_grant(generation, session)
-            .is_some_and(|grant| grant.verdict(now).state.retains_grant());
+            .is_some_and(|grant| grant.verdict(self.now()).state.retains_grant());
+        let now = self.now();
         if current || !grants.store.load_hint().unwrap_or(false) {
             return None;
         }
@@ -233,15 +245,20 @@ impl Billing {
             .map_or_else(codeterm_entitlements::enforcing, |grants| {
                 grants.authority.enforcement().enabled
             });
-        let verdict = cache
-            .verified
-            .as_ref()
-            .map(|grant| grant.verdict(self.now()));
+        let now = self.now();
+        let verdict = cache.verified.as_ref().map(|grant| grant.verdict(now));
+        let valid_until = cache.verified.as_ref().map(|grant| {
+            let payload = grant.payload();
+            payload
+                .period_end
+                .unwrap_or(payload.expires_at)
+                .min(payload.expires_at)
+        });
         drop(cache);
         let access = verdict
             .as_ref()
             .map_or_else(codeterm_entitlements::compiled_free, Verdict::effective);
-        LimitGate::new(access, enforcing)
+        LimitGate::new(access, enforcing).with_deadline(valid_until, self.clock.clone())
     }
     pub fn entitlement_allows(
         &self,
@@ -301,6 +318,23 @@ impl Billing {
                     .err()
                 });
             if matches!(refusal, Some(Refusal::PolicyEpoch | Refusal::Revision)) {
+                if let Some(raw) = result
+                    .as_ref()
+                    .ok()
+                    .and_then(|reading| reading.grant.as_ref())
+                {
+                    let _ = crate::grant_store::authenticate_observed(
+                        raw,
+                        grants.authority.as_ref(),
+                        &session.identity.uid,
+                        &grants.installation_id,
+                        cached.as_ref(),
+                        self.now(),
+                        |issued_at| {
+                            self.observed.fetch_max(issued_at, Ordering::SeqCst);
+                        },
+                    );
+                }
                 let retry = self.provider.entitlements(session).await;
                 if retry.is_ok() {
                     result = retry;
@@ -378,12 +412,13 @@ impl Billing {
                     self.now(),
                 )
                 .and_then(|verified| match &floors {
-                    Ok(floors) => floors
-                        .as_ref()
-                        .and_then(|floors| floors.revisions.get(&key))
-                        .map_or(Ok(()), |floor| floor.admits(&verified))
+                    Ok(Some(floors)) => floors
+                        .revisions
+                        .get(&key)
+                        .ok_or(Refusal::Revision)
+                        .and_then(|floor| floor.admits(&verified))
                         .map(|()| verified),
-                    Err(_) => Err(Refusal::Revision),
+                    Ok(None) | Err(_) => Err(Refusal::Revision),
                 }) {
                     Ok(verified) => cache.verified = Some(verified),
                     Err(refusal) => {
@@ -418,14 +453,24 @@ impl Billing {
                 if let (Some(grants), Some(session)) = (&self.grants, session) {
                     let key = self.floor_key(grants, &session.identity.uid);
                     let floors = grants.store.load_floors();
+                    if let Ok(Some(floors)) = &floors {
+                        self.observed
+                            .fetch_max(floors.observed_at, Ordering::SeqCst);
+                    }
+                    if floors.is_err() {
+                        cache.verified = None;
+                    }
                     let accepted = reading.grant.as_ref().map(|raw| {
-                        crate::grant_store::authenticate(
+                        crate::grant_store::authenticate_observed(
                             raw,
                             grants.authority.as_ref(),
                             &session.identity.uid,
                             &grants.installation_id,
                             cache.verified.as_ref(),
                             self.now(),
+                            |issued_at| {
+                                self.observed.fetch_max(issued_at, Ordering::SeqCst);
+                            },
                         )
                         .and_then(|verified| match &floors {
                             Ok(floors) => floors
@@ -433,7 +478,7 @@ impl Billing {
                                 .and_then(|floors| floors.revisions.get(&key))
                                 .map_or(Ok(()), |floor| floor.admits(&verified))
                                 .map(|()| verified),
-                            Err(_) => Ok(verified),
+                            Err(_) => Err(Refusal::Revision),
                         })
                     });
                     match accepted {
@@ -458,6 +503,7 @@ impl Billing {
                         }
                         None => log::debug!("Reply has no grant; retaining cached grant"),
                     }
+                    self.observe();
                     let now = self.now();
                     let paid = cache.verified.as_ref().is_some_and(|grant| {
                         grant.verdict(now).effective().authority

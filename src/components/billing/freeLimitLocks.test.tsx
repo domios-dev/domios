@@ -312,3 +312,28 @@ function TerminalProbe({ id, terminal }: { id: string; terminal: ReturnType<type
   });
   return null;
 }
+
+
+describe("a locked Team locks its member tab surfaces", () => {
+  it("shows the badge and overlay, blocks input, and unlocks live", async () => {
+    const state = seeded();
+    state.tabs["tab-0"].team_id = "team-0";
+    setLocked(state, ["team-0"], true);
+    const terminal = fakeTerminal();
+    const { app, selected } = await mountRows(state, <div><Composer onSubmit={() => {}} /><TerminalProbe id="tab-0" terminal={terminal} /></div>);
+    expect(lockMarks().some((mark) => /its Team/.test(mark.getAttribute("title") ?? ""))).toBe(true);
+    expect(buttons(/View plans to unlock/)).toHaveLength(1);
+    expect(document.querySelectorAll("textarea[disabled]")).toHaveLength(1);
+    await terminal.emit("x");
+    expect(writes.writeTerminalInput).not.toHaveBeenCalled();
+    await click(buttons(/^Open tab tab-0$/)[0]);
+    expect(modalLine()).toBe(TEAMS);
+    expect(selected).toEqual([]);
+    setLocked(state, ["team-0"], false);
+    await app.emit("entitlement-changed", { limits: PAID_LIMITS, locks: { workspaces: [], teams: [], "agent.tabs": [] } });
+    expect(lockMarks()).toHaveLength(0);
+    expect(document.querySelectorAll("textarea[disabled]")).toHaveLength(0);
+    await terminal.emit("y");
+    expect(writes.writeTerminalInput).toHaveBeenCalledWith("tab-0", "pty-1", "y");
+  });
+});

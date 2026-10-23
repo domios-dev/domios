@@ -25,6 +25,13 @@ describe("which items each surface marks as locked", () => {
     expect(lockedSurfaces(state({ workspaces: ["w1"] })).tabs).toEqual(["a", "b"]);
   });
 
+  it("marks tabs in a locked Team even when their own and workspace marks are clear", () => {
+    const snapshot = state({ teams: ["t1"] });
+    snapshot.tabs.a.team_id = "t1";
+    snapshot.tabs.b.team_id = "t2";
+    expect(lockedSurfaces(snapshot).tabs).toEqual(["a"]);
+  });
+
   it("marks only Mesh machines the account model put over the plan limit", () => {
     expect(meshMachineLockedView({ status: "over_limit" }).locked).toBe(true);
     for (const status of ["linked", "unlinked", "revoked", "expired", "blocked", "legacy"]) {

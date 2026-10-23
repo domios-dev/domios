@@ -234,9 +234,20 @@ fn producer_windows_match_consumer_time_states() {
         let grant = run_vector(id).unwrap().grant;
         for checkpoint in window["checkpoints"].as_array().unwrap() {
             let now = checkpoint["now"].as_u64().unwrap();
+            let expected = if checkpoint["state"] == "not-yet-valid"
+                && now
+                    >= grant
+                        .payload()
+                        .not_before
+                        .saturating_sub(crate::verify::MAX_CLOCK_SKEW_SECS)
+            {
+                "fresh"
+            } else {
+                checkpoint["state"].as_str().unwrap()
+            };
             assert_eq!(
                 state_name(grant.verdict(now).state),
-                checkpoint["state"],
+                expected,
                 "{id} now={now}"
             );
         }

@@ -17,7 +17,7 @@ fn primed(store: Arc<MemoryGrants>, clock: Arc<dyn Fn() -> u64 + Send + Sync>) -
 #[test]
 fn next_deadline_walks_refresh_then_lease_end_then_none() {
     let store = Arc::new(MemoryGrants::default());
-    *store.0.lock() = paid_grant().grant;
+    store_verified(&store, &paid_grant().grant.unwrap());
     let (time, clock) = clock(ISSUED + 60);
     let billing = primed(store, clock);
     assert_eq!(billing.next_deadline(), Some(ISSUED + 3_600));
@@ -45,7 +45,7 @@ fn checking_bound_is_a_deadline() {
 #[tokio::test(start_paused = true)]
 async fn idle_driver_refreshes_at_refresh_after_and_locks_at_lease_end_without_focus() {
     let store = Arc::new(MemoryGrants::default());
-    *store.0.lock() = paid_grant().grant;
+    store_verified(&store, &paid_grant().grant.unwrap());
     let start = tokio::time::Instant::now();
     let clock: Arc<dyn Fn() -> u64 + Send + Sync> =
         Arc::new(move || ISSUED + 60 + start.elapsed().as_secs());
@@ -123,4 +123,32 @@ async fn a_new_grant_rearms_the_driver() {
         .await;
     assert_eq!(seen.recv().await.unwrap(), ISSUED + 3_600);
     task.abort();
+}
+
+#[test]
+fn captured_mux_gate_expires_on_wall_jump_without_a_deadline_tick() {
+    let store = Arc::new(MemoryGrants::default());
+    store_verified(&store, &paid_grant().grant.unwrap());
+    let (wall, clock) = clock(ISSUED + 60);
+    let billing = primed(store, clock);
+    let gate = billing.limit_gate();
+    assert_eq!(gate.summary().workspaces, None);
+    wall.store(ISSUED + 3_600, Ordering::SeqCst);
+    assert_eq!(gate.summary().workspaces, None);
+    wall.store(ISSUED + 86_400, Ordering::SeqCst);
+    assert_eq!(gate.summary().workspaces, Some(2));
+}
+
+#[test]
+fn gate_captures_access_and_its_deadline_at_the_same_instant() {
+    let store = Arc::new(MemoryGrants::default());
+    store_verified(&store, &paid_grant().grant.unwrap());
+    let time = Arc::new(std::sync::atomic::AtomicU64::new(ISSUED + 3_600));
+    let clock = time.clone();
+    let billing = primed(
+        store,
+        Arc::new(move || clock.fetch_add(1, Ordering::SeqCst)),
+    );
+    time.store(ISSUED + 86_399, Ordering::SeqCst);
+    assert_eq!(billing.limit_gate().summary().workspaces, Some(2));
 }
