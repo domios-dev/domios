@@ -1,0 +1,27 @@
+# Commit-pinned baseline for historic findings; every entry is triaged in the secret-audit report. Do not add entries without triage.
+
+# Dev-instance (127.0.0.1:7686) API tokens committed in a handoff and an eval script; escalated to owner for rotation decision
+12e8f5f1b0ca3021e6638de4909b5b2e718e3f19:evals/mem-recall/run.sh:generic-api-key:9
+a5803c816d1c146ffcab4dd23280685e7330b4c6:.codeterm/plans/pl_c8a72a9a870743ab81fb8ac94e0e459f/handoffs/el_3cd2d1f8c87b4a2dbb5df7e7f181b6e8.md:generic-api-key:18
+
+# Build-queue job keys in committed .research state (identifiers)
+b9ab6c520f9aed269126350285563527af2a2dde:.research/build-perf/gateway-policy-82758/state/jobs/qa-child.json:generic-api-key:13
+b9ab6c520f9aed269126350285563527af2a2dde:.research/build-perf/gateway-policy-91305/state/jobs/qa-child.json:generic-api-key:13
+
+# Firebase web API key for the public sign-in client; public by design, removed from the tree, owner to confirm key restrictions
+507c9b20c2f0b40b12e2be15279eabc46375c8e8:cloud/hosting/signin/config.example.json:gcp-api-key:4
+c8d1c90f50189e882ebec53c13494dda5f9c0dd0:src-tauri/crates/codeterm-account/src/adapters/firebase.rs:gcp-api-key:155
+
+# Prompt prose, deliberately invalid curl example and upstream README idempotency key (false positives)
+17aa70f7670574a0c15ca5778230e0a936418f4d:docs/superpowers/plans/2026-05-09-mesh-tab-implementation.md:curl-auth-header:3465
+55c283c805602d7aa218df0fddd6776a329ea003:codex-rs_app-server_README.md:generic-api-key:2454
+6e443f7dc972adb5123f93f912f1fb6aba196666:src-tauri/prompts/general_agent.md:generic-api-key:52
+
+# Synthetic test tokens at paths since moved or removed
+07f8f8e43f18afeac8c4ffedfe50bf23b1d6f6ff:src-tauri/src/crash/image_identity/tests.rs:generic-api-key:95
+0bb49bfc3c600bd7249f9eee202a9c343e888601:src-tauri/src/socket/server/plan_task_dispatch/tests/brief_tests.rs:generic-api-key:20
+4aa8287c67584f828b35b1cbf21bbae14dd977e6:src-tauri/src/service/hierarchy/report_plan_ctx/tests/plan_evidence_session_test.rs:generic-api-key:8
+57ce2b31f692950af6fe967ca0eb55e5d73e084a:src/components/Settings/SupporterAgentCard.test.tsx:generic-api-key:14
+8f7288e59fadf88f0a5f0087ad7844bbc7603ab0:src/components/MemoryPanel/DecisionRerankCard.test.tsx:generic-api-key:11
+c26d40b2069d84884e6808915a4eec11fe2e4aba:evals/plan-authorized-reporting/run.sh:generic-api-key:163
+d85f53e76230bec2b2806cf77f8f998d7b302dd8:src-tauri/src/service/analytics/tests/outcomes.rs:generic-api-key:369
