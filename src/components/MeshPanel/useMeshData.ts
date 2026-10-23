@@ -44,6 +44,8 @@ export interface MeshData {
   services: Service[];
   loading: boolean;
   error: string | null;
+  /** True once a live load or the cache supplied real data; the defaults are placeholders. */
+  loaded: boolean;
 }
 
 const DEFAULT_DATA: MeshData = {
@@ -52,6 +54,7 @@ const DEFAULT_DATA: MeshData = {
   services: [],
   loading: true,
   error: null,
+  loaded: false,
 };
 
 const CACHE_SCOPE = "codeterm:mesh-tab-cache:v3";
@@ -283,7 +286,7 @@ export function useMeshData(refreshKey: number): MeshDataResult {
         services: mergeServicesView(local, remoteWithCached),
       };
       liveAcceptedRef.current = true;
-      setData({ ...next, loading: false, error: null });
+      setData({ ...next, loading: false, error: null, loaded: true });
       void writeCache(next);
     } catch (e) {
       refreshFailedRef.current = true;
@@ -309,6 +312,7 @@ export function useMeshData(refreshKey: number): MeshDataResult {
         services: cachedServices(cached.services),
         loading: !refreshFailedRef.current,
         error: refreshFailedRef.current ? current.error : null,
+        loaded: true,
       }));
     });
     return () => { active = false; };

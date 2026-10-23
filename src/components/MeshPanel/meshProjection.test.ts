@@ -1,6 +1,6 @@
 // Run: npm run test:unit -- meshProjection
 
-import { groupServicesByPeer, pairedPeers, SELF_PEER_KEY, visibleServices } from "./meshProjection";
+import { groupServicesByPeer, meshDataUnavailable, pairedPeers, SELF_PEER_KEY, visibleServices } from "./meshProjection";
 import type { Service } from "./types";
 import type { PeerStatus } from "./useMeshData";
 
@@ -92,6 +92,12 @@ function peer(instanceId: string, pending: boolean): PeerStatus {
   assert("self service attributed to self", grouped.get(SELF_PEER_KEY)?.some((s) => s.id === "self-daemon") === true);
   assert("remote daemon attributed to its peer", grouped.get("peer-a")?.some((s) => s.id === "remote-daemon") === true);
   assert("remote cron dropped from every bucket", !Array.from(grouped.values()).some((list) => list.some((s) => s.id === "remote-cron")));
+}
+
+{
+  assert("a failed first load is unavailable", meshDataUnavailable({ error: "timed out", loaded: false }));
+  assert("a failed refresh over loaded data keeps the data", !meshDataUnavailable({ error: "timed out", loaded: true }));
+  assert("an initial load in flight is not a failure", !meshDataUnavailable({ error: null, loaded: false }));
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
