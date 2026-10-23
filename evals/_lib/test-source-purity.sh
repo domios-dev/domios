@@ -19,7 +19,8 @@ DEV_PORT=7686
 PROD_PORT=7685
 
 mkdir -p "$FIXTURE/home/.domios-dev/bin" "$FIXTURE/hostile"
-printf '%s\n' 'token = "dev-token"' > "$FIXTURE/home/.domios-dev/config.toml"
+printf '%s\n' 'dev-token' > "$FIXTURE/home/.domios-dev/.secrets"
+printf '%s\n' '[api]' 'token = "wrong-config-token"' > "$FIXTURE/home/.domios-dev/config.toml"
 
 # The dev CLI answers resolution, then reports the connection it was handed.
 cat > "$FIXTURE/home/.domios-dev/bin/codeterm" <<'CLI'
@@ -27,6 +28,10 @@ cat > "$FIXTURE/home/.domios-dev/bin/codeterm" <<'CLI'
 if [ "${1:-}" = identify ] && [ "${2:-}" = --json ]; then
   printf '{"connection":{"data_dir":"%s","host":"127.0.0.1","port":7686,"socket_path":"domios-dev.sock","instance":null}}\n' \
     "$HOME/.domios-dev"
+  exit 0
+fi
+if [ "${1:-}" = system ] && [ "${2:-}" = api-token ]; then
+  cat "$CODETERM_DATA_DIR/.secrets"
   exit 0
 fi
 printf 'CLI_SAW port=%s api_url=%s data_dir=%s vite=%s token=%s socket=%s tab=%s\n' \
@@ -39,7 +44,7 @@ cat > "$FIXTURE/hostile/curl" <<'CURL'
 #!/usr/bin/env bash
 [ -z "${CURL_LOG:-}" ] || printf '%s\n' "$*" >> "$CURL_LOG"
 [ "${DEV_DOWN:-0}" != 1 ] || exit 7
-printf '{"status":"ok","instance":{"name":"","api_port":"7686","vite_port":"1420","cdp_port":"9223"}}\n'
+printf '{"status":"ok","startup":{"state":"%s"},"build_sha":"1111111111111111111111111111111111111111","instance":{"name":"","api_port":"7686","vite_port":"1420","cdp_port":"9223"}}\n' "${HEALTH_STATE:-ready}"
 CURL
 
 cat > "$FIXTURE/hostile/codeterm" <<'PROD'
@@ -81,7 +86,7 @@ CAPTURE='
 
 probe() {
   HOME="$FIXTURE/home" PATH="$FIXTURE/hostile:$PATH" \
-    CURL_LOG="${CURL_LOG:-}" DEV_DOWN="${DEV_DOWN:-0}" \
+    CURL_LOG="${CURL_LOG:-}" DEV_DOWN="${DEV_DOWN:-0}" HEALTH_STATE="${HEALTH_STATE:-ready}" \
     bash -c "$SCRUB$1" _ "$LIB" "$FIXTURE"
 }
 
@@ -162,6 +167,14 @@ if grep -q FAKE_PROD_CLI_WON <<<"$down_output"; then
   fail "dc fell back to the PATH binary when dev was unreachable"
 fi
 
+set +e
+starting_output="$(HEALTH_STATE=starting probe 'source "$1"; dc whoami' 2>&1)"
+starting_status=$?
+set -e
+if [ "$starting_status" -eq 0 ] || grep -q CLI_SAW <<<"$starting_output" || ! grep -Fq "ERROR [dev-target]" <<<"$starting_output"; then
+  fail "dc invoked the CLI before the selected daemon was ready: $starting_output"
+fi
+
 # --- 7. dev_run composes the connection for a non-CLI child ----------
 CURL_LOG="$FIXTURE/child-curl.log"
 child_output="$(probe "$POISON"'source "$1"; dev_run "$2/child-probe"')"
@@ -170,3 +183,18 @@ if ! grep -Fqx "CHILD port=$DEV_PORT api_url=http://127.0.0.1:$DEV_PORT data_dir
 fi
 
 echo "PASS: sourcing the bench lib exports nothing and dc cannot be redirected off dev"
+
+node_output="$(HOME="$FIXTURE/home" PATH="$FIXTURE/hostile:$PATH" CODETERM_API_PORT=7685 \
+  node --input-type=module - "$ROOT/evals/_lib/connection.mjs" <<'NODE'
+import { pathToFileURL } from 'node:url';
+const { devConnection } = await import(pathToFileURL(process.argv[2]).href);
+const connection = devConnection();
+if (connection.api !== 'http://127.0.0.1:7686' || connection.token !== 'dev-token') process.exit(1);
+process.stdout.write('NODE_DEV_CONNECTION_OK');
+NODE
+)"
+[ "$node_output" = NODE_DEV_CONNECTION_OK ] || { echo "Node DEV resolver failed" >&2; exit 1; }
+python_output="$(HOME="$FIXTURE/home" PATH="$FIXTURE/hostile:$PATH" CODETERM_API_TOKEN=prod-token \
+  PYTHONPATH="$ROOT/evals/_lib" python3 -c 'from dev_connection import dev_token; print(dev_token())')"
+[ "$python_output" = dev-token ] || { echo "Python DEV resolver failed" >&2; exit 1; }
+echo 'PASS: Node and Python consumers resolve through the DEV library and local credential command'

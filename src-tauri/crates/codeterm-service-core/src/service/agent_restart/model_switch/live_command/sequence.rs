@@ -69,7 +69,7 @@ impl CommandSequence {
         deadline: Instant,
         transcript: &ModelSwitchTranscript,
     ) -> Self {
-        let signal = command_signal(&mut svc.screen_state.lock(), &target.pty_id);
+        let signal = command_signal(&svc.screen_state, &target.pty_id);
         svc.ext::<crate::service::agent_restart::RestartTracker>()
             .lock()
             .staged_models
@@ -144,7 +144,6 @@ impl Drop for CommandSequence {
     fn drop(&mut self) {
         self.svc
             .screen_state
-            .lock()
             .unsubscribe_screen_changes(&self.pty_id, &self.signal);
     }
 }

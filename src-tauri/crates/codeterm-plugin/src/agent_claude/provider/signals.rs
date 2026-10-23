@@ -5,7 +5,7 @@ use serde_json::Value;
 pub(super) fn probe() -> AuthStatusProbe {
     AuthStatusProbe {
         args: vec!["auth".into(), "status".into()],
-        timeout_ms: 3000,
+        timeout_ms: 15000,
     }
 }
 

@@ -1120,6 +1120,8 @@ version = "0.0.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
+ "codeterm-entitlements",
+ "ed25519-dalek",
  "log",
  "rand 0.8.5",
  "reqwest 0.12.28",
@@ -1653,7 +1655,6 @@ dependencies = [
 name = "codeterm-mesh"
 version = "0.0.0"
 dependencies = [
- "aes-gcm",
  "base64 0.22.1",
  "chrono",
  "codeterm-build-info",
@@ -1665,7 +1666,6 @@ dependencies = [
  "hostname",
  "if-addrs",
  "log",
- "mdns-sd",
  "parking_lot",
  "rand 0.8.5",
  "reqwest 0.12.28",
@@ -1675,7 +1675,6 @@ dependencies = [
  "sha2",
  "tokio",
  "uuid",
- "x25519-dalek",
 ]
 
 [[package]]
@@ -1845,6 +1844,7 @@ dependencies = [
  "core-foundation",
  "libc",
  "security-framework",
+ "sha2",
  "windows-sys 0.61.2",
 ]
 
@@ -3104,6 +3104,8 @@ dependencies = [
 name = "domios-server"
 version = "0.0.0"
 dependencies = [
+ "async-stream",
+ "axum",
  "chrono",
  "codeterm-api",
  "codeterm-billing",
@@ -3135,6 +3137,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "tokio",
+ "tower",
  "url",
  "uuid",
  "widestring",
@@ -7993,6 +7996,16 @@ dependencies = [
  "cfg-if",
  "cpufeatures",
  "digest",
+ "sha2-asm",
+]
+
+[[package]]
+name = "sha2-asm"
+version = "0.6.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b845214d6175804686b2bd482bcffe96651bb2d1200742b712003504a2dac1ab"
+dependencies = [
+ "cc",
 ]
 
 [[package]]

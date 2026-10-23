@@ -1591,32 +1591,17 @@ Push our current address list to paired peers without re-detecting locally. Use 
 
 - `--to` — Optional target peer (instance_id or name). Omit for all peers
 
-#### `domios mesh approve`
-
-Accept an incoming pairing request
-
-- `<request_id>` — Request ID of the pending pairing request
-
-#### `domios mesh broadcast`
-
-Start broadcasting for the configured duration
-
-#### `domios mesh connect`
-
-Initiate owner-approved pairing with a discovered peer or explicit address
-
-- `--addr` — Read the peer identity directly at this IP:port before pairing
-- `<instance_id>` — Instance ID or advertised name; --addr also accepts a hexadecimal ID prefix
-
 #### `domios mesh disconnect`
 
 Disconnect (unpair) from a paired peer
 
 - `<instance_id>` — Instance ID of the paired peer
 
-#### `domios mesh discover`
+#### `domios mesh link`
 
-Trigger mesh discovery scan (list discovered peers)
+Link a machine enrolled in this account. Both machines must be signed in, online to the registry and directly reachable; no approval on the other side
+
+- `<installation_id>` — Installation ID from the account's machine list
 
 #### `domios mesh offline`
 
@@ -1639,25 +1624,15 @@ Manually override our cached address for a paired peer. Useful when auto-detecti
 
 #### `domios mesh peers`
 
-List all peers (paired + discovered)
+List paired peers
 
 #### `domios mesh refresh`
 
 Re-detect local addresses (Tailscale + LAN) and announce them to all paired peers. Use after a network swap so peers update their cache without restarting Domios
 
-#### `domios mesh reject`
-
-Reject and block an incoming pairing request
-
-- `<request_id>` — Request ID of the pending pairing request
-
 #### `domios mesh status`
 
-Show mesh status (identity, discovery, peers)
-
-#### `domios mesh stop-broadcast`
-
-Stop broadcasting immediately
+Show mesh status (identity, peers)
 
 #### `domios mesh tabs`
 
@@ -1667,7 +1642,7 @@ List tabs on a remote mesh peer
 
 #### `domios mesh unrevoke`
 
-Explicitly lift a peer identity revocation so it can pair again
+Explicitly lift a local peer identity revocation
 
 - `<instance_id>` — Instance ID of the revoked peer
 
@@ -2936,6 +2911,7 @@ Respawn a worker from one prior attempt, inheriting its recorded execution inten
 - `--parent`
 - `<plan_id>`
 - `--provider`
+- `--reasoning-effort`
 - `--speed` — Provider-declared service tier for this launch
 - `<task_id>`
 - `--title`
@@ -3519,6 +3495,10 @@ Open a plugin surface as a tab nested under its owner
 
 OS-level integration: autostart, supervision, install hooks. Each subcommand is local-only and writes to platform-specific places (schtasks on Windows, LaunchAgents on macOS, user systemd on Linux)
 
+#### `domios system api-token`
+
+Print only the selected local instance API credential, without contacting the daemon
+
 #### `domios system autostart-status`
 
 Print whether the autostart trigger is installed and where
@@ -3532,7 +3512,7 @@ Remove the OS-level autostart trigger created by `enable-autostart`. Idempotent 
 Install an OS login trigger for the external crash-aware supervisor. The supervisor alone applies clean-exit, backoff, and loop policy; platform wrappers never restart the app independently
 
 - `--binary` — Override the path to the Domios executable. Defaults to the installed app binary for the current platform
-- `--supervisor` — Override the path to the codeterm CLI supervisor. Defaults to the currently-running CLI executable
+- `--supervisor` — Select the installed Domios CLI supervisor. Defaults to the stable installed CLI; temporary worker copies are refused
 
 #### `domios tab`
 

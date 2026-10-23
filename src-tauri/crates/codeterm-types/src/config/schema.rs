@@ -165,6 +165,7 @@ pub struct ApiConfig {
     pub host: String,
     pub mesh_tailnet_host: Option<String>,
     pub port: u16,
+    #[serde(skip)]
     pub token: Option<String>,
     pub cors: bool,
     pub cors_allow_origins: Vec<String>,
@@ -1079,7 +1080,6 @@ impl Default for TextHooksConfig {
 pub struct MeshConfig {
     pub enabled: bool,
     pub instance_name: String,
-    pub broadcast_duration_secs: u64,
 }
 
 impl Default for MeshConfig {
@@ -1087,7 +1087,6 @@ impl Default for MeshConfig {
         Self {
             enabled: true,
             instance_name: String::new(),
-            broadcast_duration_secs: 180,
         }
     }
 }

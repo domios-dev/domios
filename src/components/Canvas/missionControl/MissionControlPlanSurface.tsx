@@ -185,7 +185,9 @@ export function MissionControlPlanSurface({
     void deletePlan(api, id).catch(() => undefined);
   }, [api?.host, api?.port, api?.token]);
 
-  const showsData = planFetchShowsData(loading, error ?? null, plans.length);
+  // The team projection answers whether this Team has a plan; the plan feed has nothing left to load for it.
+  const teamHasNoPlan = team !== null && !selectedPlan;
+  const showsData = teamHasNoPlan || planFetchShowsData(loading, error ?? null, plans.length);
 
   const showSwitcher = Boolean(selectedPlan && !teamId);
   const actions = (
@@ -249,7 +251,7 @@ export function MissionControlPlanSurface({
           </div>
         )}
         <PlanFetchErrorState
-          loading={loading}
+          loading={loading && !teamHasNoPlan}
           error={error}
           itemCount={plans.length}
           onRetry={onRetry}

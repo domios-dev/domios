@@ -564,8 +564,7 @@ mod tests {
                 .contains("fixture-nonce"));
             let (private_key, public_key) =
                 codeterm_service_core::mesh::crown::generate_peer_keypair();
-            fixture.state.mesh.lock().paired_peers.insert(
-                "fixture-peer".into(),
+            fixture.state.mesh.lock().insert_legacy_pair_for_test(
                 codeterm_service_core::mesh::types::PairedPeer {
                     instance_id: "fixture-peer".into(),
                     instance_name: "Peer".into(),

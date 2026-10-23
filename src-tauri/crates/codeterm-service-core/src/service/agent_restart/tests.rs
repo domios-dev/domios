@@ -364,7 +364,6 @@ fn agent_restart_without_verified_session_launches_fresh() {
     fixture
         .service
         .screen_state
-        .lock()
         .process(pty_id, b"user@host:~$ ");
 
     let snap = fixture

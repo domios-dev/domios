@@ -24,8 +24,9 @@ fn is_stable_code(code: &str) -> bool {
 }
 
 /// Commands whose bare form changes the host or needs the network, not their output surface.
-const SWEPT_OUT: [&[&str]; 7] = [
+const SWEPT_OUT: [&[&str]; 8] = [
     &["update"],
+    &["system", "api-token"],
     &["system", "enable-autostart"],
     &["system", "disable-autostart"],
     &["mem", "dream"],
@@ -42,8 +43,11 @@ struct CliEnv {
 
 impl CliEnv {
     fn new(stub_port: Option<u16>) -> Self {
+        let data_dir = tempfile::tempdir().expect("temp data dir");
+        codeterm_util::instance_token::initialize_at(data_dir.path(), Some("stub-token"), false)
+            .expect("isolated instance credential");
         Self {
-            data_dir: tempfile::tempdir().expect("temp data dir"),
+            data_dir,
             instance: format!("jsoncontract-{}", std::process::id()),
             stub_port: Some(stub_port.unwrap_or_else(refused_port)),
         }
@@ -267,10 +271,16 @@ fn stub_reply(request: &Value) -> Value {
                 (200, r#"{"id":"dmsg-ok","state":"queued"}"#.to_string())
             } else if path.contains("live1") && path.ends_with("formatted=false") {
                 (200, r#"{"tab_id":"live1","text":"hello"}"#.to_string())
-            } else if path == "/api/mesh/approve" {
-                (409, r#"{"error":"request is not pending"}"#.to_string())
-            } else if path == "/api/mesh/reject" {
-                (404, r#"{"error":"pairing request unknown"}"#.to_string())
+            } else if path == "/api/mesh/link" {
+                (
+                    409,
+                    r#"{"ok":false,"failure":{"reason":"cancelled"}}"#.to_string(),
+                )
+            } else if path == "/api/mesh/disconnect" {
+                (
+                    404,
+                    r#"{"error":"No paired peer matches 'nope'"}"#.to_string(),
+                )
             } else {
                 (404, "Tab not found or has no PTY".to_string())
             };
@@ -365,11 +375,11 @@ fn not_found_maps_to_code_end_to_end() {
             code: "not_found",
         },
         Row {
-            args: &["mesh", "reject", "nope"],
+            args: &["mesh", "disconnect", "nope"],
             code: "not_found",
         },
         Row {
-            args: &["mesh", "approve", "nope"],
+            args: &["mesh", "link", "nope"],
             code: "conflict",
         },
         Row {

@@ -160,7 +160,7 @@ fn screen_txt_equals_vt100_render_of_final_grid() {
     use crate::pty::screen_state::ScreenState;
     // Drive the SAME vt100 renderer the daemon uses; the sidecar is its output.
     let bytes = b"\x1b[2J\x1b[Hhello\r\nworld\r\n";
-    let mut ss = ScreenState::new();
+    let ss = ScreenState::new();
     ss.process("pty-test", bytes);
     let rendered = ss.get_screen_text("pty-test").unwrap();
 

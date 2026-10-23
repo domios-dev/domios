@@ -180,9 +180,10 @@ impl Fixture {
             peer_name: "Preview".into(),
             team: None,
         });
-        self.state.mesh.lock().paired_peers.insert(
-            "preview-peer".into(),
-            PairedPeer {
+        self.state
+            .mesh
+            .lock()
+            .insert_legacy_pair_for_test(PairedPeer {
                 instance_id: "preview-peer".into(),
                 instance_name: "Preview".into(),
                 addresses: Vec::new(),
@@ -198,8 +199,7 @@ impl Fixture {
                 relay_protocol_version: RELAY_PROTOCOL_VERSION,
                 consecutive_misses: 0,
                 last_active_ms: None,
-            },
-        );
+            });
         private
     }
 

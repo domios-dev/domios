@@ -13,10 +13,10 @@ type Persist =
 
 #[derive(Clone)]
 pub struct ConnectionState {
-    config: codeterm_service_core::config::ConfigState,
-    registry: Arc<SupporterRegistry>,
-    store: TokenStore,
-    runtime: Arc<codeterm_service_core::service::supporter::SupporterRuntime>,
+    pub(super) config: codeterm_service_core::config::ConfigState,
+    pub(super) registry: Arc<SupporterRegistry>,
+    pub(super) store: TokenStore,
+    pub(super) runtime: Arc<codeterm_service_core::service::supporter::SupporterRuntime>,
     persist: Persist,
 }
 
@@ -101,7 +101,6 @@ where
 
 pub async fn connections_list(AxumState(state): AxumState<ConnectionState>) -> Result {
     tokio::task::spawn_blocking(move || {
-        let _transaction = connections::TRANSACTION.lock();
         let cfg = state.config.lock().supporter.clone();
         connections::list(&cfg, &state.registry, &state.store)
             .map(|rows| json!({ "connections": rows, "active": cfg.adapter }))

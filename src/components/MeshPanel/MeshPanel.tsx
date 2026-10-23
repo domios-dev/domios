@@ -252,7 +252,7 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
         )}
         {activeTab === "activity" && <ActivityTab active={activeTab === "activity"} />}
         {activeTab === "network" && (
-          <NetworkTab data={data} triggerRefresh={triggerRefresh} />
+          <NetworkTab triggerRefresh={triggerRefresh} />
         )}
         <ServiceDrawer
           state={drawerState}

@@ -47,6 +47,8 @@ The hub. One service owns every operation on workspaces, tabs, agents and plans,
 - Invariants: production listens on 7685 and is never killed by development, which uses 7686 or a named instance with its own data; workspace close follows the [Team teardown contract](orchestration.md#team-teardown) before removing remaining tabs; a headerless REST close is Unattributed unless its body confirms the exact target; an outdated or versionless protocol is refused; service requests stay responsive while blocking and memory-intensive work runs; background work is bounded and isolated so it cannot starve or take down the API; coordination waits on observed events, never on sleeps; utility shell lifetimes follow the [orchestration contract](orchestration.md), and declared deadlines survive restart or are reported lost; subsystems stop and start without restarting the daemon where they can.
 - Dependent capabilities: workspaces and tabs, health and diagnostics, updates, and the web UI.
 
+The daemon binds its health listener before expensive subsystem initialization. Health proves liveness and explicitly reports startup readiness; startup events establish service readiness. Requests needing an unfinished subsystem receive a typed starting refusal without queuing mutations, and integrity verification precedes native attachment and trusted resource use. Clients wait on readiness events before selecting the daemon frontend or loading application state, resubscribing when a listener generation closes the stream. The starting screen displays the current phase reported by the daemon.
+
 ### General Agent {#core:general-agent}
 
 Main is the protected, always-on agent singleton for one installation. It owns the General workspace identity, represents the machine in the mesh, receives bridge and mesh traffic, and coordinates project agents. The General workspace also hosts independent General-role sessions created by the owner.
@@ -68,7 +70,7 @@ The external supervisor observes daemon epochs and owns crash-recovery launches;
 What one Domios instance remembers across restarts: configuration, the workspace and tab snapshot with its lifecycle journal, schedules, the secret store, the usage ledger and the kept notification records.
 
 - Part of: core:service-layer.
-- Invariants: each instance keeps its own data directory, so development never reads or writes production's state; after storage cutover, `state.db` is the sole restore source and legacy JSON is import input only; restoring this state after a restart is unconditional and the journal is telemetry, not authority; writes to held configuration fail without changing live settings until the file is repaired or restored; secrets arrive on stdin, stay on their machine and never appear in a configuration dump.
+- Invariants: each instance keeps its own data directory, so development never reads or writes production's state; after storage cutover, `state.db` is the sole restore source and legacy JSON is import input only; restoring this state after a restart is unconditional and the journal is telemetry, not authority; writes to held configuration fail without changing live settings until the file is repaired or restored; sensitive configuration and state restrict broad access on every OS while preserving explicit runtime access grants; the instance API credential lives in the local secret store and is snapshotted at startup, separately from configuration; secrets arrive on stdin, stay on their machine and never appear in a configuration dump.
 - Dependent capabilities: workspaces and tabs, session continuity, scheduling, service registry, secret store, configuration, usage and Analytics.
 
 System cron ownership is persisted explicitly and exposed to clients. System jobs allow enable/disable and refuse deletion or schedule/task edits; their built-in creator restores protection during startup.
@@ -148,7 +150,7 @@ The routing spine. Every message that enters a tab from anywhere other than its 
 One flat, trusted fabric of the owner's machines, and the relay that carries commands, agents, payloads and reports between them.
 
 - Part of: core:service-layer.
-- Invariants: paired is trusted and unpaired does not exist; unpair is a ban; each machine decides locally what a peer may do; a machine belongs to one mesh; hard rules bind on every peer; secrets never cross the mesh.
+- Invariants: the account is the only authority for a new link and the backend never carries Mesh traffic; a paired edge carries traffic only while its admission is open (legacy provenance from before the gate, or adopted account membership that never downgrades); explicit sign-out blocks every edge before cleanup and never deletes it; unpair is a ban; each machine decides locally what a peer may do; a machine belongs to one mesh; hard rules bind on every peer; secrets never cross the mesh.
 
 ### Plugin host {#core:plugin-host}
 

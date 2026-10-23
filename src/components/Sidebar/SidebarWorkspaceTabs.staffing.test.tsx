@@ -234,7 +234,8 @@ test("staffing picker uses descriptor icons and requires a descriptor model choi
   assert(providerA.querySelector("svg#provider-a-icon"), "provider SVG comes from its descriptor");
   const providerB = Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
     .find((button) => button.textContent?.includes("Provider B")) as HTMLButtonElement;
-  assert(providerB.querySelector('[role="img"][aria-label="Provider B default agent icon"]'), "provider row without a logo exposes the accessible default agent icon");
+  assert(providerB.querySelector('[aria-hidden="true"] [role="img"]'), "provider row without a logo still draws the default agent icon");
+  assert(providerB.textContent?.trim() === "Provider B", "the provider name is the row's whole accessible name, not repeated by its icon");
   assert(!document.querySelector('[data-testid="team-menu"]')?.textContent?.includes("Unsupported provider"), "non-spawn-capable providers are absent");
   await act(async () => providerA.click());
   const defaultModel = document.querySelector('[data-testid="team-picker-model-model-one"]') as HTMLButtonElement;
@@ -342,10 +343,9 @@ test("staffing provider action ignores an immediate double click", async () => {
     provider.click();
   });
   assert(invocations === 1, "two immediate clicks issue exactly one staffing request");
-  assert(provider.disabled, "provider action is disabled while staffing is pending");
+  assert(!document.querySelector('[data-testid="team-menu"]'), "menu closes as soon as a provider is chosen, before the spawn settles");
   finish?.();
   await act(async () => {});
-  assert(!document.querySelector('[data-testid="team-menu"]'), "menu closes after successful staffing");
   await act(async () => root.unmount());
 });
 

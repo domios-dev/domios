@@ -1,0 +1,15 @@
+# Redundant real-git decisions now use the pure precedence matrix; the live-base wiring oracle remains.
+cmd::report_lane::tests::explicit_base_overrides_task_derived_fallback -> cmd::report_attribution::tests::base_precedence_uses_explicit_then_live_then_environment
+cmd::report_attribution::tests::a_typed_base_that_is_not_the_environment_still_wins_over_the_live_attempt -> cmd::report_attribution::tests::base_precedence_uses_explicit_then_live_then_environment
+cmd::report_attribution::tests::the_dispatch_environment_base_still_applies_when_no_live_attempt_base_exists -> cmd::report_attribution::tests::base_precedence_uses_explicit_then_live_then_environment
+cmd::report_attribution::tests::a_supplied_base_equal_to_the_environment_is_classified_as_the_environment -> cmd::report_attribution::tests::base_precedence_uses_explicit_then_live_then_environment
+# Exact local duplicate removed in both plugin and agent-detect; both retain their own covering test.
+prompt::tests::test_structured_prompt_still_clears_when_gone -> prompt::tests::test_active_prompt_cleared_when_gone
+# Identical BEL-terminated marker input and outcome.
+semantic_marker::tests::bel_terminator -> semantic_marker::tests::prompt_start_a
+# Both plain and padded inputs are retained in the covering table.
+discovery::tests::parse_first_ip_happy_path -> discovery::tests::parse_first_ip_trims_whitespace
+# Same irrelevant paths and burst, driven synchronously; native ref/working-tree wiring tests remain.
+tests::silence::repository_watcher_stays_silent_on_irrelevant_churn -> tests::silence::repository_watcher_filters_irrelevant_batches
+# Catalogue refresh observes live settings and retained VM on both consecutive config edits.
+js_runtime::hot_reload::tests::config_yaml_edit_restamps_settings_without_vm_rebuild -> js_runtime::hot_reload::settings_change_tests::config_edit_refreshes_the_catalog_and_notifies_without_a_vm_rebuild

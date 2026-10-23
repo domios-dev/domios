@@ -29,10 +29,10 @@ test("resolves config keybindings from live config", () => {
   );
 });
 
-test("falls back to empty string for a missing optional binding", () => {
+test("an unset optional binding shows the default chord the dispatcher acts on", () => {
   assert(
-    resolveHelpShortcut({ kind: "config", key: "search" }, config) === "",
-    "missing optional binding falls back to empty string",
+    resolveHelpShortcut({ kind: "config", key: "search" }, config) === "Ctrl+Shift+F",
+    "missing optional binding resolves to its dispatched default",
   );
 });
 

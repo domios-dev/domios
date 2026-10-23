@@ -9,7 +9,7 @@ import { ChatMessageRow, type MessageRowHandlers } from "./ChatMessageRow";
 import { ChatDeliveryState } from "./ChatDeliveryState";
 import { DroppedUploadNotice } from "./DroppedUploadNotice";
 import { VoiceTranscriptionProgress } from "./voice/VoiceTranscriptionProgress";
-import { canDeleteChatSend, type DeliverySend, type DeliveryState } from "./chatDeliveryModel";
+import { canRetryChatSend, canDeleteChatSend, type DeliverySend, type DeliveryState } from "./chatDeliveryModel";
 import type { EnrichedChatEntry } from "./chatEnrichment";
 
 type MessageBubbleProps = React.ComponentProps<typeof MessageBubble>;
@@ -154,7 +154,7 @@ export const ChatTranscriptRow = memo(function ChatTranscriptRow({ entry, daySep
             userProgress={deliveryView === "sending" && Boolean(deliverySend?.draft?.recordedVoiceAttachments.length)
               ? <VoiceTranscriptionProgress /> : undefined}
             userFooter={deliverySend ? <>
-              {deliveryView && deliveryView !== "delivered" && <ChatDeliveryState state={deliveryView} onRetry={deliverySend.status?.system_send ? undefined : () => context.retrySend(deliverySend.id)} />}
+              {deliveryView && deliveryView !== "delivered" && <ChatDeliveryState state={deliveryView} onRetry={canRetryChatSend(deliverySend) ? () => context.retrySend(deliverySend.id) : undefined} />}
               <DroppedUploadNotice tabId={context.tabId} id={deliverySend.id} names={deliverySend.droppedUploads} />
             </> : undefined}
             item={item.kind === "tool" ? item : undefined}

@@ -4,7 +4,7 @@ use codeterm_service_core::plan::{PlanMode, Task, TaskExecutionAttempt};
 use codeterm_service_core::service::plan::PlanStore;
 use codeterm_service_core::service::{ProvisionedWorkerLane, ServiceState};
 
-pub(super) struct DispatchSeed<'a> {
+pub(crate) struct DispatchSeed<'a> {
     pub svc: &'a ServiceState,
     pub store: &'a PlanStore,
     pub plan_id: &'a str,
@@ -18,7 +18,7 @@ pub(super) struct DispatchSeed<'a> {
     pub now: u64,
 }
 
-pub(super) fn seed_acceptance_or_rollback(
+pub(crate) fn seed_acceptance_or_rollback(
     seed: DispatchSeed<'_>,
 ) -> Result<Option<ProvisionedWorkerLane>, JsonRpcError> {
     let DispatchSeed {

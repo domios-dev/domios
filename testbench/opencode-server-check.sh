@@ -22,9 +22,10 @@ source evals/_lib/lib.sh 2>/dev/null; export PATH="/usr/bin:/bin:$PATH"
 LOG="$HOME/.domios-dev/logs/domios.log"
 # dev_post/dev_get in the bench lib intermittently lose `curl` on PATH inside the
 # function; use /usr/bin/curl directly with the dev token for robustness.
-TOK=$(python3 -c "import re;print(re.search(r'token\s*=\s*\"([^\"]+)\"',open('$HOME/.domios-dev/config.toml').read()).group(1))")
-ocpost(){ /usr/bin/curl -s -X POST -H "Authorization: Bearer $TOK" -H 'Content-Type: application/json' --data "$2" "http://127.0.0.1:7686$1"; }
-ocget(){ /usr/bin/curl -s -H "Authorization: Bearer $TOK" "http://127.0.0.1:7686$1"; }
+TOK="$(dev_token)" || exit 7
+API="$(dev_api_url)" || exit 7
+ocpost(){ /usr/bin/curl -s -X POST -H "Authorization: Bearer $TOK" -H 'Content-Type: application/json' --data "$2" "$API$1"; }
+ocget(){ /usr/bin/curl -s -H "Authorization: Bearer $TOK" "$API$1"; }
 
 # --via selects the spawn path under test:
 #   cli  (default) — `dc agent spawn` = the scriptable proxy for the NON-spawn_agent

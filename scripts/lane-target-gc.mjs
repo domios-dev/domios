@@ -27,17 +27,6 @@ function inspect(directory) {
   return { newest, bytes };
 }
 
-function remove(directory) {
-  for (const entry of fs.readdirSync(directory)) {
-    const name = path.join(directory, entry);
-    const stat = fs.lstatSync(name);
-    if (stat.isSymbolicLink()) fs.unlinkSync(name);
-    else if (stat.isDirectory()) remove(name);
-    else fs.unlinkSync(name);
-  }
-  fs.rmdirSync(directory);
-}
-
 export function trimLaneTargets(canonical, { checkout = canonical, now = Date.now(), maxAgeDays = 3,
   dryRun = false, runner = spawnSync, log = console.log } = {}) {
   const root = path.join(path.dirname(canonical), `${path.basename(canonical)}-worktrees`);
@@ -61,14 +50,17 @@ export function trimLaneTargets(canonical, { checkout = canonical, now = Date.no
         }
         const stats = inspect(target);
         if (stats.newest >= now - maxAgeDays * 86400000) continue;
-        log(`[lane-target-gc] ${dryRun ? 'would remove' : 'remove'} ${target}: ${stats.bytes} bytes`);
-        if (!dryRun) {
-          noLinks(target);
-          if (inspect(target).newest !== stats.newest) throw new Error(`build output changed: ${target}`);
-          remove(target);
-          if (fs.existsSync(target)) throw new Error(`build output remains: ${target}`);
-        }
-        reclaimed += stats.bytes;
+        noLinks(target);
+        if (inspect(target).newest !== stats.newest) throw new Error(`build output changed: ${target}`);
+        const python = ['python3', 'python'].find(program => runner(program, ['--version'], { encoding: 'utf8' }).status === 0);
+        if (!python) throw new Error('Python is required for Cargo locks');
+        const result = runner(python, [path.join(import.meta.dirname, 'cargo-build-gc.py'), '--tree', path.dirname(target), target,
+          ...(dryRun ? ['--dry-run'] : [])], { encoding: 'utf8' });
+        if (result.status !== 0) throw new Error(result.stderr || result.error?.message);
+        const outcome = JSON.parse(result.stdout);
+        if (outcome.status === 'protected') { log(`[lane-target-gc] retained ${target}: ${outcome.reason}`); continue; }
+        log(`[lane-target-gc] ${outcome.status} ${target}: ${outcome.bytes} bytes`);
+        reclaimed += outcome.bytes;
       }
     } catch (error) { log(`[lane-target-gc] retained ${lane}: ${error.message}`); }
   }

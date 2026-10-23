@@ -1,6 +1,12 @@
 import type { Tab } from "../../lib/types";
 import { effectiveTeamId, groupWorkspaceTeamMembers, partitionTeamMembers } from "./workspaceTeamModel";
 
+const isLocalTabId = (id: string) => !id.startsWith("mesh:");
+
+export function localWorkspaceTabIds(tabs: readonly Tab[]): string[] {
+  return tabs.filter((tab) => !tab.remote_peer_id && isLocalTabId(tab.id)).map((tab) => tab.id);
+}
+
 /** One draggable top-level unit of a workspace: a loose tab or a whole team block, with every row it renders. */
 export interface DragUnit {
   key: string;
@@ -74,7 +80,8 @@ export function buildSidebarDragModel(
  * tab no unit renders (hidden), keeping its relative place.
  */
 export function workspaceTabOrder(workspaceTabIds: readonly string[], units: readonly DragUnit[]): string[] {
-  const known = new Set(workspaceTabIds);
+  const localIds = workspaceTabIds.filter(isLocalTabId);
+  const known = new Set(localIds);
   const emitted = new Set<string>();
   const order: string[] = [];
   for (const unit of units) {
@@ -84,7 +91,7 @@ export function workspaceTabOrder(workspaceTabIds: readonly string[], units: rea
       order.push(id);
     }
   }
-  for (const id of workspaceTabIds) if (!emitted.has(id)) order.push(id);
+  for (const id of localIds) if (!emitted.has(id)) order.push(id);
   return order;
 }
 
@@ -102,11 +109,12 @@ export function withSiblingOrder(
   orderedSiblings: readonly string[],
   blockOf: (tabId: string) => readonly string[],
 ): DragUnit[] {
-  const siblings = new Set(orderedSiblings);
+  const localSiblings = orderedSiblings.filter(isLocalTabId);
+  const siblings = new Set(localSiblings);
   return units.map((unit) => {
     const slot = unit.tabIds.findIndex((id) => siblings.has(id));
     if (slot < 0) return unit;
-    const moved = orderedSiblings.flatMap((id) => [...blockOf(id)]);
+    const moved = localSiblings.flatMap((id) => [...blockOf(id)]);
     const movedIds = new Set(moved);
     const keep = (id: string) => !movedIds.has(id);
     return {

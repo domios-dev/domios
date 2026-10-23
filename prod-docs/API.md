@@ -7,15 +7,15 @@ REST, socket and CLI share authorization, PTY cleanup, events and hierarchy vali
 
 The CLI's local socket needs no TCP. Unix peer credentials or the Windows process-token SID restrict it to the daemon's OS user; the daemon owns authentication, signing, and transport.
 
-Every socket and mesh RPC envelope carries a `protocol_version`; an older or versionless client is refused with `-32002`. Wire shape: `domios docs API-TRANSPORT`.
+Socket/mesh envelopes require `protocol_version`; older or versionless clients get `-32002`. Wire: `domios docs API-TRANSPORT`.
 
 Human `domios workspace list` shows authoritative topology in stable creation order; inspect one tab with `domios tab inspect <id>` (whole-list JSON is automation-only). `workspace current --json` returns `{ "id", "source" }`, `source` one of `explicit`, `caller-tab`, `workspace-env`, `focus-fallback`. Resolution is never positional: `--workspace`, `$CODETERM_TAB_ID` via workspace membership, a validated `$CODETERM_WORKSPACE_ID`, then the active workspace. With no rung, stdout stays empty and it exits 1 (`--json` puts the error on stdout).
 
 ## REST API
-Base URL: `http://<host>:7685/api`. This reference covers agent- and operator-facing routes; web-mirror and debug internals are not listed.
+Base URL: `http://<host>:7685/api`. Web-mirror/debug internals are omitted.
 
 ### Authentication
-Domios generates and persists a Bearer token on first load. Control endpoints require it even on loopback. The small public health/pairing allowlist is documented by the router and does not grant local control.
+The Bearer token is stored in owner-only `<data_dir>/.secrets` as `domios.instance:api_token`, read once at startup and passed to tabs as `CODETERM_API_TOKEN`; it never enters `config.toml`. Local-only `domios system api-token` prints only the credential and refuses `--mesh`. Control endpoints require it even on loopback. Public health/pairing routes grant no local control.
 
 Default configuration:
 ```toml
@@ -31,7 +31,6 @@ Non-loopback binds require an explicit host and non-empty token; remote requests
 ```toml
 [api]
 host = "192.0.2.10"
-token = "replace-with-a-long-local-secret"
 cors = true
 cors_allow_origins = ["https://console.example"]
 ```
@@ -39,6 +38,10 @@ cors_allow_origins = ["https://console.example"]
 Authenticated config readback includes `api_listener.active`, `.configured`, and `.restart_required` (enabled state, address, CORS/origins, authentication). Exact queries include listener truth, so writes cannot masquerade as runtime rebinds. Loopback hosts canonicalize to valid socket/callback URL forms; rebind/recovery keeps the generation below. An empty CORS allowlist permits no cross-origin requests and never disables the listener; `*` and malformed origins are rejected.
 
 ### Endpoints
+
+#### Startup readiness
+
+Health `status: "ok"` proves liveness; `startup.state: "ready"` proves readiness. Only loopback health/events bypass auth. Await `ready` on `/api/startup/events` (`startup-state`). Other requests get HTTP 503 `starting`/`startup_failed` without queuing. CLI: `API-CLI`.
 
 #### Local previews
 | Method | Path | Body | Description |
@@ -85,10 +88,10 @@ Restore normalizes the recorded `cwd` before matching. `GET /api/mux/state` expo
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
 | GET | `/api/shells` | `?refresh=true` | Shell profiles; refresh replaces cache. |
-| GET | `/api/tabs` | `?workspace_id=<id>&agents=<bool>` or `?all_workspaces=true` | List tab summaries across local workspaces; `workspace_id` scopes to one. `focused_workspace=true` uses the caller tab identity, otherwise the focused workspace. Rows carry `workspace_id`, `workspace_name`, `scope` (`all_workspaces` \| `workspace`), `scope_workspace_id`, `scope_workspace_name`, `other_workspace_tab_count`, `agent_liveness` (`live` \| `absent` \| `unobserved`) and `agent_label`, its rendered bracket: the short model name when a provider catalogue claims the model id, else the provider name, suffixed `?` when unobserved and `!` when absent. Each row's `status` (`working` \| `question` \| `idle` \| `error` \| `exited`) is the value `GET /api/tabs/{id}/status` reports. A writer holding the state locks past 5 s yields `503`. |
+| GET | `/api/tabs` | `?workspace_id=<id>&agents=<bool>` or `?all_workspaces=true` | List tab summaries across local workspaces; `workspace_id` scopes to one. `focused_workspace=true` uses the caller tab identity, otherwise the focused workspace. Rows carry `workspace_id`, `workspace_name`, `scope` (`all_workspaces` \| `workspace`), `scope_workspace_id`, `scope_workspace_name`, `other_workspace_tab_count`, `agent_liveness` (`live` \| `absent` \| `unobserved`) and `agent_label` (short model or provider name, suffixed `?` when unobserved, `!` when absent). Each row's `status` (`working` \| `question` \| `idle` \| `error` \| `exited`) is the value `GET /api/tabs/{id}/status` reports. A writer holding the state locks past 5 s yields `503`. |
 | POST | `/api/tabs/{id}/wake` | — | Local-owner request to wake a sleeping tab; returns `202 {accepted:true}` immediately. Backend materialization runs off the async runtime; observe tab state for readiness. Repeated requests materialize once while a wake runs. A failed wake publishes `spawn_failed` and `boot_failure_reason`; an explicit new wake request retries it. |
 | GET | `/api/tabs/inspect` | `?tab_ids=<id>,<id>` | Full tab payload for the selected tab IDs only. |
-| POST | `/api/tabs` | `{title?, description?, cwd?, workspace_id?, team_id?, creator_tab_id?, detach_from_team?, cmd?, eager?, chat_backend?, system_prompt?, preset?, model?}` | Create a tab. `title`: one word, at most 64 chars, no whitespace or control characters; prose goes in `description`. Workspace: `workspace_id`, else the one owning `creator_tab_id` (the CLI sends the caller), else the focused one. A PTY shell inherits the live creator's Team unless `detach_from_team`; explicit `team_id` is membership-checked; chat-backend tabs never inherit. `description`: one trimmed line, at most 200 chars; empty clears. `cmd` goes through `/send` with Enter appended. A `chat_backend` naming an installed `chatBackend` plugin id creates an **open agent shell** instead of a PTY: `system_prompt` overrides the resolved preset's prompt, `preset` selects one (omit → plugin `defaultPreset`), `model` picks a model; these three need `chat_backend`. |
+| POST | `/api/tabs` | `{title?, description?, cwd?, workspace_id?, team_id?, creator_tab_id?, detach_from_team?, cmd?, eager?, chat_backend?, system_prompt?, preset?, model?}` | Create a tab. `title`: one word, at most 64 chars; prose goes in `description`. Workspace: `workspace_id`, else the one owning `creator_tab_id` (the CLI sends the caller), else the focused one. A PTY shell inherits the live creator's Team unless `detach_from_team`; explicit `team_id` is membership-checked; chat-backend tabs never inherit. `description`: one trimmed line, at most 200 chars; empty clears. `cmd` goes through `/send` with Enter appended. `chat_backend` (an installed `chatBackend` plugin id) creates an **open agent shell** instead of a PTY; `system_prompt`, `preset` (default: plugin `defaultPreset`) and `model` require it. |
 | POST | `/api/tabs/{id}/send` | `{text?, raw?, actions?: [{type:"key", key} \| {type:"delay", ms}], batch?: [{text, delay_ms?}], source_tab?}` | The ordinary write path, also used by mesh relay and service push tokens. Plain text and every batch item submit; `actions`/`raw` are only for explicit low-level terminal input. Delivery results (`sent`, `pending`, or a structured error with `bytes_written`): API-CHAT. |
 | POST | `/api/tabs/{id}/chat-send` | *(per route)* | Chat send and transcript routes: API-CHAT |
 | POST | `/api/tabs/{id}/attachments` | `{kind: "voice"\|"file", name, size, data}` (`data` is base64, at most 25 MiB decoded) | Target-host attachment ingest for mesh sends. Refuses oversized (`413`), malformed, empty or size-mismatched (`400`) payloads, sanitizes `name`, stores bytes in this host's upload directory. Returns `{path, kind, size, reference}`: `path` is host-local; for `voice`, `reference` is the voice marker transcribed here. Peers reach it through the signed relay with `/send` access. |
@@ -112,7 +115,7 @@ Restore normalizes the recorded `cwd` before matching. `GET /api/mux/state` expo
 | GET | `/api/tabs/{id}/chat` | *(per route)* | Chat send and transcript routes: API-CHAT |
 | GET | `/api/tabs/{id}/agent/runtime/children/{thread}/history` | `rootThreadId`, `bindingNonce`, `epoch`, optional `cursor` | Read one recorded subagent's history under the current parent binding. Returns `child` metadata, `items`, `nextCursor` and echoed binding fields. Foreign, unrecorded and stale children are refused; this grants no send or rebind authority and creates no tab. |
 | * | `/api/tabs/{id}/session/...` | *(per route)* | Tab session binding: read the daemon's binding fact, or rebind a running tab to an existing provider session without restarting it — both in API-TABS |
-| POST | `/api/tabs/{id}/repair` | `{provider? \| session_id? \| from_evidence? \| from_journal?}` | Repair a live PTY tab's provider/session identity without restart. Modes are mutually exclusive; empty body means `from_evidence`. Caller proof comes from `X-CodeTerm-Tab-Id` and `X-CodeTerm-Binding-Nonce`, plus `X-CodeTerm-Session-Id` when the launch already knew it; the proven caller must be the target tab or the registered owner of the target's bound plan task. Provider writes require a nonce-verified session record and go through the journaled identity boundary. Response shape, journal mode, and refusals: see API-REPAIR. |
+| POST | `/api/tabs/{id}/repair` | `{provider? \| session_id? \| from_evidence? \| from_journal?}` | Repair a live PTY tab's provider/session identity without restart. Modes are mutually exclusive; empty body means `from_evidence`. Caller proof comes from `X-CodeTerm-Tab-Id` and `X-CodeTerm-Binding-Nonce`, plus `X-CodeTerm-Session-Id` when the launch already knew it; the proven caller must be the target tab or the registered owner of the target's bound plan task. Response shape, journal mode, and refusals: API-REPAIR. |
 | POST | `/api/tabs/{id}/adopt-agent` | See API-ADOPT | Adopt a live PTY; see API-ADOPT. |
 | * | `/api/tabs/{id}/delayed-messages`, `/api/delayed-messages/{id}` | *(per route)* | List, queue, edit, delete, and send-now for delayed Chat UI messages — all in API-CHAT |
 | POST | `/api/tabs/{id}/hook/{permission,session_state,stop,session_start}` | *(per-hook, see below)* | Agent lifecycle hooks for one tab. Payloads, modes, nonce rejection and responses live in API-TABS |
@@ -174,4 +177,4 @@ A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or `c
 
 Related docs: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-INTEGRATIONS`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, and `TELEGRAM-SETUP`. Local analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 213 -->
+<!-- revision: 217 -->
