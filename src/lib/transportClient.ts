@@ -1,5 +1,5 @@
 import { uid } from "./uid";
-import { restRequestSignal } from "./restTimeoutPolicy";
+import { withRestRequestSignal } from "./restTimeoutPolicy";
 
 export const streamClientId = uid();
 
@@ -219,12 +219,12 @@ export function createTransportClient(options: TransportOptions): TransportClien
     request: tracked,
     origin: () => origin,
     currentToken: () => typeof options.token === "function" ? options.token() : options.token,
-    json: (method, path, body, opts) => json(method, path, body, {
-      signal: restRequestSignal(method, path, opts), headers: opts?.callerTabId ? { "X-CodeTerm-Tab-Id": opts.callerTabId } : undefined,
-    }),
-    localJson: (method, path, body, opts) => json(method, path, body, {
-      signal: restRequestSignal(method, path, opts), headers: opts?.callerTabId ? { "X-CodeTerm-Tab-Id": opts.callerTabId } : undefined,
-    }, true),
+    json: (method, path, body, opts) => withRestRequestSignal(method, path, opts, (signal) => json(method, path, body, {
+      signal, headers: opts?.callerTabId ? { "X-CodeTerm-Tab-Id": opts.callerTabId } : undefined,
+    })),
+    localJson: (method, path, body, opts) => withRestRequestSignal(method, path, opts, (signal) => json(method, path, body, {
+      signal, headers: opts?.callerTabId ? { "X-CodeTerm-Tab-Id": opts.callerTabId } : undefined,
+    }, true)),
     async upload<T>(path: string, form: FormData, opts?: { signal?: AbortSignal }): Promise<T> {
       const response = await tracked(path, { method: "POST", body: form, signal: opts?.signal }, true);
       const text = await response.text();
