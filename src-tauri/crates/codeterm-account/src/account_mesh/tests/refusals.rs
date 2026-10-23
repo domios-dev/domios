@@ -102,7 +102,7 @@ async fn account_mesh_machine_over_limit_refuses_links_with_plan_limit_code_unti
     assert!(state.plan_limit_locked());
     assert_eq!(
         serde_json::to_value(state.view()).unwrap()["traffic"],
-        "plan_limit_locked"
+        codeterm_entitlements::PLAN_LIMIT_LOCKED
     );
     let request = LinkAuthorization {
         transcript: [6u8; 32],
@@ -114,7 +114,7 @@ async fn account_mesh_machine_over_limit_refuses_links_with_plan_limit_code_unti
     assert_eq!(refusal, AccountMeshRefusal::PlanLimitLocked);
     assert_eq!(
         serde_json::to_value(refusal).unwrap(),
-        serde_json::json!({"reason": "plan_limit_locked"})
+        serde_json::json!({"reason": codeterm_entitlements::PLAN_LIMIT_LOCKED})
     );
 
     harness.registry.script.lock().unwrap().membership = None;
@@ -200,4 +200,12 @@ async fn account_mesh_refusal_before_sign_in_is_not_a_registry_call() {
         Err(AccountMeshRefusal::Unauthenticated)
     );
     assert_eq!(count(&harness.log, "registry:"), 0);
+}
+
+#[test]
+fn traffic_plan_limit_literal_is_the_entitlements_code() {
+    assert_eq!(
+        serde_json::to_value(Traffic::PlanLimitLocked).unwrap(),
+        codeterm_entitlements::PLAN_LIMIT_LOCKED
+    );
 }

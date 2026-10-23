@@ -20,7 +20,7 @@ pub enum BlockReason {
 impl BlockReason {
     pub fn code(self) -> &'static str {
         match self {
-            Self::PlanLimitLocked => "plan_limit_locked",
+            Self::PlanLimitLocked => codeterm_entitlements::PLAN_LIMIT_LOCKED,
             _ => "blocked",
         }
     }

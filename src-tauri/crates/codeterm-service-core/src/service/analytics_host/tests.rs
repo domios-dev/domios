@@ -60,6 +60,7 @@ fn scene() -> Scene {
         let alpha = mux.create_workspace("Alpha".into(), None).id;
         let beta = mux.create_workspace("Beta".into(), None).id;
         mux.upsert_team(Team {
+            locked: false,
             id: "team_red".into(),
             name: Some("Red".into()),
             lifecycle: Default::default(),
