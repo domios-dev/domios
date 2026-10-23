@@ -663,6 +663,12 @@ pub fn rename_team_core(
     name: String,
     caller: &TeamMutationCaller,
 ) -> Result<Team, String> {
+    if let Some(refusal) = mux.item_write_lock(
+        codeterm_service_core::service::billing::LimitKey::Teams,
+        team_id,
+    ) {
+        return Err(refusal.to_string());
+    }
     authorize_team_manager(mux, team_id, caller)?;
     mux.rename_team(team_id, name)
 }

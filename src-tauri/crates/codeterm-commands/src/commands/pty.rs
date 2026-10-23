@@ -24,6 +24,9 @@ pub async fn spawn_pty_core(
         let svc = &owner;
         let tab_id = requested_tab;
         if let Some(id) = tab_id.as_deref() {
+            if let Some(refusal) = svc.tab_write_lock(id) {
+                return Err(refusal.to_string());
+            }
             if codeterm_service_core::service::agent_runtime::requested_for_tab(svc, id) {
                 codeterm_service_core::service::agent_runtime::restore_tab(svc, id)?;
                 return Err("This agent uses Chat; terminal launch is unavailable".to_string());

@@ -5,6 +5,7 @@ import { subscribeTabOutput, type TabOutputSink } from "../../lib/outputStream";
 import { useMuxSelector } from "../../store/multiplexer";
 import { consumePendingCwd } from "../../lib/pendingCommands";
 import { uid } from "../../lib/uid";
+import { isPlanLockedRefusal } from "../../lib/spawnErrorMessage";
 import { shouldAttachTerminalOutput, writeTerminalOutputAndWait } from "./terminalOutputWrite";
 import { writeTerminalInput } from "./terminalInputWrite";
 import {
@@ -165,6 +166,11 @@ export function usePtyConnection({
     };
     void connect().catch((error: unknown) => {
       if (disposed) return;
+      if (isPlanLockedRefusal(error)) {
+        window.dispatchEvent(new Event("codeterm-refresh-mux-state"));
+        callbacks.current.onConnectionStateChange?.(false);
+        return;
+      }
       console.warn("Failed to setup PTY:", error);
       callbacks.current.onConnectionStateChange?.(false);
     });

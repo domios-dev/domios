@@ -75,6 +75,9 @@ impl ServiceContext {
             + Send
             + 'static,
     ) -> Result<AcceptedProviderSwitch, String> {
+        if let Some(refusal) = self.tab_write_lock(tab) {
+            return Err(refusal.to_string());
+        }
         let (tab, source, nonce, own) = {
             let mux = self.mux.read();
             let id = mux

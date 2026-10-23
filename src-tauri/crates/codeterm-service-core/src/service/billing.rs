@@ -47,14 +47,15 @@ impl ServiceContext {
                     .get("provider")
                     .and_then(|v| v.as_str())
                     .unwrap_or("cloud");
+                if provider != "cloud" {
+                    return Err("Unknown or unavailable billing provider".into());
+                }
                 let installation_id = self.installation_id().await?;
-                let adapter: Arc<dyn codeterm_billing::BillingProvider> = match provider {
-                    "cloud" => adapters::cloud::Cloud::configured(
+                let adapter: Arc<dyn codeterm_billing::BillingProvider> =
+                    adapters::cloud::Cloud::configured(
                         config.get("endpoint").and_then(|v| v.as_str()),
                         installation_id.clone(),
-                    )?,
-                    _ => return Err("Unknown or unavailable billing provider".into()),
-                };
+                    )?;
                 let mut billing = Billing::new(adapter).with_grants(
                     &installation_id,
                     Arc::new(codeterm_billing::FileGrantStore::new(
@@ -74,10 +75,12 @@ impl ServiceContext {
                         log::debug!("Grant prime task failed: {error}");
                     }
                 }
+                self.apply_limit_gate(billing.limit_gate());
                 self.spawn_entitlement_deadlines(billing.clone());
                 Ok::<_, String>(billing)
             })
             .await?;
+        self.apply_limit_gate(billing.limit_gate());
         Ok(billing.clone())
     }
     /// Idle daemons still refresh at `refresh_after` and lock at lease or period end; CLI,
@@ -103,26 +106,46 @@ impl ServiceContext {
         });
     }
     pub async fn account_plan(&self) -> Result<Snapshot, String> {
+        let result = self.account_plan_inner().await;
+        if result.is_err() {
+            self.apply_limit_gate(LimitGate::new(
+                codeterm_entitlements::compiled_free(),
+                codeterm_entitlements::enforcing(),
+            ));
+        } else {
+            self.sync_limit_gate();
+        }
+        result
+    }
+    async fn account_plan_inner(&self) -> Result<Snapshot, String> {
         let session = self.account().await?.session().await;
         if session.is_none() {
             if let Some(billing) = self.ext::<crate::service::billing::BillingCell>().0.get() {
                 snapshot_off_runtime(billing.clone(), None).await?;
             }
-            self.sync_limit_gate();
             return Ok(Snapshot::default());
         }
-        let snapshot = snapshot_off_runtime(self.billing().await?, session).await;
-        self.sync_limit_gate();
-        snapshot
+        snapshot_off_runtime(self.billing().await?, session).await
     }
     pub async fn refresh_billing(&self, event: RefreshEvent) -> Result<Snapshot, String> {
+        let result = self.refresh_billing_inner(event).await;
+        if result.is_err() {
+            self.apply_limit_gate(LimitGate::new(
+                codeterm_entitlements::compiled_free(),
+                codeterm_entitlements::enforcing(),
+            ));
+        } else {
+            self.sync_limit_gate();
+        }
+        result
+    }
+    async fn refresh_billing_inner(&self, event: RefreshEvent) -> Result<Snapshot, String> {
         let account = self.account().await?;
         let session = account.session().await;
         if session.is_none() {
             if let Some(billing) = self.ext::<crate::service::billing::BillingCell>().0.get() {
                 snapshot_off_runtime(billing.clone(), None).await?;
             }
-            self.sync_limit_gate();
             return Ok(Snapshot::default());
         }
         let billing = self.billing().await?;
@@ -131,9 +154,7 @@ impl ServiceContext {
             .await;
         self.unlock_account_mesh_after_plan_change();
         let current = account.session().await;
-        let snapshot = snapshot_off_runtime(billing, current).await;
-        self.sync_limit_gate();
-        snapshot
+        snapshot_off_runtime(billing, current).await
     }
     /// `theme` applies to checkout only; the portal is Paddle's own page.
     pub async fn billing_open(
