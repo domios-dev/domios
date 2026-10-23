@@ -15,4 +15,5 @@ A task-less verification Worker reports without --status or --task;
 a task-bound Worker keeps its assigned task and normal report status.
 Deliver each result once through domios agent report, not also domios send.
 Collect verification notes into that report. Short progress updates or questions
-are welcome whenever useful; corrections carry what changed.
+are welcome whenever useful; corrections carry what changed. After the report,
+your last message is at most one short line, never a copy of it unless asked.

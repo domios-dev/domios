@@ -18,6 +18,6 @@ python .agents/skills/prompt-evaluator/runner.py \
 The report shows all cases passing for all three samples and the runner
 exits zero.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->
 
-The lane scenarios supply their repository's check commands as fixture context; these commands are not universal Worker instructions. Cases 10–11 cover coherent edit batches and rerunning only affected checks.
+The lane scenarios supply their repository's check commands as fixture context; these commands are not universal Worker instructions. Cases 10–11 cover coherent edit batches and rerunning only affected checks; case 12 covers ending on one short line after the report.
