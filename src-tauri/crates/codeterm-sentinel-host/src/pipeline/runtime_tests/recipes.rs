@@ -44,15 +44,18 @@ fn blueprint_v2_runtime_bundled_probe_recipes_execute() {
             .collect::<Vec<_>>();
         let bound = document.bind(&bindings).unwrap();
         let (fixture, storage, handle, lease) = fixture(bound, directory.path());
-        crate::probe_env::with_command_environment(environment, || {
+        let (_, diagnostic) = crate::probe_env::with_command_environment(environment, || {
             crate::scheduler::tick(&handle, &Arc::new(fixture.service.clone()), &lease);
         });
         assert_eq!(
             std::fs::read_to_string(directory.path().join("gh-invoked"))
-                .unwrap()
+                .unwrap_or_else(|error| panic!(
+                    "{}: fixture marker: {error}; {diagnostic:?}",
+                    path.display()
+                ))
                 .trim(),
             "blueprint-fixture",
-            "{}",
+            "{}; {diagnostic:?}",
             path.display()
         );
         let current = handle.store.lock().get(&lease.job.id).unwrap().clone();
@@ -64,7 +67,7 @@ fn blueprint_v2_runtime_bundled_probe_recipes_execute() {
         assert_eq!(
             current.machine.last_bucket.as_deref(),
             Some(expected),
-            "{}: {:?}",
+            "{}: verdict_reason={:?}; {diagnostic:?}",
             path.display(),
             current.last_reason
         );

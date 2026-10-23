@@ -36,6 +36,15 @@ impl Environment {
         instance_cli: Option<&Path>,
         path_defaults: &[&str],
     ) -> Self {
+        Self::for_command_on_platform(inherited, instance_cli, path_defaults, cfg!(windows))
+    }
+
+    fn for_command_on_platform(
+        inherited: impl IntoIterator<Item = (OsString, OsString)>,
+        instance_cli: Option<&Path>,
+        path_defaults: &[&str],
+        windows: bool,
+    ) -> Self {
         let inherited: Vec<_> = inherited.into_iter().collect();
         let mut cli_dirs = Vec::new();
         if let Some(directory) = instance_cli.and_then(Path::parent) {
@@ -58,18 +67,28 @@ impl Environment {
         let path = probe_path(inherited_path, path_defaults).unwrap_or_default();
         let mut paths: Vec<PathBuf> = std::env::split_paths(&path).collect();
         let mut variables = vec![("LANG".into(), "C.UTF-8".into())];
-        #[cfg(windows)]
         if let Some((_, root)) = inherited
             .iter()
             .find(|(key, _)| key.eq_ignore_ascii_case("SystemRoot"))
+            .filter(|_| windows)
         {
             let root_path = PathBuf::from(root);
             if root_path.is_absolute() {
                 let system = root_path.join("System32");
                 if !paths.iter().any(|path| same_directory(path, &system)) {
-                    paths.push(system);
+                    paths.push(system.clone());
                 }
                 variables.push(("SystemRoot".into(), root.clone()));
+                variables.push(("COMSPEC".into(), system.join("cmd.exe").into_os_string()));
+                variables.push((
+                    "PATHEXT".into(),
+                    inherited
+                        .iter()
+                        .find(|(key, _)| key.eq_ignore_ascii_case("PATHEXT"))
+                        .filter(|(_, value)| !value.is_empty())
+                        .map(|(_, value)| value.clone())
+                        .unwrap_or_else(|| ".COM;.EXE;.BAT;.CMD".into()),
+                ));
             }
         }
         paths.retain(|path| !cli_dirs.iter().any(|cli| same_directory(path, cli)));

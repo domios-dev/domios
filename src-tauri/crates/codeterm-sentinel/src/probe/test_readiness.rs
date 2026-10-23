@@ -40,9 +40,20 @@ impl Readiness {
         limit: Duration,
         runtime: Duration,
     ) -> (Cancellation, mpsc::Receiver<DeadlineReceipt>) {
+        let signal = Cancellation::default();
+        let receipts = self.arm(&signal, limit, runtime);
+        (signal, receipts)
+    }
+
+    pub fn arm(
+        self: &Arc<Self>,
+        signal: &Cancellation,
+        limit: Duration,
+        runtime: Duration,
+    ) -> mpsc::Receiver<DeadlineReceipt> {
         let ready = self.clone();
         let (tx, rx) = mpsc::channel();
-        let signal = Cancellation::with_readiness(move || {
+        signal.set_readiness(move || {
             let mut stream = ready
                 .connection
                 .lock()
@@ -68,7 +79,7 @@ impl Readiness {
             stream.write_all(&[2]).map_err(|error| error.to_string())?;
             Ok(deadlines)
         });
-        (signal, rx)
+        rx
     }
 
     pub fn finite_command(&self, code: i32) -> String {

@@ -31,6 +31,8 @@ pub fn run_limited(
     output_bytes: u64,
 ) -> Result<Output, ProbeFailure> {
     let deadlines = Deadlines::start(limit, runtime)?;
+    #[cfg(any(test, feature = "test-support"))]
+    let deadlines = cancellation.setup_deadlines(deadlines);
     if stdin.len() > 32768 {
         return Err(ProbeFailure::new("contract_violation"));
     }
