@@ -153,7 +153,7 @@ export function Dashboard() {
           <TotalsTiles snapshot={view.snapshot} unavailable={false} />
           {view.snapshot.money.state === "not_recorded" && (
             <p className="mc-board-note">
-              <b>Tokens, not money.</b> CodeTerm records token counts per turn and applies no prices.
+              <b>Tokens, not money.</b> Domios records token counts per turn and applies no prices.
             </p>
           )}
           <ChartCard
