@@ -36,20 +36,20 @@ export function normalizedTimelineMarker(message: ChatMessage): ChatTimelineMark
 
 type HistoryGapLoader = (message: ChatMessage) => Promise<void>;
 
-const HistoryGapContext = createContext<HistoryGapLoader | undefined>(undefined);
+const HistoryGapContext = createContext<{ load?: HistoryGapLoader; label?: (message: ChatMessage) => string }>({});
 
 /** Supplies the loader a history-gap row calls to page the older history behind it. */
-export function HistoryGapProvider({ onLoad, children }: { onLoad?: HistoryGapLoader; children: ReactNode }) {
-  return <HistoryGapContext.Provider value={onLoad}>{children}</HistoryGapContext.Provider>;
+export function HistoryGapProvider({ onLoad, label, children }: { onLoad?: HistoryGapLoader; label?: (message: ChatMessage) => string; children: ReactNode }) {
+  return <HistoryGapContext.Provider value={{ load: onLoad, label }}>{children}</HistoryGapContext.Provider>;
 }
 
 function HistoryGapRow({ message }: { message: ChatMessage }): ReactNode {
-  const load = useContext(HistoryGapContext);
+  const { load, label } = useContext(HistoryGapContext);
   const [state, setState] = useState<"idle" | "loading" | "failed">("idle");
   const loadEarlier = () => {
     if (!load || state === "loading") return;
     setState("loading");
-    load(message).catch(() => setState("failed"));
+    load(message).then(() => setState("idle"), () => setState("failed"));
   };
   return (
     <div
@@ -71,7 +71,7 @@ function HistoryGapRow({ message }: { message: ChatMessage }): ReactNode {
           className="rounded px-2 py-0.5 text-[11px]"
           style={{ border: "1px solid var(--ct-border)", color: "var(--ct-fg)" }}
         >
-          {state === "loading" ? "Loading…" : state === "failed" ? "Retry" : "Load earlier"}
+          {state === "loading" ? "Loading…" : state === "failed" ? "Retry" : label?.(message) ?? "Load previous messages (up to 100)"}
         </button>
       ) : null}
       <span className="h-px flex-1" style={{ background: "var(--ct-border)" }} />
