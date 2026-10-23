@@ -1,3 +1,4 @@
+use super::types::agent_role_label;
 use crate::multiplexer::types::TabCloseReason;
 use crate::service::{boot_stage::BootStage, ServiceContext};
 pub(crate) fn skip_local_worker_role(
@@ -294,6 +295,12 @@ pub fn launch_agent_in_background_with_env(
     ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
     resume_session_id: Option<String>,
 ) -> Option<String> {
+    if let Some(refusal) = svc.tab_write_lock(&tab_id) {
+        if let Some(tx) = ready_tx {
+            let _ = tx.send(Err(refusal.to_string()));
+        }
+        return None;
+    }
     let prepared_command = launch_cmd.into();
     let launch_cmd = prepared_command.shell_command;
     let direct_spec = prepared_command.direct;
@@ -1185,12 +1192,4 @@ pub fn mark_tab_agent_launch_started(mux: &crate::multiplexer::commands::MuxStat
         tab.agent_booting = true;
         tab.restorable_launch.failed_provider = None;
     }
-}
-
-fn agent_role_label(
-    role: crate::multiplexer::types::AgentRole,
-    role_profile: Option<&str>,
-) -> &'static str {
-    codeterm_types::agent::role_kind::kind_label(Some(role), role_profile)
-        .unwrap_or_else(|| role.label())
 }

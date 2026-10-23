@@ -18,6 +18,7 @@ function installDom(): void {
   Object.defineProperty(globalThis, "navigator", { value: window.navigator, configurable: true });
   Object.defineProperty(globalThis, "HTMLElement", { value: window.HTMLElement, configurable: true });
   Object.defineProperty(globalThis, "Node", { value: window.Node, configurable: true });
+  Object.defineProperty(globalThis, "Event", { value: window.Event, configurable: true });
 }
 
 function fakeTerminal(active: { type: string; viewportY: number; baseY: number }) {
@@ -76,4 +77,49 @@ test("a terminal hidden while scrolled into history is reported as a reader unti
   await act(async () => root.unmount());
   assert.equal(isTerminalReadingHistory("tab-reader"), false);
   host.remove();
+});
+
+
+test("a lazy PTY plan refusal refreshes locks once and does not respawn on rerender", async () => {
+  installDom();
+  const { __setInvokeForTest } = await import("../../lib/bridge");
+  const terminal = fakeTerminal({ type: "normal", viewportY: 0, baseY: 0 });
+  const store = createMuxStateStore(() => ({ tabs: {} }) as unknown as ExtendedState);
+  let attempts = 0;
+  let refreshes = 0;
+  let spawned = 0;
+  let ready = false;
+  const refresh = () => { refreshes++; };
+  window.addEventListener("codeterm-refresh-mux-state", refresh);
+  __setInvokeForTest(async (command) => {
+    assert.equal(command, "spawn_pty");
+    attempts++;
+    throw new Error(JSON.stringify({ error: { code: "plan_limit_locked", message: "opaque" } }));
+  });
+  function Probe() {
+    const termRef = useRef<Terminal | null>(terminal);
+    const connectedPtyRef = useRef<string | null>(null);
+    usePtyConnection({
+      termRef, connectedPtyRef, tabId: "locked-tab", termReady: true,
+      onShellReady() {}, onOutputChunk() {},
+      onPtySpawned() { spawned++; },
+      onConnectionStateChange(value) { ready = value; },
+    });
+    return null;
+  }
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  const render = () => act(async () => root.render(createElement(MuxStateStoreContext.Provider, { value: store }, createElement(Probe))));
+  try {
+    await render();
+    assert.equal(refreshes, 1);
+    await render();
+    assert.equal(attempts, 1);
+    assert.equal(spawned, 0);
+    assert.equal(ready, false);
+  } finally {
+    await act(async () => root.unmount());
+    __setInvokeForTest(null);
+    window.removeEventListener("codeterm-refresh-mux-state", refresh);
+  }
 });

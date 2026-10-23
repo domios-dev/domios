@@ -991,16 +991,26 @@ async fn restore_orphaned_tab(
     axum::extract::State(state): axum::extract::State<AppState>,
     headers: HeaderMap,
     axum::Json(body): axum::Json<RestoreOrphanedTab>,
-) -> Result<axum::Json<serde_json::Value>, (StatusCode, String)> {
+) -> Result<axum::Json<serde_json::Value>, (StatusCode, axum::Json<serde_json::Value>)> {
     if !super::auth::is_local_caller(&state, &headers) {
-        return Err((StatusCode::FORBIDDEN, "Owner authorization required".into()));
+        return Err(crate::plan_quota_status::route_error(
+            StatusCode::FORBIDDEN,
+            "Owner authorization required",
+        ));
     }
     let service = state.svc.clone();
     let (workspace_id, tab_id) =
         tokio::task::spawn_blocking(move || service.reopen_orphaned_tab(&body.tab_id))
             .await
-            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
-            .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
+            .map_err(|error| {
+                crate::plan_quota_status::route_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    error.to_string(),
+                )
+            })?
+            .map_err(|error| {
+                crate::plan_quota_status::route_error(StatusCode::BAD_REQUEST, error)
+            })?;
     Ok(axum::Json(
         serde_json::json!({ "workspace_id": workspace_id, "tab_id": tab_id }),
     ))

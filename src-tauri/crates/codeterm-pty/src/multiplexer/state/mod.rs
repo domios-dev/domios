@@ -230,7 +230,10 @@ impl MultiplexerState {
             pending_closed_history: Vec::new(),
             workspace_close_reservations: HashMap::new(),
             tab_close_reservations: HashMap::new(),
-            limit_gate: codeterm_entitlements::LimitGate::dormant(),
+            limit_gate: codeterm_entitlements::LimitGate::new(
+                codeterm_entitlements::compiled_free(),
+                codeterm_entitlements::enforcing(),
+            ),
         }
     }
 
@@ -294,6 +297,9 @@ impl MultiplexerState {
     }
 
     pub fn rename_team(&mut self, id: &str, name: String) -> Result<Team, String> {
+        if let Some(refusal) = self.item_write_lock(codeterm_entitlements::LimitKey::Teams, id) {
+            return Err(refusal.to_string());
+        }
         let team = self
             .teams
             .get_mut(id)
@@ -307,6 +313,9 @@ impl MultiplexerState {
         id: &str,
         lifecycle: codeterm_types::team::TeamLifecycle,
     ) -> Result<Team, String> {
+        if let Some(refusal) = self.item_write_lock(codeterm_entitlements::LimitKey::Teams, id) {
+            return Err(refusal.to_string());
+        }
         let team = self
             .teams
             .get_mut(id)
@@ -470,7 +479,10 @@ impl MultiplexerState {
             pending_closed_history: Vec::new(),
             workspace_close_reservations: HashMap::new(),
             tab_close_reservations: HashMap::new(),
-            limit_gate: codeterm_entitlements::LimitGate::dormant(),
+            limit_gate: codeterm_entitlements::LimitGate::new(
+                codeterm_entitlements::compiled_free(),
+                codeterm_entitlements::enforcing(),
+            ),
         };
 
         (state, tab_id)

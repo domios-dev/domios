@@ -448,6 +448,8 @@ pub(crate) fn compose_observed(
         }
         let _ = chatbackend_registry.start_discovery();
     }
+    let _ = codeterm_service_core::async_runtime::block_on(service_state.billing());
+    service_state.sync_limit_gate();
     codeterm_service_core::service::agent_runtime::restore_all(&service_state);
     codeterm_service_core::service::lazy_restore::initialize(
         &service_state,

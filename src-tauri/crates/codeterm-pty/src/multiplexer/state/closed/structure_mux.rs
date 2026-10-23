@@ -1,6 +1,40 @@
 use super::{ArchivedTab, ClosedStructure, ClosedStructureView, MultiplexerState, StructureState};
 
 impl MultiplexerState {
+    pub fn admit_structure_restore(&self, record: &ClosedStructure) -> Result<(), String> {
+        let mut transaction = self.begin_team_close_transaction();
+        let staged = transaction.state_mut();
+        for workspace in &record.workspaces {
+            if let Some(refusal) =
+                self.item_write_lock(codeterm_entitlements::LimitKey::Workspaces, &workspace.id)
+            {
+                return Err(refusal.to_string());
+            }
+            if self.get_workspace(&workspace.id).is_none() {
+                staged.workspaces.push(workspace.clone());
+            }
+        }
+        for team in &record.teams {
+            if let Some(refusal) =
+                self.item_write_lock(codeterm_entitlements::LimitKey::Teams, &team.id)
+            {
+                return Err(refusal.to_string());
+            }
+            staged
+                .teams
+                .entry(team.id.clone())
+                .or_insert_with(|| team.clone());
+        }
+        for item in &record.tabs {
+            self.refuse_locked_tab(&item.tab.id)?;
+            staged
+                .tabs
+                .entry(item.tab.id.clone())
+                .or_insert_with(|| item.tab.clone());
+        }
+        self.admit_restored_items(staged)
+    }
+
     pub fn capture_structure(
         &self,
         workspace_id: &str,
@@ -118,6 +152,7 @@ impl MultiplexerState {
         &mut self,
         record: &ClosedStructure,
     ) -> Result<(String, String), String> {
+        self.admit_structure_restore(record)?;
         let tabs = record.restore_tabs()?;
         for tab in &tabs {
             if let Some(existing) = self.get_tab(&tab.id) {
@@ -223,6 +258,7 @@ impl MultiplexerState {
         let tab_id = workspace.active_tab_id.clone().unwrap_or_default();
         staged.active_workspace_id = Some(workspace.id.clone());
         staged.focused_tab_id = (!tab_id.is_empty()).then(|| tab_id.clone());
+        self.admit_restored_items(staged)?;
         transaction.commit(self, &[]);
         Ok((record.workspace.id.clone(), tab_id))
     }

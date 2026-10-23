@@ -375,3 +375,39 @@ fn team_inventory_keeps_members_moved_to_another_workspace() {
         Some(other.as_str())
     );
 }
+
+#[test]
+fn structure_restore_refuses_each_quota_atomically() {
+    for limit in [
+        codeterm_entitlements::LimitKey::Workspaces,
+        codeterm_entitlements::LimitKey::Teams,
+        codeterm_entitlements::LimitKey::AgentTabs,
+    ] {
+        let (mut mux, record, _) = inventory(false);
+        mux.close_workspace(&record.workspace.id).unwrap();
+        for team in &record.teams {
+            mux.remove_team(&team.id).unwrap();
+        }
+        let live = mux.create_workspace("Live".into(), None).id;
+        let kept = mux.create_tab(&live).unwrap();
+        let existing = Team::new(&live, 200);
+        mux.upsert_team(existing.clone());
+        let mut access = codeterm_entitlements::compiled_free();
+        match limit {
+            codeterm_entitlements::LimitKey::Workspaces => access.limits.workspaces.max = Some(1),
+            codeterm_entitlements::LimitKey::Teams => access.limits.teams.max = Some(1),
+            codeterm_entitlements::LimitKey::AgentTabs => access.limits.agent_tabs.max = Some(1),
+        }
+        mux.set_limit_gate(codeterm_entitlements::LimitGate::new(access, true));
+        let before = serde_json::to_value(mux.snapshot()).unwrap();
+        assert!(mux
+            .restore_structure(&record)
+            .unwrap_err()
+            .starts_with("free_limit_reached: "));
+        assert_eq!(serde_json::to_value(mux.snapshot()).unwrap(), before);
+        assert!(mux
+            .item_write_lock(codeterm_entitlements::LimitKey::Teams, &existing.id)
+            .is_none());
+        assert!(mux.tab_write_lock(&kept).is_none());
+    }
+}

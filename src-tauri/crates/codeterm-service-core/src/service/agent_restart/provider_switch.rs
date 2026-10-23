@@ -62,6 +62,9 @@ impl ServiceContext {
         effort: Option<String>,
         force: bool,
     ) -> Result<ProviderSwitchOutcome, String> {
+        if let Some(refusal) = self.tab_write_lock(tab_id) {
+            return Err(refusal.to_string());
+        }
         let mut tab = {
             let mux = self.mux.read();
             let id = mux

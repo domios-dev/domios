@@ -196,3 +196,101 @@ async fn frontend_cors_configured_origin_is_exact_and_invalid_entries_never_beco
         assert!(allowed_origin(&denied).is_none());
     }
 }
+
+#[tokio::test]
+async fn orphan_reopen_route_preserves_typed_plan_refusal() {
+    use codeterm_service_core::multiplexer::state::MultiplexerState;
+    use codeterm_service_core::service::test_fixture::ServiceFixture;
+    let (mut mux, first) = MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&first).unwrap();
+    let orphan = mux
+        .create_workspace("Orphan".into(), Some("/orphan".into()))
+        .id;
+    let closed = mux.create_tab(&orphan).unwrap();
+    mux.close_workspace(&orphan).unwrap();
+    for _ in 0..34 {
+        mux.create_tab(&workspace).unwrap();
+    }
+    let fixture = ServiceFixture::new(mux);
+    let state = crate::test_support::app_state(&fixture);
+    state.config.lock().api.token = Some("fixture-owner".into());
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert("authorization", "Bearer fixture-owner".parse().unwrap());
+    let (status, axum::Json(body)) = super::restore_orphaned_tab(
+        axum::extract::State(state),
+        headers,
+        axum::Json(super::RestoreOrphanedTab {
+            tab_id: closed.clone(),
+        }),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(status, axum::http::StatusCode::FORBIDDEN);
+    assert_eq!(body["error"]["code"], "free_limit_reached");
+    assert!(body["error"]["message"]
+        .as_str()
+        .unwrap()
+        .starts_with("free_limit_reached: "));
+    assert_eq!(fixture.service.mux.read().all_tabs().count(), 35);
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .snapshot()
+        .recently_closed
+        .iter()
+        .any(|row| row.tab.tab_id == closed));
+}
+
+#[tokio::test]
+async fn locked_pty_spawn_returns_typed_403_without_a_process() {
+    use codeterm_service_core::multiplexer::state::MultiplexerState;
+    use codeterm_service_core::service::test_fixture::ServiceFixture;
+
+    let (mut mux, tab) = MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&tab).unwrap();
+    for _ in 0..35 {
+        mux.create_tab(&workspace).unwrap();
+    }
+    let tab = mux.locks().agent_tabs.iter().next().unwrap().to_owned();
+    let fixture = ServiceFixture::new(mux);
+    let app = Router::new()
+        .route(
+            "/api/pty/spawn",
+            axum::routing::post(crate::pty_routes::pty_spawn),
+        )
+        .layer(axum::middleware::from_fn(
+            crate::plan_quota_status::typed_plan_refusal,
+        ))
+        .with_state(crate::test_support::app_state(&fixture));
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/pty/spawn")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "tab_id": tab, "predicted_id": "refused-http-pty", "cols": 80, "rows": 24,
+                        "command": "must-not-run"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), axum::http::StatusCode::FORBIDDEN);
+    let bytes = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["error"]["code"], "plan_limit_locked");
+    assert!(fixture
+        .service
+        .pty
+        .lock()
+        .get_session("refused-http-pty")
+        .is_none());
+    assert!(fixture.service.pty_ownership.launch_claim(&tab).is_none());
+}

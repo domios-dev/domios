@@ -257,6 +257,7 @@ impl ServiceContext {
         if record.state == StructureState::Captured {
             return Err("Close has not completed".into());
         }
+        self.mux.read().admit_structure_restore(&record)?;
         let mut resources: Resources =
             serde_json::from_value(record.resources.clone()).map_err(|error| error.to_string())?;
         validate_saved_blueprints(&mut resources)?;
