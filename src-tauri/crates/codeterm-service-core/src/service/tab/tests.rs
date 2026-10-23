@@ -749,3 +749,23 @@ fn confirmed_provider_exit_resets_terminal_modes_for_shell() {
         .kill(pty_id)
         .expect("stop the tab's surviving shell PTY");
 }
+
+#[test]
+fn tab_cwd_updates_store_plain_windows_paths() {
+    for input in [r"\\?\C:\Users\User\ScoutSub", r"C:\Users\User\ScoutSub"] {
+        let (mux, id) = crate::multiplexer::state::MultiplexerState::new();
+        let fixture = ServiceFixture::new(mux);
+        fixture.service.update_tab_cwd(&id, input.into());
+        assert_eq!(
+            fixture
+                .service
+                .mux
+                .read()
+                .get_tab(&id)
+                .unwrap()
+                .cwd
+                .as_deref(),
+            Some(r"C:\Users\User\ScoutSub")
+        );
+    }
+}

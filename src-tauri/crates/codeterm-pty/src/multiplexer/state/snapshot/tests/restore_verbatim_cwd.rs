@@ -83,3 +83,20 @@ fn restored_snapshot_normalizes_verbatim_cwd_before_agent_materialization() {
         Some(r"C:\workspace\project")
     );
 }
+
+#[test]
+fn workspace_creation_stores_plain_cwd_for_shell_inheritance() {
+    for (input, expected) in [
+        (r"\\?\C:\workspace\project", r"C:\workspace\project"),
+        (r"\\?\UNC\server\share\project", r"\\server\share\project"),
+        (r"C:\workspace\project", r"C:\workspace\project"),
+    ] {
+        let mut state = MultiplexerState::empty();
+        let workspace = state.create_workspace("Paths".into(), Some(input.into()));
+        assert_eq!(workspace.cwd.as_deref(), Some(expected));
+        assert_eq!(
+            state.get_workspace(&workspace.id).unwrap().cwd.as_deref(),
+            Some(expected)
+        );
+    }
+}

@@ -3,6 +3,7 @@ use crate::multiplexer::types::Workspace;
 
 impl MultiplexerState {
     pub fn create_workspace(&mut self, name: String, cwd: Option<String>) -> WorkspaceInfo {
+        let cwd = cwd.map(|path| codeterm_paths::strip_verbatim_prefix(&path));
         let workspace_id = short_id();
 
         let workspace = Workspace {

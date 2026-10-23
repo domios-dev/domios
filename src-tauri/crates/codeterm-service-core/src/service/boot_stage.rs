@@ -8,6 +8,8 @@ use crate::service::MuxEmitCause;
 
 pub use codeterm_types::pty::{BootStage, BootStageSink, ProvisionalLaunch};
 
+mod shell_readiness;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RestartReadiness {
     Ready {
