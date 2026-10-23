@@ -12,7 +12,7 @@ pub(crate) fn handle_window_event(
             .and_then(|slot| slot.current())
         {
             tauri::async_runtime::spawn(async move {
-                if let Err(error) = attachment.refresh_plan().await {
+                if let Err(error) = attachment.refresh_plan_on_focus().await {
                     log::debug!("[desktop] server focus refresh failed: {error}");
                 }
             });

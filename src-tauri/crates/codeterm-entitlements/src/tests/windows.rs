@@ -14,7 +14,9 @@ fn online_windows_are_half_open() {
             (T + 3_600, T + 86_400, T + 86_400)
         );
         let cases = [
-            (T - 1, TimeState::NotYetValid),
+            (T - 301, TimeState::NotYetValid),
+            (T - 300, TimeState::Fresh),
+            (T - 120, TimeState::Fresh),
             (T, TimeState::Fresh),
             (p.refresh_after - 1, TimeState::Fresh),
             (p.refresh_after, TimeState::Stale),
@@ -50,7 +52,7 @@ fn effective_access_falls_back_to_compiled_free_outside_retention() {
     let retained = grant.verdict(grant.payload().expires_at - 1);
     assert_eq!(retained.effective().authority, Authority::Billing);
     assert!(retained.effective().perks.priority_support);
-    for now in [T - 1, grant.payload().expires_at] {
+    for now in [T - 301, grant.payload().expires_at] {
         let verdict = grant.verdict(now);
         assert_eq!(verdict.effective(), compiled_free());
         assert_eq!(
@@ -59,4 +61,14 @@ fn effective_access_falls_back_to_compiled_free_outside_retention() {
         );
         assert_eq!(verdict.revision, 10);
     }
+}
+
+#[test]
+fn verified_grant_is_paid_with_a_clock_two_minutes_behind() {
+    let signer = LocalSigner::new();
+    let grant = signer.accept(&paid(), T - 120);
+    assert_eq!(
+        grant.verdict(T - 120).effective().authority,
+        Authority::Billing
+    );
 }

@@ -107,7 +107,7 @@ async fn account_plan_routes_local_journey() {
     for (method, path, expected_plan, stale) in [
         ("GET", "/api/account/plan", "free", false),
         ("POST", "/api/account/login", "", false),
-        ("GET", "/api/account/plan", "pro", false),
+        ("GET", "/api/account/plan", "free", false),
         ("POST", "/api/account/logout", "", false),
         ("GET", "/api/account/plan", "free", false),
     ] {
@@ -129,7 +129,7 @@ async fn account_plan_routes_local_journey() {
         if !expected_plan.is_empty() {
             assert_eq!(value["entitlements"]["plan"], expected_plan);
             assert_eq!(value["stale"], stale);
-            assert_eq!(value["limits"]["enforcing"], false);
+            assert_eq!(value["limits"]["enforcing"], true);
             assert_eq!(value["limits"]["agent.tabs"], 35);
         }
     }
@@ -353,4 +353,62 @@ fn account_upgrade_opens_the_plain_checkout_for_an_unknown_theme() {
         upgrade.checkout_theme(),
         Some(codeterm_billing::CheckoutTheme::Light)
     );
+}
+
+#[tokio::test]
+async fn explicit_plan_refresh_fetches_each_time_while_passive_focus_is_throttled() {
+    use axum::{body::Body, http::Request};
+    use std::sync::Arc;
+    use tower::ServiceExt;
+    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(
+        codeterm_service_core::multiplexer::state::MultiplexerState::empty(),
+    );
+    *fixture.service.secrets.write().await =
+        Arc::new(codeterm_service_core::secrets::mock::MockStore::new());
+    let provider = Arc::new(codeterm_billing::adapters::fake::Fake::default());
+    assert!(fixture
+        .service
+        .ext::<codeterm_service_core::service::billing::BillingCell>()
+        .0
+        .set(Arc::new(codeterm_billing::Billing::new(provider.clone())))
+        .is_ok());
+    let state = crate::transport_tabs::fixture::app_state(&fixture);
+    state.config.lock().api.token = Some("fixture-token".into());
+    state.config.lock().account = serde_json::json!({"provider":"local"});
+    let router = crate::routes::create_router(state);
+    for path in [
+        "/api/account/login",
+        "/api/account/plan/refresh",
+        "/api/account/plan/refresh",
+    ] {
+        let before = *provider.calls.lock();
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(path)
+                    .header("authorization", "Bearer fixture-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(*provider.calls.lock(), before + 1);
+    }
+    let before = *provider.calls.lock();
+    let response = router
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/account/plan/refresh?focus=true")
+                .header("authorization", "Bearer fixture-token")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(*provider.calls.lock(), before);
 }

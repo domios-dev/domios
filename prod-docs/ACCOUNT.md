@@ -87,7 +87,7 @@ Local callers only.
 | POST | `/api/account/login` | — | Browser sign-in; optional provider=google/facebook/email and mode=signin/signup query hints |
 | POST | `/api/account/logout` | — | Block Mesh traffic, withdraw this machine's endpoint once, then clear credentials and cached entitlements; saved pairs and the machine slot stay |
 | GET | `/api/account/plan` | — | Cached entitlement and stale marker |
-| POST | `/api/account/plan/refresh` | — | Explicit focus refresh, throttled to once per minute |
+| POST | `/api/account/plan/refresh` | — | Explicit refresh bypasses throttling, including checkout return; passive window focus uses ?focus=true, throttled to once per minute |
 | POST | `/api/account/upgrade` | `{plan, theme?}` | Open checkout in the system browser; `theme` (`light` or `dark`) sets the checkout page's theme |
 | POST | `/api/account/portal` | — | Open subscription management in the system browser |
 | GET | `/api/account/mesh` | — | Account Mesh snapshot: `binding`, `traffic`, `cleanup`, `self`, last `registry` observation, pending `limit_notice` |
@@ -99,4 +99,4 @@ Local callers only.
 
 Mesh enrollment never fails sign-in. Only a `mesh.machines` refusal (`{reason, limit, active_count}`) opens the plans dialog; offline, rate, authentication and verification refusals do not. A machine refused that way reports `traffic: "plan_limit_locked"` in the snapshot: its Mesh edges stay blocked, its rows stay listed, and a plan change re-enrolls it live.
 
-<!-- revision: 15 -->
+<!-- revision: 16 -->

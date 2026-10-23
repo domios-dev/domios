@@ -102,6 +102,7 @@ export function lockedView(limit: LocalLimitKey, item: { locked?: boolean } | nu
   return item?.locked === true ? { locked: true, limit, label: `${LOCKED_NOUN[limit]} locked by the free plan` } : UNLOCKED;
 }
 
+/** A tab inherits the workspace and Team lock marks. */
 export function tabLockedView(tab: { locked?: boolean } | null | undefined, workspace: { locked?: boolean } | null | undefined, team?: { locked?: boolean } | null): LockedView {
   const own = lockedView("agent.tabs", tab);
   if (own.locked) return own;

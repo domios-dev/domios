@@ -73,6 +73,7 @@ pub enum RevisionOrder {
 /// Which pipeline stages ran and how they ended; a refusal leaves later stages `NotEvaluated`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Facets {
+    pub authenticated_issued_at: Option<u64>,
     pub trusted_key: Facet,
     pub mathematical_signature: Facet,
     pub canonical_payload: Facet,
@@ -158,6 +159,7 @@ pub fn verify(
         }
     };
     facets.canonical_payload = Facet::Passed;
+    facets.authenticated_issued_at = Some(payload.issued_at);
 
     if let Err(refusal) = check_context(&payload, policy, binding) {
         facets.context_matches = Facet::Failed;
