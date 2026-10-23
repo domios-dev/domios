@@ -22,6 +22,13 @@ impl MemManager {
                 pending::count(&conn),
             )
         };
+        let reembed = self.reembed.snapshot();
+        let degraded = !self.embedder.is_available()
+            || !matches!(
+                reembed.state,
+                super::ReembedState::Completed | super::ReembedState::Idle
+            )
+            || index.as_ref() != Some(&identity);
         EmbedderStatus {
             provider: identity.provider.clone(),
             model: identity.model.clone(),
@@ -32,7 +39,8 @@ impl MemManager {
             index,
             vectors,
             pending,
-            reembed: self.reembed.snapshot(),
+            degraded,
+            reembed,
         }
     }
 
@@ -53,24 +61,41 @@ impl MemManager {
         })
     }
 
-    /// Make `provider` the one embedder: recreate the index at its dimension
-    /// and re-embed everything in the background. Search keeps FTS throughout
-    /// and only ever sees the new model's vectors as they land.
+    /// Build a stamped shadow while recall continues on the published model.
     pub fn switch_embedder(
         self: &Arc<Self>,
         provider: SharedProvider,
     ) -> Result<SwitchPlan, String> {
-        let plan = self.reembed_plan()?;
         let identity = provider.identity();
-        self.embedder.replace(provider);
-        index::recreate(&self.conn.lock(), &identity)?;
-        let generation = self.reembed.start(identity, plan, &self.embedder);
-        let manager = self.clone();
-        std::thread::Builder::new()
-            .name("mem-reembed".into())
-            .spawn(move || manager.run_reembed(generation))
-            .map_err(|e| format!("start background re-embed: {e}"))?;
-        Ok(plan)
+        if self.embedder.identity() == identity
+            && index::stamp(&self.conn.lock())?.as_ref() == Some(&identity)
+        {
+            return Ok(SwitchPlan::default());
+        }
+        if self
+            .reembed_busy
+            .swap(true, std::sync::atomic::Ordering::SeqCst)
+        {
+            return Err(
+                "a re-embed worker is still in flight; inspect embedder status before retrying"
+                    .into(),
+            );
+        }
+        let result = (|| {
+            let plan = self.reembed_plan()?;
+            self.prepare_shadow(&identity)?;
+            let generation = self.reembed.start(identity, plan, &self.embedder);
+            if let Err(error) = self.launch_shadow(generation, ActiveEmbedder::new(provider)) {
+                self.reembed.fail(generation, error.clone(), &self.embedder);
+                return Err(error);
+            }
+            Ok(plan)
+        })();
+        if result.is_err() {
+            self.reembed_busy
+                .store(false, std::sync::atomic::Ordering::SeqCst);
+        }
+        result
     }
 
     /// Adopt `provider` at startup: switch when the index is stamped for a
@@ -174,61 +199,5 @@ impl MemManager {
         .map(|(entity_type, props)| {
             embeddings::embeddable_text_for_entity(id, &entity_type, &props)
         })
-    }
-
-    fn run_reembed(self: Arc<Self>, generation: u64) {
-        let targets = match (self.reembed_item_targets(), self.reembed_entity_targets()) {
-            (Ok(mut items), Ok(entities)) => {
-                items.extend(entities);
-                items
-            }
-            (Err(error), _) | (_, Err(error)) => {
-                log::warn!("[mem.embedder] re-embed listing failed: {error}");
-                Vec::new()
-            }
-        };
-        for (id, text) in targets {
-            let outcome = self.index_embedding(&id, &text);
-            if !self.reembed.advance(generation, outcome, &self.embedder) {
-                return;
-            }
-        }
-        let blueprints = crate::blueprint_library::index::indexed_items(&self.conn.lock());
-        if let Ok(ids) = blueprints {
-            for id in ids {
-                if !self.reembed.is_current(generation) {
-                    return;
-                }
-                let outcome = self.index_blueprint(&id).and_then(|report| {
-                    if report.missing_vectors == 0 {
-                        Ok(())
-                    } else {
-                        Err(format!(
-                            "Blueprint {id}: {} vectors pending",
-                            report.missing_vectors
-                        ))
-                    }
-                });
-                if !self.reembed.advance(generation, outcome, &self.embedder) {
-                    return;
-                }
-            }
-        }
-        if let Some(data_dir) = &self.docs_dir {
-            match crate::docs_source::reembed_vectors(data_dir, &self.embedder) {
-                Ok(sections) => {
-                    for _ in 0..sections {
-                        self.reembed.advance(generation, Ok(()), &self.embedder);
-                    }
-                }
-                Err(error) => {
-                    for _ in 0..self.reembed.snapshot().plan.docs {
-                        self.reembed
-                            .advance(generation, Err(error.clone()), &self.embedder);
-                    }
-                }
-            }
-        }
-        self.reembed.finish(generation, &self.embedder);
     }
 }

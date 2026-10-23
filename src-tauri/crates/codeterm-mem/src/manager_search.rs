@@ -17,12 +17,14 @@ impl MemManager {
         q: &SearchQuery,
         cfg: &search::SearchConfig,
     ) -> Result<Vec<SearchHit>, String> {
+        let _publication = self.vector_transition.read();
         let embedding = self.embedder.query(&q.query);
         let conn = self.conn.lock();
         search::hybrid_rrf_with_embedding(&conn, q, &self.blobs_dir, cfg, embedding.as_ref())
     }
 
     pub fn vector_recall(&self, query: &str, k: usize) -> Result<Vec<(String, f64)>, String> {
+        let _publication = self.vector_transition.read();
         let vector = self
             .embedder
             .query(query)
@@ -133,6 +135,7 @@ impl MemManager {
         q: &SearchQuery,
         cfg: &search::SearchConfig,
     ) -> Result<Vec<SearchHit>, String> {
+        let _publication = self.vector_transition.read();
         let embedding = self.embedder.query(&q.query);
         let conn = self.conn.lock();
         let _read = UntouchedRead::begin(&conn)?;

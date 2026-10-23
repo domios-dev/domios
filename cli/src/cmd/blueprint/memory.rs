@@ -60,3 +60,20 @@ pub(super) fn offers(stored: Value, intent: &str) -> Value {
         .map(|entry| json!({"id":entry.id,"when_to_use":entry.when_to_use(),"intents":entry.intents,"how":entry.document.note,"yaml":entry.document.yaml().unwrap_or_default(),"uses":entry.uses,"successes":entry.successes,"why":null}));
     json!(stored.chain(matched).take(OFFERS).collect::<Vec<_>>())
 }
+
+pub(super) fn render_offer(offer: &Value) -> String {
+    let line = |key| {
+        offer[key]
+            .as_str()
+            .unwrap_or_default()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let mut text = format!("# Why: {}\n", line("when_to_use"));
+    if offer["why"].is_string() {
+        text.push_str(&format!("# Match: {}\n", line("why")));
+    }
+    text.push_str(offer["yaml"].as_str().unwrap_or_default());
+    text
+}

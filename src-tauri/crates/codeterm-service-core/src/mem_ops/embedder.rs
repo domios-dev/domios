@@ -177,6 +177,7 @@ impl UseParams {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct SwitchPreview {
+    pub already_active: bool,
     pub target: EmbedderIdentity,
     pub remote: bool,
     pub warning: Option<&'static str>,
@@ -205,6 +206,12 @@ pub fn preview(svc: &ServiceState, params: &UseParams) -> Result<SwitchPreview, 
     .err()
     .map(|refusal| Refusal::from(&BuildError::Refused(refusal)));
     Ok(SwitchPreview {
+        already_active: svc.mem.embedder().identity()
+            == EmbedderIdentity {
+                provider: descriptor.id.clone(),
+                model: model.model.clone(),
+                dimension,
+            },
         target: EmbedderIdentity {
             provider: descriptor.id.clone(),
             model: model.model,
@@ -228,6 +235,7 @@ pub fn use_provider(svc: &ServiceState, params: &UseParams) -> Result<SwitchPrev
     let target = provider.identity();
     let remote = provider.remote();
     persist(svc, &target)?;
+    let already_active = svc.mem.embedder().identity() == target;
     let plan = svc
         .mem
         .switch_embedder(provider)
@@ -236,6 +244,7 @@ pub fn use_provider(svc: &ServiceState, params: &UseParams) -> Result<SwitchPrev
             hints: Vec::new(),
         })?;
     Ok(SwitchPreview {
+        already_active,
         target,
         remote,
         warning: remote.then_some(key::REMOTE_WARNING),
@@ -304,6 +313,27 @@ fn activate_configured(svc: &ServiceState) {
             }
         }
     };
+    if let Some(stamp) = svc
+        .mem
+        .embedder_status()
+        .index
+        .filter(|stamp| *stamp != provider.identity())
+    {
+        match catalog::activate(&stamped_selection(&stamp), &ctx, configured.remote_opt_in) {
+            Ok(published) => {
+                if let Err(error) = svc.mem.reconcile_embedder(published) {
+                    log::warn!("[mem.embedder] published provider restore failed: {error}");
+                    return;
+                }
+            }
+            Err(error) => {
+                log::warn!(
+                    "[mem.embedder] published provider unavailable during resume: {}",
+                    error.message()
+                );
+            }
+        }
+    }
     match svc.mem.reconcile_embedder(provider) {
         Ok(Some(plan)) => log::info!(
             "[mem.embedder] startup switch re-embeds {} items in the background",

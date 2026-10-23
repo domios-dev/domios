@@ -113,7 +113,7 @@ fn switch_recreates_the_index_at_the_new_dimension_and_reembeds_items_entities_a
 }
 
 #[test]
-fn an_unstamped_legacy_index_is_adopted_as_l12_and_never_relabelled() {
+fn recall_reembed_adopts_unstamped_l12_without_relabelling() {
     let conn = connection();
     let legacy = crate::embedder::legacy_identity();
     index::recreate(&conn, &legacy).unwrap();
