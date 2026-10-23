@@ -3,7 +3,6 @@ use super::*;
 use crate::blueprint_document::{parse, Kind, SubBlueprint};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::Read;
 use std::path::{Path, PathBuf};
 
 pub(super) fn digest(bytes: &[u8]) -> String {
@@ -12,20 +11,22 @@ pub(super) fn digest(bytes: &[u8]) -> String {
         .map(|b| format!("{b:02x}"))
         .collect()
 }
-pub(super) fn read(path: &Path) -> Result<String, String> {
-    let file = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    let metadata = file.metadata().map_err(|e| e.to_string())?;
-    if !metadata.is_file() || metadata.len() > MAX_CLOSURE_BYTES as u64 {
-        return Err("Imports require regular files of at most 256 KiB".into());
-    }
-    let mut source = String::new();
-    file.take((MAX_CLOSURE_BYTES + 1) as u64)
-        .read_to_string(&mut source)
-        .map_err(|e| e.to_string())?;
-    if source.len() > MAX_CLOSURE_BYTES {
-        return Err("Import exceeds 256 KiB".into());
-    }
-    Ok(source)
+pub(super) fn read(author: &Path, target: &str) -> Result<String, String> {
+    let directory = author.parent().unwrap_or(Path::new("."));
+    let target = Path::new(target)
+        .components()
+        .filter(|part| !matches!(part, std::path::Component::CurDir))
+        .collect::<PathBuf>();
+    let target = target
+        .to_str()
+        .ok_or("contract_violation: non-UTF-8 import path")?;
+    crate::code_source::read_bounded(directory, target, MAX_CLOSURE_BYTES).map_err(|reason| {
+        let detail = match reason {
+            "budget_exhausted" => "Import exceeds 256 KiB",
+            _ => "Imports require a regular file inside the importing Blueprint's directory, reached without traversal, symlinks or junctions",
+        };
+        format!("{reason}: {detail}")
+    })
 }
 struct LocalOnly;
 impl MemoryResolver for LocalOnly {
@@ -419,6 +420,7 @@ impl Resolver<'_> {
                 format!("Missing import {}: {e}", candidate.display()),
             )]
         })?;
+        let source = read(author, target).map_err(|e| vec![finding(parsed, field, e)])?;
         let id = format!("file:{}", portable_path(&path));
         if self.stack.contains(&id) {
             return Err(vec![finding(parsed, field, "Cyclic import")]);
@@ -430,7 +432,6 @@ impl Resolver<'_> {
                 "Duplicate/diamond import identity",
             )]);
         }
-        let source = read(&path).map_err(|e| vec![finding(parsed, field, e)])?;
         self.total_bytes = self.total_bytes.saturating_add(source.len());
         if self.total_bytes > MAX_CLOSURE_BYTES || self.stack.len() > MAX_CALL_DEPTH {
             return Err(vec![finding(
@@ -541,7 +542,12 @@ pub fn verify_local_sources(closure: &FrozenClosure) -> Result<(), String> {
         if let (Some(path), Some(expected)) =
             (callee.id.strip_prefix("file:"), callee.source_hash.as_ref())
         {
-            if digest(read(Path::new(path))?.as_bytes()) != *expected {
+            let path = Path::new(path);
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("");
+            if digest(read(path, name)?.as_bytes()) != *expected {
                 return Err(format!(
                     "Import identity changed after validation: {}",
                     callee.id

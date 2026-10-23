@@ -95,8 +95,8 @@ impl Collector {
                     "Duplicate/diamond import identity",
                 )]);
             }
-            let source =
-                super::imports::read(&path).map_err(|e| vec![finding(parsed, &field, e)])?;
+            let source = super::imports::read(author, &target)
+                .map_err(|e| vec![finding(parsed, &field, e)])?;
             self.bytes = self.bytes.saturating_add(source.len());
             if self.bytes > MAX_CLOSURE_BYTES || self.stack.len() > MAX_CALL_DEPTH {
                 return Err(vec![finding(
