@@ -11524,13 +11524,6 @@
     },
     {
       "file": "src-tauri/crates/codeterm-service-core/src/service/orchestrator/launch/generation.rs",
-      "token": "Codex",
-      "count": 1,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
-      "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
-    },
-    {
-      "file": "src-tauri/crates/codeterm-service-core/src/service/orchestrator/launch/generation.rs",
       "token": "codex_rpc",
       "count": 10,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
