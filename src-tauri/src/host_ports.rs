@@ -259,6 +259,10 @@ impl ServerApiAttachment {
         self.post("/api/account/plan/refresh").await
     }
 
+    pub(crate) async fn refresh_plan_on_focus(&self) -> Result<(), String> {
+        self.post("/api/account/plan/refresh?focus=true").await
+    }
+
     pub(crate) async fn save_session(&self) -> Result<(), String> {
         self.post("/api/session/save").await
     }
