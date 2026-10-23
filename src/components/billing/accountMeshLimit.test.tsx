@@ -139,13 +139,13 @@ describe("explicit Add or retry", () => {
     expect(machines.records).toContain("second-machine");
   });
 
-  it("Upgrade checks out pro_monthly and grants nothing locally: no retry, no record, no reopen", async () => {
+  it("Upgrade checks out pro_yearly and grants nothing locally: no retry, no record, no reopen", async () => {
     const upgrade = vi.fn(async () => {});
     await mountModal(upgrade);
     const machines = fakeMachines(() => machineLimit());
     await act(async () => { await openOnMeshRefusal(() => machines.add("third-machine")); });
     await click("Upgrade");
-    expect(upgrade).toHaveBeenCalledWith("pro_monthly");
+    expect(upgrade).toHaveBeenCalledWith("pro_yearly");
     expect(dialog()).toBeNull();
     expect(machines.attempts).toHaveLength(1);
     expect(machines.records).not.toContain("third-machine");
