@@ -174,6 +174,8 @@ Start with `domios docs BLUEPRINT-AUTHORING`, the shared short cookbook with a g
 
 Reuse a fitting card by a typed `call`; require the complete purpose and port contract to fit. A high score is not a fit decision. No-fit responses retain their scaffold even when irrelevant candidates are returned. Author from scratch when none fits. Call checking returns the sealed native definition, including its `{id, hash}` pins and immutable dependencies; save that returned definition before apply. Run records and `show` expose the expanded callee. Missing revisions refuse and retained pins never silently rebind.
 
+Literal call arguments are checked as complete JSON values against the callee schema. Array items may differ in value, string length or optional fields when each item satisfies `items`; an empty array also satisfies `items`. Required fields, enums, `maxLength` and `additionalProperties` still apply to every supplied item. For example, `catalog:checks-fan-in` accepts both differing pass/fail check objects and `checks: []`.
+
 ## Saved solutions
 
 ```bash
@@ -202,4 +204,4 @@ Blueprint results addressed to a restored PTY agent tab retain the exact saved p
 
 R10 scans executable text lexically as defence in depth. The checker refuses domios-cli capabilities, while credential-free child environments remove instance authority; a clean lexical scan does not prove shell text safe. R13 reports unavailable comparisons explicitly; unavailable vector comparisons carry no PASS verdict.
 
-<!-- revision: 60 -->
+<!-- revision: 61 -->
