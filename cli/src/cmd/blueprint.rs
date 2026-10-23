@@ -256,6 +256,13 @@ fn input_ref_summary(value: &Value) -> String {
 }
 
 pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: BlueprintAction) {
+    let author_intent = match &action {
+        BlueprintAction::New {
+            intent: Some(intent),
+            ..
+        } => Some(intent.clone()),
+        _ => None,
+    };
     let checking = matches!(&action, BlueprintAction::Check { .. });
     let recipe_list = matches!(&action, BlueprintAction::Recipe { name: None });
     let apply_source = match &action {
@@ -274,14 +281,24 @@ pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: Blue
     .unwrap_or_else(|error| fail(2, error));
     let transition_id = params["transition_id"].as_str().map(str::to_owned);
     let intent = params["intent"].as_str().unwrap_or("").to_owned();
-    let mut result = client
-        .call_detailed(method, Some(params))
-        .unwrap_or_else(|error| {
-            if let Some(source) = apply_source.as_deref() {
-                authoring::fail_apply_error(source, &error, json_mode)
-            }
-            fail(1, error.to_string())
-        });
+    let recalled = client.call_detailed(method, Some(params));
+    if let Some(intent) = author_intent {
+        let response =
+            memory::intent_response(&intent, recalled.map_err(|error| error.to_string()))
+                .unwrap_or_else(|error| fail(2, error));
+        if json_mode {
+            print_json(&response);
+        } else {
+            print!("{}", memory::render_intent(&response));
+        }
+        return;
+    }
+    let mut result = recalled.unwrap_or_else(|error| {
+        if let Some(source) = apply_source.as_deref() {
+            authoring::fail_apply_error(source, &error, json_mode)
+        }
+        fail(1, error.to_string())
+    });
     if checking {
         if json_mode {
             print_json(
@@ -501,6 +518,25 @@ fn request(
         }
         BlueprintAction::Recipe { .. } => {
             return Err("named blueprint recipe is handled locally".into())
+        }
+        BlueprintAction::New {
+            intent: Some(intent),
+            limit,
+            ..
+        } => {
+            if intent.trim().is_empty()
+                || intent.len() > 4096
+                || intent.contains('\0')
+                || !(1..=20).contains(&limit)
+            {
+                return Err(
+                    "Intent must be 1..4096 UTF-8 bytes without NUL; limit must be 1..20".into(),
+                );
+            }
+            params["intent"] = json!(intent);
+            params["cards"] = json!(true);
+            params["limit"] = json!(limit);
+            "blueprint.recall"
         }
         BlueprintAction::New {
             like: Some(intent), ..

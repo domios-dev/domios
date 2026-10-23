@@ -63,6 +63,7 @@ pub struct BlueprintHit {
     pub enrichment_pending: bool,
 }
 
+#[derive(Clone)]
 pub(super) struct Candidate {
     pub(super) entry: Entry,
     pub(super) row: Option<IndexRow>,

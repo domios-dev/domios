@@ -58,7 +58,7 @@ steps:
   code:
     lang: ts
     src: |
-      export function main(a: { log: string; top: number }) {
+      export default function main(value: { log: string; top: number }) {
         const masks: [RegExp, string][] = [
           [/\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?/g, "<ts>"],
           [/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "<uuid>"],
@@ -68,7 +68,7 @@ steps:
         ];
         const groups = new Map<string, { count: number; sample: string }>();
         let total = 0;
-        for (const raw of a.log.split("\n")) {
+        for (const raw of value.log.split("\n")) {
           const line = raw.trim();
           if (line === "") continue;
           total++;
@@ -81,11 +81,20 @@ steps:
         const patterns = [...groups.entries()]
           .map(([pattern, g]) => ({ pattern: pattern.slice(0, 300), count: g.count, sample: g.sample }))
           .sort((x, y) => y.count - x.count || x.pattern.localeCompare(y.pattern))
-          .slice(0, Math.max(1, a.top));
+          .slice(0, Math.max(1, value.top));
         return { total, unique: groups.size, patterns };
       }
   in:
-    $ref: Args
+    type: object
+    additionalProperties: false
+    required:
+    - log
+    - top
+    properties:
+      log:
+        type: string
+      top:
+        type: integer
   out:
     $ref: Digest
   routes:

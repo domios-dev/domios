@@ -60,8 +60,8 @@ steps:
   code:
     lang: python
     src: |
-      def main(a):
-          checks = a["checks"]
+      def main(value):
+          checks = value["checks"]
           blockers = [f"{c['name']}: {c['detail']}" for c in checks if not c["ok"]]
           passed = len(checks) - len(blockers)
           ready = bool(checks) and not blockers
@@ -69,7 +69,15 @@ steps:
                     ", ".join(c["name"] for c in checks if not c["ok"]) if blockers else "; no checks given")
           return {"ready": ready, "blockers": blockers, "passed": passed, "summary": summary}
   in:
-    $ref: Args
+    type: object
+    additionalProperties: false
+    required:
+    - checks
+    properties:
+      checks:
+        type: array
+        items:
+          $ref: Check
   out:
     $ref: Gate
   routes:

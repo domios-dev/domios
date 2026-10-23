@@ -73,13 +73,13 @@ steps:
   code:
     lang: python
     src: |
-      def main(c):
+      def main(value):
           bad = {"failure", "cancelled", "timed_out", "action_required", "startup_failure"}
           done = {"success", "neutral", "skipped"}
-          failing = sorted(x["name"] for x in c["checks"] if x["conclusion"] in bad)
-          pending = sorted(x["name"] for x in c["checks"]
+          failing = sorted(x["name"] for x in value["checks"] if x["conclusion"] in bad)
+          pending = sorted(x["name"] for x in value["checks"]
                            if x["conclusion"] not in bad and x["conclusion"] not in done)
-          return {"passed": not failing and not pending and bool(c["checks"]),
+          return {"passed": not failing and not pending and bool(value["checks"]),
                   "failing": failing, "pending": pending}
   in:
     $ref: Checks

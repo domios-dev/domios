@@ -84,9 +84,24 @@ pub(super) fn dispatch(
                     .map_err(error)
             }
         }
-        "blueprint.recall" => svc
-            .blueprint_recall(&caller, &get_string_param(params, "intent")?)
-            .map_err(error),
+        "blueprint.recall" => {
+            let intent = get_string_param(params, "intent")?;
+            let args = params
+                .as_ref()
+                .ok_or_else(|| error("parameters required"))?;
+            if args["cards"].as_bool().unwrap_or(false) {
+                let limit = args.get("limit").map_or(Ok(3), |value| {
+                    value
+                        .as_u64()
+                        .filter(|v| (1..=20).contains(v))
+                        .ok_or_else(|| error("Recall limit must be between 1 and 20"))
+                })?;
+                svc.blueprint_recall_cards(&caller, &intent, limit as usize)
+                    .map_err(error)
+            } else {
+                svc.blueprint_recall(&caller, &intent).map_err(error)
+            }
+        }
         "blueprint.apply_recipe" => {
             let args = params
                 .as_ref()
