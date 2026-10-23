@@ -15,6 +15,7 @@ import { RestoreStatePanel } from "./RestoreStatePanel";
 import { restoreStageView } from "../../lib/restoreStageView";
 import { setClientTabUiMode } from "../../lib/clientTabUiMode";
 import { TabContent } from "./TabContent";
+import { freeLimitGate } from "../billing/freeLimitGate";
 
 vi.mock("../../hooks/useAgentProviders", () => ({ useAgentProviders: () => ({ providers: [], loading: false, error: null }) }));
 vi.mock("./TerminalTab", async () => {
@@ -26,6 +27,104 @@ vi.mock("./TerminalTab", async () => {
   };
 });
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+it("makes the previous kept-alive composer inert and releases focus in the tab-switch commit", async () => {
+  const tabs: Tab[] = ["input-a", "input-b"].map(id => ({
+    id, title: id, tab_type: "Terminal", cwd: null, pty_id: null,
+    backing: { kind: "chat_backend", plugin_id: "fixture", session_id: id },
+    session_binding_nonce: id, agent_runtime_state: { state: "loaded", epoch: 1 },
+  }));
+  const state: ExtendedState = { workspaces: [], tabs: Object.fromEntries(tabs.map(tab => [tab.id, tab])), teams: [],
+    active_workspace_id: null, focused_tab_id: tabs[0].id, notifications: [], tabStatuses: {}, toasts: [],
+    activeTabIds: {}, generation: 1, pendingCloses: [] };
+  __setListenForTest(async () => () => {});
+  __setInvokeForTest(async <T,>(command: string, args?: Record<string, unknown>) => {
+    const value = command === "chat_start" ? { messages: [], pending: false, text: "", offset: 0,
+      session_binding_nonce: args?.tabId }
+      : command === "delayed_send_list" || command === "list_agent_providers" ? []
+      : command === "plugin_manager_snapshot" ? { plugins: [], channels: [], diff: [], marketplace: [] } : {};
+    return value as T;
+  });
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  const store = createMuxStateStore(() => state);
+  const actions = new Proxy({}, { get: () => () => {} }) as MultiplexerActionsContextType;
+  const render = (active: string) => act(async () => root.render(
+    <MuxStateStoreContext.Provider value={store}><MultiplexerActionsContext.Provider value={actions}>
+      {tabs.map(tab => <TabContent key={tab.id} tab={tab} isVisible={tab.id === active} isFocused={tab.id === active}
+        onFocusTab={() => {}} onPtySpawned={() => {}}
+        theme={{ name: "fixture", background: "#000", foreground: "#fff" } as ThemeConfig} />)}
+    </MultiplexerActionsContext.Provider></MuxStateStoreContext.Provider>,
+  ));
+  try {
+    await render(tabs[0].id);
+    const a = host.querySelector<HTMLTextAreaElement>('[data-tab-id="input-a"] textarea')!;
+    const b = host.querySelector<HTMLTextAreaElement>('[data-tab-id="input-b"] textarea')!;
+    const keyTargets: string[] = [];
+    a.addEventListener("keydown", () => keyTargets.push("a"));
+    b.addEventListener("keydown", () => keyTargets.push("b"));
+    a.focus();
+    expect(document.activeElement).toBe(a);
+    await render(tabs[1].id);
+    expect(host.querySelector('[data-tab-id="input-a"] textarea')).toBe(a);
+    expect(a.closest("[inert][aria-hidden=true]")).not.toBeNull();
+    expect(document.activeElement).not.toBe(a);
+    expect(b.closest("[inert]")).toBeNull();
+    b.click(); b.focus();
+    await act(async () => {
+      document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "x", code: "KeyX", bubbles: true }));
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(b, "only-b");
+      b.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(document.activeElement).toBe(b);
+    expect(keyTargets).toEqual(["b"]);
+    expect(b.value).toBe("only-b");
+    expect(a.value).toBe("");
+    await render(tabs[0].id);
+    expect(b.closest("[inert][aria-hidden=true]")).not.toBeNull();
+    expect(document.activeElement).not.toBe(b);
+    expect(a.closest("[inert]")).toBeNull();
+  } finally {
+    await act(async () => root.unmount()); host.remove();
+    __setInvokeForTest(null); __setListenForTest(null);
+  }
+});
+
+it("shows the Team lock surface instead of attempting to wake its unlocked sleeping tab", async () => {
+  const tab: Tab = { id: "team-locked-wake", title: "Fixture", tab_type: "Terminal", cwd: null, pty_id: null,
+    team_id: "locked-team", frozen: true, agent_type: "fixture", slept_at_ms: 1000,
+    backing: { kind: "chat_backend", plugin_id: "fixture", session_id: "saved" } };
+  const state: ExtendedState = { workspaces: [], tabs: { [tab.id]: tab },
+    teams: [{ id: "locked-team", lifecycle: "active", created_at: 0, workspace_id: "workspace", locked: true }],
+    active_workspace_id: null, focused_tab_id: tab.id, notifications: [], tabStatuses: {}, toasts: [],
+    activeTabIds: {}, generation: 1, pendingCloses: [] };
+  const calls: string[] = [];
+  __setListenForTest(async () => () => {});
+  __setInvokeForTest(async <T,>(command: string) => { calls.push(command); return {} as T; });
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  freeLimitGate.close();
+  const actions = new Proxy({}, { get: () => () => {} }) as MultiplexerActionsContextType;
+  try {
+    await act(async () => root.render(<MuxStateStoreContext.Provider value={createMuxStateStore(() => state)}>
+      <MultiplexerActionsContext.Provider value={actions}>
+      <TabContent tab={tab} isFocused isVisible onFocusTab={() => {}} onPtySpawned={() => {}}
+        theme={{ name: "fixture", background: "#000", foreground: "#fff" } as ThemeConfig} />
+      </MultiplexerActionsContext.Provider>
+    </MuxStateStoreContext.Provider>));
+    expect(host.querySelector('[aria-label="Locked: free plan limit"]')).not.toBeNull();
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+    expect(calls).not.toContain("wake_tab");
+    expect(calls).not.toContain("chat_start");
+    const unlock = host.querySelector<HTMLButtonElement>('[data-testid="lock-overlay"]')!;
+    expect(unlock).not.toBeNull();
+    await act(async () => unlock.click());
+    expect(freeLimitGate.prompt()).toBe("teams");
+  } finally {
+    await act(async () => root.unmount()); host.remove(); freeLimitGate.close();
+    __setInvokeForTest(null); __setListenForTest(null);
+  }
+});
 
 it("routes a non-PTY task tab through its backing provider even without a local agent identity", async () => {
   const tab: Tab = {id: "remote-layout", title: "Fixture", tab_type: "Terminal", cwd: null, pty_id: null,
