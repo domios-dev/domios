@@ -176,6 +176,12 @@ pub(crate) fn compose_observed(
     }
 
     {
+        if let Err(error) = codeterm_plugins::cleanup_stale_staging(codeterm_plugins::PluginCtx {
+            data_root: codeterm_service_core::paths::data_dir(),
+            version: codeterm_build_info::installed_version().map(str::to_string),
+        }) {
+            log::warn!("[plugin/bootstrap] staging cleanup failed: {error}");
+        }
         match codeterm_plugins::retire_unshipped_system_plugins(codeterm_plugins::PluginCtx {
             data_root: codeterm_service_core::paths::data_dir(),
             version: codeterm_build_info::installed_version().map(str::to_string),

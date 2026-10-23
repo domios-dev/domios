@@ -2,6 +2,26 @@ use super::tests::{test_caps, TestRegistrar};
 use super::*;
 
 #[test]
+fn staging_and_rollback_are_never_discovered_as_plugins() {
+    let root = tempfile::tempdir().unwrap();
+    for name in ["fixture.tmp-install", "fixture.rollback.tmp-install"] {
+        let directory = root.path().join(name);
+        std::fs::create_dir(&directory).unwrap();
+        std::fs::write(
+            directory.join("plugin.json"),
+            r#"{"id":"fixture","version":"2","displayName":"Fixture"}"#,
+        )
+        .unwrap();
+    }
+    let watcher =
+        HotReloadRegistry::new(vec![root.path().into()], TestRegistrar::new(), test_caps());
+    assert!(watcher.discover_candidates().is_empty());
+    let (providers, report) = super::super::loader::scan_roots(&[root.path().into()]);
+    assert!(providers.is_empty());
+    assert!(report.is_empty());
+}
+
+#[test]
 fn install_acknowledges_registration_without_a_watcher_tick() {
     let root = tempfile::tempdir().unwrap();
     let directory = root.path().join("fixture");

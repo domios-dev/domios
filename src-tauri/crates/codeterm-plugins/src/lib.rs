@@ -33,6 +33,7 @@ mod list;
 mod provenance;
 use provenance::*;
 mod retirement;
+mod staging;
 mod state;
 mod types;
 mod update;
@@ -303,6 +304,11 @@ pub fn retire_unshipped_system_plugins(ctx: PluginCtx) -> Result<Vec<String>, St
     let _guard = enter_ctx(ctx);
     let shipped_ids = SYSTEM_PLUGIN_IDS.map(str::to_string);
     retirement::retire_missing_official_plugins(&shipped_ids, retired_system_plugin_ids())
+}
+
+pub fn cleanup_stale_staging(ctx: PluginCtx) -> Result<(), String> {
+    let _guard = enter_ctx(ctx);
+    staging::cleanup_stale(&plugins_root())
 }
 
 #[cfg(test)]
