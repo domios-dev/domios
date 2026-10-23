@@ -163,7 +163,10 @@ pub fn compare_documents(
     );
     let same_content = behaviour(&a) == behaviour(&b);
     let scores = Scores {
-        exact: canonical_json(&a) == canonical_json(&b),
+        // Saved solutions are stored generalized, so a candidate also matches its own generalization.
+        exact: canonical_json(&a) == canonical_json(&b)
+            || canonical_json(&shape_a) == canonical_json(&b)
+            || canonical_json(&a) == canonical_json(&shape_b),
         same_hash: signature_a.hash == signature_b.hash && same_content,
         s_struct: blueprint_wl::kernel(&signature_a.features, &signature_b.features),
         cos_desc: 0.0,

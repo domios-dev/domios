@@ -676,7 +676,7 @@ fn code_pipeline(name: &str, body: &str, text: &str) -> Document {
 
 #[test]
 fn admission_twins_respect_code_bodies_and_literals() {
-    use dedupe::compare_documents;
+    use dedupe::{compare_documents, Verdict};
     let probe = code_pipeline(
         "qa-auth",
         "def main(value):\n    import subprocess\n    return {'rc': 0}",

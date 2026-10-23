@@ -19,6 +19,7 @@ fn require(doc: Document, rule: &str) {
     let ds = inspect(&doc);
     let found = ds
         .iter()
+        .flat_map(|d| std::iter::once(d).chain(&d.folded))
         .find(|d| d.rule == rule)
         .unwrap_or_else(|| panic!("missing {rule}: {ds:#?}"));
     assert!(!found.id.is_empty());
