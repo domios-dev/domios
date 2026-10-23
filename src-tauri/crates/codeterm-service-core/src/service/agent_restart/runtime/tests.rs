@@ -31,7 +31,7 @@ module.exports = {
   runtimeResponse(ctx, op, state, reply) {
     if ((op.kind === 'resumeThread' && op.instructions.includes('opaque refused identity')) ||
         (op.kind === 'openThread' && op.settings.model === 'refused-model'))
-      return {kind:'refused',reason:{code:'provider_refused',message:'fixture load refused'}};
+      return {kind:'refused',reason:{code:'provider_refused',message:'fixture load refused'},beforeAcceptance:true};
     let result = {kind:'done'};
     if (op.kind === 'initialize') result = {kind:'initialized',binaryVersion:'fixture-runtime'};
     if (op.kind === 'resumeThread' || op.kind === 'openThread')
