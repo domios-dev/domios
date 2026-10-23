@@ -160,7 +160,10 @@ pub async fn upgrade(
         .svc
         .billing_open(Some(&input.plan), input.checkout_theme())
         .await
-        .map_err(unavailable)?;
+        .map_err(|message| match message.as_str() {
+            codeterm_billing::ALREADY_SUBSCRIBED => (StatusCode::CONFLICT, message),
+            _ => unavailable(message),
+        })?;
     Ok(Json(serde_json::json!({"opened": true})))
 }
 pub async fn portal(

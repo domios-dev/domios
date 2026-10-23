@@ -359,12 +359,13 @@ fn checkout_keys_map_to_entitlement_plans_and_reject_plan_names() {
     for (key, plan) in [
         ("pro_monthly", Plan::Pro),
         ("pro_yearly", Plan::Pro),
+        ("sponsor_monthly", Plan::Sponsor),
         ("sponsor_yearly", Plan::Sponsor),
     ] {
         let parsed = CheckoutKey::parse(key).unwrap();
         assert_eq!((parsed.as_str(), parsed.plan()), (key, plan));
     }
-    for unknown in ["unknown", "free", "pro", "sponsor", "sponsor_monthly", ""] {
+    for unknown in ["unknown", "free", "pro", "sponsor", "sponsor_weekly", ""] {
         assert_eq!(
             CheckoutKey::parse(unknown).unwrap_err(),
             "Unknown billing plan"
@@ -392,7 +393,12 @@ async fn checkout_url_passes_the_commercial_key_through_unchanged() {
     let provider = Arc::new(CheckoutKeys(parking_lot::Mutex::new(Vec::new())));
     let billing = Billing::new(provider.clone());
     let session = session("owner");
-    for key in ["pro_monthly", "pro_yearly", "sponsor_yearly"] {
+    for key in [
+        "pro_monthly",
+        "pro_yearly",
+        "sponsor_monthly",
+        "sponsor_yearly",
+    ] {
         billing
             .checkout_url(&session, CheckoutKey::parse(key).unwrap())
             .await
@@ -400,7 +406,12 @@ async fn checkout_url_passes_the_commercial_key_through_unchanged() {
     }
     assert_eq!(
         *provider.0.lock(),
-        ["pro_monthly", "pro_yearly", "sponsor_yearly"]
+        [
+            "pro_monthly",
+            "pro_yearly",
+            "sponsor_monthly",
+            "sponsor_yearly"
+        ]
     );
 }
 

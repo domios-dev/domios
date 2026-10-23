@@ -24,6 +24,7 @@ export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) 
   const billing = useAccountPlan(model.kind === "signed_in" ? model.identity.uid : null);
   const catalog = usePlanCatalog();
   const [plansRequest, setPlansRequest] = useState(0);
+  const [refusedAsSubscribed, setRefusedAsSubscribed] = useState(false);
   const { upsertToast } = useMultiplexer();
   const notify = createNoticePublisher({ upsertToast });
   const retryHint = useRef<LoginHint | undefined>(undefined);
@@ -34,6 +35,7 @@ export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) 
     catalog,
     notify,
     retrySignIn: () => { void signIn(retryHint.current); },
+    onAlreadySubscribed: () => setRefusedAsSubscribed(true),
   });
   const revealPlans = () => setPlansRequest((count) => count + 1);
   const manageSubscription = async () => {
@@ -97,7 +99,7 @@ export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) 
         <div className="w-full">
           <SettingsCardAnchor id="subscription-plans" focused={focusCard === "subscription-plans"} focusRequest={plansRequest}>
             <PlanCards viewRequested={focusCard === "subscription-plans" || plansRequest > 0} catalog={catalog} currentPlan={displayedPlan(billing.plan)}
-              subscribedPlan={subscribedPlan(billing.plan)} onManage={() => void manageSubscription()} manageBusy={billing.pending}
+              subscribedPlan={subscribedPlan(billing.plan, refusedAsSubscribed)} onManage={() => void manageSubscription()} manageBusy={billing.pending}
               canPurchase={!billing.pending && !purchase.busy && !(signedIn && billing.planLoad === "loading")}
               onChoose={purchase.choose} intent={purchase.intent} onCancel={purchase.cancel}
               signedInAs={signedIn ? model.identity.email ?? model.identity.display_name : null} />

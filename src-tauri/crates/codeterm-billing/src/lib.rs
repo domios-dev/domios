@@ -24,6 +24,9 @@ pub enum ProductEvent {
 pub type ProductObserver = std::sync::Arc<dyn Fn(ProductEvent) + Send + Sync>;
 
 pub type Result<T> = std::result::Result<T, String>;
+
+/// Checkout refusal for an account that already holds a live subscription; the app offers Manage subscription instead.
+pub const ALREADY_SUBSCRIBED: &str = "already_subscribed";
 #[async_trait]
 pub trait BillingProvider: Send + Sync {
     async fn entitlements(&self, session: &Session) -> Result<Reading>;

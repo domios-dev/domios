@@ -30,17 +30,19 @@ function PlansModal({ limit, max, detail, onClose, onUpgrade, catalog }: {
   const billing = useAccountPlan(identity?.uid ?? null);
   const contextCatalog = usePlanCatalog();
   const offers = catalog ?? contextCatalog;
+  const [refusedAsSubscribed, setRefusedAsSubscribed] = useState(false);
   const purchase = usePurchaseIntent({
     account,
     billing: { plan: billing.plan, planLoad: billing.planLoad, upgrade: (planKey) => onUpgrade(planKey).then(() => null, (failure: unknown) => failure ?? new Error("Checkout did not start")) },
     catalog: offers,
     notify: publishNotice,
     onCheckoutOpened: onClose,
+    onAlreadySubscribed: () => setRefusedAsSubscribed(true),
   });
   const { intent } = purchase;
   const blocked = purchase.busy || (signedIn && billing.planLoad === "loading");
   const [interval, setInterval] = useState<BillingInterval>("year");
-  const subscribed = subscribedPlan(billing.plan);
+  const subscribed = subscribedPlan(billing.plan, refusedAsSubscribed);
   const manage = async () => {
     const failure = await billing.manage(() => {});
     if (failure) publishNotice(billingFailureToast(failure, "managing your subscription", billing.plan?.status, () => manage()));

@@ -89,9 +89,11 @@ impl Cloud {
             .json(&serde_json::json!({"data":data}))
             .send()
             .await
-            .map_err(|_| "Billing server unreachable")?
-            .error_for_status()
-            .map_err(|_| "Billing request refused")?;
+            .map_err(|_| "Billing server unreachable")?;
+        if !response.status().is_success() {
+            let body = response.json().await.unwrap_or(serde_json::Value::Null);
+            return Err(refusal_message(&body));
+        }
         let body: serde_json::Value = response
             .json()
             .await
@@ -123,6 +125,17 @@ impl Cloud {
             return Err("Unsafe billing URL".into());
         }
         Ok(url)
+    }
+}
+
+/// Only reasons the app acts on cross the boundary; any other refusal stays opaque.
+fn refusal_message(body: &serde_json::Value) -> String {
+    match body
+        .pointer("/error/details/reason")
+        .and_then(|reason| reason.as_str())
+    {
+        Some(crate::ALREADY_SUBSCRIBED) => crate::ALREADY_SUBSCRIBED.into(),
+        _ => "Billing request refused".into(),
     }
 }
 
