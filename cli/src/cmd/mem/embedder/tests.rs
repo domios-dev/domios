@@ -118,3 +118,15 @@ fn shadow_residency_status_names_published_target_and_explicit_recovery() {
         assert!(status.contains(field), "missing {field}: {status}");
     }
 }
+
+#[test]
+fn docs_reembed_running_receipt_preserves_progress_without_announcing_a_new_run() {
+    assert_eq!(
+        render_use(&serde_json::json!({
+            "already_active": false,
+            "already_running": {"done": 5, "total": 816},
+            "target": {"provider": "local", "model": "target"}
+        })),
+        "Re-embed already running (5/816)\n"
+    );
+}

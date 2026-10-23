@@ -4,7 +4,7 @@ use std::time::Duration;
 use codeterm_mem::embedder::catalog::{self, BuildContext, BuildError, EmbedderSelection};
 use codeterm_mem::embedder::key::{self, ApiKey, KeyPresence, KeySources, KeyVault};
 use codeterm_mem::embedder::{
-    EmbedderIdentity, EmbedderStatus, ProviderDescriptor, ReembedState, SwitchPlan,
+    EmbedderIdentity, EmbedderStatus, ProviderDescriptor, ReembedProgress, ReembedState, SwitchPlan,
 };
 use serde::{Deserialize, Serialize};
 
@@ -180,6 +180,7 @@ impl UseParams {
 #[derive(Debug, Clone, Serialize)]
 pub struct SwitchPreview {
     pub already_active: bool,
+    pub already_running: Option<ReembedProgress>,
     pub cancelled: Option<EmbedderIdentity>,
     pub target: EmbedderIdentity,
     pub remote: bool,
@@ -210,6 +211,7 @@ pub fn preview(svc: &ServiceState, params: &UseParams) -> Result<SwitchPreview, 
     .map(|refusal| Refusal::from(&BuildError::Refused(refusal)));
     Ok(SwitchPreview {
         cancelled: None,
+        already_running: None,
         already_active: svc.mem.embedder().identity()
             == EmbedderIdentity {
                 provider: descriptor.id.clone(),
@@ -240,6 +242,9 @@ pub fn use_provider(svc: &ServiceState, params: &UseParams) -> Result<SwitchPrev
     let remote = provider.remote();
     let already_active = svc.mem.embedder().identity() == target;
     let running = svc.mem.reembed_progress();
+    let already_running = (running.state == ReembedState::Running
+        && running.target.as_ref() == Some(&target))
+    .then(|| running.clone());
     let cancelled = (already_active && running.state == ReembedState::Running)
         .then_some(running.target)
         .flatten();
@@ -253,6 +258,7 @@ pub fn use_provider(svc: &ServiceState, params: &UseParams) -> Result<SwitchPrev
     persist(svc, &target)?;
     Ok(SwitchPreview {
         already_active,
+        already_running,
         cancelled,
         target,
         remote,
