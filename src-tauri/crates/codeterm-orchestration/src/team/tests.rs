@@ -39,6 +39,7 @@ fn team_members() -> (MultiplexerState, String, String, String, String) {
 }
 
 mod process_split_contract;
+mod remote_members;
 
 #[test]
 fn team_manager_permission_allows_orchestrator_and_planner() {

@@ -671,6 +671,9 @@ impl ServiceFixture {
             } else {
                 crate::service::remote_workers::RemoteWorkerRegistry::new()
             }),
+            remote_teams: Arc::new(crate::service::remote_team::RemoteTeamStore::open(
+                data_dir.join("remote_teams.json"),
+            )),
             bridge_outbound,
             chat_registry: crate::service::tab_chat::ChatRegistry::new(),
             secrets,

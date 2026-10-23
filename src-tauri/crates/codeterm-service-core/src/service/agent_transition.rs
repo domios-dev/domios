@@ -204,6 +204,8 @@ impl ServiceContext {
         failure: TransitionFailurePoint,
     ) -> Result<Vec<String>, String> {
         let mut mux = self.mux.write();
+        self.remote_teams
+            .ensure_tab_lifecycle_available(&request.tab_id)?;
         let bindings_before = role_team_bindings(&mux);
         let changed_plan_ids = execute_transition(&mut mux, &self.plan_store, request, failure)?;
         let changed_bindings = role_team_bindings(&mux)

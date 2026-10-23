@@ -92,6 +92,8 @@ Typed callable Blueprints are saved with `domios blueprint keep --file callable.
 
 ## Mesh (remote peers)
 
+Adopt an unbound remote Worker into a local Team with `domios team adopt-agent <team> <worker> --peer <peer>`, or re-parent it in place with `domios agent reparent <worker> --to <local-orchestrator> --peer <peer>`; omit `--peer` for an unbound local Worker. Only the current parent or local owner may transfer, and both peers require Full access. The destination cannot pull it. Retry an uncertain request to recover the same durable operation. Task-bound Workers keep their Plan ownership path. `--mesh` executes on another daemon and is refused for these origin-side operations.
+
 Flat peer model: paired = trusted. Most tab/agent/workspace commands accept `--mesh PEER` = "run against that peer's daemon". Flow: `mesh peers` → `tab list --mesh PEER` → act on remote ids. A peer's General Agent is always `--tab main --mesh PEER`; remote agents don't auto-reply — say "report back" explicitly. New machines come only from the owner's account: `mesh link <installation-id>` with both machines signed in to the same account, online and reachable (no broadcast, scan or address). Sign-out blocks the mesh without unpairing. `mesh disconnect` unpairs and revokes the peer locally (only the local owner lifts it with `mesh unrevoke <instance-id>`). Visibility: `mesh offline` / `mesh online` (hot-reload, Tailscale untouched). Mesh spawn requires peer `--cwd`; it sends locally read `--task-file` contents.
 
 ## Memory (mem)

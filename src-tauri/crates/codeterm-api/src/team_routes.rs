@@ -60,6 +60,11 @@ fn map_rename_error(error: String) -> (StatusCode, String) {
 }
 
 fn map_close_team_error(error: String) -> (StatusCode, String) {
+    if error.contains("remote Team preflight failed")
+        || error.contains("unresolved remote Worker transfer")
+    {
+        return (StatusCode::CONFLICT, error);
+    }
     let inventory = codeterm_service_core::service::close_inventory_error_data(&error);
     let status = if inventory
         .as_ref()
