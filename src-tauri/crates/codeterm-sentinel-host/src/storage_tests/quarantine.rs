@@ -83,8 +83,10 @@ fn storage_quarantined_blueprint_delete_is_scoped_persisted_and_frees_name() {
         .unwrap();
     let storage = open(root.path());
     let store = typed(&storage, &clock);
-    let mut replacement = broken.clone();
-    replacement.id = uuid::Uuid::new_v4().to_string();
+    let replacement = store
+        .lock()
+        .prepare_document(broken.document.clone().unwrap(), owner(Some("team")), false)
+        .unwrap();
     assert!(
         commit(&store, |store| store.stage_insert(replacement.clone()))
             .unwrap_err()
