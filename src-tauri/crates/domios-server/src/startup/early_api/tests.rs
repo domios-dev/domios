@@ -229,3 +229,5 @@ async fn ready_health_delegates_authentication_to_the_active_router() {
         StatusCode::ACCEPTED
     );
 }
+
+mod stalled_memory;
