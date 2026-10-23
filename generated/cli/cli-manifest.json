@@ -522,6 +522,44 @@
           "subcommands": []
         },
         {
+          "name": "reparent",
+          "about": "Move an unbound running worker under a live local Team Orchestrator without restarting it",
+          "aliases": [],
+          "args": [
+            {
+              "name": "peer",
+              "positional": false,
+              "required": false,
+              "value_name": "PEER",
+              "possible_values": [],
+              "default": null,
+              "help": "Peer that owns the worker; --to always names an Orchestrator on this machine",
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": true,
+              "required": true,
+              "value_name": "TAB",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "to",
+              "positional": false,
+              "required": true,
+              "value_name": "TO",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "report",
           "about": "Send a report to your parent in the hierarchy",
           "aliases": [],
@@ -17636,9 +17674,19 @@
       "subcommands": [
         {
           "name": "adopt-agent",
-          "about": "Attach an already-running roleless agent or plain shell tab to a Team (a shell becomes a utility shell, process kept)",
+          "about": "Attach a running roleless agent or shell locally, or adopt an unbound remote worker with --peer",
           "aliases": [],
           "args": [
+            {
+              "name": "peer",
+              "positional": false,
+              "required": false,
+              "value_name": "PEER",
+              "possible_values": [],
+              "default": null,
+              "help": "Peer that owns the running remote worker; the Team stays local",
+              "aliases": []
+            },
             {
               "name": "tab_id",
               "positional": true,
