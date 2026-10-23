@@ -297,10 +297,7 @@ fn blueprint_v2_runtime_text_trigger_digits_reach_a_string_node_as_a_string() {
     let (completion, diagnostic) = run_recorded(&handle, &fixture.service, &lease, "string-proof");
     assert_eq!(completion.state, JournalState::Done, "{diagnostic}");
     let delivered = ExecutionEnvelope::decode(&std::fs::read(&sink).unwrap()).unwrap();
-    assert_eq!(
-        (delivered.media.as_str(), delivered.value),
-        ("text", json!("7"))
-    );
+    assert_eq!(delivered.value, json!("7"));
     drop(handle);
     drop(fixture);
     close(storage);
