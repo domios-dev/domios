@@ -97,7 +97,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
             <Glyph aria-hidden="true" size={14} strokeWidth={2} />
           </span>
           <span className="flex min-w-0 flex-1 items-baseline gap-2 font-mono text-[12.5px]">
-            {label && <span className="shrink-0 font-semibold" style={{ color: visual.color }}>{label}</span>}
+            {label && <span className="max-w-[60%] shrink-0 truncate font-semibold" style={{ color: visual.color }}>{label}</span>}
             <span className="min-w-0 truncate" data-testid="toolcard-summary" style={{ color: "var(--ct-fg)" }}>{(summary ?? event.description ?? event.summary) || "Tool activity"}</span>
             {metric ?? chips}
             <ToolOutcomeFacts event={event} />
