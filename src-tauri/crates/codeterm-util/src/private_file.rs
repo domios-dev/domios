@@ -1,14 +1,38 @@
-use std::fs::{self, OpenOptions};
-use std::io::{self, Write};
+use std::fs;
+use std::io;
 use std::path::Path;
 
 #[cfg(windows)]
 mod windows;
+#[cfg(windows)]
+mod windows_lock;
+#[cfg(windows)]
+mod windows_policy;
 
 #[cfg(all(windows, any(test, feature = "test-support")))]
 pub use windows::add_deny_ace_for_test;
 
-pub fn restrict_file_permissions(path: &Path) -> io::Result<()> {
+pub(crate) fn open_lock(path: &Path) -> io::Result<fs::File> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .open(path)?;
+        restrict(path)?;
+        Ok(file)
+    }
+    #[cfg(windows)]
+    {
+        windows_lock::open(path)
+    }
+}
+
+pub fn restrict(path: &Path) -> io::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -16,19 +40,11 @@ pub fn restrict_file_permissions(path: &Path) -> io::Result<()> {
     }
     #[cfg(windows)]
     {
-        windows::restrict(path)
-    }
-    #[cfg(all(not(unix), not(windows)))]
-    {
-        let _ = path;
-        Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "owner-only files are unsupported",
-        ))
+        windows_policy::tighten(path)
     }
 }
 
-pub fn restrict_directory_permissions(path: &Path) -> io::Result<()> {
+pub fn restrict_dir(path: &Path) -> io::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -36,15 +52,7 @@ pub fn restrict_directory_permissions(path: &Path) -> io::Result<()> {
     }
     #[cfg(windows)]
     {
-        windows::restrict_dir(path)
-    }
-    #[cfg(all(not(unix), not(windows)))]
-    {
-        let _ = path;
-        Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "owner-only directories are unsupported",
-        ))
+        windows_policy::tighten_directory(path)
     }
 }
 
@@ -52,43 +60,80 @@ pub fn owner_only(path: &Path) -> io::Result<bool> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        Ok(fs::metadata(path)?.permissions().mode() & 0o077 == 0)
+        let metadata = fs::metadata(path)?;
+        let expected = if metadata.is_dir() { 0o700 } else { 0o600 };
+        Ok(metadata.permissions().mode() & 0o777 == expected)
     }
     #[cfg(windows)]
     {
         windows::mode_ok(path)
     }
-    #[cfg(all(not(unix), not(windows)))]
+}
+
+pub fn create_dir_all(path: &Path) -> io::Result<()> {
+    if path.as_os_str().is_empty() || path.is_dir() {
+        return Ok(());
+    }
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
     {
-        let _ = path;
-        Ok(false)
+        create_dir_all(parent)?;
+    }
+    #[cfg(unix)]
+    let created = {
+        use std::os::unix::fs::DirBuilderExt;
+        fs::DirBuilder::new().mode(0o700).create(path)
+    };
+    #[cfg(windows)]
+    let created = fs::create_dir(path);
+    match created {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists && path.is_dir() => Ok(()),
+        Err(error) => Err(error),
     }
 }
 
-pub fn write_atomic(path: &Path, contents: &[u8]) -> io::Result<()> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "file has no parent"))?;
-    fs::create_dir_all(parent)?;
-    restrict_directory_permissions(parent)?;
-    let temp = parent.join(format!(".key-{}.tmp", uuid::Uuid::new_v4()));
-    let result = (|| {
-        let mut options = OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let mut file = options.open(&temp)?;
-        restrict_file_permissions(&temp)?;
-        file.write_all(contents)?;
-        file.sync_all()?;
-        drop(file);
-        fs::rename(&temp, path)
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&temp);
+pub fn restrict_if_present(path: &Path) -> io::Result<()> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_file() => restrict(path),
+        Ok(_) => Err(io::Error::other("sensitive state must be a regular file")),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
     }
-    result
 }
+
+pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    crate::atomic_write::write_private_atomic(path, bytes)
+}
+
+pub(crate) fn prepare_replacement(target: &Path, temporary: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        let _ = target;
+        restrict(temporary)
+    }
+    #[cfg(windows)]
+    match fs::symlink_metadata(target) {
+        Ok(_) => windows_policy::copy_tightened(target, temporary),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => windows::restrict(temporary),
+        Err(error) => Err(error),
+    }
+}
+
+pub(crate) fn preserve_permissions(target: &Path, temporary: &Path) -> io::Result<()> {
+    let metadata = match fs::metadata(target) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    #[cfg(windows)]
+    windows_policy::copy_permissions(target, temporary)?;
+    fs::set_permissions(temporary, metadata.permissions())
+}
+
+#[cfg(test)]
+mod tests;
+
+#[cfg(all(test, windows))]
+mod windows_tests;

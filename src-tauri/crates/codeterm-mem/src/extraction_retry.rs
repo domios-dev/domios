@@ -57,7 +57,7 @@ impl ExtractionRetries {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
         let bytes = serde_json::to_vec(entries).map_err(|e| e.to_string())?;
-        codeterm_util::atomic_write::write_atomic(&self.path, bytes).map_err(|e| e.to_string())
+        codeterm_util::private_file::write_atomic(&self.path, &bytes).map_err(|e| e.to_string())
     }
 
     pub fn reset(&self, intent: &str) -> Result<(), String> {

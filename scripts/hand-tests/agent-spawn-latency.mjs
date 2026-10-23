@@ -1,15 +1,6 @@
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
+import { devConnection } from "../../evals/_lib/connection.mjs";
 
-const port = Number(process.env.CODETERM_API_PORT ?? 7686);
-if (port === 7685) throw new Error("Refusing to run against prod port 7685");
-
-const api = `http://127.0.0.1:${port}`;
-const dataDir = process.env.CODETERM_DATA_DIR ?? path.join(os.homedir(), ".codeterm-dev");
-const config = fs.readFileSync(path.join(dataDir, "config.toml"), "utf8");
-const token = config.match(/^\s*token\s*=\s*"([^"]+)"/m)?.[1];
-if (!token) throw new Error(`No API token in ${dataDir}/config.toml`);
+const { api, token } = devConnection();
 
 const headers = { Authorization: `Bearer ${token}` };
 const jsonHeaders = { ...headers, "Content-Type": "application/json" };

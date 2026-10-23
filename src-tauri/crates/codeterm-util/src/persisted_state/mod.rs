@@ -26,6 +26,7 @@ pub struct StateFile {
     path: PathBuf,
     backups: usize,
     validate: Option<Validator>,
+    private: bool,
 }
 
 #[derive(Debug)]
@@ -51,6 +52,20 @@ impl StateFile {
             path: path.into(),
             backups: DEFAULT_BACKUPS,
             validate: None,
+            private: false,
+        }
+    }
+
+    pub fn with_private_permissions(mut self) -> Self {
+        self.private = true;
+        self
+    }
+
+    fn write(&self, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+        if self.private {
+            crate::private_file::write_atomic(path, bytes)
+        } else {
+            write_atomic(path, bytes)
         }
     }
 
@@ -81,6 +96,17 @@ impl StateFile {
 
     pub fn hold_for_repair(&self) {
         incidents::hold_for_repair(&self.path, self.corrupt_copies().last().cloned());
+    }
+
+    pub fn hold_after_error(&self, error: &str) {
+        incidents::report(Incident {
+            path: self.path.clone(),
+            error: error.to_owned(),
+            preserved: None,
+            preserve_error: None,
+            recovered_from: None,
+            held: true,
+        });
     }
 
     fn file_name(&self) -> String {
@@ -114,7 +140,7 @@ impl StateFile {
         let preserved = self.quarantine();
         let recovered = self.newest_valid_backup(parse);
         if let (Ok(_), Some((_, backup, bytes))) = (&preserved, &recovered) {
-            if let Err(restore_error) = write_atomic(&self.path, bytes) {
+            if let Err(restore_error) = self.write(&self.path, bytes) {
                 log::warn!(
                     "[state] could not restore {} from {}: {restore_error}",
                     self.path.display(),
@@ -149,7 +175,7 @@ impl StateFile {
             std::fs::create_dir_all(parent)
                 .map_err(|error| format!("create {}: {error}", parent.display()))?;
         }
-        write_atomic(&self.path, contents.as_bytes())
+        self.write(&self.path, contents.as_bytes())
             .map_err(|error| format!("write {}: {error}", self.path.display()))?;
         if self.backups > 0 {
             if let Err(error) = self.write_backup(contents.as_bytes()) {
@@ -187,7 +213,7 @@ impl StateFile {
             std::fs::create_dir_all(parent)
                 .map_err(|error| format!("create {}: {error}", parent.display()))?;
         }
-        write_atomic(&self.path, contents.as_bytes())
+        self.write(&self.path, contents.as_bytes())
             .map_err(|error| format!("write {}: {error}", self.path.display()))
     }
 
@@ -312,7 +338,7 @@ impl StateFile {
             }
         }
         let name = format!("{:013}-{:06}.bak", unix_millis(), next_seq() % 1_000_000);
-        write_atomic(&dir.join(name), bytes)?;
+        self.write(&dir.join(name), bytes)?;
         let backups = self.backups();
         let excess = backups.len().saturating_sub(self.backups);
         for stale in backups.into_iter().take(excess) {
@@ -350,15 +376,5 @@ fn sorted_entries(dir: &Path, keep: impl Fn(&str) -> bool) -> Vec<PathBuf> {
 /// Crash-safe write: a sibling temp file renamed over the target, so a reader
 /// sees the old or the new file whole, never a torn write.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let name = path
-        .file_name()
-        .map(|name| name.to_string_lossy().to_string())
-        .unwrap_or_else(|| "state".to_string());
-    let tmp = path.with_file_name(format!("{name}.tmp.{}.{}", std::process::id(), next_seq()));
-    std::fs::write(&tmp, bytes)?;
-    if let Err(error) = std::fs::rename(&tmp, path) {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(error);
-    }
-    Ok(())
+    crate::atomic_write::write_atomic(path, bytes)
 }

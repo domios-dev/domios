@@ -9,6 +9,10 @@ mod registration;
 use installed::{canonical_file, AutostartState, InstalledSupervisor};
 
 pub fn handle_system(json_mode: bool, action: SystemAction) {
+    if matches!(action, SystemAction::ApiToken) {
+        handle_api_token(false);
+        return;
+    }
     let result: Result<serde_json::Value, String> = match action {
         SystemAction::EnableAutostart { binary, supervisor } => {
             enable_autostart(binary.as_deref(), supervisor.as_deref())
@@ -16,6 +20,7 @@ pub fn handle_system(json_mode: bool, action: SystemAction) {
         SystemAction::DisableAutostart => disable_autostart(),
         SystemAction::AutostartStatus => autostart_status(),
         SystemAction::Supervise { binary, once } => supervise(binary.as_deref(), once),
+        SystemAction::ApiToken => unreachable!("handled before result rendering"),
     };
     crate::cmd::print::handle_result(json_mode, result);
 }
@@ -903,3 +908,22 @@ fn systemd_quote(value: &str) -> String {
 
 #[cfg(test)]
 mod tests;
+
+fn instance_api_token(data_root: &std::path::Path, remote: bool) -> Result<String, String> {
+    if remote {
+        return Err("Instance API credentials are local-only; run on the owning machine".into());
+    }
+    codeterm_util::instance_token::read_at(data_root)?
+        .ok_or_else(|| "No local instance API credential; start Domios first".into())
+}
+
+#[cfg(test)]
+#[path = "system/token_tests.rs"]
+mod token_tests;
+
+pub fn handle_api_token(remote: bool) {
+    match instance_api_token(&crate::data_root(), remote) {
+        Ok(token) => print!("{token}"),
+        Err(error) => crate::cmd::print::fail(if remote { 7 } else { 1 }, error),
+    }
+}

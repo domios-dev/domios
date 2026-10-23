@@ -27,39 +27,22 @@ except ImportError:  # pragma: no cover - local dev dependency guard
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEV_PORT = "7686"
+sys.path.insert(0, str(ROOT / "evals" / "_lib"))
+from dev_connection import dev_api_url, dev_environment, dev_token
 
 
 def dev_env() -> dict[str, str]:
-    cfg = Path.home() / ".codeterm-dev" / "config.toml"
-    token = ""
-    if cfg.exists():
-        for line in cfg.read_text(encoding="utf-8").splitlines():
-            if line.strip().startswith("token = "):
-                token = line.split('"', 2)[1]
-                break
-    if not token:
-        raise SystemExit(f"dev token not found in {cfg}")
-    env = os.environ.copy()
-    env.update(
-        {
-            "CODETERM_API_PORT": DEV_PORT,
-            "CODETERM_API_TOKEN": token,
-            "CODETERM_SOCKET_PATH": "codeterm-dev.sock",
-            "CODETERM_TAB_ID": "",
-            "CODETERM_PARENT_TAB_ID": "",
-        }
-    )
-    return env
+    return dev_environment()
 
 
 ENV = dev_env()
+API_URL = dev_api_url(ENV)
 
 
 def dev_get(path: str) -> Any:
     req = urllib.request.Request(
-        f"http://127.0.0.1:{DEV_PORT}{path}",
-        headers={"Authorization": f"Bearer {ENV['CODETERM_API_TOKEN']}"},
+        f"{API_URL}{path}",
+        headers={"Authorization": f"Bearer {dev_token(ENV)}"},
     )
     with urllib.request.urlopen(req, timeout=10) as resp:
         return json.loads(resp.read().decode("utf-8"))
@@ -67,10 +50,10 @@ def dev_get(path: str) -> Any:
 
 def dev_post(path: str, payload: dict[str, Any]) -> Any:
     req = urllib.request.Request(
-        f"http://127.0.0.1:{DEV_PORT}{path}",
+        f"{API_URL}{path}",
         data=json.dumps(payload).encode("utf-8"),
         headers={
-            "Authorization": f"Bearer {ENV['CODETERM_API_TOKEN']}",
+            "Authorization": f"Bearer {dev_token(ENV)}",
             "Content-Type": "application/json",
         },
         method="POST",

@@ -24,8 +24,9 @@ fn is_stable_code(code: &str) -> bool {
 }
 
 /// Commands whose bare form changes the host or needs the network, not their output surface.
-const SWEPT_OUT: [&[&str]; 7] = [
+const SWEPT_OUT: [&[&str]; 8] = [
     &["update"],
+    &["system", "api-token"],
     &["system", "enable-autostart"],
     &["system", "disable-autostart"],
     &["mem", "dream"],
@@ -42,8 +43,11 @@ struct CliEnv {
 
 impl CliEnv {
     fn new(stub_port: Option<u16>) -> Self {
+        let data_dir = tempfile::tempdir().expect("temp data dir");
+        codeterm_util::instance_token::initialize_at(data_dir.path(), Some("stub-token"), false)
+            .expect("isolated instance credential");
         Self {
-            data_dir: tempfile::tempdir().expect("temp data dir"),
+            data_dir,
             instance: format!("jsoncontract-{}", std::process::id()),
             stub_port: Some(stub_port.unwrap_or_else(refused_port)),
         }

@@ -2,6 +2,27 @@ use super::*;
 use crate::cmd::print::CliError;
 
 #[test]
+fn startup_discovery_preserves_the_selected_instance_address_boundary() {
+    let mut selected = crate::cmd::identify::ResolvedApiConfig {
+        data_dir: std::path::PathBuf::from("selected-dev"),
+        data_dir_source: super::super::ResolutionSource::CodeTermInstance,
+        host: "127.0.0.1".into(),
+        host_source: super::super::ResolutionSource::Default,
+        port: 7685,
+        port_source: super::super::ResolutionSource::Default,
+        token: None,
+    };
+    assert!(target_url_from(&selected, Some("http://127.0.0.1:7685"), None, None, true).is_err());
+    selected.port = 7791;
+    selected.port_source = super::super::ResolutionSource::Config;
+    assert!(target_url_from(&selected, Some("http://127.0.0.1:7685"), None, None, true).is_err());
+    assert_eq!(
+        target_url_from(&selected, Some("http://127.0.0.1:7791"), None, None, true).unwrap(),
+        "http://127.0.0.1:7791"
+    );
+}
+
+#[test]
 fn ready_rpc_probe_does_not_subscribe_to_startup() {
     probe_with_readiness(
         || Ok((reqwest::StatusCode::OK, json!({"result":{"ok":true}}))),

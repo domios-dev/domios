@@ -125,8 +125,31 @@ fn select_startup_transport<T>(
 
 fn http_fallback_config() -> Result<HttpFallbackConfig, String> {
     let resolved = crate::resolve_api_config();
-    let base_url = startup::target_url()?;
+    let base_url = startup::target_url_for(&resolved)?;
+    http_fallback_for_instance(&resolved, Some(&base_url))
+}
+
+fn http_fallback_for_instance(
+    resolved: &crate::cmd::identify::ResolvedApiConfig,
+    api_url: Option<&str>,
+) -> Result<HttpFallbackConfig, String> {
+    let base_url = http_instance_url(resolved, api_url)?;
     http_fallback_config_from(Some(&base_url), None, resolved.token.as_deref())
+}
+
+fn http_instance_url(
+    resolved: &crate::cmd::identify::ResolvedApiConfig,
+    api_url: Option<&str>,
+) -> Result<String, String> {
+    let base = format!("http://{}:{}", resolved.host, resolved.port);
+    let selected = http_base_url_from(Some(&base), None)?;
+    if let Some(api_url) = api_url {
+        let inherited = http_base_url_from(Some(api_url), None)?;
+        if inherited != selected {
+            return Err("CODETERM_API_URL differs from the selected instance address".to_owned());
+        }
+    }
+    Ok(selected)
 }
 
 fn http_fallback_config_from(
@@ -136,7 +159,7 @@ fn http_fallback_config_from(
 ) -> Result<HttpFallbackConfig, String> {
     let token = token
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| "CODETERM_API_TOKEN is not set".to_owned())?;
+        .ok_or_else(|| "No instance API credential is available".to_owned())?;
     Ok(HttpFallbackConfig {
         base_url: http_base_url_from(api_url, api_port)?,
         token: token.to_owned(),

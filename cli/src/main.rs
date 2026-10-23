@@ -183,6 +183,15 @@ fn main_impl() {
         return;
     }
 
+    if matches!(
+        &cli.command,
+        Commands::System {
+            action: SystemAction::ApiToken
+        }
+    ) {
+        cmd::system::handle_api_token(cli.mesh.is_some());
+        return;
+    }
     if cli.mesh.is_some()
         && matches!(
             &cli.command,

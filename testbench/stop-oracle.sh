@@ -14,8 +14,9 @@
 # Pure /api/*, macOS, no DOM. DISPOSABLE dev tab only.
 #   testbench/stop-oracle.sh --tab <id> [--mode stop|esc] [--prompt TEXT]
 set -uo pipefail
-TOKEN=$(/usr/bin/python3 -c "import re;print(re.search(r'token\s*=\s*\"([^\"]+)\"',open('$HOME/.codeterm-dev/config.toml').read()).group(1))")
-B="http://127.0.0.1:7686"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/evals/_lib/lib.sh"
+TOKEN="$(dev_token)" || exit 7
+B="$(dev_api_url)" || exit 7
 post(){ /usr/bin/curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" --data "$2" "$B$1"; }
 get(){ /usr/bin/curl -s -H "Authorization: Bearer $TOKEN" "$B$1"; }
 nowms(){ /usr/bin/python3 -c 'import time;print(int(time.time()*1000))'; }

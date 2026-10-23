@@ -16,9 +16,10 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; cd "$ROOT"
 source evals/_lib/lib.sh 2>/dev/null; export PATH="/usr/bin:/bin:$PATH"
-TOK=$(python3 -c "import re;print(re.search(r'token\s*=\s*\"([^\"]+)\"',open('$HOME/.codeterm-dev/config.toml').read()).group(1))")
-post(){ /usr/bin/curl -s -X POST -H "Authorization: Bearer $TOK" -H 'Content-Type: application/json' --data "$2" "http://127.0.0.1:7686$1"; }
-get(){ /usr/bin/curl -s -H "Authorization: Bearer $TOK" "http://127.0.0.1:7686$1"; }
+API="$(dev_api_url)" || exit 7
+TOK="$(dev_token)" || exit 7
+post(){ /usr/bin/curl -s -X POST -H "Authorization: Bearer $TOK" -H 'Content-Type: application/json' --data "$2" "$API$1"; }
+get(){ /usr/bin/curl -s -H "Authorization: Bearer $TOK" "$API$1"; }
 
 TAB=""; SPAWNED_WS=""
 PROMPT="Run the shell command 'echo codeterm-c9-probe' using your tool."

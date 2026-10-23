@@ -47,7 +47,9 @@ fn validate_json<T: DeserializeOwned>(text: &str) -> Result<(), String> {
 }
 
 fn identity_file(path: &Path) -> StateFile {
-    StateFile::new(path).with_validator(validate_json::<MeshIdentity>)
+    StateFile::new(path)
+        .with_private_permissions()
+        .with_validator(validate_json::<MeshIdentity>)
 }
 
 fn fresh_identity() -> MeshIdentity {
@@ -198,7 +200,9 @@ pub fn load_mesh_records() -> MeshRecords {
 }
 
 fn peers_file(path: &Path) -> StateFile {
-    StateFile::new(path).with_validator(validate_peers)
+    StateFile::new(path)
+        .with_private_permissions()
+        .with_validator(validate_peers)
 }
 
 fn validate_peers(text: &str) -> Result<(), String> {
@@ -208,7 +212,9 @@ fn validate_peers(text: &str) -> Result<(), String> {
 }
 
 fn account_mesh_ledger_file(path: &Path) -> StateFile {
-    StateFile::new(account_mesh_ledger_path(path)).with_validator(validate_json::<LinkLedger>)
+    StateFile::new(account_mesh_ledger_path(path))
+        .with_private_permissions()
+        .with_validator(validate_json::<LinkLedger>)
 }
 
 #[cfg(test)]
@@ -311,7 +317,9 @@ pub(crate) fn save_peers_at(
 // ── Revocation list ─────────────────────────────────────────────────
 
 fn revocation_file(path: &Path) -> StateFile {
-    StateFile::new(path).with_validator(validate_json::<RevocationList>)
+    StateFile::new(path)
+        .with_private_permissions()
+        .with_validator(validate_json::<RevocationList>)
 }
 
 /// A held revocation list loads empty but is never saved over, so revoked
