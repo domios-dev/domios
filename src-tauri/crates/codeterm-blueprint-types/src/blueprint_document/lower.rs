@@ -18,24 +18,22 @@ pub(super) fn lower(doc: &Document) -> LowerResult {
     if !doc.inputs.is_empty() {
         errors.push(("inputs".into(), "Bind author inputs before lowering".into()));
     }
-    if !doc.imports.is_empty() || !doc.blueprints.is_empty() {
-        errors.push((
-            "blueprints".into(),
-            "unsupported: callable sub-Blueprint runtime".into(),
-        ));
+    if !doc.imports.is_empty() || !doc.blueprints.is_empty() || !doc.dependencies.is_empty() {
+        if let Err(error) = calls::FrozenClosure::from_document(doc.clone()) {
+            errors.push(("dependencies".into(), error));
+        }
     }
     for (i, node) in doc.nodes().enumerate() {
         let path = format!("steps[{i}]");
         if doc.kind == Kind::Watch && node.limits.is_some() {
             errors.push((format!("{path}.limits"), "unsupported: watch limits".into()));
         }
-        if node.call.is_some() {
-            errors.push((
-                path.clone(),
-                format!("unsupported: {} execution", node.kind()),
-            ));
+        if let Some(call) = &node.call {
+            if call.pin.is_none() {
+                errors.push((path.clone(), "Unresolved call execution".into()));
+            }
         }
-        if !node.caps.is_empty() {
+        if !node.caps.is_empty() && node.call.is_none() {
             errors.push((
                 path.clone(),
                 "unsupported: per-node capability or budget enforcement".into(),
@@ -120,6 +118,12 @@ fn pipeline(doc: &Document) -> Result<Value, String> {
     };
     let mut steps = Vec::new();
     for node in &doc.steps {
+        if node.call.is_some() {
+            steps.push(
+                serde_json::to_value(calls::lower::node(doc, node)?).map_err(|e| e.to_string())?,
+            );
+            continue;
+        }
         if node.uses.as_ref().is_some_and(NodeKind::effect) {
             return Err(format!("unsupported: pipeline effect node {}", node.id));
         }
@@ -199,7 +203,11 @@ fn pipeline(doc: &Document) -> Result<Value, String> {
             .collect::<Vec<_>>()
             .join("; ")
     })?;
-    Ok(json!({"spec":spec}))
+    if doc.nodes().any(|node| node.call.is_some()) {
+        Ok(json!({"spec":spec,"document":doc}))
+    } else {
+        Ok(json!({"spec":spec}))
+    }
 }
 fn watch(doc: &Document) -> Result<Value, String> {
     if doc.steps.len() < 2 {

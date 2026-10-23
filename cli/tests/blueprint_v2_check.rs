@@ -102,6 +102,27 @@ fn blueprint_v2_check_cli_refuses_ambiguous_and_authority_repairs_without_mutati
 }
 
 #[test]
+fn blueprint_v2_call_review_fix_calls_refuses_explicitly_without_false_c1_or_write() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("caller.yaml");
+    let source = "schema_version: 2\nkind: pipeline\nname: caller\ntrigger: {type: schedule, every: {lit: 20s}}\nsteps:\n- id: invoke\n  call: {ref: 'mem:helper'}\n";
+    std::fs::write(&path, source).unwrap();
+    let output = cli(&path, &["--fix", "--write"]);
+    assert_eq!(output.status.code(), Some(2));
+    let message = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        message.contains("--fix") && message.contains("host"),
+        "{message}"
+    );
+    assert!(!message.contains("C1"), "{message}");
+    assert_eq!(std::fs::read_to_string(path).unwrap(), source);
+}
+
+#[test]
 fn blueprint_v2_check_cli_never_overwrites_with_inadmissible_repair() {
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("pipeline.yaml");

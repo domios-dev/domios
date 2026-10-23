@@ -1,5 +1,6 @@
 use super::{identifier, integer, text};
 use crate::error::StorageError;
+use codeterm_blueprint_types::blueprint_document::calls::CallFrame;
 use codeterm_blueprint_types::blueprint_journal::{
     JournalMarker, JournalOutcome, JournalReason, JournalState,
 };
@@ -18,6 +19,12 @@ pub struct BlueprintJournalEntry {
     pub result_summary: Option<String>,
     pub reason: Option<JournalReason>,
     pub body_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub call_stack: Vec<CallFrame>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_step_index: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub definition_version: Option<u64>,
 }
 
 impl BlueprintJournalEntry {
@@ -51,8 +58,21 @@ impl BlueprintJournalEntry {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct NestedClaimParent {
+    pub marker: JournalMarker,
+    pub frame: CallFrame,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum BlueprintJournalWrite {
+    CallMetadata {
+        run_id: String,
+        marker: JournalMarker,
+        call_stack: Vec<CallFrame>,
+    },
     Claim {
+        definition_version: Option<u64>,
+        parent: Option<NestedClaimParent>,
         run_id: String,
         marker: JournalMarker,
         step_name: String,
@@ -90,14 +110,37 @@ pub enum BlueprintJournalWrite {
 impl BlueprintJournalWrite {
     pub(in crate::repositories::sentinel) fn validate(&self) -> Result<(), StorageError> {
         let (run_id, marker, step_name, outcome, summary, reason) = match self {
+            Self::CallMetadata {
+                run_id,
+                marker,
+                call_stack,
+            } => {
+                if call_stack.len() > 8
+                    || call_stack.iter().any(|f| {
+                        f.node.is_empty()
+                            || f.node.len() > 128
+                            || f.id.is_empty()
+                            || f.id.len() > 4096
+                            || f.hash.len() != 64
+                            || !f.hash.bytes().all(|b| b.is_ascii_hexdigit())
+                    })
+                {
+                    return Err(StorageError::invalid("call stack", "invalid bounded frame"));
+                }
+                (run_id.as_str(), *marker, None, None, None, None)
+            }
             Self::Claim {
                 run_id,
                 marker,
                 step_name,
                 generation,
+                definition_version,
                 ..
             } => {
                 integer("journal generation", *generation)?;
+                if let Some(version) = definition_version {
+                    integer("journal definition version", *version)?;
+                }
                 (
                     run_id.as_str(),
                     *marker,

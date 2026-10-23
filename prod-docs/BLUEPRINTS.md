@@ -53,7 +53,9 @@ Ports use the restricted JSON Schema fields `type`, `properties`, `required`, `a
 
 ## Execution support
 
-Admission lowers a v2 document to the runtime representation or returns an explicit unsupported diagnostic before effects. Typed ports and a preceding node’s `out` data binding are supported on code inputs. Calls, pipeline effect nodes, pipeline `other` handlers and unsupported capability or budget fields refuse before effects. `domios-cli` capability is unavailable.
+Admission lowers a v2 document to the runtime representation or returns an explicit unsupported diagnostic before effects. Code and call nodes execute through the shared typed runtime. Runtime data binds resolve retained outputs as data. Lowering refuses any unsupported node or contract before effects; pipeline `other` handlers remain unavailable. `domios-cli` capability is unavailable.
+
+A Blueprint code or command step runs with the user's own permissions, like an agent in a tab, without Domios credentials in its environment; foreign Blueprints are gated by folder trust (1.15.4). Code runs as an ordinary child process on macOS, Linux and Windows, subject to execution budgets.
 
 Supported pipeline nodes are `code`, fixed `run` commands and `uses: http`, `github`, `ask`, `filter`, `convert` and `agent`. Parameters are explicit value forms. `ask` declares its `buckets` on the node. HTTP outcomes are `up`, `down`, `failed`; GitHub outcomes depend on `resource`; filters may declare a bucket. Commands, conversion and agent tasks return `done` or `failed`. Unspecified failure routes stop; other unspecified outcomes continue. Inputs and outputs must agree with the supported media chain. `result.to` accepts `owner`, `team`, `notify` or `tab:<id>`.
 
@@ -162,6 +164,21 @@ Only the Team Orchestrator keeps solutions. Supply one to five intents, preferab
 
 Full recipe purposes and inputs: `domios docs BLUEPRINT-RECIPES`.
 
+Save a triggerless typed callable without scheduling it:
+
+```bash
+domios blueprint keep --file increment.yaml --when "Increment a typed counter"
+domios blueprint show mem:<solution-id> --json
+```
+
+Keep preserves the callable input signature and returns its stable `mem:` identity and hash. Reuse that identity in `call.ref` with structural `lit`, `input`, or `bind` arguments. The CLI reads relative local imports from each authoring file and sends their document bytes; the host resolves nested `mem:` calls within the caller's Team and workspace. Saving or applying freezes the exact transitive closure. Existing pins stay fixed. Edits, merges, archives and area-cap eviction produce a warning with a reason and semantic changes; archived heads cannot receive new pins. Missing pinned bytes refuse execution. Callable files use `keep --file`; `apply` admits scheduled graphs. `show` includes expanded pinned callee bodies and bounded nested run results, stops and call stacks. Historical runs use their retained definition; an older run without that definition explicitly shows the historical graph as unavailable. Call checks require host resolution and use the same admission checker as apply. Callable checks preserve required input signatures and schedule nothing. Import and update carry the same frozen local bundle; exported pins stay fixed. `check --fix` explicitly refuses call documents; use `check` without `--fix`.
+
+Callable `other` handlers are refused at check time; move failure handling to the caller. Inside callees, notify/send/cron/escalate use caller scope and the shared executor claim. Blueprint activation, stop and prompt-response effects require scheduler custody and are refused at check time inside calls; put those effects in the caller.
+
+The simulation harness is internal and has no CLI verb. It records bounded delivery provenance in memory with zero delivery and no real run journal. Process, code, agent, HTTP and conversion nodes refuse before launch; pure filters and calls share the normal budget and port checks.
+
+Blueprint results addressed to a restored PTY agent tab retain the exact saved provider and session. The durable outbox holds them for the first authenticated launch of that session, with a fixed 24-hour delivery TTL. Held messages retain the original run id and timestamp; live delivery keeps its existing body. A closed recipient, changed session or provider, failed launch, or expired TTL produces a durable failure receipt in the producer's AgentPad and a status event; a live producer also receives a failure notification. Failure receipts are idempotent by delivery id, and retained terminal states recover their original cause across a crash. Recovery re-emits the status by delivery id if settlement was interrupted; an externally edited receipt is preserved without blocking later results. A result that may already have been written remains uncertain and is never replayed. Restored chat-backend delivery uses its existing reopen path and reports reopen failures; it does not yet use this durable hold.
+
 R10 scans executable text lexically as defence in depth. The checker refuses domios-cli capabilities, while credential-free child environments remove instance authority; a clean lexical scan does not prove shell text safe. R13 reports unavailable comparisons explicitly; unavailable vector comparisons carry no PASS verdict.
 
-<!-- revision: 53 -->
+<!-- revision: 58 -->
