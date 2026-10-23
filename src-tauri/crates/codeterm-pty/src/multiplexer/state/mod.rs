@@ -10,6 +10,7 @@ use codeterm_types::team::Team;
 
 mod alias;
 mod closed;
+mod creation_order;
 pub mod names;
 mod reorder;
 mod role;
@@ -324,7 +325,9 @@ impl MultiplexerState {
         let tab_id = short_id();
         let workspace_id = short_id();
 
+        let created_at_ms = creation_order::now_ms();
         let tab = Tab {
+            created_at_ms,
             id: tab_id.clone(),
             sort_order: 0,
             pty_id: None,
@@ -435,6 +438,7 @@ impl MultiplexerState {
             cwd_missing: false,
             provisioned_cwd: None,
             protected: false,
+            created_at_ms,
             sort_order: 0,
         };
 

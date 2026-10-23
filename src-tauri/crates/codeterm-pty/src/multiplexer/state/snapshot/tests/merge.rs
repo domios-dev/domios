@@ -4,6 +4,7 @@ use crate::session::store::{SessionSnapshot, SplitNodeSnapshot, TabSnapshot, Wor
 
 fn terminal_leaf(tab_id: &str, parent: Option<&str>) -> SplitNodeSnapshot {
     SplitNodeSnapshot::Leaf {
+        created_at_ms: 0,
         purpose: Default::default(),
         icon: None,
         shell_profile: None,
@@ -55,6 +56,7 @@ fn backup(specs: &[(&str, Option<&str>, &[&str])]) -> SessionSnapshot {
         workspaces: specs
             .iter()
             .map(|(ws_id, cwd, tab_ids)| WorkspaceSnapshot {
+                created_at_ms: 0,
                 task_keys: Default::default(),
                 id: (*ws_id).into(),
                 name: (*ws_id).into(),
@@ -110,6 +112,7 @@ fn merge_never_touches_existing_tabs_and_reports_them_as_present() {
     let mut snapshot = backup(&[("ws_new", None, &["fresh"])]);
     // The backup also carries the still-live tab inside its old workspace.
     snapshot.workspaces.push(WorkspaceSnapshot {
+        created_at_ms: 0,
         task_keys: Default::default(),
         id: live_ws.clone(),
         name: "live".into(),

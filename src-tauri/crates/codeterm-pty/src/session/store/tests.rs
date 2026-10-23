@@ -15,6 +15,7 @@ fn snap(workspaces: usize) -> SessionSnapshot {
         teams: vec![],
         workspaces: (0..workspaces)
             .map(|i| WorkspaceSnapshot {
+                created_at_ms: 0,
                 task_keys: Default::default(),
                 id: format!("ws_{}", i),
                 name: format!("ws{}", i),
@@ -210,6 +211,7 @@ fn authoritative_session_binding_persists_orchestration_identity() {
 
 fn leaf(id: &str) -> SplitNodeSnapshot {
     SplitNodeSnapshot::Leaf {
+        created_at_ms: 0,
         purpose: Default::default(),
         icon: None,
         shell_profile: None,
@@ -261,6 +263,7 @@ fn desk(specs: &[(&str, &[&str])]) -> SessionSnapshot {
         workspaces: specs
             .iter()
             .map(|(ws_id, tab_ids)| WorkspaceSnapshot {
+                created_at_ms: 0,
                 task_keys: Default::default(),
                 id: (*ws_id).into(),
                 name: (*ws_id).into(),

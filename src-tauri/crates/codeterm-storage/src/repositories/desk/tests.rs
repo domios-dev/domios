@@ -81,6 +81,7 @@ fn desk() -> DeskSnapshot {
                 protected: true,
                 task_key_prefix: None,
                 task_key_next: 0,
+                created_at_ms: None,
             },
             sort_order: 7,
             active_tab_id: Some("tab-a".into()),

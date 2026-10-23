@@ -161,6 +161,7 @@ impl MultiplexerState {
                 icon: tab.and_then(|p| p.icon.clone()),
                 shell_profile: tab.and_then(|p| p.shell_profile.clone()),
                 utility_created_at: tab.map(|p| p.utility_created_at).unwrap_or_default(),
+                created_at_ms: tab.map(|p| p.created_at_ms).unwrap_or_default(),
                 close_restore: tab.and_then(|p| {
                     p.close_restore.clone().map(|mut state| {
                         state.paired_planner_tab_id = p.pending_paired_planner_tab_id.clone();
@@ -270,6 +271,7 @@ impl MultiplexerState {
                     cwd: normalized_snapshot_cwd(ws.cwd.as_deref()),
                     provisioned_cwd: normalized_snapshot_cwd(ws.provisioned_cwd.as_deref()),
                     protected: ws.protected,
+                    created_at_ms: ws.created_at_ms,
                     sort_order: ws.sort_order,
                     tabs,
                 }
@@ -334,11 +336,12 @@ impl MultiplexerState {
                 cwd_missing: false,
                 provisioned_cwd: normalized_snapshot_cwd(ws.provisioned_cwd.as_deref()),
                 protected: ws.protected,
+                created_at_ms: ws.created_at_ms,
                 sort_order: ws.sort_order,
             }
         }).collect();
 
-        MultiplexerState {
+        let mut state = MultiplexerState {
             workspaces,
             tabs,
             active_workspace_id: snapshot.active_workspace_id.clone(),
@@ -354,7 +357,9 @@ impl MultiplexerState {
             pending_closed_history: Vec::new(),
             workspace_close_reservations: HashMap::new(),
             tab_close_reservations: HashMap::new(),
-        }
+        };
+        state.backfill_creation_order();
+        state
     }
 
     /// Additive desk recovery from a saved snapshot: recreate workspaces/tabs
@@ -443,6 +448,7 @@ impl MultiplexerState {
                         ),
                         // Restored authority is never inferred from a file.
                         protected: false,
+                        created_at_ms: ws_snap.created_at_ms,
                         sort_order: ws_snap.sort_order,
                     });
                     report.workspaces_added += 1;
@@ -464,6 +470,7 @@ impl MultiplexerState {
                 }
             }
         }
+        self.backfill_creation_order();
         report
     }
 }
@@ -517,6 +524,7 @@ fn install_leaf(
         purpose,
         icon,
         utility_created_at,
+        created_at_ms,
         close_restore,
         shell_profile,
         tab_id,
@@ -636,6 +644,7 @@ fn install_leaf(
             icon: icon.clone(),
             shell_profile: shell_profile.clone(),
             utility_created_at: *utility_created_at,
+            created_at_ms: *created_at_ms,
             close_restore: close_restore.clone(),
             utility_command_pending: false,
             shell_command_state: Default::default(),
