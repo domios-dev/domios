@@ -74,7 +74,7 @@ impl Worker {
         };
         if query {
             self.query
-                .send(request)
+                .try_send(request)
                 .map_err(|e| format!("embedding query queue unavailable: {e}"))?;
         } else {
             self.bulk

@@ -23,6 +23,7 @@ pub struct ActiveEmbedder {
     provider: RwLock<SharedProvider>,
     available: AtomicBool,
     probing: Arc<AtomicBool>,
+    querying: Arc<AtomicBool>,
     observers: Mutex<Vec<Observer>>,
 }
 
@@ -32,6 +33,7 @@ impl ActiveEmbedder {
             provider: RwLock::new(provider),
             available: AtomicBool::new(true),
             probing: Arc::new(AtomicBool::new(false)),
+            querying: Arc::new(AtomicBool::new(false)),
             observers: Mutex::new(Vec::new()),
         })
     }
@@ -124,6 +126,14 @@ impl ActiveEmbedder {
     /// unavailable search never waits on it; a single background probe with
     /// this query detects recovery.
     pub fn query(self: &Arc<Self>, text: &str) -> Option<StampedVector> {
+        super::recall_priority::record(self.bounded_query(text))
+    }
+
+    fn bounded_query(self: &Arc<Self>, text: &str) -> Option<StampedVector> {
+        let budget = super::recall_priority::remaining();
+        if budget.is_zero() {
+            return None;
+        }
         let provider = self.provider();
         let content = Content::Text(crate::embeddings::preprocess(text));
         if guard(&provider, &content).is_err() {
@@ -133,9 +143,31 @@ impl ActiveEmbedder {
             self.probe(provider, content);
             return None;
         }
-        let result = provider.embed_query(&content);
-        self.observe(&result);
-        stamp(&provider, result).ok()
+        if self.querying.swap(true, Ordering::SeqCst) {
+            return None;
+        }
+        let (reply, response) = std::sync::mpsc::sync_channel(1);
+        let embedder = self.clone();
+        let spawned = std::thread::Builder::new()
+            .name("mem-recall-query".into())
+            .spawn(move || {
+                struct Release(Arc<AtomicBool>);
+                impl Drop for Release {
+                    fn drop(&mut self) {
+                        self.0.store(false, Ordering::SeqCst);
+                    }
+                }
+                let release = Release(embedder.querying.clone());
+                let result = provider.embed_query(&content);
+                embedder.observe(&result);
+                drop(release);
+                let _ = reply.send(stamp(&provider, result).ok());
+            });
+        if spawned.is_err() {
+            self.querying.store(false, Ordering::SeqCst);
+            return None;
+        }
+        super::recall_priority::wait(budget, |budget| response.recv_timeout(budget).ok()).flatten()
     }
 
     fn probe(self: &Arc<Self>, provider: SharedProvider, content: Content) {

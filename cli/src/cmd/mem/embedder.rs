@@ -152,13 +152,17 @@ pub(crate) fn render_status(value: &Value) -> String {
         ""
     };
     format!(
-        "provider   {}{remote}\nmodel      {}\ndimension  {}\navailable  {}\nindex      {index}\nvectors    {}\npending    {}\nre-embed   {}\n",
+        "provider   {}{remote}\nmodel      {}\ndimension  {}\navailable  {}\nindex      {index}\nvectors    {}\npending    {}\nqueued     {} chunks\nin flight  {}\nfailed     {}\nqueue      {}\nre-embed   {}\n",
         str_of(value, "provider"),
         str_of(value, "model"),
         value["dimension"].as_u64().unwrap_or(0),
         if value["available"].as_bool() == Some(true) { "yes" } else { "no" },
         value["vectors"].as_u64().unwrap_or(0),
         value["pending"].as_u64().unwrap_or(0),
+        value["queue"]["queued"].as_u64().unwrap_or(0),
+        value["queue"]["in_flight"].as_u64().unwrap_or(0),
+        value["queue"]["failed"].as_u64().unwrap_or(0),
+        if value["queue"]["unavailable"].as_bool() == Some(true) { "unavailable" } else { "available" },
         progress_line(&value["reembed"]),
     )
 }
