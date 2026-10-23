@@ -1,0 +1,41 @@
+title = "Domios gitleaks config"
+
+[extend]
+useDefault = true
+
+# Every allowlist below is scoped to exact paths plus a rule; none is a blanket path ignore.
+# Historic one-off findings live in .gitleaksignore (commit-pinned fingerprints).
+
+[[allowlists]]
+description = "Intentionally public TEST ONLY Ed25519 key; its public half appears only in tests, never in a shipped verifier (see scripts/frontend-release/README.md)"
+targetRules = ["private-key"]
+paths = ['''^scripts/frontend-release/fixtures/frontend-test\.pem$''']
+
+[[allowlists]]
+description = "16-hex link keys in tracked plan records are identifiers, not credentials"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^\.codeterm/plans/''']
+regexes = ['''^[0-9a-f]{16}$''']
+
+[[allowlists]]
+description = "Provider-name tokens in the boundary allowlist"
+targetRules = ["generic-api-key"]
+paths = ['''^scripts/provider-boundary-allowlist\.json$''']
+
+[[allowlists]]
+description = "Synthetic values in unit tests, captured fixtures and reports (git SHAs, PDB keys, nonce tokens, public verification keys)"
+targetRules = ["generic-api-key", "curl-auth-header"]
+paths = [
+  '''^evals/mem-embedder/REPORT\.md$''',
+  '''^plugins/provider-codex/tests/fixtures/tab-state/live-model-picker-msg07-(result|after-trigger)\.txt$''',
+  '''^scripts/tests/test_pdb_identity\.py$''',
+  '''^src-tauri/crates/codeterm-blueprint-types/src/blueprint_memory/credentials/tests\.rs$''',
+  '''^src-tauri/crates/codeterm-blueprint-types/src/blueprint_memory/semantic_canon/tests\.rs$''',
+  '''^src-tauri/crates/codeterm-crash/src/crash/image_identity/tests\.rs$''',
+  '''^src-tauri/crates/codeterm-entitlements/src/policy\.rs$''',
+  '''^src-tauri/crates/codeterm-plan/src/service_plan/review_gate/tests/plan_evidence_persistence\.rs$''',
+  '''^src-tauri/crates/codeterm-service-core/src/service/analytics/tests/outcomes\.rs$''',
+  '''^src-tauri/crates/codeterm-service-core/src/service/hierarchy/report_plan_ctx/tests/plan_evidence_session_test\.rs$''',
+  '''^src-tauri/crates/codeterm-socket/src/server/plan_task_dispatch/tests/brief_tests\.rs$''',
+]
