@@ -15,12 +15,17 @@ impl ServiceContext {
                 .filter(|tab| tab.restored_from_snapshot && !tab.agent_booting)
                 .is_some()
         };
-        if restored {
-            self.materialize_restored_agent_with_claim(claim)?;
-        }
+        let relaunch_nonce = if restored {
+            Some(self.start_restored_launch(claim)?)
+        } else {
+            None
+        };
         let binding = self
             .queued_agent_binding(tab_id)
             .ok_or_else(|| "agent_unavailable: recipient has no active PTY launch".to_string())?;
+        if relaunch_nonce.is_some_and(|nonce| nonce.as_deref() != Some(binding.2.as_str())) {
+            return Err("agent_unavailable: recipient relaunch is not the current launch".into());
+        }
         if payload
             .expected_pty_id
             .as_deref()
@@ -40,6 +45,17 @@ impl ServiceContext {
         payload.expected_session_id = binding.1;
         payload.expected_binding_nonce = Some(binding.2);
         Ok(())
+    }
+
+    fn start_restored_launch(
+        &self,
+        claim: &crate::service::pty_ownership::TabPtyClaim,
+    ) -> Result<Option<String>, String> {
+        #[cfg(test)]
+        if let Some(start) = restored_launch_boundary::take() {
+            return start(self);
+        }
+        self.materialize_restored_agent_launch(claim)
     }
 
     pub(crate) fn agent_delivery_binding_matches(
@@ -194,5 +210,24 @@ fn queued_delivery_target(
     }
 }
 
+#[cfg(test)]
+mod restored_launch_boundary {
+    type Start = Box<dyn FnOnce(&super::ServiceContext) -> Result<Option<String>, String>>;
+
+    thread_local! {
+        static START: std::cell::RefCell<Option<Start>> = const { std::cell::RefCell::new(None) };
+    }
+
+    pub(super) fn install(start: Start) {
+        START.with(|slot| *slot.borrow_mut() = Some(start));
+    }
+
+    pub(super) fn take() -> Option<Start> {
+        START.with(|slot| slot.borrow_mut().take())
+    }
+}
+
+#[cfg(test)]
+mod restored_relaunch_tests;
 #[cfg(test)]
 mod tests;
