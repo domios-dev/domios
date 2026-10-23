@@ -188,26 +188,36 @@ fn dev_tab_environment_is_usable_without_reading_the_secret_store() {
         true,
         Some("http://127.0.0.1:7686"),
         "127.0.0.1",
-        7686
+        7686,
+        ResolutionSource::CodeTermApiPort
     ));
     assert!(!requires_stored_token(
         true,
         Some("http://127.0.0.1:7686"),
         "localhost",
-        7686
+        7686,
+        ResolutionSource::CodeTermApiPort
     ));
     assert!(requires_stored_token(
         true,
         Some("http://127.0.0.1:7685"),
         "127.0.0.1",
-        7686
+        7686,
+        ResolutionSource::CodeTermApiPort
     ));
-    assert!(requires_stored_token(true, None, "127.0.0.1", 7686));
+    assert!(requires_stored_token(
+        true,
+        None,
+        "127.0.0.1",
+        7686,
+        ResolutionSource::CodeTermApiPort
+    ));
     assert!(requires_stored_token(
         true,
         Some("http://other.example:7686"),
         "127.0.0.1",
-        7686
+        7686,
+        ResolutionSource::CodeTermApiPort
     ));
     let root = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join(".secrets"), "unreadable").unwrap();
@@ -216,5 +226,29 @@ fn dev_tab_environment_is_usable_without_reading_the_secret_store() {
             .unwrap()
             .as_deref(),
         Some("tab-scoped")
+    );
+}
+
+#[test]
+fn explicit_dev_with_default_port_cannot_inherit_production_authority() {
+    let root = tempfile::tempdir().unwrap();
+    codeterm_util::instance_token::initialize_at(root.path(), Some("selected-dev"), false).unwrap();
+    let require_stored = requires_stored_token(
+        true,
+        Some("http://127.0.0.1:7685"),
+        "127.0.0.1",
+        7685,
+        ResolutionSource::Default,
+    );
+    assert!(require_stored);
+    assert_eq!(
+        codeterm_util::instance_token::resolve_at(
+            root.path(),
+            Some("inherited-prod"),
+            require_stored
+        )
+        .unwrap()
+        .as_deref(),
+        Some("selected-dev"),
     );
 }

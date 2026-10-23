@@ -85,3 +85,15 @@ fn secret_store_open_and_sensitive_file_repair_do_not_rewrite_root_grants() {
     crate::sensitive_state::tighten_existing(root.path());
     assert_eq!(masks(root.path(), WinBuiltinAdministratorsSid), before);
 }
+
+#[test]
+fn a_new_secret_lock_is_owner_only_under_a_broad_inheritable_root() {
+    let root = tempfile::tempdir().unwrap();
+    grant(root.path(), WinWorldSid);
+    let before = masks(root.path(), WinWorldSid);
+    let path = root.path().join(".secrets.lock");
+    let lock = open_lock(&path).unwrap();
+    assert!(owner_only(&path).unwrap());
+    assert_eq!(masks(root.path(), WinWorldSid), before);
+    drop(lock);
+}

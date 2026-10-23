@@ -13,6 +13,7 @@ use parking_lot::Mutex;
 pub enum SecretFileError {
     Unavailable(String),
     NotFound,
+    Busy,
     Other(String),
 }
 
@@ -21,6 +22,7 @@ impl std::fmt::Display for SecretFileError {
         match self {
             SecretFileError::Unavailable(reason) => write!(f, "keychain unavailable: {}", reason),
             SecretFileError::NotFound => write!(f, "keychain entry not found"),
+            SecretFileError::Busy => write!(f, "secret store is busy"),
             SecretFileError::Other(msg) => write!(f, "keychain error: {}", msg),
         }
     }
@@ -111,32 +113,35 @@ impl SecretFile {
     }
 
     pub fn set(&self, account: &str, value: &str) -> Result<(), SecretFileError> {
+        let _lock = self.lock_backend()?;
         let mut shadow = self.shadow.lock();
         if let Backend::File { path, service } = &self.backend {
-            write_file_entry(path, &storage_account(service, account), Some(value))?;
+            write_locked_file_entry(path, &storage_account(service, account), Some(value))?;
         }
         shadow.insert(account.to_string(), value.to_string());
         Ok(())
     }
 
     pub fn get(&self, account: &str) -> Result<String, SecretFileError> {
-        if let Some(value) = self.shadow.lock().get(account).cloned() {
+        self.get_with_reader(account, read_file_entry)
+    }
+
+    fn get_with_reader(
+        &self,
+        account: &str,
+        read: impl FnOnce(&Path, &str) -> Result<String, SecretFileError>,
+    ) -> Result<String, SecretFileError> {
+        let mut shadow = self.shadow.lock();
+        if let Some(value) = shadow.get(account).cloned() {
             return Ok(value);
         }
         match &self.backend {
             Backend::File { path, service } => {
-                let value = read_file_entry(path, &storage_account(service, account))?;
-                self.shadow
-                    .lock()
-                    .insert(account.to_string(), value.clone());
+                let value = read(path, &storage_account(service, account))?;
+                shadow.insert(account.to_string(), value.clone());
                 Ok(value)
             }
-            Backend::InMemory { .. } => self
-                .shadow
-                .lock()
-                .get(account)
-                .cloned()
-                .ok_or(SecretFileError::NotFound),
+            Backend::InMemory { .. } => Err(SecretFileError::NotFound),
         }
     }
 
@@ -153,12 +158,20 @@ impl SecretFile {
     }
 
     pub fn delete(&self, account: &str) -> Result<(), SecretFileError> {
+        let _lock = self.lock_backend()?;
         let mut shadow = self.shadow.lock();
         if let Backend::File { path, service } = &self.backend {
-            write_file_entry(path, &storage_account(service, account), None)?;
+            write_locked_file_entry(path, &storage_account(service, account), None)?;
         }
         shadow.remove(account);
         Ok(())
+    }
+
+    fn lock_backend(&self) -> Result<Option<std::fs::File>, SecretFileError> {
+        match &self.backend {
+            Backend::File { path, .. } => lock_store(path).map(Some),
+            Backend::InMemory { .. } => Ok(None),
+        }
     }
 }
 
@@ -218,23 +231,24 @@ fn write_file_entry(
     account: &str,
     value: Option<&str>,
 ) -> Result<(), SecretFileError> {
-    let lock = open_store_lock(path)?;
-    lock.lock()
-        .map_err(|error| SecretFileError::Other(format!("lock secret store: {error}")))?;
+    let _lock = lock_store(path)?;
     write_locked_file_entry(path, account, value)
+}
+
+fn lock_store(path: &Path) -> Result<std::fs::File, SecretFileError> {
+    let lock = open_store_lock(path)?;
+    lock.try_lock().map_err(|error| match error {
+        std::fs::TryLockError::WouldBlock => SecretFileError::Busy,
+        std::fs::TryLockError::Error(error) => {
+            SecretFileError::Other(format!("lock secret store: {error}"))
+        }
+    })?;
+    Ok(lock)
 }
 
 fn open_store_lock(path: &Path) -> Result<std::fs::File, SecretFileError> {
     let lock_path = path.with_file_name(".secrets.lock");
-    let mut options = std::fs::OpenOptions::new();
-    options.read(true).write(true).create(true).truncate(false);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    options
-        .open(lock_path)
+    crate::private_file::open_lock(&lock_path)
         .map_err(|error| SecretFileError::Other(format!("open secret store lock: {error}")))
 }
 

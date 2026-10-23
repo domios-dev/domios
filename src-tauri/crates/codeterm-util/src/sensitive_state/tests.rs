@@ -59,3 +59,32 @@ fn missing_and_non_regular_entries_do_not_abort_other_sensitive_files() {
     assert!(crate::private_file::owner_only(&root.path().join("state.json")).unwrap());
     tighten_existing(&root.path().join("vanished"));
 }
+
+#[test]
+fn memory_database_sidecars_and_state_are_tightened_in_the_mem_directory() {
+    let root = tempfile::tempdir().unwrap();
+    let mem = root.path().join("mem");
+    fs::create_dir(&mem).unwrap();
+    for name in [
+        "knowledge.db",
+        "knowledge.db-wal",
+        "knowledge.db-shm",
+        "workers.extraction-retries.json",
+        "graph_layout.json",
+    ] {
+        fs::write(mem.join(name), b"state").unwrap();
+    }
+    tighten_existing(root.path());
+    for name in [
+        "knowledge.db",
+        "knowledge.db-wal",
+        "knowledge.db-shm",
+        "workers.extraction-retries.json",
+        "graph_layout.json",
+    ] {
+        assert!(
+            crate::private_file::owner_only(&mem.join(name)).unwrap(),
+            "{name}"
+        );
+    }
+}

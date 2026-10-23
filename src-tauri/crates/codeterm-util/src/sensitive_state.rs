@@ -3,7 +3,7 @@ use std::path::Path;
 
 pub fn tighten_existing(root: &Path) {
     tighten_files(root);
-    for directory in ["mesh", "storage", "memory", "services"] {
+    for directory in ["mesh", "storage", "mem", "services"] {
         tighten_files(&root.join(directory));
     }
     for directory in ["plugins", "services", "state-backups"] {
