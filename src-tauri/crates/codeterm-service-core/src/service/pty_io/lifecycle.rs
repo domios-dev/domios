@@ -270,6 +270,9 @@ fn claim_restored_tab(
         tab.remember_superseded_binding_nonce();
         tab.agent_session_id = None;
     }
+    // The snapshot's binding proof belongs to an exited process; voiding it makes the relaunch
+    // reserve its own nonce before this claim is released.
+    tab.reported_session_binding_nonce = None;
     tab.restored_from_snapshot = false;
     tab.agent_booting = true;
     let mut launch = restored_launch(tab, provider_id);
@@ -645,13 +648,22 @@ impl ServiceContext {
         claim: &crate::service::pty_ownership::TabPtyClaim,
     ) -> Result<(), String> {
         self.materialize_restored_agent_with_admission(claim, None)
+            .map(drop)
+    }
+
+    /// The binding nonce of the launch this materialization started under `claim`, if any.
+    pub(crate) fn materialize_restored_agent_launch(
+        &self,
+        claim: &crate::service::pty_ownership::TabPtyClaim,
+    ) -> Result<Option<String>, String> {
+        self.materialize_restored_agent_with_admission(claim, None)
     }
 
     pub(crate) fn materialize_restored_agent_with_admission(
         &self,
         claim: &crate::service::pty_ownership::TabPtyClaim,
         admission: Option<Admission>,
-    ) -> Result<(), String> {
+    ) -> Result<Option<String>, String> {
         let tab_id = claim.tab_id();
         if !self
             .mux
@@ -659,7 +671,7 @@ impl ServiceContext {
             .get_tab(tab_id)
             .is_some_and(|tab| tab.restored_from_snapshot && !tab.agent_booting && !tab.protected)
         {
-            return Ok(());
+            return Ok(None);
         }
         crate::startup::boot_timing::mark(tab_id, None, "restore_prepare_enter");
         self.recover_missing_restored_provider(tab_id)?;
@@ -685,7 +697,7 @@ impl ServiceContext {
             )
         };
         let Some(provider_id) = provider_id else {
-            return Ok(());
+            return Ok(None);
         };
         let resume_enabled = exact_session
             || crate::config::provider_config_from(&self.configuration(), &provider_id)
@@ -749,6 +761,7 @@ impl ServiceContext {
             )
         })?;
         let mut command_error = None;
+        let mut launch_nonce = None;
         self.restore_durable_user_statuses(tab_id)?;
         self.reconcile_chat_send_evidence(tab_id);
         crate::startup::boot_timing::mark(tab_id, None, "delivery_evidence_checked");
@@ -804,7 +817,7 @@ impl ServiceContext {
                     command_error = Some(reason);
                     return;
                 }
-                crate::service::orchestrator::launch_agent_in_background_with_env(
+                launch_nonce = crate::service::orchestrator::launch_agent_in_background_with_env(
                     self.clone(),
                     tab_id.to_string(),
                     launch_cmd,
@@ -832,13 +845,13 @@ impl ServiceContext {
             return Err(error);
         }
         if scheduled?.is_none() {
-            return Ok(());
+            return Ok(None);
         }
         if restored_empty {
             self.emit_empty_restore_notice(tab_id);
         }
         self.emit_state_changed(MuxEmitCause::TabLifecycle);
-        Ok(())
+        Ok(launch_nonce)
     }
 
     fn refuse_restored_launch(&self, tab_id: &str, reason: &str) {
