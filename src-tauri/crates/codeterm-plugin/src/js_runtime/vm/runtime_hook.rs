@@ -47,6 +47,7 @@ fn call_runtime_hook_with_clock<R: serde::de::DeserializeOwned>(
     now: HookClock,
 ) -> Result<R, RuntimeFailure> {
     let mut timing = timing::HookTiming::new(method);
+    let _bundle_reader = vm.bundle_access.read();
     crate::agent_runtime::validate_runtime_size(&args, MAX_RUNTIME_VALUE_BYTES)?;
     let args_json =
         serde_json::to_string(args).map_err(|e| failure(RuntimeFailureCode::InvalidSchema, e))?;

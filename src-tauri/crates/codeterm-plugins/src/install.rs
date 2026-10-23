@@ -363,7 +363,7 @@ fn stage_and_activate(
         codeterm_util::private_file::restrict_if_present(&tmp.join(name))
             .map_err(|error| format!("protect staged plugin state: {error}"))?;
     }
-    super::install_swap::activate(tmp, dest)
+    super::lifecycle::activate(id, tmp, dest)
 }
 
 pub(super) fn copy_dir_filtered(source: &Path, dest: &Path) -> Result<(), String> {

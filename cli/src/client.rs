@@ -3,6 +3,7 @@ use std::io::{BufRead, BufReader, Write};
 use interprocess::local_socket::{prelude::*, GenericNamespaced};
 use serde::{Deserialize, Serialize};
 
+mod optional;
 mod startup;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]

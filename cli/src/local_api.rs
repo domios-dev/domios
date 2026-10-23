@@ -14,6 +14,10 @@ pub struct LocalApiClient {
 impl LocalApiClient {
     pub fn connect() -> Result<Self, LocalApiError> {
         let (client, _) = SocketClient::connect_local().map_err(LocalApiError::new)?;
+        Ok(Self::from_rpc(client))
+    }
+
+    pub(crate) fn from_rpc(client: SocketClient) -> Self {
         let mut headers = HeaderMap::new();
         for (env, header) in [
             ("CODETERM_TAB_ID", "x-codeterm-tab-id"),
@@ -27,10 +31,10 @@ impl LocalApiClient {
                 }
             }
         }
-        Ok(Self {
+        Self {
             client: Arc::new(Mutex::new(client)),
             headers,
-        })
+        }
     }
 
     pub fn get(&self, url: impl AsRef<str>) -> LocalApiRequest {

@@ -61,6 +61,14 @@ fn windows_sharing_error(error: &io::Error) -> bool {
 }
 
 pub(super) fn activate(staging: &Path, destination: &Path) -> Result<(), String> {
+    activate_with_reload(staging, destination, &mut || Ok(()))
+}
+
+pub(super) fn activate_with_reload(
+    staging: &Path,
+    destination: &Path,
+    reload: &mut dyn FnMut() -> Result<(), String>,
+) -> Result<(), String> {
     #[cfg(windows)]
     let retry = retry::ChangeRetry::new(staging)
         .map_err(|error| format!("watch locked staging path {}: {error}", staging.display()))?;
@@ -82,7 +90,18 @@ pub(super) fn activate(staging: &Path, destination: &Path) -> Result<(), String>
         previous,
         |step| match step {
             Step::Backup => std::fs::rename(destination, &backup),
-            Step::Activate => std::fs::rename(staging, destination),
+            Step::Activate => {
+                std::fs::rename(staging, destination)?;
+                if let Err(error) = reload() {
+                    std::fs::rename(destination, staging).map_err(|rollback| {
+                        io::Error::other(format!(
+                            "register new plugin: {error}; withdraw new plugin: {rollback}"
+                        ))
+                    })?;
+                    return Err(io::Error::other(format!("register new plugin: {error}")));
+                }
+                Ok(())
+            }
             Step::Restore => std::fs::rename(&backup, destination),
             Step::Cleanup => std::fs::remove_dir_all(&backup),
         },
