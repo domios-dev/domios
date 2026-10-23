@@ -45,7 +45,7 @@ export function* buildBlueprintGraph(pipeline: PipelineView, expanded: Blueprint
     const context = scope(row);
     const definition = context && [...context.document.steps, ...(context.document.other ?? [])].find((node) => node.id === row.step_name);
     const rootIndexMatches = row.step_index != null && [...pipeline.call_graph.steps, ...(pipeline.call_graph.other ?? [])][row.step_index]?.id === row.step_name;
-    if (definition && context && (row.parent_step_index != null || rootIndexMatches)) {
+    if (definition && context && (row.parent_step_index != null || row.definition_version != null || rootIndexMatches)) {
       const key = blueprintNodeKey(context.path, row.step_name);
       if (!journal.has(key)) journal.set(key, row);
     }
@@ -62,16 +62,15 @@ export function* buildBlueprintGraph(pipeline: PipelineView, expanded: Blueprint
     for (const [index, definition] of steps.entries()) {
       const key = blueprintNodeKey(path, definition.id);
       const row = journal.get(key);
-      const snapshot = path.length === 0 ? pipeline.nodes.find((node) => node.key === `step-${index}`) : undefined;
       nodes.push({
         ...baseNode(key, definition.name ?? definition.id, "step"),
         capability: definition.call ? "call" : definition.code ? "code" : definition.run ? "command" : definition.uses,
         definition, callPath: path, journal: row,
-        state: row?.state ?? snapshot?.state ?? "waiting", current: (row?.state ?? snapshot?.state) === "running",
+        state: row?.state ?? "waiting", current: row?.state === "running",
         summary: definition.does ?? definition.id,
-        lastEventAtMs: row?.ended_at_ms ?? row?.started_at_ms ?? snapshot?.lastEventAtMs ?? null,
-        resultSummary: row?.result_summary ?? snapshot?.resultSummary ?? null,
-        outcome: row?.outcome ?? snapshot?.outcome ?? null,
+        lastEventAtMs: row?.ended_at_ms ?? row?.started_at_ms ?? null,
+        resultSummary: row?.result_summary ?? null,
+        outcome: row?.outcome ?? null,
       });
       const routes = new Set([...outcomes(definition), ...Object.keys(definition.routes ?? {})]);
       if (document.kind === "watch" && index === 0) routes.clear();

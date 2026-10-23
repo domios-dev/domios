@@ -60,6 +60,15 @@ async function main() {
   assert(!wrongVersion.nodes.some((node) => node.journal));
   const retained = await build({ ...run, graph_definition_version: 1, nested_run: { ...run.nested_run!, definition_version: 1, nodes: run.nested_run!.nodes.map((row) => ({ ...row, run_id: run.runId!, definition_version: 1 })) } }, new Set(expanded));
   assert.equal(retained.nodes.find((node) => node.key === blueprintNodeKey(["invoke"], "return-count"))?.journal?.reason, "contract_violation");
+  const afterCall = await build({ ...run, graph_definition_version: 1,
+    call_graph: { ...document, steps: [...document.steps, { id: "after-call", run: { lit: "printf final" } }] },
+    nested_run: { id: run.runId!, definition_version: 1, nodes: [
+      { step_index: 4, parent_step_index: null, definition_version: 1, step_name: "after-call", state: "done" },
+    ] } });
+  assert.equal(afterCall.nodes.find((node) => node.definition?.id === "after-call")?.journal?.state, "done");
+  const unproven = await build({ ...run, nodes: run.nodes.map((node) => ({ ...node, state: "failed", resultSummary: "unrelated marker" })),
+    nested_run: { id: run.runId!, nodes: [] } });
+  assert(unproven.nodes.filter((node) => node.definition).every((node) => node.state === "waiting" && node.resultSummary === null));
   const http = await build({ ...pipeline, call_graph: { ...document, steps: [{ id: "health", uses: "http" }, { id: "ask", uses: "ask", buckets: ["ready"] }] } });
   assert.deepEqual(http.edges.filter((edge) => edge.from === blueprintNodeKey([], "health")).map((edge) => edge.label), ["up", "down", "failed"]);
   assert.deepEqual(http.edges.filter((edge) => edge.from === blueprintNodeKey([], "ask")).map((edge) => edge.label), ["ready", "other"]);
