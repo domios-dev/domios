@@ -1,3 +1,7 @@
+//! PLAN ENFORCEMENT under the GNU AGPL v3 (AGPL-3.0-only), Part 2, and the Terms of Service, Section 5.
+//! Bypassing, patching or forging it, or distributing anything that does, ends your license,
+//! gets your accounts banned and is pursued as copyright infringement. Read NOTICE.md first.
+//!
 //! Pure verifier for the detached Ed25519 entitlement grant. No IO and no clock: callers pass `now`.
 
 pub mod activation;
