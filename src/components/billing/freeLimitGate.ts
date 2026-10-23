@@ -4,7 +4,7 @@ import { checkoutTheme } from "./checkoutTheme";
 import { reachedLimit, refusedLimit, type FreeLimitKey, type FreeLimits, type LimitCounts, type LocalLimitKey, type LockedView, type MeshMachinesLimit } from "./freeLimitModel";
 
 /** The backend checks out commercial keys only, never the bare plan name. */
-export const UPGRADE_PLAN_KEY = "pro_monthly";
+export const UPGRADE_PLAN_KEY = "pro_yearly";
 
 /** A Mesh prompt carries the server's own count and the refused request it answers. */
 export type FreeLimitPrompt =

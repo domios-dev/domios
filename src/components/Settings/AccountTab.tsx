@@ -5,7 +5,7 @@ import { CreditCard, UserRound } from "lucide-react";
 import { Button } from "../shared/Button";
 import { PlanCards } from "../billing/PlanCards";
 import { usePlanCatalog } from "../billing/planCatalogContext";
-import { displayedPlan } from "../billing/purchaseIntent";
+import { displayedPlan, subscribedPlan } from "../billing/purchaseIntent";
 import { usePurchaseIntent } from "../billing/usePurchaseIntent";
 import { ACCOUNT_ENTRY_OPTIONS, SIGN_IN_PROVIDER_OPTIONS } from "./accountSignInOptions";
 import { CopyRow, SettingsCard, SettingsPage, SettingsPill } from "./shared";
@@ -97,6 +97,7 @@ export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) 
         <div className="w-full">
           <SettingsCardAnchor id="subscription-plans" focused={focusCard === "subscription-plans"} focusRequest={plansRequest}>
             <PlanCards viewRequested={focusCard === "subscription-plans" || plansRequest > 0} catalog={catalog} currentPlan={displayedPlan(billing.plan)}
+              subscribedPlan={subscribedPlan(billing.plan)} onManage={() => void manageSubscription()} manageBusy={billing.pending}
               canPurchase={!billing.pending && !purchase.busy && !(signedIn && billing.planLoad === "loading")}
               onChoose={purchase.choose} intent={purchase.intent} onCancel={purchase.cancel}
               signedInAs={signedIn ? model.identity.email ?? model.identity.display_name : null} />

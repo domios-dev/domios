@@ -115,13 +115,33 @@ it("opens the Discord link from siteLinks through the external URL opener", asyn
   expect(bridge.openUrl).toHaveBeenCalledExactlyOnceWith(siteLinks.discord);
 });
 
-it("states automatic renewal with terms and privacy links before the plans", async () => {
+it("puts the yearly switch and the purchase terms under the plans, yearly on by default", async () => {
   const host = await renderPlanCards();
-  const notice = Array.from(host.querySelectorAll("p")).find((line) => line.textContent?.startsWith("Subscriptions renew automatically"));
-  const plans = host.querySelector('[aria-label="Subscription plans"]');
-  expect(notice!.compareDocumentPosition(plans!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  for (const link of Array.from(notice!.querySelectorAll("a"))) await act(async () => link.click());
-  expect(bridge.openUrl.mock.calls).toEqual([[siteLinks.terms], [siteLinks.privacy]]);
+  const plans = host.querySelector('[aria-label="Subscription plans"]')!;
+  const toggle = host.querySelector<HTMLElement>('[aria-label="Billed yearly"]')!;
+  const footer = Array.from(host.querySelectorAll("p")).find((line) => line.textContent?.includes("Renews automatically, cancel anytime"))!;
+  expect(plans.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(plans.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(toggle.getAttribute("aria-checked")).toBe("true");
+  expect(Array.from(footer.querySelectorAll("a"), (link) => link.textContent)).toEqual(["14-day money-back guarantee", "Terms", "Privacy"]);
+  for (const link of Array.from(footer.querySelectorAll("a"))) await act(async () => link.click());
+  expect(bridge.openUrl.mock.calls).toEqual([[`${siteLinks.terms}#refunds`], [siteLinks.terms], [siteLinks.privacy]]);
+});
+
+it("a paid subscription never starts a checkout; other paid cards and intervals offer Manage subscription", async () => {
+  const onChoose = vi.fn();
+  const onManage = vi.fn();
+  const host = await renderWith(<PlanCards onChoose={onChoose} onManage={onManage} currentPlan="pro_yearly" subscribedPlan="pro_yearly" />);
+  const buttons = () => Array.from(host.querySelectorAll("button"), (button) => button.textContent?.trim());
+  expect(buttons().filter((label) => label?.startsWith("Choose"))).toEqual([]);
+  const sponsor = host.querySelector('section[aria-label="Sponsor plan"]')!;
+  expect(sponsor.textContent).toContain("To switch plans, cancel in Manage subscription and choose a new plan after it ends, or contact us.");
+  await act(async () => host.querySelector<HTMLElement>('[aria-label="Billed yearly"]')!.click());
+  const manage = Array.from(host.querySelectorAll("button")).filter((button) => button.textContent?.trim() === "Manage subscription");
+  expect(manage).toHaveLength(2);
+  for (const button of manage) await act(async () => button.click());
+  expect(onManage).toHaveBeenCalledTimes(2);
+  expect(onChoose).not.toHaveBeenCalled();
 });
 
 async function renderWith(element: React.ReactElement) {

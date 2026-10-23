@@ -7,11 +7,15 @@ import { Button } from "../shared/Button";
 import { Chip } from "../shared/Chip";
 import { LiquidToggle } from "../shared/LiquidToggle";
 import { SubscriptionTermsNotice } from "../shared/LegalLinks";
+import { DotMatrixCanvas, type DotMatrixCanvasHandle } from "../brand/DotMatrixCanvas";
+import { usePrefersReducedMotion } from "../brand/usePrefersReducedMotion";
 import {
   bestYearlySavings,
   offerIdForPlan,
   offerPrice,
+  planCardAction,
   type BillingInterval,
+  type PlanCardAction,
   type PlanCatalog,
   type PlanOffer,
 } from "./planCatalog";
@@ -83,18 +87,30 @@ export interface PlanCardProps {
   onChoose?: (planKey: string) => void;
   intent?: PurchaseIntentView;
   onCancel?: () => void;
+  action?: PlanCardAction;
+  onManage?: () => void;
+  manageBusy?: boolean;
 }
 
-export function PlanCard({ offer, interval, current = false, canPurchase = true, onChoose, intent, onCancel }: PlanCardProps) {
+export function PlanCard({ offer, interval, current = false, canPurchase = true, onChoose, intent, onCancel, action: givenAction, onManage, manageBusy = false }: PlanCardProps) {
   const price = offerPrice(offer, interval);
+  const action: PlanCardAction = givenAction ?? (price.planKey ? { kind: "choose", planKey: price.planKey } : { kind: "none" });
   const border = offer.recommended ? "border-[var(--ct-accent)]" : "border-[var(--ct-border-subtle)]";
   const focus = useIntentFocus(intent?.kind);
-  const buttonVariant = offer.recommended ? "primary" : "ghost";
+  const dots = useRef<DotMatrixCanvasHandle>(null);
+  const reducedMotion = usePrefersReducedMotion();
+  const wave = () => dots.current?.emitRelease(performance.now());
+  // One wave greets the recommended card; later ones answer the pointer arriving.
+  useEffect(() => { if (offer.recommended) wave(); }, [offer.recommended]);
   return (
     <section
       aria-label={`${offer.name} plan`}
-      className={`flex flex-col gap-3 rounded-[var(--ct-radius-md)] border ${border} bg-[var(--ct-bg)] p-4`}
+      onPointerEnter={offer.recommended ? wave : undefined}
+      className={`flex flex-col gap-3 rounded-[var(--ct-radius-md)] border ${border} bg-[var(--ct-bg)] p-4${offer.recommended ? " relative isolate overflow-hidden" : ""}`}
     >
+      {offer.recommended && <div className="pointer-events-none absolute -right-14 -top-16 -z-10 h-44 w-64">
+        <DotMatrixCanvas ref={dots} mode="loading" reducedMotion={reducedMotion} intensity={1.5} restIntensity={12} />
+      </div>}
       <header className="flex items-center justify-between gap-2">
         <h3 className="m-0 text-sm font-semibold text-[var(--ct-fg)]">{offer.name}</h3>
         {current ? <Chip variant="success">Current</Chip> : offer.recommended && <Chip variant="accent">Recommended</Chip>}
@@ -125,24 +141,22 @@ export function PlanCard({ offer, interval, current = false, canPurchase = true,
         </div>
       ) : intent?.kind === "opening" ? (
         <div ref={focus.status} tabIndex={-1} className="flex flex-col outline-none">
-          <Button size="sm" variant={buttonVariant} className="text-xs" loading>Opening checkout…</Button>
+          <Button size="lg" variant="outline" loading>Opening checkout…</Button>
         </div>
       ) : intent?.kind === "owned" ? (
         <IntentStatus tone="green" focusRef={focus.status} icon={<Check size={14} className="mt-px shrink-0" aria-hidden="true" />}
           title={`You already have ${offer.name}.`}
           detail={intent.staff ? "Included with your Domios team access." : intent.signedInAs && `Signed in as ${intent.signedInAs}.`} />
-      ) : price.planKey && !current && onChoose && (
-        <Button
-          ref={focus.choose}
-          size="sm"
-          variant={buttonVariant}
-          className="text-xs"
-          disabled={!canPurchase}
-          onClick={() => price.planKey && onChoose(price.planKey)}
-        >
+      ) : action.kind === "choose" && !current && onChoose ? (
+        <Button ref={focus.choose} size="lg" variant="outline" disabled={!canPurchase} onClick={() => onChoose(action.planKey)}>
           Choose {offer.name}
         </Button>
-      )}
+      ) : action.kind === "manage" && onManage ? (
+        <div className="flex flex-col gap-2">
+          <Button size="lg" variant="outline" disabled={manageBusy} loading={manageBusy} onClick={onManage}>Manage subscription</Button>
+          <p className="m-0 text-xs text-[var(--ct-muted-fg)]">To switch plans, cancel in Manage subscription and choose a new plan after it ends, or contact us.</p>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -153,14 +167,19 @@ function intentView(intent: PurchaseIntent, signedInAs: string | null): Purchase
   return { kind: intent.kind };
 }
 
-/** Interval switch plus one card per offer; defaults to yearly billing and the catalog in context. */
-export function PlanCards({ currentPlan = null, canPurchase = true, onChoose, catalog, initialInterval = "year", intent = IDLE_INTENT, signedInAs = null, onCancel, viewRequested = false }: {
+/** One card per offer, then the interval switch beside the purchase terms; yearly by default. */
+export function PlanCards({ currentPlan = null, subscribedPlan = null, onManage, manageBusy = false, canPurchase = true, onChoose, catalog, interval: controlledInterval, onIntervalChange, intent = IDLE_INTENT, signedInAs = null, onCancel, viewRequested = false }: {
   viewRequested?: boolean;
   currentPlan?: string | null;
+  /** A live paid subscription; while set, other paid cards offer Manage subscription instead of a checkout. */
+  subscribedPlan?: string | null;
+  onManage?: () => void;
+  manageBusy?: boolean;
   canPurchase?: boolean;
   onChoose?: (planKey: string) => void;
   catalog?: PlanCatalog;
-  initialInterval?: BillingInterval;
+  interval?: BillingInterval;
+  onIntervalChange?: (interval: BillingInterval) => void;
   intent?: PurchaseIntent;
   signedInAs?: string | null;
   onCancel?: () => void;
@@ -168,14 +187,14 @@ export function PlanCards({ currentPlan = null, canPurchase = true, onChoose, ca
   const contextCatalog = usePlanCatalog();
   const viewTarget = usePlanViewed(viewRequested);
   const offers = catalog ?? contextCatalog;
-  const [interval, setInterval] = useState<BillingInterval>(initialInterval);
+  const [ownInterval, setOwnInterval] = useState<BillingInterval>("year");
+  const interval = controlledInterval ?? ownInterval;
+  const changeInterval = onIntervalChange ?? setOwnInterval;
   const currentOffer = offerIdForPlan(offers, currentPlan);
   const intentOffer = intent.kind === "idle" ? null : offerIdForPlan(offers, intent.planKey);
   const view = intentView(intent, signedInAs);
   return (
     <div ref={viewTarget} className="flex flex-col gap-3">
-      <BillingIntervalToggle interval={interval} onChange={setInterval} savings={bestYearlySavings(offers)} />
-      <SubscriptionTermsNotice />
       <div role="group" aria-label="Subscription plans" className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
         {offers.offers.map((offer) => (
           <PlanCard
@@ -187,8 +206,15 @@ export function PlanCards({ currentPlan = null, canPurchase = true, onChoose, ca
             onChoose={onChoose}
             intent={offer.id === intentOffer ? view : undefined}
             onCancel={onCancel}
+            action={planCardAction(offers, offer, interval, subscribedPlan)}
+            onManage={onManage}
+            manageBusy={manageBusy}
           />
         ))}
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <BillingIntervalToggle interval={interval} onChange={changeInterval} savings={bestYearlySavings(offers)} />
+        <SubscriptionTermsNotice />
       </div>
       <section aria-label="Enterprise plan" className="flex w-full items-center justify-between gap-3 rounded-[var(--ct-radius-md)] border border-[var(--ct-border-subtle)] bg-[var(--ct-bg)] p-4">
         <div className="flex min-w-0 flex-col gap-1">
