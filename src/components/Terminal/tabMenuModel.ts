@@ -1,4 +1,5 @@
 import { isReadOnlyTab } from "../../lib/tabInputPolicy";
+import { isProviderSelectable, providerAvailabilityLabel } from "../../lib/providerAvailability";
 import { isGeneralAgent } from "../../lib/roleKind";
 import { pluginTabMenuEntries, type PluginTabMenuEntry, type PluginTabMenuState } from "../../lib/pluginTabMenu";
 import { canMakeOrchestrator } from "../../lib/orchestratorOnboard";
@@ -192,8 +193,10 @@ function providerSubmenu({ tab, descriptors, status }: TabMenuInput): TabMenuSub
       testId: `tab-menu-provider-${provider.id}`,
       label: provider.display_name,
       icon: null,
+      disabled: !isProviderSelectable(provider),
+      hint: !isProviderSelectable(provider) ? providerAvailabilityLabel(provider) : undefined,
       selected: provider.id === view.currentProviderId,
-      action: provider.id === view.currentProviderId ? null : { type: "switchProvider", providerId: provider.id },
+      action: provider.id === view.currentProviderId || !isProviderSelectable(provider) ? null : { type: "switchProvider", providerId: provider.id },
     })),
   };
 }

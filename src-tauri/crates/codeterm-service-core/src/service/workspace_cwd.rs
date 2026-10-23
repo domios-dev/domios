@@ -150,6 +150,8 @@ impl ServiceContext {
         workspace_id: &str,
         cwd: &str,
     ) -> Result<WorkspaceRelocation, String> {
+        let normalized = codeterm_paths::strip_verbatim_prefix(cwd);
+        let cwd = normalized.as_str();
         let _relocation = self
             .ext::<crate::service::workspace_cwd::WorkspaceRelocationLock>()
             .0

@@ -14,6 +14,7 @@ const state = vi.hoisted(() => ({ status: "Idle", launching: false }));
 vi.mock("../../lib/useTabActivity", () => ({ useTabActivity: () => state as unknown as TabActivity }));
 vi.mock("../../lib/useAgentDescriptor", () => ({ useAgentDescriptors: () => [
   { id: "source", display_name: "Source", transport: "pty", available_models: [] },
+  { id: "unavailable", display_name: "Unavailable target", transport: "pty", available_models: [], availability: "unavailable" },
   { id: "target", display_name: "Target", transport: "chat_backend", agent_runtime: {}, default_model: "model-token", available_models: [
     { id: "model-token", display_name: "Sonnet 5.5", reasoning_efforts: [{ id: "effort-token", display_name: "Effort" }] },
     { id: "haiku-token", display_name: "Haiku 5.5" },
@@ -156,6 +157,42 @@ it("explicit stop is carried and refusals stay visible without retry", async () 
     expect(document.querySelector('[role="status"]')).not.toBeNull();
     expect(document.querySelector('[aria-label="Previous provider transcript"]')).toBeNull();
     await act(async () => finish({ phase: "completed", outcome: result }));
+    expect(button("Previous provider: source")).not.toBeNull();
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
+
+it("disables unavailable targets with a reason and refuses submission from a stale selection", async () => {
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  const send = vi.fn(async () => result);
+  __setTabProviderApiForTest({ switchProvider: send });
+  try {
+    await act(async () => root.render(<ProviderSwitchDialog tab={tab} initialProviderId="unavailable" onClose={() => {}} />));
+    expect(button("Switch provider").disabled).toBe(true);
+    const trigger = document.querySelector<HTMLButtonElement>('button[aria-label^="Target provider:"]');
+    await act(async () => trigger?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true })));
+    const unavailable = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')).find(item => item.textContent?.includes("Unavailable target"));
+    expect(unavailable?.disabled).toBe(true);
+    expect(unavailable?.textContent).toContain("not installed");
+    await act(async () => { unavailable?.click(); button("Switch provider").click(); });
+    expect(send).not.toHaveBeenCalled();
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
+
+it("offers an explicit retry after an authentication probe timeout", async () => {
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  const send = vi.fn().mockRejectedValueOnce(new Error("provider_switch_auth_timeout: fixture")).mockResolvedValueOnce(result);
+  __setTabProviderApiForTest({ switchProvider: send });
+  try {
+    await act(async () => root.render(<ProviderSwitchDialog tab={tab} initialProviderId="target" onClose={() => {}} />));
+    await act(async () => button("Switch provider").click());
+    expect(document.querySelector('[aria-label="The provider authentication check timed out"]')).not.toBeNull();
+    expect(send).toHaveBeenCalledTimes(1);
+    await act(async () => button("Retry").click());
+    expect(send).toHaveBeenCalledTimes(2);
     expect(button("Previous provider: source")).not.toBeNull();
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
