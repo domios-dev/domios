@@ -45,11 +45,7 @@ fn sentinel_probe_environment_strips_instance_credentials_and_cli_path() {
     assert_eq!(variables.len(), 2);
     assert_eq!(
         std::env::split_paths(&variables[OsStr::new("PATH")]).collect::<Vec<_>>(),
-        if cfg!(windows) {
-            vec![]
-        } else {
-            vec![PathBuf::from("/usr/bin"), PathBuf::from("/bin")]
-        }
+        vec![normal]
     );
     assert!(!variables.contains_key(OsStr::new("HOME")));
     assert_eq!(variables[OsStr::new("LANG")], "C.UTF-8");
@@ -127,6 +123,10 @@ fn blueprint_v2_runtime_command_environment_is_an_allowlist() {
             ("BASH_ENV".into(), "credential-loader".into()),
             ("CODETERM_API_TOKEN".into(), "fake-instance-key".into()),
             ("PATH".into(), directory.path().as_os_str().to_owned()),
+            (
+                "DOMIOS_CLI_PATH".into(),
+                directory.path().join("domios").into_os_string(),
+            ),
         ],
         None,
         &[directory.path().to_str().unwrap()],

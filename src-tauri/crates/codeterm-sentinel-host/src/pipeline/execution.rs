@@ -6,6 +6,7 @@ pub struct RunCtx<'a> {
     pub lease: &'a Lease,
     pub run_id: &'a str,
     pub deadline: Instant,
+    pub call_state: crate::blueprint_calls::CallContext,
     pub outputs: std::collections::BTreeMap<String, ExecutionEnvelope>,
     next_marker: u16,
     call_depth: u8,
@@ -35,6 +36,7 @@ impl<'a> RunCtx<'a> {
             run_id,
             deadline: Instant::now() + Duration::from_millis(remaining),
             outputs: Default::default(),
+            call_state: Default::default(),
             next_marker: 0,
             call_depth: 0,
             input_kind: None,
@@ -158,25 +160,22 @@ pub fn execute_step(
     input: ExecutionEnvelope,
 ) -> Result<StepExecution, JournalReason> {
     let marker = ctx.allocate_marker()?;
-    if effect_after_claim(
-        || {
-            claim_step(
-                ctx.handle,
-                ctx.lease,
-                ctx.run_id,
-                marker,
-                &step.name,
-                now(ctx.handle),
-            )
-        },
-        || (),
-    )
-    .is_none()
+    let simulate = ctx.call_state.simulate;
+    if !simulate
+        && effect_after_claim(
+            || crate::blueprint_calls::claim_step(ctx, marker, &step.name, now(ctx.handle)),
+            || (),
+        )
+        .is_none()
     {
         return Err(JournalReason::UncertainClaim);
     }
     let contract = step.execution.clone().unwrap_or_default();
     let checked = (|| {
+        ctx.call_state.current_marker = Some(marker);
+        if !simulate {
+            crate::blueprint_calls::metadata(ctx, marker, &step.name, &step.kind)?;
+        }
         if ctx.lease.cancelled.load(Ordering::SeqCst) {
             return Err(JournalReason::Other("skip:lease_cancelled".into()));
         }
@@ -209,19 +208,28 @@ pub fn execute_step(
         if operation_limit.is_zero() {
             return Err(JournalReason::Deadline);
         }
-        let result = dispatch::run_step(
-            ctx.handle,
-            ctx.service,
-            ctx.lease,
-            step,
-            &input,
-            ctx.input_kind,
-            ctx.input_source.as_deref(),
-            ctx.input_failure.as_deref(),
-            &ctx.input_display,
-            ctx.cleanup.clone(),
-            operation_limit,
-        );
+        let result = match &step.kind {
+            StepKind::Call { call, grants } => {
+                crate::blueprint_calls::execute(ctx, &step.name, call, grants, &input)?
+            }
+            StepKind::Effect { node } => crate::blueprint_calls::effect(ctx, node, &input)?,
+            _ if simulate && !matches!(step.kind, StepKind::Filter { .. }) => {
+                return Err(JournalReason::RuntimeUnavailable)
+            }
+            _ => dispatch::run_step(
+                ctx.handle,
+                ctx.service,
+                ctx.lease,
+                step,
+                &input,
+                ctx.input_kind,
+                ctx.input_source.as_deref(),
+                ctx.input_failure.as_deref(),
+                &ctx.input_display,
+                ctx.cleanup.clone(),
+                operation_limit,
+            ),
+        };
         if result.uncertain {
             return Err(JournalReason::UncertainEffect);
         }
@@ -246,7 +254,7 @@ pub fn execute_step(
                         media: "text".into(),
                         schema_id: None,
                         value: serde_json::Value::String(result.next_text.clone()),
-                        text: result.next_text.clone(),
+                        text: String::new(),
                     },
                     Some(media @ ("file" | "audio" | "video" | "image")) => ExecutionEnvelope {
                         media: media.into(),
@@ -264,6 +272,7 @@ pub fn execute_step(
                 .as_ref()
                 .and_then(|port| port.reference.clone());
         }
+        let output = ExecutionEnvelope::decode(&output.encode()?)?;
         if result.state == JournalState::Done {
             contract.validate(&output, true)?;
         }
@@ -272,6 +281,17 @@ pub fn execute_step(
     })();
     match checked {
         Ok((result, output)) => {
+            if simulate {
+                return Ok(StepExecution {
+                    output,
+                    outcome: result.outcome,
+                    stored_outcome: result.stored_outcome,
+                    state: result.state,
+                    summary: result.summary,
+                    reason: result.reason,
+                    uncertain: result.uncertain,
+                });
+            }
             let body_ref = if matches!(step.kind, StepKind::Agent { .. }) {
                 Some(
                     crate::agent_stage::persist_result(
@@ -324,7 +344,7 @@ pub fn execute_step(
                 ))?;
             }
             if result.reason.as_ref().is_some_and(fatal) {
-                return Err(result.reason.unwrap_or(JournalReason::SandboxDenied));
+                return Err(result.reason.unwrap_or(JournalReason::ContractViolation));
             }
             Ok(StepExecution {
                 output,
@@ -337,6 +357,9 @@ pub fn execute_step(
             })
         }
         Err(reason) => {
+            if simulate {
+                return Err(reason);
+            }
             let uncertain = matches!(reason, JournalReason::UncertainEffect);
             finish(
                 ctx,
@@ -362,10 +385,8 @@ fn fatal(reason: &JournalReason) -> bool {
     matches!(
         reason,
         JournalReason::ContractViolation
-            | JournalReason::SandboxDenied
             | JournalReason::Deadline
             | JournalReason::BudgetExhausted
-            | JournalReason::UnsupportedPlatform
             | JournalReason::RuntimeUnavailable
     )
 }

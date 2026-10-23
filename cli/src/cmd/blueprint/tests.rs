@@ -30,7 +30,8 @@ fn blueprint_memory_requests_offer_without_applying_and_preserve_identity() {
     );
     let (method, params) = request(
         BlueprintAction::Keep {
-            id: "graph".into(),
+            id: Some("graph".into()),
+            file: None,
             when: vec![
                 "Watch CI failure".into(),
                 "tell me when the build goes red".into(),
@@ -54,7 +55,8 @@ fn blueprint_memory_requests_offer_without_applying_and_preserve_identity() {
     let six = (0..6).map(|index| format!("intent {index}")).collect();
     assert!(request(
         BlueprintAction::Keep {
-            id: "graph".into(),
+            id: Some("graph".into()),
+            file: None,
             when: six,
         },
         None,
@@ -565,3 +567,29 @@ fn blueprint_like_appends_builtins_after_daemon_results_within_five_offers() {
         }
     }
 }
+
+#[test]
+fn blueprint_v2_call_keep_file_sends_bytes_and_preserves_unbound_signature() {
+    let path = std::env::temp_dir().join(format!("callable-{}.yaml", uuid::Uuid::new_v4()));
+    let raw="schema_version: 2\nkind: pipeline\nname: increment\ninputs:\n  n: {type: integer}\nsteps:\n  - id: value\n    code: {lang: python, src: 'def main(n): return n+1'}\n    in: {type: integer}\n    out: {type: integer}\nresult:\n  type: {type: integer}\n  from: value.out\n";
+    std::fs::write(&path, raw).unwrap();
+    let (method, params) = request(
+        BlueprintAction::Keep {
+            id: None,
+            file: Some(path.clone()),
+            when: vec!["Increment typed data".into()],
+        },
+        Some("caller".into()),
+        Some("nonce".into()),
+    )
+    .unwrap();
+    std::fs::remove_file(path).unwrap();
+    assert_eq!(method, "blueprint.keep");
+    assert_eq!(params["definition"]["inputs"]["n"]["type"], "integer");
+    assert_eq!(params["local_callees"], json!([]));
+    assert!(params.get("source_file").is_none());
+    assert!(params.get("id").is_none());
+}
+
+#[path = "review_tests.rs"]
+mod review_tests;

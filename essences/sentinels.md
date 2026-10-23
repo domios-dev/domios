@@ -28,6 +28,8 @@ Probes have bounded runtime and output, and their cadence is requested work, not
 
 A graph may act on anything its owning agent may: observe, run creator-authored commands, message tabs, trigger crons, activate stages, request a prompt answer through the existing [safe prompt-answer path](supporter-agent.md#provider-declared-prompt-answers), and stop. That path revalidates the live prompt and kind, then chooses only a provider-declared option; the graph supplies neither an option nor PTY keys. It never exceeds the owning agent's authority or its creator, Team, workspace and machine scope. Timeouts and finite transition and action budgets bound every graph; exhausting one stops the graph with a recorded reason. Each action is claimed durably before it runs and is never replayed after a restart; an uncertain outcome stays unconfirmed.
 
+Blueprint code and command steps run with the user's own permissions, like an agent in a tab, without Domios credentials in their environment. Filesystem, network and subprocess access follow those user permissions. Foreign Blueprints are gated by folder trust (1.15.4). Deadline and output budgets apply on every supported OS; explicit memory limits are enforced on Linux and Windows, while macOS emits a warning and continues without a memory cap. There is no default memory limit.
+
 ## Other, escalation and rewrite
 
 Any decision can resolve to `other`: an unknown outcome that fits none of the offered options or falls below the confidence threshold. Reserved `other` handlers may notify or escalate to the creator or an exact same-Team agent tab. The escalation packet carries only the Blueprint and transition IDs. Adapter and budget failures never escalate.

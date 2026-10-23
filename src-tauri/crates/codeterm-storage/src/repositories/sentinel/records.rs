@@ -1,5 +1,6 @@
 mod journal;
-pub use journal::{BlueprintJournalEntry, BlueprintJournalWrite};
+mod native;
+pub use journal::{BlueprintJournalEntry, BlueprintJournalWrite, NestedClaimParent};
 mod source;
 mod transition;
 pub use source::{ObserveKind, ObserveSource, SourceKind, StageSource};
@@ -583,18 +584,8 @@ impl StageDefinition {
     }
 
     pub(super) fn validate(&self) -> Result<(), StorageError> {
-        let value = self.document.as_ref().ok_or_else(|| {
-            StorageError::invalid(
-                "blueprint document",
-                "only native v2 documents can be persisted",
-            )
-        })?;
-        let document =
-            codeterm_blueprint_types::blueprint_document::Document::from_definition(value)
-                .map_err(|error| StorageError::invalid("blueprint document", error))?;
-        document
-            .lower()
-            .map_err(|errors| StorageError::invalid("blueprint document", format!("{errors:?}")))?;
+        self.validate_native_document()
+            .map_err(|error| StorageError::invalid("blueprint document", error))?;
         if let Some(terminal) = self.terminal() {
             terminal
                 .validate()

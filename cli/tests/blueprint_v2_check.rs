@@ -100,3 +100,40 @@ fn blueprint_v2_check_cli_refuses_ambiguous_and_authority_repairs_without_mutati
         assert!(!value["fix"]["refusals"].as_array().unwrap().is_empty());
     }
 }
+
+#[test]
+fn blueprint_v2_call_review_fix_calls_refuses_explicitly_without_false_c1_or_write() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("caller.yaml");
+    let source = "schema_version: 2\nkind: pipeline\nname: caller\ntrigger: {type: schedule, every: {lit: 20s}}\nsteps:\n- id: invoke\n  call: {ref: 'mem:helper'}\n";
+    std::fs::write(&path, source).unwrap();
+    let output = cli(&path, &["--fix", "--write"]);
+    assert_eq!(output.status.code(), Some(2));
+    let message = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        message.contains("--fix") && message.contains("host"),
+        "{message}"
+    );
+    assert!(!message.contains("C1"), "{message}");
+    assert_eq!(std::fs::read_to_string(path).unwrap(), source);
+}
+
+#[test]
+fn blueprint_v2_check_cli_never_overwrites_with_inadmissible_repair() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("pipeline.yaml");
+    let source = "# keep author comments on refusal\nschema_version: 2\nkind: pipeline\nname: pipeline-repair\ntrigger: {type: schedule, every: {lit: 20s}}\nsteps:\n- id: decide\n  uses: ask\n  with: {question: {lit: 'Ready?'}}\n  buckets: [ready]\n";
+    std::fs::write(&path, source).unwrap();
+    let original = cli(&path, &["--json"]);
+    assert_eq!(original.status.code(), Some(0));
+    let result = cli(&path, &["--fix", "--write", "--json"]);
+    assert_eq!(result.status.code(), Some(2));
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), source);
+    let value: Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(value["fix"]["changed"], false);
+    assert!(value["fix"]["text"].is_null());
+}

@@ -49,6 +49,8 @@ fn blueprint_journal_claim_refuses_replay_after_reopen() {
     let first = done(storage.sentinels().write_blueprint_journal(
         journal_id(&job),
         BlueprintJournalWrite::Claim {
+            definition_version: None,
+            parent: None,
             run_id: "run_first".into(),
             marker: JournalMarker::Step(0),
             step_name: "emit".into(),
@@ -63,6 +65,8 @@ fn blueprint_journal_claim_refuses_replay_after_reopen() {
     let second = done(storage.sentinels().write_blueprint_journal(
         journal_id(&job),
         BlueprintJournalWrite::Claim {
+            definition_version: None,
+            parent: None,
             run_id: "run_reopen".into(),
             marker: JournalMarker::Step(0),
             step_name: "emit".into(),
@@ -137,6 +141,8 @@ fn blueprint_pipeline_journal_records_each_step_boundary_in_order() {
         done(storage.sentinels().write_blueprint_journal(
             journal_id(&job),
             BlueprintJournalWrite::Claim {
+                definition_version: None,
+                parent: None,
                 run_id: run_id.into(),
                 marker: JournalMarker::Step(step_index as u16),
                 step_name: step_name.into(),
@@ -188,6 +194,8 @@ fn blueprint_journal_retains_a_complete_sixty_four_step_run_and_derives_its_clos
         let name = format!("step-{index}");
         for write in [
             BlueprintJournalWrite::Claim {
+                definition_version: None,
+                parent: None,
                 run_id: "long-run".into(),
                 marker,
                 step_name: name.clone(),
@@ -290,6 +298,8 @@ fn blueprint_journal_body_reference_round_trips_outside_summary_and_held_close_i
     done(storage.sentinels().write_blueprint_journal(
         journal_id(&job),
         BlueprintJournalWrite::Claim {
+            definition_version: None,
+            parent: None,
             run_id: "result-run".into(),
             marker: JournalMarker::Result,
             step_name: "$result".into(),

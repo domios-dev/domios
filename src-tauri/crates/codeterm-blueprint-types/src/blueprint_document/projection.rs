@@ -8,6 +8,8 @@ pub struct CanonicalNode {
     pub order: usize,
     pub kind: String,
     pub node: Node,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body_sha256: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CanonicalIr {
@@ -45,6 +47,7 @@ pub fn canonical(doc: &Document) -> CanonicalIr {
                 order: i + 1,
                 kind: n.kind().into(),
                 node: n.clone(),
+                body_sha256: n.code.as_ref().and_then(super::code_contract::body_sha256),
             })
             .collect(),
     }

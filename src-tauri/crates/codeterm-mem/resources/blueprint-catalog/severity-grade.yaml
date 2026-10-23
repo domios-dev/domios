@@ -1,0 +1,82 @@
+schema_version: 2
+kind: pipeline
+name: severity-grade
+note: Grade one health signal (status, latency, error rate) as ok, low, high or critical
+  with a reason.
+intent: decide how bad a service problem is from its status code, latency and error
+  rate
+anchors: []
+inputs:
+  args:
+    $ref: Args
+    description: Typed named arguments
+types:
+  Args:
+    type: object
+    additionalProperties: false
+    required:
+    - error_budget
+    - signal
+    - slow_ms
+    properties:
+      error_budget:
+        type: number
+      signal:
+        type: object
+      slow_ms:
+        type: integer
+  Severity:
+    type: object
+    additionalProperties: false
+    required:
+    - reason
+    - severity
+    properties:
+      reason:
+        type: string
+      severity:
+        enum:
+        - ok
+        - low
+        - high
+        - critical
+steps:
+- id: grade
+  does: Grade status, latency and error rate against the thresholds; the worst finding
+    wins
+  code:
+    lang: python
+    src: |
+      def main(a):
+          s, found = a["signal"], []
+          status = s.get("status")
+          if status is not None and (status == 0 or status >= 500):
+              found.append(("critical", f"status {status}"))
+          elif status is not None and status >= 400:
+              found.append(("high", f"status {status}"))
+          rate = s.get("error_rate")
+          if rate is not None and rate > 2 * a["error_budget"]:
+              found.append(("high", f"error rate {rate:.0%} over twice the budget"))
+          elif rate is not None and rate > a["error_budget"]:
+              found.append(("low", f"error rate {rate:.0%} over budget"))
+          lat = s.get("latency_ms")
+          if lat is not None and lat > 3 * a["slow_ms"]:
+              found.append(("high", f"latency {lat} ms over 3x {a['slow_ms']} ms"))
+          elif lat is not None and lat > a["slow_ms"]:
+              found.append(("low", f"latency {lat} ms over {a['slow_ms']} ms"))
+          if not found:
+              return {"severity": "ok", "reason": "within thresholds"}
+          rank = {"low": 1, "high": 2, "critical": 3}
+          worst = max(found, key=lambda f: rank[f[0]])[0]
+          return {"severity": worst, "reason": "; ".join(r for _, r in found)}
+  in:
+    $ref: Args
+  out:
+    $ref: Severity
+  routes:
+    done: next
+    failed: stop
+result:
+  type:
+    $ref: Severity
+  from: grade.out

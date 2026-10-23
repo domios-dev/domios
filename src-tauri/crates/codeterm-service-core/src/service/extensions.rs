@@ -99,6 +99,7 @@ impl ExtensionsBuilder {
         self.insert_late::<crate::service::session_persist::SessionPersistenceWorker>();
         self.insert_late::<crate::agent::live_state::RestoreReportWorker>();
         self.insert_late::<crate::service::lane_git_queue::LaneGitQueue>();
+        self.insert_late::<crate::service::durable_delivery::DurableDeliveryRuntime>();
     }
 
     pub fn finish(self) -> Extensions {
