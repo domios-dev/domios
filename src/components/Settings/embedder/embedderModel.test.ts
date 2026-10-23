@@ -67,6 +67,15 @@ describe("embedder model", () => {
   it("labels progress and the pre-switch count", () => {
     const running = statusFixture({ reembed: { state: "running", target: null, total: 200, done: 50, failed: 0 } });
     expect(progressLabel(running)).toBe("Re-embedding 50 of 200 (25%)");
+    const target = { provider: "remote-x", model: "wide", dimension: 8 };
+    expect(progressLabel(statusFixture({ reembed: { state: "running", target, total: 200, done: 50, failed: 0 } })))
+      .toContain("remote-x/wide");
+    for (const state of ["failed", "cancelled"] as const) {
+      const label = progressLabel(statusFixture({ reembed: { state, target, total: 9, done: 4, failed: 1, last_error: "fixture reason" } }));
+      expect(label).toContain(state);
+      expect(label).toContain("fixture reason");
+      expect(label).not.toBe("Index up to date");
+    }
     expect(switchSummary({ target: running, remote: true, warning: null, plan: { items: 5, entities: 2, docs: 1 }, total: 8, refusal: null }))
       .toContain("re-embeds 8 items");
   });

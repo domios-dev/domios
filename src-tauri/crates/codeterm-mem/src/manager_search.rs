@@ -17,19 +17,36 @@ impl MemManager {
         q: &SearchQuery,
         cfg: &search::SearchConfig,
     ) -> Result<Vec<SearchHit>, String> {
-        let _publication = self.vector_transition.read();
-        let embedding = self.embedder.query(&q.query);
-        let conn = self.conn.lock();
+        let (embedding, conn) = self.query_under_conn(&q.query);
         search::hybrid_rrf_with_embedding(&conn, q, &self.blobs_dir, cfg, embedding.as_ref())
     }
 
     pub fn vector_recall(&self, query: &str, k: usize) -> Result<Vec<(String, f64)>, String> {
-        let _publication = self.vector_transition.read();
-        let vector = self
-            .embedder
-            .query(query)
-            .ok_or_else(|| "query embedding unavailable".to_string())?;
-        embeddings::recall_vector(&self.conn.lock(), &vector, k)
+        let (vector, conn) = self.query_under_conn(query);
+        let vector = vector.ok_or_else(|| "query embedding unavailable".to_string())?;
+        embeddings::recall_vector(&conn, &vector, k)
+    }
+
+    /// Embed outside the connection lock; a publication swaps the model under
+    /// that lock, so one re-embed with the newly published model suffices.
+    fn query_under_conn(
+        &self,
+        text: &str,
+    ) -> (
+        Option<crate::embedder::StampedVector>,
+        parking_lot::MutexGuard<'_, rusqlite::Connection>,
+    ) {
+        let embedding = self.embedder.query(text);
+        let conn = self.conn.lock();
+        if embedding
+            .as_ref()
+            .is_none_or(|vector| vector.identity == self.embedder.identity())
+        {
+            return (embedding, conn);
+        }
+        drop(conn);
+        let embedding = self.embedder.query(text);
+        (embedding, self.conn.lock())
     }
 
     /// Embed outside the connection lock, then store under it.
@@ -38,9 +55,11 @@ impl MemManager {
         embeddings::store_vectors(&self.conn.lock(), id, vectors)
     }
 
-    pub(crate) fn reembed_item_targets(&self) -> Result<Vec<(String, String)>, String> {
-        let conn = self.conn.lock();
-        let _read = UntouchedRead::begin(&conn)?;
+    pub(crate) fn reembed_item_targets(
+        &self,
+        conn: &rusqlite::Connection,
+    ) -> Result<Vec<(String, String)>, String> {
+        let _read = UntouchedRead::begin(conn)?;
         let mut statement = conn
             .prepare("SELECT id FROM mem_items WHERE kind != 'archived'")
             .map_err(|error| error.to_string())?;
@@ -51,7 +70,7 @@ impl MemManager {
             .map_err(|error| error.to_string())?;
         let mut targets = Vec::new();
         for id in ids {
-            let Some(item) = store::get(&conn, &id, &self.blobs_dir)? else {
+            let Some(item) = store::get(conn, &id, &self.blobs_dir)? else {
                 continue;
             };
             if !super::body_is_embeddable(&item.body) {
@@ -71,8 +90,10 @@ impl MemManager {
         Ok(targets)
     }
 
-    pub(crate) fn reembed_entity_targets(&self) -> Result<Vec<(String, String)>, String> {
-        let conn = self.conn.lock();
+    pub(crate) fn reembed_entity_targets(
+        &self,
+        conn: &rusqlite::Connection,
+    ) -> Result<Vec<(String, String)>, String> {
         let mut stmt = conn
             .prepare("SELECT id, entity_type, properties_json FROM entities")
             .map_err(|e| e.to_string())?;
@@ -98,7 +119,7 @@ impl MemManager {
     pub fn reembed_bulk(&self, do_items: bool, do_entities: bool) -> Result<ReembedReport, String> {
         let mut report = ReembedReport::default();
         if do_items {
-            for (id, text) in self.reembed_item_targets()? {
+            for (id, text) in self.reembed_item_targets(&self.conn.lock())? {
                 match self.index_embedding(&id, &text) {
                     Ok(()) => report.items += 1,
                     Err(error) => report.errors.push(format!("item {id}: {error}")),
@@ -106,7 +127,7 @@ impl MemManager {
             }
         }
         if do_entities {
-            for (id, text) in self.reembed_entity_targets()? {
+            for (id, text) in self.reembed_entity_targets(&self.conn.lock())? {
                 match self.index_embedding(&id, &text) {
                     Ok(()) => report.entities += 1,
                     Err(error) => report.errors.push(format!("entity {id}: {error}")),
@@ -135,9 +156,7 @@ impl MemManager {
         q: &SearchQuery,
         cfg: &search::SearchConfig,
     ) -> Result<Vec<SearchHit>, String> {
-        let _publication = self.vector_transition.read();
-        let embedding = self.embedder.query(&q.query);
-        let conn = self.conn.lock();
+        let (embedding, conn) = self.query_under_conn(&q.query);
         let _read = UntouchedRead::begin(&conn)?;
         search::hybrid_rrf_with_embedding(&conn, q, &self.blobs_dir, cfg, embedding.as_ref())
     }

@@ -120,7 +120,7 @@ fn progress_line(reembed: &Value) -> String {
             (done * 100).checked_div(total).unwrap_or(100)
         ),
         "completed" => format!("completed {done}/{total}, {failed} failed"),
-        "failed" | "stalled" | "cancelled" => format!(
+        "failed" | "cancelled" => format!(
             "{} {done}/{total}: {}",
             str_of(reembed, "state"),
             str_of(reembed, "last_error")

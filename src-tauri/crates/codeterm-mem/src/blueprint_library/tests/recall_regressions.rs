@@ -269,7 +269,7 @@ fn blueprint_vectors_follow_the_active_embedder_and_refuse_stale_stamps() {
 }
 
 #[test]
-fn recall_reembed_blueprint_semantic_hits_and_health_survive_shadow_build() {
+fn recall_reembed_blueprint_semantic_hits_and_intent_status_survive_shadow_build() {
     use crate::embedder::testing::{fixture_for, MockProvider, DEADLINE};
     let fx = fixture_for(Arc::new(DeploymentEmbedder));
     let id = fx
@@ -287,13 +287,20 @@ fn recall_reembed_blueprint_semantic_hits_and_health_survive_shadow_build() {
     let (started, release) = new.gated();
     fx.mem.switch_embedder(new).unwrap();
     started.recv_timeout(DEADLINE).unwrap();
-    let result = fx
+    let offers = fx
         .mem
-        .recall_blueprints_with_health("project", "Identify frozen releases", 5)
+        .recall_blueprints("project", "Identify frozen releases", 5)
+        .unwrap();
+    let recalled = fx
+        .mem
+        .recall_authoring_blueprints("project", "team", "Identify frozen releases", 5)
         .unwrap();
     drop(release);
-    assert_eq!(result.offers[0].entry.id, id);
-    assert!(result.degraded);
-    assert_eq!(result.progress.done, 0);
-    assert!(result.progress.total > 0);
+    assert_eq!(offers[0].entry.id, id);
+    assert_eq!(
+        recalled.state.reembed.state,
+        crate::embedder::ReembedState::Running
+    );
+    assert_eq!(recalled.state.reembed.done, 0);
+    assert!(recalled.state.reembed.total > 0);
 }

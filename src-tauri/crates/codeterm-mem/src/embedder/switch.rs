@@ -29,7 +29,6 @@ pub enum ReembedState {
     Running,
     Completed,
     Failed,
-    Stalled,
     Cancelled,
 }
 
@@ -66,6 +65,7 @@ pub struct ReembedProgress {
 pub struct ReembedTracker {
     clock: Arc<dyn Clock>,
     generation: AtomicU64,
+    claimed: AtomicU64,
     progress: Mutex<ReembedProgress>,
     storage: Mutex<Option<PathBuf>>,
 }
@@ -75,25 +75,14 @@ impl ReembedTracker {
         Self {
             clock,
             generation: AtomicU64::new(0),
+            claimed: AtomicU64::new(0),
             progress: Mutex::new(ReembedProgress::default()),
             storage: Mutex::new(None),
         }
     }
 
     pub fn snapshot(&self) -> ReembedProgress {
-        let mut progress = self.progress.lock();
-        if progress.state == ReembedState::Running
-            && progress
-                .updated_at
-                .is_some_and(|at| self.clock.now().signed_duration_since(at).num_seconds() >= 180)
-        {
-            progress.state = ReembedState::Stalled;
-            progress.last_error = Some(
-                "re-embed made no progress for 180 seconds; worker or provider stalled".into(),
-            );
-            progress.finished_at = Some(self.clock.now());
-        }
-        progress.clone()
+        self.progress.lock().clone()
     }
 
     pub fn is_current(&self, generation: u64) -> bool {
@@ -141,9 +130,59 @@ impl ReembedTracker {
                 return;
             }
             progress.state = ReembedState::Failed;
-            progress.failed += 1;
             progress.last_error = Some(error);
             progress.finished_at = Some(self.clock.now());
+            progress.clone()
+        };
+        self.persist(&snapshot);
+        events.emit(&EmbedderEvent::Progress(snapshot));
+    }
+
+    /// Stops the running build unless its publication already began.
+    pub(crate) fn cancel(&self, reason: String, events: &ActiveEmbedder) -> bool {
+        let snapshot = {
+            let mut progress = self.progress.lock();
+            let generation = self.generation.load(Ordering::SeqCst);
+            if progress.state != ReembedState::Running {
+                return true;
+            }
+            if self.claimed.load(Ordering::SeqCst) == generation {
+                return false;
+            }
+            self.generation.fetch_add(1, Ordering::SeqCst);
+            progress.state = ReembedState::Cancelled;
+            progress.last_error = Some(reason);
+            progress.finished_at = Some(self.clock.now());
+            progress.clone()
+        };
+        self.persist(&snapshot);
+        events.emit(&EmbedderEvent::Progress(snapshot));
+        true
+    }
+
+    pub(crate) fn claim(&self, generation: u64) -> bool {
+        let progress = self.progress.lock();
+        let current = self.generation.load(Ordering::SeqCst) == generation
+            && progress.state == ReembedState::Running;
+        if current {
+            self.claimed.store(generation, Ordering::SeqCst);
+        }
+        current
+    }
+
+    /// Counts checkpointed units as done and adds units a resume pass re-embeds.
+    pub(crate) fn resume(&self, generation: u64, done: u64, extra: u64, events: &ActiveEmbedder) {
+        let snapshot = {
+            let mut progress = self.progress.lock();
+            if self.generation.load(Ordering::SeqCst) != generation
+                || progress.state != ReembedState::Running
+                || done + extra == 0
+            {
+                return;
+            }
+            progress.done += done;
+            progress.total += extra;
+            progress.updated_at = Some(self.clock.now());
             progress.clone()
         };
         self.persist(&snapshot);

@@ -5,11 +5,12 @@ export interface EmbedderIdentity {
 }
 
 export interface ReembedProgress {
-  state: "idle" | "running" | "completed";
+  state: "idle" | "running" | "completed" | "failed" | "cancelled";
   target: EmbedderIdentity | null;
   total: number;
   done: number;
   failed: number;
+  last_error?: string | null;
 }
 
 export interface EmbedderStatus extends EmbedderIdentity {
@@ -134,12 +135,16 @@ export function activeOption(status: EmbedderStatus): string {
 }
 
 export function progressLabel(status: EmbedderStatus): string {
-  const { state, done, total, failed } = status.reembed;
+  const { state, done, total, failed, target, last_error } = status.reembed;
   if (state === "running") {
     const percent = total === 0 ? 100 : Math.floor((done * 100) / total);
-    return `Re-embedding ${done} of ${total} (${percent}%)`;
+    const to = target ? ` for ${target.provider}/${target.model}` : "";
+    return `Re-embedding ${done} of ${total} (${percent}%)${to}`;
   }
   if (state === "completed") return failed > 0 ? `Re-embedded ${done - failed} of ${total}; ${failed} failed` : `Re-embedded ${total} items`;
+  if (state === "failed" || state === "cancelled") {
+    return `Re-embed ${state} at ${done} of ${total}: ${last_error ?? "no reason recorded"}`;
+  }
   return status.index_matches ? "Index up to date" : "Index belongs to another model";
 }
 
