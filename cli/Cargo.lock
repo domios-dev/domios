@@ -265,6 +265,7 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 name = "codeterm-blueprint-types"
 version = "0.0.0"
 dependencies = [
+ "libc",
  "regex",
  "schemars",
  "serde",
@@ -274,6 +275,7 @@ dependencies = [
  "shell-words",
  "url",
  "uuid",
+ "windows-sys 0.61.2",
  "yaml-rust2",
 ]
 

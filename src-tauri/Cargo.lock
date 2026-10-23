@@ -1793,6 +1793,7 @@ dependencies = [
  "codeterm-decision",
  "codeterm-local-recording",
  "codeterm-paths",
+ "codeterm-plugins",
  "codeterm-provider-signals",
  "codeterm-types",
  "codeterm-usage",
