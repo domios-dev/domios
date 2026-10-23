@@ -6,6 +6,7 @@ import { ActivityDots } from "../shared/ActivityDots";
 import { Button } from "../shared/Button";
 import { Chip } from "../shared/Chip";
 import { LiquidToggle } from "../shared/LiquidToggle";
+import { SubscriptionTermsNotice } from "../shared/LegalLinks";
 import {
   bestYearlySavings,
   offerIdForPlan,
@@ -174,6 +175,7 @@ export function PlanCards({ currentPlan = null, canPurchase = true, onChoose, ca
   return (
     <div ref={viewTarget} className="flex flex-col gap-3">
       <BillingIntervalToggle interval={interval} onChange={setInterval} savings={bestYearlySavings(offers)} />
+      <SubscriptionTermsNotice />
       <div role="group" aria-label="Subscription plans" className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
         {offers.offers.map((offer) => (
           <PlanCard
