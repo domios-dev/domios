@@ -570,6 +570,7 @@ fn blueprint_like_appends_builtins_after_daemon_results_within_five_offers() {
     }
 }
 
+#[path = "tests/blueprint_v2_intent.rs"]
 mod blueprint_v2_intent;
 
 #[test]
