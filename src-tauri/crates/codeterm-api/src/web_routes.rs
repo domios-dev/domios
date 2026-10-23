@@ -734,9 +734,12 @@ pub async fn chat_raw_start(
     Json(body): Json<ChatSubscriptionBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let slot = crate::request_bound::RequestSlot::acquire(format!("chat-start:{tab_id}"))
+        .map_err(|(status, error)| (status, error.0.to_string()))?;
     let svc = state.svc.clone();
     let queued = std::time::Instant::now();
     let result = tokio::task::spawn_blocking(move || {
+        let _slot = slot;
         let queue_us = queued.elapsed().as_micros();
         let result =
             commands::chat_start_core(&svc, tab_id, body.subscription_id, body.known_window);
@@ -791,12 +794,16 @@ pub async fn transcribe_voice(
 pub async fn plugin_snapshot(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let snapshot = commands::plugins::plugin_manager_snapshot_for_service(state.svc.clone())
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    Ok(Json(snapshot))
+) -> Result<Json<serde_json::Value>, crate::request_bound::RequestError> {
+    use crate::request_bound::{bounded, unavailable, PLUGIN_DEADLINE};
+    check_auth(&state, &headers)
+        .map_err(|(status, error)| (status, unavailable("unauthorized", error).1))?;
+    bounded(
+        PLUGIN_DEADLINE,
+        commands::plugins::plugin_manager_snapshot_for_service(state.svc.clone()),
+    )
+    .await
+    .map(Json)
 }
 
 /// Web-mirror twin of the `plugin_manager_action` Tauri command.
@@ -860,18 +867,29 @@ pub async fn plugin_bubble(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Json(req): Json<BubbleReq>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    commands::plugins::bubble_poll(
-        state
-            .svc
-            .ext::<codeterm_service_core::bubble::BubbleRegistryHandle>(),
-        &req.plugin_id,
-        req.ctx.unwrap_or(serde_json::Value::Null),
-    )
+) -> Result<Json<serde_json::Value>, crate::request_bound::RequestError> {
+    use crate::request_bound::{bounded, unavailable, RequestSlot, PLUGIN_DEADLINE};
+    check_auth(&state, &headers)
+        .map_err(|(status, error)| (status, unavailable("unauthorized", error).1))?;
+    let slot = RequestSlot::acquire(format!("bubble:{}", req.plugin_id))?;
+    let registry = state
+        .svc
+        .ext::<codeterm_service_core::bubble::BubbleRegistryHandle>()
+        .clone();
+    let runtime = tokio::runtime::Handle::current();
+    let worker = tokio::task::spawn_blocking(move || {
+        let _slot = slot;
+        runtime.block_on(commands::plugins::bubble_poll(
+            &registry,
+            &req.plugin_id,
+            req.ctx.unwrap_or(serde_json::Value::Null),
+        ))
+    });
+    bounded(PLUGIN_DEADLINE, async {
+        worker.await.map_err(|error| error.to_string())?
+    })
     .await
     .map(Json)
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
 }
 
 #[derive(serde::Deserialize)]

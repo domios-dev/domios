@@ -13,7 +13,9 @@ export const AnalyticsTray = forwardRef<HTMLButtonElement, { open: boolean; onTo
     // The tray is in the titlebar from first paint, so it asks for the snapshot
     // rather than waiting for whoever opens the plugins panel to ask first.
     useEffect(() => {
-      void ensurePluginSnapshot({ background: true }).catch(() => {});
+      const controller = new AbortController();
+      void ensurePluginSnapshot({ background: true, signal: controller.signal }).catch(() => {});
+      return () => controller.abort();
     }, []);
     if (!isAnalyticsAvailable(snapshot.plugins)) return null;
     return (
