@@ -57,6 +57,16 @@ Admission lowers a v2 document to the runtime representation or returns an expli
 
 Supported pipeline nodes are `code`, fixed `run` commands and `uses: http`, `github`, `ask`, `filter`, `convert` and `agent`. Parameters are explicit value forms. `ask` declares its `buckets` on the node. HTTP outcomes are `up`, `down`, `failed`; GitHub outcomes depend on `resource`; filters may declare a bucket. Commands, conversion and agent tasks return `done` or `failed`. Unspecified failure routes stop; other unspecified outcomes continue. Inputs and outputs must agree with the supported media chain. `result.to` accepts `owner`, `team`, `notify` or `tab:<id>`.
 
+Command steps default to a 10-second runtime on every platform. Override it on the node with `timeout: {lit: 30s}` (also accepts an author input). The timeout must be positive and at most 60 seconds; invalid values receive a positioned checker diagnostic. For example:
+
+```yaml
+- id: inspect
+  run: {lit: git status --short}
+  timeout: {lit: 30s}
+```
+
+Watcher probes also default to 10 seconds on every platform. Each watcher runs concurrently, so a slow probe delays its own verdict while the scheduler and other watchers continue. Command and probe runtime budgets start when the direct child's spawn call returns, excluding its exec authorization delay. Runtime is followed by bounded cleanup of up to 500 ms (one quarter of a shorter budget): the total is runtime plus that reserve, capped by the caller's remaining run deadline. A shorter caller deadline reserves cleanup within that total and may interrupt execution earlier; expiry produces a typed `Deadline`.
+
 A schedule trigger has `every: {lit: 20s}`. Input triggers have a media `kind` and a `source` literal containing `text`, an absolute `file` path or an HTTP(S) `url`; a string source denotes text. Event triggers name an installed capability kind and explicit parameters. Runtime availability is checked at apply.
 
 ## Code nodes
@@ -152,4 +162,4 @@ Only the Team Orchestrator keeps solutions. Supply one to five intents, preferab
 
 Full recipe purposes and inputs: `domios docs BLUEPRINT-RECIPES`.
 
-<!-- revision: 50 -->
+<!-- revision: 51 -->

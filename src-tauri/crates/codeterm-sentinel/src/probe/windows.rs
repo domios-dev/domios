@@ -193,7 +193,10 @@ pub fn run_with_assignment(
         return run.finish_failure();
     }
     #[cfg(any(test, feature = "test-support"))]
-    cancellation.spawned(run.child_id);
+    {
+        cancellation.record_deadlines(run.deadlines);
+        cancellation.spawned(run.child_id);
+    }
     #[cfg(any(test, feature = "test-support"))]
     match cancellation.child_ready(run.deadlines) {
         Ok(deadlines) => run.deadlines = deadlines,
@@ -402,7 +405,7 @@ impl WindowsRun {
             self.fail("probe_cancelled");
             return Err("probe_cancelled".into());
         }
-        let created = unsafe {
+        let created = self.deadlines.spawn_with(|| unsafe {
             CreateProcessW(
                 null(),
                 command_line.as_mut_ptr(),
@@ -415,7 +418,7 @@ impl WindowsRun {
                 &startup.StartupInfo as *const _,
                 &mut information,
             )
-        } != 0;
+        } != 0, Instant::now);
         unsafe { DeleteProcThreadAttributeList(attributes) };
         if !created {
             return Err(last_error());

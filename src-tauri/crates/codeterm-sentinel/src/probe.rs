@@ -29,10 +29,7 @@ pub mod test_receipt;
 #[cfg(test)]
 mod tests;
 
-#[cfg(windows)]
 pub const PROBE_RUNTIME: Duration = Duration::from_secs(10);
-#[cfg(not(windows))]
-pub const PROBE_RUNTIME: Duration = Duration::from_secs(3);
 #[cfg(any(test, feature = "test-support"))]
 pub const MAX_OUTPUT_BYTES: usize = 65_536;
 
@@ -115,12 +112,13 @@ pub fn run_enveloped(
     command: &str,
     cwd: &Path,
     limit: Duration,
+    runtime: Duration,
     owner: &Arc<owner::ProbeResourceOwner>,
     environment: &environment::Environment,
     envelope: &codeterm_blueprint_types::blueprint_execution::ExecutionEnvelope,
     cancellation: &cancellation::Cancellation,
 ) -> Result<Output, process::ProbeFailure> {
-    let deadlines = process::Deadlines::start(limit, limit)?;
+    let deadlines = process::Deadlines::start(limit, runtime)?;
     let bytes = envelope
         .encode()
         .map_err(|_| process::ProbeFailure::new("contract_violation"))?;
@@ -194,19 +192,23 @@ fn run_with_runtime_and_receipt(
     let admitted = std::time::Instant::now();
     let deadlines =
         process::Deadlines::at(limit, runtime, admitted).map_err(|failure| (failure, None))?;
-    let receipt = deadlines.receipt();
-    run_transaction(
+    let signal = cancellation::Cancellation::default();
+    let result = run_transaction(
         command,
         cwd,
         deadlines,
         owner,
-        &cancellation::Cancellation::default(),
+        &signal,
         false,
         environment,
         None,
-    )
-    .map(|output| (output, receipt))
-    .map_err(|failure| (failure, Some(receipt)))
+    );
+    let receipt = signal
+        .deadline_receipt()
+        .unwrap_or_else(|| deadlines.receipt());
+    result
+        .map(|output| (output, receipt))
+        .map_err(|failure| (failure, Some(receipt)))
 }
 
 pub fn run_cancellable(

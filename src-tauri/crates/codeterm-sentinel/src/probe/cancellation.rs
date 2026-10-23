@@ -28,6 +28,8 @@ struct State {
     spawn_observer: Option<std::sync::mpsc::Sender<u32>>,
     #[cfg(any(test, feature = "test-support"))]
     diagnostics: Vec<String>,
+    #[cfg(any(test, feature = "test-support"))]
+    deadline_receipt: Option<super::process::DeadlineReceipt>,
     #[cfg(all(any(test, feature = "test-support"), windows))]
     fixture_argv: Option<Arc<[String]>>,
 }
@@ -153,6 +155,14 @@ pub enum WaitPhase {
 
 #[cfg(any(test, feature = "test-support"))]
 impl Cancellation {
+    pub fn record_deadlines(&self, deadlines: super::process::Deadlines) {
+        self.state.lock().deadline_receipt = Some(deadlines.receipt());
+    }
+
+    pub fn deadline_receipt(&self) -> Option<super::process::DeadlineReceipt> {
+        self.state.lock().deadline_receipt
+    }
+
     pub fn with_readiness(
         ready: impl Fn() -> Result<super::process::Deadlines, String> + Send + Sync + 'static,
     ) -> Self {

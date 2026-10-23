@@ -9,6 +9,52 @@ pub(super) fn run(
     input: &ExecutionEnvelope,
     limit: Duration,
 ) -> StepResult {
+    run_with_probe(
+        handle,
+        lease,
+        step,
+        input,
+        limit,
+        |command, limit, runtime, input| {
+            let environment = crate::probe_env::command();
+            if matches!(step.kind, StepKind::Command { .. }) {
+                probe::run_enveloped(
+                    command,
+                    Path::new(&lease.job.cwd),
+                    limit,
+                    runtime,
+                    &handle.probe_owner,
+                    &environment,
+                    input,
+                    &lease.cancelled,
+                )
+            } else {
+                probe::run_with_budget(
+                    command,
+                    Path::new(&lease.job.cwd),
+                    limit,
+                    runtime,
+                    &handle.probe_owner,
+                    &environment,
+                )
+            }
+        },
+    )
+}
+
+fn run_with_probe(
+    handle: &Handle,
+    lease: &Lease,
+    step: &Step,
+    input: &ExecutionEnvelope,
+    limit: Duration,
+    probe: impl FnOnce(
+        &str,
+        Duration,
+        Duration,
+        &ExecutionEnvelope,
+    ) -> Result<probe::Output, probe::process::ProbeFailure>,
+) -> StepResult {
     let previous = input.payload_text();
     if let StepKind::Http { probe } = &step.kind {
         if let Err(reason) = probe.validate() {
@@ -39,7 +85,10 @@ pub(super) fn run(
         return reading_result(step, probe.reading(code));
     }
     let (command, runtime) = match &step.kind {
-        StepKind::Command { command } => (command.clone(), probe::PROBE_RUNTIME),
+        StepKind::Command {
+            command,
+            timeout_ms,
+        } => (command.clone(), Duration::from_millis(*timeout_ms)),
         StepKind::Github { probe } => match probe.command() {
             Ok(command) => (command, Duration::from_millis(probe.timeout_ms)),
             Err(reason) => return failed_input_step(&reason),
@@ -50,29 +99,9 @@ pub(super) fn run(
         .job
         .expires_at
         .map(|at| Duration::from_millis(at.saturating_sub(now(handle))))
-        .unwrap_or(runtime)
+        .unwrap_or(Duration::MAX)
         .min(limit);
-    let environment = crate::probe_env::command();
-    let result = if matches!(step.kind, StepKind::Command { .. }) {
-        probe::run_enveloped(
-            &command,
-            Path::new(&lease.job.cwd),
-            remaining.min(runtime),
-            &handle.probe_owner,
-            &environment,
-            input,
-            &lease.cancelled,
-        )
-    } else {
-        probe::run_with_budget(
-            &command,
-            Path::new(&lease.job.cwd),
-            remaining,
-            runtime,
-            &handle.probe_owner,
-            &environment,
-        )
-    };
+    let result = probe(&command, remaining, runtime, input);
     match result {
         Ok(output) => {
             #[cfg(any(test, feature = "test-support"))]
@@ -179,3 +208,6 @@ fn reading_result(step: &Step, reading: SourceReading) -> StepResult {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod budget_tests;
