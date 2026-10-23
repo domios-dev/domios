@@ -65,3 +65,83 @@ fn a_parked_vault_lookup_leaves_the_async_runtime_serving_other_tasks() {
         .expect("lookup result");
     assert_eq!(secret.value.expose_secret(), "v");
 }
+
+const SENTINEL: &str = "SENTINEL-VALUE-7f3a";
+
+struct Scripted(serde_json::Value);
+
+impl PluginCalls for Scripted {
+    fn has_method(&self, _: &str) -> bool {
+        true
+    }
+
+    fn call(&self, _: &str, _: &[serde_json::Value]) -> Result<serde_json::Value, VmError> {
+        Ok(self.0.clone())
+    }
+}
+
+struct Throwing;
+
+impl PluginCalls for Throwing {
+    fn has_method(&self, _: &str) -> bool {
+        true
+    }
+
+    fn call(&self, _: &str, _: &[serde_json::Value]) -> Result<serde_json::Value, VmError> {
+        Err(VmError::Script(format!(
+            "bw exited 1: {{\"password\":\"{SENTINEL}\"}}"
+        )))
+    }
+}
+
+fn backend(plugin: impl PluginCalls) -> JsSecretBackend {
+    JsSecretBackend::new(Arc::new(plugin), "scripted-vault", false)
+}
+
+fn runtime() -> tokio::runtime::Runtime {
+    tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("runtime")
+}
+
+fn leaked_items() -> serde_json::Value {
+    json!([{ "item_id": "i1", "name": "token", "login": { "password": SENTINEL }, "notes": SENTINEL }])
+}
+
+#[test]
+fn a_backend_error_carrying_item_values_never_reaches_the_error() {
+    let rt = runtime();
+    let envelope = json!({ "error": { "kind": "backend", "message": leaked_items().to_string() } });
+    let errors = [
+        rt.block_on(backend(Scripted(envelope)).list(ListFilter::default()))
+            .unwrap_err(),
+        rt.block_on(backend(Throwing).list(ListFilter::default()))
+            .unwrap_err(),
+        rt.block_on(
+            backend(Scripted(json!({ "ok": { "value": SENTINEL } }))).list(ListFilter::default()),
+        )
+        .unwrap_err(),
+        rt.block_on(backend(Scripted(leaked_items())).list(ListFilter::default()))
+            .unwrap_err(),
+        rt.block_on(backend(Throwing).get("token")).unwrap_err(),
+        rt.block_on(backend(Throwing).delete("token")).unwrap_err(),
+        rt.block_on(backend(Throwing).unlock(UnlockCredentials::with_password("pw".into())))
+            .unwrap_err(),
+    ];
+    for err in errors {
+        assert!(matches!(err, SecretError::Backend { .. }));
+        assert!(!format!("{err} {err:?}").contains(SENTINEL));
+    }
+    let status = rt.block_on(backend(Throwing).status());
+    assert!(!format!("{status:?}").contains(SENTINEL));
+}
+
+#[test]
+fn a_successful_list_with_value_fields_returns_metadata_only() {
+    let items = runtime()
+        .block_on(backend(Scripted(json!({ "ok": leaked_items() }))).list(ListFilter::default()))
+        .expect("list");
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].item_id, "i1");
+    assert!(!format!("{items:?}").contains(SENTINEL));
+}
