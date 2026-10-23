@@ -91,7 +91,9 @@ impl Environment {
                 ));
             }
         }
-        paths.retain(|path| !cli_dirs.iter().any(|cli| same_directory(path, cli)));
+        paths.retain(|path| {
+            !cli_dirs.iter().any(|cli| same_directory(path, cli)) && !holds_domios_cli(path)
+        });
         variables.push((
             "PATH".into(),
             std::env::join_paths(paths).unwrap_or_default(),
@@ -117,6 +119,15 @@ impl Environment {
         }
         block
     }
+}
+
+// Any instance's launcher (prod, dev, named dev) is excluded, not only the running one.
+fn holds_domios_cli(directory: &Path) -> bool {
+    ["domios", "codeterm"].iter().any(|name| {
+        ["", ".exe", ".cmd", ".bat", ".ps1"]
+            .iter()
+            .any(|extension| directory.join(format!("{name}{extension}")).is_file())
+    })
 }
 
 fn same_directory(left: &Path, right: &Path) -> bool {
