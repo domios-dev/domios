@@ -1,28 +1,22 @@
 import { frontendCheckpointClientId, frontendUpdateDiagnostic } from "../lib/frontendUpdate/bootstrapModel";
 import { frontendApiContract } from "../lib/frontendApiContract";
 import { frontendBootDiagnostic } from "../lib/frontendBootDiagnostic";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { DeferredLoader } from "@codeterm/chat-ui/DeferredLoader";
+import { BrandState } from "./brand/BrandState";
+import { bootstrapStatusModel } from "./bootstrapStatusModel";
 import { baseDaemonTransport, FRONTEND_BOOT_KEY, onDaemonTransport } from "../lib/daemonBootstrap";
 import { initializeBrowserFrontendUpdates } from "../lib/frontendUpdate/browser";
 import type { BootContext } from "../lib/frontendUpdate/client";
 import { getResizeClientId } from "../lib/resizeOwner";
 import { waitForServerReady, type StartupPhase } from "../lib/serverReadiness";
 
-const startupPhaseLabels: Record<StartupPhase, string> = {
-  listener: "Opening API listener",
-  integrity: "Verifying resources",
-  states: "Initializing state",
-  providers: "Registering providers",
-  service: "Preparing service",
-  plans: "Loading plans",
-  background: "Starting background services",
-  platform: "Preparing platform",
-};
-
 export function DaemonFrontendBootstrap({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [startupFailed, setStartupFailed] = useState(false);
   const [startupPhase, setStartupPhase] = useState<StartupPhase | null>(null);
+  const wasReady = useRef(false);
+  if (ready) wasReady.current = true;
   useEffect(() => {
     let generation = 0;
     let dispose: (() => void) | undefined;
@@ -80,6 +74,10 @@ export function DaemonFrontendBootstrap({ children }: { children: ReactNode }) {
     baseDaemonTransport();
     return () => { ++generation; startupWait?.abort(); stop(); dispose?.(); };
   }, []);
-  if (startupFailed) return <div role="alert">Domios could not finish starting.</div>;
-  return ready ? children : <div role="status" aria-live="polite">Starting Domios…{startupPhase && ` ${startupPhaseLabels[startupPhase]}`}</div>;
+  if (ready) return children;
+  const status = <BrandState model={bootstrapStatusModel(startupFailed, startupPhase)} />;
+  // The index.html cover owns the first seconds; only a reconnect after a ready app defers so a fast one never flashes.
+  return wasReady.current && !startupFailed
+    ? <DeferredLoader state="present" className="fixed inset-0">{status}</DeferredLoader>
+    : <div className="fixed inset-0">{status}</div>;
 }
