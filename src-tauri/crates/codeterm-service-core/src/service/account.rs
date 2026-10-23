@@ -7,8 +7,10 @@ use std::{sync::Arc, time::Duration};
 pub struct AccountCell(pub Arc<tokio::sync::OnceCell<Arc<Account>>>);
 
 mod credentials;
+pub(crate) use credentials::AccountCredentialCell;
 pub use credentials::AccountCredentials;
-pub(crate) use credentials::{AccountCredentialCell, AccountDataRoot};
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) use credentials::AccountDataRoot;
 struct AnalyticsIdentity(codeterm_analytics::Worker);
 #[async_trait]
 impl codeterm_account::IdentityObserver for AnalyticsIdentity {
