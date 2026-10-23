@@ -25,7 +25,7 @@ test("General sidebar disclosures persist, navigate to original shells and open 
     generalWorkspaceId: workspaces[0].id, workspaces, teams, tabs, touchMode: true, onCloseTab: () => {}, onRenameTab: () => {},
     onNavigate: (workspaceId: string, tabId: string) => navigated.push([workspaceId, tabId]),
     jobs: mergeJobs(NO_JOBS_FILTER, [{ ...teamCron, workspace_id: workspaces[0].id }], []),
-    inventory: { services: [daemon, schedule], peers: [], thisMachine: { name: "Local", ip: "127.0.0.1" }, loading: false, error: null, refresh: () => {} },
+    inventory: { services: [daemon, schedule], peers: [], thisMachine: { name: "Local", ip: "127.0.0.1" }, loading: false, error: null, loaded: true, refresh: () => {} },
   };
   const view = await mount(<GeneralInventorySections {...props} />);
   const toggle = (name: string) => view.host.querySelector<HTMLButtonElement>(`section[aria-label="${name}"] button[aria-expanded]`)!;
@@ -148,7 +148,7 @@ test("system Cron row toggles once and renders deletion unavailable", async () =
 test("General hides failed empty groups even when Show all is available", async () => {
   let opened = 0;
   const view = await mount(<GeneralInventorySections generalWorkspaceId="general" workspaces={workspaces} teams={teams} tabs={{}}
-    inventory={{ services: [], peers: [], thisMachine: { name: "Local", ip: "" }, loading: false, error: "transient", refresh: () => {} }} jobs={[]} jobsFailed
+    inventory={{ services: [], peers: [], thisMachine: { name: "Local", ip: "" }, loading: false, error: "transient", loaded: true, refresh: () => {} }} jobs={[]} jobsFailed
     onCloseTab={() => {}} onRenameTab={() => {}} onNavigate={() => {}} onShowAllJobs={() => { opened++; }} />);
   try {
     const showAll = view.host.querySelector<HTMLButtonElement>('section[aria-label="Jobs"] button[aria-label="Show all jobs"]');

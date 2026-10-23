@@ -13,10 +13,12 @@ const inventory: MeshDataResult = {
   thisMachine: { name: "Local", ip: "127.0.0.1" },
   services: [daemon, schedule],
   peers: [{ instance_id: "remote", name: "Remote machine", ip: "100.64.0.1", api_port: 7686, online: false, access_level: "full", last_seen: null, relay_protocol_version: 2 }],
-  loading: false, error: "inventory request failed", refresh: () => {},
+  loading: false, error: "inventory request failed", loaded: true, refresh: () => {},
 };
+let meshData = inventory;
+const refreshKeys: number[] = [];
 
-vi.mock("./useMeshData", () => ({ useMeshData: () => inventory }));
+vi.mock("./useMeshData", () => ({ useMeshData: (refreshKey: number) => { refreshKeys.push(refreshKey); return meshData; } }));
 vi.mock("../Jobs/JobsView", () => ({ JobsView: () => <section aria-label="Jobs" /> }));
 vi.mock("../../lib/bridge", async (original) => ({
   ...await original<typeof import("../../lib/bridge")>(),
@@ -31,6 +33,43 @@ vi.mock("@codeterm/canvas-camera", async (original) => ({
   formatLayerTransform: () => "",
   useCanvasViewport: () => ({ containerRef: { current: null }, layerRef: { current: null }, transform: { x: 0, y: 0, scale: 1 }, handlers: {}, fitToView: () => {}, zoomBy: () => {} }),
 }));
+
+it("shows the inventory as unavailable instead of an empty graph when the first load fails", async () => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const config = { api: { port: 7686, token: "private-token" }, mesh: { enabled: true } } as AppConfig;
+  meshData = {
+    thisMachine: { name: "this", ip: "127.0.0.1" }, services: [], peers: [],
+    loading: false, error: "request timed out", loaded: false, refresh: () => {},
+  };
+  try {
+    await act(async () => root.render(<MeshPanel api={config.api} config={config} onConfigUpdate={async () => {}} onClose={() => {}} />));
+    const view = host.querySelector('section[aria-label="Mesh inventory"]');
+    expect(view?.textContent).toContain("Mesh data is unavailable.");
+    expect(host.querySelector('[role="status"]')?.textContent).toBe("Mesh data is unavailable.");
+    expect(host.querySelector('button[aria-label="Add a machine from My machines"]')).toBeNull();
+    expect(host.querySelector('[role="region"][aria-label="Mesh UI"]')).toBeNull();
+    expect(host.textContent).not.toContain("0 peers");
+    expect(host.textContent).not.toContain("127.0.0.1");
+
+    const before = refreshKeys[refreshKeys.length - 1];
+    const retry = Array.from(view!.querySelectorAll("button")).find((button) => button.textContent?.includes("Retry"));
+    await act(async () => retry!.click());
+    expect(refreshKeys[refreshKeys.length - 1]).toBe(before + 1);
+
+    meshData = { ...inventory, error: null };
+    await act(async () => retry!.click());
+    expect(host.querySelector('section[aria-label="Mesh inventory"]')).toBeNull();
+    expect(host.querySelector('[role="region"][aria-label="Mesh UI"]')).not.toBeNull();
+    expect(host.textContent).toContain("1 peer");
+  } finally {
+    meshData = inventory;
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
 
 it("dismisses the peer drawer before closing Mesh on the next Escape", async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
