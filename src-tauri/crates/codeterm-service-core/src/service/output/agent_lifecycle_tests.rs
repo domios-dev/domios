@@ -230,10 +230,11 @@ fn planner_shell_like_live_tui_preserves_identity_across_snapshot_reload() {
             "\x1b[2J\x1b[H  GPT-5.6 Codex\r\n  Working in D:\\Developer\\codeterm\r\n\r\n› continue\r\nshell{suffix}"
         );
         {
-            let mut screen_state = harness.service.screen_state.lock();
-            screen_state.process("pty-planner", frame.as_bytes());
+            let screen_state = harness.service.screen_state.pty("pty-planner");
+            let mut screen_state = screen_state.lock_for_update();
+            screen_state.process(frame.as_bytes());
             assert!(super::screen_ends_in_shell_prompt(
-                &screen_state.get_screen_text("pty-planner").unwrap()
+                &screen_state.get_screen_text().unwrap()
             ));
         }
         harness

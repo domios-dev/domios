@@ -141,6 +141,7 @@ impl Clock for TestClock {
 pub struct Script {
     pub membership: Option<RegistryRefusal>,
     pub lose_membership_reply: Option<RegistryRefusal>,
+    pub lose_key_reply: Option<RegistryRefusal>,
     pub publication: Option<RegistryRefusal>,
     pub permit: Option<RegistryRefusal>,
     pub gate: Option<Arc<Notify>>,
@@ -156,6 +157,7 @@ struct Account {
     slot: Option<u64>,
     metadata_revision: u64,
     endpoint: Option<MeshEndpointObservation>,
+    inactive: bool,
 }
 
 /// Server double: checks every installation proof against the enrolled key and the exact
@@ -238,6 +240,13 @@ impl FakeRegistry {
         self.accounts.lock().unwrap().get(uid).and_then(|a| a.slot)
     }
 
+    pub fn revoke_self(&self, uid: &str) {
+        let mut accounts = self.accounts.lock().unwrap();
+        let account = accounts.get_mut(uid).expect("account");
+        account.slot = None;
+        account.inactive = true;
+    }
+
     pub fn endpoint(&self, uid: &str) -> Option<MeshEndpointObservation> {
         self.accounts
             .lock()
@@ -258,6 +267,7 @@ impl FakeRegistry {
         own.key_id = key_id.to_owned();
         own.key_generation = account.map_or(1, |a| a.key_generation.max(1));
         own.slot_revision = account.and_then(|a| a.slot).unwrap_or(1);
+        own.active = account.is_none_or(|account| !account.inactive);
         own.endpoint = account.and_then(|a| a.endpoint.clone());
         let mut peer = row(PEER, 0, Some("Laptop"));
         peer.endpoint = (!peer_unpublished).then(|| MeshEndpointObservation {
@@ -324,6 +334,9 @@ impl MeshRegistry for FakeRegistry {
         }
         account.key = Some(spki);
         account.key_generation = generation;
+        if let Some(refusal) = self.script.lock().unwrap().lose_key_reply.take() {
+            return Err(refusal);
+        }
         Ok(KeyEnrollment {
             generation,
             key_id: request.proof.key_id.clone(),
@@ -397,6 +410,7 @@ impl MeshRegistry for FakeRegistry {
                     _ => return Err(RegistryRefusal::Invalid),
                 };
                 account.slot = Some(slot);
+                account.inactive = false;
                 let payload =
                     Issuer::membership_payload(&uid, &proof.key_id, proof.generation, slot, now);
                 let result = MeshResult::Membership(MembershipResult {
@@ -564,6 +578,7 @@ impl InstallationKeyStore for MemoryKeys {
 pub struct MemoryStore {
     pub record: Mutex<AccountMeshRecord>,
     pub corrupt: Mutex<bool>,
+    pub fail_save: Mutex<bool>,
     log: Log,
 }
 #[async_trait]
@@ -575,6 +590,9 @@ impl AccountMeshStore for MemoryStore {
         Ok(self.record.lock().unwrap().clone())
     }
     async fn save(&self, record: &AccountMeshRecord) -> io::Result<()> {
+        if *self.fail_save.lock().unwrap() {
+            return Err(io::ErrorKind::PermissionDenied.into());
+        }
         note(&self.log, format!("save:signed_out={}", record.signed_out));
         *self.record.lock().unwrap() = record.clone();
         Ok(())
@@ -660,6 +678,7 @@ impl Harness {
         let store = Arc::new(MemoryStore {
             record: Mutex::default(),
             corrupt: Mutex::new(corrupt),
+            fail_save: Mutex::new(false),
             log: log.clone(),
         });
         let transport = Arc::new(FakeTransport {

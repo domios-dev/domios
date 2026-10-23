@@ -204,8 +204,9 @@ pub(crate) fn replace_vectors(
     if embedder.identity() != *identity {
         return Err("mixed-model Blueprint vectors refused".into());
     }
-    let tx = conn
-        .unchecked_transaction()
+    // The embedding worker shares this WAL database; acquire the writer before
+    // reading so its commit cannot invalidate a deferred read-to-write upgrade.
+    let tx = rusqlite::Transaction::new_unchecked(conn, rusqlite::TransactionBehavior::Immediate)
         .map_err(|error| error.to_string())?;
     let live: bool = tx
         .query_row(

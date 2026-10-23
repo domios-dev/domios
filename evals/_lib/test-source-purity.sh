@@ -44,7 +44,7 @@ cat > "$FIXTURE/hostile/curl" <<'CURL'
 #!/usr/bin/env bash
 [ -z "${CURL_LOG:-}" ] || printf '%s\n' "$*" >> "$CURL_LOG"
 [ "${DEV_DOWN:-0}" != 1 ] || exit 7
-printf '{"status":"ok","build_sha":"1111111111111111111111111111111111111111","instance":{"name":"","api_port":"7686","vite_port":"1420","cdp_port":"9223"}}\n'
+printf '{"status":"ok","startup":{"state":"%s"},"build_sha":"1111111111111111111111111111111111111111","instance":{"name":"","api_port":"7686","vite_port":"1420","cdp_port":"9223"}}\n' "${HEALTH_STATE:-ready}"
 CURL
 
 cat > "$FIXTURE/hostile/codeterm" <<'PROD'
@@ -86,7 +86,7 @@ CAPTURE='
 
 probe() {
   HOME="$FIXTURE/home" PATH="$FIXTURE/hostile:$PATH" \
-    CURL_LOG="${CURL_LOG:-}" DEV_DOWN="${DEV_DOWN:-0}" \
+    CURL_LOG="${CURL_LOG:-}" DEV_DOWN="${DEV_DOWN:-0}" HEALTH_STATE="${HEALTH_STATE:-ready}" \
     bash -c "$SCRUB$1" _ "$LIB" "$FIXTURE"
 }
 
@@ -165,6 +165,14 @@ if grep -q CLI_SAW <<<"$down_output"; then
 fi
 if grep -q FAKE_PROD_CLI_WON <<<"$down_output"; then
   fail "dc fell back to the PATH binary when dev was unreachable"
+fi
+
+set +e
+starting_output="$(HEALTH_STATE=starting probe 'source "$1"; dc whoami' 2>&1)"
+starting_status=$?
+set -e
+if [ "$starting_status" -eq 0 ] || grep -q CLI_SAW <<<"$starting_output" || ! grep -Fq "ERROR [dev-target]" <<<"$starting_output"; then
+  fail "dc invoked the CLI before the selected daemon was ready: $starting_output"
 fi
 
 # --- 7. dev_run composes the connection for a non-CLI child ----------

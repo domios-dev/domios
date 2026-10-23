@@ -112,7 +112,7 @@ impl KeySources {
         if path.is_file() {
             if matches!(owner_only(&path), Ok(false)) {
                 return Err(format!(
-                    "{} is readable by other users; restrict it to its owner (chmod 600)",
+                    "{} is not owner-only; replace it with domios mem embedder key set {provider} (key on piped stdin); manual Unix/Windows permissions: domios docs MEMORY",
                     path.display()
                 ));
             }
@@ -229,13 +229,14 @@ impl GateRefusal {
     pub fn hints(&self) -> Vec<String> {
         let mut hints = Vec::new();
         if self.missing_key {
-            let quoted =
-                |path: &Path| format!("'{}'", path.to_string_lossy().replace('\'', "'\"'\"'"));
-            let directory = quoted(self.key_file.parent().unwrap_or(Path::new(".")));
-            let file = quoted(&self.key_file);
             hints.push(format!(
-                "the owner stores the key via stdin (Unix): umask 077; mkdir -p {directory} && cat > {file} && chmod 600 {file}   (paste the key, then Ctrl-D)"
+                "store the key via piped stdin: domios mem embedder key set {} (writes {})",
+                self.provider,
+                self.key_file.display()
             ));
+            hints.push(
+                "manual fallback: domios docs MEMORY has separate Unix and Windows owner-only file recipes".into()
+            );
             hints.push(format!(
                 "or in the secret store: domios mem secret save --name {}   (key on stdin)",
                 self.vault_name

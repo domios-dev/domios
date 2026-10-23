@@ -102,6 +102,23 @@ fn corrupt_peers_file_is_held_not_emptied() {
 }
 
 #[test]
+fn unreadable_peers_file_does_not_overwrite_link_ledger() {
+    let dir = TempDir::new();
+    let path = dir.0.join("peers.json");
+    let ledger_path = account_mesh_ledger_path(&path);
+    let original = LinkLedger {
+        owner_account: Some("account-a".into()),
+        ..LinkLedger::default()
+    };
+    std::fs::write(&ledger_path, serde_json::to_vec(&original).unwrap()).unwrap();
+    let original_bytes = std::fs::read(&ledger_path).unwrap();
+    std::fs::write(&path, b"{ unreadable").unwrap();
+
+    assert!(save_peers_at(&path, &HashMap::new(), &LinkLedger::default()).is_err());
+    assert_eq!(std::fs::read(&ledger_path).unwrap(), original_bytes);
+}
+
+#[test]
 fn account_mesh_ledger_survives_an_old_peers_writer() {
     use crate::account_mesh::ledger::{LinkAdmission, LinkRecord};
 

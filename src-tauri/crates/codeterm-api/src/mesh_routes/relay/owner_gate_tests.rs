@@ -101,24 +101,30 @@ fn app_state(fixture: &codeterm_service_core::service::test_fixture::ServiceFixt
 }
 
 #[test]
-fn an_in_flight_relay_response_is_replaced_after_the_peer_gate_closes() {
+fn relay_fences_a_closed_peer_before_forwarding() {
     let (mux, _) = mux_with_tabs();
     let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
     let state = app_state(&fixture);
     assert!(state.mesh.lock().traffic_open(ISOLATED_PEER));
 
-    let protected = RelayResponse {
+    let completed = RelayResponse {
         ok: true,
         status: StatusCode::OK.as_u16(),
         error: None,
         data: Some(serde_json::json!({"protected": "mesh data"})),
     };
-    state.mesh.lock().unpair(ISOLATED_PEER);
+    state.mesh.lock().unpair(ISOLATED_PEER).unwrap();
 
-    let fenced = fence_relay_response(&state, ISOLATED_PEER, protected);
-    assert!(!fenced.ok);
-    assert_eq!(fenced.status, StatusCode::FORBIDDEN.as_u16());
-    assert_ne!(fenced.data.unwrap()["protected"], "mesh data");
+    assert!(relay_prewrite_refusal(&state, ISOLATED_PEER).is_some());
+    assert!(
+        completed.ok,
+        "a completed PTY result is never replaced by a later gate change"
+    );
+    assert!(
+        outcome_holds_dedupe(&completed),
+        "the written result remains deduped"
+    );
+    assert_eq!(completed.data.unwrap()["protected"], "mesh data");
 }
 
 fn relay_command(method: &str, path: String) -> RelayCommand {

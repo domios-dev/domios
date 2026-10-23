@@ -21,6 +21,14 @@ pub(super) fn tighten(path: &Path) -> io::Result<()> {
 }
 
 pub(super) fn copy_tightened(source: &Path, target: &Path) -> io::Result<()> {
+    copy_with_policy(source, target, false)
+}
+
+pub(super) fn tighten_directory(path: &Path) -> io::Result<()> {
+    copy_with_policy(path, path, true)
+}
+
+fn copy_with_policy(source: &Path, target: &Path, directory: bool) -> io::Result<()> {
     let user = CurrentUser::open()?;
     let (_descriptor, original) = read_dacl(source)?;
     let length = if original.is_null() {
@@ -73,7 +81,11 @@ pub(super) fn copy_tightened(source: &Path, target: &Path) -> io::Result<()> {
             }
         }
     }
-    write_acl(target, &access_entry(&user, GRANT_ACCESS), filtered)
+    let mut owner = access_entry(&user, GRANT_ACCESS);
+    if directory {
+        owner.grfInheritance = windows_sys::Win32::Security::SUB_CONTAINERS_AND_OBJECTS_INHERIT;
+    }
+    write_acl(target, &owner, filtered)
 }
 
 pub(super) fn copy_permissions(source: &Path, target: &Path) -> io::Result<()> {

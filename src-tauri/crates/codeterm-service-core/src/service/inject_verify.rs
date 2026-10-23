@@ -280,14 +280,13 @@ pub fn snapshot_prompt_line(
     tail_rows: usize,
 ) -> String {
     let tail = screen_state
-        .lock()
         .tail_text(pty_id, tail_rows)
         .unwrap_or_default();
     last_nonempty_line(&tail).to_string()
 }
 
 pub fn snapshot_screen_hash(screen_state: &ScreenStateHandle, pty_id: &str) -> Option<[u8; 32]> {
-    screen_state.lock().get_content_hash(pty_id, 0)
+    screen_state.get_content_hash(pty_id, 0)
 }
 
 pub fn wait_for_submit_shell(
@@ -297,16 +296,16 @@ pub fn wait_for_submit_shell(
     timeout: Duration,
     tail_rows: usize,
 ) -> Result<String, HelperErr> {
-    let signal = screen_state.lock().arm_screen_change_signal(pty_id);
+    let signal = screen_state.arm_screen_change_signal(pty_id);
     let deadline = std::time::Instant::now() + timeout;
     let mut generation = signal.generation();
     loop {
         let (tail_opt, hash_now) = {
-            let s = screen_state.lock();
-            (
-                s.tail_text(pty_id, tail_rows),
-                s.get_content_hash(pty_id, 0),
-            )
+            let s = screen_state
+                .existing(pty_id)
+                .ok_or_else(|| HelperErr::PtyUnknown(pty_id.to_string()))?;
+            let mut s = s.lock();
+            (s.tail_text(tail_rows), s.get_content_hash(0))
         };
         let tail = match tail_opt {
             Some(t) => t,
@@ -330,16 +329,15 @@ pub fn wait_for_submit_shell(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lock_hold::TimedMutex;
     use crate::pty::screen_state::ScreenState;
     use std::sync::Arc;
 
     fn handle() -> ScreenStateHandle {
-        Arc::new(TimedMutex::new("screen_state", ScreenState::new()))
+        Arc::new(ScreenState::new())
     }
 
     fn feed(h: &ScreenStateHandle, pty: &str, bytes: &[u8]) {
-        h.lock().process(pty, bytes);
+        h.process(pty, bytes);
     }
 
     #[test]
@@ -483,11 +481,12 @@ mod tests {
     fn tail_text_preserves_the_wrap_column_character() {
         let h = handle();
         {
-            let mut state = h.lock();
-            state.resize("p1", 16, 50);
-            state.process("p1", b"status+body; live payloads confirm");
+            let state = h.pty("p1");
+            let mut state = state.lock_for_update();
+            state.resize(16, 50);
+            state.process(b"status+body; live payloads confirm");
         }
-        let tail = h.lock().tail_text("p1", TEST_TAIL_ROWS).unwrap();
+        let tail = h.tail_text("p1", TEST_TAIL_ROWS).unwrap();
         assert!(
             tail.replace('\n', "").contains("status+body; live"),
             "tail_text must retain the final character before the wrap: {tail:?}"

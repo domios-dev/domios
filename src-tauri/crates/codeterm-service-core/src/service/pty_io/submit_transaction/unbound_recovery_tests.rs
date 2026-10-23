@@ -211,7 +211,6 @@ fn launch_draft_nudge_presses_enter_only_on_a_parked_first_turn_draft() {
     fixture
         .service
         .screen_state
-        .lock()
         .process(&pty_id, "› ".as_bytes());
     assert_eq!(
         nudge_unbound_launch_draft(&fixture.service, &pty_id, draft, b"\r"),
@@ -221,7 +220,6 @@ fn launch_draft_nudge_presses_enter_only_on_a_parked_first_turn_draft() {
     fixture
         .service
         .screen_state
-        .lock()
         .process(&pty_id, draft.as_bytes());
     set_agent("launch-bound");
     assert_eq!(

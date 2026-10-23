@@ -7,15 +7,15 @@ REST, socket and CLI share authorization, PTY cleanup, events and hierarchy vali
 
 The CLI's local socket needs no TCP. Unix peer credentials or the Windows process-token SID restrict it to the daemon's OS user; the daemon owns authentication, signing, and transport.
 
-Every socket and mesh RPC envelope carries a `protocol_version`; an older or versionless client is refused with `-32002`. Wire shape: `domios docs API-TRANSPORT`.
+Socket/mesh envelopes require `protocol_version`; older or versionless clients get `-32002`. Wire: `domios docs API-TRANSPORT`.
 
 Human `domios workspace list` shows authoritative topology in stable creation order; inspect one tab with `domios tab inspect <id>` (whole-list JSON is automation-only). `workspace current --json` returns `{ "id", "source" }`, `source` one of `explicit`, `caller-tab`, `workspace-env`, `focus-fallback`. Resolution is never positional: `--workspace`, `$CODETERM_TAB_ID` via workspace membership, a validated `$CODETERM_WORKSPACE_ID`, then the active workspace. With no rung, stdout stays empty and it exits 1 (`--json` puts the error on stdout).
 
 ## REST API
-Base URL: `http://<host>:7685/api`. This reference covers agent- and operator-facing routes; web-mirror and debug internals are not listed.
+Base URL: `http://<host>:7685/api`. Web-mirror/debug internals are omitted.
 
 ### Authentication
-Domios generates a Bearer token on first load and persists it in the owner-only `<data_dir>/.secrets` entry `domios.instance:api_token`. It is read once at daemon startup, never serialized into `config.toml`, and passed to tabs as `CODETERM_API_TOKEN`. The local-only `domios system api-token` command prints only that credential; `--mesh` is refused. Control endpoints require it even on loopback. The small public health/pairing allowlist is documented by the router and does not grant local control.
+The Bearer token is stored in owner-only `<data_dir>/.secrets` as `domios.instance:api_token`, read once at startup and passed to tabs as `CODETERM_API_TOKEN`; it never enters `config.toml`. Local-only `domios system api-token` prints only the credential and refuses `--mesh`. Control endpoints require it even on loopback. Public health/pairing routes grant no local control.
 
 Default configuration:
 ```toml
@@ -41,7 +41,7 @@ Authenticated config readback includes `api_listener.active`, `.configured`, and
 
 #### Startup readiness
 
-`GET /api/health` answers once the listener is live; `startup.state` stays `starting` until every phase is ready. Until then dependent requests get HTTP 503 `starting` (`startup_failed` after a failure) and are never queued. `GET /api/startup/events` streams `startup-state` snapshots; wait for `ready` before loading state.
+Health `status: "ok"` proves liveness; `startup.state: "ready"` proves readiness. Only loopback health/events bypass auth. Await `ready` on `/api/startup/events` (`startup-state`). Other requests get HTTP 503 `starting`/`startup_failed` without queuing. CLI: `API-CLI`.
 
 #### Local previews
 | Method | Path | Body | Description |
@@ -177,4 +177,4 @@ A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or `c
 
 Related docs: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-INTEGRATIONS`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, and `TELEGRAM-SETUP`. Local analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 215 -->
+<!-- revision: 217 -->

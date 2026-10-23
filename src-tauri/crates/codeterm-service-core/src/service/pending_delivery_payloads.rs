@@ -168,8 +168,18 @@ impl PendingDeliveryPayloadStore {
         })
     }
 
-    pub(crate) fn delete(&self, record: &PendingDeliveryRecord) -> Result<(), PayloadStoreError> {
+    pub(crate) fn delete(
+        &self,
+        record: &PendingDeliveryRecord,
+        live_keys: &HashSet<String>,
+    ) -> Result<(), PayloadStoreError> {
         let path = self.path(record)?;
+        if !live_keys.contains(&record.content_digest) {
+            self.delete_path(
+                &self.dir.join(&record.content_digest),
+                &record.content_digest,
+            )?;
+        }
         self.delete_path(&path, &record.content_digest)
     }
 
@@ -185,28 +195,28 @@ impl PendingDeliveryPayloadStore {
         &self,
         record: &mut Option<crate::multiplexer::types::PendingDeliveryRecord>,
         decision: &str,
+        live_keys: &HashSet<String>,
     ) -> Result<(), PayloadStoreError> {
         let Some(pending) = record.as_ref() else {
             return Ok(());
         };
         let digest = pending.content_digest.clone();
-        self.delete(pending)?;
+        self.delete(pending, live_keys)?;
         self.sink.emit(decision, &digest);
         *record = None;
         Ok(())
     }
 
-    pub(crate) fn replace(
+    pub(crate) fn retire_replaced(
         &self,
         previous: Option<&PendingDeliveryRecord>,
         record: &PendingDeliveryRecord,
-        payload: &str,
+        live_keys: &HashSet<String>,
     ) -> Result<(), PayloadStoreError> {
-        self.write(record, payload)?;
         if let Some(previous) =
             previous.filter(|previous| payload_key(previous) != payload_key(record))
         {
-            self.delete(previous)?;
+            self.delete(previous, live_keys)?;
         }
         Ok(())
     }

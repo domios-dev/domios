@@ -22,7 +22,7 @@ async fn account_mesh_unpaired_peer_cannot_relink_itself_from_the_other_side() {
     link_installation_with(&a.mesh, &transport, &b.installation_id)
         .await
         .unwrap();
-    b.mesh.lock().unpair(&a.id());
+    b.mesh.lock().unpair(&a.id()).unwrap();
 
     let refused = link_installation_with(&a.mesh, &transport, &b.installation_id).await;
     assert!(matches!(
@@ -142,7 +142,7 @@ async fn account_mesh_add_started_before_unpair_cannot_clear_its_removal() {
         );
 
     entered.notified().await;
-    assert!(a.mesh.lock().unpair(&b.id()).is_some());
+    assert!(a.mesh.lock().unpair(&b.id()).unwrap().is_some());
     release.notify_one();
 
     assert_eq!(add.await.unwrap().unwrap_err(), AdmissionRefusal::Cancelled);

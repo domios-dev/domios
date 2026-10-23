@@ -1,7 +1,5 @@
+use std::collections::HashMap;
 use std::sync::Arc;
-
-use codeterm_secrets::mock::MockStore;
-use codeterm_secrets::{SaveRequest, SecretError, SecretStore};
 
 use super::mock_http::MockServer;
 use crate::embedder::catalog::{self, BuildContext, BuildError, EmbedderSelection};
@@ -9,49 +7,27 @@ use crate::embedder::key::{ApiKey, KeySources, KeyVault};
 use crate::embedder::openai;
 use crate::embedder::provider::Content;
 
-struct MockVault {
-    store: MockStore,
-    runtime: tokio::runtime::Runtime,
-}
+struct MockVault(HashMap<String, String>);
 
 impl KeyVault for MockVault {
     fn contains(&self, name: &str) -> Result<bool, String> {
-        self.runtime
-            .block_on(self.store.has(name))
-            .map_err(|e| e.to_string())
+        Ok(self.0.contains_key(name))
     }
 
     fn read(&self, name: &str) -> Result<Option<ApiKey>, String> {
-        match self.runtime.block_on(self.store.get(name)) {
-            Ok(value) => Ok(ApiKey::new(value.value.expose_secret())),
-            Err(SecretError::NotFound) => Ok(None),
-            Err(error) => Err(error.to_string()),
-        }
+        Ok(self
+            .0
+            .get(name)
+            .and_then(|value| ApiKey::new(value.clone())))
     }
 }
 
 fn vault(key: Option<&str>) -> Arc<MockVault> {
-    let vault = MockVault {
-        store: MockStore::new(),
-        runtime: tokio::runtime::Builder::new_current_thread()
-            .build()
-            .unwrap(),
-    };
-    if let Some(key) = key {
-        vault
-            .runtime
-            .block_on(vault.store.save(SaveRequest {
-                name: KeySources::vault_name(openai::ID),
-                value: key.into(),
-                notes: None,
-                folder: None,
-                organization: None,
-                collection: None,
-                overwrite: false,
-            }))
-            .unwrap();
-    }
-    Arc::new(vault)
+    Arc::new(MockVault(
+        key.map(|key| (KeySources::vault_name(openai::ID), key.to_string()))
+            .into_iter()
+            .collect(),
+    ))
 }
 
 fn remote_selection() -> EmbedderSelection {
@@ -100,7 +76,8 @@ fn remote_switch_needs_a_stored_key_and_the_opt_in_and_the_key_file_wins() {
     assert!(no_key.missing_key && !no_key.missing_opt_in);
     let hints = no_key.hints().join("\n");
     assert!(
-        hints.contains("openai-embedder.key")
+        hints.contains("mem embedder key set openai")
+            && hints.contains("openai-embedder.key")
             && hints.contains("mem secret save --name openai-embedder")
     );
     let no_opt_in = refusal(vault(Some("vault-key")), defaults.remote_opt_in);
@@ -137,8 +114,13 @@ fn remote_switch_needs_a_stored_key_and_the_opt_in_and_the_key_file_wins() {
             catalog::activate(&remote_selection(), &ctx(vault(Some("vault-key"))), true),
             Err(BuildError::KeyUnreadable(_))
         ));
-        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
     }
+    #[cfg(windows)]
+    assert!(matches!(
+        catalog::activate(&remote_selection(), &ctx(vault(Some("vault-key"))), true),
+        Err(BuildError::KeyUnreadable(_))
+    ));
+    codeterm_util::private_file::restrict(&file).unwrap();
     let from_file =
         catalog::activate(&remote_selection(), &ctx(vault(Some("vault-key"))), true).unwrap();
     from_file.embed_query(&Content::text("hello")).unwrap();

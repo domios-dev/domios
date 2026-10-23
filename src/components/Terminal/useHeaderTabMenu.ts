@@ -28,7 +28,7 @@ export function useHeaderTabMenu(
   descriptor: ProviderDescriptor | undefined,
 ): HeaderTabMenu | null {
   const tabId = tab?.id ?? null;
-  const { closeTab, setTabTitle } = useMultiplexer();
+  const { closeTab, renameTab } = useMultiplexer();
   const { index } = usePlanIndexOptional();
   const descriptors = useAgentDescriptors();
   const status = useTabActivity(tabId).status;
@@ -43,7 +43,7 @@ export function useHeaderTabMenu(
   return {
     tab,
     context: { status, descriptor, descriptors, activity, orchestrators },
-    onRename: ws ? (title) => setTabTitle(ws, id, title) : undefined,
+    onRename: ws ? (title) => renameTab(ws, id, title) : undefined,
     onClose: ws ? () => closeTab(ws, id) : undefined,
   };
 }

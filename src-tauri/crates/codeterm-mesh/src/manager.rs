@@ -289,18 +289,35 @@ impl MeshManager {
 
     // ── Peer management ─────────────────────────────────────────────
 
-    pub fn unpair(&mut self, instance_id: &str) -> Option<PairedPeer> {
-        let removed = self.paired_peers.remove(instance_id);
-        if removed.is_some() {
-            self.peer_services.prune(instance_id);
-            self.links.remove(instance_id);
-            self.protocol_refusals.forget(instance_id);
-            self.tombstone_peer(instance_id);
-            self.bump_gate();
-            log::info!("[mesh] Unpaired {}", instance_id);
-            let _ = self.save();
+    pub fn unpair(&mut self, instance_id: &str) -> Result<Option<PairedPeer>, String> {
+        self.unpair_with(instance_id, |manager| manager.save())
+    }
+
+    fn unpair_with(
+        &mut self,
+        instance_id: &str,
+        persist: impl FnOnce(&Self) -> Result<(), String>,
+    ) -> Result<Option<PairedPeer>, String> {
+        let Some(removed) = self.paired_peers.remove(instance_id) else {
+            return Ok(None);
+        };
+        let link = self.links.remove(instance_id);
+        let revocations = self.revocation_list.clone();
+        self.tombstone_peer(instance_id);
+        if let Err(error) = persist(self) {
+            self.paired_peers
+                .insert(instance_id.to_string(), removed.clone());
+            if let Some(link) = link {
+                self.links.links.insert(instance_id.to_string(), link);
+            }
+            self.revocation_list = revocations;
+            return Err(error);
         }
-        removed
+        self.peer_services.prune(instance_id);
+        self.protocol_refusals.forget(instance_id);
+        self.bump_gate();
+        log::info!("[mesh] Unpaired {}", instance_id);
+        Ok(Some(removed))
     }
 
     pub fn exit_mesh(&mut self) -> Vec<(String, Vec<types::PeerAddress>, u16)> {

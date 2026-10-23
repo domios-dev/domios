@@ -94,7 +94,7 @@ fn deadline_and_closed_event_stream_do_not_claim_idle() {
     assert!(wait_for_idle(&signal, Instant::now(), || Ok(true))
         .unwrap_err()
         .contains("deadline"));
-    let mut screens = crate::pty::screen_state::ScreenState::new();
+    let screens = crate::pty::screen_state::ScreenState::new();
     let signal = screens.subscribe_screen_changes("closed-command-pty");
     screens.remove("closed-command-pty");
     assert!(

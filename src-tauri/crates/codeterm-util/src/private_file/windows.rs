@@ -6,13 +6,12 @@ use std::path::Path;
 use std::ptr::{null, null_mut};
 
 use windows_sys::Win32::Foundation::{CloseHandle, LocalFree, HANDLE};
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use windows_sys::Win32::Security::Authorization::DENY_ACCESS;
 use windows_sys::Win32::Security::Authorization::{
     GetNamedSecurityInfoW, SetEntriesInAclW, SetNamedSecurityInfoW, ACCESS_MODE, EXPLICIT_ACCESS_W,
     GRANT_ACCESS, NO_MULTIPLE_TRUSTEE, SE_FILE_OBJECT, TRUSTEE_IS_SID, TRUSTEE_IS_USER, TRUSTEE_W,
 };
-use windows_sys::Win32::Security::SUB_CONTAINERS_AND_OBJECTS_INHERIT;
 use windows_sys::Win32::Security::{
     EqualSid, GetAce, GetSecurityDescriptorControl, GetTokenInformation, TokenUser,
     ACCESS_ALLOWED_ACE, ACL, DACL_SECURITY_INFORMATION, NO_INHERITANCE,
@@ -28,15 +27,6 @@ const OWNER_INHERITANCE_FLAGS: u8 = 0x1 | 0x2;
 pub(super) fn restrict(path: &Path) -> io::Result<()> {
     let user = CurrentUser::open()?;
     let entry = access_entry(&user, GRANT_ACCESS);
-    write_acl(path, &entry, null())
-}
-
-// The directory also holds the journal and spend ledger; without an inheritable
-// owner ACE every later file gets an empty DACL and becomes unreadable.
-pub(super) fn restrict_dir(path: &Path) -> io::Result<()> {
-    let user = CurrentUser::open()?;
-    let mut entry = access_entry(&user, GRANT_ACCESS);
-    entry.grfInheritance = SUB_CONTAINERS_AND_OBJECTS_INHERIT;
     write_acl(path, &entry, null())
 }
 
@@ -82,8 +72,8 @@ pub(super) fn mode_ok(path: &Path) -> io::Result<bool> {
     Ok(true)
 }
 
-#[cfg(test)]
-pub(super) fn add_deny_ace_for_test(path: &Path) -> io::Result<()> {
+#[cfg(any(test, feature = "test-support"))]
+pub fn add_deny_ace_for_test(path: &Path) -> io::Result<()> {
     let user = CurrentUser::open()?;
     let (_descriptor, dacl) = read_dacl(path)?;
     let entry = access_entry(&user, DENY_ACCESS);

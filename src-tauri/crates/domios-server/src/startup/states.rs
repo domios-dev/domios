@@ -256,8 +256,7 @@ pub(crate) fn init_states(
     let session_state: SessionState = Arc::new(Mutex::new(SessionStore::new()));
     let output_buffer: OutputBufferState =
         Arc::new(TimedMutex::new("output_buf", OutputBuffer::new(65536)));
-    let screen_state: ScreenStateHandle =
-        Arc::new(TimedMutex::new("screen_state", ScreenState::new()));
+    let screen_state: ScreenStateHandle = Arc::new(ScreenState::new());
     let agent_tracker: AgentTrackerState = Arc::new(TimedMutex::new(
         "agent_tracker",
         agent::status::TabStatusTracker::new(),

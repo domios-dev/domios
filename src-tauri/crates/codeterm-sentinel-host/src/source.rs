@@ -68,7 +68,7 @@ pub fn observe(
     {
         tab.pty_id
             .as_deref()
-            .and_then(|pty_id| svc.screen_state.lock().get_screen_text(pty_id))
+            .and_then(|pty_id| svc.screen_state.get_screen_text(pty_id))
     } else {
         None
     };

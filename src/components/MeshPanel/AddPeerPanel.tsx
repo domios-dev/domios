@@ -63,6 +63,7 @@ async function settle(run: () => Promise<AccountMeshOutcome>): Promise<AccountMe
 export default function MyMachines({ account, onSignIn, onFailure, onChanged, now = epochSeconds }: MyMachinesProps) {
   const client = useAccountMeshClient();
   const [snapshot, setSnapshot] = useState<AccountMeshSnapshot | null>(null);
+  const [listFailure, setListFailure] = useState<AccountMeshFailure | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
@@ -76,7 +77,11 @@ export default function MyMachines({ account, onSignIn, onFailure, onChanged, no
     const current = ++generation.current;
     setRefreshing(true);
     try {
-      if (account === "signed_in") await client.list();
+      if (account === "signed_in") {
+        const result = await settle(() => client.list());
+        if (current !== generation.current) return;
+        setListFailure(result.ok ? null : result.failure);
+      }
       const next = await client.snapshot();
       if (current !== generation.current) return;
       setSnapshot(next);
@@ -100,7 +105,15 @@ export default function MyMachines({ account, onSignIn, onFailure, onChanged, no
     setLinking((current) => new Set([...current].filter((id) => !settled.includes(id))));
   }, [snapshot, linking]);
 
-  const view = useMemo(() => myMachinesView({ account, snapshot, linking, now: now() }), [account, snapshot, linking, now]);
+  const view = useMemo(() => myMachinesView({ account, snapshot, listFailure, linking, now: now() }), [account, snapshot, listFailure, linking, now]);
+
+  const retryEnrollment = async () => {
+    const result = await settle(() => client.enroll());
+    if (!result.ok) onFailure("retry account enrollment", result.failure);
+    await load();
+  };
+
+  const enrollmentRefused = view.kind === "account" && snapshot?.enrollment === "refused";
 
   const pendingFocus = useRef<string | null>(null);
   useEffect(() => {
@@ -267,7 +280,7 @@ export default function MyMachines({ account, onSignIn, onFailure, onChanged, no
           }}
         />
       )}
-      {rowList("Your account's machines", view.machines, "No other machines in your account yet. Sign in to Domios with this account on another machine.")}
+      {rowList("Your account's machines", view.machines, listFailure ? "Your account's machines could not be listed." : "No other machines in your account yet. Sign in to Domios with this account on another machine.")}
       {view.saved.length > 0 && (
         <>
           <div className={`${UI_TEXT.metaMuted} uppercase`}>Saved pairings</div>
@@ -275,6 +288,15 @@ export default function MyMachines({ account, onSignIn, onFailure, onChanged, no
         </>
       )}
       <Notes notes={view.notes} />
+      {enrollmentRefused && (
+        <div className="flex gap-2">
+          {snapshot?.last_refusal?.reason === "unauthenticated" || snapshot?.last_refusal?.reason === "app-check" ? (
+            <button type="button" onClick={() => void signIn()} disabled={signingIn} className={PRIMARY_BTN}>Sign in again</button>
+          ) : (
+            <button type="button" onClick={() => void retryEnrollment()} className={ACTION_BTN}>Retry enrollment</button>
+          )}
+        </div>
+      )}
     </section>
   );
 }

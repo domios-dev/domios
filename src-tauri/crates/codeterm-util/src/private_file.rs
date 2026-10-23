@@ -9,6 +9,9 @@ mod windows_lock;
 #[cfg(windows)]
 mod windows_policy;
 
+#[cfg(all(windows, any(test, feature = "test-support")))]
+pub use windows::add_deny_ace_for_test;
+
 pub(crate) fn open_lock(path: &Path) -> io::Result<fs::File> {
     #[cfg(unix)]
     {
@@ -49,7 +52,7 @@ pub fn restrict_dir(path: &Path) -> io::Result<()> {
     }
     #[cfg(windows)]
     {
-        windows::restrict_dir(path)
+        windows_policy::tighten_directory(path)
     }
 }
 

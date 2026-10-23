@@ -97,6 +97,7 @@ impl ExtensionsBuilder {
         self.insert_late::<std::sync::Weak<crate::service::ServiceContext>>();
         self.insert_late::<crate::service::cron::OwnerPromptRequests>();
         self.insert_late::<crate::service::session_persist::SessionPersistenceWorker>();
+        self.insert_late::<Arc<crate::service::turn_resume::Wave>>();
         self.insert_late::<crate::agent::live_state::RestoreReportWorker>();
         self.insert_late::<crate::service::account_mesh::AccountMeshCell>();
         self.insert_late::<crate::service::lane_git_queue::LaneGitQueue>();

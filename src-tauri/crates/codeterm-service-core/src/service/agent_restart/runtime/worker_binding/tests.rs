@@ -6,21 +6,109 @@ use crate::service::{
 };
 
 #[test]
+fn restart_spawn_metadata_without_a_plan_is_unbound() {
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.agent_type = Some("provider".into());
+    tab.session_binding_nonce = Some("nonce".into());
+    tab.task_binding = Some(TaskBinding {
+        spawn_handle: Some("opaque-spawn".into()),
+        ..Default::default()
+    });
+    let fixture = ServiceFixture::new(mux);
+    assert!(fixture
+        .service
+        .try_authorize_runtime_restart_binding(
+            &tab_id,
+            "provider",
+            "nonce",
+            super::RuntimeRestartMode::Resume,
+        )
+        .unwrap()
+        .is_none());
+}
+
+#[test]
+fn restart_partial_plan_binding_is_still_refused() {
+    for binding in [
+        TaskBinding {
+            plan_id: Some("plan".into()),
+            ..Default::default()
+        },
+        TaskBinding {
+            task_id: Some("task".into()),
+            ..Default::default()
+        },
+        TaskBinding {
+            attempt_id: Some("attempt".into()),
+            ..Default::default()
+        },
+    ] {
+        let (mut mux, tab_id) = MultiplexerState::new();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some("provider".into());
+        tab.session_binding_nonce = Some("nonce".into());
+        tab.task_binding = Some(binding);
+        let fixture = ServiceFixture::new(mux);
+        assert!(fixture
+            .service
+            .try_authorize_runtime_restart_binding(
+                &tab_id,
+                "provider",
+                "nonce",
+                super::RuntimeRestartMode::Resume,
+            )
+            .is_err());
+    }
+}
+
+#[test]
 fn restarted_worker_attempt_is_carried_before_ack() {
-    worker_attempt_carry(None, false);
+    worker_attempt_carry(None, false, CarryCase::Open);
 }
 
 #[test]
 fn provider_switch_worker_attempt_is_carried_before_ack() {
-    worker_attempt_carry(Some("target-provider"), false);
+    worker_attempt_carry(Some("target-provider"), false, CarryCase::Open);
 }
 
 #[test]
 fn provider_switch_resolves_acknowledged_attempt_from_live_spawn_metadata() {
-    worker_attempt_carry(Some("target-provider"), true);
+    worker_attempt_carry(Some("target-provider"), true, CarryCase::Open);
 }
 
-fn worker_attempt_carry(target: Option<&str>, omit_attempt: bool) {
+#[test]
+fn closed_attempt_resume_and_model_switch_preserve_effort_without_binding_warning() {
+    for mode in [
+        super::RuntimeRestartMode::Resume,
+        super::RuntimeRestartMode::ModelSwitch,
+    ] {
+        worker_attempt_carry(None, false, CarryCase::Closed(mode));
+    }
+}
+
+#[test]
+fn failed_carry_and_failed_finalization_release_restart_authority() {
+    worker_attempt_carry(
+        Some("target-provider"),
+        false,
+        CarryCase::RejectedBeforeCarry,
+    );
+    worker_attempt_carry(
+        Some("target-provider"),
+        false,
+        CarryCase::RejectedAfterCarry,
+    );
+}
+
+enum CarryCase {
+    Open,
+    Closed(super::RuntimeRestartMode),
+    RejectedBeforeCarry,
+    RejectedAfterCarry,
+}
+
+fn worker_attempt_carry(target: Option<&str>, omit_attempt: bool, case: CarryCase) {
     let (mut mux, tab_id) = MultiplexerState::new();
     let tab = mux.get_tab_mut(&tab_id).unwrap();
     tab.agent_type = Some("provider".into());
@@ -97,14 +185,34 @@ fn worker_attempt_carry(target: Option<&str>, omit_attempt: bool) {
         store.show_task(&task_id).unwrap().task.execution_attempts[0].acknowledged_at;
     assert_eq!(source_acknowledged_at.is_some(), omit_attempt);
 
-    let authority = match target {
-        Some(target) => fixture.service.authorize_provider_switch_binding(
+    if matches!(case, CarryCase::Closed(_)) {
+        store
+            .with_plan(&plan.id, 4, |plan| {
+                let attempt = &mut plan
+                    .tasks
+                    .iter_mut()
+                    .find(|task| task.id == task_id)
+                    .unwrap()
+                    .execution_attempts[0];
+                attempt.closed_at = Some(4);
+                attempt.reasoning_effort = Some("closed-effort".into());
+                Ok(())
+            })
+            .unwrap();
+    }
+    let authority = match (&case, target) {
+        (CarryCase::Closed(mode), _) => {
+            fixture
+                .service
+                .authorize_restart_binding_mode(&tab_id, "provider", "old-nonce", *mode)
+        }
+        (_, Some(target)) => fixture.service.authorize_provider_switch_binding(
             &tab_id,
             "provider",
             target,
             "old-nonce",
         ),
-        None => fixture.service.authorize_runtime_restart_binding(
+        (_, None) => fixture.service.authorize_runtime_restart_binding(
             &tab_id,
             "provider",
             "old-nonce",
@@ -149,7 +257,10 @@ fn worker_attempt_carry(target: Option<&str>, omit_attempt: bool) {
     ] {
         assert!(!fixture.service.signal_worker_interruption(&tab_id, event));
         let source = store.show_task(&task_id).unwrap().task;
-        assert!(source.execution_attempts[0].closed_at.is_none());
+        assert_eq!(
+            source.execution_attempts[0].closed_at.is_some(),
+            matches!(case, CarryCase::Closed(_))
+        );
         assert!(!source.interruption.handoff_required);
     }
 
@@ -170,10 +281,76 @@ fn worker_attempt_carry(target: Option<&str>, omit_attempt: bool) {
     } else {
         "thread"
     };
+    if matches!(case, CarryCase::RejectedBeforeCarry) {
+        assert!(fixture
+            .service
+            .carry_authorized_runtime_restart_binding(&tab_id, thread, "foreign-nonce")
+            .is_err());
+        assert!(!super::BINDINGS
+            .lock()
+            .contains_key(&super::key(&fixture.service, &tab_id)));
+        assert_eq!(
+            store.show_task(&task_id).unwrap().task.execution_attempts[0]
+                .session_id
+                .as_deref(),
+            Some("thread")
+        );
+        return;
+    }
     assert!(fixture
         .service
         .carry_authorized_runtime_restart_binding(&tab_id, thread, "new-nonce")
         .unwrap());
+    if matches!(case, CarryCase::RejectedAfterCarry) {
+        assert!(
+            super::BINDINGS
+                .lock()
+                .get(&super::key(&fixture.service, &tab_id))
+                .unwrap()
+                .carried
+        );
+        fixture.service.report_runtime_worker_session_finalization(
+            &tab_id,
+            thread,
+            "foreign-nonce",
+        );
+        assert!(fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .unwrap()
+            .task_binding
+            .is_none());
+        assert!(!super::BINDINGS
+            .lock()
+            .contains_key(&super::key(&fixture.service, &tab_id)));
+        return;
+    }
+    if matches!(case, CarryCase::Closed(_)) {
+        assert!(fixture
+            .service
+            .report_runtime_worker_session_finalization(&tab_id, thread, "new-nonce")
+            .is_none());
+        assert!(fixture
+            .service
+            .finalize_authorized_runtime_restart_binding(&tab_id, thread, "new-nonce")
+            .unwrap());
+        let persisted = store.show_task(&task_id).unwrap().task;
+        assert_eq!(persisted.execution_attempts.len(), 1);
+        assert_eq!(persisted.execution_attempts[0].closed_at, Some(4));
+        assert_eq!(
+            persisted.execution_attempts[0].reasoning_effort.as_deref(),
+            Some("closed-effort")
+        );
+        assert_eq!(
+            persisted.execution_attempts[0]
+                .session_binding_nonce
+                .as_deref(),
+            Some("new-nonce")
+        );
+        return;
+    }
     fixture
         .service
         .plan_store

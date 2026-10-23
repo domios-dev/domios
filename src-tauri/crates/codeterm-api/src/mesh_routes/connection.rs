@@ -98,7 +98,11 @@ pub async fn mesh_disconnect_peer(
         ));
     }
 
-    state.mesh.lock().unpair(&instance_id);
+    state
+        .mesh
+        .lock()
+        .unpair(&instance_id)
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
 
     state
         .svc

@@ -25,9 +25,14 @@ fn restart_delivers_command_without_waiting_for_completion() {
 #[test]
 fn failed_restart_does_not_execute_command() {
     let result = restart_with_command("http://local", "tab", &json!({}), Some("opaque"), |_, _| {
-        Err("delivery timeout".into())
+        Err(RestartRequestError::Refused(
+            "shell_command_not_submitted: PTY absent".into(),
+        ))
     });
-    assert_eq!(result.unwrap_err(), "delivery timeout");
+    assert_eq!(
+        result.unwrap_err(),
+        "shell_command_not_submitted: PTY absent"
+    );
 }
 
 #[test]
@@ -89,12 +94,62 @@ fn restart_without_command_only_replaces_shell() {
 }
 
 #[test]
-fn restart_requires_an_explicit_command_delivery_receipt() {
-    for receipt in [json!({}), json!({"command_delivered": false})] {
+fn missing_command_receipt_is_uncertainty_without_a_replay() {
+    for receipt in [
+        json!({}),
+        json!({"command_delivered": false}),
+        json!("invalid"),
+    ] {
+        let mut calls = 0;
         let result =
             restart_with_command("http://local", "tab", &json!({}), Some("opaque"), |_, _| {
+                calls += 1;
                 Ok(receipt.clone())
             });
-        assert!(result.unwrap_err().contains("not acknowledged"));
+        let result = result.unwrap();
+        assert_eq!(calls, 1);
+        assert_eq!(result["command_submission"]["status"], "submit_unconfirmed");
+        assert_eq!(result["command_submission"]["replay_allowed"], false);
     }
+}
+
+#[test]
+fn daemon_proven_non_submission_is_refused() {
+    let result = restart_with_command("http://local", "tab", &json!({}), Some("opaque"), |_, _| {
+        Ok(json!({"command_submission": {"status": "refused", "bytes_written": false}}))
+    });
+    assert!(result
+        .unwrap_err()
+        .starts_with("shell_command_not_submitted:"));
+}
+
+#[test]
+fn lost_response_never_reports_a_possibly_started_command_as_failed() {
+    let mut calls = 0;
+    let result = restart_with_command("http://local", "tab", &json!({}), Some("opaque"), |_, _| {
+        calls += 1;
+        Err(RestartRequestError::Unconfirmed(
+            "response lost after submission".into(),
+        ))
+    })
+    .unwrap();
+    assert_eq!(calls, 1);
+    assert_eq!(result["command_submission"]["status"], "submit_unconfirmed");
+    assert_eq!(
+        result["command_submission"]["bytes_written"],
+        serde_json::Value::Null
+    );
+}
+
+#[test]
+fn daemon_postwrite_uncertainty_preserves_its_evidence() {
+    let receipt = json!({"command_delivered": false, "command_submission": {
+        "status": "submit_unconfirmed", "pty_id": "exact-new-pty", "bytes_written": true,
+        "bytes_queued": 53, "evidence": "pty_write_queue", "detail": "submit key refused"
+    }});
+    let result = restart_with_command("http://local", "tab", &json!({}), Some("opaque"), |_, _| {
+        Ok(receipt.clone())
+    })
+    .unwrap();
+    assert_eq!(result, receipt);
 }

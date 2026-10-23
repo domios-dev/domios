@@ -271,7 +271,7 @@ fn plan_emit_limited(offset: u64, chunk: &codeterm_pty::pty::manager::OutputRead
         chunk.following_continuation,
     );
     read.has_more |= end < chunk.total;
-    log::debug!(
+    log::trace!(
         "[OUTPUT-COPY] copied_bytes={} offset={} total={}",
         chunk.bytes.len(),
         chunk.start,

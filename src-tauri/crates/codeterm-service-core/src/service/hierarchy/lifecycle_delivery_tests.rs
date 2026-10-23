@@ -34,7 +34,6 @@ fn startup_notice_to_parent_on_trust_dialog_is_withheld() {
     fixture
         .service
         .screen_state
-        .lock()
         .process("parent-pty", prompt.as_bytes());
     assert_eq!(
         fixture
@@ -77,7 +76,6 @@ fn withheld_lifecycle_reports_replay_once_after_trust_dialog_clears() {
     fixture
         .service
         .screen_state
-        .lock()
         .process("parent-pty", prompt.as_bytes());
     let delivery = RecordingHierarchyReportDelivery::default();
     fixture.service.publish_agent_startup_report_with_delivery(
@@ -92,7 +90,6 @@ fn withheld_lifecycle_reports_replay_once_after_trust_dialog_clears() {
     fixture
         .service
         .screen_state
-        .lock()
         .process("parent-pty", b"\x1b[2J\x1b[H$ ");
     fixture
         .service

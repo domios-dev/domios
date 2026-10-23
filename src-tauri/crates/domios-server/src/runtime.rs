@@ -204,6 +204,16 @@ pub fn run(
         }
     };
     log::debug!("[bootstrap] native listener binding completed");
+    let worker_cli =
+        match crate::resources::pin_worker_cli(shell.as_ref(), env!("SERVER_CLI_SHA256")) {
+            Ok(worker_cli) => worker_cli,
+            Err(error) => {
+                prepared.api.fail("integrity");
+                let _ = runtime.block_on(prepared.control.shutdown_and_wait());
+                runtime.shutdown_timeout(std::time::Duration::from_secs(6));
+                return Err(error);
+            }
+        };
     prepared.api.complete("integrity");
     if let Some(server) = &native_server {
         *native_events.write() = Some(server.endpoint());
@@ -238,9 +248,6 @@ pub fn run(
             }
         }
         let result = (|| {
-            let worker_cli =
-                crate::resources::pin_worker_cli(shell.as_ref(), env!("SERVER_CLI_SHA256"))
-                    .map_err(|error| error.to_string())?;
             let worker_observer = if probe_workers {
                 Some(
                     crate::worker_observer::start(&worker_data, worker_cli.path.clone())

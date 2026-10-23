@@ -315,6 +315,7 @@ dependencies = [
  "toml",
  "urlencoding",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]

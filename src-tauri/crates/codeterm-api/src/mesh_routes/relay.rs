@@ -502,7 +502,7 @@ pub async fn mesh_relay(
                 delivery_id
             );
             let response = entry.wait().await;
-            return Ok(Json(fence_relay_response(&state, &sender_id, response)));
+            return Ok(Json(response));
         }
         super::send_dedupe::Admission::AtCapacity => {
             log::warn!(
@@ -667,27 +667,25 @@ async fn perform_relay(
     cmd: &codeterm_service_core::mesh::types::RelayCommand,
 ) -> Result<codeterm_service_core::mesh::types::RelayResponse, (StatusCode, String)> {
     let mut response = perform_relay_unredacted(state, sender_id, cmd).await?;
-    response = fence_relay_response(state, sender_id, response);
     if let Some(data) = response.data.as_mut() {
         crate::peer_redaction::redact_for_peer(data);
     }
     Ok(response)
 }
 
-fn fence_relay_response(
+fn relay_prewrite_refusal(
     state: &AppState,
     sender_id: &str,
-    response: codeterm_service_core::mesh::types::RelayResponse,
-) -> codeterm_service_core::mesh::types::RelayResponse {
+) -> Option<codeterm_service_core::mesh::types::RelayResponse> {
     if sender_id == "local" || state.mesh.lock().traffic_open(sender_id) {
-        response
+        None
     } else {
-        relay_failure(
+        Some(relay_failure(
             StatusCode::FORBIDDEN.as_u16(),
             codeterm_mesh::contract::delivery::PEER_RELAY_NOT_AUTHORIZED,
             Some(false),
-            "peer access changed while the relay was running".into(),
-        )
+            "peer access is no longer authorized".into(),
+        ))
     }
 }
 
@@ -802,6 +800,11 @@ async fn perform_relay_unredacted(
         }
     };
 
+    // Recheck immediately before forwarding. Once the downstream route may
+    // have written to a PTY, its result and dedupe receipt must remain intact.
+    if let Some(refusal) = relay_prewrite_refusal(state, sender_id) {
+        return Ok(refusal);
+    }
     let resp = match req
         .header("Authorization", format!("Bearer {}", signed_token))
         .timeout(deadline)

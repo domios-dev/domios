@@ -4,7 +4,6 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 
 #[cfg(windows)]
-#[path = "../../../codeterm-util/src/private_file/windows.rs"]
 mod windows;
 
 #[derive(Clone)]
