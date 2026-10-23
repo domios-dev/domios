@@ -201,15 +201,35 @@ pub(super) fn dispatch(
             serde_json::to_value(svc.blueprint_log(&caller, &id, limit).map_err(error)?)
                 .map_err(|e| error(e.to_string()))
         }
-        "blueprint.list" => serde_json::to_value(svc.sentinel_list(&caller).map_err(error)?)
-            .map_err(|e| error(e.to_string())),
+        "blueprint.list" => {
+            let mut listed = serde_json::to_value(svc.sentinel_list(&caller).map_err(error)?)
+                .map_err(|e| error(e.to_string()))?;
+            let quarantined = svc.sentinel_quarantined(&caller).map_err(error)?;
+            if let Some(entries) = listed.as_array_mut() {
+                for entry in quarantined {
+                    entries.push(serde_json::to_value(entry).map_err(|e| error(e.to_string()))?);
+                }
+            }
+            Ok(listed)
+        }
         "blueprint.show" => {
             let id = get_string_param(params, "id")?;
             if codeterm_blueprint_types::blueprint_document::calls::saved_reference(&id) {
                 return codeterm_sentinel_host::blueprint_calls::show_callable(svc, &caller, &id)
                     .map_err(error);
             }
-            let job = svc.sentinel_show(&caller, &id).map_err(error)?;
+            let job = match svc.sentinel_show(&caller, &id) {
+                Ok(job) => job,
+                Err(message) => {
+                    let quarantined = svc.sentinel_quarantined(&caller).map_err(error)?;
+                    return match quarantined.into_iter().find(|entry| entry.id == id) {
+                        Some(entry) => {
+                            serde_json::to_value(entry).map_err(|e| error(e.to_string()))
+                        }
+                        None => Err(error(message)),
+                    };
+                }
+            };
             let mut value = serde_json::to_value(&job).map_err(|e| error(e.to_string()))?;
             if let Some(spec) = &job.pipeline().cloned() {
                 let entries = svc.blueprint_log(&caller, &id, 200).map_err(error)?;

@@ -46,6 +46,9 @@ pub struct Snapshot {
     pub edges: Vec<Value>,
     pub truncated: bool,
     pub configured_fallback: Value,
+    /// Committed Blueprints refused at load, with their typed reasons; they never run.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub quarantined: Vec<crate::storage::quarantine::Quarantined>,
 }
 
 #[derive(Clone)]
@@ -517,5 +520,6 @@ pub fn project(
         edges,
         truncated,
         configured_fallback,
+        quarantined: Vec::new(),
     })
 }

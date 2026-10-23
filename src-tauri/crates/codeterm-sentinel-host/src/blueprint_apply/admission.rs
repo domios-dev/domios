@@ -10,6 +10,7 @@ pub(super) struct ScopedDuplicates<'a> {
     pub workspace: &'a str,
     pub team: &'a Option<String>,
     pub updating: Option<&'a str>,
+    pub recipe: Option<&'a str>,
 }
 impl DuplicateOracle for ScopedDuplicates<'_> {
     fn compare(&self, document: &Document) -> DuplicateStatus {
@@ -33,7 +34,10 @@ impl DuplicateOracle for ScopedDuplicates<'_> {
             .blueprint_solutions_readonly(&format!("blueprints:{}", self.workspace))
         {
             Ok(entries) => {
-                for entry in entries {
+                for entry in entries
+                    .into_iter()
+                    .filter(|entry| Some(entry.id.as_str()) != self.recipe)
+                {
                     compare(document, &entry.document, entry.id, &mut findings);
                 }
             }

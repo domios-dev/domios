@@ -78,7 +78,7 @@ fn blueprint_pipeline_spec_round_trips_one_authored_chain() {
         "steps": [{
             "name": "echo",
             "input": "text",
-            "kind": {"kind": "command", "command": "printf ready"}
+            "kind": {"kind": "command", "command": "printf ready", "timeout_ms": 10000}
         }],
         "result": {"to": "owner"}
     });

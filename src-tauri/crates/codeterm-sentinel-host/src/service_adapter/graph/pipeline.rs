@@ -134,10 +134,10 @@ pub(super) fn project_pipeline_contract(
             let latest_run = latest["id"].as_str();
             let journal_reason = entries
                 .iter()
-                .find(|entry| {
+                .filter(|entry| {
                     Some(entry.run_id.as_str()) == latest_run && entry.state == JournalState::Held
                 })
-                .and_then(|entry| entry.reason.as_ref())
+                .find_map(|entry| entry.reason.as_ref())
                 .map(|reason| reason.as_str().to_string());
             let held_reason = job
                 .machine

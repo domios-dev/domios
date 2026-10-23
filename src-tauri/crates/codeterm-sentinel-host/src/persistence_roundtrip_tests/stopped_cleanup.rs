@@ -29,6 +29,12 @@ fn stopped_blueprint_cleanup_survives_restart_and_update_cancels_it() {
     for index in 0..2 {
         let mut definition = definition.clone();
         definition["name"] = json!(format!("cleanup watcher {index}"));
+        if index == 0 {
+            // R13 compares abstracted structure, so twins must differ in shape, not literals.
+            definition["steps"][1]["buckets"] = json!(["done", "failed"]);
+            definition["steps"][1]["matches"]["failed"] = json!({"lit": "failed"});
+            definition["steps"][1]["routes"]["failed"] = json!("@stop");
+        }
         let result = instance
             .fixture
             .service

@@ -168,6 +168,16 @@ export interface AutomationGraph extends AutomationScope {
   edges: readonly AutomationEdge[];
   blueprints?: readonly BlueprintSnapshot[];
   runs?: readonly AutomationRun[];
+  quarantined?: readonly QuarantinedBlueprint[];
+}
+
+/** A committed Blueprint refused at load; it never runs until recreated. */
+export interface QuarantinedBlueprint {
+  id: string;
+  name: string | null;
+  state: "quarantined";
+  code: string;
+  reason: string;
 }
 
 export type BlueprintOwnerKind = "tab" | "team";
