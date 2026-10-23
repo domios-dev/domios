@@ -101,7 +101,7 @@ Python bodies define `def main(value):` and return a JSON value. TypeScript bodi
   out: {type: string}
 ```
 
-`code.src` is bounded to 16 KiB. Alternatively, `code.file` names a relative regular file beneath the apply caller’s cwd; symlinks and parent traversal refuse. Apply freezes its bounded bytes into `code.src` before persisting the graph. Later file edits do not change the stored body. Canonical nodes and execution summaries carry `body_sha256`. Runtime refuses unsealed `code.file` and missing `main`.
+`code.src` is bounded to 16 KiB. Alternatively, `code.file` names a relative regular file beneath the directory of the Blueprint file that declares it. Absolute paths, parent traversal, symlinks and Windows junctions or other reparse points at any component refuse with `contract_violation`, and the resolved file must stay inside that directory; the same reader serves apply and runtime. Apply freezes its bounded bytes into `code.src` before persisting the graph. Later file edits do not change the stored body. Canonical nodes and execution summaries carry `body_sha256`. Runtime refuses unsealed `code.file` and missing `main`.
 
 Python and TypeScript code nodes run as ordinary child processes on macOS, Linux and Windows, using Python or Node from the filtered PATH. Python uses the fixed `main(value)` harness; TypeScript uses Node's type stripping and the fixed exported `main(value)` harness.
 
@@ -202,4 +202,4 @@ Blueprint results addressed to a restored PTY agent tab retain the exact saved p
 
 R10 scans executable text lexically as defence in depth. The checker refuses domios-cli capabilities, while credential-free child environments remove instance authority; a clean lexical scan does not prove shell text safe. R13 reports unavailable comparisons explicitly; unavailable vector comparisons carry no PASS verdict.
 
-<!-- revision: 60 -->
+<!-- revision: 61 -->

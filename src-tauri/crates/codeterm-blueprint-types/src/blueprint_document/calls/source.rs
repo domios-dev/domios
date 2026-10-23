@@ -1,5 +1,5 @@
 use super::*;
-use std::path::{Component, Path};
+use std::path::Path;
 
 pub(super) fn freeze(parsed: &mut Parsed, author: &Path) -> Result<usize, Vec<Diagnostic>> {
     let mut added = 0usize;
@@ -12,21 +12,17 @@ pub(super) fn freeze(parsed: &mut Parsed, author: &Path) -> Result<usize, Vec<Di
         let Some(relative) = code.file.as_ref() else {
             return Ok(());
         };
-        if code.src.is_some()
-            || Path::new(relative)
-                .components()
-                .any(|part| !matches!(part, Component::Normal(_)))
-        {
-            return Err((
-                field,
-                "Code files require one relative path without traversal".into(),
-            ));
+        if code.src.is_some() {
+            return Err((field, "Code nodes take either file or src, not both".into()));
         }
-        let path = author.parent().unwrap_or(Path::new(".")).join(relative);
-        let source = super::imports::read(&path).map_err(|e| (field.clone(), e))?;
-        if source.len() > 16384 {
-            return Err((field, "Code source exceeds 16 KiB".into()));
-        }
+        let directory = author.parent().unwrap_or(Path::new("."));
+        let source = crate::code_source::read(directory, relative).map_err(|reason| {
+            let detail = match reason {
+                "budget_exhausted" => "Code source exceeds 16 KiB",
+                _ => "Code files require a regular file inside the Blueprint directory, reached without traversal, symlinks or junctions",
+            };
+            (field.clone(), format!("{reason}: {detail}"))
+        })?;
         added = added.saturating_add(source.len());
         if added > MAX_CLOSURE_BYTES {
             return Err((field, "budget_exhausted: code source closure".into()));
