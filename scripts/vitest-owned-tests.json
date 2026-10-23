@@ -86,6 +86,7 @@
   "src/components/Terminal/ChatComposer.composition.test.tsx",
   "src/components/Terminal/chatSendStatus.test.ts",
   "src/components/Terminal/transcriptStore.correlation.test.ts",
+  "src/components/Terminal/transcriptStore.pasteEcho.test.ts",
   "src/components/Terminal/transcriptStore.held.test.tsx",
   "src/components/Terminal/useChatSession.optimisticIdentity.test.ts",
   "src/components/Canvas/teamTaskSegment.test.tsx",
