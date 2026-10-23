@@ -180,7 +180,12 @@ pub fn prepare(
             }
         }
     };
-    let launch_nonce = deferred_launch_nonce(svc, tab, reserved_nonce);
+    let launch_nonce = crate::service::orchestrator::deferred_launch_nonce(
+        svc,
+        tab,
+        reserved_nonce,
+        super::lifecycle::for_tab(tab).is_some(),
+    );
     let instructions = svc
         .agent_registry
         .with_provider(provider, |p| {
@@ -207,25 +212,6 @@ pub fn prepare(
             )
         }
     }
-}
-
-/// A launch that already reserved its current nonce keeps it; re-minting here would expire
-/// sends already pinned to that launch.
-pub(crate) fn deferred_launch_nonce(
-    svc: &ServiceContext,
-    tab: &str,
-    reserved_nonce: Option<&str>,
-) -> String {
-    let reservation_current = reserved_nonce.is_some_and(|reserved| {
-        svc.mux
-            .read()
-            .get_tab(tab)
-            .is_some_and(|tab| tab.session_binding_nonce.as_deref() == Some(reserved))
-    });
-    if !reservation_current && super::lifecycle::for_tab(tab).is_none() {
-        svc.rotate_session_binding_nonce(tab);
-    }
-    svc.ensure_session_binding_nonce(tab)
 }
 
 fn deferred_spawn(
