@@ -65,6 +65,20 @@ const textNode = (element: Element, fragment: string) => [...element.childNodes]
 const capsules = (host: HTMLElement) => [...host.querySelectorAll<HTMLButtonElement>('[data-testid="chat-inline-attachment"]')];
 
 describe("inline attachment capsules in the user bubble", () => {
+  it("names an uploaded image by the user filename through fullscreen without changing its path", async () => {
+    const path = "/tmp/df9d0d2065b54cf28612788a0bbf750f-joy-chip.png";
+    const loader = vi.fn(async (_path: string) => ({ data: PNG, media_type: "image/png" }));
+    configureLocalArtifactLoader(loader);
+    const host = await render(formatAttachmentMarker(path, "image", "image1"));
+    const [button] = capsules(host);
+    expect(button.getAttribute("aria-label")).toBe("Open image joy-chip.png");
+    expect(button.querySelector('[aria-label="Image: joy-chip.png"]')).not.toBeNull();
+    expect(button.getAttribute("data-attachment-path")).toBe(path);
+    expect(loader.mock.calls[0]?.[0]).toBe(path);
+    await act(async () => button.click());
+    expect(document.querySelector('[role="dialog"][aria-label="Image joy-chip.png"]')).not.toBeNull();
+  });
+
   it.each(["file", "image", "video"] as const)("names a %s attachment visibly and accessibly", async (kind) => {
     const name = kind === "file" ? "report.pdf" : kind === "image" ? "holiday.png" : "recording.mp4";
     const path = `/tmp/${name}`;

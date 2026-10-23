@@ -69,10 +69,15 @@ export function userMessageAttachments(source: string, attachments: ChatAttachme
   return { text: userVisibleText(parsed.text, images), images, files: labelVideos(files), inline: inlineSegments(content), reply };
 }
 
+export function attachmentPathName(path: string): string {
+  const name = path.split(/[\\/]/).filter(Boolean).pop() || path;
+  return name.replace(/^[a-f\d]{32}-(?=.)/i, "");
+}
+
 export function attachmentFileName(attachment: ChatAttachment): string {
   const source = attachment.path || attachment.url || "";
   const last = source.split(/[\\/]/).filter(Boolean).pop()?.split(/[?#]/)[0];
-  if (last && !source.startsWith("data:")) return last;
+  if (last && !source.startsWith("data:")) return attachmentPathName(last);
   return `image.${attachment.mimeType.replace(/^image\//, "").split("+")[0] || "png"}`;
 }
 
