@@ -143,3 +143,65 @@ fn blueprint_v2_check_host_rejects_same_graph_on_apply_import_update_then_admits
     )
     .unwrap();
 }
+
+#[test]
+fn blueprint_v2_check_host_refuses_copy_under_another_name() {
+    use crate::BlueprintApplyExt;
+    use codeterm_service_core::{
+        multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture,
+    };
+    for library in [false, true] {
+        let (mut mux, tab) = MultiplexerState::new();
+        let workspace = mux.find_workspace_for_tab(&tab).unwrap();
+        let team = codeterm_types::team::Team::new(&workspace, 1);
+        mux.upsert_team(team.clone());
+        mux.get_tab_mut(&tab).unwrap().team_id = Some(team.id.clone());
+        let fixture = ServiceFixture::new(mux);
+        let store = crate::store::Store::new(
+            fixture.temp.path().join("duplicates.json"),
+            codeterm_service_core::cron::clock::MockClock::starting_at(1000),
+        );
+        let handle = crate::scheduler::fixture_handle_with_ui(store, fixture.service.ui.clone());
+        crate::manage_fixture_ports(&fixture.service, &handle);
+        let caller = crate::service_adapter::SentinelCaller {
+            tab,
+            team: Some(team.id),
+            workspace,
+            cwd: fixture.temp.path().to_string_lossy().into(),
+            nonce: None,
+        };
+        let original = json!({"schema_version":2,"kind":"pipeline","name":"first-copy","owner":"team","trigger":{"type":"schedule","every":{"lit":"20s"}},"steps":[{"id":"read","run":{"lit":"echo ready"}}],"result":{"to":"notify"}});
+        if library {
+            fixture
+                .service
+                .mem
+                .save_blueprint(
+                    &format!("blueprints:{}", caller.workspace),
+                    serde_json::from_value(original.clone()).unwrap(),
+                    &["Report readiness".into()],
+                    codeterm_blueprint_types::blueprint_memory::Evidence {
+                        kept: true,
+                        successes: 1,
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+        } else {
+            fixture
+                .service
+                .blueprint_apply(&caller, original.clone(), false)
+                .unwrap();
+        }
+        let mut copy = original;
+        copy["name"] = json!("second-copy");
+        for dry_run in [true, false] {
+            let error = fixture
+                .service
+                .blueprint_apply(&caller, copy.clone(), dry_run)
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("R13"), "{error}");
+            assert_eq!(handle.store.lock().jobs.len(), if library { 0 } else { 1 });
+        }
+    }
+}

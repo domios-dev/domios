@@ -350,7 +350,11 @@ pub(super) fn database(ir: &PositionedIr, context: &CheckContext) -> Database {
     for verdict in ["near_twin", "semantic_twin"] {
         add("warning_verdict", vec![verdict.into()], "");
     }
-    if let DuplicateStatus::Available(twins) = &context.duplicates {
+    if let DuplicateStatus::Available(twins)
+    | DuplicateStatus::Partial {
+        findings: twins, ..
+    } = &context.duplicates
+    {
         for twin in twins {
             add(
                 "twin",

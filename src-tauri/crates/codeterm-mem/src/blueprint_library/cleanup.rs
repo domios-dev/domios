@@ -2,8 +2,21 @@ use super::*;
 use std::path::Path;
 
 pub(crate) fn remove_v1(conn: &Connection, blobs: &Path) -> Result<usize, String> {
+    let tx = rusqlite::Transaction::new_unchecked(conn, rusqlite::TransactionBehavior::Immediate)
+        .map_err(|e| e.to_string())?;
+    tx.execute_batch("CREATE TABLE IF NOT EXISTS blueprint_v1_cleanup_receipt (id INTEGER PRIMARY KEY CHECK(id=1), removed_count INTEGER NOT NULL, completed_at TEXT NOT NULL)").map_err(|e| e.to_string())?;
+    let completed: bool = tx
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM blueprint_v1_cleanup_receipt)",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    if completed {
+        return Ok(0);
+    }
     let ids = {
-        let mut stmt = conn
+        let mut stmt = tx
             .prepare("SELECT id FROM mem_items WHERE source=?1 AND kind IN ('skill','archived')")
             .map_err(|e| e.to_string())?;
         let rows = stmt
@@ -15,15 +28,14 @@ pub(crate) fn remove_v1(conn: &Connection, blobs: &Path) -> Result<usize, String
     let mut obsolete = Vec::new();
     for id in ids {
         let item =
-            store::get(conn, &id, blobs)?.ok_or("Blueprint solution disappeared during cleanup")?;
+            store::get(&tx, &id, blobs)?.ok_or("Blueprint solution disappeared during cleanup")?;
         let version = serde_yaml::from_str::<serde_json::Value>(&item.body)
             .ok()
             .and_then(|v| v["schema_version"].as_u64());
         if version == Some(1) {
-            obsolete.push(id);
+            obsolete.push((id, item.title, item.body));
         }
     }
-    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     let vectors: bool = tx
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='mem_vectors')",
@@ -32,7 +44,7 @@ pub(crate) fn remove_v1(conn: &Connection, blobs: &Path) -> Result<usize, String
         )
         .map_err(|e| e.to_string())?;
     let mut blob_paths = Vec::new();
-    for id in &obsolete {
+    for (id, title, body) in &obsolete {
         let blob: Option<String> = tx
             .query_row(
                 "SELECT body_blob_path FROM mem_items WHERE id=?1",
@@ -48,12 +60,19 @@ pub(crate) fn remove_v1(conn: &Connection, blobs: &Path) -> Result<usize, String
         }
         tx.execute("DELETE FROM relations WHERE from_id=?1 OR to_id=?1", [id])
             .map_err(|e| e.to_string())?;
-        tx.execute("DELETE FROM mem_item_history WHERE item_id=?1", [id])
-            .map_err(|e| e.to_string())?;
+        tx.execute("INSERT INTO mem_item_history(item_id,changed_at,changed_by,change_type,old_title,old_body,reason) VALUES (?1,datetime('now'),'system:blueprint-v2','delete',?2,?3,'Obsolete v1 Blueprint solution removed; native v2 required')",params![id,title,body]).map_err(|e| e.to_string())?;
         tx.execute("DELETE FROM mem_items WHERE id=?1", [id])
             .map_err(|e| e.to_string())?;
     }
+    tx.execute(
+        "INSERT INTO blueprint_v1_cleanup_receipt VALUES (1,?1,datetime('now'))",
+        [obsolete.len() as i64],
+    )
+    .map_err(|e| e.to_string())?;
     tx.commit().map_err(|e| e.to_string())?;
+    if !obsolete.is_empty() {
+        log::warn!("[blueprint-memory] removed {} obsolete v1 solutions; cleanup receipt and history retained", obsolete.len());
+    }
     for path in blob_paths {
         let referenced: bool = conn
             .query_row(

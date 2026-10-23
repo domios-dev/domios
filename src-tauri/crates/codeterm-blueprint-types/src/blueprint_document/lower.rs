@@ -301,15 +301,17 @@ fn watch(doc: &Document) -> Result<Value, String> {
         };
         let mut target = target.as_str();
         let mut chain = Vec::new();
+        let mut previous = 1;
         while !matches!(target, "stop" | "@stop") {
             let (index, node) = all
                 .iter()
                 .enumerate()
                 .find(|(_, n)| n.id == target)
                 .ok_or("Watch route must name an effect or @stop")?;
-            if index < 2 {
-                return Err("Watch effect cannot route to its source or decision".into());
+            if index <= previous {
+                return Err("Watch effects must route forward".into());
             }
+            previous = index;
             reached.insert(node.id.clone());
             if !node.buckets.is_empty()
                 || !node.matches.is_empty()
