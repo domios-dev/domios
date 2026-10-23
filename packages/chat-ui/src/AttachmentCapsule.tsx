@@ -2,7 +2,7 @@ import { Fragment, useCallback, useRef, useState, type ClipboardEvent, type CSSP
 import { Button } from "./Button";
 import { AnchoredPopover } from "./AnchoredPopover";
 import { X, Maximize2, Mic, Diff, Film, File as FileIcon, FileText, Folder, Image as ImageIcon, MessagesSquare, Quote, ScrollText, type LucideIcon } from "lucide-react";
-import { attachmentFileName, attachmentPreviewKind, inlineArtifactParts, DOMIOS_TEXT_MIME, type AttachmentKind, type AttachmentMarker, inlineAttachmentSrc, type ChatAttachment, type PlacedAttachmentSegment } from "@codeterm/chat-core";
+import { attachmentFileName, attachmentPreviewKind, inlineArtifactParts, DOMIOS_TEXT_MIME, type AttachmentKind, type AttachmentMarker, visibleAttachmentLabel, inlineAttachmentSrc, type ChatAttachment, type PlacedAttachmentSegment } from "@codeterm/chat-core";
 import { capsuleSelectionText } from "./capsuleClipboard";
 import { LocalArtifactBlock } from "./LocalArtifactBlock";
 import { RichMarkdown } from "./MarkdownBody";
@@ -45,10 +45,11 @@ export function CapsuleDecor({ kind }: { kind: AttachmentKind | null }) {
   );
 }
 
-/** "text1 · 312 lines" → name "text1", detail " · 312 lines"; the detail renders quieter. */
+/** "text1 · 312 lines" → visible name "text", detail " · 312 lines"; the detail renders quieter. */
 export function capsuleLabelParts(label: string): { name: string; detail: string } {
-  const at = label.indexOf(" · ");
-  return at < 0 ? { name: label, detail: "" } : { name: label.slice(0, at), detail: label.slice(at) };
+  const visible = visibleAttachmentLabel(label);
+  const at = visible.indexOf(" · ");
+  return at < 0 ? { name: visible, detail: "" } : { name: visible.slice(0, at), detail: visible.slice(at) };
 }
 
 function fileName(path: string): string {
@@ -113,7 +114,7 @@ function CapsuleContent({ attachment, labelContent, decoration, spanProps }: Att
   const tailAt = Math.max(0, name.length - 12);
   return <span title={attachment.path} aria-label={`${KIND_NAMES[attachment.kind]}: ${label}`} {...spanProps} className={labelContent ? "ct-capsule" : "ct-capsule ct-capsule--padded"}>
     {decoration ?? <CapsuleDecor kind={attachment.kind} />}
-    {labelContent ?? <><span className="ct-capsule__name"><span>{name.slice(0, tailAt)}</span><span>{name.slice(tailAt)}</span></span>{detail && <span className="ct-capsule__detail">{detail}</span>}</>}
+    {labelContent ?? <><span className="ct-capsule__name">{tailAt > 0 && <span>{name.slice(0, tailAt)}</span>}<span>{name.slice(tailAt)}</span></span>{detail && <span className="ct-capsule__detail">{detail}</span>}</>}
   </span>;
 }
 

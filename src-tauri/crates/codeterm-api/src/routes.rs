@@ -666,6 +666,30 @@ pub(super) fn create_router_with_preview_admission(
         )
         .route("/api/mesh/rpc", post(mesh_routes::mesh_rpc))
         .route(
+            "/api/teams/{team_id}/member-inventory",
+            get(super::remote_team_routes::inventory),
+        )
+        .route(
+            "/api/agents/reparent",
+            post(super::remote_team_routes::reparent),
+        )
+        .route(
+            "/api/teams/{team_id}/adopt-remote",
+            post(super::remote_team_routes::adopt_remote),
+        )
+        .route(
+            "/api/mesh/worker-transfer-info",
+            post(mesh_routes::worker_transfer::mesh_worker_transfer_info),
+        )
+        .route(
+            "/api/mesh/worker-finalize",
+            post(mesh_routes::worker_transfer::mesh_worker_finalize),
+        )
+        .route(
+            "/api/mesh/worker-transfer",
+            post(mesh_routes::worker_transfer::mesh_worker_transfer),
+        )
+        .route(
             "/api/mesh/worker-observation",
             post(mesh_routes::mesh_worker_observation),
         )

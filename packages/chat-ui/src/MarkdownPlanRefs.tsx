@@ -2,6 +2,7 @@ import React, { useContext } from "react";
 import { MentionChip, PlanReference, type OpenPlan, type ResolvedChatPlanRef } from "./codeterm/LinkedText";
 import { canonicalMentions } from "./codeterm/canonicalMentions";
 import { linkifyPlanRefs } from "./codeterm/planRefs";
+import { splitAttachedPunctuation } from "./codeterm/attachedPunctuation";
 
 export interface MarkdownPlanLinks {
   onOpenPlan?: OpenPlan;
@@ -30,6 +31,21 @@ export function rehypePlanRefs() {
     nodes.push({ type: "text", value: text.slice(cursor) });
     return nodes;
   }
+  function isRef(node: HastNode | undefined): boolean {
+    return node?.type === "element" && (node.properties?.["data-mention"] !== undefined || node.properties?.["data-plan-id"] !== undefined);
+  }
+  function keepPunctuationAttached(nodes: HastNode[]): HastNode[] {
+    const out: HastNode[] = [];
+    for (const node of nodes.filter((candidate) => candidate.type !== "text" || candidate.value)) {
+      const [attached, rest] = isRef(out[out.length - 1]) && node.type === "text" ? splitAttachedPunctuation(node.value ?? "") : ["", node.value ?? ""];
+      if (attached) {
+        const ref = out.pop() as HastNode;
+        out.push({ type: "element", tagName: "span", properties: { className: ["whitespace-nowrap"] }, children: [ref, { type: "text", value: attached }] });
+        if (rest) out.push({ type: "text", value: rest });
+      } else out.push(node);
+    }
+    return out;
+  }
   function visit(node: HastNode): void {
     if (!node.children || ["a", "code", "pre", "script", "style"].includes(node.tagName ?? "")) return;
     node.children = node.children.flatMap((child) => {
@@ -37,9 +53,9 @@ export function rehypePlanRefs() {
         visit(child);
         return [child];
       }
-      return linkifyPlanRefs(child.value).flatMap((segment): HastNode | HastNode[] => segment.kind === "text"
+      return keepPunctuationAttached(linkifyPlanRefs(child.value).flatMap((segment): HastNode | HastNode[] => segment.kind === "text"
         ? mentionNodes(segment.value)
-        : { type: "element", tagName: "span", properties: { "data-plan-id": segment.planId, "data-target-id": segment.targetId, "data-target-kind": segment.targetKind }, children: [{ type: "text", value: segment.value }] });
+        : { type: "element", tagName: "span", properties: { "data-plan-id": segment.planId, "data-target-id": segment.targetId, "data-target-kind": segment.targetKind }, children: [{ type: "text", value: segment.value }] }));
     });
   }
   return visit;

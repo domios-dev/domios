@@ -6,7 +6,10 @@ import type { Tab } from "./types";
 
 const agent: TabActivityInput = { tab_type: "Terminal", agent_type: "fixture", agent_session_id: "bound-session" };
 const background: TabActivityInput["provider_signals"] = { auth: null, api_error: null, permission_mode: null, background: { running: { child: "Inspect" }, overflow: false, history_incomplete: false, history_initialized: true } };
-assert.equal(tabActivity({ ...agent, provider_signals: background, agent_state: { state: "idle" } }, "Idle").status, "Working");
+const finishedWithBackground = tabActivity({ ...agent, provider_signals: background, agent_state: { state: "idle" } }, "Idle");
+assert.deepEqual([finishedWithBackground.kind, finishedWithBackground.canStop, finishedWithBackground.backgroundTasks], ["idle", false, 1]);
+const wokenByBackground = tabActivity({ ...agent, provider_signals: background, agent_state: { state: "working" } }, "Working");
+assert.deepEqual([wokenByBackground.kind, wokenByBackground.canStop, wokenByBackground.backgroundTasks], ["working", true, 1]);
 assert.equal(tabActivity({ ...agent, provider_signals: background, agent_state: { state: "question" } }, "Waiting").status, "Waiting");
 const cases: Array<[string, TabActivityInput | null, TabStatus | null, TabActivity["kind"], boolean, boolean]> = [
   ["unknown", null, null, "idle", false, false],
@@ -82,3 +85,9 @@ console.log(`tab activity: ${cases.length} table cases, ${startingStages.length}
 
 assert.equal(tabActivity({ ...agent, frozen: true }, "Working").active, false);
 assert.equal(tabActivity({ ...agent, frozen: true }, "Working").launching, false);
+
+const ended = tabActivity({ ...agent, role: "Worker" } as TabActivityInput, "Dead");
+assert.equal(ended.label, "Ended", "a dead role tab reads as ended, not as a launch failure");
+assert.equal(ended.active, false, "a dead role tab is never a live worker");
+assert.equal(ended.status, "Dead");
+assert.equal(tabActivity({ ...agent, boot_stage: "spawn_failed" }, "Working").label, "Launch failed");

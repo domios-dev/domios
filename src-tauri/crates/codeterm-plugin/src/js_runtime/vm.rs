@@ -1026,6 +1026,7 @@ impl Drop for VmEntry<'_> {
                 timing_line(&self.vm.plugin_id, self.method, self.waited, held)
             );
         } else if self.method == "sessionJsonlPath"
+            || self.method == "statusBubble"
             || self.waited > std::time::Duration::from_millis(100)
             || held > std::time::Duration::from_millis(50)
         {

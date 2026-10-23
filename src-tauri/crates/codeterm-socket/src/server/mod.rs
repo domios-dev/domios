@@ -46,6 +46,7 @@ mod plan_task_rpc;
 mod plan_time;
 pub(crate) mod protocol;
 mod receiver_target;
+mod remote_team_rpc;
 mod remote_worker_policy;
 #[cfg(test)]
 mod request_arrival_tests;

@@ -56,13 +56,18 @@ pub(super) fn dispatch(
             let team_id = get_string_param(params, "team_id")?;
             let plans = svc.plan_store.list_full();
             let mux = mux.read();
-            let team = mux.get_team(&team_id).cloned().ok_or(JsonRpcError {
+            let mut team = mux.get_team(&team_id).cloned().ok_or(JsonRpcError {
                 code: -32602,
                 message: format!("Team {team_id} not found"),
                 data: None,
             })?;
-            let team = lifecycle_for_team(&team, &plans);
-            Ok(serde_json::json!({ "team": team, "members": team_members(&mux, &team_id) }))
+            team.lifecycle = lifecycle_for_team(&team, &plans);
+            drop(mux);
+            let mut inventory = svc
+                .team_member_inventory(&team_id)
+                .map_err(super::remote_team_rpc::error)?;
+            inventory["team"] = serde_json::json!(team);
+            Ok(inventory)
         }
         "team.rename" => {
             let team_id = get_string_param(params, "team_id")?;
@@ -183,6 +188,17 @@ pub(super) fn dispatch(
         "team.adopt_agent" => {
             let team_id = get_string_param(params, "team_id")?;
             let tab_id = get_string_param(params, "tab_id")?;
+            if let Some(peer) = opt_string_param(params, "peer") {
+                return codeterm_service_core::async_runtime::block_on(
+                    svc.adopt_remote_team_member(
+                        super::remote_team_rpc::caller(params),
+                        &team_id,
+                        &tab_id,
+                        &peer,
+                    ),
+                )
+                .map_err(super::remote_team_rpc::error);
+            }
             let caller_tab_id = required_caller_tab(params, "Team agent adoption")?;
             let team = codeterm_orchestration::adopt_agent_for_team(
                 svc,
@@ -235,35 +251,17 @@ fn lifecycle_for_team(
     }
 }
 
-/// Member tabs of a Team, ordered by tab id so the listing is stable.
+#[cfg(test)]
 fn team_members(
     mux: &codeterm_service_core::multiplexer::state::MultiplexerState,
     team_id: &str,
 ) -> Value {
-    let mut members: Vec<Value> = mux
-        .snapshot()
-        .tabs
-        .values()
-        .filter(|tab| tab.team_id.as_deref() == Some(team_id))
-        .map(|tab| {
-            serde_json::json!({
-                "tab_id": tab.id,
-                "title": tab.title,
-                "role": tab.role_kind_id().unwrap_or("roleless"),
-                "role_type": match tab.role {
-                    Some(codeterm_types::agent::roles::AgentRole::Manager) => "Manager",
-                    Some(codeterm_types::agent::roles::AgentRole::Worker) => "Worker",
-                    None => "roleless",
-                },
-                "role_profile": tab.role_profile,
-                "anchors_team": tab.anchors_team(),
-            })
-        })
-        .collect();
-    members.sort_by(|a, b| a["tab_id"].as_str().cmp(&b["tab_id"].as_str()));
-    Value::Array(members)
+    Value::Array(
+        codeterm_service_core::service::remote_team::inventory::local_team_member_rows(
+            mux, team_id,
+        ),
+    )
 }
-
 fn adopt_plan_caller(params: &Option<Value>) -> Result<String, JsonRpcError> {
     required_caller_tab(params, "Team plan adoption")
 }

@@ -102,10 +102,17 @@ pub async fn list_tabs(
         codeterm_service_core::service::remote_tabs::ordinary_tab_projection(
             &state.mesh,
             state.svc.remote_workers.as_ref(),
+            state.svc.remote_teams.as_ref(),
             local,
             requested_workspace.as_deref(),
         )
-        .await,
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Remote Team membership is unavailable",
+            )
+        })?,
     )))
 }
 

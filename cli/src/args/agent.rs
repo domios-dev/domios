@@ -124,6 +124,15 @@ pub struct ReportArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum AgentAction {
+    /// Move an unbound running worker under a live local Team Orchestrator without restarting it
+    Reparent {
+        tab: String,
+        #[arg(long)]
+        to: String,
+        /// Peer that owns the worker; --to always names an Orchestrator on this machine
+        #[arg(long)]
+        peer: Option<String>,
+    },
     /// Read usage or consume a confirmed reset credit for an exact tab.
     Usage {
         #[command(subcommand)]

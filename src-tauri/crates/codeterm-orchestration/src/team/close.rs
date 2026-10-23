@@ -650,6 +650,7 @@ pub(crate) fn merged_refusal(cwd: &str, reference: &str, destination: &str) -> O
 
 #[derive(Debug, Serialize)]
 pub struct TeamCloseResult {
+    pub remote_members: Vec<codeterm_service_core::service::remote_team::RemoteTeamFinalization>,
     pub team: Team,
     pub inventory: TeamCloseInventory,
     #[serde(skip_serializing_if = "Vec::is_empty")]
