@@ -37,3 +37,5 @@ src-tauri/gen/schemas/*.json text eol=lf
 
 # Producer vector packet bytes are pinned by SHA256; never normalize line endings.
 src-tauri/crates/codeterm-entitlements/vectors/** -text
+.gitleaksignore text eol=lf
+.gitleaks.toml text eol=lf
