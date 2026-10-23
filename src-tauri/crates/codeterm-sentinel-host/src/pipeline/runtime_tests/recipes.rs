@@ -23,8 +23,8 @@ fn blueprint_v2_runtime_bundled_probe_recipes_execute() {
         let environment = fixture_tools(directory.path());
         let bindings = document
             .inputs
-            .iter()
-            .map(|(name, _)| {
+            .keys()
+            .map(|name| {
                 let value = if name == "name" {
                     format!("probe-recipe-{count}")
                 } else if name.contains("probe") {
