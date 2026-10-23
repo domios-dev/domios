@@ -100,10 +100,9 @@ export function PluginBubbles({
     for (const sub of subscriptionsRef.current) sub.setActive(isActive);
   }, [isActive]);
 
-  // Visible ⇒ exactly one watch lease; hidden or unmounted ⇒ exactly one
-  // release. An unwatched repo is never rendered as live.
+  // Keep cached repository state invalidated while its tabs remain mounted.
   useEffect(() => {
-    if (!isActive || !cwd) {
+    if (!cwd) {
       setWatch(null);
       return;
     }
@@ -112,7 +111,7 @@ export function PluginBubbles({
       lease.release();
       setWatch(null);
     };
-  }, [isActive, cwd]);
+  }, [cwd]);
 
   const visible = plugins.filter((p) => pills[p.id] && receiverMenu.receiverTargets[p.id] !== tabId);
   const watchReason = watch?.status === "unavailable" ? watch.reason : null;
