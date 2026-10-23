@@ -71,6 +71,38 @@ fn may_proceed(snapshot: &Value, wait: bool) -> Result<bool, String> {
     }
 }
 
+pub(super) fn probe_with_readiness(
+    mut probe: impl FnMut() -> Result<(reqwest::StatusCode, Value), String>,
+    wait_ready: impl FnOnce(Value) -> Result<(), String>,
+) -> Result<(), String> {
+    let (mut status, mut response) = probe()?;
+    if let Some(snapshot) = response
+        .get("startup")
+        .filter(|snapshot| snapshot["state"] == "starting")
+    {
+        wait_ready(snapshot.clone())?;
+        (status, response) = probe()?;
+    }
+    super::http_rpc_result(status, response)
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
+pub(super) fn after_refusal(
+    client: &reqwest::blocking::Client,
+    base_url: &str,
+    snapshot: Value,
+) -> Result<(), String> {
+    wait_for_ready(
+        client,
+        base_url,
+        snapshot,
+        true,
+        Instant::now() + STARTUP_DEADLINE,
+    )
+    .map(|_| ())
+}
+
 // No command has been sent: only an observed startup snapshot permits waiting.
 pub(super) fn before_fallback(wait: bool) -> Result<bool, String> {
     let Ok(base_url) = target_url() else {
@@ -93,9 +125,19 @@ pub(super) fn before_fallback(wait: bool) -> Result<bool, String> {
         .and_then(|response| response.error_for_status())
         .and_then(|response| response.json::<Value>());
     let Ok(health) = health else { return Ok(false) };
-    let Some(mut snapshot) = health.get("startup").cloned() else {
+    let Some(snapshot) = health.get("startup").cloned() else {
         return Ok(false);
     };
+    wait_for_ready(&client, &base_url, snapshot, wait, deadline)
+}
+
+fn wait_for_ready(
+    client: &reqwest::blocking::Client,
+    base_url: &str,
+    mut snapshot: Value,
+    wait: bool,
+    deadline: Instant,
+) -> Result<bool, String> {
     if snapshot["state"] == "starting" && wait && !crate::cmd::error_contract::json_mode() {
         eprintln!(
             "{}",

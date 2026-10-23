@@ -72,6 +72,7 @@ impl ServiceContext {
             return (status, status);
         }
         let trace = std::env::var("CODETERM_RD_TRACE").is_ok();
+        self.observe_shell_ready(pty_id, generation);
         let observed_tab = { self.mux.read().tab_id_for_pty(pty_id) };
         if let Some(tab_id) = observed_tab {
             super::supporter_tab_state::note_output(&tab_id);

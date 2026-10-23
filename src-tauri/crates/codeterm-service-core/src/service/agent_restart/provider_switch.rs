@@ -114,7 +114,7 @@ impl ServiceContext {
             target,
             permission.is_some(),
         )
-        .map_err(|error| error.to_string())?;
+        .map_err(switch_preflight_error)?;
         self.provider_switch_auth_preflight(target)?;
         let _claim = self
             .claim_restart(&tab.id, false)
@@ -485,9 +485,13 @@ impl ServiceContext {
             })
             .flatten();
         if let Some((binary, probe)) = probe {
-            let record = crate::service::provider_signals_probe::capture(&binary, &probe).ok_or(
-                "provider_switch_auth_unknown: target authentication could not be verified",
-            )?;
+            let record = crate::service::provider_signals_probe::capture_result(&binary, &probe)
+                .map_err(|failure| match failure {
+                    crate::service::provider_signals_probe::ProbeFailure::TimedOut =>
+                        "provider_switch_auth_timeout: target authentication check timed out; retry the switch",
+                    crate::service::provider_signals_probe::ProbeFailure::Unavailable =>
+                        "provider_switch_auth_unknown: target authentication could not be verified",
+                })?;
             let auth = self
                 .agent_registry
                 .with_provider(target, |provider| provider.parse_auth_status(&record))
@@ -500,5 +504,13 @@ impl ServiceContext {
             }
         }
         Ok(())
+    }
+}
+
+fn switch_preflight_error(error: crate::service::spawn_cli::ProviderPreflightError) -> String {
+    match error {
+        crate::service::spawn_cli::ProviderPreflightError::BinaryUnavailable { display_name, binary, .. } =>
+            format!("provider_switch_unavailable: {display_name} requires {binary}, which is not installed; install it before switching"),
+        other => format!("provider_switch_unavailable: {other}"),
     }
 }
