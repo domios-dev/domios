@@ -45,6 +45,12 @@ pub struct Workspace {
     /// Creation order for plan-limit locks; 0 until restore backfills a legacy item.
     #[serde(default)]
     pub created_at_ms: u64,
+    #[serde(
+        default,
+        skip_deserializing,
+        skip_serializing_if = "std::ops::Not::not"
+    )]
+    pub locked: bool,
     /// Sibling ordinal among workspaces. Only relative order within the group
     /// matters; the frontend sorts by it. Legacy snapshots default to 0.
     #[serde(default)]
@@ -608,6 +614,12 @@ pub struct Tab {
     /// Creation order for plan-limit locks; 0 until restore backfills a legacy item.
     #[serde(default)]
     pub created_at_ms: u64,
+    #[serde(
+        default,
+        skip_deserializing,
+        skip_serializing_if = "std::ops::Not::not"
+    )]
+    pub locked: bool,
     #[serde(default)]
     pub shell_profile: Option<crate::pty::shell_profiles::ShellProfile>,
     #[serde(skip)]
