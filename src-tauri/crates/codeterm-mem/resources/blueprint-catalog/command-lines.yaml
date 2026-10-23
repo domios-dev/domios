@@ -1,0 +1,56 @@
+schema_version: 2
+kind: pipeline
+name: command-lines
+note: Run one fixed read-only shell command and return its non-empty output lines
+  and their count.
+intent: run a status command and get its output back as a list of lines
+anchors: []
+inputs:
+  command:
+    type: string
+    description: The whole read-only command, fixed by the author (never run-time
+      data)
+types:
+  Lines:
+    type: object
+    additionalProperties: false
+    required:
+    - count
+    - lines
+    properties:
+      count:
+        type: integer
+      lines:
+        type: array
+        items:
+          type: string
+steps:
+- id: run
+  run:
+    input: command
+  out:
+    type: string
+    x-media: text
+- id: split
+  does: Split command output into trimmed non-empty lines (at most 500) and count
+    them
+  code:
+    lang: python
+    src: |
+      def main(text):
+          lines = [l.rstrip() for l in text.splitlines() if l.strip()]
+          return {"count": len(lines), "lines": lines[:500]}
+  in:
+    type: string
+    x-media: text
+  bind:
+    in: run.out
+  out:
+    $ref: Lines
+  routes:
+    done: next
+    failed: stop
+result:
+  type:
+    $ref: Lines
+  from: split.out

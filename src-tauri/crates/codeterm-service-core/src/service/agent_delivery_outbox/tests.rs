@@ -11,6 +11,8 @@ use parking_lot::Mutex;
 use std::sync::{mpsc, Arc};
 use std::time::Duration;
 
+#[path = "tests/durable.rs"]
+mod durable;
 #[path = "tests/wake.rs"]
 mod wake;
 
@@ -41,6 +43,7 @@ fn fixture(session: Option<&str>, prelaunch: bool) -> (ServiceFixture, String) {
 
 fn payload() -> AgentDeliveryPayload {
     AgentDeliveryPayload {
+        durable_delivery: None,
         trace_id: None,
         transport: crate::service::messenger::Messenger::from(
             crate::service::messenger::MessageEnvelope::from_codeterm(),

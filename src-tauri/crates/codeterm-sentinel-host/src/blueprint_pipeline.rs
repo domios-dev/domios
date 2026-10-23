@@ -110,7 +110,10 @@ impl BlueprintExt for ServiceContext {
                 StepKind::Github { .. } => {
                     checks.push(field_check(&format!("steps[{index}].github"), &errors));
                 }
-                StepKind::Command { .. } | StepKind::Code { .. } => {}
+                StepKind::Command { .. }
+                | StepKind::Code { .. }
+                | StepKind::Call { .. }
+                | StepKind::Effect { .. } => {}
             }
         }
         checks.push(field_check("result.to", &errors));

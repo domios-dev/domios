@@ -139,6 +139,13 @@ fn default_command_timeout_ms() -> u64 {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum StepKind {
+    Call {
+        call: crate::blueprint_document::Call,
+        grants: Vec<String>,
+    },
+    Effect {
+        node: Box<crate::blueprint_document::Node>,
+    },
     Code {
         code: crate::blueprint_document::Code,
     },
@@ -179,11 +186,17 @@ impl StepKind {
     pub const DESCRIPTORS: &'static [crate::blueprint_catalog::NodeDescriptor] =
         crate::blueprint_catalog::STEPS;
     pub fn name(&self) -> &'static str {
+        if matches!(self, Self::Call { .. }) {
+            return "call";
+        }
+        if matches!(self, Self::Effect { .. }) {
+            return "effect";
+        }
         if matches!(self, Self::Code { .. }) {
             return "code";
         }
         Self::DESCRIPTORS[match self {
-            Self::Code { .. } => unreachable!(),
+            Self::Code { .. } | Self::Call { .. } | Self::Effect { .. } => unreachable!(),
             Self::Command { .. } => 0,
             Self::Ask { .. } => 1,
             Self::Filter { .. } => 2,
@@ -201,6 +214,8 @@ impl StepKind {
             Self::Http { .. }
             | Self::Github { .. }
             | Self::Command { .. }
+            | Self::Call { .. }
+            | Self::Effect { .. }
             | Self::Code { .. }
             | Self::Ask { .. }
             | Self::Filter { .. }
@@ -223,6 +238,8 @@ impl StepKind {
             }
             Self::Github { .. }
             | Self::Command { .. }
+            | Self::Call { .. }
+            | Self::Effect { .. }
             | Self::Code { .. }
             | Self::Convert { .. }
             | Self::Agent { .. } => Ok(["done".into(), "failed".into()].into()),

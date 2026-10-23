@@ -1,7 +1,7 @@
 use super::{pipeline_spec, recipe_files};
 use crate::args::blueprint::BlueprintAction;
 use codeterm_blueprint_types::blueprint_document::{self, Document};
-use serde_json::{json, Value};
+use serde_json::json;
 
 pub(super) fn source(name: &str) -> Result<String, String> {
     if let Some((_, source)) = recipe_files::FILES.iter().find(|(key, _)| *key == name) {
@@ -9,7 +9,13 @@ pub(super) fn source(name: &str) -> Result<String, String> {
     }
     pipeline_spec::read_spec(std::path::Path::new(name))
 }
-pub(super) fn load_checked(name: &str, set: &[String]) -> Result<Value, String> {
+pub(super) fn local_bundle(name: &str) -> Result<blueprint_document::calls::LocalBundle, String> {
+    let raw = source(name)?;
+    blueprint_document::calls::collect_local(name, &raw)
+        .map_err(|errors| blueprint_document::checker::render(&errors, true))
+}
+#[cfg(test)]
+pub(super) fn load_checked(name: &str, set: &[String]) -> Result<serde_json::Value, String> {
     let source = source(name)?;
     let checked = blueprint_document::check(name, &source, set);
     if checked.ok {
@@ -53,6 +59,21 @@ pub fn handle_local(json_mode: bool, action: &BlueprintAction) -> bool {
             write,
         } => {
             let raw = source(name).unwrap_or_else(|error| crate::cmd::print::fail(2, error));
+            let parsed = blueprint_document::parse(name, &raw);
+            let calls = parsed.as_ref().is_ok_and(|parsed| {
+                parsed.document.nodes().any(|node| node.call.is_some())
+                    || !parsed.document.imports.is_empty()
+            });
+            if *fix && calls {
+                crate::cmd::print::fail(2, "--fix on call documents requires host resolution and is not supported; check without --fix");
+            }
+            if calls
+                || parsed.as_ref().is_ok_and(|parsed| {
+                    parsed.document.trigger.is_none() && parsed.document.result.port.is_some()
+                })
+            {
+                return false;
+            }
             let context = blueprint_document::checker::CheckContext::default();
             let repair = if *fix {
                 blueprint_document::parse(name, &raw).ok().map(|parsed| {
