@@ -168,11 +168,10 @@ fn delivery_binding(
     if tab.agent_type.is_none() || tab.is_chat_backend() {
         return None;
     }
-    let pty_id = if tab.agent_booting
-        && matches!(
-            tab.boot_stage,
-            Some(codeterm_types::pty::BootStage::PtyStarting)
-        ) {
+    let pty_id = if matches!(
+        tab.boot_stage,
+        Some(codeterm_types::pty::BootStage::PtyStarting)
+    ) {
         None
     } else {
         tab.pty_id.clone()

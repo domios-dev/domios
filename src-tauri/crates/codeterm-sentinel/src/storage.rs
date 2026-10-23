@@ -454,7 +454,14 @@ impl Store {
             let id = removed.as_str();
             backend.known.remove(id);
             backend.removed.insert(id.to_string());
-            quarantined.retain(|entry| entry.id != id);
+            quarantined.retain(|entry| {
+                if entry.id == id {
+                    scopes.insert((entry.workspace_id.clone(), entry.team_id.clone()));
+                    false
+                } else {
+                    true
+                }
+            });
             if let Some(position) = jobs.iter().position(|job| job.id == id) {
                 let job = jobs.remove(position);
                 scopes.insert((job.workspace_id, job.team_id));

@@ -12,6 +12,7 @@ pub const ORPHANED_STAGE: &str = "blueprint_quarantined_scenario_root_unavailabl
 pub struct Quarantined {
     pub id: String,
     pub name: Option<String>,
+    pub scenario_id: Option<String>,
     pub workspace_id: String,
     pub team_id: Option<String>,
     pub creator_tab_id: String,
@@ -25,6 +26,7 @@ impl Quarantined {
         Self {
             id: job.id.clone(),
             name: job.name.clone(),
+            scenario_id: job.scenario_id.clone(),
             workspace_id: job.workspace_id.clone(),
             team_id: job.team_id.clone(),
             creator_tab_id: job.creator_tab_id.clone(),

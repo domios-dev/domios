@@ -1,5 +1,12 @@
 use std::path::{Path, PathBuf};
 
+pub(super) fn path_for(destination: &Path, suffix: &str) -> PathBuf {
+    let mut name = destination.file_name().unwrap_or_default().to_os_string();
+    name.push(".");
+    name.push(suffix);
+    destination.with_file_name(name)
+}
+
 pub(super) fn with_cleanup<T>(
     path: &Path,
     operation: impl FnOnce() -> Result<T, String>,

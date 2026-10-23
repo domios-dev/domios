@@ -244,6 +244,15 @@ impl Store {
                 "blueprint_capability_unavailable: {capability} is not executable yet"
             )));
         }
+        if let Some(current) = self.quarantined.iter().find(|current| {
+            current.same_scope(&job.workspace_id, job.team_id.as_deref())
+                && (current.id == job.id || (job.name.is_some() && current.name == job.name))
+        }) {
+            return Staged::ready(Err(format!(
+                "blueprint_quarantined: delete {} before applying this name again",
+                current.id
+            )));
+        }
         if self.jobs.iter().any(|current| {
             current.name == job.name
                 && job.name.is_some()
@@ -462,7 +471,11 @@ impl Store {
             })
             .map(|job| job.id.clone())
             .collect();
-        if !owned.iter().any(|candidate| candidate == id) {
+        let quarantined = self.quarantined.iter().any(|job| {
+            job.same_scope(workspace, team)
+                && (job.id == id || job.scenario_id.as_deref() == Some(id))
+        });
+        if !owned.iter().any(|candidate| candidate == id) && !quarantined {
             return Staged::ready(Err(format!("Blueprint scenario not found: {id}")));
         }
         for job_id in &owned {

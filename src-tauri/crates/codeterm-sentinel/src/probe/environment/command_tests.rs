@@ -55,37 +55,64 @@ fn blueprint_v2_runtime_command_path_preserves_tools_and_excludes_cli() {
 }
 
 #[test]
-fn blueprint_v2_runtime_command_path_excludes_every_instance_cli() {
+fn blueprint_v2_runtime_shared_directory_preserves_runtimes_and_shadows_cli() {
     let root = tempfile::tempdir().unwrap();
-    let tools = root.path().join("tools");
-    let prod = root.path().join(".domios").join("bin");
-    let dev = root.path().join(".domios-dev").join("bin");
-    let legacy = root.path().join(".codeterm").join("bin");
-    for (directory, launcher) in [
-        (&tools, "tool.exe"),
-        (&prod, "domios.exe"),
-        (&dev, "domios"),
-        (&legacy, "codeterm.cmd"),
-    ] {
-        std::fs::create_dir_all(directory).unwrap();
-        std::fs::write(directory.join(launcher), "").unwrap();
+    let shared = root.path().join("usr-bin");
+    std::fs::create_dir(&shared).unwrap();
+    for name in ["python3", "node", "sh", "domios", "codeterm"] {
+        std::fs::write(shared.join(name), "opaque-tool").unwrap();
     }
-    let path = std::env::join_paths([&prod, &tools, &dev, &legacy]).unwrap();
-    let environment = Environment::for_command(inherited_with_path(path), None, &[]);
-    let (_, path) = environment
+    let environment = Environment::for_command_on_platform(
+        [("PATH".into(), shared.as_os_str().to_owned())],
+        None,
+        &[],
+        false,
+    );
+    let path = &environment
         .variables
         .iter()
         .find(|(key, _)| key == "PATH")
-        .unwrap();
-    let path: Vec<_> = std::env::split_paths(path).collect();
-    assert_eq!(path.first(), Some(&tools));
-    for cli in [&prod, &dev, &legacy] {
-        assert!(
-            !path.contains(cli),
-            "CLI directory leaked: {}",
-            cli.display()
+        .unwrap()
+        .1;
+    let directories: Vec<_> = std::env::split_paths(path).collect();
+    assert_eq!(directories[1], shared);
+    for name in ["python3", "node", "sh"] {
+        assert_eq!(
+            environment.resolve_program(&[name]),
+            Some(shared.join(name).canonicalize().unwrap())
         );
     }
+    for name in ["domios", "codeterm"] {
+        let stub = environment.resolve_program(&[name]).unwrap();
+        assert_eq!(stub, directories[0].join(name).canonicalize().unwrap());
+        #[cfg(unix)]
+        assert_eq!(
+            std::process::Command::new(stub).status().unwrap().code(),
+            Some(126)
+        );
+    }
+    let clone = environment.clone();
+    drop(environment);
+    assert!(clone.resolve_program(&["domios"]).is_some());
+}
+
+#[cfg(unix)]
+#[test]
+fn blueprint_v2_runtime_package_cli_keeps_usr_bin() {
+    let environment = Environment::for_command_on_platform(
+        [("PATH".into(), "/usr/bin:/bin".into())],
+        Some(Path::new("/usr/bin/domios")),
+        &[],
+        false,
+    );
+    let path = &environment
+        .variables
+        .iter()
+        .find(|(key, _)| key == "PATH")
+        .unwrap()
+        .1;
+    assert!(std::env::split_paths(path).any(|path| path == Path::new("/usr/bin")));
+    assert!(environment.resolve_program(&["sh"]).is_some());
 }
 
 #[test]
