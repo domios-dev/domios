@@ -5,6 +5,7 @@ import { Shield } from "lucide-react";
 import { PRODUCT_EVENT_CATALOG, PRODUCT_EVENT_ENUMS } from "../../lib/productAnalytics.generated";
 import { localJson } from "../../lib/webApi";
 import { Button } from "../shared/Button";
+import { LegalLink } from "../shared/LegalLinks";
 import { SettingsCard, Toggle } from "./shared";
 import { analyticsEnabled, changeAnalyticsConsent, type AnalyticsStatus, type PrivacyApi } from "./privacyModel";
 
@@ -43,7 +44,10 @@ export function PrivacyTab() {
 
   return <SettingsCard icon={<Shield size={16} />} title="Product analytics" description="Share feature usage; prompts, paths, names and terminal output are never collected.">
     <fieldset disabled={pending || !status}><Toggle label="Share product analytics" checked={analyticsEnabled(status)} onChange={(enabled) => { void change(enabled); }} /></fieldset>
-    <Button variant="ghost" size="sm" aria-controls="analytics-collection" aria-expanded={showCollection} onClick={() => setShowCollection((open) => !open)}>What we collect</Button>
+    <div className="flex flex-wrap items-center gap-3">
+      <Button variant="ghost" size="sm" aria-controls="analytics-collection" aria-expanded={showCollection} onClick={() => setShowCollection((open) => !open)}>What we collect</Button>
+      <LegalLink document="privacy" />
+    </div>
     {showCollection && <section id="analytics-collection" aria-label="Analytics collection catalog" className="space-y-2 text-xs text-[var(--ct-muted-fg)]">
       <p>With your consent, Domios may send the following product events. Each event accepts only the listed properties and allowed values.</p>
       <ul className="list-disc pl-4">{Object.entries(PRODUCT_EVENT_CATALOG).map(([event, properties]) => <li key={event}><code>{event}</code>: {Object.keys(properties).join(", ") || "no event properties"}</li>)}</ul>
