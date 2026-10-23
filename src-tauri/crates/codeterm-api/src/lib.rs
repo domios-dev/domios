@@ -9,6 +9,7 @@ pub mod blueprint_solution_routes;
 #[cfg(debug_assertions)]
 mod cors_diagnostics;
 pub mod events;
+mod request_bound;
 #[cfg(debug_assertions)]
 mod request_census;
 pub mod routes;
