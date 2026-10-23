@@ -37,6 +37,10 @@ fn read_text_input_file(path: &std::path::Path) -> Result<String, String> {
 }
 
 fn render(job: &Value) {
+    if job["state"] == "quarantined" {
+        println!("{}", quarantine_summary(job));
+        return;
+    }
     let calls = call_view::text(job);
     if !calls.is_empty() {
         println!("{calls}");
@@ -84,6 +88,16 @@ fn render(job: &Value) {
         return;
     }
     println!("{}", watch_summary(job));
+}
+
+fn quarantine_summary(job: &Value) -> String {
+    format!(
+        "{} [quarantined] name={} code={} reason={}",
+        job["id"].as_str().unwrap_or("?"),
+        job["name"].as_str().unwrap_or("?"),
+        job["code"].as_str().unwrap_or("?"),
+        job["reason"].as_str().unwrap_or("?")
+    )
 }
 
 fn watch_summary(job: &Value) -> String {
