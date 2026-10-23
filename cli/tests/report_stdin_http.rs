@@ -96,6 +96,11 @@ fn stdin_taskless_report_keeps_http_fallback_identity_and_utf8_payload() {
             None
         });
         let scratch = tempfile::tempdir().unwrap();
+        std::fs::write(
+            scratch.path().join("config.toml"),
+            format!("[api]\nhost = \"127.0.0.1\"\nport = {}\n", address.port()),
+        )
+        .unwrap();
         let mut command = Command::new(codeterm_bin::codeterm_bin());
         for (key, _) in std::env::vars() {
             if key.starts_with("CODETERM_") {
@@ -151,7 +156,9 @@ fn stdin_taskless_report_keeps_http_fallback_identity_and_utf8_payload() {
             .unwrap();
         assert!(
             output.status.success(),
-            "{}",
+            "status: {}\nstdout: {}\nstderr: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
         let delivered: Value = serde_json::from_slice(&output.stdout).unwrap();
