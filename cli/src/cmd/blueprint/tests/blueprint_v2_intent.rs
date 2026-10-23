@@ -39,6 +39,12 @@ fn blueprint_v2_intent_scaffold_survives_no_fit_and_degradation_and_roundtrips()
         let checked =
             codeterm_blueprint_types::blueprint_document::check("scaffold.yaml", yaml, &[]);
         assert!(checked.ok, "{:?}", checked.diagnostics);
+        assert!(checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic.rule == "R13"
+                && diagnostic.name == "duplicate_comparison_unavailable"
+                && diagnostic.severity == "info"
+        }));
+        assert!(checked.definition.is_some());
         assert!(response["cards"].as_array().unwrap().is_empty());
         let text = memory::render_intent(&response);
         assert!(text.contains(yaml));

@@ -1,3 +1,4 @@
+use super::path_identity::portable_path;
 use super::*;
 use crate::blueprint_document::{parse, Kind, SubBlueprint};
 use sha2::{Digest, Sha256};
@@ -54,10 +55,7 @@ pub fn resolve(
         local_files: true,
         templates: BTreeMap::new(),
     };
-    let root_id = std::fs::canonicalize(&root_path)
-        .unwrap_or(root_path.clone())
-        .to_string_lossy()
-        .into_owned();
+    let root_id = portable_path(&std::fs::canonicalize(&root_path).unwrap_or(root_path.clone()));
     resolver.stack.push(format!("file:{root_id}"));
     let root = resolver.graph(parsed, &root_path, None)?;
     let closure = FrozenClosure {
@@ -224,12 +222,16 @@ impl Resolver<'_> {
                 } else if parsed.document.imports.contains_key(&call.reference) {
                     let candidate = path.parent().unwrap_or(Path::new(".")).join(target);
                     if self.local_files {
-                        std::fs::canonicalize(candidate)
-                            .is_ok_and(|p| pin.id == format!("file:{}", p.display()))
+                        std::fs::canonicalize(candidate).is_ok_and(|p| {
+                            pin.id
+                                .strip_prefix("file:")
+                                .is_some_and(|id| portable_path(Path::new(id)) == portable_path(&p))
+                        })
                     } else {
-                        pin.id
-                            .strip_prefix("file:")
-                            .is_some_and(|p| Path::new(p).ends_with(target))
+                        pin.id.strip_prefix("file:").is_some_and(|p| {
+                            Path::new(&portable_path(Path::new(p)))
+                                .ends_with(portable_path(Path::new(target)))
+                        })
                     }
                 } else {
                     false
@@ -261,7 +263,7 @@ impl Resolver<'_> {
             } else if let Some(frozen) = aliases.get(&call.reference) {
                 frozen.clone()
             } else if let Some(definition) = definitions.get(&call.reference) {
-                let identity = format!("inline:{}#{}", path.display(), call.reference);
+                let identity = format!("inline:{}#{}", portable_path(path), call.reference);
                 if self.stack.contains(&identity) {
                     return Err(vec![finding(&parsed, &field, "Recursive inline call")]);
                 }
@@ -417,7 +419,7 @@ impl Resolver<'_> {
                 format!("Missing import {}: {e}", candidate.display()),
             )]
         })?;
-        let id = format!("file:{}", path.display());
+        let id = format!("file:{}", portable_path(&path));
         if self.stack.contains(&id) {
             return Err(vec![finding(parsed, field, "Cyclic import")]);
         }
