@@ -108,11 +108,16 @@ fn send_from_pad_resolves_before_transport() {
 
 #[test]
 fn message_file_dash_reads_stdin() {
-    let mut stdin = std::io::Cursor::new("quoted `body` $value\nsecond line\n");
-    assert_eq!(
-        read_file_or_stdin_with("-", "--message-file", &mut stdin).unwrap(),
-        "quoted `body` $value\nsecond line\n"
-    );
+    for option in ["--message-file", "--from-file", "--from-pad", "--stdin"] {
+        let expected = "quoted `body` $value\r\nλ😀\n";
+        let mut stdin = std::io::Cursor::new(expected);
+        assert_eq!(
+            read_file_or_stdin_with("-", option, &mut stdin)
+                .unwrap()
+                .as_bytes(),
+            expected.as_bytes()
+        );
+    }
 }
 
 #[test]

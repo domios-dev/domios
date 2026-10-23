@@ -1,6 +1,6 @@
 //! `plugin:<id>.<verb>` JSON-RPC routing — the inverse seam (plan §1.5 F5 /
 //! §1.10). A spawned agent runs `domios plugin <id> <verb> [args…]`; the CLI
-//! sends method `plugin:<id>.<verb>` with `{ args, sessionId }`. We resolve the
+//! sends method `plugin:<id>.<verb>` with `{ args, sessionId, body? }`. We resolve the
 //! owning plugin in [`AgentCommandRegistry`](codeterm_service_core::agent_commands), enforce its
 //! `agent_commands` grant, optionally scope the verb to what the spawning plugin
 //! declared at `host.agent.spawn` (C2 MINOR-2), then call its `onAgentCommand`.
@@ -89,7 +89,11 @@ pub(crate) fn route(
 
     let args = arg_strings(params);
     let sid = session_id(params);
-    match handler.on_agent_command(&sid, &verb, &args) {
+    let body = params
+        .as_ref()
+        .and_then(|p| p.get("body"))
+        .and_then(Value::as_str);
+    match handler.on_agent_command(&sid, &verb, &args, body) {
         Ok(result) => Ok(serde_json::json!({
             "result": result.result,
             "catalogue_changed": result.catalogue_changed,
@@ -159,146 +163,4 @@ pub(super) fn dispatch(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use codeterm_service_core::agent_commands::{AgentCommandProvider, AgentCommandRegistry};
-    use std::sync::Arc;
-
-    struct Fake {
-        id: String,
-        granted: bool,
-    }
-    impl AgentCommandProvider for Fake {
-        fn id(&self) -> &str {
-            &self.id
-        }
-        fn granted(&self) -> bool {
-            self.granted
-        }
-        fn on_agent_command(
-            &self,
-            session_id: &str,
-            verb: &str,
-            args: &[String],
-        ) -> Result<codeterm_service_core::agent_commands::AgentCommandResult, String> {
-            if verb == "boom" {
-                return Err("plugin said no".into());
-            }
-            Ok(codeterm_service_core::agent_commands::AgentCommandResult {
-                result: format!("{session_id}|{verb}|{}", args.join(",")),
-                catalogue_changed: verb == "refresh",
-            })
-        }
-    }
-
-    fn reg_with(id: &str, granted: bool) -> AgentCommandRegistry {
-        let r = AgentCommandRegistry::new();
-        r.register(
-            id,
-            Arc::new(Fake {
-                id: id.into(),
-                granted,
-            }),
-        );
-        r
-    }
-
-    #[test]
-    fn parses_id_and_verb() {
-        assert_eq!(
-            parse_method("plugin:local-shell.say"),
-            Some(("local-shell".into(), "say".into()))
-        );
-        assert_eq!(
-            parse_method("plugin:p.do.it"),
-            Some(("p".into(), "do.it".into()))
-        );
-        assert!(parse_method("agent.report").is_none());
-        assert!(parse_method("agent.diagnostic").is_none());
-        assert!(parse_method("plugin:noverb").is_none());
-        assert!(parse_method("plugin:.verb").is_none());
-    }
-
-    #[test]
-    fn routes_to_granted_handler() {
-        let reg = reg_with("npc", true);
-        let params = Some(serde_json::json!({ "args": ["a", "b"], "sessionId": "s1" }));
-        let out = route(&reg, "plugin:npc.say", &params, None).ok();
-        assert_eq!(
-            out,
-            Some(serde_json::json!({
-                "result": "s1|say|a,b",
-                "catalogue_changed": false,
-            }))
-        );
-    }
-
-    #[test]
-    fn plugin_command_can_report_catalogue_mutation() {
-        let reg = reg_with("npc", true);
-
-        let out = route(&reg, "plugin:npc.refresh", &None, None).unwrap();
-
-        assert_eq!(out["catalogue_changed"], true);
-    }
-
-    #[test]
-    fn plugin_error_becomes_error_envelope_not_rpc_error() {
-        let reg = reg_with("npc", true);
-        let out = route(&reg, "plugin:npc.boom", &None, None).ok();
-        assert_eq!(out, Some(serde_json::json!({ "error": "plugin said no" })));
-    }
-
-    #[test]
-    fn ungranted_plugin_is_refused() {
-        let reg = reg_with("npc", false);
-        let err = route(&reg, "plugin:npc.say", &None, None).unwrap_err();
-        assert_eq!(err.code, -32603);
-        assert!(err.message.contains("not granted"));
-    }
-
-    #[test]
-    fn unknown_plugin_is_method_not_found() {
-        let reg = reg_with("npc", true);
-        let err = route(&reg, "plugin:other.say", &None, None).unwrap_err();
-        assert_eq!(err.code, -32601);
-    }
-
-    #[test]
-    fn malformed_method_is_invalid_request() {
-        let reg = reg_with("npc", true);
-        let err = route(&reg, "plugin:npc", &None, None).unwrap_err();
-        assert_eq!(err.code, -32600);
-    }
-
-    #[test]
-    fn scope_denies_verb_outside_declared_commands() {
-        let reg = reg_with("npc", true);
-        let allowed = vec!["say".to_string(), "look".to_string()];
-        let err = route(&reg, "plugin:npc.move", &None, Some(&allowed)).unwrap_err();
-        assert_eq!(err.code, -32603);
-        assert!(err.message.contains("granted commands"));
-    }
-
-    #[test]
-    fn scope_allows_declared_verb() {
-        let reg = reg_with("npc", true);
-        let allowed = vec!["say".to_string()];
-        let out = route(&reg, "plugin:npc.say", &None, Some(&allowed)).ok();
-        assert_eq!(
-            out,
-            Some(serde_json::json!({ "result": "|say|", "catalogue_changed": false }))
-        );
-    }
-
-    #[test]
-    fn empty_scope_does_not_restrict() {
-        let reg = reg_with("npc", true);
-        let allowed: Vec<String> = vec![];
-        let out = route(&reg, "plugin:npc.anything", &None, Some(&allowed)).ok();
-        assert_eq!(
-            out,
-            Some(serde_json::json!({ "result": "|anything|", "catalogue_changed": false }))
-        );
-    }
-}
+mod tests;
