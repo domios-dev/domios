@@ -65,7 +65,29 @@ impl ServiceContext {
                     billing =
                         billing.with_observer(super::analytics::billing_observer(worker.clone()));
                 }
-                Ok::<_, String>(Arc::new(billing))
+                let billing = Arc::new(billing);
+                if let Some(session) = self.account().await?.session().await {
+                    let primer = billing.clone();
+                    let deadline = tokio::task::spawn_blocking(move || primer.prime(&session))
+                        .await
+                        .ok()
+                        .flatten();
+                    if let Some(deadline) = deadline {
+                        let wait = deadline.saturating_sub(
+                            std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_secs(),
+                        );
+                        let service = self.clone();
+                        // Failure bound only: a refresh answer re-syncs the gate sooner.
+                        crate::async_runtime::spawn(async move {
+                            tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+                            service.sync_limit_gate();
+                        });
+                    }
+                }
+                Ok::<_, String>(billing)
             })
             .await?;
         Ok(billing.clone())
