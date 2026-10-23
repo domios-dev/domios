@@ -68,13 +68,6 @@ impl Events {
     }
 
     #[cfg(any(test, feature = "test-support"))]
-    pub(in crate::probe) fn spawned(&self, pid: u32) {
-        if let Some(registration) = &self.registration {
-            registration.signal.spawned(pid);
-        }
-    }
-
-    #[cfg(any(test, feature = "test-support"))]
     pub(in crate::probe) fn waiting(&self, phase: super::WaitPhase) {
         if let Some(registration) = &self.registration {
             registration.waiting(phase);
