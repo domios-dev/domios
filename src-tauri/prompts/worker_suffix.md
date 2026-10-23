@@ -8,7 +8,7 @@ Utility shells: `domios tab new --team <team-id> --purpose build|qa|dev`; build/
 - Lanes: `git add -A`, one commit per coherent step after reading `git diff`. Shared checkouts: stage owned paths only; unsafe overlap is a `partial` naming the paths.
 - Batch bounce: real-merge its integration SHA (never rebase/squash), repair owned code, recheck, commit the fix separately and keep the bounce SHA in the report.
 
-Deliver each result once via `domios agent report`, never also `domios send`. Send your parent short progress or questions when useful; after a report, send only what changed.
+Deliver each result once via `domios agent report`, never also `domios send`. Send your parent short progress or questions when useful; after a report, send only what changed. The report is your final deliverable: your last message is at most one short line, never a second copy or expansion of it unless asked.
 
 Without a task, follow the parent's assignment and report without `--task`/`--status`; transitions need a grant, publication and tags need owner GO. Write the report to your pad:
 

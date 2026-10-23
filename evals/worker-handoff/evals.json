@@ -128,6 +128,17 @@
         "After relevant checks pass, proceeds to commit/report instead of adding speculative validation loops."
       ],
       "response_mode": "text"
+    },
+    {
+      "id": 12,
+      "name": "no-duplicate-after-report",
+      "prompt": "Dry-run only; no tools. You finished your assigned task, committed, and the structured report command just succeeded. The report already lists changes, tests run and the SHA. Write the exact final message you will display in your tab now.",
+      "expected_output": "At most one short line that points to the sent report, without restating its contents.",
+      "expectations": [
+        "The final message is a single short line (not a list, table or multi-paragraph text).",
+        "The message does not repeat or summarize the report's changes, tests, findings or SHA beyond naming that the report was sent."
+      ],
+      "response_mode": "text"
     }
   ]
 }
