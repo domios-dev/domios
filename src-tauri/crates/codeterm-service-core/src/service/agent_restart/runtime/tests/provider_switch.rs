@@ -30,6 +30,11 @@ fn task_worker_switch_from_pty_carries_attempt_and_delivers_one_handoff() {
         )
         .unwrap();
     assert!(outcome.binding_restored && outcome.handoff_delivered);
+    assert!(fixture
+        .service
+        .provider_switch_history(&fixture.tab, &outcome.previous_history_path)
+        .unwrap()
+        .is_empty());
     let persisted = store.show_task(&task).unwrap().task;
     assert_eq!(persisted.execution_attempts.len(), 1);
     let carried = &persisted.execution_attempts[0];
@@ -202,8 +207,13 @@ fn failed_runtime_restart_releases_the_task_attempt_authority() {
 fn switch_worker_fixture() -> (RuntimeFixture, String, String) {
     let fixture = RuntimeFixture::new();
     agent_runtime::engine::stop_blocking(&fixture.service, &fixture.tab).unwrap();
+    let source_transcript = fixture.temp.path().join("source-thread.jsonl");
+    std::fs::write(&source_transcript, []).unwrap();
     fixture.service.agent_registry.register_provider(Box::new(
-        crate::agent::test_provider::MockProvider::new("source-provider"),
+        crate::agent::test_provider::MockProvider::with_session_file(
+            "source-provider",
+            source_transcript,
+        ),
     ));
     {
         let mut mux = fixture.service.mux.write();
