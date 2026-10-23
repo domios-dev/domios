@@ -202,6 +202,8 @@ async fn run_programmatic_delivery<T: Send + 'static>(
 }
 
 #[cfg(test)]
+mod lock_tests;
+#[cfg(test)]
 mod mesh_rpc_delivery_tests;
 
 fn pad_write_refusal(tab: &str, detail: String) -> SendRejection {
