@@ -19,10 +19,11 @@ type DotMatrixCanvasProps = {
   intensity?: number;
   /** The resting field's strength; small surfaces lift it because the rest glow is tuned for full stages. */
   restIntensity?: number;
+  waveDurationMs?: number;
 };
 
 export const DotMatrixCanvas = forwardRef<DotMatrixCanvasHandle, DotMatrixCanvasProps>(function DotMatrixCanvas(
-  { mode, reducedMotion, intensity = 1, restIntensity = intensity },
+  { mode, reducedMotion, intensity = 1, restIntensity = intensity, waveDurationMs },
   ref,
 ) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -79,7 +80,7 @@ export const DotMatrixCanvas = forwardRef<DotMatrixCanvasHandle, DotMatrixCanvas
         Math.hypot(width - centerX, height - centerY),
       );
       const activeWaves = wavesRef.current.flatMap(wave => {
-        const sample = sampleDotMatrixWave(wave, now);
+        const sample = sampleDotMatrixWave(wave, now, waveDurationMs);
         return sample ? [{ wave, ...sample }] : [];
       });
       wavesRef.current = activeWaves.map(({ wave }) => wave);
@@ -113,10 +114,11 @@ export const DotMatrixCanvas = forwardRef<DotMatrixCanvasHandle, DotMatrixCanvas
         frame = requestAnimationFrame(tick);
       }
     };
-    function tick(now: number) {
+    function tick() {
       frame = null;
       if (!visible()) return;
-      if (draw(now)) schedule();
+      // A frame timestamp can precede a release emitted during that frame.
+      if (draw(performance.now())) schedule();
     }
     const resize = () => {
       measure();
@@ -163,7 +165,7 @@ export const DotMatrixCanvas = forwardRef<DotMatrixCanvasHandle, DotMatrixCanvas
       window.removeEventListener("resize", resize);
       document.removeEventListener("visibilitychange", visibilityChange);
     };
-  }, [mode, reducedMotion, intensity, restIntensity]);
+  }, [mode, reducedMotion, intensity, restIntensity, waveDurationMs]);
 
   return <canvas ref={canvasRef} className="brand-state-matrix" aria-hidden="true" data-wave-enabled={mode === "loading" && !reducedMotion} />;
 });
