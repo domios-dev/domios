@@ -1,13 +1,33 @@
 const UNKNOWN_LOCAL_NAME = "Domios";
 const MESH_PEERS_LOADED = "codeterm-mesh-peers-loaded";
+const STORAGE_KEY = "codeterm-local-instance-name";
 
-let knownName: string | null = null;
+function readPersistedName(): string | null {
+  try {
+    return localStorage.getItem(STORAGE_KEY)?.trim() || null;
+  } catch {
+    return null;
+  }
+}
 
-/** Keeps the last name the local daemon reported, so a failed fetch or a remount never reverts the label. */
+let knownName: string | null = readPersistedName();
+
+/** Keeps the last name the local daemon reported, so a failed fetch, a remount or a reload never reverts the label. */
 export function rememberLocalInstanceName(name: string | null | undefined): string {
   const trimmed = name?.trim();
-  if (trimmed) knownName = trimmed;
+  if (trimmed) {
+    knownName = trimmed;
+    try {
+      localStorage.setItem(STORAGE_KEY, trimmed);
+    } catch {
+      // Persistence is a first-paint convenience; the in-memory name still holds.
+    }
+  }
   return localInstanceLabel();
+}
+
+export function hasLocalInstanceName(): boolean {
+  return knownName !== null;
 }
 
 export function localInstanceLabel(): string {
@@ -25,4 +45,13 @@ export function onMeshPeersLoaded(handler: () => void): () => void {
 
 export function __resetLocalInstanceNameForTest(): void {
   knownName = null;
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // Nothing persisted to clear.
+  }
+}
+
+export function __reloadLocalInstanceNameForTest(): void {
+  knownName = readPersistedName();
 }
