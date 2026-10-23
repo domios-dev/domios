@@ -3,6 +3,7 @@
 
 pub mod codec;
 pub mod ops;
+pub mod quarantine;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 #[cfg(any(test, feature = "test-support"))]
@@ -14,7 +15,7 @@ use std::time::Duration;
 use parking_lot::Mutex;
 
 use super::amend::DefinitionVersion;
-use super::store::{scope_revisions, validate, ScopeKey, Sentinel, Store};
+use super::store::{scope_revisions, ScopeKey, Sentinel, Store};
 use codeterm_cron::clock::SharedClock;
 use codeterm_storage::{
     Committed, Completion, Revision, SentinelCommit, SentinelRepository, Storage, StorageError,
@@ -80,7 +81,7 @@ impl LoadFailure {
 
 #[cfg(any(test, feature = "test-support"))]
 fn decode(raw: &str) -> Result<Vec<Sentinel>, String> {
-    validate(serde_json::from_str(raw).map_err(|e| e.to_string())?)
+    super::store::validate(serde_json::from_str(raw).map_err(|e| e.to_string())?)
 }
 
 /// The legacy JSON file backend; it stays the live authority until the cutover.
@@ -119,6 +120,7 @@ impl Store {
             committed_revisions,
             changes: BTreeMap::new(),
             pending_stop_notices: Vec::new(),
+            quarantined: Vec::new(),
         }
     }
 
@@ -441,6 +443,7 @@ impl Store {
             jobs,
             backend,
             wake_pending,
+            quarantined,
             ..
         } = self;
         let Some(backend) = backend.sqlite_mut() else {
@@ -451,6 +454,7 @@ impl Store {
             let id = removed.as_str();
             backend.known.remove(id);
             backend.removed.insert(id.to_string());
+            quarantined.retain(|entry| entry.id != id);
             if let Some(position) = jobs.iter().position(|job| job.id == id) {
                 let job = jobs.remove(position);
                 scopes.insert((job.workspace_id, job.team_id));
@@ -534,7 +538,16 @@ impl Store {
 
     /// Replaces the cache with one authoritative committed inventory.
     fn install(&mut self, inventory: Vec<StoredSentinel>, floor: Revision) -> Result<(), String> {
-        let jobs = validate(inventory.iter().map(codec::decode).collect())?;
+        let (jobs, quarantined) =
+            quarantine::partition(inventory.iter().map(codec::decode).collect())?;
+        for entry in &quarantined {
+            log::warn!(
+                "[blueprint] quarantined {} at load: {}: {}",
+                entry.id,
+                entry.code,
+                entry.reason
+            );
+        }
         let Some(backend) = self.backend.sqlite_mut() else {
             return Err(GUARD_FREE_REQUIRED.into());
         };
@@ -562,6 +575,7 @@ impl Store {
             .map(|job| (job.workspace_id.clone(), job.team_id.clone()))
             .collect();
         self.jobs = jobs;
+        self.quarantined = quarantined;
         self.refresh_scopes(scopes);
         Ok(())
     }
@@ -588,6 +602,7 @@ impl Store {
             committed_revisions: BTreeMap::new(),
             changes: BTreeMap::new(),
             pending_stop_notices: Vec::new(),
+            quarantined: Vec::new(),
         };
         let installed = loaded
             .map_err(|error| error.to_string())
@@ -652,7 +667,7 @@ pub fn committed_scope(
         store.ensure_available()?;
         let leases = store.live_leases();
         match &store.backend {
-            Backend::Sqlite(backend) => (backend.repo.clone(), leases),
+            Backend::Sqlite(backend) => (backend.repo.clone(), leases, store.quarantined_ids()),
             #[cfg(any(test, feature = "test-support"))]
             Backend::Json(_) => {
                 let jobs = store
@@ -665,14 +680,14 @@ pub fn committed_scope(
             }
         }
     };
-    let (repo, leases) = repo;
+    let (repo, leases, hidden) = repo;
     let read = repo
         .scope(workspace.to_string(), team.map(str::to_owned))
         .wait(COMMIT_DEADLINE)
         .map_err(|error| {
             format!("blueprint_store_load_failed: committed scope read failed: {error}")
         })?;
-    Ok((read.value.iter().map(codec::decode).collect(), leases))
+    Ok((visible(&read.value, &hidden), leases))
 }
 
 pub fn committed_workspace(
@@ -684,7 +699,7 @@ pub fn committed_workspace(
         store.ensure_available()?;
         let leases = store.live_leases();
         match &store.backend {
-            Backend::Sqlite(backend) => (backend.repo.clone(), leases),
+            Backend::Sqlite(backend) => (backend.repo.clone(), leases, store.quarantined_ids()),
             #[cfg(any(test, feature = "test-support"))]
             Backend::Json(_) => {
                 let jobs = store
@@ -697,12 +712,41 @@ pub fn committed_workspace(
             }
         }
     };
-    let (repo, leases) = repo;
+    let (repo, leases, hidden) = repo;
     let read = repo
         .workspace(workspace.to_string())
         .wait(COMMIT_DEADLINE)
         .map_err(|error| {
             format!("blueprint_store_load_failed: committed workspace read failed: {error}")
         })?;
-    Ok((read.value.iter().map(codec::decode).collect(), leases))
+    Ok((visible(&read.value, &hidden), leases))
+}
+
+fn visible(stored: &[StoredSentinel], hidden: &BTreeSet<String>) -> Vec<Sentinel> {
+    stored
+        .iter()
+        .filter(|stored| !hidden.contains(stored.record.identity.id.as_str()))
+        .map(codec::decode)
+        .collect()
+}
+
+impl Store {
+    pub fn quarantined_ids(&self) -> BTreeSet<String> {
+        self.quarantined
+            .iter()
+            .map(|entry| entry.id.clone())
+            .collect()
+    }
+
+    pub fn quarantined_in(
+        &self,
+        workspace: &str,
+        team: Option<&str>,
+    ) -> Vec<quarantine::Quarantined> {
+        self.quarantined
+            .iter()
+            .filter(|entry| entry.same_scope(workspace, team))
+            .cloned()
+            .collect()
+    }
 }

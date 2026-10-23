@@ -21,6 +21,15 @@ export function AutomationNotices({ state, noun }: { state: AutomationSnapshot; 
     {state.loading && <p role="status" className="px-4 py-3 text-[var(--ct-muted-fg)]">Reading {noun}…</p>}
     {state.failed && !state.graph && <p role="status" className="px-4 py-3 text-[var(--ct-muted-fg)]">{noun} are unavailable.</p>}
     {state.graph?.truncated && <InlineErrorNotice error={{ code: "automation_incomplete", raw: "" }} />}
+    {state.graph?.quarantined?.length ? (
+      <ul role="status" aria-label="Quarantined Blueprints" className="px-4 py-3 text-[var(--ct-muted-fg)]">
+        {state.graph.quarantined.map((entry) => (
+          <li key={entry.id}>
+            Quarantined {entry.name ?? entry.id}: {entry.code}: {entry.reason}
+          </li>
+        ))}
+      </ul>
+    ) : null}
   </>;
 }
 

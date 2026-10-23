@@ -26,6 +26,7 @@ mod coherence;
 mod decision_detail;
 mod graph_fields;
 mod pipeline_journal;
+mod quarantine;
 mod races;
 mod stop_containment;
 
@@ -98,6 +99,13 @@ fn create(store: &Mutex<Store>, team: Option<&str>, paused: bool, handlers: Valu
         .prepare_document(params(paused, handlers), owner(team), false)
         .expect("admitted definition");
     commit(store, |current| current.stage_insert(job)).expect("committed creation")
+}
+
+/// Revises the decision question in both the runtime definition and its native document.
+fn reask(definition: &mut codeterm_storage::StageDefinition, question: &str) {
+    definition.question = question.into();
+    let document = definition.document.as_mut().expect("native document");
+    document["steps"][1]["with"]["question"] = json!({"lit": question});
 }
 
 fn due(store: &Mutex<Store>) -> Vec<Lease> {
@@ -321,7 +329,7 @@ fn storage_sentinel_definition_versions_are_independent_of_runtime_state() {
     assert_eq!(first.definition.version, 1);
     assert_eq!(first.definition.provenance, DefinitionProvenance::Authored);
     let mut revised = first.definition.definition.clone();
-    revised.question = "Revised question?".into();
+    reask(&mut revised, "Revised question?");
     let update = |definition| DefinitionUpdate {
         definition,
         author_tab_id: "creator".into(),
