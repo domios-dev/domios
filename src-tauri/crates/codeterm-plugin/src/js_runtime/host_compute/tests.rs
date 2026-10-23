@@ -314,7 +314,7 @@ fn surface_call_acts_for_the_core_stamped_agent_caller() {
     assert!(vm.set_service(Arc::downgrade(&host)));
     let handler = crate::js_runtime::JsAgentCommandHandler::new(vm.clone(), "surface-probe", true);
     let out = handler
-        .on_agent_command("tab-7", "click", &["@e3".into()])
+        .on_agent_command("tab-7", "click", &["@e3".into()], None)
         .unwrap();
     assert_eq!(out.result, r#"surface-probe|tab-7|click|["@e3"]"#);
     let outside: Value = call_json(&vm, "outside", &[]).unwrap();
@@ -332,7 +332,7 @@ fn surface_call_needs_the_surfaces_grant() {
     assert!(vm.set_service(Arc::downgrade(&host)));
     let handler = crate::js_runtime::JsAgentCommandHandler::new(vm, "surface-probe", true);
     let error = handler
-        .on_agent_command("tab-7", "status", &[])
+        .on_agent_command("tab-7", "status", &[], None)
         .unwrap_err();
     assert_eq!(error, crate::js_runtime::host_surface::SURFACE_DENIED);
 }

@@ -25,7 +25,9 @@ Choose an environment explicitly; an unambiguous label is also accepted. Local r
 
 The task tab shows the persisted result and diff and offers explicit Refresh. Restoring a tab reads its existing task identity; it never creates another task. Unconfirmed creation must be checked in the provider's task list before another task is submitted. Unsupported follow-up, cancellation and patch application are never substituted with terminal commands or another billed backend. An empty environment list asks you to connect the owning account and refresh providers.
 
-Plugin outbound hosts can be granted per plugin with `domios plugin settings <id> --allow-host <host[:port]>`; remove a user grant with `--disallow-host`. A host without a port covers that exact hostname on any port; a host:port grant is scoped to that port. Schemes, paths, credentials, wildcards, and subdomains are not accepted. The manifest's `permissions.network.allow` entries remain unchanged and combine with user grants when the plugin loads.
+Grant outbound hosts with `domios plugin settings <id> --allow-host <host[:port]>`; revoke with `--disallow-host`. Grants combine with manifest `permissions.network.allow` on plugin load. Bare hosts cover any port; host:port restricts it. Matching is exact: no schemes, paths, credentials, wildcards or subdomains.
+
+Plugin verbs accept `--from-pad PATH`, `--from-file PATH` or `--stdin` before `--` (`-` reads stdin). Text reaches `ctx.body` exactly, separate from args. Pad containment applies.
 
 ### Provider plugins and their CLIs
 
@@ -194,4 +196,4 @@ provider's own machine. Completion verifies the account and resumes the tab's
 same thread without restarting or replaying input. Only one sign-in per provider
 can be pending; Cancel releases it before a retry.
 
-<!-- revision: 60 -->
+<!-- revision: 61 -->
