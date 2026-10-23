@@ -4,6 +4,9 @@ mod pipeline;
 use pipeline::project_pipeline_contract;
 mod retained;
 
+#[cfg(test)]
+mod tests;
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{json, Value};
@@ -254,27 +257,28 @@ impl AutomationGraphExt for ServiceContext {
             .unwrap_or_default();
         let now = handle.store.lock().clock.now_ms();
         let executor = self.automation_configured_fallback();
-        let mux = self.mux.read();
-        let mut snapshot = graph::project(
-            workspace,
-            team,
-            &jobs,
-            &mux,
-            &crons,
-            executor,
-            now,
-            &live_leases,
-        )?;
-        project_pipeline_contract(
-            &mut snapshot,
-            &jobs,
-            &journals,
-            &live_leases,
-            self.ext::<codeterm_plugin::graph_events::SubscriptionTable>(),
-        );
-        retained::project(&mut snapshot, &jobs, &journals, &definitions)?;
-        graph::project_worker_states(&mut snapshot, &mux, |tab| self.resolved_tab_status(tab));
-        Ok(snapshot)
+        with_graph_mux(self, workspace, team, &jobs, crons.values(), |mux| {
+            let mut snapshot = graph::project(
+                workspace,
+                team,
+                &jobs,
+                mux,
+                &crons,
+                executor,
+                now,
+                &live_leases,
+            )?;
+            project_pipeline_contract(
+                &mut snapshot,
+                &jobs,
+                &journals,
+                &live_leases,
+                self.ext::<codeterm_plugin::graph_events::SubscriptionTable>(),
+            );
+            retained::project(&mut snapshot, &jobs, &journals, &definitions)?;
+            graph::project_worker_states(&mut snapshot, mux, |tab| self.resolved_tab_status(tab));
+            Ok(snapshot)
+        })
     }
 
     fn automation_graph_workspace_snapshot(&self, workspace: &str) -> Result<Snapshot, String> {
@@ -302,80 +306,98 @@ impl AutomationGraphExt for ServiceContext {
         }
         let now = handle.store.lock().clock.now_ms();
         let executor = self.automation_configured_fallback();
-        let mux = self.mux.read();
-        let mut combined = graph::project(
+        let grouped: Vec<_> = grouped
+            .into_iter()
+            .map(|(team, scoped_jobs)| {
+                let crons = self
+                    .try_ext::<codeterm_service_core::CronState>()
+                    .map(|state| {
+                        connected_crons(&state.lock(), &scoped_jobs, workspace, team.as_deref())
+                    })
+                    .unwrap_or_default();
+                (team, scoped_jobs, crons)
+            })
+            .collect();
+        with_graph_mux(
+            self,
             workspace,
             None,
-            &[],
-            &mux,
-            &BTreeMap::new(),
-            executor.clone(),
-            now,
-            &live_leases,
-        )?;
-        let mut revisions = Vec::new();
-        for (team, scoped_jobs) in grouped {
-            let team_ref = team.as_deref();
-            let crons = self
-                .try_ext::<codeterm_service_core::CronState>()
-                .map(|state| connected_crons(&state.lock(), &scoped_jobs, workspace, team_ref))
-                .unwrap_or_default();
-            let snapshot = graph::project(
-                workspace,
-                team_ref,
-                &scoped_jobs,
-                &mux,
-                &crons,
-                executor.clone(),
-                now,
-                &live_leases,
-            )?;
-            revisions.push(format!(
-                "{}:{}",
-                team.as_deref().unwrap_or_default(),
-                snapshot.revision
-            ));
-            combined.runs.extend(snapshot.runs);
-            combined.truncated |= snapshot.truncated;
-            let scenario_room = graph::MAX_NODES.saturating_sub(combined.scenarios.len());
-            if snapshot.scenarios.len() > scenario_room {
-                combined.truncated = true;
-            }
-            combined
-                .scenarios
-                .extend(snapshot.scenarios.into_iter().take(scenario_room));
-            let node_room = graph::MAX_NODES.saturating_sub(combined.nodes.len());
-            if snapshot.nodes.len() > node_room {
-                combined.truncated = true;
-            }
-            combined
-                .nodes
-                .extend(snapshot.nodes.into_iter().take(node_room));
-            let edge_room = graph::MAX_EDGES.saturating_sub(combined.edges.len());
-            if snapshot.edges.len() > edge_room {
-                combined.truncated = true;
-            }
-            combined
-                .edges
-                .extend(snapshot.edges.into_iter().take(edge_room));
-        }
-        combined.revision = format!("{:x}", Sha256::digest(revisions.join("|")));
-        combined.all_teams = true;
-        for node in &mut combined.nodes {
-            if let Some(detail) = node.get_mut("detail") {
-                detail["definition"] = json!({"unavailable":"team_view_required"});
-            }
-        }
-        project_pipeline_contract(
-            &mut combined,
             &jobs,
-            &journals,
-            &live_leases,
-            self.ext::<codeterm_plugin::graph_events::SubscriptionTable>(),
-        );
-        retained::project(&mut combined, &jobs, &journals, &definitions)?;
-        graph::project_worker_states(&mut combined, &mux, |tab| self.resolved_tab_status(tab));
-        Ok(combined)
+            grouped.iter().flat_map(|(_, _, crons)| crons.values()),
+            |mux| {
+                let mut combined = graph::project(
+                    workspace,
+                    None,
+                    &[],
+                    mux,
+                    &BTreeMap::new(),
+                    executor.clone(),
+                    now,
+                    &live_leases,
+                )?;
+                let mut revisions = Vec::new();
+                for (team, scoped_jobs, crons) in &grouped {
+                    let team_ref = team.as_deref();
+                    let snapshot = graph::project(
+                        workspace,
+                        team_ref,
+                        scoped_jobs,
+                        mux,
+                        crons,
+                        executor.clone(),
+                        now,
+                        &live_leases,
+                    )?;
+                    revisions.push(format!(
+                        "{}:{}",
+                        team.as_deref().unwrap_or_default(),
+                        snapshot.revision
+                    ));
+                    combined.runs.extend(snapshot.runs);
+                    combined.truncated |= snapshot.truncated;
+                    let scenario_room = graph::MAX_NODES.saturating_sub(combined.scenarios.len());
+                    if snapshot.scenarios.len() > scenario_room {
+                        combined.truncated = true;
+                    }
+                    combined
+                        .scenarios
+                        .extend(snapshot.scenarios.into_iter().take(scenario_room));
+                    let node_room = graph::MAX_NODES.saturating_sub(combined.nodes.len());
+                    if snapshot.nodes.len() > node_room {
+                        combined.truncated = true;
+                    }
+                    combined
+                        .nodes
+                        .extend(snapshot.nodes.into_iter().take(node_room));
+                    let edge_room = graph::MAX_EDGES.saturating_sub(combined.edges.len());
+                    if snapshot.edges.len() > edge_room {
+                        combined.truncated = true;
+                    }
+                    combined
+                        .edges
+                        .extend(snapshot.edges.into_iter().take(edge_room));
+                }
+                combined.revision = format!("{:x}", Sha256::digest(revisions.join("|")));
+                combined.all_teams = true;
+                for node in &mut combined.nodes {
+                    if let Some(detail) = node.get_mut("detail") {
+                        detail["definition"] = json!({"unavailable":"team_view_required"});
+                    }
+                }
+                project_pipeline_contract(
+                    &mut combined,
+                    &jobs,
+                    &journals,
+                    &live_leases,
+                    self.ext::<codeterm_plugin::graph_events::SubscriptionTable>(),
+                );
+                retained::project(&mut combined, &jobs, &journals, &definitions)?;
+                graph::project_worker_states(&mut combined, mux, |tab| {
+                    self.resolved_tab_status(tab)
+                });
+                Ok(combined)
+            },
+        )
     }
 
     fn automation_configured_fallback(&self) -> Value {
@@ -516,4 +538,42 @@ pub fn install_fixture_invalidations(
         let sink = svc.ui.clone();
         ui.listen(event, move |_| invalidate(event, &store, sink.as_ref()));
     }
+}
+
+fn with_graph_mux<'a, T>(
+    svc: &ServiceContext,
+    workspace: &str,
+    team: Option<&str>,
+    jobs: &[Sentinel],
+    crons: impl IntoIterator<Item = &'a ConnectedCron>,
+    build: impl FnOnce(&dyn graph::MuxView) -> Result<T, String>,
+) -> Result<T, String> {
+    let mut tab_ids = BTreeSet::new();
+    let mut team_ids = BTreeSet::new();
+    team_ids.extend(team.map(str::to_owned));
+    for job in jobs {
+        tab_ids.insert(job.creator_tab_id.clone());
+        team_ids.extend(job.team_id.clone());
+        for handler in job.routes.values().flatten() {
+            match &handler.action {
+                Route::Send(id) | Route::Escalate(EscalateTarget::Agent(id)) => {
+                    tab_ids.insert(id.clone());
+                }
+                _ => {}
+            }
+        }
+    }
+    for cron in crons {
+        tab_ids.extend(
+            cron.runs
+                .iter()
+                .take(graph::MAX_RUNS_PER_CRON)
+                .filter_map(|run| run.tab_id.clone()),
+        );
+    }
+    let mux = {
+        let guard = svc.mux.read();
+        graph::MuxSnapshot::capture(&guard, workspace, &tab_ids, &team_ids)?
+    };
+    build(&mux)
 }
