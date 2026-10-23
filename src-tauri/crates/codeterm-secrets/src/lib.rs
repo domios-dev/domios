@@ -15,6 +15,7 @@ pub mod js_backend;
 pub mod legacy;
 pub mod local;
 pub mod mock;
+pub mod redact;
 pub mod secret_file;
 
 pub use capability::{
