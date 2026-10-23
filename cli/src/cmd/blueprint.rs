@@ -5,7 +5,6 @@ use crate::client::SocketClient;
 use crate::cmd::print::{fail, print_json};
 mod apply_output;
 mod authoring;
-mod handlers;
 mod memory;
 mod pipeline_spec;
 mod recipe_files;
@@ -209,68 +208,6 @@ fn log_text(entries: &Value) -> String {
         .join("\n")
 }
 
-fn pipeline_preview_summary(value: &Value) -> String {
-    let spec = value.get("normalized_spec").unwrap_or(value);
-    let mut lines = vec![format!(
-        "Blueprint: {}",
-        spec["name"].as_str().unwrap_or("?")
-    )];
-    let trigger = &spec["trigger"];
-    match trigger["type"].as_str() {
-        Some("schedule") => lines.push(format!(
-            "Trigger: schedule every {}",
-            trigger["every"].as_str().unwrap_or("?")
-        )),
-        Some("input") => lines.push(format!(
-            "Trigger: input kind={} source={}",
-            trigger["kind"].as_str().unwrap_or("?"),
-            input_ref_summary(&trigger["source"])
-        )),
-        Some("event") => lines.push(format!(
-            "Trigger: event source={}",
-            trigger["source"].as_str().unwrap_or("?")
-        )),
-        _ => lines.push("Trigger: ?".into()),
-    }
-    if let Some(steps) = spec["steps"].as_array() {
-        for (index, step) in steps.iter().enumerate() {
-            lines.push(format!(
-                "Step {}: {} ({}) input={}",
-                index + 1,
-                step["name"].as_str().unwrap_or("?"),
-                step["kind"]["kind"].as_str().unwrap_or("?"),
-                step["input"].as_str().unwrap_or("?")
-            ));
-        }
-    }
-    lines.push(format!(
-        "Result: {}",
-        spec.pointer("/result/to")
-            .and_then(Value::as_str)
-            .unwrap_or("owner")
-    ));
-    if let Some(checks) = value["checks"].as_array() {
-        lines.push("Checks:".into());
-        for check in checks {
-            let check: codeterm_blueprint_types::blueprint_contract::FieldCheck =
-                match serde_json::from_value(check.clone()) {
-                    Ok(check) => check,
-                    Err(error) => return format!("Invalid Blueprint preview: {error}"),
-                };
-            lines.push(format!(
-                "  {} {}{}",
-                if check.passed { "PASS" } else { "FAIL" },
-                check.field,
-                check
-                    .reason
-                    .map(|reason| format!(": {reason}"))
-                    .unwrap_or_default()
-            ));
-        }
-    }
-    lines.join("\n")
-}
-
 fn input_ref_summary(value: &Value) -> String {
     if let Some(path) = value.get("file").and_then(Value::as_str) {
         return format!(
@@ -417,26 +354,6 @@ pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: Blue
         render_log(&result);
         return;
     }
-    if method == "blueprint.pipeline.create" {
-        println!(
-            "{} owner={} chain={}",
-            result["id"].as_str().unwrap_or("?"),
-            result
-                .pointer("/owner/kind")
-                .and_then(Value::as_str)
-                .unwrap_or("tab"),
-            result["chain"].as_str().unwrap_or("?")
-        );
-        return;
-    }
-    if method.starts_with("blueprint.pipeline.validate") {
-        println!("{}", pipeline_preview_summary(&result));
-        return;
-    }
-    if method.starts_with("blueprint.validate.") {
-        println!("{}", preview_summary(&result));
-        return;
-    }
     if method == "blueprint.history" {
         render_history(&result);
         return;
@@ -452,7 +369,7 @@ pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: Blue
         );
         return;
     }
-    if method == "blueprint.update" || method == "blueprint.pipeline.update" {
+    if method == "blueprint.update" {
         println!(
             "Updated {} to definition version {}.",
             result["id"].as_str().unwrap_or("?"),
@@ -519,8 +436,7 @@ fn request(
             start,
         } => {
             let definition = authoring::load_checked(&file.to_string_lossy(), &set)?;
-            params["recipe"] =
-                json!({"schema_version":1,"placeholders":{},"definition":definition});
+            params["recipe"] = json!({"schema_version":2,"definition":definition});
             params["set"] = json!([]);
             params["stopped"] = json!(!start);
             "blueprint.import"
@@ -569,12 +485,7 @@ fn request(
         } => {
             let mut definition = authoring::load_checked(&source, &set)?;
             if let Some(note) = note {
-                let key = if definition.get("spec").is_some() {
-                    "spec"
-                } else {
-                    "create"
-                };
-                definition[key]["note"] = json!(note);
+                definition["note"] = json!(note);
             }
             params["definition"] = definition;
             params["dry_run"] = json!(dry_run);
@@ -629,31 +540,14 @@ fn request(
         } => {
             params["id"] = json!(id);
             params["expect_version"] = json!(expect_version);
-            let mut update = read_update(&from_file, cause.as_deref())?;
-            if let Some(note) = &note {
-                update["note"] = json!(note);
+            let mut definition = authoring::load_checked(&from_file.to_string_lossy(), &[])?;
+            if let Some(note) = note {
+                definition["note"] = json!(note);
             }
-            if let Some(mut spec) = pipeline_update_spec(&update)? {
-                if let Some(note) = note {
-                    spec["note"] = json!(note);
-                }
-                params["spec"] = spec;
-                if let Some(cause) = cause {
-                    params["cause"] = json!(cause);
-                }
-                if dry_run {
-                    "blueprint.pipeline.validate.update"
-                } else {
-                    "blueprint.pipeline.update"
-                }
-            } else {
-                params["update"] = update;
-                if dry_run {
-                    "blueprint.validate.update"
-                } else {
-                    "blueprint.update"
-                }
-            }
+            params["definition"] = definition;
+            params["cause"] = json!(cause);
+            params["dry_run"] = json!(dry_run);
+            "blueprint.update"
         }
         BlueprintAction::History { id } => {
             params["id"] = json!(id);
@@ -709,137 +603,6 @@ fn pipeline_input_source_line(value: &Value) -> Option<String> {
             .and_then(Value::as_str)
             .unwrap_or("-")
     ))
-}
-
-fn read_update(path: &std::path::Path, cause: Option<&str>) -> Result<Value, String> {
-    let raw = handlers::read_bounded(path, "definition file")?;
-    let mut update: Value =
-        serde_json::from_str(&raw).map_err(|error| format!("invalid definition file: {error}"))?;
-    let object = update
-        .as_object_mut()
-        .ok_or("definition file must contain a JSON object")?;
-    normalize_update_handlers(object)?;
-    if let Some(cause) = cause {
-        object.insert("cause".into(), json!(cause));
-    }
-    Ok(update)
-}
-
-fn pipeline_update_spec(update: &Value) -> Result<Option<Value>, String> {
-    if update.get("trigger").is_some() {
-        return Ok(Some(update.clone()));
-    }
-    let history = update.get("versions");
-    let Some(versions) = history.and_then(Value::as_array) else {
-        return Ok(update.get("pipeline").cloned());
-    };
-    let current = update
-        .get("current_version")
-        .and_then(Value::as_u64)
-        .ok_or("history file needs current_version")?;
-    let version = versions
-        .iter()
-        .find(|version| version.get("version").and_then(Value::as_u64) == Some(current))
-        .ok_or("history file has no current definition version")?;
-    Ok(version
-        .pointer("/definition/pipeline")
-        .filter(|pipeline| !pipeline.is_null())
-        .cloned())
-}
-
-fn preview_summary(job: &Value) -> String {
-    let mut lines = vec![format!(
-        "Blueprint graph: {}",
-        job["name"].as_str().unwrap_or("(unnamed)")
-    )];
-    lines.push(format!(
-        "Buckets: {}",
-        job["buckets"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .collect::<Vec<_>>()
-            .join(", ")
-    ));
-    lines.push("Handlers:".into());
-    if let Some(routes) = job["routes"].as_object() {
-        for (bucket, handlers) in routes {
-            lines.push(format!("  {bucket}:"));
-            if let Some(handlers) = handlers.as_array() {
-                for handler in handlers {
-                    let action =
-                        serde_json::to_string(&handler["action"]).unwrap_or_else(|_| "?".into());
-                    lines.push(format!(
-                        "    {} -> {action}",
-                        handler["id"].as_str().unwrap_or("?")
-                    ));
-                }
-            }
-        }
-    }
-    lines.push(format!("Cadence: {} ms", job["interval_ms"]));
-    lines.push(format!(
-        "Budgets: {} transitions, {} actions",
-        job["max_transitions"], job["max_actions"]
-    ));
-    lines.join("\n")
-}
-
-fn normalize_update_handlers(object: &mut serde_json::Map<String, Value>) -> Result<(), String> {
-    let has_handlers = object.contains_key("handlers");
-    let has_other = object.contains_key("on_other");
-    if !has_handlers && !has_other {
-        return Ok(());
-    }
-    let buckets = object
-        .get("buckets")
-        .and_then(Value::as_array)
-        .ok_or("definition JSON pointer `/buckets`: expected an array of bucket names")?
-        .iter()
-        .map(|bucket| {
-            bucket.as_str().map(str::to_string).ok_or_else(|| {
-                "definition JSON pointer `/buckets`: expected each bucket to be a string".into()
-            })
-        })
-        .collect::<Result<Vec<_>, String>>()?;
-    let mut declared = object
-        .remove("handlers")
-        .unwrap_or_else(|| json!({}))
-        .as_object()
-        .cloned()
-        .ok_or("definition JSON pointer `/handlers`: expected an object")?;
-    if declared.contains_key("other") && !has_other {
-        return Err(
-            "definition JSON pointer `/handlers/other`: use `on_other` for reserved other handlers"
-                .into(),
-        );
-    }
-    if let Some(other) = object.remove("on_other") {
-        let other = other
-            .as_array()
-            .cloned()
-            .ok_or("definition JSON pointer `/on_other`: expected an array of handler objects")?;
-        if declared
-            .insert("other".into(), Value::Array(other))
-            .is_some()
-        {
-            return Err(
-                "definition JSON pointer `/on_other`: use `handlers.other` or `on_other`, not both"
-                    .into(),
-            );
-        }
-    }
-    let normalized = handlers::validate_handler_file(Value::Object(declared), &buckets)?;
-    let mut normalized = normalized.as_object().cloned().unwrap_or_default();
-    let on_other = normalized.remove("other").unwrap_or_else(|| json!([]));
-    if has_handlers {
-        object.insert("handlers".into(), Value::Object(normalized));
-    }
-    if has_other {
-        object.insert("on_other".into(), on_other);
-    }
-    Ok(())
 }
 
 #[cfg(test)]

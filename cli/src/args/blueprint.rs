@@ -9,6 +9,15 @@ pub enum BlueprintAction {
         source: String,
         #[arg(long = "set")]
         set: Vec<String>,
+        /// Include positioned atoms and proof trees in human-readable diagnostics
+        #[arg(long)]
+        explain: bool,
+        /// Print deterministic safe repairs and the semantic diff
+        #[arg(long)]
+        fix: bool,
+        /// With --fix, write the repaired YAML file in place
+        #[arg(long, requires = "fix")]
+        write: bool,
     },
     /// Create or update a YAML file or recipe by name in the caller's Team
     #[command(alias = "create")]
@@ -48,7 +57,7 @@ pub enum BlueprintAction {
         #[arg(long)]
         out: Option<std::path::PathBuf>,
     },
-    /// Import a portable recipe into the caller's Team (stopped by default)
+    /// Import a native v2 recipe into the caller's Team (stopped by default)
     Import {
         file: std::path::PathBuf,
         #[arg(long = "set")]
@@ -89,7 +98,7 @@ pub enum BlueprintAction {
         #[arg(long, requires = "id")]
         stop: bool,
     },
-    /// Replace one definition at the expected version
+    /// Replace one native v2 YAML definition at the expected version
     Update {
         /// Replace the Blueprint note (at most 200 plain-text characters)
         #[arg(long, value_parser = parse_blueprint_note)]

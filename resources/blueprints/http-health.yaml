@@ -1,8 +1,9 @@
-# Check and apply this file with codeterm blueprint.
-schema_version: 1
-name: HTTP health {{url}}
+# Native Blueprint v2. Check with explicit author bindings before apply.
+schema_version: 2
+kind: pipeline
+name: Http Health
 note: Watch an HTTP endpoint and report up/down with the response code. Redirects are not followed.
-owner: team
+intent: Watch an HTTP endpoint and report up/down with the response code. Redirects are not followed.
 inputs:
   expected_status:
     type: string
@@ -19,21 +20,25 @@ inputs:
   url:
     type: string
     description: HTTP endpoint URL
-pipeline:
-  trigger:
-    type: schedule
-    every: '{{interval}}'
-  steps:
-  - name: Check source
-    input: text
-    uses: http
-    with:
-      url: '{{url}}'
-      expected_status: '{{expected_status}}'
-      timeout_ms: '{{timeout_ms}}'
-    'on':
-      up: next
-      down: next
-      failed: stop
-  result:
-    to: owner
+owner: team
+trigger:
+  type: schedule
+  every:
+    input: interval
+steps:
+- id: step_1
+  name: Check source
+  uses: http
+  with:
+    url:
+      input: url
+    expected_status:
+      input: expected_status
+    timeout_ms:
+      input: timeout_ms
+  routes:
+    up: '@next'
+    down: '@next'
+    failed: '@stop'
+result:
+  to: owner

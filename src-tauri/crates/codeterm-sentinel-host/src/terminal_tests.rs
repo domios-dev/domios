@@ -16,14 +16,12 @@ fn fixture() -> (tempfile::TempDir, Store, Sentinel) {
         codeterm_cron::clock::MockClock::starting_at(1_000),
     );
     let job = store
-        .create(
-            serde_json::from_value(json!({
-                "name":"terminal-adapter", "observe":{"kind":"tab","id":"shell"},
-                "terminal":{"pattern":null,"idle_ms":200}, "question":"reply?",
-                "buckets":["reply"], "matches":{"reply":"(?s).*"},
-                "routes":{"reply":"send:receiver"}, "timeout":"1h"
-            }))
-            .unwrap(),
+        .create_document(
+            json!({"schema_version":2,"kind":"watch","name":"terminal-adapter","steps":[
+                {"id":"source","uses":"terminal","with":{"kind":{"lit":"tab"},"id":{"lit":"shell"},"idle_ms":{"lit":200}},"timeout":{"lit":"1h"}},
+                {"id":"decide","uses":"ask","with":{"question":{"lit":"reply?"}},"buckets":["reply"],"matches":{"reply":{"lit":"(?s).*"}},"routes":{"reply":"send"}},
+                {"id":"send","uses":"send","with":{"target":{"lit":"receiver"}}}
+            ]}),
             Owner {
                 creator_tab_id: "creator".into(),
                 team_id: Some("team".into()),

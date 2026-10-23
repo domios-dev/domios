@@ -45,24 +45,73 @@ pub fn handle_local(json_mode: bool, action: &BlueprintAction) -> bool {
                 print!("{raw}");
             }
         }
-        BlueprintAction::Check { source: name, set } => {
+        BlueprintAction::Check {
+            source: name,
+            set,
+            explain,
+            fix,
+            write,
+        } => {
             let raw = source(name).unwrap_or_else(|error| crate::cmd::print::fail(2, error));
-            let checked = blueprint_document::check(name, &raw, set);
-            if json_mode {
-                let value = serde_json::to_value(&checked).unwrap_or_else(|error| {
-                    crate::cmd::print::fail(
-                        2,
-                        format!("Could not serialize Blueprint diagnostics: {error}"),
+            let context = blueprint_document::checker::CheckContext::default();
+            let repair = if *fix {
+                blueprint_document::parse(name, &raw).ok().map(|parsed| {
+                    blueprint_document::checker::fix::fix_with_assignments(
+                        &parsed, &raw, &context, set,
                     )
-                });
+                })
+            } else {
+                None
+            };
+            let effective = repair
+                .as_ref()
+                .and_then(|r| r.text.as_deref())
+                .unwrap_or(&raw);
+            let mut checked =
+                blueprint_document::check_with_context(name, effective, set, &context);
+            if repair.as_ref().is_some_and(|r| !r.refusals.is_empty()) {
+                checked.ok = false;
+                checked.definition = None;
+            }
+            if *write && checked.ok {
+                if let Some(text) = repair.as_ref().and_then(|r| r.text.as_ref()) {
+                    if name == "-" || recipe_files::FILES.iter().any(|(key, _)| key == name) {
+                        crate::cmd::print::fail(2, "Write a file path to use --fix --write");
+                    }
+                    if repair.as_ref().is_some_and(|r| r.changed) {
+                        std::fs::write(name, text)
+                            .unwrap_or_else(|error| crate::cmd::print::fail(2, error.to_string()));
+                    }
+                }
+            }
+            if json_mode {
+                let mut value = serde_json::to_value(&checked)
+                    .unwrap_or_else(|error| crate::cmd::print::fail(2, error.to_string()));
+                if let Some(repair) = &repair {
+                    value["fix"] = serde_json::to_value(repair)
+                        .unwrap_or_else(|error| crate::cmd::print::fail(2, error.to_string()));
+                }
                 crate::cmd::print::print_json(&value);
             } else {
-                for d in &checked.diagnostics {
-                    println!(
-                        "{}:{}:{}: {}: {}: {}\n  fix: {}",
-                        d.file, d.line, d.column, d.severity, d.field, d.message, d.hint
-                    );
+                if let Some(repair) = &repair {
+                    for note in &repair.notes {
+                        println!("fix: {note}");
+                    }
+                    for refusal in &repair.refusals {
+                        println!("fix refused: {refusal}");
+                    }
+                    print!("{}", repair.diff);
+                    if let Some(diff) = &repair.semantic_diff {
+                        println!(
+                            "semantic diff: {}",
+                            serde_json::to_string(diff).unwrap_or_default()
+                        );
+                    }
                 }
+                print!(
+                    "{}",
+                    blueprint_document::checker::render(&checked.diagnostics, *explain)
+                );
                 if checked.ok {
                     println!("Valid Blueprint: {name}");
                 }
@@ -82,8 +131,8 @@ pub(super) fn scaffold(kind: &str) -> Result<String, String> {
         return Ok(format!("{header}{source}"));
     }
     let definition=match kind {
-        "watch"=>json!({"create":{"name":"custom-watch","note":"Explain the purpose","probe":"echo ready","question":"State?","buckets":["ready"],"every":"20s","matches":{"ready":"ready"},"routes":{"ready":"notify"},"timeout":"1h"}}),
-        "pipeline"|"command"=>json!({"spec":{"name":"custom-pipeline","note":"Explain the purpose","owner":"team","trigger":{"type":"schedule","every":"1m"},"steps":[{"name":"inspect","input":"text","kind":{"kind":"command","command":"echo ready"},"on":{"done":"stop","failed":"stop"}}],"result":{"to":"notify"}}}),
+        "watch"=>json!({"schema_version":2,"kind":"watch","name":"custom-watch","note":"Explain the purpose","steps":[{"id":"source","uses":"probe","with":{"command":{"lit":"echo ready"}},"every":{"lit":"20s"},"timeout":{"lit":"1h"}},{"id":"decide","uses":"ask","with":{"question":{"lit":"State?"}},"buckets":["ready"],"matches":{"ready":{"lit":"ready"}},"routes":{"ready":"alert"}},{"id":"alert","uses":"notify"}]}),
+        "pipeline"|"command"=>json!({"schema_version":2,"kind":"pipeline","name":"custom-pipeline","note":"Explain the purpose","owner":"team","trigger":{"type":"schedule","every":{"lit":"1m"}},"steps":[{"id":"inspect","run":{"lit":"echo ready"},"routes":{"done":"@stop","failed":"@stop"}}],"result":{"to":"notify"}}),
         _=>return Err(format!("Unknown recipe or kind {kind}; choose watch, pipeline, command, or a name from blueprint recipe")),
     };
     Ok(format!(

@@ -1,7 +1,12 @@
+mod code;
+mod dispatch;
+mod execution;
 mod sources;
+use codeterm_blueprint_types::blueprint_execution::ExecutionEnvelope;
 use codeterm_blueprint_types::blueprint_journal::{
     JournalMarker, JournalOutcome, JournalReason, JournalState,
 };
+pub use execution::{execute_step, RunCtx, StepExecution};
 use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
@@ -250,23 +255,39 @@ fn run_pipeline(
         input_display,
         mut input_run,
     } = prepare_input(handle, lease, spec, run_id);
+    let mut envelope = if let Some(kind) = input_kind.filter(|kind| *kind != MediaKind::Text) {
+        ExecutionEnvelope {
+            media: kind.as_str().into(),
+            schema_id: None,
+            value: serde_json::Value::String(
+                input_source
+                    .as_ref()
+                    .map(|path| path.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+            ),
+            text: String::new(),
+        }
+    } else {
+        ExecutionEnvelope::from_text(&text)
+    };
+    if let Some(port) = spec
+        .steps
+        .first()
+        .and_then(|step| step.execution.as_ref())
+        .and_then(|contract| contract.input.as_ref())
+    {
+        envelope.schema_id = port.reference.clone();
+    }
+    let mut ctx = RunCtx::new(handle, svc, lease, run_id);
+    ctx.input_kind = input_kind;
+    ctx.input_source = input_source;
+    ctx.input_failure = input_failure;
+    ctx.input_display = input_display.unwrap_or_default();
+    ctx.cleanup = cleanup.clone();
     let mut terminal_failure = None;
     while let Some(index) = state.current_step {
         if lease.cancelled.load(Ordering::SeqCst) {
-            let now = now(handle);
-            let _ = write_journal(
-                handle,
-                &lease.job,
-                BlueprintJournalWrite::Decision {
-                    run_id: run_id.to_string(),
-                    marker: JournalMarker::Step(index as u16),
-                    step_name: spec.steps[index].name.clone(),
-                    outcome: "skip:lease_cancelled".into(),
-                    at_ms: now,
-                    result_summary: None,
-                    reason: Some("skip:lease_cancelled".into()),
-                },
-            );
+            ctx.record_skipped(&spec.steps[index].name, "skip:lease_cancelled".into())?;
             return Ok(RunCompletion::new("skipped".into(), "skip:lease_cancelled"));
         }
         let step = &spec.steps[index];
@@ -275,115 +296,32 @@ fn run_pipeline(
                 let _ = run.advance(InputRun::Converting);
             }
         }
-        let started = now(handle);
-        let Some(result) = effect_after_claim(
-            || {
-                claim_step(
-                    handle,
-                    lease,
-                    &run_id,
-                    JournalMarker::Step(index as u16),
-                    &step.name,
-                    started,
-                )
-            },
-            || {
-                run_step(
-                    handle,
-                    svc,
-                    lease,
-                    step,
-                    &text,
-                    input_kind,
-                    input_source.as_deref(),
-                    input_failure.as_deref(),
-                    input_display.as_deref().unwrap_or_default(),
-                    cleanup.clone(),
-                )
-            },
-        ) else {
-            return Ok(RunCompletion::held(JournalReason::UncertainClaim));
-        };
-        let agent_body = if matches!(&step.kind, StepKind::Agent { .. }) {
-            Some(
-                super::agent_stage::persist_result(run_id, index, &result.next_text)
-                    .map_err(|_| JournalReason::Other("agent_result_write_failed".into()))?,
-            )
-        } else {
-            None
-        };
-        if lease.cancelled.load(Ordering::SeqCst) {
-            if matches!(&step.kind, StepKind::Agent { .. }) {
-                required_journal(write_journal(
-                    handle,
-                    &lease.job,
-                    BlueprintJournalWrite::Finish {
-                        run_id: run_id.into(),
-                        marker: JournalMarker::Step(index as u16),
-                        state: JournalState::Failed,
-                        outcome: "failed".into(),
-                        ended_at_ms: now(handle),
-                        result_summary: "agent task cancelled".into(),
-                        body_ref: agent_body,
-                        reason: Some("agent_cancelled".into()),
-                    },
-                ))?;
-                return Ok(RunCompletion::new(JournalState::Failed, "agent_cancelled"));
-            }
-            if matches!(&step.kind, StepKind::Convert { .. }) {
-                let reason = result.reason.as_deref().unwrap_or("conversion_cancelled");
-                let _ = write_journal(
-                    handle,
-                    &lease.job,
-                    BlueprintJournalWrite::Finish {
-                        run_id: run_id.to_string(),
-                        marker: JournalMarker::Step(index as u16),
-                        state: "failed".into(),
-                        outcome: "failed".into(),
-                        ended_at_ms: now(handle),
-                        result_summary: format!("conversion failed: {reason}"),
-                        body_ref: None,
-                        reason: Some(reason.into()),
-                    },
+        let result = match execute_step(&mut ctx, step, envelope) {
+            Ok(result) => result,
+            Err(reason) => {
+                let held = matches!(
+                    reason,
+                    JournalReason::UncertainClaim
+                        | JournalReason::UncertainEffect
+                        | JournalReason::JournalWriteFailed
                 );
-                return Ok(RunCompletion::new("failed".into(), reason));
-            } else {
-                return Ok(RunCompletion::new("skipped".into(), "skip:lease_cancelled"));
+                return Ok(RunCompletion::new(
+                    if held {
+                        JournalState::Held
+                    } else if reason.as_str().starts_with("skip:") {
+                        JournalState::Skipped
+                    } else {
+                        JournalState::Failed
+                    },
+                    reason,
+                ));
             }
-        }
-        let ended = now(handle);
-        if result.uncertain {
-            let _ = write_journal(
-                handle,
-                &lease.job,
-                BlueprintJournalWrite::Decision {
-                    run_id: run_id.to_string(),
-                    marker: JournalMarker::Step(index as u16),
-                    step_name: step.name.clone(),
-                    outcome: "probe_error".into(),
-                    at_ms: ended,
-                    result_summary: Some("command completion was unconfirmed".into()),
-                    reason: Some(JournalReason::UncertainEffect),
-                },
-            );
-            return Ok(RunCompletion::held(JournalReason::UncertainEffect));
-        }
-        if result.state == "failed" {
+        };
+        if result.state == JournalState::Failed {
             if let (Some(run), Some(reason)) = (input_run.as_mut(), result.reason.as_ref()) {
                 let _ = run.advance(InputRun::Failed(reason.as_str().into()));
             }
         }
-        let finish = BlueprintJournalWrite::Finish {
-            run_id: run_id.to_string(),
-            marker: JournalMarker::Step(index as u16),
-            state: result.state.into(),
-            outcome: result.stored_outcome.clone().into(),
-            ended_at_ms: ended,
-            result_summary: StepJournalEntry::bound_summary(&result.summary),
-            body_ref: agent_body,
-            reason: result.reason.clone(),
-        };
-        required_journal(write_journal(handle, &lease.job, finish))?;
         if result.reason.as_deref() == Some("probe_owner_capacity") {
             let _ = storage::commit(&handle.store, |store| {
                 store.stage_stop(&lease.job.id, "probe_owner_capacity")
@@ -394,31 +332,8 @@ fn run_pipeline(
                 "probe_owner_capacity",
             ));
         }
-        if let Some((outcome, reason)) = result.decision {
-            let decision = BlueprintJournalWrite::Decision {
-                run_id: run_id.to_string(),
-                marker: JournalMarker::Step(index as u16),
-                step_name: step.name.clone(),
-                outcome,
-                at_ms: ended,
-                result_summary: None,
-                reason,
-            };
-            required_journal(write_journal(handle, &lease.job, decision))?;
-        }
-        if matches!(&step.kind, StepKind::Command { .. }) && result.next_text == text {
-            let unchanged = BlueprintJournalWrite::Decision {
-                run_id: run_id.to_string(),
-                marker: JournalMarker::Step(index as u16),
-                step_name: step.name.clone(),
-                outcome: "unchanged".into(),
-                at_ms: ended,
-                result_summary: Some("step output was unchanged".into()),
-                reason: None,
-            };
-            required_journal(write_journal(handle, &lease.job, unchanged))?;
-        }
-        text = result.next_text;
+        text = result.output.payload_text();
+        envelope = result.output;
         let prior_index = index;
         let next = match blueprint_pipeline::advance(&state, result.outcome) {
             Ok(next) => next,
@@ -428,16 +343,10 @@ fn run_pipeline(
         };
         if let Some(target) = next.current_step.filter(|target| *target > prior_index + 1) {
             for skipped in prior_index + 1..target {
-                let decision = BlueprintJournalWrite::Decision {
-                    run_id: run_id.to_string(),
-                    marker: JournalMarker::Step(skipped as u16),
-                    step_name: spec.steps[skipped].name.clone(),
-                    outcome: "skip:branch".into(),
-                    at_ms: ended,
-                    result_summary: None,
-                    reason: Some(format!("skip:branch to {}", spec.steps[target].name).into()),
-                };
-                required_journal(write_journal(handle, &lease.job, decision))?;
+                ctx.record_skipped(
+                    &spec.steps[skipped].name,
+                    format!("skip:branch to {}", spec.steps[target].name),
+                )?;
             }
         }
         if next.status == RunStatus::Failed {
@@ -626,192 +535,13 @@ fn run_pipeline(
     ))
 }
 
-fn run_step(
-    handle: &Handle,
-    svc: &ServiceContext,
-    lease: &Lease,
-    step: &Step,
-    previous: &str,
-    input_kind: Option<MediaKind>,
-    input_source: Option<&Path>,
-    input_failure: Option<&str>,
-    input_display: &str,
-    cleanup: Option<std::sync::Arc<super::input::Cleanup>>,
-) -> StepResult {
-    if let Some(reason) = input_failure {
-        return failed_input_step(reason);
-    }
-    match &step.kind {
-        StepKind::Command { .. } | StepKind::Github { .. } | StepKind::Http { .. } => {
-            sources::run(handle, lease, step, previous)
-        }
-        StepKind::Agent {
-            provider,
-            profile,
-            task,
-            deadline_ms,
-            max_tokens,
-            max_turns,
-        } => {
-            let remaining = lease
-                .job
-                .expires_at
-                .map(|at| at.saturating_sub(now(handle)));
-            let deadline =
-                super::agent_stage::effective_deadline(*deadline_ms, remaining, Instant::now());
-            let request = codeterm_plugin::agent_task::AgentTaskRequest {
-                input: codeterm_plugin::agent_task::AgentTaskInput {
-                    run_id: uuid::Uuid::new_v4().simple().to_string(),
-                    tab_id: lease.job.creator_tab_id.clone(),
-                    workspace_id: lease.job.workspace_id.clone(),
-                    profile: profile.clone(),
-                    task: task.clone(),
-                    input: previous.into(),
-                    timeout_ms: deadline
-                        .saturating_duration_since(Instant::now())
-                        .as_millis()
-                        .max(1) as u64,
-                    max_tokens: *max_tokens,
-                    max_turns: *max_turns,
-                },
-                deadline,
-                cancellation: lease.cancelled.conversion_token(),
-            };
-            let result = svc
-                .chatbackend_registry
-                .get(provider)
-                .ok_or_else(|| "agent provider unavailable".to_string())
-                .and_then(|provider| super::agent_stage::run(provider, request));
-            let result =
-                result.unwrap_or_else(|error| codeterm_plugin::agent_task::AgentTaskResult {
-                    status: codeterm_plugin::agent_task::AgentTaskStatus::Failed,
-                    output: serde_json::Value::Null,
-                    error: Some(error),
-                });
-            let (done, _) = super::agent_stage::result_fields(&result);
-            StepResult {
-                outcome: if done {
-                    StepOutcome::Done
-                } else {
-                    StepOutcome::Failed
-                },
-                stored_outcome: if done { "done" } else { "failed" }.into(),
-                state: if done {
-                    JournalState::Done
-                } else {
-                    JournalState::Failed
-                },
-                summary: if done {
-                    "agent task completed"
-                } else {
-                    "agent task failed or aborted"
-                }
-                .into(),
-                reason: result.error.clone().map(Into::into),
-                next_text: serde_json::to_string(&result).unwrap_or_default(),
-                decision: None,
-                uncertain: false,
-            }
-        }
-        StepKind::Ask { question, buckets } => {
-            let mut classify_job = lease.job.clone();
-            classify_job.question = question.clone();
-            classify_job.buckets = buckets.clone();
-            classify_job.matches.clear();
-            let classification =
-                super::classify::classify(svc, &classify_job, previous, Duration::from_secs(30));
-            classify_step(classification, buckets, previous)
-        }
-        StepKind::Filter { pattern, bucket } => match regex::Regex::new(pattern) {
-            Ok(regex) if regex.is_match(previous) => {
-                let outcome = bucket.clone().unwrap_or_else(|| "done".into());
-                let step_outcome = if outcome == "done" {
-                    StepOutcome::Done
-                } else {
-                    StepOutcome::Bucket(outcome.clone())
-                };
-                StepResult {
-                    outcome: step_outcome,
-                    stored_outcome: outcome.into(),
-                    state: JournalState::Done,
-                    summary: "filter matched".into(),
-                    reason: None,
-                    next_text: previous.into(),
-                    decision: Some(("filter_match".into(), None)),
-                    uncertain: false,
-                }
-            }
-            Ok(_) => StepResult {
-                outcome: StepOutcome::Failed,
-                stored_outcome: "failed".into(),
-                state: JournalState::Failed,
-                summary: "filter did not match".into(),
-                reason: Some("filter_no_match".into()),
-                next_text: previous.into(),
-                decision: Some(("filter_no_match".into(), Some("filter_no_match".into()))),
-                uncertain: false,
-            },
-            Err(_) => StepResult {
-                outcome: StepOutcome::Failed,
-                stored_outcome: "failed".into(),
-                state: JournalState::Failed,
-                summary: "filter pattern failed to compile".into(),
-                reason: Some("invalid_filter".into()),
-                next_text: previous.into(),
-                decision: Some(("probe_error".into(), Some("invalid_filter".into()))),
-                uncertain: false,
-            },
-        },
-        StepKind::Convert { from, to } => {
-            let conversion = match (input_kind, input_source) {
-                (Some(kind), Some(path)) if kind == *from => super::input::convert(
-                    svc.ext::<std::sync::Arc<codeterm_plugin::converter::ConverterRegistry>>(),
-                    path,
-                    path.parent().unwrap_or_else(|| Path::new(".")),
-                    *from,
-                    *to,
-                    input_deadline(handle, lease),
-                    lease.cancelled.conversion_token(),
-                    cleanup,
-                    Instant::now,
-                ),
-                (Some(_), Some(_)) => Err("conversion_input_kind_mismatch".into()),
-                _ => Err("conversion_input_missing".into()),
-            };
-            match conversion {
-                Ok(output) => StepResult {
-                    outcome: StepOutcome::Done,
-                    stored_outcome: "done".into(),
-                    state: JournalState::Done,
-                    summary: format!(
-                        "{} {} -> {}, {} chars",
-                        from.as_str(),
-                        input_display,
-                        to.as_str(),
-                        output.chars().count()
-                    ),
-                    reason: None,
-                    next_text: output,
-                    decision: None,
-                    uncertain: false,
-                },
-                Err(reason) => StepResult {
-                    outcome: StepOutcome::Failed,
-                    stored_outcome: "failed".into(),
-                    state: JournalState::Failed,
-                    summary: format!("conversion failed: {reason}"),
-                    reason: Some(reason.clone().into()),
-                    next_text: format!("Input conversion failed: {reason}"),
-                    decision: None,
-                    uncertain: false,
-                },
-            }
-        }
-    }
-}
-
 fn command_failure(failure: probe::process::ProbeFailure, previous: &str) -> StepResult {
     let uncertain = failure.is_unconfirmed();
+    let reason = if failure.is_deadline() {
+        JournalReason::Deadline
+    } else {
+        failure.reason().into()
+    };
     StepResult {
         outcome: StepOutcome::Failed,
         stored_outcome: "failed".into(),
@@ -822,9 +552,9 @@ fn command_failure(failure: probe::process::ProbeFailure, previous: &str) -> Ste
             "command probe failed"
         }
         .into(),
-        reason: Some(failure.reason().into()),
+        reason: Some(reason.clone()),
         next_text: previous.into(),
-        decision: (!uncertain).then(|| ("probe_error".into(), Some(failure.reason().into()))),
+        decision: (!uncertain).then(|| ("probe_error".into(), Some(reason))),
         uncertain,
     }
 }
@@ -1043,3 +773,6 @@ fn now(handle: &Handle) -> u64 {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod runtime_tests;

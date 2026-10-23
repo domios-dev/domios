@@ -1,8 +1,6 @@
 use super::*;
 use crate::store::{Owner, Store};
-use codeterm_blueprint_types::blueprint_pipeline::{
-    BlueprintOwner, BlueprintResult, BlueprintSpec, IoType, ResultTarget, Step, StepKind, Trigger,
-};
+use codeterm_blueprint_types::blueprint_pipeline::StepKind;
 use codeterm_service_core::cron::clock::MockClock;
 use std::collections::BTreeMap;
 
@@ -53,26 +51,8 @@ fn blueprint_pipeline_team_owner_defaults_result_target_to_team() {
         directory.path().join("blueprints.json"),
         MockClock::starting_at(1000),
     );
-    let spec = BlueprintSpec {
-        note: None,
-        name: "team pipeline".into(),
-        owner: BlueprintOwner::Team,
-        trigger: Trigger::Schedule {
-            every: "20s".into(),
-        },
-        steps: vec![Step {
-            name: "emit".into(),
-            input: IoType::Text,
-            kind: StepKind::Command {
-                command: "printf ready".into(),
-            },
-            on: Default::default(),
-        }],
-        result: BlueprintResult {
-            to: ResultTarget::Owner,
-        },
-    };
-    let job = store.prepare_pipeline(spec.clone(), owner(), true).unwrap();
+    let document = json!({"schema_version":2,"kind":"pipeline","name":"team pipeline","owner":"team","trigger":{"type":"schedule","every":{"lit":"20s"}},"steps":[{"id":"emit","run":{"lit":"printf ready"}}],"result":{"to":"owner"}});
+    let job = store.prepare_document(document, owner(), true).unwrap();
 
     let node = project(&job);
     assert_eq!(node["owner"]["kind"], "team");
@@ -89,26 +69,8 @@ fn blueprint_pipeline_read_model_revision_tracks_journal_rows() {
         directory.path().join("blueprints.json"),
         MockClock::starting_at(1000),
     );
-    let spec = BlueprintSpec {
-        note: None,
-        name: "revision pipeline".into(),
-        owner: BlueprintOwner::Tab,
-        trigger: Trigger::Schedule {
-            every: "20s".into(),
-        },
-        steps: vec![Step {
-            name: "emit".into(),
-            input: IoType::Text,
-            kind: StepKind::Command {
-                command: "echo ready".into(),
-            },
-            on: Default::default(),
-        }],
-        result: BlueprintResult {
-            to: ResultTarget::Owner,
-        },
-    };
-    let job = store.prepare_pipeline(spec, owner(), true).unwrap();
+    let document = json!({"schema_version":2,"kind":"pipeline","name":"revision pipeline","owner":"tab","trigger":{"type":"schedule","every":{"lit":"20s"}},"steps":[{"id":"emit","run":{"lit":"echo ready"}}],"result":{"to":"owner"}});
+    let job = store.prepare_document(document, owner(), true).unwrap();
     let before = project_snapshot(&job, &BTreeMap::new()).revision;
     let journals = BTreeMap::from([(
         job.id.clone(),
@@ -138,26 +100,8 @@ fn blueprint_delivery_read_model_projects_reason_and_body_reference() {
         directory.path().join("blueprints.json"),
         MockClock::starting_at(1000),
     );
-    let spec = BlueprintSpec {
-        note: None,
-        name: "result delivery".into(),
-        owner: BlueprintOwner::Tab,
-        trigger: Trigger::Schedule {
-            every: "20s".into(),
-        },
-        steps: vec![Step {
-            name: "emit".into(),
-            input: IoType::Text,
-            kind: StepKind::Command {
-                command: "echo ready".into(),
-            },
-            on: Default::default(),
-        }],
-        result: BlueprintResult {
-            to: ResultTarget::Owner,
-        },
-    };
-    let job = store.prepare_pipeline(spec, owner(), true).unwrap();
+    let document = json!({"schema_version":2,"kind":"pipeline","name":"result delivery","owner":"tab","trigger":{"type":"schedule","every":{"lit":"20s"}},"steps":[{"id":"emit","run":{"lit":"echo ready"}}],"result":{"to":"owner"}});
+    let job = store.prepare_document(document, owner(), true).unwrap();
     let journal = BlueprintJournalEntry {
         entry_id: 17,
         run_id: "run_result".into(),
@@ -187,37 +131,8 @@ fn contract_job() -> Sentinel {
         MockClock::starting_at(1000),
     );
     let mut job = store
-        .prepare_pipeline(
-            BlueprintSpec {
-                note: None,
-                name: "Echo pipeline".into(),
-                owner: BlueprintOwner::Tab,
-                trigger: Trigger::Schedule {
-                    every: "20s".into(),
-                },
-                steps: vec![
-                    Step {
-                        name: "emit".into(),
-                        input: IoType::Text,
-                        kind: StepKind::Command {
-                            command: "echo ready".into(),
-                        },
-                        on: BTreeMap::new(),
-                    },
-                    Step {
-                        name: "match".into(),
-                        input: IoType::Text,
-                        kind: StepKind::Filter {
-                            pattern: "ready".into(),
-                            bucket: None,
-                        },
-                        on: BTreeMap::new(),
-                    },
-                ],
-                result: BlueprintResult {
-                    to: ResultTarget::Notify,
-                },
-            },
+        .prepare_document(
+            json!({"schema_version":2,"kind":"pipeline","name":"Echo pipeline","owner":"tab","trigger":{"type":"schedule","every":{"lit":"20s"}},"steps":[{"id":"emit","run":{"lit":"echo ready"}},{"id":"match","uses":"filter","with":{"pattern":{"lit":"ready"}}}],"result":{"to":"notify"}}),
             owner(),
             false,
         )

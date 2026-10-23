@@ -4,9 +4,9 @@ use serde_json::{json, Value};
 
 fn definition(pipeline: bool) -> Value {
     if pipeline {
-        json!({"spec":{"name":"Apply pipeline","note":"Reports a result","owner":"team","trigger":{"type":"schedule","every":"20s"},"steps":[{"name":"emit","input":"text","kind":{"kind":"command","command":"echo ready"},"on":{"done":"stop","failed":"stop"}}],"result":{"to":"notify"}}})
+        json!({"schema_version":2,"kind":"pipeline","name":"Apply pipeline","note":"Reports a result","owner":"team","trigger":{"type":"schedule","every":{"lit":"20s"}},"steps":[{"id":"emit","run":{"lit":"echo ready"},"routes":{"done":"@stop","failed":"@stop"}}],"result":{"to":"notify"}})
     } else {
-        json!({"create":{"name":"Apply watch","note":"Reports readiness","probe":"echo ready","question":"Ready?","buckets":["done"],"every":"20s","matches":{"done":"ready"},"routes":{"done":"notify"},"timeout":"1h"}})
+        json!({"schema_version":2,"kind":"watch","name":"Apply watch","note":"Reports readiness","steps":[{"id":"source","uses":"probe","with":{"command":{"lit":"echo ready"}},"every":{"lit":"20s"},"timeout":{"lit":"1h"}},{"id":"decide","uses":"ask","with":{"question":{"lit":"Ready?"}},"buckets":["done"],"matches":{"done":{"lit":"ready"}},"routes":{"done":"notify"}}],"other":[{"id":"notify","uses":"notify"}]})
     }
 }
 
@@ -57,17 +57,21 @@ fn blueprint_apply_is_idempotent_scoped_and_persisted_for_watch_and_pipeline() {
                 .definition_version,
             1
         );
-        let key = if pipeline { "spec" } else { "create" };
-        spec[key]["note"] = json!("Updated explanation");
+        spec["note"] = json!("Updated explanation");
         if !pipeline {
-            spec[key]["probe"] = json!("echo changed");
+            spec["steps"][0]["with"]["command"]["lit"] = json!("echo changed");
         }
         let dry = service
             .blueprint_apply(&caller, spec.clone(), true)
             .unwrap();
         assert_eq!(dry["action"], "update");
         assert!(!dry["before"].is_null());
-        assert_eq!(dry["after"], spec);
+        let expected =
+            codeterm_blueprint_types::blueprint_document::Document::from_definition(&spec).unwrap();
+        let actual =
+            codeterm_blueprint_types::blueprint_document::Document::from_definition(&dry["after"])
+                .unwrap();
+        assert_eq!(actual, expected);
         assert_eq!(
             service
                 .sentinel_show(&caller, id)
@@ -90,12 +94,16 @@ fn blueprint_apply_is_idempotent_scoped_and_persisted_for_watch_and_pipeline() {
         if !pipeline {
             for (field, value) in [("timeout", json!("4h")), ("paused", json!(true))] {
                 let mut changed = spec.clone();
-                changed["create"][field] = value;
+                changed["steps"][0][field] = if field == "timeout" {
+                    json!({"lit":value})
+                } else {
+                    value
+                };
                 let error = service
                     .blueprint_apply(&caller, changed, false)
                     .unwrap_err();
                 assert!(
-                    matches!(&error, codeterm_blueprint_types::blueprint_contract::ApplyError::CreationOnly { field: actual, .. } if actual == &format!("watch.{field}")),
+                    matches!(&error, codeterm_blueprint_types::blueprint_contract::ApplyError::CreationOnly { field: actual, .. } if actual == &format!("steps[0].{field}")),
                     "{error}"
                 );
             }
@@ -108,8 +116,7 @@ fn blueprint_apply_is_idempotent_scoped_and_persisted_for_watch_and_pipeline() {
         assert_eq!(reactivated["state"], "running");
         assert_eq!(reactivated["id"], id);
         let recipe = codeterm_blueprint_types::blueprint_recipe::Recipe {
-            schema_version: 1,
-            placeholders: Default::default(),
+            schema_version: 2,
             definition: spec.clone(),
         };
         use crate::BlueprintPortableExt;

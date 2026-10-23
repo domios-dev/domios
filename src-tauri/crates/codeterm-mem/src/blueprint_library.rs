@@ -6,6 +6,7 @@ use codeterm_blueprint_types::{
 };
 use rusqlite::{params, Connection};
 use std::sync::atomic::{AtomicU64, Ordering};
+pub(crate) mod cleanup;
 pub mod dedupe;
 pub mod enrichment;
 #[cfg(test)]
@@ -403,6 +404,48 @@ impl MemManager {
 
     pub fn list_blueprint_solutions(&self, area: &str) -> Result<Vec<Entry>, String> {
         entries(&self.conn.lock(), &self.blobs_dir, area)
+    }
+
+    pub fn blueprint_solutions_readonly(&self, area: &str) -> Result<Vec<Entry>, String> {
+        let snapshots = {
+            let conn = self.conn.lock();
+            let mut stmt = conn.prepare("SELECT m.id FROM mem_items m JOIN solution_metadata s ON s.item_id=m.id WHERE m.kind='skill' AND m.area=?1 AND m.source=?2 ORDER BY m.id").map_err(|e| e.to_string())?;
+            let ids = stmt
+                .query_map(params![area, SOURCE], |row| row.get::<_, String>(0))
+                .map_err(|e| e.to_string())?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| e.to_string())?;
+            ids.into_iter()
+                .map(|id| {
+                    let item = store::get(&conn, &id, &self.blobs_dir)?
+                        .ok_or("Blueprint solution disappeared")?;
+                    let stats = metadata::read(&conn, &id)?
+                        .and_then(|record| record.blueprint)
+                        .ok_or("Blueprint metadata absent")?;
+                    Ok((id, item.body, stats))
+                })
+                .collect::<Result<Vec<_>, String>>()?
+        };
+        snapshots
+            .into_iter()
+            .map(|(id, body, stats)| {
+                let document = model::parse_document(&body)?;
+                let errors = document.template_errors();
+                if !errors.is_empty() {
+                    return Err(format!("Saved solution {id} is unavailable: {errors:?}"));
+                }
+                Ok(Entry {
+                    id,
+                    document,
+                    intents: stats.intents,
+                    uses: stats.uses,
+                    successes: stats.successes,
+                    failures: stats.failures,
+                    kept: stats.explicitly_kept,
+                    last_used: stats.last_used,
+                })
+            })
+            .collect()
     }
 
     pub fn archive_blueprint_solution(&self, area: &str, id: &str) -> Result<(), String> {

@@ -42,14 +42,14 @@ fn sentinel_probe_environment_strips_instance_credentials_and_cli_path() {
         &[bin.to_str().unwrap()],
     );
     let variables: std::collections::BTreeMap<_, _> = environment.variables.into_iter().collect();
-    assert_eq!(variables.len(), 4);
+    assert_eq!(variables.len(), 2);
     assert_eq!(
         std::env::split_paths(&variables[OsStr::new("PATH")]).collect::<Vec<_>>(),
         vec![normal]
     );
-    assert_eq!(variables[OsStr::new("HOME")], dir.path().as_os_str());
+    assert!(!variables.contains_key(OsStr::new("HOME")));
     assert_eq!(variables[OsStr::new("LANG")], "C.UTF-8");
-    assert_eq!(variables[OsStr::new("TMP")], dir.path().as_os_str());
+    assert!(!variables.contains_key(OsStr::new("TMP")));
 }
 
 #[test]
@@ -72,9 +72,15 @@ fn sentinel_probe_environment_strips_all_mixed_case_instance_selectors() {
         .into_iter()
         .map(|key| (OsString::from(key), OsString::from("opaque")));
     let environment = Environment::for_command(inherited, None, &[]);
-    assert!(environment.variables.is_empty());
+    assert_eq!(environment.variables.len(), 2);
+    assert!(environment
+        .variables
+        .iter()
+        .all(|(key, _)| key == "PATH" || key == "LANG"));
     #[cfg(windows)]
-    assert_eq!(environment.windows_block(), vec![0, 0]);
+    assert!(String::from_utf16(&environment.windows_block())
+        .unwrap()
+        .contains("LANG=C.UTF-8"));
 }
 
 #[cfg(windows)]
@@ -91,6 +97,48 @@ fn sentinel_probe_environment_windows_block_contains_only_filtered_snapshot() {
     );
     assert_eq!(
         String::from_utf16(&environment.windows_block()).unwrap(),
-        "HOME=opaque-home\0\0"
+        "LANG=C.UTF-8\0PATH=\0\0"
     );
+}
+
+#[test]
+fn blueprint_v2_runtime_command_environment_is_an_allowlist() {
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::write(
+        directory.path().join(if cfg!(windows) {
+            "domios.exe"
+        } else {
+            "domios"
+        }),
+        b"opaque-cli",
+    )
+    .unwrap();
+    let environment = Environment::for_command(
+        [
+            ("OPENAI_API_KEY".into(), "fake-openai-key".into()),
+            ("AWS_SECRET_ACCESS_KEY".into(), "fake-aws-key".into()),
+            ("GH_TOKEN".into(), "fake-gh-token".into()),
+            ("SSH_AUTH_SOCK".into(), "fake-agent-socket".into()),
+            ("NODE_OPTIONS".into(), "--require=credential-loader".into()),
+            ("BASH_ENV".into(), "credential-loader".into()),
+            ("CODETERM_API_TOKEN".into(), "fake-instance-key".into()),
+            ("PATH".into(), directory.path().as_os_str().to_owned()),
+            (
+                "DOMIOS_CLI_PATH".into(),
+                directory.path().join("domios").into_os_string(),
+            ),
+        ],
+        None,
+        &[directory.path().to_str().unwrap()],
+    );
+    assert!(environment
+        .variables
+        .iter()
+        .all(|(key, _)| key == "LANG" || key == "PATH"));
+    let (_, path) = environment
+        .variables
+        .iter()
+        .find(|(key, _)| key == "PATH")
+        .unwrap();
+    assert!(!std::env::split_paths(path).any(|path| path == directory.path()));
 }

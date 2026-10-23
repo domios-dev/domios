@@ -91,29 +91,63 @@ struct Graph {
 
 impl Graph {
     fn lift(document: &Document) -> Self {
-        let (nodes, trigger, result) = if let Some(pipeline) = &document.pipeline {
-            let trigger = pipeline["trigger"]
-                .as_object()
-                .filter(|trigger| !trigger.is_empty())
-                .map(|trigger| python_str(trigger.get("type")));
-            let result = pipeline["result"]
-                .as_object()
-                .filter(|result| !result.is_empty())
-                .map(|result| {
-                    python_str(result.get("to").or(Some(&Value::String(String::new()))))
-                        .split(':')
-                        .next()
-                        .unwrap_or_default()
-                        .to_owned()
-                });
-            (pipeline_nodes(document, pipeline), trigger, result)
-        } else {
-            (
-                document.watch.as_ref().map(watch_nodes).unwrap_or_default(),
-                None,
-                None,
-            )
-        };
+        let all = document.nodes().collect::<Vec<_>>();
+        let ids = all
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (n.id.as_str(), i))
+            .collect::<BTreeMap<_, _>>();
+        let nodes = all
+            .iter()
+            .map(|n| {
+                let mut node = plain(n.kind());
+                node.buckets = n.buckets.clone();
+                if n.kind() == "filter" {
+                    node.buckets.extend(
+                        n.params
+                            .get("bucket")
+                            .and_then(|v| v.value())
+                            .and_then(Value::as_str)
+                            .map(str::to_owned),
+                    );
+                }
+                node.media = Some(serde_json::json!({"in":n.input,"out":n.output}).to_string());
+                node.routes = n
+                    .routes
+                    .iter()
+                    .map(|(outcome, target)| {
+                        let target = match target.as_str() {
+                            "next" | "@next" => Target::Next,
+                            "stop" | "@stop" => Target::Stop,
+                            other => ids.get(other).map_or(Target::Stop, |i| Target::Node(*i)),
+                        };
+                        (outcome.clone(), target)
+                    })
+                    .collect();
+                node.outcomes = if n.outcomes.is_empty() {
+                    default_outcomes(&node, n.params.get("resource"), &document.inputs)
+                } else {
+                    n.outcomes.clone()
+                };
+                node
+            })
+            .collect::<Vec<_>>();
+        let trigger = document.trigger.as_ref().map(|t| {
+            match t {
+                codeterm_blueprint_types::blueprint_document::Trigger::Schedule { .. } => {
+                    "schedule"
+                }
+                codeterm_blueprint_types::blueprint_document::Trigger::Event { .. } => "event",
+                codeterm_blueprint_types::blueprint_document::Trigger::Input { .. } => "input",
+            }
+            .to_owned()
+        });
+        let result = document
+            .result
+            .to
+            .as_ref()
+            .and_then(codeterm_blueprint_types::blueprint_document::ResultTarget::fixed)
+            .map(|to| to.split(':').next().unwrap_or_default().to_owned());
         let mut labels = nodes.iter().map(label).collect::<Vec<_>>();
         let stop = labels.len();
         labels.push("stop".into());
@@ -213,140 +247,6 @@ impl Graph {
     }
 }
 
-fn pipeline_nodes(document: &Document, pipeline: &Value) -> Vec<Node> {
-    let steps = pipeline["steps"].as_array().cloned().unwrap_or_default();
-    let names = steps
-        .iter()
-        .enumerate()
-        .map(|(index, step)| (python_str(step.get("name")), index))
-        .collect::<BTreeMap<_, _>>();
-    steps
-        .iter()
-        .map(|step| {
-            let with = step["with"].as_object();
-            let kind = if step.get("run").is_some() {
-                "command".to_owned()
-            } else {
-                python_str(step.get("uses"))
-            };
-            let buckets = match (kind.as_str(), with) {
-                ("ask", Some(with)) => with
-                    .get("buckets")
-                    .and_then(Value::as_array)
-                    .map(|buckets| buckets.iter().map(|b| python_str(Some(b))).collect())
-                    .unwrap_or_default(),
-                ("filter", Some(with)) => with
-                    .get("bucket")
-                    .filter(|bucket| !bucket.is_null())
-                    .map(|bucket| vec![python_str(Some(bucket))])
-                    .unwrap_or_default(),
-                _ => Vec::new(),
-            };
-            let routes = step["on"]
-                .as_object()
-                .into_iter()
-                .flatten()
-                .map(|(outcome, target)| {
-                    let target = match target.as_str() {
-                        Some("next") => Target::Next,
-                        Some("stop") => Target::Stop,
-                        _ => names
-                            .get(&python_str(Some(target)))
-                            .map_or(Target::Stop, |index| Target::Node(*index)),
-                    };
-                    (outcome.clone(), target)
-                })
-                .collect();
-            let resource = with.and_then(|with| with.get("resource"));
-            let mut node = Node {
-                outcomes: Vec::new(),
-                media: Some(step["input"].as_str().unwrap_or("text").to_owned()),
-                kind,
-                routes,
-                buckets,
-            };
-            node.outcomes = default_outcomes(&node, resource, &document.inputs);
-            node
-        })
-        .collect()
-}
-
-fn watch_nodes(watch: &Value) -> Vec<Node> {
-    let source = ["probe", "observe", "input"]
-        .into_iter()
-        .find(|key| watch.get(*key).is_some())
-        .unwrap_or("probe");
-    let buckets = watch["buckets"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .map(|bucket| python_str(Some(bucket)))
-        .collect::<Vec<_>>();
-    let routes = watch["routes"].as_object();
-    let handlers = watch["handlers"].as_object();
-    let mut keys = buckets.clone();
-    keys.push("other".into());
-    let extra = routes
-        .into_iter()
-        .chain(handlers)
-        .flat_map(|map| map.keys().cloned())
-        .filter(|key| !keys.contains(key))
-        .collect::<BTreeSet<_>>();
-    keys.extend(extra);
-    let mut nodes = vec![
-        plain(source),
-        Node {
-            buckets: buckets.clone(),
-            ..plain("ask")
-        },
-    ];
-    let mut decide_routes = BTreeMap::new();
-    for bucket in keys {
-        if let Some(chain) = handlers.and_then(|handlers| handlers.get(&bucket)) {
-            let chain = chain.as_array().cloned().unwrap_or_default();
-            if chain.is_empty() {
-                decide_routes.insert(bucket, Target::Stop);
-                continue;
-            }
-            decide_routes.insert(bucket, Target::Node(nodes.len()));
-            let start = nodes.len();
-            for (position, handler) in chain.iter().enumerate() {
-                let mut node = plain(&python_str(handler.get("type")));
-                if position + 1 < chain.len() {
-                    node.outcomes = vec!["done".into()];
-                    node.routes =
-                        BTreeMap::from([("done".into(), Target::Node(start + position + 1))]);
-                } else {
-                    node.outcomes = default_outcomes(&node, None, &BTreeMap::new());
-                }
-                nodes.push(node);
-            }
-        } else if let Some(route) = routes.and_then(|routes| routes.get(&bucket)) {
-            let route = python_str(Some(route));
-            let (kind, argument) = route.split_once(':').unwrap_or((route.as_str(), ""));
-            let kind = match (kind, argument.is_empty()) {
-                ("notify" | "stop", true) => Some(kind),
-                ("send" | "cron" | "blueprint", false) => Some(kind),
-                _ => None,
-            };
-            match kind {
-                Some(kind) => {
-                    decide_routes.insert(bucket, Target::Node(nodes.len()));
-                    let mut node = plain(kind);
-                    node.outcomes = default_outcomes(&node, None, &BTreeMap::new());
-                    nodes.push(node);
-                }
-                None => {
-                    decide_routes.insert(bucket, Target::Stop);
-                }
-            }
-        }
-    }
-    nodes[1].routes = decide_routes;
-    nodes[1].outcomes = default_outcomes(&nodes[1], None, &BTreeMap::new());
-    nodes
-}
-
 fn plain(kind: &str) -> Node {
     Node {
         kind: kind.into(),
@@ -359,59 +259,47 @@ fn plain(kind: &str) -> Node {
 
 fn default_outcomes(
     node: &Node,
-    resource: Option<&Value>,
+    resource: Option<&codeterm_blueprint_types::blueprint_document::ValueForm>,
     inputs: &BTreeMap<String, Input>,
 ) -> Vec<String> {
-    let strings = |values: &[&str]| values.iter().map(|value| (*value).to_owned()).collect();
-    let github = |resource: &str| match resource {
-        "pr_checks" => strings(&["done", "failed"]),
-        "runners" => strings(&["online", "offline", "failed"]),
-        _ => strings(&["done", "failing", "failed"]),
-    };
+    use codeterm_blueprint_types::blueprint_document::ValueForm;
+    let strings = |xs: &[&str]| xs.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
     match node.kind.as_str() {
         "http" => strings(&["up", "down", "failed"]),
-        "github" => match resource {
-            Some(Value::String(text)) => match whole_input(text) {
-                Some(input) => {
-                    let choices = inputs
-                        .get(input)
-                        .and_then(|input| input.choices.clone())
-                        .unwrap_or_else(|| vec![Value::String("run".into())]);
-                    let mut merged: Vec<String> = Vec::new();
-                    for choice in choices {
-                        let choice = python_str(Some(&choice));
-                        let outcomes: Vec<String> = match choice.as_str() {
-                            "run" | "jobs" | "pr_checks" | "runners" => github(&choice),
-                            _ => Vec::new(),
-                        };
-                        for outcome in outcomes {
-                            if !merged.contains(&outcome) {
-                                merged.push(outcome);
-                            }
-                        }
-                    }
-                    if merged.is_empty() {
-                        github("run")
-                    } else {
-                        merged
-                    }
-                }
-                None => github(text),
-            },
-            Some(other) => github(&python_str(Some(other))),
-            None => github("run"),
-        },
-        "filter" => {
-            let mut outcomes = strings(&["done", "failed"]);
-            outcomes.extend(node.buckets.iter().cloned());
-            outcomes
+        "github" => {
+            let values = match resource {
+                Some(ValueForm::Lit { lit }) => vec![lit.clone()],
+                Some(ValueForm::Input { input }) => inputs
+                    .get(input)
+                    .and_then(|p| p.choices.clone())
+                    .unwrap_or_default(),
+                _ => Vec::new(),
+            };
+            let mut outcomes = BTreeSet::new();
+            for value in values
+                .iter()
+                .map(|v| v.as_str().unwrap_or_default())
+                .chain(values.is_empty().then_some("run"))
+            {
+                outcomes.extend(match value {
+                    "runners" => strings(&["online", "offline", "failed"]),
+                    "pr_checks" => strings(&["done", "failed"]),
+                    _ => strings(&["done", "failing", "failed"]),
+                });
+            }
+            outcomes.into_iter().collect()
         }
-        "ask" => {
-            let mut outcomes = node.buckets.clone();
-            outcomes.push("other".into());
-            outcomes
-        }
-        "command" | "convert" | "agent" | "code" => strings(&["done", "failed"]),
+        "ask" => node
+            .buckets
+            .iter()
+            .cloned()
+            .chain(std::iter::once("other".into()))
+            .collect(),
+        "filter" => strings(&["done", "failed"])
+            .into_iter()
+            .chain(node.buckets.iter().cloned())
+            .collect(),
+        "command" | "convert" | "agent" | "code" | "call" => strings(&["done", "failed"]),
         _ => Vec::new(),
     }
 }
@@ -451,25 +339,6 @@ fn outcome_class(outcome: &str, node: &Node) -> &'static str {
         "failure"
     } else {
         "success"
-    }
-}
-
-fn whole_input(text: &str) -> Option<&str> {
-    let inner = text.strip_prefix("{{")?.strip_suffix("}}")?.trim();
-    let mut chars = inner.chars();
-    let first = chars.next()?;
-    ((first.is_ascii_alphabetic() || first == '_')
-        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_'))
-    .then_some(inner)
-}
-
-fn python_str(value: Option<&Value>) -> String {
-    match value {
-        None | Some(Value::Null) => "None".into(),
-        Some(Value::String(text)) => text.clone(),
-        Some(Value::Bool(true)) => "True".into(),
-        Some(Value::Bool(false)) => "False".into(),
-        Some(other) => other.to_string(),
     }
 }
 

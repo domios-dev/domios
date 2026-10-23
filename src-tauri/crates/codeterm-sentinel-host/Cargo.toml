@@ -12,6 +12,7 @@ name = "codeterm_sentinel_host"
 
 [dependencies]
 codeterm-service-core = { path = "../codeterm-service-core", default-features = false }
+codeterm-mem = { path = "../codeterm-mem", default-features = false }
 codeterm-sentinel = { path = "../codeterm-sentinel" }
 codeterm-blueprint-types = { path = "../codeterm-blueprint-types" }
 codeterm-cron = { path = "../codeterm-cron" }
@@ -36,6 +37,7 @@ regex = "1"
 cron = "0.13"
 rusqlite = { version = "0.32", features = ["bundled", "blob", "functions", "load_extension"] }
 tempfile = "3"
+libc = "0.2"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking"] }
 
 [dev-dependencies]
