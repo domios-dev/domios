@@ -734,8 +734,10 @@ pub async fn chat_raw_start(
     Json(body): Json<ChatSubscriptionBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let slot = crate::request_bound::RequestSlot::acquire(format!("chat-start:{tab_id}"))
-        .map_err(|(status, error)| (status, error.0.to_string()))?;
+    let slot =
+        crate::request_bound::RequestSlot::acquire_when_available(format!("chat-start:{tab_id}"))
+            .await
+            .map_err(|(status, error)| (status, error.0.to_string()))?;
     let svc = state.svc.clone();
     let queued = std::time::Instant::now();
     let result = tokio::task::spawn_blocking(move || {

@@ -31,6 +31,16 @@ function railsFor(view: ChatBodyView, messages: Array<{ at: number | null }>) {
 }
 
 describe("chat body authority", () => {
+  it("reports attachment refusal instead of a loading overlay", () => {
+    expect(chatBodyView({ snapshotReady: false, hasTranscript: false, chatLoading: false,
+      attachmentError: "request_busy", unavailable: null, bootView: { kind: "none" } }))
+      .toEqual({ kind: "attach_failed", reason: "request_busy" });
+  });
+  it("the lock state owns the body even when the transcript never attached", () => {
+    expect(chatBodyView({ locked: true, snapshotReady: false, hasTranscript: false, chatLoading: true,
+      attachmentError: "refused", unavailable: null, bootView: { kind: "starting", label: "opaque" } }))
+      .toEqual({ kind: "locked" });
+  });
   it("cached or tracked rows cannot paint before the first authoritative snapshot", () => {
     const view = chatBodyView({ snapshotReady: false, hasTranscript: true, chatLoading: true,
       unavailable: null, bootView: { kind: "none" } });

@@ -7,6 +7,9 @@ import type { Tab, Workspace } from "../../lib/types";
 import { TabLaunchFailure } from "./TabLaunchFailure";
 import type { ChatBodyView } from "./chatBodyVisibility";
 import type { ChatUnavailableReason } from "./chatSessionAuthority";
+import type { LockedView } from "../billing/freeLimitModel";
+import { LockedOverlay } from "../billing/LockBadge";
+import { openLockedPlans } from "../billing/freeLimitGate";
 
 export { chatSetupView } from "./chatSetupModel";
 
@@ -26,6 +29,8 @@ interface ChatSetupStateProps {
   providerIconColor?: string | null;
   providerIconHint?: string | null;
   onEscape?: () => void;
+  onRetry?: () => void;
+  lock?: LockedView;
 }
 
 export function ChatSetupState({
@@ -35,6 +40,8 @@ export function ChatSetupState({
   tab,
   view,
   onEscape,
+  onRetry,
+  lock,
 }: ChatSetupStateProps) {
   const handleKeyDown = useCallback((event: React.KeyboardEvent) => {
     if (event.key !== "Escape") return;
@@ -42,6 +49,13 @@ export function ChatSetupState({
     onEscape?.();
   }, [onEscape]);
 
+  if (view.kind === "locked") {
+    return lock ? <LockedOverlay view={lock} onActivate={() => openLockedPlans(lock)} /> : null;
+  }
+  if (view.kind === "attach_failed") {
+    return <ChatStatusBanner title="Chat connection failed" reason={view.reason} testId="chat-recovery-error"
+      action={<button type="button" data-testid="chat-retry" onClick={onRetry}>Retry</button>} />;
+  }
   if (view.kind === "launch_failed") {
     return <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 overflow-auto bg-[var(--ct-bg)]" data-testid="chat-launch-failed">
       <TabLaunchFailure tabId={tab?.id} workspace={workspace} cwd={tab?.cwd} reason={view.reason} />
