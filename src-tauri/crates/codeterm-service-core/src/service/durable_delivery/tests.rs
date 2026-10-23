@@ -240,6 +240,118 @@ fn blueprint_v2_call_durable_review_session_commit_binds_before_async_followup()
 }
 
 #[test]
+fn blueprint_v2_call_durable_r3_restart_after_receipt_publication_recovers_status_once() {
+    let (fixture, tab, id, clock) = held();
+    let owner = &fixture.service.pending_delivery_payloads.agent_deliveries;
+    owner
+        .mark_terminal_failure(&tab, &id, "recipient_gone", None)
+        .unwrap();
+    let failure = serde_json::json!({
+        "tab_id": tab, "delivery_id": id, "producer": "original-run",
+        "producer_tab": tab, "created_at_ms": 1000,
+        "status": "failed", "code": "recipient_gone", "detail": null,
+        "bytes_written": false,
+    });
+    let body = serde_json::to_vec_pretty(&failure).unwrap();
+    let (receipt, created) = fixture
+        .service
+        .ensure_agent_pad(&tab)
+        .unwrap()
+        .write_delivery_receipt(&id, &body)
+        .unwrap();
+    assert!(created);
+    assert!(owner.claim_terminal_notification(&tab, &id).unwrap());
+    assert!(!owner.claim_terminal_notification(&tab, &id).unwrap());
+    assert!(!fixture
+        .ui
+        .0
+        .lock()
+        .iter()
+        .any(|(kind, event)| kind == "agent-delivery-status" && event["delivery_id"] == id));
+    // Restart after the receipt and emit claim, before any event was emitted.
+    let next = restarted(&fixture, clock);
+    let writes = next.record_agent_deliveries(&tab);
+    let owner = &next.service.pending_delivery_payloads.agent_deliveries;
+    next.service
+        .expire_due_durable_deliveries(&tab, owner)
+        .unwrap();
+    next.service
+        .expire_due_durable_deliveries(&tab, owner)
+        .unwrap();
+    let events = next.ui.0.lock();
+    let failures: Vec<_> = events
+        .iter()
+        .filter(|(kind, event)| kind == "agent-delivery-status" && event["delivery_id"] == id)
+        .collect();
+    assert_eq!(failures.len(), 1);
+    assert_eq!(failures[0].1, failure);
+    assert_eq!(
+        next.service
+            .notif
+            .lock()
+            .list(false)
+            .iter()
+            .filter(|notice| notice.body.as_deref().is_some_and(|body| body
+                .contains("original-run")
+                && body.contains("recipient_gone")))
+            .count(),
+        1
+    );
+    assert_eq!(std::fs::read(receipt).unwrap(), body);
+    assert!(!next.has_pending_agent_delivery(&tab));
+    assert!(writes.texts.lock().is_empty());
+}
+
+#[test]
+fn blueprint_v2_call_durable_r3_edited_receipt_preserves_file_and_unblocks_later_result() {
+    let (fixture, tab, id, _) = held();
+    let writes = fixture.record_agent_deliveries(&tab);
+    let owner = &fixture.service.pending_delivery_payloads.agent_deliveries;
+    let record = owner.pending_head(&tab).unwrap().unwrap();
+    let payload: AgentDeliveryPayload =
+        serde_json::from_str(&owner.payload(&tab, &record).unwrap()).unwrap();
+    let (receipt, _) = fixture
+        .service
+        .ensure_agent_pad(&tab)
+        .unwrap()
+        .write_delivery_receipt(&id, b"externally edited receipt")
+        .unwrap();
+    let mut envelope = MessageEnvelope::codeterm_reminder("blueprint:later-result");
+    envelope.durable_delivery = Some(fixture.service.durable_delivery("later-run", &tab));
+    let Delivery::Pending {
+        delivery_id: later_id,
+    } = Messenger::deliver(&fixture.service, &tab, envelope, "later body").unwrap()
+    else {
+        panic!("later durable admission");
+    };
+    writes.wait_for_flush();
+    fixture
+        .service
+        .fail_durable_delivery(&tab, owner, &record, &payload, "recipient_gone")
+        .unwrap();
+    assert_eq!(
+        std::fs::read(receipt).unwrap(),
+        b"externally edited receipt"
+    );
+    assert_eq!(owner.pending_head(&tab).unwrap().unwrap().id, later_id);
+    fixture.resume_recorded_agent_recipient(&tab, "saved-session", "first-launch");
+    writes.wait_for_flush();
+    assert_eq!(
+        writes.texts.lock().as_slice(),
+        ["Original run: later-run; timestamp: 1000\nlater body"]
+    );
+    assert!(!fixture.has_pending_agent_delivery(&tab));
+    assert!(fixture
+        .ui
+        .0
+        .lock()
+        .iter()
+        .any(|(kind, event)| kind == "agent-delivery-status"
+            && event["delivery_id"] == id
+            && event["code"] == "recipient_gone"));
+}
+
+#[test]
 fn blueprint_v2_call_durable_r2_concurrent_terminal_settlement_publishes_one_receipt_and_event() {
     use std::sync::{
         atomic::{AtomicUsize, Ordering},
@@ -291,6 +403,10 @@ fn blueprint_v2_call_durable_r2_concurrent_terminal_settlement_publishes_one_rec
             .service
             .fail_durable_delivery(&tab, &owner, &record, &payload, "delivery_ttl_expired")
             .unwrap();
+        assert!(
+            fixture.has_pending_agent_delivery(&tab),
+            "the emit owner retains the head until it finishes"
+        );
     }
     release_tx.send(()).unwrap();
     closing.join().unwrap().unwrap();

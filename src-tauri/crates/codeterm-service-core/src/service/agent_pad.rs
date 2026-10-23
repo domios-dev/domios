@@ -192,7 +192,10 @@ impl AgentPad {
                     || metadata.len() != body.len() as u64
                     || fs::read(&path).map_err(|error| error.to_string())? != body
                 {
-                    return Err("delivery receipt content mismatch".into());
+                    log::error!(
+                        "[agent-delivery] retaining edited delivery receipt: {}",
+                        path.display()
+                    );
                 }
                 false
             }
