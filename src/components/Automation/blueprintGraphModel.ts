@@ -7,6 +7,21 @@ const baseNode = (key: string, title: string, kind: PipelineViewNode["kind"]): P
   key, title, kind, state: "waiting", current: false, summary: "", lastEventAtMs: null, resultSummary: null, outcome: null, targetSummary: null,
 });
 
+const CONTROL_ROWS: Readonly<Record<string, string>> = { $run: "$trigger", $result: "$result", $stop: "$stop" };
+
+export function nodeLabel(node: PipelineViewNode): string {
+  const path = node.callPath ?? [];
+  return node.definition ? `${node.definition.id}${path.length ? ` in ${path.join(" / ")}` : ""}` : node.title;
+}
+
+function controlNode(path: readonly string[], id: string, title: string, kind: PipelineViewNode["kind"], row: BlueprintJournalNode | undefined): PipelineViewNode {
+  return {
+    ...baseNode(blueprintNodeKey(path, id), path.length ? `${title} · ${path.join(" / ")}` : title, kind),
+    callPath: path, journal: row, state: row?.state ?? "waiting", current: row?.state === "running",
+    lastEventAtMs: row?.ended_at_ms ?? row?.started_at_ms ?? null, resultSummary: row?.result_summary ?? row?.reason ?? null,
+  };
+}
+
 function outcomes(node: BlueprintIrNode): readonly string[] {
   if (node.outcomes?.length) return node.outcomes;
   if (node.uses === "ask") return [...(node.buckets ?? []), "other"];
@@ -43,7 +58,14 @@ export function* buildBlueprintGraph(pipeline: PipelineView, expanded: Blueprint
   }
   for (const row of rows) {
     const context = scope(row);
-    const definition = context && [...context.document.steps, ...(context.document.other ?? [])].find((node) => node.id === row.step_name);
+    const control = CONTROL_ROWS[row.step_name];
+    if (control && context) {
+      const key = blueprintNodeKey(context.path, control);
+      if (!journal.has(key)) journal.set(key, row);
+      yield;
+      continue;
+    }
+    const definition =context && [...context.document.steps, ...(context.document.other ?? [])].find((node) => node.id === row.step_name);
     const rootIndexMatches = row.step_index != null && [...pipeline.call_graph.steps, ...(pipeline.call_graph.other ?? [])][row.step_index]?.id === row.step_name;
     if (definition && context && (row.parent_step_index != null || row.definition_version != null || rootIndexMatches)) {
       const key = blueprintNodeKey(context.path, row.step_name);
@@ -56,7 +78,7 @@ export function* buildBlueprintGraph(pipeline: PipelineView, expanded: Blueprint
     const resultKey = blueprintNodeKey(path, "$result");
     if (document.trigger) {
       const key = blueprintNodeKey(path, "$trigger");
-      nodes.push({ ...baseNode(key, "Trigger", "trigger"), summary: document.kind });
+      nodes.push({ ...controlNode(path, "$trigger", "Trigger", "trigger", journal.get(key)), summary: document.kind });
       if (steps[0]) edges.push({ from: key, to: blueprintNodeKey(path, steps[0].id), label: null });
     }
     for (const [index, definition] of steps.entries()) {
@@ -69,7 +91,7 @@ export function* buildBlueprintGraph(pipeline: PipelineView, expanded: Blueprint
         state: row?.state ?? "waiting", current: row?.state === "running",
         summary: definition.does ?? definition.id,
         lastEventAtMs: row?.ended_at_ms ?? row?.started_at_ms ?? null,
-        resultSummary: row?.result_summary ?? null,
+        resultSummary: row?.result_summary ?? row?.reason ?? null,
         outcome: row?.outcome ?? null,
       });
       const routes = new Set([...outcomes(definition), ...Object.keys(definition.routes ?? {})]);
@@ -92,8 +114,8 @@ export function* buildBlueprintGraph(pipeline: PipelineView, expanded: Blueprint
         yield* graph(call.graph, call.children, childPath);
       }
     }
-    if (edges.some((edge) => edge.to === blueprintNodeKey(path, "$stop"))) nodes.push({ ...baseNode(blueprintNodeKey(path, "$stop"), "Stop", "result") });
-    nodes.push({ ...baseNode(resultKey, "Result", "result"), summary: document.result?.from ?? "", targetSummary: typeof document.result?.to === "string" ? document.result.to : null });
+    if (edges.some((edge) => edge.to === blueprintNodeKey(path, "$stop"))) nodes.push(controlNode(path, "$stop", "Stop", "result", journal.get(blueprintNodeKey(path, "$stop"))));
+    nodes.push({ ...controlNode(path, "$result", "Result", "result", journal.get(resultKey)), summary: document.result?.from ?? "", targetSummary: typeof document.result?.to === "string" ? document.result.to : null });
     yield;
   }
   yield* graph(pipeline.call_graph, pipeline.expanded_calls ?? [], []);

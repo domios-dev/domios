@@ -218,6 +218,7 @@ export interface BlueprintSnapshot extends BlueprintProjection {
   note?: string | null;
   stopped_at?: number | null;
   deletes_at?: number | null;
+  held_reason?: string | null;
   runs?: readonly BlueprintRunSnapshot[];
   id: string;
   name: string;
