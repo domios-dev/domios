@@ -4,6 +4,15 @@ use std::time::Duration;
 
 #[test]
 fn blueprint_v2_call_durable_emit_loser_parks_without_receipt_io_and_winner_wakes_next_result() {
+    settlement_race(false);
+}
+
+#[test]
+fn blueprint_v2_call_durable_failed_emit_winner_wakes_parked_loser_and_drains_next_result() {
+    settlement_race(true);
+}
+
+fn settlement_race(winner_fails: bool) {
     let (fixture, tab, id, _) = held();
     let writes = fixture.record_agent_deliveries(&tab);
     let owner = fixture
@@ -31,13 +40,22 @@ fn blueprint_v2_call_durable_emit_loser_parks_without_receipt_io_and_winner_wake
     let (release_tx, release_rx) = mpsc::channel();
     let release_rx = parking_lot::Mutex::new(release_rx);
     let expected_id = id.clone();
-    fixture.ui.listen("agent-delivery-status", move |event| {
-        if event["delivery_id"] == expected_id && event["status"] == "failed" {
+    let first = std::sync::atomic::AtomicBool::new(true);
+    let event_kind = if winner_fails {
+        "notification-created"
+    } else {
+        "agent-delivery-status"
+    };
+    fixture.ui.listen(event_kind, move |event| {
+        let matches =
+            winner_fails || (event["delivery_id"] == expected_id && event["status"] == "failed");
+        if matches && first.swap(false, std::sync::atomic::Ordering::SeqCst) {
             entered_tx.send(()).unwrap();
             release_rx
                 .lock()
                 .recv_timeout(Duration::from_secs(5))
                 .unwrap();
+            assert!(!winner_fails, "injected winning emitter failure");
         }
     });
     let service = fixture.service.clone();
@@ -86,7 +104,12 @@ fn blueprint_v2_call_durable_emit_loser_parks_without_receipt_io_and_winner_wake
     assert!(writes.texts.lock().is_empty());
     assert_eq!(std::fs::read(&receipt).unwrap(), bytes);
     release_tx.send(()).unwrap();
-    assert_eq!(winner.join().unwrap().unwrap(), SettlementOutcome::Settled);
+    let result = winner.join().unwrap();
+    if winner_fails {
+        assert!(result.unwrap_err().contains("notifier panicked"));
+    } else {
+        assert_eq!(result.unwrap(), SettlementOutcome::Settled);
+    }
     writes.wait_for_flush();
     assert_eq!(
         writes.texts.lock().as_slice(),
@@ -112,6 +135,8 @@ fn blueprint_v2_call_durable_notifier_panic_releases_emit_claim_and_recovers_wit
     let (fixture, tab, id, _) = held();
     let writes = fixture.record_agent_deliveries(&tab);
     let owner = &fixture.service.pending_delivery_payloads.agent_deliveries;
+    owner.state_changed(&tab);
+    assert!(owner.start_worker(&tab));
     let record = owner.pending_head(&tab).unwrap().unwrap();
     let payload: AgentDeliveryPayload =
         serde_json::from_str(&owner.payload(&tab, &record).unwrap()).unwrap();
@@ -133,6 +158,7 @@ fn blueprint_v2_call_durable_notifier_panic_releases_emit_claim_and_recovers_wit
         .any(|(kind, event)| kind == "agent-delivery-status"
             && event["delivery_id"] == id
             && event["status"] == "failed"));
+    owner.finish_worker(&tab);
     fixture.service.wake_agent_deliveries_on_state_change(&tab);
     writes.wait_for_flush();
     assert!(!fixture.has_pending_agent_delivery(&tab));
@@ -169,6 +195,8 @@ fn blueprint_v2_call_durable_notifier_panic_releases_emit_claim_and_recovers_wit
 fn blueprint_v2_call_durable_receipt_error_rolls_back_emit_claim_before_retry() {
     let (fixture, tab, _, _) = held();
     let owner = &fixture.service.pending_delivery_payloads.agent_deliveries;
+    owner.state_changed(&tab);
+    assert!(owner.start_worker(&tab));
     let record = owner.pending_head(&tab).unwrap().unwrap();
     let payload: AgentDeliveryPayload =
         serde_json::from_str(&owner.payload(&tab, &record).unwrap()).unwrap();
@@ -192,4 +220,35 @@ fn blueprint_v2_call_durable_receipt_error_rolls_back_emit_claim_before_retry() 
         Ok(SettlementOutcome::Settled)
     );
     assert!(!fixture.has_pending_agent_delivery(&tab));
+    owner.finish_worker(&tab);
+}
+
+#[test]
+fn blueprint_v2_call_durable_worker_receipt_failure_parks_despite_rollback_wake() {
+    let (fixture, tab, id, _) = held();
+    let writes = fixture.record_agent_deliveries(&tab);
+    let owner = &fixture.service.pending_delivery_payloads.agent_deliveries;
+    owner
+        .mark_terminal_failure(&tab, &id, "recipient_gone", None)
+        .unwrap();
+    let inbox = fixture
+        .service
+        .ensure_agent_pad(&tab)
+        .unwrap()
+        .path()
+        .join("inbox");
+    std::fs::write(&inbox, "injected persistent receipt directory failure").unwrap();
+    fixture.service.wake_agent_deliveries_on_state_change(&tab);
+    writes.wait_for_flush();
+    assert_eq!(owner.pending_head(&tab).unwrap().unwrap().id, id);
+    assert!(
+        !owner.start_worker(&tab),
+        "persistent emitter failure parks the worker"
+    );
+    assert!(writes.texts.lock().is_empty());
+    std::fs::remove_file(inbox).unwrap();
+    fixture.service.wake_agent_deliveries_on_state_change(&tab);
+    writes.wait_for_flush();
+    assert!(!fixture.has_pending_agent_delivery(&tab));
+    assert!(writes.texts.lock().is_empty());
 }
