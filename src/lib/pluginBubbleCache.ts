@@ -16,10 +16,10 @@ export interface PluginBubbleSubscription {
   unsubscribe: () => void;
 }
 
-type Fetcher = (pluginId: string, cwd: string | null, tabId: string) => Promise<BubbleData | null>;
+type Fetcher = (pluginId: string, cwd: string | null, tabId: string, refresh: boolean) => Promise<BubbleData | null>;
 
-function defaultFetcher(pluginId: string, cwd: string | null, tabId: string): Promise<BubbleData | null> {
-  return invoke<BubbleData | null>("plugin_bubble", { pluginId, ctx: { cwd, tabId } });
+function defaultFetcher(pluginId: string, cwd: string | null, tabId: string, refresh: boolean): Promise<BubbleData | null> {
+  return invoke<BubbleData | null>("plugin_bubble", { pluginId, ctx: { cwd, tabId, refresh } });
 }
 
 let fetcher: Fetcher = defaultFetcher;
@@ -42,6 +42,7 @@ interface Entry {
   value: BubbleData | null | undefined;
   inFlight: Promise<void> | null;
   pendingRefresh: boolean;
+  pendingInvalidation: boolean;
   subscribers: Map<string, Subscriber>;
 }
 
@@ -91,7 +92,7 @@ function getOrCreateEntry(pluginId: string, key: string | null): Entry {
   }
   let entry = byKey.get(key);
   if (!entry) {
-    entry = { pluginId, key, value: undefined, inFlight: null, pendingRefresh: false, subscribers: new Map() };
+    entry = { pluginId, key, value: undefined, inFlight: null, pendingRefresh: false, pendingInvalidation: false, subscribers: new Map() };
     byKey.set(key, entry);
   }
   return entry;
@@ -120,12 +121,15 @@ function pickTabId(entry: Entry): string {
   return "";
 }
 
-function computeNow(entry: Entry, invalidated = false): Promise<void> {
+function computeNow(entry: Entry, invalidated = false, updated = false): Promise<void> {
   if (entry.inFlight) {
-    entry.pendingRefresh ||= invalidated;
+    entry.pendingRefresh ||= invalidated || updated;
+    entry.pendingInvalidation ||= invalidated;
     return entry.inFlight;
   }
-  entry.inFlight = fetcher(entry.pluginId, entry.key, pickTabId(entry))
+  invalidated ||= entry.pendingInvalidation || entry.value === undefined;
+  entry.pendingInvalidation = false;
+  entry.inFlight = fetcher(entry.pluginId, entry.key, pickTabId(entry), invalidated)
     .then((value) => {
       entry.value = value;
       notify(entry);
@@ -134,8 +138,12 @@ function computeNow(entry: Entry, invalidated = false): Promise<void> {
     .finally(() => {
       entry.inFlight = null;
       const shouldRefresh = entry.pendingRefresh && activeCount(entry) > 0;
+      const pendingInvalidation = entry.pendingInvalidation;
       entry.pendingRefresh = false;
-      if (shouldRefresh) return computeNow(entry);
+      if (shouldRefresh) {
+        entry.pendingInvalidation = false;
+        return computeNow(entry, pendingInvalidation);
+      }
     });
   return entry.inFlight;
 }
@@ -178,8 +186,9 @@ export function subscribePluginBubble(
 export function invalidatePluginBubble(pluginId: string, cwd: string | null | undefined): void {
   if (cwd === undefined) return;
   const entry = cache.get(pluginId)?.get(keyFor(cwd));
-  if (!entry || activeCount(entry) === 0) return;
-  void computeNow(entry, true);
+  if (!entry) return;
+  entry.pendingInvalidation = true;
+  if (activeCount(entry) > 0) void computeNow(entry, true);
 }
 
 /** The single action a repository-changed event takes: one computation per
@@ -187,7 +196,16 @@ export function invalidatePluginBubble(pluginId: string, cwd: string | null | un
 export function invalidatePluginBubblesForRepo(identity: string): void {
   for (const byKey of cache.values()) {
     const entry = byKey.get(identity);
-    if (entry && activeCount(entry) > 0) void computeNow(entry, true);
+    if (entry) {
+      entry.pendingInvalidation = true;
+      if (activeCount(entry) > 0) void computeNow(entry, true);
+    }
+  }
+}
+
+export function refreshPluginBubble(pluginId: string): void {
+  for (const entry of cache.get(pluginId)?.values() ?? []) {
+    if (activeCount(entry) > 0) void computeNow(entry, false, true);
   }
 }
 

@@ -247,8 +247,8 @@ test("a hidden tab performs zero status-bubble provider calls", async () => {
   await drain(fx.act);
   assert(fx.calls === 0, `hidden tab must never compute, got ${fx.calls} call(s)`);
   assert(
-    fx.watch.state.subscribeCalls === 0,
-    `hidden tab must not lease a watch, got ${fx.watch.state.subscribeCalls}`,
+    fx.watch.state.subscribeCalls === 1,
+    `hidden mounted tab keeps its cache watched, got ${fx.watch.state.subscribeCalls}`,
   );
 
   await fx.act(async () => fx.root.unmount());
@@ -270,7 +270,7 @@ test("becoming visible subscribes exactly once", async () => {
   const fx = await setupFixture();
   await render(fx, { cwd: "/repo", tabId: "tab-1", isActive: false });
   await drain(fx.act);
-  assertEqual(fx.watch.state.subscribeCalls, 0, "hidden must not subscribe");
+  assertEqual(fx.watch.state.subscribeCalls, 1, "mounted repository is watched while hidden");
 
   await render(fx, { cwd: "/repo", tabId: "tab-1", isActive: true });
   await waitUntil(() => fx.watch.state.active.size >= 1, fx.act);
@@ -284,19 +284,18 @@ test("becoming visible subscribes exactly once", async () => {
   fx.teardown();
 });
 
-test("hiding unsubscribes exactly once", async () => {
+test("hiding retains the watch until unmount", async () => {
   const fx = await setupFixture();
   await render(fx, { cwd: "/repo", tabId: "tab-1", isActive: true });
   await waitUntil(() => fx.watch.state.active.size >= 1, fx.act);
 
   await render(fx, { cwd: "/repo", tabId: "tab-1", isActive: false });
-  await waitUntil(() => fx.watch.state.unsubscribeCalls >= 1, fx.act);
   await drain(fx.act);
   assert(
-    fx.watch.state.unsubscribeCalls === 1,
-    `hiding unsubscribes once, got ${fx.watch.state.unsubscribeCalls}`,
+    fx.watch.state.unsubscribeCalls === 0,
+    `hiding retains the watch, got ${fx.watch.state.unsubscribeCalls}`,
   );
-  assert(fx.watch.state.active.size === 0, "hiding leaves no refcount");
+  assert(fx.watch.state.active.size === 1, "hidden cached repository remains watched");
 
   await fx.act(async () => fx.root.unmount());
   fx.teardown();
@@ -307,15 +306,14 @@ test("a visible-hidden-visible cycle leaves a net refcount of exactly one", asyn
   await render(fx, { cwd: "/repo", tabId: "tab-1", isActive: true });
   await waitUntil(() => fx.watch.state.active.size >= 1, fx.act);
   await render(fx, { cwd: "/repo", tabId: "tab-1", isActive: false });
-  await waitUntil(() => fx.watch.state.active.size === 0, fx.act);
   await render(fx, { cwd: "/repo", tabId: "tab-1", isActive: true });
   await waitUntil(() => fx.watch.state.active.size >= 1, fx.act);
   await drain(fx.act);
 
-  assert(fx.watch.state.subscribeCalls === 2, `two subscribes, got ${fx.watch.state.subscribeCalls}`);
+  assert(fx.watch.state.subscribeCalls === 1, `one subscription across tab switches, got ${fx.watch.state.subscribeCalls}`);
   assert(
-    fx.watch.state.unsubscribeCalls === 1,
-    `one unsubscribe, got ${fx.watch.state.unsubscribeCalls}`,
+    fx.watch.state.unsubscribeCalls === 0,
+    `zero unsubscriptions across tab switches, got ${fx.watch.state.unsubscribeCalls}`,
   );
   assert(fx.watch.state.active.size === 1, `net refcount 1, got ${fx.watch.state.active.size}`);
 
@@ -568,7 +566,7 @@ test("an unresolved subscribe never renders as live", async () => {
   fx.teardown();
 });
 
-test("a hidden tab never renders as live either", async () => {
+test("a hidden mounted tab keeps its repository watch live", async () => {
   const fx = await setupFixture();
   await render(fx, { cwd: "/repo", tabId: "tab-1", isActive: true });
   await waitUntil(() => fx.watch.state.active.size >= 1, fx.act);
@@ -577,8 +575,8 @@ test("a hidden tab never renders as live either", async () => {
 
   const pill = fx.host.querySelector(`[data-testid="plugin-bubble-${fx.pluginId}"]`);
   assert(
-    pill?.getAttribute("data-watch-state") === "idle",
-    `a tab holding no watch must not read as live, got ${pill?.getAttribute("data-watch-state")}`,
+    pill?.getAttribute("data-watch-state") === "live",
+    `a mounted hidden tab keeps a proven watch, got ${pill?.getAttribute("data-watch-state")}`,
   );
 
   await fx.act(async () => fx.root.unmount());
@@ -602,8 +600,8 @@ test("an event-stream failure surfaces and never leaves a lease claiming live", 
     `the discriminant is named, got ${pill?.getAttribute("title")}`,
   );
 
-  // Hiding releases everything, and a fresh lifecycle opens a new stream.
-  await render(fx, { cwd: "/repo", tabId: "tab-1", isActive: false });
+  // Releasing the repository lease allows an explicit new lifecycle to recover.
+  await render(fx, { cwd: null, tabId: "tab-1", isActive: false });
   await drain(fx.act);
   let debug = fx.repoWatch.__repoWatchDebugForTest();
   assert(debug.leases === 0, `no lease retained, got ${debug.leases}`);
