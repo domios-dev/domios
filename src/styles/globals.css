@@ -187,6 +187,7 @@ body {
   .ct-btn-accent,
   .ct-btn-ghost,
   .ct-btn-primary,
+  .ct-btn-outline,
   .ct-btn-danger {
     min-height: var(--ct-control-height-small);
     /* Restore the horizontal breathing room the height-shrink left out — plain/compact/ghost buttons have no side padding of their own. */
@@ -797,6 +798,17 @@ button {
 .ct-btn-primary .ct-busy-ring {
   border-color: color-mix(in srgb, currentColor 30%, transparent);
   border-top-color: currentColor;
+}
+
+.ct-btn-outline {
+  background: transparent;
+  color: var(--ct-fg);
+  border: 1px solid var(--ct-accent);
+  font-weight: 600;
+}
+
+.ct-btn-outline:hover {
+  background: color-mix(in srgb, var(--ct-accent) 14%, transparent);
 }
 
 .ct-btn-ghost {

@@ -15,7 +15,7 @@ import type { ToastInput } from "../../lib/notices";
 import { connectNoticeToasts } from "../../lib/notices";
 import { FreeLimitPlansModal } from "./FreeLimitPlansModal";
 import { checkoutTheme } from "./checkoutTheme";
-import { freeLimitGate, upgradePlan } from "./freeLimitGate";
+import { AlreadySubscribedError, freeLimitGate, upgradePlan } from "./freeLimitGate";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -105,13 +105,52 @@ describe("plans modal", () => {
     ]);
   });
 
-  it("Upgrade checks out pro_monthly and closes", async () => {
+  it("Upgrade checks out pro_yearly and closes", async () => {
     const upgrade = vi.fn(async () => {});
     await render(upgrade);
     await openModal("agent.tabs");
     await click("Upgrade");
-    expect(upgrade).toHaveBeenCalledWith("pro_monthly");
+    expect(upgrade).toHaveBeenCalledWith("pro_yearly");
     expect(dialog()).toBeNull();
+  });
+
+  it("switching to monthly makes Upgrade check out the monthly Pro price", async () => {
+    const upgrade = vi.fn(async () => {});
+    await render(upgrade);
+    await openModal("agent.tabs");
+    await act(async () => dialog()!.querySelector<HTMLElement>("[aria-label='Billed yearly']")!.click());
+    await click("Upgrade");
+    expect(upgrade).toHaveBeenCalledExactlyOnceWith("pro_monthly");
+  });
+
+  it("a Pro subscriber gets Manage subscription instead of any checkout", async () => {
+    account.plan = "pro_yearly";
+    const upgrade = vi.fn(async () => {});
+    await render(upgrade);
+    await openModal("teams");
+    expect([...dialog()!.querySelectorAll("button")].map((candidate) => candidate.textContent)).not.toContain("Upgrade");
+    expect(button("Choose Sponsor")).toBeUndefined();
+    await click("Manage subscription");
+    expect(upgrade).not.toHaveBeenCalled();
+  });
+
+  it("a checkout refused as already subscribed switches to Manage subscription without an error toast", async () => {
+    const upgrade = vi.fn(async () => { throw new AlreadySubscribedError(); });
+    await render(upgrade);
+    await openModal("teams");
+    await click("Choose Sponsor");
+    expect(upgrade).toHaveBeenCalledExactlyOnceWith("sponsor_yearly");
+    expect(toasts).toHaveLength(0);
+    expect(button("Choose Pro")).toBeUndefined();
+    expect([...dialog()!.querySelectorAll("button")].filter((candidate) => candidate.textContent === "Manage subscription")).toHaveLength(2);
+    expect([...dialog()!.querySelectorAll("button")].map((candidate) => candidate.textContent)).not.toContain("Upgrade");
+  });
+
+  it("upgradePlan reports only an exact already_subscribed conflict as such", async () => {
+    fetches.localFetch.mockResolvedValueOnce(new Response("already_subscribed", { status: 409 }));
+    await expect(upgradePlan("pro_yearly")).rejects.toBeInstanceOf(AlreadySubscribedError);
+    fetches.localFetch.mockResolvedValueOnce(new Response("already_subscribed", { status: 503 }));
+    await expect(upgradePlan("pro_yearly")).rejects.not.toBeInstanceOf(AlreadySubscribedError);
   });
 
   it("a chosen card checks out its own key", async () => {
@@ -150,7 +189,7 @@ describe("plans modal", () => {
     expect(upgrade).not.toHaveBeenCalled();
     await act(async () => account.login!("ok"));
     await settle();
-    expect(upgrade).toHaveBeenCalledExactlyOnceWith("pro_monthly");
+    expect(upgrade).toHaveBeenCalledExactlyOnceWith("pro_yearly");
     expect(dialog()).toBeNull();
   });
 
@@ -220,7 +259,7 @@ describe("plans modal", () => {
     await upgradePlan();
     const [path, init] = fetches.localFetch.mock.calls[0];
     expect(path).toBe("/api/account/upgrade");
-    expect(JSON.parse(init.body)).toEqual({ plan: "pro_monthly", theme: "light" });
+    expect(JSON.parse(init.body)).toEqual({ plan: "pro_yearly", theme: "light" });
     document.documentElement.dataset.ctTheme = "dark";
     fetches.localFetch.mockResolvedValueOnce(new Response("refused", { status: 400 }));
     await expect(upgradePlan("sponsor_yearly")).rejects.toThrow("refused");

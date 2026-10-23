@@ -27,10 +27,11 @@ it("opens each legal document in the system browser", async () => {
   expect(openUrl.mock.calls).toEqual([[siteLinks.terms],[siteLinks.privacy],[siteLinks.license]]);
 });
 
-it("links the terms and privacy policy from the subscription notice", async () => {
+it("links the refund policy, terms and privacy policy from the subscription notice", async () => {
   const links = await clickLinks(<SubscriptionTermsNotice />);
-  expect(links).toEqual([{name:"Terms",href:siteLinks.terms},{name:"Privacy",href:siteLinks.privacy}]);
-  expect(openUrl.mock.calls).toEqual([[siteLinks.terms],[siteLinks.privacy]]);
+  const refunds = `${siteLinks.terms}#refunds`;
+  expect(links).toEqual([{name:"14-day money-back guarantee",href:refunds},{name:"Terms",href:siteLinks.terms},{name:"Privacy",href:siteLinks.privacy}]);
+  expect(openUrl.mock.calls).toEqual([[refunds],[siteLinks.terms],[siteLinks.privacy]]);
 });
 
 it("builds menu items that open the requested documents", () => {

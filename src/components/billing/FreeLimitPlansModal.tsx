@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Check } from "lucide-react";
 import { publishNotice } from "../../lib/notices";
 import { useAccount } from "../Settings/useAccount";
@@ -8,9 +8,10 @@ import { FormDialog } from "../shared/FormDialog";
 import { PlanCards } from "./PlanCards";
 import { freeLimitGate, upgradePlan, UPGRADE_PLAN_KEY, useFreeLimitPrompt } from "./freeLimitGate";
 import { limitHeadline, meshMachinesDetail, type FreeLimitKey } from "./freeLimitModel";
-import { offerIdForPlan, type PlanCatalog } from "./planCatalog";
+import { offerIdForPlan, upgradePlanKey, type BillingInterval, type PlanCatalog } from "./planCatalog";
 import { usePlanCatalog } from "./planCatalogContext";
-import { displayedPlan } from "./purchaseIntent";
+import { displayedPlan, subscribedPlan } from "./purchaseIntent";
+import { billingFailureToast } from "../Settings/accountFailureToast";
 import { usePurchaseIntent } from "./usePurchaseIntent";
 
 function PlansModal({ limit, max, detail, onClose, onUpgrade, catalog }: {
@@ -29,15 +30,23 @@ function PlansModal({ limit, max, detail, onClose, onUpgrade, catalog }: {
   const billing = useAccountPlan(identity?.uid ?? null);
   const contextCatalog = usePlanCatalog();
   const offers = catalog ?? contextCatalog;
+  const [refusedAsSubscribed, setRefusedAsSubscribed] = useState(false);
   const purchase = usePurchaseIntent({
     account,
     billing: { plan: billing.plan, planLoad: billing.planLoad, upgrade: (planKey) => onUpgrade(planKey).then(() => null, (failure: unknown) => failure ?? new Error("Checkout did not start")) },
     catalog: offers,
     notify: publishNotice,
     onCheckoutOpened: onClose,
+    onAlreadySubscribed: () => setRefusedAsSubscribed(true),
   });
   const { intent } = purchase;
   const blocked = purchase.busy || (signedIn && billing.planLoad === "loading");
+  const [interval, setInterval] = useState<BillingInterval>("year");
+  const subscribed = subscribedPlan(billing.plan, refusedAsSubscribed);
+  const manage = async () => {
+    const failure = await billing.manage(() => {});
+    if (failure) publishNotice(billingFailureToast(failure, "managing your subscription", billing.plan?.status, () => manage()));
+  };
   const done = useRef<HTMLButtonElement>(null);
   useEffect(() => { if (intent.kind === "owned") done.current?.focus(); }, [intent.kind]);
   if (intent.kind === "owned") {
@@ -60,18 +69,18 @@ function PlansModal({ limit, max, detail, onClose, onUpgrade, catalog }: {
     );
   }
   return (
-    <FormDialog titleId={titleId} descriptionId={descriptionId} className="max-w-3xl" onCancel={onClose}
-      onSubmit={(event) => { event.preventDefault(); if (!blocked) purchase.choose(UPGRADE_PLAN_KEY); }}>
+    <FormDialog titleId={titleId} descriptionId={detail ? descriptionId : undefined} className="max-w-3xl" onCancel={onClose}
+      onSubmit={(event) => { event.preventDefault(); if (!blocked && !subscribed) purchase.choose(upgradePlanKey(offers, interval) ?? UPGRADE_PLAN_KEY); }}>
       <h2 id={titleId} className="m-0 text-base font-semibold">{limitHeadline(limit, max)}</h2>
-      <p id={descriptionId} className="m-0 text-xs text-[var(--ct-muted-fg)]">
-        {detail && <>{detail} </>}Upgrade to remove this limit. Everything you already have stays as it is.
-      </p>
-      <PlanCards viewRequested catalog={offers} currentPlan={displayedPlan(billing.plan)} canPurchase={!blocked} initialInterval="month"
+      {detail && <p id={descriptionId} className="m-0 text-xs text-[var(--ct-muted-fg)]">{detail}</p>}
+      <PlanCards viewRequested catalog={offers} currentPlan={displayedPlan(billing.plan)} canPurchase={!blocked}
+        interval={interval} onIntervalChange={setInterval}
+        subscribedPlan={subscribed} onManage={() => void manage()} manageBusy={billing.pending}
         onChoose={purchase.choose} intent={intent} onCancel={purchase.cancel}
         signedInAs={identity ? identity.email ?? identity.display_name : null} />
       <div className="flex justify-end gap-2">
         <Button size="sm" onClick={onClose}>Not now</Button>
-        <Button size="sm" variant="primary" type="submit" loading={intent.kind === "opening"} disabled={blocked}>Upgrade</Button>
+        {!subscribed && <Button size="sm" variant="primary" type="submit" loading={intent.kind === "opening"} disabled={blocked}>Upgrade</Button>}
       </div>
     </FormDialog>
   );

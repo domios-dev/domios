@@ -72,3 +72,25 @@ fn dev_issuer_is_loopback_http_in_debug_only() {
         assert!(!dev_issuer(&url(refused)));
     }
 }
+
+#[test]
+fn only_an_already_subscribed_refusal_keeps_its_reason() {
+    let refusal = |reason: serde_json::Value| {
+        refusal_message(
+            &serde_json::json!({"error": {"status": "FAILED_PRECONDITION", "message": "opaque", "details": reason}}),
+        )
+    };
+    assert_eq!(
+        refusal(serde_json::json!({"reason": "already_subscribed"})),
+        crate::ALREADY_SUBSCRIBED
+    );
+    assert_eq!(
+        refusal(serde_json::json!({"reason": "something_else"})),
+        "Billing request refused"
+    );
+    assert_eq!(refusal(serde_json::Value::Null), "Billing request refused");
+    assert_eq!(
+        refusal_message(&serde_json::Value::Null),
+        "Billing request refused"
+    );
+}
