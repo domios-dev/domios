@@ -189,3 +189,20 @@ fn live_resumed_launch_retains_queued_delivery_until_exact_binding() {
         &delivery_binding(&tab).unwrap()
     ));
 }
+
+#[test]
+fn pty_starting_never_pins_stale_pty_after_boot_flag_clears() {
+    let mut tab = launching_tab();
+    tab.agent_booting = false;
+    tab.boot_stage = Some(BootStage::PtyStarting);
+    let payload = pinned(&tab);
+    assert!(payload.expected_pty_id.is_none());
+    assert_eq!(
+        payload.expected_binding_nonce.as_deref(),
+        Some("launch-nonce")
+    );
+    assert!(queued_delivery_target(&tab, &payload).is_err());
+    tab.pty_id = Some("new-pty".into());
+    tab.boot_stage = Some(BootStage::AgentReady);
+    assert_eq!(queued_delivery_target(&tab, &payload).unwrap().0, "new-pty");
+}

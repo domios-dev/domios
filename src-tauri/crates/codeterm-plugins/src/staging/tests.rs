@@ -85,8 +85,8 @@ fn open_child_refuses_directory_swap_but_leaves_no_staging() {
         .unwrap();
     let error = crate::install_from_dir(&source, "fixture", None).unwrap_err();
     assert!(error.contains("move previous plugin aside"), "{error}");
-    assert!(!destination.with_extension("tmp-install").exists());
-    assert!(!destination.with_extension("rollback.tmp-install").exists());
+    assert!(!path_for(&destination, "tmp-install").exists());
+    assert!(!path_for(&destination, "rollback.tmp-install").exists());
     assert_eq!(
         crate::manifest_version(&destination).unwrap().as_deref(),
         Some("1.0.0")
@@ -98,4 +98,74 @@ fn open_child_refuses_directory_swap_but_leaves_no_staging() {
         Some("2.0.0")
     );
     assert_eq!(std::fs::read_dir(crate::plugins_root()).unwrap().count(), 1);
+}
+
+#[test]
+fn dotted_plugin_staging_and_sweep_preserve_sibling_identity() {
+    let root = tempfile::tempdir().unwrap();
+    for id in ["acme", "acme.tools", "acme.other"] {
+        let destination = root.path().join(id);
+        let backup = path_for(&destination, "rollback.tmp-install");
+        let staging = path_for(&destination, "tmp-install");
+        assert_eq!(
+            backup.file_name().unwrap(),
+            format!("{id}.rollback.tmp-install").as_str()
+        );
+        assert_eq!(
+            staging.file_name().unwrap(),
+            format!("{id}.tmp-install").as_str()
+        );
+        std::fs::create_dir(&backup).unwrap();
+        std::fs::write(backup.join("identity"), id).unwrap();
+        std::fs::create_dir(staging).unwrap();
+    }
+    cleanup_stale(root.path()).unwrap();
+    for id in ["acme", "acme.tools", "acme.other"] {
+        assert_eq!(
+            std::fs::read_to_string(root.path().join(id).join("identity")).unwrap(),
+            id
+        );
+    }
+    assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 3);
+}
+
+#[test]
+fn dotted_install_preserves_sibling_staging_and_list_state() {
+    let root = tempfile::tempdir().unwrap();
+    let _context = crate::enter_ctx(crate::PluginCtx {
+        data_root: root.path().into(),
+        version: None,
+    });
+    let source = root.path().join("source");
+    std::fs::create_dir(&source).unwrap();
+    std::fs::write(
+        source.join("plugin.json"),
+        r#"{"id":"acme.tools","version":"2.0.0"}"#,
+    )
+    .unwrap();
+    let sibling = crate::plugins_root().join("acme.other.tmp-install");
+    std::fs::create_dir_all(&sibling).unwrap();
+    std::fs::write(sibling.join("identity"), "sibling").unwrap();
+    crate::install_from_dir(&source, "acme.tools", None).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(sibling.join("identity")).unwrap(),
+        "sibling"
+    );
+    let staging = crate::plugins_root().join("acme.tools.tmp-install");
+    std::fs::create_dir(&staging).unwrap();
+    let listed = crate::list::list_installed().unwrap();
+    let row = listed["plugins"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["id"] == "acme.tools")
+        .unwrap();
+    assert_eq!(row["state"], "mid-install");
+    cleanup_stale(&crate::plugins_root()).unwrap();
+    assert_eq!(
+        crate::manifest_version(&crate::plugins_root().join("acme.tools"))
+            .unwrap()
+            .as_deref(),
+        Some("2.0.0")
+    );
 }

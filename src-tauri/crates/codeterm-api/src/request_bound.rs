@@ -24,6 +24,18 @@ pub(crate) async fn bounded<T>(
         .map_err(|error| unavailable("plugin_unavailable", error))
 }
 
+pub(crate) async fn blocking<T: Send + 'static>(
+    key: String,
+    work: impl FnOnce(RequestSlot) -> Result<T, String> + Send + 'static,
+) -> Result<T, RequestError> {
+    let slot = RequestSlot::acquire(key)?;
+    let worker = tokio::task::spawn_blocking(move || work(slot));
+    bounded(PLUGIN_DEADLINE, async {
+        worker.await.map_err(|error| error.to_string())?
+    })
+    .await
+}
+
 static ACTIVE: Mutex<Option<HashSet<String>>> = Mutex::new(None);
 
 pub(crate) struct RequestSlot(String);

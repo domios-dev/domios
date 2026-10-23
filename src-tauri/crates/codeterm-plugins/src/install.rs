@@ -320,7 +320,7 @@ pub(super) fn install_from_dir(
     }
     let dest = plugin_dir(&parsed_id);
     ensure_plugin_path_inside(&dest)?;
-    let tmp = dest.with_extension("tmp-install");
+    let tmp = super::staging::path_for(&dest, "tmp-install");
     ensure_plugin_path_inside(&tmp)?;
     if tmp.exists() {
         fs::remove_dir_all(&tmp).map_err(|e| format!("clear {}: {e}", tmp.display()))?;
