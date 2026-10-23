@@ -3,6 +3,9 @@ use crate::cron::clock::{Clock, SystemClock};
 use std::sync::mpsc;
 use std::time::Duration;
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod platform;
+
 #[test]
 fn blueprint_v2_call_durable_review_native_wall_deadline_fires_once_at_an_expired_absolute_time() {
     let (tx, rx) = mpsc::channel();
