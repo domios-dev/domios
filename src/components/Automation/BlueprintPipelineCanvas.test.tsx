@@ -8,6 +8,12 @@ import { BlueprintProjectList } from "../Jobs/BlueprintProjectList";
 import { document as source } from "./blueprintViewer.testdata";
 
 async function main() {
+  const nativeMessageChannel = globalThis.MessageChannel;
+  class TestMessageChannel {
+    port1 = { onmessage: null as (() => void) | null, close() {} };
+    port2 = { postMessage: () => queueMicrotask(() => this.port1.onmessage?.()), close() {} };
+  }
+  Object.defineProperty(globalThis, "MessageChannel", { configurable: true, value: TestMessageChannel });
   const window = new Window({ url: "http://localhost" });
   for (const key of ["window", "document", "HTMLElement", "Element", "Node", "navigator", "Event", "MutationObserver"]) Object.defineProperty(globalThis, key, { configurable: true, value: (window as unknown as Record<string, unknown>)[key] });
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -51,6 +57,13 @@ async function main() {
     assert(!host.querySelector('[aria-label="Recorded stop"]'));
     await act(async () => button("Stop selected run").click());
     assert.equal(stopped, 1);
+    const unavailable = viewerPipeline();
+    unavailable.runs = unavailable.runs?.map((run) => ({ ...run, pipeline: { ...run.pipeline, historical_graph_available: false, call_graph: undefined, expanded_calls: [] } }));
+    await act(async () => root.render(<BlueprintPipelineCanvas pipeline={unavailable} initialRunId="past" />));
+    await act(async () => button("Run past").click());
+    assert(host.querySelector('[aria-label="Historical graph unavailable"]'));
+    assert(host.querySelector('[aria-label="Selected run journal"]'));
+    assert(!host.querySelector('[aria-label="Node invoke"]'));
     const calls: string[] = [];
     await act(async () => root.render(<BlueprintProjectList workspaceId="workspace" api={{ list: async (workspace) => { calls.push(workspace); return [{ path: ".domios/blueprints/viewer-fixture.yaml", name: source.name, intent: source.intent ?? null, error: null }, { path: ".domios/blueprints/bad.yaml", name: null, intent: null, error: "mismatch" }]; }, show: async (_, path) => { calls.push(path); return { path, document: source }; } }} />));
     assert.equal(calls.length, 0);
@@ -64,15 +77,15 @@ async function main() {
       call_graph: { ...source, steps: Array.from({ length: 24 }, (_, index) => ({ ...source.steps[2], id: `call-${index}`, routes: { done: "@next", failed: "@stop" } })) },
       expanded_calls: Array.from({ length: 24 }, (_, index) => ({ ...call, node: `call-${index}` })),
     };
-    let maxCommit = 0, inputLatency = -1, scrollLatency = -1, sentAt = 0;
-    await act(async () => root.render(<Profiler id="large-viewer" onRender={(_, __, duration) => { maxCommit = Math.max(maxCommit, duration); }}><input aria-label="Responsiveness probe" onInput={() => { inputLatency = performance.now() - sentAt; }} /><div aria-label="Scroll probe" onScroll={() => { scrollLatency = performance.now() - sentAt; }}><BlueprintPipelineCanvas pipeline={large} /></div></Profiler>));
+    let maxRender = 0, inputLatency = -1, scrollLatency = -1, sentAt = 0;
+    await act(async () => root.render(<Profiler id="large-viewer" onRender={(_, __, duration) => { maxRender = Math.max(maxRender, duration); }}><input aria-label="Responsiveness probe" onInput={() => { inputLatency = performance.now() - sentAt; }} /><div aria-label="Scroll probe" onScroll={() => { scrollLatency = performance.now() - sentAt; }}><BlueprintPipelineCanvas pipeline={large} /></div></Profiler>));
     await act(async () => { sentAt = performance.now(); host.querySelector<HTMLInputElement>('[aria-label="Responsiveness probe"]')!.dispatchEvent(new Event("input", { bubbles: true })); sentAt = performance.now(); host.querySelector('[aria-label="Scroll probe"]')!.dispatchEvent(new Event("scroll")); });
     assert(inputLatency >= 0 && scrollLatency >= 0);
     await waitForNode("Node call-23");
     await act(async () => button("Node call-0").click());
     await act(async () => button("Expand callee").click());
     await waitForNode("Node return-count in call-0");
-    console.log(`BlueprintPipelineCanvas: accessible interactions passed; 24 root calls + expanded callee; headless maxReactCommit=${maxCommit.toFixed(3)}ms inputDispatch=${inputLatency.toFixed(3)}ms scrollDispatch=${scrollLatency.toFixed(3)}ms`);
-  } finally { await act(async () => root.unmount()); host.remove(); await window.happyDOM.close(); }
+    console.log(`BlueprintPipelineCanvas: accessible interactions passed; 24 root calls + expanded callee; headless maxReactRender=${maxRender.toFixed(3)}ms inputDispatch=${inputLatency.toFixed(3)}ms scrollDispatch=${scrollLatency.toFixed(3)}ms`);
+  } finally { await act(async () => root.unmount()); host.remove(); await window.happyDOM.close(); Object.defineProperty(globalThis, "MessageChannel", { configurable: true, value: nativeMessageChannel }); }
 }
 void main().catch((error: unknown) => { console.error(error); process.exitCode = 1; });

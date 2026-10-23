@@ -20,10 +20,14 @@ function outcomes(node: BlueprintIrNode): readonly string[] {
 }
 
 export function* buildBlueprintGraph(pipeline: PipelineView, expanded: BlueprintExpansion): Generator<void, BlueprintGraphModel> {
+  if (pipeline.historical_graph_available === false) return { nodes: [], edges: [] };
   if (!pipeline.call_graph) return { nodes: pipeline.nodes, edges: pipeline.edges };
   const nodes: PipelineViewNode[] = [];
   const edges: PipelineViewEdge[] = [];
-  const rows = pipeline.nested_run && pipeline.nested_run.id === pipeline.runId ? pipeline.nested_run.nodes : [];
+  const rows = pipeline.nested_run && pipeline.nested_run.id === pipeline.runId
+    && (pipeline.graph_definition_version == null || pipeline.nested_run.definition_version === pipeline.graph_definition_version)
+    ? pipeline.nested_run.nodes.filter((row) => (row.run_id == null || row.run_id === pipeline.runId)
+      && (pipeline.graph_definition_version == null || row.definition_version === pipeline.graph_definition_version)) : [];
   const journal = new Map<string, BlueprintJournalNode>();
   const byMarker = new Map<number, BlueprintJournalNode>();
   for (const row of rows) if (row.step_index != null && !byMarker.has(row.step_index)) byMarker.set(row.step_index, row);
