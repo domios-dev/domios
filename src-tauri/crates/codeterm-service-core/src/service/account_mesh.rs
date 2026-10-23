@@ -54,9 +54,7 @@ impl AccountMeshService {
 struct AccountSessions(Arc<OnceCell<Arc<codeterm_account::Account>>>);
 fn session_refusal(error: codeterm_account::Error) -> AccountMeshRefusal {
     match error {
-        codeterm_account::Error::Credentials | codeterm_account::Error::Provider => {
-            AccountMeshRefusal::Unauthenticated
-        }
+        codeterm_account::Error::Credentials => AccountMeshRefusal::Unauthenticated,
         _ => AccountMeshRefusal::Unavailable,
     }
 }
