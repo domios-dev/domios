@@ -488,7 +488,6 @@ fn run_pipeline(
         let ended = now(handle);
         let decision = match result.state {
             "delivered" => "handler_result",
-            "unconfirmed" => "handler_unconfirmed",
             _ => "handler_failed",
         };
         let journal_state = if result.state == "delivered" {
@@ -522,9 +521,6 @@ fn run_pipeline(
                 },
             );
             return Err(JournalReason::JournalWriteFailed);
-        }
-        if result.state == "unconfirmed" {
-            return Ok(RunCompletion::held(JournalReason::UncertainResult));
         }
         if result.state != "delivered" {
             return Ok(RunCompletion::new("failed".into(), result.reason));
