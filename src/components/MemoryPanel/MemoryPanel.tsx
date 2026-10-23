@@ -3,7 +3,7 @@ import { listen } from "../../lib/bridge";
 import { memoryListControlsVisible } from "./memoryDetailModel";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { List, Network } from "lucide-react";
-import { CanvasToolbar } from "../Canvas/CanvasToolbar";
+import { CanvasToolbar } from "@codeterm/chat-ui";
 import { MemorySnapshotCanvas } from "./MemorySnapshotCanvas";
 import { MemoryListTab } from "./MemoryListTab";
 import { MemoryActivityTab } from "./MemoryActivityTab";
