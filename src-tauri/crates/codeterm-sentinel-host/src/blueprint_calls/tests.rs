@@ -339,7 +339,6 @@ fn run_fixture(
             "the original durable result is retained while held"
         );
         let body = std::fs::read_to_string(files[0].path()).unwrap();
-        assert!(body.contains("Original run: call-proof; timestamp: "));
         assert!(body.ends_with("{\"n\":8}"));
         instance.fixture.resume_recorded_agent_recipient(
             &job.creator_tab_id,
@@ -351,6 +350,7 @@ fn run_fixture(
             .fixture
             .has_pending_agent_delivery(&job.creator_tab_id));
         assert_eq!(deliveries.texts.lock().len(), 1);
+        assert!(deliveries.texts.lock()[0].starts_with("Original run: call-proof; timestamp: "));
         instance.fixture.resume_recorded_agent_recipient(
             &job.creator_tab_id,
             "call-sink-session",
@@ -414,6 +414,18 @@ fn run_fixture(
         Vec::new()
     };
     assert_eq!(delivered.len(), bodies.len(), "no pointer without a body");
+    if !restored_sink {
+        assert!(
+            delivered
+                .iter()
+                .all(|body| !body.starts_with("Original run:")),
+            "live delivery keeps the existing pointer body"
+        );
+        assert!(
+            bodies.iter().all(|body| !body.starts_with("Original run:")),
+            "live durable files keep their existing body"
+        );
+    }
     let notices = bodies
         .iter()
         .map(|body| {

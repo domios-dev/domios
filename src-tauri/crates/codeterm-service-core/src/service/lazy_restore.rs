@@ -178,6 +178,9 @@ fn wake_with(
             super::boot_stage::apply_boot_stage(tab, BootStage::SpawnFailed, Some(reason));
         }
     }
+    if result.is_err() {
+        svc.wake_agent_deliveries_on_state_change(&id);
+    }
     svc.emit_state_changed(MuxEmitCause::TabLifecycle);
     result
 }

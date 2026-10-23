@@ -8,6 +8,9 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+mod custody;
+mod wall_deadline;
+
 pub const DELIVERY_TTL_MS: u64 = 24 * 60 * 60 * 1000;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -21,9 +24,9 @@ pub struct DurableDelivery {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub(crate) struct SavedTarget {
-    tab: String,
-    provider: String,
-    session: String,
+    pub(super) tab: String,
+    pub(super) provider: String,
+    pub(super) session: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -35,28 +38,30 @@ pub(crate) struct SavedLaunch {
 
 pub(crate) struct DurableDeliveryRuntime {
     clock: SharedClock,
-    timers: Mutex<HashMap<(String, String), tokio::task::AbortHandle>>,
+    timers: Mutex<HashMap<(String, String), Option<wall_deadline::WallDeadline>>>,
+    native_deadlines: bool,
+    binding_failures: Mutex<HashMap<String, String>>,
 }
 
 impl Default for DurableDeliveryRuntime {
     fn default() -> Self {
-        Self::with_clock(system_clock())
-    }
-}
-
-impl DurableDeliveryRuntime {
-    pub(crate) fn with_clock(clock: SharedClock) -> Self {
         Self {
-            clock,
+            clock: system_clock(),
             timers: Mutex::new(HashMap::new()),
+            native_deadlines: true,
+            binding_failures: Mutex::new(HashMap::new()),
         }
     }
 }
 
-impl Drop for DurableDeliveryRuntime {
-    fn drop(&mut self) {
-        for (_, timer) in self.timers.get_mut().drain() {
-            timer.abort();
+impl DurableDeliveryRuntime {
+    #[cfg(test)]
+    pub(crate) fn with_clock(clock: SharedClock) -> Self {
+        Self {
+            clock,
+            timers: Mutex::new(HashMap::new()),
+            native_deadlines: false,
+            binding_failures: Mutex::new(HashMap::new()),
         }
     }
 }
@@ -132,6 +137,12 @@ impl ServiceContext {
         {
             return Err("durable delivery cannot adopt an existing launch authority".into());
         }
+        payload.transport = payload.transport.clone().with_body(format!(
+            "Original run: {}; timestamp: {}\n{}",
+            delivery.producer,
+            delivery.created_at_ms,
+            payload.transport.body()
+        ));
         delivery.saved_target = Some(SavedTarget {
             tab: target.into(),
             provider: tab
@@ -149,13 +160,20 @@ impl ServiceContext {
     pub(super) fn prepare_saved_delivery(
         &self,
         target: &str,
-        owner: &AgentDeliveryStore,
         record: &AgentDeliveryRecord,
         payload: &mut AgentDeliveryPayload,
     ) -> Result<PreparedDelivery, String> {
         let Some(delivery) = payload.durable_delivery.as_ref() else {
             return Ok(PreparedDelivery::Ready);
         };
+        if self
+            .durable_runtime()
+            .binding_failures
+            .lock()
+            .contains_key(target)
+        {
+            return Ok(PreparedDelivery::Failed("launch_authority_unavailable"));
+        }
         if record.terminal_failure.is_some() {
             return Ok(PreparedDelivery::Failed("previous_terminal_failure"));
         }
@@ -168,11 +186,14 @@ impl ServiceContext {
             return Ok(PreparedDelivery::Ready);
         };
         let _claim = self.pty_ownership.acquire(target);
-        let observed = {
+        {
             let mux = self.mux.read();
             let Some(tab) = mux.get_tab(target) else {
                 return Ok(PreparedDelivery::Failed("recipient_gone"));
             };
+            if tab.agent_type.is_none() {
+                return Ok(PreparedDelivery::Failed("recipient_agent_exited"));
+            }
             if saved.tab != target || tab.agent_type.as_deref() != Some(&saved.provider) {
                 return Ok(PreparedDelivery::Failed("saved_provider_changed"));
             }
@@ -195,25 +216,13 @@ impl ServiceContext {
             {
                 return Ok(PreparedDelivery::Held);
             }
-            let Some(pty) = tab.pty_id.clone() else {
-                return Ok(PreparedDelivery::Held);
-            };
-            SavedLaunch {
-                pty,
-                session: tab
-                    .agent_session_id
-                    .clone()
-                    .ok_or("authenticated recipient has no session")?,
-                nonce: tab
-                    .session_binding_nonce
-                    .clone()
-                    .ok_or("authenticated recipient has no nonce")?,
-            }
+        }
+        let Some(bound) = &record.saved_launch else {
+            return Ok(PreparedDelivery::Held);
         };
-        let bound = owner.bind_saved_launch(target, &record.id, observed)?;
-        payload.expected_pty_id = Some(bound.pty);
-        payload.expected_session_id = Some(bound.session);
-        payload.expected_binding_nonce = Some(bound.nonce);
+        payload.expected_pty_id = Some(bound.pty.clone());
+        payload.expected_session_id = Some(bound.session.clone());
+        payload.expected_binding_nonce = Some(bound.nonce.clone());
         Ok(PreparedDelivery::Ready)
     }
 
@@ -230,11 +239,30 @@ impl ServiceContext {
             .as_ref()
             .ok_or("missing durable delivery authority")?;
         let reason = record.terminal_failure.as_deref().unwrap_or(reason);
-        owner.mark_terminal_failure(target, &record.id, reason)?;
+        let detail = record.terminal_detail.clone().or_else(|| {
+            if reason == "launch_authority_unavailable" {
+                return self
+                    .durable_runtime()
+                    .binding_failures
+                    .lock()
+                    .get(target)
+                    .cloned();
+            }
+            (reason == "recipient_launch_failed")
+                .then(|| {
+                    self.mux
+                        .read()
+                        .get_tab(target)
+                        .and_then(|tab| tab.boot_failure_reason.clone())
+                })
+                .flatten()
+        });
+        let (reason, detail) =
+            owner.mark_terminal_failure(target, &record.id, reason, detail.as_deref())?;
         let failure = serde_json::json!({
             "tab_id": target, "delivery_id": record.id, "producer": delivery.producer,
             "producer_tab": delivery.producer_tab, "created_at_ms": delivery.created_at_ms,
-            "status": "failed", "code": reason, "bytes_written": false,
+            "status": "failed", "code": reason, "detail": detail, "bytes_written": false,
         });
         let receipt = self
             .ensure_agent_pad(&delivery.producer_tab)?
@@ -271,6 +299,12 @@ impl ServiceContext {
         self.notify_event("agent-delivery-status", failure);
         owner.discard_expired(target, &record.id)?;
         self.cancel_durable_expiry(target, &record.id);
+        if !owner.has_pending(target)? {
+            self.durable_runtime()
+                .binding_failures
+                .lock()
+                .remove(target);
+        }
         Ok(())
     }
 
@@ -283,48 +317,67 @@ impl ServiceContext {
         let Some(delivery) = &payload.durable_delivery else {
             return;
         };
+        self.schedule_durable_metadata_expiry(target, id, delivery);
+    }
+
+    fn schedule_durable_metadata_expiry(&self, target: &str, id: &str, delivery: &DurableDelivery) {
         let runtime = self.durable_runtime();
         let mut timers = runtime.timers.lock();
         let key = (target.to_string(), id.to_string());
         if timers.contains_key(&key) {
             return;
         }
-        let remaining = delivery
-            .created_at_ms
-            .saturating_add(DELIVERY_TTL_MS)
-            .saturating_sub(runtime.clock.now_ms());
+        let deadline = delivery.created_at_ms.saturating_add(DELIVERY_TTL_MS);
         let service = self.weak_self();
-        let tab = target.to_string();
-        let task = crate::async_runtime::spawn(async move {
-            let _ = tokio::time::timeout(
-                std::time::Duration::from_millis(remaining),
-                std::future::pending::<()>(),
-            )
-            .await;
-            if let Some(service) = service.upgrade() {
-                service.wake_agent_deliveries_on_state_change(&tab);
+        let callback_key = key.clone();
+        let timer = if runtime.native_deadlines {
+            match wall_deadline::WallDeadline::arm(deadline, move || {
+                if let Some(service) = service.upgrade() {
+                    service
+                        .durable_runtime()
+                        .timers
+                        .lock()
+                        .remove(&callback_key);
+                    service.wake_agent_deliveries_on_state_change(&callback_key.0);
+                }
+            }) {
+                Ok(timer) => Some(timer),
+                Err(error) => {
+                    log::error!("[agent-delivery] wall deadline unavailable tab={target}: {error}");
+                    let owner = &self.pending_delivery_payloads.agent_deliveries;
+                    let marked = owner.mark_terminal_failure(
+                        target,
+                        id,
+                        "delivery_deadline_unavailable",
+                        Some(&error),
+                    );
+                    drop(timers);
+                    match marked {
+                        Ok(_) => self.wake_agent_deliveries_on_state_change(target),
+                        Err(error) => log::error!("[agent-delivery] deadline refusal persistence failed tab={target}: {error}"),
+                    }
+                    return;
+                }
             }
-        });
-        timers.insert(key, task.abort_handle());
+        } else {
+            None
+        };
+        timers.insert(key, timer);
     }
 
     pub(super) fn cancel_durable_expiry(&self, target: &str, id: &str) {
-        if let Some(timer) = self
-            .durable_runtime()
+        self.durable_runtime()
             .timers
             .lock()
-            .remove(&(target.into(), id.into()))
-        {
-            timer.abort();
-        }
+            .remove(&(target.into(), id.into()));
     }
 
     pub(super) fn restore_durable_expiries(&self, target: &str) -> Result<(), String> {
         let owner = &self.pending_delivery_payloads.agent_deliveries;
         for record in owner.records(target)? {
-            let payload = serde_json::from_str(&owner.payload(target, &record)?)
-                .map_err(|_| "durable delivery payload decode failed")?;
-            self.schedule_durable_expiry(target, &record.id, &payload);
+            if let Some(delivery) = &record.durable_delivery {
+                self.schedule_durable_metadata_expiry(target, &record.id, delivery);
+            }
         }
         Ok(())
     }
@@ -340,24 +393,38 @@ impl ServiceContext {
             {
                 continue;
             }
-            let payload: AgentDeliveryPayload =
-                serde_json::from_str(&owner.payload(target, &record)?)
-                    .map_err(|_| "durable delivery payload decode failed")?;
-            if let Some(delivery) = &payload.durable_delivery {
-                if record.terminal_failure.is_some()
-                    || self.durable_runtime().clock.now_ms()
-                        >= delivery.created_at_ms.saturating_add(DELIVERY_TTL_MS)
-                {
-                    self.fail_durable_delivery(
-                        target,
-                        owner,
-                        &record,
-                        &payload,
-                        "delivery_ttl_expired",
-                    )?;
+            let Some(delivery) = &record.durable_delivery else {
+                continue;
+            };
+            if record.terminal_failure.is_some()
+                || self.mux.read().get_tab(target).is_none()
+                || self.durable_runtime().clock.now_ms()
+                    >= delivery.created_at_ms.saturating_add(DELIVERY_TTL_MS)
+            {
+                let reason = if self.mux.read().get_tab(target).is_none() {
+                    "recipient_gone"
+                } else {
+                    "delivery_ttl_expired"
+                };
+                let result = owner
+                    .payload(target, &record)
+                    .and_then(|text| {
+                        serde_json::from_str::<AgentDeliveryPayload>(&text)
+                            .map_err(|error| error.to_string())
+                    })
+                    .and_then(|payload| {
+                        self.fail_durable_delivery(target, owner, &record, &payload, reason)
+                    });
+                if let Err(error) = result {
+                    log::error!("[agent-delivery] durable settlement failed tab={target} record={}: {error}", record.id);
                 }
+            } else {
+                self.schedule_durable_metadata_expiry(target, &record.id, delivery);
             }
         }
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests;

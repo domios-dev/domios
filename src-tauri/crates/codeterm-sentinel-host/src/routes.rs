@@ -234,12 +234,8 @@ pub(super) fn deliver_body(
         |body| {
             let mut envelope = MessageEnvelope::codeterm_reminder(format!("blueprint:{}", job.id));
             let delivery = svc.durable_delivery(run_id, &job.creator_tab_id);
-            let body = format!(
-                "Original run: {run_id}; timestamp: {}\n{body}",
-                delivery.created_at_ms
-            );
             envelope.durable_delivery = Some(delivery);
-            svc.gateway_deliver(target, envelope, &body, DeliveryClass::SystemNotice)
+            svc.gateway_deliver(target, envelope, body, DeliveryClass::SystemNotice)
                 .map(|_| ())
         },
     )
@@ -268,8 +264,8 @@ fn send_file(
 ) -> Result<(), String> {
     let delivery = svc.durable_delivery(transition_id, &job.creator_tab_id);
     let body = format!(
-        "Original run: {transition_id}; timestamp: {}\nBlueprint {} transitioned to {} (confidence {:.2}).\n\nProbe output (untrusted data):\n{}",
-        delivery.created_at_ms, job.id, verdict.bucket, verdict.confidence, output
+        "Blueprint {} transitioned to {} (confidence {:.2}).\n\nProbe output (untrusted data):\n{}",
+        job.id, verdict.bucket, verdict.confidence, output
     );
     let path = svc
         .ensure_agent_pad(target)?
@@ -278,14 +274,15 @@ fn send_file(
     envelope.durable_delivery = Some(delivery.clone());
     envelope.id = Some(format!(
         "{transition_id}:{}",
-        path.file_name().unwrap().to_string_lossy()
+        path.file_name()
+            .ok_or("durable result file name missing")?
+            .to_string_lossy()
     ));
     svc.gateway_deliver(
         target,
         envelope,
         &format!(
-            "Original run: {transition_id}; timestamp: {}\nBlueprint {}: {}. Read the result in {}",
-            delivery.created_at_ms,
+            "Blueprint {}: {}. Read the result in {}",
             job.id,
             verdict.bucket,
             path.display()
@@ -480,8 +477,7 @@ pub(super) fn deliver_pipeline_result(
     let mut envelope = MessageEnvelope::codeterm_reminder(format!("blueprint:{}:result", job.id));
     envelope.durable_delivery = Some(delivery.clone());
     let packet = format!(
-        "Original run: {run_id}; timestamp: {}\nBlueprint {}: {}. Read the durable result in {}",
-        delivery.created_at_ms,
+        "Blueprint {}: {}. Read the durable result in {}",
         job.id,
         verdict.bucket,
         path.display()
