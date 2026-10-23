@@ -1,70 +1,55 @@
 use super::*;
-#[cfg(target_os = "macos")]
 use codeterm_blueprint_types::blueprint_document::Limits;
 
-#[test]
-fn blueprint_v2_runtime_platform_selection_refuses_before_launch() {
-    assert!(platform_supported("macos").is_ok());
-    for platform in ["windows", "linux"] {
-        assert_eq!(
-            platform_supported(platform).unwrap_err().reason,
-            "unsupported_platform"
-        );
+fn body(lang: Language, src: &str) -> Code {
+    Code {
+        lang,
+        src: Some(src.into()),
+        file: None,
+        caps: vec![],
+        limits: Limits::default(),
     }
 }
 
-#[cfg(target_os = "macos")]
+const INPUT: &[u8] = br#"{"media":"json","schema_id":null,"value":{"n":7},"text":""}"#;
+
 #[test]
-fn blueprint_v2_runtime_native_python_and_ts_confinement_probe() {
-    struct FakeCredentials;
-    impl Drop for FakeCredentials {
-        fn drop(&mut self) {
-            std::env::remove_var("BLUEPRINT_FAKE_API_KEY");
-            std::env::remove_var("DOMIOS_FAKE_CONFINEMENT_TOKEN");
-        }
-    }
-    let _credentials = FakeCredentials;
-    std::env::set_var("BLUEPRINT_FAKE_API_KEY", "opaque-fake-api-key");
-    std::env::set_var(
-        "DOMIOS_FAKE_CONFINEMENT_TOKEN",
-        "opaque-fake-instance-token",
-    );
+fn blueprint_v2_runtime_native_python_and_ts_children() {
     let owner = Arc::new(ProbeResourceOwner::new());
-    let input = br#"{"media":"json","schema_id":null,"value":{"n":7},"text":""}"#;
     for (lang, src) in [
-        (Language::Python, "import os\ndef main(value):\n assert not any(k in os.environ for k in ['OPENAI_API_KEY','CODETERM_API_TOKEN','BLUEPRINT_FAKE_API_KEY','DOMIOS_FAKE_CONFINEMENT_TOKEN'])\n return {'n': value['n'] + 1}\n"),
-        (Language::Ts, "export default function main(value: {n:number}) { if (process.env.OPENAI_API_KEY || process.env.CODETERM_API_TOKEN || process.env.BLUEPRINT_FAKE_API_KEY || process.env.DOMIOS_FAKE_CONFINEMENT_TOKEN) throw Error('credential inherited'); try { eval('1+1'); throw Error('string code generation allowed'); } catch(e) { if (!(e instanceof EvalError)) throw e; } return {n: value.n + 1}; }")
+        (Language::Python, "import os\ndef main(value):\n assert not any(k.upper().startswith(('CODETERM', 'DOMIOS')) for k in os.environ)\n assert not any(k in os.environ for k in ['OPENAI_API_KEY', 'BLUEPRINT_FAKE_API_KEY'])\n return {'n': value['n'] + 1}\n"),
+        (Language::Ts, "export default function main(value: {n:number}) { if (Object.keys(process.env).some(k => /^(CODETERM|DOMIOS)/i.test(k)) || process.env.OPENAI_API_KEY || process.env.BLUEPRINT_FAKE_API_KEY) throw Error('credential inherited'); return {n: value.n + 1}; }")
     ] {
-        let code = Code { lang, src: Some(src.into()), file: None, caps: vec![], limits: Limits::default() };
-        let result = run(&code, input, Duration::from_secs(3), &owner, &Cancellation::default())
-            .expect("native confinement and interpreter availability are required");
-        assert!(result.success, "{}", result.text);
-        let value: serde_json::Value = serde_json::from_str(&result.stdout_text()).unwrap();
-        assert_eq!(value["value"]["n"], 8);
-    }
-    let outside = tempfile::tempdir().unwrap();
-    let secret = outside.path().join("secret");
-    std::fs::write(&secret, "denied").unwrap();
-    let path = serde_json::to_string(&secret).unwrap();
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let port = listener.local_addr().unwrap().port();
-    for (lang, src) in [
-        (Language::Python, format!("def main(value):\n try: open({path}).read()\n except PermissionError: pass\n return value\n")),
-        (Language::Ts, format!("import fs from 'node:fs';\nexport default function main(value) {{ try {{ fs.readFileSync({path}); }} catch(e) {{ if (!['EPERM','EACCES'].includes(e.code)) throw e; }} return value; }}")),
-        (Language::Python, format!("import socket\ndef main(value):\n s=socket.socket()\n try: s.connect(('127.0.0.1',{port}))\n except PermissionError: pass\n return value\n")),
-        (Language::Ts, format!("import net from 'node:net';\nexport default async function main(value) {{ await new Promise((resolve,reject)=>{{const s=net.connect({port},'127.0.0.1');s.on('error',reject);s.on('connect',()=>reject(Error('network allowed')));}}); return value; }}")),
-    ] {
-        let code = Code { lang, src: Some(src), file: None, caps: vec![], limits: Limits::default() };
-        let failure = run(&code, input, Duration::from_secs(3), &owner, &Cancellation::default()).unwrap_err();
-        assert_eq!(failure.reason, "sandbox_denied");
-        assert!(!failure.uncertain);
+        let output = run(&body(lang, src), INPUT, Duration::from_secs(3), &owner, &Cancellation::default()).unwrap();
+        assert!(output.success, "{}", output.text);
+        let value: serde_json::Value = serde_json::from_str(&output.stdout_text()).unwrap();
+        assert_eq!(value["value"], serde_json::json!({"n":8}));
     }
     assert_eq!(owner.snapshot().unconfirmed, 0);
 }
 
-#[cfg(target_os = "macos")]
 #[test]
-fn blueprint_v2_runtime_native_deadline_output_and_memory_budgets() {
+fn blueprint_v2_runtime_code_children_keep_user_file_permissions() {
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("source");
+    let target = root.path().join("target");
+    std::fs::write(&source, "opaque").unwrap();
+    let owner = Arc::new(ProbeResourceOwner::new());
+    let input = serde_json::to_vec(&serde_json::json!({"media":"json","schema_id":null,"value":{"source":source,"target":target},"text":""})).unwrap();
+    for (lang, src) in [
+        (Language::Python, "def main(value):\n with open(value['source']) as src: text=src.read()\n with open(value['target'],'w') as dest: dest.write(text)\n return text\n"),
+        (Language::Ts, "import fs from 'node:fs';\nexport default function main(value) { const text = fs.readFileSync(value.source,'utf8'); fs.writeFileSync(value.target,text); return text; }")
+    ] {
+        let output = run(&body(lang, src), &input, Duration::from_secs(3), &owner, &Cancellation::default()).unwrap();
+        assert!(output.success, "{}", output.text);
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "opaque");
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&output.stdout_text()).unwrap()["value"], "opaque");
+        std::fs::remove_file(&target).unwrap();
+    }
+}
+
+#[test]
+fn blueprint_v2_runtime_native_deadline_and_output_budgets() {
     let owner = Arc::new(ProbeResourceOwner::new());
     for (src, limits, timeout, reason) in [
         (
@@ -82,65 +67,59 @@ fn blueprint_v2_runtime_native_deadline_output_and_memory_budgets() {
             Duration::from_secs(3),
             "budget_exhausted",
         ),
-        (
-            "def main(value): return value",
-            Limits {
-                mem_mb: Some(64),
-                ..Default::default()
-            },
-            Duration::from_secs(3),
-            "contract_violation",
-        ),
     ] {
-        let code = Code {
-            lang: Language::Python,
-            src: Some(src.into()),
-            file: None,
-            caps: vec![],
-            limits,
-        };
-        let result = run(
-            &code,
-            br#"{"media":"json","schema_id":null,"value":null,"text":""}"#,
-            timeout,
-            &owner,
-            &Cancellation::default(),
-        );
-        let observed = match result {
-            Err(failure) => {
-                assert!(!failure.uncertain);
-                failure.reason
-            }
-            Ok(output) => panic!("budget was not enforced: {}", output.text),
-        };
-        assert_eq!(observed, reason);
+        let mut code = body(Language::Python, src);
+        code.limits = limits;
+        let failure = run(&code, INPUT, timeout, &owner, &Cancellation::default()).unwrap_err();
+        assert_eq!(failure.reason, reason);
+        assert!(!failure.uncertain, "{failure:?}");
         assert_eq!(owner.snapshot().unconfirmed, 0);
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "linux", windows))]
+fn prove_memory_limit() {
+    let owner = Arc::new(ProbeResourceOwner::new());
+    let src = "def main(value):\n try:\n  data = bytearray(1024 * 1024 * 1024)\n except MemoryError:\n  return {'limited': True}\n return {'limited': False}\n";
+    let mut code = body(Language::Python, src);
+    code.limits.mem_mb = Some(128);
+    let output = run(
+        &code,
+        INPUT,
+        Duration::from_secs(3),
+        &owner,
+        &Cancellation::default(),
+    )
+    .unwrap();
+    assert!(output.success, "{}", output.text);
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&output.stdout_text()).unwrap()["value"],
+        serde_json::json!({"limited":true})
+    );
+    assert_eq!(owner.snapshot().unconfirmed, 0);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn blueprint_v2_runtime_linux_memory_limit_is_enforced() {
+    prove_memory_limit();
+}
+
+#[cfg(windows)]
+#[test]
+fn blueprint_v2_runtime_windows_job_memory_limit_is_enforced() {
+    prove_memory_limit();
+}
+
 #[test]
 fn blueprint_v2_runtime_native_cancellation_uses_child_events() {
     let cancellation = Cancellation::default();
     let waits = cancellation.observe_waits();
     let owner = Arc::new(ProbeResourceOwner::new());
-    let code = Code {
-        lang: Language::Python,
-        src: Some("def main(value):\n while True: pass\n".into()),
-        file: None,
-        caps: vec![],
-        limits: Limits::default(),
-    };
+    let code = body(Language::Python, "def main(value):\n while True: pass\n");
     std::thread::scope(|scope| {
-        let child = scope.spawn(|| {
-            run(
-                &code,
-                br#"{"media":"json","schema_id":null,"value":null,"text":""}"#,
-                Duration::from_secs(3),
-                &owner,
-                &cancellation,
-            )
-        });
+        let child =
+            scope.spawn(|| run(&code, INPUT, Duration::from_secs(3), &owner, &cancellation));
         waits.recv_timeout(Duration::from_secs(2)).unwrap();
         cancellation.cancel();
         let failure = child.join().unwrap().unwrap_err();
@@ -163,39 +142,60 @@ fn blueprint_v2_runtime_code_file_refuses_symlink_escape() {
     .unwrap();
     symlink(outside.path(), root.path().join("escape")).unwrap();
     assert_eq!(
-        super::source::read(root.path(), "escape/secret.py")
-            .unwrap_err()
-            .reason,
-        "sandbox_denied"
+        codeterm_sentinel::code_source::read(root.path(), "escape/secret.py").unwrap_err(),
+        "contract_violation"
     );
-    std::fs::write(root.path().join("fixed.py"), "print('fixed')").unwrap();
+    std::fs::write(
+        root.path().join("fixed.py"),
+        "def main(value): return value",
+    )
+    .unwrap();
     assert_eq!(
-        super::source::read(root.path(), "fixed.py").unwrap(),
-        "print('fixed')"
+        codeterm_sentinel::code_source::read(root.path(), "fixed.py").unwrap(),
+        "def main(value): return value"
     );
 }
 
-#[cfg(not(target_os = "macos"))]
 #[test]
-fn blueprint_v2_runtime_unsupported_host_never_launches_code() {
-    use codeterm_blueprint_types::blueprint_document::Limits;
+fn blueprint_v2_runtime_child_environment_removes_credentials_and_cli_path() {
+    use crate::probe::environment::Environment;
+    use std::ffi::OsString;
     let root = tempfile::tempdir().unwrap();
-    let marker = root.path().join("must-not-execute");
-    let path = serde_json::to_string(&marker).unwrap();
+    let cli = root.path().join("private-cli");
+    std::fs::create_dir(&cli).unwrap();
+    let path = std::env::var_os("PATH").unwrap();
+    let path =
+        std::env::join_paths(std::iter::once(cli.clone()).chain(std::env::split_paths(&path)))
+            .unwrap();
+    let inherited = std::env::vars_os()
+        .filter(|(name, _)| !name.eq_ignore_ascii_case("PATH"))
+        .chain([
+            (OsString::from("PATH"), path),
+            (
+                "CODETERM_CLI_PATH".into(),
+                cli.join("domios").into_os_string(),
+            ),
+            ("CODETERM_API_TOKEN".into(), "opaque-instance-secret".into()),
+            ("DOMIOS_FAKE_TOKEN".into(), "opaque-second-secret".into()),
+            ("OPENAI_API_KEY".into(), "opaque-provider-secret".into()),
+            (
+                "BLUEPRINT_FAKE_API_KEY".into(),
+                "opaque-third-secret".into(),
+            ),
+        ]);
+    let environment = Environment::for_command(inherited, None, &[]);
     let owner = Arc::new(ProbeResourceOwner::new());
     for (lang, src) in [
-        (Language::Python, format!("def main(value):\n open({path}, 'w').write('unconfined')\n return value\n")),
-        (Language::Ts, format!("import fs from 'node:fs';\nexport default function main(value) {{ fs.writeFileSync({path}, 'unconfined'); return value; }}")),
+        (Language::Python, "import os\ndef main(value):\n assert not any(k.upper().startswith(('CODETERM','DOMIOS')) for k in os.environ)\n assert not any(k in os.environ for k in ['OPENAI_API_KEY','BLUEPRINT_FAKE_API_KEY'])\n return os.environ['PATH']\n"),
+        (Language::Ts, "export default function main(value) { if (Object.keys(process.env).some(k => /^(CODETERM|DOMIOS)/i.test(k)) || process.env.OPENAI_API_KEY || process.env.BLUEPRINT_FAKE_API_KEY) throw Error('credential inherited'); return process.env.PATH; }")
     ] {
-        let cancellation = Cancellation::default();
-        let receipt = crate::probe::test_receipt::Receipt::start("unsupported-code", &cancellation);
-        let code = Code { lang, src: Some(src), file: None, caps: vec![], limits: Limits::default() };
-        let failure = run_with_output(&code, b"{}", Duration::from_secs(3), &owner, &cancellation, None).unwrap_err();
-        let receipt = receipt.finish(false, failure.reason, &format!("{failure:?}"));
-        assert_eq!(failure.reason, "unsupported_platform", "{}", receipt.diagnostic);
-        assert!(!failure.uncertain);
-        assert!(receipt.child_pids.is_empty());
-        assert!(!marker.exists());
+        let output = child::execute(&body(lang, src), INPUT, Duration::from_secs(60), Duration::from_secs(3), &owner, &Cancellation::default(), None, &environment).unwrap();
+        assert!(output.success, "{}", output.text);
+        let value = serde_json::from_str::<serde_json::Value>(&output.stdout_text()).unwrap();
+        let child_path = value["value"].as_str().unwrap();
+        assert!(!std::env::split_paths(child_path).any(|directory| directory == cli));
+        for secret in ["opaque-instance-secret", "opaque-second-secret", "opaque-provider-secret", "opaque-third-secret"] {
+            assert!(!output.text.contains(secret));
+        }
     }
-    assert_eq!(owner.snapshot().settled_total, 0);
 }

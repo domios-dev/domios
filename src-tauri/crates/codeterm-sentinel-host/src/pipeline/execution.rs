@@ -325,7 +325,7 @@ pub fn execute_step(
                 ))?;
             }
             if result.reason.as_ref().is_some_and(fatal) {
-                return Err(result.reason.unwrap_or(JournalReason::SandboxDenied));
+                return Err(result.reason.unwrap_or(JournalReason::ContractViolation));
             }
             Ok(StepExecution {
                 output,
@@ -363,10 +363,8 @@ fn fatal(reason: &JournalReason) -> bool {
     matches!(
         reason,
         JournalReason::ContractViolation
-            | JournalReason::SandboxDenied
             | JournalReason::Deadline
             | JournalReason::BudgetExhausted
-            | JournalReason::UnsupportedPlatform
             | JournalReason::RuntimeUnavailable
     )
 }

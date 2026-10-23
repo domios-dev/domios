@@ -30,11 +30,6 @@ pub fn document(document: &mut Document, directory: &Path) -> Result<(), String>
     Ok(())
 }
 
-#[cfg(unix)]
 fn read(directory: &Path, file: &str) -> Result<String, String> {
     crate::code_source::read(directory, file).map_err(str::to_owned)
-}
-#[cfg(not(unix))]
-fn read(_directory: &Path, _file: &str) -> Result<String, String> {
-    Err("unsupported: code.file on this platform".into())
 }

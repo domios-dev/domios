@@ -258,6 +258,15 @@ pub fn power_shell_command_line(command: &str) -> Vec<u16> {
 }
 
 #[cfg(windows)]
+pub fn executable_command_line(executable: &super::executable::Executable<'_>) -> Vec<u16> {
+    let argv = std::iter::once(executable.program.as_os_str())
+        .chain(executable.args.iter().map(|arg| arg.as_os_str()))
+        .map(|arg| arg.to_string_lossy())
+        .collect::<Vec<_>>();
+    windows_argument_line(argv.iter().map(|arg| arg.as_ref()))
+}
+
+#[cfg(windows)]
 fn windows_argument_line<'a>(argv: impl IntoIterator<Item = &'a str>) -> Vec<u16> {
     argv.into_iter()
         .map(quote_windows_arg)

@@ -1,3 +1,4 @@
+#[cfg(unix)]
 use std::ffi::CString;
 use std::fs::File;
 use std::io::Read;
@@ -11,16 +12,17 @@ pub fn read(directory: &Path, relative: &str) -> Result<String, &'static str> {
         .components()
         .map(|component| match component {
             Component::Normal(name) => {
-                CString::new(name.as_encoded_bytes()).map_err(|_| "sandbox_denied")
+                CString::new(name.as_encoded_bytes()).map_err(|_| "contract_violation")
             }
-            _ => Err("sandbox_denied"),
+            _ => Err("contract_violation"),
         })
         .collect::<Result<Vec<_>, _>>()?;
     if parts.is_empty() {
-        return Err("sandbox_denied");
+        return Err("contract_violation");
     }
-    let root = directory.canonicalize().map_err(|_| "sandbox_denied")?;
-    let root = CString::new(root.as_os_str().as_encoded_bytes()).map_err(|_| "sandbox_denied")?;
+    let root = directory.canonicalize().map_err(|_| "contract_violation")?;
+    let root =
+        CString::new(root.as_os_str().as_encoded_bytes()).map_err(|_| "contract_violation")?;
     let fd = unsafe {
         libc::open(
             root.as_ptr(),
@@ -28,7 +30,7 @@ pub fn read(directory: &Path, relative: &str) -> Result<String, &'static str> {
         )
     };
     if fd < 0 {
-        return Err("sandbox_denied");
+        return Err("contract_violation");
     }
     let mut parent = unsafe { File::from_raw_fd(fd) };
     let mut source = None;
@@ -41,7 +43,7 @@ pub fn read(directory: &Path, relative: &str) -> Result<String, &'static str> {
             | if last { 0 } else { libc::O_DIRECTORY };
         let fd = unsafe { libc::openat(parent.as_raw_fd(), part.as_ptr(), flags) };
         if fd < 0 {
-            return Err("sandbox_denied");
+            return Err("contract_violation");
         }
         let file = unsafe { File::from_raw_fd(fd) };
         if last {
@@ -50,9 +52,41 @@ pub fn read(directory: &Path, relative: &str) -> Result<String, &'static str> {
         }
         parent = file;
     }
-    let file = source.ok_or("sandbox_denied")?;
+    let file = source.ok_or("contract_violation")?;
     if !file.metadata().is_ok_and(|metadata| metadata.is_file()) {
-        return Err("sandbox_denied");
+        return Err("contract_violation");
+    }
+    let mut text = String::new();
+    file.take(16385)
+        .read_to_string(&mut text)
+        .map_err(|_| "contract_violation")?;
+    if text.len() > 16384 {
+        return Err("budget_exhausted");
+    }
+    Ok(text)
+}
+
+#[cfg(windows)]
+pub fn read(directory: &Path, relative: &str) -> Result<String, &'static str> {
+    let mut path = directory.canonicalize().map_err(|_| "contract_violation")?;
+    let mut parts = 0;
+    for component in Path::new(relative).components() {
+        let Component::Normal(name) = component else {
+            return Err("contract_violation");
+        };
+        path.push(name);
+        let metadata = std::fs::symlink_metadata(&path).map_err(|_| "contract_violation")?;
+        if metadata.file_type().is_symlink() {
+            return Err("contract_violation");
+        }
+        parts += 1;
+    }
+    if parts == 0 {
+        return Err("contract_violation");
+    }
+    let file = File::open(path).map_err(|_| "contract_violation")?;
+    if !file.metadata().is_ok_and(|metadata| metadata.is_file()) {
+        return Err("contract_violation");
     }
     let mut text = String::new();
     file.take(16385)

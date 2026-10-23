@@ -40,15 +40,10 @@ pub(super) fn errors(node: &Node, path: &str) -> Vec<(String, String)> {
 }
 
 fn limits(limits: &Limits, node: &Node, path: &str, errors: &mut Vec<(String, String)>) {
-    if limits.mem_mb.is_some() {
+    if limits.mem_mb.is_some() && node.code.is_none() {
         errors.push((
             format!("{path}.mem_mb"),
-            if node.code.is_some() && cfg!(target_os = "macos") {
-                "unsupported: memory budget on macOS"
-            } else {
-                "unsupported: memory budget on this node"
-            }
-            .into(),
+            "unsupported: memory budget on this node".into(),
         ));
     }
     if limits.output_bytes.is_some() && !matches!(node.kind(), "code" | "command" | "github") {
@@ -57,7 +52,7 @@ fn limits(limits: &Limits, node: &Node, path: &str, errors: &mut Vec<(String, St
             "unsupported: output budget on this node".into(),
         ));
     }
-    if limits.wall_ms == Some(0) || limits.output_bytes == Some(0) {
+    if limits.wall_ms == Some(0) || limits.output_bytes == Some(0) || limits.mem_mb == Some(0) {
         errors.push((path.into(), "Budgets must be positive".into()));
     }
 }

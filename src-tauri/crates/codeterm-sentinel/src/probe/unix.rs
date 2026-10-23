@@ -30,12 +30,7 @@ struct Stream {
     _uncertain_fd: Option<RawFd>,
 }
 
-pub(super) struct Executable<'a> {
-    pub program: &'a Path,
-    pub args: &'a [std::ffi::OsString],
-    pub memory_bytes: Option<u64>,
-    pub output_bytes: Option<u64>,
-}
+use super::executable::Executable;
 
 pub fn run(
     command: &str,
@@ -94,6 +89,7 @@ pub fn run(
     let mut child_command = if let Some(executable) = executable {
         let mut child = Command::new(executable.program);
         child.args(executable.args);
+        #[cfg(target_os = "linux")]
         if let Some(memory_bytes) = executable.memory_bytes {
             unsafe {
                 child.pre_exec(move || {

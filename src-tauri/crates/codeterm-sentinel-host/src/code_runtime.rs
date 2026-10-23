@@ -12,7 +12,6 @@ pub struct RuntimeFailure {
 }
 
 impl RuntimeFailure {
-    #[cfg(target_os = "macos")]
     fn observed(reason: &'static str, _stderr: &str) -> Self {
         let failure = Self::new(reason);
         #[cfg(any(test, feature = "test-support"))]
@@ -33,15 +32,7 @@ impl RuntimeFailure {
     }
 }
 
-pub fn platform_supported(platform: &str) -> Result<(), RuntimeFailure> {
-    if platform == "macos" {
-        Ok(())
-    } else {
-        Err(RuntimeFailure::new("unsupported_platform"))
-    }
-}
-
-#[cfg(all(test, target_os = "macos"))]
+#[cfg(test)]
 pub fn run(
     code: &Code,
     input: &[u8],
@@ -53,7 +44,15 @@ pub fn run(
         &format!("native-code:{:?}", code.lang),
         cancellation,
     );
-    let result = run_with_output(code, input, timeout, owner, cancellation, None);
+    let result = run_with_output(
+        code,
+        input,
+        Duration::from_secs(60),
+        timeout,
+        owner,
+        cancellation,
+        None,
+    );
     let outcome = match &result {
         Ok(output) if output.success => "done".into(),
         Ok(output) => format!("nonzero:{:?}", output.exit_code),
@@ -82,14 +81,12 @@ pub fn run(
 pub fn run_with_output(
     code: &Code,
     input: &[u8],
+    limit: Duration,
     timeout: Duration,
     owner: &Arc<ProbeResourceOwner>,
     cancellation: &Cancellation,
     output: Option<&codeterm_blueprint_types::blueprint_document::Port>,
 ) -> Result<Output, RuntimeFailure> {
-    if code.limits.mem_mb.is_some() {
-        return Err(RuntimeFailure::new("contract_violation"));
-    }
     if code.src.as_ref().is_some_and(|source| source.len() > 16384) {
         return Err(RuntimeFailure::new("budget_exhausted"));
     }
@@ -101,27 +98,14 @@ pub fn run_with_output(
         || code.src.is_none()
         || matches!(code.lang, Language::Shell)
     {
-        return Err(RuntimeFailure::new("sandbox_denied"));
+        return Err(RuntimeFailure::new("contract_violation"));
     }
     if !codeterm_blueprint_types::blueprint_document::code_contract::has_main(code) {
         return Err(RuntimeFailure::new("contract_violation"));
     }
-    platform_supported(std::env::consts::OS)?;
-    #[cfg(target_os = "macos")]
-    {
-        macos::run(code, input, timeout, owner, cancellation, output)
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = (input, timeout, owner, cancellation, output);
-        Err(RuntimeFailure::new("unsupported_platform"))
-    }
+    child::run(code, input, limit, timeout, owner, cancellation, output)
 }
 
-#[cfg(all(test, unix))]
-mod source;
-
-#[cfg(target_os = "macos")]
-mod macos;
+mod child;
 #[cfg(test)]
 mod tests;

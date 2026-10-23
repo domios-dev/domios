@@ -12,7 +12,6 @@ pub mod windows;
 pub mod cancellation;
 pub mod capture;
 pub mod environment;
-#[cfg(target_os = "macos")]
 pub mod executable;
 mod input;
 pub mod owner;

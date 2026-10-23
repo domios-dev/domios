@@ -13,19 +13,22 @@ impl Default for Environment {
 }
 
 impl Environment {
-    pub fn isolated(directory: &Path) -> Self {
-        Self {
-            variables: vec![
-                ("PATH".into(), directory.as_os_str().to_owned()),
-                ("HOME".into(), directory.as_os_str().to_owned()),
-                ("TMPDIR".into(), directory.as_os_str().to_owned()),
-                ("LANG".into(), "C.UTF-8".into()),
-                (
-                    "OPENSSL_CONF".into(),
-                    directory.join("openssl.cnf").into_os_string(),
-                ),
-            ],
+    pub fn resolve_program(&self, names: &[&str]) -> Option<PathBuf> {
+        let path = self
+            .variables
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("PATH"))?;
+        for directory in std::env::split_paths(&path.1) {
+            for name in names {
+                let candidate = directory.join(name);
+                if candidate.is_file() {
+                    if let Ok(path) = candidate.canonicalize() {
+                        return Some(path);
+                    }
+                }
+            }
         }
+        None
     }
 
     pub fn for_command(

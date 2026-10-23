@@ -539,3 +539,25 @@ fn blueprint_v2_check_template_enforces_storage_bounds() {
         .any(|(_, message)| message.contains("32")));
     assert!(doc.lower().is_err());
 }
+
+#[test]
+fn blueprint_v2_runtime_memory_warning_is_positioned_and_does_not_refuse() {
+    let source = "schema_version: 2\nkind: pipeline\nname: memory-warning\ntrigger: {type: input, kind: {lit: text}, source: {lit: {text: hi}}}\nsteps:\n  - id: bounded\n    code:\n      lang: python\n      src: 'def main(value): return value'\n      limits: {mem_mb: 64}\nresult: {to: notify}\n";
+    let parsed = super::super::parse("memory.yaml", source).unwrap();
+    let diagnostics = check_ir_on_platform(&parsed.ir(), &CheckContext::default(), "macos");
+    assert!(!has_errors(&diagnostics), "{diagnostics:?}");
+    let warnings = diagnostics
+        .into_iter()
+        .filter(|d| d.message == "mem_mb not enforced on this OS")
+        .collect::<Vec<_>>();
+    assert_eq!(warnings.len(), 1);
+    assert_eq!(warnings[0].severity, "warning");
+    assert_eq!(warnings[0].message, "mem_mb not enforced on this OS");
+    assert_eq!(warnings[0].field, "steps[0].code.limits.mem_mb");
+    assert_eq!(warnings[0].line, 10);
+    assert!(!has_errors(&warnings));
+    assert!(memory_warnings(&parsed, "linux").is_empty());
+    assert!(memory_warnings(&parsed, "windows").is_empty());
+    assert!(parsed.document.lower().is_ok());
+    assert!(super::super::check("memory.yaml", source, &[]).ok);
+}

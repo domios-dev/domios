@@ -86,17 +86,17 @@ Python bodies define `def main(value):` and return a JSON value. TypeScript bodi
 
 `code.src` is bounded to 16 KiB. Alternatively, `code.file` names a relative regular file beneath the apply caller’s cwd; symlinks and parent traversal refuse. Apply freezes its bounded bytes into `code.src` before persisting the graph. Later file edits do not change the stored body. Canonical nodes and execution summaries carry `body_sha256`. Runtime refuses unsealed `code.file` and missing `main`.
 
-Code execution requires macOS Seatbelt and a supported Python framework or Apple Silicon Homebrew interpreter. Windows, Linux and Intel Homebrew code execution refuse explicitly. The existing sandbox denies network, child processes and filesystem data outside the interpreter and private temp roots. No instance credentials enter its environment. TS launches once with type stripping and string code generation disabled; unsupported Node flags refuse.
+Python and TypeScript code nodes run as ordinary child processes on macOS, Linux and Windows, using Python or Node from the filtered PATH. Python uses the fixed `main(value)` harness; TypeScript uses Node's type stripping and the fixed exported `main(value)` harness.
 
-`wall_ms` defaults to 3000 for code; `output_bytes` defaults to 32768 and bounds combined stdout/stderr during capture. There is **no memory cap by default**. `limits.mem_mb` on macOS code is refused at check with `unsupported: memory budget on macOS`; no spawn failure counts as memory enforcement. Memory budgets on other nodes, output budgets on HTTP/agent nodes and watch limits also refuse. Command/GitHub output budgets and pipeline wall deadlines remain enforced.
+Blueprint code and command steps run with the user's own permissions, like an agent in a tab, without Domios credentials in their environment. They can access the user's files, network and subprocesses. Foreign Blueprints are gated by folder trust (1.15.4); inspect their code and commands before granting trust.
 
-Ordinary exceptions and non-zero code exits produce routable `failed`, reason `code_failed`, with a bounded, redacted stderr tail. A permission-denial signal from the harness or Seatbelt launcher stops with `sandbox_denied`, including Python `PermissionError` caught by the body while tracing is active. These harness observations are diagnostic evidence; author code can disable language hooks. Seatbelt remains the confinement boundary. Missing confinement, invalid contracts, deadlines and exhausted output budgets stop before routing further effects.
+`wall_ms` defaults to 3000 for code; `output_bytes` defaults to 32768 and bounds combined stdout/stderr during capture. There is **no default `mem_mb`**. An explicit code memory cap uses `RLIMIT_AS` on Linux and the existing process Job's memory limit on Windows. On macOS, the checker emits the positioned warning `mem_mb not enforced on this OS`; checking, admission and execution continue with deadline and output limits. Memory budgets on other nodes, output budgets on HTTP/agent nodes and watch limits refuse. Command/GitHub output budgets and pipeline wall deadlines remain enforced.
+
+Ordinary exceptions and non-zero code exits produce routable `failed`, reason `code_failed`, with a bounded, redacted stderr tail. Invalid contracts, deadlines and exhausted output budgets stop before routing further effects.
 
 The stdin envelope remains bounded to 32 KiB. Plain text of 20 KiB passes intact. Oversized serialized payloads become an explicit JSON truncation value with `type: truncated`, `truncated: true`, `total_bytes`, `limit_bytes` and a bounded UTF-8 `prefix`. Typed contracts validate that delivered value and may refuse a truncation marker that violates their schema.
 
-Command steps and watcher probes preserve the daemon's inherited PATH order, remove the explicitly configured Domios CLI directories, and append missing default tool directories. Other inherited variables are excluded; children receive `LANG` and, on Windows, `SystemRoot`. PATH filtering is not a confinement boundary.
-
-Current hardening limitations: metadata/readlink access and root-directory listing remain broader than data reads, and `sysctl-read` remains unrestricted. These can disclose host metadata. Inherited descriptors rely on host `O_CLOEXEC`; no `closefrom` hardening is claimed. The profile has not been widened to support additional interpreters or dylib roots.
+Command steps and watcher probes preserve the daemon's inherited PATH order, remove the explicitly configured Domios CLI directories, and append missing default tool directories. Other inherited variables are excluded; children receive `LANG` and, on Windows, `SystemRoot`.
 
 ## Watches and effects
 
@@ -162,6 +162,6 @@ Only the Team Orchestrator keeps solutions. Supply one to five intents, preferab
 
 Full recipe purposes and inputs: `domios docs BLUEPRINT-RECIPES`.
 
-R10 scans executable text lexically as defence in depth. Runtime environment clearing and capability confinement enforce authority; a clean lexical scan does not prove shell text safe. R13 reports unavailable comparisons explicitly; unavailable vector comparisons carry no PASS verdict.
+R10 scans executable text lexically as defence in depth. The checker refuses domios-cli capabilities, while credential-free child environments remove instance authority; a clean lexical scan does not prove shell text safe. R13 reports unavailable comparisons explicitly; unavailable vector comparisons carry no PASS verdict.
 
-<!-- revision: 52 -->
+<!-- revision: 53 -->
