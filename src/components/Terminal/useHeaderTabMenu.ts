@@ -1,3 +1,4 @@
+import { useTabLock } from "../billing/useTabLock";
 import { useTabActivity } from "../../lib/useTabActivity";
 import { useCallback } from "react";
 import { anchorsTeam } from "../../lib/roleKind";
@@ -27,6 +28,7 @@ export function useHeaderTabMenu(
   workspaceId: string | null,
   descriptor: ProviderDescriptor | undefined,
 ): HeaderTabMenu | null {
+  const lock = useTabLock(tab);
   const tabId = tab?.id ?? null;
   const { closeTab, renameTab } = useMultiplexer();
   const { index } = usePlanIndexOptional();
@@ -42,7 +44,7 @@ export function useHeaderTabMenu(
   const ws = workspaceId;
   return {
     tab,
-    context: { status, descriptor, descriptors, activity, orchestrators },
+    context: { status, descriptor, descriptors, activity, orchestrators, lock },
     onRename: ws ? (title) => renameTab(ws, id, title) : undefined,
     onClose: ws ? () => closeTab(ws, id) : undefined,
   };

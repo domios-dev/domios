@@ -1,3 +1,4 @@
+import { TAB_LIMIT_NOUN } from "./limitCopy";
 import type { MultiplexerState } from "../../lib/types";
 
 /** Stable daemon refusal code for a free-tier limit. */
@@ -123,7 +124,7 @@ export function limitHeadline(key: FreeLimitKey, max?: number | null): string {
   switch (key) {
     case "workspaces": return `The free version includes ${count} workspaces.`;
     case "teams": return `The free version includes ${count} Teams across all workspaces.`;
-    case "agent.tabs": return `The free version allows ${count} tabs running at once.`;
+    case "agent.tabs": return `The free version allows ${count} ${TAB_LIMIT_NOUN}.`;
     case "mesh.machines": return `The free version includes ${count} machines in your mesh.`;
   }
 }

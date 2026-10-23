@@ -170,6 +170,12 @@ pub fn classify(message: &str, rpc_code: Option<i32>, data: Option<&Value>) -> E
     if rpc_code == Some(-32022) {
         return ErrorCode::Conflict;
     }
+    if ["free_limit_reached:", "plan_limit_locked:"]
+        .iter()
+        .any(|code| message.contains(code))
+    {
+        return ErrorCode::Refused;
+    }
     let lower = message.to_lowercase();
     let mentions = |markers: &[&str]| markers.iter().any(|marker| lower.contains(marker));
     if mentions(&NOT_FOUND_MARKERS) {
