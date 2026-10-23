@@ -82,6 +82,12 @@ describe("inline attachment capsules in the user bubble", () => {
     expect(button.getAttribute("data-attachment-label")).toBe(label);
   });
 
+  it.each([["image", "Open image", "png"], ["video", "Play video", "mp4"]] as const)("names a generated %s capsule by its file, never by its number", async (kind, verb, ext) => {
+    const host = await render(formatAttachmentMarker(`/tmp/codeterm-chat/holiday.${ext}`, kind, `${kind}1`));
+    const [button] = capsules(host);
+    expect(button.getAttribute("aria-label")).toBe(`${verb} holiday.${ext}`);
+  });
+
   it("renders each capsule where it was typed, with the surrounding text in order", async () => {
     const host = await render(
       `compare ${formatAttachmentMarker(NOTES, "text", "text1")} with ${formatAttachmentMarker(NOTES, "text", "text1 · 312 lines")} please`,
@@ -90,8 +96,8 @@ describe("inline attachment capsules in the user bubble", () => {
     expect(host.textContent).not.toContain("<domios");
     expect(host.textContent).not.toContain(SHOT);
     expect(capsules(host).map((button) => button.getAttribute("aria-label"))).toEqual([
-      "Preview pasted text text1",
-      "Preview pasted text text1 · 312 lines",
+      "Preview pasted text c3-pasted-text-3.txt",
+      "Preview pasted text c3-pasted-text-3.txt",
     ]);
   });
 

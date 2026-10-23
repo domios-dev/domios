@@ -161,7 +161,7 @@ it.each(["success", "HEIC", "pending", "HTTP 503", "NotReadableError", "HTTP 400
     expect(parseAttachmentMarkers(sent[0]).attachments.map((item) => item.path)).toEqual([path]);
     expect(sent[0].indexOf(path)).toBeGreaterThan(sent[0].indexOf("inspect"));
     expect(sent[0].indexOf(path)).toBeLessThan(sent[0].indexOf("here"));
-    const chip = host.querySelector<HTMLButtonElement>('[aria-label="Sent message"] button[aria-label="Open image image1"]')!;
+    const chip = host.querySelector<HTMLButtonElement>('[aria-label="Sent message"] button[aria-label="Open image id-photo.png"]')!;
     expect(chip.querySelector("img")).toBeNull();
     await act(async () => chip.focus());
     expect(document.querySelector<HTMLImageElement>('[role="region"] img')?.src).toBe(pixels);

@@ -15,7 +15,7 @@ export function ZoomCanvas({ bounds, focus, children, onNavigate, onSelect, whee
 }) {
   const { camera, mode, scaleOutput, interactions, fit, zoom, natural } = useZoomCanvas({ bounds, focus, wheelBehavior, onNavigate, onSelect });
   return <div className="relative min-h-0 flex-1">
-    <div ref={camera.containerRef} {...camera.handlers} {...interactions} role="region" aria-label="Zoomable canvas" tabIndex={0}
+    <div ref={camera.containerRef} {...camera.handlers} {...interactions} role="region" aria-label="Zoomable canvas" tabIndex={0} data-fullscreen-autofocus=""
       className="absolute inset-0 overflow-hidden focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]"
       style={{ touchAction: "none", overscrollBehavior: "none", cursor: camera.isDragging ? "grabbing" : "grab" }}>
       <div ref={camera.layerRef} style={{ position: "absolute", left: 0, top: 0, transformOrigin: "0 0" }}>{children}</div>
