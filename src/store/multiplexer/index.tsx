@@ -721,19 +721,19 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         await guardedInvoke("mux_update_tab_cwd", { tabId: tabInfo.id, cwd: effectiveCwd });
       }
       await guardedInvoke("mux_set_active_tab", { workspaceId, tabId: tabInfo.id });
-      dispatch({
-        type: "SET_ACTIVE_TAB",
-        workspaceId,
-        tabId: tabInfo.id,
-      });
+      // Select only once the page holds a snapshot containing the Tab: a page-owned selection drops a Tab the
+      // snapshot lacks, and an older in-flight snapshot would otherwise put the previous Tab back.
+      const snapshot = await invoke<MultiplexerState>("mux_get_state");
+      if (snapshot && snapshot.workspaces.length > 0) applyBackendState(snapshot);
+      dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
+      dispatch({ type: "SET_ACTIVE_TAB", workspaceId, tabId: tabInfo.id });
       // Explicit New Tab click focuses the new tab; background spawns don't.
       guardedInvoke("mux_set_focused_tab", { tabId: tabInfo.id }).catch(() => {});
-      refreshFromBackend();
       return { id: tabInfo.id };
     } catch (e) {
       if (!raiseFreeLimit(e, "agent.tabs")) console.error("Failed to create tab:", e);
     }
-  }, [refreshFromBackend, guardedInvoke]);
+  }, [guardedInvoke, applyBackendState]);
 
   const reopenClosed = useCallback(async (workspaceId: string, index = 0) => {
     try {
@@ -786,9 +786,12 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     if (!reusesWorkspace(stateRef.current.workspaces, cwd) && precheckFreeLimit(["workspaces"])) return undefined;
     try {
       // Reuse existing workspace for the same cwd; avoid duplicate tabs.
-      const info = await guardedInvoke<{ id: string; name: string }>("mux_create_workspace", { name, cwd: cwd ?? null, activate: opts?.activate ?? true });
+      const activate = opts?.activate ?? true;
+      const info = await guardedInvoke<{ id: string; name: string }>("mux_create_workspace", { name, cwd: cwd ?? null, activate });
       const s = await invoke<MultiplexerState>("mux_get_state");
       if (s && s.workspaces.length > 0) applyBackendState(s);
+      // A page-owned selection ignores the daemon's active workspace, so the page selects what it created.
+      if (activate) dispatch({ type: "SET_ACTIVE_WORKSPACE", id: info.id });
       return info;
     } catch (e) {
       if (!raiseFreeLimit(e, "workspaces")) console.error("Failed to create workspace:", e);

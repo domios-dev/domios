@@ -36,8 +36,6 @@ import { aggregateTabStatuses } from "./tabStatuses";
 import { usePlanIndexOptional, useSidebarPlansOptional } from "../Canvas/PlansProvider";
 import { renamePlan } from "../Canvas/plansApi";
 import { isWorkspaceTabActive } from "./sidebarSelection";
-import { buildSidebarCycleItems, cycleStep } from "./sidebarCycle";
-import { matchesBinding } from "../../lib/keybindings";
 import { SidebarWorkspaceDetail, type SidebarWorkspaceDetailActions, type SidebarWorkspaceDetailData } from "./SidebarWorkspaceDetail";
 import { SidebarGeneralSection } from "./SidebarGeneralSection";
 import { SidebarSkeleton } from "./SidebarSkeleton";
@@ -622,31 +620,6 @@ export const Sidebar = memo(function Sidebar({
     if (!pending) return;
     void finishTeamClose(pending.teamId, pending.workspaceId, () => setPendingTeamClose(null));
   }, [pendingTeamClose, finishTeamClose]);
-  useEffect(() => {
-    const kb = config?.keybindings;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const forward = matchesBinding(e, kb?.next_tab ?? "Ctrl+Tab");
-      const backward = !forward && matchesBinding(e, kb?.prev_tab ?? "Ctrl+Shift+Tab");
-      if (!forward && !backward) return;
-
-      const ws = state.workspaces.find((w) => w.id === state.active_workspace_id);
-      if (!ws) return;
-
-      const items = buildSidebarCycleItems(ws.tabs, state.tabs, false);
-      if (items.length < 2) return;
-
-      const direction = forward ? 1 : -1;
-      const next = cycleStep(items, state.activeTabIds[ws.id], workspaceCanvasActive, direction);
-      if (!next || next.kind !== "tab") return;
-
-      e.preventDefault();
-      setActiveTab(ws.id, next.tabId);
-      onNavigateToTab?.();
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [config?.keybindings, state, workspaceCanvasActive, setActiveTab, onNavigateToTab]);
-
   const sortedWorkspaces = useMemo(() => sortByOrder(state.workspaces), [state.workspaces]);
   const { general: generalWorkspace, workspaces: ordinaryWorkspaces } = useMemo(
     () => partitionSidebarWorkspaces(sortedWorkspaces),
@@ -717,7 +690,9 @@ export const Sidebar = memo(function Sidebar({
     renameTab,
     renameWorkspace,
     closeWorkspace: requestWorkspaceClose,
-    newTerminal: (workspaceId, shell) => createTab(workspaceId, undefined, shell),
+    newTerminal: (workspaceId, shell) => {
+      void createTab(workspaceId, undefined, shell).then((created) => { if (created) onNavigateToTab?.(); });
+    },
     newSession: handleNewSession,
     newAgent: handleAgentSpawn,
     openRemoteTab: setRemotePickerWorkspaceId,

@@ -180,3 +180,16 @@ console.log("composerCapsules tests passed");
   const video2 = addCapsule(video1.registry, { kind: "video", path: "/u/b.mov" });
   assert.deepEqual([first.capsule.label, video1.capsule.label, video2.capsule.label], ["image1", "video1", "video2"]);
 }
+
+// removing a capsule from the draft frees its number for the next one
+{
+  const first = addCapsule(EMPTY_CAPSULES, { kind: "image", path: SHOT_1 });
+  const draftWithout = "look at this ";
+  const next = addCapsule(first.registry, { kind: "image", path: SHOT_2 }, draftWithout);
+  assert.equal(next.capsule.label, "image1", "image1 was removed, so the next image is image1 again");
+  assert.equal(next.registry.image1.path, SHOT_2, "the freed label now names the new image");
+  const kept = addCapsule(first.registry, { kind: "image", path: SHOT_2 }, `see ${capsuleToken("image1")}`);
+  assert.equal(kept.capsule.label, "image2", "a capsule still in the draft keeps its number");
+  const batch = capsulesForPaths(first.registry, [{ path: SHOT_2 }, { path: "/u/c.png" }], "");
+  assert.deepEqual(capsuleSpans(batch.text).map((span) => span.label), ["image1", "image2"], "one batch numbers after itself");
+}

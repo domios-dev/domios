@@ -157,7 +157,7 @@ async function main() {
   await act(async () => { document.querySelector<HTMLButtonElement>('[aria-label="Close"]')!.click(); });
   assert.equal(document.querySelector('[aria-labelledby="system-heartbeat-title"]'), null, "Close dismisses the details");
   await act(async () => { render("tab-a", [system, { ...delayed, id: "due", scheduledAtMs: 0 }, { ...delayed, id: "sending", state: "sending" }]); });
-  assert.equal(delayedChip.getAttribute("aria-label"), "1 delayed messages, system reminder");
+  assert.equal(delayedChip.getAttribute("aria-label"), "1 delayed message, system reminder");
   assert.ok(delayedChip.querySelector("svg"), "heartbeat-only delayed chip retains its icon");
   assert.equal(requireControl('[aria-label^="System reminder:"]'), heartbeatRow, "queue transitions preserve the heartbeat row");
   assert.equal(document.querySelectorAll('[aria-label="Cancel delayed message"]').length, 0);
@@ -234,7 +234,7 @@ async function main() {
       ); });
       const group = host.querySelector<HTMLElement>('[role="group"][aria-label="Linked to this tab"]')!;
       assert.ok(group);
-      for (const label of ["Session goal", "Plugin removed", "1 blueprints", "5 crons", "1 delayed messages"]) {
+      for (const label of ["Session goal", "Plugin removed", "1 blueprint", "5 crons", "1 delayed message"]) {
         const chip = host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
         assert.ok(chip, label);
         assert.equal(chip.closest('[role="group"]'), group);
@@ -276,7 +276,7 @@ async function main() {
       }
       assert.equal(host.querySelector('[role="dialog"][aria-label="Session goal"]'), null);
       const goalChip = host.querySelector<HTMLButtonElement>('button[aria-label="Session goal"]')!;
-      const delayedChip = host.querySelector<HTMLButtonElement>('button[aria-label="1 delayed messages"]');
+      const delayedChip = host.querySelector<HTMLButtonElement>('button[aria-label="1 delayed message"]');
       if (delayedChip) assert.equal(goalChip.parentElement, delayedChip.parentElement);
       await act(async () => { goalChip.click(); });
       assert.ok(host.querySelector('[role="dialog"][aria-label="Session goal"]'));
