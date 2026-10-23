@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 
 mod imports;
 pub mod lower;
+mod path_identity;
 pub mod ports;
 pub mod projection;
 pub use imports::{resolve, resolve_local, resolve_saved, verify_local_sources};

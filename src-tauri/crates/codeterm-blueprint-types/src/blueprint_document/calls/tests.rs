@@ -138,6 +138,22 @@ fn blueprint_v2_call_import_relative_nested_is_based_on_exact_author_file() {
         .any(|c| c.id.ends_with("nested/leaf.yaml")));
 }
 #[test]
+fn blueprint_v2_call_portable_file_pins_roundtrip_locally_and_offline() {
+    let tree = Tree::new();
+    let closure = good(&tree);
+    let document = closure.document();
+    let yaml = document.yaml().unwrap();
+    tree.raw("caller.yaml", &yaml);
+    let local = tree.resolve("caller.yaml").unwrap();
+    let saved = resolve_saved(document, &ReviewMemory(closure.root.document.clone())).unwrap();
+    assert_eq!(local.callees, closure.callees);
+    assert_eq!(saved.callees, closure.callees);
+    verify_local_sources(&local).unwrap();
+    for callee in local.callees.values() {
+        assert!(!callee.id.contains('\\'));
+    }
+}
+#[test]
 fn blueprint_v2_call_import_cycle_is_refused() {
     let tree = Tree::new();
     let mut branch = callee();
