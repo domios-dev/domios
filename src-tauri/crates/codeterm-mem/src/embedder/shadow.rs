@@ -162,7 +162,7 @@ impl MemManager {
         let mut docs = None;
         for pass in 0..PASSES {
             let _ = changed.send(());
-            let stale = {
+            let (stale, total) = {
                 let conn = self.conn.lock();
                 let units = self.shadow_units(&conn)?;
                 let total = units.len() as u64;
@@ -174,16 +174,16 @@ impl MemManager {
                         stale.push(unit);
                     }
                 }
-                let stale_count = stale.len() as u64;
-                if pass == 0 {
-                    self.reembed
-                        .resume(generation, total - stale_count, 0, &self.embedder);
-                } else {
-                    self.reembed
-                        .resume(generation, 0, stale_count, &self.embedder);
-                }
-                stale
+                (stale, total)
             };
+            let stale_count = stale.len() as u64;
+            if pass == 0 {
+                self.reembed
+                    .resume(generation, total - stale_count, 0, &self.embedder);
+            } else {
+                self.reembed
+                    .resume(generation, 0, stale_count, &self.embedder);
+            }
             let _ = changed.send(());
             let mut streak = 0;
             let mut unavailable = Vec::new();
