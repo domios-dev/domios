@@ -163,6 +163,7 @@ mod reasoning_effort;
 pub mod receiver_target;
 pub use receiver_target::ReceiverTargetError;
 pub mod remote_tabs;
+pub mod remote_worker_transfer;
 pub mod remote_workers;
 pub mod reply_relay;
 pub mod restore_admission;
