@@ -94,16 +94,26 @@ async fn reopen_tab_and_group_routes_preserve_typed_plan_refusals() {
 #[tokio::test]
 async fn reopen_tab_and_group_routes_preserve_locked_workspace_refusals() {
     let mut mux = MultiplexerState::empty();
-    for _ in 0..3 {
-        mux.create_workspace("Other".into(), None);
-    }
-    let locked_workspace = mux.locks().workspaces.iter().next().unwrap().to_owned();
+    mux.set_limit_gate(codeterm_service_core::service::billing::LimitGate::dormant());
+    let locked_workspace = (0..3)
+        .map(|_| mux.create_workspace("Other".into(), None).id)
+        .last()
+        .unwrap();
     let closed = mux.create_tab(&locked_workspace).unwrap();
     mux.close_tab(&closed).unwrap();
     let locked_group = mux.snapshot().recently_closed[0].group_id.clone();
-    let before = serde_json::to_value(mux.snapshot()).unwrap();
     let fixture = ServiceFixture::new(mux);
+    let gate = fixture.service.limit_gate();
+    fixture.service.mux.write().set_limit_gate(gate);
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .locks()
+        .workspaces
+        .contains(&locked_workspace));
     let state = crate::test_support::app_state(&fixture);
+    let before = fixture.service.mux.read().snapshot();
     let single = reopen_closed_tab(
         AxumState(state.clone()),
         HeaderMap::new(),
@@ -119,8 +129,11 @@ async fn reopen_tab_and_group_routes_preserve_locked_workspace_refusals() {
         assert_eq!(status, StatusCode::FORBIDDEN);
         assert_eq!(body["error"]["code"], "plan_limit_locked");
     }
+    let mut after = fixture.service.mux.read().snapshot();
+    assert_eq!(after.generation, before.generation + 1);
+    after.generation = before.generation;
     assert_eq!(
-        serde_json::to_value(fixture.service.mux.read().snapshot()).unwrap(),
-        before
+        serde_json::to_value(after).unwrap(),
+        serde_json::to_value(before).unwrap()
     );
 }

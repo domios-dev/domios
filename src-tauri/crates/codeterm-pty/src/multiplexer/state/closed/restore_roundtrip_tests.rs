@@ -235,12 +235,23 @@ fn reopen_group_over_tab_limit_is_atomic_and_keeps_existing_slots() {
     let mut access = codeterm_entitlements::compiled_free();
     access.limits.agent_tabs.max = Some(2);
     state.set_limit_gate(codeterm_entitlements::LimitGate::new(access, true));
-    let before = serde_json::to_value(state.snapshot()).unwrap();
+    let before = state.snapshot();
+    let generation = state.generation.load(std::sync::atomic::Ordering::SeqCst);
     assert!(state
         .reopen_closed_group(&group)
         .unwrap_err()
         .starts_with("free_limit_reached: "));
-    assert_eq!(serde_json::to_value(state.snapshot()).unwrap(), before);
+    assert_eq!(
+        state.generation.load(std::sync::atomic::Ordering::SeqCst),
+        generation
+    );
+    let mut after = state.snapshot();
+    assert_eq!(after.generation, before.generation + 1);
+    after.generation = before.generation;
+    assert_eq!(
+        serde_json::to_value(after).unwrap(),
+        serde_json::to_value(before).unwrap()
+    );
     assert_eq!(state.closed_store.peek_group(&group).unwrap().1, records);
     assert!(state.tab_write_lock(&kept).is_none());
 }
@@ -260,14 +271,14 @@ fn reopen_single_and_orphan_enforce_tabs_and_workspace_admission() {
         .unwrap_err()
         .starts_with("free_limit_reached: "));
     assert_eq!(state.list_recently_closed(&workspace), before);
-    let mut access = codeterm_entitlements::compiled_free();
-    access.limits.workspaces.max = Some(0);
-    state.set_limit_gate(codeterm_entitlements::LimitGate::new(access, true));
     let orphan = state
         .create_workspace("Orphan".into(), Some("/orphan".into()))
         .id;
     let closed = state.create_tab(&orphan).unwrap();
     state.close_workspace(&orphan).unwrap();
+    let mut access = codeterm_entitlements::compiled_free();
+    access.limits.workspaces.max = Some(0);
+    state.set_limit_gate(codeterm_entitlements::LimitGate::new(access, true));
     assert!(state
         .reopen_orphaned_tab(&closed)
         .unwrap_err()
