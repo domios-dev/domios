@@ -10,7 +10,7 @@ pub(super) fn project_pipeline_contract(
 ) {
     let mut journal_revisions = jobs
         .iter()
-        .filter(|job| job.pipeline().is_some())
+        .filter(|job| job.document.is_some())
         .filter_map(|job| {
             journals
                 .get(&job.id)

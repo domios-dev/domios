@@ -23,3 +23,5 @@ pub mod blueprint_watch;
 pub mod blueprint_placeholder;
 
 pub mod blueprint_contract;
+
+pub mod blueprint_project;

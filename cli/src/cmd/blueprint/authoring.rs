@@ -40,6 +40,18 @@ pub(super) fn load_checked(name: &str, set: &[String]) -> Result<serde_json::Val
 
 pub fn handle_local(json_mode: bool, action: &BlueprintAction) -> bool {
     match action {
+        BlueprintAction::Project { action } => {
+            let value = super::project::read(action)
+                .unwrap_or_else(|error| crate::cmd::print::fail(2, error));
+            if json_mode {
+                crate::cmd::print::print_json(&value);
+            } else {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&value).unwrap_or_default()
+                );
+            }
+        }
         BlueprintAction::Schema => {
             crate::cmd::print::print_json(&blueprint_document::schema::schema())
         }
