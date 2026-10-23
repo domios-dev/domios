@@ -151,7 +151,7 @@ pub(crate) fn render_status(value: &Value) -> String {
     } else {
         ""
     };
-    format!(
+    let mut out = format!(
         "provider   {}{remote}\nmodel      {}\ndimension  {}\navailable  {}\nindex      {index}\nvectors    {}\npending    {}\nqueued     {} chunks\nin flight  {}\nfailed     {}\nqueue      {}\nre-embed   {}\n",
         str_of(value, "provider"),
         str_of(value, "model"),
@@ -164,7 +164,21 @@ pub(crate) fn render_status(value: &Value) -> String {
         value["queue"]["failed"].as_u64().unwrap_or(0),
         if value["queue"]["unavailable"].as_bool() == Some(true) { "unavailable" } else { "available" },
         progress_line(&value["reembed"]),
-    )
+    );
+    let progress = &value["reembed"];
+    if !progress["target"].is_null() {
+        let target = &progress["target"];
+        out.push_str(&format!(
+            "target     {}/{}\n",
+            str_of(target, "provider"),
+            str_of(target, "model")
+        ));
+        if matches!(str_of(progress, "state"), "failed" | "cancelled") {
+            out.push_str(&format!("hint: retry checkpointed work with `domios mem embedder use {} --model {} --dimension {}`\n", str_of(target, "provider"), str_of(target, "model"), target["dimension"].as_u64().unwrap_or(0)));
+            out.push_str(&format!("hint: discard shadow work with `domios mem embedder use {} --model {} --dimension {}`\n", str_of(value, "provider"), str_of(value, "model"), value["dimension"].as_u64().unwrap_or(0)));
+        }
+    }
+    out
 }
 
 pub(crate) fn render_use(value: &Value) -> String {

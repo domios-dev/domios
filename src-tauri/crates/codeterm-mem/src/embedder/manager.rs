@@ -66,6 +66,7 @@ impl MemManager {
     ) -> Result<SwitchPlan, String> {
         let identity = provider.identity();
         let running = self.reembed.snapshot();
+        let failed = running.state == super::ReembedState::Failed;
         let running = (running.state == super::ReembedState::Running).then_some(running);
         if self.embedder.identity() == identity
             && index::stamp(&self.conn.lock())?.as_ref() == Some(&identity)
@@ -83,8 +84,15 @@ impl MemManager {
                             .map_or_else(String::new, |t| format!("{}/{}", t.provider, t.model))
                     ));
                 }
-                self.clear_shadow(&self.conn.lock());
             }
+            if failed {
+                self.reembed.cancel(
+                    "cancelled: failed shadow discarded; published model retained".into(),
+                    &self.embedder,
+                );
+            }
+            self.clear_shadow(&self.conn.lock());
+            super::local::retain_models(&identity, None);
             return Ok(SwitchPlan::default());
         }
         if let Some(running) = running {
@@ -130,6 +138,7 @@ impl MemManager {
             self.embedder.replace(provider);
             self.rebuild_docs_vectors();
         }
+        self.reembed.retain_local_models(&self.embedder);
         self.backfill_pending();
     }
 
@@ -180,6 +189,11 @@ impl MemManager {
     pub(crate) fn subscribe_recovery(self: &Arc<Self>) {
         let manager = Arc::downgrade(self);
         self.embedder.subscribe(Arc::new(move |event| {
+            if matches!(event, EmbedderEvent::Progress(_)) {
+                if let Some(manager) = manager.upgrade() {
+                    manager.reembed.retain_local_models(&manager.embedder);
+                }
+            }
             if matches!(event, EmbedderEvent::Recovered) {
                 if let Some(manager) = manager.upgrade() {
                     manager.backfill_pending();
