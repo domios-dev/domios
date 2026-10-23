@@ -91,6 +91,8 @@ pub enum DeliveryError {
     /// Bytes reached the PTY but submission was never confirmed. The text may be
     /// parked in the composer — the only variant that admits a partial write.
     SubmitUnconfirmed { tab: String, detail: String },
+    /// Tab, its workspace, or its Team is locked above the plan limit. Nothing was written.
+    PlanLimitLocked { tab: String, detail: String },
 }
 
 impl DeliveryError {
@@ -100,6 +102,7 @@ impl DeliveryError {
             Self::TabBusyRefused { .. } => "tab_busy_refused",
             Self::PtyUnavailable { .. } => "pty_unavailable",
             Self::SubmitUnconfirmed { .. } => "submit_unconfirmed",
+            Self::PlanLimitLocked { .. } => crate::service::billing::PLAN_LIMIT_LOCKED,
         }
     }
 
@@ -112,6 +115,9 @@ impl DeliveryError {
     /// refusal. A USER send never does (always-deliver); a programmatic send
     /// keeps the honest split — a pre-write refusal fails, a submit is unknown.
     pub fn surfaces_as_failure(&self, origin: SendOrigin) -> bool {
+        if matches!(self, Self::PlanLimitLocked { .. }) {
+            return true;
+        }
         match origin {
             SendOrigin::User => false,
             SendOrigin::Programmatic => !self.bytes_written(),
@@ -134,7 +140,8 @@ impl DeliveryError {
             Self::SubmitUnconfirmed { .. } => PendingDeliveryState::Unconfirmed,
             Self::TabNotReachableOnPeer { .. }
             | Self::TabBusyRefused { .. }
-            | Self::PtyUnavailable { .. } => PendingDeliveryState::Pending,
+            | Self::PtyUnavailable { .. }
+            | Self::PlanLimitLocked { .. } => PendingDeliveryState::Pending,
         }
     }
 
@@ -144,6 +151,7 @@ impl DeliveryError {
             Self::TabBusyRefused { .. } => StatusCode::CONFLICT,
             Self::PtyUnavailable { .. } => StatusCode::SERVICE_UNAVAILABLE,
             Self::SubmitUnconfirmed { .. } => StatusCode::BAD_GATEWAY,
+            Self::PlanLimitLocked { .. } => StatusCode::FORBIDDEN,
         }
     }
 
@@ -152,7 +160,8 @@ impl DeliveryError {
             Self::TabNotReachableOnPeer { tab }
             | Self::TabBusyRefused { tab, .. }
             | Self::PtyUnavailable { tab, .. }
-            | Self::SubmitUnconfirmed { tab, .. } => tab,
+            | Self::SubmitUnconfirmed { tab, .. }
+            | Self::PlanLimitLocked { tab, .. } => tab,
         }
     }
 
@@ -161,7 +170,8 @@ impl DeliveryError {
             Self::TabNotReachableOnPeer { .. } => "",
             Self::TabBusyRefused { detail, .. }
             | Self::PtyUnavailable { detail, .. }
-            | Self::SubmitUnconfirmed { detail, .. } => detail,
+            | Self::SubmitUnconfirmed { detail, .. }
+            | Self::PlanLimitLocked { detail, .. } => detail,
         }
     }
 
@@ -183,10 +193,21 @@ impl DeliveryError {
         format!("{}: {self}", self.code())
     }
 
+    pub fn into_rejection(self) -> axum::response::Response {
+        use axum::response::IntoResponse;
+        (self.status(), axum::Json(self.to_json())).into_response()
+    }
+
     /// Classify a flattened delivery failure. Explicit pre-write messages keep
     /// their zero-byte type; unknown failures remain submit uncertainty.
     pub fn from_opaque(tab: &str, detail: impl Into<String>) -> Self {
         let detail = detail.into();
+        if detail.starts_with(crate::service::billing::PLAN_LIMIT_LOCKED) {
+            return Self::PlanLimitLocked {
+                tab: tab.to_string(),
+                detail,
+            };
+        }
         if detail.starts_with("submit_unconfirmed:") {
             return Self::SubmitUnconfirmed {
                 tab: tab.to_string(),
@@ -246,6 +267,7 @@ impl std::fmt::Display for DeliveryError {
                     "Tab {tab} received the text but never confirmed submission: {detail}"
                 )
             }
+            Self::PlanLimitLocked { detail, .. } => f.write_str(detail),
         }
     }
 }

@@ -471,3 +471,56 @@ fn migrated_instance_refuses_legacy_bearer_and_accepts_persisted_replacement() {
         Some(rotated)
     );
 }
+
+#[test]
+fn plan_limit_locked_peer_is_named_instead_of_an_unknown_signature() {
+    use codeterm_service_core::mesh::account_mesh::{AccountMeshState, AccountPresence};
+    use codeterm_service_core::mesh::types::PairedPeer;
+    use codeterm_service_core::multiplexer::state::MultiplexerState;
+    use codeterm_service_core::service::test_fixture::ServiceFixture;
+
+    let (mux, _) = MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let state = crate::transport_tabs::fixture::app_state(&fixture);
+    let (private_key, public_key) = codeterm_service_core::mesh::crown::generate_peer_keypair();
+    let sign_in = |locked| AccountMeshState {
+        account_epoch: 1 + u64::from(locked),
+        presence: AccountPresence::SignedIn {
+            account_id: "account".into(),
+        },
+        plan_limit_locked: locked,
+        ..AccountMeshState::default()
+    };
+    {
+        let mut mesh = state.mesh.lock();
+        mesh.insert_legacy_pair_for_test(PairedPeer {
+            instance_id: "locked-peer".into(),
+            instance_name: "locked".into(),
+            addresses: vec![],
+            api_port: 0,
+            public_key,
+            paired_at: "now".into(),
+            last_seen: None,
+            online: true,
+            is_primary: false,
+            access_level: AccessLevel::Full,
+            version: None,
+            web_ui: None,
+            relay_protocol_version: codeterm_service_core::mesh::types::RELAY_PROTOCOL_VERSION,
+            consecutive_misses: 0,
+            last_active_ms: None,
+        });
+        mesh.apply_account_state(sign_in(true));
+    }
+    let token =
+        codeterm_service_core::mesh::crown::sign_request(&private_key, "locked-peer").unwrap();
+    assert!(identify_caller(&state, &format!("Bearer {token}")).is_err());
+    assert_eq!(
+        plan_limit_locked_peer(&state, &token).as_deref(),
+        Some("locked-peer")
+    );
+    assert_eq!(plan_limit_locked_peer(&state, "forged"), None);
+    state.mesh.lock().apply_account_state(sign_in(false));
+    assert!(identify_caller(&state, &format!("Bearer {token}")).is_ok());
+    assert_eq!(plan_limit_locked_peer(&state, &token), None);
+}

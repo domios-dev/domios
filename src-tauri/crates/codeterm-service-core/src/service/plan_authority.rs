@@ -39,6 +39,8 @@ pub enum PlanAuthorityError {
     /// Binding is live but the caller is neither the Plan owner nor a draft
     /// Planner for this plan.
     RoleUnauthorized,
+    /// The Plan's Team is locked above the plan limit; nothing was written.
+    PlanLimitLocked,
 }
 
 impl PlanAuthorityError {
@@ -52,6 +54,7 @@ impl PlanAuthorityError {
             Self::PlanNotApproved => "plan_execution_requires_approval",
             Self::OrchestratorRequired => "plan_orchestrator_required",
             Self::RoleUnauthorized => "plan_role_authorization_required",
+            Self::PlanLimitLocked => crate::service::billing::PLAN_LIMIT_LOCKED,
         }
     }
 
@@ -80,6 +83,9 @@ impl PlanAuthorityError {
             }
             Self::RoleUnauthorized => {
                 "the live bound Plan owner or draft Planner session is required"
+            }
+            Self::PlanLimitLocked => {
+                "plan_limit_locked: this Plan's Team is locked because it is above your plan's Team limit. Upgrade or close newer Teams to unlock it."
             }
         }
     }
@@ -400,6 +406,12 @@ impl ServiceContext {
             .plan_store
             .get(plan_id)
             .ok_or(PlanAuthorityError::PlanNotFound)?;
+        if plan.team_id.as_deref().is_some_and(|team| {
+            self.item_write_lock(crate::service::billing::LimitKey::Teams, team)
+                .is_some()
+        }) {
+            return Err(PlanAuthorityError::PlanLimitLocked);
+        }
         let tab_id = caller.tab_id.as_deref().filter(|value| !value.is_empty());
         let requested_session_id = caller
             .session_id

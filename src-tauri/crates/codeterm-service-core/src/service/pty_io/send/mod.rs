@@ -528,6 +528,7 @@ impl ServiceContext {
         claim: Option<super::submit_transaction::SubmitCycleClaim>,
         enqueued: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
     ) -> Result<(), DeliveryError> {
+        self.tab_write_lock_delivery(tab_id)?;
         self.wake_frozen_tab(tab_id)
             .map_err(|detail| DeliveryError::PtyUnavailable {
                 tab: tab_id.into(),

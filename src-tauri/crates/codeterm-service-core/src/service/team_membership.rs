@@ -22,6 +22,9 @@ pub(crate) fn authorize_team_attachment(
     caller_tab_id: &str,
     workspace_id: &str,
 ) -> Result<TeamAttachment, String> {
+    if let Some(refusal) = mux.item_write_lock(codeterm_entitlements::LimitKey::Teams, team_id) {
+        return Err(refusal.to_string());
+    }
     // Attaching spends the caller's own membership, so a General Agent caller
     // is refused here rather than reported as "not a member of Team ...".
     let shape = shape_for_tab(mux, caller_tab_id);

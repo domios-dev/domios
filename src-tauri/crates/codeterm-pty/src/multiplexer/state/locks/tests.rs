@@ -83,3 +83,26 @@ fn restore_backfills_legacy_creation_order_once_in_snapshot_order() {
     assert!(resaved.workspaces.iter().all(|w| w.created_at_ms > 0));
     mux.set_limit_gate(LimitGate::dormant());
 }
+
+#[test]
+fn writes_into_a_locked_workspace_tab_or_team_are_refused_and_reads_stay() {
+    let (mut mux, _, ids) = three_workspaces();
+    let tab = mux.create_tab(&ids[2]).unwrap();
+    assert!(mux.tab_write_lock(&tab).is_none());
+    mux.set_limit_gate(free());
+    let refusal = mux.tab_write_lock(&tab).unwrap();
+    assert_eq!(refusal.limit, LimitKey::Workspaces);
+    assert!(refusal
+        .to_string()
+        .starts_with(codeterm_entitlements::PLAN_LIMIT_LOCKED));
+    assert!(mux
+        .create_tab(&ids[2])
+        .unwrap_err()
+        .starts_with(codeterm_entitlements::PLAN_LIMIT_LOCKED));
+    assert!(mux.claim_existing_tab(&ids[2], &tab).is_err());
+    assert!(mux.get_tab(&tab).is_some());
+    assert!(mux.create_tab(&ids[0]).is_ok());
+    mux.set_limit_gate(LimitGate::dormant());
+    assert!(mux.tab_write_lock(&tab).is_none());
+    assert!(mux.create_tab(&ids[2]).is_ok());
+}

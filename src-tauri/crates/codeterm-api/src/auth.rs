@@ -254,6 +254,22 @@ fn identify_caller(state: &AppState, auth_header: &str) -> Result<CallerIdentity
     }
 }
 
+/// A paired peer whose signature is valid but whose traffic the account gate closed for the plan limit.
+fn plan_limit_locked_peer(state: &AppState, token: &str) -> Option<String> {
+    use codeterm_service_core::mesh::account_mesh::gate::{BlockReason, TrafficDecision};
+    if token.is_empty() {
+        return None;
+    }
+    let mesh = state.mesh.lock();
+    let peer_id = codeterm_service_core::mesh::crown::verify_signed_request(
+        token,
+        &mesh.paired_identity_keys(),
+    )
+    .ok()?;
+    (mesh.traffic_decision(&peer_id) == TrafficDecision::Blocked(BlockReason::PlanLimitLocked))
+        .then_some(peer_id)
+}
+
 pub(crate) fn caller_peer_id(state: &AppState, headers: &axum::http::HeaderMap) -> Option<String> {
     let auth = headers
         .get("authorization")
@@ -544,6 +560,24 @@ fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
         }
         Err(()) => {
             let presented = auth.strip_prefix("Bearer ").unwrap_or("");
+            if let Some(peer_id) = plan_limit_locked_peer(&state, presented) {
+                log::warn!("[auth-403] {method} {path} peer={peer_id} plan_limit_locked");
+                return (
+                    StatusCode::FORBIDDEN,
+                    axum::Json(serde_json::json!({
+                        "ok": false,
+                        "error": {
+                            "code": codeterm_service_core::service::billing::PLAN_LIMIT_LOCKED,
+                            "peer": peer_id,
+                            "message": codeterm_service_core::mesh::account_mesh::blocked_message(
+                                codeterm_service_core::mesh::account_mesh::gate::BlockReason::PlanLimitLocked,
+                            ),
+                        }
+                    })),
+                )
+                    .into_response()
+                    .into();
+            }
             let expected = state.config.lock().api.token.clone();
             if let Some((tab_id, event)) = tab_hook_target(&method, &path) {
                 let reason = if presented.is_empty() {
