@@ -43,7 +43,7 @@ impl Cloud {
         let endpoints = codeterm_account::firebase_endpoints::current();
         let base = base_for(cfg!(debug_assertions), endpoints, base);
         let base = url::Url::parse(base).map_err(|_| "Invalid billing endpoint")?;
-        if !codeterm_account::firebase_endpoints::allows_url(&base)
+        if !(codeterm_account::firebase_endpoints::allows_url(&base) || dev_issuer(&base))
             || base.host_str().is_none()
             || !base.username().is_empty()
             || base.password().is_some()
@@ -124,6 +124,11 @@ impl Cloud {
         }
         Ok(url)
     }
+}
+
+/// DEV QA issuer on loopback; its verdicts still need the pinned TEST signature to count.
+fn dev_issuer(url: &url::Url) -> bool {
+    cfg!(debug_assertions) && url.scheme() == "http" && url.host_str() == Some("127.0.0.1")
 }
 
 fn base_for(
