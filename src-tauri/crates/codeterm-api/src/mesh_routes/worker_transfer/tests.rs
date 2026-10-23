@@ -4,10 +4,12 @@ use codeterm_service_core::service::remote_worker_transfer::apply_remote_worker_
 
 fn request(tab_id: &str) -> RemoteWorkerTransfer {
     RemoteWorkerTransfer {
+        operation_id: "operation".into(),
         worker_tab_id: tab_id.into(),
         worker_session_id: "session".into(),
         expected_parent_tab_id: "parent".into(),
         destination_tab_id: "destination".into(),
+        destination_team_id: None,
         caller_tab_id: Some("parent".into()),
         owner_confirmed: false,
     }

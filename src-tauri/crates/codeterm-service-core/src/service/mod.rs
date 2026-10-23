@@ -163,6 +163,7 @@ mod reasoning_effort;
 pub mod receiver_target;
 pub use receiver_target::ReceiverTargetError;
 pub mod remote_tabs;
+pub mod remote_team;
 pub mod remote_worker_transfer;
 pub mod remote_workers;
 pub mod reply_relay;
@@ -381,6 +382,7 @@ pub struct ServiceContext {
     /// Orchestrator-side view of remote (cross-mesh) workers, populated from
     /// inbound mesh reports. Drives the "remote Tab" ghost nodes in the UI.
     pub remote_workers: crate::service::remote_workers::RemoteWorkerRegistryHandle,
+    pub remote_teams: Arc<remote_team::RemoteTeamStore>,
     /// Channel for outbound Telegram messages (CLI bridge.send command).
     pub bridge_outbound: crate::bridge::manager::OutboundSender,
     /// Per-tab JSONL chat tailers — populated when a tab enters UI mode.
