@@ -2610,6 +2610,13 @@ button {
   font-weight: 650;
 }
 
+.sidebar-workspace-card-lock {
+  position: absolute;
+  right: 2px;
+  bottom: 1px;
+  pointer-events: none;
+}
+
 .sidebar-workspace-card-working {
   position: absolute;
   top: 4px;

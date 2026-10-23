@@ -1,11 +1,16 @@
 import { Lock } from "lucide-react";
 import type { LockedView } from "./freeLimitModel";
 
+export const LOCK_BADGE_LABEL = "Locked: free plan limit";
+
+/** What the badge needs: any item whose lock reason is already known. */
+export type LockBadgeView = LockedView | { locked: true; label: string };
+
 /** Non-interactive mark: it sits inside the row's own activation, whose click opens the plans modal. */
-export function LockBadge({ view, className = "" }: { view: LockedView; className?: string }) {
+export function LockBadge({ view, className = "" }: { view: LockBadgeView; className?: string }) {
   if (!view.locked) return null;
   return (
-    <span role="img" aria-label={view.label} title={`${view.label}. Upgrade to unlock.`} data-testid="lock-badge" className={`shrink-0 inline-flex items-center text-[var(--ct-muted-fg)] ${className}`}>
+    <span role="img" aria-label={LOCK_BADGE_LABEL} title={`${view.label}. Upgrade to unlock.`} data-testid="lock-badge" className={`shrink-0 inline-flex items-center text-[var(--ct-muted-fg)] ${className}`}>
       <Lock size={12} strokeWidth={1.75} aria-hidden="true" />
     </span>
   );

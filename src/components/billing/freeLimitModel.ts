@@ -108,6 +108,9 @@ export function tabLockedView(tab: { locked?: boolean } | null | undefined, work
   return { locked: true, limit: "workspaces", label: "Tab locked: its workspace is over the free plan" };
 }
 
+/** Muted look for a locked item's title and icon; the lock badge itself is never dimmed. */
+export const lockedDimClass = (view: { locked: boolean }): string => (view.locked ? "opacity-60" : "");
+
 export const isFreeLimitRefusal = (error: unknown): boolean => refusedLimit(error, "workspaces") !== null;
 
 /** The same coded shape the daemon returns, for a creation the client refused before calling it. */
