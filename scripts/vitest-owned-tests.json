@@ -56,6 +56,7 @@
   "src/components/Canvas/PlanViewShell.mission-control.test.tsx",
   "src/components/Canvas/planPresenceMotion.test.tsx",
   "src/components/Canvas/planSidePanelContext.test.tsx",
+  "src/components/shared/RegionLoader.test.tsx",
   "src/components/Canvas/missionControl/MissionControlBoard.test.tsx",
   "src/components/Canvas/missionControl/MissionControlSpendCard.test.tsx",
   "src/components/Canvas/missionControl/MissionControlControls.test.tsx",

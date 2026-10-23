@@ -126,3 +126,49 @@ it("shows service and plan progress while keeping application requests gated", a
     expect(host.querySelector("button")).not.toBeNull();
   } finally { await act(async () => root.unmount()); }
 });
+
+it("waits behind the branded loader with the phase as its status line, never bare text", async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  fixture.wait.mockImplementation(() => new Promise<void>(() => {}));
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<DaemonFrontendBootstrap><button>App ready</button></DaemonFrontendBootstrap>));
+    await act(async () => { fixture.listener!({} as TransportClient); });
+    const loader = host.querySelector('[role=status][aria-label="Starting Domios"]')!;
+    expect(loader).not.toBeNull();
+    expect(loader.querySelector("svg")).not.toBeNull();
+    expect(loader.querySelector("canvas")).not.toBeNull();
+    expect(host.querySelector(".ct-deferred-loader")).toBeNull();
+  } finally { await act(async () => root.unmount()); }
+});
+
+it("shows a reconnect behind the deferred loader so a fast one never flashes", async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  fixture.initialize.mockResolvedValue({ dispose: vi.fn() });
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<DaemonFrontendBootstrap><button>App ready</button></DaemonFrontendBootstrap>));
+    await act(async () => { fixture.listener!({} as TransportClient); });
+    expect(host.querySelector("button")).not.toBeNull();
+    fixture.wait.mockImplementation(() => new Promise<void>(() => {}));
+    await act(async () => { fixture.listener!({} as TransportClient); });
+    expect(host.querySelector("button")).toBeNull();
+    expect(host.querySelector(".ct-deferred-loader [role=status]")).not.toBeNull();
+  } finally { await act(async () => root.unmount()); }
+});
+
+it("shows a startup failure in the branded error state", async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  fixture.wait.mockRejectedValue(new Error("startup failed"));
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<DaemonFrontendBootstrap><button>App ready</button></DaemonFrontendBootstrap>));
+    await act(async () => { fixture.listener!({} as TransportClient); });
+    const alert = host.querySelector("[role=alert]")!;
+    expect(alert.textContent).toContain("Domios could not finish starting");
+    expect(alert.querySelector("svg")).not.toBeNull();
+  } finally { await act(async () => root.unmount()); }
+});
