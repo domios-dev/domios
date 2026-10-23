@@ -4,6 +4,7 @@ import type { Notification } from "../../lib/types";
 import { UI_TRAY_BTN } from "../shared/design";
 import { NotificationPanel } from "./NotificationPanel";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
+import { OPEN_NOTIFICATION_CENTER_EVENT } from "./openNotificationCenter";
 
 interface NotificationBellProps {
   notifications: Notification[];
@@ -40,6 +41,12 @@ export function NotificationBell({
 
   const toggle = useCallback(() => setOpen((value) => !value), []);
   const close = useCallback(() => setOpen(false), []);
+
+  useEffect(() => {
+    const openPanel = () => setOpen(true);
+    window.addEventListener(OPEN_NOTIFICATION_CENTER_EVENT, openPanel);
+    return () => window.removeEventListener(OPEN_NOTIFICATION_CENTER_EVENT, openPanel);
+  }, []);
 
   // Looking is the clear action: an open panel keeps pace with what arrives.
   useEffect(() => {

@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { RecentlyClosed, groupClosedViews, describeGroup, closedAgo } from "./RecentlyClosed";
 import { reopenClosedTab, reopenClosedGroup, __setInvokeForTest } from "../../lib/bridge";
-import type { ClosedTabView } from "../../lib/types";
+import type { ClosedStructureView, ClosedTabView } from "../../lib/types";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -264,6 +264,23 @@ test("keeps history discoverable when there are no recently-closed entries", asy
     "expanded empty history explains that no tabs are available",
   );
   await act(async () => r1.unmount());
+});
+
+test("the Tab closed just now leads the list, ahead of older closed workspaces", async () => {
+  const structures: ClosedStructureView[] = Array.from({ length: 100 }, (_, index) => ({
+    id: `ws-record-${index}`, state: "closed", kind: "workspace", label: `Old workspace ${index}`,
+    closed_at: 1_000 + index, undo_until: 0, member_count: 1, team_count: 0, shell_count: 0, agent_count: 0, cron_count: 0, blueprint_count: 0,
+  }));
+  const { host, root } = await render(
+    <RecentlyClosed views={[view({ tab_id: "just-closed", closed_at: 50_000 })]} structures={structures}
+      showWorkspace={false} onReopen={() => {}} onReopenGroup={() => {}} />,
+  );
+  await expandSection(host);
+  const items = host.querySelector(".sidebar-recently-closed__items");
+  const first = items?.firstElementChild;
+  assert(first?.textContent?.includes("just-closed"), `newest close is first, got: ${first?.textContent}`);
+  assert(items?.children[1]?.textContent?.includes("Old workspace 99"), "older records follow, newest first");
+  await act(async () => root.unmount());
 });
 
 async function main() {

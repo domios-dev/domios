@@ -1,10 +1,12 @@
-import { useState, useEffect, useCallback, useRef, useMemo, type ReactNode } from "react";
+import { useState, useEffect, useCallback, useId, useRef, useMemo, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { FolderPlus, Network, Palette, PanelLeft, Search, Settings as SettingsIcon, SquarePlus, X } from "lucide-react";
+import { FolderPlus, Palette, PanelLeft, Search, Settings as SettingsIcon, SquarePlus, SquareTerminal, X } from "lucide-react";
 import { isMac } from "../../lib/keybindings";
+import { appShortcutBinding, type AppShortcutAction, type AppShortcutBindings } from "../../lib/appShortcuts";
 import { defaultSpawnProviderId, getAgentDescriptor } from "../../lib/agentDescriptorCache";
 import { AgentIcon } from "../AgentIcon";
 import { SECTION_ICONS } from "../Settings/sections";
+import type { PaletteTabTarget } from "./paletteTabs";
 
 const Bell = SECTION_ICONS.notifications;
 
@@ -13,10 +15,26 @@ const Bell = SECTION_ICONS.notifications;
 export interface CommandItem {
   id: string;
   label: string;
+  /** Extra text the query matches without being shown, such as a Tab's workspace. */
+  keywords?: string;
   icon?: ReactNode;
   shortcut?: string; // Display string like "Cmd+T"
   section?: string;
   action: () => void;
+}
+
+/** Matching commands in the order the list renders them: grouped by section, sections by first appearance. */
+export function filterCommands(commands: readonly CommandItem[], query: string): CommandItem[] {
+  const q = query.trim().toLowerCase();
+  const matches = q
+    ? commands.filter((cmd) => [cmd.label, cmd.section, cmd.keywords].some((text) => text?.toLowerCase().includes(q)))
+    : commands;
+  const bySection = new Map<string, CommandItem[]>();
+  for (const cmd of matches) {
+    const section = cmd.section || "Commands";
+    bySection.set(section, [...(bySection.get(section) ?? []), cmd]);
+  }
+  return [...bySection.values()].flat();
 }
 
 interface CommandPaletteProps {
@@ -31,8 +49,8 @@ const ICONS = {
   settings: <SettingsIcon size={ICON_SIZE} />,
   sidebar: <PanelLeft size={ICON_SIZE} />,
   theme: <Palette size={ICON_SIZE} />,
-  hierarchy: <Network size={ICON_SIZE} />,
   bell: <Bell size={ICON_SIZE} />,
+  goToTab: <SquareTerminal size={ICON_SIZE} />,
 };
 
 // Helpers
@@ -57,17 +75,10 @@ export function CommandPalette({ commands }: CommandPaletteProps) {
   const [animState, setAnimState] = useState<"entering" | "visible" | "exiting" | "hidden">("hidden");
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const listId = useId();
   const animTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  const filtered = useMemo(() => {
-    if (!query.trim()) return commands;
-    const q = query.toLowerCase();
-    return commands.filter(
-      (cmd) =>
-        cmd.label.toLowerCase().includes(q) ||
-        (cmd.section && cmd.section.toLowerCase().includes(q))
-    );
-  }, [commands, query]);
+  const filtered = useMemo(() => filterCommands(commands, query), [commands, query]);
 
   useEffect(() => {
     setSelectedIndex(0);
@@ -145,13 +156,8 @@ export function CommandPalette({ commands }: CommandPaletteProps) {
   );
 
   useEffect(() => {
-    if (!listRef.current) return;
-    const items = listRef.current.children;
-    const item = items[selectedIndex] as HTMLElement | undefined;
-    if (item) {
-      item.scrollIntoView({ block: "nearest" });
-    }
-  }, [selectedIndex]);
+    document.getElementById(`${listId}-${selectedIndex}`)?.scrollIntoView?.({ block: "nearest" });
+  }, [listId, selectedIndex]);
 
   useEffect(() => {
     return () => clearTimeout(animTimeoutRef.current);
@@ -207,6 +213,9 @@ export function CommandPalette({ commands }: CommandPaletteProps) {
 
       {/* Panel */}
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Command palette"
         onKeyDown={handleKeyDown}
         style={{
           position: "relative",
@@ -248,7 +257,12 @@ export function CommandPalette({ commands }: CommandPaletteProps) {
           <input
             ref={inputRef}
             type="text"
-            placeholder="Type a command..."
+            role="combobox"
+            aria-label="Search commands and Tabs"
+            aria-expanded="true"
+            aria-controls={listId}
+            aria-activedescendant={filtered[selectedIndex] ? `${listId}-${selectedIndex}` : undefined}
+            placeholder="Type a command or Tab name..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             style={{
@@ -284,6 +298,9 @@ export function CommandPalette({ commands }: CommandPaletteProps) {
         {/* Results */}
         <div
           ref={listRef}
+          id={listId}
+          role="listbox"
+          aria-label="Commands"
           style={{
             overflowY: "auto",
             padding: "6px 8px",
@@ -292,6 +309,7 @@ export function CommandPalette({ commands }: CommandPaletteProps) {
         >
           {filtered.length === 0 ? (
             <div
+              role="status"
               style={{
                 padding: "24px 16px",
                 textAlign: "center",
@@ -300,7 +318,7 @@ export function CommandPalette({ commands }: CommandPaletteProps) {
                 color: "var(--ct-fg)",
               }}
             >
-              No commands found
+              No commands or Tabs match “{query.trim()}”
             </div>
           ) : (
             sections.map((section) => (
@@ -330,6 +348,11 @@ export function CommandPalette({ commands }: CommandPaletteProps) {
                   return (
                     <button
                       key={cmd.id}
+                      id={`${listId}-${itemIndex}`}
+                      type="button"
+                      role="option"
+                      aria-selected={isSelected}
+                      tabIndex={-1}
                       onMouseEnter={() => setSelectedIndex(itemIndex)}
                       onClick={() => {
                         doClose();
@@ -424,21 +447,30 @@ interface CommandActions {
   closeTab: () => void;
   newWorkspace: () => void;
   openSettings: () => void;
+  openThemeSettings: () => void;
   toggleSidebar: () => void;
   spawnClaude: () => void;
-  openAgentHierarchy?: () => void;
+  /** Absent while the surface it opens is hidden, so the palette never lists a dead command. */
   openNotifications?: () => void;
 }
 
-export function buildDefaultCommands(actions: CommandActions): CommandItem[] {
+interface CommandContext {
+  bindings?: AppShortcutBindings;
+  tabs?: readonly PaletteTabTarget[];
+  goToTab?: (workspaceId: string, tabId: string) => void;
+}
+
+export function buildDefaultCommands(actions: CommandActions, context: CommandContext = {}): CommandItem[] {
+  const bindings = context.bindings ?? {};
+  const shortcut = (action: AppShortcutAction) => appShortcutBinding(action, bindings);
   // Label reflects the capability-resolved default agent, not a hardcoded vendor.
   const defaultProvider = getAgentDescriptor(defaultSpawnProviderId());
-  return [
+  const commands: CommandItem[] = [
     {
       id: "new-tab",
       label: "New Tab",
       icon: ICONS.tab,
-      shortcut: "Ctrl+T",
+      shortcut: shortcut("new_tab"),
       section: "Tabs",
       action: actions.newTab,
     },
@@ -446,7 +478,7 @@ export function buildDefaultCommands(actions: CommandActions): CommandItem[] {
       id: "close-tab",
       label: "Close Tab",
       icon: ICONS.close,
-      shortcut: "Ctrl+W",
+      shortcut: shortcut("close_tab"),
       section: "Tabs",
       action: actions.closeTab,
     },
@@ -454,7 +486,7 @@ export function buildDefaultCommands(actions: CommandActions): CommandItem[] {
       id: "new-workspace",
       label: "New Workspace",
       icon: ICONS.workspace,
-      shortcut: "Ctrl+Shift+N",
+      shortcut: shortcut("new_workspace"),
       section: "Workspace",
       action: actions.newWorkspace,
     },
@@ -462,7 +494,7 @@ export function buildDefaultCommands(actions: CommandActions): CommandItem[] {
       id: "settings",
       label: "Settings",
       icon: ICONS.settings,
-      shortcut: "Ctrl+,",
+      shortcut: shortcut("open_settings"),
       section: "App",
       action: actions.openSettings,
     },
@@ -470,6 +502,7 @@ export function buildDefaultCommands(actions: CommandActions): CommandItem[] {
       id: "toggle-sidebar",
       label: "Toggle Sidebar",
       icon: ICONS.sidebar,
+      shortcut: shortcut("toggle_sidebar"),
       section: "App",
       action: actions.toggleSidebar,
     },
@@ -478,7 +511,7 @@ export function buildDefaultCommands(actions: CommandActions): CommandItem[] {
       label: "Theme Switcher",
       icon: ICONS.theme,
       section: "App",
-      action: actions.openSettings, // Opens settings on Appearance tab
+      action: actions.openThemeSettings,
     },
     {
       id: "spawn-claude",
@@ -487,19 +520,28 @@ export function buildDefaultCommands(actions: CommandActions): CommandItem[] {
       section: "Agents",
       action: actions.spawnClaude,
     },
-    {
-      id: "agent-hierarchy",
-      label: "Agent Hierarchy",
-      icon: ICONS.hierarchy,
-      section: "Agents",
-      action: actions.openAgentHierarchy || (() => {}),
-    },
-    {
+  ];
+  if (actions.openNotifications) {
+    commands.push({
       id: "notifications",
       label: "Notifications",
       icon: ICONS.bell,
       section: "App",
-      action: actions.openNotifications || (() => {}),
-    },
-  ];
+      action: actions.openNotifications,
+    });
+  }
+  const goToTab = context.goToTab;
+  if (goToTab) {
+    for (const target of context.tabs ?? []) {
+      commands.push({
+        id: `go-to-tab:${target.tabId}`,
+        label: target.title,
+        keywords: target.workspaceName,
+        icon: ICONS.goToTab,
+        section: "Go to Tab",
+        action: () => goToTab(target.workspaceId, target.tabId),
+      });
+    }
+  }
+  return commands;
 }

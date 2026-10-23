@@ -293,5 +293,8 @@
   "src/components/Settings/AccountTab.purchase.test.tsx",
   "src/components/Settings/embedder/EmbedderCard.test.tsx",
   "src/components/Settings/embedder/embedderModel.test.ts",
-  "src/lib/serverReadiness.test.ts"
+  "src/lib/serverReadiness.test.ts",
+  "src/lib/appShortcuts.test.ts",
+  "src/components/CommandPalette/CommandPalette.dialog.test.tsx",
+  "src/store/multiplexer/createdSelection.test.tsx"
 ]

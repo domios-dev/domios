@@ -108,6 +108,12 @@ export function reasoningEffortsForModel(
   return model?.reasoning_efforts ?? provider?.reasoning_efforts ?? [];
 }
 
+/** A picker opened for one provider starts on a model that can launch, never an unavailable default. */
+export function initialProviderChoice(provider: ProviderDescriptor): NewSessionChoice {
+  const modelId = resolveProviderModel(provider);
+  return { mode: "single", providerId: provider.id, modelId, effortId: resolveEffort(provider, modelId) };
+}
+
 export function defaultNewSessionChoice(providers: ProviderDescriptor[]): NewSessionChoice {
   const provider = providers[0];
   const providerId = provider?.id ?? "";
