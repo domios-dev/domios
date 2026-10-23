@@ -25,7 +25,8 @@ printf '%s\\n' "$@"
   assert.equal(result.stdout.trim(), 'dev\n--wait\n--notify-tab\nopaque tab');
 });
 for (const failure of [0, 42]) {
-  test(`dev releases gateway before prebuilt launch; cargo exit=${failure}`, () => {
+ for (const target of ['', 'qa']) {
+  test(`dev releases gateway before prebuilt launch; account target=${target || 'default'}; cargo exit=${failure}`, () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-gateway-'));
     fs.mkdirSync(path.join(directory, '.domios-dev-build'));
     fs.writeFileSync(path.join(directory, '.domios-dev-build/cli.jsonl'), 'cli-artifact');
@@ -36,9 +37,14 @@ ${serverFn}
 ${config}
 ${fn.replace('exec bash ./build.sh', 'launch')}
 DOMIOS_QA_PROJECT_ID=inherited-wrong-project
+export DOMIOS_ACCOUNT_TARGET='${target}'
 codeterm() {
-  [ "$*" = 'mem secret get --name DOMIOS_QA_PROJECT_ID' ] || return 1
-  printf ' fixture-qa-project\\r\\n'
+  case "$*" in
+    'mem secret get --name DOMIOS_QA_PROJECT_ID') printf ' fixture-qa-project\\r\\n' ;;
+    'mem secret get --name DOMIOS_QA_FIREBASE_API_KEY') printf opaque-qa-key ;;
+    'mem secret get --name DOMIOS_QA_FIREBASE_APP_ID') printf opaque-qa-app ;;
+    *) return 1 ;;
+  esac
 }
 CODETERM_WEB_DIST= CT_DEV_CARGO_PROFILE= CT_DEV_CARGO_FEATURES=
 CODETERM_BUILD_SHA=opaque-sha
@@ -62,6 +68,10 @@ cargo() {
   [ "$owned" = 1 ] && [ "$PWD" = "$gateway_cwd" ]
   if [[ "$*" == 'build --manifest-path src-tauri/Cargo.toml -p domios-server '* ]]; then
     [ "$DOMIOS_QA_PROJECT_ID" = fixture-qa-project ] || return 94
+    [ "$DOMIOS_QA_FIREBASE_API_KEY" = opaque-qa-key ] || return 96
+    [ "$DOMIOS_QA_FIREBASE_APP_ID" = opaque-qa-app ] || return 97
+    [ "$DOMIOS_ACCOUNT_TARGET" = '${target}' ] || return 98
+    [ -z "$DOMIOS_FIREBASE_API_KEY$DOMIOS_FIREBASE_APP_ID" ] || return 99
   else
     [ "$DOMIOS_QA_PROJECT_ID" = inherited-wrong-project ] || return 95
   fi
@@ -96,6 +106,7 @@ build_and_launch_dev --wait --notify-tab opaque-tab`;
     else assert.match(result.stdout, /frontend\nstaged\nprovenance\nreleased\n[^\n]*\nlaunch dev-prebuilt --wait --notify-tab opaque-tab/);
     } finally { fs.rmSync(directory, { recursive: true, force: true }); }
   });
+ }
 }
 test('prebuilt retains its single provenance validation before stopping dev', () => {
   const prebuilt = source.slice(source.indexOf('  dev-prebuilt)'), source.indexOf('  dev)'));

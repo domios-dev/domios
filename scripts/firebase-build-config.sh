@@ -9,7 +9,7 @@ ct_firebase_build_secret() {
 ct_with_firebase_build_config() {
   [ "$#" -gt 0 ] || return 2
 
-  local billing_url="" secret_billing_url="" env_billing_url="" qa_project=""
+  local billing_url="" secret_billing_url="" env_billing_url="" qa_project="" qa_api_key="" qa_app_id=""
   local restore_xtrace=0 status=0
   local secret_api_key="" secret_project_id="" secret_app_id="" secret_redeem_url=""
   local env_api_key="" env_project_id="" env_app_id="" env_redeem_url=""
@@ -31,6 +31,8 @@ ct_with_firebase_build_config() {
   secret_redeem_url="$(ct_firebase_build_secret DOMIOS_ACCOUNT_REDEEM_URL 2>/dev/null)" || secret_redeem_url=""
 
   qa_project="$(ct_firebase_build_secret DOMIOS_QA_PROJECT_ID 2>/dev/null)" || qa_project=""
+  qa_api_key="$(ct_firebase_build_secret DOMIOS_QA_FIREBASE_API_KEY 2>/dev/null)" || qa_api_key=""
+  qa_app_id="$(ct_firebase_build_secret DOMIOS_QA_FIREBASE_APP_ID 2>/dev/null)" || qa_app_id=""
   secret_billing_url="$(ct_firebase_build_secret DOMIOS_BILLING_FUNCTIONS_URL 2>/dev/null)" || secret_billing_url=""
   if [[ -n "${secret_billing_url//[[:space:]]/}" ]]; then
     billing_url="$secret_billing_url"
@@ -74,6 +76,8 @@ ct_with_firebase_build_config() {
 
   # Read only by debug builds; release pins the production entitlement project.
   DOMIOS_QA_PROJECT_ID="${qa_project//[[:space:]]/}" \
+    DOMIOS_QA_FIREBASE_API_KEY="${qa_api_key//[[:space:]]/}" \
+    DOMIOS_QA_FIREBASE_APP_ID="${qa_app_id//[[:space:]]/}" \
     DOMIOS_BILLING_FUNCTIONS_URL="$billing_url" \
     DOMIOS_FIREBASE_API_KEY="$api_key" \
     DOMIOS_FIREBASE_PROJECT_ID="$project_id" \
@@ -83,7 +87,7 @@ ct_with_firebase_build_config() {
 
   unset secret_api_key secret_project_id secret_app_id secret_redeem_url
   unset env_api_key env_project_id env_app_id env_redeem_url
-  unset api_key project_id app_id redeem_url billing_url secret_billing_url env_billing_url qa_project
+  unset api_key project_id app_id redeem_url billing_url secret_billing_url env_billing_url qa_project qa_api_key qa_app_id
   [ "$restore_xtrace" = 0 ] || set -x
   return "$status"
 }

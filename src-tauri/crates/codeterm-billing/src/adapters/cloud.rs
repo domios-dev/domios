@@ -13,6 +13,13 @@ impl Cloud {
         installation_id: codeterm_account::InstallationId,
     ) -> Result<std::sync::Arc<dyn BillingProvider>> {
         let endpoints = codeterm_account::firebase_endpoints::current();
+        if endpoints.qa {
+            validate_qa_base(endpoints, override_url)?;
+            return Ok(std::sync::Arc::new(Self::new(
+                endpoints.functions,
+                installation_id,
+            )?));
+        }
         if !cfg!(debug_assertions) || endpoints.emulator {
             return Ok(std::sync::Arc::new(Self::new(
                 endpoints.functions,
@@ -41,6 +48,7 @@ impl Cloud {
 
     pub fn new(base: &str, installation_id: codeterm_account::InstallationId) -> Result<Self> {
         let endpoints = codeterm_account::firebase_endpoints::current();
+        validate_qa_base(endpoints, Some(base))?;
         let base = base_for(cfg!(debug_assertions), endpoints, base);
         let base = url::Url::parse(base).map_err(|_| "Invalid billing endpoint")?;
         if !(codeterm_account::firebase_endpoints::allows_url(&base) || dev_issuer(&base))
@@ -181,11 +189,26 @@ fn base_for(
 ) -> &str {
     if !dev_build {
         codeterm_account::firebase_endpoints::PRODUCTION.functions
-    } else if endpoints.emulator {
+    } else if endpoints.emulator || endpoints.qa {
         endpoints.functions
     } else {
         configured
     }
+}
+
+fn validate_qa_base(
+    endpoints: codeterm_account::firebase_endpoints::Endpoints,
+    configured: Option<&str>,
+) -> Result<()> {
+    if endpoints.qa
+        && configured.is_some_and(|value| !value.is_empty() && value != endpoints.functions)
+    {
+        let message =
+            "account target: mixed QA billing configuration refused; clear saved billing.endpoint";
+        log::error!("{message}");
+        return Err(message.into());
+    }
+    Ok(())
 }
 #[async_trait]
 impl BillingProvider for Cloud {
