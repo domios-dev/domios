@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { lockedDimClass } from "./freeLimitModel";
-import { lockedSurfaces, meshMachineLockedView } from "./lockSurfaces";
+import { lockedSurfaces, meshMachineLockedView, tabLockFromState } from "./lockSurfaces";
 import type { MultiplexerState } from "../../lib/types";
 
 const state = (marks: { workspaces?: string[]; tabs?: string[]; teams?: string[] }): Pick<MultiplexerState, "workspaces" | "tabs" | "teams"> => ({
@@ -37,6 +37,17 @@ describe("which items each surface marks as locked", () => {
     snapshot.tabs.a.team_id = "t1";
     snapshot.tabs.b.team_id = "t2";
     expect(lockedSurfaces(snapshot)).toEqual({ workspaces: [], tabs: ["a"], teams: ["t1"] });
+  });
+
+  it("uses live Team membership when a caller still holds the old tab props", () => {
+    const snapshot = state({ teams: ["t1"] });
+    const oldTab = { ...snapshot.tabs.a, team_id: "t1" };
+    snapshot.tabs.a.team_id = "t2";
+    expect(tabLockFromState(snapshot, oldTab)).toEqual({ locked: false });
+    snapshot.tabs.a.team_id = "t1";
+    expect(tabLockFromState(snapshot, oldTab)).toMatchObject({ locked: true, limit: "teams" });
+    snapshot.tabs.a.team_id = null;
+    expect(tabLockFromState(snapshot, oldTab)).toEqual({ locked: false });
   });
 
   it("marks only Mesh machines the account model put over the plan limit", () => {
