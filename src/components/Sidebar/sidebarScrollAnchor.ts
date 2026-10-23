@@ -1,4 +1,5 @@
-import { sidebarAnchorShift, sidebarScrollAnchorLayout, sidebarTrailingSpaceAfterScroll } from "./sidebarScrollAnchorModel";
+import { sidebarAnchorScrollTarget, sidebarScrollAnchorLayout, sidebarScrollGesture, sidebarTrailingSpaceAfterScroll, type SidebarScrollGesture, type SidebarScrollGestureEvent } from "./sidebarScrollAnchorModel";
+import { observeSidebarRows, sidebarScrollDebug } from "./sidebarScrollDebug";
 
 const ANCHORS = ".sidebar-structural-header, .sidebar-workspace-card-scroll, .sidebar-workspace-detail-header, [data-testid=workspace-navigation-actions], .sidebar-team-header, .sidebar-team-workers-toggle, .sidebar-tab";
 
@@ -10,14 +11,18 @@ interface Anchor {
 export function retainSidebarScrollAnchor(viewport: HTMLElement, body: HTMLElement, space: HTMLElement): () => void {
   let anchors: Anchor[] = [];
   let previousScrollTop = viewport.scrollTop;
+  let previousMaximum = viewport.scrollHeight - viewport.clientHeight;
   let preferred: HTMLElement | null = null;
   let disposed = false;
   let dragging = false;
+  let gesture: SidebarScrollGesture = { phase: "idle", moved: false };
+  const stopRowDebug = observeSidebarRows(viewport, body);
   const scale = () => viewport.getBoundingClientRect().height / viewport.offsetHeight || 1;
   const y = (element: HTMLElement) => (element.getBoundingClientRect().top - viewport.getBoundingClientRect().top) / scale();
 
   const capture = () => {
     previousScrollTop = viewport.scrollTop;
+    previousMaximum = viewport.scrollHeight - viewport.clientHeight;
     const bounds = viewport.getBoundingClientRect();
     const visible = [...body.querySelectorAll<HTMLElement>(ANCHORS)].filter((element) => {
       const rect = element.getBoundingClientRect();
@@ -35,7 +40,10 @@ export function retainSidebarScrollAnchor(viewport: HTMLElement, body: HTMLEleme
     const contentHeight = viewport.scrollHeight - space.offsetHeight;
     const layout = sidebarScrollAnchorLayout(desiredScrollTop, contentHeight, viewport.clientHeight);
     space.style.height = `${layout.trailingSpace}px`;
-    viewport.scrollTop = layout.scrollTop;
+    if (layout.scrollTop !== viewport.scrollTop) {
+      sidebarScrollDebug(viewport, "write", { desiredScrollTop: layout.scrollTop, phase: gesture.phase });
+      viewport.scrollTop = layout.scrollTop;
+    }
   };
 
   const releaseTrailingSpace = () => {
@@ -46,6 +54,11 @@ export function retainSidebarScrollAnchor(viewport: HTMLElement, body: HTMLEleme
 
   const restore = () => {
     if (disposed) return;
+    if (gesture.phase !== "idle") {
+      sidebarScrollDebug(viewport, "native-owned", { phase: gesture.phase });
+      capture();
+      return;
+    }
     if (body.querySelector('[data-dnd-dragging="true"]')) {
       dragging = true;
       return;
@@ -62,25 +75,41 @@ export function retainSidebarScrollAnchor(viewport: HTMLElement, body: HTMLEleme
     }
     const anchor = anchors.find(({ element }) => body.contains(element) && element.getClientRects().length > 0);
     if (anchor) {
-      const shift = sidebarAnchorShift(y(anchor.element), anchor.y);
-      if (shift !== 0) apply(viewport.scrollTop + shift);
+      const currentY = y(anchor.element);
+      const desired = sidebarAnchorScrollTarget(
+        { y: anchor.y, scrollTop: previousScrollTop, maximum: previousMaximum },
+        { y: currentY, scrollTop: viewport.scrollTop, maximum: viewport.scrollHeight - viewport.clientHeight },
+        false,
+      );
+      sidebarScrollDebug(viewport, "restore", { desired, capturedY: anchor.y, currentY, capturedScrollTop: previousScrollTop });
+      if (desired !== null) apply(desired);
       else releaseTrailingSpace();
     } else {
       const maximum = Math.max(0, viewport.scrollHeight - space.offsetHeight - viewport.clientHeight);
-      apply(Math.min(previousScrollTop, maximum));
+      apply(Math.min(viewport.scrollTop, maximum));
     }
     capture();
   };
 
   const onScroll = () => {
     preferred = null;
-    releaseTrailingSpace();
+    if (gesture.phase === "idle") releaseTrailingSpace();
     capture();
   };
   const onPress = (event: Event) => {
+    if (event.type === "keydown" || (event as PointerEvent).pointerType !== "touch") {
+      gesture = sidebarScrollGesture(gesture, "press");
+    }
     preferred = event.target instanceof Element ? event.target.closest<HTMLElement>(ANCHORS) : null;
     capture();
   };
+  const onGesture = (event: Event) => {
+    if (event.type === "touchend" && (event as TouchEvent).touches?.length > 0) return;
+    gesture = sidebarScrollGesture(gesture, event.type as SidebarScrollGestureEvent);
+    sidebarScrollDebug(viewport, event.type, { phase: gesture.phase });
+    capture();
+  };
+  const gestureEvents = ["touchstart", "touchmove", "touchend", "touchcancel", "scrollend"];
   const mutation = new MutationObserver(restore);
   // Text and attribute churn (activity dots, statuses) never moves rows; size changes reach the ResizeObserver.
   mutation.observe(body, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-dnd-dragging"] });
@@ -90,14 +119,17 @@ export function retainSidebarScrollAnchor(viewport: HTMLElement, body: HTMLEleme
   viewport.addEventListener("scroll", onScroll, { passive: true });
   viewport.addEventListener("pointerdown", onPress, true);
   viewport.addEventListener("keydown", onPress, true);
+  for (const event of gestureEvents) viewport.addEventListener(event, onGesture, { passive: true, capture: true });
   capture();
   return () => {
     disposed = true;
+    stopRowDebug();
     mutation.disconnect();
     resize.disconnect();
     viewport.removeEventListener("scroll", onScroll);
     viewport.removeEventListener("pointerdown", onPress, true);
     viewport.removeEventListener("keydown", onPress, true);
+    for (const event of gestureEvents) viewport.removeEventListener(event, onGesture, true);
     space.style.height = "0px";
   };
 }
