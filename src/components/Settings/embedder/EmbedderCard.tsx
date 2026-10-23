@@ -1,12 +1,17 @@
 import { useState } from "react";
 import { Cpu } from "lucide-react";
 import { Button } from "../../shared/Button";
+import { BusyState } from "../../shared/BusyState";
+import { InlineErrorNotice } from "../../shared/ErrorNotice";
 import { SettingsCard, SettingsPill } from "../shared";
 import {
   activeOption,
   embedderOptions,
   isReembedding,
+  normalizeRefusal,
+  parseOption,
   progressLabel,
+  refusalForPlatform,
   switchSummary,
   type Refusal,
   type SwitchPreview,
@@ -29,7 +34,9 @@ export function EmbedderCard({ config }: { config: AppConfig }) {
   if (!listing || !status) {
     return (
       <SettingsCard icon={<Cpu size={16} />} title="Memory embedder">
-        <p className="text-xs text-[var(--ct-muted)]">{error ?? "Loading…"}</p>
+        {error
+          ? <InlineErrorNotice error={error} operation="loading the memory embedder" blocking />
+          : <BusyState label="Loading memory embedder" inline />}
       </SettingsCard>
     );
   }
@@ -37,7 +44,14 @@ export function EmbedderCard({ config }: { config: AppConfig }) {
   const options = embedderOptions(listing);
   const current = activeOption(status);
   const selected = choice ?? current;
-  const disabledReasons = options.filter((option) => option.disabled && option.reason);
+  const unavailable = listing.providers
+    .filter((provider) => provider.refusal !== null)
+    .map((provider) => refusalForPlatform(provider.refusal, provider, listing.remote_opt_in, navigator.platform));
+  const selectedProvider = listing.providers.find((provider) => provider.id === parseOption(selected).provider);
+  const hints = [...new Set([
+    ...unavailable.flatMap((reason) => reason.hints),
+    ...(refusal ? refusalForPlatform(refusal, selectedProvider, listing.remote_opt_in, navigator.platform).hints : []),
+  ])];
 
   const choose = async (value: string) => {
     setChoice(value);
@@ -46,10 +60,10 @@ export function EmbedderCard({ config }: { config: AppConfig }) {
     if (value === current) return;
     try {
       const next = await preview(value);
-      if (next.refusal) setRefusal(next.refusal);
+      if (next.refusal) setRefusal(normalizeRefusal(next.refusal));
       else setPending(next);
     } catch (reason) {
-      setRefusal(reason as Refusal);
+      setRefusal(normalizeRefusal(reason));
     }
   };
 
@@ -60,7 +74,7 @@ export function EmbedderCard({ config }: { config: AppConfig }) {
       setPending(null);
       setChoice(null);
     } catch (reason) {
-      setRefusal(reason as Refusal);
+      setRefusal(normalizeRefusal(reason));
     } finally {
       setBusy(false);
     }
@@ -81,10 +95,12 @@ export function EmbedderCard({ config }: { config: AppConfig }) {
         <dt>Dimension</dt>
         <dd data-testid="embedder-dimension">{status.dimension}</dd>
         <dt>Re-embed</dt>
-        <dd>
+        <dd className="flex items-center gap-2">
           <span data-testid="embedder-progress">{progressLabel(status)}</span>
           {isReembedding(status) && (
-            <progress className="ml-2 align-middle" max={status.reembed.total} value={status.reembed.done} aria-label="Re-embed progress" />
+            <span className="inline-flex w-24 shrink-0">
+              <progress className="ct-progress" max={status.reembed.total} value={status.reembed.done} aria-label="Re-embed progress" />
+            </span>
           )}
         </dd>
         <dt>Vector pending</dt>
@@ -108,19 +124,11 @@ export function EmbedderCard({ config }: { config: AppConfig }) {
         </select>
       </label>
 
-      {disabledReasons.length > 0 && (
-        <ul className="text-xs text-[var(--ct-muted)]" aria-label="Unavailable embedders">
-          {[...new Set(disabledReasons.map((option) => option.reason))].map((reason) => (
+      {unavailable.length > 0 && (
+        <ul className="text-xs text-[var(--ct-muted-fg)]" aria-label="Unavailable embedders">
+          {[...new Set(unavailable.map((reason) => reason.message))].map((reason) => (
             <li key={reason}>{reason}</li>
           ))}
-          {listing.providers
-            .flatMap((provider) => provider.refusal?.hints ?? [])
-            .filter((hint, index, all) => all.indexOf(hint) === index)
-            .map((hint) => (
-              <li key={hint}>
-                <code className="ct-detail__mono">{hint}</code>
-              </li>
-            ))}
         </ul>
       )}
 
@@ -140,12 +148,20 @@ export function EmbedderCard({ config }: { config: AppConfig }) {
       )}
 
       {refusal && (
-        <div role="alert" className="text-xs text-[var(--ct-red)]">
-          <p>{refusal.message}</p>
-          {refusal.hints.map((hint) => (
-            <code key={hint} className="ct-detail__mono block">{hint}</code>
-          ))}
+        <div className="text-xs">
+          <InlineErrorNotice error={refusal.message} operation="switching the memory embedder" />
         </div>
+      )}
+
+      {hints.length > 0 && (
+        <details className="text-xs text-[var(--ct-muted-fg)]">
+          <summary className="cursor-pointer">How to enable</summary>
+          <ul>
+            {hints.map((hint) => (
+              <li key={hint}><code className="ct-detail__mono">{hint}</code></li>
+            ))}
+          </ul>
+        </details>
       )}
     </SettingsCard>
   );

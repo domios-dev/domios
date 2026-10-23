@@ -75,14 +75,20 @@ import { appShellStateEqual } from "./store/multiplexer/selectors";
 import type { ExtendedState } from "./store/multiplexer/tree";
 import { defaultSpawnProviderId } from "./lib/agentDescriptorCache";
 import { openNewSessionPicker } from "./lib/newSessionChoice";
-import { matchesBinding } from "./lib/keybindings";
+import { zoomedFontSize } from "./lib/appShortcuts";
+import { useAppShortcuts } from "./hooks/useAppShortcuts";
+import { useFolderPicker } from "./hooks/useFolderPicker";
+import { copyFromTab, pasteToTab } from "./lib/tabClipboardRegistry";
+import { buildSidebarCycleItems, cycleStep } from "./components/Sidebar/sidebarCycle";
+import { openNotificationCenter } from "./components/Notifications/openNotificationCenter";
+import { paletteTabTargets } from "./components/CommandPalette/paletteTabs";
 import { forwardTerminalFallback } from "./lib/terminalFallbackInput";
 import { writeTerminalInput } from "./hooks/terminal/terminalInputWrite";
 import { cacheThemeSnapshot, isLightColor, themeToCSS } from "./lib/themeCss";
-import { nativeFolderDialog as openDialog } from "./lib/nativeBridge";
 import { fontSizeToUiFontScale } from "./lib/uiFontScale";
 import { DEV_BUILD } from "./lib/devBuild";
 import { FreeLimitPlansModal } from "./components/billing/FreeLimitPlansModal";
+import { useAccountMeshLimitNotice } from "./components/MeshPanel/accountMeshLimitNotice";
 import { precheckFreeLimit } from "./components/billing/freeLimitGate";
 // TODO: Agent Swarm Visualization — future feature import { SwarmOverlay } from "./components/Swarm/SwarmOverlay";
 
@@ -372,6 +378,7 @@ function AppInner() {
   );
 
   useComposerDraftGc(state.tabs);
+  useAccountMeshLimitNotice();
   const configRef = useRef(config);
   configRef.current = config;
 
@@ -587,28 +594,35 @@ function AppInner() {
     [setTabPty],
   );
 
+  const { pickFolder, folderPicker } = useFolderPicker();
+  const handleNewWorkspace = useCallback(async () => {
+    if (precheckFreeLimit(["workspaces"])) return;
+    const folder = await pickFolder("Choose workspace folder");
+    if (!folder) return;
+    const basename = folder.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "Workspace";
+    await createWorkspace(basename, folder);
+  }, [pickFolder, createWorkspace]);
+  const openSettings = useCallback((section?: SettingsLinkId) => {
+    setSettingsSection(section);
+    setSettingsOpen(true);
+  }, [setSettingsOpen]);
+  const showBell = config.notifications?.show_bell !== false;
+
   const paletteCommands = useMemo(
     () =>
       buildDefaultCommands({
         newTab: handleNewTab,
         closeTab: handleCloseCurrentTab,
-        newWorkspace: () => {
-          if (precheckFreeLimit(["workspaces"])) return;
-          openDialog({ directory: true, multiple: false, title: "Choose workspace folder" })
-            .then((folder) => {
-              if (!folder) return;
-              const basename = folder.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "Workspace";
-              createWorkspace(basename, folder);
-            })
-            .catch(() => {});
-        },
-        openSettings: () => { setSettingsSection(undefined); setSettingsOpen(true); },
+        newWorkspace: () => void handleNewWorkspace(),
+        openSettings: () => openSettings(),
+        openThemeSettings: () => openSettings("general"),
         toggleSidebar,
+        openNotifications: showBell ? openNotificationCenter : undefined,
         spawnClaude: async () => {
           const wsId = stateRef.current.active_workspace_id ?? stateRef.current.workspaces[0]?.id;
           if (!wsId || precheckFreeLimit(["agent.tabs"])) return;
+          const workspace = stateRef.current.workspaces.find((candidate) => candidate.id === wsId);
           if (config.agent.full_access === undefined) {
-            const workspace = stateRef.current.workspaces.find((candidate) => candidate.id === wsId);
             openNewSessionPicker({
               workspaceId: wsId,
               workspaceCwd: workspace?.cwd ?? null,
@@ -616,43 +630,73 @@ function AppInner() {
             });
             return;
           }
-          let folder: string | null;
-          try {
-            folder = await openDialog({
-              directory: true,
-              multiple: false,
-              title: "Choose project folder for Claude",
-            });
-          } catch {
-            return;
-          }
-          if (!folder) return;
-          spawnClaudeTab(wsId, folder);
+          const folder = workspace?.cwd || await pickFolder("Choose project folder", workspace?.cwd);
+          if (folder) spawnClaudeTab(wsId, folder);
         },
+      }, {
+        bindings: config.keybindings,
+        tabs: paletteTabTargets(state.workspaces, state.tabs),
+        goToTab: (workspaceId, tabId) => { setActiveTab(workspaceId, tabId); handleNavigateToTab(); },
       }),
     [
       handleNewTab,
       handleCloseCurrentTab,
-      createWorkspace,
+      handleNewWorkspace,
+      openSettings,
+      showBell,
       config.agent.full_access,
+      config.keybindings,
+      pickFolder,
       spawnClaudeTab,
       toggleSidebar,
+      state.workspaces,
+      state.tabs,
+      setActiveTab,
+      handleNavigateToTab,
     ],
   );
 
-  const kb = config.keybindings;
-  const kbKey = JSON.stringify(kb);
   const activeWorkspaceId = activeWs?.id ?? null;
+  const workspaceCanvasActive = workspaceCanvasVisible || !!cronSelection || workspaceMapWorkspaceId !== null || automationWorkspaceId !== null;
+  const cycleTab = (direction: 1 | -1) => {
+    const ws = stateRef.current.workspaces.find((w) => w.id === stateRef.current.active_workspace_id);
+    if (!ws) return false;
+    const items = buildSidebarCycleItems(ws.tabs, stateRef.current.tabs, false);
+    if (items.length < 2) return false;
+    const next = cycleStep(items, stateRef.current.activeTabIds[ws.id], workspaceCanvasActive, direction);
+    if (!next || next.kind !== "tab") return false;
+    setActiveTab(ws.id, next.tabId);
+    handleNavigateToTab();
+    return true;
+  };
+  const zoom = (action: "zoom_in" | "zoom_out" | "zoom_reset") => {
+    const size = zoomedFontSize(config.font.size, action);
+    if (size !== config.font.size) void updateConfig({ ...config, font: { ...config.font, size } }).catch(() => {});
+  };
+  const focusedTabId = () => stateRef.current.focused_tab_id;
+  useAppShortcuts(config.keybindings, {
+    new_tab: handleNewTab,
+    close_tab: handleCloseCurrentTab,
+    reopen_tab: () => { if (activeWorkspaceId) void reopenClosed(activeWorkspaceId, 0); },
+    next_tab: () => cycleTab(1),
+    prev_tab: () => cycleTab(-1),
+    new_workspace: () => void handleNewWorkspace(),
+    copy: () => { const tabId = focusedTabId(); return tabId ? copyFromTab(tabId) : false; },
+    paste: () => { const tabId = focusedTabId(); return tabId ? pasteToTab(tabId) : false; },
+    search: () => {
+      const tabId = focusedTabId();
+      if (!tabId) return false;
+      window.dispatchEvent(new CustomEvent("codeterm-toggle-search", { detail: { tabId } }));
+    },
+    zoom_in: () => zoom("zoom_in"),
+    zoom_out: () => zoom("zoom_out"),
+    zoom_reset: () => zoom("zoom_reset"),
+    open_settings: () => openSettings(),
+    toggle_sidebar: toggleSidebar,
+  });
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Config-driven bindings (language-independent via e.code)
-      // Browser-standard reopen-closed-tab. Most recent = ring index 0.
-      if (matchesBinding(e, kb.reopen_tab ?? "Ctrl+Shift+T")) {
-        e.preventDefault();
-        if (activeWorkspaceId) reopenClosed(activeWorkspaceId, 0);
-        return;
-      }
-
       if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) return;
 
       // FALLBACK: If xterm.js textarea doesn't have focus, send keys directly to PTY.
@@ -671,11 +715,7 @@ function AppInner() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [
-    kbKey,
-    activeWorkspaceId,
-    reopenClosed,
-  ]);
+  }, []);
 
   const themeStyles = useMemo(() => themeToCSS(stableTheme), [stableTheme]);
   const isCRT = stableTheme.name.toLowerCase().replace(/[\s-]/g, "") === "pipboy";
@@ -769,7 +809,7 @@ function AppInner() {
                 mainView={mainView}
                 config={config}
                 uiFontScale={uiFontScale}
-                workspaceCanvasActive={workspaceCanvasVisible || !!cronSelection || workspaceMapWorkspaceId !== null || automationWorkspaceId !== null}
+                workspaceCanvasActive={workspaceCanvasActive}
                 onOpenWorkspaceMap={openWorkspaceMap}
                 onOpenWorkspaceAutomation={openWorkspaceAutomation}
                 teamActions={teamActions}
@@ -981,6 +1021,7 @@ function AppInner() {
       </PlansProvider>
 
       <CommandPalette commands={paletteCommands} />
+      {folderPicker}
 
 
       <StorageUnavailableToast active={state.storageUnavailable === true} />

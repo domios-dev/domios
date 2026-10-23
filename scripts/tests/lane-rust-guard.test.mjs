@@ -95,6 +95,21 @@ test('absent offline identity refuses',()=> {
  assert.equal(readGateProof({}),null);
  assert.equal(readGateProof({CODETERM_PLAN_ID:'../../foreign',CODETERM_PAD_DIR:'/runtime/agent-pads/tab'}),null);
 });
+
+test('task-bound workspace grant reads current host attempt instead of stale YAML',()=> {
+ const f=fixture(); f.args=['nextest','workspace'];
+ f.tasks[0].execution_attempts[0].authorized_gates=[gateCommand(f.args)];
+ const proof=readGateProof(f.env,()=>{throw new Error('stale YAML must not be read');},undefined,(binary,argv)=>{
+  assert.equal(binary,'codeterm');
+  assert.deepEqual(argv,['plan','task','show','pl_test','task_test','--json']);
+  return JSON.stringify({data:{task:f.tasks[0]}});
+ });
+ assert.equal(authorizedRustGate({...f,...proof}),true);
+ for(const args of [['nextest','plugin'],['nextest','workspace','all()'],['test-one','app','tests::'],['check-queue']]) {
+  assert.equal(authorizedRustGate({...f,...proof,args}),false);
+ }
+ assert.throws(()=>readGateProof(f.env,undefined,undefined,()=>{throw new Error('host unavailable');}),/host unavailable/);
+});
 test('shell guard fails closed with exact message when offline proof is unavailable',()=> {
  const guard=readFileSync(new URL('../lane-rust-guard.sh',import.meta.url),'utf8');
  const result=spawnSync(bash,['-c',`${guard}\ngit() { printf '/canonical\\n'; }\nunset CODETERM_PAD_DIR\nCODETERM_ALLOW_LANE_RUST_TESTS=1\nrequire_canonical_rust_tests nextest plugin`],{encoding:'utf8'});

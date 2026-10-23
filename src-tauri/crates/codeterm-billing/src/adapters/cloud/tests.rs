@@ -25,8 +25,10 @@ async fn build_endpoint_missing_uses_local_free_and_honest_actions() {
             email: None,
             display_name: None,
             provider: "local".into(),
+            photo_url: None,
         },
         id_token: codeterm_account::Secret::new("test-token"),
+        expires_at: None,
     };
     assert_eq!(
         local.entitlements(&session).await.unwrap(),

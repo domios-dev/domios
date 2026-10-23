@@ -732,7 +732,6 @@ fn confirmed_provider_exit_resets_terminal_modes_for_shell() {
     fixture
         .service
         .screen_state
-        .lock()
         .process(pty_id, b"\x1b[?2004h\x1b[?1h\x1b=");
 
     assert!(fixture
@@ -740,11 +739,7 @@ fn confirmed_provider_exit_resets_terminal_modes_for_shell() {
         .clear_tab_agent_identity_after_confirmed_exit(&tab_id, "provider process exited"));
 
     assert_eq!(
-        fixture
-            .service
-            .screen_state
-            .lock()
-            .bracketed_paste_mode(pty_id),
+        fixture.service.screen_state.bracketed_paste_mode(pty_id),
         Some(false)
     );
     fixture
@@ -753,4 +748,24 @@ fn confirmed_provider_exit_resets_terminal_modes_for_shell() {
         .lock()
         .kill(pty_id)
         .expect("stop the tab's surviving shell PTY");
+}
+
+#[test]
+fn tab_cwd_updates_store_plain_windows_paths() {
+    for input in [r"\\?\C:\Users\User\ScoutSub", r"C:\Users\User\ScoutSub"] {
+        let (mux, id) = crate::multiplexer::state::MultiplexerState::new();
+        let fixture = ServiceFixture::new(mux);
+        fixture.service.update_tab_cwd(&id, input.into());
+        assert_eq!(
+            fixture
+                .service
+                .mux
+                .read()
+                .get_tab(&id)
+                .unwrap()
+                .cwd
+                .as_deref(),
+            Some(r"C:\Users\User\ScoutSub")
+        );
+    }
 }

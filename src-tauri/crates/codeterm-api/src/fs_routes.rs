@@ -47,7 +47,7 @@ fn expand_path(input: Option<String>) -> PathBuf {
 }
 
 fn display_path(path: &Path) -> String {
-    path.to_string_lossy().into_owned()
+    codeterm_paths::strip_verbatim_prefix(&path.to_string_lossy())
 }
 
 fn parent_path(path: &Path) -> Option<String> {

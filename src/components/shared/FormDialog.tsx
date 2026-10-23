@@ -1,6 +1,7 @@
 import { useEffect, useRef, type FormEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { trapDialogTab } from "./dialogFocusTrap";
+import { useBackDismissal } from "../../lib/backDismissal";
 
 function useFormDialogFocus() {
   const dialog = useRef<HTMLFormElement>(null);
@@ -25,6 +26,7 @@ export function FormDialog({ titleId, descriptionId, onCancel, onSubmit, childre
   const dialog = useFormDialogFocus();
   const cancel = useRef(onCancel);
   cancel.current = onCancel;
+  useBackDismissal(true, onCancel);
   return createPortal(
     <div className="fixed inset-0 z-[1000] grid place-items-center bg-[color-mix(in_srgb,var(--ct-bg)_60%,transparent)] p-4"
       onMouseDown={(event) => { if (event.target === event.currentTarget) cancel.current(); }}>

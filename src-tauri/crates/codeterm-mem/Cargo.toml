@@ -51,7 +51,7 @@ default = ["embeddings"]
 embeddings = ["dep:sqlite-vec", "dep:rayon", "dep:candle-core", "dep:candle-nn", "dep:candle-transformers", "dep:tokenizers", "dep:hf-hub", "dep:annembed", "dep:ndarray", "dep:hnsw_rs"]
 
 [dev-dependencies]
-codeterm-secrets = { path = "../codeterm-secrets" }
+codeterm-util = { path = "../codeterm-util", features = ["test-support"] }
 tempfile = "3"
 
 [lints]

@@ -32,7 +32,7 @@ fn mesh_with(
     mesh.disk_persist = false;
     mesh.paired_peers.clear();
     for peer in peers {
-        mesh.paired_peers.insert(peer.instance_id.clone(), peer);
+        mesh.insert_legacy_pair_for_test(peer);
     }
     mesh
 }

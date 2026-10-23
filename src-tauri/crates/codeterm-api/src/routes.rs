@@ -15,9 +15,9 @@ use super::{
     config_routes, cron_routes, debug_routes, essence_map_routes, fs_routes, health_routes,
     inbound_webhook, logs_routes, mem_routes, mesh_inventory, mesh_routes, network_routes,
     notification_routes, output_stream, pasteboard_routes, plan_routes, plugin_tab_menu_routes,
-    pty_routes, services_routes, session_routes, surface_routes, tab_agent_routes, tab_routes,
-    team_mission_control_routes, team_spend, theme_routes, updater_routes, usage_routes,
-    web_routes, webhook_routes, workspace_routes,
+    pty_routes, services_routes, session_routes, stream_mux, surface_routes, tab_agent_routes,
+    tab_routes, team_mission_control_routes, team_spend, theme_routes, updater_routes,
+    usage_routes, web_routes, webhook_routes, workspace_routes,
 };
 
 mod frontend_missing;
@@ -43,7 +43,7 @@ fn configured_origin(origin: &str) -> Option<axum::http::HeaderValue> {
     origin.parse().ok()
 }
 
-fn cors_layer(frontend_origins: &[String], configured_origins: &[String]) -> CorsLayer {
+pub fn cors_layer(frontend_origins: &[String], configured_origins: &[String]) -> CorsLayer {
     let mut origins = frontend_origins
         .iter()
         .filter_map(|origin| origin.parse::<axum::http::HeaderValue>().ok())
@@ -455,6 +455,15 @@ pub(super) fn create_router_with_preview_admission(
         )
         .route("/api/events/stream", get(web_routes::events_stream))
         .route("/api/output/stream", get(output_stream::output_stream))
+        .route("/api/stream-mux", get(stream_mux::stream_mux_open))
+        .route(
+            "/api/stream-mux/{session}/channels",
+            post(stream_mux::stream_mux_open_channel),
+        )
+        .route(
+            "/api/stream-mux/{session}/channels/{channel}",
+            axum::routing::delete(stream_mux::stream_mux_close_channel),
+        )
         .route("/api/transcribe-voice", post(web_routes::transcribe_voice))
         .route(
             "/api/tabs/{id}/chat-raw/start",
@@ -604,6 +613,7 @@ pub(super) fn create_router_with_preview_admission(
             )),
         )
         .route("/api/account/logout", post(super::account_routes::logout))
+        .merge(super::account_mesh_routes::router())
         .route("/api/update/check", get(updater_routes::check_update))
         .route(
             "/api/update/availability",
@@ -629,40 +639,25 @@ pub(super) fn create_router_with_preview_admission(
             "/api/mesh/attachments/transfer",
             post(super::mesh_attachment::transfer),
         )
-        .route("/api/mesh/discover", post(mesh_routes::mesh_discover))
-        .route("/api/mesh/connect", post(mesh_routes::mesh_connect_peer))
-        .route("/api/mesh/approve", post(mesh_routes::mesh_approve_peer))
-        .route("/api/mesh/reject", post(mesh_routes::mesh_reject_peer))
+        .route("/api/mesh/link", post(mesh_routes::mesh_account_link))
+        .route("/api/mesh/link/hello", post(mesh_routes::mesh_link_hello))
+        .route(
+            "/api/mesh/link/confirm",
+            post(mesh_routes::mesh_link_confirm),
+        )
+        .route("/api/mesh/link/commit", post(mesh_routes::mesh_link_commit))
+        .route("/api/mesh/adopt/offer", post(mesh_routes::mesh_adopt_offer))
+        .route(
+            "/api/mesh/adopt/commit",
+            post(mesh_routes::mesh_adopt_commit),
+        )
         .route(
             "/api/mesh/disconnect",
             post(mesh_routes::mesh_disconnect_peer),
         )
         .route("/api/mesh/unrevoke", post(mesh_routes::mesh_unrevoke))
-        .route(
-            "/api/mesh/pair/request",
-            post(mesh_routes::mesh_pair_request),
-        )
-        .route(
-            "/api/mesh/pair/identity",
-            post(mesh_routes::connection::mesh_pair_identity),
-        )
-        .route("/api/mesh/pair/accept", post(mesh_routes::mesh_pair_accept))
-        .route(
-            "/api/mesh/pair/confirm",
-            post(mesh_routes::mesh_pair_confirm),
-        )
-        .route("/api/mesh/pair/reject", post(mesh_routes::mesh_pair_reject))
-        .route("/api/mesh/introduce", post(mesh_routes::mesh_introduce))
         .route("/api/mesh/sync", post(mesh_routes::mesh_sync))
         .route("/api/mesh/enabled", post(mesh_routes::mesh_set_enabled))
-        .route(
-            "/api/mesh/broadcast/start",
-            post(mesh_routes::mesh_start_broadcast),
-        )
-        .route(
-            "/api/mesh/broadcast/stop",
-            post(mesh_routes::mesh_stop_broadcast),
-        )
         .route(
             "/api/mesh/relay",
             post(mesh_routes::mesh_relay).layer(axum::extract::DefaultBodyLimit::max(
@@ -699,18 +694,6 @@ pub(super) fn create_router_with_preview_admission(
             axum::routing::delete(mesh_routes::mesh_unpair),
         )
         .route("/api/mesh/refresh", post(mesh_routes::mesh_refresh))
-        .route(
-            "/api/mesh/peers/add-manual",
-            post(mesh_routes::mesh_add_manual),
-        )
-        .route(
-            "/api/mesh/peers/approve/{id}",
-            post(mesh_routes::mesh_approve_peer_by_id),
-        )
-        .route(
-            "/api/mesh/peers/reject/{id}",
-            post(mesh_routes::mesh_reject_peer_by_id),
-        )
         .route(
             "/api/mesh/peers/disconnect/{id}",
             post(mesh_routes::mesh_disconnect_peer_by_id),

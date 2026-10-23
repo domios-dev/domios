@@ -116,7 +116,7 @@ header. Wait for the cooldown, retry, and the call should succeed.
   shell eligible for fresh launch, its exited session is not owned by exactly
   one provider, it has no live shell, or the provider doesn't support restart.
 - **`500`** — internal failure (PTY spawn error). Check
-  `~/.codeterm-dev/logs/codeterm.log` for the trace.
+  `~/.domios-dev/logs/domios.log` for the trace.
 
 ## 5. Use from another agent
 

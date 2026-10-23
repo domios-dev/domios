@@ -44,9 +44,7 @@ mod tests {
                 "agent restart",
                 endpoint::<crate::agent_restart_routes::AgentRestartBody>(),
             ),
-            ("hook permission", endpoint::<serde_json::Value>()),
-            ("hook stop", endpoint::<serde_json::Value>()),
-            ("hook session start", endpoint::<serde_json::Value>()),
+            ("hook JSON value", endpoint::<serde_json::Value>()),
             (
                 "serve enable",
                 endpoint::<crate::network_routes::ServeEnableBody>(),

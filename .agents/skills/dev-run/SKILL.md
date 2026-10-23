@@ -294,7 +294,7 @@ for `dc config set api.mesh_tailnet_host '"<tailnet-ip>"'`; never a bare CLI
 inheriting production routing. Confirm identity before changing that instance.
 Restart only that named instance through the documented launcher. Verify both
 loopback health and tailnet health, the build identity, and
-`dc config get api_listener.ready_addresses` before `dc mesh broadcast`.
+`dc config get api_listener.ready_addresses` before `dc mesh link`.
 Removing the opt-in uses JSON `null` and another scoped restart.
 
 To join two DEV consoles on different machines over the mesh (pairing,
@@ -303,13 +303,13 @@ managed-by tabs, web UI peer picker, leak and sync checks), follow
 
 A failed secondary bind starts neither listener; no wildcard or LAN fallback
 is allowed. A later secondary listener exit keeps local HTTP serving but clears
-remote readiness and stops broadcast. Recovery is an explicit scoped restart,
+remote readiness. Recovery is an explicit scoped restart,
 not a retry loop. Preserve a failed trial's state and distinguish a new trial.
 
 Troubleshooting: `mesh_listener_not_remotely_ready` means no health-proven remote
 listener can serve the announcement. A configured host is not live evidence.
-Do not widen the default bind or repeatedly connect to a stale discovered
-address; verify the named instance's live listener set first.
+Do not widen the default bind or repeatedly link to a stale endpoint;
+verify the named instance's live listener set first.
 
 - `~/.domios-dev/` — config, mem DB, sessions, logs, mesh identity
 - `~/.domios-dev/config.toml` — themes, keybindings, api section
@@ -504,7 +504,7 @@ Claude Code should auto-load this skill whenever the user mentions:
 
 Don't preemptively run `./build.sh dev` on every edit — only when the user asks or when you have a Rust/prompt change that definitely needs a live binary to verify.
 
-<!-- revision: 9 -->
+<!-- revision: 12 -->
 
 ### REST listener bind recovery
 
@@ -810,4 +810,53 @@ Debug `[boot-operation]` records measure embedded extraction, capability registr
 
 Component manifests now require schema2 and a platform-specific client_identity. Windows/Linux require the exact lowercase SHA256 variant; macOS requires the approved Apple-anchored team/identifier designated requirement. macOS resolves only ../MacOS/domios-server from Tauri's canonical Domios.app/Contents/Resources root. The client validates its running code identity and the installed app seal; the server validates the attaching pinned client the same way. Server bytes remain SHA256-pinned on every platform. A schema1 manifest, foreign identity kind, weak requirement or wrong bundle path refuses; rebuild/restage the matching pair rather than bypassing verification. No signed macOS runtime proof is supplied by source or Windows lane compilation. Native CDP remains Windows-only.
 
-Headless schema2 manifests use client_identity kind none and the exact flat domios-server/domios-server[.exe] layout on every OS. The server verifies those bytes without creating a native-host listener; native client enrollment refuses none. macOS flat raw-client DEV staging remains unsupported: native DEV needs a signed app-shaped pair, and debug builds do not bypass the platform identity rule.
+Headless schema2 manifests use client_identity kind none and the exact flat domios-server/domios-server[.exe] layout on every OS. The server verifies those bytes without creating a native-host listener; native client enrollment refuses none. macOS flat raw-client DEV staging remains unsupported. Named isolated DEV stages the signed app pair described below; debug builds retain the platform identity rule.
+
+### Named isolated macOS DEV
+
+Use an explicit unused instance and private API/frontend/CDP ports from the assigned lane:
+
+```bash
+CODETERM_DEV_INSTANCE=macdev-fix CODETERM_DEV_API_PORT=17991 \
+CODETERM_DEV_VITE_PORT=14991 CODETERM_DEV_CDP_PORT=9491 ./build.sh dev --wait --wait-build
+```
+
+The launcher stages `<instance-target>/debug/.domios-dev-runtime/Domios.app`,
+with the native client and signed server in `Contents/MacOS` and the component
+inventory in `Contents/Resources`. Host and target-qualified Cargo outputs stay
+unchanged. Tauri resolves `../Resources` from that client; no resource override
+or fake Cargo marker is used. Canonical DEV, Windows/Linux and release paths
+retain their existing layouts.
+
+The normal local signing selector requires one Developer ID Application identity
+in the login keychain; ambiguous or unavailable identities refuse. Explicit
+`APPLE_SIGNING_IDENTITY`, `APPLE_TEAM_ID` and `RELEASE_KEYCHAIN` select an existing
+approved identity. No ad-hoc fallback or notarization is used for this local DEV
+bundle. The nested server is signed before inventory hashing, then the outer
+app is sealed without `--deep` signing. Strict nested verification tests the
+exact Apple-anchored team and `com.domios.app` requirement before provenance is
+recorded; native verification still runs at launch.
+
+Apple Silicon macOS enables the SHA crate's supported hardware backend for the
+native client and server, including release builds. Full-file validation and
+all bootstrap deadlines remain unchanged; Windows/Linux and Intel macOS keep
+their existing SHA feature selection.
+
+The production-mode frontend watcher and static server use the checkout's
+`dist/`, outside the sealed app. The app's resource snapshot stays immutable.
+Named macOS `dev-server` refuses before shutdown because replacing nested code
+would change the seal beneath a running client; use the same scoped `dev`
+command for native/server edits. `dev-prebuilt --wait` reuses an unchanged signed
+pair with the same explicit instance/port settings.
+
+Detached named macOS cleanup has a follow-up limitation: scoped `build.sh kill`
+stops the server and watchers while the surviving native client may recover a
+new server. For an owned validation run, retain the native attachment receipt,
+exact executable and process creation identity; stop only that verified client
+first. Then use `node scripts/dev-server.mjs inspect <record> <data> <private-port>
+<owned-receipt>` and `node scripts/dev-server.mjs stop <record> <data>
+<private-port> <owned-receipt>` for required cleanup and pinned server exit.
+Finally use the same explicit instance/port with `./build.sh kill` to reap its
+watcher/static processes and verify all owned processes exited. Native-client
+shutdown automation needs a separate ownership-aware fix; never use global
+process-name kills or address prod, canonical DEV or another instance.

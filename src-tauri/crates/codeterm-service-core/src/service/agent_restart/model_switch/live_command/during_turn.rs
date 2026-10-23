@@ -38,7 +38,6 @@ impl ServiceContext {
                 stage: "admission".into(),
                 screen: self
                     .screen_state
-                    .lock()
                     .get_screen_text(&snap.pty_id)
                     .unwrap_or_default(),
                 reason: error.to_string(),

@@ -7,6 +7,8 @@ mod platform;
 
 pub use platform::PinnedProcess;
 
+#[cfg(test)]
+mod artifact_digest;
 pub mod client_identity;
 #[cfg(target_os = "macos")]
 pub mod code_signature_macos;

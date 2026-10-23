@@ -356,11 +356,9 @@ fn run_agent_state_case(
         ));
     }
     if let Some(ex) = &expected.extracted {
-        if let Some(want) = &ex.keys {
-            let got = final_keys(&steps);
-            if got.as_ref() != Some(want) {
-                failures.push(format!("extracted keys {got:?} != expected {want:?}"));
-            }
+        let got = final_keys(&steps);
+        if got != ex.keys {
+            failures.push(format!("extracted keys {got:?} != expected {:?}", ex.keys));
         }
     }
 

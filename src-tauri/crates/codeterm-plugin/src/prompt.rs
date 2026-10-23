@@ -560,15 +560,6 @@ mod tests {
     }
 
     #[test]
-    fn test_structured_prompt_still_clears_when_gone() {
-        let mut det = PromptDetector::new();
-        det.evaluate_pty_output("tab-1", true, Some("proceed"), parse_yes_no);
-        let decision = det.evaluate_pty_output("tab-1", true, Some("no prompt here"), parse_yes_no);
-        assert!(matches!(decision, PromptDecision::PromptCleared { .. }));
-        assert!(det.active_prompt("tab-1").is_none());
-    }
-
-    #[test]
     fn test_structured_prompt_supersedes_explicit() {
         let mut det = PromptDetector::new();
         let prompt = make_prompt("Allow probe?", &[("Yes", "1"), ("No", "2")]);

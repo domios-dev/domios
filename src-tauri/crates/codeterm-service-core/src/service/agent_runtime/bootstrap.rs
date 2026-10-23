@@ -43,7 +43,7 @@ pub(super) async fn submit(
     let payload = tokio::task::spawn_blocking(move || {
         let payload = owner
             .pending_delivery_payloads
-            .resolve(&record.content_digest)
+            .resolve(&record)
             .map_err(|reason| reason.to_string())?;
         owner
             .chat_send_ledger

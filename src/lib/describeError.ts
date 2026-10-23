@@ -51,7 +51,7 @@ function serialize(input: unknown): string {
   try { return JSON.stringify(input) ?? String(input); } catch { return String(input); }
 }
 
-function unpack(input: unknown): { raw: string; code: string; status: unknown } {
+function unpack(input: unknown): { raw: string; code: string; status: unknown; message: string } {
   const object = record(input);
   const raw = input == null ? "" : typeof input === "string" ? input : typeof object?.body === "string" ? object.body
     : input instanceof Error ? input.message : typeof object?.raw === "string" ? object.raw
@@ -62,7 +62,8 @@ function unpack(input: unknown): { raw: string; code: string; status: unknown } 
     try { parsed = record(JSON.parse(raw.slice(start))) ?? object; } catch { /* Transport messages may not be JSON. */ }
   }
   const detail = record(parsed?.error) ?? parsed;
-  return { raw, code: String(object?.code ?? object?.kind ?? detail?.code ?? detail?.kind ?? ""), status: detail?.status ?? object?.status };
+  return { raw, code: String(object?.code ?? object?.kind ?? detail?.code ?? detail?.kind ?? ""), status: detail?.status ?? object?.status,
+    message: typeof detail?.message === "string" ? detail.message : raw };
 }
 
 export function isPendingRuntimeDeadline(input: unknown): boolean {
@@ -75,9 +76,28 @@ export function isPendingRuntimeDeadline(input: unknown): boolean {
 }
 
 export function describeError(input: unknown, context: ErrorContext = {}): ErrorDescription {
-  const { raw, code, status } = unpack(input);
-  const result = (title: string, cause: string, actions: ErrorAction[], pending = false): ErrorDescription => ({ title, cause, actions, raw, ...(pending ? { pending: true } : {}) });
+  const { raw, code, status, message } = unpack(input);
+  const switching = context.operation === "switching the provider" || code.startsWith("provider_switch_") || /\bprovider_switch_\w+/.test(raw);
+  const details = switching ? message.slice(0, 2048) : raw;
+  const result = (title: string, cause: string, actions: ErrorAction[], pending = false): ErrorDescription => ({ title, cause, actions, raw: details, ...(pending ? { pending: true } : {}) });
   const kind = code.toLowerCase();
+  if (switching) {
+    if (kind === "provider_switch_auth_timeout" || /\bprovider_switch_auth_timeout\b/.test(raw)) {
+      return result("The provider authentication check timed out", "The target CLI did not finish its authentication check in time. Retry the switch.", ["retry"]);
+    }
+    if (kind === "provider_switch_auth_required" || /\bprovider_switch_auth_required\b/.test(raw)) {
+      return result("Sign in to the target provider", "Sign in to the target provider, then retry the switch.", ["sign-in", "retry"]);
+    }
+    if (kind === "provider_switch_auth_unknown" || /\bprovider_switch_auth_unknown\b/.test(raw)) {
+      return result("The target authentication could not be verified", "Check the target provider's sign-in status, then retry the switch.", ["retry"]);
+    }
+    if (kind === "provider_switch_unavailable" || /\bprovider_switch_unavailable\b|Provider not installed:/i.test(raw)) {
+      return result("The target provider is unavailable", "Install the target provider's CLI, then retry the switch.", ["check-executable", "retry"]);
+    }
+    return result("The provider could not be switched", "The switch could not finish. Review the details before trying again.", ["retry"]);
+  }
+  if (kind === "reorder_failed") return result("Could not save the new order", message || "Refresh the workspace and try again.", ["retry"]);
+  if (kind === "tab_rename_failed") return result("Could not rename the tab", message || "The previous name was restored. Try again.", ["retry"]);
   const spawn = /spawn|createprocess|executable|shell/i.test(raw);
   // OS codes are interpreted only in spawn errors; e.g. ENOENT elsewhere may mean an attachment.
   const inferred = !code;

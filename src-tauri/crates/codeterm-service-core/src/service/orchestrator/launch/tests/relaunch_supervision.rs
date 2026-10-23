@@ -192,6 +192,95 @@ fn launch_whose_reservation_was_reminted_registers_a_fresh_nonce() {
 }
 
 #[test]
+fn deferred_structured_preparation_adopts_the_restored_reservation_a_send_pinned() {
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.agent_type = Some("opaque-provider".into());
+    tab.agent_session_id = Some("saved-session".into());
+    tab.session_binding_nonce = Some("snapshot-nonce".into());
+    tab.reported_session_binding_nonce = Some("snapshot-nonce".into());
+    tab.restored_from_snapshot = true;
+    tab.protected = false;
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    crate::service::pty_io::claim_restored_launch(
+        &fixture.service.mux,
+        &tab_id,
+        "opaque-provider",
+        Some("saved-session"),
+        None,
+        true,
+    )
+    .unwrap()
+    .expect("restore claims its launch");
+    let reserved = super::super::reserve_launch_binding_nonce(
+        &fixture.service,
+        &tab_id,
+        Some("saved-session"),
+    )
+    .expect("a restored relaunch reserves on the caller's thread");
+    let mut payload = crate::service::messenger::AgentDeliveryPayload {
+        durable_delivery: None,
+        trace_id: None,
+        transport: crate::service::messenger::Messenger::from(
+            crate::service::messenger::MessageEnvelope::from_codeterm(),
+        )
+        .framed_delivery("opaque-payload"),
+        observer: None,
+        idempotency_key: None,
+        expected_pty_id: None,
+        expected_session_id: None,
+        expected_binding_nonce: None,
+    };
+    let claim = fixture.service.pty_ownership.acquire(&tab_id);
+    fixture
+        .service
+        .pin_agent_delivery_binding(&claim, &mut payload)
+        .unwrap();
+    drop(claim);
+    assert_eq!(
+        payload.expected_binding_nonce.as_deref(),
+        Some(reserved.as_str())
+    );
+    assert_eq!(
+        crate::service::codex_rpc::launch::deferred_launch_nonce(
+            &fixture.service,
+            &tab_id,
+            Some(&reserved)
+        ),
+        reserved
+    );
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab_id)
+        .unwrap()
+        .pty_id = Some("registered-pty".into());
+    let mut launch = LaunchGeneration::begin(&tab_id, "registered-pty".into());
+    launch
+        .capture_binding_nonce(
+            &fixture.service,
+            None,
+            None,
+            AgentLaunchOrigin::RestoredSnapshot,
+            Some("saved-session"),
+            Some(reserved.clone()),
+        )
+        .unwrap();
+    assert_eq!(launch.binding_nonce, payload.expected_binding_nonce);
+    assert!(fixture
+        .service
+        .agent_delivery_binding_matches(&tab_id, &payload));
+    assert!(LAUNCH_REGISTRY.lock().finish(&launch));
+    let unreserved =
+        crate::service::codex_rpc::launch::deferred_launch_nonce(&fixture.service, &tab_id, None);
+    assert_ne!(unreserved, reserved);
+    assert!(!fixture
+        .service
+        .agent_delivery_binding_matches(&tab_id, &payload));
+}
+
+#[test]
 fn restore_resumes_idle_worker() {
     let (mut mux, tab_id) = MultiplexerState::new();
     let pty_id = "restored-worker-pty";

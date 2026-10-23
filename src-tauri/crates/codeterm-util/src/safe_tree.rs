@@ -69,8 +69,19 @@ fn failure(action: &str, path: &Path, error: std::io::Error) -> String {
 }
 
 pub fn remove(path: &Path) -> Result<(), String> {
-    refuse_linked_ancestors(path)?;
-    let root = extended_path(path).map_err(|error| failure("resolve", path, error))?;
+    let absolute = extended_path(path).map_err(|error| failure("resolve", path, error))?;
+    match fs::symlink_metadata(&absolute) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(failure("inspect", path, error)),
+        Ok(metadata) if is_link(&metadata) => {
+            return Err(format!(
+                "refusing reparse point or symlink root '{}'",
+                path.display()
+            ));
+        }
+        Ok(_) => {}
+    }
+    let root = fs::canonicalize(&absolute).map_err(|error| failure("resolve", path, error))?;
     let mut pending = vec![(root.clone(), false)];
     while let Some((path, visited)) = pending.pop() {
         let metadata = match fs::symlink_metadata(&path) {

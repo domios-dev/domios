@@ -270,7 +270,7 @@ mod tests {
         let config = codeterm_service_core::config::schema::AppConfig::default();
         let mut mesh = codeterm_service_core::mesh::MeshManager::new("rpc-origin".into(), 0);
         if let Some(peer) = peer {
-            mesh.paired_peers.insert(peer.instance_id.clone(), peer);
+            mesh.insert_legacy_pair_for_test(peer);
         }
         crate::routes::AppState {
             frontend_dev_url: None,

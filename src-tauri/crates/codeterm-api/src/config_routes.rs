@@ -277,14 +277,12 @@ pub async fn patch_config_api(
     );
 
     if mesh_disabled {
-        log::info!("[mesh] disabled mid-session — stopping broadcast + marking peers offline");
-        codeterm_service_core::mesh::discovery::stop_broadcast(&state.mesh);
+        log::info!("[mesh] disabled mid-session — marking peers offline");
         {
             let mut m = state.mesh.lock();
             for peer in m.paired_peers.values_mut() {
                 peer.online = false;
             }
-            m.discovered_peers.clear();
         }
         state
             .svc

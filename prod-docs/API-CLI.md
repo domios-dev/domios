@@ -5,11 +5,13 @@ Immediate `domios send` exits 1 with its reason on stderr whenever the result is
 Cron JSON exposes `protected: true` for system jobs. System jobs refuse deletion and schedule/task edits; use `domios cron enable <id>` or `domios cron disable <id>` to control them.
 
 
-CLI identity rules, environment variables, agent integration, and desktop behavior.
-
 ## CLI
 
 Use `domios <command> --help` for the installed CLI contract. `codeterm` remains a fully working alias; both names show canonical `domios` help and usage.
+
+### Startup readiness
+
+With the socket unavailable, credentialed CLI fallback probes RPC directly. A `starting` reply waits on startup events for up to 30 seconds before repeating the identify probe and submitting the first command. Without credentials, discovery checks the selected instance's loopback health first. REST recovery refuses immediately. Errors name the phase; JSON codes `starting`/`startup_failed` preserve `data.startup`. Fallback uses the selected local secret-store credential when absent from the environment. Commands never replay.
 
 ### Remote task locations
 
@@ -79,15 +81,17 @@ Planner mutation commands emit one JSON envelope: `{ok, kind, id, data, hints?, 
 
 ### CLI JSON Errors
 
-With `--json` every command prints exactly one JSON object on stdout for success and for failure, including argument errors; stderr stays empty. A failure is `{"ok":false,"kind":"error","id":null,"data":...,"hints":[],"error":{"code","message","hint","rpc_code"}}` and the command exits non-zero. `error.code` is one of `not_found`, `invalid_argument`, `conflict`, `rate_limited`, `refused`, `unavailable`, `internal`, or a command-specific snake_case code; a missing tab, plan, cron job, peer, or plugin is always `not_found`. `rpc_code` is the raw daemon code or null. Exit codes: `0` success, `1` failure, `2` invalid arguments, and the command-specific codes named in `SECRETS` and `MESH-BRIDGE`. Structured daemon error data stays under `data`, including `invalid_model` fields such as the provider, requested id, closest catalogue ids, and refresh command. An ambiguous bare id uses `ambiguous_model` with the provider choices and a message asking for `--agent`. Mesh relay failures keep the peer's own delivery `code` inside `error`.
+With `--json` commands print exactly one JSON object on stdout for success and for failure, including argument errors; stderr stays empty. The local-only `domios system api-token` success output is an exception: it always prints only the credential, without a newline or JSON wrapper. A failure is `{"ok":false,"kind":"error","id":null,"data":...,"hints":[],"error":{"code","message","hint","rpc_code"}}` and the command exits non-zero. `error.code` is one of `not_found`, `invalid_argument`, `conflict`, `rate_limited`, `refused`, `unavailable`, `internal`, or a command-specific snake_case code; a missing tab, plan, cron job, peer, or plugin is always `not_found`. `rpc_code` is the raw daemon code or null. Exit codes: `0` success, `1` failure, `2` invalid arguments, and the command-specific codes named in `SECRETS` and `MESH-BRIDGE`. Structured daemon error data stays under `data`, including `invalid_model` fields such as the provider, requested id, closest catalogue ids, and refresh command. An ambiguous bare id uses `ambiguous_model` with the provider choices and a message asking for `--agent`. Mesh relay failures keep the peer's own delivery `code` inside `error`.
 
 ### Sandboxed CLI transport
 
-The CLI uses the local named pipe or Unix socket first. If that transport cannot be discovered or connected, socket RPC and REST-backed CLI commands can use the authenticated `POST /api/cli/rpc` loopback endpoint. The fallback needs `CODETERM_API_TOKEN` and either `CODETERM_API_PORT` or `CODETERM_API_URL`; it always targets `http://127.0.0.1:<port>`, disables proxies and redirects, and refuses any configured URL that is not exactly an HTTP IPv4 loopback origin. Custom dev ports also need `CODETERM_INSTANCE` or an explicit socket path, so the CLI never guesses the default DEV socket for a named target. The endpoint dispatches the same RPC methods as the local socket. This includes `api.request`, used for REST-backed commands such as plan reads, tab inspection, notifications, and agent-pad access. The token must be the local API token and the TCP peer must be loopback; mesh peer credentials are refused. HTTP success wraps the daemon value in `{result: ...}`, so result objects may contain their own `error` field without being mistaken for transport failures.
+The CLI tries its local pipe/socket first, then authenticated loopback `POST /api/cli/rpc` for socket and REST-backed commands. Credentials resolve through one local secret-store boundary: `CODETERM_API_TOKEN` for a matching tab connection, otherwise the selected instance's `<data_dir>/.secrets`. An explicit DEV selection needs a configured or explicit port before its callback origin can match an inherited token; foreign selections never reuse a production token. Both startup discovery and RPC fallback refuse a callback URL differing from the resolved instance address.
+
+HTTP fallback requires exactly `http://127.0.0.1:<port>` without credentials, path, query or fragment; proxies and redirects are disabled. Named custom-port targets also need `CODETERM_INSTANCE` or an explicit socket path. It dispatches the same socket methods, including `api.request` for REST-backed commands. The credential must be the local API token and the TCP peer loopback; mesh peer tokens are refused. Success wraps data in `{result: ...}`; an inner `error` remains ordinary data.
 
 ### Mesh CLI failures
 
-`domios mesh discover`, `domios mesh broadcast`, and `domios mesh stop-broadcast` check the HTTP result before printing success. When the listener is not remotely ready, the daemon returns HTTP 409 and the CLI exits non-zero with that refusal. Run these commands again after the mesh listener is ready.
+`domios mesh link <installation-id>` checks the HTTP result before printing success. A refusal exits non-zero and carries the typed `failure.reason`; `mesh.machines` means the account's free machine slots are used.
 
 `domios tab list --mesh <peer>` exits non-zero when the peer has no online mesh route; `(no tabs)` is reserved for a successful response from an online peer. `domios tab get-text --mesh <peer>` requires a PTY-backed remote tab. If the tab has no PTY, the CLI reports that condition and suggests choosing a PTY-backed tab.
 
@@ -190,4 +194,4 @@ provider's own machine. Completion verifies the account and resumes the tab's
 same thread without restarting or replaying input. Only one sign-in per provider
 can be pending; Cancel releases it before a retry.
 
-<!-- revision: 56 -->
+<!-- revision: 60 -->
