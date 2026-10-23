@@ -87,7 +87,7 @@ fn decode(raw: &str) -> Result<Vec<Sentinel>, String> {
 impl Store {
     #[cfg(any(test, feature = "test-support"))]
     pub fn new(path: PathBuf, clock: SharedClock) -> Self {
-        let file = StateFile::new(path);
+        let file = StateFile::new(path).with_private_permissions();
         let (jobs, unavailable) = match std::fs::read_to_string(file.path()) {
             Ok(raw) => match decode(&raw) {
                 Ok(jobs) => {

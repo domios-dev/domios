@@ -6,11 +6,10 @@ Instance management:
     endpoint until it responds (up to 120 s for compilation).
 
 Token:
-  - Read from ~/.domios-dev/config.toml after the instance is ready.
+  - Resolve through the DEV CLI secret-store boundary after the instance is ready.
 """
 
 import os
-import re
 import signal
 import subprocess
 import sys
@@ -30,7 +29,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEV_PORT = 7686
 DEV_URL = f"http://127.0.0.1:{DEV_PORT}"
 HEALTH_ENDPOINT = f"{DEV_URL}/api/health"
-DEV_CONFIG_PATH = Path.home() / ".domios-dev" / "config.toml"
 GIT_BASH = Path("C:/Program Files/Git/bin/bash.exe")
 STARTUP_TIMEOUT = 120  # seconds — includes cargo build time
 
@@ -40,24 +38,9 @@ STARTUP_TIMEOUT = 120  # seconds — includes cargo build time
 # ---------------------------------------------------------------------------
 
 def _read_token() -> str | None:
-    """Parse token from ~/.domios-dev/config.toml [api] section."""
-    if not DEV_CONFIG_PATH.exists():
-        return None
-    text = DEV_CONFIG_PATH.read_text()
-    # Simple TOML parser — look for token = "..." under [api]
-    in_api = False
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped == "[api]":
-            in_api = True
-            continue
-        if stripped.startswith("[") and in_api:
-            break  # next section
-        if in_api:
-            m = re.match(r'token\s*=\s*"([^"]*)"', stripped)
-            if m:
-                return m.group(1)
-    return None
+    sys.path.insert(0, str(PROJECT_ROOT / "evals" / "_lib"))
+    from dev_connection import dev_token
+    return dev_token()
 
 
 def _resolve_token() -> str | None:

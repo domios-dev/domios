@@ -165,6 +165,7 @@ pub struct ApiConfig {
     pub host: String,
     pub mesh_tailnet_host: Option<String>,
     pub port: u16,
+    #[serde(skip)]
     pub token: Option<String>,
     pub cors: bool,
     pub cors_allow_origins: Vec<String>,

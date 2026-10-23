@@ -49,14 +49,14 @@ fn config_parse_error_preserves_file_and_token() {
     let cache: ConfigCache = Mutex::new(None);
     let config = load_config_cached(&path, &cache);
 
-    assert_eq!(config.api.token.as_deref(), Some("tok-original"));
+    assert_rotated(tmp.path(), &config);
     assert_eq!(config.agent.full_access, Some(true));
     let file = config_file(&path);
     let copies = file.corrupt_copies();
     assert_eq!(copies.len(), 1);
     assert_eq!(std::fs::read_to_string(&copies[0]).unwrap(), broken);
     let restored: AppConfig = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-    assert_eq!(restored.api.token.as_deref(), Some("tok-original"));
+    assert!(restored.api.token.is_none());
     assert_eq!(restored.agent.full_access, Some(true));
     assert!(file.held().is_none());
     assert_eq!(incidents_for(&path).len(), 1);
@@ -72,11 +72,7 @@ fn config_parse_error_without_backup_writes_marked_salvage_and_keeps_hold() {
     let cache: ConfigCache = Mutex::new(None);
     let config = load_config_cached(&path, &cache);
 
-    assert_eq!(
-        config.api.token.as_deref(),
-        Some("tok-original"),
-        "the configured token is salvaged, never rotated"
-    );
+    assert_rotated(tmp.path(), &config);
     assert_eq!(config.agent.full_access, Some(true));
     assert!(
         path.exists(),
@@ -89,7 +85,7 @@ fn config_parse_error_without_backup_writes_marked_salvage_and_keeps_hold() {
         "unsalvaged defaults stay implicit"
     );
     let restored: AppConfig = toml::from_str(&salvaged).unwrap();
-    assert_eq!(restored.api.token.as_deref(), Some("tok-original"));
+    assert!(restored.api.token.is_none());
     assert_eq!(restored.agent.full_access, Some(true));
     assert_eq!(restored.theme.name, "nord");
     assert_eq!(restored.general_agent.agent_provider, "codex");
@@ -121,7 +117,7 @@ fn config_parse_error_without_backup_writes_marked_salvage_and_keeps_hold() {
 
     let restarted_cache: ConfigCache = Mutex::new(None);
     let again = load_config_cached(&path, &restarted_cache);
-    assert_eq!(again.api.token.as_deref(), Some("tok-original"));
+    assert_eq!(again.api.token, config.api.token);
     assert!(
         file.held().is_some(),
         "the salvage marker restores the hold"
@@ -173,7 +169,7 @@ fn config_salvage_keeps_intact_tables_after_a_damaged_table() {
     let salvaged = std::fs::read_to_string(&path).unwrap();
     let restored: AppConfig = toml::from_str(&salvaged).unwrap();
 
-    assert_eq!(config.api.token.as_deref(), Some("tok-original"));
+    assert_rotated(tmp.path(), &config);
     assert_eq!(restored.agent.full_access, Some(false));
     assert_eq!(restored.general_agent.agent_provider, "codex");
     assert_eq!(restored.memory.dreaming_agent, "opencode");
@@ -206,7 +202,8 @@ fn unreadable_token_is_never_generated_after_a_parse_error() {
 fn runtime_parse_error_keeps_last_known_config_and_holds_writes() {
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("config.toml");
-    std::fs::write(&path, VALID).unwrap();
+    codeterm_util::instance_token::initialize_at(tmp.path(), Some("tok-original"), false).unwrap();
+    std::fs::write(&path, VALID.replace("token = \"tok-original\"\n", "")).unwrap();
     let cache: ConfigCache = Mutex::new(None);
     assert_eq!(
         load_config_cached(&path, &cache).api.token.as_deref(),
@@ -230,13 +227,13 @@ fn runtime_parse_error_keeps_last_known_config_and_holds_writes() {
         "no backup was ever written, so writes are held"
     );
     let held: AppConfig = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-    assert_eq!(held.api.token.as_deref(), Some("tok-original"));
+    assert!(held.api.token.is_none());
     assert!(file.backups().is_empty());
 
     std::fs::write(&path, VALID.replace("tok-original", "tok-fixed")).unwrap();
     bump_mtime(&path);
     let fixed = load_config_cached(&path, &cache);
-    assert_eq!(fixed.api.token.as_deref(), Some("tok-fixed"));
+    assert_eq!(fixed.api.token.as_deref(), Some("tok-original"));
     assert!(file.held().is_none(), "a fixed file releases the hold");
 }
 
@@ -244,7 +241,8 @@ fn runtime_parse_error_keeps_last_known_config_and_holds_writes() {
 fn config_bounds_invalid_load_keeps_last_known_config() {
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("config.toml");
-    std::fs::write(&path, VALID).unwrap();
+    codeterm_util::instance_token::initialize_at(tmp.path(), Some("tok-original"), false).unwrap();
+    std::fs::write(&path, VALID.replace("token = \"tok-original\"\n", "")).unwrap();
     let cache: ConfigCache = Mutex::new(None);
     let first = load_config_cached(&path, &cache);
     assert_eq!(first.api.token.as_deref(), Some("tok-original"));
@@ -264,4 +262,126 @@ fn salvage_reads_only_intact_lines_of_the_right_tables() {
     let (token, full_access) = salvaged_critical_values(raw);
     assert_eq!(token.as_deref(), Some("t1"));
     assert_eq!(full_access, Some(false));
+}
+
+#[test]
+fn migration_removes_config_token_and_never_rereads_credential_on_reload() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("config.toml");
+    std::fs::write(&path, VALID).unwrap();
+    let cache = Mutex::new(None);
+    let initial = load_config_cached(&path, &cache);
+    assert_rotated(tmp.path(), &initial);
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(!text.contains("tok-original"));
+    assert!(!text.parse::<toml::Table>().unwrap()["api"]
+        .as_table()
+        .unwrap()
+        .contains_key("token"));
+    std::fs::write(tmp.path().join(".secrets"), "unreadable-after-start").unwrap();
+    std::fs::write(&path, text.replace("nord", "dracula")).unwrap();
+    bump_mtime(&path);
+    let reloaded = load_config_cached(&path, &cache);
+    assert_eq!(reloaded.api.token, initial.api.token);
+    assert_eq!(reloaded.theme.name, "dracula");
+}
+
+#[test]
+fn failed_credential_persistence_keeps_legacy_config_intact() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("config.toml");
+    std::fs::write(&path, VALID).unwrap();
+    std::fs::write(tmp.path().join(".secrets"), "damaged").unwrap();
+    let cache = Mutex::new(None);
+    let config = load_config_cached(&path, &cache);
+    assert_eq!(config.api.token.as_deref(), Some("tok-original"));
+    assert!(config_file(&path).held().is_some());
+    assert!(config_file(&path).save("[api]\nenabled = true\n").is_err());
+    assert!(incidents_for(&path)
+        .iter()
+        .any(|incident| incident.error.contains("rotation failed")));
+    assert_eq!(
+        std::fs::read_to_string(tmp.path().join(".secrets")).unwrap(),
+        "damaged"
+    );
+    // Repairing storage does not change the cached runtime authority on reload.
+    std::fs::remove_file(tmp.path().join(".secrets")).unwrap();
+    bump_mtime(&path);
+    let reloaded = load_config_cached(&path, &cache);
+    assert_eq!(reloaded.api.token, config.api.token);
+    assert!(!tmp.path().join(".secrets").exists());
+    assert!(config_file(&path).held().is_some());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), VALID);
+    assert!(crate::save_hook_reconciliation_config_at(&path, &reloaded).is_err());
+    let restarted = load_config_cached(&path, &Mutex::new(None));
+    assert_rotated(tmp.path(), &restarted);
+    assert!(config_file(&path).held().is_none());
+}
+
+#[test]
+fn credentials_use_data_root_when_config_is_separate() {
+    let data = tempfile::tempdir().unwrap();
+    let config = tempfile::tempdir().unwrap();
+    let path = config.path().join("config.toml");
+    std::fs::write(&path, VALID).unwrap();
+    let loaded = load_config_cached_at(&path, data.path(), &Mutex::new(None));
+    assert_rotated(data.path(), &loaded);
+    assert!(data.path().join(".secrets").is_file());
+    assert!(!config.path().join(".secrets").exists());
+}
+
+fn assert_rotated(data_root: &Path, config: &AppConfig) {
+    assert_ne!(config.api.token.as_deref(), Some("tok-original"));
+    assert!(config.api.token.is_some());
+    assert_eq!(
+        config.api.token,
+        codeterm_util::instance_token::read_at(data_root).unwrap()
+    );
+}
+
+#[test]
+fn migration_reuses_persisted_rotation_and_preserves_legacy_backups() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("config.toml");
+    let file = config_file(&path);
+    file.save(VALID).unwrap();
+    let legacy_backup = file.backups().pop().unwrap();
+    let rotated = codeterm_util::instance_token::migrate_at(tmp.path(), "tok-original").unwrap();
+    let loaded = load_config_cached(&path, &Mutex::new(None));
+    assert_eq!(loaded.api.token.as_deref(), Some(rotated.as_str()));
+    assert_eq!(std::fs::read_to_string(legacy_backup).unwrap(), VALID);
+    assert!(!std::fs::read_to_string(&path)
+        .unwrap()
+        .contains("tok-original"));
+    assert_rotated(tmp.path(), &loaded);
+}
+
+#[test]
+fn failed_migration_config_write_keeps_runtime_authority_and_holds_writes() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("config.toml");
+    std::fs::write(&path, VALID).unwrap();
+    let file = config_file(&path);
+    let mut config = toml::from_str::<AppConfig>(VALID).unwrap();
+    apply_instance_token(
+        root.path(),
+        &mut config,
+        VALID,
+        TokenPolicy::GenerateWhenMissing,
+        None,
+    )
+    .unwrap();
+    let authority = config.api.token.clone();
+    persist_migrated_config(&file, &config, |_| Err("injected write failure".into()));
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), VALID);
+    assert_eq!(config.api.token, authority);
+    assert_eq!(
+        codeterm_util::instance_token::read_at(root.path()).unwrap(),
+        authority
+    );
+    assert!(file.held().is_some());
+    assert!(file.save("[api]\nenabled = true\n").is_err());
+    assert!(incidents_for(&path)
+        .iter()
+        .any(|incident| incident.error.contains("injected write failure")));
 }

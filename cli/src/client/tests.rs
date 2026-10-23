@@ -665,3 +665,33 @@ fn restore_env(key: &str, value: Option<String>) {
         None => std::env::remove_var(key),
     }
 }
+
+#[test]
+fn http_fallback_refuses_an_inherited_url_for_another_instance() {
+    let selected = crate::cmd::identify::ResolvedApiConfig {
+        data_dir: std::path::PathBuf::from("selected-dev"),
+        data_dir_source: ResolutionSource::CodeTermInstance,
+        host: "127.0.0.1".into(),
+        host_source: ResolutionSource::Default,
+        port: 7791,
+        port_source: ResolutionSource::Config,
+        token: Some("selected-instance-token".into()),
+    };
+    let error = http_fallback_for_instance(&selected, Some("http://127.0.0.1:7685"))
+        .err()
+        .expect("foreign URL must refuse fallback");
+    assert!(error.contains("differs from the selected instance address"));
+    assert!(!error.contains("selected-instance-token"));
+    assert_eq!(
+        http_fallback_for_instance(&selected, Some("http://127.0.0.1:7791/"))
+            .unwrap()
+            .base_url,
+        "http://127.0.0.1:7791"
+    );
+    assert_eq!(
+        http_fallback_for_instance(&selected, None)
+            .unwrap()
+            .base_url,
+        "http://127.0.0.1:7791"
+    );
+}

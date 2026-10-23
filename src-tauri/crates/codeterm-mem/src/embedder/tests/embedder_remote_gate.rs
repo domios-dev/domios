@@ -120,7 +120,7 @@ fn remote_switch_needs_a_stored_key_and_the_opt_in_and_the_key_file_wins() {
         catalog::activate(&remote_selection(), &ctx(vault(Some("vault-key"))), true),
         Err(BuildError::KeyUnreadable(_))
     ));
-    codeterm_util::private_file::restrict_file_permissions(&file).unwrap();
+    codeterm_util::private_file::restrict(&file).unwrap();
     let from_file =
         catalog::activate(&remote_selection(), &ctx(vault(Some("vault-key"))), true).unwrap();
     from_file.embed_query(&Content::text("hello")).unwrap();

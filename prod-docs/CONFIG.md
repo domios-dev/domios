@@ -2,6 +2,10 @@
 
 Config file: `~/.domios/config.toml` on every platform, auto-created with defaults on first run. `domios identify` shows the active data directory. `[tab_sleep]` has `enabled = true` and `idle_minutes = 60` (15..=10080); idle tabs resume their exact session on interaction.
 
+Sensitive configuration and state use private file writes: Unix files use `0600`; Windows removes inherited and broad access while preserving explicit narrow grants. Data-root, CLI, agent-pad and browser permissions are retained, and shell umasks are unchanged. Startup protects `config.toml` and `.secrets` directly; named state files are tightened in a bounded background pass after the early listener starts. Errors on unrelated state files are logged without stopping startup. The instance API credential is stored at `<data_dir>/.secrets` under `domios.instance:api_token`, read once at daemon startup and retained across configuration reloads. DEV (`~/.domios-dev/`, or `~/.domios-dev-<instance>/`) and production (`~/.domios/`) keep separate credentials. An existing `[api].token` is rotated once on startup: its replacement is persisted before the legacy entry is removed from `config.toml`. Existing backups and corrupt copies are retained and their old bearer is refused. A failed rotation preserves the original configuration and active credential, holds config writes until restart, and reports the error.
+
+`domios system api-token` prints only the selected local instance credential, without a newline or a daemon connection. Capture it privately; `--mesh` is refused. Tabs continue to receive `CODETERM_API_TOKEN`.
+
 ## Full Reference
 
 ```toml
@@ -89,7 +93,7 @@ enabled = true
 host = "127.0.0.1"
 port = 7685
 # Auto-generated on first load; every local control request uses Bearer auth.
-# token = "your-secret-token"
+# The API credential is managed in .secrets, outside configuration.
 
 [general_agent]
 capability_hints = true       # Relevant feature hints during the first week
@@ -214,7 +218,7 @@ Other numeric limits and accepted enum values are reported by `domios config set
 
 ## When config.toml fails to load
 
-A `config.toml` that cannot be read or parsed is never treated as empty and never overwritten. The original is renamed to `config.toml.corrupt-<unix-ms>` (newest 5 kept), one ERROR line names the file and the error, and one action-needed notification names the kept copy. Every successful save also writes a rotating backup under `state-backups/config.toml/` (newest 10 kept); the newest backup that parses is restored, so the API token and `agent.full_access` survive. With no valid backup Domios runs on in-memory defaults and refuses every save until the file is fixed or a valid one is put back (picked up without a restart). The API token is never regenerated after a parse error: it and `agent.full_access` are salvaged from the broken file's intact lines, otherwise token-authenticated calls are refused. A save that finds a hand-edited file that no longer parses preserves it the same way first.
+A `config.toml` that cannot be read or parsed is never treated as empty and never overwritten. The original is renamed to `config.toml.corrupt-<unix-ms>` (newest 5 kept), one ERROR line names the file and the error, and one action-needed notification names the kept copy. Every successful save also writes a rotating backup under `state-backups/config.toml/` (newest 10 kept); the newest backup that parses is restored, so `agent.full_access` and other settings survive. With no valid backup Domios runs on in-memory defaults and refuses every save until the file is fixed or a valid one is put back (picked up without a restart). The API credential comes from the separate local secret store and is never regenerated after a parse error. During the one-time migration an intact legacy token can be salvaged and rotated; otherwise a missing credential refuses token-authenticated calls. `agent.full_access` is salvaged from intact lines. A save that finds a hand-edited file that no longer parses preserves it the same way first.
 
 ## General Agent
 
@@ -236,4 +240,4 @@ Notification settings: `domios docs NOTIFICATIONS`. Integration settings: `domio
 Utility limits apply to each Team and purpose (`build`, `dev`, `qa`, `deploy`, `logs`, `db`, `shell`). At the limit, creation restarts the oldest confirmed idle tab with the new command and description; busy or unknown tabs are refused. Use `domios tab new --description "Runs focused tests" --purpose qa --icon bug`; icon names are Lucide kebab-case names. Structured provider access refusals are always observed from the tab's bound session, independently of optional structured-signal settings. Incident levels and recovery are in the notification document above. Capability plugins may declare `permissions.projectFiles` as config selectors such as `["/root", "/profiles/*/root"]`. These configured, existing absolute directories become read roots. They remain read-only until the owner explicitly approves `domios plugin config <id> --grant project_write`. Approval records canonical roots in `grants.yaml`; changing a profile root never transfers that write grant. Revoke with `--revoke project_write`. Reload the plugin after root or grant changes. Symlink roots, traversal and symlink escapes are refused, including writes below missing parents. Project-file plugins use the confined filesystem even in DEV; they cannot rewrite their own `grants.yaml`. A separately granted arbitrary subprocess remains outside the file-tool confinement contract.
 Domios account sign-in and product analytics settings: `domios docs ACCOUNT`.
 
-<!-- revision: 121 -->
+<!-- revision: 123 -->

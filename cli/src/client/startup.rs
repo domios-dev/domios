@@ -17,25 +17,45 @@ const PHASES: [&str; 8] = [
 
 pub(super) fn target_url() -> Result<String, String> {
     let resolved = crate::resolve_api_config();
+    target_url_for(&resolved)
+}
+
+pub(super) fn target_url_for(
+    resolved: &crate::cmd::identify::ResolvedApiConfig,
+) -> Result<String, String> {
     let explicit_url = std::env::var("CODETERM_API_URL").ok();
     let socket = std::env::var("CODETERM_SOCKET_PATH").ok();
     let explicit_port = std::env::var("CODETERM_API_PORT").ok();
-    if explicit_url.is_none() && explicit_port.is_none() {
-        if socket.as_deref().is_some_and(|socket| {
+    target_url_from(
+        resolved,
+        explicit_url.as_deref(),
+        socket.as_deref(),
+        explicit_port.as_deref(),
+        crate::resolved_instance().value.is_some(),
+    )
+}
+
+fn target_url_from(
+    resolved: &crate::cmd::identify::ResolvedApiConfig,
+    explicit_url: Option<&str>,
+    socket: Option<&str>,
+    explicit_port: Option<&str>,
+    named_instance: bool,
+) -> Result<String, String> {
+    if explicit_url.is_none()
+        && explicit_port.is_none()
+        && socket.is_some_and(|socket| {
             super::socket_dev_class(&super::normalize_socket_path(socket)).is_none()
-        }) {
-            return Err("Cannot derive an HTTP target from CODETERM_SOCKET_PATH".into());
-        }
-        let dev = crate::resolved_instance().value.is_some()
-            || socket
-                .as_deref()
-                .is_some_and(|path| super::is_dev_socket(&super::normalize_socket_path(path)));
-        if dev && resolved.port_source == super::ResolutionSource::Default {
-            return Err("Development API port is absent from the selected configuration".into());
-        }
+        })
+    {
+        return Err("Cannot derive an HTTP target from CODETERM_SOCKET_PATH".into());
     }
-    let configured = format!("http://{}:{}", resolved.host, resolved.port);
-    super::http_base_url_from(Some(explicit_url.as_deref().unwrap_or(&configured)), None)
+    let dev = named_instance
+        || socket.is_some_and(|path| super::is_dev_socket(&super::normalize_socket_path(path)));
+    if dev && resolved.port_source == super::ResolutionSource::Default {
+        return Err("Development API port is absent from the selected configuration".into());
+    }
+    super::http_instance_url(resolved, explicit_url)
 }
 
 pub(super) fn refusal(response: &Value) -> Option<String> {

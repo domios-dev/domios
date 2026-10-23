@@ -241,6 +241,12 @@ pub fn run(
     let probe_workers = audit.is_some();
     let worker_data = identity.data().to_path_buf();
     let mut initializing = runtime.spawn_blocking(move || {
+        codeterm_util::sensitive_state::tighten_existing(&worker_data);
+        if let Ok(config) = codeterm_service_core::paths::config_path() {
+            if config.parent() != Some(worker_data.as_path()) {
+                codeterm_util::sensitive_state::tighten_config_recovery(&config);
+            }
+        }
         let result = (|| {
             let worker_observer = if probe_workers {
                 Some(
