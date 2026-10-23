@@ -31,6 +31,10 @@ describe("reconcileDrawerBinding", () => {
     expect(reconcileDrawerBinding("a", "b", true)).toEqual({ bound: null, close: true });
   });
 
+  it("rebinds instead of closing when the context moved because a restore settled", () => {
+    expect(reconcileDrawerBinding("a", "b", true, true)).toEqual({ bound: "b", close: false });
+  });
+
   it("forgets the binding while no drawer is open, so returning never reopens one", () => {
     expect(reconcileDrawerBinding("a", "b", false)).toEqual({ bound: null, close: false });
     expect(reconcileDrawerBinding(null, "a", false)).toEqual({ bound: null, close: false });
@@ -44,8 +48,8 @@ describe("plan and task drawer wiring", () => {
     act(() => { planSidePanelStore.close(); });
   });
 
-  function Harness({ contextKey }: { contextKey: string }) {
-    usePlanSidePanelContextBinding(contextKey);
+  function Harness({ contextKey, seeds }: { contextKey: string; seeds: number }) {
+    usePlanSidePanelContextBinding(contextKey, seeds);
     return null;
   }
 
@@ -54,8 +58,11 @@ describe("plan and task drawer wiring", () => {
     document.body.append(host);
     const root = createRoot(host);
     mounted.push({ root, host });
-    await act(async () => root.render(<Harness contextKey={contextKey} />));
-    return (next: string) => act(async () => root.render(<Harness contextKey={next} />));
+    let seeds = 0;
+    await act(async () => root.render(<Harness contextKey={contextKey} seeds={seeds} />));
+    const setContext = (next: string) => act(async () => root.render(<Harness contextKey={next} seeds={seeds} />));
+    setContext.restore = (next: string) => act(async () => { seeds += 1; root.render(<Harness contextKey={next} seeds={seeds} />); });
+    return setContext;
   }
 
   it("closes an open task drawer when the active tab changes, and stays closed on return", async () => {
@@ -74,6 +81,15 @@ describe("plan and task drawer wiring", () => {
     act(() => planSidePanelStore.open({ planId: "pl_1", taskId: "task_1", nestedFromPlan: true }));
     expect(planSidePanelStore.get()?.target.taskId).toBe("task_1");
     await setContext("w2:t9");
+    expect(planSidePanelStore.get()).toBeNull();
+  });
+
+  it("keeps the drawer open when the active tab changes because the restore settled, and still closes on a later user change", async () => {
+    const setContext = await mount("w1:t1");
+    act(() => planSidePanelStore.open({ planId: "pl_1", taskId: "task_1" }));
+    await setContext.restore("w2:t9");
+    expect(planSidePanelStore.get()?.target.taskId).toBe("task_1");
+    await setContext("w2:t8");
     expect(planSidePanelStore.get()).toBeNull();
   });
 
