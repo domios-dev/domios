@@ -240,40 +240,75 @@ it("records an explicit subscription plans request after mounting", async () => 
   ]);
 });
 
-it("greets Pro and answers pointer re-entry with a wave, while reduced motion stays static", async () => {
-  const frames: FrameRequestCallback[] = [];
-  const schedule = vi.fn((callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
-  vi.stubGlobal("requestAnimationFrame", schedule);
-  vi.stubGlobal("cancelAnimationFrame", vi.fn());
-  const context = { setTransform() {}, clearRect() {}, beginPath() {}, arc() {}, fill() {} } as unknown as CanvasRenderingContext2D;
-  const canvas = vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(context);
+it("draws changing Pro greeting and re-entry frames for one second, with a visible reduced-motion field", async () => {
+  let now = 100;
+  let nextFrame = 0;
+  const frames = new Map<number, FrameRequestCallback>();
+  vi.spyOn(performance, "now").mockImplementation(() => now);
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+    frames.set(++nextFrame, callback);
+    return nextFrame;
+  });
+  vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
+  const dots: number[][] = [];
+  let dot: number[] = [];
+  const context = {
+    globalAlpha: 1,
+    setTransform() {},
+    clearRect() { dots.length = 0; },
+    beginPath() {},
+    arc(x: number, y: number, radius: number) { dot = [x, y, radius]; },
+    fill() { dots.push([...dot, Math.round(this.globalAlpha * 255)]); },
+  };
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(context as unknown as CanvasRenderingContext2D);
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+    x: 0, y: 0, left: 0, top: 0, right: 256, bottom: 176, width: 256, height: 176, toJSON() {},
+  });
   const preference = vi.fn(() => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
   vi.stubGlobal("matchMedia", preference);
+  const sample = (elapsed: number, frameTimestamp = elapsed) => {
+    now = elapsed;
+    const pending = [...frames.values()];
+    frames.clear();
+    for (const callback of pending) callback(frameTimestamp);
+    return structuredClone(dots);
+  };
+  const peakAlpha = (frame: number[][]) => Math.max(...frame.map(dot => dot[3]));
   try {
-    const host = await renderPlanCards();
-    const pro = card(host, "Pro");
-    expect(schedule).toHaveBeenCalled();
-    const settle = () => {
-      const pending = frames.splice(0);
-      for (const callback of pending) callback(performance.now() + 3000);
-      schedule.mockClear();
-    };
-    settle();
-    for (let entry = 0; entry < 2; entry += 1) {
+    const pro = card(await renderPlanCards(), "Pro");
+    const greeting = [sample(110, 95), sample(350), sample(600), sample(900)];
+    expect(new Set(greeting.map(frame => JSON.stringify(frame))).size).toBe(4);
+    expect(greeting.every(frame => peakAlpha(frame) > 25)).toBe(true);
+    const rest = sample(1100);
+    expect(frames.size).toBe(0);
+    expect(peakAlpha(rest)).toBeGreaterThanOrEqual(30);
+    expect(peakAlpha(rest)).toBeLessThan(50);
+    for (const releasedAt of [1200, 2400]) {
+      now = releasedAt;
       await act(async () => {
         pro.dispatchEvent(new PointerEvent("pointerout", { bubbles: true }));
         pro.dispatchEvent(new PointerEvent("pointerover", { bubbles: true }));
       });
-      expect(schedule).toHaveBeenCalledOnce();
-      settle();
+      const first = sample(releasedAt + 10, releasedAt - 5);
+      const middle = sample(releasedAt + 500);
+      const late = sample(releasedAt + 800);
+      expect(first).not.toEqual(rest);
+      expect(middle).not.toEqual(first);
+      expect(late).not.toEqual(middle);
+      expect(sample(releasedAt + 1000)).toEqual(rest);
+      expect(frames.size).toBe(0);
     }
     await act(async () => mounted?.root.unmount());
     mounted?.host.remove();
     mounted = null;
     preference.mockReturnValue({ matches: true, addEventListener() {}, removeEventListener() {} });
-    await renderPlanCards();
-    expect(schedule).not.toHaveBeenCalled();
+    const reducedPro = card(await renderPlanCards(), "Pro");
+    const staticFrame = structuredClone(dots);
+    await act(async () => { reducedPro.dispatchEvent(new PointerEvent("pointerover", { bubbles: true })); });
+    expect(dots).toEqual(staticFrame);
+    expect(peakAlpha(staticFrame)).toBeGreaterThanOrEqual(30);
+    expect(frames.size).toBe(0);
   } finally {
-    canvas.mockRestore();
+    vi.restoreAllMocks();
   }
 });
