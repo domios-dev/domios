@@ -59,14 +59,14 @@ impl ServiceContext {
             }
             let reaper = {
                 let mut manager = self.pty.lock();
-                match manager.begin_kill(old_pty_id) {
+                match manager.begin_kill_tree(old_pty_id) {
                     Ok(reaper) => Some(reaper),
                     Err(_) if manager.get_session(old_pty_id).is_none() => None,
                     Err(error) => return Err(error),
                 }
             };
             if let Some(reaper) = reaper {
-                reaper.wait_bounded(Duration::from_secs(5))?;
+                reaper.wait_for_restart(Duration::from_secs(5))?;
             }
             self.screen_state.remove(old_pty_id);
             crate::service::stream_preview::remove(old_pty_id);
