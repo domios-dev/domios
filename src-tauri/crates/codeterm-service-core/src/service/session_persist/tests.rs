@@ -361,6 +361,7 @@ fn storage_desk_app_adapter_imports_and_flushes_exact_selection() {
         active_workspace_id: Some("ws-a".into()),
         teams: vec![],
         workspaces: vec![crate::session::store::WorkspaceSnapshot {
+            created_at_ms: 0,
             id: "ws-a".into(),
             name: "Alpha".into(),
             tabs: vec![],
@@ -390,6 +391,7 @@ fn storage_desk_app_adapter_imports_and_flushes_exact_selection() {
     backup
         .workspaces
         .push(crate::session::store::WorkspaceSnapshot {
+            created_at_ms: 0,
             id: "ws-b".into(),
             name: "Restored".into(),
             tabs: vec![],

@@ -94,6 +94,7 @@ fn taskless_review_grants_are_daemon_records_and_expire_on_restore() {
 
 fn tab_with(id: &str, backing: TabBacking) -> Tab {
     Tab {
+        created_at_ms: 0,
         id: id.to_string(),
         sort_order: 0,
         pty_id: None,

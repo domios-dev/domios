@@ -16,6 +16,7 @@ impl MultiplexerState {
             cwd_missing: false,
             provisioned_cwd: None,
             protected: false,
+            created_at_ms: self.next_created_at_ms(),
             sort_order: self.next_workspace_sort_order(),
         };
 

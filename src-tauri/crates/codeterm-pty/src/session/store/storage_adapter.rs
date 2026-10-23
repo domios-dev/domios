@@ -316,6 +316,7 @@ fn to_desk_snapshot(
             record.protected = workspace.protected;
             record.task_key_prefix = workspace.task_keys.prefix.clone();
             record.task_key_next = workspace.task_keys.next;
+            record.created_at_ms = Some(workspace.created_at_ms).filter(|ms| *ms > 0);
             let tabs = workspace
                 .tabs
                 .iter()
@@ -458,6 +459,7 @@ fn from_desk_snapshot(snapshot: DeskSnapshot) -> Result<SessionSnapshot, String>
                 cwd: workspace.record.cwd,
                 provisioned_cwd: workspace.record.provisioned_cwd,
                 protected: workspace.record.protected,
+                created_at_ms: workspace.record.created_at_ms.unwrap_or(0),
                 sort_order: workspace.sort_order,
                 task_keys: WorkspaceTaskKeys {
                     prefix: workspace.record.task_key_prefix,
