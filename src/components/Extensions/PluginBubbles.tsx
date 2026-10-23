@@ -74,8 +74,11 @@ export function PluginBubbles({
   );
 
   useEffect(() => {
-    void ensurePluginSnapshot({ background: snapshotState.lastSuccessfulSnapshot !== null }).catch(() => {});
-  }, [snapshotState.lastSuccessfulSnapshot]);
+    if (!isActive) return;
+    const controller = new AbortController();
+    void ensurePluginSnapshot({ background: true, signal: controller.signal }).catch(() => {});
+    return () => controller.abort();
+  }, [isActive]);
 
   const isActiveRef = useRef(isActive);
   isActiveRef.current = isActive;

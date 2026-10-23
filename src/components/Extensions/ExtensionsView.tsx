@@ -68,8 +68,10 @@ export function ExtensionsView({
 
   useEffect(() => {
     if (!visible) return;
-    void ensurePluginSnapshot({ force: true, background: hasCachedSnapshot.current }).catch(() => undefined);
+    const controller = new AbortController();
+    void ensurePluginSnapshot({ force: true, background: hasCachedSnapshot.current, signal: controller.signal }).catch(() => undefined);
     void refreshConfig();
+    return () => controller.abort();
   }, [visible, refreshConfig]);
 
   useEffect(() => {

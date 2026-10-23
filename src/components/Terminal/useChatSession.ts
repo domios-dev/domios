@@ -1,3 +1,4 @@
+import { canRetryChatStart, runChatStart } from "./chatStartFlight";
 import {
   type MutableRefObject,
   useCallback,
@@ -198,6 +199,7 @@ export function useChatSession({
   }, [emitDiagnostic, tabId]);
 
   const attachment = useChatAttachment(tabId, observeSubscription);
+  const failedStartRef = useRef<string | null>(null);
   const attachFlightRef = useRef<ReturnType<typeof createChatAttachFlight<ChatStartResult>> | null>(null);
   if (!attachFlightRef.current) attachFlightRef.current = createChatAttachFlight<ChatStartResult>();
   const { begin: beginAttach, generation } = attachment;
@@ -233,6 +235,7 @@ export function useChatSession({
   }, [tabId]);
 
   const requestAttach = useCallback((cause = "attachment") => {
+    if (!canRetryChatStart(attachmentStateRef.current, cause)) return;
     const requested = requestedAuthorityRef.current;
     if (attachmentStateRef.current === "attaching"
       && requested?.source_session_id === agentSessionIdRef.current
@@ -588,6 +591,8 @@ export function useChatSession({
     const requestedSessionId = agentSessionIdRef.current;
     const requestedSessionBindingNonce = sessionBindingNonceRef.current ?? null;
     const requestedSubscriptionId = owner.requestedSubscriptionId();
+    if (failedStartRef.current === requestedSubscriptionId) return;
+    const controller = new AbortController();
     let cancelled = false;
     (async () => {
       try {
@@ -602,11 +607,11 @@ export function useChatSession({
         if (!flight) return;
         const outcome = await flight.run(requestedSubscriptionId, async () => {
           const timing = beginChatStartTiming(tabId);
-          const result = await invoke<ChatStartResult>("chat_start", {
-            tabId, agentSessionId: requestedSessionId, subscriptionId: requestedSubscriptionId,
+          const result = await runChatStart(tabId, requestedSubscriptionId, () => invoke<ChatStartResult>("chat_start", {
+            tabId, agentSessionId: requestedSessionId, subscriptionId: requestedSubscriptionId, signal: controller.signal,
             knownWindow: knownWindowForAuthority(retainedTranscriptMemo(windowKeyRef.current),
               requestedSessionId, requestedSessionBindingNonce),
-          });
+          }));
           chatStartTimingEdge(timing, "response", result);
           return result;
         });
@@ -733,6 +738,7 @@ export function useChatSession({
         if (recover) requestRecoveryAttach(true, "pending_recover_gap");
       } catch (e) {
         if (cancelled || !owner.isCurrent(generationAtRequest)) return;
+        failedStartRef.current = requestedSubscriptionId;
         const msg = e instanceof Error ? e.message : String(e);
         attachmentStateRef.current = "failed";
         setAttachmentState("failed");
@@ -743,6 +749,7 @@ export function useChatSession({
     })();
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [
     attachmentActive,

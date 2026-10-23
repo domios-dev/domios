@@ -311,5 +311,8 @@
   "src/lib/streamMuxModel.test.ts",
   "src/lib/streamMux.wiring.test.ts",
   "src/lib/localInstanceName.test.ts",
-  "src/components/WebPeerPicker/WebPeerPicker.test.tsx"
+  "src/components/WebPeerPicker/WebPeerPicker.test.tsx",
+  "src/lib/consumerFlight.test.ts",
+  "src/lib/pluginRequestLifetime.test.ts",
+  "src/components/Terminal/chatStartFlight.test.ts"
 ]
