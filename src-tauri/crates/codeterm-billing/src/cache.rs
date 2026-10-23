@@ -14,7 +14,7 @@ pub struct Snapshot {
     pub entitlements: Entitlements,
     pub stale: bool,
     pub access: Option<Access>,
-    /// No verified answer yet for an account last seen paid: show no locks until it arrives.
+    /// No verified answer yet for an account last seen paid: the UI may defer showing locks.
     pub checking: bool,
     #[serde(skip)]
     pub grant: Option<Verdict>,
@@ -181,16 +181,16 @@ impl Billing {
         self.bind(&mut cache, session);
         self.recompute(&cache)
     }
-    /// Limits bind through the verified verdict, or compiled free without one.
+    /// Limits bind through the verified verdict, or compiled free without one. Checking defers
+    /// only how locks are shown; the unsigned hint never relaxes enforcement.
     pub fn limit_gate(&self) -> LimitGate {
         let cache = self.cache.lock();
-        let enforcing = !self.checking(&cache)
-            && self
-                .grants
-                .as_ref()
-                .map_or_else(codeterm_entitlements::enforcing, |grants| {
-                    grants.authority.enforcement().enabled
-                });
+        let enforcing = self
+            .grants
+            .as_ref()
+            .map_or_else(codeterm_entitlements::enforcing, |grants| {
+                grants.authority.enforcement().enabled
+            });
         let verdict = cache
             .verified
             .as_ref()
