@@ -115,6 +115,15 @@ it("opens the Discord link from siteLinks through the external URL opener", asyn
   expect(bridge.openUrl).toHaveBeenCalledExactlyOnceWith(siteLinks.discord);
 });
 
+it("states automatic renewal with terms and privacy links before the plans", async () => {
+  const host = await renderPlanCards();
+  const notice = Array.from(host.querySelectorAll("p")).find((line) => line.textContent?.startsWith("Subscriptions renew automatically"));
+  const plans = host.querySelector('[aria-label="Subscription plans"]');
+  expect(notice!.compareDocumentPosition(plans!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  for (const link of Array.from(notice!.querySelectorAll("a"))) await act(async () => link.click());
+  expect(bridge.openUrl.mock.calls).toEqual([[siteLinks.terms], [siteLinks.privacy]]);
+});
+
 async function renderWith(element: React.ReactElement) {
   const host = mounted?.host ?? document.createElement("div");
   if (!mounted) {
