@@ -1,6 +1,6 @@
 import { blueprintSteps } from "./blueprintKinds";
 import { useId, useState, type CSSProperties } from "react";
-import { CanvasToolbar } from "../Canvas/CanvasToolbar";
+import { CanvasToolbar } from "@codeterm/chat-ui";
 import { Bell, List, Play, Workflow } from "lucide-react";
 import { AUTOMATION_LABEL, AUTOMATION_TONE, AUTOMATION_TOOL } from "./styles";
 import type { PipelineView, PipelineViewNode } from "./pipelineModel";
