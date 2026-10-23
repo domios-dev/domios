@@ -68,6 +68,46 @@ fn a_parked_vault_lookup_leaves_the_async_runtime_serving_other_tasks() {
 
 const SENTINEL: &str = "SENTINEL-VALUE-7f3a";
 
+#[test]
+fn active_backend_reload_preserves_an_in_flight_lookup() {
+    let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let registry = Arc::new(crate::SecretRegistry::new());
+    registry.register(
+        "parked-vault",
+        Arc::new(JsSecretBackend::new(
+            Arc::new(ParkedVault {
+                entered: Mutex::new(Some(entered_tx)),
+                release: Mutex::new(release_rx),
+            }),
+            "parked-vault",
+            false,
+        )),
+    );
+    let active = crate::build_active_store(
+        &codeterm_config::schema::SecretsConfig {
+            backend: "parked-vault".into(),
+            ..Default::default()
+        },
+        &registry,
+    );
+    runtime().block_on(async {
+        let first = active.clone();
+        let lookup = tokio::spawn(async move { first.get("token").await });
+        entered_rx.await.expect("lookup reached the old backend");
+        registry.register(
+            "parked-vault",
+            Arc::new(backend(Scripted(json!({
+                "ok": {"item_id": "new", "name": "token", "value": "new"}
+            })))),
+        );
+        let next = active.get("token").await;
+        release_tx.send(()).expect("old lookup parked");
+        assert_eq!(next.unwrap().value.expose_secret(), "new");
+        assert_eq!(lookup.await.unwrap().unwrap().value.expose_secret(), "v");
+    });
+}
+
 struct Scripted(serde_json::Value);
 
 impl PluginCalls for Scripted {
