@@ -30,8 +30,8 @@ pub const PRODUCTION: Activation = Activation {
     policy_epoch: "live-v1",
     enforcement: ENFORCE,
     keys: &[CompiledKey {
-        key_id: "live-pending-t3",
-        spki_der_base64: "MCowBQYDK2VwAyEAaQp6opvPShfljv9ougf3ikOeGcy9ZFJqkat9th3DN8k=",
+        key_id: "live-2026-10",
+        spki_der_base64: "MCowBQYDK2VwAyEAxixLxfHaTjofOt+fUkmr9B1hqUHUMwdTvsm7xFPxMvY=",
     }],
 };
 
