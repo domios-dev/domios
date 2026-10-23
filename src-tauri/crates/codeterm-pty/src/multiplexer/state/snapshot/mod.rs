@@ -136,25 +136,17 @@ impl MultiplexerState {
             })
             .collect();
         for (tab_id, status) in &snap.tab_statuses {
-            if *status == codeterm_types::pty::TabStatus::Idle {
-                if let Some(tab) = snap
-                    .tabs
-                    .get_mut(tab_id)
-                    .filter(|tab| tab.is_utility_shell())
-                {
-                    if tab.shell_command_state.activity
-                        == crate::multiplexer::types::ShellActivity::Running
-                    {
-                        tab.shell_command_state.activity =
-                            crate::multiplexer::types::ShellActivity::Idle;
-                    }
-                }
-            }
-            if let Some(tab) = snap
-                .tabs
-                .get_mut(tab_id)
-                .filter(|tab| tab.agent_type.is_some())
+            let Some(tab) = snap.tabs.get_mut(tab_id) else {
+                continue;
+            };
+            if tab.is_utility_shell()
+                && *status == codeterm_types::pty::TabStatus::Idle
+                && tab.shell_command_state.activity
+                    == crate::multiplexer::types::ShellActivity::Running
             {
+                tab.shell_command_state.activity = crate::multiplexer::types::ShellActivity::Idle;
+            }
+            if tab.agent_type.is_some() {
                 tab.agent_state = tab.provider_signals.access_state().or_else(|| {
                     Some(super::status_view::agent_state_for_status(
                         tab.agent_state.as_ref(),
