@@ -5,6 +5,7 @@ import type { AccountModel, LoginHint, SignInFailure } from "../Settings/account
 import type { PlanModel } from "../Settings/accountPlanModel";
 import type { PlanLoad } from "../Settings/useAccountPlan";
 import type { PlanCatalog } from "./planCatalog";
+import { AlreadySubscribedError } from "./freeLimitGate";
 import { IDLE_INTENT, purchaseIntent, type PurchaseAccount, type PurchaseEvent, type PurchaseIntent } from "./purchaseIntent";
 
 export interface PurchaseIntentPorts {
@@ -15,6 +16,8 @@ export interface PurchaseIntentPorts {
   /** Retry for sign-in failures this surface did not start for a purchase; without it they stay with their owner. */
   retrySignIn?: () => void;
   onCheckoutOpened?: () => void;
+  /** Checkout was refused because a subscription already exists; the surface switches to Manage subscription. */
+  onAlreadySubscribed?: () => void;
 }
 
 const CHECKOUT_OPERATION = "changing your subscription";
@@ -49,8 +52,9 @@ export function usePurchaseIntent(ports: PurchaseIntentPorts) {
     const failure = await latest.current.billing.upgrade(planKey);
     if (!mounted.current || current.current.kind !== "opening" || current.current.planKey !== planKey) return;
     dispatch({ type: "checkoutSettled" });
-    const { billing, notify, onCheckoutOpened } = latest.current;
-    if (failure) notify(billingFailureToast(failure, CHECKOUT_OPERATION, billing.plan?.status, () => choose(planKey)));
+    const { billing, notify, onCheckoutOpened, onAlreadySubscribed } = latest.current;
+    if (failure instanceof AlreadySubscribedError && onAlreadySubscribed) onAlreadySubscribed();
+    else if (failure) notify(billingFailureToast(failure, CHECKOUT_OPERATION, billing.plan?.status, () => choose(planKey)));
     else onCheckoutOpened?.();
   }
 

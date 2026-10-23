@@ -15,7 +15,7 @@ import type { ToastInput } from "../../lib/notices";
 import { connectNoticeToasts } from "../../lib/notices";
 import { FreeLimitPlansModal } from "./FreeLimitPlansModal";
 import { checkoutTheme } from "./checkoutTheme";
-import { freeLimitGate, upgradePlan } from "./freeLimitGate";
+import { AlreadySubscribedError, freeLimitGate, upgradePlan } from "./freeLimitGate";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -132,6 +132,25 @@ describe("plans modal", () => {
     expect(button("Choose Sponsor")).toBeUndefined();
     await click("Manage subscription");
     expect(upgrade).not.toHaveBeenCalled();
+  });
+
+  it("a checkout refused as already subscribed switches to Manage subscription without an error toast", async () => {
+    const upgrade = vi.fn(async () => { throw new AlreadySubscribedError(); });
+    await render(upgrade);
+    await openModal("teams");
+    await click("Choose Sponsor");
+    expect(upgrade).toHaveBeenCalledExactlyOnceWith("sponsor_yearly");
+    expect(toasts).toHaveLength(0);
+    expect(button("Choose Pro")).toBeUndefined();
+    expect([...dialog()!.querySelectorAll("button")].filter((candidate) => candidate.textContent === "Manage subscription")).toHaveLength(2);
+    expect([...dialog()!.querySelectorAll("button")].map((candidate) => candidate.textContent)).not.toContain("Upgrade");
+  });
+
+  it("upgradePlan reports only an exact already_subscribed conflict as such", async () => {
+    fetches.localFetch.mockResolvedValueOnce(new Response("already_subscribed", { status: 409 }));
+    await expect(upgradePlan("pro_yearly")).rejects.toBeInstanceOf(AlreadySubscribedError);
+    fetches.localFetch.mockResolvedValueOnce(new Response("already_subscribed", { status: 503 }));
+    await expect(upgradePlan("pro_yearly")).rejects.not.toBeInstanceOf(AlreadySubscribedError);
   });
 
   it("a chosen card checks out its own key", async () => {

@@ -50,9 +50,13 @@ export function purchaseIntent(state: PurchaseIntent, event: PurchaseEvent): Pur
 }
 
 /** Staff see Pro as their plan wherever plans are shown, even when billing still reads `free`. */
-/** The paid plan key of a live provider subscription; team access and cancelled subscriptions have none. */
-export function subscribedPlan(plan: PlanModel | null): string | null {
-  return plan && !plan.fullAccess && plan.plan !== "free" && plan.status !== "canceled" ? plan.plan : null;
+/**
+ * The paid plan key of a live provider subscription; team access and cancelled subscriptions have none.
+ * After the backend refused a checkout as already subscribed, an unknown key routes every paid card to Manage subscription.
+ */
+export function subscribedPlan(plan: PlanModel | null, refusedAsSubscribed = false): string | null {
+  if (plan && !plan.fullAccess && plan.plan !== "free" && plan.status !== "canceled") return plan.plan;
+  return refusedAsSubscribed ? "already_subscribed" : null;
 }
 
 export function displayedPlan(plan: PlanModel | null): string | null {
