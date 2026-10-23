@@ -1,3 +1,4 @@
+import { attachmentPathName as fileName } from "@codeterm/chat-core";
 import { Fragment, useCallback, useRef, useState, type ClipboardEvent, type CSSProperties, type HTMLAttributes, type ReactNode } from "react";
 import { Button } from "./Button";
 import { AnchoredPopover } from "./AnchoredPopover";
@@ -50,10 +51,6 @@ export function capsuleLabelParts(label: string): { name: string; detail: string
   const visible = visibleAttachmentLabel(label);
   const at = visible.indexOf(" · ");
   return at < 0 ? { name: visible, detail: "" } : { name: visible.slice(0, at), detail: visible.slice(at) };
-}
-
-function fileName(path: string): string {
-  return path.replace(/[\\/]+$/, "").split(/[\\/]/).filter(Boolean).pop() ?? path;
 }
 
 /** The name assistive tech hears: a generated "image1" label gives way to the stored file name; a named label stays. */

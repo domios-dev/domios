@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Image as ImageIcon, RefreshCw, Maximize2, FolderOpen } from "lucide-react";
-import type { LocalArtifactDirective } from "@codeterm/chat-core";
+import { attachmentPathName, type LocalArtifactDirective } from "@codeterm/chat-core";
 import { ImageFullscreen, revealLocalFile, REVEAL_UNAVAILABLE } from "./ImageFullscreen";
 import { localArtifactOpeningAvailable, type LocalPreviewFile } from "./localArtifactLoader";
 import { useLocalImageGallery } from "./useLocalImageGallery";
@@ -16,7 +16,7 @@ export function LocalImageGallery({ directive, fullscreenRequest = 0, bare = fal
   renderError?: (error: string) => ReactNode;
 }) {
   const { images, open, setOpen, reload, anchor, omitted, loading } = useLocalImageGallery(directive, fullscreenRequest, onLoaded);
-  const name = directive.path.split(/[\\/]/).pop() ?? directive.path;
+  const name = attachmentPathName(directive.path);
   const single = !directive.paths || directive.paths.length === 1;
   const reveal = localArtifactOpeningAvailable();
   return <section ref={anchor} data-testid="chat-ds-image" aria-label={single ? `image preview: ${name}` : "Image gallery preview"}
