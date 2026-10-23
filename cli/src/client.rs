@@ -106,6 +106,23 @@ fn select_transport<T>(
     }
 }
 
+fn select_startup_transport<T>(
+    mut socket: Result<T, String>,
+    mut http: impl FnMut() -> Result<HttpFallbackConfig, String>,
+    wait_ready: impl FnOnce() -> Result<bool, String>,
+    reconnect: impl FnOnce() -> Result<T, String>,
+) -> Result<TransportChoice<T>, String> {
+    if socket.is_err() {
+        if let Ok(config) = http() {
+            return Ok(TransportChoice::Http(config));
+        }
+        if wait_ready()? {
+            socket = reconnect();
+        }
+    }
+    select_transport(socket, http)
+}
+
 fn http_fallback_config() -> Result<HttpFallbackConfig, String> {
     let resolved = crate::resolve_api_config();
     let base_url = startup::target_url()?;
@@ -259,10 +276,7 @@ impl SocketClient {
             std::env::var("CODETERM_INSTANCE").ok().as_deref(),
             std::env::var("CODETERM_API_PORT").ok().as_deref(),
         )?;
-        let mut discovered = discover_socket_resolution();
-        if discovered.is_err() && startup::before_fallback(true)? {
-            discovered = discover_socket_resolution();
-        }
+        let discovered = discover_socket_resolution();
         let fallback_socket = ResolvedSocket {
             path: discovered
                 .as_ref()
@@ -275,7 +289,12 @@ impl SocketClient {
         };
         let socket_result = discovered;
         let socket_error = socket_result.as_ref().err().cloned().unwrap_or_default();
-        match select_transport(socket_result, http_fallback_config)? {
+        match select_startup_transport(
+            socket_result,
+            http_fallback_config,
+            || startup::before_fallback(true),
+            discover_socket_resolution,
+        )? {
             TransportChoice::Socket(connection) => Ok(connection),
             TransportChoice::Http(config) => Self::connect_http(config)
                 .map(|client| (client, fallback_socket))
@@ -311,21 +330,26 @@ impl SocketClient {
             .build()
             .map_err(|error| format!("failed to create loopback HTTP client: {error}"))?;
         let endpoint = format!("{base_url}/api/cli/rpc");
-        let probe = client
-            .post(&endpoint)
-            .header(reqwest::header::AUTHORIZATION, token.clone())
-            .json(&serde_json::json!({
-                "method": "system.identify",
-                "params": null,
-                "protocol_version": crate::protocol::PROTOCOL_VERSION,
-            }))
-            .send()
-            .map_err(|_| "loopback HTTP RPC probe failed".to_owned())?;
-        let status = probe.status();
-        let value = probe
-            .json::<serde_json::Value>()
-            .map_err(|_| "loopback HTTP RPC probe returned invalid JSON".to_owned())?;
-        http_rpc_result(status, value).map_err(|error| error.to_string())?;
+        startup::probe_with_readiness(
+            || {
+                let probe = client
+                    .post(&endpoint)
+                    .header(reqwest::header::AUTHORIZATION, token.clone())
+                    .json(&serde_json::json!({
+                        "method": "system.identify",
+                        "params": null,
+                        "protocol_version": crate::protocol::PROTOCOL_VERSION,
+                    }))
+                    .send()
+                    .map_err(|_| "loopback HTTP RPC probe failed".to_owned())?;
+                let status = probe.status();
+                let value = probe
+                    .json::<serde_json::Value>()
+                    .map_err(|_| "loopback HTTP RPC probe returned invalid JSON".to_owned())?;
+                Ok((status, value))
+            },
+            |snapshot| startup::after_refusal(&client, &base_url, snapshot),
+        )?;
         Ok(Self {
             transport: ClientTransport::Http {
                 client,
