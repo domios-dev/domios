@@ -214,7 +214,12 @@ fn blueprint_v2_check_fix_input_type_is_unambiguous_or_atomic_refusal() {
     let mut doc = document(json!([{"id":"a","run":{"input":"command"}}]));
     let source = serde_yaml::to_string(&doc).unwrap();
     let parsed = blueprint_document::parse("inputs.yaml", &source).unwrap();
-    let fixed = fix::fix(&parsed, &source, &CheckContext::default());
+    let fixed = fix::fix_with_assignments(
+        &parsed,
+        &source,
+        &CheckContext::default(),
+        &["command=echo ready".into()],
+    );
     let after = blueprint_document::parse("inputs.yaml", fixed.text.as_ref().unwrap()).unwrap();
     assert_eq!(after.document.inputs["command"].kind, "string");
     doc.steps[0]
@@ -234,26 +239,17 @@ fn blueprint_v2_check_fix_input_type_is_unambiguous_or_atomic_refusal() {
 #[test]
 fn blueprint_v2_check_other_fix_preserves_previous_terminal_fallthrough() {
     let doc = document(
-        json!([{"id":"a","uses":"ask","buckets":["ok"]},{"id":"b","run":{"lit":"echo b"}}]),
+        json!([{"id":"a","uses":"ask","with":{"question":{"lit":"Ready?"}},"buckets":["ok"]},{"id":"b","run":{"lit":"echo b"}}]),
     );
     let source = serde_yaml::to_string(&doc).unwrap();
     let parsed = blueprint_document::parse("other.yaml", &source).unwrap();
     let fixed = fix::fix(&parsed, &source, &CheckContext::default());
-    let after = blueprint_document::parse("other.yaml", fixed.text.as_ref().unwrap()).unwrap();
-    assert_eq!(after.document.steps[1].routes["done"], "@stop");
-    assert_eq!(
-        after.document.other[0].params["target"],
-        ValueForm::literal("creator")
-    );
-    assert!(!contains(&inspect(&after.document), "R6"));
-    assert!(
-        !fix::fix(
-            &after,
-            fixed.text.as_ref().unwrap(),
-            &CheckContext::default()
-        )
-        .changed
-    );
+    assert!(!fixed.changed && fixed.text.is_none());
+    assert!(fixed
+        .refusals
+        .iter()
+        .any(|reason| reason.contains("Pipeline other")));
+    assert!(parsed.document.lower().is_ok());
 }
 #[test]
 fn blueprint_v2_check_call_extension_preserves_taint_and_expanded_bounds() {
@@ -389,23 +385,33 @@ fn blueprint_v2_check_watch_other_fix_is_admissible_and_idempotent() {
     let source = serde_yaml::to_string(&unbounded).unwrap();
     let parsed = blueprint_document::parse("unbounded.yaml", &source).unwrap();
     let fixed = fix::fix(&parsed, &source, &CheckContext::default());
-    let checked = blueprint_document::check("unbounded.yaml", fixed.text.as_ref().unwrap(), &[]);
-    assert!(!checked.ok);
-    assert!(checked
-        .diagnostics
+    assert!(!fixed.changed && fixed.text.is_none());
+    assert!(fixed
+        .refusals
         .iter()
-        .any(|d| d.message.contains("explicit timeout")));
+        .any(|reason| reason.contains("explicit timeout")));
 }
 #[test]
 fn blueprint_v2_check_missing_input_inference_uses_actual_native_slot_types() {
-    for (kind, slot, expected) in [
+    for (kind, _slot, expected) in [
         ("github", "id", "integer"),
         ("http", "expected_status", "string"),
     ] {
-        let doc = document(json!([{"id":"a","uses":kind,"with":{(slot):{"input":"missing"}}}]));
+        let params = if kind == "github" {
+            json!({"resource":{"lit":"run"},"repo":{"lit":"owner/repo"},"id":{"input":"missing"}})
+        } else {
+            json!({"url":{"lit":"https://example.org"},"expected_status":{"input":"missing"}})
+        };
+        let doc = document(json!([{"id":"a","uses":kind,"with":params}]));
         let source = serde_yaml::to_string(&doc).unwrap();
         let parsed = blueprint_document::parse("types.yaml", &source).unwrap();
-        let fixed = fix::fix(&parsed, &source, &CheckContext::default());
+        let value = if kind == "github" { "123" } else { "200" };
+        let fixed = fix::fix_with_assignments(
+            &parsed,
+            &source,
+            &CheckContext::default(),
+            &[format!("missing={value}")],
+        );
         let after = blueprint_document::parse("types.yaml", fixed.text.as_ref().unwrap()).unwrap();
         assert_eq!(after.document.inputs["missing"].kind, expected);
     }
@@ -419,4 +425,117 @@ fn blueprint_v2_check_implicit_stdin_flow_checks_every_incoming_port() {
         ),
         "R3",
     );
+}
+
+#[test]
+fn blueprint_v2_check_shared_ref_expansion_budget() {
+    for levels in [4, 15] {
+        let mut doc = document(json!([{"id":"a","run":{"lit":"echo a"}}]));
+        for i in 0..levels {
+            let properties = (0..10)
+                .map(|j| (format!("p{j}"), json!({"$ref":format!("t{}", i + 1)})))
+                .collect::<serde_json::Map<_, _>>();
+            doc.types.insert(
+                format!("t{i}"),
+                serde_json::from_value(json!({"type":"object","properties":properties})).unwrap(),
+            );
+        }
+        doc.types.insert(
+            format!("t{levels}"),
+            serde_json::from_value(json!({"type":"string"})).unwrap(),
+        );
+        let start = std::time::Instant::now();
+        let diagnostics = inspect(&doc);
+        let refusal = diagnostics
+            .iter()
+            .find(|d| d.message.contains("expanded-node budget"));
+        assert!(
+            refusal.is_some(),
+            "expected expansion refusal: {diagnostics:#?}"
+        );
+        let refusal = refusal.unwrap();
+        assert_eq!(refusal.severity, "error");
+        assert_eq!(refusal.file, "fixture.yaml");
+        assert!(refusal.field.starts_with("types."));
+        assert!(refusal.line > 1);
+        assert!(start.elapsed() < std::time::Duration::from_secs(1));
+    }
+    let mut doc = document(json!([{"id":"a","run":{"lit":"echo a"}}]));
+    doc.types.insert(
+        "leaf".into(),
+        serde_json::from_value(json!({"type":"string","description":"x".repeat(4096)})).unwrap(),
+    );
+    for (name, target) in [("small", "leaf"), ("wide", "small"), ("root", "wide")] {
+        let properties = (0..10)
+            .map(|i| (format!("p{i}"), json!({"$ref":target})))
+            .collect::<serde_json::Map<_, _>>();
+        doc.types.insert(
+            name.into(),
+            serde_json::from_value(json!({"type":"object","properties":properties})).unwrap(),
+        );
+    }
+    assert!(inspect(&doc)
+        .iter()
+        .any(|d| d.severity == "error" && d.message.contains("expanded-node budget")));
+}
+
+#[test]
+fn blueprint_v2_check_pipeline_repair_is_admissible_or_refused() {
+    let doc = document(
+        json!([{"id":"decide","uses":"ask","with":{"question":{"lit":"Ready?"}},"buckets":["ready"]}]),
+    );
+    let source = serde_yaml::to_string(&doc).unwrap();
+    assert!(blueprint_document::check("pipeline.yaml", &source, &[]).ok);
+    assert!(doc.lower().is_ok());
+    let parsed = blueprint_document::parse("pipeline.yaml", &source).unwrap();
+    let fixed = fix::fix(&parsed, &source, &CheckContext::default());
+    if let Some(text) = fixed.text {
+        let checked = blueprint_document::check("pipeline.yaml", &text, &[]);
+        assert!(checked.ok, "{:?}", checked.diagnostics);
+        assert!(blueprint_document::parse("pipeline.yaml", &text)
+            .unwrap()
+            .document
+            .lower()
+            .is_ok());
+    } else {
+        assert!(!fixed.changed && !fixed.refusals.is_empty());
+    }
+}
+
+#[test]
+fn blueprint_v2_check_lower_refuses_self_routed_watch_effect() {
+    let doc: Document = serde_json::from_value(json!({"schema_version":2,"kind":"watch","name":"self-route","steps":[{"id":"source","uses":"probe","with":{"command":{"lit":"echo ready"}},"timeout":{"lit":"1h"}},{"id":"decide","uses":"ask","with":{"question":{"lit":"Ready?"}},"buckets":["ready"],"matches":{"ready":{"lit":"ready"}},"routes":{"ready":"alert"}},{"id":"alert","uses":"notify","routes":{"done":"alert"}}]})).unwrap();
+    // Guard the direct lowering assertion from the pre-fix infinite loop.
+    assert!(doc
+        .template_errors()
+        .iter()
+        .any(|(_, message)| message.contains("forward")));
+    let errors = doc.lower().unwrap_err();
+    assert!(errors
+        .iter()
+        .any(|(path, message)| path == "steps[2].routes.done" && message.contains("forward")));
+}
+
+#[test]
+fn blueprint_v2_check_template_enforces_storage_bounds() {
+    let mut doc = document(json!([{"id":"a","run":{"lit":"echo a"}}]));
+    doc.steps = (0..65)
+        .map(|i| {
+            let mut node = doc.steps[0].clone();
+            node.id = format!("n{i}");
+            node
+        })
+        .collect();
+    assert!(doc
+        .template_errors()
+        .iter()
+        .any(|(_, message)| message.contains("64")));
+    assert!(doc.lower().is_err());
+    doc.steps.truncate(1);
+    doc.steps[0].buckets = (0..33).map(|i| format!("b{i}")).collect();
+    assert!(doc
+        .template_errors()
+        .iter()
+        .any(|(_, message)| message.contains("32")));
+    assert!(doc.lower().is_err());
 }

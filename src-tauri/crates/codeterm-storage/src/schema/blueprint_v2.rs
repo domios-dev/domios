@@ -4,6 +4,10 @@ pub(super) const CLEANUP: &str = r#"
 CREATE TEMP TABLE obsolete_blueprint_versions AS
     SELECT blueprint_id, version FROM blueprint_definitions
     WHERE CASE WHEN json_valid(document_json) THEN json_extract(document_json, '$.schema_version') IS NOT 2 ELSE 1 END;
+CREATE TABLE blueprint_v1_removal_receipts AS
+    SELECT d.*, b.workspace_id, b.team_id, datetime('now') AS removed_at
+    FROM blueprint_definitions d JOIN blueprints b ON b.id=d.blueprint_id
+    WHERE (d.blueprint_id,d.version) IN (SELECT blueprint_id,version FROM obsolete_blueprint_versions);
 CREATE TEMP TABLE obsolete_blueprints AS
     SELECT id FROM blueprints WHERE NOT EXISTS (
         SELECT 1 FROM blueprint_definitions d WHERE d.blueprint_id=blueprints.id

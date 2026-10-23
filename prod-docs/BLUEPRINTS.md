@@ -145,7 +145,7 @@ domios blueprint log <id>
 
 The editor schema is generated from the same serde model as parsing. One checker governs offline check and live apply/import/update. Diagnostics include stable rule and atom ids, file/line/column/field, severity, message, hint, passing/failing premises and a proof tree; dependent findings are folded under the erroneous root. `--explain` renders those proofs; `--json` retains them structurally. Invalid files exit 2. Unsupported runtime constructs refuse with an explicit diagnostic; apply with `--dry-run` also checks live Team scope and installed capabilities.
 
-`--fix` previews the actual text and semantic diff. `--fix --write` writes a file; a second fix makes no change. Repairs declare missing inputs only when every use determines one type, route unknown `other` cases to creator escalation, normalize literal durations below 10s with a timing warning, and canonicalize mapping keys. Ambiguous types and executable/authority repairs refuse without changing the file. The checker never grants capabilities; `domios-cli` remains unavailable. Cross-Blueprint duplicate findings use existing scoped vector/WL comparison when an indexed identity is available, otherwise diagnostics explicitly report the unavailable comparison without a lexical substitute.
+`--fix` previews text and semantic changes only after the candidate passes checking and runtime lowering with the supplied `--set` bindings. `--fix --write` writes only that admissible candidate. Repairs can declare unambiguous missing inputs, normalize literal durations below 10s with a timing warning, and route watch `other` outcomes to creator escalation. Pipeline escalation repairs, unresolved inputs, ambiguous types and executable/authority repairs refuse without changing the file. R13 compares abstracted canonical documents and WL structure against saved solutions and live Blueprints in the caller's Team; vector comparisons without candidate embeddings are explicitly unavailable.
 
 An exact name identifies a graph in its Team/workspace. Built-in names stay stable when bindings change; apply retargets that name. Use an explicit whole `name` input in custom recipes when distinct identities are required. Applying unchanged running definitions returns `unchanged`; applying a stopped graph reactivates the same ID. Watch lifetime and initial pause settings cannot change through apply. A watch and pipeline cannot replace one another under the same name.
 
@@ -162,4 +162,6 @@ Only the Team Orchestrator keeps solutions. Supply one to five intents, preferab
 
 Full recipe purposes and inputs: `domios docs BLUEPRINT-RECIPES`.
 
-<!-- revision: 51 -->
+R10 scans executable text lexically as defence in depth. Runtime environment clearing and capability confinement enforce authority; a clean lexical scan does not prove shell text safe. R13 reports unavailable comparisons explicitly; unavailable vector comparisons carry no PASS verdict.
+
+<!-- revision: 52 -->
