@@ -56,3 +56,19 @@ fn release_constructor_ignores_configured_endpoint() {
         );
     }
 }
+
+#[test]
+fn dev_issuer_is_loopback_http_in_debug_only() {
+    let url = |value: &str| url::Url::parse(value).unwrap();
+    assert_eq!(
+        dev_issuer(&url("http://127.0.0.1:15200/")),
+        cfg!(debug_assertions)
+    );
+    for refused in [
+        "http://localhost:15200/",
+        "http://192.168.1.2:15200/",
+        "http://issuer.test/",
+    ] {
+        assert!(!dev_issuer(&url(refused)));
+    }
+}
