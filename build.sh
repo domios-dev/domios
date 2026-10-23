@@ -32,6 +32,11 @@ source scripts/firebase-build-config.sh
 dev_notify_capture_parent
 
 CMD="${1:-dev}"
+if [ "$CMD" = dev-back ]; then
+  export DEV_FRONT_EXTERNAL=1
+  set -- dev --wait "${@:2}"
+  CMD=dev
+fi
 source scripts/lane-rust-guard.sh
 require_canonical_rust_tests "$CMD" "${@:2}" || exit $?
 if [ "$CMD" = test-related ]; then
@@ -1507,6 +1512,12 @@ validate_dev_provenance() {
     --identifier "$CT_IDENTIFIER"
 }
 
+build_dev_server() {
+  cargo build --manifest-path src-tauri/Cargo.toml -p domios-server --bin domios-server \
+    --profile "$CT_DEV_CARGO_PROFILE" --no-default-features --features domios-server/embeddings \
+    --message-format=json-render-diagnostics > "$1"
+}
+
 reload_dev_server() {
   if [[ "$OSTYPE" == darwin* ]] && [ -n "${CODETERM_DEV_INSTANCE:-}" ]; then
     echo 'Named macOS DEV uses a sealed app pair; run ./build.sh dev instead.' >&2
@@ -1531,9 +1542,7 @@ reload_dev_server() {
   fi
   export CODETERM_SERVER_CLI_SHA256="$built_cli_hash"
   export CODETERM_SERVER_DEV_FRONTEND_ORIGIN="http://127.0.0.1:$CT_VITE_PORT"
-  cargo build --manifest-path src-tauri/Cargo.toml -p domios-server --bin domios-server \
-    --profile "$CT_DEV_CARGO_PROFILE" --no-default-features --features domios-server/embeddings \
-    --message-format=json-render-diagnostics > "$split_logs/server.jsonl"
+  ct_with_firebase_build_config build_dev_server "$split_logs/server.jsonl"
   cargo tree --manifest-path src-tauri/Cargo.toml -p domios-server --no-default-features \
     --features domios-server/embeddings --edges normal,build --prefix none > "$split_logs/server-tree.txt"
   # Refuse edits made during compilation before touching the running instance.
@@ -2144,9 +2153,7 @@ build_and_launch_dev() {
   local split_logs="$(tauri_debug_dir)/.domios-dev-build"
   export CODETERM_SERVER_CLI_SHA256="$built_cli_hash"
   export CODETERM_SERVER_DEV_FRONTEND_ORIGIN="http://127.0.0.1:$CT_VITE_PORT"
-  cargo build --manifest-path src-tauri/Cargo.toml -p domios-server --bin domios-server \
-    --profile "$CT_DEV_CARGO_PROFILE" --no-default-features --features domios-server/embeddings \
-    --message-format=json-render-diagnostics > "$split_logs/server.jsonl"
+  ct_with_firebase_build_config build_dev_server "$split_logs/server.jsonl"
   cargo tree --manifest-path src-tauri/Cargo.toml -p domios-server --no-default-features \
     --features domios-server/embeddings --edges normal,build --prefix none > "$split_logs/server-tree.txt"
   local build_args=(--manifest-path src-tauri/Cargo.toml -p codeterm --bin codeterm
@@ -3695,8 +3702,18 @@ LOCK_STORM_PY
     fi
     if [ "$CT_DEV_WAIT" -eq 1 ]; then
       DEV_NOTIFY_STAGE=launch
-      run_outside_tab_job node scripts/dev-prep.mjs --launch-prebuilt \
-        --app "$(dev_app_path)" --log "$PREBUILT_LOG" --api-port "$CT_PORT" --record "$(dev_provenance_record)"
+      if run_outside_tab_job node scripts/dev-prep.mjs --launch-prebuilt \
+        --app "$(dev_app_path)" --log "$PREBUILT_LOG" --api-port "$CT_PORT" --record "$(dev_provenance_record)"; then
+        PREBUILT_STATUS=0
+      else
+        PREBUILT_STATUS=$?
+      fi
+      if [ "$PREBUILT_STATUS" -eq 3 ] && [ "${DEV_FRONT_EXTERNAL:-0}" = 1 ]; then
+        trap - EXIT INT TERM
+        echo "WARNING: DEV window is still attaching; server and window retained. Inspect $PREBUILT_LOG before recovery." >&2
+        exit 3
+      fi
+      [ "$PREBUILT_STATUS" -eq 0 ] || exit "$PREBUILT_STATUS"
       HEALTH="$(dev_health_status)"
       EXPECTED_BUILD_SHA="$CODETERM_BUILD_SHA"
       SHA="$(validate_dev_health "$EXPECTED_BUILD_SHA" "$CT_INSTANCE" "$CT_PORT" "$CT_VITE_PORT" "$CT_CDP_PORT" "$CT_IDENTIFIER" "$HEALTH" server)"
@@ -3751,11 +3768,6 @@ LOCK_STORM_PY
         exec node scripts/dev-prep.mjs --run-prebuilt --app "$(dev_app_path)" --record "$(dev_provenance_record)" --api-port "$CT_PORT" --log "/tmp/codeterm-dev${CT_SUFFIX}.interactive.log"
       fi
     fi
-    ;;
-  dev-back)
-    export DEV_FRONT_EXTERNAL=1
-    # The window launches detached so restarting this tab never closes it.
-    exec "$0" dev --wait "${@:2}"
     ;;
   dev-front)
     kill_web_watch 2>/dev/null || true

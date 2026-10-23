@@ -33,7 +33,6 @@ fn failed_activation_restores_old_version() {
 fn failures_name_the_exact_step() {
     for (failed, expected) in [
         (Step::Backup, "move previous plugin aside: refused"),
-        (Step::Cleanup, "remove previous plugin backup: refused"),
         (
             Step::Restore,
             "rename staging into place (attempts 1): refused; restore previous plugin: refused",
@@ -163,4 +162,29 @@ fn fresh_install_only_activates() {
     )
     .unwrap();
     assert_eq!(steps, [Step::Activate]);
+}
+
+#[test]
+fn cleanup_sharing_violation_keeps_successful_activation() {
+    let mut installed = "old";
+    let mut retained_backup = false;
+    let mut steps = Vec::new();
+    swap(
+        true,
+        |step| {
+            steps.push(step);
+            match step {
+                Step::Backup => retained_backup = true,
+                Step::Activate => installed = "new",
+                Step::Cleanup => return Err(io::Error::from_raw_os_error(32)),
+                Step::Restore => panic!("activation succeeded"),
+            }
+            Ok(())
+        },
+        |_| false,
+    )
+    .unwrap();
+    assert_eq!(installed, "new");
+    assert!(retained_backup);
+    assert_eq!(steps, [Step::Backup, Step::Activate, Step::Cleanup]);
 }

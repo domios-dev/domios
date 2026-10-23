@@ -55,6 +55,7 @@ export {
 } from "./normalize";
 export {
   attachmentFileName,
+  attachmentPathName,
   inlineAttachmentSrc,
   userMessageAttachments,
   userVisibleText,

@@ -26,7 +26,7 @@ export type Action =
   | { type: "UPDATE_SHELL_STATE"; tabId: string; ptyId: string; state: ShellCommandState }
   | { type: "SET_STATE"; state: MultiplexerState; force?: boolean; pageOwnedSelection?: boolean; initialSelection?: PageSelection }
   | { type: "ADD_WORKSPACE"; workspace: Workspace; tab: Tab }
-  | { type: "SET_ACTIVE_WORKSPACE"; id: string }
+  | { type: "SET_ACTIVE_WORKSPACE"; id: string; source: "user" | "program" }
   | { type: "CLOSE_WORKSPACE"; id: string }
   | { type: "RENAME_WORKSPACE"; id: string; name: string }
   | { type: "MOVE_TAB"; tabId: string; fromWorkspaceId: string; toWorkspaceId: string }
@@ -35,7 +35,7 @@ export type Action =
   | { type: "REORDER_WORKSPACES"; orderedWorkspaceIds: string[] }
   | { type: "ADD_TAB"; workspaceId: string; tab: Tab }
   | { type: "CLOSE_TAB"; workspaceId: string; tabId: string; removedTabIds: string[] }
-  | { type: "SET_ACTIVE_TAB"; workspaceId: string; tabId: string }
+  | { type: "SET_ACTIVE_TAB"; workspaceId: string; tabId: string; source: "user" | "program" }
   | { type: "SET_FOCUSED_TAB"; tabId: string }
   | { type: "SET_TAB_PTY"; tabId: string; ptyId: string }
   | { type: "ADD_NOTIFICATION"; notification: Notification }
@@ -293,7 +293,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
     }
 
     case "SET_ACTIVE_WORKSPACE":
-      return { ...state, active_workspace_id: action.id, selectionNavigated: true };
+      return { ...state, active_workspace_id: action.id, selectionNavigated: state.selectionNavigated || action.source === "user" };
 
     case "CLOSE_WORKSPACE": {
       const ws = state.workspaces.find((w) => w.id === action.id);
@@ -473,7 +473,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
       return {
         ...state,
         activeTabIds: { ...state.activeTabIds, [action.workspaceId]: action.tabId },
-        selectionNavigated: true,
+        selectionNavigated: state.selectionNavigated || action.source === "user",
       };
 
     case "REMOVE_PENDING_CLOSE": {

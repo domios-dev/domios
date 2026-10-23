@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { LocalArtifactDirective } from "@codeterm/chat-core";
+import { attachmentPathName, type LocalArtifactDirective } from "@codeterm/chat-core";
 import type { FullscreenImage } from "./ImageFullscreen";
 import { loadLocalArtifact, type LocalPreviewFile } from "./localArtifactLoader";
 import { useLocalArtifactTabId } from "./LocalArtifactScope";
@@ -19,7 +19,7 @@ export function useLocalImageGallery(directive: LocalArtifactDirective, fullscre
     let cancelled = false;
     let delivered = false;
     const paths = JSON.parse(key) as string[];
-    const slots = paths.map(path => ({ path, name: path.split(/[\\/]/).pop() ?? path, src: "", pending: true }));
+    const slots = paths.map(path => ({ path, name: attachmentPathName(path), src: "", pending: true }));
     setImages(slots); loaded.current?.(null);
     void loadGallerySlots(paths, path => loadLocalArtifact(path, "image", tabId), (index, result) => {
       setImages(previous => previous.map((slot, position) => position === index

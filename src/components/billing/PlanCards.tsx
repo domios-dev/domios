@@ -100,7 +100,6 @@ export function PlanCard({ offer, interval, current = false, canPurchase = true,
   const dots = useRef<DotMatrixCanvasHandle>(null);
   const reducedMotion = usePrefersReducedMotion();
   const wave = () => dots.current?.emitRelease(performance.now());
-  // One wave greets the recommended card; later ones answer the pointer arriving.
   useEffect(() => { if (offer.recommended) wave(); }, [offer.recommended]);
   return (
     <section
@@ -109,7 +108,7 @@ export function PlanCard({ offer, interval, current = false, canPurchase = true,
       className={`flex flex-col gap-3 rounded-[var(--ct-radius-md)] border ${border} bg-[var(--ct-bg)] p-4${offer.recommended ? " relative isolate overflow-hidden" : ""}`}
     >
       {offer.recommended && <div className="pointer-events-none absolute -right-14 -top-16 -z-10 h-44 w-64">
-        <DotMatrixCanvas ref={dots} mode="loading" reducedMotion={reducedMotion} intensity={1.5} restIntensity={12} />
+        <DotMatrixCanvas ref={dots} mode="loading" reducedMotion={reducedMotion} intensity={3} restIntensity={8} waveDurationMs={1_000} />
       </div>}
       <header className="flex items-center justify-between gap-2">
         <h3 className="m-0 text-sm font-semibold text-[var(--ct-fg)]">{offer.name}</h3>

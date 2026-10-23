@@ -29,10 +29,12 @@ export function meshMachineLockedView(row: { status: string }): LockBadgeView {
 
 
 export function tabLockFromState(
-  state: Pick<MultiplexerState, "workspaces" | "teams">,
+  state: Pick<MultiplexerState, "workspaces" | "tabs" | "teams">,
   tab: Pick<Tab, "id" | "locked" | "workspace_id" | "team_id"> | null | undefined,
 ) {
   const workspace = state.workspaces.find((item) => item.id === tab?.workspace_id || item.tabs.includes(tab?.id ?? ""));
-  const team = state.teams?.find((item) => item.id === tab?.team_id);
+  const liveTab = tab?.id ? state.tabs[tab.id] : undefined;
+  const teamId = liveTab ? liveTab.team_id : tab?.team_id;
+  const team = state.teams?.find((item) => item.id === teamId);
   return tabLockedView(tab, workspace, team);
 }

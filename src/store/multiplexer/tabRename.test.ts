@@ -3,6 +3,8 @@ import { strict as assert } from "node:assert";
 import type { Notice } from "../../lib/notices";
 import { TitleLevel, type Tab, type Workspace } from "../../lib/types";
 import { reducer, type Action } from "./reducer";
+import { freeLimitGate } from "../../components/billing/freeLimitGate";
+import { describeError } from "../../lib/describeError";
 import { commitTabRename } from "./tabRename";
 import type { ExtendedState } from "./tree";
 
@@ -35,6 +37,17 @@ function harness(persist: () => Promise<unknown>) {
 }
 
 async function main() {
+  {
+    const reason = "plan_limit_locked: tab is above the workspace limit (limit: workspaces)";
+    const h = harness(() => Promise.reject(new Error(reason)));
+    await commitTabRename(h.state, h.ports, "ws", "tab", "Renamed");
+    assert.equal(h.state.tabs.tab.title, "Bizet");
+    assert.equal(describeError(h.notices[0].detail).cause, reason);
+    assert.equal(h.notices[0].actions?.length, 1);
+    h.notices[0].actions?.[0].run();
+    assert.equal(freeLimitGate.prompt(), "workspaces");
+    freeLimitGate.close();
+  }
   {
     const h = harness(() => Promise.resolve({ ok: true }));
     const pending = commitTabRename(h.state, h.ports, "ws", "tab", "Renamed");

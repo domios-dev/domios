@@ -57,27 +57,22 @@ domios mem embedder use local                # switch; prints how many items it 
 domios mem embedder use openai --model text-embedding-3-small --dimension 512
 ```
 
-- **Switching.** The vector index is stamped with its provider, model and dimension. A switch builds a stamped shadow for items, entities, Blueprint solutions and documentation in the background, and recall stays fully semantic on the published model until the replacement swaps in atomically. Content that changes during the build is re-embedded automatically before the swap. An item the new provider refuses or fails is counted as failed and stays vector pending; only a provider outage stops the build. `domios mem embedder status` shows progress, failures and the cause of a failed or cancelled build, and Blueprint authoring recall reports the same progress in its `recall` state. Choosing the published model during a build cancels it; another target is refused until the build ends. Selecting the already active model reports “already active” without rebuilding. Vectors from another model are refused, never mixed. Settings → General → Memory embedder shows the same status and asks before it switches.
-- **Retry or cancel a failed switch.** Config records the requested target; status reports the published model and index separately from the re-embed target. Run `domios mem embedder use` with the same provider, model and dimension to explicitly resume checkpointed work after a failure or interruption. Selecting the published model discards the shadow database, including after failure. Restart also resumes the configured target. During a local switch both models stay resident; publication, failure or cancellation releases the extra model.
-- **Outages.** When the embedder is unavailable (remote outage, rate limit, missing key or local model), saves still succeed and keyword search finds them. The item is marked vector pending and is embedded again when the provider answers.
-- **Recall priority.** Query embeddings take priority at inference boundaries; one background request runs after eight consecutive queries so re-embedding keeps progressing. Search allows 500 ms for semantic retrieval, then returns keyword results with `degraded: "semantic pending"`. Status reports the live indexing queue separately from persisted vector-pending items: queued chunks, in-flight work, failed work and availability. Queue failure counts last for the worker's lifetime.
-- **Remote embedders send memory text to a third party.** A remote provider activates only when its API key is stored AND `memory.embedder.remote_opt_in = true`. Text flagged by the credential filter is never sent. The key is read once at activation and daemon start and is never taken from config, argv or the environment. Sources, in order (the file wins when both exist):
-  1. `<data_dir>/secrets/<provider>-embedder.key`: `~/.domios/secrets/` on prod, `~/.domios-dev/secrets/` on DEV, or the named instance's own data directory. It is readable only by its owner (mode 0600 on Unix; on Windows an ACL for the current user only);
+- **Switching.** The index is stamped with provider, model and dimension. A switch builds a stamped shadow (items, entities, Blueprint solutions, documentation) in the background while recall stays semantic on the published model, then swaps atomically; content changed during the build is re-embedded first. Items the new provider refuses count as failed and stay vector pending; only an outage stops the build. Status (CLI, Blueprint `recall` state, Settings → General → Memory embedder) shows progress, failures and the cause. Choosing the published model cancels a build; another target is refused until it ends. Vectors from different models never mix.
+- **Retry or cancel.** Config keeps the requested target; status shows the published model separately. Re-run `use` with the same selection, or restart, to resume checkpointed work; select the published model to discard the shadow. Both local models stay resident during a switch.
+- **Outages.** When the embedder is unavailable, saves still succeed and keyword search finds them; the item stays vector pending until the provider answers.
+- **Recall priority.** Queries go ahead of background embedding; one background request runs per eight consecutive queries so builds keep moving. Semantic retrieval gets 500 ms, then search returns keyword results with `degraded: "semantic pending"`. Status shows the live queue (queued, in flight, failed, availability) separately from vector-pending items.
+- **Remote embedders send memory text to a third party.** A remote provider activates only with a stored API key AND `memory.embedder.remote_opt_in = true`; credential-flagged text is never sent. The key is read at activation and daemon start, never from config, argv or the environment. Sources (the file wins):
+  1. `<data_dir>/secrets/<provider>-embedder.key` in the selected instance's data directory, readable only by its owner (0600 on Unix, a current-user ACL on Windows);
   2. the Domios secret store entry `<provider>-embedder`.
 
-  Use `domios mem embedder key set <provider>` first: it reads piped stdin only, writes atomically with owner-only permissions on every OS, and prints the path, never the key. It follows the selected prod, DEV or named instance and refuses a secrets directory outside its resolved data directory. Terminal input, argv keys and `--mesh` are refused.
+  Use `domios mem embedder key set <provider>` first: it reads piped stdin only, writes atomically with owner-only permissions, prints the path (never the key), follows the selected instance and refuses terminal input, argv keys and `--mesh`. Examples: `pbpaste | domios mem embedder key set openai` (macOS), `Get-Clipboard -Raw | domios mem embedder key set openai` (Windows), or pipe a password manager's stdout (Linux).
 
-  Clipboard examples (the key never appears in the command):
-  - macOS: `pbpaste | domios mem embedder key set openai`
-  - Windows PowerShell: `Get-Clipboard -Raw | domios mem embedder key set openai`
-  - Linux: pipe your password manager's stdout into `domios mem embedder key set openai`.
-
-  Manual fallbacks use the selected instance's secrets directory:
+  Manual fallbacks (selected instance's secrets dir):
   - **Unix:** `umask 077; mkdir -p ~/.domios/secrets; cat > ~/.domios/secrets/openai-embedder.key && chmod 600 ~/.domios/secrets/openai-embedder.key` (paste, then Ctrl-D).
-  - **Windows PowerShell:** create an empty `<data_dir>/secrets/openai-embedder.key` as `$file`; resolve `$owner = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name`, run `icacls $file /reset`, then `icacls $file /inheritance:r /grant:r "${owner}:(F)"` before writing the key from stdin as UTF-8 without a BOM. This replaces inherited permissions with the current user's full-control DACL.
+  - **Windows PowerShell:** create an empty `<data_dir>/secrets/openai-embedder.key` as `$file`, set `$owner = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name`, run `icacls $file /inheritance:r /grant:r "${owner}:(F)"`, then write the key as UTF-8 without a BOM.
   - **Secret store:** `domios mem secret save --name openai-embedder` (key on stdin).
 
-  When the owner explicitly asks an agent to set it up, pipe the supplied value into `domios mem embedder key set <provider>`, then activate with `domios mem embedder use <provider>`. Never put the key in argv, output, logs or mem.
+  Asked to set it up, an agent pipes the supplied value into `domios mem embedder key set <provider>` and runs `domios mem embedder use <provider>`; the key never goes into argv, output, logs or mem.
 
 ### Supporter Agent memory re-rank
 
@@ -197,4 +192,4 @@ The prior deletion receipt must establish conversation kind, `flush:<tab> pre-co
 
 Check row/byte counts and compaction outcomes. Blob unlink, VACUUM and WAL checkpoint reclaim storage, without secure erasure. Backups, snapshots, old WAL copies, filesystem free space and provider transcripts remain untouched. No global orphan sweep runs.
 
-<!-- revision: 56 -->
+<!-- revision: 57 -->

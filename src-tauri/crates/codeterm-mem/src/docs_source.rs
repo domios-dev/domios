@@ -2,6 +2,9 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::OnceLock;
 
 mod vectors;
+#[cfg(all(test, feature = "embeddings"))]
+pub(crate) use vectors::embed_section;
+pub(crate) mod work;
 
 #[derive(Debug, Clone, PartialEq)]
 struct DocSection {

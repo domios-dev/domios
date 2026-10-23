@@ -386,8 +386,7 @@ fn recall_reembed_worker_beats_around_each_diff_and_publication() {
             &beat,
         )
         .unwrap();
-    // pass start, diff done, one unit, before publication, after publication
-    assert_eq!(beats.try_iter().count(), 5);
+    assert_eq!(beats.try_iter().count(), 7);
     assert_eq!(stamp(&fx), Some(new.identity()));
 }
 
@@ -465,17 +464,27 @@ fn shadow_residency_failed_run_can_be_discarded_then_retried_cleanly() {
 
 #[test]
 fn recall_reembed_progress_observers_can_read_status_without_holding_connection() {
-    let (fx, _, _) = seeded(&["orchard harvest"]);
+    let (fx, _, ids) = seeded(&["orchard harvest"]);
     let mem = Arc::downgrade(&fx.mem);
+    let changed = std::sync::atomic::AtomicBool::new(false);
     let (observed, observations) = std::sync::mpsc::channel();
     fx.embedder.subscribe(Arc::new(move |event| {
-        if !matches!(event, EmbedderEvent::Progress(_)) {
+        let EmbedderEvent::Progress(progress) = event else {
             return;
-        }
+        };
         let mem = mem.upgrade().unwrap();
         let unlocked = mem.conn.try_lock().is_some();
         if unlocked {
             let _ = mem.embedder_status();
+            if progress.done == 1 && !changed.swap(true, Ordering::SeqCst) {
+                mem.with_conn(|conn| {
+                    conn.execute(
+                        "UPDATE mem_items SET body_inline = body_inline || ' changed' WHERE id=?1",
+                        [&ids[0]],
+                    )
+                    .unwrap()
+                });
+            }
         }
         observed.send(unlocked).unwrap();
     }));
@@ -492,4 +501,89 @@ fn recall_reembed_progress_observers_can_read_status_without_holding_connection(
     let observations: Vec<_> = observations.try_iter().collect();
     assert!(!observations.is_empty());
     assert!(observations.iter().all(|unlocked| *unlocked));
+}
+
+#[test]
+fn recall_reembed_switch_refuses_a_busy_connection_without_waiting() {
+    let (fx, old, _) = seeded(&["orchard harvest"]);
+    let new = MockProvider::new("new", "new", 768);
+    let guard = fx.mem.conn.lock();
+    let refusal = fx.mem.try_switch_embedder(new).unwrap_err();
+    assert!(refusal.contains("memory is busy"));
+    assert_eq!(fx.mem.reembed_progress().state, ReembedState::Idle);
+    assert_eq!(fx.embedder.identity(), old.identity());
+    drop(guard);
+}
+
+#[test]
+fn recall_reembed_large_item_reports_batches_before_the_item_completes() {
+    let body = "orchard harvest fruit ".repeat(800);
+    let (fx, _, _) = seeded(&[&body]);
+    let new = MockProvider::new("new", "new", 768);
+    let (started, release) = new.gated();
+    fx.mem.switch_embedder(new.clone()).unwrap();
+    let total = loop {
+        match fx.events.recv_timeout(DEADLINE).unwrap() {
+            EmbedderEvent::Progress(progress) if progress.current_item.is_some() => {
+                let item = progress.current_item.unwrap();
+                assert_eq!(item.done, 0);
+                break item.total;
+            }
+            _ => {}
+        }
+    };
+    assert!(total > 8);
+    for _ in 0..8 {
+        started.recv_timeout(DEADLINE).unwrap();
+        release.send(()).unwrap();
+    }
+    started.recv_timeout(DEADLINE).unwrap();
+    let event = wait_for(&fx.events, |event| {
+        matches!(event, EmbedderEvent::Progress(progress)
+            if progress.current_item.as_ref().is_some_and(|item| item.done == 8))
+    });
+    let EmbedderEvent::Progress(progress) = event else {
+        unreachable!()
+    };
+    assert_eq!(progress.done, 0);
+    assert_eq!(progress.current_item.unwrap().total, total);
+    assert!(progress.updated_at > progress.started_at);
+    new.ungate();
+    release.send(()).unwrap();
+    settled(&fx, ReembedState::Completed);
+}
+
+#[test]
+fn recall_reembed_failed_or_cancelled_shadow_keeps_published_status_and_semantic_recall() {
+    for cancel in [false, true] {
+        let (fx, old, ids) = seeded(&["one", "two", "three", "four", "five", "six"]);
+        let target = MockProvider::new("new", "target", 768);
+        if cancel {
+            let (started, release) = target.gated();
+            fx.mem.switch_embedder(target.clone()).unwrap();
+            started.recv_timeout(DEADLINE).unwrap();
+            fx.mem.switch_embedder(old.clone()).unwrap();
+            target.ungate();
+            release.send(()).unwrap();
+            assert_eq!(fx.mem.reembed_progress().state, ReembedState::Cancelled);
+        } else {
+            target.set_down(true);
+            fx.mem.switch_embedder(target.clone()).unwrap();
+            settled(&fx, ReembedState::Failed);
+        }
+        target.set_down(true);
+        let retired_target = crate::embedder::ActiveEmbedder::new(target);
+        assert!(retired_target.passage("late shadow request").is_err());
+        assert!(!retired_target.is_available());
+
+        let status = fx.mem.embedder_status();
+        assert!(status.available);
+        assert!(!status.degraded);
+        assert_eq!(status.index, Some(old.identity()));
+        let (hits, degraded) = crate::embedder::recall_priority::with_recall_status(|| {
+            fx.mem.vector_recall("three", 1).unwrap()
+        });
+        assert!(!degraded);
+        assert_eq!(hits[0].0, ids[2]);
+    }
 }

@@ -182,7 +182,7 @@ impl DeliveryError {
                 "code": self.code(),
                 "tab": self.tab(),
                 "bytes_written": self.bytes_written(),
-                "delivery_state": self.delivery_state(),
+                "delivery_state": if matches!(self, Self::PlanLimitLocked { .. }) { serde_json::json!("refused") } else { serde_json::json!(self.delivery_state()) },
                 "detail": self.detail(),
                 "message": self.to_string(),
             }

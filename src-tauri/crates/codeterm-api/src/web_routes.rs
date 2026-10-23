@@ -734,8 +734,10 @@ pub async fn chat_raw_start(
     Json(body): Json<ChatSubscriptionBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let slot = crate::request_bound::RequestSlot::acquire(format!("chat-start:{tab_id}"))
-        .map_err(|(status, error)| (status, error.0.to_string()))?;
+    let slot =
+        crate::request_bound::RequestSlot::acquire_when_available(format!("chat-start:{tab_id}"))
+            .await
+            .map_err(|(status, error)| (status, error.0.to_string()))?;
     let svc = state.svc.clone();
     let queued = std::time::Instant::now();
     let result = tokio::task::spawn_blocking(move || {
@@ -795,13 +797,15 @@ pub async fn plugin_snapshot(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, crate::request_bound::RequestError> {
-    use crate::request_bound::{bounded, unavailable, PLUGIN_DEADLINE};
+    use crate::request_bound::{blocking, unavailable};
     check_auth(&state, &headers)
         .map_err(|(status, error)| (status, unavailable("unauthorized", error).1))?;
-    bounded(
-        PLUGIN_DEADLINE,
-        commands::plugins::plugin_manager_snapshot_for_service(state.svc.clone()),
-    )
+    let runtime = tokio::runtime::Handle::current();
+    blocking("plugin-snapshot".into(), move |slot| {
+        runtime.block_on(commands::plugins::plugin_manager_snapshot_for_service(
+            state.svc, slot,
+        ))
+    })
     .await
     .map(Json)
 }

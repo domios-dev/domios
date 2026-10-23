@@ -4,7 +4,7 @@ use std::time::Duration;
 use codeterm_mem::embedder::catalog::{self, BuildContext, BuildError, EmbedderSelection};
 use codeterm_mem::embedder::key::{self, ApiKey, KeyPresence, KeySources, KeyVault};
 use codeterm_mem::embedder::{
-    EmbedderIdentity, EmbedderStatus, ProviderDescriptor, ReembedState, SwitchPlan,
+    EmbedderIdentity, EmbedderStatus, ProviderDescriptor, ReembedProgress, ReembedState, SwitchPlan,
 };
 use serde::{Deserialize, Serialize};
 
@@ -180,6 +180,7 @@ impl UseParams {
 #[derive(Debug, Clone, Serialize)]
 pub struct SwitchPreview {
     pub already_active: bool,
+    pub already_running: Option<ReembedProgress>,
     pub cancelled: Option<EmbedderIdentity>,
     pub target: EmbedderIdentity,
     pub remote: bool,
@@ -210,6 +211,7 @@ pub fn preview(svc: &ServiceState, params: &UseParams) -> Result<SwitchPreview, 
     .map(|refusal| Refusal::from(&BuildError::Refused(refusal)));
     Ok(SwitchPreview {
         cancelled: None,
+        already_running: None,
         already_active: svc.mem.embedder().identity()
             == EmbedderIdentity {
                 provider: descriptor.id.clone(),
@@ -239,13 +241,16 @@ pub fn use_provider(svc: &ServiceState, params: &UseParams) -> Result<SwitchPrev
     let target = provider.identity();
     let remote = provider.remote();
     let already_active = svc.mem.embedder().identity() == target;
-    let running = svc.mem.embedder_status().reembed;
+    let running = svc.mem.reembed_progress();
+    let already_running = (running.state == ReembedState::Running
+        && running.target.as_ref() == Some(&target))
+    .then(|| running.clone());
     let cancelled = (already_active && running.state == ReembedState::Running)
         .then_some(running.target)
         .flatten();
     let plan = svc
         .mem
-        .switch_embedder(provider)
+        .try_switch_embedder(provider)
         .map_err(|message| Refusal {
             message,
             hints: Vec::new(),
@@ -253,6 +258,7 @@ pub fn use_provider(svc: &ServiceState, params: &UseParams) -> Result<SwitchPrev
     persist(svc, &target)?;
     Ok(SwitchPreview {
         already_active,
+        already_running,
         cancelled,
         target,
         remote,
@@ -283,12 +289,24 @@ fn persist(svc: &ServiceState, target: &EmbedderIdentity) -> Result<(), Refusal>
 pub fn start(svc: &ServiceState) {
     let ui = svc.ui.clone();
     let mem = Arc::downgrade(&svc.mem);
+    let (changes, mut pending) = tokio::sync::watch::channel(());
     svc.mem.embedder().subscribe(Arc::new(move |_event| {
-        if let Some(mem) = mem.upgrade() {
-            let status = serde_json::to_value(mem.embedder_status()).unwrap_or_default();
-            ui.emit(CHANGED_EVENT, status);
-        }
+        changes.send_replace(());
     }));
+    crate::async_runtime::spawn(async move {
+        while pending.changed().await.is_ok() {
+            pending.borrow_and_update();
+            let Some(mem) = mem.upgrade() else { break };
+            let status = crate::async_runtime::spawn_blocking(move || mem.embedder_status()).await;
+            match status {
+                Ok(status) => ui.emit(
+                    CHANGED_EVENT,
+                    serde_json::to_value(status).unwrap_or_default(),
+                ),
+                Err(error) => log::warn!("[mem.embedder] status update failed: {error}"),
+            }
+        }
+    });
     let svc = svc.clone();
     let spawned = std::thread::Builder::new()
         .name("mem-embedder-start".into())

@@ -51,7 +51,12 @@ fn swap(
         });
     }
     if has_previous {
-        perform(Step::Cleanup).map_err(|e| format!("{}: {e}", Step::Cleanup.label()))?;
+        if let Err(error) = perform(Step::Cleanup) {
+            log::warn!(
+                "[plugin] {}: {error}; startup will clean the backup",
+                Step::Cleanup.label()
+            );
+        }
     }
     Ok(())
 }
@@ -72,7 +77,7 @@ pub(super) fn activate_with_reload(
     #[cfg(windows)]
     let retry = retry::ChangeRetry::new(staging)
         .map_err(|error| format!("watch locked staging path {}: {error}", staging.display()))?;
-    let backup = destination.with_extension("rollback.tmp-install");
+    let backup = super::staging::path_for(destination, "rollback.tmp-install");
     super::ensure_plugin_path_inside(&backup)?;
     if backup
         .try_exists()

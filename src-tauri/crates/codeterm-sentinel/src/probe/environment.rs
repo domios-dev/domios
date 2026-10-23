@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 #[derive(Clone)]
 pub struct Environment {
+    _deny_directory: Option<std::sync::Arc<tempfile::TempDir>>,
     pub(super) variables: Vec<(OsString, OsString)>,
 }
 
@@ -114,13 +115,30 @@ impl Environment {
             }
         }
         paths.retain(|path| {
-            !cli_dirs.iter().any(|cli| same_directory(path, cli)) && !holds_domios_cli(path)
+            is_shared_directory(path) || !cli_dirs.iter().any(|cli| same_directory(path, cli))
         });
+        let deny_directory = if paths.iter().any(|path| holds_domios_cli(path)) {
+            match deny_directory(windows) {
+                Ok(directory) => Some(std::sync::Arc::new(directory)),
+                Err(error) => {
+                    log::warn!("[blueprint] CLI accident prevention unavailable: {error}");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        if let Some(directory) = &deny_directory {
+            paths.insert(0, directory.path().to_path_buf());
+        }
         variables.push((
             "PATH".into(),
             std::env::join_paths(paths).unwrap_or_default(),
         ));
-        Self { variables }
+        Self {
+            variables,
+            _deny_directory: deny_directory,
+        }
     }
 
     #[cfg(windows)]
@@ -143,7 +161,41 @@ impl Environment {
     }
 }
 
-// Any instance's launcher (prod, dev, named dev) is excluded, not only the running one.
+fn is_shared_directory(path: &Path) -> bool {
+    ["/usr/bin", "/bin", "/usr/local/bin", "/opt/homebrew/bin"]
+        .iter()
+        .any(|shared| same_directory(path, Path::new(shared)))
+        || std::env::var_os("SystemRoot")
+            .is_some_and(|root| same_directory(path, &PathBuf::from(root).join("System32")))
+}
+
+fn deny_directory(windows: bool) -> std::io::Result<tempfile::TempDir> {
+    let directory = tempfile::Builder::new()
+        .prefix("blueprint-cli-deny-")
+        .tempdir()?;
+    for name in ["domios", "codeterm"] {
+        let path = directory.path().join(if windows {
+            format!("{name}.cmd")
+        } else {
+            name.into()
+        });
+        std::fs::write(
+            &path,
+            if windows {
+                "@echo off\r\necho Domios CLI is unavailable in Blueprint commands 1>&2\r\nexit /b 126\r\n"
+            } else {
+                "#!/bin/sh\necho 'Domios CLI is unavailable in Blueprint commands' >&2\nexit 126\n"
+            },
+        )?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))?;
+        }
+    }
+    Ok(directory)
+}
+
 fn holds_domios_cli(directory: &Path) -> bool {
     ["domios", "codeterm"].iter().any(|name| {
         ["", ".exe", ".cmd", ".bat", ".ps1"]

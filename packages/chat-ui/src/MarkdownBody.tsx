@@ -4,7 +4,7 @@ import { boundedMessageLayout, expandedMessageHeight } from "./boundedMessageMod
 import { BoundedMessageContent } from "./BoundedMessageContent";
 import React, { useMemo, useContext, useRef, useState } from "react";
 import type { SlashCommand, EditPair } from "@codeterm/chat-core";
-import { localArtifactTextParts, parseMarker } from "@codeterm/chat-core";
+import { attachmentPathName, localArtifactTextParts, parseMarker } from "@codeterm/chat-core";
 import { File, Image, Info, Mic, Play, Settings } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -655,12 +655,7 @@ export function FileIcon({ className = "" }: { className?: string }) {
   return <File className={className} size={12} strokeWidth={2} />;
 }
 
-/** Extract filename from path. */
-export function fileName(path: string): string {
-  // `/`-only split returned the entire C:\…\file.webm path (clipped the bubble).
-  const parts = path.split(/[/\\]/).filter(Boolean);
-  return parts[parts.length - 1] || path;
-}
+export const fileName = attachmentPathName;
 
 /**
  * Render user message content, replacing file attachment markers with badges.

@@ -1,3 +1,4 @@
+import { limitHeadline } from "../freeLimitModel";
 import { act, createElement, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { vi } from "vitest";
@@ -23,7 +24,7 @@ export const PLAN_PAYLOADS = {
 export const LINES = {
   workspaces: "The free version includes 2 workspaces.",
   teams: "The free version includes 6 Teams across all workspaces.",
-  tabs: "The free version allows 35 tabs running at once.",
+  tabs: limitHeadline("agent.tabs"),
 };
 
 const identity = { uid: "scenario-user", display_name: "Scenario", email: null, provider: "fake" };

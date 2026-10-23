@@ -11,6 +11,23 @@ impl MemManager {
         &self.embedder
     }
 
+    pub fn reembed_progress(&self) -> super::ReembedProgress {
+        self.reembed.snapshot()
+    }
+
+    fn switch_connection(
+        &self,
+        wait: bool,
+    ) -> Result<parking_lot::MutexGuard<'_, rusqlite::Connection>, String> {
+        if wait {
+            Ok(self.conn.lock())
+        } else {
+            self.conn
+                .try_lock()
+                .ok_or_else(|| "memory is busy; embedder switch cannot complete now".into())
+        }
+    }
+
     pub fn embedder_status(&self) -> EmbedderStatus {
         let provider = self.embedder.provider();
         let identity = provider.identity();
@@ -25,6 +42,8 @@ impl MemManager {
         let reembed = self.reembed.snapshot();
         // A build or a failed build leaves recall fully semantic on the published model.
         let degraded = !self.embedder.is_available() || index.as_ref() != Some(&identity);
+        let mut queue = self.embed_queue.status(!self.embedder.is_available());
+        crate::docs_source::work::add_status(&mut queue);
         EmbedderStatus {
             provider: identity.provider.clone(),
             model: identity.model.clone(),
@@ -35,7 +54,7 @@ impl MemManager {
             index,
             vectors,
             pending,
-            queue: self.embed_queue.status(!self.embedder.is_available()),
+            queue,
             degraded,
             reembed,
         }
@@ -45,10 +64,14 @@ impl MemManager {
     /// and, for the daemon's manager, every documentation section.
     pub fn reembed_plan(&self) -> Result<SwitchPlan, String> {
         let conn = self.conn.lock();
+        self.reembed_plan_in(&conn)
+    }
+
+    fn reembed_plan_in(&self, conn: &rusqlite::Connection) -> Result<SwitchPlan, String> {
         Ok(SwitchPlan {
-            blueprints: crate::blueprint_library::index::indexed_items(&conn)?.len() as u64,
-            items: self.reembed_item_targets(&conn)?.len() as u64,
-            entities: self.reembed_entity_targets(&conn)?.len() as u64,
+            blueprints: crate::blueprint_library::index::indexed_items(conn)?.len() as u64,
+            items: self.reembed_item_targets(conn)?.len() as u64,
+            entities: self.reembed_entity_targets(conn)?.len() as u64,
             docs: if self.docs_dir.is_some() {
                 crate::docs_source::vector_section_count() as u64
             } else {
@@ -64,12 +87,27 @@ impl MemManager {
         self: &Arc<Self>,
         provider: SharedProvider,
     ) -> Result<SwitchPlan, String> {
+        self.switch_embedder_with(provider, true)
+    }
+
+    pub fn try_switch_embedder(
+        self: &Arc<Self>,
+        provider: SharedProvider,
+    ) -> Result<SwitchPlan, String> {
+        self.switch_embedder_with(provider, false)
+    }
+
+    fn switch_embedder_with(
+        self: &Arc<Self>,
+        provider: SharedProvider,
+        wait: bool,
+    ) -> Result<SwitchPlan, String> {
         let identity = provider.identity();
         let running = self.reembed.snapshot();
         let failed = running.state == super::ReembedState::Failed;
         let running = (running.state == super::ReembedState::Running).then_some(running);
         if self.embedder.identity() == identity
-            && index::stamp(&self.conn.lock())?.as_ref() == Some(&identity)
+            && index::stamp(&*self.switch_connection(wait)?)?.as_ref() == Some(&identity)
         {
             if let Some(running) = running {
                 let reason = format!(
@@ -91,7 +129,7 @@ impl MemManager {
                     &self.embedder,
                 );
             }
-            self.clear_shadow(&self.conn.lock());
+            self.clear_shadow(&*self.switch_connection(wait)?);
             super::local::retain_models(&identity, None);
             return Ok(SwitchPlan::default());
         }
@@ -104,8 +142,12 @@ impl MemManager {
                     .into(),
             );
         }
-        let plan = self.reembed_plan()?;
-        self.prepare_shadow(&identity)?;
+        let plan = {
+            let conn = self.switch_connection(wait)?;
+            let plan = self.reembed_plan_in(&conn)?;
+            self.prepare_shadow_in(&conn, &identity)?;
+            plan
+        };
         let generation = self.reembed.start(identity, plan, &self.embedder);
         if let Err(error) = self.launch_shadow(generation, ActiveEmbedder::new(provider)) {
             self.reembed.fail(generation, error.clone(), &self.embedder);

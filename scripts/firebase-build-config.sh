@@ -1,3 +1,11 @@
+ct_firebase_build_secret() {
+  if [ -n "${DEV_NOTIFY_PARENT_CLI:-}" ]; then
+    dev_notify_parent_cli mem secret get --name "$1"
+  else
+    codeterm mem secret get --name "$1"
+  fi
+}
+
 ct_with_firebase_build_config() {
   [ "$#" -gt 0 ] || return 2
 
@@ -17,13 +25,13 @@ ct_with_firebase_build_config() {
   env_app_id="${DOMIOS_FIREBASE_APP_ID:-}"
   env_redeem_url="${DOMIOS_ACCOUNT_REDEEM_URL:-}"
 
-  secret_api_key="$(codeterm mem secret get --name DOMIOS_FIREBASE_API_KEY 2>/dev/null)" || secret_api_key=""
-  secret_project_id="$(codeterm mem secret get --name DOMIOS_FIREBASE_PROJECT_ID 2>/dev/null)" || secret_project_id=""
-  secret_app_id="$(codeterm mem secret get --name DOMIOS_FIREBASE_APP_ID 2>/dev/null)" || secret_app_id=""
-  secret_redeem_url="$(codeterm mem secret get --name DOMIOS_ACCOUNT_REDEEM_URL 2>/dev/null)" || secret_redeem_url=""
+  secret_api_key="$(ct_firebase_build_secret DOMIOS_FIREBASE_API_KEY 2>/dev/null)" || secret_api_key=""
+  secret_project_id="$(ct_firebase_build_secret DOMIOS_FIREBASE_PROJECT_ID 2>/dev/null)" || secret_project_id=""
+  secret_app_id="$(ct_firebase_build_secret DOMIOS_FIREBASE_APP_ID 2>/dev/null)" || secret_app_id=""
+  secret_redeem_url="$(ct_firebase_build_secret DOMIOS_ACCOUNT_REDEEM_URL 2>/dev/null)" || secret_redeem_url=""
 
-  qa_project="$(codeterm mem secret get --name DOMIOS_QA_PROJECT_ID 2>/dev/null)" || qa_project=""
-  secret_billing_url="$(codeterm mem secret get --name DOMIOS_BILLING_FUNCTIONS_URL 2>/dev/null)" || secret_billing_url=""
+  qa_project="$(ct_firebase_build_secret DOMIOS_QA_PROJECT_ID 2>/dev/null)" || qa_project=""
+  secret_billing_url="$(ct_firebase_build_secret DOMIOS_BILLING_FUNCTIONS_URL 2>/dev/null)" || secret_billing_url=""
   if [[ -n "${secret_billing_url//[[:space:]]/}" ]]; then
     billing_url="$secret_billing_url"
   elif [[ -n "${env_billing_url//[[:space:]]/}" ]]; then
@@ -56,6 +64,12 @@ ct_with_firebase_build_config() {
     printf 'Billing config: present\n'
   else
     printf 'Billing config: absent\n'
+  fi
+
+  if [[ -n "${qa_project//[[:space:]]/}" ]]; then
+    printf 'QA project config: present\n'
+  else
+    printf 'QA project not configured in this build\n'
   fi
 
   # Read only by debug builds; release pins the production entitlement project.

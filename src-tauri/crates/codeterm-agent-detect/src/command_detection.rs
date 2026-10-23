@@ -278,13 +278,17 @@ impl ShellIntegration {
     pub fn feed(&mut self, data: &[u8]) -> Vec<CommandLifecycle> {
         let events = self.parser.feed(data);
         self.marker_observed |= !events.is_empty();
-        for event in &events {
-            self.display_state
-                .apply(event, self.detection.nonce.as_deref());
-        }
         events
             .into_iter()
-            .filter_map(|ev| self.detection.apply(ev))
+            .filter_map(|event| {
+                self.display_state
+                    .apply(&event, self.detection.nonce.as_deref());
+                let lifecycle = self.detection.apply(event)?;
+                if let CommandLifecycle::Finished { exit_code, .. } = &lifecycle {
+                    self.display_state.command_finished(*exit_code);
+                }
+                Some(lifecycle)
+            })
             .collect()
     }
 
