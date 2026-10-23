@@ -3,8 +3,10 @@ use serde::{Deserialize, Serialize};
 use super::remote_worker_transfer::{RemoteWorkerTransfer, RemoteWorkerTransferReceipt};
 
 mod commands;
+pub mod inventory;
 mod origin;
 mod store;
+mod teardown;
 mod worker;
 pub use origin::{RemoteTeamPeer, RemoteTransferTarget};
 pub use store::{RemoteTeamData, RemoteTeamStore};
@@ -21,9 +23,19 @@ pub struct RemoteTeamMember {
     pub provider: String,
     pub orchestrator_tab_id: String,
     pub team_id: String,
+    pub workspace_id: String,
     pub operation_id: String,
     #[serde(default)]
     pub finalized: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemoteTeamFinalization {
+    pub peer_id: String,
+    pub tab_id: String,
+    pub session_id: String,
+    pub provider: String,
+    pub outcome: String,
 }
 
 pub fn member_key(peer: &str, tab: &str) -> String {

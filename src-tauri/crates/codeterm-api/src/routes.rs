@@ -658,6 +658,10 @@ pub(super) fn create_router_with_preview_admission(
         )
         .route("/api/mesh/rpc", post(mesh_routes::mesh_rpc))
         .route(
+            "/api/teams/{team_id}/member-inventory",
+            get(super::remote_team_routes::inventory),
+        )
+        .route(
             "/api/agents/reparent",
             post(super::remote_team_routes::reparent),
         )

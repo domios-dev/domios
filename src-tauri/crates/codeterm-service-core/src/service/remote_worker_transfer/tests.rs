@@ -15,6 +15,7 @@ fn fixture() -> (Tab, RemoteWorkerTransfer) {
         operation_id: "operation".into(),
         worker_tab_id: id,
         worker_session_id: "session".into(),
+        worker_provider: "fixture-provider".into(),
         expected_parent_tab_id: "parent".into(),
         destination_tab_id: "destination".into(),
         destination_team_id: None,
@@ -72,11 +73,19 @@ fn stale_session_parent_and_unverified_identity_are_refused_without_mutation() {
     stale_session.worker_session_id = "replacement".into();
     let mut stale_parent = request.clone();
     stale_parent.expected_parent_tab_id = "old-parent".into();
+    let mut stale_provider = request.clone();
+    stale_provider.worker_provider = "replacement-provider".into();
     let mut wrong_tab = request.clone();
     wrong_tab.worker_tab_id = "other-worker".into();
     let mut empty_destination = request.clone();
     empty_destination.destination_tab_id = " ".into();
-    for request in [stale_session, stale_parent, wrong_tab, empty_destination] {
+    for request in [
+        stale_session,
+        stale_parent,
+        stale_provider,
+        wrong_tab,
+        empty_destination,
+    ] {
         let mut candidate = tab.clone();
         assert!(apply_remote_worker_transfer(&mut candidate, "origin", &request).is_err());
         assert_eq!(serde_json::to_value(candidate).unwrap(), before);

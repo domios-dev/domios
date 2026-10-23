@@ -321,7 +321,11 @@ fn print_human(value: &Value) {
         value.get("team_id").and_then(Value::as_str),
         value.get("tab_id").and_then(Value::as_str),
     ) {
-        println!("Adopted Tab {tab_id} into Team {team_id}.");
+        if let Some(peer) = value.get("peer").and_then(Value::as_str) {
+            println!("Adopted Tab {tab_id}@{peer} into Team {team_id}.");
+        } else {
+            println!("Adopted Tab {tab_id} into Team {team_id}.");
+        }
         return;
     }
     if let Some(summary) = cartographer_attachment_summary(value) {
@@ -334,6 +338,9 @@ fn print_human(value: &Value) {
             print_close_inventory(inventory);
         }
         for line in forced_close_lines(value) {
+            println!("{line}");
+        }
+        for line in remote_lifecycle_lines(value) {
             println!("{line}");
         }
         print_members(
@@ -467,11 +474,52 @@ fn print_members(members: Option<&[Value]>) {
         return;
     }
     for member in members {
-        let tab_id = member.get("tab_id").and_then(Value::as_str).unwrap_or("?");
-        let title = member.get("title").and_then(Value::as_str).unwrap_or("");
-        let role = team_member_role_label(member);
-        println!("  {tab_id}\t{role}\t{title}");
+        println!("{}", team_member_line(member));
     }
+}
+
+fn team_member_line(member: &Value) -> String {
+    let tab_id = member.get("tab_id").and_then(Value::as_str).unwrap_or("?");
+    let title = member.get("title").and_then(Value::as_str).unwrap_or("");
+    let role = team_member_role_label(member);
+    let peer = member
+        .get("peer")
+        .and_then(Value::as_str)
+        .map(|peer| format!("\tpeer={peer}"))
+        .unwrap_or_default();
+    format!("  {tab_id}\t{role}\t{title}{peer}")
+}
+
+fn remote_lifecycle_lines(value: &Value) -> Vec<String> {
+    let mut lines = Vec::new();
+    for item in value
+        .get("remote_members")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        lines.push(format!(
+            "Remote Worker {}@{}: {}",
+            item["tab_id"].as_str().unwrap_or("?"),
+            item["peer_id"].as_str().unwrap_or("?"),
+            item["outcome"].as_str().unwrap_or("unknown")
+        ));
+    }
+    for item in value
+        .get("remote_transfers")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        lines.push(format!(
+            "Pending remote transfer {}: {}@{} -> {}",
+            item["operation_id"].as_str().unwrap_or("?"),
+            item["tab_id"].as_str().unwrap_or("?"),
+            item["peer"].as_str().unwrap_or("?"),
+            item["destination_tab_id"].as_str().unwrap_or("?")
+        ));
+    }
+    lines
 }
 
 fn team_member_role_label(member: &Value) -> String {

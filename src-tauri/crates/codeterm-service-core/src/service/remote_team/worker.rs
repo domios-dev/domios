@@ -27,8 +27,11 @@ pub struct RemoteWorkerInfo {
 pub struct RemoteWorkerFinalize {
     pub worker_tab_id: String,
     pub worker_session_id: String,
+    pub worker_provider: String,
     pub expected_parent_tab_id: String,
     pub force: bool,
+    #[serde(default)]
+    pub check_only: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -83,6 +86,10 @@ impl ServiceContext {
             operation_id: "inspection".into(),
             worker_tab_id: tab.id.clone(),
             worker_session_id: session_id.clone(),
+            worker_provider: tab
+                .agent_type
+                .clone()
+                .ok_or("remote Worker has no provider")?,
             expected_parent_tab_id: parent.clone(),
             destination_tab_id: parent.clone(),
             destination_team_id: None,
@@ -191,6 +198,7 @@ impl ServiceContext {
                 None => "absent",
                 Some(tab)
                     if tab.agent_session_id.as_deref() != Some(&request.worker_session_id)
+                        || tab.agent_type.as_deref() != Some(&request.worker_provider)
                         || tab.report_target_mesh_peer.as_deref() != Some(peer)
                         || tab.report_target_tab_id.as_deref()
                             != Some(&request.expected_parent_tab_id) =>
@@ -198,17 +206,7 @@ impl ServiceContext {
                     "released_stale_binding"
                 }
                 Some(tab) => {
-                    let check = RemoteWorkerTransfer {
-                        operation_id: "finalize".into(),
-                        worker_tab_id: request.worker_tab_id.clone(),
-                        worker_session_id: request.worker_session_id.clone(),
-                        expected_parent_tab_id: request.expected_parent_tab_id.clone(),
-                        destination_tab_id: request.expected_parent_tab_id.clone(),
-                        destination_team_id: None,
-                        caller_tab_id: Some(request.expected_parent_tab_id.clone()),
-                        owner_confirmed: false,
-                    };
-                    authorize_remote_worker_transfer(tab, peer, &check)?;
+                    authorize_remote_worker_transfer(tab, peer, &finalization_check(request))?;
                     if !mux.get_children_ids(&tab.id).is_empty() {
                         return Err("remote Worker has child tabs".into());
                     }
@@ -226,6 +224,17 @@ impl ServiceContext {
                 }
             }
         };
+        if request.check_only {
+            return Ok(RemoteFinalizationReceipt {
+                worker_tab_id: request.worker_tab_id.clone(),
+                worker_session_id: request.worker_session_id.clone(),
+                outcome: if decision == "closed" {
+                    "ready".into()
+                } else {
+                    decision.into()
+                },
+            });
+        }
         if decision == "closed" {
             self.close_tab_with_precondition(
                 &request.worker_tab_id,
@@ -234,16 +243,8 @@ impl ServiceContext {
                     let tab = mux
                         .get_tab(id)
                         .ok_or("remote Worker disappeared before finalization")?;
-                    if tab.agent_session_id.as_deref() != Some(&request.worker_session_id)
-                        || tab.report_target_mesh_peer.as_deref() != Some(peer)
-                        || tab.report_target_tab_id.as_deref()
-                            != Some(&request.expected_parent_tab_id)
-                        || tab.task_binding.is_some()
-                        || tab.team_id.is_some()
-                        || tab.parent_tab_id.is_some()
-                        || !mux.get_children_ids(id).is_empty()
-                        || !tab.launch_session_authenticated()
-                    {
+                    authorize_remote_worker_transfer(tab, peer, &finalization_check(request))?;
+                    if !mux.get_children_ids(id).is_empty() {
                         return Err("remote Worker binding changed before finalization".into());
                     }
                     if !request.force
@@ -266,6 +267,20 @@ impl ServiceContext {
             worker_session_id: request.worker_session_id.clone(),
             outcome: decision.into(),
         })
+    }
+}
+
+fn finalization_check(request: &RemoteWorkerFinalize) -> RemoteWorkerTransfer {
+    RemoteWorkerTransfer {
+        operation_id: "finalize".into(),
+        worker_tab_id: request.worker_tab_id.clone(),
+        worker_session_id: request.worker_session_id.clone(),
+        worker_provider: request.worker_provider.clone(),
+        expected_parent_tab_id: request.expected_parent_tab_id.clone(),
+        destination_tab_id: request.expected_parent_tab_id.clone(),
+        destination_team_id: None,
+        caller_tab_id: Some(request.expected_parent_tab_id.clone()),
+        owner_confirmed: false,
     }
 }
 

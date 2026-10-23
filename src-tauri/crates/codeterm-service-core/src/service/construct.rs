@@ -319,6 +319,7 @@ pub fn build_service_context(
     assert!(service.set_ext(states.storage.clone()).is_ok());
     assert!(service.set_ext(states.session.clone()).is_ok());
     service.restore_remote_worker_transfers();
+    service.restore_remote_team_closures();
     let service = Arc::new(service);
     assert!(service.set_ext(Arc::downgrade(&service)).is_ok());
     service

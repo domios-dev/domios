@@ -8,6 +8,7 @@ pub struct RemoteWorkerTransfer {
     pub operation_id: String,
     pub worker_tab_id: String,
     pub worker_session_id: String,
+    pub worker_provider: String,
     pub expected_parent_tab_id: String,
     pub destination_tab_id: String,
     pub destination_team_id: Option<String>,
@@ -21,6 +22,7 @@ pub struct RemoteWorkerTransferReceipt {
     pub operation_id: String,
     pub worker_tab_id: String,
     pub worker_session_id: String,
+    pub worker_provider: String,
     pub origin_peer_id: String,
     pub previous_parent_tab_id: String,
     pub destination_tab_id: String,
@@ -41,6 +43,7 @@ pub fn authorize_remote_worker_transfer(
     if tab.id != request.worker_tab_id
         || request.worker_session_id.trim().is_empty()
         || tab.agent_session_id.as_deref() != Some(request.worker_session_id.as_str())
+        || tab.agent_type.as_deref() != Some(request.worker_provider.as_str())
         || !tab.launch_session_authenticated()
     {
         return Err(
@@ -106,6 +109,7 @@ pub fn apply_remote_worker_transfer(
         operation_id: request.operation_id.clone(),
         worker_tab_id: tab.id.clone(),
         worker_session_id: request.worker_session_id.clone(),
+        worker_provider: request.worker_provider.clone(),
         origin_peer_id: origin_peer_id.to_string(),
         previous_parent_tab_id: request.expected_parent_tab_id.clone(),
         destination_tab_id: request.destination_tab_id.clone(),

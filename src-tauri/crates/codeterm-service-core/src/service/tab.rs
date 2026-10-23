@@ -321,6 +321,8 @@ impl ServiceContext {
                 .resolve_tab_id(tab_id)
                 .unwrap_or_else(|| tab_id.to_string());
             validate(&mux, &canonical_tab_id)?;
+            self.remote_teams
+                .ensure_tab_lifecycle_available(&canonical_tab_id)?;
             let tab = mux.get_tab(&canonical_tab_id);
             let provider_id = tab.and_then(|tab| tab.agent_type.clone());
             let session_id = tab.and_then(|tab| tab.agent_session_id.clone());

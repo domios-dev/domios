@@ -12,16 +12,36 @@ pub trait RemoteTeamPeer: Send + Sync {
 }
 
 #[async_trait::async_trait]
-impl RemoteTeamPeer for PeerClient {
+impl RemoteTeamPeer for PairedRemoteTeamPeer {
     async fn post(&self, path: &str, body: Value) -> Result<Value, String> {
-        self.auth_post_json(path, &body).await
+        let (_, client) = self.service.remote_team_peer(&self.peer_id)?;
+        client.auth_post_json(path, &body).await
     }
+}
+
+pub(super) struct PairedRemoteTeamPeer {
+    service: ServiceContext,
+    peer_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RemoteTransferTarget {
     pub orchestrator_tab_id: String,
     pub team_id: String,
+    pub workspace_id: String,
+}
+
+pub(super) fn authorize_peer_transfer(
+    access: &crate::mesh::types::AccessLevel,
+    online: bool,
+) -> Result<(), String> {
+    if *access != crate::mesh::types::AccessLevel::Full {
+        return Err("remote Team operations require Full mesh access".into());
+    }
+    if !online {
+        return Err("remote Team peer is offline; membership is retained".into());
+    }
+    Ok(())
 }
 
 pub(super) fn validate_actor(
@@ -82,10 +102,56 @@ pub(super) fn target_for_tab(
     Ok(RemoteTransferTarget {
         orchestrator_tab_id: destination.into(),
         team_id,
+        workspace_id: team.workspace_id.clone(),
     })
 }
 
 impl ServiceContext {
+    pub(super) async fn forget_remote_member_telemetry(
+        &self,
+        peer_id: &str,
+        worker: &str,
+    ) -> Result<(), String> {
+        let peer_name = self.try_ext::<crate::MeshStateHandle>().and_then(|mesh| {
+            let mesh = mesh.lock();
+            let peer = mesh.paired_peers.get(peer_id)?;
+            (mesh
+                .paired_peers
+                .values()
+                .filter(|candidate| {
+                    candidate
+                        .instance_name
+                        .eq_ignore_ascii_case(&peer.instance_name)
+                })
+                .count()
+                == 1)
+                .then(|| peer.instance_name.clone())
+        });
+        let peer_id = peer_id.to_string();
+        let worker = worker.to_string();
+        let registry = self.remote_workers.clone();
+        super::super::blocking::run(move || {
+            registry.forget_by_remote_tab(&worker, Some(&peer_id), None);
+            if let Some(name) = peer_name {
+                registry.forget_by_remote_tab(&worker, Some(&name), None);
+            }
+            Ok(())
+        })
+        .await
+    }
+    pub(super) fn remote_team_transport(
+        &self,
+        peer: &str,
+    ) -> Result<(String, PairedRemoteTeamPeer), String> {
+        let (peer_id, _) = self.remote_team_peer(peer)?;
+        Ok((
+            peer_id.clone(),
+            PairedRemoteTeamPeer {
+                service: self.clone(),
+                peer_id,
+            },
+        ))
+    }
     pub fn remote_team_target(&self, team: &str) -> Result<RemoteTransferTarget, String> {
         let mux = self.mux.read();
         let anchor = mux
@@ -96,21 +162,14 @@ impl ServiceContext {
         target_for_tab(&mux, &anchor)
     }
 
-    pub fn remote_team_peer(&self, name: &str) -> Result<(String, PeerClient), String> {
+    pub(super) fn remote_team_peer(&self, name: &str) -> Result<(String, PeerClient), String> {
         let handle = self
             .try_ext::<crate::MeshStateHandle>()
             .ok_or("Mesh is unavailable")?;
         let mesh = handle.lock();
         let peer = crate::mesh::paired_resolve::resolve_paired_by_name(&mesh.paired_peers, name)
             .map_err(|error| format!("paired peer {name} cannot be resolved: {error:?}"))?;
-        if peer.access_level != crate::mesh::types::AccessLevel::Full {
-            return Err("remote Team operations require Full mesh access".into());
-        }
-        if !peer.online {
-            return Err(format!(
-                "remote Team peer {name} is offline; membership is retained"
-            ));
-        }
+        authorize_peer_transfer(&peer.access_level, peer.online)?;
         let client = mesh
             .client_for(&peer.instance_id)
             .ok_or("paired peer is unavailable or its admission is closed")?;
@@ -124,7 +183,7 @@ impl ServiceContext {
         worker: &str,
         destination: &str,
     ) -> Result<RemoteTeamMember, String> {
-        let (peer_id, client) = self.remote_team_peer(peer)?;
+        let (peer_id, client) = self.remote_team_transport(peer)?;
         self.reparent_remote_worker_with_peer(caller, &peer_id, worker, destination, &client)
             .await
     }
@@ -158,7 +217,8 @@ impl ServiceContext {
             return Err("remote Team membership is frozen for close".into());
         }
         let same_actor = |op: &&OutgoingTransfer| {
-            op.actor_tab_id == caller.tab_id && op.actor_session_id == actor_session
+            caller.tab_id.is_none()
+                || (op.actor_tab_id == caller.tab_id && op.actor_session_id == actor_session)
         };
         let pending = data
             .outgoing
@@ -176,15 +236,16 @@ impl ServiceContext {
             }
             (*operation).clone()
         } else if let Some(operation) = data
-            .outgoing
-            .values()
+            .members
+            .get(&key)
+            .and_then(|member| data.outgoing.get(&member.operation_id))
             .filter(|op| {
                 op.peer_id == peer_id
                     && op.request.worker_tab_id == worker
                     && op.member.orchestrator_tab_id == destination
                     && op.completed
+                    && same_actor(op)
             })
-            .find(same_actor)
         {
             if data.members.get(&key) == Some(&operation.member)
                 && operation.member.team_id == target.team_id
@@ -222,6 +283,7 @@ impl ServiceContext {
                 provider: info.provider,
                 orchestrator_tab_id: destination.into(),
                 team_id: target.team_id.clone(),
+                workspace_id: target.workspace_id.clone(),
                 operation_id: operation_id.clone(),
                 finalized: false,
             };
@@ -234,6 +296,7 @@ impl ServiceContext {
                     operation_id,
                     worker_tab_id: worker.clone(),
                     worker_session_id: info.session_id,
+                    worker_provider: member.provider.clone(),
                     expected_parent_tab_id: info.parent_tab_id,
                     destination_tab_id: destination.into(),
                     destination_team_id: Some(target.team_id.clone()),
@@ -284,6 +347,7 @@ impl ServiceContext {
         if receipt.operation_id != operation.operation_id
             || receipt.worker_tab_id != worker
             || receipt.worker_session_id != operation.member.session_id
+            || receipt.worker_provider != operation.member.provider
             || receipt.origin_peer_id.is_empty()
             || receipt.destination_tab_id != destination
             || receipt.previous_parent_tab_id != operation.request.expected_parent_tab_id
@@ -304,6 +368,8 @@ impl ServiceContext {
                     return Err("transfer intent changed".into());
                 }
                 pending.completed = true;
+                data.finalizations
+                    .remove(&member_key(&completed.peer_id, &completed.member.tab_id));
                 data.members.insert(
                     member_key(&completed.peer_id, &completed.member.tab_id),
                     completed.member,
@@ -312,12 +378,8 @@ impl ServiceContext {
             })
         })
         .await?;
-        let registry = self.remote_workers.clone();
-        super::super::blocking::run(move || {
-            registry.forget_by_remote_tab(&worker, Some(&peer_id), None);
-            Ok(())
-        })
-        .await?;
+        self.forget_remote_member_telemetry(&peer_id, &worker)
+            .await?;
         self.emit_remote_workers_changed(destination);
         self.emit_state_changed(MuxEmitCause::Team);
         Ok(operation.member)
