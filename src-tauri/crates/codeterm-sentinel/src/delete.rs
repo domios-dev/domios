@@ -84,7 +84,39 @@ pub fn stage_delete(
     stop: bool,
 ) -> Result<Vec<(String, Staged<()>)>, String> {
     store.ensure_available()?;
-    let roots = plan_delete(store.list(), caller, target, stop)?;
+    let quarantined: Vec<_> = store
+        .quarantined
+        .iter()
+        .filter(|job| job.same_scope(caller.workspace, caller.team))
+        .collect();
+    let allowed = |job: &crate::storage::quarantine::Quarantined| {
+        job.creator_tab_id == caller.tab || (caller.team_owner && caller.team.is_some())
+    };
+    let roots = match target {
+        DeleteTarget::One(id) if quarantined.iter().any(|job| job.id == id) => {
+            let job = quarantined
+                .iter()
+                .find(|job| job.id == id)
+                .ok_or("quarantined Blueprint disappeared")?;
+            let root = job.scenario_id.as_deref().unwrap_or(&job.id);
+            let owner = quarantined
+                .iter()
+                .find(|job| job.id == root)
+                .copied()
+                .unwrap_or(job);
+            if !allowed(owner) {
+                return Err(format!(
+                    "only the creator tab or the Team owner may delete blueprint {root}"
+                ));
+            }
+            if store.jobs.iter().any(|job| job.id == root) {
+                plan_delete(store.list(), caller, DeleteTarget::One(root), stop)?
+            } else {
+                vec![root.to_string()]
+            }
+        }
+        target => plan_delete(store.list(), caller, target, stop)?,
+    };
     Ok(roots
         .into_iter()
         .map(|root| {

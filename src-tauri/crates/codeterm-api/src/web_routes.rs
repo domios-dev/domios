@@ -795,13 +795,15 @@ pub async fn plugin_snapshot(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, crate::request_bound::RequestError> {
-    use crate::request_bound::{bounded, unavailable, PLUGIN_DEADLINE};
+    use crate::request_bound::{blocking, unavailable};
     check_auth(&state, &headers)
         .map_err(|(status, error)| (status, unavailable("unauthorized", error).1))?;
-    bounded(
-        PLUGIN_DEADLINE,
-        commands::plugins::plugin_manager_snapshot_for_service(state.svc.clone()),
-    )
+    let runtime = tokio::runtime::Handle::current();
+    blocking("plugin-snapshot".into(), move |slot| {
+        runtime.block_on(commands::plugins::plugin_manager_snapshot_for_service(
+            state.svc, slot,
+        ))
+    })
     .await
     .map(Json)
 }

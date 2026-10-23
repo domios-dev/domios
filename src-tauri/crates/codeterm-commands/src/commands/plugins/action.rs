@@ -63,9 +63,22 @@ pub struct PluginManagerAction {
 
 pub(crate) async fn plugin_manager_snapshot_for_service(
     svc: codeterm_service_core::service::ServiceState,
+    lifetime: impl Send + Sync + 'static,
+) -> Result<Value, String> {
+    cached_plugin_snapshot_with_lifetime(
+        Arc::new(move || build_snapshot(None, Some(svc.chatbackend_registry.as_ref()))),
+        lifetime,
+    )
+    .await
+}
+
+async fn cached_plugin_snapshot_with_lifetime(
+    rebuild: SnapshotRebuild,
+    lifetime: impl Send + Sync + 'static,
 ) -> Result<Value, String> {
     cached_plugin_snapshot(Arc::new(move || {
-        build_snapshot(None, Some(svc.chatbackend_registry.as_ref()))
+        let _lifetime = &lifetime;
+        rebuild()
     }))
     .await
 }

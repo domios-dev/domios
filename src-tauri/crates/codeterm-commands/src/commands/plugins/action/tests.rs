@@ -17,14 +17,29 @@ async fn stuck_snapshot_rebuild_times_out_without_releasing_its_worker_slot() {
         blocked.lock().unwrap().recv().unwrap();
         Ok(json!({ "released": true }))
     });
-    let request = tokio::spawn(cached_plugin_snapshot(rebuild));
+    struct Lifetime(Option<tokio::sync::oneshot::Sender<()>>);
+    impl Drop for Lifetime {
+        fn drop(&mut self) {
+            let _ = self.0.take().unwrap().send(());
+        }
+    }
+    let (dropped, mut lifetime_ended) = tokio::sync::oneshot::channel();
+    let request = tokio::spawn(cached_plugin_snapshot_with_lifetime(
+        rebuild,
+        Lifetime(Some(dropped)),
+    ));
     ready.await.unwrap();
     tokio::time::advance(std::time::Duration::from_secs(5)).await;
     let result = request.await.unwrap();
     let flight = SNAPSHOT_FLIGHT.lock().unwrap().clone();
     invalidate_plugin_snapshot();
     let retained = SNAPSHOT_FLIGHT.lock().unwrap().clone();
+    assert!(matches!(
+        lifetime_ended.try_recv(),
+        Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+    ));
     release.send(()).unwrap();
+    lifetime_ended.await.unwrap();
     let mut done = flight.as_ref().unwrap().done.clone();
     done.wait_for(Option::is_some).await.unwrap();
     assert!(result.unwrap_err().contains("plugin_unavailable"));
