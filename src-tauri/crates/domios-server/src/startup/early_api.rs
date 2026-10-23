@@ -64,6 +64,7 @@ impl PreparedStartup {
         }
         let bind = codeterm_service_core::config::canonical_api_bind_addr(&api_config)?;
         control.listeners.configure(remote, Arc::new(|_| {}));
+        control.listeners.set_proof_token(api_config.token.clone());
         control.set_runtime_policy(RestApiRuntimePolicy {
             enabled: true,
             cors: api_config.cors,
