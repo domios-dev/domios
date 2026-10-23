@@ -11,6 +11,7 @@ use crate::MemManager;
 const PASSES: usize = 8;
 /// Consecutive unavailable units that mean the provider itself is down.
 const OUTAGE_STREAK: usize = 5;
+const PASSAGE_BATCH: usize = 8;
 
 pub(crate) fn watch_progress(
     mut receive: impl FnMut(Duration) -> Result<(), String>,
@@ -68,6 +69,7 @@ fn embed_unit(
     target: &ActiveEmbedder,
     identity: &EmbedderIdentity,
     unit: &Unit,
+    progress: impl Fn(usize, usize) -> bool,
 ) -> Result<Vec<u8>, EmbedError> {
     let texts = unit
         .texts
@@ -75,18 +77,49 @@ fn embed_unit(
         .map(|(_, _, text)| text.clone())
         .collect::<Vec<_>>();
     let mut blob = Vec::with_capacity(texts.len() * identity.dimension * 4);
-    for result in target.passages(&texts) {
-        let vector = result?;
-        if vector.identity != *identity {
-            return Err(EmbedError::Refused("mixed-model shadow vector".into()));
+    for (batch_index, batch) in texts.chunks(PASSAGE_BATCH).enumerate() {
+        if batch_index == 0 && !progress(0, texts.len()) {
+            return Err(EmbedError::Refused("re-embed cancelled".into()));
         }
-        super::provider::validate_vector(&vector.vector, identity.dimension)?;
-        blob.extend(index::encode(&vector.vector));
+        for result in target.passages(batch) {
+            let vector = result?;
+            if vector.identity != *identity {
+                return Err(EmbedError::Refused("mixed-model shadow vector".into()));
+            }
+            super::provider::validate_vector(&vector.vector, identity.dimension)?;
+            blob.extend(index::encode(&vector.vector));
+        }
+        if !progress(
+            (batch_index * PASSAGE_BATCH + batch.len()).min(texts.len()),
+            texts.len(),
+        ) {
+            return Err(EmbedError::Refused("re-embed cancelled".into()));
+        }
     }
     Ok(blob)
 }
 
 impl MemManager {
+    fn embed_shadow_unit(
+        &self,
+        generation: u64,
+        target: &ActiveEmbedder,
+        identity: &EmbedderIdentity,
+        unit: &Unit,
+        changed: &mpsc::Sender<()>,
+    ) -> Result<Vec<u8>, EmbedError> {
+        embed_unit(target, identity, unit, |done, total| {
+            let current = if total > PASSAGE_BATCH {
+                self.reembed
+                    .item_progress(generation, &unit.id, done, total, &self.embedder)
+            } else {
+                self.reembed.is_current(generation)
+            };
+            let _ = changed.send(());
+            current
+        })
+    }
+
     fn shadow_units(&self, conn: &Connection) -> Result<Vec<Unit>, String> {
         let mut units = Vec::new();
         for id in crate::blueprint_library::index::indexed_items(conn)? {
@@ -114,9 +147,17 @@ impl MemManager {
 
     /// Checkpoints live in a sibling database file so publication can delete
     /// them without leaving knowledge.db at a high-water mark.
+    #[cfg(test)]
     pub(super) fn prepare_shadow(&self, identity: &EmbedderIdentity) -> Result<(), String> {
+        self.prepare_shadow_in(&self.conn.lock(), identity)
+    }
+
+    pub(super) fn prepare_shadow_in(
+        &self,
+        conn: &Connection,
+        identity: &EmbedderIdentity,
+    ) -> Result<(), String> {
         let stamp = serde_json::to_string(identity).map_err(|error| error.to_string())?;
-        let conn = self.conn.lock();
         let attached: bool = conn
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM pragma_database_list WHERE name='reembed')",
@@ -191,26 +232,27 @@ impl MemManager {
                 if !self.reembed.is_current(generation) {
                     return Err("re-embed cancelled".into());
                 }
-                let (vectors, error) = match embed_unit(&target, &identity, unit) {
-                    Ok(blob) => {
-                        streak = 0;
-                        (Some(blob), None)
-                    }
-                    Err(EmbedError::NotBuilt(reason)) => return Err(reason),
-                    Err(EmbedError::Unavailable(reason)) => {
-                        streak += 1;
-                        if streak >= OUTAGE_STREAK {
-                            return Err(format!(
-                                "provider unavailable for {streak} consecutive items: {reason}"
-                            ));
+                let (vectors, error) =
+                    match self.embed_shadow_unit(generation, &target, &identity, unit, changed) {
+                        Ok(blob) => {
+                            streak = 0;
+                            (Some(blob), None)
                         }
-                        unavailable.push(unit);
-                        (None, Some(format!("{}: {reason}", unit.id)))
-                    }
-                    Err(EmbedError::Refused(reason)) => {
-                        (None, Some(format!("{}: {reason}", unit.id)))
-                    }
-                };
+                        Err(EmbedError::NotBuilt(reason)) => return Err(reason),
+                        Err(EmbedError::Unavailable(reason)) => {
+                            streak += 1;
+                            if streak >= OUTAGE_STREAK {
+                                return Err(format!(
+                                    "provider unavailable for {streak} consecutive items: {reason}"
+                                ));
+                            }
+                            unavailable.push(unit);
+                            (None, Some(format!("{}: {reason}", unit.id)))
+                        }
+                        Err(EmbedError::Refused(reason)) => {
+                            (None, Some(format!("{}: {reason}", unit.id)))
+                        }
+                    };
                 {
                     let conn = self.conn.lock();
                     if !self.reembed.is_current(generation) {
@@ -234,7 +276,9 @@ impl MemManager {
                 if !self.reembed.is_current(generation) {
                     return Err("re-embed cancelled".into());
                 }
-                if let Ok(blob) = embed_unit(&target, &identity, unit) {
+                if let Ok(blob) =
+                    self.embed_shadow_unit(generation, &target, &identity, unit, changed)
+                {
                     let conn = self.conn.lock();
                     if !self.reembed.is_current(generation) {
                         return Err("re-embed cancelled".into());
