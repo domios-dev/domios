@@ -1,7 +1,7 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { List, Network, RefreshCw, X } from "lucide-react";
-import { CanvasToolbar } from "./CanvasToolbar";
+import { CanvasToolbar } from "@codeterm/chat-ui";
 import { DropdownSelect } from "../shared/DropdownMenu";
 import { BusySpinner } from "../shared/BusyState";
 import { useMultiplexer, useMuxState } from "../../store/multiplexer";

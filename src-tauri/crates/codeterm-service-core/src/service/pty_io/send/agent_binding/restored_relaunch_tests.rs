@@ -33,6 +33,7 @@ fn restored_authenticated_tab() -> (ServiceFixture, String) {
 
 fn payload() -> AgentDeliveryPayload {
     AgentDeliveryPayload {
+        durable_delivery: None,
         trace_id: None,
         transport: crate::service::messenger::Messenger::from(
             crate::service::messenger::MessageEnvelope::from_codeterm(),

@@ -367,6 +367,7 @@ mod tests {
             active_workspace_id: Some("ws".into()),
             teams: vec![],
             workspaces: vec![WorkspaceSnapshot {
+                created_at_ms: 0,
                 task_keys: Default::default(),
                 id: "ws".into(),
                 name: "Welcome".into(),
@@ -382,6 +383,7 @@ mod tests {
                     title: "Get started".into(),
                     description: Some(FIRST_RUN_TAB_MARKER.into()),
                     split_tree: SplitNodeSnapshot::Leaf {
+                        created_at_ms: 0,
                         purpose: Default::default(),
                         icon: None,
                         shell_profile: None,

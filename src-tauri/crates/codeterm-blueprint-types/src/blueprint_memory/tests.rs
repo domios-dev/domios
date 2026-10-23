@@ -2,7 +2,7 @@ use super::*;
 use crate::blueprint_document::Input;
 
 fn graph(repo: &str, id: u64) -> Document {
-    Document::from_definition(&json!({"spec":{"name":"CI watcher","note":"Concrete instance","owner":"team","trigger":{"type":"schedule","every":"1m"},"steps":[{"name":"Check instance","input":"text","kind":{"kind":"github","probe":{"resource":"run","repo":repo,"id":id}},"on":{"done":"stop","failing":"stop","failed":"stop"}}],"result":{"to":"notify"}}})).unwrap()
+    Document::from_definition(&json!({"schema_version":2,"kind":"pipeline","name":"CI watcher","note":"Concrete instance","owner":"team","trigger":{"type":"schedule","every":{"lit":"1m"}},"steps":[{"id":"check","uses":"github","with":{"resource":{"lit":"run"},"repo":{"lit":repo},"id":{"lit":id}},"routes":{"done":"@stop","failing":"@stop","failed":"@stop"}}],"result":{"to":"notify"}})).unwrap()
 }
 fn entry(id: &str, uses: u64) -> Entry {
     Entry {
@@ -129,7 +129,7 @@ fn generalisation_removes_instances_and_keeps_described_typed_required_inputs() 
     let bound = doc
         .bind(&["repo=another/service".into(), "id=999".into()])
         .unwrap();
-    assert_eq!(bound["spec"]["steps"][0]["kind"]["probe"]["id"], 999);
+    assert_eq!(bound["steps"][0]["with"]["id"]["lit"], 999);
     assert!(crate::blueprint_document::definition_errors(&bound).is_empty());
     assert_eq!(parse_document(&yaml).unwrap().inputs.len(), 2);
     assert_eq!(
@@ -141,7 +141,7 @@ fn generalisation_removes_instances_and_keeps_described_typed_required_inputs() 
 #[test]
 fn safety_drops_query_credentials_and_personal_paths_even_from_defaults() {
     let mut doc = graph("owner/service", 1);
-    doc.pipeline.as_mut().unwrap()["steps"][0] = json!({"name":"private","input":"text","uses":"http","with":{"url":"https://user:pass@example.test/health?token=private-token"},"on":{"up":"stop","down":"stop","failed":"stop"}});
+    doc.steps[0] = serde_json::from_value(json!({"id":"private","uses":"http","with":{"url":{"lit":"https://user:pass@example.test/health?token=private-token"}},"routes":{"up":"@stop","down":"@stop","failed":"@stop"}})).unwrap();
     doc.inputs.insert(
         "personal_file".into(),
         Input {
@@ -149,6 +149,7 @@ fn safety_drops_query_credentials_and_personal_paths_even_from_defaults() {
             default: Some(json!("C:/Users/owner/private.txt")),
             description: Some("private".into()),
             choices: None,
+            ..Default::default()
         },
     );
     let general = abstract_document(doc);
@@ -166,7 +167,9 @@ fn structural_dedupe_ignores_instance_values_and_names_but_keeps_routes() {
     let library = vec![entry("saved", 4)];
     let mut candidate = abstract_document(graph("other/service", 999));
     assert_eq!(duplicate(&library, &candidate).unwrap().id, "saved");
-    candidate.pipeline.as_mut().unwrap()["steps"][0]["on"]["failed"] = json!("next");
+    candidate.steps[0]
+        .routes
+        .insert("failed".into(), "@next".into());
     assert!(duplicate(&library, &candidate).is_none());
 }
 
@@ -208,6 +211,7 @@ fn dreamer_merges_inputs_statistics_and_best_problem_with_hard_budget() {
             default: Some(json!("1m")),
             description: Some("Probe cadence".into()),
             choices: None,
+            ..Default::default()
         },
     );
     let merged = merge_pair(&a, &b).unwrap();

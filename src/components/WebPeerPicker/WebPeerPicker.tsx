@@ -17,6 +17,7 @@ import {
 import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { menuKeyAction } from "./menuKeyboard";
 import { RELAY_PROTOCOL_VERSION } from "../../lib/types";
+import { localInstanceLabel, onMeshPeersLoaded, rememberLocalInstanceName } from "../../lib/localInstanceName";
 
 let nextPeerSwitchId = 0;
 
@@ -47,7 +48,7 @@ interface MeshPeers {
  */
 export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
   const [peers, setPeers] = useState<PairedPeer[]>([]);
-  const [localName, setLocalName] = useState("Domios");
+  const [localName, setLocalName] = useState(localInstanceLabel);
   const [open, setOpen] = useState(false);
   const [displayTarget, setDisplayTarget] = useState(relayTarget);
   const [switchingTo, setSwitchingTo] = useState<string | null>(null);
@@ -60,7 +61,7 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
     try {
       const res = await localJson<MeshPeers>("GET", "/api/mesh/peers");
       const paired = res.paired ?? [];
-      setLocalName(res.local_instance_name);
+      setLocalName(rememberLocalInstanceName(res.local_instance_name));
       setPeers(rankPeersByLastActive(paired));
     } catch {
       // Peer list is a convenience — keep the last known list on errors.
@@ -70,6 +71,7 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
   useEffect(() => {
     let active = true;
     let unlisten: (() => void) | undefined;
+    const stopPeersLoaded = onMeshPeersLoaded(() => void refresh());
     void refresh();
     void listen("mesh-state-changed", () => void refresh()).then((registered) => {
       if (active) {
@@ -81,6 +83,7 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
     }).catch(() => undefined);
     return () => {
       active = false;
+      stopPeersLoaded();
       unlisten?.();
     };
   }, [refresh]);

@@ -28,6 +28,13 @@ pub struct Team {
     pub lifecycle: TeamLifecycle,
     pub created_at: u64,
     pub workspace_id: String,
+    /// Projection-only plan-limit mark; never persisted as authority.
+    #[serde(
+        default,
+        skip_deserializing,
+        skip_serializing_if = "std::ops::Not::not"
+    )]
+    pub locked: bool,
 }
 
 impl Team {
@@ -40,6 +47,7 @@ impl Team {
             lifecycle: TeamLifecycle::Forming,
             created_at,
             workspace_id: workspace_id.into(),
+            locked: false,
         }
     }
 
@@ -61,6 +69,7 @@ mod tests {
     #[test]
     fn team_round_trips_through_serde() {
         let team = Team {
+            locked: false,
             id: "team_abcd1234".into(),
             name: Some("Alpha".into()),
             lifecycle: TeamLifecycle::Active,

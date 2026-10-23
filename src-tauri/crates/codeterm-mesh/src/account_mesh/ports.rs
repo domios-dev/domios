@@ -58,6 +58,8 @@ pub struct AccountMeshState {
     pub membership: Option<SignedMembership>,
     /// Installations this machine already knows the server revoked.
     pub revoked_installations: BTreeSet<String>,
+    /// Signed in, enforced, and refused a slot by the machine limit; a dormant gate never sets it.
+    pub plan_limit_locked: bool,
 }
 
 impl AccountMeshState {
@@ -89,6 +91,8 @@ pub enum AdmissionRefusal {
     RateLimited {
         retry_after_seconds: u64,
     },
+    #[serde(rename = "plan_limit_locked")]
+    PlanLimitLocked,
     Revoked,
     SignedOut,
     PeerUnreachable,
@@ -111,6 +115,7 @@ impl AdmissionRefusal {
             Self::Unauthenticated => "unauthenticated",
             Self::MachineLimit { .. } => "mesh.machines",
             Self::RateLimited { .. } => "rate_limited",
+            Self::PlanLimitLocked => codeterm_entitlements::PLAN_LIMIT_LOCKED,
             Self::Revoked => "revoked",
             Self::SignedOut => "signed-out",
             Self::PeerUnreachable => "peer-unreachable",

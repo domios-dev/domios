@@ -14,7 +14,10 @@ impl MultiplexerState {
         pending_delivery: Option<PendingDeliveryRecord>,
     ) -> String {
         let tab_id = short_id();
+        let created_at_ms = self.next_created_at_ms();
         let tab = Tab {
+            locked: false,
+            created_at_ms,
             id: tab_id.clone(),
             sort_order: 0,
             pty_id: None,

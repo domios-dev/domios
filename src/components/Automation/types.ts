@@ -1,3 +1,4 @@
+import type { BlueprintProjection } from "../../lib/blueprintApi";
 export interface AutomationScope {
   workspace_id: string;
   team_id: string | null;
@@ -202,7 +203,7 @@ export interface BlueprintResult {
   body_ref: string | null;
 }
 
-export interface BlueprintRunSnapshot {
+export interface BlueprintRunSnapshot extends BlueprintProjection {
   id: string;
   state: "idle" | "running" | "completed" | "failed" | "held";
   closed: boolean;
@@ -213,7 +214,7 @@ export interface BlueprintRunSnapshot {
   result: BlueprintResult;
 }
 
-export interface BlueprintSnapshot {
+export interface BlueprintSnapshot extends BlueprintProjection {
   note?: string | null;
   stopped_at?: number | null;
   deletes_at?: number | null;

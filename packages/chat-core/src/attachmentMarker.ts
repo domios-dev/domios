@@ -92,6 +92,13 @@ export function attachmentPreviewKind(attachment: AttachmentMarker): LocalArtifa
   return DOCUMENT_EXTENSIONS.has(ext) ? "document" : null;
 }
 
+const GENERATED_ORDINAL = /^(image|video|text|quote)\d+(?=\s·|$)/;
+
+/** What a capsule shows: the generated ordinal ("image1") stays in the payload label, never on screen. */
+export function visibleAttachmentLabel(label: string): string {
+  return label.replace(GENERATED_ORDINAL, "$1");
+}
+
 function escapeAttribute(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }

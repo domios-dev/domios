@@ -2,13 +2,14 @@ import { nativeBridge } from "../../lib/nativeBridge";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from "react";
 import { RefreshCw } from "lucide-react";
 import { invoke, listen } from "../../lib/bridge";
-import { BusySpinner } from "../shared/BusyState";
+import { BusySpinner, BusyState } from "../shared/BusyState";
 import type { ApiConfig, AppConfig } from "../../lib/types";
 import type { MeshTab } from "./types";
 import { MeshCanvas, type RecentPush } from "./MeshCanvas";
 import { ServiceDrawer, type DrawerState } from "./ServiceDrawer";
 import { useMeshData } from "./useMeshData";
-import { pairedPeers } from "./meshProjection";
+import { meshDataUnavailable, meshHeaderState } from "./meshProjection";
+import { DeferredLoader } from "@codeterm/chat-ui/DeferredLoader";
 import { NetworkTab } from "./NetworkTab";
 import { ActivityTab } from "./ActivityTab";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
@@ -68,9 +69,12 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
   const [serveLoading, setServeLoading] = useState(true);
 
   const triggerRefresh = useCallback(() => setRefreshKey((k) => k + 1), []);
-  // Same projection the graph nodes render from — a pending (discovered-not-
-  // paired) peer must never inflate this count (codeterm#440).
-  const headerPeerCount = useMemo(() => pairedPeers(data.peers).length, [data.peers]);
+  const header = useMemo(
+    () => meshHeaderState({ error: data.error, loaded: data.loaded, peers: data.peers }, activeTab === "inventory"),
+    [data.error, data.loaded, data.peers, activeTab],
+  );
+  const unavailable = meshDataUnavailable(data);
+  const graphReady = data.loaded;
 
   useEffect(() => {
     let unlistenHealth: (() => void) | null = null;
@@ -163,7 +167,7 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
     const observer = new ResizeObserver(measure);
     observer.observe(element);
     return () => observer.disconnect();
-  }, [activeTab]);
+  }, [activeTab, graphReady]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -201,9 +205,11 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
         <div className="ct-section-toolbar__identity flex items-center gap-3 mr-4 shrink-0">
           <strong>Mesh</strong>
           <div className={`${UI_TEXT.meta} opacity-70`}>
-            {data.error && activeTab !== "inventory" && headerPeerCount === 0
+            {header.kind === "unavailable"
               ? <span role="status">Mesh data is unavailable.</span>
-              : `${headerPeerCount} peer${headerPeerCount === 1 ? "" : "s"}`}
+              : header.kind === "loading"
+                ? <DeferredLoader state="present" aria-busy="true">Loading peers</DeferredLoader>
+                : `${header.count} peer${header.count === 1 ? "" : "s"}`}
           </div>
           {activeTab !== "inventory" && <button
             onClick={() => setRefreshKey((k) => k + 1)}
@@ -226,7 +232,26 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
         </div>
       </div>
       <div className="relative flex-1 min-h-0 overflow-hidden">
-        {activeTab === "inventory" && (
+        {activeTab === "inventory" && unavailable && (
+          <section aria-label="Mesh inventory" className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-[var(--ct-muted-fg)]">
+            <p>Mesh data is unavailable.</p>
+            <button
+              type="button"
+              onClick={triggerRefresh}
+              disabled={data.loading}
+              className="flex items-center gap-2 rounded-md border border-[var(--ct-border)] px-3 py-1.5 text-[var(--ct-fg)] transition-colors hover:bg-[var(--ct-hover)] disabled:opacity-60"
+            >
+              <BusySpinner icon={RefreshCw} size={13} spinning={data.loading} />
+              Retry
+            </button>
+          </section>
+        )}
+        {activeTab === "inventory" && !graphReady && !unavailable && (
+          <section aria-label="Mesh inventory" aria-busy="true" className="absolute inset-0 flex items-center justify-center">
+            <DeferredLoader state="present"><BusyState label="Loading mesh" inline /></DeferredLoader>
+          </section>
+        )}
+        {activeTab === "inventory" && graphReady && (
           <div ref={mapRef} className="absolute inset-0">
             <MeshCanvas
               onRefresh={triggerRefresh}

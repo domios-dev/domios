@@ -8,7 +8,7 @@ mod generalize;
 pub use credentials::contains_credentials;
 mod quality;
 pub mod semantic_canon;
-pub use generalize::{abstract_document, safe_template};
+pub use generalize::{abstract_document, portable_document, safe_template};
 pub use quality::{decide, CuratorEvidence, Evidence, Qualification};
 
 pub const AREA_CAP: usize = 1000;
@@ -20,7 +20,9 @@ pub fn parse_document(source: &str) -> Result<Document, String> {
     if source.len() > crate::blueprint_recipe::MAX_RECIPE_BYTES {
         return Err("Blueprint solution is too large".into());
     }
-    serde_yaml::from_str(source).map_err(|error| error.to_string())
+    crate::blueprint_document::parse("solution.yaml", source)
+        .map(|p| p.document)
+        .map_err(|errors| format!("{errors:?}"))
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -82,48 +84,13 @@ pub fn score(entry: &Entry, now: i64) -> f64 {
 }
 
 pub fn structure(document: &Document) -> Value {
-    if let Some(pipeline) = &document.pipeline {
-        let steps = pipeline["steps"].as_array().cloned().unwrap_or_default();
-        let names = steps
-            .iter()
-            .enumerate()
-            .filter_map(|(i, step)| step["name"].as_str().map(|name| (name.to_owned(), i)))
-            .collect::<BTreeMap<_, _>>();
-        let nodes = steps.iter().map(|step| {
-            let routes = step["on"].as_object().map(|routes| routes.iter().map(|(bucket,target)| {
-                let target = target.as_str().unwrap_or("");
-                (bucket.clone(), names.get(target).map_or_else(|| json!(target), |i| json!(i)))
-            }).collect::<BTreeMap<_, _>>());
-            json!({"kind":if step.get("run").is_some(){"command"}else{step["uses"].as_str().unwrap_or("")},"input":step["input"],"routes":routes})
-        }).collect::<Vec<_>>();
-        json!({"trigger":pipeline["trigger"]["type"],"event":pipeline["trigger"]["kind"],"nodes":nodes,"result":pipeline["result"]})
-    } else {
-        let watch = document.watch.as_ref().unwrap_or(&Value::Null);
-        let source = if watch.get("probe").is_some() {
-            "probe"
-        } else if watch.get("observe").is_some() {
-            "observe"
-        } else {
-            "input"
-        };
-        let handlers = watch["handlers"].as_object().map(|handlers| {
-            handlers
-                .iter()
-                .map(|(bucket, items)| {
-                    (
-                        bucket.clone(),
-                        items
-                            .as_array()
-                            .into_iter()
-                            .flatten()
-                            .map(|handler| handler["type"].clone())
-                            .collect::<Vec<_>>(),
-                    )
-                })
-                .collect::<BTreeMap<_, _>>()
-        });
-        json!({"source":source,"buckets":watch["buckets"],"routes":watch["routes"],"handlers":handlers,"until":watch["until"]})
-    }
+    let ids = document
+        .nodes()
+        .enumerate()
+        .map(|(i, n)| (n.id.as_str(), i))
+        .collect::<BTreeMap<_, _>>();
+    json!({"kind": document.kind, "trigger":document.trigger.as_ref().map(|t|match t {crate::blueprint_document::Trigger::Schedule{..}=>"schedule",crate::blueprint_document::Trigger::Event{..}=>"event",crate::blueprint_document::Trigger::Input{..}=>"input"}),
+        "nodes":document.nodes().map(|n|json!({"kind":n.kind(),"in":n.input,"out":n.output,"caps":n.caps,"buckets":n.buckets,"bind":n.bind,"call":n.call,"routes":n.routes.iter().map(|(outcome,target)|(outcome, ids.get(target.as_str()).map_or_else(||json!(target),|i|json!(i)))).collect::<BTreeMap<_,_>>()})).collect::<Vec<_>>()})
 }
 
 pub fn duplicate<'a>(entries: &'a [Entry], candidate: &Document) -> Option<&'a Entry> {

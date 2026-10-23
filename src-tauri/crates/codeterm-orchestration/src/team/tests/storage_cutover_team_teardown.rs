@@ -176,6 +176,7 @@ fn desk_snapshot(team_id: &str, workspace_id: &str, tab_id: &str) -> DeskSnapsho
                 protected: false,
                 task_key_prefix: None,
                 task_key_next: 0,
+                created_at_ms: None,
             },
             sort_order: 0,
             active_tab_id: Some(tab_id.into()),

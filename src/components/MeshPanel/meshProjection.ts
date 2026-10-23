@@ -1,5 +1,24 @@
 import type { Service } from "./types";
-import type { PeerStatus } from "./useMeshData";
+import type { MeshData, PeerStatus } from "./useMeshData";
+
+/** A failed load with no live or cached data: any graph would be placeholders, never "0 peers". */
+export function meshDataUnavailable(data: Pick<MeshData, "error" | "loaded">): boolean {
+  return data.error !== null && !data.loaded;
+}
+
+export type MeshHeaderState =
+  | { kind: "unavailable" }
+  | { kind: "loading" }
+  | { kind: "peers"; count: number };
+
+/** The header renders from live or cached data only; the defaults are never shown as "0 peers". */
+export function meshHeaderState(data: Pick<MeshData, "error" | "loaded" | "peers">, onInventory: boolean): MeshHeaderState {
+  if (meshDataUnavailable(data)) return { kind: "unavailable" };
+  if (!data.loaded) return { kind: "loading" };
+  const count = pairedPeers(data.peers).length;
+  if (data.error && !onInventory && count === 0) return { kind: "unavailable" };
+  return { kind: "peers", count };
+}
 
 /** Key `serviceByPeer` uses for this machine's own (non-remote) services. */
 export const SELF_PEER_KEY = "__self__";

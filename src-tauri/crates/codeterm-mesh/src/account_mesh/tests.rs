@@ -1,3 +1,4 @@
+mod refusals;
 mod review;
 mod support;
 
@@ -281,6 +282,7 @@ fn account_mesh_known_local_revoke_blocks_immediately() {
         },
         membership: Some(membership(ACCOUNT, &a.installation_id, START + 60)),
         revoked_installations: Default::default(),
+        plan_limit_locked: false,
     };
     assert!(gate::decide(Some(&record), &b.public_key(), Some(ACCOUNT), &state, START).is_open());
     state
@@ -427,6 +429,7 @@ async fn account_mesh_logout_during_handshake_persists_nothing() {
                     presence: super::AccountPresence::SignedOut,
                     membership: None,
                     revoked_installations: Default::default(),
+                    plan_limit_locked: false,
                 });
         }
     }));

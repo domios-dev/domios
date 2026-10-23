@@ -1,5 +1,8 @@
 use crate::activation::{Activation, Phase, ACTIVATION};
-use crate::gate::{admit, enforcing, LimitGate, LimitKey, LimitRefusal, FREE_LIMIT_REACHED};
+use crate::gate::{
+    admit, enforcing, LimitGate, LimitKey, LimitRefusal, LockCandidate, LockedRefusal,
+    FREE_LIMIT_REACHED, PLAN_LIMIT_LOCKED,
+};
 use crate::payload::{Authority, Enforcement, Mode, Perks, Scope, ScopedLimit};
 use crate::verdict::{compiled_free, EffectiveAccess};
 
@@ -129,4 +132,90 @@ fn summary_reports_enforcement_and_the_three_maxima() {
         serde_json::to_value(dormant).unwrap(),
         serde_json::json!({"enforcing": false, "workspaces": 2, "teams": 6, "agent.tabs": 35})
     );
+}
+
+fn candidates(count: u64) -> Vec<LockCandidate> {
+    (0..count)
+        .map(|n| LockCandidate {
+            id: format!("item-{n:03}"),
+            created_at: 1_000 + n,
+            exempt: false,
+        })
+        .collect()
+}
+
+fn enforced_free() -> LimitGate {
+    LimitGate::new(compiled_free(), true)
+}
+
+#[test]
+fn workspaces_lock_the_newest_beyond_max_and_never_general() {
+    let mut items = candidates(3);
+    items.insert(
+        0,
+        LockCandidate {
+            id: "general".into(),
+            created_at: u64::MAX,
+            exempt: true,
+        },
+    );
+    let locked = enforced_free().over_limit(LimitKey::Workspaces, &items);
+    assert_eq!(locked.iter().collect::<Vec<_>>(), ["item-002"]);
+    assert!(!locked.contains("general"));
+    assert_eq!(items.len(), 4);
+}
+
+#[test]
+fn tabs_and_teams_lock_exactly_the_newest_overflow() {
+    let tabs = candidates(36);
+    let locked = enforced_free().over_limit(LimitKey::AgentTabs, &tabs);
+    assert_eq!(locked.iter().collect::<Vec<_>>(), ["item-035"]);
+    assert_eq!(tabs.len(), 36);
+    let teams = candidates(7);
+    let locked = enforced_free().over_limit(LimitKey::Teams, &teams);
+    assert_eq!(locked.iter().collect::<Vec<_>>(), ["item-006"]);
+}
+
+#[test]
+fn paid_or_dormant_gates_lock_nothing() {
+    let items = candidates(100);
+    for limit in [LimitKey::Workspaces, LimitKey::Teams, LimitKey::AgentTabs] {
+        assert!(LimitGate::new(unlimited(), true)
+            .over_limit(limit, &items)
+            .is_empty());
+        assert!(LimitGate::dormant().over_limit(limit, &items).is_empty());
+        assert!(LimitGate::new(compiled_free(), false)
+            .over_limit(limit, &items)
+            .is_empty());
+    }
+}
+
+#[test]
+fn lock_set_is_stable_under_input_order_and_ties_break_by_id() {
+    let mut items = candidates(9);
+    items.push(LockCandidate {
+        id: "item-tie".into(),
+        created_at: 1_000,
+        exempt: false,
+    });
+    let forward = enforced_free().over_limit(LimitKey::Teams, &items);
+    items.reverse();
+    let reversed = enforced_free().over_limit(LimitKey::Teams, &items);
+    assert_eq!(forward, reversed);
+    assert_eq!(forward.len(), 4);
+    assert!(!forward.contains("item-000"));
+    assert!(!forward.contains("item-tie"));
+    assert!(forward.contains("item-008"));
+}
+
+#[test]
+fn locked_refusal_leads_with_its_own_code() {
+    let text = LockedRefusal {
+        limit: LimitKey::Teams,
+        item_id: "team_ab".into(),
+    }
+    .to_string();
+    assert!(text.starts_with(&format!("{PLAN_LIMIT_LOCKED}: team_ab ")));
+    assert!(text.ends_with("(limit: teams)"));
+    assert_ne!(PLAN_LIMIT_LOCKED, FREE_LIMIT_REACHED);
 }

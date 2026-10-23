@@ -1,7 +1,11 @@
+import type { BlueprintProjection, BlueprintIrNode, BlueprintJournalNode } from "../../lib/blueprintApi";
 import { type BlueprintOwner, type BlueprintSnapshot } from "./types";
 
 export interface PipelineViewNode {
   key: string;
+  definition?: BlueprintIrNode;
+  journal?: BlueprintJournalNode;
+  callPath?: readonly string[];
   kind: "trigger" | "step" | "result";
   title: string;
   capability?: string;
@@ -21,7 +25,9 @@ export interface PipelineViewEdge {
   label: string | null;
 }
 
-export interface PipelineView {
+export interface PipelineView extends BlueprintProjection {
+  runId?: string | null;
+  closed?: boolean;
   note?: string | null;
   deletesAt?: number | null;
   runs?: readonly { id: string; at: number; state: string; pipeline: PipelineView }[];
@@ -113,8 +119,17 @@ export function pipelineModel(blueprint: BlueprintSnapshot): PipelineView {
       id: run.id, at: run.started_at_ms, state: run.state,
       pipeline: pipelineModel({ ...blueprint, runs: undefined, run_id: run.id,
         state: run.state === "completed" ? "idle" : run.state, current_step: run.current_step,
-        last_event_at_ms: run.last_event_at_ms, steps: run.steps, result: run.result }),
+        last_event_at_ms: run.last_event_at_ms, steps: run.steps, result: run.result,
+        call_graph: run.call_graph, expanded_calls: run.expanded_calls, nested_run: run.nested_run, projection_error: run.projection_error,
+        historical_graph_available: run.historical_graph_available, graph_definition_version: run.graph_definition_version }),
     })),
+    historical_graph_available: blueprint.historical_graph_available,
+    graph_definition_version: blueprint.graph_definition_version,
+    call_graph: blueprint.call_graph,
+    expanded_calls: blueprint.expanded_calls,
+    nested_run: blueprint.nested_run,
+    projection_error: blueprint.projection_error,
+    runId: blueprint.run_id,
     id: blueprint.id,
     name: blueprint.name,
     note: blueprint.note,

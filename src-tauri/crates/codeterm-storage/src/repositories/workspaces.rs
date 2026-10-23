@@ -2,7 +2,8 @@ use crate::assets::{self, AssetId, AssetRef};
 use crate::error::{sqlite_error, StorageError};
 use crate::owner::{Storage, WriteCx};
 use crate::repositories::{
-    expect_matches, from_sql_u64, to_sql_u64, Committed, Completion, Expect, Read, Revision,
+    created_sql, expect_matches, from_sql_u64, to_sql_u64, Committed, Completion, Expect, Read,
+    Revision,
 };
 use crate::schema::{self, WORKSPACE_ORDER_REVISION};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -18,7 +19,7 @@ const MAX_ROLE_BYTES: usize = 64;
 const RECORD_OVERHEAD: usize = 64;
 
 const SELECT_WORKSPACES: &str = "SELECT id, name, cwd, provisioned_cwd, protected, \
-     task_key_prefix, task_key_next, revision FROM workspaces";
+     task_key_prefix, task_key_next, revision, created_at_ms FROM workspaces";
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct WorkspaceId(String);
@@ -79,6 +80,8 @@ pub struct WorkspaceRecord {
     pub protected: bool,
     pub task_key_prefix: Option<String>,
     pub task_key_next: u64,
+    /// Creation stamp ordering plan-limit locks; `None` until a legacy row is backfilled.
+    pub created_at_ms: Option<u64>,
 }
 
 impl WorkspaceRecord {
@@ -91,6 +94,7 @@ impl WorkspaceRecord {
             protected: false,
             task_key_prefix: None,
             task_key_next: 0,
+            created_at_ms: None,
         }
     }
 
@@ -409,6 +413,7 @@ fn apply_upsert(cx: &mut WriteCx<'_>, batch: Vec<WorkspaceUpsert>) -> Result<(),
         let current = row_revision(cx.conn, &record.id)?;
         expect_matches(&entity(&record.id), expect, current)?;
         let counter = to_sql_u64("task key counter", record.task_key_next)?;
+        let created = created_sql(record.created_at_ms)?;
         let id = record.id.as_str();
         let values = params![
             id,
@@ -418,12 +423,13 @@ fn apply_upsert(cx: &mut WriteCx<'_>, batch: Vec<WorkspaceUpsert>) -> Result<(),
             record.protected,
             record.task_key_prefix,
             counter,
-            revision
+            revision,
+            created
         ];
         if current.is_some() {
             cx.write(
                 "UPDATE workspaces SET name = ?2, cwd = ?3, provisioned_cwd = ?4, protected = ?5, \
-                 task_key_prefix = ?6, task_key_next = ?7, revision = ?8 WHERE id = ?1",
+                 task_key_prefix = ?6, task_key_next = ?7, revision = ?8, created_at_ms = ?9 WHERE id = ?1",
                 values,
             )?;
             continue;
@@ -440,9 +446,9 @@ fn apply_upsert(cx: &mut WriteCx<'_>, batch: Vec<WorkspaceUpsert>) -> Result<(),
         }
         cx.write(
             "INSERT INTO workspaces (id, ordinal, name, cwd, provisioned_cwd, protected, \
-             task_key_prefix, task_key_next, revision) \
+             task_key_prefix, task_key_next, revision, created_at_ms) \
              VALUES (?1, (SELECT COALESCE(MAX(ordinal), -1) + 1 FROM workspaces), \
-             ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+             ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             values,
         )?;
         appended = true;
@@ -527,6 +533,7 @@ type RawWorkspace = (
     Option<String>,
     i64,
     i64,
+    Option<i64>,
 );
 
 fn raw_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawWorkspace> {
@@ -539,11 +546,12 @@ fn raw_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawWorkspace> {
         row.get(5)?,
         row.get(6)?,
         row.get(7)?,
+        row.get(8)?,
     ))
 }
 
 fn decode(raw: RawWorkspace, assets: Vec<WorkspaceAsset>) -> Result<StoredWorkspace, StorageError> {
-    let (id, name, cwd, provisioned_cwd, protected, task_key_prefix, next, revision) = raw;
+    let (id, name, cwd, provisioned_cwd, protected, task_key_prefix, next, revision, created) = raw;
     let id = WorkspaceId::new(id).map_err(|_| StorageError::Corrupt {
         detail: "malformed workspace id".to_string(),
     })?;
@@ -556,6 +564,9 @@ fn decode(raw: RawWorkspace, assets: Vec<WorkspaceAsset>) -> Result<StoredWorksp
             protected,
             task_key_prefix,
             task_key_next: from_sql_u64("task key counter", next)?,
+            created_at_ms: created
+                .map(|ms| from_sql_u64("workspace created_at_ms", ms))
+                .transpose()?,
         },
         revision: Revision(from_sql_u64("revision", revision)?),
         assets,

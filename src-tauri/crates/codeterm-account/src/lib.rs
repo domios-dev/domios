@@ -150,5 +150,6 @@ impl Default for Config {
         adapters::default_config()
     }
 }
+pub mod legacy_credentials;
 #[cfg(test)]
 mod tests;

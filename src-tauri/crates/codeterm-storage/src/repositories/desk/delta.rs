@@ -8,7 +8,9 @@ use super::{
 };
 use crate::error::{sqlite_error, StorageError};
 use crate::owner::WriteCx;
-use crate::repositories::{expect_matches, to_sql_u64, Committed, Completion, Expect, Revision};
+use crate::repositories::{
+    created_sql, expect_matches, to_sql_u64, Committed, Completion, Expect, Revision,
+};
 use crate::schema::{self, WORKSPACE_ORDER_REVISION};
 use rusqlite::params;
 use std::collections::{HashMap, HashSet};
@@ -610,8 +612,8 @@ fn apply_workspaces(
             let expected = record_revisions[id];
             let changed = cx.write(
                 "UPDATE workspaces SET ordinal = ?2, name = ?3, cwd = ?4, provisioned_cwd = ?5, \
-                 protected = ?6, task_key_prefix = ?7, task_key_next = ?8, revision = ?9 \
-                 WHERE id = ?1 AND revision = ?10",
+                 protected = ?6, task_key_prefix = ?7, task_key_next = ?8, revision = ?9, \
+                 created_at_ms = ?11 WHERE id = ?1 AND revision = ?10",
                 params![
                     id,
                     ordinal as i64,
@@ -622,7 +624,8 @@ fn apply_workspaces(
                     workspace.record.task_key_prefix,
                     to_sql_u64("workspace task key counter", workspace.record.task_key_next)?,
                     to_sql_u64("desk revision", cx.revision.0)?,
-                    to_sql_u64("workspace record revision", expected.0)?
+                    to_sql_u64("workspace record revision", expected.0)?,
+                    created_sql(workspace.record.created_at_ms)?
                 ],
             )?;
             require_one(changed, &format!("workspace {id}"), expected)?;

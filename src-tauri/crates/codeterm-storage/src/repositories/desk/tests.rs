@@ -81,6 +81,7 @@ fn desk() -> DeskSnapshot {
                 protected: true,
                 task_key_prefix: None,
                 task_key_next: 0,
+                created_at_ms: None,
             },
             sort_order: 7,
             active_tab_id: Some("tab-a".into()),
@@ -178,6 +179,27 @@ fn storage_desk_import_round_trips_normalized_layout_and_identity_rows() {
     assert_eq!(actual.value.snapshot, expected);
     assert_eq!(actual.value.workspace_revisions.len(), 1);
     assert_eq!(actual.value.tab_revisions.len(), 1);
+}
+
+#[test]
+fn storage_desk_round_trips_workspace_creation_stamp() {
+    let (_root, storage) = storage();
+    let mut expected = desk();
+    expected.workspaces[0].record.created_at_ms = Some(1_700_000_000_123);
+    storage
+        .desk()
+        .import(expected.clone())
+        .wait(Duration::from_secs(5))
+        .unwrap();
+    let actual = storage
+        .desk()
+        .snapshot()
+        .wait(Duration::from_secs(5))
+        .unwrap();
+    assert_eq!(
+        actual.value.snapshot.workspaces[0].record.created_at_ms,
+        Some(1_700_000_000_123)
+    );
 }
 
 #[test]

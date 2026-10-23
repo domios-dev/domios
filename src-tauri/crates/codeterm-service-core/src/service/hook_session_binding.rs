@@ -214,8 +214,14 @@ pub async fn finish_session_binding(
         relay_service.activate_bound_reply_relays(&relay_tab)
     }));
     crate::service::general_agent::binding_wait::notify_binding_state_changed();
-    let launch_identity =
-        acknowledge_and_reconcile_session_binding(svc, tab_id, &claim, report_nonce);
+    let launch_identity = session_ack::acknowledge_and_reconcile_session_binding_async(
+        svc,
+        tab_id,
+        &claim,
+        report_nonce,
+    )
+    .await
+    .map_err(|error| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, error))?;
     if let Some(nonce) = report_nonce {
         let service = svc.clone();
         let tab = tab_id.to_string();

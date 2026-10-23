@@ -259,6 +259,8 @@ mod tests {
 
     fn mk_tab(id: &str) -> Tab {
         Tab {
+            locked: false,
+            created_at_ms: 0,
             id: id.to_string(),
             sort_order: 0,
             pty_id: None,

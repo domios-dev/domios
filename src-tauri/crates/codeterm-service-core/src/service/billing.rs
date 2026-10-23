@@ -1,8 +1,12 @@
 use super::ServiceContext;
 use codeterm_billing::{adapters, Billing, Entitlements, RefreshEvent, Snapshot};
 pub use codeterm_entitlements::{
-    LimitGate, LimitKey, LimitRefusal, LimitSummary, FREE_LIMIT_REACHED,
+    LimitGate, LimitKey, LimitRefusal, LimitSummary, LockedRefusal, FREE_LIMIT_REACHED,
+    PLAN_LIMIT_LOCKED,
 };
+pub use locks::ENTITLEMENT_CHANGED_EVENT;
+
+mod locks;
 use std::{sync::Arc, time::Instant};
 
 pub struct BillingCell(pub Arc<tokio::sync::OnceCell<Arc<Billing>>>);
@@ -99,9 +103,12 @@ impl ServiceContext {
             if let Some(billing) = self.ext::<crate::service::billing::BillingCell>().0.get() {
                 snapshot_off_runtime(billing.clone(), None).await?;
             }
+            self.sync_limit_gate();
             return Ok(Snapshot::default());
         }
-        snapshot_off_runtime(self.billing().await?, session).await
+        let snapshot = snapshot_off_runtime(self.billing().await?, session).await;
+        self.sync_limit_gate();
+        snapshot
     }
     pub async fn refresh_billing(&self, event: RefreshEvent) -> Result<Snapshot, String> {
         let account = self.account().await?;
@@ -110,14 +117,18 @@ impl ServiceContext {
             if let Some(billing) = self.ext::<crate::service::billing::BillingCell>().0.get() {
                 snapshot_off_runtime(billing.clone(), None).await?;
             }
+            self.sync_limit_gate();
             return Ok(Snapshot::default());
         }
         let billing = self.billing().await?;
         billing
             .refresh(session.as_ref(), event, Instant::now())
             .await;
+        self.unlock_account_mesh_after_plan_change();
         let current = account.session().await;
-        snapshot_off_runtime(billing, current).await
+        let snapshot = snapshot_off_runtime(billing, current).await;
+        self.sync_limit_gate();
+        snapshot
     }
     /// `theme` applies to checkout only; the portal is Paddle's own page.
     pub async fn billing_open(
