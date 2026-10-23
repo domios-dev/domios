@@ -1,14 +1,19 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
-import { __resetLocalInstanceNameForTest, notifyMeshPeersLoaded } from "../../lib/localInstanceName";
+import {
+  __reloadLocalInstanceNameForTest,
+  __resetLocalInstanceNameForTest,
+  notifyMeshPeersLoaded,
+} from "../../lib/localInstanceName";
 import { WebPeerPicker } from "./WebPeerPicker";
 
 const peersResponse = vi.fn<() => Promise<unknown>>();
+const healthResponse = vi.fn<() => Promise<unknown>>();
 
 vi.mock("../../lib/webApi", async (original) => ({
   ...await original<typeof import("../../lib/webApi")>(),
-  localJson: () => peersResponse(),
+  localJson: (_method: string, path: string) => (path === "/api/health" ? healthResponse() : peersResponse()),
 }));
 vi.mock("../../lib/bridge", async (original) => ({
   ...await original<typeof import("../../lib/bridge")>(),
@@ -16,6 +21,7 @@ vi.mock("../../lib/bridge", async (original) => ({
 }));
 
 const serving = () => Promise.resolve({ paired: [], local_instance_name: "BLACKSTAR [dev]" });
+const healthy = () => Promise.resolve({ instance: { display_name: "BLACKSTAR [dev]" } });
 const failing = () => Promise.reject(new Error("request timed out"));
 
 async function mount() {
@@ -32,6 +38,28 @@ async function mount() {
 afterEach(() => {
   __resetLocalInstanceNameForTest();
   peersResponse.mockReset();
+  healthResponse.mockReset();
+});
+
+it("shows the machine name from health when the first mesh peers load fails", async () => {
+  peersResponse.mockImplementation(failing);
+  healthResponse.mockImplementation(healthy);
+  const chip = await mount();
+  expect(chip.label()).toBe("Switch Domios host, current host BLACKSTAR [dev]");
+  await chip.unmount();
+});
+
+it("paints the persisted machine name on a reloaded page while every source fails", async () => {
+  peersResponse.mockImplementation(serving);
+  const earlier = await mount();
+  await earlier.unmount();
+
+  __reloadLocalInstanceNameForTest();
+  peersResponse.mockImplementation(failing);
+  healthResponse.mockImplementation(failing);
+  const reloaded = await mount();
+  expect(reloaded.label()).toBe("Switch Domios host, current host BLACKSTAR [dev]");
+  await reloaded.unmount();
 });
 
 it("keeps the instance name when a remounted chip cannot reach the peers endpoint", async () => {
@@ -48,6 +76,7 @@ it("keeps the instance name when a remounted chip cannot reach the peers endpoin
 
 it("picks up the instance name once mesh peers load after a failed first fetch", async () => {
   peersResponse.mockImplementation(failing);
+  healthResponse.mockImplementation(failing);
   const chip = await mount();
   expect(chip.label()).toBe("Switch Domios host, current host Domios");
 
