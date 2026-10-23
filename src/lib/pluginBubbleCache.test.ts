@@ -277,6 +277,50 @@ test("contribution invalidation refreshes active repository and receiver bubbles
   repo.unsubscribe(); receiver.unsubscribe(); hidden.unsubscribe(); fx.teardown();
 });
 
+test("completion during a pending response reads fresh cache without refreshing git", async () => {
+  const fx = await setupCache();
+  const flags: boolean[] = [];
+  const first = deferred<Bubble | null>();
+  const second = deferred<Bubble | null>();
+  const secondStarted = deferred<void>();
+  fx.cache.__setPluginBubbleFetcherForTest(async (_plugin, _cwd, _tab, refresh) => {
+    flags.push(refresh);
+    if (flags.length === 1) return first.promise;
+    secondStarted.resolve();
+    return second.promise;
+  });
+  const values: Array<Bubble | null> = [];
+  const sub = fx.cache.subscribePluginBubble("fixture", "/repo", "tab", true, value => values.push(value));
+  fx.cache.refreshPluginBubble("fixture");
+  const completed = fx.cache.__waitForPluginBubbleCacheForTest();
+  first.resolve(null);
+  await secondStarted.promise;
+  second.resolve({ label: "fresh" });
+  await completed;
+  assertEqual(flags.join(","), "true,false", "completion reads cache without a refresh loop");
+  assertEqual(last(values)?.label, "fresh", "fresh result reaches subscriber");
+  sub.unsubscribe(); fx.teardown();
+});
+
+test("repository changes while hidden invalidate the next activation", async () => {
+  const fx = await setupCache();
+  const flags: boolean[] = [];
+  fx.cache.__setPluginBubbleFetcherForTest(async (_plugin, _cwd, _tab, refresh) => {
+    flags.push(refresh); return { label: "main" };
+  });
+  const sub = fx.cache.subscribePluginBubble("fixture", "/repo", "tab", true, () => {});
+  await fx.cache.__waitForPluginBubbleCacheForTest();
+  sub.setActive(false);
+  fx.cache.invalidatePluginBubblesForRepo("/repo");
+  assertEqual(flags.length, 1, "hidden repository does no background work");
+  sub.setActive(true);
+  await fx.cache.__waitForPluginBubbleCacheForTest();
+  sub.setActive(false); sub.setActive(true);
+  await fx.cache.__waitForPluginBubbleCacheForTest();
+  assertEqual(flags.join(","), "true,true,false", "event refreshes once and tab switches only read cache");
+  sub.unsubscribe(); fx.teardown();
+});
+
 async function main() {
   let failed = 0;
   for (const [name, fn] of tests) {
