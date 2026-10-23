@@ -37,6 +37,11 @@ export function initialPageSelection(snapshot: PageSelectionSnapshot, saved: Sav
     focused_tab_id: workspaceId == null ? null : activeTabIds[workspaceId] ?? null };
 }
 
+/** A restored selection seeds the page only until the user navigates; a restore that lands later never replaces a newer choice. */
+export function seededSelection(userNavigated: boolean, seed: PageSelection | undefined): PageSelection | undefined {
+  return userNavigated ? undefined : seed;
+}
+
 export function initialRouteReady(generation: number): boolean {
   return generation > 0;
 }

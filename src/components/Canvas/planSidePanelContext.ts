@@ -13,21 +13,26 @@ export interface DrawerBinding {
   close: boolean;
 }
 
-/** `bound` is the context key the open drawer was bound to; `open` is whether a context-bound drawer is showing. */
-export function reconcileDrawerBinding(bound: string | null, current: string, open: boolean): DrawerBinding {
+export const selectSelectionSeeds = (state: ExtendedState): number => state.selectionSeeds ?? 0;
+
+/** `bound` is the context key the open drawer was bound to; `open` is whether a context-bound drawer is showing; `restored` is a context change that came from a restore settling, not from the user. */
+export function reconcileDrawerBinding(bound: string | null, current: string, open: boolean, restored = false): DrawerBinding {
   if (!open) return { bound: null, close: false };
-  if (bound === null) return { bound: current, close: false };
+  if (bound === null || restored) return { bound: current, close: false };
   return bound === current ? { bound, close: false } : { bound: null, close: true };
 }
 
 /** Tab-bound drawers (Documents, Changes) follow their own tab through activateTab; plan and task drawers use this. */
-export function usePlanSidePanelContextBinding(contextKey: string): void {
+export function usePlanSidePanelContextBinding(contextKey: string, selectionSeeds = 0): void {
   const entry = usePlanSidePanelEntry();
   const open = entry !== null && !entry.target.documentsTabId;
   const bound = useRef<string | null>(null);
+  const seenSeeds = useRef(selectionSeeds);
   useEffect(() => {
-    const next = reconcileDrawerBinding(bound.current, contextKey, open);
+    const restored = seenSeeds.current !== selectionSeeds;
+    seenSeeds.current = selectionSeeds;
+    const next = reconcileDrawerBinding(bound.current, contextKey, open, restored);
     bound.current = next.bound;
     if (next.close) planSidePanelStore.close();
-  }, [contextKey, open]);
+  }, [contextKey, selectionSeeds, open]);
 }
