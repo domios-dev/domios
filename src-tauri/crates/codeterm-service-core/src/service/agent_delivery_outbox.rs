@@ -474,7 +474,8 @@ impl ServiceContext {
                 };
             }
             Ok(super::durable_delivery::PreparedDelivery::Failed(reason)) => {
-                return self.settle_durable_record(tab_id, owner, record, payload, reason, generation);
+                return self
+                    .settle_durable_record(tab_id, owner, record, payload, reason, generation);
             }
             Err(error) => {
                 log::error!("[agent-delivery] saved binding failed tab={tab_id}: {error}");
@@ -510,7 +511,12 @@ impl ServiceContext {
         if self.durable_delivery_expired(payload) {
             drop(pty_claim);
             return self.settle_durable_record(
-                tab_id, owner, record, payload, "delivery_ttl_expired", generation,
+                tab_id,
+                owner,
+                record,
+                payload,
+                "delivery_ttl_expired",
+                generation,
             );
         }
         let recovery = self.retired_delivery_recovery(tab_id, payload);
@@ -547,7 +553,12 @@ impl ServiceContext {
             }
             drop(pty_claim);
             return self.settle_durable_record(
-                tab_id, owner, record, payload, "delivery_ttl_expired", generation,
+                tab_id,
+                owner,
+                record,
+                payload,
+                "delivery_ttl_expired",
+                generation,
             );
         }
         let result = self.send_queued_agent_payload(tab_id, payload);
@@ -691,7 +702,14 @@ impl ServiceContext {
         payload: &AgentDeliveryPayload,
         generation: u64,
     ) -> AgentWriteResult {
-        self.settle_durable_record(tab, owner, record, payload, "launch_ended_before_write", generation)
+        self.settle_durable_record(
+            tab,
+            owner,
+            record,
+            payload,
+            "launch_ended_before_write",
+            generation,
+        )
     }
 
     fn settle_durable_record(

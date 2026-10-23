@@ -219,6 +219,7 @@ fn deferred_structured_preparation_adopts_the_restored_reservation_a_send_pinned
     )
     .expect("a restored relaunch reserves on the caller's thread");
     let mut payload = crate::service::messenger::AgentDeliveryPayload {
+        durable_delivery: None,
         trace_id: None,
         transport: crate::service::messenger::Messenger::from(
             crate::service::messenger::MessageEnvelope::from_codeterm(),
