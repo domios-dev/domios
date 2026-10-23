@@ -4,6 +4,7 @@
 //! handles the one path the crate can't — the `plugin <id> <verb>` passthrough,
 //! which routes over the daemon socket.
 
+mod body_source;
 pub(crate) mod cli_status;
 mod receiver_target;
 mod update;
@@ -248,7 +249,7 @@ fn pass_command(parts: Vec<String>) -> Result<serde_json::Value, String> {
     let verb = it
         .next()
         .ok_or("usage: domios plugin <id> <verb> [args…]")?;
-    let args: Vec<String> = it.collect();
+    let (args, body) = body_source::resolve(it.collect())?;
 
     let (mut client, _) = crate::client::SocketClient::connect_local()?;
     let session_id = std::env::var("CODETERM_WORKER_ID")
@@ -257,7 +258,10 @@ fn pass_command(parts: Vec<String>) -> Result<serde_json::Value, String> {
         .or_else(|| std::env::var("CODETERM_TAB_ID").ok())
         .unwrap_or_default();
     let method = format!("plugin:{id}.{verb}");
-    let params = serde_json::json!({ "args": args, "sessionId": session_id });
+    let mut params = serde_json::json!({ "args": args, "sessionId": session_id });
+    if let Some(body) = body {
+        params["body"] = body.into();
+    }
     let resp = client.call(&method, Some(params))?;
     if let Some(e) = resp.get("error").and_then(|v| v.as_str()) {
         return Err(e.to_string());

@@ -1023,6 +1023,7 @@ export interface SurfaceContribution {
 // ── onAgentCommand (the inverse seam) ──
 
 export interface AgentCommandCtx {
+  body?: string;
   sessionId: string;
   verb: string;
   args: string[];
