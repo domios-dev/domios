@@ -311,6 +311,9 @@ impl MeshManager {
 pub fn blocked_message(reason: BlockReason) -> String {
     match reason {
         BlockReason::SignedOut => "Signed out — sign in to use the mesh".to_string(),
+        BlockReason::PlanLimitLocked => {
+            "plan_limit_locked: this machine is outside your plan's machine limit".to_string()
+        }
         other => format!("Mesh link blocked: {other:?}"),
     }
 }

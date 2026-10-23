@@ -31,6 +31,14 @@ export function raiseMeshMachineLimit(notice: AccountMeshRefusalNotice): boolean
   return true;
 }
 
+/** An over-limit machine row opens the plans modal with the server's count, or the listed count without one. */
+export function openLockedMachinePlans(snapshot: { last_refusal: unknown; registry: { rows: readonly { active: boolean; eligibility: string }[] } | null } | null, rowKey: string): void {
+  const active = snapshot?.registry?.rows.filter((row) => row.active && row.eligibility !== "revoked") ?? [];
+  const eligible = active.filter((row) => row.eligibility === "eligible").length;
+  const limit = meshMachinesRefusal(snapshot?.last_refusal) ?? { limit: Math.max(1, eligible), activeCount: Math.max(1, active.length) };
+  freeLimitGate.openMeshMachines(`row:${rowKey}`, limit);
+}
+
 /** A user Add or retry: the machine-limit refusal opens the modal and resolves undefined; every other error still rejects. */
 export async function openOnMeshRefusal<T>(request: () => Promise<T>): Promise<T | undefined> {
   try {
