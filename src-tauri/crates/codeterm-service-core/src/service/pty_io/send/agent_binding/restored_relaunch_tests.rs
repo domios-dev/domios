@@ -49,9 +49,9 @@ fn payload() -> AgentDeliveryPayload {
 
 /// The state a restore materialization leaves before the sender's claim is released: the
 /// restore claim, then the launch's own caller-thread reservation.
-fn relaunch_before_send(fixture: &ServiceFixture, tab: &str) -> String {
+fn relaunch_before_send(svc: &crate::service::ServiceContext, tab: &str) -> String {
     crate::service::pty_io::claim_restored_launch(
-        &fixture.service.mux,
+        &svc.mux,
         tab,
         PROVIDER,
         Some(SESSION),
@@ -60,13 +60,9 @@ fn relaunch_before_send(fixture: &ServiceFixture, tab: &str) -> String {
     )
     .unwrap()
     .expect("restore claims its launch");
-    let nonce = crate::service::orchestrator::reserve_launch_binding_nonce(
-        &fixture.service,
-        tab,
-        Some(SESSION),
-    )
-    .expect("a restored relaunch reserves on the caller's thread");
-    crate::service::orchestrator::mark_tab_agent_launch_started(&fixture.service.mux, tab);
+    let nonce = crate::service::orchestrator::reserve_launch_binding_nonce(svc, tab, Some(SESSION))
+        .expect("a restored relaunch reserves on the caller's thread");
+    crate::service::orchestrator::mark_tab_agent_launch_started(&svc.mux, tab);
     nonce
 }
 
@@ -149,7 +145,7 @@ fn assert_settles_failed_once(
     tab: &str,
     end_launch: impl FnOnce(&ServiceFixture),
 ) {
-    let relaunch_nonce = relaunch_before_send(fixture, tab);
+    let relaunch_nonce = relaunch_before_send(&fixture.service, tab);
     let (_boundary, writes, done) = install_writer(fixture, tab, || Ok(()));
     let (failure_tx, failure_rx) = mpsc::channel();
     let listener = fixture.ui.listen("agent-delivery-status", move |event| {
@@ -275,7 +271,7 @@ fn restore_claim_voids_the_snapshot_proof_so_the_relaunch_reserves_its_nonce() {
 #[test]
 fn relaunch_pinned_send_drains_once_into_the_relaunched_pty_after_readiness() {
     let (fixture, tab) = restored_authenticated_tab();
-    let relaunch_nonce = relaunch_before_send(&fixture, &tab);
+    let relaunch_nonce = relaunch_before_send(&fixture.service, &tab);
     let (_boundary, writes, done) = install_writer(&fixture, &tab, || Ok(()));
     deliver_pending(&fixture, &tab);
     assert_eq!(pinned_nonce(&fixture, &tab), relaunch_nonce);
@@ -383,7 +379,7 @@ fn refused_unstarted_or_superseded_relaunch_refuses_the_send_with_its_reason() {
 #[test]
 fn uncertain_relaunch_write_never_replays() {
     let (fixture, tab) = restored_authenticated_tab();
-    relaunch_before_send(&fixture, &tab);
+    relaunch_before_send(&fixture.service, &tab);
     let (_boundary, writes, done) = install_writer(&fixture, &tab, || {
         Err(DeliveryError::SubmitUnconfirmed {
             tab: "opaque".into(),
@@ -402,4 +398,73 @@ fn uncertain_relaunch_write_never_replays() {
     fixture.service.reconcile_authenticated_agent_input(&tab);
     done.recv_timeout(WAIT).unwrap();
     assert_eq!(writes.lock().len(), 1);
+}
+
+#[test]
+fn first_send_held_through_its_own_lazy_relaunch_and_delivered_once() {
+    let (fixture, tab) = restored_authenticated_tab();
+    let owner = tab.clone();
+    let (nonce_tx, nonce_rx) = mpsc::channel();
+    restored_launch_boundary::install(Box::new(move |svc| {
+        let binding_nonce = relaunch_before_send(svc, &owner);
+        nonce_tx.send(binding_nonce.clone()).unwrap();
+        Ok(RestoredLaunchStart::Started { binding_nonce })
+    }));
+    let (_boundary, writes, done) = install_writer(&fixture, &tab, || Ok(()));
+    let (status_tx, status_rx) = mpsc::channel();
+    let listener = fixture.ui.listen("agent-delivery-status", move |event| {
+        status_tx.send(event.clone()).unwrap();
+    });
+
+    deliver_pending(&fixture, &tab);
+    let relaunch_nonce = nonce_rx.recv_timeout(WAIT).unwrap();
+    assert_eq!(pinned_nonce(&fixture, &tab), relaunch_nonce);
+
+    // The launch thread's window: the new PTY wrote its launch and cleared agent_booting,
+    // but readiness and the resumed session's binding have not arrived yet.
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&tab).unwrap();
+        tab.pty_id = Some("relaunched-pty".into());
+        tab.boot_stage = Some(BootStage::LaunchWritten);
+        tab.agent_booting = false;
+    }
+    fixture.service.wake_agent_deliveries_on_state_change(&tab);
+    done.recv_timeout(WAIT).unwrap();
+    assert!(
+        writes.lock().is_empty(),
+        "nothing is written before readiness"
+    );
+    assert!(
+        has_pending(&fixture, &tab),
+        "the held send survives its own relaunch"
+    );
+    assert!(status_rx
+        .try_iter()
+        .all(|event| event["status"] != "failed"));
+
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab)
+        .unwrap()
+        .boot_stage = Some(BootStage::AgentReady);
+    bind_session(&fixture, &tab, SESSION);
+    done.recv_timeout(WAIT).unwrap();
+    assert_eq!(
+        *writes.lock(),
+        [(
+            Some("relaunched-pty".to_string()),
+            "opaque relaunch payload".to_string()
+        )]
+    );
+    assert!(!has_pending(&fixture, &tab));
+    fixture.service.reconcile_authenticated_agent_input(&tab);
+    done.recv_timeout(WAIT).unwrap();
+    assert_eq!(writes.lock().len(), 1);
+    assert!(status_rx
+        .try_iter()
+        .all(|event| event["status"] != "failed"));
+    fixture.ui.unlisten(listener);
 }
