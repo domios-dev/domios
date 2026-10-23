@@ -103,3 +103,6 @@ mod process_split_contract;
 pub mod test_support;
 
 pub mod app_quit_routes;
+
+#[cfg(test)]
+mod ui_status_tests;

@@ -68,9 +68,12 @@ pub fn list(
             .map_err(|_| ConnectionError::unavailable())?;
         let mode = adapter.as_ref().map(|adapter| adapter.token_mode());
         let model = cfg.connection(&id).model.or_else(|| {
-            adapter
-                .as_ref()
-                .and_then(|adapter| adapter.models().first().map(|model| model.id.clone()))
+            adapter.as_ref().and_then(|adapter| {
+                adapter
+                    .cached_models()
+                    .first()
+                    .map(|model| model.id.clone())
+            })
         });
         let error = if adapter.is_none() {
             Some(ConnectionError::new(

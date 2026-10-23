@@ -17,6 +17,7 @@ pub struct JsDecisionModel {
     vm: Arc<PluginVm>,
     id: String,
     token_mode: TokenMode,
+    cached_models: parking_lot::Mutex<Vec<DecisionModelInfo>>,
     catalogue_fingerprint: std::sync::OnceLock<Option<String>>,
 }
 
@@ -26,6 +27,7 @@ impl JsDecisionModel {
             vm,
             id: id.into(),
             token_mode,
+            cached_models: parking_lot::Mutex::new(Vec::new()),
             catalogue_fingerprint: std::sync::OnceLock::new(),
         }
     }
@@ -98,7 +100,14 @@ impl DecisionModel for JsDecisionModel {
         let fingerprint = self
             .catalogue_fingerprint
             .get_or_init(|| self.vm.binary_fingerprint());
-        call_json(&self.vm, "models", &[json!(fingerprint)]).unwrap_or_default()
+        let models: Vec<DecisionModelInfo> =
+            call_json(&self.vm, "models", &[json!(fingerprint)]).unwrap_or_default();
+        *self.cached_models.lock() = models.clone();
+        models
+    }
+
+    fn cached_models(&self) -> Vec<DecisionModelInfo> {
+        self.cached_models.lock().clone()
     }
 
     fn decide_questions(
