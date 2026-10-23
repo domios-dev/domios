@@ -135,6 +135,7 @@ export function useChatSession({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [listenerReady, setListenerReady] = useState(false);
+  const [listenerGeneration, setListenerGeneration] = useState(0);
   const [attachmentState, setAttachmentState] = useState<ChatAttachmentState>("idle");
   const [transcriptUnavailable, setTranscriptUnavailable] =
     useState<ChatUnavailableReason | null>(null);
@@ -200,8 +201,6 @@ export function useChatSession({
 
   const attachment = useChatAttachment(tabId, observeSubscription);
   const failedStartRef = useRef<string | null>(null);
-  const attachFlightRef = useRef<ReturnType<typeof createChatAttachFlight<ChatStartResult>> | null>(null);
-  if (!attachFlightRef.current) attachFlightRef.current = createChatAttachFlight<ChatStartResult>();
   const { begin: beginAttach, generation } = attachment;
   const attachmentRef = useRef(attachment);
   attachmentRef.current = attachment;
@@ -540,6 +539,7 @@ export function useChatSession({
       } catch (e) {
         if (cancelled) return;
         const msg = e instanceof Error ? e.message : String(e);
+        attachmentStateRef.current = "failed";
         setAttachmentState("failed");
         setError(msg);
         setLoading(false);
@@ -553,15 +553,17 @@ export function useChatSession({
       unlistenTest?.();
       setListenerReady(false);
       attachmentRef.current.release();
-      attachFlightRef.current?.cancelPending();
       resumeLifetimeRef.current += 1;
       resumeCursorRef.current = null;
       resumeFlightRef.current?.cancelPending();
       pendingLiveEventsRef.current = [];
       adoptedBindingsRef.current.clear();
+      attachmentStateRef.current = "idle";
+      requestedAuthorityRef.current = null;
     };
   }, [
     attachmentActive,
+    listenerGeneration,
     commitLiveEvent,
     emitDiagnostic,
     markAttached,
@@ -603,20 +605,16 @@ export function useChatSession({
           sourceSessionId: requestedSessionId,
           sessionBindingNonce: requestedSessionBindingNonce,
         });
-        const flight = attachFlightRef.current;
-        if (!flight) return;
-        const outcome = await flight.run(requestedSubscriptionId, async () => {
-          const timing = beginChatStartTiming(tabId);
-          const result = await runChatStart(tabId, requestedSubscriptionId, () => invoke<ChatStartResult>("chat_start", {
-            tabId, agentSessionId: requestedSessionId, subscriptionId: requestedSubscriptionId, signal: controller.signal,
+        const timing = beginChatStartTiming(tabId);
+        const res = await runChatStart(tabId, requestedSubscriptionId, signal => invoke<ChatStartResult>("chat_start", {
+            tabId, agentSessionId: requestedSessionId, subscriptionId: requestedSubscriptionId,
             knownWindow: knownWindowForAuthority(retainedTranscriptMemo(windowKeyRef.current),
               requestedSessionId, requestedSessionBindingNonce),
-          }));
-          chatStartTimingEdge(timing, "response", result);
-          return result;
-        });
-        if (outcome.kind === "superseded") return;
-        const res = outcome.value;
+          }).then(result => {
+            if (signal.aborted) owner.discardForeign(result.subscription_id);
+            return result;
+          }), controller.signal);
+        chatStartTimingEdge(timing, "response", res);
         if (cancelled || !owner.isCurrent(generationAtRequest)) {
           owner.discardForeign(res.subscription_id);
           return;
@@ -764,11 +762,16 @@ export function useChatSession({
     tabId,
   ]);
 
-  const retry = useCallback(() => requestRecoveryAttach(), [requestRecoveryAttach]);
+  const retry = useCallback(() => {
+    if (!listenerReady) setListenerGeneration(previous => previous + 1);
+    else requestRecoveryAttach();
+  }, [listenerReady, requestRecoveryAttach]);
 
   const reconcileActivation = useCallback((cause: string) => {
-    if (attachmentStateRef.current === "attached") requestRecoveryAttach(false, cause);
-  }, [requestRecoveryAttach]);
+    if (attachmentStateRef.current === "failed" && !listenerReady) {
+      setListenerGeneration(previous => previous + 1);
+    } else if (["attached", "failed"].includes(attachmentStateRef.current)) requestRecoveryAttach(false, cause);
+  }, [listenerReady, requestRecoveryAttach]);
   useChatActivationReconcile(active, reconcileActivation);
 
   const historyRef = useRef(history);

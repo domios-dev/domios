@@ -129,6 +129,8 @@ export const TerminalTab = memo(function TerminalTab({
   }, [tabId, chatCapable]);
   const [preferredUiMode, setUiMode] = useState<TabUiMode>(computeMode);
   const uiMode = wakingTranscript ? "chat" : preferredUiMode;
+  const chatActivated = useRef(false);
+  if (uiMode === "chat") chatActivated.current = true;
   const [keptFailureKey, setKeptFailureKey] = useState<string | null>(null);
   const [terminalFallbackOpen, setTerminalFallbackOpen] = useState(false);
   const [framePtyId, setFramePtyId] = useState<string | null>(null);
@@ -610,16 +612,14 @@ export const TerminalTab = memo(function TerminalTab({
         />
       )}
 
-      {/* Chat is conditionally mounted so the per-tab tailer thread on
-          the backend only starts when the user actually flipped into
-          chat mode — not for every tab in the workspace. */}
-      {uiMode === "chat" && (
-        <div className="absolute inset-0" style={{ zIndex: 2 }}>
+      {chatActivated.current && (
+        <div className="absolute inset-0" hidden={uiMode !== "chat"} inert={uiMode !== "chat"} style={{ zIndex: 2 }}>
           <TabSessionChat
             tabId={tabId}
             api={api}
             uiFontScale={uiFontScale}
-            isVisible={isVisible}
+            isVisible={isVisible && uiMode === "chat"}
+            sessionActive={isVisible}
             inputStatus={inputFailureLine}
             onOpenTerminalFallback={openTerminalFallback}
           />

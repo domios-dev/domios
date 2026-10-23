@@ -71,3 +71,32 @@ async fn snapshot_slot_survives_request_deadline_until_blocking_work_exits() {
     );
     release.send(()).unwrap();
 }
+
+#[tokio::test]
+async fn chat_start_waiter_acquires_only_after_own_slot_is_released() {
+    let slot = RequestSlot::acquire("test-chat-wait:one".into()).unwrap();
+    let other = RequestSlot::acquire("test-chat-wait:other".into()).unwrap();
+    let waiting = RequestSlot::acquire_when_available("test-chat-wait:one".into());
+    tokio::pin!(waiting);
+    assert!(futures_util::poll!(waiting.as_mut()).is_pending());
+    drop(other);
+    assert!(futures_util::poll!(waiting.as_mut()).is_pending());
+    drop(slot);
+    let acquired = waiting.await.unwrap();
+    assert!(RequestSlot::acquire("test-chat-wait:one".into()).is_err());
+    drop(acquired);
+    assert!(RequestSlot::acquire("test-chat-wait:one".into()).is_ok());
+}
+
+#[tokio::test(start_paused = true)]
+async fn chat_start_waiter_fails_within_bound_without_releasing_the_producer() {
+    let slot = RequestSlot::acquire("test-chat-wait:deadline".into()).unwrap();
+    let error = RequestSlot::acquire_when_available("test-chat-wait:deadline".into())
+        .await
+        .err()
+        .unwrap();
+    assert_eq!(error.1 .0["code"], "request_busy");
+    assert!(RequestSlot::acquire("test-chat-wait:deadline".into()).is_err());
+    drop(slot);
+    assert!(RequestSlot::acquire("test-chat-wait:deadline".into()).is_ok());
+}
