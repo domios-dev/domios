@@ -1,3 +1,4 @@
+import { attachmentPathName as fileName } from "@codeterm/chat-core";
 import { localThumbnailSource, type ThumbnailSource, type ToolEvent, type ToolRichResult } from "@codeterm/chat-core";
 import { Check, ChevronRight, CircleX, LoaderCircle, Minus } from "lucide-react";
 import { useId, type ReactNode } from "react";
@@ -5,11 +6,6 @@ import { useLocalImage } from "../localImage";
 import { ToolOutputContent } from "../ToolOutputContent";
 import { ImageResultBody } from "./ImageResultBody";
 import { toolKindVisual } from "./toolKindVisual";
-
-function fileName(path: string): string {
-  const segments = path.split(/[\\/]/).filter(Boolean);
-  return segments[segments.length - 1] ?? path;
-}
 
 function thumbnailNote(source: ThumbnailSource, failed: boolean): string {
   if (source.kind === "local") return failed ? "not shown: local file could not be read" : "not shown yet: reading local file";
