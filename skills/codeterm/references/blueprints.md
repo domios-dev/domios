@@ -17,6 +17,8 @@ Read `domios docs BLUEPRINT-AUTHORING` first. Choose a typed `call` only when a 
 sealed definition with retained pins/dependencies before apply. No-fit or degraded
 recall keeps a scaffold for from-scratch authoring; open bodies with `blueprint show`.
 
+Each code or command step runs with the user's own permissions, like an agent in a tab, without Domios credentials in its environment; foreign Blueprints are gated by folder trust (1.15.4).
+
 Apply updates the Blueprint with the same name in your Team instead of creating a
 duplicate, and reactivates a stopped one; retarget an existing watcher by applying
 again with new inputs. Give every Blueprint a short `--note`. Stopped Blueprints
@@ -32,4 +34,4 @@ An unclassified watch needs repair before reporting success. Continue through
 events or routed results, never a sleep or polling loop. For a GitHub run use the
 `github` recipe, for PR checks `github-pr-checks`; patterns need `(?m)` line anchors.
 
-<!-- revision: 13 -->
+<!-- revision: 14 -->

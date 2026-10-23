@@ -2,6 +2,8 @@
 
 Recall saved solutions before authoring, then reuse a matching graph or start from a built-in. Native Blueprint files use `schema_version: 2` and one typed graph. Older formats are refused; stored v1 graphs and saved v1 Blueprint solutions are deleted without conversion. Other memory and workspaces are retained.
 
+Each code or command step runs with the user's own permissions, like an agent in a tab, without Domios credentials in its environment; foreign Blueprints are gated by folder trust (1.15.4). Execution budgets still apply on macOS, Linux and Windows.
+
 ```bash
 domios blueprint new --intent "watch CI and report failures" --json
 domios blueprint recipe
@@ -129,4 +131,4 @@ Only the Team Orchestrator keeps solutions. Supply one to five intents, preferab
 
 Full recipe purposes and inputs: `domios docs BLUEPRINT-RECIPES`.
 
-<!-- revision: 49 -->
+<!-- revision: 50 -->

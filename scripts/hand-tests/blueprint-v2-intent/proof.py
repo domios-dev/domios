@@ -37,12 +37,13 @@ def clean_sha():
 def config(out, identities=True):
     chair = json.loads((out / 'chair.json').read_text())
     required = ['owner', 'team_id', 'workspace_id', 'orchestrator_tab', 'codex_tab', 'claude_tab', 'no_fit_tab',
-                'codex_binary', 'claude_binary', 'claude_model', 'call_sha', 'runtime_main_sha', 'macos_dev_sha']
+                'codex_binary', 'claude_binary', 'claude_model', 'call_sha', 'runtime_main_sha',
+                'budget_runtime_sha', 'isolated_dev_sha']
     if not identities:
         required = [key for key in required if not key.endswith('_tab') and key not in ['team_id', 'workspace_id']]
     if any(not chair.get(key) or str(chair[key]).startswith('FILL_') for key in required) or chair['owner'] != 'Chair':
         raise ValueError('missing explicit Chair launch identities/prerequisite receipt')
-    for key in ['call_sha', 'runtime_main_sha', 'macos_dev_sha']:
+    for key in ['call_sha', 'runtime_main_sha', 'budget_runtime_sha', 'isolated_dev_sha']:
         if not re.fullmatch('[a-f0-9]{40}', chair[key]):
             raise ValueError(f'not an exact prerequisite SHA: {key}')
         subprocess.run(['git', 'merge-base', '--is-ancestor', chair[key], 'HEAD'], cwd=ROOT, check=True)
@@ -321,8 +322,6 @@ def live(out):
     prepared = json.loads((out / 'prepared.json').read_text())
     with (out / 'live-started.json').open('x') as stream:
         json.dump({'sha': sha, 'started_at': time.time(), 'owner': 'Chair'}, stream)
-    if platform.system() != 'Darwin':
-        raise ValueError('native sandbox/native DEV proof requires macOS; other platforms are unverified and fail closed')
     bridge = Bridge(out, chair['orchestrator_tab'])
     health_proof(bridge, out, sha, prepared)
     for tab in [chair[key] for key in ['orchestrator_tab', 'codex_tab', 'claude_tab', 'no_fit_tab']]:
@@ -365,7 +364,9 @@ def live(out):
     passed = distinct and len(outcomes) == 3 and all(o['status'] == 'PASS' for o in outcomes)
     result = {'status': 'PASS' if passed else 'FAIL', 'sha': sha, 'clean_tip': True, 'instance': INSTANCE,
               'port': PORT, 'prompt_sha256': digest(shipped), 'authors': outcomes,
-              'native_platform': platform.system(), 'unverified_platforms': ['Windows', 'Linux'], 'simulation': False}
+              'native_platform': platform.system(),
+              'unverified_platforms': [name for name in ['Darwin', 'Windows', 'Linux'] if name != platform.system()],
+              'simulation': False}
     save(out / 'result.json', result)
     if not passed:
         raise ValueError('one or more required real author/check/execution/effect cases failed')

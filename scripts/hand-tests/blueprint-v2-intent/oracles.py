@@ -82,9 +82,9 @@ def verify_run(show, log, effect, expected, selected=None):
     entries = log if isinstance(log, list) else log.get('entries', log.get('data', []))
     if not any(e.get('step_name') == '$run' and e.get('state') == 'done' for e in entries):
         raise ValueError('real run has no completed retained run record')
-    confined = [e for e in entries if 'confined code completed' in str(e.get('result_summary', '')) and e.get('state') == 'done']
-    if not confined:
-        raise ValueError('no retained executed sandboxed-code evidence')
+    executed = [e for e in entries if str(e.get('result_summary', '')).endswith('code completed') and e.get('state') == 'done']
+    if not executed:
+        raise ValueError('no retained executed code-node evidence')
     if selected:
         objects = [item for item in walk(show) if isinstance(item, dict)]
         if not any(item.get('id') == selected['id'] and item.get('hash') == selected['hash'] for item in objects):

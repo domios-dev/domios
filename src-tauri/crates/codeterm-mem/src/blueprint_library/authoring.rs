@@ -139,15 +139,6 @@ impl MemManager {
         identity: &EmbedderIdentity,
         unavailable: &mut Vec<(String, String)>,
     ) -> Result<Vec<Candidate>, String> {
-        if !cfg!(target_os = "macos") {
-            unavailable.extend(catalog::ENTRIES.iter().map(|item| {
-                (
-                    item.id.into(),
-                    "Native callable code confinement is available only on macOS".into(),
-                )
-            }));
-            return Ok(Vec::new());
-        }
         let mut cache = self.blueprint.catalog.lock();
         if cache.identity.as_ref() != Some(identity) {
             cache.candidates.clear();

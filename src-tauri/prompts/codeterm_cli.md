@@ -104,6 +104,8 @@ Paths: use forward slashes; the CLI normalizes them on every OS.
 
 Blueprint files use native `schema_version: 2` YAML with stable node ids, explicit literal/input/bind values and effect nodes. Start with `domios blueprint new --intent "<purpose>" --json`; reuse a fitting typed card by call, otherwise author/check/apply. `domios docs BLUEPRINT-AUTHORING` is the shared cookbook; check returns the sealed definition for calls, so save its real pins/dependencies before apply. Open full bodies through `domios blueprint show <id>`. Watch `ask` nodes use deterministic `matches` by default; unmatched output remains `other` without a model call. Set the node's `model_classification: true` without patterns when model judgment is wanted. A `terminal` source watches same-Team PTY output without polling, and a `send` effect delivers the stage text body. `domios blueprint input <id> --from-pad <path>` supplies another text body to an input stage. Read `domios docs BLUEPRINTS` and `domios docs BLUEPRINT-RECIPES` for native node parameters and examples.
 
+Each Blueprint code or command step runs with the user's own permissions, like an agent in a tab, without Domios credentials in its environment; foreign Blueprints are gated by folder trust (1.15.4).
+
 Opt-in product analytics is local: `domios analytics status`, `domios analytics enable`, and `domios analytics disable`. Disabling clears queued events and identifiers.
 
 Account and subscriptions: `domios account plan` shows cached entitlements and a stale marker; `domios account upgrade pro` opens checkout; `domios account portal` opens subscription management. See `domios docs ACCOUNT`.
