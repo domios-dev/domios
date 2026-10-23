@@ -809,6 +809,12 @@ impl ServiceContext {
         queued: bool,
         outcome: &str,
     ) {
+        if let Some(delivery_id) = delivery_id {
+            self.events.publish_internal(
+                "delivery-written",
+                serde_json::json!({"tab_id": tab_id, "delivery_id": delivery_id}),
+            );
+        }
         if let Some(id) = flow_id.or(delivery_id) {
             crate::flow_trace::record(id, "message.written", tab_id, "", outcome, delivery_id);
         }
