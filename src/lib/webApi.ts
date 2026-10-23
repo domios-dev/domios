@@ -1,6 +1,7 @@
 import { browserUploadBody } from "./browserUploadBody";
 import { baseDaemonTransport, daemonTransportForPeer, DAEMON_TOKEN_PREFIX } from "./daemonBootstrap";
 import { decodeTransportResponse, type TransportClient } from "./transportClient";
+import { restRequestSignal } from "./restTimeoutPolicy";
 export { TransportError as WebApiError } from "./transportClient";
 
 import { RELAY_PROTOCOL_VERSION } from "./types";
@@ -220,8 +221,7 @@ export async function webJson<T>(
   opts?: Parameters<TransportClient["json"]>[3],
 ): Promise<T> {
   const generation = webRequestContext();
-  const deadline = opts?.timeoutMs === undefined ? undefined : AbortSignal.timeout(opts.timeoutMs);
-  const signal = opts?.signal && deadline ? AbortSignal.any([opts.signal, deadline]) : opts?.signal ?? deadline;
+  const signal = restRequestSignal(method, path, opts);
   const res = await webFetch(path, {
     signal,
     headers: opts?.callerTabId ? { "X-CodeTerm-Tab-Id": opts.callerTabId } : undefined,
