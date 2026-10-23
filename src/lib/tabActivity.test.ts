@@ -82,3 +82,9 @@ console.log(`tab activity: ${cases.length} table cases, ${startingStages.length}
 
 assert.equal(tabActivity({ ...agent, frozen: true }, "Working").active, false);
 assert.equal(tabActivity({ ...agent, frozen: true }, "Working").launching, false);
+
+const ended = tabActivity({ ...agent, role: "Worker" } as TabActivityInput, "Dead");
+assert.equal(ended.label, "Ended", "a dead role tab reads as ended, not as a launch failure");
+assert.equal(ended.active, false, "a dead role tab is never a live worker");
+assert.equal(ended.status, "Dead");
+assert.equal(tabActivity({ ...agent, boot_stage: "spawn_failed" }, "Working").label, "Launch failed");

@@ -1,4 +1,5 @@
 import { createNoticePublisher } from "../../lib/notices";
+import { tabCloseRejectionNotice } from "./tabCloseRejection";
 import { sendNotificationAnswer, type AnswerResult } from "../../lib/notificationAnswerSend";
 import { isWorkspaceCwdRefusal, spawnErrorMessage } from "../../lib/spawnErrorMessage";
 import {
@@ -984,13 +985,14 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
           }
           else refreshFromBackend();
         })
-        .catch(() => {
+        .catch((error: unknown) => {
           dispatch({ type: "REMOVE_PENDING_CLOSE", tabIds: [tabId] });
+          publishNotice(tabCloseRejectionNotice(error, workspaceId, tabId));
           if (isRemote) void requestRemoteRefresh();
           else void restoreFromBackend();
         });
     },
-    [refreshFromBackend, restoreFromBackend, requestRemoteRefresh, guardedInvoke],
+    [refreshFromBackend, restoreFromBackend, requestRemoteRefresh, guardedInvoke, publishNotice],
   );
 
   const setActiveTab = useCallback((workspaceId: string, tabId: string) => {
