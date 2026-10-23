@@ -16,7 +16,7 @@ fn blueprint_v2_surface_check_apply_export_update_and_reopen_refuses_v1_before_m
     let team = codeterm_types::team::Team::new(&workspace, 1);
     mux.upsert_team(team.clone());
     mux.get_tab_mut(&tab).unwrap().team_id = Some(team.id.clone());
-    mux.get_tab_mut(&tab).unwrap().agent_type = Some("codex".into());
+    mux.get_tab_mut(&tab).unwrap().agent_type = Some("opaque-provider".into());
     mux.get_tab_mut(&tab).unwrap().role = Some(codeterm_types::agent::AgentRole::Manager);
     mux.get_tab_mut(&tab).unwrap().role_profile = Some("orchestrator".into());
     mux.get_tab_mut(&tab).unwrap().cwd = Some(root.path().to_string_lossy().into_owned());

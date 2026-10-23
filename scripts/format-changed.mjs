@@ -109,7 +109,14 @@ function packageEditions(root, workspaceManifest) {
     'metadata', '--offline', '--no-deps', '--format-version=1',
     '--manifest-path', workspaceManifest,
   ], { cwd: root }));
-  return new Map(metadata.packages.map(pkg => [path.resolve(pkg.manifest_path), pkg.edition]));
+  return new Map(metadata.packages.flatMap(pkg => {
+    const manifest = path.resolve(pkg.manifest_path);
+    const packagePrefix = `${path.dirname(manifest)}${path.sep}`;
+    const externalTargets = pkg.targets
+      .filter(target => !path.resolve(target.src_path).startsWith(packagePrefix))
+      .map(target => [path.dirname(path.resolve(target.src_path)), pkg.edition]);
+    return [[manifest, pkg.edition], ...externalTargets];
+  }));
 }
 
 function nearestCargoManifest(root, filePath) {
@@ -120,7 +127,7 @@ function nearestCargoManifest(root, filePath) {
     if (directory === root) break;
     directory = path.dirname(directory);
   }
-  throw new Error(`No Cargo.toml found for ${filePath}`);
+  return null;
 }
 
 export function biomeCommand(root) {
@@ -134,6 +141,7 @@ function editionForFile(root, filePath, editions) {
   while (directory.startsWith(root)) {
     const manifest = path.join(directory, 'Cargo.toml');
     if (editions.has(manifest)) return editions.get(manifest);
+    if (editions.has(directory)) return editions.get(directory);
     if (directory === root) break;
     directory = path.dirname(directory);
   }
@@ -170,6 +178,13 @@ export function formatChangedFiles(root, baseRef) {
     const metadataManifests = new Set();
     for (const file of rustFiles) {
       const packageManifest = nearestCargoManifest(absoluteRoot, file);
+      if (!packageManifest) {
+        for (const workspace of ['src-tauri', 'cli']) {
+          const manifest = path.join(absoluteRoot, workspace, 'Cargo.toml');
+          if (existsSync(manifest)) metadataManifests.add(manifest);
+        }
+        continue;
+      }
       const relativeManifest = path.relative(absoluteRoot, packageManifest).replaceAll('\\', '/');
       const workspaceManifest = relativeManifest.startsWith('src-tauri/')
         ? path.join(absoluteRoot, 'src-tauri', 'Cargo.toml')

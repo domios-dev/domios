@@ -1,6 +1,7 @@
 //! Agent spawn & batch command orchestration.
 
 mod launch;
+pub(crate) use launch::deferred_launch_nonce;
 #[cfg(any(test, feature = "test-support"))]
 pub use launch::test_support as launch_test_support;
 mod launch_env;
