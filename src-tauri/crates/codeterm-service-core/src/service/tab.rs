@@ -518,7 +518,8 @@ impl ServiceContext {
                 );
                 self.kill_ptys(&[orphan.to_string()]);
             },
-            |_| {
+            |selected| {
+                self.observe_shell_ready(selected, None);
                 crate::service::orchestrator::tab_relink_signal::notify_tab_relinked();
                 self.emit_state_changed(MuxEmitCause::TabLifecycle);
             },
@@ -538,7 +539,7 @@ impl ServiceContext {
                 let Ok(mapped) = mapped else {
                     return false;
                 };
-                let cwd = mapped.unwrap_or(cwd);
+                let cwd = codeterm_paths::strip_verbatim_prefix(&mapped.unwrap_or(cwd));
                 if tab.cwd.as_deref() == Some(cwd.as_str()) {
                     return false;
                 }

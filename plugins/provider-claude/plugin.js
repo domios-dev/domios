@@ -603,7 +603,7 @@ function observationExtras(error, record3) {
 
 // plugins/provider-claude/src/signals.ts
 function authStatusProbe() {
-  return { args: ["auth", "status"], timeoutMs: 3e3 };
+  return { args: ["auth", "status"], timeoutMs: 15e3 };
 }
 function object2(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;

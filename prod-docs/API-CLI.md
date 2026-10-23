@@ -13,7 +13,7 @@ Use `domios <command> --help` for the installed CLI contract. `codeterm` remains
 
 ### Startup readiness
 
-When the socket is unavailable, CLI discovery checks the selected instance's loopback health without credentials. Normal daemon commands wait on startup events within one 30-second deadline before sending their first command; REST listener recovery refuses immediately. Errors name the phase and use `starting` or `startup_failed`, preserving the snapshot in JSON `data.startup`. HTTP fallback reads the selected configuration's token when absent from the environment. Commands never replay.
+With the socket unavailable, credentialed CLI fallback probes RPC directly. A `starting` reply waits on startup events for up to 30 seconds before repeating the identify probe and submitting the first command. Without credentials, discovery checks the selected instance's loopback health first. REST recovery refuses immediately. Errors name the phase; JSON codes `starting`/`startup_failed` preserve `data.startup`. Fallback reads the selected configuration token when absent from the environment. Commands never replay.
 
 ### Remote task locations
 
@@ -194,4 +194,4 @@ provider's own machine. Completion verifies the account and resumes the tab's
 same thread without restarting or replaying input. Only one sign-in per provider
 can be pending; Cancel releases it before a retry.
 
-<!-- revision: 57 -->
+<!-- revision: 58 -->

@@ -2,6 +2,108 @@ use super::*;
 use crate::cmd::print::CliError;
 
 #[test]
+fn ready_rpc_probe_does_not_subscribe_to_startup() {
+    probe_with_readiness(
+        || Ok((reqwest::StatusCode::OK, json!({"result":{"ok":true}}))),
+        |_| panic!("ready RPC must not incur a readiness round trip"),
+    )
+    .unwrap();
+}
+
+#[test]
+fn starting_rpc_waits_then_repeats_only_the_identify_probe() {
+    let steps = std::cell::RefCell::new(Vec::new());
+    let probes = std::cell::Cell::new(0);
+    probe_with_readiness(
+        || {
+            steps.borrow_mut().push("identify");
+            probes.set(probes.get() + 1);
+            if probes.get() == 1 {
+                Ok((
+                    reqwest::StatusCode::SERVICE_UNAVAILABLE,
+                    json!({"startup":{"state":"starting","phases":{"plans":"starting"}}}),
+                ))
+            } else {
+                Ok((reqwest::StatusCode::OK, json!({"result":{"ok":true}})))
+            }
+        },
+        |snapshot| {
+            assert_eq!(snapshot["phases"]["plans"], "starting");
+            steps.borrow_mut().push("startup-events");
+            Ok(())
+        },
+    )
+    .unwrap();
+    steps.borrow_mut().push("user-command");
+    assert_eq!(
+        *steps.borrow(),
+        ["identify", "startup-events", "identify", "user-command"]
+    );
+}
+
+#[test]
+fn failed_startup_probe_never_waits_or_retries() {
+    let error = probe_with_readiness(
+        || {
+            Ok((
+                reqwest::StatusCode::SERVICE_UNAVAILABLE,
+                json!({"startup":{"state":"failed"}}),
+            ))
+        },
+        |_| panic!("terminal startup failure cannot be retried"),
+    )
+    .unwrap_err();
+    assert_eq!(
+        CliError::new(error).data.unwrap()["error"]["code"],
+        "startup_failed"
+    );
+}
+
+#[test]
+fn failed_readiness_wait_prevents_a_second_probe() {
+    let probes = std::cell::Cell::new(0);
+    let error = probe_with_readiness(
+        || {
+            probes.set(probes.get() + 1);
+            Ok((
+                reqwest::StatusCode::SERVICE_UNAVAILABLE,
+                json!({"startup":{"state":"starting"}}),
+            ))
+        },
+        |_| Err("readiness deadline".into()),
+    )
+    .unwrap_err();
+    assert_eq!(error, "readiness deadline");
+    assert_eq!(probes.get(), 1);
+}
+
+#[test]
+fn replaced_startup_after_ready_is_returned_without_another_wait() {
+    let waits = std::cell::Cell::new(0);
+    let probes = std::cell::Cell::new(0);
+    let error = probe_with_readiness(
+        || {
+            probes.set(probes.get() + 1);
+            Ok((
+                reqwest::StatusCode::SERVICE_UNAVAILABLE,
+                json!({"startup":{"state":"starting","phases":{"service":"starting"}}}),
+            ))
+        },
+        |_| {
+            waits.set(waits.get() + 1);
+            Ok(())
+        },
+    )
+    .unwrap_err();
+    assert_eq!(
+        CliError::new(error).data.unwrap()["error"]["code"],
+        "starting"
+    );
+    assert_eq!(waits.get(), 1);
+    assert_eq!(probes.get(), 2);
+}
+
+#[test]
 fn commands_wait_before_submission_but_recovery_refuses_starting() {
     let starting = json!({"state":"starting", "phases":{"service":"starting"}});
     assert!(!may_proceed(&starting, true).unwrap());
