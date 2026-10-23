@@ -439,6 +439,7 @@ export interface TeamUnitProps {
   terminalCount?: number;
   crons?: ReactNode;
   cronCount?: number;
+  jobsUnavailable?: boolean;
   providers: ProviderDescriptor[];
   providersLoading?: boolean;
   onRenameTeam?: (teamId: string, name: string) => void | Promise<void>;
@@ -474,6 +475,7 @@ export function TeamUnit({
   terminalCount = 0,
   crons,
   cronCount = 0,
+  jobsUnavailable = false,
   providers,
   providersLoading,
   onRenameTeam,
@@ -778,7 +780,7 @@ export function TeamUnit({
               )}
             </div>
           )}
-          {cronCount > 0 && (
+          {(cronCount > 0 || jobsUnavailable) && (
             <div
               role="group"
               aria-label={`${displayTitle} jobs`}
