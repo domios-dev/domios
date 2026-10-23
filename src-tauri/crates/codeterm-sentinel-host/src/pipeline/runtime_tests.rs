@@ -104,7 +104,6 @@ fn document(language: &str, src: &str, sink: &Path) -> Value {
                  {"id":"sink","run":{"lit":command},"in":schema()}],"result":{"to":"notify"}})
 }
 
-#[cfg(target_os = "macos")]
 fn prove_pipeline(language: &str, src: &str, expected: Option<JournalReason>) {
     let root = tempfile::tempdir().unwrap();
     let sink = root.path().join("captured-stdin.json");
@@ -115,7 +114,7 @@ fn prove_pipeline(language: &str, src: &str, expected: Option<JournalReason>) {
         assert_eq!(completion.reason, reason, "{diagnostic}");
         assert!(
             !sink.exists(),
-            "sink must never run after a contract or confinement failure"
+            "sink must never run after a contract failure"
         );
         let records = journal(&handle, &lease.job.id);
         assert!(records
@@ -143,22 +142,18 @@ fn prove_pipeline(language: &str, src: &str, expected: Option<JournalReason>) {
 }
 
 const PYTHON: &str = "def main(value):\n value['n']+=1\n return value\n";
-#[cfg(target_os = "macos")]
 const TS: &str = "export default function main(value: {n:number}) { value.n++; return value; }";
 
-#[cfg(target_os = "macos")]
 #[test]
 fn blueprint_v2_runtime_existing_pipeline_python_reaches_fixed_stdin_sink() {
     prove_pipeline("python", PYTHON, None);
 }
 
-#[cfg(target_os = "macos")]
 #[test]
 fn blueprint_v2_runtime_existing_pipeline_ts_reaches_fixed_stdin_sink() {
     prove_pipeline("ts", TS, None);
 }
 
-#[cfg(target_os = "macos")]
 #[test]
 fn blueprint_v2_runtime_contract_mismatch_stops_before_sink_despite_failure_route() {
     prove_pipeline(
@@ -166,19 +161,6 @@ fn blueprint_v2_runtime_contract_mismatch_stops_before_sink_despite_failure_rout
         &PYTHON.replace("+=1", "='wrong'"),
         Some(JournalReason::ContractViolation),
     );
-}
-
-#[cfg(target_os = "macos")]
-#[test]
-fn blueprint_v2_runtime_denied_body_stops_before_sink() {
-    let root = tempfile::tempdir().unwrap();
-    let forbidden = root.path().join("forbidden");
-    let src = format!(
-        "def main(value):\n open({},'w').write('denied')\n return value",
-        serde_json::to_string(&forbidden).unwrap()
-    );
-    prove_pipeline("python", &src, Some(JournalReason::SandboxDenied));
-    assert!(!forbidden.exists());
 }
 
 #[test]
@@ -295,3 +277,5 @@ fn blueprint_v2_runtime_envelope_requires_all_fields_and_preserves_text_type() {
 }
 
 mod review;
+
+mod recipes;

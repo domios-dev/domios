@@ -28,10 +28,11 @@ pub(super) fn run(
     let body_sha256 =
         codeterm_blueprint_types::blueprint_document::code_contract::body_sha256(&code)
             .unwrap_or_default();
-    let timeout = Duration::from_millis(code.limits.wall_ms.unwrap_or(3000)).min(limit);
+    let timeout = Duration::from_millis(code.limits.wall_ms.unwrap_or(3000));
     match crate::code_runtime::run_with_output(
         &code,
         &input,
+        limit,
         timeout,
         &handle.probe_owner,
         &lease.cancelled,
@@ -85,7 +86,7 @@ fn completed(output: probe::Output, bound: u64, body_sha256: &str) -> StepResult
         outcome: StepOutcome::Done,
         stored_outcome: JournalOutcome::Done,
         state: JournalState::Done,
-        summary: format!("confined code completed; body_sha256={body_sha256}"),
+        summary: format!("code completed; body_sha256={body_sha256}"),
         reason: None,
         next_text: String::from_utf8(envelope.encode().unwrap_or_default()).unwrap_or_default(),
         decision: None,

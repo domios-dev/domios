@@ -51,6 +51,14 @@ pub struct CheckContext {
 }
 
 pub fn check_ir(ir: &PositionedIr, context: &CheckContext) -> Vec<Diagnostic> {
+    check_ir_on_platform(ir, context, std::env::consts::OS)
+}
+
+fn check_ir_on_platform(
+    ir: &PositionedIr,
+    context: &CheckContext,
+    platform: &str,
+) -> Vec<Diagnostic> {
     let parsed = Parsed {
         document: ir.canonical.document.clone(),
         locations: ir.locations.clone(),
@@ -125,6 +133,7 @@ pub fn check_ir(ir: &PositionedIr, context: &CheckContext) -> Vec<Diagnostic> {
             "Use blueprint schema and correct this field",
         ));
     }
+    diagnostics.extend(memory_warnings(&parsed, platform));
     schema_errors(&parsed, &mut diagnostics);
     diagnostics.extend(context.call_diagnostics.clone());
     if let DuplicateStatus::Unavailable(reason) | DuplicateStatus::Partial { reason, .. } =
@@ -160,6 +169,38 @@ pub fn check_ir(ir: &PositionedIr, context: &CheckContext) -> Vec<Diagnostic> {
     diagnostics.dedup_by(|a, b| a.id == b.id);
     diagnostics
 }
+fn memory_warnings(parsed: &Parsed, platform: &str) -> Vec<Diagnostic> {
+    if matches!(platform, "linux" | "windows") {
+        return Vec::new();
+    }
+    let mut warnings = Vec::new();
+    for (index, node) in parsed.document.nodes().enumerate() {
+        let Some(code) = &node.code else { continue };
+        let path = slots::node_path(&parsed.document, index);
+        let fields = [
+            (code.limits.mem_mb, format!("{path}.code.limits.mem_mb")),
+            (
+                node.limits.as_ref().and_then(|limits| limits.mem_mb),
+                format!("{path}.limits.mem_mb"),
+            ),
+        ];
+        for (limit, field) in fields {
+            if limit.is_none() {
+                continue;
+            }
+            let mut warning = Diagnostic::error(
+                parsed.at(&field),
+                &field,
+                "mem_mb not enforced on this OS",
+                "The node runs with its deadline and output budgets; no memory cap is applied",
+            );
+            warning.severity = "warning".into();
+            warnings.push(warning);
+        }
+    }
+    warnings
+}
+
 pub fn check_document(document: &Document, context: &CheckContext) -> Vec<Diagnostic> {
     check_ir(
         &PositionedIr {

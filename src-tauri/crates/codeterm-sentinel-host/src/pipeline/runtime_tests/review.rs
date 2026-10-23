@@ -1,23 +1,33 @@
 use super::*;
 
 #[test]
-fn blueprint_v2_runtime_review_memory_is_positioned_refusal() {
+fn blueprint_v2_runtime_review_memory_is_admitted_with_platform_warning() {
     let source = "schema_version: 2\nkind: pipeline\nname: memory-proof\ntrigger: {type: input, kind: {lit: text}, source: {lit: {text: hi}}}\nsteps:\n  - id: bounded\n    code:\n      lang: python\n      src: 'def main(value): return value'\n      limits: {mem_mb: 64}\nresult: {to: notify}\n";
     let checked = codeterm_blueprint_types::blueprint_document::check("memory.yaml", source, &[]);
-    assert!(
-        !checked.ok,
-        "an unenforced memory budget must refuse at check"
-    );
-    assert!(checked
+    assert!(checked.ok, "{:?}", checked.diagnostics);
+    let warnings = checked
         .diagnostics
         .iter()
-        .any(|d| d.field == "steps[0].code.limits.mem_mb"
-            && d.line == 10
-            && d.message.contains(if cfg!(target_os = "macos") {
-                "unsupported: memory budget on macOS"
-            } else {
-                "unsupported: memory budget on this node"
-            })));
+        .filter(|d| d.message == "mem_mb not enforced on this OS")
+        .collect::<Vec<_>>();
+    if cfg!(target_os = "macos") {
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].severity, "warning");
+        assert_eq!(warnings[0].field, "steps[0].code.limits.mem_mb");
+        assert_eq!(warnings[0].line, 10);
+    } else {
+        assert!(warnings.is_empty());
+    }
+    let root = tempfile::tempdir().unwrap();
+    let mut doc = checked.definition.unwrap();
+    doc["owner"] = json!("tab");
+    let (fixture, storage, handle, lease) = fixture(doc, root.path());
+    let (completion, diagnostic) =
+        run_recorded(&handle, &fixture.service, &lease, "memory-admission");
+    assert_eq!(completion.state, JournalState::Done, "{diagnostic}");
+    drop(handle);
+    drop(fixture);
+    close(storage);
 }
 
 #[test]
@@ -41,7 +51,6 @@ fn blueprint_v2_runtime_review_twenty_kib_text_encodes_once() {
     );
 }
 
-#[cfg(target_os = "macos")]
 #[test]
 fn blueprint_v2_runtime_review_ordinary_raise_routes_failed_with_stderr() {
     let root = tempfile::tempdir().unwrap();
@@ -75,7 +84,6 @@ fn blueprint_v2_runtime_review_ordinary_raise_routes_failed_with_stderr() {
     close(storage);
 }
 
-#[cfg(unix)]
 #[test]
 fn blueprint_v2_runtime_review_code_file_is_frozen_at_admission() {
     let root = tempfile::tempdir().unwrap();
@@ -97,33 +105,18 @@ fn blueprint_v2_runtime_review_code_file_is_frozen_at_admission() {
     assert_eq!(code.file, None, "persisted root graphs must seal code.file");
     assert_eq!(code.src.as_deref(), Some(src));
     let (completion, diagnostic) = run_recorded(&handle, &fixture.service, &lease, "freeze-proof");
-    #[cfg(target_os = "macos")]
-    {
-        assert_eq!(completion.state, JournalState::Done, "{diagnostic}");
-        assert_eq!(
-            ExecutionEnvelope::decode(&std::fs::read(&sink).unwrap())
-                .unwrap()
-                .value,
-            json!({"n":8})
-        );
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        assert_eq!(completion.state, JournalState::Failed, "{diagnostic}");
-        assert_eq!(
-            completion.reason,
-            JournalReason::UnsupportedPlatform,
-            "{diagnostic}"
-        );
-        assert!(!sink.exists());
-        assert_eq!(handle.probe_owner.snapshot().settled_total, 0);
-    }
+    assert_eq!(completion.state, JournalState::Done, "{diagnostic}");
+    assert_eq!(
+        ExecutionEnvelope::decode(&std::fs::read(&sink).unwrap())
+            .unwrap()
+            .value,
+        json!({"n":8})
+    );
     drop(handle);
     drop(fixture);
     close(storage);
 }
 
-#[cfg(target_os = "macos")]
 #[test]
 fn blueprint_v2_runtime_review_prompt_main_bind_produces_linen() {
     let root = tempfile::tempdir().unwrap();
@@ -164,17 +157,6 @@ fn blueprint_v2_runtime_review_missing_main_is_positioned_check_error() {
             && d.message.contains("main(value)")));
 }
 
-#[cfg(target_os = "macos")]
-#[test]
-fn blueprint_v2_runtime_review_caught_permission_error_still_denied() {
-    let root = tempfile::tempdir().unwrap();
-    let forbidden = root.path().join("forbidden");
-    let path = serde_json::to_string(&forbidden).unwrap();
-    let src = format!("import json,sys\ndef main(value): return value\ntry:\n open({path}, 'w').write('denied')\nexcept PermissionError: pass\njson.dump({{'media':'json','schema_id':None,'value':{{'n':8}},'text':''}},sys.stdout)\n");
-    prove_pipeline("python", &src, Some(JournalReason::SandboxDenied));
-    assert!(!forbidden.exists());
-}
-
 #[cfg(unix)]
 #[test]
 fn blueprint_v2_runtime_review_twenty_kib_command_reaches_next_step() {
@@ -213,7 +195,6 @@ fn blueprint_v2_runtime_review_oversized_payload_has_explicit_truncation() {
     }
 }
 
-#[cfg(target_os = "macos")]
 #[test]
 fn blueprint_v2_runtime_review_raising_main_redacts_and_bounds_stderr() {
     let root = tempfile::tempdir().unwrap();
@@ -264,6 +245,7 @@ fn blueprint_v2_runtime_review_missing_main_refuses_before_launch() {
     let failure = crate::code_runtime::run_with_output(
         &code,
         b"{}",
+        Duration::from_secs(3),
         Duration::from_secs(3),
         &owner,
         &Default::default(),
