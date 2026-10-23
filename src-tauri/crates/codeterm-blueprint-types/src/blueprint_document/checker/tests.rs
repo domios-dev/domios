@@ -183,8 +183,8 @@ fn blueprint_v2_check_bad_input_one_root_with_dependent_proofs() {
     assert!(roots[0].folded.iter().all(|d| d.rule == "R3"));
     let rendered = render(&ds, true);
     assert!(
-        rendered.contains("FAILING:")
-            && rendered.contains("PASSING:")
+        rendered.contains("CAUSED BY:")
+            && rendered.contains("GIVEN:")
             && rendered.contains("folded:")
     );
 }
@@ -560,4 +560,45 @@ fn blueprint_v2_runtime_memory_warning_is_positioned_and_does_not_refuse() {
     assert!(memory_warnings(&parsed, "windows").is_empty());
     assert!(parsed.document.lower().is_ok());
     assert!(super::super::check("memory.yaml", source, &[]).ok);
+}
+#[test]
+fn blueprint_v2_check_unknown_result_target_is_refused_offline() {
+    let mut doc = document(json!([{"id":"a","run":{"lit":"echo a"}}]));
+    doc.result.to = Some(blueprint_document::ResultTarget::Fixed("nowhere".into()));
+    let ds = inspect(&doc);
+    let found = ds
+        .iter()
+        .find(|d| d.field == "result.to")
+        .unwrap_or_else(|| panic!("{ds:#?}"));
+    assert_eq!(found.severity, "error");
+    assert!(found.message.contains("nowhere"));
+}
+#[test]
+fn blueprint_v2_check_folds_rule_findings_under_document_errors() {
+    let at = || blueprint_document::Location {
+        file: "fixture.yaml".into(),
+        line: 2,
+        column: 1,
+    };
+    let mut ds = vec![
+        Diagnostic::error(at(), "steps[0].every", "Malformed duration", "h"),
+        Diagnostic::error(at(), "steps[1].run", "other", "h"),
+    ];
+    ds[1].rule = "R6".into();
+    let mut duplicate = ds[0].clone();
+    duplicate.rule = "R12".into();
+    ds.push(duplicate);
+    fold_into_document_errors(&mut ds);
+    assert_eq!(ds.len(), 2, "{ds:#?}");
+    let root = ds.iter().find(|d| d.rule == "IR").unwrap();
+    assert_eq!(root.folded.len(), 1);
+    assert_eq!(root.folded[0].rule, "R12");
+}
+#[test]
+fn blueprint_v2_check_render_omits_unknown_locations() {
+    let doc = document(json!([{"id":"a","run":{"input":"command"}}]));
+    let ds = check_document(&doc, &CheckContext::default());
+    let rendered = render(&ds, true);
+    assert!(!rendered.contains(":1:1:"), "{rendered}");
+    assert!(rendered.contains("steps[0]"), "{rendered}");
 }

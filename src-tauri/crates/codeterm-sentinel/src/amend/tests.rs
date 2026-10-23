@@ -216,3 +216,16 @@ fn sentinel_update_keeps_bounded_immutable_json_history() {
         current.definition_version
     );
 }
+
+#[test]
+fn sentinel_update_admits_a_third_definition_version() {
+    let (_root, store, job) = fixture();
+    let store = Arc::new(Mutex::new(store));
+
+    let second = apply(&store, &job, 1, "creator", update("Second?")).expect("second version");
+    let third = apply(&store, &second, 2, "creator", update("Third?")).expect("third version");
+
+    assert_eq!(third.definition_version, 3);
+    assert_eq!(third.amendments.len(), 2);
+    assert_eq!(history(&third).versions.len(), 3);
+}

@@ -12,6 +12,12 @@ pub(super) fn freeze(parsed: &mut Parsed, author: &Path) -> Result<usize, Vec<Di
         let Some(relative) = code.file.as_ref() else {
             return Ok(());
         };
+        if relative.contains('\\') {
+            return Err((
+                field,
+                format!("Code file `{relative}` uses backslashes; write it with forward slashes"),
+            ));
+        }
         if code.src.is_some()
             || Path::new(relative)
                 .components()

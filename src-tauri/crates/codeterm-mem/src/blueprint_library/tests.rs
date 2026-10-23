@@ -669,3 +669,32 @@ fn blueprint_v2_check_v1_cleanup_keeps_history_and_runs_once() {
         1
     );
 }
+
+fn code_pipeline(name: &str, body: &str, text: &str) -> Document {
+    Document::from_definition(&json!({"schema_version":2,"kind":"pipeline","name":name,"owner":"tab","trigger":{"type":"input","kind":{"lit":"text"},"source":{"lit":{"text":text}}},"steps":[{"id":"run","code":{"lang":"python","src":body},"in":{"type":"integer"},"out":{"type":"object"}}],"result":{"from":"run.out"}})).unwrap()
+}
+
+#[test]
+fn admission_twins_respect_code_bodies_and_literals() {
+    use dedupe::compare_documents;
+    let probe = code_pipeline(
+        "qa-auth",
+        "def main(value):\n    import subprocess\n    return {'rc': 0}",
+        "7",
+    );
+    let minimal = code_pipeline("qa-min-d", "def main(value): return {'t': value}", "7");
+    let renamed = code_pipeline("qa-min-copy", "def main(value): return {'t': value}", "7");
+    let other_text = code_pipeline("qa-min-e", "def main(value): return {'t': value}", "8");
+    assert_eq!(
+        compare_documents(&probe, &minimal).verdict,
+        Verdict::Distinct
+    );
+    assert_eq!(
+        compare_documents(&minimal, &other_text).verdict,
+        Verdict::Distinct
+    );
+    assert_eq!(
+        compare_documents(&minimal, &renamed).verdict,
+        Verdict::Exact
+    );
+}

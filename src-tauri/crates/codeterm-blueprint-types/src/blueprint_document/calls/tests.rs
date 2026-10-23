@@ -724,3 +724,17 @@ fn blueprint_v2_call_review_unknown_alias_cannot_keep_an_unrelated_pin() {
         .clone();
     assert!(resolve_saved(document, &ReviewMemory(leaf)).is_err());
 }
+#[test]
+fn blueprint_v2_code_file_errors_use_portable_paths() {
+    let tree = Tree::new();
+    let mut doc = callee();
+    doc["steps"][0]["code"] = json!({"lang":"python","file":"lib\\inc.py"});
+    tree.put("slash.yaml", &doc);
+    let errors = tree.resolve("slash.yaml").unwrap_err();
+    assert!(errors[0].message.contains("forward slashes"), "{errors:#?}");
+    doc["steps"][0]["code"] = json!({"lang":"python","file":"lib/missing.py"});
+    tree.put("missing.yaml", &doc);
+    let errors = tree.resolve("missing.yaml").unwrap_err();
+    assert!(!errors[0].message.contains('\\'), "{errors:#?}");
+    assert!(errors[0].message.contains("lib/missing.py"), "{errors:#?}");
+}
