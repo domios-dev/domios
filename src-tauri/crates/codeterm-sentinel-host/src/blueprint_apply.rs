@@ -38,8 +38,25 @@ pub trait BlueprintApplyExt {
         dry_run: bool,
         stopped: Option<bool>,
     ) -> Result<Value, ApplyError>;
+    /// Applies a definition bound from saved recipe `recipe`, which is never its own duplicate.
+    fn blueprint_apply_recipe_document(
+        &self,
+        caller: &SentinelCaller,
+        definition: Value,
+        dry_run: bool,
+        recipe: &str,
+    ) -> Result<Value, ApplyError>;
 }
 impl BlueprintApplyExt for ServiceContext {
+    fn blueprint_apply_recipe_document(
+        &self,
+        caller: &SentinelCaller,
+        definition: Value,
+        dry_run: bool,
+        recipe: &str,
+    ) -> Result<Value, ApplyError> {
+        apply_document(self, caller, definition, dry_run, None, None, Some(recipe))
+    }
     fn blueprint_apply(
         &self,
         caller: &SentinelCaller,
@@ -65,19 +82,33 @@ impl BlueprintApplyExt for ServiceContext {
         stopped: Option<bool>,
         update: Option<(String, u64, Option<String>)>,
     ) -> Result<Value, ApplyError> {
+        apply_document(self, caller, definition, dry_run, stopped, update, None)
+    }
+}
+
+fn apply_document(
+    service: &ServiceContext,
+    caller: &SentinelCaller,
+    definition: Value,
+    dry_run: bool,
+    stopped: Option<bool>,
+    update: Option<(String, u64, Option<String>)>,
+    recipe: Option<&str>,
+) -> Result<Value, ApplyError> {
+    {
         if caller.team.is_none() {
             return Err("Blueprint apply requires a caller in a Team".into());
         }
         let mut document =
             codeterm_blueprint_types::blueprint_document::Document::from_definition(&definition)?;
         codeterm_sentinel::seal_code::document(&mut document, std::path::Path::new(&caller.cwd))?;
-        let document = self.mem.pin_blueprint_calls(
+        let document = service.mem.pin_blueprint_calls(
             &format!("blueprints:{}", caller.workspace),
             caller.team.as_deref().ok_or("Call requires a Team")?,
             document,
         )?;
         let definition = serde_json::to_value(&document).map_err(|error| error.to_string())?;
-        let handle = self
+        let handle = service
             .host_extension::<Handle>()
             .ok_or("blueprints not initialized")?;
         let _apply = handle.apply_lock.lock();
@@ -91,10 +122,11 @@ impl BlueprintApplyExt for ServiceContext {
             &Default::default(),
         );
         context.duplicates = admission::ScopedDuplicates {
-            service: self,
+            service,
             workspace: &caller.workspace,
             team: &caller.team,
             updating: update.as_ref().map(|(id, _, _)| id.as_str()),
+            recipe,
         }
         .compare(&document);
         let ir = codeterm_blueprint_types::blueprint_document::projection::PositionedIr {
@@ -128,7 +160,7 @@ impl BlueprintApplyExt for ServiceContext {
             && document.result.port.is_some()
         {
             if dry_run {
-                let call_drift = self.mem.blueprint_call_drift(
+                let call_drift = service.mem.blueprint_call_drift(
                     &format!("blueprints:{}", caller.workspace),
                     caller.team.as_deref().ok_or("Call requires a Team")?,
                     document.clone(),
@@ -142,13 +174,13 @@ impl BlueprintApplyExt for ServiceContext {
                     .into(),
             );
         }
-        let call_drift = serde_json::to_value(self.mem.blueprint_call_drift(
+        let call_drift = serde_json::to_value(service.mem.blueprint_call_drift(
             &format!("blueprints:{}", caller.workspace),
             caller.team.as_deref().ok_or("Call requires a Team")?,
             document.clone(),
         )?)
         .map_err(|error| error.to_string())?;
-        let curator = self
+        let curator = service
             .role_policy_for_tab(&caller.tab)
             .is_some_and(|policy| policy.retarget_only());
         let authorized_id = if curator {
@@ -163,7 +195,7 @@ impl BlueprintApplyExt for ServiceContext {
                         && job.name.as_deref() == Some(&document.name)
                 })
                 .map(|job| job.id.clone());
-            self.authorize_role_blueprint(
+            service.authorize_role_blueprint(
                 &caller.tab,
                 id.as_deref(),
                 if id.is_some() {
@@ -188,7 +220,7 @@ impl BlueprintApplyExt for ServiceContext {
             .transpose()
             .map_err(|error| error.to_string())?;
         let mut candidate = if let Some(spec) = spec {
-            let preview = self.blueprint_pipeline_validate(caller, spec.clone())?;
+            let preview = service.blueprint_pipeline_validate(caller, spec.clone())?;
             let checks = preview
                 .checks
                 .into_iter()
@@ -208,14 +240,14 @@ impl BlueprintApplyExt for ServiceContext {
                 true,
             )?
         } else {
-            self.prepare_sentinel_create(
+            service.prepare_sentinel_create(
                 caller,
                 serde_json::from_value(runtime["create"].clone())
                     .map_err(|error| error.to_string())?,
             )?
         };
         candidate.document = Some(definition.clone());
-        let mux = self.mux.read();
+        let mux = service.mux.read();
         if !crate::service_adapter::caller_is_live(&mux, caller) {
             return Err("Blueprint caller scope changed".into());
         }
@@ -255,7 +287,7 @@ impl BlueprintApplyExt for ServiceContext {
             serde_json::to_value(diagnostics).map_err(|error| error.to_string())?;
         handle.notify();
         if !dry_run && result["action"] == "create" {
-            self.record_product_feature(codeterm_analytics::Feature::BlueprintCreated);
+            service.record_product_feature(codeterm_analytics::Feature::BlueprintCreated);
         }
         Ok(result)
     }

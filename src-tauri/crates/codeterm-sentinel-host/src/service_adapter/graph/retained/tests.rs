@@ -43,6 +43,7 @@ fn snapshot(job: &Sentinel) -> Snapshot {
         runs: vec![],
         blueprints: vec![],
         configured_fallback: Value::Null,
+        quarantined: Vec::new(),
         truncated: false,
     }
 }
