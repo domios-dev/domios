@@ -17,7 +17,7 @@ import {
 import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { menuKeyAction } from "./menuKeyboard";
 import { RELAY_PROTOCOL_VERSION } from "../../lib/types";
-import { localInstanceLabel, onMeshPeersLoaded, rememberLocalInstanceName } from "../../lib/localInstanceName";
+import { hasLocalInstanceName, localInstanceLabel, onMeshPeersLoaded, rememberLocalInstanceName } from "../../lib/localInstanceName";
 
 let nextPeerSwitchId = 0;
 
@@ -65,6 +65,13 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
       setPeers(rankPeersByLastActive(paired));
     } catch {
       // Peer list is a convenience — keep the last known list on errors.
+      if (hasLocalInstanceName()) return;
+      try {
+        const health = await localJson<{ instance?: { display_name?: string } }>("GET", "/api/health");
+        setLocalName(rememberLocalInstanceName(health.instance?.display_name));
+      } catch {
+        // Neither source answered; the label stays on the generic fallback.
+      }
     }
   }, []);
 
