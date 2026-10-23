@@ -24,6 +24,19 @@ async function render(ui: React.ReactElement): Promise<{ host: HTMLElement; root
 }
 
 async function main(): Promise<void> {
+  const background = { auth: null, api_error: null, permission_mode: null, background: { running: { task: "shell" }, overflow: false, history_incomplete: false, history_initialized: true } };
+  for (const [state, expected] of [["idle", "idle"], ["working", "working"]] as const) {
+    const row = await render(
+      <AgentStateIndicator
+        activity={tabActivity({ agent_session_id: "session", provider_signals: background, agent_state: { state } })}
+        onStop={() => {}}
+      />,
+    );
+    assert(row.host.querySelector('[role="status"]')?.getAttribute("data-tab-activity") === expected, `background task with ${state} turn renders ${expected}`);
+    assert(Boolean(row.host.querySelector('[data-testid="agent-stop"]')) === (expected === "working"), `stop is offered only for an active turn (${state})`);
+    await act(async () => row.root.unmount());
+    row.host.remove();
+  }
   const command = '"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "pnpm test"';
   for (const renderIdentity of [undefined, (label: string) => <span>{label}</span>]) {
     const running = await render(
