@@ -2,6 +2,7 @@ import { createNoticePublisher } from "../../lib/notices";
 import { useLatestCallback } from "../../hooks/useLatestCallback";
 import { isInputBlockedTab } from "../../lib/tabInputPolicy";
 import { ChatComposerSurface } from "./ChatComposerSurface";
+import { useTabLock } from "../billing/useTabLock";
 import { ChildTranscriptScope } from "./ChildTranscriptScope";
 import { chatLayoutTokens } from "./chatLayoutTokens";
 import { RuntimeQuestionCard } from "./RuntimeQuestionCard";
@@ -223,7 +224,8 @@ function TabSessionChatBody({
   const openPlanTarget = usePlanTargetNavigation();
   const tabSelector = useLatestCallback((s: Parameters<typeof selectTab>[0]) => selectTab(s, tabId), [tabId]);
   const tab = useMuxSelector(tabSelector, tabFieldsEqual);
-  const readOnly = isInputBlockedTab(tab);
+  const tabLock = useTabLock(tab);
+  const readOnly = isInputBlockedTab(tab, tabLock);
   const workspaceSelector = useLatestCallback((s: Parameters<typeof selectTab>[0]) => s.workspaces.find((workspace) => workspace.tabs.includes(tabId))?.id ?? s.tabs[tabId]?.workspace_id ?? null, [tabId]);
   const workspaceId = useMuxSelector(workspaceSelector);
   const tabTitleMap = useMuxSelector(selectTabTitleMap, tabTitleMapEqual);
@@ -1034,7 +1036,7 @@ function TabSessionChatBody({
       )}
       </div>
       <ComposerBackgroundWorkProvider tabId={tabId} messages={allMessages}>
-      <ChatComposerSurface tab={tab} view={setupView} providerId={tabProvider ?? undefined} tabId={tabId}>
+      <ChatComposerSurface tab={tab} lock={tabLock} view={setupView} providerId={tabProvider ?? undefined} tabId={tabId}>
       {isWatcherTab && watcherSpec ? (
         runtimeReplacement ?? <WatcherReadOnlyBar
           watcher={watcherSpec}
