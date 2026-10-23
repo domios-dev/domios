@@ -176,6 +176,8 @@ Start with `domios docs BLUEPRINT-AUTHORING`, the shared short cookbook with a g
 
 Reuse a fitting card by a typed `call`; require the complete purpose and port contract to fit. A high score is not a fit decision. No-fit responses retain their scaffold even when irrelevant candidates are returned. Author from scratch when none fits. Call checking returns the sealed native definition, including its `{id, hash}` pins and immutable dependencies; save that returned definition before apply. Run records and `show` expose the expanded callee. Missing revisions refuse and retained pins never silently rebind.
 
+Literal call arguments are checked as complete JSON values against the callee schema. Array items may differ in value, string length or optional fields when each item satisfies `items`; an empty array also satisfies `items`. Required fields, enums, `maxLength` and `additionalProperties` still apply to every supplied item. For example, `catalog:checks-fan-in` accepts both differing pass/fail check objects and `checks: []`.
+
 ## Saved solutions
 
 ```bash
@@ -206,4 +208,4 @@ Blueprint results addressed to a restored PTY agent tab retain the exact saved p
 
 R10 is a hygiene lint, not a security boundary. It scans executable text lexically, also joining split string literals: a whole word `domios` or `codeterm`, or a token starting `DOMIOS_` or `CODETERM_`, inside a `run` command or a code string refuses with `ambient_authority`, even in a comment or string literal. It also refuses domios-cli capabilities. Obfuscated code still passes, and a clean scan does not prove shell text safe. Child environments drop the running instance's credentials and every Domios or CodeTerm CLI directory from `PATH` only to prevent accidental inheritance. A child that reads the user's Domios data directory or launches a CLI by absolute path still acts with the user's own authority. R13 reports unavailable comparisons explicitly; unavailable vector comparisons carry no PASS verdict.
 
-<!-- revision: 64 -->
+<!-- revision: 65 -->

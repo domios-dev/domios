@@ -1,6 +1,9 @@
 use super::super::{Document, Port, ValueForm};
 use std::collections::BTreeMap;
 
+#[cfg(test)]
+mod tests;
+
 pub fn expand(port: &Port, types: &BTreeMap<String, Port>) -> Option<Port> {
     fn walk(port: &Port, types: &BTreeMap<String, Port>, depth: usize) -> Option<Port> {
         if depth > 32 {
@@ -26,6 +29,9 @@ pub fn compatible(actual: &Port, expected: &Port) -> bool {
     }
     if actual.media != expected.media {
         return false;
+    }
+    if let Some(values) = &actual.choices {
+        return values.iter().all(|value| expected.accepts(value));
     }
     if actual.kind != expected.kind && !(actual.kind == "integer" && expected.kind == "number") {
         return false;
@@ -124,25 +130,6 @@ fn literal(value: &serde_json::Value) -> Port {
             .collect();
         port.required = fields.keys().cloned().collect();
         port.additional_properties = Some(false);
-    }
-    if let Some(values) = value.as_array() {
-        if let Some(first) = values.first() {
-            let item = literal(first);
-            if values.iter().all(|v| {
-                compatible(
-                    &literal(v),
-                    &Port {
-                        choices: None,
-                        ..item.clone()
-                    },
-                )
-            }) {
-                port.items = Some(Box::new(Port {
-                    choices: None,
-                    ..item
-                }));
-            }
-        }
     }
     port
 }
