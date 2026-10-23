@@ -399,12 +399,23 @@ fn structure_restore_refuses_each_quota_atomically() {
             codeterm_entitlements::LimitKey::AgentTabs => access.limits.agent_tabs.max = Some(1),
         }
         mux.set_limit_gate(codeterm_entitlements::LimitGate::new(access, true));
-        let before = serde_json::to_value(mux.snapshot()).unwrap();
+        let before = mux.snapshot();
+        let generation = mux.generation.load(std::sync::atomic::Ordering::SeqCst);
         assert!(mux
             .restore_structure(&record)
             .unwrap_err()
             .starts_with("free_limit_reached: "));
-        assert_eq!(serde_json::to_value(mux.snapshot()).unwrap(), before);
+        assert_eq!(
+            mux.generation.load(std::sync::atomic::Ordering::SeqCst),
+            generation
+        );
+        let mut after = mux.snapshot();
+        assert_eq!(after.generation, before.generation + 1);
+        after.generation = before.generation;
+        assert_eq!(
+            serde_json::to_value(after).unwrap(),
+            serde_json::to_value(before).unwrap()
+        );
         assert!(mux
             .item_write_lock(codeterm_entitlements::LimitKey::Teams, &existing.id)
             .is_none());
