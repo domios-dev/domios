@@ -125,10 +125,10 @@ fn concurrent_plugin_write_cannot_drop_the_instance_entry() {
             break;
         }
     }
-    child.stdin.as_mut().unwrap().write_all(b"WRITE\n").unwrap();
-    child.stdin.as_mut().unwrap().flush().unwrap();
     write_locked_file_entry(&path, "domios.instance:api_token", Some("instance-value")).unwrap();
     drop(lock);
+    child.stdin.as_mut().unwrap().write_all(b"WRITE\n").unwrap();
+    child.stdin.as_mut().unwrap().flush().unwrap();
     assert!(child.wait().unwrap().success());
     let fresh = SecretFile::new_at(root.path(), "domios.instance");
     assert_eq!(fresh.get("api_token").unwrap(), "instance-value");
@@ -138,4 +138,68 @@ fn concurrent_plugin_write_cannot_drop_the_instance_entry() {
             .unwrap(),
         "plugin-value"
     );
+}
+
+#[test]
+fn store_contention_returns_busy_before_waiting_for_the_shadow_mutex() {
+    let root = tempfile::tempdir().unwrap();
+    let store = SecretFile::new_at(root.path(), "test");
+    store.set("key", "committed").unwrap();
+    let lock = lock_store(&root.path().join(".secrets")).unwrap();
+    let shadow = store.shadow.lock();
+    let writer = store.clone();
+    let (sent, received) = std::sync::mpsc::channel();
+    let child = std::thread::spawn(move || {
+        sent.send((writer.set("key", "uncommitted"), writer.delete("key")))
+            .unwrap();
+    });
+    let (set, delete) = received
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .expect("contended writes must return without waiting for the shadow mutex");
+    assert!(matches!(set, Err(SecretFileError::Busy)));
+    assert!(matches!(delete, Err(SecretFileError::Busy)));
+    drop(shadow);
+    drop(lock);
+    child.join().unwrap();
+    assert_eq!(store.get("key").unwrap(), "committed");
+    assert!(crate::private_file::owner_only(&root.path().join(".secrets.lock")).unwrap());
+}
+
+#[test]
+fn a_cache_miss_cannot_overwrite_a_concurrent_set_or_delete() {
+    for replacement in [Some("new"), None] {
+        let root = tempfile::tempdir().unwrap();
+        let store = SecretFile::new_at(root.path(), "test");
+        write_file_entry(&root.path().join(".secrets"), "test:key", Some("old")).unwrap();
+        let reader = store.clone();
+        let (entered, reading) = std::sync::mpsc::channel();
+        let (release, proceed) = std::sync::mpsc::channel();
+        let get = std::thread::spawn(move || {
+            reader.get_with_reader("key", |path, account| {
+                let value = read_file_entry(path, account)?;
+                entered.send(()).unwrap();
+                proceed.recv().unwrap();
+                Ok(value)
+            })
+        });
+        reading
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap();
+        assert!(
+            store.shadow.try_lock().is_none(),
+            "a cache miss retains its shadow guard"
+        );
+        let writer = store.clone();
+        let update = std::thread::spawn(move || match replacement {
+            Some(value) => writer.set("key", value),
+            None => writer.delete("key"),
+        });
+        release.send(()).unwrap();
+        assert_eq!(get.join().unwrap().unwrap(), "old");
+        update.join().unwrap().unwrap();
+        match replacement {
+            Some(value) => assert_eq!(store.get("key").unwrap(), value),
+            None => assert!(matches!(store.get("key"), Err(SecretFileError::NotFound))),
+        }
+    }
 }

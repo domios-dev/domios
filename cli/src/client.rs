@@ -106,17 +106,22 @@ fn select_transport<T>(
 
 fn http_fallback_config() -> Result<HttpFallbackConfig, String> {
     let resolved = crate::resolve_api_config();
+    http_fallback_for_instance(&resolved, std::env::var("CODETERM_API_URL").ok().as_deref())
+}
+
+fn http_fallback_for_instance(
+    resolved: &crate::cmd::identify::ResolvedApiConfig,
+    api_url: Option<&str>,
+) -> Result<HttpFallbackConfig, String> {
     let base = format!("http://{}:{}", resolved.host, resolved.port);
-    http_fallback_config_from(
-        Some(
-            std::env::var("CODETERM_API_URL")
-                .ok()
-                .as_deref()
-                .unwrap_or(&base),
-        ),
-        None,
-        resolved.token.as_deref(),
-    )
+    let selected = http_fallback_config_from(Some(&base), None, resolved.token.as_deref())?;
+    if let Some(api_url) = api_url {
+        let inherited = http_fallback_config_from(Some(api_url), None, resolved.token.as_deref())?;
+        if inherited.base_url != selected.base_url {
+            return Err("CODETERM_API_URL differs from the selected instance address".to_owned());
+        }
+    }
+    Ok(selected)
 }
 
 fn http_fallback_config_from(

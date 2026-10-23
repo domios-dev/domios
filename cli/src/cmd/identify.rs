@@ -125,6 +125,7 @@ pub fn resolve_api_config() -> ResolvedApiConfig {
         std::env::var("CODETERM_API_URL").ok().as_deref(),
         &host,
         port,
+        port_source,
     );
     let token = codeterm_util::instance_token::resolve_at(
         &config_dir,
@@ -149,9 +150,13 @@ fn requires_stored_token(
     callback: Option<&str>,
     host: &str,
     port: i64,
+    port_source: ResolutionSource,
 ) -> bool {
     if !explicit_dev {
         return false;
+    }
+    if port_source == ResolutionSource::Default {
+        return true;
     }
     let loopback = |host: &str| {
         host == "localhost"

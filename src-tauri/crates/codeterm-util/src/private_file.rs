@@ -5,7 +5,29 @@ use std::path::Path;
 #[cfg(windows)]
 mod windows;
 #[cfg(windows)]
+mod windows_lock;
+#[cfg(windows)]
 mod windows_policy;
+
+pub(crate) fn open_lock(path: &Path) -> io::Result<fs::File> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .open(path)?;
+        restrict(path)?;
+        Ok(file)
+    }
+    #[cfg(windows)]
+    {
+        windows_lock::open(path)
+    }
+}
 
 pub fn restrict(path: &Path) -> io::Result<()> {
     #[cfg(unix)]
