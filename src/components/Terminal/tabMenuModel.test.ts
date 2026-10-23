@@ -253,4 +253,29 @@ it("disables unavailable provider targets on both menu surfaces", () => {
   }
 });
 
+
+for (const surface of SURFACES) {
+  it("disables locked mutations but retains session inspection and closure on " + surface, () => {
+    for (const lock of [
+      { locked: true as const, limit: "agent.tabs" as const, label: "own lock reason" },
+      { locked: true as const, limit: "workspaces" as const, label: "workspace lock reason" },
+    ]) {
+      const entries = buildTabMenu(input(surface, {
+        lock, descriptor: { ...CURRENT, supports_session_fork: true },
+      }));
+      for (const id of ["rename", "make-orchestrator", "provider", "reconnect", "restart", "fork"]) {
+        const entry = entries.find(candidate => candidate.id === id);
+        expect(Boolean(entry)).toBe(true);
+        if (!entry || entry.kind === "header" || entry.kind === "separator") throw new Error("Missing action");
+        expect(entry.disabled).toBe(true);
+        expect(entry.title).toBe(lock.label);
+      }
+      const close = entries.find(entry => entry.id === "close");
+      if (close?.kind !== "item") throw new Error("Missing close");
+      expect(Boolean(close.disabled)).toBe(false);
+      const session = entries.find(entry => entry.kind === "header");
+      expect(session?.kind === "header" && session.copyAction?.type).toBe("copySessionId");
+    }
+  });
+}
 finish();

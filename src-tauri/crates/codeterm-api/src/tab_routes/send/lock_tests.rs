@@ -53,6 +53,7 @@ async fn local_and_mesh_relayed_sends_to_a_locked_tab_are_typed_zero_write_refus
         assert_eq!(rejection.status, StatusCode::FORBIDDEN);
         assert_eq!(rejection.body["error"]["code"], "plan_limit_locked");
         assert_eq!(rejection.body["error"]["bytes_written"], false);
+        assert_eq!(rejection.body["error"]["delivery_state"], "refused");
     }
     let chat = chat_send_text(
         State(state.clone()),

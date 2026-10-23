@@ -1,3 +1,4 @@
+import { lockedView, type LockedView } from "../billing/freeLimitModel";
 import { isReadOnlyTab } from "../../lib/tabInputPolicy";
 import { isProviderSelectable, providerAvailabilityLabel } from "../../lib/providerAvailability";
 import { isGeneralAgent } from "../../lib/roleKind";
@@ -112,6 +113,8 @@ export interface TabMenuCheckEntry extends TabMenuEntryBase {
   label: string;
   icon: TabMenuIcon;
   checked: boolean;
+  disabled?: boolean;
+  title?: string;
   description?: string;
   keepOpen?: boolean;
   action: TabMenuAction;
@@ -136,6 +139,7 @@ export interface TabMenuSubmenuEntry extends TabMenuEntryBase {
 export type TabMenuEntry = TabMenuHeaderEntry | TabMenuLeafEntry | TabMenuSubmenuEntry;
 
 export interface TabMenuContext {
+  lock?: LockedView;
   status: TabStatus | null;
   descriptor: ProviderDescriptor | null | undefined;
   descriptors: ProviderDescriptor[];
@@ -385,5 +389,14 @@ export function buildTabMenu(input: TabMenuInput): TabMenuEntry[] {
       action: { type: "close" },
     });
   }
-  return entries;
+  const lock = input.lock ?? lockedView("agent.tabs", tab);
+  if (!lock.locked) return entries;
+  return entries.map((entry): TabMenuEntry => {
+    if (entry.kind === "header" || entry.kind === "separator" || entry.id === "close") return entry;
+    if (entry.kind === "submenu") {
+      return { ...entry, disabled: true, title: lock.label, entries: entry.entries.map(child =>
+        child.kind === "separator" ? child : { ...child, disabled: true, title: lock.label }) };
+    }
+    return { ...entry, disabled: true, title: lock.label };
+  });
 }

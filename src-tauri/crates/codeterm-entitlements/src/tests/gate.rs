@@ -189,3 +189,23 @@ fn locked_refusal_leads_with_its_own_code() {
     assert!(text.ends_with("(limit: teams)"));
     assert_ne!(PLAN_LIMIT_LOCKED, FREE_LIMIT_REACHED);
 }
+
+#[test]
+fn tab_refusals_use_the_shared_limit_catalog() {
+    let noun: String =
+        serde_json::from_str(include_str!("../../../../../shared/tabLimitNoun.json")).unwrap();
+    assert_eq!(noun, "tabs running at once");
+    let create = LimitRefusal {
+        limit: LimitKey::AgentTabs,
+        count: 35,
+        max: 35,
+    }
+    .to_string();
+    let locked = LockedRefusal {
+        limit: LimitKey::AgentTabs,
+        item_id: "tab".into(),
+    }
+    .to_string();
+    assert!(create.contains(&format!("35 {noun}")));
+    assert!(locked.contains(&format!("limit of {noun}")));
+}

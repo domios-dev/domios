@@ -58,3 +58,17 @@ test("failure notifications keep opaque bodies inside a collapsed copyable discl
     host.remove();
   }
 });
+
+test("a rename failure preview shows its plan reason instead of repeating the heading", async () => {
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  const reason = "plan_limit_locked: this tab is above your plan limit";
+  try {
+    await act(async () => root.render(<NotificationBody
+      text={JSON.stringify({ code: "tab_rename_failed", message: reason })}
+      tabId="locked" failure preview operation="Could not rename the tab" />));
+    expect(host.textContent).toBe(reason);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});

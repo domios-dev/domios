@@ -68,6 +68,21 @@ async function mountRows(state: MultiplexerState, extra: ReactNode = null) {
 const seeded = () => seedState({ workspaces: 3, teams: 2, tabs: 3 });
 
 describe("locked items stay listed with a lock affordance", () => {
+  it("disables mutation controls in the real locked sidebar menu", async () => {
+    const state = seeded();
+    setLocked(state, ["tab-0"], true);
+    await mountRows(state);
+    const row = buttons(/^Open tab tab-0$/)[0];
+    await act(async () => { row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true })); });
+    const rename = document.querySelector<HTMLButtonElement>("[data-testid=tab-menu-rename]");
+    expect(rename).not.toBeNull();
+    expect(rename?.disabled).toBe(true);
+    expect(rename?.title).toBe("Tab locked by the free plan");
+    const close = document.querySelector<HTMLButtonElement>("[data-testid=tab-menu-close]");
+    expect(close).not.toBeNull();
+    expect(close?.disabled).toBe(false);
+  });
+
   it("renders a lock mark on exactly the locked workspace, tab, and Team, without dropping any row", async () => {
     const state = seeded();
     setLocked(state, ["ws-1", "tab-0", "team-0"], true);

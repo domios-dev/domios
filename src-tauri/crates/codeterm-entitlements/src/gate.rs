@@ -8,6 +8,8 @@ pub const FREE_LIMIT_REACHED: &str = "free_limit_reached";
 /// Stable refusal code for acting on an item locked above the plan limit.
 pub const PLAN_LIMIT_LOCKED: &str = "plan_limit_locked";
 
+const TAB_LIMIT_NOUN: &str = include_str!("../../../../shared/tabLimitNoun.json");
+
 /// Limits enforced at creation points.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LimitKey {
@@ -37,7 +39,7 @@ impl LimitKey {
         match self {
             Self::Workspaces => "workspaces",
             Self::Teams => "Teams across all workspaces",
-            Self::AgentTabs => "open tabs at once",
+            Self::AgentTabs => TAB_LIMIT_NOUN.trim().trim_matches('"'),
         }
     }
 }
