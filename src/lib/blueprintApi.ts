@@ -50,6 +50,7 @@ export interface BlueprintExpandedCall {
 }
 export interface BlueprintCallFrame extends BlueprintCallPin { node: string }
 export interface BlueprintJournalNode {
+  entry_id?: number;
   run_id?: string;
   step_index?: number;
   definition_version?: number | null;
