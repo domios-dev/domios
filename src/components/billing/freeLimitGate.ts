@@ -4,7 +4,7 @@ import { checkoutTheme } from "./checkoutTheme";
 import { reachedLimit, refusedLimit, type FreeLimitKey, type FreeLimits, type LimitCounts, type LocalLimitKey, type LockedView, type MeshMachinesLimit } from "./freeLimitModel";
 
 /** The backend checks out commercial keys only, never the bare plan name. */
-export const UPGRADE_PLAN_KEY = "pro_monthly";
+export const UPGRADE_PLAN_KEY = "pro_yearly";
 
 /** A Mesh prompt carries the server's own count and the refused request it answers. */
 export type FreeLimitPrompt =
@@ -89,5 +89,15 @@ export async function upgradePlan(planKey: string = UPGRADE_PLAN_KEY): Promise<v
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ plan: planKey, theme: checkoutTheme() ?? undefined }),
   });
-  if (!response.ok) throw new Error(await response.text());
+  if (!response.ok) {
+    const message = await response.text();
+    throw response.status === 409 && message === ALREADY_SUBSCRIBED ? new AlreadySubscribedError() : new Error(message);
+  }
+}
+
+const ALREADY_SUBSCRIBED = "already_subscribed";
+
+/** The billing backend refused checkout because the account already holds a live subscription. */
+export class AlreadySubscribedError extends Error {
+  constructor() { super(ALREADY_SUBSCRIBED); }
 }

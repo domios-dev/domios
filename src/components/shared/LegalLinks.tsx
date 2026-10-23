@@ -9,6 +9,7 @@ export const LEGAL_DOCUMENTS = {
   terms: { title: "Terms of Service", short: "Terms", url: siteLinks.terms },
   privacy: { title: "Privacy Policy", short: "Privacy", url: siteLinks.privacy },
   license: { title: "License", short: "License", url: siteLinks.license },
+  refunds: { title: "Refund policy", short: "14-day money-back guarantee", url: `${siteLinks.terms}#refunds` },
 } as const;
 export type LegalDocument = keyof typeof LEGAL_DOCUMENTS;
 
@@ -33,9 +34,9 @@ export function legalMenuItems(documents: readonly LegalDocument[]): DropdownMen
   return documents.map(document => ({ label: LEGAL_DOCUMENTS[document].title, onClick: () => openLegal(LEGAL_DOCUMENTS[document].url) }));
 }
 
+/** Disclosed before purchase: the refund window from the Terms and automatic renewal. */
 export function SubscriptionTermsNotice() {
   return <p className="m-0 text-xs text-[var(--ct-muted-fg)]">
-    Subscriptions renew automatically until cancelled. <InlineLegalLink document="terms" /> · <InlineLegalLink document="privacy" />.
-    {" "}Payments are processed by Paddle, our Merchant of Record.
+    <InlineLegalLink document="refunds" /> · Renews automatically, cancel anytime · <InlineLegalLink document="terms" /> · <InlineLegalLink document="privacy" />
   </p>;
 }
