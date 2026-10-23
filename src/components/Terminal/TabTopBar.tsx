@@ -305,8 +305,8 @@ export function TabTopBar({
             className="ct-bar-pill inline-flex shrink-0 items-center justify-center gap-0.5 px-2 text-xs"
             style={{ height: TAB_BAR_CONTROL_H }}
             aria-expanded={bubblesOpen}
-            aria-label={bubblesOpen ? "Show fewer" : `Show ${hiddenBubbles} more`}
-            title={bubblesOpen ? "Show fewer" : `Show ${hiddenBubbles} more`}
+            aria-label={bubblesOpen ? "Show fewer" : `Show all ${hiddenBubbles} hidden details`}
+            title={bubblesOpen ? "Show fewer" : `Show all ${hiddenBubbles} hidden details`}
             onClick={() => setBubblesOpen((open) => !open)}
           >
             {bubblesOpen ? <ChevronDown size={14} aria-hidden style={{ transform: "rotate(180deg)" }} /> : <>+{hiddenBubbles}<ChevronDown size={12} aria-hidden /></>}

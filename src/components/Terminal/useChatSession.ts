@@ -8,7 +8,7 @@ import {
   useState,
 } from "react";
 import { invoke, listen, type UnlistenFn } from "../../lib/bridge";
-import { transcriptOffsetKind } from "@codeterm/chat-core";
+import { transcriptRows, transcriptOffsetKind } from "@codeterm/chat-core";
 import type {
   NormalizedChatMessage as ChatMessage,
   TranscriptBatch,
@@ -45,7 +45,6 @@ import {
 } from "./chatSessionDiagnostics";
 import {
   commitTranscriptBatch,
-  expandTranscriptWindowGap,
   forgetTranscriptWindowCursor,
   readTranscriptWindow,
   readTranscriptMemo,
@@ -433,6 +432,7 @@ export function useChatSession({
         cursor: res.start_offset,
         consumedBytes: offsetKind === "items" ? 0 : beforeOffset - res.start_offset,
         rows: page.length,
+        messages: transcriptRows(readTranscriptWindow(windowKeyRef.current).transcript),
       } : null;
     } catch (e) {
       onErrorRef.current?.(e instanceof Error ? e.message : String(e));
@@ -440,15 +440,15 @@ export function useChatSession({
     }
   }, [agentSessionId, commitBatch, sessionBindingNonce, tabId]);
 
-  const loadHistoryGap = useCallback(async (message: ChatMessage) => {
+  const loadHistoryPage = useCallback(async (message: ChatMessage) => {
     const marker = message.timelineMarker;
-    if (marker?.kind !== "history_gap") return;
+    if (marker?.kind !== "history_gap") return null;
     const generationAtRequest = attachmentRef.current.generation;
     const res = await invoke<{ messages?: ChatMessage[] }>("chat_history_page", {
       tabId, source: marker.source, sessionId: marker.session_id, beforeOffset: marker.before_offset,
     });
-    if (!attachmentRef.current.isCurrent(generationAtRequest)) return;
-    expandTranscriptWindowGap(windowKeyRef.current, message.id, res.messages ?? []);
+    if (!attachmentRef.current.isCurrent(generationAtRequest)) return null;
+    return res.messages ?? [];
   }, [tabId]);
 
   const view = useChatWindowView({
@@ -460,6 +460,7 @@ export function useChatSession({
     anchorKey,
     followTailRef,
     loadOlderPage,
+    loadHistoryPage,
   });
   const { committedRows } = view;
 
@@ -829,12 +830,14 @@ export function useChatSession({
     allMessages: view.allMessages,
     enrichedMessages: view.enrichedMessages,
     hiddenMessageCount: view.hiddenMessageCount,
+    olderMessageLabel: view.olderMessageLabel,
+    historyGapLabel: view.historyGapLabel,
     newerMessageCount: view.newerMessageCount,
     canBackfillOlder: view.canBackfillOlder || historyLoading,
     backfillLoading: view.backfillLoading || historyLoading,
     backfillNotice: view.backfillNotice,
     loadOlder: view.loadOlder,
-    loadHistoryGap,
+    loadHistoryGap: view.loadHistoryGap,
     showLatest: view.showLatest,
     prepareMessage: view.prepareMessage,
     setHistoryReading: view.setHistoryReading,
