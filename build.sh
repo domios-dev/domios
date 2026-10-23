@@ -3695,8 +3695,18 @@ LOCK_STORM_PY
     fi
     if [ "$CT_DEV_WAIT" -eq 1 ]; then
       DEV_NOTIFY_STAGE=launch
-      run_outside_tab_job node scripts/dev-prep.mjs --launch-prebuilt \
-        --app "$(dev_app_path)" --log "$PREBUILT_LOG" --api-port "$CT_PORT" --record "$(dev_provenance_record)"
+      if run_outside_tab_job node scripts/dev-prep.mjs --launch-prebuilt \
+        --app "$(dev_app_path)" --log "$PREBUILT_LOG" --api-port "$CT_PORT" --record "$(dev_provenance_record)"; then
+        PREBUILT_STATUS=0
+      else
+        PREBUILT_STATUS=$?
+      fi
+      if [ "$PREBUILT_STATUS" -eq 3 ] && [ "${DEV_FRONT_EXTERNAL:-0}" = 1 ]; then
+        trap - EXIT INT TERM
+        echo "WARNING: DEV window is still attaching; server and window retained. Inspect $PREBUILT_LOG before recovery." >&2
+        exit 3
+      fi
+      [ "$PREBUILT_STATUS" -eq 0 ] || exit "$PREBUILT_STATUS"
       HEALTH="$(dev_health_status)"
       EXPECTED_BUILD_SHA="$CODETERM_BUILD_SHA"
       SHA="$(validate_dev_health "$EXPECTED_BUILD_SHA" "$CT_INSTANCE" "$CT_PORT" "$CT_VITE_PORT" "$CT_CDP_PORT" "$CT_IDENTIFIER" "$HEALTH" server)"
