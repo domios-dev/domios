@@ -422,7 +422,7 @@ pub async fn create_shell_tab(
     });
     if utility_shell {
         resp["timeout_hint"] =
-            "hint: set --timeout 30m for tests, QA and builds; leave it unset for servers.".into();
+            "hint: set --timeout 60m per command for tests, QA and builds; leave it unset for dev servers.".into();
     }
     if let Some(ref notice) = handle.budget_notice {
         resp["budget_notice"] = serde_json::to_value(notice).unwrap_or_default();

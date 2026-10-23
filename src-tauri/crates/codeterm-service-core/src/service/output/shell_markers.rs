@@ -49,19 +49,33 @@ impl ServiceContext {
             let events = caps.feed(pty_id, nonce, data);
             (events, caps.command_state(pty_id))
         };
+        let tab_id = tab_id.filter(|id| {
+            self.mux
+                .read()
+                .get_tab(id)
+                .is_some_and(|tab| tab.pty_id.as_deref() == Some(pty_id))
+        });
         if let Some(tab_id) = tab_id {
             self.publish_shell_command_state(tab_id, pty_id, command_state);
             for event in &events {
-                if let crate::agent::command_detection::CommandLifecycle::Started {
-                    command_line,
-                    ..
-                } = event
-                {
-                    self.utility_command_started(tab_id, command_line.as_deref());
-                }
-                if let crate::agent::command_detection::CommandLifecycle::CwdChanged { cwd } = event
-                {
-                    self.update_tab_cwd(tab_id, cwd.clone());
+                match event {
+                    crate::agent::command_detection::CommandLifecycle::Started {
+                        command_line,
+                        ..
+                    } if command_state.activity
+                        == crate::multiplexer::types::ShellActivity::Running =>
+                    {
+                        self.utility_command_started(tab_id, command_line.as_deref());
+                    }
+                    crate::agent::command_detection::CommandLifecycle::Finished { .. } => {
+                        if let Err(error) = self.utility_command_finished(tab_id) {
+                            log::error!("[utility-timeout] command completion failed: {error}");
+                        }
+                    }
+                    crate::agent::command_detection::CommandLifecycle::CwdChanged { cwd } => {
+                        self.update_tab_cwd(tab_id, cwd.clone());
+                    }
+                    _ => {}
                 }
             }
         }
