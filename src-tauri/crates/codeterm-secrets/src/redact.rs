@@ -58,18 +58,28 @@ impl SecretError {
 /// Projects one backend record onto metadata. Every other field, including any
 /// value, login, notes or custom fields, is dropped here.
 pub fn metadata_only(record: &Value) -> Option<SecretRef> {
-    let text = |key: &str| record.get(key).and_then(Value::as_str).map(str::to_string);
+    let text = |keys: &[&str]| {
+        keys.iter()
+            .find_map(|key| record.get(*key).and_then(Value::as_str))
+            .map(str::to_string)
+    };
     Some(SecretRef {
-        item_id: text("item_id")?,
-        name: text("name")?,
-        folder: text("folder"),
-        organization: text("organization"),
-        collection: text("collection"),
+        item_id: text(&["item_id", "id"])?,
+        name: text(&["name"])?,
+        folder: text(&["folder", "folderId"]),
+        organization: text(&["organization", "organizationId"]),
+        collection: text(&["collection"]),
         last_modified: record.get("last_modified").and_then(Value::as_i64),
     })
 }
 
+/// Accepts a bare record array or a vault CLI list envelope nested as
+/// `{success, data: {object: "list", data: [...]}}`.
 pub fn metadata_list(records: Value) -> Result<Vec<SecretRef>, SecretError> {
+    let mut records = &records;
+    while let Some(inner) = records.get("data") {
+        records = inner;
+    }
     match records {
         Value::Array(items) => Ok(items.iter().filter_map(metadata_only).collect()),
         _ => Err(SecretError::Backend {
@@ -79,4 +89,4 @@ pub fn metadata_list(records: Value) -> Result<Vec<SecretRef>, SecretError> {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

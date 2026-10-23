@@ -44,3 +44,23 @@ fn a_non_list_shape_is_refused_without_echoing_it() {
     let err = metadata_list(json!({ "value": SENTINEL })).unwrap_err();
     assert!(!err.to_string().contains(SENTINEL));
 }
+
+pub(crate) fn nested_bw_list() -> serde_json::Value {
+    json!({ "success": true, "data": { "object": "list", "data": [{
+        "id": "i1",
+        "name": "token",
+        "revisionDate": "2026-01-01T00:00:00.000Z",
+        "login": { "username": "u", "password": SENTINEL },
+        "notes": SENTINEL,
+        "fields": [{ "value": SENTINEL }],
+    }]}})
+}
+
+#[test]
+fn a_nested_vault_list_envelope_projects_onto_metadata() {
+    let items = metadata_list(nested_bw_list()).expect("nested list decodes");
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].item_id, "i1");
+    assert_eq!(items[0].name, "token");
+    assert!(!format!("{items:?}").contains(SENTINEL));
+}
