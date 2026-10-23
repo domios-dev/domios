@@ -331,6 +331,7 @@ function TabItemInner({
   const menuEntries = useMemo(() => buildTabMenu({
     tab,
     surface: "sidebar",
+    lock,
     status: tabState.status,
     descriptor,
     descriptors: listAgentDescriptors(),
@@ -340,7 +341,7 @@ function TabItemInner({
     canClose,
     pluginTabMenu,
     telegramThread: telegramThread.state,
-  }), [activity, canClose, descriptor, orchestrators, pluginTabMenu, tabState.status, tab, telegramThread.state]);
+  }), [activity, canClose, descriptor, lock, orchestrators, pluginTabMenu, tabState.status, tab, telegramThread.state]);
 
   const runMenuAction = (action: TabMenuAction) => {
     performTabMenuAction(tab.id, action, {

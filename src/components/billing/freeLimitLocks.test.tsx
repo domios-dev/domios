@@ -68,6 +68,21 @@ async function mountRows(state: MultiplexerState, extra: ReactNode = null) {
 const seeded = () => seedState({ workspaces: 3, teams: 2, tabs: 3 });
 
 describe("locked items stay listed with a lock affordance", () => {
+  it("disables mutation controls in the real locked sidebar menu", async () => {
+    const state = seeded();
+    setLocked(state, ["tab-0"], true);
+    await mountRows(state);
+    const row = buttons(/^Open tab tab-0$/)[0];
+    await act(async () => { row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true })); });
+    const rename = document.querySelector<HTMLButtonElement>("[data-testid=tab-menu-rename]");
+    expect(rename).not.toBeNull();
+    expect(rename?.disabled).toBe(true);
+    expect(rename?.title).toBe("Tab locked by the free plan");
+    const close = document.querySelector<HTMLButtonElement>("[data-testid=tab-menu-close]");
+    expect(close).not.toBeNull();
+    expect(close?.disabled).toBe(false);
+  });
+
   it("renders a lock mark on exactly the locked workspace, tab, and Team, without dropping any row", async () => {
     const state = seeded();
     setLocked(state, ["ws-1", "tab-0", "team-0"], true);
@@ -251,6 +266,24 @@ describe("a locked workspace locks the tabs inside it", () => {
 });
 
 describe("paying unlocks live", () => {
+  it("inherits the Team lock on tab rows and composers and clears it live", async () => {
+    const state = seeded();
+    state.tabs["tab-0"].team_id = "team-0";
+    setLocked(state, ["team-0"], true);
+    const { app, selected } = await mountRows(state, <Composer onSubmit={() => {}} />);
+    expect(state.tabs["tab-0"].locked).toBeUndefined();
+    expect(document.querySelector('[data-testid="locked-composer"]')).not.toBeNull();
+    const row = buttons(/^Open tab tab-0$/)[0];
+    expect(row.querySelector('[aria-label="Locked: free plan limit"]')).not.toBeNull();
+    await click(row);
+    expect(modalLine()).toBe(TEAMS);
+    expect(selected).toEqual([]);
+    setLocked(state, ["team-0"], false);
+    await app.emit("entitlement-changed", { limits: PAID_LIMITS, locks: { workspaces: [], teams: [], "agent.tabs": [] } });
+    expect(document.querySelector('[data-testid="locked-composer"]')).toBeNull();
+    expect(row.querySelector('[aria-label="Locked: free plan limit"]')).toBeNull();
+  });
+
   it("the entitlement change event clears every lock, enables the composer, forwards input, and a click selects", async () => {
     const state = seeded();
     setLocked(state, ["ws-1", "tab-0", "team-0"], true);

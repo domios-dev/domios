@@ -10,6 +10,13 @@ use codeterm_plugin::agent_runtime::*;
 use serde_json::Value;
 use std::sync::Arc;
 
+const REJECTED_BEFORE_WRITE: &str = "runtime_rejected_before_write";
+
+/// The provider failed the turn before any frame reached the runtime, so holding the send would only repeat it.
+pub(crate) fn rejected_before_write(error: &DeliveryError) -> bool {
+    matches!(error, DeliveryError::TabBusyRefused { detail, .. } if detail.starts_with(REJECTED_BEFORE_WRITE))
+}
+
 fn before_write(tab: &str, error: RuntimeFailure) -> DeliveryError {
     DeliveryError::TabBusyRefused {
         tab: tab.into(),
@@ -259,7 +266,19 @@ pub(crate) async fn submit_loaded(
         input,
         settings: context.settings,
     };
-    let result = engine::run(svc, &session.provider, session, process, operation).await;
+    let (result, handed_off) = engine::run_submit(svc, session, process, operation).await;
+    let result = match result {
+        Err(RuntimeFailure::HookFailed(reason)) if !handed_off => Err(
+            RuntimeFailure::PrewriteRefused(format!("{REJECTED_BEFORE_WRITE}: {reason}")),
+        ),
+        other => other,
+    };
+    if let Err(failure) = &result {
+        log::warn!(
+            "[runtime-send] tab={tab} send_id={} handed_off={handed_off} failed: {failure}",
+            pending.send_id
+        );
+    }
     match result {
         Ok(RuntimeResult::TurnAccepted {
             thread_id,

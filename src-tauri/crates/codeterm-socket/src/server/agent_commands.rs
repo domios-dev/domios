@@ -93,6 +93,16 @@ pub(crate) fn route(
         .as_ref()
         .and_then(|p| p.get("body"))
         .and_then(Value::as_str);
+    const MAX_BODY_BYTES: usize = 1024 * 1024;
+    if body.is_some_and(|body| body.len() > MAX_BODY_BYTES) {
+        return Err(JsonRpcError {
+            code: -32602,
+            message: "plugin command body exceeds 1048576 bytes".into(),
+            data: Some(
+                serde_json::json!({"code": "plugin_body_too_large", "max_bytes": MAX_BODY_BYTES}),
+            ),
+        });
+    }
     match handler.on_agent_command(&sid, &verb, &args, body) {
         Ok(result) => Ok(serde_json::json!({
             "result": result.result,

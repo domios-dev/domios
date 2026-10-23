@@ -27,7 +27,7 @@ const HELD_REASONS: Readonly<Record<string, string>> = {
   paused: "paused by the owner",
   uncertain_pipeline_claim: "a step claim could not be confirmed after a restart",
   uncertain_pipeline_effect: "a step's effect could not be confirmed after a restart",
-  uncertain_pipeline_result: "the result delivery could not be confirmed after a restart",
+  uncertain_pipeline_result: "the result delivery could not be confirmed",
   journal_write_failed: "the run journal could not be written",
 };
 export function heldReasonLabel(reason: string): string {

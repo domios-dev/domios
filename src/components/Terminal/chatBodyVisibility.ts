@@ -7,6 +7,8 @@ export type ChatBodyView =
   | { kind: "none" }
   | { kind: "starting"; label: string }
   | { kind: "launch_failed"; reason: string | null }
+  | { kind: "attach_failed"; reason: string }
+  | { kind: "locked" }
   | { kind: "failed"; reason: ChatUnavailableReason };
 
 export interface ChatBodyInput {
@@ -16,10 +18,14 @@ export interface ChatBodyInput {
   chatLoading: boolean;
   unavailable: ChatUnavailableReason | null;
   bootView: ChatBodyView;
+  attachmentError?: string | null;
+  locked?: boolean;
 }
 
 export function chatBodyView(input: ChatBodyInput): ChatBodyView {
+  if (input.locked) return { kind: "locked" };
   if (input.bootView.kind === "launch_failed") return input.bootView;
+  if (input.attachmentError) return { kind: "attach_failed", reason: input.attachmentError };
   if (input.hasHeldWindow) return { kind: "none" };
   if (input.snapshotReady === false) {
     return input.unavailable ? { kind: "failed", reason: input.unavailable } : { kind: "starting", label: "Loading conversation" };

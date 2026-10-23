@@ -63,3 +63,83 @@ fn storage_sentinel_invalid_blueprint_at_load_is_quarantined_and_the_rest_keep_r
     drop(store);
     close(storage);
 }
+
+#[test]
+fn storage_quarantined_blueprint_delete_is_scoped_persisted_and_frees_name() {
+    use crate::delete::{stage_delete, DeleteCaller, DeleteTarget};
+    let root = temp_root();
+    let clock = MockClock::starting_at(1000);
+    let storage = open(root.path());
+    let store = typed(&storage, &clock);
+    let broken = create(&store, Some("team"), false, json!({}));
+    drop(store);
+    close(storage);
+    rusqlite::Connection::open(Storage::database_path(root.path()))
+        .unwrap()
+        .execute(
+            "UPDATE blueprint_runtime SET run_transitions = 60000 WHERE blueprint_id = ?1",
+            [&broken.id],
+        )
+        .unwrap();
+    let storage = open(root.path());
+    let store = typed(&storage, &clock);
+    let replacement = store
+        .lock()
+        .prepare_document(broken.document.clone().unwrap(), owner(Some("team")), false)
+        .unwrap();
+    assert!(
+        commit(&store, |store| store.stage_insert(replacement.clone()))
+            .unwrap_err()
+            .contains("blueprint_quarantined")
+    );
+    for caller in [
+        DeleteCaller {
+            tab: "stranger",
+            workspace: "workspace",
+            team: Some("team"),
+            team_owner: false,
+        },
+        DeleteCaller {
+            tab: "creator",
+            workspace: "workspace",
+            team: Some("other"),
+            team_owner: true,
+        },
+    ] {
+        assert!(stage_delete(
+            &mut store.lock(),
+            &caller,
+            DeleteTarget::One(&broken.id),
+            false
+        )
+        .is_err());
+    }
+    let caller = DeleteCaller {
+        tab: "owner",
+        workspace: "workspace",
+        team: Some("team"),
+        team_owner: true,
+    };
+    let staged = stage_delete(
+        &mut store.lock(),
+        &caller,
+        DeleteTarget::One(&broken.id),
+        false,
+    )
+    .unwrap();
+    for (_, staged) in staged {
+        staged.settle(&store).unwrap();
+    }
+    assert!(store.lock().quarantined.is_empty());
+    assert!(store.lock().list().is_empty());
+    assert!(done(storage.sentinels().inventory()).value.is_empty());
+    commit(&store, |store| store.stage_insert(replacement.clone())).unwrap();
+    drop(store);
+    close(storage);
+    let storage = open(root.path());
+    let store = typed(&storage, &clock);
+    assert_eq!(store.lock().list()[0].name, replacement.name);
+    assert!(store.lock().quarantined.is_empty());
+    drop(store);
+    close(storage);
+}

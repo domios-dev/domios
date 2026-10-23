@@ -362,6 +362,16 @@ async function main(): Promise<void> {
   const frame = host.querySelector<HTMLElement>('[data-testid="terminal-frame"]');
   assert(frame?.getAttribute("data-terminal-visible") === "true", "remote terminal frame stayed inactive");
   assert(frame.style.visibility === "hidden", "remote terminal frame revealed before its own output arrived");
+  assert(host.querySelector('[data-testid="chat-message"]') === rows[0], "Terminal removed the chat transcript node");
+  const chatControl = host.querySelector<HTMLElement>('[data-testid="tab-mode-switch"] [data-value="chat"]');
+  assert(chatControl, "Chat control missing");
+  await act(async () => chatControl.click());
+  await flush();
+  assert(host.querySelector('[data-testid="chat-message"]') === rows[0], "Chat toggle replaced its transcript");
+  assert(!host.querySelector('[data-testid="chat-setup-state"]'), "Chat toggle flashed the loader");
+  assert(server.starts.length === 1, "Chat toggle requested a new snapshot");
+  assert(Number(server.stops.length) === 0, "Chat toggle released its attachment");
+  assert(server.subscribers.size === 1, "Chat toggle duplicated its subscription");
 
   await act(async () => {
     root.unmount();

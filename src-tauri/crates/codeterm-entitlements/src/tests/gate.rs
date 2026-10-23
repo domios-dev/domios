@@ -215,3 +215,23 @@ fn wall_deadline_expires_summary_admission_and_existing_locks() {
     wall.store(99, Ordering::SeqCst);
     assert_eq!(gate.summary().workspaces, Some(2));
 }
+
+#[test]
+fn tab_refusals_use_the_shared_limit_catalog() {
+    let noun: String =
+        serde_json::from_str(include_str!("../../../../../shared/tabLimitNoun.json")).unwrap();
+    assert_eq!(noun, "tabs running at once");
+    let create = LimitRefusal {
+        limit: LimitKey::AgentTabs,
+        count: 35,
+        max: 35,
+    }
+    .to_string();
+    let locked = LockedRefusal {
+        limit: LimitKey::AgentTabs,
+        item_id: "tab".into(),
+    }
+    .to_string();
+    assert!(create.contains(&format!("35 {noun}")));
+    assert!(locked.contains(&format!("limit of {noun}")));
+}

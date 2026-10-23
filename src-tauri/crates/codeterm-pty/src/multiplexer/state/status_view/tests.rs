@@ -1,6 +1,40 @@
 use super::*;
 
 #[test]
+fn snapshot_shell_command_state_follows_authoritative_idle_status() {
+    use crate::multiplexer::types::{ShellActivity, ShellCommandState};
+
+    let (mut mux, tab_id) = MultiplexerState::new();
+    mux.link_pty(&tab_id, "shell-pty".into());
+    let running = ShellCommandState {
+        activity: ShellActivity::Running,
+        last_exit_code: Some(0),
+    };
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    assert!(tab.is_utility_shell());
+    tab.shell_command_state = running;
+    let mut tracker = TabStatusTracker::new();
+    tracker.update_output("shell-pty", [1; 32]);
+
+    for status in [TabStatus::Working, TabStatus::Idle] {
+        let snapshot = mux.snapshot_with_status_resolver(&tracker, |_, _| status);
+        assert_eq!(snapshot.tab_statuses[&tab_id], status);
+        assert_eq!(
+            snapshot.tabs[&tab_id].shell_command_state,
+            ShellCommandState {
+                activity: if status == TabStatus::Idle {
+                    ShellActivity::Idle
+                } else {
+                    ShellActivity::Running
+                },
+                last_exit_code: Some(0),
+            }
+        );
+    }
+    assert_eq!(mux.get_tab(&tab_id).unwrap().shell_command_state, running);
+}
+
+#[test]
 fn snapshot_agent_state_follows_reconciled_status() {
     let mut current: AgentLiveState = TabVerdict {
         state: TimelineState::Idle,

@@ -11,6 +11,7 @@ import {
   normalizeRefusal,
   parseOption,
   progressLabel,
+  progressValue,
   refusalForPlatform,
   switchSummary,
   type Refusal,
@@ -99,7 +100,7 @@ export function EmbedderCard({ config }: { config: AppConfig }) {
           <span data-testid="embedder-progress">{progressLabel(status)}</span>
           {isReembedding(status) && (
             <span className="inline-flex w-24 shrink-0">
-              <progress className="ct-progress" max={status.reembed.total} value={status.reembed.done} aria-label="Re-embed progress" />
+              <progress className="ct-progress" max={status.reembed.total} value={progressValue(status)} aria-label="Re-embed progress" />
             </span>
           )}
         </dd>

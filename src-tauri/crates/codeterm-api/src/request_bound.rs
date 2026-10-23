@@ -24,11 +24,45 @@ pub(crate) async fn bounded<T>(
         .map_err(|error| unavailable("plugin_unavailable", error))
 }
 
+pub(crate) async fn blocking<T: Send + 'static>(
+    key: String,
+    work: impl FnOnce(RequestSlot) -> Result<T, String> + Send + 'static,
+) -> Result<T, RequestError> {
+    let slot = RequestSlot::acquire(key)?;
+    let worker = tokio::task::spawn_blocking(move || work(slot));
+    bounded(PLUGIN_DEADLINE, async {
+        worker.await.map_err(|error| error.to_string())?
+    })
+    .await
+}
+
 static ACTIVE: Mutex<Option<HashSet<String>>> = Mutex::new(None);
+static RELEASED: tokio::sync::Notify = tokio::sync::Notify::const_new();
 
 pub(crate) struct RequestSlot(String);
 
 impl RequestSlot {
+    pub(crate) async fn acquire_when_available(key: String) -> Result<Self, RequestError> {
+        tokio::time::timeout(PLUGIN_DEADLINE, async {
+            loop {
+                let released = RELEASED.notified();
+                tokio::pin!(released);
+                released.as_mut().enable();
+                if let Ok(slot) = Self::acquire(key.clone()) {
+                    return slot;
+                }
+                released.await;
+            }
+        })
+        .await
+        .map_err(|_| {
+            unavailable(
+                "request_busy",
+                "Chat snapshot is still running. Retry when it finishes.",
+            )
+        })
+    }
+
     pub(crate) fn acquire(key: String) -> Result<Self, RequestError> {
         let mut active = ACTIVE.lock();
         if !active.get_or_insert_default().insert(key.clone()) {
@@ -43,6 +77,7 @@ impl Drop for RequestSlot {
         if let Some(active) = ACTIVE.lock().as_mut() {
             active.remove(&self.0);
         }
+        RELEASED.notify_waiters();
     }
 }
 

@@ -47,3 +47,56 @@ fn chat_start_slot_rejects_concurrency_and_releases_on_worker_exit() {
     assert!(RequestSlot::acquire("test-chat-start:one".into()).is_ok());
     drop(other);
 }
+
+#[tokio::test(start_paused = true)]
+async fn snapshot_slot_survives_request_deadline_until_blocking_work_exits() {
+    let key = "test-plugin-snapshot".to_string();
+    let (started, ready) = tokio::sync::oneshot::channel();
+    let (release, wait) = std::sync::mpsc::channel();
+    let work_key = key.clone();
+    let request = tokio::spawn(blocking(work_key, move |_slot| {
+        started.send(()).unwrap();
+        wait.recv().unwrap();
+        Ok(())
+    }));
+    ready.await.unwrap();
+    tokio::time::advance(PLUGIN_DEADLINE).await;
+    assert_eq!(
+        request.await.unwrap().unwrap_err().1 .0["code"],
+        "plugin_unavailable"
+    );
+    assert_eq!(
+        RequestSlot::acquire(key.clone()).err().unwrap().1 .0["code"],
+        "request_busy"
+    );
+    release.send(()).unwrap();
+}
+
+#[tokio::test]
+async fn chat_start_waiter_acquires_only_after_own_slot_is_released() {
+    let slot = RequestSlot::acquire("test-chat-wait:one".into()).unwrap();
+    let other = RequestSlot::acquire("test-chat-wait:other".into()).unwrap();
+    let waiting = RequestSlot::acquire_when_available("test-chat-wait:one".into());
+    tokio::pin!(waiting);
+    assert!(futures_util::poll!(waiting.as_mut()).is_pending());
+    drop(other);
+    assert!(futures_util::poll!(waiting.as_mut()).is_pending());
+    drop(slot);
+    let acquired = waiting.await.unwrap();
+    assert!(RequestSlot::acquire("test-chat-wait:one".into()).is_err());
+    drop(acquired);
+    assert!(RequestSlot::acquire("test-chat-wait:one".into()).is_ok());
+}
+
+#[tokio::test(start_paused = true)]
+async fn chat_start_waiter_fails_within_bound_without_releasing_the_producer() {
+    let slot = RequestSlot::acquire("test-chat-wait:deadline".into()).unwrap();
+    let error = RequestSlot::acquire_when_available("test-chat-wait:deadline".into())
+        .await
+        .err()
+        .unwrap();
+    assert_eq!(error.1 .0["code"], "request_busy");
+    assert!(RequestSlot::acquire("test-chat-wait:deadline".into()).is_err());
+    drop(slot);
+    assert!(RequestSlot::acquire("test-chat-wait:deadline".into()).is_ok());
+}

@@ -23,11 +23,11 @@ domios agent spawn <provider> --location cloud --environment <environment-id> --
 
 Choose an environment explicitly; an unambiguous label is also accepted. Local remains the default. Cloud opens a one-task tab, with a branch and prompt chosen there, or `--task` supplies its first task on `master`. Local model controls, roles and Worker bindings are refused for remote tasks. Run this command on the machine that owns the provider; remote task spawning through `--mesh` is unavailable.
 
-The task tab shows the persisted result and diff and offers explicit Refresh. Restoring a tab reads its existing task identity; it never creates another task. Unconfirmed creation must be checked in the provider's task list before another task is submitted. Unsupported follow-up, cancellation and patch application are never substituted with terminal commands or another billed backend. An empty environment list asks you to connect the owning account and refresh providers.
+The task tab shows persisted results/diffs and offers Refresh. Restore uses the existing task identity without creating another task. Unconfirmed creation must be checked in the provider's task list before another task is submitted. Unsupported follow-up, cancellation and patch application are never substituted with terminal commands or another billed backend. An empty environment list asks you to connect the owning account and refresh providers.
 
 Grant outbound hosts with `domios plugin settings <id> --allow-host <host[:port]>`; revoke with `--disallow-host`. Grants combine with manifest `permissions.network.allow` on plugin load. Bare hosts cover any port; host:port restricts it. Matching is exact: no schemes, paths, credentials, wildcards or subdomains.
 
-Plugin verbs accept `--from-pad PATH`, `--from-file PATH` or `--stdin` before `--` (`-` reads stdin). Text reaches `ctx.body` exactly, separate from args. Pad containment applies.
+Plugin verbs accept `--from-pad PATH`, `--from-file PATH` or `--stdin` before `--` (`-` reads stdin). Text reaches `ctx.body` exactly, separate from args. Pad containment applies. The body limit is 1 MiB of UTF-8 bytes; the socket refuses larger bodies with `plugin_body_too_large`. Before `--`, these flags select the host body source. Pass plugin-owned `--from-file`/`--stdin` after `--`; args preserve the separator, e.g. `domios plugin <id> <verb> -- --from-file input.json`.
 
 ### Provider plugins and their CLIs
 
@@ -136,7 +136,7 @@ including over `--mesh <peer>`; an unknown provider returns a typed `not_found`
 error. `domios agent providers` lists provider summaries and returns the full
 descriptor array with `--json` in both local and mesh mode.
 
-Choose a model with `domios agent models <provider>`, which first refreshes a catalogue that requires live discovery and, when no new snapshot publishes, warns and lists the registered one. Pass the id with `domios agent spawn [provider] --model <id>`. Without a provider, a uniquely advertised bare id selects its provider; otherwise spawn uses the configured default provider. Authoritative catalogues refuse unknown ids before creating a tab and list the valid ids in the error. Free-form providers validate ids against a published live model list and pass the id through unchanged when none exists. Provider-qualified ids select their provider; an unqualified id advertised by one provider routes to it. If several advertise it, `plan task dispatch` requires `--agent` and `agent spawn` requires the positional provider. Ambiguous ids and aliases advertised by another provider are refused instead of falling through or crossing providers.
+`domios agent models <provider>` refreshes required live catalogues; if no snapshot publishes, it warns and lists the registered one. Spawn with `domios agent spawn [provider] --model <id>`; without a provider, a uniquely advertised ID selects its provider, otherwise the configured default applies. Authoritative catalogues refuse unknown IDs and list valid ones. Free-form providers validate published live IDs, passing IDs unchanged if no list exists. Qualified IDs select their provider. Ambiguous IDs require `--agent` on dispatch or the positional spawn provider; foreign aliases refuse rather than cross providers.
 
 Switch a tab's runtime service tier with `domios agent model --tab TAB --speed TIER`; use `--speed default` to clear it or `--list-speeds` to read the exact tab's session-bound, model-scoped catalogue. `GET /api/tabs/{id}/agent/service-tiers` returns available tiers and requested/confirmed selection. Unavailable tiers are refused before the existing model-control endpoint is called.
 
@@ -196,4 +196,4 @@ provider's own machine. Completion verifies the account and resumes the tab's
 same thread without restarting or replaying input. Only one sign-in per provider
 can be pending; Cancel releases it before a retry.
 
-<!-- revision: 61 -->
+<!-- revision: 62 -->

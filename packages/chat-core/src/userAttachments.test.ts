@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { formatAttachmentMarker } from "./attachmentMarker";
-import { placedAttachmentSegments, attachmentFileName, inlineAttachmentSrc, userMessageAttachments, userVisibleText } from "./userAttachments";
+import { placedAttachmentSegments, attachmentFileName, attachmentPathName, inlineAttachmentSrc, userMessageAttachments, userVisibleText } from "./userAttachments";
 
 const PATH = String.raw`C:\Users\User\AppData\Local\Temp\codeterm-chat\e8a97274-pasted-image-1791277476989.png`;
 const pathImage = { id: "a", mimeType: "image/png", path: PATH };
@@ -11,6 +11,16 @@ assert.equal(userVisibleText("[1 image]", []), "[1 image]");
 assert.equal(userVisibleText("look at [1 image] here", [pathImage]), "look at [1 image] here");
 
 assert.equal(attachmentFileName(pathImage), "e8a97274-pasted-image-1791277476989.png");
+const uploadName = "df9d0d2065b54cf28612788a0bbf750f-joy-chip.png";
+for (const path of [`/tmp/${uploadName}`, `C:\\uploads\\${uploadName}`, uploadName.toUpperCase()]) {
+  assert.equal(attachmentPathName(path).toLowerCase(), "joy-chip.png");
+  const image = { id: "upload", mimeType: "image/png", path };
+  assert.equal(attachmentFileName(image).toLowerCase(), "joy-chip.png");
+  assert.equal(image.path, path);
+}
+for (const name of ["joy-chip.png", "a".repeat(31) + "-file.png", "g".repeat(32) + "-file.png", "a".repeat(33) + "-file.png", "a".repeat(32) + "-"]) {
+  assert.equal(attachmentPathName(`/tmp/${name}`), name);
+}
 assert.equal(attachmentFileName({ id: "b", mimeType: "image/jpeg", path: "/tmp/shot.jpg" }), "shot.jpg");
 assert.equal(attachmentFileName({ id: "c", mimeType: "image/webp", data: "AAAA" }), "image.webp");
 assert.equal(attachmentFileName({ id: "d", mimeType: "image/png", url: "data:image/png;base64,AAAA" }), "image.png");

@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "tests/restored_hook.rs"]
+mod restored_hook;
+
 fn git(cwd: &std::path::Path, args: &[&str]) {
     let mut command = std::process::Command::new("git");
     crate::process_util::no_window_std(&mut command);
