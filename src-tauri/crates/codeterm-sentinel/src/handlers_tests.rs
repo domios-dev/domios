@@ -545,15 +545,22 @@ fn sentinel_handlers_activation_requires_durable_declared_claim_and_checks_activ
     let path = dir.path().join("sentinels.json");
     let clock = codeterm_cron::clock::MockClock::starting_at(1000);
     let seed = Store::new(path.clone(), clock.clone());
-    let mut jobs: Vec<_> = (0..65)
+    let mut paused = definition();
+    paused["steps"][0]["paused"] = json!(true);
+    let target_job = seed.prepare_document(paused, owner(), false).unwrap();
+    let target = target_job.id.clone();
+    let mut jobs: Vec<_> = (0..64)
         .map(|index| {
             let mut value = definition();
-            value["steps"][0]["paused"] = json!(index == 64);
+            if index == 0 {
+                value["steps"][1]["routes"] = json!({"done":"child"});
+                value["steps"][2] =
+                    json!({"id":"child","uses":"blueprint","with":{"target":{"lit":target}}});
+            }
             seed.prepare_document(value, owner(), false).unwrap()
         })
         .collect();
-    let target = jobs[64].id.clone();
-    jobs[0].routes.get_mut("done").unwrap()[0].action = Route::Sentinel(target.clone());
+    jobs.push(target_job);
     std::fs::write(&path, serde_json::to_vec(&jobs).unwrap()).unwrap();
     let mut store = Store::new(path, clock);
     let source = store.get(&jobs[0].id).unwrap().clone();

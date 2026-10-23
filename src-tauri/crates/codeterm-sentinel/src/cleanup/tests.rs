@@ -7,11 +7,10 @@ fn job(id: &str, creator: &str, stopped: bool, until: Option<&str>) -> Sentinel 
         root.path().join("fixture.json"),
         codeterm_cron::clock::MockClock::starting_at(0),
     );
-    let mut job=store.prepare_document(json!({"schema_version":2,"kind":"watch","name":format!("cleanup {id}"),"steps":[{"id":"source","uses":"probe","with":{"command":{"lit":"status"}},"every":{"lit":"10s"},"timeout":{"lit":"1h"}},{"id":"decide","uses":"ask","with":{"question":{"lit":"Ready?"}},"buckets":["ready"],"matches":{"ready":{"lit":"ready"}}}]}),crate::store::Owner{creator_tab_id:creator.into(),team_id:Some("team".into()),workspace_id:"workspace".into(),cwd:"/tmp".into()},false).unwrap();
+    let mut job=store.prepare_document(json!({"schema_version":2,"kind":"watch","name":format!("cleanup {id}"),"steps":[{"id":"source","uses":"probe","with":{"command":{"lit":"status"}},"every":{"lit":"10s"},"timeout":{"lit":"1h"}},{"id":"decide","uses":"ask","with":{"question":{"lit":"Ready?"}},"buckets":["ready","done"],"matches":{"ready":{"lit":"ready"},"done":{"lit":"done"}},"until":until}]}),crate::store::Owner{creator_tab_id:creator.into(),team_id:Some("team".into()),workspace_id:"workspace".into(),cwd:"/tmp".into()},false).unwrap();
     job.id = id.into();
     job.scenario_id = Some(id.into());
     job.machine.stopped = stopped;
-    job.until = until.map(str::to_owned);
     job
 }
 
@@ -50,9 +49,10 @@ fn retained_stopped_agent_blueprint_is_valid_persisted_history() {
 
     assert!(super::super::store::validate(vec![blueprint]).is_ok());
 
-    let mut live = job("live", "creator", false, Some("done"));
-    live.agent_authored = true;
-    assert!(super::super::store::validate(vec![live]).is_err());
+    let mut diverged = job("diverged", "creator", true, Some("done"));
+    diverged.agent_authored = true;
+    diverged.until = Some("ready".into());
+    assert!(super::super::store::validate(vec![diverged]).is_err());
 }
 
 #[test]
