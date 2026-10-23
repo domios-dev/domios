@@ -1,3 +1,5 @@
+import { TAB_LIMIT_NOUN } from "./limitCopy";
+
 export type BillingInterval = "month" | "year";
 
 export interface PlanPrice {
@@ -53,7 +55,7 @@ export const BUILTIN_PLAN_CATALOG: PlanCatalog = {
         `${FREE_LIMITS.workspaces} workspaces`,
         `${FREE_LIMITS["mem.items"]} memory items`,
         `${FREE_LIMITS.teams} Teams across all workspaces`,
-        `${FREE_LIMITS["agent.tabs"]} tabs running at once`,
+        `${FREE_LIMITS["agent.tabs"]} ${TAB_LIMIT_NOUN}`,
       ],
       prices: {},
     },

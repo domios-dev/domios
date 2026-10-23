@@ -69,6 +69,8 @@ function leafEntry(entry: TabMenuLeafEntry, onAction: ActionHandler): DropdownMe
         label: entry.label,
         icon: menuIcon(entry.icon),
         checked: entry.checked,
+        disabled: entry.disabled,
+        title: entry.title,
         description: entry.description,
         keepOpen: entry.keepOpen,
         onClick: bind(entry.action, onAction),

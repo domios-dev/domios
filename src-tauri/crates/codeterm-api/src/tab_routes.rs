@@ -1,3 +1,4 @@
+use axum::response::IntoResponse;
 use axum::{
     extract::{Path, Query, State as AxumState},
     http::{HeaderMap, StatusCode},
@@ -9,6 +10,8 @@ use crate::routes::{check_auth, resolve_tab, AppState};
 use send::wait_for_pty_link as await_pty_link;
 
 mod exec;
+mod metadata;
+use metadata::map_metadata_error;
 mod utility_timeout;
 pub use utility_timeout::set_timeout;
 mod send;
@@ -735,15 +738,18 @@ pub async fn rename_tab(
     headers: HeaderMap,
     Path(raw_tab_id): Path<String>,
     Json(body): Json<RenameTabBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
+) -> Result<Json<serde_json::Value>, axum::response::Response> {
+    check_auth(&state, &headers).map_err(axum::response::IntoResponse::into_response)?;
     codeterm_service_core::service::tab::validate_tab_title(&body.title).map_err(|_| {
         (
             StatusCode::BAD_REQUEST,
             codeterm_service_core::service::tab::TAB_TITLE_ERROR,
         )
+            .into_response()
     })?;
-    let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id).await?;
+    let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id)
+        .await
+        .map_err(axum::response::IntoResponse::into_response)?;
     let result = codeterm_service_core::dispatch::dispatch_blocking(
         codeterm_service_core::dispatch::Command::TabRename {
             tab_id,
@@ -752,7 +758,7 @@ pub async fn rename_tab(
         state.svc.clone(),
     )
     .await
-    .map_err(|_| (StatusCode::NOT_FOUND, "Tab not found"))?;
+    .map_err(map_metadata_error)?;
     Ok(Json(result.into_json()))
 }
 
@@ -766,11 +772,11 @@ pub async fn describe_tab(
     headers: HeaderMap,
     Path(raw_tab_id): Path<String>,
     Json(body): Json<DescribeTabBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+) -> Result<Json<serde_json::Value>, axum::response::Response> {
+    check_auth(&state, &headers).map_err(axum::response::IntoResponse::into_response)?;
     let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id)
         .await
-        .map_err(|(s, m)| (s, m.to_string()))?;
+        .map_err(axum::response::IntoResponse::into_response)?;
     let result = codeterm_service_core::dispatch::dispatch_blocking(
         codeterm_service_core::dispatch::Command::TabDescribe {
             tab_id,
@@ -779,7 +785,7 @@ pub async fn describe_tab(
         state.svc.clone(),
     )
     .await
-    .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    .map_err(map_metadata_error)?;
     Ok(Json(result.into_json()))
 }
 
@@ -1144,3 +1150,6 @@ pub async fn list_shell_profiles(
     .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
     Ok(Json(result.into_json()))
 }
+
+#[cfg(test)]
+mod metadata_tests;

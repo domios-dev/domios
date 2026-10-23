@@ -117,7 +117,7 @@ export function TabTopBar({
   const menuTab = tabMenu?.tab ?? null;
   const { openProviderSwitch, providerSwitchDialog } = useProviderSwitchDialog(menuTab);
   const onRename = tabMenu?.onRename;
-  const canReconnect = menuTab ? tabSessionActionView(menuTab).canReconnect : false;
+  const canReconnect = menuTab ? tabSessionActionView(menuTab).canReconnect && !tabMenu?.context.lock?.locked && !menuTab.locked : false;
   const pluginTabMenu = usePluginTabMenu();
   const telegramThread = useTelegramThreadMenu(tabId, menuTab !== null && !menuTab.remote_peer_id);
 

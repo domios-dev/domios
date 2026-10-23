@@ -239,3 +239,41 @@ it("records an explicit subscription plans request after mounting", async () => 
     ["POST", "/api/analytics/event", { event_type: "plan_viewed", event_properties: {} }],
   ]);
 });
+
+it("greets Pro and answers pointer re-entry with a wave, while reduced motion stays static", async () => {
+  const frames: FrameRequestCallback[] = [];
+  const schedule = vi.fn((callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
+  vi.stubGlobal("requestAnimationFrame", schedule);
+  vi.stubGlobal("cancelAnimationFrame", vi.fn());
+  const context = { setTransform() {}, clearRect() {}, beginPath() {}, arc() {}, fill() {} } as unknown as CanvasRenderingContext2D;
+  const canvas = vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(context);
+  const preference = vi.fn(() => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
+  vi.stubGlobal("matchMedia", preference);
+  try {
+    const host = await renderPlanCards();
+    const pro = card(host, "Pro");
+    expect(schedule).toHaveBeenCalled();
+    const settle = () => {
+      const pending = frames.splice(0);
+      for (const callback of pending) callback(performance.now() + 3000);
+      schedule.mockClear();
+    };
+    settle();
+    for (let entry = 0; entry < 2; entry += 1) {
+      await act(async () => {
+        pro.dispatchEvent(new PointerEvent("pointerout", { bubbles: true }));
+        pro.dispatchEvent(new PointerEvent("pointerover", { bubbles: true }));
+      });
+      expect(schedule).toHaveBeenCalledOnce();
+      settle();
+    }
+    await act(async () => mounted?.root.unmount());
+    mounted?.host.remove();
+    mounted = null;
+    preference.mockReturnValue({ matches: true, addEventListener() {}, removeEventListener() {} });
+    await renderPlanCards();
+    expect(schedule).not.toHaveBeenCalled();
+  } finally {
+    canvas.mockRestore();
+  }
+});

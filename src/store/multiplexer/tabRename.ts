@@ -1,3 +1,5 @@
+import { freeLimitGate } from "../../components/billing/freeLimitGate";
+import type { LocalLimitKey } from "../../components/billing/freeLimitModel";
 import { describeError } from "../../lib/describeError";
 import type { Notice } from "../../lib/notices";
 import { TitleLevel } from "../../lib/types";
@@ -12,7 +14,11 @@ export interface TabRenamePorts {
 }
 
 export function tabRenameFailureNotice(workspaceId: string, tabId: string, error: unknown): Notice {
-  const description = describeError({ code: "tab_rename_failed", raw: describeError(error).raw });
+  const raw = describeError(error).raw;
+  const planLocked = raw.includes("plan_limit_locked");
+  const description = describeError({ code: "tab_rename_failed", message: raw, raw });
+  const named = /\(limit: ([a-z.]+)\)/.exec(raw)?.[1];
+  const limit: LocalLimitKey = named === "workspaces" || named === "teams" ? named : "agent.tabs";
   return {
     kind: "toast",
     id: uid(),
@@ -20,6 +26,7 @@ export function tabRenameFailureNotice(workspaceId: string, tabId: string, error
     workspaceId,
     title: description.title,
     detail: JSON.stringify({ code: "tab_rename_failed", message: description.cause }),
+    ...(planLocked ? { actions: [{ label: "View plans", run: () => freeLimitGate.open(limit) }] } : {}),
     severity: "Error",
   };
 }
