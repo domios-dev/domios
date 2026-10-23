@@ -110,6 +110,7 @@ fn blueprint_v2_runtime_command_child_resolves_system_and_user_tools() {
         command,
         root.path(),
         crate::probe::PROBE_RUNTIME,
+        crate::probe::PROBE_RUNTIME,
         &owner,
         &environment,
         &ExecutionEnvelope::from_text("opaque-input"),

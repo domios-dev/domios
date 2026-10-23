@@ -139,6 +139,23 @@ pub(super) fn database(ir: &PositionedIr, context: &CheckContext) -> Database {
                 );
             }
         }
+        if n.kind() == "command" {
+            if let Some(timeout) = &n.timeout {
+                let field = format!("{path}.timeout");
+                if let Some(value) = timeout.value() {
+                    add(
+                        "command_timeout",
+                        vec![n.id.clone(), value.to_string()],
+                        &field,
+                    );
+                    if slots::duration_ms(timeout).is_some_and(|ms| {
+                        (1..=crate::blueprint_pipeline::MAX_COMMAND_STEP_RUNTIME_MS).contains(&ms)
+                    }) {
+                        add("valid_command_timeout", vec![n.id.clone()], &field);
+                    }
+                }
+            }
+        }
         for (slot, form) in slots::forms(n) {
             let field = format!("{path}.{slot}");
             let expected = slots::expected(n.kind(), &slot, Some(n));
@@ -152,7 +169,9 @@ pub(super) fn database(ir: &PositionedIr, context: &CheckContext) -> Database {
             if let ValueForm::Bind { bind } = form {
                 binding(&mut add, n, &slot, bind, &field, doc, expected.as_ref());
             }
-            if matches!(slot.as_str(), "every" | "timeout") {
+            if matches!(slot.as_str(), "every" | "timeout")
+                && !(n.kind() == "command" && slot == "timeout")
+            {
                 if let Some(ms) = slots::duration_ms(form) {
                     add(
                         "duration",

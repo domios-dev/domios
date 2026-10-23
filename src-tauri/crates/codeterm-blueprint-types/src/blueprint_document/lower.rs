@@ -50,7 +50,7 @@ pub(super) fn lower(doc: &Document) -> LowerResult {
         if doc.kind == Kind::Pipeline
             && (!node.matches.is_empty()
                 || node.every.is_some()
-                || node.timeout.is_some()
+                || (node.timeout.is_some() && node.kind() != "command")
                 || node.until.is_some()
                 || !node.rearm_on_change.is_empty()
                 || node.model_classification
@@ -130,7 +130,7 @@ fn pipeline(doc: &Document) -> Result<Value, String> {
         if node.kind() != "ask" && !node.buckets.is_empty() {
             return Err(format!("unsupported: buckets on {}", node.id));
         }
-        let kind = if let Some(code) = &node.code {
+        let mut kind = if let Some(code) = &node.code {
             json!({"kind":"code","code":code})
         } else if let Some(run) = &node.run {
             json!({"kind":"command","command":lit(run)?})
@@ -149,6 +149,23 @@ fn pipeline(doc: &Document) -> Result<Value, String> {
                 _ => return Err(format!("unsupported: pipeline node {}", node.kind())),
             }
         };
+        if node.kind() == "command" {
+            if node.params.contains_key("timeout_ms") {
+                return Err("Use the command node timeout field instead of with.timeout_ms".into());
+            }
+            if let Some(timeout) = &node.timeout {
+                let timeout = lit(timeout)?;
+                let milliseconds = crate::blueprint_watch::duration_ms(
+                    timeout
+                        .as_str()
+                        .ok_or("command timeout must be a duration")?,
+                )?;
+                if milliseconds > crate::blueprint_pipeline::MAX_COMMAND_STEP_RUNTIME_MS {
+                    return Err("command timeout must be positive and at most 60s".into());
+                }
+                kind["timeout_ms"] = json!(milliseconds);
+            }
+        }
         let routes = node
             .routes
             .iter()

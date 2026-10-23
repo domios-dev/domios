@@ -131,7 +131,10 @@ pub fn run(
         process.set_failure("probe_cancelled");
         return process.finish_failure();
     }
-    match child_command.spawn() {
+    match process
+        .deadlines
+        .spawn_with(|| child_command.spawn(), Instant::now)
+    {
         Ok(child) => {
             #[cfg(any(test, feature = "test-support"))]
             cancellation.spawned(child.id());
@@ -143,6 +146,8 @@ pub fn run(
             return process.finish_failure();
         }
     }
+    #[cfg(any(test, feature = "test-support"))]
+    cancellation.record_deadlines(process.deadlines);
     process.adopt_streams();
     if let (Some(events), Some(child)) = (&mut process.events, &mut process.child) {
         if let Err(error) = events.observe_parent(child) {

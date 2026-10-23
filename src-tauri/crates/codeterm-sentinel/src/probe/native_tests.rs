@@ -511,11 +511,14 @@ fn assert_deadline_receipt(
     let duration = limit.min(runtime);
     let reserve = Duration::from_millis(500).min(duration / 4);
     assert_eq!(receipt.duration, duration);
-    assert_eq!(receipt.hard.duration_since(receipt.admitted), duration);
-    assert_eq!(
-        receipt.operation.duration_since(receipt.admitted),
-        duration - reserve
+    assert!(receipt.hard.saturating_duration_since(receipt.admitted) <= limit);
+    assert!(
+        receipt
+            .operation
+            .saturating_duration_since(receipt.admitted)
+            <= runtime
     );
+    assert_eq!(receipt.hard.duration_since(receipt.operation), reserve);
 }
 
 fn run_ready(
