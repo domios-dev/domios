@@ -102,7 +102,7 @@ function muxActions(
     deleteNotification: noop,
     clearNotifications: noop,
     dismissToast: noop,
-    setTabTitle: noop,
+    renameTab: noop,
     setAgentType: noop,
     updateTabStatus: noop,
     spawnClaudeTab: noop,

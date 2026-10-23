@@ -42,7 +42,7 @@ Authenticated config readback includes `api_listener.active`, `.configured`, and
 
 #### Startup readiness
 
-`GET /api/health` answers once the listener is live; `status: "ok"` proves liveness. Readiness requires both `status: "ok"` and `startup.state: "ready"`; the full router also reports this startup state. Health and startup events exempt only loopback callers from authentication. `startup.state` stays `starting` until every phase is ready. Until then dependent requests get HTTP 503 `starting` (`startup_failed` after a failure) and are never queued. `GET /api/startup/events` streams `startup-state` snapshots; wait for `ready` before loading state.
+Health `status: "ok"` proves liveness; `startup.state: "ready"` proves readiness. Only loopback health/events bypass auth. Await `ready` on `/api/startup/events` (`startup-state`). Other requests get HTTP 503 `starting`/`startup_failed` without queuing. CLI: `API-CLI`.
 
 #### Local previews
 | Method | Path | Body | Description |
@@ -178,4 +178,4 @@ A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or `c
 
 Related docs: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-INTEGRATIONS`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, and `TELEGRAM-SETUP`. Local analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 215 -->
+<!-- revision: 216 -->

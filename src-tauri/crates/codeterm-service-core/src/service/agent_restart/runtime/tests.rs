@@ -124,9 +124,12 @@ impl RuntimeFixture {
         .map(|kind| (kind.to_string(), json!([kind])))
         .collect::<serde_json::Map<String, Value>>();
         let manifest = PluginManifest::from_json_str(&json!({
-            "id":PROVIDER,"version":"1.0.0","displayName":"Fixture",
+            "id":PROVIDER,"version":"1.0.0","displayName":"Fixture","binaryName":"node",
             "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
                 "agentRuntime":{"runtime":"stdio-jsonrpc","command":{"binary":"node","args":[]},"requestMethods":methods,"notificationMethods":[]}},
+            "spawn":{"readinessStrategy":{"kind":"poll_shell_prompt","timeoutSecs":1},
+                "taskDelivery":"inline_flag","systemPromptDelivery":{"kind":"cli_flag","flag":"--opaque-system"},
+                "verifySubmit":{"kind":"none"}},
             "permissions":{"subprocess":{"allow":["node"]}}
         }).to_string()).unwrap();
         fixture

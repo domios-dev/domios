@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { waitForServerReady } from "./serverReadiness";
+import { currentStartupPhase, startupPhases, waitForServerReady } from "./serverReadiness";
 import { createTransportClient, type TransportClient } from "./transportClient";
 
 function fixture() {
@@ -85,4 +85,32 @@ it("rejects an older daemon's HTML fallback without reconnecting forever", async
   const client = createTransportClient({ origin: "http://127.0.0.1:7786", token: "fixture-token", fetch: fetcher });
   await expect(waitForServerReady(client, controller.signal)).rejects.toThrow("not an event stream");
   expect(fetcher).toHaveBeenCalledOnce();
+});
+
+it.each(startupPhases)("reports the first unfinished phase in boot order: %s", phase => {
+  const index = startupPhases.indexOf(phase);
+  const phases = Object.fromEntries([...startupPhases].reverse().map(name =>
+    [name, startupPhases.indexOf(name) < index ? "ready" : "starting"]));
+  expect(currentStartupPhase({ state: "starting", phases })).toBe(phase);
+});
+
+it("never invents a phase for terminal or incomplete snapshots", () => {
+  for (const snapshot of [null, {}, { state: "starting" }, { state: "starting", phases: null },
+    { state: "ready", phases: { service: "starting" } }, { state: "failed", phases: { plans: "starting" } }]) {
+    expect(currentStartupPhase(snapshot)).toBeNull();
+  }
+});
+
+it("publishes phase progress across listener replacement and clears it on readiness", async () => {
+  const f = fixture();
+  const progress = vi.fn();
+  const ready = waitForServerReady(f, f.controller.signal, progress);
+  await f.subscribe.mock.calls[0][1]("startup-state", { state: "starting", phases: { states: "starting", plans: "starting" } });
+  f.subscribe.mock.calls[0][2]?.onEnd?.({ reason: "eof" });
+  await Promise.resolve();
+  await f.subscribe.mock.calls[0][1]("startup-state", { state: "starting", phases: { providers: "starting" } });
+  await f.subscribe.mock.calls[1][1]("startup-state", { state: "starting", phases: { states: "ready", plans: "starting" } });
+  await f.subscribe.mock.calls[1][1]("startup-state", { state: "ready" });
+  await ready;
+  expect(progress.mock.calls).toEqual([["states"], ["plans"], [null]]);
 });

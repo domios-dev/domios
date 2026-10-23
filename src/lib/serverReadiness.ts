@@ -1,6 +1,16 @@
 import type { TransportClient } from "./transportClient";
 
-export async function waitForServerReady(client: Pick<TransportClient, "subscribe">, signal: AbortSignal): Promise<void> {
+export const startupPhases = ["listener", "integrity", "states", "providers", "service", "plans", "background", "platform"] as const;
+export type StartupPhase = typeof startupPhases[number];
+
+export function currentStartupPhase(snapshot: unknown): StartupPhase | null {
+  if (!snapshot || typeof snapshot !== "object" || !("state" in snapshot) || snapshot.state !== "starting"
+    || !("phases" in snapshot) || !snapshot.phases || typeof snapshot.phases !== "object") return null;
+  const phases = snapshot.phases as Record<string, unknown>;
+  return startupPhases.find(phase => phases[phase] === "starting") ?? null;
+}
+
+export async function waitForServerReady(client: Pick<TransportClient, "subscribe">, signal: AbortSignal, onPhase?: (phase: StartupPhase | null) => void): Promise<void> {
   let terminal = false;
   while (!terminal) {
     await new Promise<void>((resolve, reject) => {
@@ -19,6 +29,7 @@ export async function waitForServerReady(client: Pick<TransportClient, "subscrib
       try {
         dispose = client.subscribe("/api/startup/events", (name, data) => {
           if (settled || name !== "startup-state" || !data || typeof data !== "object" || !("state" in data)) return;
+          onPhase?.(currentStartupPhase(data));
           if (data.state === "ready") { terminal = true; finish(); }
           else if (data.state === "failed") finish(new Error("Server initialization failed"));
         }, { signal, requireEventStream: true, onEnd: end => {

@@ -476,12 +476,12 @@ and warm reruns are incremental. To reclaim disk:
 
 | | Path |
 |---|---|
-| Dev | `~/.codeterm-dev/logs/codeterm.log` |
-| Prod | `~/.codeterm/logs/codeterm.log` |
+| Dev | `~/.domios-dev/logs/domios.log` |
+| Prod | `~/.domios/logs/domios.log` |
 
 - Levels: DEBUG (dev), INFO (prod)
-- Rotation: 5MB max, 3 files kept
-- Live view: `tail -f ~/.codeterm-dev/logs/codeterm.log`
+- Rotation: 50 MiB per file, current log plus 3 rotated generations
+- Live view: `tail -f ~/.domios-dev/logs/domios.log`
 
 ## Cross-platform testing
 
@@ -714,7 +714,7 @@ For each batch, Workers run `./build.sh fmt` once, then one verification pass: o
 
 Prompt templates under `src-tauri/prompts/` are embedded by codeterm-service-core. The affected-test mapper selects `./build.sh nextest codeterm-service-core 'test(/^prompts::tests::/)'`; the shell crate has no such tests, and a zero-test shell selection is a failure rather than coverage.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->
 
 ## Independent server process oracle
 

@@ -27,6 +27,10 @@ export function accountModel(status: AccountStatus): AccountModel {
   if (status.last_sign_in_failure) return { kind: "error", message: signInFailureMessage(status.last_sign_in_failure), failure: status.last_sign_in_failure };
   return status.identity ? { kind: "signed_in", identity: status.identity, ...(status.session_only ? { sessionOnly: true } : {}) } : { kind: "signed_out" };
 }
+export function accountInitials(name: string): string {
+  const parts = name.replace(/@.*/, "").split(/[\s._-]+/).filter(Boolean);
+  return (parts.length > 1 ? parts[0][0] + parts[1][0] : name.slice(0, 2)).toUpperCase();
+}
 export function accountFailure(_error: unknown): AccountModel {
   return { kind: "error", message: "Could not update your account. Try again." };
 }

@@ -1613,7 +1613,6 @@ dependencies = [
  "codeterm-decision",
  "codeterm-mem-store",
  "codeterm-paths",
- "codeterm-secrets",
  "codeterm-types",
  "codeterm-util",
  "hf-hub",

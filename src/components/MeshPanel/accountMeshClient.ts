@@ -66,6 +66,8 @@ export interface AccountMeshSnapshot {
   self: SelfInstallation | null;
   registry: { observed_at: number; rows: AccountMachineRow[] } | null;
   registry_failure: AccountMeshFailure | null;
+  enrollment: "idle" | "enrolling" | "enrolled" | "refused";
+  last_refusal: AccountMeshFailure | null;
   pairs: LocalPairFact[];
   limit_notice?: AccountMeshLimitNotice | null;
 }
@@ -74,6 +76,7 @@ type LinkResult = { ok: true } | { ok: false; request_id: string; failure: Accou
 
 export interface AccountMeshClient {
   snapshot(): Promise<AccountMeshSnapshot>;
+  enroll(): Promise<AccountMeshOutcome>;
   list(): Promise<AccountMeshOutcome>;
   subscribe(onChange: () => void): () => void;
   /** Resolves after the authorized handshake; a server refusal rejects with `AccountMeshRefusalError`. */
@@ -86,6 +89,7 @@ export interface AccountMeshClient {
 
 const COMMANDS = {
   state: "account_mesh_state",
+  enroll: "account_mesh_enroll",
   list: "account_mesh_list",
   link: "account_mesh_link",
   renameSelf: "account_mesh_rename_self",
@@ -96,6 +100,7 @@ const CHANGE_EVENTS = ["account-mesh-changed", "mesh-state-changed"] as const;
 
 export const bridgeAccountMeshClient: AccountMeshClient = {
   snapshot: () => invoke<AccountMeshSnapshot>(COMMANDS.state),
+  enroll: () => invoke<AccountMeshOutcome>(COMMANDS.enroll),
   list: () => invoke<AccountMeshOutcome>(COMMANDS.list),
   subscribe(onChange) {
     let active = true;

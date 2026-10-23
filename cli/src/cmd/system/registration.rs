@@ -65,8 +65,10 @@ pub(super) fn windows_task_text(bytes: &[u8]) -> String {
     if bytes.starts_with(&[0xff, 0xfe]) || bytes.starts_with(&[b'<', 0]) {
         let bytes = bytes.strip_prefix(&[0xff, 0xfe]).unwrap_or(bytes);
         let words: Vec<_> = bytes
-            .chunks_exact(2)
-            .map(|word| u16::from_le_bytes([word[0], word[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|word| u16::from_le_bytes(*word))
             .collect();
         String::from_utf16_lossy(&words)
     } else {
