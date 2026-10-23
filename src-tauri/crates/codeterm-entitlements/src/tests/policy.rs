@@ -21,8 +21,8 @@ fn production_activation_never_trusts_the_rfc8032_key() {
             .iter()
             .all(|k| !is_rfc8032_test_key(k.spki_der_base64)));
         assert_ne!(activation.project, "demo-domios");
-        activation.policy().expect("pinned policy validates");
     }
+    PRODUCTION.policy().expect("production policy validates");
 }
 
 #[test]

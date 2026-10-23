@@ -1,5 +1,5 @@
 use super::support::{binding, paid, with, LocalSigner, EPOCH, KEY_ID, PROJECT, T};
-use crate::activation::{Activation, CompiledKey, ACTIVATION, PRODUCTION, TEST};
+use crate::activation::{Activation, CompiledKey, ACTIVATION, PRODUCTION, QA_PROJECT, TEST};
 use crate::authority::{enforcement, enforcing, pinned, EntitlementAuthority, PinnedAuthority};
 use crate::payload::{Authority, Enforcement, Mode, COMPILED_FREE_LIMITS};
 use crate::policy::is_rfc8032_test_key;
@@ -59,8 +59,9 @@ fn this_build_enforces() {
     assert_eq!(ACTIVATION, TEST);
     #[cfg(not(debug_assertions))]
     assert_eq!(ACTIVATION, PRODUCTION);
+    PRODUCTION.policy().expect("production policy validates");
+    assert_eq!(TEST.policy().is_ok(), !QA_PROJECT.is_empty());
     for activation in [PRODUCTION, TEST] {
-        activation.policy().expect("pinned policy validates");
         assert!(activation
             .keys
             .iter()
@@ -209,6 +210,26 @@ fn missing_verdict_while_enforcing_is_compiled_free() {
     assert!(pinned().enforcement().enabled);
     assert_eq!(access.authority, Authority::Free);
     assert_eq!(access.limits, COMPILED_FREE_LIMITS);
+}
+
+#[test]
+fn unset_qa_project_is_plain_free() {
+    let signer = LocalSigner::new();
+    let grant = signer.sign(&enforced(paid()));
+    let authority = authority_for(&signer);
+    assert_eq!(access_of(&authority, Some(&grant), T), Authority::Billing);
+    let unset = PinnedAuthority::new(Activation {
+        project: "",
+        ..authority.activation()
+    });
+    assert_eq!(access_of(&unset, Some(&grant), T), Authority::Free);
+}
+
+#[cfg(not(debug_assertions))]
+#[test]
+fn release_pins_production_whatever_the_build_environment() {
+    assert_eq!(ACTIVATION.project, "domios-d9357");
+    assert_eq!(QA_PROJECT, "");
 }
 
 #[test]

@@ -35,15 +35,24 @@ pub const PRODUCTION: Activation = Activation {
     }],
 };
 
+/// Injected from the owner's secret store by build.sh; unset builds DEV with no QA backend (plain free).
+#[cfg(debug_assertions)]
+pub const QA_PROJECT: &str = match option_env!("DOMIOS_QA_PROJECT_ID") {
+    Some(project) => project,
+    None => "",
+};
+#[cfg(not(debug_assertions))]
+pub const QA_PROJECT: &str = "";
+
 pub const TEST: Activation = Activation {
-    project: "domios-test",
+    project: QA_PROJECT,
     mode: Mode::Test,
     policy_version: 1,
     policy_epoch: "test-v1",
     enforcement: ENFORCE,
     keys: &[CompiledKey {
-        key_id: "test-pending-t3",
-        spki_der_base64: "MCowBQYDK2VwAyEAtXQE+LXeu/VsbJ48oN1SdqkSerOt+OJpvkqLjLrDXa4=",
+        key_id: "test-2026-10",
+        spki_der_base64: "MCowBQYDK2VwAyEA2nQy+tOBmjHHrGnun9ZlMCKQ9fdd7HlkpF5NrykMl7A=",
     }],
 };
 
