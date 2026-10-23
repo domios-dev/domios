@@ -819,7 +819,19 @@ impl PtyManager {
         self.begin_kill_with(pty_id, false)
     }
 
+    pub fn begin_kill_tree(&mut self, pty_id: &str) -> Result<PtyReaper, String> {
+        self.begin_kill_with(pty_id, true)
+    }
+
     fn begin_kill_with(&mut self, pty_id: &str, entire_tree: bool) -> Result<PtyReaper, String> {
+        let tree_killer = self
+            .sessions
+            .get(pty_id)
+            .ok_or_else(|| format!("PTY {} not found", pty_id))?
+            .child
+            .lock()
+            .map_err(|error| format!("pty_tree_termination_failed: PTY {pty_id}: {error}"))?
+            .clone_killer();
         let session = self
             .sessions
             .remove(pty_id)
@@ -852,6 +864,7 @@ impl PtyManager {
             pty_id: pty_id.to_string(),
             session,
             kill_error,
+            tree_killer,
         })
     }
 
