@@ -1,10 +1,12 @@
 use serde_json::{json, Value};
 
+use super::MuxView;
 use crate::{
     machine::Route,
     provenance::{DecidedBy, Decision},
     store::Sentinel,
 };
+#[cfg(test)]
 use codeterm_service_core::multiplexer::state::MultiplexerState;
 
 const MAX_TEXT_BYTES: usize = 4096;
@@ -73,7 +75,7 @@ pub(super) fn definition(job: &Sentinel) -> Value {
 
 pub(super) fn project(
     job: &Sentinel,
-    mux: &MultiplexerState,
+    mux: &dyn MuxView,
     workspace: &str,
     team: Option<&str>,
     now_ms: u64,

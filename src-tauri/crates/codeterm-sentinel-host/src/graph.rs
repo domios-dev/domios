@@ -1,4 +1,7 @@
 mod detail;
+mod mux;
+pub(crate) use mux::MuxSnapshot;
+pub use mux::MuxView;
 pub(crate) mod files;
 pub use files::FileReference;
 mod history;
@@ -60,7 +63,15 @@ pub fn validate_scope(
     workspace: &str,
     team: Option<&str>,
 ) -> Result<(), String> {
-    if mux.get_workspace(workspace).is_none() {
+    validate_view_scope(mux, workspace, team)
+}
+
+fn validate_view_scope(
+    mux: &dyn MuxView,
+    workspace: &str,
+    team: Option<&str>,
+) -> Result<(), String> {
+    if !mux.has_workspace(workspace) {
         return Err("automation workspace not found".into());
     }
     if let Some(team) = team {
@@ -210,7 +221,7 @@ fn worker(tab: &Tab, identity: &Identity) -> Value {
 
 pub fn project_worker_states(
     snapshot: &mut Snapshot,
-    mux: &MultiplexerState,
+    mux: &dyn MuxView,
     resolve: impl Fn(&Tab) -> Option<codeterm_service_core::agent::status::TabStatus>,
 ) {
     for node in &mut snapshot.nodes {
@@ -247,7 +258,7 @@ fn target(
     action: &Route,
     recorded: Option<&Identity>,
     jobs: &[Sentinel],
-    mux: &MultiplexerState,
+    mux: &dyn MuxView,
     crons: &BTreeMap<String, ConnectedCron>,
 ) -> Option<(Identity, bool)> {
     let (kind, id, owner) = match action {
@@ -301,7 +312,7 @@ fn target(
 fn add_cron(
     exact: &Identity,
     cron: &ConnectedCron,
-    mux: &MultiplexerState,
+    mux: &dyn MuxView,
     nodes: &mut BTreeMap<Identity, Value>,
     edges: &mut Vec<Value>,
     worker_statuses: &mut BTreeMap<Identity, u64>,
@@ -361,13 +372,13 @@ pub fn project(
     workspace: &str,
     team: Option<&str>,
     jobs: &[Sentinel],
-    mux: &MultiplexerState,
+    mux: &dyn MuxView,
     crons: &BTreeMap<String, ConnectedCron>,
     configured_fallback: Value,
     now_ms: u64,
     live_leases: &BTreeSet<String>,
 ) -> Result<Snapshot, String> {
-    validate_scope(mux, workspace, team)?;
+    validate_view_scope(mux, workspace, team)?;
     let mut scenarios: Vec<_> = jobs
         .iter()
         .filter(|j| {
