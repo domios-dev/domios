@@ -357,3 +357,30 @@ fn source_cards_project_retained_observation_states_and_sanitized_http_scope() {
         }
     }
 }
+
+#[test]
+fn held_pipeline_projects_why_it_is_held() {
+    let job = contract_job();
+    let mut held_row = row(8, 0, "emit", "held", None);
+    held_row.reason = Some("uncertain_pipeline_claim".into());
+    let rows = vec![
+        row(1, -1, "$run", "running", None),
+        row(2, 0, "emit", "running", None),
+        held_row,
+        row(9, -1, "$run", "held", None),
+    ];
+    let snapshot = project_snapshot(&job, &BTreeMap::from([(job.id.clone(), rows)]));
+    assert_eq!(snapshot.blueprints[0]["state"], "held");
+    assert_eq!(
+        snapshot.blueprints[0]["held_reason"],
+        "uncertain_pipeline_claim"
+    );
+
+    let mut paused = contract_job();
+    paused.machine.paused = true;
+    let snapshot = project_snapshot(&paused, &BTreeMap::new());
+    assert_eq!(snapshot.blueprints[0]["held_reason"], "paused");
+
+    let idle = project_snapshot(&contract_job(), &BTreeMap::new());
+    assert!(idle.blueprints[0].get("held_reason").is_none());
+}

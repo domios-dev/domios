@@ -130,6 +130,26 @@ pub(super) fn project_pipeline_contract(
             "last_event_at_ms":latest["last_event_at_ms"],"trigger":trigger_view(&spec.trigger),
             "steps":latest["steps"],"result":latest["result"],"runs":runs
         });
+        if state == "held" {
+            let latest_run = latest["id"].as_str();
+            let journal_reason = entries
+                .iter()
+                .find(|entry| {
+                    Some(entry.run_id.as_str()) == latest_run && entry.state == JournalState::Held
+                })
+                .and_then(|entry| entry.reason.as_ref())
+                .map(|reason| reason.as_str().to_string());
+            let held_reason = job
+                .machine
+                .held
+                .clone()
+                .or_else(|| job.machine.paused.then(|| "paused".to_string()))
+                .or_else(|| job.last_reason.clone())
+                .or(journal_reason);
+            if let Some(reason) = held_reason {
+                blueprint["held_reason"] = json!(reason);
+            }
+        }
         if matches!(
             &spec.trigger,
             codeterm_blueprint_types::blueprint_pipeline::Trigger::Event { .. }

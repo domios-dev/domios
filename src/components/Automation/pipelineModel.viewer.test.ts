@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { performance } from "node:perf_hooks";
-import { buildBlueprintGraph } from "./blueprintGraphModel";
+import { buildBlueprintGraph, nodeLabel } from "./blueprintGraphModel";
 import { blueprintNodeKey, toggleBlueprintExpansion } from "./blueprintExpansion";
 import { buildIncrementally } from "./blueprintIncremental";
 import { blueprintDiffModel } from "./blueprintDiffModel";
@@ -69,6 +69,22 @@ async function main() {
   const unproven = await build({ ...run, nodes: run.nodes.map((node) => ({ ...node, state: "failed", resultSummary: "unrelated marker" })),
     nested_run: { id: run.runId!, nodes: [] } });
   assert(unproven.nodes.filter((node) => node.definition).every((node) => node.state === "waiting" && node.resultSummary === null));
+  const finished = await build({ ...run, state: "idle", nested_run: { id: run.runId!, nodes: [
+    { step_index: -1, parent_step_index: null, step_name: "$run", state: "done" },
+    { step_index: -1, parent_step_index: null, step_name: "$result", state: "done", result_summary: "result delivered" },
+    { step_index: 0, parent_step_index: null, step_name: "probe", state: "done" },
+    { step_index: 2, parent_step_index: null, step_name: "invoke", state: "done" },
+    { step_index: 3, parent_step_index: 2, step_name: "return-count", state: "held", reason: "uncertain_pipeline_claim", call_stack: [{ node: "invoke", ...call.pin }] },
+  ] } }, new Set(expanded));
+  assert.equal(finished.nodes.find((node) => node.key === blueprintNodeKey([], "$trigger"))?.state, "done");
+  assert.equal(finished.nodes.find((node) => node.key === blueprintNodeKey([], "$result"))?.state, "done");
+  assert.equal(finished.nodes.find((node) => node.key === blueprintNodeKey([], "$result"))?.resultSummary, "result delivered");
+  assert.equal(finished.nodes.find((node) => node.key === blueprintNodeKey(["invoke"], "return-count"))?.resultSummary, "uncertain_pipeline_claim");
+  const calleeControls = finished.nodes.filter((node) => node.kind !== "step" && node.callPath?.[0] === "invoke");
+  assert(calleeControls.length >= 2);
+  const labels = finished.nodes.map((node) => nodeLabel(node));
+  assert.equal(new Set(labels).size, labels.length, `duplicate node labels: ${labels.join(", ")}`);
+  assert(nodeLabel(calleeControls.find((node) => node.kind === "result")!).includes("invoke"));
   const http = await build({ ...pipeline, call_graph: { ...document, steps: [{ id: "health", uses: "http" }, { id: "ask", uses: "ask", buckets: ["ready"] }] } });
   assert.deepEqual(http.edges.filter((edge) => edge.from === blueprintNodeKey([], "health")).map((edge) => edge.label), ["up", "down", "failed"]);
   assert.deepEqual(http.edges.filter((edge) => edge.from === blueprintNodeKey([], "ask")).map((edge) => edge.label), ["ready", "other"]);

@@ -37,6 +37,10 @@ async function main() {
     assert(button("Stop selected run").disabled);
     assert(host.querySelector('[aria-label="Recorded stop"]'));
     assert(host.querySelector('[aria-label="Selected run journal"]'));
+    assert(host.querySelectorAll('[aria-label="Selected run journal"] li').length > 0);
+    const wires = [...host.querySelectorAll('svg[aria-hidden="true"] path')].filter((path) => path.getAttribute("stroke"));
+    assert(wires.length > 0 && wires.every((path) => path.getAttribute("fill") === "none"), "wires must not be filled");
+    assert(host.querySelector('[role="group"][aria-label="Run actions"]'));
     await act(async () => button("Node invoke").click());
     assert(host.querySelector('[aria-label="Callee mem:helper"]'));
     assert.equal(button("Expand callee").getAttribute("aria-expanded"), "false");
@@ -57,6 +61,8 @@ async function main() {
     assert(!host.querySelector('[aria-label="Recorded stop"]'));
     await act(async () => button("Stop selected run").click());
     assert.equal(stopped, 1);
+    await act(async () => root.render(<BlueprintPipelineCanvas pipeline={{ ...viewerPipeline(), state: "held", heldReason: "uncertain_pipeline_claim" }} />));
+    assert(host.querySelector('[role="status"]')?.textContent?.includes("Held"));
     const unavailable = viewerPipeline();
     unavailable.runs = unavailable.runs?.map((run) => ({ ...run, pipeline: { ...run.pipeline, historical_graph_available: false, call_graph: undefined, expanded_calls: [] } }));
     await act(async () => root.render(<BlueprintPipelineCanvas pipeline={unavailable} initialRunId="past" />));
