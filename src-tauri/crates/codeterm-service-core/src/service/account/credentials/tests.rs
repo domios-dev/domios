@@ -19,7 +19,45 @@ impl LegacySource for Legacy {
 fn credentials(root: &std::path::Path) -> AccountCredentials {
     AccountCredentials {
         local: Arc::new(ProtectedCredentials::new(root)),
+        root: root.to_path_buf(),
     }
+}
+
+#[test]
+fn test_credentials_refuse_a_missing_fixture_root() {
+    assert!(credential_root(None).is_err());
+}
+
+#[tokio::test]
+async fn fixture_credentials_share_one_store_and_isolate_other_fixtures() {
+    use crate::{multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture};
+    let first = ServiceFixture::new(MultiplexerState::empty());
+    let second = ServiceFixture::new(MultiplexerState::empty());
+    let first_store = first.service.account_credentials().await.unwrap();
+    let same_store = first.service.account_credentials().await.unwrap();
+    let second_store = second.service.account_credentials().await.unwrap();
+    assert!(Arc::ptr_eq(&first_store, &same_store));
+    assert!(!Arc::ptr_eq(&first_store, &second_store));
+    CredentialStore::save(first_store.as_ref(), "local", &Secret::new("first"))
+        .await
+        .unwrap();
+    let key = credential_name("local");
+    let persisted = |root: &std::path::Path| {
+        ProtectedCredentials::new(root)
+            .load(&key)
+            .unwrap()
+            .is_some()
+    };
+    assert!(persisted(first.temp.path()));
+    assert!(!persisted(second.temp.path()));
+    CredentialStore::save(second_store.as_ref(), "local", &Secret::new("second"))
+        .await
+        .unwrap();
+    CredentialStore::delete(first_store.as_ref(), "local")
+        .await
+        .unwrap();
+    assert!(!persisted(first.temp.path()));
+    assert!(persisted(second.temp.path()));
 }
 #[tokio::test]
 async fn account_and_mesh_round_trip_without_legacy_access() {

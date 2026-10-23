@@ -8,6 +8,7 @@ pub struct AccountCell(pub Arc<tokio::sync::OnceCell<Arc<Account>>>);
 
 mod credentials;
 pub use credentials::AccountCredentials;
+pub(crate) use credentials::{AccountCredentialCell, AccountDataRoot};
 struct AnalyticsIdentity(codeterm_analytics::Worker);
 #[async_trait]
 impl codeterm_account::IdentityObserver for AnalyticsIdentity {
@@ -68,8 +69,9 @@ impl super::ServiceContext {
                 if let Ok(mesh) = self.account_mesh().await {
                     observers.push(mesh.mesh.clone());
                 }
+                #[cfg(not(any(test, feature = "test-support")))]
                 let credential_provider = provider.id().to_owned();
-                let credentials = Arc::new(AccountCredentials::new().await?);
+                let credentials = self.account_credentials().await?;
                 let account = Arc::new(
                     Account::new(
                         provider,
@@ -81,6 +83,7 @@ impl super::ServiceContext {
                     )),
                 );
                 let _ = account.refresh().await;
+                #[cfg(not(any(test, feature = "test-support")))]
                 credentials.start_migration(
                     self.secrets.clone(),
                     credential_provider,
