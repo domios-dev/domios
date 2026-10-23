@@ -4,11 +4,12 @@ import { buildBlueprintGraph, nodeLabel } from "./blueprintGraphModel";
 import { blueprintNodeKey, toggleBlueprintExpansion } from "./blueprintExpansion";
 import { buildIncrementally } from "./blueprintIncremental";
 import { blueprintDiffModel } from "./blueprintDiffModel";
-import { blueprintPipelineOutcome, canStopPipelineRun } from "./blueprintPipelineOutcome";
+import { blueprintPipelineOutcome, canStopPipelineRun, heldReasonLabel } from "./blueprintPipelineOutcome";
 import { layoutPipelineChain } from "./pipelineLayout";
 import { call, document, diff, viewerPipeline } from "./blueprintViewer.testdata";
 
 async function main() {
+  assert.equal(heldReasonLabel("uncertain_pipeline_result"), "the result delivery could not be confirmed");
   const pipeline = viewerPipeline();
   const empty = new Set<string>();
   const expanded = toggleBlueprintExpansion(empty, blueprintNodeKey([], "invoke"));
