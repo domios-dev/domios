@@ -462,3 +462,34 @@ fn shadow_residency_failed_run_can_be_discarded_then_retried_cleanly() {
     assert!(!std::path::Path::new(&shadow).exists());
     assert_eq!(top(&fx, "three").as_ref(), Some(&ids[2]));
 }
+
+#[test]
+fn recall_reembed_progress_observers_can_read_status_without_holding_connection() {
+    let (fx, _, _) = seeded(&["orchard harvest"]);
+    let mem = Arc::downgrade(&fx.mem);
+    let (observed, observations) = std::sync::mpsc::channel();
+    fx.embedder.subscribe(Arc::new(move |event| {
+        if !matches!(event, EmbedderEvent::Progress(_)) {
+            return;
+        }
+        let mem = mem.upgrade().unwrap();
+        let unlocked = mem.conn.try_lock().is_some();
+        if unlocked {
+            let _ = mem.embedder_status();
+        }
+        observed.send(unlocked).unwrap();
+    }));
+    let new = MockProvider::new("new", "new", 768);
+    fx.mem.prepare_shadow(&new.identity()).unwrap();
+    let generation =
+        fx.mem
+            .reembed
+            .start(new.identity(), fx.mem.reembed_plan().unwrap(), &fx.embedder);
+    let (beat, _) = std::sync::mpsc::channel();
+    fx.mem
+        .run_shadow(generation, crate::embedder::ActiveEmbedder::new(new), &beat)
+        .unwrap();
+    let observations: Vec<_> = observations.try_iter().collect();
+    assert!(!observations.is_empty());
+    assert!(observations.iter().all(|unlocked| *unlocked));
+}
