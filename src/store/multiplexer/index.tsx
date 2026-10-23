@@ -387,8 +387,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     attachedRemoteTabsRef.current = { ...attachedRemoteTabsRef.current, [projected.id]: projected };
     saveAttachedRemoteTabs(attachedRemoteTabsRef.current);
     applyRemoteProjection(remoteTabsFromOrdinaryProjection(Object.values(stateRef.current.tabs)));
-    dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
-    dispatch({ type: "SET_ACTIVE_TAB", workspaceId, tabId: projected.id });
+    dispatch({ type: "SET_ACTIVE_WORKSPACE", source: "program", id: workspaceId });
+    dispatch({ type: "SET_ACTIVE_TAB", source: "program", workspaceId, tabId: projected.id });
     dispatch({ type: "SET_FOCUSED_TAB", tabId: projected.id });
   }, [applyRemoteProjection]);
 
@@ -672,7 +672,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     if (precheckFreeLimit(["agent.tabs"])) return undefined;
     try {
       guardedInvoke("mux_set_active_workspace", { workspaceId }).catch(() => {});
-      dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
+      dispatch({ type: "SET_ACTIVE_WORKSPACE", source: "program", id: workspaceId });
       const ws = stateRef.current.workspaces.find((w) => w.id === workspaceId);
       const effectiveCwd = cwd || ws?.cwd || undefined;
       const tabInfo = await guardedInvoke<{ id: string; title: string }>("mux_create_tab", { workspaceId, activate: true, shell, cwd: effectiveCwd });
@@ -685,8 +685,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       // snapshot lacks, and an older in-flight snapshot would otherwise put the previous Tab back.
       const snapshot = await invoke<MultiplexerState>("mux_get_state");
       if (snapshot && snapshot.workspaces.length > 0) applyBackendState(snapshot);
-      dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
-      dispatch({ type: "SET_ACTIVE_TAB", workspaceId, tabId: tabInfo.id });
+      dispatch({ type: "SET_ACTIVE_WORKSPACE", source: "program", id: workspaceId });
+      dispatch({ type: "SET_ACTIVE_TAB", source: "program", workspaceId, tabId: tabInfo.id });
       // Explicit New Tab click focuses the new tab; background spawns don't.
       guardedInvoke("mux_set_focused_tab", { tabId: tabInfo.id }).catch(() => {});
       return { id: tabInfo.id };
@@ -700,8 +700,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       const tabInfo = await reopenClosedTab(workspaceId, index);
       dispatch({ type: "REMOVE_PENDING_CLOSE", tabIds: [tabInfo.tab_id] });
       guardedInvoke("mux_set_active_tab_and_workspace", { workspaceId, tabId: tabInfo.tab_id }).catch(() => {});
-      dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
-      dispatch({ type: "SET_ACTIVE_TAB", workspaceId, tabId: tabInfo.tab_id });
+      dispatch({ type: "SET_ACTIVE_WORKSPACE", source: "program", id: workspaceId });
+      dispatch({ type: "SET_ACTIVE_TAB", source: "program", workspaceId, tabId: tabInfo.tab_id });
       guardedInvoke("mux_set_focused_tab", { tabId: tabInfo.tab_id }).catch(() => {});
       refreshFromBackend();
     } catch (e) {
@@ -718,8 +718,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       ).map((tab) => tab.id);
       dispatch({ type: "REMOVE_PENDING_CLOSE", tabIds });
       guardedInvoke("mux_set_active_workspace", { workspaceId: result.workspace_id }).catch(() => {});
-      dispatch({ type: "SET_ACTIVE_WORKSPACE", id: result.workspace_id });
-      dispatch({ type: "SET_ACTIVE_TAB", workspaceId: result.workspace_id, tabId: result.tab_id });
+      dispatch({ type: "SET_ACTIVE_WORKSPACE", source: "program", id: result.workspace_id });
+      dispatch({ type: "SET_ACTIVE_TAB", source: "program", workspaceId: result.workspace_id, tabId: result.tab_id });
       guardedInvoke("mux_set_focused_tab", { tabId: result.tab_id }).catch(() => {});
       refreshFromBackend();
     } catch (e) {
@@ -733,8 +733,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       const result = await restoreOrphanedTab(tabId);
       dispatch({ type: "REMOVE_PENDING_CLOSE", tabIds: [tabId, result.tab_id] });
       guardedInvoke("mux_set_active_workspace", { workspaceId: result.workspace_id }).catch(() => {});
-      dispatch({ type: "SET_ACTIVE_WORKSPACE", id: result.workspace_id });
-      dispatch({ type: "SET_ACTIVE_TAB", workspaceId: result.workspace_id, tabId: result.tab_id });
+      dispatch({ type: "SET_ACTIVE_WORKSPACE", source: "program", id: result.workspace_id });
+      dispatch({ type: "SET_ACTIVE_TAB", source: "program", workspaceId: result.workspace_id, tabId: result.tab_id });
       guardedInvoke("mux_set_focused_tab", { tabId: result.tab_id }).catch(() => {});
       refreshFromBackend();
     } catch (e) {
@@ -751,7 +751,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       const s = await invoke<MultiplexerState>("mux_get_state");
       if (s && s.workspaces.length > 0) applyBackendState(s);
       // A page-owned selection ignores the daemon's active workspace, so the page selects what it created.
-      if (activate) dispatch({ type: "SET_ACTIVE_WORKSPACE", id: info.id });
+      if (activate) dispatch({ type: "SET_ACTIVE_WORKSPACE", source: "program", id: info.id });
       return info;
     } catch (e) {
       if (!raiseFreeLimit(e, "workspaces")) console.error("Failed to create workspace:", e);
@@ -761,7 +761,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
 
   const setActiveWorkspace = useCallback((id: string) => {
     guardedInvoke("mux_set_active_workspace", { workspaceId: id }).catch(() => {});
-    dispatch({ type: "SET_ACTIVE_WORKSPACE", id });
+    dispatch({ type: "SET_ACTIVE_WORKSPACE", source: "user", id });
   }, [guardedInvoke]);
 
   const closeWorkspace = useCallback(
@@ -886,8 +886,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         setPendingCommand(res.tab_id, res.launch_command);
       }
       pendingTabSwitchRef.current[res.workspace_id] = { tabId: res.tab_id };
-      dispatch({ type: "SET_ACTIVE_WORKSPACE", id: res.workspace_id });
-      dispatch({ type: "SET_ACTIVE_TAB", workspaceId: res.workspace_id, tabId: res.tab_id });
+      dispatch({ type: "SET_ACTIVE_WORKSPACE", source: "program", id: res.workspace_id });
+      dispatch({ type: "SET_ACTIVE_TAB", source: "program", workspaceId: res.workspace_id, tabId: res.tab_id });
       // Snappy local focus; backend also emits the authoritative tab-focused.
       dispatch({ type: "SET_FOCUSED_TAB", tabId: res.tab_id });
       return { workspaceId: res.workspace_id, tabId: res.tab_id };
@@ -957,8 +957,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   const setActiveTab = useCallback((workspaceId: string, tabId: string) => {
     const remote = stateRef.current.tabs[tabId];
     if (remote?.remote_peer_id) {
-      dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
-      dispatch({ type: "SET_ACTIVE_TAB", workspaceId, tabId });
+      dispatch({ type: "SET_ACTIVE_WORKSPACE", source: "user", id: workspaceId });
+      dispatch({ type: "SET_ACTIVE_TAB", source: "user", workspaceId, tabId });
       dispatch({ type: "SET_FOCUSED_TAB", tabId });
       void guardedInvoke("mux_set_focused_tab", { tabId }).catch(() => undefined);
       return;
@@ -968,8 +968,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       delete pendingTabSwitchRef.current[workspaceId];
       void restoreFromBackend();
     });
-    dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
-    dispatch({ type: "SET_ACTIVE_TAB", workspaceId, tabId });
+    dispatch({ type: "SET_ACTIVE_WORKSPACE", source: "user", id: workspaceId });
+    dispatch({ type: "SET_ACTIVE_TAB", source: "user", workspaceId, tabId });
     if (IS_WEB) dispatch({ type: "SET_FOCUSED_TAB", tabId });
   }, [guardedInvoke, restoreFromBackend]);
 
@@ -992,8 +992,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     }
     if (!tabId) return;
     guardedInvoke("mux_set_active_tab_and_workspace", { workspaceId, tabId }).catch(() => {});
-    dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
-    dispatch({ type: "SET_ACTIVE_TAB", workspaceId, tabId });
+    dispatch({ type: "SET_ACTIVE_WORKSPACE", source: "program", id: workspaceId });
+    dispatch({ type: "SET_ACTIVE_TAB", source: "program", workspaceId, tabId });
     guardedInvoke("mux_set_focused_tab", { tabId }).catch(() => {});
     dispatch({ type: "SET_FOCUSED_TAB", tabId });
   }, [guardedInvoke, applyBackendState]);
