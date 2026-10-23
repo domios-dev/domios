@@ -301,6 +301,8 @@ describe("My machines management", () => {
   });
 });
 
+const lockBadges = (row: Element | null | undefined) => Array.from(row?.querySelectorAll("[role=img]") ?? []).filter((mark) => mark.getAttribute("aria-label") === "Locked: free plan limit").length;
+
 describe("My machines over the plan's machine limit", () => {
   afterEach(() => act(() => freeLimitGate.close()));
 
@@ -314,6 +316,8 @@ describe("My machines over the plan's machine limit", () => {
     await click(button("See plans for Limit"));
     expect(freeLimitGate.current()).toMatchObject({ key: "mesh.machines", limit: 2, activeCount: 3 });
     expect(account("Limit")?.dataset.status).toBe("over_limit");
+    expect(lockBadges(account("Limit"))).toBe(1);
+    expect(lockBadges(account("Mac"))).toBe(0);
   });
 
   it("keeps a locked machine's legacy pairing listed with a plans control", async () => {
@@ -324,6 +328,7 @@ describe("My machines over the plan's machine limit", () => {
     await mount(client, "signed_in");
     const saved = row("Saved pairings", "Old box");
     expect(saved?.dataset.status).toBe("over_limit");
+    expect(lockBadges(saved)).toBe(1);
     await click(button("See plans for Old box"));
     expect(freeLimitGate.current()?.key).toBe("mesh.machines");
     expect(row("Saved pairings", "Old box")).not.toBeNull();

@@ -11,6 +11,9 @@ import type { MultiplexerState } from "../../lib/types";
 import { useMuxState } from "../../store/multiplexer";
 import { TabItem } from "../Sidebar/TabItem";
 import { TeamUnit } from "../Sidebar/TeamUnit";
+import { SidebarDnd } from "../Sidebar/sortable";
+import { WorkspaceCardGrid } from "../Sidebar/WorkspaceCardGrid";
+import { TabLockMark } from "../Terminal/TabLockMark";
 import { WorkspaceItem } from "../Sidebar/WorkspaceItem";
 import { ChatComposerSurface } from "../Terminal/ChatComposerSurface";
 import { LockedOverlay } from "./LockBadge";
@@ -32,7 +35,7 @@ afterEach(async () => {
 
 const nameOf = (element: Element) => element.getAttribute("aria-label") ?? element.textContent ?? "";
 const buttons = (name: RegExp) => Array.from(document.querySelectorAll("button")).filter((button) => name.test(nameOf(button)));
-const lockMarks = () => Array.from(document.querySelectorAll("[role=img]")).filter((mark) => / locked/.test(nameOf(mark)));
+const lockMarks = () => Array.from(document.querySelectorAll("[role=img]")).filter((mark) => /^Locked: free plan limit$/.test(nameOf(mark)));
 const click = (element: Element) => act(async () => { element.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
 
 /** Real rows over the store's state; `selected` records what a normal (unlocked) click would have navigated to. */
@@ -69,10 +72,11 @@ describe("locked items stay listed with a lock affordance", () => {
     const state = seeded();
     setLocked(state, ["ws-1", "tab-0", "team-0"], true);
     await mountRows(state);
-    expect(lockMarks().map(nameOf).sort()).toEqual([
-      "Tab locked by the free plan",
-      "Team locked by the free plan",
-      "Workspace locked by the free plan",
+    expect(lockMarks().map(nameOf)).toEqual(["Locked: free plan limit", "Locked: free plan limit", "Locked: free plan limit"]);
+    expect(lockMarks().map((mark) => mark.getAttribute("title")).sort()).toEqual([
+      "Tab locked by the free plan. Upgrade to unlock.",
+      "Team locked by the free plan. Upgrade to unlock.",
+      "Workspace locked by the free plan. Upgrade to unlock.",
     ]);
     expect(document.querySelectorAll("[data-testid=workspace-item]")).toHaveLength(3);
     expect(document.querySelectorAll("[data-testid=team-unit]")).toHaveLength(2);
@@ -83,6 +87,47 @@ describe("locked items stay listed with a lock affordance", () => {
     await mountRows(seeded());
     expect(lockMarks()).toHaveLength(0);
     expect(buttons(/^Open tab /)).toHaveLength(3);
+  });
+});
+
+/** The workspace tiles and the tab header, which read the same lock marks as the sidebar rows. */
+function Surfaces() {
+  const state = useMuxState();
+  const ordinary = state.workspaces.filter((workspace) => !workspace.protected);
+  return createElement(SidebarDnd, { onReorder: () => {} } as never,
+    createElement(WorkspaceCardGrid, {
+      workspaces: ordinary, selectedWorkspaceId: null, statuses: {}, sortIds: ordinary.map((workspace) => workspace.id),
+      onSelect: () => {}, onCreate: () => {},
+    }),
+    createElement(TabLockMark, { tab: state.tabs["tab-0"] ?? null }));
+}
+
+describe("every surface marks a locked item and clears live", () => {
+  const tiles = () => Array.from(document.querySelectorAll("[data-testid=workspace-card]"));
+  const marksIn = (element: Element) => Array.from(element.querySelectorAll("[role=img]")).map(nameOf).filter((name) => name === "Locked: free plan limit");
+
+  it("marks the locked workspace's tile and the locked tab's header, and none of the unlocked ones", async () => {
+    const state = seeded();
+    setLocked(state, ["ws-1", "tab-0"], true);
+    await mountRows(state, createElement(Surfaces));
+    expect(tiles().filter((tile) => marksIn(tile).length === 1).map((tile) => tile.getAttribute("data-workspace-id"))).toEqual(["ws-1"]);
+    expect(tiles().filter((tile) => marksIn(tile).length === 0)).toHaveLength(2);
+    expect(lockMarks().length).toBe(4);
+  });
+
+  it("shows no mark anywhere while nothing is locked", async () => {
+    await mountRows(seeded(), createElement(Surfaces));
+    expect(lockMarks()).toHaveLength(0);
+  });
+
+  it("clears the tile and header marks on the entitlement change event", async () => {
+    const state = seeded();
+    setLocked(state, ["ws-1", "tab-0"], true);
+    const { app } = await mountRows(state, createElement(Surfaces));
+    expect(lockMarks().length).toBe(4);
+    setLocked(state, ["ws-1", "tab-0"], false);
+    await app.emit("entitlement-changed", { limits: PAID_LIMITS, locks: { workspaces: [], teams: [], "agent.tabs": [] } });
+    expect(lockMarks()).toHaveLength(0);
   });
 });
 
@@ -175,7 +220,7 @@ describe("a locked workspace locks the tabs inside it", () => {
 
   it("marks every tab row, lists them all, and a click opens the workspaces modal", async () => {
     const { selected } = await mountRows(lockedWorkspace());
-    expect(lockMarks().map(nameOf).filter((name) => /^Tab locked/.test(name))).toHaveLength(3);
+    expect(lockMarks().map((mark) => mark.getAttribute("title") ?? "").filter((title) => /^Tab locked: its workspace/.test(title))).toHaveLength(3);
     expect(buttons(/^Open tab /)).toHaveLength(3);
     await click(buttons(/^Open tab tab-2$/)[0]);
     expect(modalLine()).toBe(WORKSPACES);

@@ -13,6 +13,9 @@ import {
   type SelfRowView,
 } from "./accountMachines";
 import { openLockedMachinePlans, openOnMeshRefusal } from "../billing/accountMeshLimit";
+import { LockBadge } from "../billing/LockBadge";
+import { lockedDimClass } from "../billing/freeLimitModel";
+import { meshMachineLockedView } from "../billing/lockSurfaces";
 import {
   linkFailure,
   useAccountMeshClient,
@@ -393,6 +396,7 @@ function MachineRow({ row, busy, confirm, register, onAdd, onPlans, onAskConfirm
   const pill = STATUS_PILL[row.status];
   const { add, revoke, unpairInstanceId } = row.controls;
   const linking = row.status === "linking";
+  const lock = meshMachineLockedView(row);
   return (
     <li aria-label={row.name} data-status={row.status} className="ct-row p-3 flex flex-col gap-1.5">
       <div className="flex items-center justify-between gap-2">
@@ -401,7 +405,8 @@ function MachineRow({ row, busy, confirm, register, onAdd, onPlans, onAskConfirm
             aria-hidden="true"
             className={`w-2 h-2 rounded-full flex-shrink-0 ${row.online ? "bg-[var(--ct-green)]" : "border border-[var(--ct-muted)]"}`}
           />
-          <span className="text-sm text-[var(--ct-fg)] truncate">{row.name}</span>
+          <span className={`text-sm text-[var(--ct-fg)] truncate ${lockedDimClass(lock)}`}>{row.name}</span>
+          <LockBadge view={lock} />
           <SettingsPill tone={pill.tone}>{pill.label}</SettingsPill>
         </div>
         {!confirm && (

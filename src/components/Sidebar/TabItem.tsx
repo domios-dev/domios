@@ -42,6 +42,7 @@ import { ChecklistToggleButton, type ChecklistToggle } from "./AgentChecklist";
 import { LockBadge } from "../billing/LockBadge";
 import { openLockedPlans } from "../billing/freeLimitGate";
 import { useTabLock } from "../billing/useTabLock";
+import { lockedDimClass } from "../billing/freeLimitModel";
 
 interface TabItemProps {
   tab: Tab;
@@ -438,7 +439,7 @@ function TabItemInner({
         className={`sidebar-tab-activation flex flex-1 items-center min-w-0 relative z-[1] border-0 bg-transparent p-0 text-left text-inherit font-inherit cursor-pointer ${touchMode ? "gap-2.5" : "gap-2"}`}
       >
       <div className={`sidebar-tab-body flex-1 min-w-0 ${touchMode ? "gap-x-2.5" : "gap-x-2"}`}>
-        <span data-testid="tab-tab-icon" className="sidebar-tab-body__icon relative leading-none">
+        <span data-testid="tab-tab-icon" className={`sidebar-tab-body__icon relative leading-none ${lockedDimClass(lock)}`}>
           {provider ? (
             <ProviderGlyph
               iconSvg={provider.iconSvg}
@@ -463,7 +464,7 @@ function TabItemInner({
         <span className="sidebar-tab-body__title flex min-w-0 items-center gap-1.5">
           <span
             data-testid="tab-title"
-            className={`${touchMode && !attachment ? tabTouchText : tabText} block truncate min-w-0 ${attachment && !isActive ? "text-[var(--ct-muted-fg)]" : "text-[var(--ct-fg)]"} ${isActive ? "font-medium" : ""}`}
+            className={`${touchMode && !attachment ? tabTouchText : tabText} block truncate min-w-0 ${attachment && !isActive ? "text-[var(--ct-muted-fg)]" : "text-[var(--ct-fg)]"} ${isActive ? "font-medium" : ""} ${lockedDimClass(lock)}`}
             onDoubleClick={(e) => {
               if (tab?.protected) return; // Main is unrenameable
               e.stopPropagation();
