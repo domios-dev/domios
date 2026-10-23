@@ -128,3 +128,47 @@ it("refreshes Mesh inventory from events and keeps known rows across failures", 
     __setListenForTest(null);
   }
 });
+
+it("surfaces a timed-out peer load as an error and releases the refresh for the next cycle", async () => {
+  installDom();
+  configureDaemonTransport({ origin: "http://localhost", token: "mesh-timeout-fixture" });
+  setFrontendCacheStorageForTests(new FakeStorage());
+  localStorage.clear();
+  let peersTimeOut = true;
+  const peer = {
+    instance_id: "peer-1", instance_name: "Peer", addresses: [], api_port: 7685, online: true,
+    access_level: "full", last_seen: null, relay_protocol_version: 2,
+  };
+  __setListenForTest(async () => () => {});
+  __setInvokeForTest(async <T,>(command: string): Promise<T> => {
+    if (command === "mesh_inventory_list") return { resources: [] } as T;
+    if (command === "mesh_get_status") return { instance_name: "Local" } as T;
+    if (command === "mesh_list_peers") {
+      if (peersTimeOut) throw new DOMException("signal timed out", "TimeoutError");
+      return { paired: [peer] } as T;
+    }
+    if (command === "mesh_peer_services_list") {
+      return { services: [], stale: false, fetched_at: null, peer_online: true, error: null } as T;
+    }
+    throw new Error(command);
+  });
+  let state: MeshDataResult | undefined;
+  function Probe() {
+    state = useMeshData(0);
+    return null;
+  }
+  const view = await mount(<Probe />);
+  try {
+    await settle(() => state?.loading === false && state.error !== null);
+    assert.match(String(state?.error), /timed out/);
+    assert.equal(state?.peers.length, 0);
+    peersTimeOut = false;
+    await act(async () => { await state?.refresh(); });
+    assert.equal(state?.error, null);
+    assert.deepEqual(state?.peers.map((candidate) => candidate.instance_id), ["peer-1"]);
+  } finally {
+    await view.close();
+    __setInvokeForTest(null);
+    __setListenForTest(null);
+  }
+});

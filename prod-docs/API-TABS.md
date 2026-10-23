@@ -176,6 +176,9 @@ Custom themes are `.toml` files in `~/.domios/themes/` on every platform.
 | POST | `/api/mesh/relay-to` | `{target_peer_id, method, path, body}` | Local browser gateway call: a signed relay request that never exposes the target token. Requires a supported relay protocol version (`1` or `2`). |
 | POST | `/api/mesh/rpc` | `{method, params, request_id}` | Execute allowlisted plan/spec/task/team JSON-RPC through the peer's in-process dispatcher. Requires full peer access and deduplicates by request ID. |
 | GET | `/api/mesh/relay-stream` | `?peer=<id>&path=<streamable>&since=<cursor>` | Browser→local byte-pipe of a peer's own `/api/events/stream` or `/api/output/stream`, cursor-resumed and un-timed. Peer unreachable → `504` `peer-unreachable`. |
+| GET | `/api/stream-mux` | `?session=<id>` | The browser's single multiplexed SSE. Channels added below ride it as frames tagged `{channel, data|open|activity|end}`, so HTTP/1.1 keeps sockets free for REST. Closing it releases every channel. |
+| POST | `/api/stream-mux/{session}/channels` | `{channel, path}` | Attach a `relay-stream` or `/api/output/stream` path as a channel; its frames, cursor and refusal arrive on the session stream. Unknown session → `410`. |
+| DELETE | `/api/stream-mux/{session}/channels/{channel}` | — | Release one channel (idempotent). |
 | GET | `/api/mesh/relay-asset/{peer}/{*path}` | `?token=<LOCAL>` | Read-only, `plugins/{id}/ui/*`-scoped byte proxy for a peer's plugin-UI iframe. |
 | DELETE | `/api/mesh/peers/{id}` | — | Remove a peer (signed by that peer over an open edge; used by `mesh exit`) |
 | POST | `/api/mesh/refresh` | — | Refresh local addresses and announce to peers |
@@ -201,4 +204,4 @@ Mesh-disabled gate (503), peer access levels with spawned-tab ownership, and the
 
 Memory item, graph, calibration, and worker endpoints: `domios docs API-MEMORY`.
 
-<!-- revision: 65 -->
+<!-- revision: 66 -->
