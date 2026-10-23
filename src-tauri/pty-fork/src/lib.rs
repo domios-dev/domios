@@ -329,7 +329,27 @@ impl ChildKiller for ProcessSignaller {
 }
 
 #[cfg(unix)]
+fn kill_process_group(pid: Option<u32>) -> IoResult<()> {
+    let pid = pid
+        .filter(|pid| *pid > 1 && *pid <= i32::MAX as u32)
+        .ok_or_else(|| std::io::Error::other("invalid PTY process group"))?;
+    if unsafe { libc::kill(-(pid as i32), libc::SIGKILL) } == 0 {
+        return Ok(());
+    }
+    let error = std::io::Error::last_os_error();
+    if error.raw_os_error() == Some(libc::ESRCH) {
+        Ok(())
+    } else {
+        Err(error)
+    }
+}
+
+#[cfg(unix)]
 impl ChildKiller for ProcessSignaller {
+    fn kill_tree(&mut self) -> IoResult<()> {
+        kill_process_group(self.pid)
+    }
+
     fn kill(&mut self) -> IoResult<()> {
         if let Some(pid) = self.pid {
             let result = unsafe { libc::kill(pid as i32, libc::SIGHUP) };
@@ -348,21 +368,7 @@ impl ChildKiller for ProcessSignaller {
 impl ChildKiller for std::process::Child {
     #[cfg(unix)]
     fn kill_tree(&mut self) -> IoResult<()> {
-        if self.try_wait()?.is_some() {
-            return Ok(());
-        }
-        let pid = self.id();
-        if pid <= 1 || pid > i32::MAX as u32 {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "invalid PTY process group",
-            ));
-        }
-        if unsafe { libc::kill(-(pid as i32), libc::SIGKILL) } == 0 {
-            Ok(())
-        } else {
-            Err(std::io::Error::last_os_error())
-        }
+        kill_process_group(Some(self.id()))
     }
 
     fn kill(&mut self) -> IoResult<()> {
