@@ -309,9 +309,14 @@ impl Store {
             at: authored_at,
             previous_definition: Some(Box::new(DefinitionSnapshot::from_job(&current))),
         });
-        if next.amendments.len() > MAX_AMENDMENTS {
-            next.amendments.remove(0);
-        }
+        let kept = if self.backend.is_json() {
+            MAX_AMENDMENTS
+        } else {
+            // Typed Storage keeps earlier versions in definition history; the stage carries its head.
+            1
+        };
+        let excess = next.amendments.len().saturating_sub(kept);
+        next.amendments.drain(..excess);
         if let Err(error) = self.association_ids(&next) {
             return Staged::ready(Err(error));
         }

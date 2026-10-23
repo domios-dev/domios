@@ -27,6 +27,7 @@ mod decision_detail;
 mod graph_fields;
 mod pipeline_journal;
 mod races;
+mod stop_containment;
 
 /// Failure bound around event waits only; elapsed time never signals readiness.
 const DEADLINE: Duration = Duration::from_secs(30);
