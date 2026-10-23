@@ -1,7 +1,14 @@
 use crate::assets::{self, Layout};
-use crate::schema::{open_existing, SCHEMA_VERSION};
+use crate::schema::{blueprint_calls, open_existing, MIGRATIONS};
 use crate::{Storage, StorageConfig};
 use rusqlite::{params, Connection, OpenFlags};
+
+fn version_before_run_identity() -> i32 {
+    MIGRATIONS
+        .iter()
+        .position(|migration| *migration == blueprint_calls::RUN_IDENTITY_SCHEMA)
+        .unwrap() as i32
+}
 fn raw(root: &std::path::Path) -> Connection {
     let layout = Layout::of_root(&assets::canonical_dir(root).unwrap());
     open_existing(&layout.database, OpenFlags::SQLITE_OPEN_READ_WRITE).unwrap()
@@ -15,7 +22,7 @@ fn blueprint_v2_surface_upgrade_removes_only_old_graphs_and_history_and_reopens_
             .unwrap()
             .as_nanos()
     ));
-    Storage::create_at_schema_version(&root, SCHEMA_VERSION - 1).unwrap();
+    Storage::create_at_schema_version(&root, version_before_run_identity()).unwrap();
     let conn = raw(&root);
     conn.execute("INSERT INTO workspaces(id,ordinal,name,protected,task_key_next,revision) VALUES ('unrelated',0,'Keep workspace',0,0,1)",[]).unwrap();
     let document = serde_json::json!({"schema_version":2,"kind":"watch","name":"retained-watch","steps":[{"id":"source","uses":"probe","with":{"command":{"lit":"echo ready"}},"timeout":{"lit":"1h"}},{"id":"decide","uses":"ask","with":{"question":{"lit":"ready?"}},"buckets":["ready"],"matches":{"ready":{"lit":"ready"}}}]});
@@ -139,7 +146,7 @@ fn blueprint_v2_check_upgrade_keeps_obsolete_definition_receipt() {
             .unwrap()
             .as_nanos()
     ));
-    Storage::create_at_schema_version(&root, SCHEMA_VERSION - 1).unwrap();
+    Storage::create_at_schema_version(&root, version_before_run_identity()).unwrap();
     let conn = raw(&root);
     conn.execute("INSERT INTO blueprints(id,ordinal,creator_tab_id,workspace_id,cwd,agent_authored,revision) VALUES ('old',0,'author','workspace','.',0,1)", []).unwrap();
     conn.execute("INSERT INTO blueprint_definitions(blueprint_id,version,provenance,name,source_kind,probe,question,interval_ms,max_transitions,max_actions,created_revision) VALUES ('old',1,'authored','obsolete','probe','opaque-old-command','old?',20000,8,8,1)", []).unwrap();
