@@ -63,13 +63,14 @@ fn lock_state_follows_free_paid_free_without_restart() {
 }
 
 #[test]
-fn unchanged_gate_emits_nothing_and_this_build_stays_dormant() {
+fn unchanged_gate_emits_nothing_and_this_build_enforces_free_before_billing() {
     let (mux, newest) = three_workspaces();
     let fixture = ServiceFixture::new(mux);
     fixture.service.sync_limit_gate();
-    assert_eq!(entitlement_events(&fixture), 0);
-    assert!(fixture.service.locks().workspaces.is_empty());
-    assert!(!fixture.service.is_locked(LimitKey::Workspaces, &newest));
+    assert_eq!(entitlement_events(&fixture), 1);
+    assert!(fixture.service.is_locked(LimitKey::Workspaces, &newest));
+    fixture.service.sync_limit_gate();
+    assert_eq!(entitlement_events(&fixture), 1);
 }
 
 fn locked_and_sibling_tabs() -> (MultiplexerState, String, String) {
@@ -151,4 +152,21 @@ fn dormant_gate_never_refuses_a_write() {
         .service
         .require_tab_input_allowed(&locked, None)
         .is_ok());
+}
+
+#[test]
+fn service_metadata_writes_on_locked_items_refuse() {
+    let (mut mux, newest) = three_workspaces();
+    let tab = mux.create_tab(&newest).unwrap();
+    let fixture = ServiceFixture::new(mux);
+    let svc = &fixture.service;
+    svc.apply_limit_gate(LimitGate::new(compiled_free(), true));
+    for result in [
+        svc.rename_workspace(&newest, "Renamed"),
+        svc.rename_tab(&tab, "Renamed"),
+        svc.set_tab_title(&tab, "Renamed"),
+        svc.set_tab_description(&tab, "Renamed"),
+    ] {
+        assert!(result.unwrap_err().starts_with(PLAN_LIMIT_LOCKED));
+    }
 }

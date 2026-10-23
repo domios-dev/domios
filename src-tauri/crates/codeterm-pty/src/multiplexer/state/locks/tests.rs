@@ -106,3 +106,28 @@ fn writes_into_a_locked_workspace_tab_or_team_are_refused_and_reads_stay() {
     assert!(mux.tab_write_lock(&tab).is_none());
     assert!(mux.create_tab(&ids[2]).is_ok());
 }
+
+#[test]
+fn locked_tab_and_workspace_metadata_refuse_and_keep_their_values() {
+    let (mut mux, _, ids) = three_workspaces();
+    let tab = mux.create_tab(&ids[2]).unwrap();
+    mux.rename_tab(&tab, "Before").unwrap();
+    mux.set_tab_description(&tab, Some("before".into()))
+        .unwrap();
+    mux.set_limit_gate(free());
+    let locked = |result: Result<(), String>| {
+        assert!(result
+            .unwrap_err()
+            .starts_with(codeterm_entitlements::PLAN_LIMIT_LOCKED));
+    };
+    locked(mux.rename_tab(&tab, "After"));
+    locked(mux.rename_tab_at_level(&tab, "After", crate::multiplexer::types::TitleLevel::Agent));
+    locked(mux.set_tab_description(&tab, Some("after".into())));
+    locked(mux.rename_workspace(&ids[2], "After"));
+    let kept = mux.get_tab(&tab).unwrap();
+    assert_eq!(kept.title, "Before");
+    assert_eq!(kept.description.as_deref(), Some("before"));
+    assert!(mux.rename_workspace(&ids[0], "Unlocked").is_ok());
+    mux.set_limit_gate(LimitGate::dormant());
+    assert!(mux.rename_tab(&tab, "After").is_ok());
+}
