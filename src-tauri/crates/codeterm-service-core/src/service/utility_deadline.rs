@@ -1,29 +1,26 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::{mpsc, LazyLock};
+use std::sync::{mpsc, Arc, LazyLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
-use super::utility_deadline_model::{
-    deadline_from_start, elapsed_seconds, parse_timeout, DeadlineAction, DeadlineModel,
-};
+use super::utility_deadline_model::{elapsed_seconds, parse_timeout, DeadlineModel};
 use super::ServiceContext;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Deadline {
     tab_id: String,
     owner: String,
-    started_ms: u64,
-    deadline_ms: u64,
+    #[serde(flatten)]
+    model: DeadlineModel,
     command: Option<String>,
-    #[serde(default)]
-    command_started_ms: Option<u64>,
 }
 
 pub struct Armed {
     deadline: Deadline,
-    cancel: mpsc::Sender<()>,
+    cancel: Option<mpsc::Sender<()>>,
+    generation: Arc<()>,
 }
 
 static ARMED: LazyLock<Mutex<HashMap<String, Armed>>> =
@@ -48,43 +45,7 @@ fn path(service: &ServiceContext, tab_id: &str) -> std::path::PathBuf {
         .join(format!("{tab_id}.json"))
 }
 
-impl Deadline {
-    fn same_run(&self, other: &Self) -> bool {
-        self.started_ms == other.started_ms && self.deadline_ms == other.deadline_ms
-    }
-
-    fn command_started(&mut self, command: Option<&str>, started_ms: u64) {
-        self.command = command.map(str::to_string);
-        self.command_started_ms = Some(started_ms);
-    }
-
-    fn renewed(&self, started_ms: u64) -> Result<Self, String> {
-        let duration = self.deadline_ms.saturating_sub(self.started_ms);
-        Ok(Self {
-            started_ms,
-            deadline_ms: deadline_from_start(started_ms, duration)?,
-            command: None,
-            command_started_ms: None,
-            ..self.clone()
-        })
-    }
-}
-
 impl ServiceContext {
-    pub(crate) fn renew_utility_timeout(&self, tab_id: &str) -> Result<(), String> {
-        let mut armed = ARMED.lock();
-        if EXPIRING.lock().contains(tab_id) {
-            return Err("shell deadline already expired".into());
-        }
-        if let Some(previous) = armed.get(tab_id) {
-            let deadline = previous.deadline.renewed(now_ms())?;
-            persist(self, &deadline)?;
-            arm(self, deadline, &mut armed)?;
-        }
-        COMMANDS.lock().remove(tab_id);
-        Ok(())
-    }
-
     pub(crate) fn utility_deadline_snapshot(&self, tab_id: &str) -> Option<serde_json::Value> {
         ARMED
             .lock()
@@ -110,7 +71,7 @@ impl ServiceContext {
         }
         let mut armed = ARMED.lock();
         if EXPIRING.lock().contains(tab_id) {
-            return Err("shell deadline already expired".into());
+            return Err("command timeout is stopping this shell's command".into());
         }
         let previous = armed.get(tab_id);
         let owned = previous.map(|entry| entry.deadline.owner.as_str()).or(tab
@@ -128,30 +89,23 @@ impl ServiceContext {
         {
             return Err("timeout requires a live owning agent".into());
         }
-        let Some(duration) = duration else {
-            remove_deadline(self, tab_id, &mut armed)?;
-            return Ok(());
-        };
-        let started_ms = now_ms();
+        if tab.purpose == crate::multiplexer::types::ShellPurpose::Dev && duration.is_some() {
+            return Err("dev servers do not support command timeouts".into());
+        }
+        if duration.is_none() {
+            return remove_deadline(self, tab_id, &mut armed);
+        }
+        let mut model = DeadlineModel::default();
+        model.set_timeout(duration)?;
         let current = COMMANDS.lock().get(tab_id).cloned();
+        if let Some((_, started)) = &current {
+            model.command_started(*started)?;
+        }
         let deadline = Deadline {
             tab_id: tab_id.into(),
             owner: owner.into(),
-            started_ms,
-            deadline_ms: deadline_from_start(started_ms, duration)?,
-            command_started_ms: current
-                .as_ref()
-                .map(|(_, started)| *started)
-                .or_else(|| previous.and_then(|entry| entry.deadline.command_started_ms)),
-            command: current.map(|(command, _)| command).unwrap_or_else(|| {
-                previous
-                    .and_then(|entry| entry.deadline.command.clone())
-                    .or_else(|| {
-                        tab.close_restore
-                            .as_ref()
-                            .and_then(|state| state.command.clone())
-                    })
-            }),
+            model,
+            command: current.and_then(|(command, _)| command),
         };
         persist(self, &deadline)?;
         arm(self, deadline, &mut armed)?;
@@ -160,13 +114,10 @@ impl ServiceContext {
 
     pub(crate) fn cancel_utility_timeout(&self, tab_id: &str) -> Result<(), String> {
         let mut armed = ARMED.lock();
-        if EXPIRING.lock().contains(tab_id) {
-            return Ok(());
-        }
         remove_deadline(self, tab_id, &mut armed)
     }
 
-    pub fn prepare_utility_command(&self, tab_id: &str, command: &str) {
+    pub fn prepare_utility_command(&self, tab_id: &str, _command: &str) {
         {
             let mut mux = self.mux.write();
             if let Some(tab) = mux.get_tab_mut(tab_id).filter(|tab| tab.is_utility_shell()) {
@@ -174,7 +125,6 @@ impl ServiceContext {
                 tab.shell_command_state = Default::default();
             }
         }
-        self.utility_command_started(tab_id, Some(command));
     }
 
     pub(crate) fn utility_command_started(&self, tab_id: &str, command: Option<&str>) {
@@ -187,13 +137,39 @@ impl ServiceContext {
             return;
         }
         let mut armed = ARMED.lock();
+        if EXPIRING.lock().contains(tab_id) {
+            return;
+        }
         let started = now_ms();
         COMMANDS
             .lock()
             .insert(tab_id.into(), (command.map(str::to_string), started));
-        if let Some(entry) = armed.get_mut(tab_id) {
-            entry.deadline.command_started(command, started);
+        let Some(entry) = armed.get(tab_id) else {
+            return;
+        };
+        let mut deadline = entry.deadline.clone();
+        deadline.command = command.map(str::to_string);
+        let result = deadline
+            .model
+            .command_started(started)
+            .and_then(|()| arm(self, deadline.clone(), &mut armed))
+            .and_then(|()| persist(self, &deadline));
+        if let Err(error) = result {
+            log::error!("[utility-timeout] command deadline failed: {error}");
         }
+    }
+
+    pub(crate) fn utility_command_finished(&self, tab_id: &str) -> Result<(), String> {
+        let mut armed = ARMED.lock();
+        COMMANDS.lock().remove(tab_id);
+        let Some(entry) = armed.get(tab_id) else {
+            return Ok(());
+        };
+        let mut deadline = entry.deadline.clone();
+        deadline.model.command_finished();
+        deadline.command = None;
+        arm(self, deadline.clone(), &mut armed)?;
+        persist(self, &deadline)
     }
 
     pub(crate) fn forget_utility_command(&self, tab_id: &str) {
@@ -207,45 +183,20 @@ impl ServiceContext {
             self.forget_utility_command(&deadline.tab_id);
             return;
         };
-        let activity = if tab.restored_from_snapshot
-            && tab.shell_command_state.activity == crate::multiplexer::types::ShellActivity::Unknown
-        {
-            crate::multiplexer::types::ShellActivity::Unknown
-        } else if tab.pty_id.is_none() && !tab.utility_command_pending {
-            crate::multiplexer::types::ShellActivity::Idle
-        } else if tab.utility_command_pending {
-            crate::multiplexer::types::ShellActivity::Unknown
-        } else {
-            tab.shell_command_state.activity
-        };
-        let mut model = DeadlineModel::default();
-        model.reset(Some(deadline.deadline_ms));
-        let action = model.expire(now_ms().max(deadline.deadline_ms), activity);
-        let result = self.close_tab_with_reason(
-            &deadline.tab_id,
-            crate::multiplexer::types::TabCloseReason::UtilityTimeout,
+        let elapsed = deadline
+            .model
+            .started_ms
+            .map(|started| elapsed_seconds(started, now_ms()));
+        let result = self.restart_shell_tab(&deadline.tab_id, None, None);
+        let message = format!(
+            "Shell {} ({}) timed out; purpose: {}; running command: {}; command elapsed: {:.1}s; deadline_ms: {}; {}",
+            tab.title, tab.id, tab.purpose.as_str(),
+            deadline.command.as_deref().unwrap_or("unknown"),
+            elapsed.unwrap_or_default(), deadline.model.deadline_ms.unwrap_or_default(),
+            result.err().map(|error| format!("stop failed: {error}"))
+                .unwrap_or_else(|| "command stopped; tab remains open".into())
         );
-        if action == Some(DeadlineAction::TerminateAndNotice) || result.is_err() {
-            let command = deadline.command;
-            let message = format!(
-                "Shell {} ({}) timed out; purpose: {}; running command: {}; shell lifetime elapsed: {:.1}s; command elapsed: {}; started_ms: {}; deadline_ms: {}{}",
-                tab.title,
-                tab.id,
-                tab.purpose.as_str(),
-                command.as_deref().unwrap_or("unknown"),
-                elapsed_seconds(deadline.started_ms, now_ms()),
-                deadline.command_started_ms
-                    .map(|started| format!("{:.1}s", elapsed_seconds(started, now_ms())))
-                    .unwrap_or_else(|| "unknown".into()),
-                deadline.started_ms,
-                deadline.deadline_ms,
-                result
-                    .err()
-                    .map(|error| format!("; close failed: {error}"))
-                    .unwrap_or_default()
-            );
-            self.utility_timeout_notice(&deadline.owner, &message);
-        }
+        self.utility_timeout_notice(&deadline.owner, &message);
     }
 
     fn utility_timeout_notice(&self, owner: &str, message: &str) {
@@ -282,49 +233,61 @@ fn remove_deadline(
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => return Err(error.to_string()),
     }
-    if let Some(previous) = armed.remove(tab_id) {
-        let _ = previous.cancel.send(());
+    if let Some(cancel) = armed.remove(tab_id).and_then(|entry| entry.cancel) {
+        let _ = cancel.send(());
     }
     Ok(())
 }
 
-pub fn arm(
+fn arm(
     service: &ServiceContext,
     deadline: Deadline,
     armed: &mut HashMap<String, Armed>,
 ) -> Result<(), String> {
-    let (cancel, cancelled) = mpsc::channel();
-    let service = service.clone();
-    let waiting = deadline.clone();
-    std::thread::Builder::new()
-        .name("utility-deadline".into())
-        .spawn(move || {
-            let remaining = Duration::from_millis(waiting.deadline_ms.saturating_sub(now_ms()));
-            if cancelled.recv_timeout(remaining) != Err(mpsc::RecvTimeoutError::Timeout) {
-                return;
-            }
-            // Serialize expiry with resets so an expired generation cannot close an extended shell.
-            let mut armed = ARMED.lock();
-            let Some(entry) = armed.get(&waiting.tab_id) else {
-                return;
-            };
-            if !entry.deadline.same_run(&waiting) {
-                return;
-            }
-            let expired = entry.deadline.clone();
-            EXPIRING.lock().insert(waiting.tab_id.clone());
-            armed.remove(&waiting.tab_id);
-            drop(armed);
-            service.expire_utility_timeout(expired);
-            let mut armed = ARMED.lock();
-            if let Err(error) = remove_deadline(&service, &waiting.tab_id, &mut armed) {
-                log::error!("[utility-timeout] expired deadline cleanup failed: {error}");
-            }
-            EXPIRING.lock().remove(&waiting.tab_id);
-        })
-        .map_err(|e| e.to_string())?;
-    if let Some(previous) = armed.insert(deadline.tab_id.clone(), Armed { deadline, cancel }) {
-        let _ = previous.cancel.send(());
+    let generation = Arc::new(());
+    let cancel = if let Some(deadline_ms) = deadline.model.deadline_ms {
+        let (cancel, cancelled) = mpsc::channel();
+        let service = service.clone();
+        let waiting = deadline.clone();
+        let generation = generation.clone();
+        std::thread::Builder::new()
+            .name("utility-deadline".into())
+            .spawn(move || {
+                let remaining = Duration::from_millis(deadline_ms.saturating_sub(now_ms()));
+                if cancelled.recv_timeout(remaining) != Err(mpsc::RecvTimeoutError::Timeout) {
+                    return;
+                }
+                let armed = ARMED.lock();
+                let Some(entry) = armed.get(&waiting.tab_id) else {
+                    return;
+                };
+                if !Arc::ptr_eq(&entry.generation, &generation)
+                    || !entry.deadline.model.expired(now_ms().max(deadline_ms))
+                {
+                    return;
+                }
+                EXPIRING.lock().insert(waiting.tab_id.clone());
+                drop(armed);
+                service.expire_utility_timeout(waiting.clone());
+                EXPIRING.lock().remove(&waiting.tab_id);
+            })
+            .map_err(|e| e.to_string())?;
+        Some(cancel)
+    } else {
+        None
+    };
+    if let Some(cancel) = armed
+        .insert(
+            deadline.tab_id.clone(),
+            Armed {
+                deadline,
+                cancel,
+                generation,
+            },
+        )
+        .and_then(|entry| entry.cancel)
+    {
+        let _ = cancel.send(());
     }
     Ok(())
 }
@@ -355,7 +318,8 @@ pub fn restore(service: &ServiceContext) {
             let bytes = std::fs::read(entry.path()).map_err(|e| e.to_string())?;
             let mut deadline: Deadline =
                 serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
-            if service.mux.read().get_tab(&deadline.tab_id).is_none() {
+            let tab = service.mux.read().get_tab(&deadline.tab_id).cloned();
+            if tab.is_none() {
                 service.utility_timeout_notice(
                     &deadline.owner,
                     &format!(
@@ -366,8 +330,25 @@ pub fn restore(service: &ServiceContext) {
                 );
                 return remove_deadline(service, &deadline.tab_id, &mut ARMED.lock());
             }
+            if !tab.is_some_and(|tab| {
+                tab.is_utility_shell()
+                    && tab.purpose != crate::multiplexer::types::ShellPurpose::Dev
+            }) {
+                return remove_deadline(service, &deadline.tab_id, &mut ARMED.lock());
+            }
+            if deadline.model.started_ms.is_some() {
+                service.utility_timeout_notice(
+                    &deadline.owner,
+                    &format!(
+                        "Shell {} running command lost during daemon restart; command: {}",
+                        deadline.tab_id,
+                        deadline.command.as_deref().unwrap_or("unknown")
+                    ),
+                );
+            }
             deadline.command = None;
-            deadline.command_started_ms = None;
+            deadline.model.command_finished();
+            persist(service, &deadline)?;
             arm(service, deadline, &mut ARMED.lock())
         });
         if let Err(error) = result {

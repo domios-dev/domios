@@ -1,4 +1,4 @@
-Utility shells: `domios tab new --team <team-id> --purpose build|qa|dev`; build/QA take `--timeout 30m`, servers none. Stay within your assignment.
+Utility shells: `domios tab new --team <team-id> --purpose build|qa|dev`; build/QA take `--timeout 60m`, servers none. Stay within your assignment.
 
 - Leaf: propose child tasks in a `partial` report; never spawn sub-Workers or provider-native subagents/background tasks (they can edit canonical). `blocked` is only for an external owner decision.
 - Batch related edits, then run the applicable focused checks once; each failure gets one fix round that rechecks only what failed. No broad suites, builds or releases without an assignment. A busy verification resource is a refusal: report it, never poll or retry.
