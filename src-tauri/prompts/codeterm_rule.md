@@ -1,4 +1,4 @@
-Set `--timeout 30m` on utility shells for tests, QA and builds; leave it unset for servers.
+Set `--timeout 60m` as a per-command bound on utility shells for tests, QA and builds; leave it unset for servers.
 
 ## Domios Terminal
 
@@ -66,4 +66,4 @@ Where a credential lives depends on whose it is. Domios's own credentials, anyth
 
 Telegram setup and config options are in the `codeterm` skill; `domios config get/set` reads and writes config. Agent-to-agent communication (task prompts, `--task` arguments, reports, mesh messages, cron tasks) is in English; reply to the user in their language.
 
-<!-- revision: 34 -->
+<!-- revision: 35 -->

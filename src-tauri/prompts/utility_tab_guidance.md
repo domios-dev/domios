@@ -1,1 +1,1 @@
-Utility tabs: `domios tab new --team <team-id> --purpose build|qa|dev --description "..."`; build and QA tabs take `--timeout 30m`, dev servers none. Reuse an idle tab with `domios tab restart` and close it when done. Watch repeated status with a Blueprint, never a polling loop.
+Utility tabs: `domios tab new --team <team-id> --purpose build|qa|dev --description "..."`; build and QA tabs take `--timeout 60m`, dev servers none. Reuse an idle tab with `domios tab restart` and close it when done. Watch repeated status with a Blueprint, never a polling loop.

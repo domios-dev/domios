@@ -118,7 +118,7 @@ pub enum TabAction {
     /// Plain shell tab, inheriting the calling tab's workspace and Team. For an
     /// AI tab use `domios agent spawn`.
     New {
-        /// Agent-owned shell lifetime: positive duration (30s, 10m, 2h), or none.
+        /// Agent-owned per-command timeout (60m recommended), or none; dev servers take none.
         /// Requires a live creating agent (CODETERM_TAB_ID); omit for human shells.
         #[arg(long, conflicts_with_all = ["chat_backend", "list_shells"])]
         timeout: Option<String>,
@@ -172,7 +172,7 @@ pub enum TabAction {
         #[arg(long, value_name = "JSON")]
         config: Option<String>,
     },
-    /// Reset an owned utility shell's lifetime from now, or disable it with none.
+    /// Bound current and future commands from each command start, or disable with none.
     Timeout {
         #[arg(long = "tab", value_name = "ID")]
         tab: Option<String>,
@@ -205,7 +205,7 @@ pub enum TabAction {
         /// Command to execute after the replacement shell is ready.
         #[arg(long, allow_hyphen_values = true)]
         cmd: Option<String>,
-        /// Fresh shell lifetime (30s, 10m, 2h, none); defaults to the previous duration.
+        /// Per-command timeout (30s, 60m, 2h, none); defaults to the previous bound.
         #[arg(long)]
         timeout: Option<String>,
     },
