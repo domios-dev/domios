@@ -1,7 +1,7 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it } from "vitest";
-import { suggestsRemoteTailscale, tailnetName, tailscaleReady, tailscaleSetupRequest, tailscaleState, type TailscaleState } from "./tailscaleSetup";
+import { suggestsRemoteTailscale, tailnetName, tailscalePrompt, tailscaleSetupRequest, tailscaleState, type TailscaleState } from "./tailscaleSetup";
 import { TailscaleFooter, TailscaleMachineHint, type CanvasTailscale } from "./TailscaleNodes";
 import type { ServeStatus } from "../../lib/webAccess";
 
@@ -22,8 +22,13 @@ describe("Tailscale state on this machine", () => {
   it("waits while checking and stays quiet when the probe failed", () => {
     expect(tailscaleState({ serve: null, network: null, loading: true })).toEqual({ kind: "checking" });
     expect(tailscaleState({ serve: null, network: null, loading: false })).toEqual({ kind: "unknown" });
-    expect(tailscaleReady({ kind: "unknown" })).toBe(true);
-    expect(tailscaleReady({ kind: "not_connected" })).toBe(false);
+  });
+
+  it("asks the user for something only when this machine needs it", () => {
+    for (const kind of ["not_installed", "not_running", "signed_out", "not_connected"] as const) expect(tailscalePrompt({ kind })).not.toBeNull();
+    expect(tailscalePrompt({ kind: "connected", tailnet: null })).toBeNull();
+    expect(tailscalePrompt({ kind: "checking" })).toBeNull();
+    expect(tailscalePrompt({ kind: "unknown" })).toBeNull();
   });
 
   it("keeps only a real tailnet suffix", () => {
@@ -62,12 +67,12 @@ function fixture(state: TailscaleState) {
 const button = (host: HTMLElement, name: string) => [...host.querySelectorAll("button")].find((element) => (element.getAttribute("aria-label") ?? element.textContent) === name);
 
 describe("Tailscale on the Mesh canvas", () => {
-  it("hands setup to the General agent and keeps a manual install link when Tailscale is not ready", async () => {
+  it("hands setup to the General agent and keeps a manual link when this machine needs it", async () => {
     const { tailscale, calls } = fixture({ kind: "not_installed" });
     const view = await render(<TailscaleFooter tailscale={tailscale} />);
     try {
       await act(async () => button(view.host, "Set up with General agent")?.click());
-      await act(async () => button(view.host, "Install Tailscale")?.click());
+      await act(async () => button(view.host, "Set up manually")?.click());
       expect(calls).toEqual({ setup: [null], install: 1 });
     } finally {
       await view.dispose();
@@ -85,12 +90,24 @@ describe("Tailscale on the Mesh canvas", () => {
     }
   });
 
+  it("draws nothing while checking or when the state is unknown", async () => {
+    for (const state of [{ kind: "checking" }, { kind: "unknown" }] as const) {
+      const view = await render(<TailscaleFooter tailscale={fixture(state).tailscale} />);
+      try {
+        expect(view.host.childElementCount).toBe(0);
+      } finally {
+        await view.dispose();
+      }
+    }
+  });
+
   it("asks the General agent about an unreachable machine by name", async () => {
     const { tailscale, calls } = fixture({ kind: "connected", tailnet: null });
     const view = await render(<TailscaleMachineHint name="Lenovo" tailscale={tailscale} />);
     try {
-      await act(async () => button(view.host, "Ask General agent about Tailscale on Lenovo")?.click());
-      expect(calls.setup).toEqual(["Lenovo"]);
+      await act(async () => button(view.host, "Set up the private network on Lenovo with General agent")?.click());
+      await act(async () => button(view.host, "Set up manually")?.click());
+      expect(calls).toEqual({ setup: ["Lenovo"], install: 1 });
     } finally {
       await view.dispose();
     }

@@ -229,7 +229,7 @@ export const MeshCanvas = memo(function MeshCanvas({
   };
 
   const tailscaleHint = (name: string, online: boolean, identity?: import("./networkTransport").NetworkIdentity) => tailscale && (differentNetwork(tailscale.identity, identity) || suggestsRemoteTailscale(online, tailscale.state))
-    ? <TailscaleMachineHint name={name} tailscale={tailscale} detail={differentNetwork(tailscale.identity, identity) ? `${name} is on another private network. Sign in to the same Tailscale account on both machines.` : undefined} />
+    ? <TailscaleMachineHint name={name} tailscale={tailscale} detail={differentNetwork(tailscale.identity, identity) ? `${name} is signed in to a different Tailscale account. Use the same account on both computers.` : undefined} />
     : undefined;
 
   const peerFooter = (id: string) => {

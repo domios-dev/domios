@@ -13,9 +13,24 @@ export type TailscaleState =
   | { kind: "signed_out" }
   | { kind: "connected"; tailnet: string | null };
 
-export const TAILSCALE_COPY = "Domios connects your machines through Tailscale, a free private network. Install it on each machine and sign in with the same Tailscale account.";
-export const TAILSCALE_WHY = "It is private and encrypted, works across networks, and exposes nothing to your Wi-Fi or the internet.";
 export const TAILSCALE_DOWNLOAD_URL = "https://tailscale.com/download";
+
+export interface TailscalePrompt { title: string; message: string }
+
+/** What this machine needs from the user, in plain words; null when nothing does (working, checking or unknown). */
+export function tailscalePrompt(state: TailscaleState): TailscalePrompt | null {
+  switch (state.kind) {
+    case "not_installed":
+      return { title: "Connect this computer", message: "Domios links your computers through a free, encrypted private network called Tailscale. Nothing is exposed to your Wi-Fi or the internet." };
+    case "not_running":
+      return { title: "Private network is off", message: "Tailscale is installed but not running on this computer, so your other machines can't reach it." };
+    case "signed_out":
+    case "not_connected":
+      return { title: "Sign in to your private network", message: "Sign in to Tailscale with the same account you use on your other computers." };
+    default:
+      return null;
+  }
+}
 
 /** The tailnet is the MagicDNS suffix after this machine's own label: "box.tail1234.ts.net." -> "tail1234.ts.net". */
 export function tailnetName(selfDns: string | null | undefined): string | null {
@@ -32,10 +47,6 @@ export function tailscaleState({ serve, network, loading }: { serve: ServeStatus
   return serve.installed ? { kind: "not_connected" } : { kind: "not_installed" };
 }
 
-export function tailscaleReady(state: TailscaleState): boolean {
-  return state.kind === "connected" || state.kind === "checking" || state.kind === "unknown";
-}
-
 /** An unreachable account machine points at its own Tailscale only when this machine's side is known to be fine. */
 export function suggestsRemoteTailscale(online: boolean, state: TailscaleState): boolean {
   return !online && state.kind === "connected";
@@ -48,7 +59,8 @@ export function tailscaleSetupRequest(machine: string | null): string {
     : `Domios Mesh cannot reach my machine "${machine}". Help me check Tailscale on it.`;
   return [
     subject,
-    "Briefly explain what Tailscale is and why Domios uses it, then check the Tailscale state yourself.",
+    "Check the Tailscale state yourself first; if it is already installed, running and signed in to the right account, say so and stop.",
+    "Otherwise explain in one or two plain sentences what Tailscale is and why Domios uses it, without networking jargon.",
     "If it is missing, offer to install it with the platform's package manager (winget on Windows, Homebrew on macOS, the official package or script on Linux) and ask before installing anything.",
     "Walk me through signing in, remind me to use the same Tailscale account on every machine, and finish by confirming that Domios Mesh sees the Tailscale connection.",
     "Reply in my language.",
