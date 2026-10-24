@@ -19,10 +19,8 @@ import { developmentBuildLabel } from "./buildIdentity";
 import { DevBuildDot } from "./DevBuildDot";
 import "./Titlebar.css";
 import { WebPeerPicker } from "../WebPeerPicker/WebPeerPicker";
-import type { FirstRunGate } from "../../lib/firstRunGate";
 
 interface TitlebarProps {
-  gate?: FirstRunGate;
   api?: ApiConfig;
   onToggleSidebar?: () => void;
   showSidebarToggle?: boolean;
@@ -49,7 +47,6 @@ interface TitlebarProps {
 }
 
 export function Titlebar({
-  gate,
   onToggleSidebar,
   showSidebarToggle = false,
   theme: _theme,
@@ -78,7 +75,6 @@ export function Titlebar({
   const handleMaximize = useCallback(() => appWindow?.toggleMaximize(), [appWindow]);
   const handleClose = useCallback(() => appWindow?.close(), [appWindow]);
   const buildLabel = developmentBuildLabel(__CODETERM_DEV__, __APP_VERSION__);
-  const appAllowed = gate?.allows("app") ?? true;
 
   return (
     <div
@@ -98,7 +94,7 @@ export function Titlebar({
           onMaximize={handleMaximize}
         />
       )}
-      {appAllowed && showSidebarToggle && onToggleSidebar && (
+      {showSidebarToggle && onToggleSidebar && (
         <button
           type="button"
           data-testid="web-sidebar-open"
@@ -111,7 +107,7 @@ export function Titlebar({
         </button>
       )}
 
-      {IS_WEB && appAllowed && (
+      {IS_WEB && (
         <div className="flex h-full shrink-0 items-center px-1 sm:px-2">
           <WebPeerPicker compact />
         </div>
@@ -121,11 +117,11 @@ export function Titlebar({
         className="hidden h-full shrink-0 items-center gap-2 pl-3 pr-2 min-[430px]:flex"
         data-tauri-drag-region
       >
-        {appAllowed && buildLabel && <DevBuildDot label={buildLabel} version={__APP_VERSION__} />}
+        {buildLabel && <DevBuildDot label={buildLabel} version={__APP_VERSION__} />}
       </div>
 
       <div className="ml-auto flex shrink-0 items-center gap-0.5 pr-2 sm:gap-1 sm:pr-1.5">
-        {appAllowed && <div className="relative flex items-center">
+        <div className="relative flex items-center">
           {onDismissToast && <NotificationToastContainer toasts={toasts} onDismiss={onDismissToast} onMarkRead={onMarkNotificationRead} onNavigate={onNavigateToast} />}
           {showBell && onMarkNotificationRead && onMarkAllNotificationsRead && onDeleteNotification && onClearNotifications && onNavigateToast && (
             <NotificationBell
@@ -139,16 +135,16 @@ export function Titlebar({
               onAnswer={onAnswerNotification}
             />
           )}
-        </div>}
-        {appAllowed && onToggleAnalytics && (
+        </div>
+        {onToggleAnalytics && (
           <AnalyticsTray ref={analyticsButtonRef} open={analyticsOpen} onToggle={onToggleAnalytics} />
         )}
-        {appAllowed && onOpenExtensions && <ExtensionsTray onOpen={onOpenExtensions} />}
-        {appAllowed && <KeepAwakeTray />}
+        {onOpenExtensions && <ExtensionsTray onOpen={onOpenExtensions} />}
+        <KeepAwakeTray />
         {onOpenSettings && (
           <>
             <span className={UI_TRAY_DIVIDER} aria-hidden />
-            <SettingsMenu gate={gate} onOpenSection={onOpenSettings} afterGear={<AccountTray onOpenPlans={() => onOpenSettings("plans")} />} />
+            <SettingsMenu onOpenSection={onOpenSettings} afterGear={<AccountTray onOpenPlans={() => onOpenSettings("plans")} />} />
           </>
         )}
       </div>
