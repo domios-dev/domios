@@ -33,6 +33,7 @@ import {
   partToChatMsg,
   toolFileDiffs,
   scanMessagesForModel,
+  scanSessionModel,
   scanMessagesForQualifiedModel,
   scanSessionDirectory,
   ASSISTANT_MESSAGE_MAX_BYTES,
@@ -514,7 +515,7 @@ const plugin: PluginModule = {
     return scanMessagesForModel(db,
       "SELECT data FROM message WHERE session_id = ?1 AND octet_length(data) <= ?2 " +
         "ORDER BY time_created DESC LIMIT 20",
-      [sessionId, ASSISTANT_MESSAGE_MAX_BYTES]);
+      [sessionId, ASSISTANT_MESSAGE_MAX_BYTES]) ?? scanSessionModel(db, sessionId);
   },
 
   structuredToolFileDiffs(part: unknown): FileDiff[] | null {
