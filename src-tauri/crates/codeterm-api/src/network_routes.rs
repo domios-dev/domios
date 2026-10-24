@@ -10,6 +10,14 @@ use crate::routes::{check_auth, AppState};
 use codeterm_service_core::api_support::OptionalJson;
 
 pub async fn network_info(AxumState(state): AxumState<AppState>) -> Json<serde_json::Value> {
+    let mesh = state.mesh.clone();
+    let transport = tokio::task::spawn_blocking(move || {
+        let status = codeterm_service_core::mesh::network_transport::active_provider().detect();
+        mesh.lock().set_network_transport(status.clone());
+        status
+    })
+    .await
+    .ok();
     let local_ip = local_ip_address().unwrap_or_else(|| "127.0.0.1".to_string());
     // duplicating the probe logic (which previously lacked IP validation, the GUI-bridge fallback, and a timeout).
     let tailscale_ip = state.mesh.lock().tailscale_ip.clone();
@@ -18,6 +26,7 @@ pub async fn network_info(AxumState(state): AxumState<AppState>) -> Json<serde_j
     let tailscale_https_url = codeterm_service_core::mesh::tailscale_serve_https_url(port);
 
     Json(serde_json::json!({
+        "transport": transport,
         "local_ip": local_ip,
         "tailscale_ip": tailscale_ip,
         "tailscale_dns": tailscale_dns,

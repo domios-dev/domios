@@ -1,5 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::net::{IpAddr, SocketAddr};
+#[cfg(test)]
+use std::net::IpAddr;
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::{extract::Request, middleware::Next};
@@ -21,23 +23,32 @@ pub(super) trait AddressChanges: Send {
     async fn changed(&mut self) -> Result<(), ()>;
 }
 
-struct NativeAddresses(network_changes::Notifications);
+struct NativeAddresses(
+    network_changes::Notifications,
+    crate::MeshStateHandle,
+    Arc<ServiceContext>,
+);
 
 #[async_trait::async_trait]
 impl AddressChanges for NativeAddresses {
     async fn selected(&self, signed_in: bool, enabled: bool, port: u16) -> Vec<SocketAddr> {
-        let interfaces = if signed_in && enabled {
-            match tokio::task::spawn_blocking(if_addrs::get_if_addrs).await {
-                Ok(Ok(interfaces)) => interfaces
-                    .into_iter()
-                    .map(|interface| interface.ip())
-                    .collect(),
-                _ => Vec::new(),
+        let status = tokio::task::spawn_blocking(|| {
+            codeterm_mesh::network_transport::active_provider().detect()
+        })
+        .await
+        .ok();
+        status.map_or_else(Vec::new, |status| {
+            let addresses = codeterm_mesh::network_transport::listener_addresses(
+                &status,
+                signed_in && enabled,
+                port,
+            );
+            let changed = self.1.lock().set_network_transport(status);
+            if changed {
+                self.2.ui.emit("mesh-state-changed", serde_json::json!({}));
             }
-        } else {
-            Vec::new()
-        };
-        selected_addresses(signed_in, enabled, port, interfaces)
+            addresses
+        })
     }
 
     async fn changed(&mut self) -> Result<(), ()> {
@@ -45,6 +56,7 @@ impl AddressChanges for NativeAddresses {
     }
 }
 
+#[cfg(test)]
 fn selected_addresses(
     signed_in: bool,
     enabled: bool,
@@ -180,7 +192,7 @@ impl Serving {
 
 pub(super) async fn run(service: Arc<ServiceContext>, mesh: crate::MeshStateHandle) {
     let network = match network_changes::subscribe() {
-        Ok(network) => NativeAddresses(network),
+        Ok(network) => NativeAddresses(network, mesh.clone(), service.clone()),
         Err(error) => {
             log::error!("[account-mesh] address notifications unavailable: {error}");
             return;

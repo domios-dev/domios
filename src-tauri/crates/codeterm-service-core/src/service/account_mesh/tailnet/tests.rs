@@ -207,6 +207,18 @@ fn tailnet_publication_integrates_selected_listeners_with_account_endpoint() {
     };
     assert!(endpoint().is_none());
     for ip in ["100.64.1.2", "fd7a:115c:a1e0::1"] {
+        mesh.lock()
+            .set_network_transport(codeterm_mesh::network_transport::TransportStatus {
+                display_name: "Test network".into(),
+                state: codeterm_mesh::network_transport::TransportState::Connected,
+                identity: None,
+                network_name: None,
+                user: None,
+                addresses: interfaces(&[ip]),
+                peer_listener: true,
+                encrypted: true,
+                setup_actions: Vec::new(),
+            });
         publication.publish_tailnet(selected_addresses(true, true, 7685, interfaces(&[ip])));
         assert_eq!(endpoint(), MeshEndpoint::new(ip.parse().unwrap(), 7685));
         publication.publish(vec!["127.0.0.1:7685".parse().unwrap()]);
