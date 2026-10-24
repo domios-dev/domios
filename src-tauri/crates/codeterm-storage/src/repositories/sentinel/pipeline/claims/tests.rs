@@ -32,7 +32,7 @@ fn frame() -> CallFrame {
 }
 fn parent(marker: u16) -> NestedClaimParent {
     NestedClaimParent {
-        marker: JournalMarker::Step(marker),
+        marker: JournalMarker::Step(u32::from(marker)),
         frame: frame(),
     }
 }

@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlueprintJournalEntry {
+    #[serde(default, flatten)]
+    pub evidence: serde_json::Map<String, serde_json::Value>,
     pub entry_id: i64,
     pub run_id: String,
     pub step_index: i64,
@@ -33,7 +35,7 @@ impl BlueprintJournalEntry {
             .expect("journal reads validate marker columns")
     }
 
-    pub fn derive_run(entries: &[&Self]) -> (Option<JournalState>, Option<u16>) {
+    pub fn derive_run(entries: &[&Self]) -> (Option<JournalState>, Option<u32>) {
         let mut newest = std::collections::BTreeMap::new();
         for entry in entries {
             let marker = entry.marker();
@@ -80,6 +82,7 @@ pub enum BlueprintJournalWrite {
         started_at_ms: u64,
     },
     Finish {
+        evidence: Option<serde_json::Map<String, serde_json::Value>>,
         run_id: String,
         marker: JournalMarker,
         state: JournalState,
@@ -217,10 +220,23 @@ impl BlueprintJournalWrite {
         {
             text("journal body reference", reference)?;
         }
-        identifier("journal run id", run_id)?;
-        if matches!(marker, JournalMarker::Step(index) if index >= 64) {
-            return Err(StorageError::invalid("journal step index", "out of bounds"));
+        if let Self::Finish {
+            evidence: Some(evidence),
+            ..
+        } = self
+        {
+            if serde_json::to_vec(evidence)
+                .map_err(|error| StorageError::invalid("journal evidence", error.to_string()))?
+                .len()
+                > codeterm_blueprint_types::blueprint_journal::MAX_JOURNAL_EVIDENCE_BYTES
+            {
+                return Err(StorageError::invalid(
+                    "journal evidence",
+                    "exceeds row byte bound",
+                ));
+            }
         }
+        identifier("journal run id", run_id)?;
         if let Some(step_name) = step_name {
             identifier("journal step name", step_name)?;
             if marker.name(step_name) != step_name {

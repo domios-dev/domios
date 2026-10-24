@@ -192,9 +192,9 @@ fn pipeline_run_view(
         .map(|(index, step)| {
             let entry = newest
                 .iter()
-                .find(|entry| entry.marker() == JournalMarker::Step(index as u16));
+                .find(|entry| entry.marker() == JournalMarker::Step(index as u32));
             let summary = entries.iter().find(|entry| {
-                entry.marker() == JournalMarker::Step(index as u16)
+                entry.marker() == JournalMarker::Step(index as u32)
                     && entry.result_summary.is_some()
             });
             pipeline_step_view(index, &step.name, &step.kind, entry, summary)

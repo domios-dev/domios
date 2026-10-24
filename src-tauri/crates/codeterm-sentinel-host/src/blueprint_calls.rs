@@ -132,6 +132,7 @@ pub(crate) fn execute(
     call: &Call,
     grants: &[String],
     _input: &ExecutionEnvelope,
+    input_previews: &mut serde_json::Map<String, Value>,
 ) -> Result<crate::pipeline::StepResult, JournalReason> {
     let pin = call.pin.as_ref().ok_or(JournalReason::ContractViolation)?;
     if calls::saved_reference(&call.reference) && call.reference != pin.id {
@@ -202,6 +203,15 @@ pub(crate) fn execute(
             }
         }
     }
+    *input_previews = values
+        .iter()
+        .map(|(name, value)| {
+            (
+                name.clone(),
+                crate::pipeline::previews::preview(name, value),
+            )
+        })
+        .collect();
     let assignments = values
         .iter()
         .map(|(key, value)| {

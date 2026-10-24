@@ -26,6 +26,16 @@ fn prove_fanin(language: &str, first: &str, second: &str, join: &str) {
             "{diagnostic}"
         );
     }
+    let join = entries
+        .iter()
+        .find(|row| row.step_name == "join" && row.state == JournalState::Done)
+        .unwrap();
+    assert_eq!(join.evidence["ports"]["inputs"]["a"]["preview"], "7");
+    assert_eq!(join.evidence["ports"]["inputs"]["b"]["preview"], "\"x\"");
+    assert_eq!(
+        join.evidence["ports"]["outputs"]["out"]["preview"],
+        "{\"n\":8}"
+    );
     assert_eq!(handle.probe_owner.snapshot().unconfirmed, 0);
     drop(handle);
     drop(fixture);
@@ -66,6 +76,16 @@ fn blueprint_v2_runtime_fanin_command_receives_named_envelope() {
     assert_eq!(completion.state, JournalState::Done, "{diagnostic}");
     let envelope = ExecutionEnvelope::decode(&std::fs::read(&sink).unwrap()).unwrap();
     assert_eq!(envelope.value, json!({"a":7,"b":"linen"}));
+    let entries = journal(&handle, &lease.job.id);
+    let sink = entries
+        .iter()
+        .find(|row| row.step_name == "sink" && row.state == JournalState::Done)
+        .unwrap();
+    assert_eq!(sink.evidence["ports"]["inputs"]["a"]["preview"], "7");
+    assert_eq!(
+        sink.evidence["ports"]["inputs"]["b"]["preview"],
+        "\"linen\""
+    );
     drop(handle);
     drop(fixture);
     close(storage);
