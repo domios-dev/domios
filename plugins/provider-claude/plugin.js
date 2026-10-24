@@ -645,6 +645,10 @@ function parseBackgroundWork(value) {
     if (typeof id === "string" && /^[A-Za-z0-9_-]{1,256}$/.test(id) && ["running", "completed", "failed", "killed"].includes(String(state))) events.push({ id, state });
   }
   const content = object3(row.message)?.content;
+  if (row.type === "user" && result?.task_type === "local_bash" && typeof result.command === "string" && !(Array.isArray(content) && content.some((block) => object3(block)?.is_error === true))) {
+    const id = result.task_id;
+    if (typeof id === "string" && /^[A-Za-z0-9_-]{1,256}$/.test(id)) events.push({ id, state: "killed" });
+  }
   const prompt = object3(row.attachment)?.prompt;
   const texts = typeof content === "string" ? [content] : Array.isArray(content) ? content.map((block) => object3(block)?.text).filter((text2) => typeof text2 === "string") : [];
   if (typeof prompt === "string") texts.push(prompt);

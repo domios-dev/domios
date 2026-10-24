@@ -61,6 +61,15 @@ pub(super) fn parse(row: &Value) -> Vec<BackgroundWorkObservation> {
     );
     let mut texts = Vec::new();
     let content = &row["message"]["content"];
+    if row["type"] == "user"
+        && result["task_type"] == "local_bash"
+        && result["command"].is_string()
+        && !content
+            .as_array()
+            .is_some_and(|blocks| blocks.iter().any(|block| block["is_error"] == true))
+    {
+        add(&mut events, result["task_id"].as_str(), Some("killed"));
+    }
     if let Some(text) = content.as_str() {
         texts.push(text);
     }
