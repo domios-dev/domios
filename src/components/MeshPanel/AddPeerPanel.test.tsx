@@ -112,6 +112,7 @@ describe("My machines Add", () => {
     expect(host.textContent).toContain("Machine membership could not be verified right now.");
     await click(button("Retry enrollment"));
     expect(client.enrollCalls).toBe(1);
+    expect(client.listCalls).toBe(1);
   });
 
   it("shows the typed list failure and retry control instead of the empty state", async () => {
@@ -214,6 +215,15 @@ describe("My machines Add", () => {
     await act(async () => client.emit(snapshot({ registry: { observed_at: NOW, rows: [selfRow, macRow] } })));
     expect(client.snapshotCalls).toBe(before + 1);
     expect(account("Lenovo")).toBeNull();
+    await act(async () => client.emit(snapshot({
+      publication_failure: { reason: "rate-limited", retry_after_seconds: 7 },
+      retry_at: NOW + 7,
+    })));
+    expect(host.textContent).toContain("Waiting to retry at");
+    await act(async () => client.emit(snapshot({ publication: "published" })));
+    expect(host.textContent).not.toContain("Waiting to retry at");
+    expect(client.listCalls).toBe(1);
+    expect(client.snapshotCalls).toBe(before + 3);
   });
 });
 
