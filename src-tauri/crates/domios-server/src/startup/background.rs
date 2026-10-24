@@ -57,13 +57,15 @@ pub(crate) fn start_background_tasks(
                             let signed_token = signed_token.clone();
                             let port = peer.api_port;
                             let ip = addr.ip.clone();
+                            let mesh = mesh.clone();
+                            let peer_id = peer.instance_id.clone();
                             async move {
                                 let client = if let Some(ref tok) = signed_token {
                                     mesh::transport::PeerClient::new_signed(&ip, port, tok)
                                 } else {
                                     mesh::transport::PeerClient::new_unauthenticated(&ip, port)
                                 };
-                                if client.ping().await {
+                                if mesh::disconnect::ping_peer(&mesh, &peer_id, &client).await {
                                     mesh::transport::TryNext::Success(client)
                                 } else {
                                     mesh::transport::TryNext::Retry("ping failed".to_string())
@@ -75,6 +77,10 @@ pub(crate) fn start_background_tasks(
                             Ok(c) => (true, Some(c)),
                             Err(_) => (false, None),
                         };
+                        if !mesh.lock().paired_peers.contains_key(&peer.instance_id) {
+                            changed = true;
+                            continue;
+                        }
                         let (online, was_online) = {
                             let mut m = mesh.lock();
                             if let Some(p) = m.paired_peers.get_mut(&peer.instance_id) {

@@ -133,8 +133,7 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
                     if json {
                         println!("{}", serde_json::to_string_pretty(&val).unwrap());
                     } else {
-                        let name = val["pair"]["name"].as_str().unwrap_or(&installation_id);
-                        println!("Linked {}", name);
+                        println!("Waiting for approval on {}. Check Mesh status for the result.", installation_id);
                     }
                 }
                 Err(e) => {

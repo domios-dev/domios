@@ -137,6 +137,7 @@ impl ServiceContext {
                 actions: actions.map(adopt_caller_actions),
                 offer,
                 condition: None,
+                daemon_request: None,
             },
             sticky,
             origin,
@@ -183,7 +184,7 @@ impl ServiceContext {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn create_notification_actions_reported(
+    pub(super) fn create_notification_actions_reported(
         &self,
         title: String,
         body: Option<String>,
@@ -205,6 +206,7 @@ impl ServiceContext {
             refusals,
         } = self.resolve_push_plan(intent);
         intent.event_key = event_key;
+        if ask.daemon_request.is_some() { intent.level = declared; }
         let surfaces = self.resolve_surface_dispatch(declared);
         // Judged before the plan is moved into the sink, off the same targets
         // the sink will use — so the report cannot disagree with the delivery.
@@ -224,7 +226,7 @@ impl ServiceContext {
             &self.notif,
             || {
                 create_notification_with_delivery(
-                    NotificationAdmission::Explicit,
+                    if ask.daemon_request.is_some() { NotificationAdmission::UserConsent } else { NotificationAdmission::Explicit },
                     &self.notif,
                     |title, body| {
                         let _ = self.shell.os_notify(title, body);
@@ -266,6 +268,7 @@ impl ServiceContext {
     /// label only — the tab it answers to was captured when the question was
     /// sent, so nothing is resolved here.
     pub fn answer_notification(&self, id: &str, label: &str) -> Result<serde_json::Value, String> {
+        if let Some(result) = self.answer_mesh_link_notification(id, label) { return result; }
         // The guard is dropped before the event fans out: nothing downstream of
         // an emit may re-enter the store while it is still held.
         let admission = self.notif.lock().record_answer(id, label);

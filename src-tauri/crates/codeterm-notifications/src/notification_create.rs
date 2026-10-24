@@ -149,6 +149,7 @@ use admission::{destination, NoticeDestination, NoticeSource};
 #[derive(Debug)]
 pub enum NotificationAdmission {
     Diagnostic,
+    UserConsent,
     /// Admitted through the agent notify-send boundary.
     Explicit,
 }
@@ -179,6 +180,7 @@ pub fn create_notification_with_delivery(
 ) -> String {
     let source = match admission {
         NotificationAdmission::Diagnostic => NoticeSource::System,
+        NotificationAdmission::UserConsent => NoticeSource::UserConsent,
         NotificationAdmission::Explicit => NoticeSource::AgentNotifySend,
     };
     if destination(source, true) == NoticeDestination::Log {
@@ -198,7 +200,7 @@ pub fn create_notification_with_delivery(
     } else {
         origin.target.clone()
     };
-    let explicit = matches!(admission, NotificationAdmission::Explicit);
+    let explicit = matches!(admission, NotificationAdmission::Explicit | NotificationAdmission::UserConsent);
     let parsed_severity = notification_severity(severity);
     let severity_str = match &parsed_severity {
         NotificationSeverity::Warning => "Warning",
@@ -207,7 +209,7 @@ pub fn create_notification_with_delivery(
     };
     let id = match admission {
         NotificationAdmission::Diagnostic => unreachable!(),
-        NotificationAdmission::Explicit => match push.intent.level {
+        NotificationAdmission::Explicit | NotificationAdmission::UserConsent => match push.intent.level {
             // An identical live message is the same message: it keeps its record and reaches neither the native sink nor the panel again.
             None => {
                 let mut store = store.lock();
@@ -252,7 +254,7 @@ pub fn create_notification_with_delivery(
             }
             Some(level) => {
                 let admitted = store.lock().add_push(PushRequest {
-                    scope: push::scope_key(&provenance),
+                    scope: ask.daemon_request.as_ref().map(|request| format!("consent:{request}")).unwrap_or_else(|| push::scope_key(&provenance)),
                     level,
                     event_key: push::event_key(push.intent.event_key.as_deref(), &title),
                     title: title.clone(),
