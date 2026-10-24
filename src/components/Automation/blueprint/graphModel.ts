@@ -360,6 +360,18 @@ export function* buildBlueprintGraph(pipeline: PipelineView, expanded: Blueprint
   return { nodes, wires, scopes, mode };
 }
 
+/** The callee scope at `trail` as its own graph, with its nested callees; evidence comes along unchanged. */
+export function focusScope(model: BlueprintGraphModel, trail: readonly string[]): BlueprintGraphModel {
+  if (!trail.length) return model;
+  const within = (path: readonly string[]) => path.length >= trail.length && trail.every((id, index) => path[index] === id);
+  const nodes = model.nodes.filter((node) => within(node.callPath));
+  const keys = new Set(nodes.map((node) => node.key));
+  const focused = scopeKey(trail);
+  const scopes = model.scopes.filter((scope) => within(scope.path)).map((scope) => scope.key === focused ? { ...scope, call: null } : scope);
+  scopes.sort((a, b) => a.path.length - b.path.length);
+  return { nodes, wires: model.wires.filter((wire) => keys.has(wire.from.node) && keys.has(wire.to.node)), scopes, mode: model.mode };
+}
+
 export function litWires(model: BlueprintGraphModel): Set<string> {
   const byKey = new Map(model.nodes.map((node) => [node.key, node]));
   const acted = (node: BlueprintGraphNode | undefined) => Boolean(node?.evidence && !["not reached", "pending", "skipped"].includes(node.evidence.state));

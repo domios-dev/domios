@@ -139,6 +139,34 @@ async function main() {
     assert.deepEqual(details(), ["Details: call-17"], "the clicked node opens, never a neighbour");
     assert.equal(button("Node call-17").getAttribute("aria-pressed"), "true");
 
+    const leaf = { schema_version: 2 as const, kind: "pipeline" as const, name: "leaf", steps: [{ id: "deepest", run: { lit: "printf leaf" } }] };
+    const middle = { schema_version: 2 as const, kind: "pipeline" as const, name: "middle", steps: [{ id: "inner", call: { ref: "mem:leaf", pin: { id: "mem:leaf", hash: "c".repeat(64) } } }] };
+    const nested = { ...viewerPipeline(), runs: [], nested_run: null, runId: null,
+      expanded_calls: [{ ...call, graph: middle, children: [{ node: "inner", pin: { id: "mem:leaf", hash: "c".repeat(64) }, graph: leaf, children: [] }] }] };
+    const dispatch = (element: Element, event: Event) => act(async () => { element.dispatchEvent(event); });
+    let left = 0;
+    await act(async () => root.render(<BlueprintView key="nested" pipeline={nested} backLabel="All jobs" onBack={() => { left++; }} />));
+    await waitForNode("Node invoke");
+    await dispatch(button("Node invoke"), new MouseEvent("dblclick", { bubbles: true }));
+    await waitForNode("Node inner in invoke");
+    assert(!host.querySelector('[aria-label="Node probe"]'), "drilling in shows only the callee graph");
+    assert.equal(host.querySelector('nav[aria-label="Blueprint path"] [aria-current="page"]')?.textContent, "mem:helper");
+    await dispatch(button("Node inner in invoke"), new KeyboardEvent("keydown", { code: "Enter", bubbles: true, cancelable: true }));
+    await waitForNode("Node deepest in invoke / inner");
+    assert.deepEqual([...host.querySelectorAll('nav[aria-label="Blueprint path"] li')].map((entry) => entry.textContent), ["viewer-fixture", "mem:helper", "mem:leaf"]);
+    await act(async () => button("mem:helper").click());
+    await waitForNode("Node inner in invoke");
+    assert(!host.querySelector('[aria-label="Node deepest in invoke / inner"]'), "the breadcrumb steps back one level");
+    await dispatch(button("Node inner in invoke"), new KeyboardEvent("keydown", { code: "Escape", bubbles: true, cancelable: true }));
+    await waitForNode("Node probe");
+    assert.equal(host.querySelector('nav[aria-label="Blueprint path"]'), null, "Escape returns to the parent graph");
+    assert.equal(left, 0, "stepping out of a callee never leaves the Blueprint");
+    await dispatch(button("Node invoke"), new MouseEvent("dblclick", { bubbles: true }));
+    await waitForNode("Node inner in invoke");
+    await act(async () => button("Back to viewer-fixture").click());
+    await waitForNode("Node probe");
+    assert.equal(left, 0);
+
     const failed = viewerPipeline();
     failed.state = "failed";
     failed.runs = [];

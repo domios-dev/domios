@@ -16,8 +16,8 @@ function keyboardFocus(element: HTMLElement): boolean {
 /** A run fact pinned above the node it happened at, so it follows the graph on pan and zoom. */
 export interface CanvasCallout { nodeKey: string; tone: "failed" | "held"; label: string; lead: string; reason: string; detail: string | null }
 
-export function BlueprintCanvas({ layout, label, selected, camera, onSelect, lit, callouts = [], notices, panelOpen = false, toolbar }: {
-  layout: BlueprintLayout; label: string; selected: string | null; camera: AutomationCamera; onSelect: (key: string) => void;
+export function BlueprintCanvas({ layout, label, selected, camera, onSelect, onOpen, lit, callouts = [], notices, panelOpen = false, toolbar }: {
+  layout: BlueprintLayout; label: string; selected: string | null; camera: AutomationCamera; onSelect: (key: string) => void; onOpen?: (key: string) => void;
   lit: ReadonlySet<string>; callouts?: readonly CanvasCallout[]; notices?: ReactNode; panelOpen?: boolean; toolbar?: ReactNode;
 }) {
   const hintId = useId();
@@ -94,7 +94,10 @@ ${callout.detail}` : callout.reason}
             aria-description={node.evidence ? evidenceText(node.evidence) : undefined}
             style={{ left: box.x, top: box.y, width: box.width, height: box.height }}
             onFocus={(event) => { if (keyboardFocus(event.currentTarget)) viewport.reveal(box); }}
+            aria-keyshortcuts={onOpen && node.type === "call" ? "Enter" : undefined}
             onClick={() => onSelect(node.key)}
+            onDoubleClick={onOpen && node.type === "call" ? () => onOpen(node.key) : undefined}
+            onKeyDown={onOpen && node.type === "call" ? (event) => { if (event.code !== "Enter" && event.code !== "NumpadEnter") return; event.preventDefault(); onOpen(node.key); } : undefined}
           ><BlueprintNodeCard laid={laid} /></button>;
         })}
       </div>
