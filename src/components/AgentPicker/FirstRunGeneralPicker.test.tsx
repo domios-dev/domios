@@ -193,3 +193,39 @@ it("keeps the picker visible and does not focus a tab when setup fails", async (
     host.remove();
   }
 });
+
+for (const success of [true, false]) {
+  it(`continues only its own verified installer completion (success=${success})`, async () => {
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === "install_provider_in_tab") return { tab_id: "own-install", launch_state: "command_dispatched" };
+      if (command === "mux_get_state") return snapshot();
+    });
+    const missing = { ...provider("fixture", "pty"), availability: "unavailable" as const, general_agent_offer_when_absent: true, install_command: "opaque" };
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(<FirstRunGeneralPicker providers={[missing]} />));
+      const confirm = () => host.querySelector<HTMLButtonElement>("[data-testid=agent-picker-confirm]")!;
+      await act(async () => confirm().click());
+      expect(confirm().disabled).toBe(true);
+      expect(host.querySelector('[role="status"]')?.textContent).toContain("Installing");
+      expect(navigation.show).not.toHaveBeenCalled();
+      const completion = { provider: "fixture", operation: "install", tab_id: "other-install", success: true, summary: "unrelated" };
+      await act(async () => events.get("provider-cli-completed")!({ payload: completion }));
+      expect(invoke).not.toHaveBeenCalledWith("complete_general_agent_first_run", expect.anything());
+      await act(async () => events.get("provider-cli-completed")!({ payload: { ...completion, tab_id: "own-install", success, summary: "opaque installer failure" } }));
+      if (success) {
+        expect(invoke).toHaveBeenCalledWith("complete_general_agent_first_run", { providerId: "fixture", fullAccess: true });
+        expect(navigation.show).toHaveBeenCalledExactlyOnceWith({ workspaceId: "welcome", tabId: "general" });
+      } else {
+        expect(invoke).not.toHaveBeenCalledWith("complete_general_agent_first_run", expect.anything());
+        expect(host.textContent).toContain("opaque installer failure");
+        expect(confirm().disabled).toBe(false);
+      }
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+}
