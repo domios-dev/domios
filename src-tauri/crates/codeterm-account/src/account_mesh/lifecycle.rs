@@ -1,5 +1,5 @@
 use super::key::InstallationKey;
-use super::membership::{account_id, MembershipTrust, MAX_MEMBERSHIP_SECONDS};
+use super::membership::{account_id, MembershipTrust};
 use super::operations::request_id;
 use super::ports::{
     AccountMeshStore, Clock, EndpointSource, InstallationKeyStore, MeshRegistry, MeshTransport,
@@ -75,23 +75,6 @@ enum Start {
     Joined(watch::Receiver<Option<Settled>>),
 }
 
-const LEASE_RETRY_SECONDS: u64 = 30;
-const LEASE_RETRY_MAX_SECONDS: u64 = 300;
-
-/// Transient registry failures retry a renewal; any other refusal waits for a new trigger.
-fn lease_retry(refusal: AccountMeshRefusal, failures: u32) -> Option<u64> {
-    let backoff = (LEASE_RETRY_SECONDS << failures.min(4)).min(LEASE_RETRY_MAX_SECONDS);
-    match refusal {
-        AccountMeshRefusal::RateLimited {
-            retry_after_seconds,
-        } => Some(backoff.max(retry_after_seconds.min(MAX_MEMBERSHIP_SECONDS))),
-        AccountMeshRefusal::Offline
-        | AccountMeshRefusal::Unavailable
-        | AccountMeshRefusal::AuthorityUnavailable => Some(backoff),
-        _ => None,
-    }
-}
-
 /// Clears the sign-out guard however the release ends, so a failed or abandoned logout
 /// cannot wedge later sign-ins.
 struct LogoutWindow<'a>(&'a AccountMesh);
@@ -127,12 +110,13 @@ pub(super) struct Inner {
     pub(super) key: Option<Arc<InstallationKey>>,
     pub(super) last_request: Option<String>,
     pub(super) metadata_revision: Option<u64>,
+    pub(super) published_endpoint: Option<super::wire::MeshEndpoint>,
     pub(super) resolved: HashMap<String, MeshTarget>,
     flight: Option<Flight>,
     awaiting_logout: bool,
     notice_epoch: Option<u64>,
     lease: u64,
-    lease_failures: u32,
+    retry: super::retry::Retry,
     store_unreadable: bool,
 }
 
@@ -162,9 +146,10 @@ impl Inner {
     fn begin_epoch(&mut self) {
         self.cancel_flight();
         self.notice_epoch = None;
-        self.lease_failures = 0;
+        self.retry = Default::default();
         self.metadata_revision = None;
         self.resolved.clear();
+        self.published_endpoint = None;
     }
 }
 
@@ -205,11 +190,12 @@ impl AccountMesh {
                 last_request: None,
                 metadata_revision: None,
                 resolved: HashMap::new(),
+                published_endpoint: None,
                 flight: None,
                 awaiting_logout: false,
                 notice_epoch: None,
                 lease: 0,
-                lease_failures: 0,
+                retry: Default::default(),
                 store_unreadable: false,
             }),
             watch: watch::channel(state).0,
@@ -341,6 +327,8 @@ impl AccountMesh {
                     state.registry = None;
                     state.registry_failure = None;
                     state.publication = Publication::None;
+                    state.publication_failure = None;
+                    state.retry_at = None;
                 });
                 true
             }
@@ -374,6 +362,8 @@ impl AccountMesh {
             state.presence = Presence::SignedOut;
             state.membership = None;
             state.enrollment = Enrollment::Idle;
+            state.retry_at = None;
+            state.publication_failure = None;
             state.limit_notice = None;
             state.registry = None;
             state.cleanup = cleanup;
@@ -448,12 +438,16 @@ impl AccountMesh {
                 });
             };
             let epoch = inner.state.account_epoch;
+            if let Some(refusal) = inner.retry.pending(self.now()) {
+                return Err(refusal);
+            }
             if let Some(flight) = inner.flight.as_mut() {
                 if flight.epoch == epoch && !flight.cancel.is_cancelled() {
                     flight.rerun = Some(merge(flight.rerun, trigger));
                     return Ok(Start::Joined(flight.outcome.clone()));
                 }
             }
+            inner.lease += 1;
             let cancel = Cancel::default();
             let (outcome, settled) = watch::channel(None);
             inner.flight = Some(Flight {
@@ -516,17 +510,29 @@ impl AccountMesh {
                 .flight
                 .as_ref()
                 .is_some_and(|flight| flight.epoch == epoch);
-            let rerun = if owned {
-                inner.flight.as_mut().and_then(|flight| flight.rerun.take())
-            } else {
-                None
-            };
             if !inner.is_current(epoch) {
                 if owned {
                     inner.flight = None;
                 }
                 return None;
             }
+            inner.retry.settle(self.now(), *result);
+            let retry_at = inner.retry.deadline;
+            let rerun = if owned && retry_at.is_none() {
+                inner
+                    .flight
+                    .as_mut()
+                    .and_then(|flight| flight.rerun.take())
+                    .map(|trigger| {
+                        if result.is_ok() {
+                            EnrollTrigger::Network
+                        } else {
+                            trigger
+                        }
+                    })
+            } else {
+                None
+            };
             let notice = match result {
                 Err(AccountMeshRefusal::MachineLimit { .. }) => match trigger {
                     EnrollTrigger::Explicit => true,
@@ -548,17 +554,20 @@ impl AccountMesh {
                 }
                 _ => None,
             };
-            inner.update(&self.watch, |state| match result {
-                Ok(()) => {
-                    state.enrollment = Enrollment::Enrolled;
-                    state.last_refusal = None;
-                }
-                Err(AccountMeshRefusal::Cancelled) => {}
-                Err(refusal) => {
-                    state.enrollment = Enrollment::Refused;
-                    state.last_refusal = Some(*refusal);
-                    if notice.is_some() {
-                        state.limit_notice = notice;
+            inner.update(&self.watch, |state| {
+                state.retry_at = retry_at;
+                match result {
+                    Ok(()) => {
+                        state.enrollment = Enrollment::Enrolled;
+                        state.last_refusal = None;
+                    }
+                    Err(AccountMeshRefusal::Cancelled) => {}
+                    Err(refusal) => {
+                        state.enrollment = Enrollment::Refused;
+                        state.last_refusal = Some(*refusal);
+                        if notice.is_some() {
+                            state.limit_notice = notice;
+                        }
                     }
                 }
             });
@@ -603,21 +612,10 @@ impl AccountMesh {
             }
             let delay = match result {
                 Ok(()) => {
-                    inner.lease_failures = 0;
                     let membership = inner.state.membership.as_ref()?;
                     membership.verified.refresh_after().saturating_sub(now)
                 }
-                Err(refusal) => {
-                    let account = inner.state.signed_in_account()?;
-                    if !inner.record.slots.contains_key(account)
-                        && !inner.record.keys.contains_key(account)
-                    {
-                        return None;
-                    }
-                    let delay = lease_retry(*refusal, inner.lease_failures)?;
-                    inner.lease_failures = inner.lease_failures.saturating_add(1);
-                    delay
-                }
+                Err(_) => inner.retry.deadline?.saturating_sub(now),
             };
             inner.lease += 1;
             Some((inner.lease, delay))
@@ -630,7 +628,13 @@ impl AccountMesh {
             let Some(mesh) = mesh.upgrade() else {
                 return;
             };
-            if mesh.with(|inner| inner.lease == lease && inner.is_current(epoch)) {
+            if mesh.with(|inner| {
+                if inner.lease != lease || !inner.is_current(epoch) {
+                    return false;
+                }
+                inner.retry.deadline = None;
+                true
+            }) {
                 let _ = mesh.refresh(EnrollTrigger::Lease).await;
             }
         });

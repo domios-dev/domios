@@ -28,7 +28,20 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
     };
     match action {
         MeshAction::Status => match client.call("mesh.status", None) {
-            Ok(val) => {
+            Ok(mut val) => {
+                let account = http
+                    .get(format!("{}/api/account/mesh", base))
+                    .header(
+                        "Authorization",
+                        format!("Bearer {}", token.as_deref().unwrap_or("")),
+                    )
+                    .send()
+                    .map_err(|error| error.to_string())
+                    .and_then(handle_resp);
+                val["account_mesh"] = match account {
+                    Ok(state) => state,
+                    Err(error) => serde_json::json!({ "status_error": error }),
+                };
                 if json {
                     println!("{}", serde_json::to_string_pretty(&val).unwrap());
                 } else {
@@ -46,6 +59,9 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
                         .unwrap_or(0);
                     println!("{} ({})", name, &id[..id.len().min(8)]);
                     println!("Paired: {}", paired);
+                    for line in account_mesh_status_lines(&val["account_mesh"]) {
+                        println!("{}", line);
+                    }
                 }
             }
             Err(e) => {
@@ -378,4 +394,22 @@ fn set_mesh_enabled(
             crate::cmd::print::fail(1, e.to_string());
         }
     }
+}
+
+fn account_mesh_status_lines(state: &serde_json::Value) -> Vec<String> {
+    let mut lines = Vec::new();
+    if let Some(publication) = state["publication"].as_str() {
+        lines.push(format!("Account publication: {publication}"));
+    }
+    for field in ["publication_failure", "last_refusal", "status_error"] {
+        if !state[field].is_null() {
+            lines.push(format!("Account {field}: {}", state[field]));
+        }
+    }
+    if let Some(at) = state["retry_at"].as_u64() {
+        lines.push(format!(
+            "Account mesh: waiting to retry at {at} (Unix seconds)"
+        ));
+    }
+    lines
 }
