@@ -37,7 +37,10 @@ pub async fn broadcast_sync(mesh: &MeshState) {
     let http = transport::shared_http_client();
     for (addresses, port, token, peer_id) in &clients {
         let result = transport::try_peer(addresses, |addr| {
-            let url = format!("http://{}:{}/api/mesh/sync", addr.ip, port);
+            let url = format!(
+                "{}/api/mesh/sync",
+                transport::peer_http_origin(&addr.ip, *port)
+            );
             let http = http.clone();
             let token = token.clone();
             let payload = payload.clone();
@@ -144,7 +147,10 @@ pub async fn broadcast_announce(mesh: &MeshState, target: Option<&str>) -> Annou
         report.sent += 1;
         let stale_marker: Arc<Mutex<bool>> = Arc::new(Mutex::new(false));
         let result = transport::try_peer(addresses, |addr| {
-            let url = format!("http://{}:{}/api/mesh/announce", addr.ip, port);
+            let url = format!(
+                "{}/api/mesh/announce",
+                transport::peer_http_origin(&addr.ip, *port)
+            );
             let http = http.clone();
             let token = token.clone();
             let announce = announce.clone();

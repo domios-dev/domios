@@ -5,6 +5,16 @@ use std::{error::Error, sync::LazyLock};
 
 use super::types::{address_tier, PeerAddress};
 
+#[cfg(test)]
+mod tailnet_tests;
+
+pub(crate) fn peer_http_origin(address: &str, port: u16) -> String {
+    match address.parse::<std::net::Ipv6Addr>() {
+        Ok(ip) => format!("http://[{ip}]:{port}"),
+        Err(_) => format!("http://{address}:{port}"),
+    }
+}
+
 /// Outcome of one attempt against a peer address.
 ///
 /// `Retry` means the address failed at the network layer (timeout, refused,
@@ -268,14 +278,14 @@ impl PeerClient {
 
     /// Create a client with signed JWT auth.
     pub fn new_signed(address: &str, port: u16, signed_token: &str) -> Self {
-        Self::new_signed_url(format!("http://{}:{}", address, port), signed_token)
+        Self::new_signed_url(peer_http_origin(address, port), signed_token)
     }
 
     /// Create a client without auth (for pairing requests only).
     pub fn new_unauthenticated(address: &str, port: u16) -> Self {
         Self {
             client: shared_http_client(),
-            base_url: format!("http://{}:{}", address, port),
+            base_url: peer_http_origin(address, port),
             signed_token: None,
         }
     }

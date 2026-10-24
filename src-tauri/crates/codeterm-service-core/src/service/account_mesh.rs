@@ -23,6 +23,7 @@ use std::time::Duration;
 use tokio::sync::{watch, OnceCell};
 
 mod authority;
+pub mod tailnet;
 pub use authority::{mesh_state, AccountAuthority};
 
 #[cfg(test)]
@@ -316,6 +317,7 @@ impl ServiceContext {
                 }
             };
             mesh.lock().bind_account_authority(account_mesh.authority());
+            crate::async_runtime::spawn(tailnet::run(service.clone(), mesh.clone()));
             crate::async_runtime::spawn(push_account_mesh_listener(service.clone(), mesh.clone()));
             let mut states = account_mesh.mesh_states();
             loop {

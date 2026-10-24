@@ -10,6 +10,10 @@
 
 ## Adding a machine
 
+Signed-in machines with Mesh enabled automatically listen on their assigned Tailscale IPv4 and IPv6 addresses and publish a health-proven endpoint to their account. No listener setting or Tailscale Serve setup is needed. Native address changes update the listener set; sign-out or disabling Mesh closes it. These listeners accept the existing authenticated peer and account-link protocols, reject local API credentials, and do not serve the browser frontend.
+
+Windows Defender may ask to allow incoming connections for Domios on first use; macOS may show an incoming-connections prompt when its application firewall is enabled. Linux firewall rules may need to permit the Domios port on the Tailscale interface. Domios does not change firewall rules or listen on LAN addresses for this feature.
+
 Both machines must be signed in to the same account, enrolled, online to the account registry and directly reachable (for example over the same Tailnet). Pick the machine from the account's machine list, or run:
 
 ```bash
@@ -169,4 +173,4 @@ Mesh inventory is target-authoritative: machine-qualified rows carry provenance 
 
 Inventory opens as a full-screen searchable List beside the existing Mesh network graph. One shared mode bubble switches between the List and the graph of connected computers. Keyboard navigation preserves resource identity and focus; peer detail separates Services and Schedules and labels cached, offline, denied, and partial states.
 
-<!-- revision: 60 -->
+<!-- revision: 61 -->
