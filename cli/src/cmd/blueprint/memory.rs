@@ -6,11 +6,34 @@ use serde_json::{json, Value};
 
 const OFFERS: usize = 5;
 
+pub(super) fn tag_error(
+    failure: codeterm_blueprint_types::blueprint_tags::TagError,
+) -> crate::cmd::print::CliError {
+    crate::cmd::print::CliError {
+        message: failure.to_string(),
+        code: Some(-32602),
+        data: Some(json!(failure)),
+    }
+}
+
+pub(super) fn tag_names(value: &Value) -> String {
+    value["tags"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 pub(super) fn save_receipt(saved: &Value) -> String {
     let mut text = format!(
         "Saved {} in Blueprint memory.",
         saved["id"].as_str().unwrap_or("?")
     );
+    if saved["tags"].is_array() {
+        text.push_str(&format!("\nTags: {}", tag_names(saved)));
+    }
     for id in saved["evicted_ids"]
         .as_array()
         .into_iter()

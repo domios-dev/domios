@@ -545,5 +545,6 @@ pub fn show_callable(
     value["hash"] = json!(hash);
     value["name"] = json!(document.name);
     value["saved_solution"] = json!(true);
+    value["tags"] = json!(service.mem.blueprint_tags(id)?);
     Ok(value)
 }

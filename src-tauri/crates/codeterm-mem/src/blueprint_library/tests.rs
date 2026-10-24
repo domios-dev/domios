@@ -698,3 +698,49 @@ fn admission_twins_respect_code_bodies_and_literals() {
         Verdict::Exact
     );
 }
+
+#[test]
+fn blueprint_catalogue_tags_survive_save_merge_and_reuse() {
+    let mem = MemManager::open_in_memory().unwrap();
+    let mut proof = evidence();
+    proof.tags = vec!["ci".into(), "monitoring".into()];
+    let saved = mem
+        .save_blueprint(
+            "project",
+            document("done"),
+            &when("Watch CI failure"),
+            proof,
+        )
+        .unwrap();
+    assert_eq!(
+        mem.blueprint_tags(&saved.id).unwrap(),
+        vec!["ci", "monitoring"]
+    );
+    mem.reuse_blueprints(&[saved.id.clone()]).unwrap();
+    assert_eq!(
+        mem.blueprint_tags(&saved.id).unwrap(),
+        vec!["ci", "monitoring"]
+    );
+    let mut proof = evidence();
+    proof.tags = vec!["github".into()];
+    let again = mem
+        .save_blueprint(
+            "project",
+            document("done"),
+            &when("Watch CI failure"),
+            proof,
+        )
+        .unwrap();
+    assert_eq!(again.id, saved.id);
+    assert_eq!(mem.blueprint_tags(&saved.id).unwrap(), vec!["github"]);
+    assert!(mem
+        .get(&saved.id)
+        .unwrap()
+        .unwrap()
+        .tags
+        .contains(&"blueprint-library".into()));
+    for entry in catalog::ENTRIES {
+        let tags = mem.blueprint_tags(entry.id).unwrap();
+        codeterm_blueprint_types::blueprint_tags::validate(&tags).unwrap();
+    }
+}

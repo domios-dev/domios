@@ -134,7 +134,11 @@ fn write_entry(
 ) -> Result<(), String> {
     record.set_entry(entry);
     let document = &entry.document;
-    let mut tags = vec!["blueprint-library".into()];
+    let mut tags = store::get(conn, &entry.id, blobs)?
+        .map(|item| item.tags)
+        .unwrap_or_default();
+    tags.retain(|tag| codeterm_blueprint_types::blueprint_tags::contains(tag));
+    tags.push("blueprint-library".into());
     if let Some(curator) = &record.curator {
         tags.push("curator".into());
         tags.extend(curator.rounds.keys().cloned());
@@ -156,6 +160,25 @@ fn write_entry(
 }
 
 impl MemManager {
+    pub fn blueprint_tags(&self, id: &str) -> Result<Vec<String>, String> {
+        if id.starts_with("catalog:") {
+            return Ok(catalog::tags(id).iter().map(|tag| (*tag).into()).collect());
+        }
+        let id = id
+            .strip_prefix("mem:")
+            .or_else(|| id.strip_prefix("memory:"))
+            .unwrap_or(id);
+        Ok(self
+            .get(id)?
+            .map(|item| {
+                item.tags
+                    .into_iter()
+                    .filter(|tag| codeterm_blueprint_types::blueprint_tags::contains(tag))
+                    .collect()
+            })
+            .unwrap_or_default())
+    }
+
     fn queue_blueprint(self: &std::sync::Arc<Self>, pending: Pending) -> Result<(), String> {
         let mut queue = self.blueprint.queue.lock();
         if queue.is_none() {
@@ -384,6 +407,22 @@ impl MemManager {
             library.push(next);
             id
         };
+        if !evidence.tags.is_empty() {
+            let mut tags = store::get(&tx, &id, &self.blobs_dir)?
+                .ok_or("Blueprint solution disappeared")?
+                .tags;
+            tags.retain(|tag| !codeterm_blueprint_types::blueprint_tags::contains(tag));
+            tags.extend(evidence.tags);
+            store::update(
+                &tx,
+                &id,
+                &store::MemUpdate {
+                    tags: Some(tags),
+                    ..Default::default()
+                },
+                &self.blobs_dir,
+            )?;
+        }
         let evicted_ids = model::evictions(&library, area_cap, now.timestamp(), &id);
         for evicted in &evicted_ids {
             archive(&tx, evicted, "blueprint solution area cap")?;

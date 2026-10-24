@@ -1,5 +1,6 @@
 #[derive(Clone, Debug, Default)]
 pub struct Evidence {
+    pub tags: Vec<String>,
     pub curator: Option<CuratorEvidence>,
     pub origin: Option<String>,
     pub kept: bool,

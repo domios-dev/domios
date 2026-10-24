@@ -26,7 +26,12 @@ fn worker_keep_is_refused_and_saved_recipe_applies_only_in_its_project() {
     crate::manage_fixture_ports(service, &handle);
     let caller = service.sentinel_caller(&tab, None).unwrap();
     assert!(service
-        .blueprint_keep(&caller, "missing", &["Watch CI failures".into()])
+        .blueprint_keep(
+            &caller,
+            "missing",
+            &["Watch CI failures".into()],
+            &["ci".into()]
+        )
         .unwrap_err()
         .contains("Orchestrator"));
     let document=Document::from_definition(&json!({"schema_version":2,"kind":"watch","name":"Concrete watch","note":"Watch CI","steps":[{"id":"source","uses":"probe","with":{"command":{"lit":"echo private-instance"}},"every":{"lit":"20s"},"timeout":{"lit":"1h"}},{"id":"decide","uses":"ask","with":{"question":{"lit":"Ready?"}},"buckets":["done"],"matches":{"done":{"lit":"ready"}},"until":"done","routes":{"done":"notice"}},{"id":"notice","uses":"notify"}]})).unwrap();
@@ -67,7 +72,8 @@ fn worker_keep_is_refused_and_saved_recipe_applies_only_in_its_project() {
             &workspace,
             caller.team.as_deref(),
             &job.id,
-            "Watch readiness"
+            "Watch readiness",
+            &["ci".into(), "monitoring".into()],
         )
         .unwrap_err()
         .contains("successful"));
@@ -89,9 +95,11 @@ fn worker_keep_is_refused_and_saved_recipe_applies_only_in_its_project() {
             caller.team.as_deref(),
             &job.id,
             "Watch readiness",
+            &["ci".into(), "monitoring".into()],
         )
         .unwrap();
     assert_eq!(saved["status"], "saved");
+    assert_eq!(saved["tags"], json!(["ci", "monitoring"]));
     let saved_id = saved["id"].as_str().unwrap();
     assert!(service
         .mem
@@ -102,7 +110,11 @@ fn worker_keep_is_refused_and_saved_recipe_applies_only_in_its_project() {
         .as_array()
         .unwrap()
         .iter()
-        .any(|entry| entry["id"] == saved_id));
+        .any(|entry| entry["id"] == saved_id && entry["tags"] == json!(["ci", "monitoring"])));
+    assert_eq!(
+        service.mem.blueprint_tags(saved_id).unwrap(),
+        vec!["ci", "monitoring"]
+    );
     service
         .blueprint_archive_solution_host(&workspace, saved_id)
         .unwrap();
