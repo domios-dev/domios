@@ -162,6 +162,7 @@ Sign in to the tab's runtime provider without a terminal
 - `--api-key-stdin` — Read the API key from stdin; never supply credentials in argv
 - `--cancel`
 - `--device`
+- `--show` — Read the pending sign-in without starting another flow
 - `--tab`
 
 #### `domios agent model`
