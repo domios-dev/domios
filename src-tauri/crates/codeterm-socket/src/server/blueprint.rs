@@ -65,6 +65,7 @@ pub(super) fn dispatch(
             let args = params
                 .as_ref()
                 .ok_or_else(|| error("parameters required"))?;
+            let tags = keep_tags(args)?;
             let when = serde_json::from_value::<Vec<String>>(
                 args.get("when").cloned().unwrap_or(json!([])),
             )
@@ -79,10 +80,10 @@ pub(super) fn dispatch(
                     )
                     .map_err(error)?;
                 let local = local_callees(params)?;
-                svc.blueprint_keep_callable(&caller, document, &local, &when)
+                svc.blueprint_keep_callable(&caller, document, &local, &when, &tags)
                     .map_err(error)
             } else {
-                svc.blueprint_keep(&caller, &get_string_param(params, "id")?, &when)
+                svc.blueprint_keep(&caller, &get_string_param(params, "id")?, &when, &tags)
                     .map_err(error)
             }
         }
@@ -485,4 +486,15 @@ fn local_callees(
             .unwrap_or(json!([])),
     )
     .map_err(|e| error(format!("Invalid local callee bundle: {e}")))
+}
+
+fn keep_tags(args: &Value) -> Result<Vec<String>, JsonRpcError> {
+    let tags =
+        serde_json::from_value::<Vec<String>>(args.get("tags").cloned().unwrap_or(json!([])))
+            .map_err(|e| error(e.to_string()))?;
+    codeterm_blueprint_types::blueprint_tags::validate(&tags).map_err(|failure| JsonRpcError {
+        code: -32602,
+        message: failure.to_string(),
+        data: Some(json!(failure)),
+    })
 }

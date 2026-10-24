@@ -16,12 +16,12 @@ async function main() {
   assert.equal(solutionKind(pipeline as never), "pipeline");
   const solution = (id: string, when: string, workspaceId = "w") => ({ id, workspaceId, when_to_use: when, how: null, uses: 1, successes: 1, last_used: 1 });
   const catalog = [
-    catalogEntry(solution("a", "Increment a typed integer"), { title: "add-seventeen", body: stringify(callable), tags: ["blueprint-library", "math"] }),
+    catalogEntry(solution("a", "Increment a typed integer"), { title: "add-seventeen", body: stringify(callable), tags: ["blueprint-library", "data-transform"] }),
     catalogEntry(solution("b", "Watch failing CI runs"), { title: "ci-watch", body: stringify(watch), tags: ["blueprint-library", "ci"] }),
     catalogEntry(solution("c", "Score release readiness", "x"), { title: "readiness", body: stringify(pipeline), tags: ["blueprint-library"] }),
     catalogEntry(solution("d", "Broken entry"), new Error("not found")),
   ];
-  assert.deepEqual(catalog[0].tags, ["math"], "the library marker is not a catalogue tag");
+  assert.deepEqual(catalog[0].tags, ["data-transform"], "only controlled catalogue tags are exposed");
   assert.equal(catalog[3].error, "not found");
   const ids = (entries: readonly CatalogEntry[]) => entries.map((entry) => entry.solution.id);
   assert.deepEqual(ids(filterCatalog(catalog, { ...NO_CATALOG_FILTER, query: "failing ci" })), ["b"], "every typed word must match");
@@ -42,14 +42,15 @@ async function main() {
   const archived: string[] = [];
   const searches: string[] = [];
   let saved = false;
+  let savedTags: readonly string[] = [];
   const api: BlueprintSolutionsApi = {
     list: async (workspace) => workspace === "w" ? [
       { id: "recipe", when_to_use: "Watch failing jobs", how: "Poll CI", uses: 7, successes: 6, last_used: 1 },
       { id: "helper", when_to_use: "Increment a typed integer", how: null, uses: 0, successes: 0, last_used: 0 },
     ] : [],
-    save: () => new Promise((resolve) => { finishSave = resolve; }),
+    save: (_scope, _when, tags) => new Promise((resolve) => { savedTags = tags; finishSave = resolve; }),
     archive: async (workspace, id) => { archived.push(`${workspace}/${id}`); },
-    document: async (id) => id === "recipe" ? { title: "ci-watch", body: stringify(watch), tags: ["blueprint-library", "ci"] } : { title: "add-seventeen", body: stringify(callable), tags: ["blueprint-library", "math"] },
+    document: async (id) => id === "recipe" ? { title: "ci-watch", body: stringify(watch), tags: ["blueprint-library", "ci"] } : { title: "add-seventeen", body: stringify(callable), tags: ["blueprint-library", "data-transform"] },
     search: async (workspace, query) => { searches.push(`${workspace}:${query}`); return ["helper"]; },
   };
   const render = (node: ReactElement) => act(async () => { root.render(node); });
@@ -64,7 +65,17 @@ async function main() {
   await render(<SaveSolutionForm scope={{ workspace_id: "w", team_id: "t", id: "job" }} api={api} onSaved={() => { saved = true; }} onCancel={() => {}} />);
   const input = container.querySelector("input")!;
   await type(input, "Watch failing jobs");
+  assert.equal((container.querySelector('button[type="submit"]') as HTMLButtonElement).disabled, true);
+  const checkbox = (name: string) => [...container.querySelectorAll<HTMLLabelElement>("label")].find((label) => label.textContent === name)!.querySelector<HTMLInputElement>("input")!;
+  await act(async () => { checkbox("ci").click(); });
+  await act(async () => { checkbox("github").click(); });
+  await act(async () => { checkbox("release").click(); });
+  assert.equal(checkbox("http").disabled, true);
+  await act(async () => { checkbox("release").click(); });
+  assert.equal(checkbox("http").disabled, false);
+
   await act(async () => { container.querySelector("form")!.dispatchEvent(new win.Event("submit", { bubbles: true, cancelable: true }) as unknown as Event); });
+  assert.deepEqual(savedTags, ["ci", "github"]);
   assert.equal(saved, false, "queue admission must not report persisted success");
   await act(async () => { finishSave({ id: "recipe", status: "saved" }); });
   assert.equal(saved, true);

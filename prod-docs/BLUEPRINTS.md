@@ -183,7 +183,7 @@ Literal call arguments are checked as complete JSON values against the callee sc
 ## Saved solutions
 
 ```bash
-domios blueprint keep <id> --when "Watch CI and report failing jobs early" --when "tell me when a pull request goes red" --when "ping me once a check fails"
+domios blueprint keep <id> --when "Watch CI and report failing jobs early" --tag ci --tag github --when "tell me when a pull request goes red" --when "ping me once a check fails"
 domios blueprint apply memory:<recipe-id> --set key=value
 ```
 
@@ -198,7 +198,7 @@ A callable declares its result as `result: {type: <schema>, from: <node>.out}`. 
 Save a triggerless typed callable without scheduling it:
 
 ```bash
-domios blueprint keep --file increment.yaml --when "Increment a typed counter"
+domios blueprint keep --file increment.yaml --when "Increment a typed counter" --tag data-transform
 domios blueprint show mem:<solution-id> --json
 ```
 
@@ -212,4 +212,4 @@ Restored PTY results retain the exact saved provider/session in a durable outbox
 
 R10 and environment scrubbing prevent accidents only; neither is a security boundary. R10 scans executable text and joins split literals. Whole words `domios`/`codeterm` or tokens prefixed `DOMIOS_`/`CODETERM_` in run commands or code, including comments and strings, refuse with `ambient_authority`; domios-cli capabilities also refuse. Obfuscation can pass. Children scrub instance credentials/private CLI directories, keep shared paths such as `/usr/bin`, and shadow CLI names with private PATH-first deny stubs. HOME/APPDATA remain visible: reading user data or invoking an absolute CLI path still uses the user's authority. Unavailable R13 comparisons never claim PASS.
 
-<!-- revision: 72 -->
+<!-- revision: 73 -->

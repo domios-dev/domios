@@ -90,7 +90,7 @@ For an in-place provider handoff, use `domios agent switch-provider TARGET --tab
 
 Plan-locked Blueprint owners hold their automations with `plan_limit_locked`. Apply, edit and run-now refuse; delete and export remain available. Paid unlock resumes without replaying missed changes.
 
-Typed callable Blueprints are saved with `domios blueprint keep --file callable.yaml --when "Reuse this typed helper"`; inputs stay their signature and no scheduler job is created. Reuse the returned `mem:` identity through `call.ref`. `domios blueprint show mem:<id> --json` exposes the pinned callee graph; show on a caller also includes bounded nested results and stops. Call admission uses the host checker and caller Team/workspace. The CLI freezes local import bytes before sending them; source labels never authorize daemon file reads.
+Choose 1-3 catalogue tags from `domios blueprint tags` and pass each with `--tag` when keeping any solution. Typed callable Blueprints are saved with `domios blueprint keep --file callable.yaml --when "Reuse this typed helper" --tag data-transform`; inputs stay their signature and no scheduler job is created. Reuse the returned `mem:` identity through `call.ref`. `domios blueprint show mem:<id> --json` exposes the pinned callee graph; show on a caller also includes bounded nested results and stops. Call admission uses the host checker and caller Team/workspace. The CLI freezes local import bytes before sending them; source labels never authorize daemon file reads.
 
 ## Mesh (remote peers)
 

@@ -32,6 +32,7 @@ fn blueprint_memory_requests_offer_without_applying_and_preserve_identity() {
     );
     let (method, params) = request(
         BlueprintAction::Keep {
+            tags: vec!["ci".into()],
             id: Some("graph".into()),
             file: None,
             when: vec![
@@ -57,6 +58,7 @@ fn blueprint_memory_requests_offer_without_applying_and_preserve_identity() {
     let six = (0..6).map(|index| format!("intent {index}")).collect();
     assert!(request(
         BlueprintAction::Keep {
+            tags: vec!["ci".into()],
             id: Some("graph".into()),
             file: None,
             when: six,
@@ -515,13 +517,29 @@ mod command_tests {
 
 #[test]
 fn blueprint_save_receipt_surfaces_every_evicted_id() {
-    let result =
-        json!({"id":"saved-new", "status":"saved", "evicted_ids":["old-first", "old-second"]});
+    let result = json!({"id":"saved-new", "status":"saved", "tags":["ci","github"], "evicted_ids":["old-first", "old-second"]});
     let text = memory::save_receipt(&result);
     for id in ["saved-new", "old-first", "old-second"] {
         assert!(text.contains(id), "missing {id} in {text}");
     }
     assert!(text.contains("Archived"));
+    assert!(text.contains("Tags: ci, github"));
+    assert_eq!(memory::tag_names(&result), "ci, github");
+}
+
+#[test]
+fn blueprint_keep_tag_error_preserves_typed_suggestions() {
+    let failure =
+        codeterm_blueprint_types::blueprint_tags::validate(&["githb".into()]).unwrap_err();
+    let error = memory::tag_error(failure);
+    assert_eq!(error.code, Some(-32602));
+    let data = error.data.unwrap();
+    assert_eq!(data["code"], "blueprint_tags_invalid");
+    assert_eq!(data["suggestions"][0], "github");
+    assert!(data["valid_tags"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("ci")));
 }
 
 #[test]
@@ -591,6 +609,7 @@ fn blueprint_v2_call_keep_file_sends_bytes_and_preserves_unbound_signature() {
     std::fs::write(&path, raw).unwrap();
     let (method, params) = request(
         BlueprintAction::Keep {
+            tags: vec!["ci".into()],
             id: None,
             file: Some(path.clone()),
             when: vec!["Increment typed data".into()],

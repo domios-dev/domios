@@ -21,7 +21,15 @@ pub(super) fn recall(
         intent,
         limit,
     )?;
-    response(result)
+    let mut value = response(result)?;
+    if let Some(cards) = value["cards"].as_array_mut() {
+        for card in cards {
+            card["tags"] = json!(svc
+                .mem
+                .blueprint_tags(card["id"].as_str().ok_or("Recall card id missing")?)?);
+        }
+    }
+    Ok(value)
 }
 
 fn response(result: AuthoringRecall) -> Result<Value, String> {

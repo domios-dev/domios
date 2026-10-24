@@ -52,6 +52,7 @@ fn render(job: &Value) {
         println!("{calls}");
     }
     if job["saved_solution"] == true {
+        println!("Tags: {}", memory::tag_names(job));
         if let Ok(body) = serde_json::to_string_pretty(&job["call_graph"]) {
             println!("{body}");
         }
@@ -283,6 +284,12 @@ fn input_ref_summary(value: &Value) -> String {
 }
 
 pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: BlueprintAction) {
+    let keeping = matches!(&action, BlueprintAction::Keep { .. });
+    if let BlueprintAction::Keep { tags, .. } = &action {
+        if let Err(failure) = codeterm_blueprint_types::blueprint_tags::validate(tags) {
+            crate::cmd::print::exit_with_cli_error(json_mode, &memory::tag_error(failure));
+        }
+    }
     let author_intent = match &action {
         BlueprintAction::New {
             intent: Some(intent),
@@ -329,6 +336,9 @@ pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: Blue
         return;
     }
     let mut result = recalled.unwrap_or_else(|error| {
+        if keeping {
+            crate::cmd::print::exit_with_cli_error(json_mode, &error.into());
+        }
         if let Some(source) = apply_source.as_deref() {
             authoring::fail_apply_error(source, &error, json_mode)
         }
@@ -377,11 +387,12 @@ pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: Blue
                 }
                 for entry in result.as_array().into_iter().flatten() {
                     println!(
-                        "memory:{} {} (uses={} successes={})",
+                        "memory:{} {} (uses={} successes={}; tags={})",
                         entry["id"].as_str().unwrap_or("?"),
                         entry["when_to_use"].as_str().unwrap_or("?"),
                         entry["uses"],
-                        entry["successes"]
+                        entry["successes"],
+                        memory::tag_names(entry)
                     );
                 }
             }
@@ -582,7 +593,12 @@ fn request(
             params["intent"] = json!(intent);
             "blueprint.recall"
         }
-        BlueprintAction::Keep { id, file, when } => {
+        BlueprintAction::Keep {
+            id,
+            file,
+            when,
+            tags,
+        } => {
             if let Some(file) = file {
                 let bundle = authoring::local_bundle(&file.to_string_lossy())?;
                 params["definition"] =
@@ -592,6 +608,8 @@ fn request(
             } else {
                 params["id"] = json!(id.ok_or("keep requires id or --file")?);
             }
+            params["tags"] = json!(codeterm_blueprint_types::blueprint_tags::validate(&tags)
+                .map_err(|error| error.to_string())?);
             params["when"] =
                 json!(codeterm_blueprint_types::blueprint_memory::validate_intents(&when)?);
             "blueprint.keep"
@@ -659,9 +677,10 @@ fn request(
             params["dry_run"] = json!(true);
             "blueprint.apply"
         }
-        BlueprintAction::New { .. } | BlueprintAction::Project { .. } | BlueprintAction::Schema => {
-            return Err("Blueprint command is handled offline".into())
-        }
+        BlueprintAction::New { .. }
+        | BlueprintAction::Project { .. }
+        | BlueprintAction::Schema
+        | BlueprintAction::Tags => return Err("Blueprint command is handled offline".into()),
         BlueprintAction::List => "blueprint.list",
         BlueprintAction::Input {
             id,

@@ -50,3 +50,31 @@ fn blueprint_name_conflict_rpc_preserves_typed_code_and_recovery_message() {
     );
     assert_eq!(failure.message, refusal);
 }
+
+#[test]
+fn blueprint_keep_tags_rpc_is_required_and_typed() {
+    assert_eq!(
+        keep_tags(&json!({"tags":["ci", "github"]})).unwrap(),
+        vec!["ci", "github"]
+    );
+    for input in [
+        json!({}),
+        json!({"tags":[]}),
+        json!({"tags":["ci", "git", "http", "health"]}),
+        json!({"tags":["githb"]}),
+    ] {
+        let failure = keep_tags(&input).unwrap_err();
+        assert_eq!(failure.code, -32602);
+        assert_eq!(
+            failure.data.as_ref().unwrap()["code"],
+            "blueprint_tags_invalid"
+        );
+    }
+    assert_eq!(
+        keep_tags(&json!({"tags":["githb"]}))
+            .unwrap_err()
+            .data
+            .unwrap()["suggestions"][0],
+        "github"
+    );
+}

@@ -18,6 +18,8 @@ pub struct SolutionBody {
     team_id: Value,
     id: String,
     when_to_use: Option<String>,
+    #[serde(default)]
+    tags: Vec<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -98,6 +100,7 @@ pub async fn save(
             team.as_deref(),
             &body.id,
             body.when_to_use.as_deref().unwrap_or_default(),
+            &body.tags,
         )
     })
     .await
