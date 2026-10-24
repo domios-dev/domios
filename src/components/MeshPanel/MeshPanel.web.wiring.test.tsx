@@ -17,10 +17,11 @@ const inventory: MeshDataResult = {
 };
 let meshData = inventory;
 const refreshKeys: number[] = [];
+const registryRefreshKeys: number[] = [];
 
 vi.mock("./useMeshData", () => ({ useMeshData: (refreshKey: number) => { refreshKeys.push(refreshKey); return meshData; } }));
 vi.mock("../Jobs/JobsView", () => ({ JobsView: () => <section aria-label="Jobs" /> }));
-vi.mock("./useCanvasAccount", () => ({ useCanvasAccount: () => undefined }));
+vi.mock("./useCanvasAccount", () => ({ useCanvasAccount: (_peers: unknown, _changed: unknown, key: number) => { registryRefreshKeys.push(key); return undefined; } }));
 vi.mock("./useCanvasTailscale", () => ({ useCanvasTailscale: () => undefined }));
 vi.mock("../../lib/bridge", async (original) => ({
   ...await original<typeof import("../../lib/bridge")>(),
@@ -35,6 +36,25 @@ vi.mock("@codeterm/canvas-camera", async (original) => ({
   formatLayerTransform: () => "",
   useCanvasViewport: () => ({ containerRef: { current: null }, layerRef: { current: null }, transform: { x: 0, y: 0, scale: 1 }, handlers: {}, fitToView: () => {}, zoomBy: () => {} }),
 }));
+
+it("wires the toolbar Refresh to the account registry as well as inventory", async () => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const config = { api: { port: 7686, token: "private-token" }, mesh: { enabled: true } } as AppConfig;
+  try {
+    await act(async () => root.render(<MeshPanel api={config.api} config={config} onConfigUpdate={async () => {}} onClose={() => {}} />));
+    const inventoryKey = refreshKeys[refreshKeys.length - 1];
+    const registryKey = registryRefreshKeys[registryRefreshKeys.length - 1];
+    await act(async () => host.querySelector<HTMLButtonElement>('button[title="Refresh"]')!.click());
+    expect(refreshKeys[refreshKeys.length - 1]).toBe(inventoryKey + 1);
+    expect(registryRefreshKeys[registryRefreshKeys.length - 1]).toBe(registryKey + 1);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
 
 it("shows the inventory as unavailable instead of an empty graph when the first load fails", async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

@@ -142,10 +142,10 @@ describe("Mesh canvas wiring", () => {
     host.remove();
   });
 
-  async function mount(client: FakeAccountMeshClient, peers: PeerStatus[] = []) {
+  async function mount(client: FakeAccountMeshClient, peers: PeerStatus[] = [], registryRefreshKey = 0) {
     await act(async () => root.render(
       <AccountMeshClientProvider value={client}>
-        <AccountMeshCanvas onAccountChanged={() => { changed++; }} thisMachine={{ name: "Studio PC", ip: "127.0.0.1" }} peers={peers}
+        <AccountMeshCanvas registryRefreshKey={registryRefreshKey} onAccountChanged={() => { changed++; }} thisMachine={{ name: "Studio PC", ip: "127.0.0.1" }} peers={peers}
           recentPushes={[]} onPeerClick={(name) => { selected++; clickedNames.push(name); }} webUiBaseUrl="http://127.0.0.1:7686" onOpenPeerWebUi={() => { selected++; }} width={1200} height={800} />
       </AccountMeshClientProvider>,
     ));
@@ -156,6 +156,35 @@ describe("Mesh canvas wiring", () => {
     expect(element).not.toBeNull();
     await act(async () => element!.click());
   };
+
+  it("refreshes the account registry once on request and renders its name over the saved pair name", async () => {
+    const client = new FakeAccountMeshClient(snapshot({ pairs: [pair("mesh-mac", "mac.local", { installation_id: macRow.installation_id })] }));
+    const peers = [peer("mesh-mac", "mac.local")];
+    await mount(client, peers);
+    expect(client.listCalls).toBe(0);
+    client.listRows = client.state.registry!.rows.map((row) => row.installation_id === macRow.installation_id
+      ? { ...row, display_name: "Travel Mac", metadata_revision: row.metadata_revision + 1 } : row);
+    await mount(client, peers, 1);
+    expect(client.listCalls).toBe(1);
+    expect(button("Rename Travel Mac")).not.toBeNull();
+    expect(button("Disconnect Travel Mac")).not.toBeNull();
+    expect(host.querySelector('[role="button"][aria-label="Open Travel Mac"]')).not.toBeNull();
+    expect(host.querySelector('[role="button"][aria-label="Open mac.local"]')).toBeNull();
+    await mount(client, peers, 1);
+    await act(async () => client.emit(client.state));
+    expect(client.listCalls).toBe(1);
+    expect(client.enrollCalls).toBe(0);
+  });
+
+  it("renders a peer registry name from a backend notice without another registry read", async () => {
+    const client = new FakeAccountMeshClient(snapshot({ pairs: [pair("mesh-mac", "mac.local", { installation_id: macRow.installation_id })] }));
+    await mount(client, [peer("mesh-mac", "mac.local")]);
+    const rows = client.state.registry!.rows.map((row) => row.installation_id === macRow.installation_id
+      ? { ...row, display_name: "Remote rename", metadata_revision: row.metadata_revision + 1 } : row);
+    await act(async () => client.emit({ ...client.state, registry: { observed_at: NOW, rows } }));
+    expect(button("Rename Remote rename")).not.toBeNull();
+    expect(client.listCalls).toBe(0);
+  });
 
   it("offers Sign in from the canvas when signed out", async () => {
     presence.current = "signed_out";

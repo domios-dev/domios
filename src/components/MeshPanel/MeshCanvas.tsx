@@ -230,7 +230,7 @@ export const MeshCanvas = memo(function MeshCanvas({
     const footer = account?.canvas.peerFooters.get(id);
     if (!account || !footer) return undefined;
     const peer = peers.find((candidate) => candidate.instance_id === id);
-    const name = peer?.name ?? footer.row.name;
+    const name = footer.row.name;
     const seen = peer && !peer.online ? lastSeenMs(peer.last_seen) : null;
     return <PeerAccountFooterView footer={footer} name={name} lastSeen={seen === null ? null : formatAge(seen, account.now)}
       busy={account.busy === footer.key} actions={account.actions} hint={footer.row.status === "signed_out" ? undefined : tailscaleHint(name, peer?.online ?? false)} />;
