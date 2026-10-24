@@ -1,10 +1,10 @@
+import { isBlueprintTag } from "../../lib/blueprintTags";
 import { parse } from "yaml";
 import type { BlueprintDocument } from "../../lib/blueprintApi";
 import type { PipelineView } from "../Automation/pipelineModel";
 import type { SavedSolution, SolutionDocument } from "./blueprintSolutions";
 
 export type SolutionKind = "pipeline" | "watch" | "call";
-export const CATALOG_TAGS_HIDDEN = new Set(["blueprint-library"]);
 
 export interface CatalogEntry {
   solution: SavedSolution;
@@ -39,7 +39,7 @@ export function catalogEntry(solution: SavedSolution, stored: SolutionDocument |
   if (stored instanceof Error) return { solution, document: null, kind: null, tags: [], error: stored.message };
   try {
     const document = parseSolutionDocument(stored.body);
-    return { solution, document, kind: solutionKind(document), tags: stored.tags.filter((tag) => !CATALOG_TAGS_HIDDEN.has(tag)), error: null };
+    return { solution, document, kind: solutionKind(document), tags: (solution.tags ?? stored.tags).filter(isBlueprintTag), error: null };
   } catch (error) {
     return { solution, document: null, kind: null, tags: [], error: error instanceof Error ? error.message : String(error) };
   }

@@ -43,6 +43,10 @@ impl MemManager {
                 "Callable code files must be frozen into inline source bytes before saving".into(),
             );
         }
+        if !evidence.tags.is_empty() {
+            codeterm_blueprint_types::blueprint_tags::validate(&evidence.tags)
+                .map_err(|error| error.to_string())?;
+        }
         let intents = model::validate_intents(intents)?;
         let joined = intents.join("; ");
         let when_to_use = joined.as_str();

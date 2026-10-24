@@ -1,0 +1,202 @@
+[
+  {
+    "name": "agents",
+    "description": "Agent tasks and coordination"
+  },
+  {
+    "name": "api",
+    "description": "API calls and integrations"
+  },
+  {
+    "name": "audio",
+    "description": "Audio processing"
+  },
+  {
+    "name": "backup",
+    "description": "Backups and restoration"
+  },
+  {
+    "name": "billing",
+    "description": "Billing and spending"
+  },
+  {
+    "name": "browser",
+    "description": "Browser automation"
+  },
+  {
+    "name": "cache",
+    "description": "Cache management"
+  },
+  {
+    "name": "ci",
+    "description": "Continuous integration"
+  },
+  {
+    "name": "cleanup",
+    "description": "Resource cleanup"
+  },
+  {
+    "name": "cloud",
+    "description": "Cloud services"
+  },
+  {
+    "name": "code",
+    "description": "Code generation and execution"
+  },
+  {
+    "name": "containers",
+    "description": "Containers and images"
+  },
+  {
+    "name": "data-transform",
+    "description": "Data conversion and transformation"
+  },
+  {
+    "name": "database",
+    "description": "Database operations"
+  },
+  {
+    "name": "deploy",
+    "description": "Deployment workflows"
+  },
+  {
+    "name": "diagnostics",
+    "description": "Diagnostics and troubleshooting"
+  },
+  {
+    "name": "email",
+    "description": "Email processing"
+  },
+  {
+    "name": "events",
+    "description": "Event handling"
+  },
+  {
+    "name": "files",
+    "description": "File operations"
+  },
+  {
+    "name": "git",
+    "description": "Git repositories and branches"
+  },
+  {
+    "name": "github",
+    "description": "GitHub repositories and workflows"
+  },
+  {
+    "name": "health",
+    "description": "Service health checks"
+  },
+  {
+    "name": "http",
+    "description": "HTTP requests and endpoints"
+  },
+  {
+    "name": "images",
+    "description": "Image processing"
+  },
+  {
+    "name": "incident",
+    "description": "Incident response"
+  },
+  {
+    "name": "logs",
+    "description": "Log processing"
+  },
+  {
+    "name": "memory",
+    "description": "Durable knowledge and memory"
+  },
+  {
+    "name": "mesh",
+    "description": "Remote machine coordination"
+  },
+  {
+    "name": "monitoring",
+    "description": "Monitoring and observation"
+  },
+  {
+    "name": "network",
+    "description": "Network operations"
+  },
+  {
+    "name": "notify",
+    "description": "Notifications and alerts"
+  },
+  {
+    "name": "orchestration",
+    "description": "Team and task orchestration"
+  },
+  {
+    "name": "parsing",
+    "description": "Parsing structured and unstructured input"
+  },
+  {
+    "name": "plugins",
+    "description": "Plugin operations"
+  },
+  {
+    "name": "processes",
+    "description": "Process lifecycle management"
+  },
+  {
+    "name": "queue",
+    "description": "Queue processing"
+  },
+  {
+    "name": "release",
+    "description": "Release preparation and publishing"
+  },
+  {
+    "name": "reporting",
+    "description": "Reports and summaries"
+  },
+  {
+    "name": "review",
+    "description": "Code and change review"
+  },
+  {
+    "name": "scheduling",
+    "description": "Scheduled jobs"
+  },
+  {
+    "name": "search",
+    "description": "Search and discovery"
+  },
+  {
+    "name": "security",
+    "description": "Security checks and controls"
+  },
+  {
+    "name": "secrets",
+    "description": "Secret handling"
+  },
+  {
+    "name": "storage",
+    "description": "Storage management"
+  },
+  {
+    "name": "testing",
+    "description": "Test execution and results"
+  },
+  {
+    "name": "text",
+    "description": "Text processing"
+  },
+  {
+    "name": "transcription",
+    "description": "Speech transcription"
+  },
+  {
+    "name": "validation",
+    "description": "Input and contract validation"
+  },
+  {
+    "name": "video",
+    "description": "Video processing"
+  },
+  {
+    "name": "webhooks",
+    "description": "Webhook processing"
+  }
+]

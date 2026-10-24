@@ -7,6 +7,7 @@ pub mod blueprint_journal;
 pub mod blueprint_pipeline;
 pub mod blueprint_recipe;
 pub mod blueprint_run;
+pub mod blueprint_tags;
 pub mod blueprint_terminal;
 pub mod sentinel_input;
 

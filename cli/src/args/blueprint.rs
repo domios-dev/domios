@@ -66,7 +66,12 @@ pub enum BlueprintAction {
         /// One "when would someone want this" request; repeat 1-5 times, 3-5 phrased differently
         #[arg(long, required = true, action = clap::ArgAction::Append)]
         when: Vec<String>,
+        /// Choose 1-3 distinct tags from `blueprint tags`; repeat --tag for each
+        #[arg(long = "tag", required = true, action = clap::ArgAction::Append)]
+        tags: Vec<String>,
     },
+    /// List controlled saved-solution tags with descriptions
+    Tags,
     /// Print the authoring JSON Schema for editors and agents
     Schema,
     /// Export a portable recipe containing only the definition
