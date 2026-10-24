@@ -102,6 +102,12 @@ pub(super) async fn login(
             "API keys must be entered on the provider's own machine".into(),
         ));
     }
+    if request.code.is_some() && !super::auth::is_local_caller(&state, &headers) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Sign-in codes must be entered on the provider's own machine".into(),
+        ));
+    }
     operate(&state.svc, &tab, request)
         .await
         .map(login_response)

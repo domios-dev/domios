@@ -13,7 +13,11 @@ use std::{
     time::Duration,
 };
 
+mod cli;
 mod relay;
+pub(crate) fn close_cli(tab: &str) {
+    cli::close(tab);
+}
 #[path = "login/terminal.rs"]
 mod terminal;
 
@@ -24,6 +28,12 @@ static OWNERS: LazyLock<Mutex<HashMap<String, Weak<Session>>>> = LazyLock::new(D
 pub struct LoginRequest {
     #[serde(default)]
     pub action: Option<String>,
+    #[serde(default)]
+    pub provider_id: Option<String>,
+    #[serde(default)]
+    pub account: Option<String>,
+    #[serde(default)]
+    pub code: Option<String>,
     pub method: Option<RuntimeLoginMethod>,
     #[serde(default)]
     pub api_key: Option<String>,
@@ -76,6 +86,13 @@ pub async fn operate(
     tab: &str,
     request: LoginRequest,
 ) -> Result<Value, String> {
+    cli::cleanup(svc);
+    if cli::supported(svc, tab, request.provider_id.as_deref()) {
+        return cli::operate(svc, tab, request).await;
+    }
+    if request.provider_id.is_some() || request.account.is_some() || request.code.is_some() {
+        return Err("This provider does not support CLI account sign-in".into());
+    }
     let session = match engine::for_tab(tab) {
         Some(session) => session,
         None => {
@@ -290,6 +307,9 @@ async fn finish(
 mod tests;
 
 pub fn show(svc: &ServiceContext, tab: &str) -> Result<Value, String> {
+    if cli::has(tab) || cli::supported(svc, tab, None) {
+        return cli::show(svc, tab);
+    }
     let session = engine::for_tab(tab).ok_or("Runtime binding unavailable")?;
     engine::validate_binding(svc, &session).map_err(|error| error.to_string())?;
     let login = project(session.login.lock().login.as_ref(), now_ms());

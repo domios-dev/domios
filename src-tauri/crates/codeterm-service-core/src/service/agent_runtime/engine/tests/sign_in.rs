@@ -82,6 +82,9 @@ fn signed_out_launch_attaches_cancellation_stays_pending_and_login_resumes_same_
             assert!(items.is_empty());
             crate::async_runtime::block_on(async {
                 let start = || login::LoginRequest {
+                    provider_id: None,
+                    account: None,
+                    code: None,
                     action: None,
                     method: Some(method.clone()),
                     api_key: (method == RuntimeLoginMethod::ApiKey).then(|| "opaque-secret".into()),
@@ -114,6 +117,9 @@ fn signed_out_launch_attaches_cancellation_stays_pending_and_login_resumes_same_
                         &fixture.service,
                         &id,
                         login::LoginRequest {
+                            provider_id: None,
+                            account: None,
+                            code: None,
                             action: Some("notify".into()),
                             method: None,
                             api_key: None,
@@ -133,6 +139,9 @@ fn signed_out_launch_attaches_cancellation_stays_pending_and_login_resumes_same_
                         &fixture.service,
                         &id,
                         login::LoginRequest {
+                            provider_id: None,
+                            account: None,
+                            code: None,
                             action: Some("cancel".into()),
                             method: None,
                             api_key: None,

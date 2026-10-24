@@ -173,9 +173,7 @@ pub fn launch_with_dispatch(
         };
         target = Some(available);
     }
-    if matches!(operation, CliOperation::Update) {
-        command = update::prepare_command(command, platform)?;
-    }
+    command = update::prepare_command(command, platform)?;
     let prerequisites = match operation {
         CliOperation::Install => &status.installer_prerequisites,
         CliOperation::Update => &status.updater_prerequisites,
@@ -248,9 +246,12 @@ pub fn launch_with_dispatch(
         );
     }
     crate::async_runtime::spawn(async move {
-        let completion = waiter.wait(std::time::Duration::from_secs(1800)).await;
+        let completion = waiter.wait(std::time::Duration::from_secs(600)).await;
         let _ = tokio::task::spawn_blocking(move || {
             let _permit = permit;
+            if completion.is_none() {
+                let _ = service.close_tab_with_reason(&monitor_tab, crate::multiplexer::types::TabCloseReason::SpawnRollback);
+            }
             codeterm_plugin::js_runtime::refresh_user_path();
             crate::agent::model_catalog::invalidate(&provider);
             let old_version = target.as_ref().map(|v| v.current_version.clone());
@@ -329,7 +330,7 @@ fn completion_summary(
         Some(0) => "command exited 0".to_owned(),
         Some(code) => format!("command failed with exit code {code}"),
         None if completion.is_none() => {
-            "completion deadline exceeded; inspect the utility tab".into()
+            "installation timed out after 10 minutes; retry the operation".into()
         }
         None => "command completion observed without an exit code".into(),
     };
@@ -368,96 +369,4 @@ fn fit_tab_description(text: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn a_long_install_hint_still_fits_the_tab_description() {
-        let long = format!(
-            "Install CLI for fixture; {}",
-            "needs a runner first. ".repeat(20)
-        );
-        let fitted = fit_tab_description(&long);
-        assert!(super::super::normalize_tab_description(&fitted).is_ok());
-        assert_eq!(
-            fitted.chars().count(),
-            super::super::MAX_TAB_DESCRIPTION_CHARS
-        );
-        assert_eq!(
-            fit_tab_description("Install CLI for fixture"),
-            "Install CLI for fixture"
-        );
-        assert_eq!(fit_tab_description("two\nlines"), "two lines");
-    }
-    #[test]
-    fn completion_routes_shells_to_records_and_agents_to_reports() {
-        assert_eq!(completion_route(None, false), CompletionRoute::SystemLog);
-        assert_eq!(
-            completion_route(Some("fixture"), false),
-            CompletionRoute::AgentReport
-        );
-        assert_eq!(completion_route(None, true), CompletionRoute::AgentReport);
-    }
-    #[test]
-    fn failed_install_completion_keeps_missing_prerequisite_guidance() {
-        let mut status = codeterm_plugin::provider_cli::no_cli();
-        status.required = true;
-        status.installed = Some(false);
-        status.installer_prerequisites = vec![codeterm_plugin::provider_cli::CommandPrerequisite {
-            binary: "fixture-runner".into(),
-            installed: Some(false),
-            hint: "opaque setup guidance".into(),
-        }];
-        let summary = completion_summary(
-            "fixture",
-            CliOperation::Install,
-            Some(ExecCompletion::CommandFinished {
-                exit_code: Some(127),
-            }),
-            Some(&status),
-        );
-        assert!(summary.contains("fixture-runner"));
-        assert!(summary.contains("opaque setup guidance"));
-        assert!(summary.contains("exit code 127"));
-    }
-    #[test]
-    fn no_cli_or_unsupported_os_refuses_before_launch() {
-        let mut status = codeterm_plugin::provider_cli::no_cli();
-        assert!(operation_command(&status, CliOperation::Install, "linux").is_err());
-        status.required = true;
-        status.installer = Some("opaque installer".into());
-        assert_eq!(
-            operation_command(&status, CliOperation::Install, "linux").unwrap(),
-            "opaque installer"
-        );
-        assert!(operation_command(&status, CliOperation::Update, "linux").is_err());
-        status.updater = Some("opaque updater".into());
-        assert_eq!(
-            operation_command(&status, CliOperation::Update, "linux").unwrap(),
-            "opaque updater"
-        );
-    }
-    #[test]
-    fn result_never_confuses_dispatch_timeout_or_failure_with_success() {
-        let mut status = codeterm_plugin::provider_cli::no_cli();
-        status.required = true;
-        status.installed = Some(false);
-        assert!(completion_summary(
-            "fixture",
-            CliOperation::Install,
-            Some(ExecCompletion::CommandFinished { exit_code: Some(0) }),
-            Some(&status)
-        )
-        .contains("still missing"));
-        assert!(completion_summary(
-            "fixture",
-            CliOperation::Update,
-            Some(ExecCompletion::CommandFinished { exit_code: Some(7) }),
-            Some(&status)
-        )
-        .contains("exit code 7"));
-        assert!(
-            completion_summary("fixture", CliOperation::Install, None, None)
-                .contains("deadline exceeded")
-        );
-    }
-}
+mod tests;

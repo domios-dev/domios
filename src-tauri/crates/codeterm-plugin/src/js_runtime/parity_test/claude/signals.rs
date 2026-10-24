@@ -8,6 +8,21 @@ fn parity_claude_auth_probe_and_status() {
     }
     let (native, js) = pair();
     assert_eq!(native.auth_status_probe(), js.auth_status_probe());
+    assert!(native.cli_login().is_some());
+    assert_eq!(native.cli_login(), js.cli_login());
+    assert_eq!(native.describe().cli_login, js.describe().cli_login);
+    let capability = native.cli_login().unwrap();
+    let pattern = regex::Regex::new(&capability.url_pattern).unwrap();
+    let fixture: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(plugin_fixture_root().join("tests/fixtures/login-osc.json"))
+            .unwrap(),
+    )
+    .unwrap();
+    let screen = fixture["screen"].as_str().unwrap();
+    assert_eq!(
+        pattern.captures(screen).unwrap().get(1).unwrap().as_str(),
+        fixture["url"].as_str().unwrap()
+    );
     let section = serde_json::to_value(crate::provider::structured_signals_section()).unwrap();
     for schema in [native.settings_schema(), js.settings_schema()] {
         assert!(serde_json::to_value(schema)
