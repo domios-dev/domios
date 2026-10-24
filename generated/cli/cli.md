@@ -439,6 +439,7 @@ Keep a generalised solution (Team Orchestrator only); give 3-5 --when intents
 
 - `--file` — Save a triggerless typed callable without scheduling it
 - `<id>`
+- `--tag` — Choose 1-3 distinct tags from `blueprint tags`; repeat --tag for each
 - `--when` — One "when would someone want this" request; repeat 1-5 times, 3-5 phrased differently
 
 #### `domios blueprint list`
@@ -500,6 +501,10 @@ Show one blueprint
 Stop one blueprint
 
 - `<id>`
+
+#### `domios blueprint tags`
+
+List controlled saved-solution tags with descriptions
 
 #### `domios blueprint update`
 

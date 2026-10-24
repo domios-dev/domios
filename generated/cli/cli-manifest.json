@@ -1863,6 +1863,16 @@
               "aliases": []
             },
             {
+              "name": "tag",
+              "positional": false,
+              "required": true,
+              "value_name": "TAGS",
+              "possible_values": [],
+              "default": null,
+              "help": "Choose 1-3 distinct tags from `blueprint tags`; repeat --tag for each",
+              "aliases": []
+            },
+            {
               "name": "when",
               "positional": false,
               "required": true,
@@ -2057,6 +2067,13 @@
               "aliases": []
             }
           ],
+          "subcommands": []
+        },
+        {
+          "name": "tags",
+          "about": "List controlled saved-solution tags with descriptions",
+          "aliases": [],
+          "args": [],
           "subcommands": []
         },
         {
