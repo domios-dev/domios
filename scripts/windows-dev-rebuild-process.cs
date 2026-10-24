@@ -20,6 +20,33 @@ public sealed class DevRebuildProcess : IDevRebuildProcess, IDisposable
     readonly SafeProcessHandle handle;
     public int Id { get; private set; }
 
+    [StructLayout(LayoutKind.Sequential)]
+    struct FileInformation
+    {
+        public uint Attributes;
+        public System.Runtime.InteropServices.ComTypes.FILETIME Created, Accessed, Written;
+        public uint VolumeSerial, SizeHigh, SizeLow, Links, IndexHigh, IndexLow;
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern SafeFileHandle CreateFile(string path, uint access, uint share, IntPtr security, uint disposition, uint flags, IntPtr template);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool GetFileInformationByHandle(SafeFileHandle file, out FileInformation information);
+
+    public static string FileIdentity(string path)
+    {
+        using (var file = CreateFile(path, 0, 7, IntPtr.Zero, 3, 0, IntPtr.Zero))
+        {
+            if (file.IsInvalid) throw new Win32Exception(Marshal.GetLastWin32Error(), "Open DEV image");
+            FileInformation information;
+            if (!GetFileInformationByHandle(file, out information))
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "GetFileInformationByHandle(DEV image)");
+            return information.VolumeSerial.ToString("X8") + ":" + information.IndexHigh.ToString("X8") + information.IndexLow.ToString("X8");
+        }
+    }
+
+    public string ImageIdentity { get { return FileIdentity(Executable); } }
+
     [DllImport("kernel32.dll", SetLastError = true)]
     static extern SafeProcessHandle OpenProcess(uint access, bool inherit, int pid);
     [DllImport("kernel32.dll", SetLastError = true)]
