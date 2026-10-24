@@ -40,6 +40,13 @@ the window. A rerun with a live window builds beside it: the window locks its ex
 client link that succeeds proves the client unchanged and only the server swaps; a lock failure
 replaces the window. Hosts older than the Team DEV breakaway report that the window stays tied to the tab.
 
+The Windows interactive helper may inherit an Explorer/session job. Like the server,
+it requires readable job limits without `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, rather
+than absence of all jobs. A kill-on-close or unreadable job refuses before client
+launch. Inspect helper job limits when diagnosing this refusal; Team DEV breakaway
+policy does not change Explorer's job membership. No production restart is needed
+for a launcher-script repair.
+
 With `dev-back`, native attachment has a 180-second failure deadline after reply validation
 to allow Vite's unbundled modules and large restored workspaces to load. Progress events
 advance the startup phases; only the native attachment acknowledgement and server readiness

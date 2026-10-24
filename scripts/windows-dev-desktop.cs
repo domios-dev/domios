@@ -24,8 +24,22 @@ public static class DevDesktop {
     [DllImport("kernel32.dll", SetLastError = true)] static extern bool GetNamedPipeClientProcessId(SafePipeHandle pipe, out uint pid);
     [DllImport("kernel32.dll", SetLastError = true)] static extern bool GetNamedPipeServerProcessId(SafePipeHandle pipe, out uint pid);
     [DllImport("kernel32.dll", SetLastError = true)] static extern bool IsProcessInJob(IntPtr process, IntPtr job, out bool member);
+    [DllImport("kernel32.dll", SetLastError = true)] static extern bool QueryInformationJobObject(IntPtr job, int informationClass, IntPtr information, uint length, IntPtr returnedLength);
     [DllImport("advapi32.dll", SetLastError = true)] static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
     [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
+
+    static bool CurrentJobSurvivesLauncher() {
+        bool member;
+        if (!IsProcessInJob(Process.GetCurrentProcess().Handle, IntPtr.Zero, out member)) return false;
+        if (!member) return true;
+        int size = IntPtr.Size == 8 ? 144 : 112;
+        IntPtr limits = Marshal.AllocHGlobal(size);
+        try {
+            if (!QueryInformationJobObject(IntPtr.Zero, 9, limits, (uint)size, IntPtr.Zero)) return false;
+            const int KillOnJobClose = 0x2000;
+            return (Marshal.ReadInt32(limits, 16) & KillOnJobClose) == 0;
+        } finally { Marshal.FreeHGlobal(limits); }
+    }
 
     static string Image(Process process) {
         return Path.GetFullPath(process.MainModule.FileName);
@@ -117,7 +131,7 @@ public static class DevDesktop {
                     int kind = reader.ReadInt32();
                     if (kind == 3) {
                         if (ReadText(reader) != "helper_job_membership") throw new InvalidDataException("DEV desktop refusal frame invalid");
-                        throw new InvalidOperationException("Interactive Windows shell retained DEV helper in a job; no server launch attempted");
+                        throw new InvalidOperationException("Interactive Windows shell retained DEV helper in a kill-on-close or unreadable job; no server launch attempted");
                     }
                     if (kind == 2) {
                         int code = reader.ReadInt32();
@@ -160,8 +174,7 @@ public static class DevDesktop {
             if (!GetNamedPipeServerProcessId(pipe.SafePipeHandle, out peer) || peer != controllerPid)
                 throw new InvalidOperationException("DEV desktop controller identity refused");
             using (PinPeer(peer, powershell)) {
-                bool member;
-                if (!IsProcessInJob(Process.GetCurrentProcess().Handle, IntPtr.Zero, out member) || member) {
+                if (!CurrentJobSurvivesLauncher()) {
                     var refusal = new BinaryWriter(pipe, Encoding.UTF8, true);
                     refusal.Write(3); WriteText(refusal, "helper_job_membership"); refusal.Flush();
                     return 1;
