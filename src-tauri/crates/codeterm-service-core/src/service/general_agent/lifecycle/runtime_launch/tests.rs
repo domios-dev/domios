@@ -51,41 +51,13 @@ fn general_bootstrap_composition_follows_each_provider_capability() {
                 }
             );
             if provider.agent_runtime().is_some() {
-                let config = runtime_config(
-                    runtime_prompt(
-                        "fragment-a19".into(),
-                        bootstrap.map(str::to_owned),
-                        &delivery,
-                    ),
-                    None,
-                    None,
-                    false,
-                );
-                assert_eq!(config["systemPrompt"], expected);
+                let config = runtime_config("fragment-a19".into(), None, None, false);
+                assert_eq!(config["systemPrompt"], "fragment-a19");
             }
         }
     }
     assert_eq!(providers, 3);
     assert_eq!(runtimes, 1);
-}
-
-#[test]
-fn general_runtime_external_delivery_keeps_bootstrap_out_of_instructions() {
-    assert_eq!(
-        runtime_prompt(
-            "fragment-a19".into(),
-            Some("fragment-b72".into()),
-            &SystemPromptDelivery::External,
-        ),
-        "fragment-a19"
-    );
-    let fallback = compose_launch_instructions(
-        "fragment-a19".into(),
-        Some("fragment-b72".into()),
-        &SystemPromptDelivery::External,
-    );
-    assert_eq!(fallback.startup_message.as_deref(), Some("fragment-b72"));
-    assert_eq!(fallback.starter_prompt, StarterPrompt::NoStarter);
 }
 
 #[test]
@@ -118,6 +90,9 @@ fn general_runtime_config_preserves_permanent_context_and_tab_controls() {
         assert!(config.get("env").is_none());
     }
 }
+
+#[path = "tests/capture.rs"]
+mod capture;
 
 #[test]
 fn general_runtime_restore_keeps_the_exact_thread_and_fresh_sibling_stays_independent() {

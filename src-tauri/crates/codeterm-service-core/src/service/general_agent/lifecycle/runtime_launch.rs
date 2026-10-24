@@ -173,11 +173,6 @@ fn launch(
     let bootstrap = (ownership.bootstrap() && !resuming)
         .then(|| compose_startup_message(&svc.mem, &general_dir().join("bootstrap.md")))
         .flatten();
-    let delivery = svc
-        .agent_registry
-        .with_provider(provider, |provider| provider.system_prompt_delivery())
-        .ok_or("General runtime provider unavailable")?;
-    let prompt = runtime_prompt(prompt, bootstrap.clone(), &delivery);
     svc.set_agent_session_id(&tab_id, session_id.clone());
     let nonce = svc.ensure_session_binding_nonce(&tab_id);
     let pad = svc.ensure_agent_pad(&tab_id)?;
@@ -208,7 +203,6 @@ fn launch(
         model: resolution.model.clone(),
         reasoning_effort: selection.reasoning_effort.clone(),
         system_prompt: Some(prompt.clone()),
-        task: bootstrap.clone(),
         resume_session_id: session_id.clone(),
         ..Default::default()
     };
@@ -223,7 +217,6 @@ fn launch(
             role_profile: params.role_profile.clone(),
             model: resolution.model.clone(),
             reasoning_effort: selection.reasoning_effort.clone(),
-            task: bootstrap,
             extra_env: env,
             resume_session_id: session_id,
             ..Default::default()
@@ -236,6 +229,7 @@ fn launch(
         selection.reasoning_effort,
         permission_bypass,
     );
+    prepare_bootstrap(svc, &tab_id, bootstrap.as_deref())?;
     svc.launch_chatbackend_runtime_existing(&tab_id, &metadata, launch_config)?;
     if crate::service::agent_runtime::engine::for_tab(&tab_id).is_some_and(|session| {
         matches!(
@@ -260,14 +254,21 @@ fn launch(
     Ok(())
 }
 
-fn runtime_prompt(
-    prompt: String,
-    bootstrap: Option<String>,
-    delivery: &crate::agent::provider::SystemPromptDelivery,
-) -> String {
-    compose_launch_instructions(prompt.clone(), bootstrap, delivery)
-        .task
-        .unwrap_or(prompt)
+fn prepare_bootstrap(
+    svc: &crate::service::ServiceContext,
+    tab_id: &str,
+    bootstrap: Option<&str>,
+) -> Result<(), String> {
+    if let Some(bootstrap) = bootstrap {
+        svc.create_pending_delivery_with_send_id(
+            tab_id,
+            crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
+            bootstrap,
+            Some(&uuid::Uuid::new_v4().to_string()),
+        )
+        .map_err(|error| error.to_string())?;
+    }
+    Ok(())
 }
 
 fn runtime_config(
