@@ -126,6 +126,9 @@ impl super::ServiceContext {
             .login_with_hint(&SystemBrowser, hint)
             .await
             .map_err(|e| e.to_string())?;
+        if let Ok(mesh) = self.account_mesh().await {
+            mesh.mesh.enrollment_signed_in();
+        }
         let _ = self
             .refresh_billing(codeterm_billing::RefreshEvent::SignIn)
             .await;

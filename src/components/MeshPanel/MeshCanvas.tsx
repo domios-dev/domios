@@ -4,7 +4,7 @@ import { memo, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from
 import { Globe } from "lucide-react";
 import { PeerTerminal } from "./PeerTerminal";
 import { lastSeenMs, type AccountCanvas, type AccountCanvasCard, type AccountMachineNode } from "./accountCanvas";
-import { AccountMachineCard, AccountNotes, AccountStateCard, PeerAccountFooterView, type MachineNodeActions } from "./AccountCanvasNodes";
+import { AccountMachineCard, AccountNotes, AccountStateCard, MachineReauthentication, PeerAccountFooterView, type MachineNodeActions } from "./AccountCanvasNodes";
 import { formatAge } from "../../lib/timeLabels";
 import { meshEdgeModel } from "./meshEdgeModel";
 import type { PeerStatus } from "./useMeshData";
@@ -44,6 +44,7 @@ export interface CanvasAccount {
   canvas: AccountCanvas;
   busy: string | null;
   signingIn: boolean;
+  reauthRequired?: boolean;
   /** Epoch milliseconds. */
   now: number;
   actions: MachineNodeActions;
@@ -314,7 +315,10 @@ export const MeshCanvas = memo(function MeshCanvas({
             ) : (
               <div style={{ transform: `scale(${MACHINE_CARD_SCALE})` }}>
               <PeerTerminal
-                footer={p.isThisMachine ? tailscale && <TailscaleFooter tailscale={tailscale} /> : peerFooter(p.id)}
+                footer={p.isThisMachine ? <>
+                  {account?.reauthRequired && <MachineReauthentication signingIn={account.signingIn} onSignIn={account.onSignIn} />}
+                  {tailscale && <TailscaleFooter tailscale={tailscale} />}
+                </> : peerFooter(p.id)}
                 inventory={peerInventoryModel(services, peers.find((peer) => peer.instance_id === p.id) ?? { instance_id: p.id, name: p.name, online: true }, !!p.isThisMachine, loading, error)}
                 name={p.name}
                 ip={p.ip}

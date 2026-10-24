@@ -95,6 +95,7 @@ fn account_mesh_only_the_machine_limit_reaches_the_gate_as_mesh_machines() {
     for refusal in [
         AccountMeshRefusal::Invalid,
         AccountMeshRefusal::Unauthenticated,
+        AccountMeshRefusal::ReauthRequired,
         AccountMeshRefusal::AppCheck,
         AccountMeshRefusal::Forbidden,
         AccountMeshRefusal::Conflict,
@@ -118,6 +119,10 @@ fn account_mesh_only_the_machine_limit_reaches_the_gate_as_mesh_machines() {
     assert_eq!(
         admission_refusal(AccountMeshRefusal::SignedOut),
         mesh::AdmissionRefusal::SignedOut
+    );
+    assert_eq!(
+        admission_refusal(AccountMeshRefusal::ReauthRequired),
+        mesh::AdmissionRefusal::Unauthenticated
     );
     assert_eq!(
         admission_refusal(AccountMeshRefusal::Conflict),

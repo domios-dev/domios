@@ -153,6 +153,8 @@ impl Clock for TestClock {
 
 #[derive(Default)]
 pub struct Script {
+    pub enrollment: Option<RegistryRefusal>,
+    pub enrollment_gate: Option<Arc<Notify>>,
     pub membership: Option<RegistryRefusal>,
     pub lose_membership_reply: Option<RegistryRefusal>,
     pub lose_key_reply: Option<RegistryRefusal>,
@@ -321,6 +323,14 @@ impl MeshRegistry for FakeRegistry {
             KeyOperation::Recover => "recover_key",
         };
         self.admit(session, label);
+        let gate = self.script.lock().unwrap().enrollment_gate.clone();
+        if let Some(gate) = gate {
+            self.entered.notify_one();
+            gate.notified().await;
+        }
+        if let Some(refusal) = self.script.lock().unwrap().enrollment {
+            return Err(refusal);
+        }
         let spki = request.body.public_key_spki_base64.clone();
         self.verify(
             session,
