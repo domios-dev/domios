@@ -373,6 +373,16 @@ kill_dev() {
   node scripts/reap-dev-sidecars.mjs "$CT_DATA_DIR"
 }
 
+stop_dev_before_replacement() {
+  if [[ "$OSTYPE" == msys* ]] || [[ "$OSTYPE" == cygwin* ]]; then
+    node scripts/dev-rebuild-stop.mjs "$(dev_provenance_record)" "$CT_DATA_DIR" "$CT_PORT" "$CT_INSTANCE" "$(dev_app_path)" || return
+    kill_web_watch
+    kill_dev_static_server
+  else
+    kill_dev
+  fi
+}
+
 request_dev_clean_restart() {
   local token cli="$CT_DATA_DIR/bin/codeterm"
   [ -x "$cli" ] || cli="$cli.exe"
@@ -2113,7 +2123,7 @@ build_dev_client() {
   grep -qE "LNK1104|failed to (link or copy|remove)|os error (5|32)|Access is denied" "$log" || return 1
   echo "Native client changed; replacing the DEV window."
   CT_DEV_RETAIN_WINDOW=0
-  kill_dev || echo "WARNING: dev cleanup failed; continuing." >&2
+  stop_dev_before_replacement || return
   TAURI_CONFIG="$(cat "$conf")" cargo build "$@"
 }
 
@@ -2167,8 +2177,9 @@ build_and_launch_dev() {
       swap_dev_server_keep_window "$split_logs" "$build_sha"
       return
     fi
-    kill_dev || echo "WARNING: dev cleanup failed; continuing." >&2
+    stop_dev_before_replacement || return
   fi
+  stop_dev_before_replacement || return
   node scripts/server-artifact.mjs stage-dev "$split_logs/server.jsonl" "$split_logs/server-tree.txt" \
     "$split_logs/cli.jsonl" "$(pwd -P)" "$(dev_resource_dir)" "$(dev_built_app_path)" "$build_sha"
   write_dev_provenance "$build_sha"
@@ -3675,13 +3686,13 @@ LOCK_STORM_PY
     DEV_NOTIFY_STAGE=preflight
     if ! run_prebuilt_preflight validate_dev_provenance; then
       refuse_prebuilt "ERROR: prebuilt dev provenance is absent, stale, or unparseable; refusing before stopping dev." \
-        "Run ./build.sh dev --wait to rebuild and record valid dev provenance."
+        "Run CODETERM_DEV_INSTANCE='$CT_INSTANCE' CODETERM_DEV_API_PORT='$CT_PORT' ./build.sh dev --wait to rebuild and record valid dev provenance."
     fi
     if ! run_prebuilt_preflight preflight_dev_prebuilt_runtime; then
       refuse_prebuilt "ERROR: prebuilt dev runtime prerequisites are unavailable; refusing before stopping dev." \
         "Run ./build.sh dev --wait to restore prerequisites and record valid dev provenance."
     fi
-    kill_dev
+    stop_dev_before_replacement
     if [ -n "$DEV_NOTIFY_TAB" ]; then
       trap 'status=$?; dev_notify_exit_report "$status"; cleanup_failed_prebuilt_launch "$status"' EXIT
       trap 'dev_notify_exit_report 130; cleanup_failed_prebuilt_launch 130' INT
@@ -3780,12 +3791,12 @@ LOCK_STORM_PY
   dev)
     DEV_NOTIFY_STAGE=preflight
     DEV_NOTIFY_STAGE=build
+    if named_dev_isolated; then prepare_named_dev_target; fi
     if dev_window_retainable; then
       export CT_DEV_RETAIN_WINDOW=1
     else
-      kill_dev || echo "WARNING: dev cleanup failed; continuing to build gateway acquisition." >&2
+      stop_dev_before_replacement
     fi
-    if named_dev_isolated; then prepare_named_dev_target; fi
     enter_cargo_gateway "$CMD ${*:2}"
     prepare_dev_frontend_dist
     ensure_deps

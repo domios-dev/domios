@@ -30,6 +30,7 @@ dev_health_status() { :; }
 dev_health_fields() { :; }
 ct_verify_target_dir() { :; }
 kill_dev() { :; }
+stop_dev_before_replacement() { :; }
 enter_cargo_gateway() { :; }
 prepare_dev_frontend_dist() { :; }
 ensure_deps() { :; }

@@ -86,6 +86,7 @@ cargo() {
 }
 git() { printf opaque-sha; }
 build_dev_frontend() { [ "$owned" = 1 ]; echo frontend; }
+stop_dev_before_replacement() { [ "$owned" = 1 ]; echo stopped; }
 write_dev_provenance() { [ "$owned" = 1 ]; echo provenance; }
 retain_dev_pdb() { :; }
 release_stable_build_path() { [ "$owned" = 1 ]; mapping=0; cd /; }
@@ -103,14 +104,14 @@ build_and_launch_dev --wait --notify-tab opaque-tab`;
     assert.doesNotMatch(result.stdout + result.stderr, /fixture-qa-project|inherited-wrong-project/);
     if (!failure) assert.match(result.stderr, /cargo build .*--bin codeterm --profile dev --no-default-features\n/);
     if (failure) assert.doesNotMatch(result.stdout, /frontend|staged|provenance|released|launch/);
-    else assert.match(result.stdout, /frontend\nstaged\nprovenance\nreleased\n[^\n]*\nlaunch dev-prebuilt --wait --notify-tab opaque-tab/);
+    else assert.match(result.stdout, /frontend\nstopped\nstaged\nprovenance\nreleased\n[^\n]*\nlaunch dev-prebuilt --wait --notify-tab opaque-tab/);
     } finally { fs.rmSync(directory, { recursive: true, force: true }); }
   });
  }
 }
 test('prebuilt retains its single provenance validation before stopping dev', () => {
   const prebuilt = source.slice(source.indexOf('  dev-prebuilt)'), source.indexOf('  dev)'));
-  assert.ok(prebuilt.indexOf('validate_dev_provenance') < prebuilt.indexOf('    kill_dev'));
+  assert.ok(prebuilt.indexOf('validate_dev_provenance') < prebuilt.indexOf('    stop_dev_before_replacement'));
   assert.doesNotMatch(prebuilt, /enter_cargo_gateway|enter_build_gateway/);
   assert.doesNotMatch(fn, /sleep|tauri dev/);
 });
