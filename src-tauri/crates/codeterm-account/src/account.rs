@@ -36,6 +36,7 @@ struct State {
     pending: Option<(LoginFlow, oneshot::Sender<Redemption>)>,
     generation: u64,
     busy: bool,
+    login_cancel: Option<oneshot::Sender<()>>,
     #[cfg(debug_assertions)]
     pending_url: Option<url::Url>,
     last_sign_in_failure: Option<SignInFailure>,
@@ -109,56 +110,68 @@ impl Account {
         let _operation = match self.operation.try_lock() {
             Ok(operation) => operation,
             Err(_) => {
-                log::info!(target: "codeterm_account::sign_in", "sign_in attempt outcome=failure stage={} error_kind={}", SignInStage::Preparation.name(), crate::sign_in_diagnostic::error_kind(Error::Pending));
-                return Err(Error::Pending);
+                let cancel = self.state.lock().await.login_cancel.take();
+                let Some(cancel) = cancel else {
+                    return Err(Error::Pending);
+                };
+                let _ = cancel.send(());
+                self.operation.lock().await
             }
         };
+        let (cancel, mut cancelled) = oneshot::channel();
         let generation = {
             let mut state = self.state.lock().await;
             state.busy = true;
+            state.login_cancel = Some(cancel);
             state.last_sign_in_failure = None;
             state.generation
         };
         let mut attempt = SignInAttempt::default();
         log::debug!(target: "codeterm_account::sign_in", "sign_in detail stage={} provider_hint_present={} mode_hint_present={}", SignInStage::Preparation.name(), hint.provider.is_some(), hint.mode.is_some());
-        let result = tokio::time::timeout(self.deadline, async {
-            let loopback = attempt.run(SignInStage::Preparation, async {
-                if self.provider.needs_browser_callback() { Loopback::bind().await.map(Some) } else { Ok(None) }
-            }).await?;
-            let redirect = match &loopback { Some(listener) => listener.redirect()?, None => "domios://auth/callback".into() };
-            let flow = LoginFlow::new(redirect).with_hint(hint);
-            let start = attempt.run(SignInStage::Preparation, self.provider.start_login(&flow)).await?;
-            let tokens = match start {
-                LoginStart::Immediate(tokens) => tokens,
-                LoginStart::Browser(url) => {
-                    let loopback = loopback.ok_or(Error::Configuration)?;
-                    let (sender, receiver) = oneshot::channel();
-                    {
-                        let mut state = self.state.lock().await;
-                        if generation != state.generation { return Err(Error::Cancelled); }
-                        state.pending = Some((flow, sender));
-                        #[cfg(debug_assertions)]
-                        { state.pending_url = Some(url.clone()); }
+        let result = tokio::select! {
+            _ = &mut cancelled => Err(Error::Cancelled),
+            result = tokio::time::timeout(self.deadline, async {
+                let loopback = attempt.run(SignInStage::Preparation, async {
+                    if self.provider.needs_browser_callback() { Loopback::bind().await.map(Some) } else { Ok(None) }
+                }).await?;
+                let redirect = match &loopback { Some(listener) => listener.redirect()?, None => "domios://auth/callback".into() };
+                let flow = LoginFlow::new(redirect).with_hint(hint);
+                let start = attempt.run(SignInStage::Preparation, self.provider.start_login(&flow)).await?;
+                let tokens = match start {
+                    LoginStart::Immediate(tokens) => tokens,
+                    LoginStart::Browser(url) => {
+                        let loopback = loopback.ok_or(Error::Configuration)?;
+                        let (sender, receiver) = oneshot::channel();
+                        {
+                            let mut state = self.state.lock().await;
+                            if generation != state.generation { return Err(Error::Cancelled); }
+                            state.pending = Some((flow, sender));
+                            #[cfg(debug_assertions)]
+                            { state.pending_url = Some(url.clone()); }
+                        }
+                        attempt.run(SignInStage::Browser, browser.open(&url)).await?;
+                        let request = {
+                            let serve = loopback.serve(self.clone());
+                            tokio::pin!(serve);
+                            tokio::pin!(receiver);
+                            attempt.run(SignInStage::Callback, async { tokio::select! {
+                                result = &mut receiver => result.map_err(|_| Error::Cancelled),
+                                result = &mut serve => { result?; receiver.await.map_err(|_| Error::Cancelled) }
+                            } }).await?
+                        };
+                        attempt.run(SignInStage::Redemption, self.provider.redeem(request)).await?
                     }
-                    attempt.run(SignInStage::Browser, browser.open(&url)).await?;
-                    let serve = loopback.serve(self.clone());
-                    tokio::pin!(serve);
-                    tokio::pin!(receiver);
-                    let request = attempt.run(SignInStage::Callback, async { tokio::select! {
-                        result = &mut receiver => result.map_err(|_| Error::Cancelled),
-                        result = &mut serve => { result?; receiver.await.map_err(|_| Error::Cancelled) }
-                    } }).await?;
-                    attempt.run(SignInStage::Redemption, self.provider.redeem(request)).await?
-                }
-            };
-            self.commit(tokens, generation, &mut attempt).await
-        }).await.unwrap_or(Err(Error::Timeout));
+                };
+                self.commit(tokens, generation, &mut attempt).await
+            }) => result.unwrap_or(Err(Error::Timeout)),
+        };
         self.finish_login(result, &attempt).await?;
         Ok(self.status().await)
     }
     async fn finish_login(&self, result: Result<()>, attempt: &SignInAttempt) -> Result<()> {
         let mut state = self.state.lock().await;
         state.pending = None;
+        state.login_cancel = None;
         #[cfg(debug_assertions)]
         {
             state.pending_url = None;
@@ -230,6 +243,9 @@ impl Account {
         let token = {
             let mut state = self.state.lock().await;
             state.generation += 1;
+            if let Some(cancel) = state.login_cancel.take() {
+                let _ = cancel.send(());
+            }
             state.pending = None;
             #[cfg(debug_assertions)]
             {
@@ -324,3 +340,7 @@ impl Completion {
 #[cfg(test)]
 #[path = "account/sign_in_tests.rs"]
 mod sign_in_tests;
+
+#[cfg(test)]
+#[path = "account/listener_tests.rs"]
+mod listener_tests;
