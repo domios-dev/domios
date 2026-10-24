@@ -15,7 +15,8 @@ import type { PipelineView } from "../pipelineModel";
 import { RunDivider } from "../RunDivider";
 import { AUTOMATION_TONE, AUTOMATION_TOOL, stateTone } from "../styles";
 import { BlueprintCanvas, type CanvasCallout } from "./Canvas";
-import { CanvasOverlay } from "./InfoCard";
+import { CanvasNotices } from "./CanvasNotes";
+import type { CanvasNote } from "./layout";
 import { DetailsFrame } from "../DetailsFrame";
 import { expandedCall, focusScope, litWires } from "./graphModel";
 import { layoutBlueprint } from "./layout";
@@ -65,9 +66,12 @@ function useElementHeight() {
 export interface BlueprintExportTarget { workspaceId: string; teamId: string | null; id: string }
 
 /** The one Blueprint view: every pipeline, watch and call opens here as a typed node graph with its runs and journal. */
-export function BlueprintView({ pipeline, initialRunId, backLabel, onBack, exportTarget, actions, summary, history = true, onStop, canStop = false, loadHistory, headingLevel = 2, fill = false }: {
+/** What a host knows about a Blueprint beyond its definition, shown on the canvas note. */
+export interface BlueprintAbout { purpose?: string | null; intents?: readonly string[]; facts?: readonly string[] }
+
+export function BlueprintView({ pipeline, initialRunId, backLabel, onBack, exportTarget, actions, about, hostNotices, history = true, onStop, canStop = false, loadHistory, headingLevel = 2, fill = false }: {
   pipeline: PipelineView; initialRunId?: string; backLabel?: string; onBack?: () => void; exportTarget?: BlueprintExportTarget;
-  actions?: ReactNode; summary?: ReactNode; history?: boolean;
+  actions?: ReactNode; about?: BlueprintAbout; hostNotices?: ReactNode; history?: boolean;
   onStop?: () => Promise<unknown>; canStop?: boolean; loadHistory?: () => Promise<BlueprintViewerHistory>; headingLevel?: 2 | 3; fill?: boolean;
 }) {
   const [trail, setTrail] = useState<readonly string[]>([]);
@@ -86,7 +90,14 @@ export function BlueprintView({ pipeline, initialRunId, backLabel, onBack, expor
   const shown = runId === null ? pipeline : pipeline.runs?.find((run) => run.id === runId)?.pipeline ?? null;
   const graphSource = useMemo(() => shown ?? pipeline, [shown, pipeline]);
   const built = useMemo(() => trail.length ? new Set([...expanded, ...trail.map((id, depth) => blueprintNodeKey(trail.slice(0, depth), id))]) : expanded, [expanded, trail]);
-  const { graph: whole, building, error } = useBlueprintGraph(graphSource, built);
+  const description = pipeline.note ?? pipeline.call_graph?.intent ?? null;
+  const noteKey = JSON.stringify([about?.purpose ?? null, description, about?.intents ?? [], about?.facts ?? []]);
+  const note = useMemo<CanvasNote | null>(() => {
+    const [purpose, text, intents, facts] = JSON.parse(noteKey) as [string | null, string | null, string[], string[]];
+    const body = [...new Set([purpose, text].filter((part): part is string => Boolean(part)))].join("\n\n");
+    return body || intents.length || facts.length ? { title: "Note", text: body || null, items: intents, facts } : null;
+  }, [noteKey]);
+  const { graph: whole, building, error } = useBlueprintGraph(graphSource, built, trail.length ? null : note);
   const graph = useMemo(() => {
     if (!whole || !trail.length) return whole;
     const model = focusScope(whole.model, trail);
@@ -131,7 +142,7 @@ export function BlueprintView({ pipeline, initialRunId, backLabel, onBack, expor
   const planLock = pipeline.heldReason === "plan_limit_locked" ? <span className="bp-notice"><BlueprintPlanLock reason={pipeline.heldReason} /></span> : null;
   const notices = <>
     {building && graph && <p role="status" className="bp-notice">Updating graph…</p>}
-    {planLock}{heldNotice}{evidenceNotice}
+    {planLock}{heldNotice}{evidenceNotice}{hostNotices}
     {stopError != null && <InlineErrorNotice error={stopError} operation="stopping this Blueprint" blocking />}
     {recordedStop && !anchored("failed") && <section aria-label="Recorded stop" className="bp-notice" data-tone="failed">
       <span className="font-semibold">Stopped at {recordedStop.step_name}</span>
@@ -139,7 +150,6 @@ export function BlueprintView({ pipeline, initialRunId, backLabel, onBack, expor
       {recordedStop.call_stack?.length ? <span aria-label="Stop call stack" className="bp-mono">{callStack(recordedStop)}</span> : null}
     </section>}
   </>;
-  const info = pipeline.note || summary ? <>{pipeline.note && <p className="bp-info__note">{pipeline.note}</p>}{summary}</> : null;
   const crumbs = trail.length > 0 ? <nav aria-label="Blueprint path" className="bp-crumbs">
     <ol>{scopeTitles.map((title, depth) => <li key={depth}>
       {depth === trail.length ? <span aria-current="page">{title}</span>
@@ -203,14 +213,14 @@ export function BlueprintView({ pipeline, initialRunId, backLabel, onBack, expor
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {shown && shown.historical_graph_available !== false && !error && !shown.projection_error && graph
           ? <BlueprintCanvas key={JSON.stringify(trail)} onOpen={drill} layout={graph.layout} label={`${pipeline.name} graph`} selected={selected} camera={camera} onSelect={select} lit={lit} callouts={callouts}
-            info={info} notices={notices} crumbs={crumbs} panelOpen={selected !== null || diffOpen} toolbar={history ? runsToggle : undefined} />
+            notices={notices} crumbs={crumbs} panelOpen={selected !== null || diffOpen} toolbar={history ? runsToggle : undefined} />
           : <div className="bp-scope bp-canvas bp-stage relative flex min-h-[14rem] min-w-0 flex-1 flex-col items-start gap-3 p-4">
             {history && runsToggle}
             {!shown ? <p role="status" className="bp-notice">Selected run unavailable.</p>
               : shown.historical_graph_available === false ? <p role="status" aria-label="Historical graph unavailable" className="bp-notice">The graph for this run was not retained. Its journal is listed under Runs.</p>
                 : error || shown.projection_error ? <InlineErrorNotice error={error ?? shown.projection_error} operation="building this Blueprint graph" blocking />
                   : <p role="status" className="bp-notice">Building Blueprint graph…</p>}
-            <CanvasOverlay types={null} info={info} notices={notices} />
+            <CanvasNotices>{notices}</CanvasNotices>
           </div>}
         {history && runsOpen && <>
           <RunDivider height={clampLogHeight(logHeight, available)} available={available} controls="blueprint-run-log" onResize={resizeLog} />

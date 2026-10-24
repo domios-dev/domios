@@ -66,7 +66,7 @@ test("a watch opens as typed nodes joined by labelled exec pins, with its retain
   try {
     for (const label of ["Node source", "Node decide", "Node notify", "Node Stop", "Node Result"]) assert.ok(button(view.host, label), label);
     assert.ok(view.host.querySelector('.bp-wire[data-kind="exec"]'));
-    assert.ok(named(view.host, 'ul[aria-label="Node types"]').textContent?.includes("Logic"));
+    assert.ok(button(view.host, "Node decide").textContent?.includes("Classify"), "each node names its own kind, so no legend is needed");
     assert.ok(button(view.host, "Node decide").textContent?.includes("passed"), "the decision shows its recorded outcome");
     assert.ok(!view.host.querySelector('.bp-node[data-state="waiting"]'), "a retained run never shows waiting nodes");
     assert.equal(graphRegion(view.host).dataset.replaying, "true", "the recorded path is lit");

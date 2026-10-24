@@ -112,7 +112,9 @@ async function main() {
     backLabel="All jobs" onBack={() => back++} onDeleted={() => deleted++} />);
   await flush();
   assert(container.querySelector('[aria-label="Node add"]'), "the saved graph renders in the single Blueprint view");
-  assert(container.querySelector('[aria-label="Saved solution facts"]')?.textContent?.includes("Increment a typed integer"));
+  const note = container.querySelector('.bp-canvas [aria-label="Blueprint note"]');
+  assert(note?.textContent?.includes("Increment a typed integer"), "the purpose is on the canvas note");
+  assert(note?.textContent?.includes("0 uses"), "usage stats are on the canvas note");
   assert.equal(container.querySelector('[aria-label="Blueprint runs"]'), null, "a saved solution has no runs panel");
   const button = (name: string) => [...container.querySelectorAll("button")].find((entry) => (entry.getAttribute("aria-label") ?? entry.textContent) === name)!;
   await act(async () => button("Export Blueprint").click());

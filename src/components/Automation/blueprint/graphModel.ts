@@ -49,6 +49,8 @@ export interface BlueprintGraphNode {
   control?: "trigger" | "result" | "stop";
   routes: { outcome: string; target: string }[];
   evidence: NodeEvidence | null;
+  /** A call node's sub-graph: the callee's name and whether its body is here to open. */
+  callee?: { name: string; openable: boolean };
 }
 
 export interface BlueprintGraphWire {
@@ -147,7 +149,6 @@ function bodyOf(node: BlueprintIrNode): BlueprintBody | null {
   if (node.uses === "http") { const url = field(node, "url"); return url ? { kind: "text", text: url } : null; }
   if (node.uses === "filter") { const pattern = field(node, "pattern"); return pattern ? { kind: "text", text: `Matches /${pattern}/` } : null; }
   if (node.uses === "convert") { const from = field(node, "from"), to = field(node, "to"); return from && to ? { kind: "text", text: `${from} → ${to}` } : null; }
-  if (node.call) return { kind: "text", text: node.call.ref };
   return node.does ? { kind: "text", text: node.does } : null;
 }
 
@@ -286,6 +287,7 @@ export function* buildBlueprintGraph(pipeline: PipelineView, expanded: Blueprint
       const node: BlueprintGraphNode = {
         key, id: definition.id, type: kind.type, icon: kind.icon, kindLabel: kind.label, title: definition.name ?? definition.id,
         body: bodyOf(definition), inputs: [pin("in", "exec", "in", "")], outputs: [], callPath: path, scope, definition, routes: [], evidence: evidenceFor(key),
+        callee: definition.call ? { name: definition.call.pin?.id ?? definition.call.ref, openable: calls.some((entry) => entry.node === definition.id) } : undefined,
       };
       const bound = bindings(definition);
       for (const [port, binding] of bound) node.inputs.push(pin(`bind:${port}`, "data", "in", port, binding));

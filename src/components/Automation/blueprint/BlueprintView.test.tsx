@@ -51,8 +51,13 @@ async function main() {
       assert(parts[1].querySelector(".bp-canvas"), `${moment}: the canvas stays mounted`);
     };
     nothingAboveCanvas("first render");
-    assert(host.querySelector('.bp-canvas [aria-label="Blueprint info"]'), "notes, purpose and legend live in the canvas info card");
-    assert(host.querySelector('.bp-canvas ul[aria-label="Node types"]'));
+    const note = host.querySelector<HTMLElement>('.bp-canvas [aria-label="Blueprint note"]');
+    assert(note?.textContent?.includes("Inspect typed calls"), "the description is a note on the canvas");
+    assert(note!.closest('div[style*="transform-origin"]'), "the note pans and zooms with the graph");
+    const invoke = button("Node invoke");
+    assert.equal(invoke.getAttribute("data-subgraph"), "openable", "a call node reads as a sub-graph");
+    assert(invoke.textContent?.includes("mem:helper"), "the sub-graph names its callee");
+    assert(invoke.getAttribute("aria-description")?.includes("double-click"), "the sub-graph says how to open it");
     const layer = () => host.querySelector<HTMLElement>('.bp-canvas > div[style*="transform-origin"]');
     assert(layer());
     const fitted = layer()!.style.transform;

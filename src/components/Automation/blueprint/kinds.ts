@@ -1,5 +1,5 @@
 import { GitHubMark } from "../GitHubMark";
-import { Bell, Bot, Braces, CalendarClock, CircleStop, Clock3, Cpu, FileInput, Flag, GitBranch, Globe, Hand, MessageSquareReply, Play, Radio, Send, ShieldAlert, SquareTerminal, Workflow, Zap } from "lucide-react";
+import { Bell, Bot, Braces, CalendarClock, CircleStop, Clock3, Cpu, FileInput, Flag, GitBranch, Globe, Hand, MessageSquareReply, Network, Play, Radio, Send, ShieldAlert, SquareTerminal, Workflow, Zap } from "lucide-react";
 import type { ComponentType } from "react";
 import type { BlueprintIrNode } from "../../../lib/blueprintApi";
 
@@ -11,13 +11,12 @@ export const blueprintNodeKinds = {
   code: { label: "Code", width: 272, icon: Braces },
   agent: { label: "Agent", width: 272, icon: Bot },
   logic: { label: "Logic", width: 248, icon: GitBranch },
-  call: { label: "Call", width: 256, icon: Workflow },
+  call: { label: "Sub-graph", width: 272, icon: Network },
   action: { label: "Action", width: 240, icon: Bell },
   result: { label: "Result", width: 216, icon: Flag },
 } as const;
 
 export type BlueprintNodeType = keyof typeof blueprintNodeKinds;
-export const blueprintLegend = Object.keys(blueprintNodeKinds) as BlueprintNodeType[];
 
 export const blueprintTriggers = {
   schedule: { catalogType: "schedule", icon: Clock3 },
@@ -63,7 +62,7 @@ export interface IrNodeKind { type: BlueprintNodeType; icon: NodeIcon; label: st
 
 /** Classifies one Blueprint definition node by what it does, never by its id. */
 export function irNodeKind(node: BlueprintIrNode, deterministicDecision: boolean): IrNodeKind {
-  if (node.call) return { type: "call", icon: Workflow, label: "Call" };
+  if (node.call) return { type: "call", icon: Network, label: "Sub-graph" };
   if (node.code) return { type: "code", icon: Braces, label: node.code.lang === "ts" ? "TypeScript" : node.code.lang.charAt(0).toUpperCase() + node.code.lang.slice(1) };
   if (node.run !== undefined) return { type: "code", icon: SquareTerminal, label: "Command" };
   const step = own(blueprintSteps, node.uses);

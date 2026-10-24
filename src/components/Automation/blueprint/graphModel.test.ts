@@ -71,6 +71,8 @@ async function main() {
   assert.deepEqual(probe.outputs.filter((pin) => pin.kind === "exec").map((pin) => pin.label), ["done", "failed"], "one labelled exec pin per outcome");
   assert.equal(probe.type, "code");
   assert.equal(collapsed.nodes.find((node) => node.id === "invoke")?.type, "call");
+  assert.deepEqual(collapsed.nodes.find((node) => node.id === "invoke")?.callee, { name: "mem:helper", openable: true }, "a call node names its sub-graph and knows it can open");
+  assert.equal(probe.callee, undefined);
   assert.equal(collapsed.mode, "run");
 
   const graph = await build(run, new Set(expanded));
@@ -156,6 +158,13 @@ async function main() {
   ] } });
   assert(fanIn.wires.some((wire) => wire.kind === "data" && wire.from.node === key([], "$trigger") && wire.to.pin === "data:in"), "an input trigger feeds the first typed port");
   assertGeometry(fanIn, layoutBlueprint(fanIn));
+  const noted = layoutBlueprint(fanIn, { title: "Note", text: "Normalise audio into text", items: ["transcribe a call"], facts: ["2 uses · 1 success"] });
+  assertGeometry(fanIn, noted);
+  assert(noted.note, "a note is laid out");
+  assert(noted.nodes.every((entry) => entry.box.y >= noted.note!.box.y + noted.note!.box.height), "the note sits above the whole graph");
+  assert(noted.note.box.x + noted.note.box.width <= noted.bounds.width && noted.note.box.y + noted.note.box.height <= noted.bounds.height, "Fit all frames the note too");
+  assert.deepEqual(noted.root, noted.note.box, "a readable opening starts at the note");
+  assert.equal(layoutBlueprint(fanIn).note, null);
 
   const watch = capturedWatch as AutomationGraph;
   const runs = watchRuns(watch, watch.blueprints![0]);

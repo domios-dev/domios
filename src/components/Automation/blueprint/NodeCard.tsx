@@ -27,7 +27,7 @@ export function BlueprintNodeCard({ laid }: { laid: LaidOutBlueprintNode }) {
       <span className="bp-node__icon" aria-hidden="true"><Icon size={14} /></span>
       <span className="bp-node__titles">
         <span className="bp-node__title">{node.title}</span>
-        <span className="bp-node__subtitle">{node.kindLabel}{node.callPath.length ? ` · in ${node.callPath.join(" / ")}` : ""}</span>
+        <span className="bp-node__subtitle">{node.callee ? `${node.kindLabel} · ${node.callee.name}` : node.kindLabel}{node.callPath.length ? ` · in ${node.callPath.join(" / ")}` : ""}</span>
       </span>
     </span>
     {node.evidence && <span className="bp-node__status" data-state={node.evidence.state} style={{ height: statusHeight || STATUS_HEIGHT }}>
@@ -37,6 +37,7 @@ export function BlueprintNodeCard({ laid }: { laid: LaidOutBlueprintNode }) {
     {node.body && <span className="bp-node__body" data-kind={node.body.kind} style={{ height: bodyHeight }}>
       <span className="bp-node__clamp" style={{ WebkitLineClamp: bodyLines }}>{node.body.text}</span>
     </span>}
+    {node.callee?.openable && <span className="bp-node__hint" aria-hidden="true">Double-click to open</span>}
     {rows.map((row, index) => <span key={index} className="bp-row" style={{ top: row.top, height: row.height }}>
       {row.left && <><Pin pin={row.left} /><PinLabel pin={row.left} /></>}
       {row.right && <><PinLabel pin={row.right} /><Pin pin={row.right} /></>}

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { blueprintActions, blueprintLegend, blueprintNodeKinds, blueprintSources, blueprintSteps, blueprintTriggers, irNodeKind } from "./kinds";
+import { blueprintActions, blueprintNodeKinds, blueprintSources, blueprintSteps, blueprintTriggers, irNodeKind } from "./kinds";
 
 const fixture = JSON.parse(readFileSync(new URL("../../../../tests/fixtures/blueprint-nodes.golden.json", import.meta.url), "utf8")) as { nodes: { kind: string; type: string }[] };
 const catalogTypes = (kind: string) => fixture.nodes.filter((node) => node.kind === kind).map((node) => node.type).sort();
@@ -8,7 +8,6 @@ assert.deepEqual(Object.keys(blueprintSteps).sort(), catalogTypes("step"));
 assert.deepEqual(Object.keys(blueprintActions).sort(), catalogTypes("handler"));
 assert.deepEqual(Object.values(blueprintTriggers).map((kind) => kind.catalogType).sort(), catalogTypes("trigger"));
 assert.deepEqual(Object.values(blueprintSources).map((kind) => kind.catalogType).sort(), catalogTypes("source"));
-assert.equal(new Set(blueprintLegend).size, Object.keys(blueprintNodeKinds).length);
 assert.notEqual(blueprintSteps.http.icon, blueprintSteps.github.icon);
 for (const kind of Object.values(blueprintNodeKinds)) assert.ok(kind.width > 0 && kind.label);
 
