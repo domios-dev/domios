@@ -585,6 +585,7 @@ impl AccountMesh {
             if failure.is_none() {
                 inner.published_endpoint = ready;
             }
+            let cleanup_confirmed = cleanup_confirmed && inner.record.cleanup_pending;
             if cleanup_confirmed {
                 inner.record.cleanup_pending = false;
             }

@@ -155,11 +155,13 @@ async fn fresh_session_refreshes_even_when_token_is_not_expiring() {
         .save("fake", &Secret::new("fake-refresh"))
         .await
         .unwrap();
+    let observer = Arc::new(Observer::default());
     let account = Account::new(
         Arc::new(adapters::fake::Fake::default()),
         store,
         Duration::from_secs(1),
-    );
+    )
+    .with_identity_observer(observer.clone());
     account.refresh().await.unwrap();
     let before = account.session().await.unwrap().id_token;
     assert_eq!(
@@ -174,6 +176,11 @@ async fn fresh_session_refreshes_even_when_token_is_not_expiring() {
     );
     let refreshed = account.fresh_session().await.unwrap().unwrap();
     assert_ne!(before.expose(), refreshed.id_token.expose());
+    assert_eq!(
+        observer.0.lock().await.len(),
+        1,
+        "silent refresh does not announce another sign-in"
+    );
 }
 
 struct CallbackBrowser {
