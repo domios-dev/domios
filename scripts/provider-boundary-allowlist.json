@@ -10690,13 +10690,6 @@
       "removalSlice": "Remaining provider boundary extraction"
     },
     {
-      "file": "src-tauri/crates/codeterm-service-core/src/service/general_agent/first_run.rs",
-      "token": "claude",
-      "count": 1,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
-      "removalSlice": "Remaining provider boundary extraction"
-    },
-    {
       "file": "src-tauri/crates/codeterm-service-core/src/service/general_agent/instructions.rs",
       "token": "claude",
       "count": 8,
