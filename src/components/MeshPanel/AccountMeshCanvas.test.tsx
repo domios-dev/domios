@@ -403,6 +403,23 @@ describe("Mesh canvas wiring", () => {
     expect(client.peerRenameCalls).toEqual([]);
   });
 
+  it("rejoins a removed machine and offers reauthentication when required", async () => {
+    const client = new FakeAccountMeshClient(snapshot({ self: null, registry: null, enrollment: "refused", last_refusal: { reason: "forbidden" } }));
+    await mount(client);
+    const group = host.querySelector('[role="group"][aria-label="Rejoin your mesh"]');
+    expect(group).not.toBeNull();
+    await click(group!.querySelector("button"));
+    expect(client.enrollCalls).toBe(1);
+    expect(selected).toBe(0);
+    await act(async () => client.emit(snapshot({ self: null, registry: null, enrollment: "refused", last_refusal: { reason: "reauth_required" } })));
+    const reauthentication = host.querySelector('[role="group"][aria-label="Add this machine to your mesh"]');
+    expect(reauthentication).not.toBeNull();
+    await click(reauthentication!.querySelector("button"));
+    expect(presence.signIns).toBe(1);
+    await act(async () => client.emit(snapshot()));
+    expect(host.querySelector('[role="group"][aria-label="Rejoin your mesh"]')).toBeNull();
+  });
+
   it("offers one reauthentication action on this machine and waits for backend enrollment", async () => {
     const client = new FakeAccountMeshClient(snapshot({ self: null, registry: null, enrollment: "refused", last_refusal: { reason: "reauth_required" } }));
     await mount(client);

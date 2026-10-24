@@ -182,6 +182,7 @@ struct Account {
     display_name: Option<String>,
     key: Option<String>,
     key_generation: u64,
+    revoked_generation: u64,
     slot: Option<u64>,
     metadata_revision: u64,
     endpoint: Option<MeshEndpointObservation>,
@@ -274,6 +275,7 @@ impl FakeRegistry {
         let account = accounts.get_mut(uid).expect("account");
         account.slot = None;
         account.inactive = true;
+        account.revoked_generation = account.key_generation;
     }
 
     pub fn presence(&self, uid: &str) -> RegistryPresence {
@@ -455,7 +457,14 @@ impl MeshRegistry for FakeRegistry {
                 let slot = match &envelope.request.operation {
                     MeshOperation::Enroll {
                         expected_slot_revision: 0,
-                    } if account.slot.is_none() => 1,
+                    } if account.slot.is_none()
+                        && (!account.inactive || proof.generation > account.revoked_generation) =>
+                    {
+                        1
+                    }
+                    MeshOperation::Enroll { .. } if account.inactive => {
+                        return Err(RegistryRefusal::Forbidden)
+                    }
                     MeshOperation::Enroll { .. } => return Err(RegistryRefusal::Conflict),
                     MeshOperation::Renew {
                         expected_slot_revision,
