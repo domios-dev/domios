@@ -34,7 +34,7 @@ export function BlueprintCanvas({ layout, label, selected, camera, onSelect, onO
     onEnter: (pin, rowTop) => {
       const value = pinValue(values, laid.node, pin);
       if (!value) return;
-      setProbe({ key: `${laid.node.key}#${pin.id}`, side: pin.side, port: portName(pin), type: pin.detail && pin.id !== `bind:${portName(pin)}` ? pin.detail : undefined, value,
+      setProbe({ key: `${laid.node.key}#${pin.id}`, side: pin.side, port: portName(pin), type: pin.type ?? (pin.id.startsWith("bind:") ? undefined : pin.detail), value,
         x: pin.side === "in" ? laid.box.x : laid.box.x + laid.box.width, y: laid.box.y + rowTop + ROW_HEIGHT / 2 });
     },
     onLeave: leave,

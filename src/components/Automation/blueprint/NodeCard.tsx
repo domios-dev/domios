@@ -7,18 +7,18 @@ function Pin({ pin }: { pin: BlueprintPin }) {
   return <span className="bp-pin" data-side={pin.side} data-kind={pin.kind} data-connected={pin.connected || undefined} aria-hidden="true" />;
 }
 
-/** A bound input names where its value comes from; the source's default `out` port goes unsaid. */
+/** A bound input names where its value comes from; the source's default `out` port goes unsaid, a picked field stays. */
 function shownDetail(pin: BlueprintPin): string | undefined {
   if (!pin.detail || !pin.id.startsWith("bind:")) return pin.detail;
-  const split = pin.detail.indexOf(".");
-  const source = split > 0 && pin.detail.slice(split + 1) === "out" ? pin.detail.slice(0, split) : pin.detail;
-  return `← ${source}`;
+  const [node, port, ...field] = pin.detail.split(".");
+  return `← ${port === "out" ? [node, ...field].join(".") : pin.detail}`;
 }
 
 function PinLabel({ pin }: { pin: BlueprintPin }) {
   if (!pin.label) return null;
   const detail = pin.kind === "data" ? shownDetail(pin) : undefined;
-  return <span className="bp-pin-label" data-side={pin.side} data-kind={pin.kind} title={pin.detail ? `${pin.label}: ${pin.detail}` : pin.label}>
+  const tooltip = [pin.detail ? `${pin.label}: ${pin.detail}` : pin.label, pin.type && pin.type !== pin.detail ? pin.type : null].filter(Boolean).join(" · ");
+  return <span className="bp-pin-label" data-side={pin.side} data-kind={pin.kind} title={tooltip}>
     <span className="bp-pin-label__name">{pin.label}</span>
     {detail && <span className="bp-pin-label__detail">{detail}</span>}
   </span>;
