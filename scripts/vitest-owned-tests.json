@@ -27,6 +27,7 @@
   "src/components/MeshPanel/accountMachines.test.tsx",
   "src/components/MeshPanel/AccountMeshCanvas.test.tsx",
   "src/components/MeshPanel/MeshCanvas.web.test.tsx",
+  "src/components/MeshPanel/tailscaleSetup.test.tsx",
   "src/components/MeshPanel/accountMeshFailure.test.ts",
   "src/components/MeshPanel/accountMeshLimitNotice.test.ts",
   "src/lib/interfaceReload.test.ts",

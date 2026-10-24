@@ -289,8 +289,9 @@ function WebAccessSetup({
   if (plan.state === "not-installed") {
     return (
       <p data-testid="web-access-not-installed" className="text-xs text-[var(--ct-muted)] leading-snug">
-        Install Tailscale to get a clean, phone-friendly HTTPS link. Without it,
-        use one of the addresses above.
+        Install Tailscale, the free private network Domios uses to connect your
+        machines, to get a clean, phone-friendly HTTPS link. Without it, use one
+        of the addresses above.
       </p>
     );
   }

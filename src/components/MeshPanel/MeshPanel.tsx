@@ -7,6 +7,7 @@ import type { ApiConfig, AppConfig } from "../../lib/types";
 import type { MeshTab } from "./types";
 import type { RecentPush } from "./MeshCanvas";
 import { AccountMeshCanvas } from "./AccountMeshCanvas";
+import { useCanvasTailscale } from "./useCanvasTailscale";
 import { ServiceDrawer, type DrawerState } from "./ServiceDrawer";
 import { useMeshData } from "./useMeshData";
 import { meshDataUnavailable, meshHeaderState } from "./meshProjection";
@@ -153,6 +154,7 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
   const webCard = useCallback((qrSize: number) => <WebNodeCard qrSize={qrSize} config={config} network={network} serve={serve} loading={serveLoading}
     actions={WEB_ACTIONS} onAction={runWebUiAction} onSetup={setupWebAccess} />, [config, network, serve, serveLoading, runWebUiAction, setupWebAccess]);
   const webUiTarget = useMemo(() => buildWebUiTarget(config, network, serve), [config, network, serve]);
+  const tailscale = useCanvasTailscale({ serve, network, loading: serveLoading, api: config.api, onOpened: onClose });
 
   useLayoutEffect(() => {
     const element = mapRef.current;
@@ -270,6 +272,7 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
               height={mapSize.height}
               meshEnabled={config.mesh.enabled}
               onGoOnline={goOnline}
+              tailscale={tailscale}
               onOpenPeerWebUi={openPeerWebUi}
               webUiBaseUrl={displayedWebUrl(webUiTarget.link)}
               webUiToken={config.api.token}

@@ -21,6 +21,7 @@ const refreshKeys: number[] = [];
 vi.mock("./useMeshData", () => ({ useMeshData: (refreshKey: number) => { refreshKeys.push(refreshKey); return meshData; } }));
 vi.mock("../Jobs/JobsView", () => ({ JobsView: () => <section aria-label="Jobs" /> }));
 vi.mock("./useCanvasAccount", () => ({ useCanvasAccount: () => undefined }));
+vi.mock("./useCanvasTailscale", () => ({ useCanvasTailscale: () => undefined }));
 vi.mock("../../lib/bridge", async (original) => ({
   ...await original<typeof import("../../lib/bridge")>(),
   invoke: async (command: string) => command === "get_serve_status"
