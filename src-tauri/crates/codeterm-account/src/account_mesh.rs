@@ -5,6 +5,7 @@ pub mod callable;
 mod key;
 mod lifecycle;
 mod membership;
+mod notice;
 mod operations;
 mod ports;
 mod registry_presence;

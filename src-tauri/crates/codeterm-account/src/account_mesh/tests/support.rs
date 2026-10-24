@@ -164,6 +164,7 @@ pub struct Script {
     pub permit: Option<RegistryRefusal>,
     pub gate: Option<Arc<Notify>>,
     pub peer_unpublished: bool,
+    pub peer_presence: RegistryPresence,
     /// Seconds the issuer's clock runs ahead of the desktop's.
     pub issuer_ahead: u64,
 }
@@ -298,6 +299,7 @@ impl FakeRegistry {
         own.presence = account.map_or(RegistryPresence::Present, |account| account.presence);
         own.endpoint = account.and_then(|a| a.endpoint.clone());
         let mut peer = row(PEER, 0, Some("Laptop"));
+        peer.presence = self.script.lock().unwrap().peer_presence;
         peer.endpoint = (!peer_unpublished).then(|| MeshEndpointObservation {
             tailnet_ip: "100.101.102.103".into(),
             api_port: 7685,
@@ -500,7 +502,7 @@ impl MeshRegistry for FakeRegistry {
                     return Err(refusal);
                 }
                 if *expected_metadata_revision != account.metadata_revision {
-                    return Err(RegistryRefusal::Conflict);
+                    return Err(RegistryRefusal::Forbidden);
                 }
                 if account.presence != *presence {
                     account.metadata_revision += 1;
@@ -678,6 +680,9 @@ pub struct FakeTransport {
 }
 #[async_trait]
 impl MeshTransport for FakeTransport {
+    async fn presence_changed(&self, metadata_revision: u64) {
+        note(&self.log, format!("transport:presence:{metadata_revision}"));
+    }
     async fn apply(&self, state: &LifecycleState) {
         let kind = match state.presence {
             Presence::NeverSignedIn => "never",
