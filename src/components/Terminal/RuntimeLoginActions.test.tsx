@@ -27,3 +27,17 @@ it("starts browser login once, opens the native browser, and renders the device 
     expect(host.querySelector('button[aria-label="Copy device code"]')).not.toBeNull();
   } finally {await act(async()=>root.unmount());}
 });
+
+it("requests one phone notification for a remote tab without opening a local browser",async()=>{
+  bridge.invoke.mockReset(); bridge.openUrl.mockReset();
+  bridge.invoke.mockResolvedValue({notificationId:"opaque-notice"});
+  const host=document.createElement("div");const root=createRoot(host);
+  try {
+    await act(async()=>root.render(<RuntimeLoginActions tabId="mesh:opaque-peer/owned" state={{state:"loginPending",epoch:1,login:{status:"pending",loginId:"opaque-id",url:"https://example.invalid/opaque-path",userCode:"opaque-token"}}}/>));
+    const button=Array.from(host.querySelectorAll("button")).find(button=>button.textContent === "Send to my phone")!;
+    await act(async()=>{button.click();button.click();});
+    expect(bridge.invoke).toHaveBeenCalledExactlyOnceWith("agent_runtime_login",{tabId:"mesh:opaque-peer/owned",request:{action:"notify"}});
+    expect(button.disabled).toBe(true);
+    expect(bridge.openUrl).not.toHaveBeenCalled();
+  } finally {await act(async()=>root.unmount());}
+});

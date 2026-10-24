@@ -662,7 +662,10 @@ pub fn validate_runtime_reduction(
             continue;
         }
         if let AgentRuntimeEvent::AuthLogin { login } = event {
-            if login.login_id.as_ref().is_some_and(|id| !identifier(id))
+            if login
+                .expires_at_ms
+                .is_some_and(|expiry| expiry > 9_007_199_254_740_991)
+                || login.login_id.as_ref().is_some_and(|id| !identifier(id))
                 || login
                     .user_code
                     .as_ref()

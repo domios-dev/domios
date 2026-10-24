@@ -3,6 +3,16 @@ use crate::{AgentAction, Commands};
 use clap::Parser;
 
 const ACTIONS: &[(&str, &[&str], Option<(&str, &str, bool)>)] = &[
+    (
+        "login read",
+        &["login", "--tab", "peer-tab", "--show"],
+        Some(("GET", "/api/tabs/peer-tab/agent/runtime/login", false)),
+    ),
+    (
+        "login device",
+        &["login", "--tab", "peer-tab", "--device"],
+        Some(("POST", "/api/tabs/peer-tab/agent/runtime/login", true)),
+    ),
     ("cli status", &["cli", "status", "fixture"], None),
     ("cli install", &["cli", "install", "fixture"], None),
     ("cli update", &["cli", "update", "fixture"], None),
