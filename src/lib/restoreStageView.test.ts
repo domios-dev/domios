@@ -20,6 +20,10 @@ for (const [boot_stage, current] of [["pty_starting", 0], ["reader_ready", 0], [
   assert.equal(view.current, current);
 }
 assert.equal(restoreStageView(awake).phase, "ready");
+const signInTab: Partial<Tab> = { ...awake, agent_runtime_state: { state: "loginPending", epoch: 3, auth: "signedOut", loginMethods: ["browser"] } };
+const signInView = restoreStageView(signInTab, { requested: true });
+assert.equal(signInView.phase, "attention");
+assert.equal(restorePanelOwnsBody(signInTab, { requested: true }, signInView), false);
 const transcriptPending = transcriptLoadingStageView(awake);
 assert.equal(transcriptPending.phase, "restoring");
 assert.equal(transcriptPending.steps[transcriptPending.steps.length - 1]?.state, "pending");

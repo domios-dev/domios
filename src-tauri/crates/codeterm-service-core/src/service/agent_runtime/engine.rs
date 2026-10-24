@@ -536,7 +536,7 @@ async fn ensure_locked(
         )
         .await?;
         if matches!(*session.auth.lock(), RuntimeAuthState::SignedOut) {
-            return Err(RuntimeFailure::Refused("Sign-in required".into()));
+            return Err(RuntimeFailure::SignInRequired);
         }
     }
     let context = session.context.lock().clone();
@@ -631,7 +631,20 @@ async fn ensure_locked(
     let thread = thread_id.clone();
     let nonce = session.context.lock().binding_nonce.clone();
     tokio::task::spawn_blocking(move || {
-        owner.finalize_runtime_worker_session(&target, &thread, &nonce)
+        owner.finalize_runtime_worker_session(&target, &thread, &nonce)?;
+        let main = {
+            let mux = owner.mux.read();
+            mux.get_tab(&target).is_some_and(|tab| {
+                crate::service::general_agent::session_contract::owns_main(&mux, tab)
+            })
+        };
+        if main {
+            let provider = owner.mux.read().get_tab(&target).and_then(|tab| tab.agent_type.clone());
+            if let Some(provider) = provider {
+                crate::service::general_agent::persist_switched_session(&provider, &thread);
+            }
+        }
+        Ok::<(), String>(())
     })
     .await
     .map_err(|reason| RuntimeFailure::HookFailed(reason.to_string()))?

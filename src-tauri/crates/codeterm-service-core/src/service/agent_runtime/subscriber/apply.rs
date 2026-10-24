@@ -162,7 +162,7 @@ fn apply(svc: &ServiceContext, session: &Arc<Session>, epoch: u64, at: u64, even
         RuntimeEvent::SessionUpdated {
             auth: Some(state),
             billing_mode,
-            detail,
+            detail: _,
             ..
         } => {
             super::super::projections::billing(svc, session, billing_mode.unwrap_or_default(), at);
@@ -185,10 +185,7 @@ fn apply(svc: &ServiceContext, session: &Arc<Session>, epoch: u64, at: u64, even
             if matches!(state, RuntimeAuthState::SignedOut) {
                 session.state.lock().degrade(
                     epoch,
-                    &RuntimeFailure::Refused(detail.map_or_else(
-                        || "Sign-in required".into(),
-                        |detail| format!("Sign-in required: {detail}"),
-                    )),
+                    &RuntimeFailure::SignInRequired,
                 );
                 engine::publish(svc, &context.tab_id, session);
             }
