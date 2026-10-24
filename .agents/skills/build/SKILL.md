@@ -1317,16 +1317,12 @@ Desktop account and billing build variables above remain app dependencies.
 Preserve domios://auth/callback, domios://billing/return and authenticated
 entitlement refresh when integrating either external service.
 
-Fresh lanes may lack node_modules: pnpm exec tsc or vitest reports "Command not
-found", and plugin generation or the unit runner reports ERR_MODULE_NOT_FOUND for
-esbuild or tsx. Run
-pnpm install --frozen-lockfile in the lane's Team QA shell, then rerun the affected
-non-Rust checks. A failed dependency lookup selected no executable tests.
+Run `./build.sh fmt` in a fresh lane before direct pnpm checks; it prepares the checkout-local dependencies automatically. Direct pnpm commands bypass that wrapper. A failed dependency lookup selected no executable tests.
 <!-- revision: 53 -->
 
 ### Lane and batch scopes
 
-After each batch of edits, Workers run `./build.sh fmt` once before their checks; the Orchestrator runs it once after each integrated edit batch before checks. It applies rustfmt to changed Rust files using their package editions and applies Biome's safe fixes/import organization to changed TS/JS/JSON files. This replaces hand-run rustfmt commands and does not enable Biome formatting. Use `--base REF` to select the comparison ref (default: dispatched lane base, canonical checkout HEAD, then upstream/local develop). Missing lane dependencies report `pnpm install --frozen-lockfile`; Biome runs in bounded argument batches.
+After each batch of edits, Workers run `./build.sh fmt` once before their checks; the Orchestrator runs it once after each integrated edit batch before checks. It applies rustfmt to changed Rust files using their package editions and applies Biome's safe fixes/import organization to changed TS/JS/JSON files. This replaces hand-run rustfmt commands and does not enable Biome formatting. Use `--base REF` to select the comparison ref (default: dispatched lane base, canonical checkout HEAD, then upstream/local develop). Missing, partial or stale lane dependencies are prepared automatically with `pnpm install --frozen-lockfile` from the shared pnpm store before formatting. Each checkout keeps its own `node_modules`. Install failures retain their diagnostics and stop formatting; fix the reported cause and rerun. There is no unfrozen retry. Biome runs in bounded argument batches. Focused proof: `node --test scripts/tests/lane-dependencies.test.mjs scripts/tests/pnpm-isolation.test.mjs`.
 
 Workers run `./build.sh fmt` once per batch, then one verification pass: a single `./build.sh lane-check <package>... [--tests]` call for all touched crates, changed TS/JS tests and `tsc` when TS changes, plus guards. List canonical selectors under GATES REQUESTED; on failure, fix all reported errors and recheck only what failed.
 

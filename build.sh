@@ -2494,11 +2494,10 @@ dev_notify_health_proof() {
   dev_notify_ready_after_proof "$DEV_NOTIFY_SENT_MARKER" "$tab_id" "$CT_INSTANCE" "$CT_PORT" "$sha" "$listener" "$(pwd -P)"
 }
 
-# Auto-install node deps if lockfile is newer than node_modules
 ensure_deps() {
-  if [ ! -d node_modules ] || [ pnpm-lock.yaml -nt node_modules/.modules.yaml ] 2>/dev/null; then
-    echo "Installing dependencies..."
-    CI=true pnpm install --frozen-lockfile 2>/dev/null || CI=true pnpm install
+  if [ ! -f node_modules/.modules.yaml ] || [ pnpm-lock.yaml -nt node_modules/.modules.yaml ]; then
+    echo "Preparing checkout-local JS dependencies from the shared pnpm store (pnpm install --frozen-lockfile)..."
+    CI=true pnpm install --frozen-lockfile
   fi
 }
 
@@ -2779,6 +2778,7 @@ EOF
     ct_cache_retention gc "${2:-}"
     ;;
   fmt)
+    ensure_deps
     node scripts/format-changed.mjs "${@:2}"
     ;;
   fmt-check)
