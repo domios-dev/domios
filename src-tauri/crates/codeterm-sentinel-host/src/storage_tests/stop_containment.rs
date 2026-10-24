@@ -101,6 +101,7 @@ fn blueprint_stop_after_delete_recreate_never_takes_the_scheduler_down() {
             &store,
             &job,
             BlueprintJournalWrite::Finish {
+                evidence: None,
                 run_id: "run_long".into(),
                 marker: JournalMarker::Step(0),
                 state: JournalState::Skipped,
@@ -157,6 +158,7 @@ fn blueprint_invalid_journal_write_is_refused_without_closing_the_store() {
         &store,
         &job,
         BlueprintJournalWrite::Finish {
+            evidence: None,
             run_id: "run_refused".into(),
             marker: JournalMarker::Step(0),
             state: JournalState::Done,

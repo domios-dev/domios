@@ -134,6 +134,28 @@ fn prove_pipeline(language: &str, src: &str, expected: Option<JournalReason>) {
         assert!(records
             .iter()
             .any(|entry| entry.step_name == "sink" && entry.state == JournalState::Done));
+        let transform = records
+            .iter()
+            .find(|entry| entry.step_name == "transform" && entry.state == JournalState::Done)
+            .unwrap();
+        assert_eq!(
+            transform.evidence["ports"]["inputs"]["in"]["preview"],
+            "{\"n\":7}"
+        );
+        assert_eq!(
+            transform.evidence["ports"]["outputs"]["out"]["preview"],
+            "{\"n\":8}"
+        );
+        let view = serde_json::to_value(transform).unwrap();
+        assert_eq!(view["ports"]["outputs"]["out"]["type"], "object");
+        let projection = crate::blueprint_calls::project_retained(None, &records, None).unwrap();
+        let visible = projection["nested_run"]["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["step_name"] == "transform")
+            .unwrap();
+        assert_eq!(visible["ports"], view["ports"]);
     }
     assert_eq!(handle.probe_owner.snapshot().unconfirmed, 0);
     drop(handle);
@@ -279,4 +301,5 @@ fn blueprint_v2_runtime_envelope_requires_all_fields_and_preserves_text_type() {
 mod review;
 
 mod fanin;
+mod previews;
 mod recipes;

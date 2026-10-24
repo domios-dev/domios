@@ -8,6 +8,7 @@ use std::time::Duration;
 
 mod blueprint;
 mod blueprint_calls;
+mod blueprint_evidence;
 mod blueprint_v2;
 mod desk;
 mod sentinel;
@@ -53,6 +54,7 @@ const MIGRATIONS: &[&str] = &[
     blueprint_calls::RUN_IDENTITY_SCHEMA,
     "ALTER TABLE workspaces ADD COLUMN created_at_ms INTEGER CHECK (created_at_ms IS NULL OR created_at_ms >= 0);",
     "ALTER TABLE blueprint_runtime ADD COLUMN admission_json TEXT CHECK (admission_json IS NULL OR length(admission_json) <= 4194304);",
+    blueprint_evidence::SCHEMA,
 ];
 pub(crate) const SCHEMA_VERSION: i32 = MIGRATIONS.len() as i32;
 
