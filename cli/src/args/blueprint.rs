@@ -25,6 +25,9 @@ pub enum BlueprintAction {
         write: bool,
     },
     /// Create or update a YAML file or recipe by name in the caller's Team
+    #[command(
+        after_help = "A run value is an author-fixed shell command line, not an argv array. macOS/Linux use /bin/sh -c; Windows uses powershell.exe -NoLogo -NoProfile -NonInteractive -Command. Shell quoting and expansion apply, including $(...) in double quotes. Runtime bind.in data is delivered in the JSON stdin envelope, never interpolated into run."
+    )]
     #[command(alias = "create")]
     Apply {
         #[arg(default_value = "")]

@@ -4,7 +4,9 @@ use codeterm_blueprint_types::blueprint_document::calls::{
 };
 use codeterm_blueprint_types::blueprint_document::{Call, Document, Node, ValueForm};
 use codeterm_blueprint_types::blueprint_execution::ExecutionEnvelope;
-use codeterm_blueprint_types::blueprint_journal::{JournalMarker, JournalReason, JournalState};
+use codeterm_blueprint_types::blueprint_journal::{
+    JournalMarker, JournalOutcome, JournalReason, JournalState,
+};
 use codeterm_blueprint_types::blueprint_pipeline::{StepKind, StepOutcome};
 use codeterm_storage::{BlueprintJournalWrite, NestedClaimParent};
 use serde_json::{json, Value};
@@ -494,6 +496,7 @@ pub fn project_retained(
     let nodes = entries
         .iter()
         .filter(|entry| Some(entry.run_id.as_str()) == latest)
+        .filter(|entry| entry.outcome != Some(JournalOutcome::Unchanged))
         .filter(|entry| seen.insert(entry.marker()))
         .take(66)
         .map(|entry| calls::projection::bounded(&json!(entry), 0))

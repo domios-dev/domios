@@ -1,4 +1,21 @@
 use super::*;
+#[test]
+fn blueprint_apply_invalid_bind_is_typed_and_positioned() {
+    let root = tempfile::tempdir().unwrap();
+    let file = root.path().join("invalid.yaml");
+    std::fs::write(&file, "schema_version: 2\nkind: pipeline\nname: invalid-bind\ntrigger: {type: schedule, every: {lit: 20s}}\nsteps:\n- id: first\n  run: {lit: echo ready}\n- id: second\n  run: {bind: first.out}\n").unwrap();
+    let error = authoring::apply_request_error(&file.to_string_lossy(), "validation failed".into());
+    assert_eq!(error.code, Some(-32602));
+    let diagnostics = error.data.unwrap()["diagnostics"].clone();
+    let diagnostic = diagnostics
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|d| d["field"] == "steps[1].run")
+        .unwrap();
+    assert_eq!(diagnostic["line"], 9);
+    assert!(diagnostic["hint"].as_str().unwrap().contains("bind.in"));
+}
 fn files(root: &std::path::Path) -> std::path::PathBuf {
     std::fs::write(root.join("helper.yaml"), "schema_version: 2\nkind: pipeline\nname: helper\ninputs:\n  p: {type: integer}\nsteps:\n- id: value\n  uses: filter\n  with: {pattern: {lit: '.*'}}\n  in: {type: integer}\n  out: {type: integer}\nresult: {type: {type: integer}, from: value.out}\n").unwrap();
     let path = root.join("caller.yaml");

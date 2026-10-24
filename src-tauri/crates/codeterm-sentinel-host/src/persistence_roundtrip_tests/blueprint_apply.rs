@@ -172,6 +172,27 @@ fn blueprint_apply_without_team_refuses_before_writing() {
 }
 
 #[test]
+fn blueprint_apply_invalid_command_bind_is_typed_validation() {
+    let root = tempfile::tempdir().unwrap();
+    let (mut mux, tab) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
+    mux.resolve_or_mint_team_for_parent(&tab).unwrap();
+    let instance = ServiceInstance::open_with_mux(root.path(), mux);
+    let service = &instance.fixture.service;
+    let caller = service.sentinel_caller(&tab, None).unwrap();
+    let mut spec = definition(true);
+    spec["steps"][0]["bind"] = json!({"run":"unknown.out"});
+    let error = service.blueprint_apply(&caller, spec, true).unwrap_err();
+    let codeterm_blueprint_types::blueprint_contract::ApplyError::Validation { checks } = error
+    else {
+        panic!("expected typed validation, got {error}");
+    };
+    assert!(checks
+        .iter()
+        .any(|check| check.field == "steps[0].bind.run" && !check.passed));
+    super::close(instance);
+}
+
+#[test]
 fn blueprint_concurrent_apply_commits_one_identity() {
     for pipeline in [false, true] {
         let root = tempfile::tempdir().unwrap();

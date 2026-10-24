@@ -1,6 +1,20 @@
 import type { BlueprintJournalNode } from "../../lib/blueprintApi";
 import type { PipelineView } from "./pipelineModel";
 
+export function blueprintJournalNodes(pipeline: PipelineView): readonly BlueprintJournalNode[] {
+  if (pipeline.nested_run?.id !== pipeline.runId) return [];
+  return (pipeline.nested_run?.nodes ?? []).map((row) => {
+    if (row.parent_step_index != null || row.step_index == null || row.step_index < 0
+      || (row.run_id != null && row.run_id !== pipeline.runId)
+      || (pipeline.graph_definition_version != null && row.definition_version !== pipeline.graph_definition_version)) return row;
+    const index = pipeline.call_graph?.steps.findIndex((node) => node.id === row.step_name) ?? -1;
+    if (index < 0) return row;
+    const step = pipeline.nodes.find((node) => node.key === `step-${index}` && node.kind === "step");
+    return step?.state === "failed" ? { ...row, state: "failed", reason: step.reason ?? row.reason,
+      result_summary: step.resultSummary ?? row.result_summary } : row;
+  });
+}
+
 function newest(rows: readonly BlueprintJournalNode[]): BlueprintJournalNode | null {
   let latest: BlueprintJournalNode | null = null;
   for (const row of rows) {
@@ -10,7 +24,7 @@ function newest(rows: readonly BlueprintJournalNode[]): BlueprintJournalNode | n
 }
 export function blueprintPipelineOutcome(pipeline: PipelineView): BlueprintJournalNode | null {
   if (!["failed", "held"].includes(pipeline.state) || pipeline.nested_run?.id !== pipeline.runId) return null;
-  const rows = (pipeline.nested_run?.nodes ?? []).filter((row) => ["failed", "held"].includes(row.state)
+  const rows = blueprintJournalNodes(pipeline).filter((row) => ["failed", "held"].includes(row.state)
     && (row.run_id == null || row.run_id === pipeline.runId));
   let stop = newest(rows.filter((row) => row.parent_step_index == null && row.step_name !== "$run"));
   const seen = new Set<number>();

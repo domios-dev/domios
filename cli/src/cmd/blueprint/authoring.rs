@@ -14,6 +14,28 @@ pub(super) fn local_bundle(name: &str) -> Result<blueprint_document::calls::Loca
     blueprint_document::calls::collect_local(name, &raw)
         .map_err(|errors| blueprint_document::checker::render(&errors, true))
 }
+
+pub(super) fn apply_request_error(name: &str, message: String) -> crate::cmd::print::CliError {
+    let diagnostics = (name != "-").then(|| source(name)).and_then(Result::ok).map(|raw| match blueprint_document::parse(name, &raw) {
+        Err(diagnostics) => diagnostics,
+        Ok(parsed) => parsed.document.template_errors().into_iter().map(|(field, message)| {
+            blueprint_document::Diagnostic::error(parsed.at(&field), &field, &message,
+                "Use bind.in for command stdin; keep run author-fixed and bind only preceding outputs")
+        }).collect(),
+    }).unwrap_or_default();
+    let rendered = blueprint_document::checker::render(&diagnostics, true);
+    crate::cmd::print::CliError {
+        message: if rendered.is_empty() {
+            message
+        } else {
+            rendered
+        },
+        code: Some(-32602),
+        data: Some(
+            json!({"diagnostics":diagnostics,"hint":"Correct the positioned field, then apply again"}),
+        ),
+    }
+}
 #[cfg(test)]
 pub(super) fn load_checked(name: &str, set: &[String]) -> Result<serde_json::Value, String> {
     let source = source(name)?;
@@ -192,6 +214,33 @@ pub(super) fn fail_apply_error(
             .and_then(|data| serde_json::from_value::<ApplyError>(data.clone()).ok()),
         _ => None,
     };
+    if let Some(ApplyError::Validation { checks }) = &typed {
+        let raw = if name == "-" {
+            String::new()
+        } else {
+            source(name).unwrap_or_default()
+        };
+        let diagnostics =
+            checks
+                .iter()
+                .filter(|check| !check.passed)
+                .map(|check| {
+                    blueprint_document::diagnostic(name, &raw, &check.field,
+                check.reason.as_deref().unwrap_or("Validation failed"),
+                "Correct this field using blueprint schema; runtime data belongs in bind.in")
+                })
+                .collect::<Vec<_>>();
+        crate::cmd::print::exit_with_cli_error(
+            json_mode,
+            &crate::cmd::print::CliError {
+                message: blueprint_document::checker::render(&diagnostics, true),
+                code: Some(-32602),
+                data: Some(
+                    json!({"diagnostics":diagnostics,"hint":"Correct the positioned field, then apply again"}),
+                ),
+            },
+        );
+    }
     let Some(ApplyError::CreationOnly { field, message }) = typed else {
         crate::cmd::print::fail(1, failure.to_string())
     };

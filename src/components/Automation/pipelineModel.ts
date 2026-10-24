@@ -15,6 +15,7 @@ export interface PipelineViewNode {
   summary: string;
   lastEventAtMs: number | null;
   resultSummary: string | null;
+  reason?: string | null;
   outcome: string | null;
   targetSummary: string | null;
 }
@@ -94,6 +95,7 @@ export function pipelineModel(blueprint: BlueprintSnapshot): PipelineView {
       summary: sourceSummary(step),
       lastEventAtMs: step.ended_at_ms ?? step.started_at_ms ?? blueprint.last_event_at_ms ?? null,
       resultSummary: step.result_summary ?? step.reason ?? null,
+      reason: step.reason,
       outcome: step.outcome ?? null,
       targetSummary: null,
     })),
