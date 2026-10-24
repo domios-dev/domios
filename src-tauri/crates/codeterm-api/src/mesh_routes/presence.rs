@@ -18,9 +18,11 @@ pub async fn account_presence(
         .and_then(|value| value.strip_prefix("Bearer "))
         .unwrap_or("");
     let sender = authorize_notice(&mut state.mesh.lock(), token)?;
+    let nonce = crown::nonce_from_token(token)
+        .map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid peer notice".into()))?;
     let refreshed = state
         .svc
-        .account_mesh_presence_notice(&sender, notice.metadata_revision)
+        .account_mesh_presence_notice(&sender, &nonce, notice.metadata_revision)
         .await
         .map_err(|error| (StatusCode::SERVICE_UNAVAILABLE, error))?;
     Ok(Json(serde_json::json!({"ok":true,"refreshed":refreshed})))

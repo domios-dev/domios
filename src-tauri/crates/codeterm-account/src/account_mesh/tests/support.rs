@@ -165,6 +165,7 @@ pub struct Script {
     pub gate: Option<Arc<Notify>>,
     pub peer_unpublished: bool,
     pub peer_presence: RegistryPresence,
+    pub peer_membership_expires_at: Option<u64>,
     /// Seconds the issuer's clock runs ahead of the desktop's.
     pub issuer_ahead: u64,
 }
@@ -300,6 +301,9 @@ impl FakeRegistry {
         own.endpoint = account.and_then(|a| a.endpoint.clone());
         let mut peer = row(PEER, 0, Some("Laptop"));
         peer.presence = self.script.lock().unwrap().peer_presence;
+        if let Some(expiry) = self.script.lock().unwrap().peer_membership_expires_at {
+            peer.membership_expires_at = Some(expiry);
+        }
         peer.endpoint = (!peer_unpublished).then(|| MeshEndpointObservation {
             tailnet_ip: "100.101.102.103".into(),
             api_port: 7685,

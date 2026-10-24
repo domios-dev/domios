@@ -17,12 +17,13 @@ impl ServiceContext {
     pub async fn account_mesh_presence_notice(
         &self,
         sender: &str,
+        nonce: &str,
         revision: u64,
     ) -> Result<bool, String> {
         let service = self.account_mesh().await?;
         service
             .mesh
-            .presence_notice(sender, revision)
+            .presence_notice(sender, nonce, revision)
             .await
             .map_err(|refusal: AccountMeshRefusal| {
                 format!("Account registry refresh refused: {refusal:?}")

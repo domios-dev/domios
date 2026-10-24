@@ -57,6 +57,8 @@ fn presence_notice_requires_a_signed_in_receiver_and_paired_nonreplayed_signatur
         authorize_notice(&mut mesh, &token).unwrap_err().0,
         StatusCode::UNAUTHORIZED
     );
+    let fresh = crown::sign_request(&private, "sender").unwrap();
+    assert_eq!(authorize_notice(&mut mesh, &fresh).unwrap(), "sender");
     let unpaired = crown::sign_request(&private, "unpaired").unwrap();
     assert_eq!(
         authorize_notice(&mut mesh, &unpaired).unwrap_err().0,

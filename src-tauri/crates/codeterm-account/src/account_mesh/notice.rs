@@ -1,5 +1,5 @@
 use super::{AccountMesh, AccountMeshRefusal};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 #[derive(Default)]
 pub(super) struct RegistryNotices {
@@ -11,6 +11,7 @@ pub(super) struct RegistryNotices {
 
 struct Sender {
     revision: u64,
+    notices: VecDeque<String>,
     window: u64,
     count: u8,
 }
@@ -23,7 +24,7 @@ enum Claim {
 }
 
 impl RegistryNotices {
-    fn claim(&mut self, epoch: u64, sender: &str, revision: u64, now: u64) -> Claim {
+    fn claim(&mut self, epoch: u64, sender: &str, notice: &str, revision: u64, now: u64) -> Claim {
         if self.epoch != epoch {
             *self = Self {
                 epoch,
@@ -32,7 +33,9 @@ impl RegistryNotices {
         }
         match self.senders.get_mut(sender) {
             Some(previous) => {
-                if revision <= previous.revision {
+                if revision < previous.revision
+                    || previous.notices.iter().any(|seen| seen == notice)
+                {
                     return Claim::Ignore;
                 }
                 if now.saturating_sub(previous.window) >= 10 {
@@ -43,6 +46,10 @@ impl RegistryNotices {
                     return Claim::Ignore;
                 }
                 previous.revision = revision;
+                previous.notices.push_back(notice.to_owned());
+                if previous.notices.len() > 64 {
+                    previous.notices.pop_front();
+                }
                 previous.count += 1;
             }
             None => {
@@ -53,6 +60,7 @@ impl RegistryNotices {
                     sender.to_owned(),
                     Sender {
                         revision,
+                        notices: [notice.to_owned()].into(),
                         window: now,
                         count: 1,
                     },
@@ -107,6 +115,7 @@ impl AccountMesh {
     pub async fn presence_notice(
         &self,
         sender: &str,
+        notice: &str,
         revision: u64,
     ) -> Result<bool, AccountMeshRefusal> {
         let epoch = self.with(|inner| {
@@ -119,7 +128,7 @@ impl AccountMesh {
         let claim = self.with(|inner| {
             inner
                 .registry_notices
-                .claim(epoch, sender, revision, self.now())
+                .claim(epoch, sender, notice, revision, self.now())
         });
         if claim != Claim::Run {
             return Ok(false);
