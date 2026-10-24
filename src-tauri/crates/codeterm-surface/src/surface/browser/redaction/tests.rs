@@ -3,6 +3,51 @@ use crate::surface::runtime::{SurfaceNotice, SurfaceState};
 use serde_json::json;
 
 #[test]
+fn stdin_secret_is_redacted_before_snapshot_truncation_and_from_events_and_inbox() {
+    use crate::surface::runtime::SurfaceResume;
+    use codeterm_browser::{
+        snapshot::{build_snapshot, parse_full_ax_tree},
+        BrowserHostConfig,
+    };
+    use std::sync::Arc;
+    let root = tempfile::tempdir().unwrap();
+    let runtime = super::super::BrowserRuntime::new(
+        BrowserHostConfig::under_data_dir(root.path()),
+        "Agent",
+        "tab-id",
+        Arc::new(tokio::sync::OnceCell::new()),
+        SurfaceResume::default(),
+    );
+    let secret = "opaque-λ-body".repeat(12);
+    runtime.secrets.lock().push(secret.clone());
+    let mut tree = json!({"nodes":[{"nodeId":"1", "role":{"value":"textbox"}, "name":{"value":"Password"}, "value":{"value":secret}, "backendDOMNodeId":1}]});
+    runtime.redact_value(&mut tree);
+    let snapshot = build_snapshot(&parse_full_ax_tree(&tree).unwrap(), 20);
+    assert!(snapshot.text.contains("REDACTED"));
+    assert!(!snapshot.text.contains("opaque-λ-body"));
+    let outcome = runtime.annotation_outcome("s1".into(), format!("value: {secret}"));
+    assert!(!serde_json::to_string(&outcome.result)
+        .unwrap()
+        .contains("opaque-λ-body"));
+    assert_eq!(runtime.inbox.lock().take(false), "value: REDACTED");
+    let SurfaceEvent::State(state) = runtime.redact_event(SurfaceEvent::State(SurfaceState {
+        title: secret.clone(),
+        activity: secret.clone(),
+        ..Default::default()
+    })) else {
+        panic!("state");
+    };
+    assert_eq!(state.title, "REDACTED");
+    assert_eq!(state.activity, "REDACTED");
+    let SurfaceEvent::Notice(notice) =
+        runtime.redact_event(SurfaceEvent::Notice(SurfaceNotice::error(secret)))
+    else {
+        panic!("notice");
+    };
+    assert_eq!(notice.text, "REDACTED");
+}
+
+#[test]
 fn browser_redaction_matches_plugin_fixtures_and_is_idempotent() {
     let cases: Value = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),

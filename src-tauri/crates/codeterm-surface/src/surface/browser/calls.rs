@@ -205,7 +205,7 @@ impl BrowserRuntime {
 
     /// Kept for `inbox` first, so an undelivered annotation is never lost.
     pub(super) fn annotation_outcome(&self, id: String, markdown: String) -> SurfaceCallOutcome {
-        let markdown = super::redaction::text(&markdown);
+        let markdown = self.redact_text(&markdown);
         self.inbox.lock().push(&id, &markdown);
         SurfaceCallOutcome {
             result: json!({ "markdown": markdown }),

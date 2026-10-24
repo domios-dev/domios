@@ -1,7 +1,7 @@
 {
   "id": "browser",
   "version": "1.12.4",
-  "minCodeterm": "1.12.4",
+  "minCodeterm": "1.15.2",
   "hostApi": 2,
   "displayName": "Browser",
   "description": "An agent-owned live browser: the agent drives a real Chromium, the user watches it inside the agent's tab, joins in, and points at elements to ask the agent about them.",
@@ -32,7 +32,7 @@
     "back | forward | reload",
     "snapshot [limit]",
     "click @ref | <role> <name>",
-    "type @ref | <role> <name> <text>",
+    "type @ref | <role> <name> <text> (or --stdin for masked secret input)",
     "press <key> [shift|ctrl|alt|meta]",
     "scroll <dy>",
     "text [limit]",

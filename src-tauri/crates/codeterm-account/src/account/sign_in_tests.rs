@@ -1,6 +1,46 @@
 use super::*;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+#[cfg(debug_assertions)]
+#[tokio::test]
+async fn pending_login_url_is_read_only_and_cleared_after_callback_or_logout() {
+    let account = account(Arc::new(Store::default()));
+    assert!(account.pending_login_url().await.is_none());
+    let flow = LoginFlow::from_parts(
+        "opaque-state".into(),
+        Secret::new("opaque-verifier"),
+        "domios://auth/callback".into(),
+    );
+    let url = flow.signin_url("https://example.test/signin/").unwrap();
+    let (sender, receiver) = oneshot::channel();
+    {
+        let mut state = account.state.lock().await;
+        state.pending = Some((flow, sender));
+        state.pending_url = Some(url.clone());
+    }
+    assert_eq!(account.pending_login_url().await, Some(url.clone()));
+    assert_eq!(account.pending_login_url().await, Some(url.clone()));
+    assert!(!url.as_str().contains("opaque-verifier"));
+    account
+        .complete(Callback {
+            state: "opaque-state".into(),
+            code: "c".repeat(43),
+        })
+        .await
+        .unwrap();
+    assert!(account.pending_login_url().await.is_none());
+    assert_eq!(receiver.await.unwrap().verifier.expose(), "opaque-verifier");
+    {
+        let mut state = account.state.lock().await;
+        let (sender, _receiver) = oneshot::channel();
+        state.pending = Some((LoginFlow::new("domios://auth/callback".into()), sender));
+        state.pending_url = Some(url);
+    }
+    account.logout().await.unwrap();
+    assert!(account.pending_login_url().await.is_none());
+    assert!(account.state.lock().await.pending_url.is_none());
+}
+
 struct NoBrowser;
 #[async_trait]
 impl Browser for NoBrowser {
