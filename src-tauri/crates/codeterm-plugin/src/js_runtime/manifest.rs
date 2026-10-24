@@ -97,6 +97,8 @@ pub struct PluginManifest {
     #[serde(default)]
     pub cli_binary: Option<String>,
     #[serde(default)]
+    pub general_agent_offer_when_absent: bool,
+    #[serde(default)]
     pub cli_compatibility: Option<crate::provider_compat::CompatibilityManifest>,
     #[serde(default)]
     pub worker_lane_settings: Vec<crate::provider::WorkerLaneSetting>,

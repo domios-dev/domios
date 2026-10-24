@@ -1076,6 +1076,7 @@ export interface ProviderAttachmentCapabilities {
 }
 
 export interface ProviderDescriptor {
+  general_agent_offer_when_absent?: boolean;
   attachments?: ProviderAttachmentCapabilities;
   remote_task?: import("../../packages/plugin-sdk/src/remoteTasks").RemoteTaskCapability;
   agent_runtime?: {

@@ -39,3 +39,17 @@ pub(super) fn settings_schema(provider: &JsProvider) -> Vec<crate::provider::Set
         .0
         .clone()
 }
+
+pub(super) fn notifications_schema(provider: &JsProvider) -> Vec<crate::provider::SettingField> {
+    provider
+        .schema_cache
+        .get_or_init(|| provider.compute_schemas())
+        .1
+        .clone()
+}
+
+pub(super) fn model_credential_files(provider: &JsProvider) -> Vec<std::path::PathBuf> {
+    provider.manifest.model_catalogue.fingerprint_files(
+        super::super::host_credentials::declared_files(&provider.manifest.credentials),
+    )
+}

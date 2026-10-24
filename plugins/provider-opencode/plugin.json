@@ -1,6 +1,6 @@
 {
   "id": "opencode",
-  "version": "1.14.11",
+  "version": "1.14.12",
   "minCodeterm": "1.15.2",
   "hostApi": 2,
   "capabilities": {
@@ -15,6 +15,7 @@
       "tokenMode": "none"
     }
   },
+  "generalAgentOfferWhenAbsent": true,
   "displayName": "OpenCode",
   "binaryName": "opencode",
   "cliBinary": "opencode",

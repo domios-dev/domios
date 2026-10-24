@@ -1,8 +1,9 @@
 {
   "id": "codex",
-  "version": "1.14.51",
+  "version": "1.14.52",
   "minCodeterm": "1.15.2",
   "hostApi": 2,
+  "generalAgentOfferWhenAbsent": true,
   "displayName": "Codex",
   "binaryName": "codex",
   "cliBinary": "codex",
