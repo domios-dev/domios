@@ -31,7 +31,7 @@ import {
 import { RemoteFolderPicker } from "../shared/RemoteFolderPicker";
 import { LiquidFlip } from "../shared/LiquidToggle";
 import type { MeshPresence } from "./meshPresenceHeader";
-import { flattenSidebarTabs, isSidebarTabVisible, tabsInWorkspace } from "./workspaceTabs";
+import { flattenSidebarTabs, isGeneralSectionTab, isSidebarTabVisible, tabsInWorkspace } from "./workspaceTabs";
 import { aggregateTabStatuses } from "./tabStatuses";
 import { usePlanIndexOptional, useSidebarPlansOptional } from "../Canvas/PlansProvider";
 import { renamePlan } from "../Canvas/plansApi";
@@ -53,7 +53,7 @@ import type { OrchestrationGroupMember } from "./orchestrationGroupClose";
 import { hydrateProtectedExpanded, initialSidebarExpanded, partitionSidebarWorkspaces } from "./sidebarSections";
 import { NewSessionPicker } from "../Terminal/NewSessionPicker";
 import { OPEN_NEW_SESSION_EVENT, type OpenNewSessionDetail } from "../../lib/newSessionChoice";
-import { isFirstRunGeneralTab } from "../AgentPicker";
+import { firstRunGate } from "../../lib/firstRunGate";
 import { RemoteTabPicker } from "./RemoteTabPicker";
 import { tabAttentionByTab } from "./tabAttention";
 import { teamCloseResourcesForId, teamCloseResourcesForWorkspace, type TeamCloseResource } from "./teamCloseResources";
@@ -240,10 +240,7 @@ export const Sidebar = memo(function Sidebar({
     });
   }, [upsertToast, createOrchestrationPair, orchestrationModal, selectTabByTab]);
 
-  const firstRunActive = useMemo(
-    () => Object.values(state.tabs).some(isFirstRunGeneralTab),
-    [state.tabs],
-  );
+  const firstRunActive = !firstRunGate(config?.general_agent).complete;
 
   const handleNewSession = useCallback((workspaceId: string, workspaceCwd: string | null) => {
     if (firstRunActive) return;
@@ -718,7 +715,7 @@ export const Sidebar = memo(function Sidebar({
       return { workspaceId, label, tabs, activeTabId: active?.id ?? null };
     };
     const groups: CompactRailGroup[] = [];
-    if (generalWorkspace) groups.push(railGroup(generalWorkspace.id, generalWorkspace.name, generalWorkspace.tabs, (tab) => Boolean(tab.agent_type)));
+    if (generalWorkspace) groups.push(railGroup(generalWorkspace.id, generalWorkspace.name, generalWorkspace.tabs, isGeneralSectionTab));
     const selected = ordinaryWorkspaces.find((workspace) => workspace.id === selectedWorkspaceId);
     if (selected) groups.push(railGroup(selected.id, selected.name, selected.tabs, (tab) => anchorsTeam(tab)));
     return groups;
