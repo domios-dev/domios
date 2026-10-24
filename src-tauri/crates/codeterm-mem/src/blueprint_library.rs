@@ -15,6 +15,7 @@ pub mod enrichment;
 #[cfg(test)]
 pub(crate) mod fakes;
 pub mod index;
+mod merge_policy;
 mod qualification;
 pub mod recall;
 pub mod services;
@@ -263,6 +264,8 @@ impl MemManager {
             team,
             index: mut index_row,
         } = prepared;
+        let purpose = merge_policy::callable(&document)
+            .then(|| merge_policy::Purpose::candidate(self, &intents));
         let conn = self.conn.lock();
         let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
         let document =
@@ -282,9 +285,29 @@ impl MemManager {
             }
         }
         library = scoped;
+        merge_policy::check_name(&library, &document, &intents)?;
+        if purpose
+            .as_ref()
+            .is_some_and(|purpose| self.embedder.identity() != purpose.identity)
+        {
+            return Err("Blueprint embedder changed during save".into());
+        }
         let now = chrono::Utc::now();
+        let mut compatible = Vec::new();
+        for entry in &library {
+            if let Some(purpose) = &purpose {
+                if !purpose.agrees(&merge_policy::Purpose::stored(
+                    &tx,
+                    &self.embedder.identity(),
+                    entry,
+                )?) {
+                    continue;
+                }
+            }
+            compatible.push(entry.clone());
+        }
         let existing = merge
-            .then(|| model::duplicate(&library, &document))
+            .then(|| model::duplicate(&compatible, &document))
             .flatten();
         let id = if let Some(existing) = existing {
             let mut record =
@@ -554,6 +577,23 @@ impl MemManager {
             for merge in model::dream_merges(&library, MERGE_BUDGET) {
                 if !call_revisions::merge_allowed(&tx, &merge.keeper.id, &merge.superseded)? {
                     continue;
+                }
+                if merge_policy::callable(&merge.keeper.document) {
+                    let identity = self.embedder.identity();
+                    let first = library
+                        .iter()
+                        .find(|entry| entry.id == merge.keeper.id)
+                        .ok_or("Blueprint keeper missing")?;
+                    let second = library
+                        .iter()
+                        .find(|entry| entry.id == merge.superseded)
+                        .ok_or("Blueprint duplicate missing")?;
+                    if !merge_policy::Purpose::stored(&tx, &identity, first)?
+                        .agrees(&merge_policy::Purpose::stored(&tx, &identity, second)?)
+                        || self.embedder.identity() != identity
+                    {
+                        continue;
+                    }
                 }
                 let mut record =
                     metadata::read(&tx, &merge.keeper.id)?.ok_or("Blueprint metadata absent")?;
