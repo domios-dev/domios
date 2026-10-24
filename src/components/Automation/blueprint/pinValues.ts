@@ -12,6 +12,7 @@ export interface PortValue {
 export type PinValue =
   | { kind: "value"; value: PortValue }
   | { kind: "summary"; text: string }
+  | { kind: "omitted" }
   | { kind: "none" };
 
 export const PREVIEW_LIMIT = 1600;
@@ -36,10 +37,13 @@ function portValue(raw: unknown): PortValue | null {
   };
 }
 
-function recordedPorts(node: BlueprintGraphNode, side: "inputs" | "outputs"): Readonly<Record<string, unknown>> | null {
+function recordedPortGroups(node: BlueprintGraphNode): Readonly<Record<string, unknown>> | null {
   const ports = node.evidence?.journal?.ports;
-  if (!ports || typeof ports !== "object" || Array.isArray(ports)) return null;
-  const group = (ports as Record<string, unknown>)[side];
+  return ports && typeof ports === "object" && !Array.isArray(ports) ? ports as Record<string, unknown> : null;
+}
+
+function recordedPorts(node: BlueprintGraphNode, side: "inputs" | "outputs"): Readonly<Record<string, unknown>> | null {
+  const group = recordedPortGroups(node)?.[side];
   return group && typeof group === "object" && !Array.isArray(group) ? group as Record<string, unknown> : null;
 }
 
@@ -49,6 +53,7 @@ export function pinValue(model: BlueprintGraphModel, node: BlueprintGraphNode, p
   const recorded = recordedPorts(node, pin.side === "in" ? "inputs" : "outputs");
   const value = portValue(recorded?.[portName(pin)]);
   if (value) return { kind: "value", value };
+  if (recordedPortGroups(node)?.truncated === true) return { kind: "omitted" };
   const summary = node.evidence?.journal?.result_summary;
   if (pin.side === "out" && typeof summary === "string" && summary.trim()) return { kind: "summary", text: summary.trim() };
   return { kind: "none" };

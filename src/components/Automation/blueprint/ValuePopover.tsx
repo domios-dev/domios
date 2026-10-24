@@ -24,6 +24,7 @@ export function PinValueBody({ value, type }: { value: PinValue; type?: string }
   return <>
     {value.kind === "value" && shown && <pre className="bp-value__preview">{shown.text}</pre>}
     {value.kind === "summary" && <p className="bp-value__summary">{value.text}<span>Only a summary was recorded for this run.</span></p>}
+    {value.kind === "omitted" && <p className="bp-value__empty">This run's values were too large to record.</p>}
     {value.kind === "none" && <p className="bp-value__empty">No value recorded for this run.</p>}
     {recorded && <div className="bp-value__foot">
       <span>{facts.join(" · ")}</span>

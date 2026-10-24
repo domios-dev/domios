@@ -30,6 +30,13 @@ async function main() {
   const produced = pinValue(recorded, invokeRecorded, invokeRecorded.outputs.find((pin) => pin.kind === "data")!);
   assert.equal(produced?.kind === "value" && produced.value.truncated, true);
 
+  const bounded = await build({ ...run, nested_run: { ...run.nested_run!, nodes: run.nested_run!.nodes.map((row) => row.step_name === "invoke"
+    ? { ...row, ports: { truncated: true } } : row.step_name === "probe" ? { ...row, ports: { inputs: {}, outputs: { out: { preview: "[redacted]", type: "string", bytes: 40, truncated: false, redacted: true } } } } : row) } });
+  const omitted = bounded.nodes.find((node) => node.key === blueprintNodeKey([], "invoke"))!;
+  assert.deepEqual(pinValue(bounded, omitted, omitted.inputs.find((pin) => pin.id === "bind:count")!), { kind: "omitted" }, "ports dropped for size say so instead of nothing recorded");
+  const secret = bounded.nodes.find((node) => node.key === blueprintNodeKey([], "probe"))!;
+  assert.deepEqual(pinValue(bounded, secret, secret.outputs.find((pin) => pin.kind === "data")!), { kind: "value", value: { preview: "[redacted]", type: "string", truncated: false, bytes: 40, redacted: true } }, "a redacted port keeps its marker and facts");
+
   const definition = await build({ ...live, runId: null, nested_run: null });
   const definitionProbe = definition.nodes.find((node) => node.key === blueprintNodeKey([], "probe"))!;
   assert.equal(pinValue(definition, definitionProbe, definitionProbe.outputs.find((pin) => pin.kind === "data")!), null, "without a selected run, pins show no values");
