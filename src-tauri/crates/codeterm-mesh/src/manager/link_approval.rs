@@ -22,6 +22,9 @@ impl MeshManager {
         if self.link_requests.contains_key(&proof.link_id) {
             return Err(AdmissionRefusal::handshake("approval already requested"));
         }
+        if self.link_requests.values().any(|request| !request.incoming && request.installation_id == pending.initiator.party.installation_id && request.decision_at(self.now()) == LinkDecision::Waiting) {
+            return Err(AdmissionRefusal::handshake("an outgoing connection request is already pending"));
+        }
         let request = LinkRequest {
             notification_id: None,
             failure: None,
@@ -32,6 +35,7 @@ impl MeshManager {
             expires_at: self.now().saturating_add(APPROVAL_TTL_SECS),
             decision: LinkDecision::Waiting,
         };
+        self.link_requests.retain(|_, known| known.incoming || known.installation_id != request.installation_id);
         self.link_requests.insert(proof.link_id.clone(), request.clone());
         self.bump_gate();
         Ok(request)
@@ -105,7 +109,7 @@ impl MeshManager {
             let now = self.now();
             self.link_requests.retain(|_, request| request.incoming || request.decision_at(now) == LinkDecision::Waiting);
         }
-        if self.link_requests.values().any(|request| !request.incoming && request.installation_id == installation_id && request.decision_at(self.now()) == LinkDecision::Waiting) {
+        if self.link_requests.values().any(|request| request.installation_id == installation_id && request.decision_at(self.now()) == LinkDecision::Waiting) {
             return Err(AdmissionRefusal::handshake("link request already pending"));
         }
         self.link_requests.retain(|_, request| request.incoming || request.installation_id != installation_id);

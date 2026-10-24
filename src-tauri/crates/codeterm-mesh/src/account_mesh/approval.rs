@@ -26,7 +26,7 @@ pub struct LinkRequest {
 
 impl LinkRequest {
     pub fn decision_at(&self, now: u64) -> LinkDecision {
-        if self.decision == LinkDecision::Waiting && now >= self.expires_at {
+        if self.incoming && self.decision == LinkDecision::Waiting && now >= self.expires_at {
             LinkDecision::Expired
         } else {
             self.decision

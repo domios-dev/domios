@@ -58,20 +58,7 @@ impl MeshManager {
 }
 
 pub async fn deliver_disconnect(peer: PairedPeer, notice: DisconnectNotice, bearer: String) {
-    let http = crate::transport::shared_http_client();
-    let _ = crate::transport::try_peer(&peer.addresses, |address| {
-        let request = http.post(format!("{}{}", crate::transport::peer_http_origin(&address.ip, peer.api_port), DISCONNECT_PATH))
-            .header("Authorization", format!("Bearer {bearer}"))
-            .header(crate::version::VERSION_HEADER, crate::version::local_version())
-            .json(&notice);
-        async move {
-            match request.send().await {
-                Ok(response) if response.status().is_success() => crate::transport::TryNext::Success(()),
-                Ok(_) => crate::transport::TryNext::Stop("Disconnect refused".into()),
-                Err(_) => crate::transport::TryNext::Retry("Peer unreachable".into()),
-            }
-        }
-    }).await;
+    let _ = crate::signed_notice::send(&peer.addresses, peer.api_port, DISCONNECT_PATH, &bearer, &notice).await;
 }
 
 pub async fn ping_peer(mesh: &MeshState, peer_id: &str, client: &crate::transport::PeerClient) -> bool {

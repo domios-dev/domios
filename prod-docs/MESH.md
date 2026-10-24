@@ -5,7 +5,7 @@
 1. **The account is the only source of new links.** A machine joins the mesh only by linking a machine enrolled in the same account. There is no LAN broadcast, mDNS, UDP beacon, Tailnet-wide scan, manual address pairing, pairing request or introduction.
 2. **Paired is necessary, not sufficient.** Traffic on a paired edge also needs that edge's admission to be open right now (see *Admission and sign-out*).
 3. **AccessLevel** (Full/ReadOnly/AgentIsolated) is per-peer, per-machine and independent of account membership. Each machine decides locally what a peer can do. Default = Full.
-4. **Only explicit removal deletes a pair.** `domios mesh disconnect` (local unpair) or an account revoke removes it; sign-out, expiry, outage and account switches never do.
+4. **Only explicit removal deletes a pair.** `domios mesh disconnect` or an account revoke removes it; sign-out, expiry, outage and account switches never do.
 5. **One machine = one mesh.** Cannot be in two meshes simultaneously.
 
 ## Adding a machine
@@ -20,7 +20,7 @@ Both machines must be signed in to the same account, enrolled, online to the acc
 domios mesh link <installation-id>
 ```
 
-The registry supplies the target's single published endpoint; no address is ever typed. Each side verifies the other's signed membership and installation-key possession over a transcript binding both installations, both Mesh keys, the account and two fresh nonces, then EACH side obtains its own fresh online link authorization. Neither side stores the pair until both authorizations are held, and the other machine needs no human approval. Offline linking has no path: a cached machine list, a cached membership, an old request, a replayed or foreign proof, or a backend-offline participant cannot create a link. A refused free machine slot returns the typed `mesh.machines` refusal with `limit` and `active_count`.
+The registry supplies the target's single published endpoint; no address is ever typed. Each side verifies the other's signed membership and installation-key possession over a transcript binding both installations, both Mesh keys, the account and two fresh nonces, then the receiving machine shows one approval request on the Mesh canvas and as an action-needed notification with Approve and Decline. The initiator shows Waiting for approval. Only Approve allows EACH side to obtain its fresh online link authorization and finish pairing. Decline, or ten minutes without an answer, cancels the request; the initiator offers Try again. Offline linking has no path: a cached machine list, a cached membership, an old request, a replayed or foreign proof, or a backend-offline participant cannot create a link. A refused free machine slot returns the typed `mesh.machines` refusal with `limit` and `active_count`.
 
 Mesh pairing and peer calls require both daemons to run Domios 1.15.0 or later. A 1.14.9 peer receives a version error explaining that both peers must be upgraded.
 
@@ -61,8 +61,8 @@ Every paired peer has an Ed25519 keypair. Requests between peers are signed with
 - Ed25519 signed requests with 5-minute expiry and nonce (replay protection)
 - New links need both machines' fresh online account authorizations bound to one handshake transcript; no other path creates a pair.
 - A changed endpoint is metadata; it never replaces a peer's paired key.
-- Disconnect removes only the local pairing and tombstones that identity locally; it does not cascade through third parties and frees no account machine slot.
-- Only an owner authenticated with the local API token can lift a local revocation with `domios mesh unrevoke <instance-id>`; an explicit account link of that machine also lifts it.
+- Disconnect removes the pairing locally and sends the peer a signed removal bound to that connection. An offline peer learns it on its next authenticated contact. Both machines then offer Connect, which requires a new approval. No account machine slot is freed and third-party pairs are unchanged.
+- Only an owner authenticated with the local API token can lift a local revocation with `domios mesh unrevoke <instance-id>`; an explicit Connect or Approve on that machine also lifts it.
 
 ### Peer access levels
 
@@ -177,4 +177,4 @@ Mesh inventory is target-authoritative: machine-qualified rows carry provenance 
 
 Inventory opens as a full-screen searchable List beside the existing Mesh network graph. One shared mode bubble switches between the List and the graph of connected computers. Keyboard navigation preserves resource identity and focus; peer detail separates Services and Schedules and labels cached, offline, denied, and partial states.
 
-<!-- revision: 64 -->
+<!-- revision: 65 -->

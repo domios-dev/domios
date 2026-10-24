@@ -6,7 +6,7 @@ import { myMachinesView, SIGNED_OUT_COPY, type AccountPresence } from "./account
 import { AccountMeshClientProvider, type AccountMeshSnapshot } from "./accountMeshClient";
 import { AccountMeshRefusalError } from "../billing/accountMeshLimit";
 import { freeLimitGate } from "../billing/freeLimitGate";
-import { deferred, FakeAccountMeshClient, machine, macRow, NOW, pair, selfRow, snapshot, targetOf } from "./accountMachines.testdata";
+import { deferred, linkRequest, FakeAccountMeshClient, machine, macRow, NOW, pair, selfRow, snapshot, targetOf } from "./accountMachines.testdata";
 import type { PeerStatus } from "./useMeshData";
 import type { MachineFailure } from "./useMyMachines";
 
@@ -220,6 +220,32 @@ describe("Mesh canvas wiring", () => {
     expect(open?.getAttribute("aria-disabled")).toBe("false");
     await click(open);
     expect(selected).toBe(1);
+  });
+
+  it("keeps the initiator waiting after the request is accepted and restores it from snapshots", async () => {
+    const client = new FakeAccountMeshClient(snapshot({ link_requests: [linkRequest()] }));
+    await mount(client);
+    expect(node("MacBook")?.textContent).toContain("Waiting for approval on MacBook");
+    expect(button("Connect MacBook")?.disabled).toBe(true);
+    expect(button("Disconnect MacBook")).toBeNull();
+  });
+
+  it.each([true, false])("answers the receiver request from its node (%s)", async (approve) => {
+    const client = new FakeAccountMeshClient(snapshot({ link_requests: [linkRequest({ incoming: true, notification_id: "notify-1" })] }));
+    await mount(client);
+    const card = node("MacBook")!;
+    const label = approve ? "Approve" : "Decline";
+    await click([...card.querySelectorAll("button")].find((button) => button.textContent === label) ?? null);
+    expect(client.answeredLinks).toEqual([["notify-1", approve]]);
+    expect(client.linkCalls).toHaveLength(0);
+  });
+
+  it.each(["declined", "expired"] as const)("offers Try again after the receiver request is %s", async (decision) => {
+    const client = new FakeAccountMeshClient(snapshot({ link_requests: [linkRequest({ decision })] }));
+    await mount(client);
+    await click(button("Try again to connect MacBook"));
+    expect(client.linkCalls).toEqual([targetOf(macRow)]);
+    await act(async () => client.linkOutcome.resolve());
   });
 
   it("disconnects a paired machine in one click from its card footer", async () => {

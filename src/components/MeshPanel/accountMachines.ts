@@ -1,3 +1,4 @@
+import { projectLinkRequests } from "./accountLinkProjection";
 import type { Notification } from "../../lib/notificationTypes";
 import type { AccountMachineRow, AccountMeshFailure, AccountMeshSnapshot, LocalPairFact, MeshTarget } from "./accountMeshClient";
 
@@ -9,6 +10,10 @@ export type AccountPresence = "pending" | "signed_out" | "signed_in";
 
 export type MachineStatus =
   | "signed_out"
+  | "approval_requested"
+  | "declined"
+  | "link_expired"
+  | "link_failed"
   | "linked"
   | "linking"
   | "unlinked"
@@ -30,6 +35,7 @@ export interface MachineControls {
 }
 
 export interface MachineRowView {
+  linkRequest?: import("./accountMeshClient").AccountLinkRequest;
   key: string;
   name: string;
   status: MachineStatus;
@@ -148,7 +154,7 @@ function selfRow(snapshot: AccountMeshSnapshot): SelfRowView | null {
 
 function registryRows(snapshot: AccountMeshSnapshot, pairs: LocalPairFact[], linking: ReadonlySet<string>, now: number, usable: boolean): MachineRowView[] {
   const selfId = snapshot.self?.installation_id;
-  return (snapshot.registry?.rows ?? [])
+  const rows = (snapshot.registry?.rows ?? [])
     .filter((row) => row.installation_id !== selfId)
     .map((row) => machineRow(row, pairs.find((pair) => pair.installation_id === row.installation_id) ?? null, {
       linking: linking.has(row.installation_id),
@@ -156,6 +162,7 @@ function registryRows(snapshot: AccountMeshSnapshot, pairs: LocalPairFact[], lin
       usable,
       enrolled: !!snapshot.self,
     }));
+  return usable ? projectLinkRequests(rows, snapshot.link_requests ?? []) : rows;
 }
 
 function machineRow(row: AccountMachineRow, pair: LocalPairFact | null, context: { linking: boolean; now: number; usable: boolean; enrolled: boolean }): MachineRowView {
@@ -183,7 +190,7 @@ function machineRow(row: AccountMachineRow, pair: LocalPairFact | null, context:
     return { ...base, status: "linked", detail: pair.online ? "Connected · online" : "Connected · offline", controls: { add: null, revoke, unpairInstanceId } };
   }
   if (context.linking) {
-    return { ...base, status: "linking", detail: "Connecting — waiting for both machines to finish the handshake", controls: { add: { reason: "Connecting…" }, revoke: null, unpairInstanceId: null } };
+    return { ...base, status: "linking", detail: `Waiting for approval on ${name}`, controls: { add: { reason: "Connecting…" }, revoke: null, unpairInstanceId: null } };
   }
   if (!row.endpoint) {
     return { ...base, status: "endpoint_missing", detail: "Not reachable — open Domios on that machine and sign in", controls: { add: { reason: "That machine has not published a connection endpoint" }, revoke, unpairInstanceId: null } };
@@ -247,7 +254,7 @@ export function accountPresence(kind: "pending" | "signed_out" | "signed_in" | "
 
 /** Installation ids whose link is now observed, so their pending Add can settle. */
 export function settledLinks(linking: ReadonlySet<string>, snapshot: AccountMeshSnapshot): string[] {
-  return [...linking].filter((id) => snapshot.pairs.some((pair) => pair.installation_id === id));
+  return [...linking].filter((id) => snapshot.pairs.some((pair) => pair.installation_id === id) || snapshot.link_requests?.some((request) => !request.incoming && request.installation_id === id && request.decision !== "waiting"));
 }
 
 export function meshFailureToast(operation: string, failure: AccountMeshFailure): Omit<Notification, "timestamp" | "read"> {
@@ -266,6 +273,8 @@ export function failureMessage(failure: AccountMeshFailure): string {
   switch (failure.reason) {
     case "mesh.machines": return `Your plan allows ${failure.limit} machines.`;
     case "rate-limited": return `Too many requests. Try again in ${failure.retry_after_seconds} seconds.`;
+    case "declined": return "Declined. Try again to request approval.";
+    case "expired": return "Expired. Try again to request approval.";
     case "offline": return "This machine is offline.";
     case "peer-unreachable": return "That machine could not be reached. Both machines must be online.";
     case "handshake-failed": return "The machines could not complete an authorized handshake.";

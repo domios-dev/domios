@@ -31,8 +31,15 @@ async fn account_mesh_disconnect_offline_peer_learns_removal_on_next_signed_ping
     assert!(b.mesh.lock().paired_peers.contains_key(&a.id()));
     assert!(b.mesh.lock().apply_disconnect_notice(&notice).unwrap());
     assert!(b.mesh.lock().paired_peers.is_empty());
-    let serialized = serde_json::to_value(a.mesh.lock().saved_disconnect(&b.id()).unwrap()).unwrap();
-    assert!(serialized.get("notice").is_some(), "removal proof can survive daemon restart");
+    let directory = std::env::temp_dir().join(format!("mesh-disconnect-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let path = directory.join("peers.json");
+    let mut ledger = crate::account_mesh::ledger::LinkLedger::default();
+    ledger.disconnects.insert(b.id(), a.mesh.lock().saved_disconnect(&b.id()).unwrap().clone());
+    crate::peers::save_peers_at(&path, &Default::default(), &ledger).unwrap();
+    let restored = crate::peers::load_mesh_records_at(&path).ledger.unwrap();
+    assert_eq!(restored.disconnects[&b.id()].notice, notice);
+    std::fs::remove_dir_all(directory).unwrap();
 }
 
 #[tokio::test]

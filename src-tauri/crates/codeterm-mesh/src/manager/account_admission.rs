@@ -30,7 +30,7 @@ pub struct PendingLink {
     confirmed: bool,
 }
 
-/// Only a local, user-initiated Add may lift this machine's own removal of a peer.
+/// Local Connect or Approve may lift this machine's own removal of a peer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LinkOrigin {
     LocalAdd { removal_watermark: u64 },
