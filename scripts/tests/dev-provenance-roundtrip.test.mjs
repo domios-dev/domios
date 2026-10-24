@@ -300,7 +300,9 @@ for (const refusal of ['provenance', 'runtime', 'none']) {
   test(`prebuilt restart preflight refusal=${refusal} preserves stop ordering and logs refusals`, () => {
     const result = spawnSync(bash, ['-c', `set -euo pipefail
 ${preflightHelpers}
-CT_INSTANCE= CARGO_TARGET_DIR= CT_SUFFIX="-provenance-test-$$" DEV_NOTIFY_TAB=
+CT_INSTANCE= CT_PORT=17886 CARGO_TARGET_DIR= CT_SUFFIX="-provenance-test-$$" DEV_NOTIFY_TAB=
+named_dev_isolated() { return 1; }
+stop_dev_before_replacement() { echo stopped; }
 validate_dev_provenance() { ${refusal === 'provenance' ? 'echo "[dev-prep] frontend artifact content mismatch" >&2; return 1' : 'echo provenance'}; }
 preflight_dev_prebuilt_runtime() { ${refusal === 'runtime' ? 'echo "ERROR: prebuilt dev cannot execute pnpm" >&2; return 1' : 'echo runtime'}; }
 kill_dev() { echo stopped; }

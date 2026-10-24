@@ -214,5 +214,12 @@ enter_cargo_gateway ${verb}
 ${entrypoint}
 `], { encoding: 'utf8', env: { ...process.env, RUSTC_WRAPPER: '' } });
     assert.equal(result, 'fixture-wrapper', verb);
+    const failure = execFileSync(bash, ['-c', `
+enter_build_gateway() { :; }
+ct_configure_sccache() { return 42; }
+${gateway}
+if enter_cargo_gateway ${verb}; then exit 99; else printf '%s' "$?"; fi
+`], { encoding: 'utf8' });
+    assert.equal(failure, '42', verb);
   }
 });

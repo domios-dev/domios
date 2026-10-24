@@ -396,8 +396,8 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
       </div>
       {phone && linkedChips}
       {delayed.filter(message => message.turnRetry).map(message => (
-        <div key={message.id} role="status">
-          <span>{message.state === "failed" ? message.error : delayedWhen(message)}</span>
+        <div key={message.id} role={message.state === "failed" ? undefined : "status"}>
+          {message.state === "failed" ? <InlineErrorNotice error={message.error} operation="retrying the turn" /> : <span>{delayedWhen(message)}</span>}
           <button type="button" onClick={() => onDeleteDelayed(message.id)}>Cancel</button>
         </div>
       ))}

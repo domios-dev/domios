@@ -21,6 +21,7 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const bash = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" : (existsSync("/bin/bash") ? "/bin/bash" : "bash");
+const realGit = spawnSync(bash, ["-c", "command -v git"], { encoding: "utf8" }).stdout.trim();
 const helperPath = path.join(root, "scripts/dev-notify.sh");
 const qaReportPath = path.join(root, "scripts/qa-report.sh");
 const buildPath = path.join(root, "build.sh");
@@ -78,7 +79,7 @@ function writeFakeCli(cliPath, recordPath) {
     "const keys = " + JSON.stringify(connectionKeys) + ";\n" +
     "const env = {};\n" +
     "for (const key of keys) env[key] = process.env[key] ?? null;\n" +
-    "const record = { executable: process.argv[1], args, bodyFile, body: bodyFile ? fs.readFileSync(bodyFile, 'utf8') : null, env };\n" +
+    "const record = { sentAt: Date.now(), executable: process.argv[1], args, bodyFile, body: bodyFile ? fs.readFileSync(bodyFile, 'utf8') : null, env };\n" +
     "fs.appendFileSync(" + JSON.stringify(recordPath) + ", JSON.stringify(record) + '\\n');\n" +
     "process.exit(Number(process.env.BUILD_NOTIFICATION_SEND_EXIT || 0));\n";
   writeFileSync(cliPath, source, { mode: 0o755 });
@@ -98,7 +99,12 @@ function makeHarness() {
   const buildSource = readFileSync(buildPath, "utf8").replaceAll("\r\n", "\n");
   const gateway = 'enter_cargo_gateway() {\n  enter_build_gateway "$@"\n  ct_configure_sccache\n}';
   assert.ok(buildSource.includes(gateway), "build fixture must stub the Cargo gateway");
-  writeFileSync(fixtureBuild, buildSource.replace(gateway, 'enter_cargo_gateway() { :; }'));
+  const authority = "source scripts/lane-rust-guard.sh";
+  const setup = "*) setup_env ;;";
+  assert.ok(buildSource.includes(authority) && buildSource.includes(setup), "build fixture must isolate host authorization and toolchain setup");
+  writeFileSync(fixtureBuild, buildSource.replace(gateway, 'enter_cargo_gateway() { :; }')
+    .replace(authority, 'require_canonical_rust_tests() { :; }')
+    .replace(setup, '*) : ;;'));
   writeFakeCli(parentCli, parentRecord);
   writeFakeCli(devCli, devRecord);
   mkdirSync(padPath, { recursive: true });
@@ -139,7 +145,10 @@ function records(recordPath) {
 
 function runBash(args, env, cwd = root) {
   const commandArgs = args.map(arg => arg === buildPath && env.BUILD_NOTIFICATION_FIXTURE_PATH ? env.BUILD_NOTIFICATION_FIXTURE_PATH : arg);
-  return spawnSync(bash, commandArgs, { cwd, env, encoding: "utf8" });
+  const runEnv = commandArgs[0] === env.BUILD_NOTIFICATION_FIXTURE_PATH
+    ? { CODETERM_DEV_INSTANCE: "reportfixture", CODETERM_DEV_API_PORT: "17695", ...env }
+    : env;
+  return spawnSync(bash, commandArgs, { cwd, env: runEnv, encoding: "utf8" });
 }
 
 function runQa(harness, label, commands, extraEnv = {}) {
@@ -646,6 +655,14 @@ function writeFakeTool(dir, name, body) {
   const tool = path.join(dir, "parent-bin", name);
   writeFileSync(tool, "#!/usr/bin/env bash\n" + body + "\n", { mode: 0o755 });
   chmodSync(tool, 0o755);
+  if (name === "rustfmt") {
+    writeFakeTool(dir, "git", [
+      "case \"$*\" in",
+      "  'ls-files -z -- src-tauri/**.rs cli/**.rs') printf 'src-tauri/src/lib.rs\\0'; exit 0 ;;",
+      "esac",
+      "exec " + shellQuote(realGit) + " \"$@\"",
+    ].join("\n"));
+  }
 }
 
 function writeFakeCargo(dir, body) {
@@ -672,14 +689,14 @@ test("build_notify_tab_failure_names_step_first_error_and_log", () => {
   try {
     writeFakeTool(h.dir, "rustfmt", "echo 'Diff in src/foo.rs:1:'; exit 1");
     const started = Date.now();
-    const result = runBash([buildPath, "install-local", "--notify-tab", "agent-tab"], h.env);
+    const result = runBash([buildPath, "fmt-check", "--notify-tab", "agent-tab"], h.env);
     assert.equal(result.status, 1);
-    assert.ok(Date.now() - started < 30000, "format failure receipt must arrive within the failure deadline");
     const sent = records(h.parentRecord);
     assert.equal(sent.length, 1);
-    assert.match(sent[0].body, /EARLY FAILURE label=install-local step=install-local/);
+    assert.ok(sent[0].sentAt - started < 30000, "format failure receipt must arrive within the failure deadline");
+    assert.match(sent[0].body, /EARLY FAILURE label=fmt-check step=fmt-check/);
     assert.match(sent[0].body, /First failure: Diff in src\/foo\.rs/);
-    assert.match(sent[0].body, /Log: .*codeterm-build-install-local/);
+    assert.match(sent[0].body, /Log: .*codeterm-build-fmt-check/);
   } finally {
     rmSync(h.dir, { recursive: true, force: true });
   }
@@ -702,7 +719,7 @@ test("build_dev_defaults_to_the_inspected_parent_and_sends_ready_once", () => {
     const sent = records(h.parentRecord);
     assert.equal(sent.length, 1);
     assert.deepEqual(sent[0].args.slice(0, 3), ["send", "--tab", "live-owner"]);
-    assert.match(sent[0].body, /^READY instance=default api_port=7686 build=a{40}\n$/);
+    assert.match(sent[0].body, /^READY instance=reportfixture api_port=17695 build=a{40}\n$/);
   } finally {
     rmSync(h.dir, { recursive: true, force: true });
   }
@@ -726,7 +743,7 @@ test("build_dev_uses_one_self_notification_for_ready_without_a_parent", () => {
     assert.equal(sent[0].args[0], "notify");
     assert.ok(sent[0].args.includes("--from-pad"));
     assert.ok(sent[0].args.includes("--level") && sent[0].args[sent[0].args.indexOf("--level") + 1] === "verbose");
-    assert.match(sent[0].body, /^READY instance=default api_port=7686 build=a{40}\n$/);
+    assert.match(sent[0].body, /^READY instance=reportfixture api_port=17695 build=a{40}\n$/);
   } finally {
     rmSync(h.dir, { recursive: true, force: true });
   }
@@ -909,6 +926,7 @@ test("prebuilt_dev_survives_a_failed_readiness_notice_after_proving_readiness", 
     const stubs = path.join(h.dir, "prebuilt-stubs.sh");
     writeFileSync(stubs, [
       "run_prebuilt_preflight() { :; }",
+      "stop_dev_before_replacement() { echo stop >> " + shellQuote(killLog) + "; }",
       "kill_dev() { echo kill >> " + shellQuote(killLog) + "; }",
       "configure_dev_cargo() { :; }",
       "run_outside_tab_job() { :; }",
@@ -937,7 +955,7 @@ test("prebuilt_dev_survives_a_failed_readiness_notice_after_proving_readiness", 
     assert.match(output, /Prebuilt dev ready: build [0-9a-f]{8}/);
     assert.match(output, /readiness notice to tab agent-tab failed; DEV keeps running/);
     assert.doesNotMatch(output, /prebuilt dev launch failed/);
-    assert.deepEqual(readFileSync(killLog, "utf8").trim().split("\n"), ["kill"]);
+    assert.deepEqual(readFileSync(killLog, "utf8").trim().split("\n"), ["stop"]);
     const sent = records(h.parentRecord);
     assert.equal(sent.length, 1, JSON.stringify(sent));
     assert.match(sent[0].body, /^READY instance=notifyfx api_port=7695 build=[0-9a-f]{40}\n$/);

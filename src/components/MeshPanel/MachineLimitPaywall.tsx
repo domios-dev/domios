@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useState } from "react";
 import { LockBadge } from "../billing/LockBadge";
 import { meshMachineLockedView } from "../billing/lockSurfaces";
@@ -26,7 +27,7 @@ export function MachineLimitPaywall({ machines }: { machines: MyMachines }) {
       <button type="button" onClick={() => setManaging(!managing)} aria-expanded={managing} className={`${UI_BUTTON.ghost} ${UI_BUTTON.compact}`}>Manage machines</button>
       {canJoin && <button type="button" onClick={() => void machines.retryEnrollment()} disabled={busy !== null} aria-busy={busy === "enrollment"} className={`${UI_BUTTON.accent} ${UI_BUTTON.compact}`}>Join mesh</button>}
     </div>
-    {failure && <p role="alert" className={UI_TEXT.meta}>{failureMessage(failure)}</p>}
+    {failure && <InlineErrorNotice description={{ title: "The machine action could not be completed", cause: failureMessage(failure), raw: JSON.stringify(failure), actions: [] }} />}
     {managing && <MachineManagement machines={machines} />}
   </div>;
 }
