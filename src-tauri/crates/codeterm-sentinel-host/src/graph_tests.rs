@@ -127,17 +127,24 @@ fn sentinel_update_snapshot_exposes_read_only_definition_version_and_lineage() {
 }
 
 #[test]
-fn sentinel_graph_shell_root_is_visible_and_orphan_paused_nodes_are_not_roots() {
+fn sentinel_graph_shell_root_and_orphan_paused_nodes_are_visible() {
     let (_dir, mut store, mux, owner) = setup();
     let mut legacy=store.prepare_document(json!(codeterm_sentinel::test_support::watch(serde_json::json!("legacy-origin-watch"),serde_json::json!({"uses":"probe","with":{"command":{"lit":"p"}},"every":{"lit":"10s"}}),serde_json::json!({"with":{"question":{"lit":"q"}},"buckets":["done"],"matches":{"done":{"lit":"done"}}}),serde_json::json!(null),serde_json::json!(null))),owner.clone(),false).unwrap();
     legacy.agent_authored = false;
     let root = store.insert(legacy).unwrap();
     assert!(root.is_scenario_root());
-    create(&mut store, &owner, true, json!({}));
+    let paused = create(&mut store, &owner, true, json!({}));
     let graph = snapshot(&store, &mux, &owner);
-    assert_eq!(graph.scenarios.len(), 1);
-    assert_eq!(graph.scenarios[0].id, root.id);
-    assert_eq!(graph.nodes.len(), 1);
+    let ids: std::collections::BTreeSet<_> = graph
+        .scenarios
+        .iter()
+        .map(|scenario| scenario.id.as_str())
+        .collect();
+    assert_eq!(
+        ids,
+        [root.id.as_str(), paused.id.as_str()].into_iter().collect()
+    );
+    assert_eq!(graph.nodes.len(), 2);
     assert!(graph.edges.is_empty());
 }
 
@@ -519,7 +526,7 @@ fn sentinel_graph_connected_send_resolution_uses_actual_mux_scope_and_agent() {
 }
 
 #[test]
-fn sentinel_graph_cycles_terminate_and_disconnected_participants_stay_excluded() {
+fn sentinel_graph_cycles_terminate_and_disconnected_participants_stay_retained() {
     let (_dir, mut store, mux, owner) = setup();
     let child = create(&mut store, &owner, true, json!({}));
     let root = create(
@@ -538,8 +545,8 @@ fn sentinel_graph_cycles_terminate_and_disconnected_participants_stay_excluded()
         .unwrap()[0]
         .action = Route::Sentinel(root.id.clone());
     let ids = graph::reachable_ids(&jobs);
-    assert_eq!(ids.len(), 2);
-    assert!(!ids.contains(&orphan.id));
+    assert_eq!(ids.len(), 3);
+    assert!(ids.contains(&orphan.id));
     let projected = graph::project(
         &owner.workspace_id,
         None,
@@ -551,8 +558,8 @@ fn sentinel_graph_cycles_terminate_and_disconnected_participants_stay_excluded()
         &store.live_leases(),
     )
     .unwrap();
-    assert_eq!(projected.scenarios.len(), 1);
-    assert_eq!(projected.nodes.len(), 2);
+    assert_eq!(projected.scenarios.len(), 2);
+    assert_eq!(projected.nodes.len(), 3);
     assert_eq!(projected.edges.len(), 2);
 }
 

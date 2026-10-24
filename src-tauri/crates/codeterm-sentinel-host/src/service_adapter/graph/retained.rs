@@ -9,7 +9,7 @@ pub(super) fn definitions(
     journals: &BTreeMap<String, Vec<BlueprintJournalEntry>>,
 ) -> Result<Definitions, String> {
     let mut definitions = Definitions::new();
-    for job in jobs.iter().filter(|job| job.is_scenario_root()) {
+    for job in jobs.iter().filter(|job| graph::is_snapshot_root(job)) {
         let Some(current) = &job.document else {
             continue;
         };
@@ -50,7 +50,7 @@ pub(super) fn project(
 ) -> Result<(), String> {
     for job in jobs
         .iter()
-        .filter(|job| job.is_scenario_root() && job.document.is_some())
+        .filter(|job| graph::is_snapshot_root(job) && job.document.is_some())
     {
         if !snapshot.nodes.iter().any(|node| {
             node.pointer("/identity/kind").and_then(Value::as_str) == Some("blueprint")
@@ -139,8 +139,8 @@ fn watch_view(job: &Sentinel) -> Value {
         .unwrap_or("tab");
     json!({"id":job.id,"name":job.name,"note":job.note,"stopped_at":job.cleanup.stopped_at,"deletes_at":job.cleanup.deletes_at,
         "owner":{"kind":owner,"tab_id":if owner == "team" {None} else {Some(&job.creator_tab_id)},"team_id":job.team_id},
-        "state":if job.machine.stopped {"stopped"} else if !job.admission.permits_steps() || job.machine.paused || job.machine.held.is_some() {"held"} else {"idle"},
-        "held_reason":crate::plan_lock::held_reason(job),
+        "state":if job.machine.stopped {"stopped"} else if graph::held_reason(job).is_some() {"held"} else {"idle"},
+        "held_reason":graph::held_reason(job),
         "run_id":null,"current_step":null,"last_event_at_ms":null,"steps":[],"runs":[]})
 }
 
