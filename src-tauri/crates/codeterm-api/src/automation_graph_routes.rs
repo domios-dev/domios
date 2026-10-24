@@ -367,6 +367,7 @@ mod tests {
         use tower::ServiceExt;
 
         struct Fixture {
+            storage: codeterm_storage::Storage,
             runtime: ServiceFixture,
             state: AppState,
             router: Router,
@@ -406,15 +407,21 @@ mod tests {
                 tab.agent_type = Some("supplied-agent".into());
                 tab.session_binding_nonce = Some("fixture-nonce".into());
                 let runtime = ServiceFixture::new(mux);
+                let storage = codeterm_storage::Storage::open(
+                    runtime.temp.path().join("storage"),
+                    Default::default(),
+                )
+                .unwrap();
                 let sentinel_path = runtime.temp.path().join("sentinels.json");
-                if let Some(raw) = raw {
+                let clock = codeterm_service_core::cron::clock::MockClock::starting_at(1000);
+                let store = if let Some(raw) = raw {
                     std::fs::write(&sentinel_path, raw).unwrap();
-                }
+                    codeterm_sentinel_host::store::Store::new(sentinel_path, clock)
+                } else {
+                    codeterm_sentinel_host::store::Store::with_storage(&storage, clock)
+                };
                 let handle = codeterm_sentinel_host::scheduler::fixture_handle_with_ui(
-                    codeterm_sentinel_host::store::Store::new(
-                        sentinel_path,
-                        codeterm_service_core::cron::clock::MockClock::starting_at(1000),
-                    ),
+                    store,
                     runtime.service.ui.clone(),
                 );
                 codeterm_sentinel_host::manage_fixture_ports(&runtime.service, &handle);
@@ -467,6 +474,7 @@ mod tests {
                 assert!(runtime.service.set_ext(state.cron.clone()).is_ok());
                 let router = crate::routes::create_router(state.clone());
                 Self {
+                    storage,
                     runtime,
                     state,
                     router,
@@ -561,6 +569,15 @@ mod tests {
                     .machine
                     .stopped
             }
+
+            fn restored_store(&self) -> codeterm_sentinel_host::store::Store {
+                let store = codeterm_sentinel_host::store::Store::with_storage(
+                    &self.storage,
+                    codeterm_service_core::cron::clock::MockClock::starting_at(1000),
+                );
+                store.ensure_available().unwrap();
+                store
+            }
         }
 
         #[tokio::test]
@@ -648,17 +665,15 @@ mod tests {
                 .service
                 .host_extension::<codeterm_sentinel_host::scheduler::Handle>()
                 .unwrap();
-            let lease = handle.store.lock().due().unwrap().remove(0);
+            let staged = handle.store.lock().stage_due();
+            let lease = staged.settle(&handle.store).unwrap().remove(0);
             let (status, result) = fixture
                 .request(Method::POST, &stop, Some("fixture-instance-bearer"), body)
                 .await;
             assert_eq!(status, StatusCode::OK);
             assert_eq!(result["reason"], "stopped_by_host");
             assert!(lease.is_cancelled());
-            let restored = codeterm_sentinel_host::store::Store::new(
-                fixture.runtime.temp.path().join("sentinels.json"),
-                codeterm_service_core::cron::clock::MockClock::starting_at(1000),
-            );
+            let restored = fixture.restored_store();
             assert_eq!(
                 restored.get(&job.id).unwrap().last_reason.as_deref(),
                 Some("stopped_by_host")
@@ -729,11 +744,7 @@ mod tests {
                 .await;
             assert_eq!(status, StatusCode::OK);
             assert!(graph["scenarios"].as_array().unwrap().is_empty());
-            let persisted: Value = serde_json::from_slice(
-                &std::fs::read(fixture.runtime.temp.path().join("sentinels.json")).unwrap(),
-            )
-            .unwrap();
-            assert!(persisted.as_array().unwrap().is_empty());
+            assert!(fixture.restored_store().list().is_empty());
         }
 
         #[tokio::test]
@@ -762,11 +773,7 @@ mod tests {
                 .await;
             assert_eq!(status, StatusCode::OK);
             assert!(graph["scenarios"].as_array().unwrap().is_empty());
-            let persisted: Value = serde_json::from_slice(
-                &std::fs::read(fixture.runtime.temp.path().join("sentinels.json")).unwrap(),
-            )
-            .unwrap();
-            assert!(persisted.as_array().unwrap().is_empty());
+            assert!(fixture.restored_store().list().is_empty());
         }
 
         #[tokio::test]
