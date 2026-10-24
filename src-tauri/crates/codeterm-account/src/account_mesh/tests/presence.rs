@@ -123,9 +123,21 @@ async fn account_mesh_presence_notice_triggers_one_registry_read_without_snapsho
     let harness = enrolled().await;
     let before = harness.calls("list");
     harness.registry.script.lock().unwrap().peer_presence = RegistryPresence::SignedOut;
-    assert_eq!(harness.mesh.presence_notice("peer", 1).await, Ok(true));
+    assert_eq!(
+        harness
+            .mesh
+            .presence_notice("peer", "signed-out-notice", 1)
+            .await,
+        Ok(true)
+    );
     assert_eq!(harness.calls("list"), before + 1);
-    assert_eq!(harness.mesh.presence_notice("peer", 1).await, Ok(false));
+    assert_eq!(
+        harness
+            .mesh
+            .presence_notice("peer", "signed-out-notice", 1)
+            .await,
+        Ok(false)
+    );
     assert_eq!(harness.calls("list"), before + 1);
     let peer = harness
         .state()
@@ -139,7 +151,13 @@ async fn account_mesh_presence_notice_triggers_one_registry_read_without_snapsho
         .clone();
     assert_eq!(peer.presence, RegistryPresence::SignedOut);
     harness.registry.script.lock().unwrap().peer_presence = RegistryPresence::Present;
-    assert_eq!(harness.mesh.presence_notice("peer", 2).await, Ok(true));
+    assert_eq!(
+        harness
+            .mesh
+            .presence_notice("peer", "new-sign-in-notice", 2)
+            .await,
+        Ok(true)
+    );
     assert_eq!(harness.calls("list"), before + 2);
     let peer = harness
         .state()
@@ -155,8 +173,74 @@ async fn account_mesh_presence_notice_triggers_one_registry_read_without_snapsho
     harness.logout().await;
     let blocked = harness.calls("list");
     assert_eq!(
-        harness.mesh.presence_notice("peer", 2).await,
+        harness
+            .mesh
+            .presence_notice("peer", "new-sign-in-notice", 2)
+            .await,
         Err(AccountMeshRefusal::SignedOut)
     );
     assert_eq!(harness.calls("list"), blocked);
+}
+
+#[tokio::test]
+async fn account_mesh_idempotent_present_notice_refreshes_renewed_membership() {
+    let harness = enrolled().await;
+    let before = harness.calls("list");
+    harness
+        .registry
+        .script
+        .lock()
+        .unwrap()
+        .peer_membership_expires_at = Some(START);
+    assert_eq!(
+        harness
+            .mesh
+            .presence_notice("peer", "before-offline-sign-out", 0)
+            .await,
+        Ok(true)
+    );
+    let expired = harness
+        .state()
+        .registry
+        .as_ref()
+        .unwrap()
+        .rows
+        .iter()
+        .find(|row| row.installation_id == PEER)
+        .unwrap()
+        .clone();
+    assert_eq!(expired.membership_expires_at, Some(START));
+    harness
+        .registry
+        .script
+        .lock()
+        .unwrap()
+        .peer_membership_expires_at = Some(START + 3600);
+    assert_eq!(
+        harness
+            .mesh
+            .presence_notice("peer", "idempotent-sign-in", 0)
+            .await,
+        Ok(true)
+    );
+    let renewed = harness
+        .state()
+        .registry
+        .as_ref()
+        .unwrap()
+        .rows
+        .iter()
+        .find(|row| row.installation_id == PEER)
+        .unwrap()
+        .clone();
+    assert_eq!(renewed.membership_expires_at, Some(START + 3600));
+    assert_eq!(renewed.presence, RegistryPresence::Present);
+    assert_eq!(
+        harness
+            .mesh
+            .presence_notice("peer", "idempotent-sign-in", 0)
+            .await,
+        Ok(false)
+    );
+    assert_eq!(harness.calls("list"), before + 2);
 }
