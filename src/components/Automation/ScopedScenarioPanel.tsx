@@ -14,7 +14,7 @@ export function ScopedScenarioPanel({ adapter, attachment, scenario, camera, bac
   adapter: AutomationGraphAdapter; attachment: AutomationAttachment; scenario: AutomationScenario;
   camera: AutomationCamera; backLabel: string; onBack: () => void; headingLevel?: 2 | 3; fill?: boolean; initialRunId?: string;
 }) {
-  const [showNative, setShowNative] = useState(true);
+  const [showNative, setShowNative] = useState(false);
   const scope = { ...attachment, team_id: scenario.root.team_id };
   const state = useAutomationGraph(adapter, scope);
   if (!state.graph) return <div className="flex flex-col items-start gap-3 p-4"><BackPill label={backLabel} onBack={onBack} /><p role="status" className="ct-job-note">{state.failed ? "Blueprint unavailable." : "Reading Blueprint…"}</p></div>;
