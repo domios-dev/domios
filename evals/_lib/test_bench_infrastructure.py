@@ -121,7 +121,7 @@ class BenchInfrastructure(unittest.TestCase):
             data = Path(tmp)
             record = data / "dev-build-provenance.json"
             for name, port in [("", "7686"), ("lane", "7786")]:
-                health = {"status": "ok", "build_sha": sha,
+                health = {"status": "ok", "startup": {"state": "ready"}, "build_sha": sha,
                           "instance": {"name": name, "api_port": port}}
                 provenance = {"schema": 3, "buildSha": sha, "instance": {
                     "name": name, "apiPort": port, "vitePort": "1420", "cdpPort": "9223"}}
@@ -153,6 +153,45 @@ class BenchInfrastructure(unittest.TestCase):
                     self.assertEqual(check(legacy, provenance).returncode, 0)
                     wrong_gui = dict(health, instance=dict(legacy["instance"], cdp_port="9999"))
                     self.assertEqual(check(wrong_gui, provenance).returncode, 7)
+
+    def test_named_dev_uses_provenance_ports_and_retains_identity_guard(self):
+        resolver = function("_lib/lib.sh", "dev_provenance_ports() {", "dev_resolve_identity() {")
+        guard = function("_lib/lib.sh", "dev_assert_target() {", "dev_assert_cached_identity() {")
+        sha = "c" * 40
+        with tempfile.TemporaryDirectory() as tmp:
+            data = Path(tmp)
+            record = data / "dev-build-provenance.json"
+            receipt = {"schema": 3, "buildSha": sha, "instance": {
+                "name": "roglaunch", "apiPort": "17696", "vitePort": "14996", "cdpPort": "9296"}}
+            health = {"status": "ok", "startup": {"state": "ready"}, "build_sha": sha,
+                      "instance": {"name": "roglaunch", "api_port": "17696"}}
+
+            def check(value, live):
+                record.write_text(json.dumps(value))
+                script = (resolver + guard + "\nset -e\n"
+                          + "dev_api_url() { printf http://fixture.invalid; }\n"
+                          + "dev_resolution_error() { :; }\n"
+                          + "curl() { printf %s " + shlex.quote(json.dumps(live)) + "; }\n"
+                          + "ports=$(dev_provenance_ports " + shlex.quote(record.as_posix()) + " roglaunch 17696)\n"
+                          + "IFS=$'\\t' read -r EVAL_LIB_TARGET_VITE_PORT EVAL_LIB_TARGET_CDP_PORT <<<\"$ports\"\n"
+                          + "EVAL_LIB_TARGET_INSTANCE=roglaunch EVAL_LIB_TARGET_API_PORT=17696\n"
+                          + "EVAL_LIB_TARGET_DATA_DIR=" + shlex.quote(data.as_posix()) + "\n"
+                          + "EVAL_LIB_RESOLVED_DATA_DIR=\n"
+                          + "dev_assert_target\nprintf '%s %s' \"$EVAL_LIB_TARGET_VITE_PORT\" \"$EVAL_LIB_TARGET_CDP_PORT\"")
+                return shell(script)
+
+            good = check(receipt, health)
+            self.assertEqual(good.returncode, 0, good.stderr)
+            self.assertEqual(good.stdout, "14996 9296")
+            self.assertEqual(check(receipt, dict(health, build_sha="d" * 40)).returncode, 7)
+            for field, value in [("name", "foreign"), ("apiPort", "7685"),
+                                 ("vitePort", "7685"), ("cdpPort", "17696"),
+                                 ("cdpPort", "99999"), ("vitePort", "invalid")]:
+                with self.subTest(field=field, value=value):
+                    bad = dict(receipt, instance=dict(receipt["instance"], **{field: value}))
+                    self.assertEqual(check(bad, health).returncode, 7)
+            for bad in [dict(receipt, schema=2), dict(receipt, buildSha=sha[:8])]:
+                self.assertEqual(check(bad, health).returncode, 7)
 
     def test_native_bash_syntax(self):
         for name in ["_lib/bench.sh", "_lib/role_preset.sh", "binding-matrix/run.sh",
