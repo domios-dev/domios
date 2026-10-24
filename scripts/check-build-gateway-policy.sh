@@ -14,6 +14,7 @@ cleanup() {
   return "$rc"
 }
 trap cleanup EXIT
+trap 'rc=$?; printf "gateway policy failed at line %s (exit %s): %s\nLogs: %s\n" "$LINENO" "$rc" "$BASH_COMMAND" "$TEST_ROOT" >&2; exit "$rc"' ERR
 
 expect_log() {
   local pattern="$1" source="${2:-}" body
@@ -123,9 +124,10 @@ if grep -q '\.codeterm/bin' <<< "$dev_flow"; then
   echo "dev startup must not overwrite the production CLI" >&2
   exit 1
 fi
-dev_kill_line="$(grep -n 'kill_dev' <<< "$dev_flow" | head -1 | cut -d: -f1)"
+expect_log 'stop_dev_before_replacement' <<< "$dev_flow"
+dev_stop_line="$(grep -n 'stop_dev_before_replacement' <<< "$dev_flow" | head -1 | cut -d: -f1)"
 dev_gateway_line="$(grep -n 'enter_cargo_gateway' <<< "$dev_flow" | head -1 | cut -d: -f1)"
-[ -n "$dev_kill_line" ] && [ -n "$dev_gateway_line" ] && [ "$dev_kill_line" -lt "$dev_gateway_line" ] || {
+[ -n "$dev_stop_line" ] && [ -n "$dev_gateway_line" ] && [ "$dev_stop_line" -lt "$dev_gateway_line" ] || {
   echo "canonical dev restart must release the running dev owner before gateway acquisition" >&2
   exit 1
 }

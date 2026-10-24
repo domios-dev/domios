@@ -136,8 +136,8 @@ Job conditions below are the tier files' own; the `phase` input that once select
   {
     "job": "guards",
     "run": "if command -v cargo >/dev/null 2>&1; then exit 0; fi\nfor dir in \"${CARGO_HOME:-}/bin\" \"$HOME/.cargo/bin\" /home/*/.cargo/bin /Users/*/.cargo/bin; do\n  if [ -x \"$dir/cargo\" ]; then echo \"$dir\" >> \"$GITHUB_PATH\"; exit 0; fi\ndone\necho \"cargo not found; restore Rust on the runner\" >&2\nexit 1",
-    "if": "${{ !cancelled() && needs.changed.outputs.rust == 'true' }}",
-    "reason": "Runner Rust PATH preparation",
+    "if": "${{ !cancelled() }}",
+    "reason": "Runner Rust PATH preparation for gateway fixtures and Node script tests, including non-Rust changes",
     "job_if": null
   },
   {
