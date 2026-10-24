@@ -1,4 +1,6 @@
 pub mod deep_links;
+#[cfg(test)]
+mod tests;
 
 use async_trait::async_trait;
 use codeterm_account::{Account, Browser, Config, Error};
@@ -12,6 +14,17 @@ pub use credentials::AccountCredentials;
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) use credentials::AccountDataRoot;
 struct AnalyticsIdentity(codeterm_analytics::Worker);
+struct AccountIdentity(std::sync::Weak<super::ServiceContext>);
+
+#[async_trait]
+impl codeterm_account::IdentityObserver for AccountIdentity {
+    async fn changed(&self, _identity: Option<&codeterm_account::Identity>) {
+        if let Some(service) = self.0.upgrade() {
+            service.ui.emit("account-changed", serde_json::Value::Null);
+        }
+    }
+}
+
 #[async_trait]
 impl codeterm_account::IdentityObserver for AnalyticsIdentity {
     async fn changed(&self, identity: Option<&codeterm_account::Identity>) {
@@ -63,7 +76,8 @@ impl super::ServiceContext {
                 }
                 let provider =
                     codeterm_account::adapters::configured(&config).map_err(|e| e.to_string())?;
-                let mut observers: Vec<Arc<dyn codeterm_account::IdentityObserver>> = Vec::new();
+                let mut observers: Vec<Arc<dyn codeterm_account::IdentityObserver>> =
+                    vec![Arc::new(AccountIdentity(self.weak_self()))];
                 if let Ok(worker) = self.analytics_worker().await {
                     observers.push(Arc::new(AnalyticsIdentity(worker.clone())));
                 }
