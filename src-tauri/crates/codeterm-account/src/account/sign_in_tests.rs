@@ -49,7 +49,7 @@ impl Browser for NoBrowser {
     }
 }
 #[derive(Default)]
-struct Store {
+pub(super) struct Store {
     fail: AtomicBool,
 }
 #[async_trait]
