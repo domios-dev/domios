@@ -95,6 +95,11 @@ async fn run_inner(
     validate_runtime_operation(&context, &operation)
         .map_err(|reason| RuntimeFailure::Refused(reason.to_string()))?;
     let mut next = plan(session, &context, &operation).await?;
+    if matches!(operation, RuntimeOperation::SubmitTurn { .. })
+        || matches!(&operation, RuntimeOperation::Control { action, .. } if matches!(action.as_str(), "restoreContext" | "compact"))
+    {
+        super::resume::before_turn(svc, session).await?;
+    }
     let mut history = RuntimeHistory::default();
     let mut steps = 0;
     loop {
@@ -242,6 +247,11 @@ async fn run_inner(
                 next = plan;
             }
             RuntimeStep::Refused { reason, .. } => {
+                if reason.code == RuntimeFailureCode::ThreadNotFound
+                    && matches!(operation, RuntimeOperation::ResumeThread { .. })
+                {
+                    return Err(RuntimeFailure::ConversationMissing);
+                }
                 return Err(RuntimeFailure::Refused(reason.to_string()));
             }
             RuntimeStep::Complete {
@@ -276,7 +286,12 @@ async fn run_inner(
                     let thread = thread_id.clone();
                     let cursor = next_cursor.clone();
                     history.append(result);
-                    return Ok(history.finish(thread, cursor));
+                    let result = history.finish(thread, cursor);
+                    if matches!(&result, RuntimeResult::HistoryPage { items, .. } if !items.is_empty())
+                    {
+                        super::resume::before_turn(svc, session).await?;
+                    }
+                    return Ok(result);
                 }
                 owned_context::record(svc, session, &context, &operation, &result)?;
                 return Ok(result);

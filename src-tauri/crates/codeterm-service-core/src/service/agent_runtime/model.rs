@@ -40,6 +40,7 @@ pub enum RuntimeFailure {
     HookFailed(String),
     Refused(String),
     SignInRequired,
+    ConversationMissing,
     PrewriteRefused(String),
     Superseded,
 }
@@ -80,6 +81,7 @@ impl std::fmt::Display for RuntimeFailure {
             Self::HookFailed(reason) => write!(formatter, "Provider operation failed: {reason}"),
             Self::Refused(reason) => write!(formatter, "Provider refused: {reason}"),
             Self::SignInRequired => formatter.write_str("Sign-in required"),
+            Self::ConversationMissing => formatter.write_str("ConversationMissing: The provider's saved conversation rollout is unavailable. Start a new conversation to continue."),
             Self::PrewriteRefused(reason) => write!(formatter, "Input was not sent: {reason}"),
             Self::Superseded => {
                 formatter.write_str("Runtime session changed; this operation was cancelled")
@@ -652,3 +654,4 @@ pub fn accepts_response_event(
 
 #[cfg(test)]
 mod tests;
+

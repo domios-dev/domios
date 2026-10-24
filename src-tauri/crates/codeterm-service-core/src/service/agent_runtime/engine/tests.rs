@@ -32,7 +32,7 @@ fn saved_typed_settings_and_empty_arguments_remain_eligible_for_runtime_use() {
 }
 
 #[path = "tests/sync_send.rs"]
-mod sync_send;
+pub(super) mod sync_send;
 
 #[path = "tests/capacity_retry.rs"]
 mod capacity_retry;
