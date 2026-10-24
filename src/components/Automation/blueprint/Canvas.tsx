@@ -3,7 +3,7 @@ import { CanvasToolbar } from "@codeterm/chat-ui";
 import { CircleAlert, PauseCircle } from "lucide-react";
 import type { ViewportTransform } from "@codeterm/canvas-camera";
 import { BlueprintNodeCard, evidenceText } from "./NodeCard";
-import { blueprintLegend, blueprintNodeKinds } from "./kinds";
+import { CanvasOverlay } from "./InfoCard";
 import { nodeLabel } from "./graphModel";
 import type { BlueprintLayout } from "./layout";
 import { useAutomationViewport, type AutomationCamera } from "./viewport";
@@ -16,9 +16,9 @@ function keyboardFocus(element: HTMLElement): boolean {
 /** A run fact pinned above the node it happened at, so it follows the graph on pan and zoom. */
 export interface CanvasCallout { nodeKey: string; tone: "failed" | "held"; label: string; lead: string; reason: string; detail: string | null }
 
-export function BlueprintCanvas({ layout, label, selected, camera, onSelect, onOpen, lit, callouts = [], notices, panelOpen = false, toolbar }: {
+export function BlueprintCanvas({ layout, label, selected, camera, onSelect, onOpen, lit, callouts = [], info, notices, crumbs, panelOpen = false, toolbar }: {
   layout: BlueprintLayout; label: string; selected: string | null; camera: AutomationCamera; onSelect: (key: string) => void; onOpen?: (key: string) => void;
-  lit: ReadonlySet<string>; callouts?: readonly CanvasCallout[]; notices?: ReactNode; panelOpen?: boolean; toolbar?: ReactNode;
+  lit: ReadonlySet<string>; callouts?: readonly CanvasCallout[]; info?: ReactNode; notices?: ReactNode; crumbs?: ReactNode; panelOpen?: boolean; toolbar?: ReactNode;
 }) {
   const hintId = useId();
   const container = useRef<HTMLDivElement | null>(null);
@@ -41,9 +41,6 @@ export function BlueprintCanvas({ layout, label, selected, camera, onSelect, onO
   const types = new Set(layout.nodes.map((entry) => entry.node.type));
   const litNodes = new Set(layout.wires.filter((route) => lit.has(route.wire.id)).flatMap((route) => [route.wire.from.node, route.wire.to.node]));
   return <div className="bp-scope flex min-h-0 min-w-0 flex-1 flex-col">
-    <ul aria-label="Node types" className="bp-legend">
-      {blueprintLegend.filter((type) => types.has(type)).map((type) => <li key={type} data-type={type}><span className="bp-legend__swatch" aria-hidden="true" />{blueprintNodeKinds[type].label}</li>)}
-    </ul>
     <div
       ref={attach}
       tabIndex={0}
@@ -59,7 +56,8 @@ export function BlueprintCanvas({ layout, label, selected, camera, onSelect, onO
       style={{ cursor: viewport.isDragging ? "grabbing" : "grab" }}
     >
       <CanvasToolbar label="Blueprint graph controls" onFit={viewport.showOverview} onZoomOut={() => viewport.zoom(-0.2)} onZoomIn={() => viewport.zoom(0.2)} extras={toolbar} />
-      {notices && <div className="bp-canvas-notices">{notices}</div>}
+      {crumbs && <div className="bp-canvas-crumbs" onMouseDown={(event) => event.stopPropagation()}>{crumbs}</div>}
+      <CanvasOverlay types={types} info={info} notices={notices} />
       <p id={hintId} className="sr-only">Arrow keys pan, plus and minus zoom, zero returns to a readable view. Tab moves between nodes.</p>
       <div ref={viewport.layerRef} className="absolute left-0 top-0" style={{ width: layout.bounds.width, height: layout.bounds.height, transformOrigin: "0 0", visibility: viewport.measured ? undefined : "hidden" }}>
         {layout.frames.map((entry) => <div key={entry.scope} className="bp-frame" style={{ left: entry.box.x, top: entry.box.y, width: entry.box.width, height: entry.box.height }}>

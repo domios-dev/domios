@@ -43,7 +43,17 @@ async function main() {
   try {
     await act(async () => root.render(<BlueprintView pipeline={viewerPipeline()} initialRunId="past" onStop={async () => { stopped++; }} canStop loadHistory={loadHistory} backLabel="All jobs" onBack={() => {}} />));
     await waitForNode("Node probe");
-    const layer = () => host.querySelector<HTMLElement>(".bp-canvas > div:not([role=\"toolbar\"]):not(.sr-only)");
+    const nothingAboveCanvas = (moment: string) => {
+      const parts = [...host.querySelector('section[aria-label="Blueprint view"]')!.children];
+      assert.equal(parts.length, 2, `${moment}: only the header row and the canvas body`);
+      assert(parts[0].classList.contains("ct-jobs-header"), `${moment}: the header row comes first`);
+      assert(parts[1].hasAttribute("data-blueprint-body"), `${moment}: the canvas body follows the header directly`);
+      assert(parts[1].querySelector(".bp-canvas"), `${moment}: the canvas stays mounted`);
+    };
+    nothingAboveCanvas("first render");
+    assert(host.querySelector('.bp-canvas [aria-label="Blueprint info"]'), "notes, purpose and legend live in the canvas info card");
+    assert(host.querySelector('.bp-canvas ul[aria-label="Node types"]'));
+    const layer = () => host.querySelector<HTMLElement>('.bp-canvas > div[style*="transform-origin"]');
     assert(layer());
     const fitted = layer()!.style.transform;
     await act(async () => button("Zoom in").click());
@@ -80,12 +90,19 @@ async function main() {
     assert(host.querySelector('aside [aria-label="Run evidence"]')?.textContent?.includes("contract_violation"), "the reason stays in node details");
     await act(async () => button("Semantic diff").click());
     assert.equal(historyReads, 1);
-    assert(host.querySelector("table caption"));
+    assert(host.querySelector('aside[aria-label="Semantic diff"] table caption'), "the diff opens in the side drawer, not above the canvas");
+    nothingAboveCanvas("diff open");
     const select = host.querySelector<HTMLSelectElement>('[aria-label="Definition version"]'); assert(select);
     await act(async () => { select.value = "1"; select.dispatchEvent(new Event("change", { bubbles: true })); });
     assert(!host.querySelector("table"));
     await act(async () => button("Latest run").click());
+    nothingAboveCanvas("switching to the latest run");
     assert(!host.querySelector('[aria-label="Recorded stop"]'));
+    await act(async () => button("Run past").click());
+    nothingAboveCanvas("switching back to a past run");
+    await waitForNode("Node probe");
+    nothingAboveCanvas("after the past run graph is built");
+    await act(async () => button("Latest run").click());
     await act(async () => button("Stop Blueprint").click());
     assert.equal(stopped, 1);
 
