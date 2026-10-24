@@ -150,23 +150,37 @@ async fn local_login_logout_deletes_refresh_token() {
     assert!(account.session().await.is_none());
 }
 #[tokio::test]
-async fn refresh_replaces_id_token() {
+async fn fresh_session_refreshes_even_when_token_is_not_expiring() {
     let store = Arc::new(Store::default());
     store
         .save("fake", &Secret::new("fake-refresh"))
         .await
         .unwrap();
+    let observer = Arc::new(Observer::default());
     let account = Account::new(
         Arc::new(adapters::fake::Fake::default()),
         store,
         Duration::from_secs(1),
-    );
+    )
+    .with_identity_observer(observer.clone());
     account.refresh().await.unwrap();
     let before = account.session().await.unwrap().id_token;
-    account.refresh().await.unwrap();
-    assert_ne!(
+    assert_eq!(
         before.expose(),
-        account.session().await.unwrap().id_token.expose()
+        account
+            .current_session()
+            .await
+            .unwrap()
+            .unwrap()
+            .id_token
+            .expose()
+    );
+    let refreshed = account.fresh_session().await.unwrap().unwrap();
+    assert_ne!(before.expose(), refreshed.id_token.expose());
+    assert_eq!(
+        observer.0.lock().await.len(),
+        1,
+        "silent refresh does not announce another sign-in"
     );
 }
 

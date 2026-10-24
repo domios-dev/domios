@@ -6,7 +6,6 @@ use super::wire::{
     InstallationEnrollment, InstallationKeyBody, KeyOperation, MeshOperation, MeshResult,
     ProofEndpoint,
 };
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use std::sync::Arc;
 
 impl AccountMesh {
@@ -34,19 +33,7 @@ impl AccountMesh {
             inner.update(&self.watch, |state| state.membership = None);
             Ok(())
         })?;
-        let auth_time = signed
-            .session
-            .id_token
-            .expose()
-            .split('.')
-            .nth(1)
-            .and_then(|payload| URL_SAFE_NO_PAD.decode(payload).ok())
-            .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
-            .and_then(|payload| payload.get("auth_time").and_then(|value| value.as_u64()));
-        if auth_time.is_some_and(|time| self.now().saturating_sub(time) > 300) {
-            return Err(AccountMeshRefusal::ReauthRequired);
-        }
-        let attempt = (signed.epoch, auth_time);
+        let attempt = signed.epoch;
         self.with(|inner| {
             if !inner.is_current(signed.epoch) {
                 return Err(AccountMeshRefusal::Cancelled);

@@ -6,6 +6,11 @@ import os
 from pathlib import Path
 import sys
 import re
+import importlib.util
+
+incremental_spec = importlib.util.spec_from_file_location('incremental_retention', Path(__file__).with_name('incremental-retention.py'))
+incremental = importlib.util.module_from_spec(incremental_spec)
+incremental_spec.loader.exec_module(incremental)
 
 
 def safe_path(value):
@@ -130,6 +135,25 @@ def trim(root, directory, paths, dry_run=False):
 
 if __name__ == '__main__':
     try:
+        if sys.argv[1] == '--incremental':
+            root, directory = safe_path(sys.argv[2]), safe_path(sys.argv[3])
+            hashed = directory.parent.parent == root and re.fullmatch('[a-f0-9]{14}', directory.name) and re.fullmatch('[a-f0-9]{2}', directory.parent.name)
+            direct = directory.parent == root and directory.name in ('target', 'target-check', 'lanes', 'codeterm-lanes')
+            if not (hashed or direct) or not safe_path(directory / 'CACHEDIR.TAG').is_file():
+                raise ValueError('incremental target is outside the Cargo cache layout')
+            with contextlib.ExitStack() as locks:
+                if directory.name in ('lanes', 'codeterm-lanes'):
+                    lock = safe_path(directory / '.domios-lane-check.lock')
+                    with lock.open('ab'):
+                        pass
+                    try:
+                        locks.enter_context(cargo_lock(lock))
+                    except OSError as error:
+                        print(json.dumps({'status': 'protected', 'bytes': 0, 'reason': str(error)}))
+                        sys.exit(0)
+                print(json.dumps(incremental.trim_incremental(directory, safe_path, cargo_lock,
+                    '--dry-run' in sys.argv[4:], float(os.environ.get('CODETERM_INCREMENTAL_IDLE_HOURS', '12')))))
+            sys.exit(0)
         if sys.argv[1] == '--trim':
             with open(sys.argv[4], encoding='utf-8') as handle:
                 listed = json.load(handle)

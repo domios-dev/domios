@@ -197,9 +197,18 @@ impl Account {
     }
     async fn commit(
         &self,
+        tokens: Tokens,
+        generation: u64,
+        attempt: &mut SignInAttempt,
+    ) -> Result<()> {
+        self.commit_tokens(tokens, generation, attempt, true).await
+    }
+    async fn commit_tokens(
+        &self,
         mut tokens: Tokens,
         generation: u64,
         attempt: &mut SignInAttempt,
+        announce_sign_in: bool,
     ) -> Result<()> {
         let mut state = self.state.lock().await;
         attempt
@@ -220,10 +229,13 @@ impl Account {
         attempt.enter(SignInStage::Publication);
         log::debug!(target: "codeterm_account::sign_in", "sign_in detail stage={} identity_present=true", SignInStage::Publication.name());
         tokens.session.login_generation = generation;
+        let announce_identity = announce_sign_in
+            || state.session.as_ref().map(|session| &session.identity)
+                != Some(&tokens.session.identity);
         state.session = Some(tokens.session);
         state.session_revoked = false;
         state.last_sign_in_failure = None;
-        if let Some(observer) = &self.observer {
+        if let Some(observer) = self.observer.as_ref().filter(|_| announce_identity) {
             observer
                 .changed(state.session.as_ref().map(|session| &session.identity))
                 .await;
@@ -244,7 +256,7 @@ impl Account {
                 .await?
                 .ok_or(Error::Credentials)?;
             let tokens = self.provider.refresh(&token).await?;
-            self.commit(tokens, generation, &mut SignInAttempt::default())
+            self.commit_tokens(tokens, generation, &mut SignInAttempt::default(), false)
                 .await
         })
         .await
@@ -311,14 +323,17 @@ impl Account {
         self.state.lock().await.session.clone()
     }
     pub async fn current_session(&self) -> Result<Option<Session>> {
+        self.session_with_refresh(false).await
+    }
+    pub async fn fresh_session(&self) -> Result<Option<Session>> {
+        self.session_with_refresh(true).await
+    }
+    async fn session_with_refresh(&self, force: bool) -> Result<Option<Session>> {
         let current = self.state.lock().await.session.clone();
         let Some(current) = current else {
             return Ok(None);
         };
-        let Some(expires_at) = current.expires_at else {
-            return Ok(Some(current));
-        };
-        if !token_expiring(expires_at) {
+        if !force && !current.expires_at.is_some_and(token_expiring) {
             return Ok(Some(current));
         }
 
@@ -327,25 +342,25 @@ impl Account {
         let Some(current) = current else {
             return Ok(None);
         };
-        if current
-            .expires_at
-            .is_some_and(|expires_at| token_expiring(expires_at))
+        if force
+            || current
+                .expires_at
+                .is_some_and(|expires_at| token_expiring(expires_at))
         {
             if let Err(error) = self.refresh_locked().await {
                 if error == Error::Credentials {
-                    let expired =
-                        {
-                            let mut state = self.state.lock().await;
-                            if state.session.as_ref().is_some_and(|session| {
-                                session.expires_at.is_some_and(token_expiring)
-                            }) {
-                                state.generation += 1;
-                                state.session = None;
-                                true
-                            } else {
-                                false
-                            }
-                        };
+                    let expired = {
+                        let mut state = self.state.lock().await;
+                        if state.session.as_ref().is_some_and(|session| {
+                            force || session.expires_at.is_some_and(token_expiring)
+                        }) {
+                            state.generation += 1;
+                            state.session = None;
+                            true
+                        } else {
+                            false
+                        }
+                    };
                     if expired {
                         if let Some(observer) = &self.observer {
                             observer.changed(None).await;
