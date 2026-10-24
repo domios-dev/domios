@@ -12,6 +12,7 @@ mod registry_presence;
 mod retry;
 mod state;
 mod store;
+mod sync;
 pub mod wire;
 
 pub use key::{verify_possession, InstallationKey, ProofContext};

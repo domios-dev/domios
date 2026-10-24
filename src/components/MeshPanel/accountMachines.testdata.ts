@@ -42,6 +42,7 @@ export function pair(instanceId: string, name: string, patch: Partial<LocalPairF
 
 export function snapshot(patch: Partial<AccountMeshSnapshot> = {}): AccountMeshSnapshot {
   return {
+    account_epoch: 1,
     binding: "current",
     traffic: "open",
     cleanup: "none",
@@ -132,12 +133,19 @@ export class FakeAccountMeshClient implements AccountMeshClient {
 
   async renameSelf(expectedMetadataRevision: number, displayName: string): Promise<AccountMeshOutcome> {
     this.renameCalls.push([expectedMetadataRevision, displayName]);
-    return this.renameOutcomes.shift() ?? { ok: true };
+    const result = this.renameOutcomes.shift() ?? { ok: true as const };
+    if (!result.ok) return result;
+    const updated = { display_name: displayName, metadata_revision: expectedMetadataRevision + 1 };
+    this.state = { ...this.state, self: this.state.self && { ...this.state.self, ...updated }, registry: this.state.registry && {
+      ...this.state.registry, rows: this.state.registry.rows.map((row) => row.installation_id === this.state.self?.installation_id ? { ...row, ...updated } : row),
+    } };
+    return { ok: true, result: updated };
   }
 
   async renamePeer(instanceId: string, expectedMetadataRevision: number, displayName: string): Promise<AccountMeshOutcome> {
     this.peerRenameCalls.push([instanceId, expectedMetadataRevision, displayName]);
-    return this.renameOutcomes.shift() ?? { ok: true };
+    const result = this.renameOutcomes.shift() ?? { ok: true as const };
+    return result.ok ? { ok: true, result: { display_name: displayName, metadata_revision: expectedMetadataRevision + 1 } } : result;
   }
 
   async revoke(target: MeshTarget): Promise<AccountMeshOutcome> {

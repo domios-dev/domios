@@ -52,7 +52,7 @@ export type AccountMeshFailure =
   | { reason: "offline" | "peer-unreachable" | "handshake-failed" | "signed-out" | "declined" | "expired" }
   | { reason: "revoked" | "cancelled" | "verification-unavailable" | "plan_limit_locked" | "reauth_required" };
 
-export type AccountMeshOutcome = { ok: true } | { ok: false; failure: AccountMeshFailure };
+export type AccountMeshOutcome = { ok: true; result?: { display_name: string; metadata_revision: number } } | { ok: false; failure: AccountMeshFailure };
 
 /** A genuine free machine-slot refusal from automatic enrollment, held until acknowledged. */
 export interface AccountMeshLimitNotice {
@@ -73,12 +73,13 @@ export interface AccountLinkRequest {
 }
 
 export interface AccountMeshSnapshot {
+  account_epoch: number;
   link_requests?: AccountLinkRequest[];
   binding: "none" | "current" | "other";
   traffic: "open" | "blocked_signed_out" | "plan_limit_locked";
   cleanup: "none" | "pending" | "confirmed";
   self: SelfInstallation | null;
-  registry: { observed_at: number; rows: AccountMachineRow[] } | null;
+  registry: { observed_at: number; rows: AccountMachineRow[]; cursor?: { after_installation_id: string; registry_revision: number } | null } | null;
   registry_failure: AccountMeshFailure | null;
   enrollment: "idle" | "enrolling" | "enrolled" | "refused";
   last_refusal: AccountMeshFailure | null;
