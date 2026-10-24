@@ -1,5 +1,5 @@
 // @codeterm/plugin-sdk — plugin contracts and pure recorded-diff mapping helpers.
-export type {ProviderAuthStatus, ProviderSessionObservations} from "./providerSignals";
+export type {ProviderAuthStatus, ProviderSessionObservations, RuntimeErrorSignal} from "./providerSignals";
 export type {
   Host,
   HostFs,

@@ -130,6 +130,8 @@ function stateTone(state: string): string {
 }
 
 function delayedWhen(message: DelayedMessage): string {
+  if (message.turnRetry?.kind === "rate_limited_until") return `Retrying at ${formatClock(message.scheduledAtMs)} when the limit resets`;
+  if (message.turnRetry) return `Retrying in 10s (attempt ${message.turnRetry.attempt}/10)`;
   if (message.state === "stashed") return "stashed";
   return message.state === "failed" ? "failed" : formatScheduledTime(message.scheduledAtMs);
 }
@@ -392,6 +394,12 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
         {!phone && linkedChips}
       </div>
       {phone && linkedChips}
+      {delayed.filter(message => message.turnRetry).map(message => (
+        <div key={message.id} role="status">
+          <span>{message.state === "failed" ? message.error : delayedWhen(message)}</span>
+          <button type="button" onClick={() => onDeleteDelayed(message.id)}>Cancel</button>
+        </div>
+      ))}
       {heartbeat && <SystemHeartbeatDetail message={heartbeat} busy={false} onClose={() => setHeartbeatId(null)} />}
       {open && (phone ? (
         <div className="ct-ctx__reveal" data-open={unfolded || undefined}>

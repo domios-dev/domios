@@ -115,6 +115,7 @@ pub(in crate::service::agent_runtime) async fn publish_events(
             _ => None,
         };
         let chat_item = matches!(runtime, RuntimeEvent::ItemUpdated { .. });
+        super::super::capacity_retry::observe(svc, session, &runtime, at).await?;
         apply(svc, session, epoch, at, runtime);
         run_completed |= completed_turn
             .is_some_and(|(thread, turn)| session.completions.lock().contains(&thread, &turn));

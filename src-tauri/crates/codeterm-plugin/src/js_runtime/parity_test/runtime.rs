@@ -126,6 +126,63 @@ fn runtime_stored_history_native_quickjs_parity_and_capability_gate() {
 }
 
 #[tokio::test]
+async fn capacity_retry_signal_native_quickjs_parity() {
+    let js = generic_provider(&generic_paths());
+    let native = native::NativeRuntime(js.agent_runtime().unwrap());
+    let ctx = RuntimeContext {
+        epoch: 1,
+        tab_id: "tab".into(),
+        binding_nonce: "nonce".into(),
+        thread_id: Some("own".into()),
+        cwd: "/fixture".into(),
+        host_version: "1.15.2".into(),
+        ..Default::default()
+    };
+    for (kind, at) in [
+        (Some("transient"), None),
+        (Some("rate_limited_until"), Some(100_123u64)),
+        (None, None),
+    ] {
+        let metadata = json!({"retryable":false,"retryableKind":kind,"retryAtMs":at});
+        let frames = [RuntimeFrame::Notification {
+            method: "item".into(),
+            params: json!({"id":"own-error","type":"system","content":"opaque", "toolFlowId":"turn", "systemSubtype":"api_error","toolInput":metadata}),
+        }];
+        let expected = native
+            .runtime_reduce(&ctx, &Value::Null, &frames)
+            .await
+            .unwrap();
+        let actual = js
+            .runtime_reduce(&ctx, &Value::Null, &frames)
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(&actual).unwrap(),
+            serde_json::to_value(&expected).unwrap()
+        );
+        let AgentRuntimeEvent::ChatItem { item, .. } = &actual.events[0] else {
+            panic!("expected item")
+        };
+        let signal: RuntimeErrorSignal =
+            serde_json::from_value(item.tool_input.clone().unwrap()).unwrap();
+        assert_eq!(
+            signal.retryable_kind,
+            match kind {
+                Some("transient") => Some(RuntimeRetryableErrorKind::Transient),
+                Some("rate_limited_until") => Some(RuntimeRetryableErrorKind::RateLimitedUntil),
+                _ => None,
+            }
+        );
+        assert_eq!(signal.retry_at_ms, at);
+        assert!(!signal.retryable);
+    }
+    assert!(serde_json::from_value::<RuntimeErrorSignal>(
+        json!({"retryable":false,"retryableKind":"unknown"})
+    )
+    .is_err());
+}
+
+#[tokio::test]
 async fn runtime_native_quickjs_shared_fixture_parity() {
     assert!(serde_json::from_value::<RuntimeServiceTierSelection>(json!({})).is_err());
     assert_eq!(
