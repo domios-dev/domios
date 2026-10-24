@@ -116,6 +116,7 @@ async function main() {
 
   const opened: unknown[] = [];
   const edited: string[] = [];
+  const cancelled: string[] = [];
   window.addEventListener(OPEN_JOB_EVENT, (event) => opened.push((event as CustomEvent).detail));
   const host = document.createElement("div");
   document.body.appendChild(host);
@@ -127,12 +128,24 @@ async function main() {
       delayed={messages}
       heartbeats={messages.filter(message => message.origin === "system")}
       onEditDelayed={(message) => edited.push(message.id)}
-      onDeleteDelayed={() => undefined}
+      onDeleteDelayed={id => cancelled.push(id)}
       onScheduleDelayed={() => undefined}
       draftActive={draftActive}
       adapter={adapter}
     /></MuxStateStoreContext.Provider>,
   );
+  await act(async () => { render("tab-a", [stashed, delayed, system]); });
+  const capacityRetry: DelayedMessage = { ...delayed, id: "capacity-retry", turnRetry: { kind: "transient", attempt: 3, epoch: 1, bindingNonce: "nonce", threadId: "thread" } };
+  await act(async () => { render("tab-a", [capacityRetry]); });
+  const retryStatus = host.querySelector('[role="status"]');
+  assert.match(retryStatus?.textContent ?? "", /Retrying in 10s \(attempt 3\/10\)/);
+  const cancelRetry = Array.from(retryStatus?.querySelectorAll("button") ?? []).find(button => button.textContent === "Cancel");
+  assert.ok(cancelRetry, "scheduled capacity retry exposes Cancel without opening delayed messages");
+  await act(async () => { cancelRetry.click(); });
+  assert.deepEqual(cancelled, ["capacity-retry"]);
+  await act(async () => { render("tab-a", [{ ...capacityRetry, turnRetry: { ...capacityRetry.turnRetry!, kind: "rate_limited_until" } }]); });
+  assert.match(host.querySelector('[role="status"]')?.textContent ?? "", /Retrying at .+ when the limit resets/);
+  assert.ok(!host.querySelector('[role="status"]')?.textContent?.includes("10s"));
   await act(async () => { render("tab-a", [stashed, delayed, system]); });
   assert.equal(host.querySelector('[data-kind="delayed"]')?.getAttribute("aria-label"), "3 delayed messages, system reminder", "the heartbeat counts as a delayed message");
   assert.equal(host.querySelectorAll('button[title="Heartbeat"]').length, 0);

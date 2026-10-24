@@ -5,6 +5,14 @@ export interface ProviderAuthStatus {
   configDirectory: string | null;
 }
 
+export type RuntimeErrorSignal = {
+  code?: string;
+  class: string;
+  retryable: boolean;
+  retryableKind?: "transient" | "rate_limited_until";
+  retryAtMs?: number;
+}
+
 export interface ProviderSessionObservations {
   unavailable_model?: string;
   api_error: "rate_limit" | "usage_limit" | "server_overloaded" | "auth_expiry" | "authentication" | "other" | null;

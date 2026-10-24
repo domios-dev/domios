@@ -274,6 +274,7 @@ pub(super) fn scene() -> Scene {
         compaction: Mutex::new(Default::default()),
         abort_note: Mutex::new(None),
         history_retry: Mutex::new(None),
+        capacity_retry: Mutex::new(Default::default()),
         controls_confirmation: Mutex::new(None),
         control_changes: tokio::sync::watch::channel(()).0,
         reverted_thread: Mutex::new(None),

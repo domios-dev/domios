@@ -20,71 +20,10 @@ pub use system_entries::{
     SystemEntryRefusal,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum DelayedMessageState {
-    Queued,
-    Stashed,
-    Sending,
-    Failed,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DelayedMessage {
-    pub id: String,
-    pub tab_id: String,
-    pub workspace_id: Option<String>,
-    pub text: String,
-    pub scheduled_at_ms: u64,
-    pub created_at_ms: u64,
-    pub state: DelayedMessageState,
-    pub error: Option<String>,
-    pub session_id_at_create: Option<String>,
-    #[serde(default)]
-    pub created_by_tab: Option<String>,
-    #[serde(default)]
-    pub created_by_label: Option<String>,
-    #[serde(default)]
-    pub created_by_model: Option<String>,
-    #[serde(default)]
-    pub recurrence: Option<RecurrenceRule>,
-    #[serde(default)]
-    pub series_start_at_ms: Option<u64>,
-    #[serde(default)]
-    pub tick_index: u64,
-    #[serde(default)]
-    pub skipped_ticks: u64,
-    #[serde(default)]
-    pub team_id: Option<String>,
-    #[serde(default)]
-    pub last_tick_unconfirmed: bool,
-    #[serde(skip)]
-    pub last_tick_send_sequence: u64,
-    #[serde(default, skip_serializing_if = "MessageOrigin::is_user")]
-    pub origin: MessageOrigin,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reason: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub ticks: Vec<DeliveryTickView>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DelayedMessageView {
-    #[serde(flatten)]
-    pub message: DelayedMessage,
-    pub current_session_id: Option<String>,
-    pub session_changed: bool,
-}
-
-/// Who queued a reminder, resolved from the caller tab at enqueue time.
-#[derive(Debug, Default, Clone)]
-pub struct ReminderCreator {
-    pub tab: Option<String>,
-    pub label: Option<String>,
-    pub model: Option<String>,
-}
+mod types;
+pub use types::{
+    DelayedMessage, DelayedMessageState, DelayedMessageView, ReminderCreator, TurnRetry,
+};
 
 const QUEUE_VERSION: u32 = 3;
 
@@ -107,6 +46,28 @@ pub struct DelayedSendQueue {
 }
 
 impl DelayedSendQueue {
+    pub(crate) fn enqueue_turn_retry(
+        &self,
+        tab: &str,
+        text: &str,
+        at: u64,
+        retry: TurnRetry,
+    ) -> Result<DelayedMessage, String> {
+        let mut msg = Self::prepare_message(
+            tab.into(),
+            None,
+            Some(retry.thread_id.clone()),
+            text.into(),
+            Some(at),
+            ReminderCreator::default(),
+            None,
+            None,
+            0,
+        )?;
+        msg.turn_retry = Some(retry);
+        self.insert(msg.clone())?;
+        Ok(msg)
+    }
     pub(crate) fn empty(path: PathBuf) -> Self {
         Self {
             path,
@@ -283,6 +244,7 @@ impl DelayedSendQueue {
             recurrence::validate(rule, scheduled_at_ms)?;
         }
         let msg = DelayedMessage {
+            turn_retry: None,
             id: format!("dmsg-{}", uuid::Uuid::new_v4().simple()),
             tab_id,
             workspace_id,
@@ -889,6 +851,9 @@ pub fn delete_message(
     let msg = svc
         .ext::<crate::delayed_send::DelayedSendQueue>()
         .delete(&id)?;
+    if msg.turn_retry.is_some() {
+        crate::service::agent_runtime::capacity_retry::cancel_message(svc, &msg.tab_id, &msg.id)?;
+    }
     emit_changed(svc, &msg.tab_id);
     Ok(to_view(svc, msg))
 }
@@ -1177,7 +1142,7 @@ fn to_view(svc: &crate::service::ServiceContext, msg: DelayedMessage) -> Delayed
     }
 }
 
-fn emit_changed(svc: &crate::service::ServiceContext, tab_id: &str) {
+pub(crate) fn emit_changed(svc: &crate::service::ServiceContext, tab_id: &str) {
     svc.ui.emit(
         "delayed-send-changed",
         serde_json::to_value(serde_json::json!({ "tabId": tab_id })).unwrap_or_default(),

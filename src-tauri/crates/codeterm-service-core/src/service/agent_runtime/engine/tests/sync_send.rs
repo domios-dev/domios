@@ -35,6 +35,13 @@ pub(super) fn runtime_fixture() -> (ServiceFixture, String, tokio::io::DuplexStr
 pub(super) fn runtime_fixture_with(
     source: &str,
 ) -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
+    runtime_fixture_with_notifications(source, &[])
+}
+
+pub(super) fn runtime_fixture_with_notifications(
+    source: &str,
+    notifications: &[&str],
+) -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
     const PROVIDER: &str = "sync-send-fixture";
     let (mut mux, tab_id) = MultiplexerState::new();
     let nonce = uuid::Uuid::new_v4().to_string();
@@ -59,7 +66,7 @@ pub(super) fn runtime_fixture_with(
         "id":PROVIDER,"version":"1.0.0","displayName":"Fixture",
         "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
             "agentRuntime":{"runtime":"stdio-jsonrpc","command":{"binary":"fixture-cli","args":[]},
-                "requestMethods":{"initialize":["fixture/initialize"],"resumeThread":["fixture/resume"],"readHistory":["fixture/history"],"submitTurn":["fixture/submit"]},"notificationMethods":[]}},
+                "requestMethods":{"initialize":["fixture/initialize"],"resumeThread":["fixture/resume"],"readHistory":["fixture/history"],"submitTurn":["fixture/submit"]},"notificationMethods":notifications}},
         "permissions":{"subprocess":{"allow":["fixture-cli"]}}
     }).to_string()).unwrap();
     fixture
@@ -125,6 +132,7 @@ pub(super) fn runtime_fixture_with(
         compaction: Mutex::new(Default::default()),
         abort_note: Mutex::new(None),
         history_retry: Mutex::new(None),
+        capacity_retry: Mutex::new(Default::default()),
         controls_confirmation: Mutex::new(None),
         control_changes: tokio::sync::watch::channel(()).0,
         reverted_thread: Mutex::new(None),
