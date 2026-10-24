@@ -204,3 +204,13 @@ describe("My machines account transitions", () => {
     }
   });
 });
+
+it("shows a publication refusal and the scheduled retry in mesh status", () => {
+  const result = accountView(view("signed_in", snapshot({
+    publication: "published",
+    publication_failure: { reason: "rate-limited", retry_after_seconds: 7 },
+    retry_at: NOW + 7,
+  })));
+  expect(result.notes.join(" ")).toContain("publication was refused");
+  expect(result.notes.join(" ")).toContain("Waiting to retry at");
+});

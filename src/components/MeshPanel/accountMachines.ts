@@ -112,8 +112,14 @@ export function myMachinesView({ account, snapshot, listFailure = null, linking,
 
 function registryNotes(snapshot: AccountMeshSnapshot, listFailure: AccountMeshFailure | null): string[] {
   const notes: string[] = [];
-  if (snapshot.enrollment === "refused" && snapshot.last_refusal) {
+  if (snapshot.enrollment === "refused" && snapshot.last_refusal && !snapshot.publication_failure) {
     notes.push(`Account enrollment was refused. ${failureMessage(snapshot.last_refusal)}`);
+  }
+  if (snapshot.publication_failure) {
+    notes.push(`Mesh address publication was refused. ${failureMessage(snapshot.publication_failure)}`);
+  }
+  if (snapshot.retry_at != null) {
+    notes.push(`Waiting to retry at ${new Date(snapshot.retry_at * 1000).toISOString()}.`);
   }
   const failure = listFailure ?? snapshot.registry_failure;
   if (failure) {
