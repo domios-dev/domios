@@ -1,6 +1,6 @@
 use super::lifecycle::AccountMesh;
 use super::operations::Signed;
-use super::state::{AccountMeshRefusal, Publication, RegistryObservation};
+use super::state::{AccountMeshRefusal, Cleanup, Publication, RegistryObservation};
 use super::wire::{MeshOperation, MeshResult, PublicationState, RegistryPresence};
 
 impl AccountMesh {
@@ -61,6 +61,8 @@ impl AccountMesh {
         let published = result.publication == PublicationState::Complete
             && endpoint.is_some()
             && expires_at > self.now();
+        let cleanup_confirmed = published
+            || (result.publication == PublicationState::None && result.endpoint.is_none());
         self.with(|inner| {
             if !inner.is_current(signed.epoch) {
                 return Err(AccountMeshRefusal::Cancelled);
@@ -71,7 +73,14 @@ impl AccountMesh {
             inner.published_endpoint = endpoint;
             inner.published_until = expires_at;
             inner.record.published = result.publication != PublicationState::None;
+            let cleanup_confirmed = cleanup_confirmed && inner.record.cleanup_pending;
+            if cleanup_confirmed {
+                inner.record.cleanup_pending = false;
+            }
             inner.update(&self.watch, |state| {
+                if cleanup_confirmed {
+                    state.cleanup = Cleanup::Confirmed;
+                }
                 if let Some(own) = state.self_installation.as_mut() {
                     own.metadata_revision = result.metadata_revision;
                     own.display_name = result.display_name;

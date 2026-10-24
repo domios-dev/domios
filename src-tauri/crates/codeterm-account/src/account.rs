@@ -191,6 +191,15 @@ impl Account {
         generation: u64,
         attempt: &mut SignInAttempt,
     ) -> Result<()> {
+        self.commit_tokens(tokens, generation, attempt, true).await
+    }
+    async fn commit_tokens(
+        &self,
+        tokens: Tokens,
+        generation: u64,
+        attempt: &mut SignInAttempt,
+        announce_sign_in: bool,
+    ) -> Result<()> {
         let mut state = self.state.lock().await;
         attempt
             .run(SignInStage::Publication, async {
@@ -209,9 +218,12 @@ impl Account {
             .await?;
         attempt.enter(SignInStage::Publication);
         log::debug!(target: "codeterm_account::sign_in", "sign_in detail stage={} identity_present=true", SignInStage::Publication.name());
+        let announce_identity = announce_sign_in
+            || state.session.as_ref().map(|session| &session.identity)
+                != Some(&tokens.session.identity);
         state.session = Some(tokens.session);
         state.last_sign_in_failure = None;
-        if let Some(observer) = &self.observer {
+        if let Some(observer) = self.observer.as_ref().filter(|_| announce_identity) {
             observer
                 .changed(state.session.as_ref().map(|session| &session.identity))
                 .await;
@@ -232,7 +244,7 @@ impl Account {
                 .await?
                 .ok_or(Error::Credentials)?;
             let tokens = self.provider.refresh(&token).await?;
-            self.commit(tokens, generation, &mut SignInAttempt::default())
+            self.commit_tokens(tokens, generation, &mut SignInAttempt::default(), false)
                 .await
         })
         .await
