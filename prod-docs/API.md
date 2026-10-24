@@ -7,7 +7,7 @@ REST, socket and CLI share authorization, PTY cleanup, events and hierarchy chec
 
 The CLI socket needs no TCP. Unix peer credentials or Windows process-token SID restrict it to the daemon's OS user; the daemon owns authentication, signing and transport.
 
-Socket/mesh envelopes require `protocol_version`; older or versionless clients get `-32002`. Wire and Mesh consent/notice routes: `domios docs API-TRANSPORT`.
+Socket/mesh envelopes require `protocol_version`; older or versionless clients get `-32002`. Wire and Mesh consent/notice routes: `API-TRANSPORT`.
 
 Human `domios workspace list` shows authoritative topology in creation order; `domios tab inspect <id>` inspects one tab (whole-list JSON is automation-only). `workspace current --json` returns `{ "id", "source" }`; sources, in resolution order: `explicit` (`--workspace`), `caller-tab` (`$CODETERM_TAB_ID` membership), `workspace-env` (validated `$CODETERM_WORKSPACE_ID`), `focus-fallback` (active workspace). No match: exit 1, empty stdout (`--json` writes the error to stdout).
 
@@ -180,8 +180,8 @@ Task-mutating calls (socket `plan.task.*`, REST `/api/plans/{id}/tasks/{tid}*`) 
 
 Batch writes (socket `plan.batch`, REST `POST /api/plans/{id}/batch`, both reached by `domios plan record`) cross the same boundary: an op naming a task another tab holds is refused unless the caller is that holder or the plan owner. Callers name themselves with `caller_tab_id`; an unidentified caller cannot claim a hold. The refusal carries `STALE TASK BINDING` (socket `-32003`, REST `403`) with `type: "stale_task_binding"` plus `attempted_by_tab`, `plan_id` and `task_id`, and nothing is written. A bearer token proves a client is permitted, never that it holds the task.
 
-A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or `close` after its tab disappears; retirement and recovery commit atomically. Mutating dispatch into canonical or another task's lane is refused with `-32013`; competition provisions one lane per competitor. Advisory findings ride successful results in `safety_nudges` and `_hints`. See `domios docs ORCHESTRATION`.
+A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or `close` after its tab disappears; retirement and recovery commit atomically. Mutating dispatch into canonical or another task's lane is refused with `-32013`; competition provisions one lane per competitor. Advisory findings ride successful results in `safety_nudges` and `_hints`. See `ORCHESTRATION`.
 
 Related: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-INTEGRATIONS`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, `TELEGRAM-SETUP`. Analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 225 -->
+<!-- revision: 226 -->
