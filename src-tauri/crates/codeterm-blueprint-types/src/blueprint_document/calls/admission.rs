@@ -18,6 +18,19 @@ fn context(
     let (calls, findings) = check_facts(&sub);
     let mut context = CheckContext {
         grants: grants.clone(),
+        call_output_media: parsed
+            .document
+            .nodes()
+            .filter_map(|node| {
+                let callee = closure.callee(node.call.as_ref()?.pin.as_ref()?).ok()?;
+                let port = checker::ports::resolve(
+                    callee.document.result.port.as_ref()?,
+                    &callee.document.types,
+                )
+                .ok()?;
+                Some((node.id.clone(), port.media?))
+            })
+            .collect(),
         calls: calls
             .into_iter()
             .map(|(id, call)| {

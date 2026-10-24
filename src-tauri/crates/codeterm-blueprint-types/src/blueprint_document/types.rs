@@ -200,7 +200,7 @@ pub enum Trigger {
     },
     Event {
         kind: ValueForm,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
         params: BTreeMap<String, ValueForm>,
     },
     Input {
@@ -235,7 +235,7 @@ pub struct Code {
     pub file: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub caps: Vec<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub limits: Limits,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -295,13 +295,13 @@ pub struct Node {
     pub until: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rearm_on_change: Vec<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub model_classification: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub escalation_timeout_ms: Option<u64>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub session: bool,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub paused: bool,
 }
 impl Node {
@@ -357,5 +357,16 @@ pub struct SubBlueprint {
     pub steps: Vec<Node>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub other: Vec<Node>,
+    #[serde(default, skip_serializing_if = "ResultPort::is_default")]
     pub result: ResultPort,
+}
+
+fn is_default<T: Default + PartialEq>(value: &T) -> bool {
+    value == &T::default()
+}
+
+impl ResultPort {
+    pub(super) fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
 }

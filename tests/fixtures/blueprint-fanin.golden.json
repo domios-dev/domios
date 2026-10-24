@@ -10,27 +10,21 @@
     "steps": [
       {
         "id": "first",
-        "model_classification": false,
         "out": {
           "type": "string"
         },
-        "paused": false,
         "run": {
           "lit": "echo linen"
-        },
-        "session": false
+        }
       },
       {
         "id": "second",
-        "model_classification": false,
         "out": {
           "type": "string"
         },
-        "paused": false,
         "run": {
           "lit": "echo silk"
-        },
-        "session": false
+        }
       },
       {
         "bind": {
@@ -39,16 +33,12 @@
         },
         "code": {
           "lang": "python",
-          "limits": {},
           "src": "def main(value): return value['a'] + value['b']"
         },
         "id": "join",
-        "model_classification": false,
         "out": {
           "type": "string"
-        },
-        "paused": false,
-        "session": false
+        }
       }
     ],
     "trigger": {

@@ -1,6 +1,41 @@
 use super::{checker::ports, Document, Node, Port};
 use std::collections::BTreeMap;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Binding<'a> {
+    pub node: &'a str,
+    pub selection: &'a str,
+}
+
+pub fn parse(binding: &str) -> Result<Binding<'_>, &'static str> {
+    let (node, rest) = binding
+        .split_once('.')
+        .ok_or("Expected a node out binding")?;
+    let selection = if rest == "out" {
+        ""
+    } else {
+        rest.strip_prefix("out.")
+            .filter(|path| !path.split('.').any(str::is_empty))
+            .ok_or("Expected a node out binding")?
+    };
+    if node.is_empty()
+        || node.len() > 64
+        || matches!(node, "next" | "stop")
+        || !node
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
+    {
+        return Err("Expected a node out binding");
+    }
+    Ok(Binding { node, selection })
+}
+
+pub(super) const NAMED_MEDIA_UNSUPPORTED: &str = "media ports in named binds are not supported yet";
+
+pub(crate) fn unsupported_media(media: Option<&str>) -> bool {
+    media.is_some_and(|media| !matches!(media, "json" | "text"))
+}
+
 pub fn named(node: &Node) -> bool {
     matches!(node.kind(), "code" | "command")
         && !node.bind.is_empty()
@@ -8,9 +43,10 @@ pub fn named(node: &Node) -> bool {
 }
 
 pub fn source_schema(doc: &Document, binding: &str) -> Result<Port, String> {
-    let (id, path) = binding
-        .split_once(".out")
-        .ok_or("Expected a node out binding")?;
+    let Binding {
+        node: id,
+        selection: path,
+    } = parse(binding)?;
     let node = doc
         .nodes()
         .find(|n| n.id == id)
@@ -25,12 +61,12 @@ pub fn source_schema(doc: &Document, binding: &str) -> Result<Port, String> {
         ..Default::default()
     });
     let mut output = ports::resolve(&output, &doc.types)?;
-    for part in path
-        .strip_prefix('.')
-        .unwrap_or(path)
-        .split('.')
-        .filter(|p| !p.is_empty())
+    if unsupported_media(output.media.as_deref())
+        || unsupported_media(inferred_media(doc, node).as_deref())
     {
+        return Err(NAMED_MEDIA_UNSUPPORTED.into());
+    }
+    for part in path.split('.').filter(|part| !part.is_empty()) {
         if !output.required.iter().any(|name| name == part) {
             return Err(format!("{part} is not a required field of {id}.out"));
         }
@@ -39,8 +75,36 @@ pub fn source_schema(doc: &Document, binding: &str) -> Result<Port, String> {
             .remove(part)
             .ok_or("Unknown output field")?;
     }
+    if unsupported_media(output.media.as_deref()) {
+        return Err(NAMED_MEDIA_UNSUPPORTED.into());
+    }
     output.media = None;
     Ok(output)
+}
+
+fn inferred_media(doc: &Document, node: &Node) -> Option<String> {
+    if let Some(pin) = node.call.as_ref().and_then(|call| call.pin.as_ref()) {
+        let callee = doc.dependencies.get(&pin.key())?;
+        return ports::resolve(
+            callee.document.result.port.as_ref()?,
+            &callee.document.types,
+        )
+        .ok()?
+        .media;
+    }
+    let form = match node.kind() {
+        "convert" => node.params.get("to"),
+        "input" => node
+            .params
+            .get("convert_to")
+            .or_else(|| node.params.get("kind")),
+        _ => None,
+    }?;
+    let value = match form {
+        super::ValueForm::Input { input } => doc.inputs.get(input)?.default.as_ref(),
+        _ => form.value(),
+    }?;
+    value.as_str().map(str::to_owned)
 }
 
 pub fn envelope_schema(doc: &Document, node: &Node) -> Result<Port, String> {
@@ -74,3 +138,6 @@ pub fn named_bindings(node: &Node) -> BTreeMap<String, String> {
         BTreeMap::new()
     }
 }
+
+#[cfg(test)]
+mod tests;

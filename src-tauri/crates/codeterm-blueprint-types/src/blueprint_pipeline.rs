@@ -936,43 +936,6 @@ impl StepJournalEntry {
             .take(MAX_RESULT_SUMMARY_CHARS)
             .collect()
     }
-
-    pub fn validate(&self) -> Result<(), String> {
-        if self.step_name.trim().is_empty()
-            || self.step_name.len() > 128
-            || self.step_name.chars().any(char::is_control)
-        {
-            return Err("step_name must be nonempty, bounded and printable".into());
-        }
-        if !matches!(
-            self.step_kind.as_str(),
-            "command" | "convert" | "ask" | "filter" | "agent"
-        ) {
-            return Err("step_kind is not declared".into());
-        }
-        if self
-            .result_summary
-            .as_ref()
-            .is_some_and(|summary| summary.chars().count() > MAX_RESULT_SUMMARY_CHARS)
-        {
-            return Err("result_summary exceeds 200 characters".into());
-        }
-        if self
-            .result_summary
-            .as_ref()
-            .is_some_and(|summary| summary.chars().any(char::is_control))
-        {
-            return Err("result_summary contains control characters".into());
-        }
-        if self
-            .started_at_ms
-            .zip(self.ended_at_ms)
-            .is_some_and(|(start, end)| end < start)
-        {
-            return Err("ended_at_ms precedes started_at_ms".into());
-        }
-        Ok(())
-    }
 }
 
 #[cfg(test)]

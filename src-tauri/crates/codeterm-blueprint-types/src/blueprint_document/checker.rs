@@ -47,6 +47,7 @@ pub trait DuplicateOracle {
 pub struct CheckContext {
     pub grants: BTreeSet<String>,
     pub calls: BTreeMap<String, VerifiedCall>,
+    pub call_output_media: BTreeMap<String, String>,
     pub call_diagnostics: Vec<Diagnostic>,
     pub duplicates: DuplicateStatus,
 }

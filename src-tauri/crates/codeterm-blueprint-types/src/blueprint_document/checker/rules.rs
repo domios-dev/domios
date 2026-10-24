@@ -401,6 +401,14 @@ pub(super) fn findings() -> Vec<Spec> {
             "Bind its output or delete it",
         ),
         (
+            "B2",
+            "named_bind_media",
+            "error",
+            "named_bind_media",
+            "{0}.{1}: media ports in named binds are not supported yet",
+            "Use a single in binding or convert the producer to json or text",
+        ),
+        (
             "R3",
             "named_port_conflict",
             "error",
@@ -605,6 +613,7 @@ pub(super) fn findings() -> Vec<Spec> {
                 "bind,port_conflict" => &["bind", "port_conflict"],
                 "flow_port_conflict" => &["flow_port_conflict"],
                 "named_port_conflict" => &["named_port_conflict"],
+                "named_bind_media" => &["named_bind_media"],
                 "port_media" => &["port_media"],
                 "route" => &["route"],
                 "bind" => &["bind"],

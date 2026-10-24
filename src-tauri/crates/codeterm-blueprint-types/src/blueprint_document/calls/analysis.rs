@@ -284,8 +284,10 @@ fn graph(
         stack.pop();
         if findings.len() == start {
             let result_tainted = callee.document.result.from.as_ref().is_none_or(|binding| {
-                let id = binding.split('.').next().unwrap_or_default();
-                children.get(id).is_none_or(|c| c.result_tainted)
+                super::super::bindings::parse(binding)
+                    .ok()
+                    .and_then(|binding| children.get(binding.node))
+                    .is_none_or(|call| call.result_tainted)
             });
             verified.insert(
                 node.id.clone(),
@@ -329,9 +331,10 @@ fn is_tainted(
     match value {
         ValueForm::Lit { .. } => false,
         ValueForm::Input { input } => tainted.contains(input),
-        ValueForm::Bind { bind } => calls
-            .get(bind.split('.').next().unwrap_or_default())
-            .is_none_or(|c| c.result_tainted),
+        ValueForm::Bind { bind } => super::super::bindings::parse(bind)
+            .ok()
+            .and_then(|binding| calls.get(binding.node))
+            .is_none_or(|call| call.result_tainted),
     }
 }
 fn executable_values(node: &Node) -> Vec<(&str, &ValueForm)> {
@@ -364,13 +367,14 @@ pub fn arguments(
                     inputs.get(input).cloned().ok_or("Missing caller input")?
                 }
                 ValueForm::Bind { bind } => {
-                    let mut parts = bind.split('.');
-                    let id = parts.next().ok_or("Missing bound node")?;
-                    if parts.next() != Some("out") {
-                        return Err("Bind a node output".into());
-                    }
+                    let binding = super::super::bindings::parse(bind)?;
+                    let id = binding.node;
                     let mut value = outputs.get(id).ok_or("Missing bound output")?;
-                    for field in parts {
+                    for field in binding
+                        .selection
+                        .split('.')
+                        .filter(|field| !field.is_empty())
+                    {
                         value = value.get(field).ok_or("Missing bound field")?;
                     }
                     value.clone()

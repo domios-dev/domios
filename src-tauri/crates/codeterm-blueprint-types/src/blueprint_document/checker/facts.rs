@@ -214,9 +214,24 @@ pub(super) fn database(ir: &PositionedIr, context: &CheckContext) -> Database {
             if matches!(n.kind(), "command" | "code") {
                 add("data_slot", vec![n.id.clone(), slot.clone()], &field);
                 if super::super::bindings::named(n) {
-                    if let Err(why) = super::super::bindings::source_schema(doc, bind) {
+                    let call_media = super::super::bindings::parse(bind)
+                        .ok()
+                        .and_then(|binding| context.call_output_media.get(binding.node))
+                        .is_some_and(|media| {
+                            super::super::bindings::unsupported_media(Some(media))
+                        });
+                    let schema = if call_media {
+                        Err(super::super::bindings::NAMED_MEDIA_UNSUPPORTED.into())
+                    } else {
+                        super::super::bindings::source_schema(doc, bind)
+                    };
+                    if let Err(why) = schema {
                         add(
-                            "named_port_conflict",
+                            if why == super::super::bindings::NAMED_MEDIA_UNSUPPORTED {
+                                "named_bind_media"
+                            } else {
+                                "named_port_conflict"
+                            },
                             vec![n.id.clone(), slot.clone(), why],
                             &field,
                         );
@@ -453,8 +468,8 @@ fn binding(
     }
 }
 pub(super) fn split_bind(bind: &str) -> (&str, &str) {
-    bind.split_once(".out")
-        .map(|(node, rest)| (node, rest.strip_prefix('.').unwrap_or(rest)))
+    super::super::bindings::parse(bind)
+        .map(|binding| (binding.node, binding.selection))
         .unwrap_or((bind, ""))
 }
 fn output(node: &Node) -> Port {

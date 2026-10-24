@@ -229,6 +229,19 @@ fn blueprint_v2_runtime_shared_context_binding_depth_and_step_budget() {
         "source".into(),
         ExecutionEnvelope::from_text("{\"n\":7,\"list\":[8]}"),
     );
+    for path in [
+        "source.outfoo",
+        "source.out.",
+        "source.out..n",
+        ".out",
+        "source.in",
+    ] {
+        assert_eq!(
+            ctx.resolve_binding(path),
+            Err(JournalReason::ContractViolation),
+            "{path}"
+        );
+    }
     assert_eq!(ctx.resolve_binding("source.out.n").unwrap().value, json!(7));
     assert_eq!(
         ctx.resolve_binding("source.out.list.0").unwrap().value,

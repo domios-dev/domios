@@ -474,24 +474,18 @@ impl Resolver<'_> {
             self.insert(dependency, parsed, field)?;
         }
         if let Some(pin) = pin {
-            if document_projection::identity(&document)
-                .map_err(|e| vec![finding(parsed, field, e)])?
-                != pin.hash
-            {
-                return Err(vec![finding(
-                    parsed,
-                    field,
-                    "Missing or corrupted pinned revision",
-                )]);
-            }
-            return self.snapshot(
-                id.into(),
-                Parsed {
-                    document,
-                    locations: BTreeMap::new(),
-                },
-                None,
-            );
+            let frozen = FrozenCallee {
+                id: id.into(),
+                hash: pin.hash.clone(),
+                document: Box::new(document),
+                locations: BTreeMap::new(),
+                source_hash: None,
+            };
+            frozen
+                .verify()
+                .map_err(|error| vec![finding(parsed, field, error)])?;
+            self.insert(frozen.clone(), parsed, field)?;
+            return Ok(frozen);
         }
         if !document.imports.is_empty()
             && document
