@@ -34,24 +34,12 @@ try {
   $snapshot = Snapshot
   $ids = @($pinned | ForEach-Object { $_.Id })
   if (@($snapshot.listeners | Where-Object { $_.pid -in $ids -and $_.port -notin $request.allowedPorts }).Count) { throw 'DEV tree owns another listener; refusing' }
-  $graceful = New-Object Diagnostics.Process
   try {
-    $graceful.StartInfo.FileName = [string]$request.cli
-    $graceful.StartInfo.Arguments = 'app quit --exact --json'
-    $graceful.StartInfo.UseShellExecute = $false
-    $graceful.StartInfo.CreateNoWindow = $true
-    $graceful.StartInfo.RedirectStandardOutput = $true
-    $graceful.StartInfo.RedirectStandardError = $true
-    $graceful.StartInfo.EnvironmentVariables['CODETERM_DATA_DIR'] = [string]$request.data
-    $graceful.StartInfo.EnvironmentVariables['CODETERM_API_URL'] = "http://127.0.0.1:$($request.port)"
-    $graceful.StartInfo.EnvironmentVariables['CODETERM_API_PORT'] = [string]$request.port
-    $graceful.StartInfo.EnvironmentVariables['CODETERM_API_TOKEN'] = [string]$request.token
-    if (-not $graceful.Start()) { throw 'DEV graceful quit did not start' }
-    $output = $graceful.StandardOutput.ReadToEndAsync()
-    $errors = $graceful.StandardError.ReadToEndAsync()
-    if (-not $graceful.WaitForExit(30000)) { $graceful.Kill(); $graceful.WaitForExit() }
-  } finally { $graceful.Dispose() }
+    Invoke-WebRequest -UseBasicParsing -Method Post -Uri "http://127.0.0.1:$($request.port)/api/app/quit" -ContentType 'application/json' -Headers @{ Authorization = "Bearer $($request.token)" } -Body ($request.quit | ConvertTo-Json -Depth 20 -Compress) -TimeoutSec 30 | Out-Null
+  } catch { }
   foreach ($proc in $pinned) { if (-not $proc.HasExited) { $proc.Kill() } }
   foreach ($proc in $pinned) { if (-not $proc.WaitForExit(10000)) { throw 'DEV pinned process did not exit; refusing staging' } }
+  $after = Snapshot
+  if (@($after.listeners | Where-Object { $_.port -eq [int]$request.port }).Count) { throw 'DEV listener was replaced during shutdown; refusing staging' }
   '{"exited":true}'
 } finally { foreach ($proc in $pinned) { $proc.Dispose() } }

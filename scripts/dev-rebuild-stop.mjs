@@ -78,7 +78,7 @@ async function main() {
   if (!response.ok) throw Error('DEV quit identity unavailable; refusing shutdown');
   const quit = await response.json();
   const processes = rebuildStopPlan({ instance, data, port, app, record, ready, quit, ...snapshot });
-  windowsHelper('Stop', { processes, cli: record.artifacts.cli.path, data, port,
+  windowsHelper('Stop', { processes, quit, port,
     allowedPorts: [port, Number(record.instance.cdpPort)], token: token.stdout.trim() });
   console.log(`DEV instance '${instance || 'default'}' pinned process exit confirmed before artifact replacement.`);
 }
