@@ -1,9 +1,11 @@
+pub const MAX_JOURNAL_EVIDENCE_BYTES: usize = 32 * 1024;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum JournalMarker {
-    Step(u16),
+    Step(u32),
     Result,
     Run,
 }
@@ -20,7 +22,9 @@ impl JournalMarker {
         match (index, name) {
             (-1, "$run") => Ok(Self::Run),
             (-1, "$result") => Ok(Self::Result),
-            (0..=63, _) => Ok(Self::Step(index as u16)),
+            (0.., _) => u32::try_from(index)
+                .map(Self::Step)
+                .map_err(|_| "invalid journal marker".into()),
             _ => Err("invalid journal marker".into()),
         }
     }
@@ -237,49 +241,4 @@ impl std::ops::Deref for JournalReason {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn blueprint_journal_markers_and_outcomes_round_trip_without_string_heuristics() {
-        for marker in [
-            JournalMarker::Step(0),
-            JournalMarker::Step(63),
-            JournalMarker::Result,
-            JournalMarker::Run,
-        ] {
-            let name = marker.name("step");
-            assert_eq!(
-                JournalMarker::from_columns(marker.index(), name).unwrap(),
-                marker
-            );
-            assert_eq!(
-                serde_json::from_value::<JournalMarker>(serde_json::to_value(marker).unwrap())
-                    .unwrap(),
-                marker
-            );
-        }
-        for outcome in [
-            JournalOutcome::Done,
-            JournalOutcome::Failed,
-            JournalOutcome::Held,
-            JournalOutcome::HandlerResult,
-            JournalOutcome::Skip("skip:branch".into()),
-            JournalOutcome::Bucket("ready".into()),
-        ] {
-            assert_eq!(
-                serde_json::from_value::<JournalOutcome>(serde_json::to_value(&outcome).unwrap())
-                    .unwrap(),
-                outcome
-            );
-        }
-        let reason = JournalReason::UncertainEffect;
-        assert_eq!(
-            serde_json::from_value::<JournalReason>(serde_json::to_value(&reason).unwrap())
-                .unwrap(),
-            reason
-        );
-        assert!(JournalMarker::from_columns(-1, "step").is_err());
-        assert!(JournalMarker::from_columns(64, "step").is_err());
-        assert!(JournalState::parse("invalid").is_err());
-    }
-}
+mod tests;

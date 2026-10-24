@@ -137,7 +137,7 @@ impl<'a> RunCtx<'a> {
         if self.next_marker >= 64 {
             return Err(JournalReason::BudgetExhausted);
         }
-        let marker = JournalMarker::Step(self.next_marker);
+        let marker = JournalMarker::Step(u32::from(self.next_marker));
         self.next_marker += 1;
         Ok(marker)
     }
@@ -179,6 +179,8 @@ pub fn execute_step(
         }
         Ok(())
     };
+    let mut input_previews = Default::default();
+    let mut output_preview = None;
     let checked = (|| {
         ctx.call_state.current_marker = Some(marker);
         if !simulate {
@@ -191,6 +193,7 @@ pub fn execute_step(
             return Err(JournalReason::Deadline);
         }
         let input = contract.bind_input(&input, |binding| ctx.resolve_binding(binding))?;
+        input_previews = previews::inputs(&contract, &input);
         check(&input, false)?;
         if matches!(
             step.kind,
@@ -213,9 +216,14 @@ pub fn execute_step(
             return Err(JournalReason::Deadline);
         }
         let result = match &step.kind {
-            StepKind::Call { call, grants } => {
-                crate::blueprint_calls::execute(ctx, &step.name, call, grants, &input)?
-            }
+            StepKind::Call { call, grants } => crate::blueprint_calls::execute(
+                ctx,
+                &step.name,
+                call,
+                grants,
+                &input,
+                &mut input_previews,
+            )?,
             StepKind::Effect { node } => crate::blueprint_calls::effect(ctx, node, &input)?,
             _ if simulate && !matches!(step.kind, StepKind::Filter { .. }) => {
                 return Err(JournalReason::RuntimeUnavailable)
@@ -277,6 +285,7 @@ pub fn execute_step(
                 .and_then(|port| port.reference.clone());
         }
         let output = ExecutionEnvelope::decode(&output.encode()?)?;
+        output_preview = Some(output.clone());
         if result.state == JournalState::Done {
             check(&output, true)?;
         }
@@ -316,6 +325,7 @@ pub fn execute_step(
                 result.summary.clone(),
                 body_ref,
                 result.reason.clone(),
+                previews::evidence(input_previews, output_preview.as_ref()),
             )?;
             if matches!(step.kind, StepKind::Command { .. }) && output == input {
                 required_journal(write_journal(
@@ -384,6 +394,7 @@ pub fn execute_step(
                 },
                 None,
                 Some(reason.clone()),
+                previews::evidence(input_previews, output_preview.as_ref()),
             )?;
             Err(reason)
         }
@@ -408,11 +419,13 @@ fn finish(
     summary: String,
     body_ref: Option<String>,
     reason: Option<JournalReason>,
+    evidence: serde_json::Map<String, serde_json::Value>,
 ) -> Result<(), JournalReason> {
     required_journal(write_journal(
         ctx.handle,
         &ctx.lease.job,
         BlueprintJournalWrite::Finish {
+            evidence: Some(evidence),
             run_id: ctx.run_id.into(),
             marker,
             state,
