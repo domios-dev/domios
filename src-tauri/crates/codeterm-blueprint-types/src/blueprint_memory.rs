@@ -84,6 +84,14 @@ pub fn score(entry: &Entry, now: i64) -> f64 {
 }
 
 pub fn structure(document: &Document) -> Value {
+    if document.trigger.is_none() && document.result.port.is_some() {
+        let mut callable = document.clone();
+        callable.name.clear();
+        callable.note = None;
+        callable.intent = None;
+        callable.anchors.clear();
+        return json!({"callable": callable});
+    }
     let ids = document
         .nodes()
         .enumerate()

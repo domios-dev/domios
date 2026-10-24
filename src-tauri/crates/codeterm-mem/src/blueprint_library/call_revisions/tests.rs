@@ -54,6 +54,119 @@ fn edit(mem: &MemManager, id: &str, mut document: Document, note: &str) {
     .unwrap();
 }
 #[test]
+fn blueprint_v2_call_keep_preserves_distinct_bodies_with_same_name_and_scope() {
+    let mem = MemManager::open_in_memory().unwrap();
+    let first = save(&mem, callable(103));
+    let error = mem
+        .save_blueprint_scoped(
+            "blueprints:workspace",
+            "team",
+            callable(17),
+            &["Return seventeen".into()],
+            evidence(),
+        )
+        .unwrap_err();
+    assert!(error.starts_with("blueprint_name_conflict:"), "{error}");
+    assert!(error.contains("return-seventeen"), "{error}");
+    assert_eq!(load(&mem, &first), callable(103));
+    let mut seventeen = callable(17);
+    seventeen.name = "return-seventeen".into();
+    let second = save(&mem, seventeen);
+    assert_ne!(first, second);
+    let mut renamed = callable(17);
+    renamed.name = "Renamed constant".into();
+    renamed.note = Some("Presentation only".into());
+    assert_eq!(save(&mem, renamed.clone()), second);
+    assert_eq!(mem.dream_blueprints().unwrap(), 0);
+    let entries = mem
+        .list_blueprint_solutions("blueprints:workspace")
+        .unwrap();
+    assert_eq!(entries.len(), 2);
+    assert_eq!(load(&mem, &first), callable(103));
+    assert_eq!(load(&mem, &second), renamed);
+}
+#[test]
+fn blueprint_v2_call_far_purpose_vectors_refuse_keep_and_dream_merges() {
+    use super::super::{fakes::WordEmbedder, merge_policy::Purpose};
+    let mem = MemManager::open_in_memory().unwrap();
+    mem.set_blueprint_embedder(WordEmbedder::new(true));
+    let tenfold = vec!["Compute ten times an integer plus three".to_owned()];
+    let increment = vec!["Increment a counter by seventeen".to_owned()];
+    let first = mem
+        .save_blueprint_scoped(
+            "blueprints:workspace",
+            "team",
+            callable(103),
+            &tenfold,
+            evidence(),
+        )
+        .unwrap()
+        .id;
+    let mut renamed = callable(103);
+    renamed.name = "increment-seventeen".into();
+    let second = mem
+        .save_blueprint_scoped(
+            "blueprints:workspace",
+            "team",
+            renamed,
+            &increment,
+            evidence(),
+        )
+        .unwrap()
+        .id;
+    assert_ne!(
+        first, second,
+        "Even matching code must not merge distant purposes"
+    );
+    let library = mem
+        .list_blueprint_solutions("blueprints:workspace")
+        .unwrap();
+    assert_eq!(library.len(), 2);
+    {
+        let conn = mem.conn.lock();
+        let identity = mem.embedder.identity();
+        let a = Purpose::stored(&conn, &identity, &library[0]).unwrap();
+        let b = Purpose::stored(&conn, &identity, &library[1]).unwrap();
+        assert!(!a.agrees(&b));
+    }
+    assert_eq!(mem.dream_blueprints().unwrap(), 0);
+    assert!(library
+        .iter()
+        .all(|entry| mem.get(&entry.id).unwrap().unwrap().kind == "skill"));
+}
+#[test]
+fn blueprint_v2_call_same_code_and_purpose_vectors_merge_presentation_variants() {
+    use super::super::fakes::WordEmbedder;
+    let mem = MemManager::open_in_memory().unwrap();
+    mem.set_blueprint_embedder(WordEmbedder::new(true));
+    let first = save(&mem, callable(8));
+    let mut revised = callable(8);
+    revised.name = "Eight".into();
+    revised.note = Some("Return eight".into());
+    let mut prepared = mem
+        .qualify_blueprint(
+            "blueprints:workspace",
+            revised,
+            &["Return fixed data".into()],
+            evidence(),
+        )
+        .unwrap();
+    prepared.team = Some("team".into());
+    let second = mem
+        .persist_blueprint("blueprints:workspace", prepared, false, AREA_CAP)
+        .unwrap()
+        .id;
+    mem.index_blueprint(&second).unwrap();
+    assert_ne!(first, second);
+    assert_eq!(mem.dream_blueprints().unwrap(), 1);
+    assert_eq!(
+        mem.list_blueprint_solutions("blueprints:workspace")
+            .unwrap()
+            .len(),
+        1
+    );
+}
+#[test]
 fn blueprint_v2_call_save_pins_id_hash_and_resave_does_not_repin() {
     let mem = MemManager::open_in_memory().unwrap();
     let callee = save(&mem, callable(8));
@@ -373,12 +486,18 @@ fn blueprint_v2_call_review_archive_warns_and_keeps_pins_but_refuses_new_pins() 
     );
 }
 #[test]
-fn blueprint_v2_call_review_dream_merge_without_edit_warns_with_keeper_and_diff() {
+fn blueprint_v2_call_reviewed_revision_dream_merge_warns_with_keeper_and_diff() {
     let mem = MemManager::open_in_memory().unwrap();
     let id = save(&mem, callable(8));
     let frozen = mem
         .pin_blueprint_calls("blueprints:workspace", "team", caller(&id))
         .unwrap();
+    edit(
+        &mem,
+        &id,
+        callable(99),
+        "Reviewed revision of the same callable",
+    );
     let mut prepared = mem
         .qualify_blueprint(
             "blueprints:workspace",
@@ -419,10 +538,12 @@ fn blueprint_v2_call_review_eviction_warns_without_a_body_edit() {
     let frozen = mem
         .pin_blueprint_calls("blueprints:workspace", "team", caller(&id))
         .unwrap();
+    let mut replacement = callable(99);
+    replacement.name = "return-ninety-nine".into();
     let mut prepared = mem
         .qualify_blueprint(
             "blueprints:workspace",
-            callable(99),
+            replacement,
             &["Return fixed data".into()],
             evidence(),
         )

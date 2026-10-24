@@ -14,6 +14,8 @@ fn error(message: impl Into<String>) -> JsonRpcError {
         .and_then(|version| version.parse::<u64>().ok());
     let code = if version_conflict.is_some() {
         "blueprint_version_conflict"
+    } else if message.starts_with("blueprint_name_conflict:") {
+        "blueprint_name_conflict"
     } else if message.starts_with("blueprint_store_unsupported_format:") {
         "blueprint_store_unsupported_format"
     } else if message.starts_with("blueprint_store_load_failed:") {
@@ -470,48 +472,7 @@ fn exposed_definition(value: Value) -> Value {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn blueprint_handlers_round_trip_without_changing_stored_identity_or_content() {
-        let public = json!({
-            "id": "sentinel_existing", "probe": "sentinel is opaque probe content",
-            "routes": {"done": "blueprint:sentinel_child"},
-            "handlers": {"done": [{"id":"join", "type":"blueprint", "parameters":{"target":"sentinel_child"}}]}
-        });
-        let stored = stored_definition(public.clone()).unwrap();
-        assert_eq!(stored["id"], "sentinel_existing");
-        assert_eq!(stored["probe"], public["probe"]);
-        assert_eq!(stored["routes"]["done"], "blueprint:sentinel_child");
-        assert_eq!(stored["handlers"]["done"][0]["type"], "blueprint");
-        assert_eq!(exposed_definition(stored), public);
-        let persisted = json!({"routes":{"done":[{"id":"join","action":{"kind":"sentinel","target":"sentinel_child"},"target":{"kind":"sentinel","id":"sentinel_child"}}]}});
-        let exposed = exposed_definition(persisted.clone());
-        assert_eq!(exposed["routes"]["done"][0]["action"]["kind"], "blueprint");
-        assert_eq!(exposed["routes"]["done"][0]["target"]["kind"], "blueprint");
-        assert_eq!(stored_definition(persisted).unwrap(), exposed);
-    }
-
-    #[test]
-    fn blueprint_handlers_accept_legacy_public_names() {
-        assert!(stored_definition(json!({"routes":{"done":"sentinel:child"}} )).is_ok());
-        assert!(stored_definition(
-            json!({"handlers":{"done":[{"type":"sentinel","parameters":{"target":"child"}}]}})
-        )
-        .is_ok());
-    }
-
-    #[test]
-    fn sentinel_update_rpc_version_conflict_carries_current_version() {
-        let error = error(codeterm_sentinel::amend::version_conflict(9));
-        assert_eq!(
-            error.data.as_ref().unwrap()["code"],
-            "blueprint_version_conflict"
-        );
-        assert_eq!(error.data.as_ref().unwrap()["current_version"], 9);
-    }
-}
+mod tests;
 
 fn local_callees(
     params: &Option<Value>,
