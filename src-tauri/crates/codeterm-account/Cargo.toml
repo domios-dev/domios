@@ -25,6 +25,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 workspace = true
 
 [dev-dependencies]
+codeterm-util = { path = "../codeterm-util", features = ["test-support"] }
 tempfile = "3"
 
 [target.'cfg(windows)'.dependencies]

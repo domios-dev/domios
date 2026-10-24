@@ -14,6 +14,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Notify;
 
+mod listener;
+
 fn signed_in(epoch: u64) -> LifecycleState {
     LifecycleState {
         account_epoch: epoch,
@@ -332,19 +334,15 @@ impl AccountMeshStore for HeldSignOutStore {
     }
 }
 
-#[tokio::test]
-async fn sign_out_closes_the_mesh_manager_gate_before_persistence_can_suspend() {
-    let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
-    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-    let mesh_state = fixture.service.ext::<crate::MeshStateHandle>().clone();
-    *mesh_state.lock() = legacy_manager();
-    let service = Arc::new(fixture.service.clone());
+fn listener_account_mesh(
+    service: &Arc<ServiceContext>,
+    store: Arc<dyn AccountMeshStore>,
+) -> Arc<AccountMesh> {
     let transport = Arc::new(TransportBridge {
-        service: Arc::downgrade(&service),
+        service: Arc::downgrade(service),
         mesh_state: watch::channel(mesh::AccountMeshState::default()).0,
     });
-    let store = Arc::new(HeldSignOutStore::default());
-    let account_mesh = AccountMesh::new(
+    AccountMesh::new(
         AccountMeshConfig {
             default_display_name: None,
             installation_id: codeterm_account::InstallationId::parse("installation-a".into())
@@ -358,12 +356,23 @@ async fn sign_out_closes_the_mesh_manager_gate_before_persistence_can_suspend() 
             registry: Arc::new(UnavailableRegistry),
             sessions: Arc::new(NoSession),
             keys: Arc::new(NoKeys),
-            store: store.clone(),
+            store,
             endpoint: Arc::new(NoEndpoint),
             transport,
             clock: Arc::new(FixedClock),
         },
-    );
+    )
+}
+
+#[tokio::test]
+async fn sign_out_closes_the_mesh_manager_gate_before_persistence_can_suspend() {
+    let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let mesh_state = fixture.service.ext::<crate::MeshStateHandle>().clone();
+    *mesh_state.lock() = legacy_manager();
+    let service = Arc::new(fixture.service.clone());
+    let store = Arc::new(HeldSignOutStore::default());
+    let account_mesh = listener_account_mesh(&service, store.clone());
     account_mesh.load().await;
     account_mesh
         .identity_changed(Some(&codeterm_account::Identity {
