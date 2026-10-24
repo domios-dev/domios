@@ -20,6 +20,7 @@ pub struct OutstandingRequest {
 }
 
 pub struct Session {
+    pub(super) capacity_retry: Mutex<super::capacity_retry::Policy>,
     pub(super) update_generation: std::sync::atomic::AtomicU64,
     pub(super) update_recovery_available: std::sync::atomic::AtomicBool,
     pub provider: String,
@@ -128,6 +129,9 @@ pub(crate) fn stop_removed_provider(svc: &ServiceContext, provider: &str) {
 }
 
 pub async fn stop(svc: &ServiceContext, tab: &str) -> Result<(), String> {
+    if let Err(error) = super::capacity_retry::cancel(svc, tab) {
+        log::warn!("[runtime-retry] queued retry cleanup failed for {tab}: {error}");
+    }
     let Some(session) = for_tab(tab) else {
         return Ok(());
     };
@@ -258,6 +262,7 @@ async fn ensure_with_fork(
                 let mut state = RuntimeState::unloaded(thread.clone());
                 state.restore_timing(saved_state.as_ref());
                 Arc::new(Session {
+                    capacity_retry: Mutex::new(Default::default()),
                     update_generation: std::sync::atomic::AtomicU64::new(0),
                     update_recovery_available: std::sync::atomic::AtomicBool::new(false),
                     provider: provider.clone(),

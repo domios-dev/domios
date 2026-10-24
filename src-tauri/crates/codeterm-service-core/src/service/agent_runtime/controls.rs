@@ -40,6 +40,7 @@ pub(crate) fn switch(
     mode: Option<&str>,
     service_tier: Option<codeterm_plugin::agent_runtime::RuntimeServiceTierSelection>,
 ) -> Result<ModelSwitchOutcome, ModelSwitchError> {
+    super::capacity_retry::cancel(svc, tab).map_err(ModelSwitchError::RuntimeControlRefused)?;
     let provider = svc
         .mux
         .read()

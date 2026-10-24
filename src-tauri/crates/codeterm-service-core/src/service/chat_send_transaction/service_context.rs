@@ -36,6 +36,7 @@ impl crate::service::ServiceContext {
         capture: Option<super::super::local_recording::chat::CapturedChat>,
     ) -> Result<ChatSendStatus, String> {
         self.require_tab_input_allowed(tab_id, None)?;
+        super::super::agent_runtime::capacity_retry::cancel(self, tab_id)?;
         if !super::super::agent_runtime::requested_for_tab(self, tab_id) || capture.is_some() {
             self.wake_frozen_tab(tab_id)?;
         }

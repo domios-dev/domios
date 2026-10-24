@@ -277,3 +277,7 @@ mod fixtures;
 #[cfg(test)]
 #[path = "subscriber/turn_lifecycle_tests.rs"]
 mod turn_lifecycle_tests;
+
+#[cfg(test)]
+#[path = "subscriber/capacity_retry_tests.rs"]
+mod capacity_retry_tests;

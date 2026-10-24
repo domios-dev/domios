@@ -7,8 +7,35 @@ fn queue() -> (tempfile::TempDir, DelayedSendQueue) {
 }
 
 #[test]
+fn capacity_retry_metadata_and_payload_persist_in_the_existing_queue() {
+    let (dir, queue) = queue();
+    let original = queue
+        .enqueue_turn_retry(
+            "tab",
+            "opaque original",
+            10_123,
+            TurnRetry {
+                kind: codeterm_plugin::agent_runtime::RuntimeRetryableErrorKind::Transient,
+                attempt: 4,
+                epoch: 2,
+                binding_nonce: "nonce".into(),
+                thread_id: "thread".into(),
+            },
+        )
+        .unwrap();
+    let reopened = DelayedSendQueue::open(dir.path().join("delayed_send.json")).unwrap();
+    let loaded = reopened.list(Some("tab")).pop().unwrap();
+    assert_eq!(loaded.id, original.id);
+    assert_eq!(loaded.text, "opaque original");
+    assert_eq!(loaded.turn_retry.as_ref().unwrap().attempt, 4);
+    assert!(reopened.claim_due(10_122).unwrap().is_empty());
+    assert_eq!(reopened.claim_due(10_123).unwrap().len(), 1);
+}
+
+#[test]
 fn reminder_envelope_carries_creator_metadata() {
     let msg = DelayedMessage {
+        turn_retry: None,
         id: "dmsg-7".into(),
         tab_id: "target-tab".into(),
         workspace_id: None,
