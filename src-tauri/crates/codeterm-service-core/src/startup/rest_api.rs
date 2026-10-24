@@ -556,14 +556,7 @@ async fn bind_listener(bind_addr: &str) -> std::io::Result<std::net::TcpListener
             .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
         codeterm_paths::validate_listener_port(address.port(), cfg!(debug_assertions))
             .map_err(|error| std::io::Error::new(std::io::ErrorKind::PermissionDenied, error))?;
-        let socket = if address.is_ipv4() {
-            tokio::net::TcpSocket::new_v4()?
-        } else {
-            tokio::net::TcpSocket::new_v6()?
-        };
-        socket.set_reuseaddr(true)?;
-        socket.bind(address)?;
-        socket.listen(1024)?.into_std()
+        codeterm_util::tcp_listener::bind(address)
     }
     .await;
     result.map_err(|error| codeterm_util::local_endpoint::bind_error(bind_addr, error))

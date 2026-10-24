@@ -281,8 +281,8 @@ async fn start(
     ) {
         return Err(format!("Sidecar requires a native executable: {binary:?}"));
     }
-    let listener =
-        std::net::TcpListener::bind(("127.0.0.1", 0)).map_err(|error| error.to_string())?;
+    let listener = codeterm_util::tcp_listener::bind((std::net::Ipv4Addr::LOCALHOST, 0).into())
+        .map_err(|error| error.to_string())?;
     let port = listener
         .local_addr()
         .map_err(|error| error.to_string())?
@@ -375,8 +375,8 @@ async fn start(
             history.active_turn.as_deref(),
             &history.completed_turns,
         );
-        let remote_listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
-            .await
+        let remote_listener = codeterm_util::tcp_listener::bind((std::net::Ipv4Addr::LOCALHOST, 0).into())
+            .and_then(tokio::net::TcpListener::from_std)
             .map_err(|error| error.to_string())?;
         let remote_port = remote_listener
             .local_addr()
