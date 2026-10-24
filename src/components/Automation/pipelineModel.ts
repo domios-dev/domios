@@ -27,6 +27,7 @@ export interface PipelineViewEdge {
 }
 
 export interface PipelineView extends BlueprintProjection {
+  recordedRun?: import("../../lib/blueprintRun").GraphRun;
   runId?: string | null;
   closed?: boolean;
   note?: string | null;

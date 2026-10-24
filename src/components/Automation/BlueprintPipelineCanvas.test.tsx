@@ -6,6 +6,11 @@ import { BlueprintPipelineCanvas } from "./BlueprintPipelineCanvas";
 import { call, diff, viewerPipeline } from "./blueprintViewer.testdata";
 import { BlueprintProjectList } from "../Jobs/BlueprintProjectList";
 import { document as source } from "./blueprintViewer.testdata";
+import capturedWatch from "./blueprintWatchCaptured.testdata.json";
+import { scenarioPipelineModel } from "./scenarioPipelineModel";
+import type { AutomationGraph } from "./types";
+import { ScopedScenarioPanel } from "./ScopedScenarioPanel";
+import { createAutomationCamera } from "./useAutomationViewport";
 
 async function main() {
   const nativeMessageChannel = globalThis.MessageChannel;
@@ -18,6 +23,8 @@ async function main() {
   for (const key of ["window", "document", "HTMLElement", "Element", "Node", "navigator", "Event", "MutationObserver"]) Object.defineProperty(globalThis, key, { configurable: true, value: (window as unknown as Record<string, unknown>)[key] });
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   const host = document.createElement("div"); document.body.append(host);
+  Object.defineProperty(window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 960 });
+  Object.defineProperty(window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 440 });
   const root = createRoot(host);
   const button = (name: string) => {
     const element = [...host.querySelectorAll("button")].find((element) => (element.getAttribute("aria-label") ?? element.textContent) === name);
@@ -34,6 +41,17 @@ async function main() {
   const loadHistory = async () => { historyReads++; return { current_version: 2, history_truncated: false, versions: [{ version: 1, replaces: null, diff: null }, { version: 2, replaces: 1, diff }] }; };
   try {
     await act(async () => root.render(<BlueprintPipelineCanvas pipeline={viewerPipeline()} initialRunId="past" onStop={async () => { stopped++; }} loadHistory={loadHistory} />));
+    const layer = () => host.querySelector<HTMLElement>('[role="group"][aria-label$=" pipeline"] > div:not([role="toolbar"])');
+    assert(layer());
+    const fitted = layer()!.style.transform;
+    await act(async () => button("Zoom in").click());
+    assert.notEqual(layer()!.style.transform, fitted, "zoom in changes the camera");
+    const zoomed = layer()!.style.transform;
+    await act(async () => button("Zoom out").click());
+    assert.notEqual(layer()!.style.transform, zoomed, "zoom out changes the camera");
+    await act(async () => button("Zoom in").click());
+    await act(async () => button("Fit all").click());
+    assert.equal(layer()!.style.transform, fitted, "fit frames the graph again");
     assert(button("Stop selected run").disabled);
     assert(host.querySelector('[aria-label="Recorded stop"]'));
     assert(host.querySelector('[aria-label="Selected run journal"]'));
@@ -61,11 +79,35 @@ async function main() {
     assert(!host.querySelector('[aria-label="Recorded stop"]'));
     await act(async () => button("Stop selected run").click());
     assert.equal(stopped, 1);
+    const watch = capturedWatch as AutomationGraph;
+    const watchPipeline = scenarioPipelineModel(watch, watch.scenarios[0], watch.blueprints![0]);
+    await act(async () => root.render(<BlueprintPipelineCanvas key="watch" pipeline={watchPipeline} initialRunId={watchPipeline.runId!} />));
+    assert(button(`Run ${watchPipeline.runId}`));
+    assert(host.querySelector('[aria-label="Selected run journal"]')?.textContent?.includes("passed"));
+    assert(host.querySelector('[aria-label="Selected run journal"]')?.textContent?.includes("completed"));
+    assert(button("Node source"));
+    assert(button("Node decide"));
+    assert(button("Node notify"));
+    assert(button("Fit all"));
+    assert(button("Zoom in"));
+    assert(button("Zoom out"));
+    let wentBack = false;
+    await act(async () => root.render(<ScopedScenarioPanel key="scoped-watch" adapter={{ read: async () => watch, subscribe: async () => () => {}, stop: async () => { stopped++; }, delete: async () => {} }} attachment={{ connection_id: "captured", workspace_id: watch.workspace_id, team_id: watch.team_id }} scenario={watch.scenarios[0]} camera={createAutomationCamera()} backLabel="All jobs" onBack={() => { wentBack = true; }} />));
+    await waitForNode("Node source");
+    assert(button("Node decide"));
+    assert(button("Node notify"));
+    assert(button("Fit all"));
+    assert(host.querySelector('[aria-label="Selected run journal"]')?.textContent?.includes("passed"));
+    assert(button("Export Blueprint"));
+    await act(async () => button("Stop Blueprint").click());
+    assert.equal(stopped, 2);
+    await act(async () => button("Back to All jobs").click());
+    assert(wentBack);
     await act(async () => root.render(<BlueprintPipelineCanvas pipeline={{ ...viewerPipeline(), state: "held", heldReason: "uncertain_pipeline_claim" }} />));
     assert(host.querySelector('[role="status"]')?.textContent?.includes("Held"));
     const unavailable = viewerPipeline();
     unavailable.runs = unavailable.runs?.map((run) => ({ ...run, pipeline: { ...run.pipeline, historical_graph_available: false, call_graph: undefined, expanded_calls: [] } }));
-    await act(async () => root.render(<BlueprintPipelineCanvas pipeline={unavailable} initialRunId="past" />));
+    await act(async () => root.render(<BlueprintPipelineCanvas key="unavailable" pipeline={unavailable} initialRunId="past" />));
     await act(async () => button("Run past").click());
     assert(host.querySelector('[aria-label="Historical graph unavailable"]'));
     assert(host.querySelector('[aria-label="Selected run journal"]'));

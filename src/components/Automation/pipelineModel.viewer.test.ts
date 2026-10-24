@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { performance } from "node:perf_hooks";
-import { buildBlueprintGraph, nodeLabel } from "./blueprintGraphModel";
+import { blueprintTriggerSummary, buildBlueprintGraph, nodeLabel } from "./blueprintGraphModel";
 import { blueprintNodeKey, toggleBlueprintExpansion } from "./blueprintExpansion";
 import { buildIncrementally } from "./blueprintIncremental";
 import { blueprintDiffModel } from "./blueprintDiffModel";
@@ -9,6 +9,9 @@ import { layoutPipelineChain } from "./pipelineLayout";
 import { call, document, diff, viewerPipeline } from "./blueprintViewer.testdata";
 
 async function main() {
+  assert.equal(blueprintTriggerSummary({ type: "schedule", every: { lit: "1800s" } }), "Every 1800s");
+  assert.equal(blueprintTriggerSummary({ type: "input", kind: { lit: "audio" } }), "Input: audio");
+  assert.equal(blueprintTriggerSummary({ type: "event", kind: { lit: "tab_output" } }), "Event: tab_output");
   assert.equal(heldReasonLabel("uncertain_pipeline_result"), "the result delivery could not be confirmed");
   const pipeline = viewerPipeline();
   for (const reason of ["command_failed", "deadline"]) {
@@ -51,6 +54,9 @@ async function main() {
   const mismatch = await build({ ...run, nested_run: pipeline.nested_run }, new Set(expanded));
   assert(!mismatch.nodes.find((node) => node.definition?.id === "return-count")?.journal);
   const layout = layoutPipelineChain(graph.nodes, graph.edges);
+  const sameDestination = layoutPipelineChain(graph.nodes, ["ready", "waiting", "other"].map((label) => ({ from: graph.nodes[0].key, to: graph.nodes[1].key, label })));
+  assert.equal(new Set(sameDestination.edges.map((edge) => edge.y)).size, 3);
+  assert.ok(sameDestination.edges.slice(1).every((edge, index) => edge.y - sameDestination.edges[index].y >= 24));
   assert.equal(layout.edges.length, graph.edges.length);
   assert(layout.edges.some((edge) => edge.from === blueprintNodeKey([], "probe") && edge.to === blueprintNodeKey([], "invoke")));
   assert(layout.nodes.every((box) => box.x >= 0 && box.y >= 0 && box.x + box.width <= layout.width && box.y + box.height <= layout.height));
