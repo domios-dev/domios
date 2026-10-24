@@ -6,6 +6,15 @@ use crate::account_mesh::link::link_installation_with;
 use crate::account_mesh::protocol::LinkConfirm;
 use crate::account_mesh::AdmissionRefusal;
 
+struct ForgedApproval(Loopback);
+
+impl crate::account_mesh::link::LinkTransport for ForgedApproval {
+    fn post(&self, ip: &str, port: u16, path: &'static str, bearer: Option<String>, mut body: serde_json::Value) -> crate::account_mesh::BoxFuture<'_, Result<serde_json::Value, AdmissionRefusal>> {
+        if path == crate::account_mesh::protocol::LINK_APPROVAL_PATH { body["mesh_signature"] = serde_json::json!("forged"); }
+        self.0.post(ip, port, path, bearer, body)
+    }
+}
+
 fn participants() -> (Machine, Machine) {
     let clock = clock();
     let (a, b) = (machine(1, &clock), machine(2, &clock));
@@ -89,4 +98,14 @@ async fn account_mesh_approval_account_change_cancels_waiting_request() {
     b.sign_out(2);
     assert_eq!(task.await.unwrap().unwrap_err(), AdmissionRefusal::SignedOut);
     assert!(b.mesh.lock().paired_peers.is_empty());
+}
+
+#[tokio::test]
+async fn account_mesh_approval_requires_possession_before_asking_the_receiver() {
+    let (a, b) = participants();
+    let transport = ForgedApproval(Loopback::new(&[&a, &b]));
+    assert!(link_installation_with(&a.mesh, &transport, &b.installation_id).await.is_err());
+    assert!(b.mesh.lock().link_requests().is_empty());
+    assert_eq!(a.authority.authorize_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(b.authority.authorize_calls.load(Ordering::SeqCst), 0);
 }

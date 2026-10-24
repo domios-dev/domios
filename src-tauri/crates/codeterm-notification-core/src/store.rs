@@ -930,7 +930,9 @@ impl NotificationStore {
 
     pub fn resolve_daemon_request(&mut self, request: &str) -> Vec<String> {
         let ids: Vec<String> = self.notifications.iter().filter(|record| record.answer.as_ref().and_then(|slot| slot.daemon_request.as_deref()) == Some(request)).map(|record| record.id.clone()).collect();
-        ids.into_iter().filter(|id| self.resolve_id(id)).collect()
+        let resolved = ids.into_iter().filter(|id| self.resolve_id(id)).collect();
+        self.close_push_scope(&format!("consent:{request}"));
+        resolved
     }
 
     pub fn record_detached_answer(&mut self, id: &str, label: &str) -> AnswerAdmission {

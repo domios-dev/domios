@@ -15,7 +15,7 @@ import {
   type AccountPresence,
 } from "./accountMachines";
 import { AccountMeshClientProvider, type AccountMeshSnapshot } from "./accountMeshClient";
-import { airRow, FakeAccountMeshClient, lenovoRow, machine, macRow, NOW, pair, selfRow, snapshot, targetOf } from "./accountMachines.testdata";
+import { airRow, linkRequest, FakeAccountMeshClient, lenovoRow, machine, macRow, NOW, pair, selfRow, snapshot, targetOf } from "./accountMachines.testdata";
 
 const none = new Set<string>();
 const view = (account: AccountPresence, state: AccountMeshSnapshot | null, linking: ReadonlySet<string> = none) =>
@@ -229,4 +229,27 @@ it("shows a publication refusal and the scheduled retry in mesh status", () => {
   })));
   expect(result.notes.join(" ")).toContain("publication was refused");
   expect(result.notes.join(" ")).toContain("Waiting to retry at");
+});
+
+describe("account link approval projection", () => {
+  it("restores the initiator waiting state from the daemon snapshot", () => {
+    const rows = accountView(view("signed_in", snapshot({ link_requests: [linkRequest()] }))).machines;
+    const row = byKey(rows, macRow.installation_id);
+    expect(row.status).toBe("linking");
+    expect(row.detail).toBe("Waiting for approval on MacBook");
+  });
+  it("projects receiver approval on the requesting machine even with an older registry list", () => {
+    const request = linkRequest({ incoming: true, notification_id: "notify-1", installation_id: "new-machine", name: "New machine" });
+    const row = byKey(accountView(view("signed_in", snapshot({ link_requests: [request] }))).machines, "new-machine");
+    expect(row.status).toBe("approval_requested");
+    expect(row.controls.add).toBeNull();
+    expect(row.linkRequest?.notification_id).toBe("notify-1");
+  });
+  it.each(["declined", "expired"] as const)("settles %s requests with a retry control", (decision) => {
+    const state = snapshot({ link_requests: [linkRequest({ decision })] });
+    const row = byKey(accountView(view("signed_in", state, new Set([macRow.installation_id]))).machines, macRow.installation_id);
+    expect(row.status).toBe(decision === "expired" ? "link_expired" : "declined");
+    expect(row.controls.add).toEqual({ reason: null });
+    expect(settledLinks(new Set([macRow.installation_id]), state)).toEqual([macRow.installation_id]);
+  });
 });

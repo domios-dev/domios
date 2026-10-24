@@ -17,6 +17,7 @@ pub mod presence_notice;
 pub mod protocol_refusals;
 pub mod reachability;
 pub mod serve_setup;
+mod signed_notice;
 pub mod toggle;
 pub mod transport;
 pub mod types;

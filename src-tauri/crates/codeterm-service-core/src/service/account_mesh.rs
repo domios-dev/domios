@@ -21,6 +21,8 @@ use std::time::Duration;
 use tokio::sync::{watch, OnceCell};
 
 mod authority;
+mod disconnect;
+mod link_approval;
 mod presence;
 pub mod tailnet;
 pub use authority::{mesh_state, AccountAuthority};
@@ -497,5 +499,3 @@ impl From<RevokedResult> for RevokedResultView {
         }
     }
 }
-mod link_approval;
-mod disconnect;

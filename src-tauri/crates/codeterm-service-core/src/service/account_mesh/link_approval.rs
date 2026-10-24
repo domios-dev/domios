@@ -52,8 +52,14 @@ impl ServiceContext {
     }
 
     pub(crate) fn answer_mesh_link_notification(&self, id: &str, label: &str) -> Option<Result<serde_json::Value, String>> {
-        let request = self.notif.lock().answer_slot(id)?.daemon_request.clone()?;
+        let slot = self.notif.lock().answer_slot(id)?.clone();
+        let request = slot.daemon_request?;
         let request_id = request.strip_prefix("mesh-link:")?;
+        if slot.delivered {
+            if let Some(standing) = slot.answered {
+                return Some(Ok(serde_json::json!({ "answered": standing, "delivered": true })));
+            }
+        }
         Some((|| {
             let approve = match label { "Approve" => true, "Decline" => false, _ => return Err("That choice was not offered".into()) };
             let mesh = self.try_ext::<crate::MeshStateHandle>().ok_or("Mesh is unavailable")?;
