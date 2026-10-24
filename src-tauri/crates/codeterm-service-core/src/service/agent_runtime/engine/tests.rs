@@ -43,6 +43,9 @@ mod continuation;
 #[path = "tests/rejected_before_write.rs"]
 mod rejected_before_write;
 
+#[path = "tests/sign_in.rs"]
+mod sign_in;
+
 #[path = "tests/bootstrap_ownership.rs"]
 mod bootstrap_ownership;
 
