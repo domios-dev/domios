@@ -45,7 +45,7 @@ impl FrozenCallee {
         if !self.document.dependencies.is_empty() {
             return Err("A callee snapshot must use the flat dependency closure".into());
         }
-        if document_projection::identity(&self.document)? != self.hash {
+        if !document_projection::matches_identity(&self.document, &self.hash)? {
             return Err(format!(
                 "Pinned bytes do not match {}@{}",
                 self.id, self.hash
@@ -176,13 +176,13 @@ impl FrozenClosure {
         let mut result = Vec::new();
         for callee in self.callees.values().filter(|c| saved_reference(&c.id)) {
             let pinned = resolver.revision(&callee.pin())?;
-            if document_projection::identity(&pinned)? != callee.hash {
+            if !document_projection::matches_identity(&pinned, &callee.hash)? {
                 return Err("Missing or corrupted pinned revision".into());
             }
             let (mut head, reason) = resolver.head_for_drift(&callee.id)?;
             head.dependencies.clear();
             let hash = document_projection::identity(&head)?;
-            if hash != callee.hash || reason.is_some() {
+            if !document_projection::matches_identity(&head, &callee.hash)? || reason.is_some() {
                 result.push(Drift {
                     reason: reason.unwrap_or_else(|| "callee content changed".into()),
                     pin: callee.pin(),

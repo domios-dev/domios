@@ -273,3 +273,43 @@ fn blueprint_v2_call_retained_show_preserves_exact_historical_body_and_version()
         json!(historical.dependencies[&pin.key()].document.steps[0].run)
     );
 }
+
+#[test]
+fn blueprint_stored_identity_1152_applied_callee_executes_and_projects_recorded_hash() {
+    let fixtures: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../tests/fixtures/blueprint-identities-1.15.2.golden.json"
+    )))
+    .unwrap();
+    let fixture = fixtures
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|fixture| fixture["name"] == "call")
+        .unwrap();
+    let mut document: Document = serde_json::from_value(fixture["document"].clone()).unwrap();
+    let mut callee = std::mem::take(&mut document.dependencies)
+        .into_values()
+        .next()
+        .unwrap();
+    callee.id = "inline:legacy#helper".into();
+    let recorded = callee.hash.clone();
+    document
+        .dependencies
+        .insert(callee.pin().key(), callee.clone());
+    let call = document.steps[0].call.as_mut().unwrap();
+    call.reference = "helper".into();
+    call.pin = Some(callee.pin());
+    document.owner = Some("tab".into());
+    let receipt = run(document, false);
+    assert_eq!(
+        receipt.output.unwrap().value.as_str().unwrap().trim(),
+        "ready"
+    );
+    assert!(receipt.stop.is_none());
+    assert!(receipt
+        .journal
+        .iter()
+        .any(|row| row.call_stack.iter().any(|frame| frame.hash == recorded)));
+    assert_eq!(receipt.view["expanded_calls"][0]["pin"]["hash"], recorded);
+}

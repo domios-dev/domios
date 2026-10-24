@@ -29,16 +29,20 @@ impl ScopedResolver<'_> {
 }
 impl MemoryResolver for ScopedResolver<'_> {
     fn retain(&self, callee: &calls::FrozenCallee) -> Result<(), String> {
-        if !callee.id.starts_with("catalog:") {
+        let id = if callee.id.starts_with("catalog:") {
+            super::catalog::document(&callee.id)?;
+            callee.id.as_str()
+        } else if callee.id.starts_with("mem:") {
+            self.id(&callee.id)?
+        } else {
             return Ok(());
-        }
-        super::catalog::document(&callee.id)?;
+        };
         callee.verify()?;
         let body = serde_json::to_string(&callee.document).map_err(|e| e.to_string())?;
-        self.conn.execute("INSERT INTO blueprint_call_revisions(item_id,hash,area,team,document) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(item_id,hash,area,team) DO NOTHING",params![callee.id,callee.hash,self.area,self.team,body]).map_err(|e|e.to_string())?;
-        let prior:String=self.conn.query_row("SELECT document FROM blueprint_call_revisions WHERE item_id=?1 AND hash=?2 AND area=?3 AND team=?4",params![callee.id,callee.hash,self.area,self.team],|r|r.get(0)).map_err(|e|e.to_string())?;
+        self.conn.execute("INSERT INTO blueprint_call_revisions(item_id,hash,area,team,document) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(item_id,hash,area,team) DO NOTHING",params![id,callee.hash,self.area,self.team,body]).map_err(|e|e.to_string())?;
+        let prior:String=self.conn.query_row("SELECT document FROM blueprint_call_revisions WHERE item_id=?1 AND hash=?2 AND area=?3 AND team=?4",params![id,callee.hash,self.area,self.team],|r|r.get(0)).map_err(|e|e.to_string())?;
         if prior != body {
-            return Err("Immutable catalog revision collision or corruption".into());
+            return Err("Immutable revision collision or corruption".into());
         }
         Ok(())
     }
@@ -90,9 +94,9 @@ impl MemoryResolver for ScopedResolver<'_> {
             &raw.ok_or_else(|| format!("Missing pinned hash {}@{}", pin.id, pin.hash))?,
         )
         .map_err(|e| e.to_string())?;
-        if codeterm_blueprint_types::blueprint_document::projection::identity(&document)?
-            != pin.hash
-        {
+        if !codeterm_blueprint_types::blueprint_document::projection::matches_identity(
+            &document, &pin.hash,
+        )? {
             return Err("Pinned revision bytes are corrupted".into());
         }
         Ok(document)

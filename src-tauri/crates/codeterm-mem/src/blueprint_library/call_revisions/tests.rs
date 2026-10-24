@@ -562,3 +562,106 @@ fn blueprint_v2_call_review_eviction_warns_without_a_body_edit() {
         .unwrap()
         .contains("cap"));
 }
+
+#[test]
+fn blueprint_stored_identity_1152_sqlite_revision_and_saved_head_preserve_old_pin() {
+    let fixtures: serde_json::Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../tests/fixtures/blueprint-identities-1.15.2.golden.json"
+    )))
+    .unwrap();
+    let fixture = fixtures
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|fixture| fixture["name"] == "callable")
+        .unwrap();
+    let document: Document = serde_json::from_value(fixture["document"].clone()).unwrap();
+    let mem = MemManager::open_in_memory().unwrap();
+    let id = save(&mem, document.clone());
+    let recorded = CallPin {
+        id: format!("mem:{id}"),
+        hash: fixture["hash"].as_str().unwrap().into(),
+    };
+    {
+        let conn = mem.conn.lock();
+        conn.execute("INSERT INTO blueprint_call_revisions(item_id,hash,area,team,document) VALUES(?1,?2,?3,?4,?5)", params![id,recorded.hash,"blueprints:workspace","team",fixture["document"].to_string()]).unwrap();
+        conn.execute(
+            "DELETE FROM blueprint_call_revisions WHERE item_id=?1 AND hash!=?2",
+            params![id, recorded.hash],
+        )
+        .unwrap();
+        store::update(
+            &conn,
+            &id,
+            &store::MemUpdate {
+                body: Some(serde_yaml::to_string(&fixture["document"]).unwrap()),
+                ..Default::default()
+            },
+            &mem.blobs_dir,
+        )
+        .unwrap();
+    }
+    assert_eq!(
+        mem.blueprint_call_revision("blueprints:workspace", "team", &recorded)
+            .unwrap(),
+        document
+    );
+    assert_eq!(load(&mem, &id), document);
+    assert!(mem
+        .list_blueprint_solutions("blueprints:workspace")
+        .unwrap()
+        .iter()
+        .any(|entry| entry.id == id));
+    let mut root = caller(&id);
+    root.steps[0].call.as_mut().unwrap().arguments.clear();
+    root.steps[0].call.as_mut().unwrap().pin = Some(recorded.clone());
+    root.steps[0].output = document.result.port.clone();
+    let frozen = mem
+        .pin_blueprint_calls("blueprints:workspace", "team", root.clone())
+        .unwrap();
+    assert_eq!(pin(&frozen), recorded);
+    assert!(mem
+        .blueprint_call_drift("blueprints:workspace", "team", frozen.clone())
+        .unwrap()
+        .is_empty());
+    let mut fresh = root;
+    fresh.steps[0].call.as_mut().unwrap().pin = None;
+    let fresh = mem
+        .pin_blueprint_calls("blueprints:workspace", "team", fresh)
+        .unwrap();
+    assert_eq!(pin(&fresh).hash, projection::identity(&document).unwrap());
+    assert_ne!(pin(&fresh).hash, recorded.hash);
+    assert_eq!(
+        mem.blueprint_call_revision("blueprints:workspace", "team", &pin(&fresh))
+            .unwrap(),
+        document
+    );
+    edit(&mem, &id, document.clone(), "head changed");
+    assert_eq!(
+        mem.blueprint_call_drift("blueprints:workspace", "team", frozen.clone())
+            .unwrap()
+            .len(),
+        1
+    );
+    let mut tampered = document;
+    tampered.steps[0].run =
+        Some(codeterm_blueprint_types::blueprint_document::ValueForm::literal("echo tampered"));
+    mem.conn
+        .lock()
+        .execute(
+            "UPDATE blueprint_call_revisions SET document=?1 WHERE item_id=?2 AND hash=?3",
+            params![serde_json::to_string(&tampered).unwrap(), id, recorded.hash],
+        )
+        .unwrap();
+    assert!(mem
+        .blueprint_call_revision("blueprints:workspace", "team", &recorded)
+        .unwrap_err()
+        .contains("corrupted"));
+    assert!(mem
+        .blueprint_call_drift("blueprints:workspace", "team", frozen.clone())
+        .is_err());
+    assert!(mem
+        .pin_blueprint_calls("blueprints:workspace", "team", frozen)
+        .is_err());
+}

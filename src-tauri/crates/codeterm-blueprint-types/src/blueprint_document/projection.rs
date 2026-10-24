@@ -1,6 +1,8 @@
 use super::*;
 use serde_json::json;
 use sha2::{Digest, Sha256};
+mod stored_identity;
+pub use stored_identity::matches_identity;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CanonicalNode {
