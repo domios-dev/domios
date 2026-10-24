@@ -168,10 +168,16 @@ fn body_survives_json_routing_without_becoming_arguments() {
             params["body"] = body.into();
         }
         let wire = serde_json::to_vec(&params).unwrap();
-        let params = Some(serde_json::from_slice(&wire).unwrap());
-        let result = route(&registry, "plugin:npc.echo-body", &params, None).unwrap();
+        let params: Value = serde_json::from_slice(&wire).unwrap();
+        let result = route(
+            &registry,
+            "plugin:npc.echo-body",
+            &Some(params.clone()),
+            None,
+        )
+        .unwrap();
         let ctx: Value = serde_json::from_str(result["result"].as_str().unwrap()).unwrap();
-        let mut expected = params.unwrap();
+        let mut expected = params;
         expected["verb"] = "echo-body".into();
         assert_eq!(ctx, expected);
     }

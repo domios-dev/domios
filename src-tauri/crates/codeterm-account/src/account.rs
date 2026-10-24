@@ -352,11 +352,7 @@ impl Account {
         let Some(current) = current else {
             return Ok(None);
         };
-        if force
-            || current
-                .expires_at
-                .is_some_and(|expires_at| token_expiring(expires_at))
-        {
+        if force || current.expires_at.is_some_and(token_expiring) {
             if let Err(error) = self.refresh_locked().await {
                 if error == Error::Credentials {
                     let expired = {

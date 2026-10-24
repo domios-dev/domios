@@ -610,7 +610,7 @@ pub fn decode(stored: &StoredSentinel) -> Sentinel {
             .admission_json
             .as_ref()
             .map(|raw| {
-                serde_json::from_str(raw).unwrap_or_else(|_| crate::admission::Admission {
+                serde_json::from_str(raw).unwrap_or(crate::admission::Admission {
                     held_reason: Some(crate::admission::HeldReason::PlanLimitLocked),
                     baseline_pending: true,
                     continuation: None,
