@@ -11,9 +11,31 @@ import { Skeleton, SkeletonBlock } from "../shared/Skeleton";
 import { UI_TRAY_BTN } from "../shared/design";
 import { communityMenu } from "../shared/CommunityLinks";
 import { legalMenuItems } from "../shared/LegalLinks";
-import { accountTrayModel } from "./accountTrayModel";
+import { accountTrayModel, type PlanBadge } from "./accountTrayModel";
 import { AccountAvatar } from "./AccountAvatar";
 import { useMultiplexer } from "../../store/multiplexer/context";
+
+/** Who is signed in and on which plan: information, not actions, so it sits above the menu items and never takes focus. */
+function AccountHeader({ identity, email, avatarUrl, initial, badge, summary }: {
+  identity: string; email: string | null; avatarUrl: string | null; initial: string; badge: PlanBadge | null; summary: string;
+}) {
+  return <div className="ct-menu-head ct-account-head" role="group" aria-label={`${identity}${email && email !== identity ? `, ${email}` : ""}. ${summary}`} data-testid="account-menu-head">
+    <div className="ct-menu-identity">
+      <AccountAvatar url={avatarUrl} initial={initial} label="" size="menu" />
+      <span className="ct-menu-identity__text">
+        <span className="ct-menu-identity__title">{identity}</span>
+        {email && email !== identity && <span className="ct-menu-identity__subtitle">{email}</span>}
+      </span>
+    </div>
+    <div className="ct-account-plan">
+      {badge ? <>
+        <span className="ct-plan-badge" data-tier={badge.tier}>{badge.admin ? `Admin · ${badge.name}` : badge.name}</span>
+        <span className="ct-plan-status" data-tone={badge.tone}><span className="ct-plan-status__dot" aria-hidden="true" />{badge.status}</span>
+        {badge.stale && <span className="ct-plan-status" data-tone="inactive">last known</span>}
+      </> : <span className="ct-plan-status" data-tone="inactive">Plan unavailable</span>}
+    </div>
+  </div>;
+}
 
 export function AccountTray({ onOpenPlans }: { onOpenPlans: () => void }) {
   const account = useAccount();
@@ -36,9 +58,6 @@ export function AccountTray({ onOpenPlans }: { onOpenPlans: () => void }) {
   const signInEntry = (option: SignInOption): DropdownMenuEntry =>
     ({ label: option.label, icon: option.icon, disabled: pending, onClick: () => void startSignIn(option.hint) });
   const items: DropdownMenuEntry[] = model.kind === "signed_in" ? [
-    { label: model.identity, description: model.email ?? undefined, disabled: true,
-      icon: <AccountAvatar url={model.avatarUrl} initial={model.initial} label="" size="menu" /> },
-    { label: model.plan, disabled: true },
     { label: billing.pending ? "Opening subscription…" : "Manage subscription", disabled: billing.pending, onClick: () => void manageSubscription() },
     ...legalMenuItems(["terms", "privacy"]),
     { separator: true, key: "sign-out" },
@@ -55,7 +74,8 @@ export function AccountTray({ onOpenPlans }: { onOpenPlans: () => void }) {
   }
   items.push({separator:true,key:"community"},communityMenu());
   return <div className="flex items-center">
-    <DropdownMenu menuLabel="Account" items={items} onOpenChange={setOpen} trigger={
+    <DropdownMenu menuLabel={model.kind === "signed_in" ? `Account: ${model.identity}, ${model.plan}` : "Account"} items={items} onOpenChange={setOpen}
+      header={model.kind === "signed_in" ? <AccountHeader identity={model.identity} email={model.email} avatarUrl={model.avatarUrl} initial={model.initial} badge={model.badge} summary={model.plan} /> : undefined} trigger={
       <button type="button" className={UI_TRAY_BTN} aria-label={billing.pending ? "Opening subscription" : model.name}
         title={billing.pending ? "Opening subscription…" : model.name} aria-haspopup="menu" aria-expanded={open} aria-busy={pending || billing.pending}>
         {pending
