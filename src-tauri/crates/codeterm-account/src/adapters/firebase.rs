@@ -205,7 +205,11 @@ pub struct Firebase {
     transport: Arc<dyn Transport>,
 }
 impl Firebase {
-    pub fn new(config: Config, transport: Arc<dyn Transport>, installation_id: InstallationId) -> Self {
+    pub fn new(
+        config: Config,
+        transport: Arc<dyn Transport>,
+        installation_id: InstallationId,
+    ) -> Self {
         Self {
             installation_id,
             config: crate::firebase_endpoints::account_config(config),

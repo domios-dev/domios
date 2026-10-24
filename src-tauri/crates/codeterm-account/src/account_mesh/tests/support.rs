@@ -678,10 +678,12 @@ impl MeshRegistry for FakeRegistry {
                     registry_revision: 8,
                 }))
             }
-            MeshOperation::SessionRevoke { target } => Ok(MeshResult::SessionRevoked(SessionRevokedResult {
-                target_installation_id: target.installation_id.clone(),
-                revoked_at: self.clock.now(),
-            })),
+            MeshOperation::SessionRevoke { target } => {
+                Ok(MeshResult::SessionRevoked(SessionRevokedResult {
+                    target_installation_id: target.installation_id.clone(),
+                    revoked_at: self.clock.now(),
+                }))
+            }
             MeshOperation::Revoke { target } => Ok(MeshResult::Revoked(RevokedResult {
                 target_installation_id: target.installation_id.clone(),
                 target_key_id: target.key_id.clone(),

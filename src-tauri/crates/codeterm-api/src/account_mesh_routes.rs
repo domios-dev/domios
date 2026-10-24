@@ -120,9 +120,18 @@ pub async fn revoke_session(
     State(state): State<AppState>,
     caller: Option<Extension<CallerIdentity>>,
     Json(input): Json<RevokeSession>,
-) -> Result<Json<AccountMeshOutcome<codeterm_account::account_mesh::wire::SessionRevokedResult>>, Error> {
+) -> Result<
+    Json<AccountMeshOutcome<codeterm_account::account_mesh::wire::SessionRevokedResult>>,
+    Error,
+> {
     admit(caller.as_ref())?;
-    Ok(Json(state.svc.account_mesh_session_revoke(input.installation_id).await.map_err(unavailable)?))
+    Ok(Json(
+        state
+            .svc
+            .account_mesh_session_revoke(input.installation_id)
+            .await
+            .map_err(unavailable)?,
+    ))
 }
 
 #[derive(Deserialize)]

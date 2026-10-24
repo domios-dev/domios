@@ -770,9 +770,12 @@ impl AccountMesh {
     }
 
     pub async fn revoke_session(&self, installation_id: String) -> Outcome<SessionRevokedResult> {
-        crate::InstallationId::parse(installation_id.clone()).map_err(|_| AccountMeshRefusal::Invalid)?;
+        crate::InstallationId::parse(installation_id.clone())
+            .map_err(|_| AccountMeshRefusal::Invalid)?;
         let signed = self.signed(None).await?;
-        let target = SessionTarget { installation_id: installation_id.clone() };
+        let target = SessionTarget {
+            installation_id: installation_id.clone(),
+        };
         let MeshResult::SessionRevoked(result) = self
             .admission(&signed, MeshOperation::SessionRevoke { target })
             .await?

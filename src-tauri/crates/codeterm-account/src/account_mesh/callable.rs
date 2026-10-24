@@ -1,11 +1,14 @@
 use super::ports::{MeshRegistry, RegistryResult};
 use super::wire::*;
-use crate::{Session, session_revocation::{is_session_revoked, SessionRevocationObserver}};
-use std::sync::Arc;
+use crate::{
+    session_revocation::{is_session_revoked, SessionRevocationObserver},
+    Session,
+};
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::Value;
+use std::sync::Arc;
 use std::time::Duration;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -69,7 +72,10 @@ pub struct CallableRegistry<T> {
 
 impl<T: CallableTransport> CallableRegistry<T> {
     pub fn new(transport: T) -> Self {
-        Self { transport, revocations: None }
+        Self {
+            transport,
+            revocations: None,
+        }
     }
 
     pub fn with_revocations(mut self, observer: Arc<dyn SessionRevocationObserver>) -> Self {
@@ -88,7 +94,10 @@ impl<T: CallableTransport> CallableRegistry<T> {
         data: &impl Serialize,
     ) -> RegistryResult<R> {
         let data = serde_json::to_value(data).map_err(|_| RegistryRefusal::Invalid)?;
-        let response = self.transport.call(route, session.id_token.expose(), data).await;
+        let response = self
+            .transport
+            .call(route, session.id_token.expose(), data)
+            .await;
         let body = match response {
             Ok(body) if !is_session_revoked(&body) => body,
             response => {
@@ -103,7 +112,11 @@ impl<T: CallableTransport> CallableRegistry<T> {
                     }
                     return Err(RegistryRefusal::Unauthenticated);
                 }
-                return Err(response.as_ref().err().map(refusal).unwrap_or(RegistryRefusal::Unavailable));
+                return Err(response
+                    .as_ref()
+                    .err()
+                    .map(refusal)
+                    .unwrap_or(RegistryRefusal::Unavailable));
             }
         };
         result(body)

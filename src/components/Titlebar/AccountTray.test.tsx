@@ -288,7 +288,7 @@ it("shows identity and plan and wires subscription and sign out", async () => {
     await act(async () => manageItem!.click());
     expect(manage).toHaveBeenCalledExactlyOnceWith(openPlans);
     await act(async () => button!.dispatchEvent(new KeyboardEvent("keydown", {key:"Enter",bubbles:true})));
-    const signOutItem = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent?.includes("Sign out"));
+    const signOutItem = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent === "Sign out");
     await act(async () => signOutItem!.click());
     expect(signOut).toHaveBeenCalledTimes(1);
   } finally { await act(async () => root.unmount()); host.remove(); state.signedIn = false; }

@@ -11,9 +11,16 @@ struct HttpCloudTransport(reqwest::Client);
 #[async_trait]
 impl CloudTransport for HttpCloudTransport {
     async fn execute(&self, request: reqwest::Request) -> Result<(bool, serde_json::Value)> {
-        let response = self.0.execute(request).await.map_err(|_| "Billing server unreachable")?;
+        let response = self
+            .0
+            .execute(request)
+            .await
+            .map_err(|_| "Billing server unreachable")?;
         let successful = response.status().is_success();
-        let body = response.json().await.map_err(|_| "Invalid billing response")?;
+        let body = response
+            .json()
+            .await
+            .map_err(|_| "Invalid billing response")?;
         Ok((successful, body))
     }
 }
@@ -23,17 +30,22 @@ pub struct Cloud {
     client: reqwest::Client,
     transport: std::sync::Arc<dyn CloudTransport>,
     installation_id: codeterm_account::InstallationId,
-    revocations: Option<std::sync::Arc<dyn codeterm_account::session_revocation::SessionRevocationObserver>>,
+    revocations:
+        Option<std::sync::Arc<dyn codeterm_account::session_revocation::SessionRevocationObserver>>,
 }
 impl Cloud {
     pub fn configured(
         override_url: Option<&str>,
         installation_id: codeterm_account::InstallationId,
-        revocations: std::sync::Arc<dyn codeterm_account::session_revocation::SessionRevocationObserver>,
+        revocations: std::sync::Arc<
+            dyn codeterm_account::session_revocation::SessionRevocationObserver,
+        >,
     ) -> Result<std::sync::Arc<dyn BillingProvider>> {
         let endpoint = codeterm_account::firebase_endpoints::configured_functions(override_url)?;
         match endpoint {
-            Some(endpoint) => Ok(std::sync::Arc::new(Self::new(endpoint, installation_id)?.with_revocations(revocations))),
+            Some(endpoint) => Ok(std::sync::Arc::new(
+                Self::new(endpoint, installation_id)?.with_revocations(revocations),
+            )),
             None => Ok(std::sync::Arc::new(super::local::Unavailable)),
         }
     }
@@ -75,7 +87,12 @@ impl Cloud {
             revocations: None,
         }
     }
-    pub fn with_revocations(mut self, observer: std::sync::Arc<dyn codeterm_account::session_revocation::SessionRevocationObserver>) -> Self {
+    pub fn with_revocations(
+        mut self,
+        observer: std::sync::Arc<
+            dyn codeterm_account::session_revocation::SessionRevocationObserver,
+        >,
+    ) -> Self {
         self.revocations = Some(observer);
         self
     }
@@ -107,7 +124,10 @@ impl Cloud {
         name: &str,
         data: serde_json::Value,
     ) -> Result<T> {
-        let request = self.request(session, name, data)?.build().map_err(|_| "Invalid billing request")?;
+        let request = self
+            .request(session, name, data)?
+            .build()
+            .map_err(|_| "Invalid billing request")?;
         let (successful, body) = self.transport.execute(request).await?;
         if codeterm_account::session_revocation::is_session_revoked(&body) {
             if let Some(observer) = &self.revocations {

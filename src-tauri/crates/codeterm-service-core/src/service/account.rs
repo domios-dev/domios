@@ -72,7 +72,9 @@ impl Browser for SystemBrowser {
     }
 }
 impl super::ServiceContext {
-    pub(super) fn session_revocations(&self) -> Arc<dyn codeterm_account::session_revocation::SessionRevocationObserver> {
+    pub(super) fn session_revocations(
+        &self,
+    ) -> Arc<dyn codeterm_account::session_revocation::SessionRevocationObserver> {
         Arc::new(AccountRevocations(self.ext::<AccountCell>().0.clone()))
     }
 
@@ -92,7 +94,8 @@ impl super::ServiceContext {
                     return Err("Invalid account deadline".into());
                 }
                 let provider =
-                    codeterm_account::adapters::configured(&config, self.installation_id().await?).map_err(|e| e.to_string())?;
+                    codeterm_account::adapters::configured(&config, self.installation_id().await?)
+                        .map_err(|e| e.to_string())?;
                 let mut observers: Vec<Arc<dyn codeterm_account::IdentityObserver>> =
                     vec![Arc::new(AccountIdentity(self.weak_self()))];
                 if let Ok(worker) = self.analytics_worker().await {
@@ -100,7 +103,7 @@ impl super::ServiceContext {
                 }
                 // Mesh is optional: its unavailability never prevents the account from starting.
                 if let Ok(mesh) = self.account_mesh().await {
-                    observers.push(mesh.mesh.clone());
+                    observers.insert(0, mesh.mesh.clone());
                 }
                 #[cfg(not(any(test, feature = "test-support")))]
                 let credential_provider = provider.id().to_owned();

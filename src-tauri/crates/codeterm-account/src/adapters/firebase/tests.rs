@@ -1,6 +1,8 @@
 use super::*;
 use tokio::sync::Mutex;
-fn installation() -> InstallationId { InstallationId::parse("fixture-installation".into()).unwrap() }
+fn installation() -> InstallationId {
+    InstallationId::parse("fixture-installation".into()).unwrap()
+}
 fn flow() -> LoginFlow {
     LoginFlow::from_parts(
         "fixture-state-matching".into(),
@@ -124,7 +126,11 @@ impl super::Transport for LookupTransport {
     }
 }
 async fn refreshed_photo(user: Value) -> Option<String> {
-    let provider = Firebase::new(fixture_config(), Arc::new(LookupTransport(user)), installation());
+    let provider = Firebase::new(
+        fixture_config(),
+        Arc::new(LookupTransport(user)),
+        installation(),
+    );
     let tokens = provider
         .refresh(&Secret::new("refresh-before"))
         .await
@@ -194,7 +200,11 @@ impl super::Transport for RefusingTransport {
 }
 #[tokio::test]
 async fn rejected_redemption_cannot_create_session() {
-    let provider = Firebase::new(fixture_config(), Arc::new(RefusingTransport), installation());
+    let provider = Firebase::new(
+        fixture_config(),
+        Arc::new(RefusingTransport),
+        installation(),
+    );
     assert!(matches!(
         provider
             .redeem(flow().complete(callback("fixture-state-matching")).unwrap())
@@ -272,10 +282,13 @@ fn build_config_availability_and_overrides() {
     let missing = config_from_build(Vendor::default());
     assert!(!available(&missing));
     assert_eq!(
-        crate::adapters::configured(&Config {
-            provider: "firebase".into(),
-            ..missing
-        }, installation())
+        crate::adapters::configured(
+            &Config {
+                provider: "firebase".into(),
+                ..missing
+            },
+            installation()
+        )
         .unwrap()
         .id(),
         "local"
@@ -293,7 +306,9 @@ fn build_config_availability_and_overrides() {
     assert_eq!(configured.signin_url, "https://auth.domios.dev/signin/");
     assert_eq!(configured.redeem_url, "https://example.test/redeem");
     assert_eq!(
-        crate::adapters::configured(&fixture_config(), installation()).unwrap().id(),
+        crate::adapters::configured(&fixture_config(), installation())
+            .unwrap()
+            .id(),
         "firebase"
     );
 }
