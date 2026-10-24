@@ -15,7 +15,8 @@ import type { PipelineView } from "../pipelineModel";
 import { RunDivider } from "../RunDivider";
 import { AUTOMATION_TONE, AUTOMATION_TOOL, stateTone } from "../styles";
 import { BlueprintCanvas, type CanvasCallout } from "./Canvas";
-import { expandedCall, litWires } from "./graphModel";
+import { expandedCall, focusScope, litWires } from "./graphModel";
+import { layoutBlueprint } from "./layout";
 import { BlueprintNodeDetails } from "./NodeDetails";
 import { useBlueprintGraph } from "./useBlueprintGraph";
 import { createAutomationCamera, type AutomationCamera } from "./viewport";
@@ -67,7 +68,8 @@ export function BlueprintView({ pipeline, initialRunId, backLabel, onBack, expor
   actions?: ReactNode; summary?: ReactNode; history?: boolean;
   onStop?: () => Promise<unknown>; canStop?: boolean; loadHistory?: () => Promise<BlueprintViewerHistory>; headingLevel?: 2 | 3; fill?: boolean;
 }) {
-  const camera = blueprintCamera(pipeline.id);
+  const [trail, setTrail] = useState<readonly string[]>([]);
+  const camera = blueprintCamera(trail.length ? `${pipeline.id}|${JSON.stringify(trail)}` : pipeline.id);
   const [runId, setRunId] = useState<string | null>(initialRunId ?? null);
   const [runsOpen, setRunsOpen] = useState(Boolean(initialRunId || pipeline.runs?.length || pipeline.retained || pipeline.runId));
   const [diffOpen, setDiffOpen] = useState(false);
@@ -81,8 +83,24 @@ export function BlueprintView({ pipeline, initialRunId, backLabel, onBack, expor
   const drawer = usePresence<string>(selected, DRAWER_MOTION);
   const shown = runId === null ? pipeline : pipeline.runs?.find((run) => run.id === runId)?.pipeline ?? null;
   const graphSource = useMemo(() => shown ?? pipeline, [shown, pipeline]);
-  const { graph, error } = useBlueprintGraph(graphSource, expanded);
+  const built = useMemo(() => trail.length ? new Set([...expanded, ...trail.map((id, depth) => blueprintNodeKey(trail.slice(0, depth), id))]) : expanded, [expanded, trail]);
+  const { graph: whole, error } = useBlueprintGraph(graphSource, built);
+  const graph = useMemo(() => {
+    if (!whole || !trail.length) return whole;
+    const model = focusScope(whole.model, trail);
+    return { ...whole, model, layout: layoutBlueprint(model) };
+  }, [whole, trail]);
   const lit = useMemo(() => graph ? litWires(graph.model) : new Set<string>(), [graph]);
+  const scopeTitles = [pipeline.name, ...trail.map((id, depth) => expandedCall(graphSource, trail.slice(0, depth), id)?.pin.id ?? id)];
+  const enter = (next: readonly string[]) => {
+    setTrail(next);
+    setSelected(blueprintCamera(next.length ? `${pipeline.id}|${JSON.stringify(next)}` : pipeline.id).selected);
+  };
+  const drill = (key: string) => {
+    const node = graph?.model.nodes.find((entry) => entry.key === key);
+    if (node?.type !== "call" || !node.definition || !expandedCall(graphSource, node.callPath, node.definition.id)) return;
+    enter([...node.callPath, node.definition.id]);
+  };
   const recordedStop = shown ? blueprintPipelineOutcome(shown) : null;
   const callouts = useMemo<CanvasCallout[]>(() => {
     if (!graph) return [];
@@ -146,12 +164,14 @@ export function BlueprintView({ pipeline, initialRunId, backLabel, onBack, expor
       : null;
 
   return <section aria-label="Blueprint view" className={`bp-view flex min-w-0 flex-col ${fill ? "min-h-0 flex-1" : ""}`} onKeyDown={(event) => {
-    if (!onBack || event.code !== "Escape" || event.defaultPrevented) return;
+    if (event.code !== "Escape" || event.defaultPrevented) return;
+    if (trail.length) { event.preventDefault(); enter(trail.slice(0, -1)); return; }
+    if (!onBack) return;
     event.preventDefault();
     onBack();
   }}>
     <div className="ct-jobs-header flex flex-wrap items-center gap-x-3 gap-y-2 py-2.5 pl-4 pr-3">
-      {onBack && <BackPill label={backLabel} onBack={onBack} />}
+      {trail.length ? <BackPill label={scopeTitles[trail.length - 1]} onBack={() => enter(trail.slice(0, -1))} /> : onBack && <BackPill label={backLabel} onBack={onBack} />}
       <span className="ct-card__icon" style={{ "--ct-card-tone": AUTOMATION_TONE.blueprint } as CSSProperties}><Network size={14} aria-hidden="true" /></span>
       <Heading className="min-w-0 flex-[1_1_12rem] break-words text-[length:var(--ct-font-size-md)] font-semibold text-[var(--ct-fg)]">{pipeline.name}</Heading>
       <span className="flex items-center gap-1.5 text-xs text-[var(--ct-muted-fg)]"><span className={`h-1.5 w-1.5 rounded-full ${stateTone(pipeline.state)}`} aria-hidden="true" />{pipeline.call_graph?.kind ?? "Blueprint"} · {pipeline.state}</span>
@@ -172,13 +192,19 @@ export function BlueprintView({ pipeline, initialRunId, backLabel, onBack, expor
       {summary}
       {diffOpen && loadHistory && <BlueprintSemanticDiff load={loadHistory} />}
     </div>
+    {trail.length > 0 && <nav aria-label="Blueprint path" className="bp-crumbs">
+      <ol>{scopeTitles.map((title, depth) => <li key={depth}>
+        {depth === trail.length ? <span aria-current="page">{title}</span>
+          : <button type="button" onClick={() => enter(trail.slice(0, depth))}>{title}</button>}
+      </li>)}</ol>
+    </nav>}
     <div ref={body.ref} className={`relative mt-2 flex min-w-0 flex-col ${fill ? "min-h-0 flex-1" : "h-[min(46rem,80vh)] min-h-[30rem]"}`}>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {!shown ? <p role="status" className="bp-notice m-4">Selected run unavailable.</p>
           : shown.historical_graph_available === false ? <p role="status" aria-label="Historical graph unavailable" className="bp-notice m-4">The graph for this run was not retained. Its journal is listed under Runs.</p>
             : error || shown.projection_error ? <InlineErrorNotice error={error ?? shown.projection_error} operation="building this Blueprint graph" blocking />
               : !graph ? <p role="status" className="bp-notice m-4">Building Blueprint graph…</p>
-                : <BlueprintCanvas layout={graph.layout} label={`${pipeline.name} graph`} selected={selected} camera={camera} onSelect={select} lit={lit} callouts={callouts} notices={planLock || heldNotice || evidenceNotice ? <>{planLock}{heldNotice}{evidenceNotice}</> : null} panelOpen={selected !== null} toolbar={history ? runsToggle : undefined} />}
+                : <BlueprintCanvas key={JSON.stringify(trail)} onOpen={drill} layout={graph.layout} label={`${pipeline.name} graph`} selected={selected} camera={camera} onSelect={select} lit={lit} callouts={callouts} notices={planLock || heldNotice || evidenceNotice ? <>{planLock}{heldNotice}{evidenceNotice}</> : null} panelOpen={selected !== null} toolbar={history ? runsToggle : undefined} />}
         {history && (!graph || !shown || shown.historical_graph_available === false) && <div className="flex px-4 pb-2">{runsToggle}</div>}
         {history && runsOpen && <>
           <RunDivider height={clampLogHeight(logHeight, available)} available={available} controls="blueprint-run-log" onResize={resizeLog} />
