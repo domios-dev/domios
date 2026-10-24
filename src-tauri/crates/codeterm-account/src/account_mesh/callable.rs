@@ -114,11 +114,6 @@ impl<T: CallableTransport> MeshRegistry for CallableRegistry<T> {
     }
 }
 
-/// The release's Cloud Functions base, shared with billing.
-pub fn build_functions_url() -> Option<&'static str> {
-    option_env!("DOMIOS_BILLING_FUNCTIONS_URL").filter(|value| !value.trim().is_empty())
-}
-
 /// HTTPS callable transport; no redirects, bounded time, and no request or account logging.
 pub struct HttpCallable {
     base: url::Url,

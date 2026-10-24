@@ -1,5 +1,4 @@
 pub mod adapters;
-mod build_config;
 mod cache;
 mod envelope;
 mod grant_store;

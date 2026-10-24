@@ -12,6 +12,77 @@ fn qa_fixture() -> qa::Qa {
 }
 
 #[test]
+fn qa_functions_base_needs_no_build_url_and_accepts_matching_saved_override() {
+    let qa = Box::leak(Box::new(qa_fixture())).endpoints();
+    for saved in [None, Some(""), Some(qa.functions)] {
+        for build in [None, Some(PRODUCTION.functions)] {
+            assert_eq!(
+                qa.functions_base(true, saved, build),
+                Ok(Some(qa.functions))
+            );
+        }
+    }
+}
+
+#[test]
+fn qa_functions_base_refuses_mixed_saved_overrides() {
+    let qa = Box::leak(Box::new(qa_fixture())).endpoints();
+    for saved in [
+        PRODUCTION.functions,
+        "https://override.test/",
+        EMULATOR.functions,
+        " ",
+    ] {
+        assert_eq!(
+            qa.functions_base(true, Some(saved), None),
+            Err("account target: mixed QA billing configuration refused; clear saved billing.endpoint")
+        );
+    }
+}
+
+#[test]
+fn release_functions_base_is_production_without_build_configuration() {
+    for endpoints in [PRODUCTION, EMULATOR] {
+        for saved in [
+            None,
+            Some(""),
+            Some("https://override.test/"),
+            Some(EMULATOR.functions),
+        ] {
+            for build in [None, Some("https://build.test/")] {
+                assert_eq!(
+                    endpoints.functions_base(false, saved, build),
+                    Ok(Some(PRODUCTION.functions))
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn debug_functions_base_prefers_saved_override_then_build_configuration() {
+    assert_eq!(PRODUCTION.functions_base(true, None, None), Ok(None));
+    for saved in [None, Some(""), Some(" \t")] {
+        assert_eq!(
+            PRODUCTION.functions_base(true, saved, Some("https://build.test/")),
+            Ok(Some("https://build.test/"))
+        );
+    }
+    assert_eq!(
+        PRODUCTION.functions_base(true, Some("https://override.test/"), Some("invalid")),
+        Ok(Some("https://override.test/"))
+    );
+}
+
+#[test]
+fn emulator_functions_base_ignores_saved_and_build_overrides() {
+    assert_eq!(
+        EMULATOR.functions_base(true, Some(PRODUCTION.functions), Some("invalid")),
+        Ok(Some(EMULATOR.functions))
+    );
+}
+
+#[test]
 fn debug_qa_builds_one_isolated_endpoint_set() {
     assert_eq!(qa::selected(true, Some("qa"), None), Ok(true));
     let qa = Box::leak(Box::new(qa_fixture()));
