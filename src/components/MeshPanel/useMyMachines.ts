@@ -67,17 +67,18 @@ export function useMyMachines({ account, onSignIn, onFailure, onChanged, now = e
   const [failures, setFailures] = useState<ReadonlyMap<string, MachineFailure>>(() => new Map());
   const generation = useRef(0);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (refreshRegistry = true) => {
     const current = ++generation.current;
     setRefreshing(true);
     try {
-      if (account === "signed_in") {
+      if (account === "signed_in" && refreshRegistry) {
         const result = await settle(() => client.list());
         if (current !== generation.current) return;
         setListFailure(result.ok ? null : result.failure);
       }
       const next = await client.snapshot();
       if (current !== generation.current) return;
+      if (!refreshRegistry) setListFailure(next.registry_failure);
       setSnapshot(next);
       setLoadFailed(false);
     } catch {
@@ -89,7 +90,7 @@ export function useMyMachines({ account, onSignIn, onFailure, onChanged, now = e
 
   useEffect(() => {
     void load();
-    return client.subscribe(() => { void load(); });
+    return client.subscribe(() => { void load(false); });
   }, [client, load, account]);
 
   useEffect(() => {
@@ -190,7 +191,7 @@ export function useMyMachines({ account, onSignIn, onFailure, onChanged, now = e
   const retryEnrollment = useCallback(async () => {
     const result = await settle(() => client.enroll());
     if (!result.ok) onFailure?.("retry account enrollment", result.failure);
-    await load();
+    await load(false);
   }, [client, load, onFailure]);
 
   const openPlans = useCallback((key: string) => openLockedMachinePlans(snapshot, key), [snapshot]);
