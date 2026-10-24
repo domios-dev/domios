@@ -68,6 +68,7 @@ pub(crate) fn loaded_runtime(
         compaction: Mutex::new(Default::default()),
         abort_note: Mutex::new(None),
         history_retry: Mutex::new(None),
+        capacity_retry: Mutex::new(Default::default()),
     });
     SESSIONS.lock().insert(tab.id.clone(), session);
     LiveRuntime {

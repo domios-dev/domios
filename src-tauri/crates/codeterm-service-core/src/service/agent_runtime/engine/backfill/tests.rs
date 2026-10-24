@@ -42,6 +42,7 @@ fn session() -> (Session, u64) {
         compaction: Mutex::new(Default::default()),
         abort_note: Mutex::new(None),
         history_retry: Mutex::new(None),
+        capacity_retry: Mutex::new(Default::default()),
     };
     (session, epoch)
 }

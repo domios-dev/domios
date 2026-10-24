@@ -96,6 +96,7 @@ pub(super) fn views_for_tab(svc: &ServiceContext, tab_id: &str) -> Vec<DelayedMe
 
 pub(crate) fn message_from_projection(item: ProjectedHeartbeat) -> DelayedMessage {
     DelayedMessage {
+        turn_retry: None,
         id: item.id,
         tab_id: item.tab_id,
         workspace_id: None,
