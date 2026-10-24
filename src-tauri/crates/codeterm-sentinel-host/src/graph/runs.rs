@@ -58,6 +58,7 @@ pub(super) fn project(
             nodes.iter().any(|node| node["identity"] == identity)
                 && !job.machine.stopped
                 && !job.machine.paused
+                && job.admission.permits_steps()
                 && job.expires_at.is_none_or(|at| at > now)
         })
         .filter_map(|job| job.causal_run.as_ref().map(|run| run.id.as_str()))

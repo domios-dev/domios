@@ -30,10 +30,30 @@ pub(crate) fn advance(
             && job.machine.last_bucket == lease.job.machine.last_bucket
             && !job.machine.stopped
             && !job.machine.paused
+            && job.admission.permits_steps()
     }) {
         return;
     }
     let mut job = lease.job.clone();
+    if job.admission.baseline_pending && output.success {
+        let _ = machine::evaluate_with_other_rearm(
+            &mut job.machine,
+            &output.bytes,
+            &job.buckets,
+            &job.routes,
+            &job.rearm_on_change,
+            &job.on_other,
+            None,
+            Scope::from(&lease.job),
+            classify,
+        );
+        job.machine.stopped = lease.job.machine.stopped;
+        job.machine.held = lease.job.machine.held.clone();
+        job.admission.baseline_pending = false;
+        job.last_reason = Some("plan_limit_resumed".into());
+        let _ = storage::commit(store, |current| current.stage_finish(&job));
+        return;
+    }
     if job.terminal().is_some() || job.input().is_some() {
         job.machine.last_hash = None;
         job.machine.last_bucket = None;

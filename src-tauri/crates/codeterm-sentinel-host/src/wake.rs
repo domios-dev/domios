@@ -24,7 +24,10 @@ pub fn subscribe(svc: &ServiceState, handle: Handle) -> crate::event_subscriptio
                 if super::run_binding::queue_fired_event(&svc, &handle, &payload.to_string()) {
                     handle.notify();
                 }
-            } else if matches!(name, "cron-run-finished" | "mux-state-changed") {
+            } else if matches!(
+                name,
+                "cron-run-finished" | "mux-state-changed" | "entitlement-changed"
+            ) {
                 handle.notify();
             }
             crate::service_adapter::graph::invalidate(name, &handle.store, svc.ui.as_ref());

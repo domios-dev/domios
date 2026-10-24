@@ -1,3 +1,4 @@
+import { BlueprintPlanLock } from "./BlueprintPlanLock";
 import { Fragment, type CSSProperties, type RefObject } from "react";
 import { CodeBlock } from "@codeterm/chat-ui";
 import type { PresenceState } from "../Canvas/usePresence";
@@ -27,6 +28,7 @@ export function BlueprintNodeDetails({ node, graph, onClose, panelRef, presence 
       <span className="text-xs text-[var(--ct-muted-fg)]">{view.type} node · {node.stage.name}</span>
     </span>
   </div>}>
+    <BlueprintPlanLock reason={node.stage.held_reason} />
     <p className="ct-detail__prose m-0">{view.purpose}</p>
     {view.properties.length > 0 && <Facts>{view.properties.map(([name, value]) => <Fragment key={name}><dt>{name}</dt><dd>{value}</dd></Fragment>)}</Facts>}
     {view.prompt && <section aria-label="Instruction" className="ct-detail__block">

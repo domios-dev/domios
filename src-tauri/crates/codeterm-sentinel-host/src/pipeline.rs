@@ -1,6 +1,8 @@
+mod checkpoint;
 mod code;
 mod dispatch;
 mod execution;
+pub(crate) use checkpoint::retained_inputs;
 mod sources;
 use codeterm_blueprint_types::blueprint_execution::ExecutionEnvelope;
 use codeterm_blueprint_types::blueprint_journal::{
@@ -79,7 +81,15 @@ fn with_run_close(
 }
 
 pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
-    let run_id = uuid::Uuid::new_v4().simple().to_string();
+    let run_id = lease
+        .job
+        .admission
+        .continuation
+        .as_ref()
+        .and_then(|saved| saved.get("run_id"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| uuid::Uuid::new_v4().simple().to_string());
     let stop_command = std::cell::Cell::new(false);
     with_run_close(
         || run_pipeline(handle, svc, lease, &run_id, &stop_command),
@@ -105,6 +115,17 @@ fn finish_run(
             reason: Some(completion.reason.clone()),
         },
     );
+    if completion.reason.as_str() == "plan_limit_locked" {
+        handle.notify();
+        return;
+    }
+    if handle.store.lock().get(&lease.job.id).is_none_or(|job| {
+        !job.same_owner(&lease.job) || job.definition_version != lease.job.definition_version
+    }) {
+        handle.notify();
+        return;
+    }
+    checkpoint::clear(handle, &lease.job);
     if stop_command {
         let _ = storage::commit(&handle.store, |store| {
             store.stage_stop(&lease.job.id, "command_failed")
@@ -246,6 +267,15 @@ fn run_pipeline(
             "invalid_pipeline",
         ));
     };
+    let saved = checkpoint::load(&lease.job)?;
+    if let Some(saved) = &saved {
+        state.current_step = saved.current_step;
+        state.status = if saved.failed {
+            RunStatus::Failed
+        } else {
+            RunStatus::Running
+        };
+    }
     let PreparedInput {
         mut text,
         cleanup,
@@ -254,7 +284,10 @@ fn run_pipeline(
         input_kind,
         input_display,
         mut input_run,
-    } = prepare_input(handle, lease, spec, run_id);
+    } = match &saved {
+        Some(saved) => saved.prepared_input(),
+        None => prepare_input(handle, lease, spec, run_id),
+    };
     let mut envelope = if let Some(kind) = input_kind.filter(|kind| *kind != MediaKind::Text) {
         ExecutionEnvelope {
             media: kind.as_str().into(),
@@ -289,11 +322,26 @@ fn run_pipeline(
     ctx.input_failure = input_failure;
     ctx.input_display = input_display.unwrap_or_default();
     ctx.cleanup = cleanup.clone();
+    if let Some(saved) = &saved {
+        envelope = saved.envelope.clone();
+        ctx.outputs = saved.outputs.clone();
+        ctx.next_marker = saved.next_marker;
+    }
     let mut terminal_failure = None;
     while let Some(index) = state.current_step {
         if lease.cancelled.load(Ordering::SeqCst) {
             ctx.record_skipped(&spec.steps[index].name, "skip:lease_cancelled".into())?;
             return Ok(RunCompletion::new("skipped".into(), "skip:lease_cancelled"));
+        }
+        if crate::plan_lock::refuse(svc, &lease.job).is_err()
+            || handle
+                .store
+                .lock()
+                .get(&lease.job.id)
+                .is_some_and(|job| job.revision != lease.job.revision)
+        {
+            checkpoint::hold(&ctx, &state, &envelope, &text, input_run.as_ref())?;
+            return Ok(RunCompletion::held("plan_limit_locked".into()));
         }
         let step = &spec.steps[index];
         if matches!(&step.kind, StepKind::Convert { .. }) {
@@ -365,6 +413,16 @@ fn run_pipeline(
         state = next;
     }
 
+    if crate::plan_lock::refuse(svc, &lease.job).is_err()
+        || handle
+            .store
+            .lock()
+            .get(&lease.job.id)
+            .is_some_and(|job| job.revision != lease.job.revision)
+    {
+        checkpoint::hold(&ctx, &state, &envelope, &text, input_run.as_ref())?;
+        return Ok(RunCompletion::held("plan_limit_locked".into()));
+    }
     let terminal_state = if state.status == RunStatus::Failed {
         "failed"
     } else {
@@ -445,6 +503,10 @@ fn run_pipeline(
         }
     };
     for route in routes {
+        if crate::plan_lock::refuse(svc, &lease.job).is_err() {
+            checkpoint::hold(&ctx, &state, &envelope, &text, input_run.as_ref())?;
+            return Ok(RunCompletion::held("plan_limit_locked".into()));
+        }
         if lease.cancelled.load(Ordering::SeqCst) || !super::routes::owner_live(svc, &lease.job) {
             record_result_failure(handle, lease, &run_id, &body_ref, "result_source_fenced");
             return Ok(RunCompletion::new(

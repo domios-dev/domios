@@ -224,7 +224,8 @@ pub fn start(
         log::error!("[blueprint] subsystem unavailable: {error}");
         return Some(ports);
     }
-    if let Err(error) = super::input::sweep_orphans(data_dir) {
+    let retained = super::pipeline::retained_inputs(&handle, data_dir);
+    if let Err(error) = super::input::sweep_orphans_except(data_dir, &retained) {
         log::error!("[blueprint-input] startup orphan sweep failed: {error}");
     }
     let store = handle.store.clone();
@@ -269,6 +270,10 @@ pub fn start(
                     _shutdown: None,
                     apply_lock: Arc::new(Mutex::new(())),
                 };
+                if let Err(error) = crate::plan_lock::reconcile(&svc, &run_handle) {
+                    log::error!("[blueprint] plan admission reconciliation failed: {error}");
+                    return;
+                }
                 super::run_binding::process_pending(&svc, &run_handle);
                 super::run_binding::reconcile_runs(&svc, &run_handle);
                 expire_escalations(&store, &svc);
@@ -519,12 +524,15 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
     });
 }
 
-fn tick_with_probe(
+pub(crate) fn tick_with_probe(
     handle: &Handle,
     svc: &ServiceState,
     lease: &Lease,
     observe: impl FnOnce(Duration, Duration) -> Result<probe::Output, probe::process::ProbeFailure>,
 ) {
+    if !crate::plan_lock::admitted(svc, handle, &lease.job) {
+        return;
+    }
     if lease.job.pipeline().is_some() {
         super::pipeline::tick(handle, svc, lease);
         return;
@@ -637,6 +645,9 @@ fn tick_with_probe(
         std::convert::identity,
     );
     let Some(output) = output else { return };
+    if !crate::plan_lock::admitted(svc, handle, &lease.job) {
+        return;
+    }
     if lease.cancelled.load(Ordering::SeqCst) {
         return;
     }
@@ -654,7 +665,7 @@ fn tick_with_probe(
         &output,
         || classify::classify(svc, &lease.job, &output.text, remaining),
         |job, transition, handler| {
-            if !routes::owner_live(svc, job) {
+            if !crate::plan_lock::admitted(svc, handle, job) || !routes::owner_live(svc, job) {
                 return Ok(None);
             }
             let staged = handle
@@ -667,7 +678,7 @@ fn tick_with_probe(
         },
         |job, transition, handler, verdict| {
             use super::handlers::Status;
-            if !routes::owner_live(svc, job) {
+            if !crate::plan_lock::admitted(svc, handle, job) || !routes::owner_live(svc, job) {
                 return Err("Blueprint owner or Team is gone".into());
             }
             if handler.target.is_some()

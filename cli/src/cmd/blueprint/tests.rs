@@ -609,3 +609,11 @@ fn blueprint_v2_call_keep_file_sends_bytes_and_preserves_unbound_signature() {
 
 #[path = "review_tests.rs"]
 mod review_tests;
+
+#[test]
+fn blueprint_plan_lock_is_visible_in_watch_list_and_show_summary() {
+    let held = serde_json::json!({"id":"watch","admission":{"held_reason":"plan_limit_locked"},"machine":{}});
+    let summary = super::watch_summary(&held);
+    assert!(summary.contains("[held]"));
+    assert!(summary.contains("reason=plan_limit_locked"));
+}

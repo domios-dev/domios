@@ -151,14 +151,7 @@ pub(super) fn write(
                     started_at_ms,
                 );
             }
-            if !claims::admissible(
-                cx.conn,
-                id,
-                &run_id,
-                generation,
-                step_index,
-                parent.as_ref(),
-            )? {
+            if !claims::admissible(cx.conn, id, &run_id, generation, marker, parent.as_ref())? {
                 return refused_claim(
                     cx,
                     id,
@@ -317,7 +310,9 @@ pub(super) fn write(
                 reason.as_deref(),
                 None,
             )?;
-            if state == JournalState::Held || reason == Some(JournalReason::JournalWriteFailed) {
+            if (state == JournalState::Held && reason.as_deref() != Some("plan_limit_locked"))
+                || reason == Some(JournalReason::JournalWriteFailed)
+            {
                 let reason = reason.as_deref().unwrap_or("journal_write_failed");
                 cx.write("UPDATE blueprint_runtime SET held = ?2, last_reason = ?2 WHERE blueprint_id = ?1", params![id, reason])?;
             }

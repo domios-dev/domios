@@ -92,7 +92,8 @@ pub(super) fn project_pipeline_contract(
             .unwrap_or_else(|| pipeline_run_view(job, spec, &[]));
         let state = if job.machine.stopped {
             "stopped"
-        } else if job.machine.paused
+        } else if !job.admission.permits_steps()
+            || job.machine.paused
             || job.machine.held.is_some()
             || matches!(
                 job.last_reason.as_deref(),
@@ -139,13 +140,16 @@ pub(super) fn project_pipeline_contract(
                 })
                 .find_map(|entry| entry.reason.as_ref())
                 .map(|reason| reason.as_str().to_string());
-            let held_reason = job
-                .machine
-                .held
-                .clone()
-                .or_else(|| job.machine.paused.then(|| "paused".to_string()))
-                .or_else(|| job.last_reason.clone())
-                .or(journal_reason);
+            let held_reason = crate::plan_lock::held_reason(job)
+                .map(str::to_string)
+                .or_else(|| {
+                    job.machine
+                        .held
+                        .clone()
+                        .or_else(|| job.machine.paused.then(|| "paused".to_string()))
+                        .or_else(|| job.last_reason.clone())
+                        .or(journal_reason)
+                });
             if let Some(reason) = held_reason {
                 blueprint["held_reason"] = json!(reason);
             }
@@ -164,6 +168,7 @@ pub(super) fn project_pipeline_contract(
             });
         }
         node["state"] = json!(state);
+        node["held_reason"] = json!(crate::plan_lock::held_reason(job));
         snapshot.blueprints.push(blueprint);
     }
 }
