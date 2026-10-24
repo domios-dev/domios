@@ -48,6 +48,3 @@ const HELD_REASONS: Readonly<Record<string, string>> = {
 export function heldReasonLabel(reason: string): string {
   return HELD_REASONS[reason] ?? reason;
 }
-export function canStopPipelineRun(pipeline: PipelineView, selected: PipelineView): boolean {
-  return pipeline.state === "running" && selected.state === "running" && selected.runId != null && selected.runId === pipeline.runId;
-}

@@ -180,3 +180,18 @@ export function modelGraph(): AutomationGraph {
 }
 
 export const MODEL_CARDS = ["Model parent", "Model child", "Model marker label", "parent-failed-stop", "pending", "child-ready-stop", "child-failed-stop"] as const;
+
+/** Every scenario root gets the stored watch definition the single Blueprint view reads. */
+export function withWatchSnapshots(graph: AutomationGraph): AutomationGraph {
+  const known = new Set((graph.blueprints ?? []).map((blueprint) => blueprint.id));
+  const added = graph.scenarios.filter((scenario) => !known.has(scenario.root.id)).map((scenario) => ({
+    id: scenario.root.id, name: scenario.name, state: "idle" as const, run_id: null, current_step: null, last_event_at_ms: null,
+    owner: { kind: "tab" as const, tab_id: scenario.root.owner_tab_id ?? null, team_id: scenario.root.team_id },
+    call_graph: { schema_version: 2 as const, kind: "watch" as const, name: scenario.name, steps: [
+      { id: "source", uses: "probe", with: { command: { lit: "printf ready" } } },
+      { id: "decide", uses: "ask", buckets: ["branch-a", "branch-b"], routes: { "branch-a": "notify", "branch-b": "@stop" } },
+      { id: "notify", uses: "notify" },
+    ] },
+  }));
+  return { ...graph, blueprints: [...(graph.blueprints ?? []), ...added] };
+}

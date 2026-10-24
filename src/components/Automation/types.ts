@@ -197,7 +197,7 @@ export interface BlueprintStep {
   source_state?: string | null;
   index: number;
   name: string;
-  kind: import("./blueprintKinds").BlueprintStepKind;
+  kind: import("./blueprint/kinds").BlueprintStepKind;
   title: string;
   state: BlueprintStepState;
   outcome: string | null;

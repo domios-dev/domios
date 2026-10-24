@@ -2,13 +2,13 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { EssenceMapCanvasInner } from "./EssenceMapCanvas";
-import { BlueprintCanvas } from "../Automation/BlueprintCanvas";
+import { BlueprintCanvas } from "../Automation/blueprint/Canvas";
 import { MemorySnapshotCanvas } from "../MemoryPanel/MemorySnapshotCanvas";
 import { MeshCanvas } from "../MeshPanel/MeshCanvas";
-import { layoutBlueprint } from "../Automation/blueprintLayout";
-import { blueprintModel } from "../Automation/blueprintModel";
-import { typedGraph } from "../Automation/blueprintModel.testdata";
-import { createAutomationCamera } from "../Automation/useAutomationViewport";
+import { layoutBlueprint } from "../Automation/blueprint/layout";
+import { buildBlueprintGraph } from "../Automation/blueprint/graphModel";
+import { viewerPipeline } from "../Automation/blueprintViewer.testdata";
+import { createAutomationCamera } from "../Automation/blueprint/viewport";
 
 const fakes = vi.hoisted(() => ({ fit: vi.fn(), zoom: vi.fn(), fly: vi.fn(), animate: vi.fn(), zoomIn: vi.fn(), zoomOut: vi.fn() }));
 vi.mock("@codeterm/canvas-camera", async (original) => ({
@@ -16,9 +16,9 @@ vi.mock("@codeterm/canvas-camera", async (original) => ({
   formatLayerTransform: () => "",
   useCanvasViewport: () => ({ containerRef: { current: null }, layerRef: { current: null }, transform: { x: 0, y: 0, scale: 1 }, handlers: {}, fitToView: fakes.fit, animateToView: fakes.fly, zoomBy: fakes.zoom }),
 }));
-vi.mock("../Automation/useAutomationViewport", async (original) => ({
-  ...await original<typeof import("../Automation/useAutomationViewport")>(),
-  useAutomationViewport: () => ({ containerRef: { current: null }, layerRef: { current: null }, transform: { x: 0, y: 0, scale: 1 }, handlers: {}, touchHandlers: {}, zoom: fakes.zoom, fit: fakes.fit }),
+vi.mock("../Automation/blueprint/viewport", async (original) => ({
+  ...await original<typeof import("../Automation/blueprint/viewport")>(),
+  useAutomationViewport: () => ({ containerRef: { current: null }, layerRef: { current: null }, transform: { x: 0, y: 0, scale: 1 }, handlers: {}, touchHandlers: {}, zoom: fakes.zoom, fit: fakes.fit, showOverview: fakes.fit }),
 }));
 vi.mock("sigma", () => ({ default: class {
   on() {} off() {} kill() {} refresh() {}
@@ -55,7 +55,10 @@ it("essence map wires the shared toolbar and selector once", async () => {
   expect(fakes.fly).toHaveBeenCalledTimes(1);
 });
 it("Blueprint wires the shared toolbar once", async () => {
-  await mount(<BlueprintCanvas layout={layoutBlueprint(blueprintModel(typedGraph()))} selected={null} camera={createAutomationCamera()} onSelect={() => {}} replay={null} />);
+  const graph = buildBlueprintGraph(viewerPipeline(), new Set());
+  let built = graph.next();
+  while (!built.done) built = graph.next();
+  await mount(<BlueprintCanvas layout={layoutBlueprint(built.value)} label="Blueprint graph" selected={null} camera={createAutomationCamera()} onSelect={() => {}} lit={new Set()} />);
   await click("Fit all"); expect(fakes.fit).toHaveBeenCalledTimes(1);
   await click("Zoom out"); expect(fakes.zoom).toHaveBeenCalledExactlyOnceWith(-0.2); fakes.zoom.mockClear();
   await click("Zoom in"); expect(fakes.zoom).toHaveBeenCalledExactlyOnceWith(0.2);
