@@ -39,3 +39,17 @@ fn mesh_link_parses_one_installation_and_maps_to_the_account_route() {
         );
     }
 }
+
+#[test]
+fn mesh_status_exposes_publication_refusal_and_retry_deadline() {
+    let state = serde_json::json!({
+        "publication": "published",
+        "publication_failure": {"reason": "rate-limited", "retry_after_seconds": 7},
+        "retry_at": 107
+    });
+    let lines = super::account_mesh_status_lines(&state).join("\n");
+    assert!(lines.contains("published"));
+    assert!(lines.contains("rate-limited"));
+    assert!(lines.contains("107"));
+    assert!(lines.contains("waiting to retry"));
+}

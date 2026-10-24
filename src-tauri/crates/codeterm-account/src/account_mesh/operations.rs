@@ -310,9 +310,10 @@ impl AccountMesh {
         let signed = self.signed(Some(epoch)).await?;
         let now = self.now();
         let current = self.with(|inner| inner.state.current_membership(now).is_some());
-        if current && trigger == EnrollTrigger::Network {
-            self.reconcile_publication(&signed).await;
-            return Ok(());
+        if current
+            && (trigger == EnrollTrigger::Network || self.state().publication_failure.is_some())
+        {
+            return self.reconcile_publication(&signed).await;
         }
         let slot = self.own_slot(&signed.account);
         let operation = match slot {
@@ -386,6 +387,7 @@ impl AccountMesh {
                 .as_ref()
                 .and_then(|s| s.display_name.clone());
             let metadata_revision = inner.metadata_revision.unwrap_or(0);
+            inner.published_endpoint = None;
             inner.update(&self.watch, |state| {
                 state.membership_epoch += 1;
                 state.self_installation = Some(SelfInstallation {
@@ -405,8 +407,7 @@ impl AccountMesh {
         }
         self.persist().await;
         self.push().await;
-        self.reconcile_publication(&signed).await;
-        Ok(())
+        self.reconcile_publication(&signed).await
     }
 
     fn remember_metadata(&self, epoch: u64, revision: u64, display_name: Option<String>) {
@@ -467,8 +468,15 @@ impl AccountMesh {
 
     /// Publishes only a listener that is already reachable; publication intent is durable
     /// before the call so sign-out always knows a withdrawal may be owed.
-    async fn reconcile_publication(&self, signed: &Signed) {
+    async fn reconcile_publication(&self, signed: &Signed) -> Outcome<()> {
         let ready = self.ports.endpoint.ready_endpoint();
+        if self.with(|inner| {
+            inner.published_endpoint == ready
+                && inner.state.publication == Publication::Published
+                && inner.state.publication_failure.is_none()
+        }) {
+            return Ok(());
+        }
         let intended = self.with(|inner| {
             if !inner.is_current(signed.epoch) {
                 return None;
@@ -480,18 +488,25 @@ impl AccountMesh {
             Some(published)
         });
         let Some(was_published) = intended else {
-            return;
+            return Err(AccountMeshRefusal::Cancelled);
         };
         if ready.is_some() && !was_published {
             self.persist().await;
         }
+        let mut failure = None;
         let publication = match ready {
             Some(endpoint) => match self.publish(signed, Some(endpoint)).await {
                 Ok(true) => Publication::Published,
-                _ => Publication::NotReady,
+                Err(refusal) => {
+                    failure = Some(refusal);
+                    self.state().publication
+                }
+                Ok(false) => Publication::NotReady,
             },
             None if was_published => {
-                if let Ok(false) = self.publish(signed, None).await {
+                let result = self.publish(signed, None).await;
+                failure = result.err();
+                if result == Ok(false) {
                     self.with(|inner| inner.record.published = false);
                     self.persist().await;
                 }
@@ -500,15 +515,22 @@ impl AccountMesh {
             None => Publication::NotReady,
         };
         let changed = self.with(|inner| {
-            if !inner.is_current(signed.epoch) || inner.state.publication == publication {
+            if !inner.is_current(signed.epoch) {
                 return false;
             }
-            inner.update(&self.watch, |state| state.publication = publication);
+            if failure.is_none() {
+                inner.published_endpoint = ready;
+            }
+            inner.update(&self.watch, |state| {
+                state.publication = publication;
+                state.publication_failure = failure;
+            });
             true
         });
         if changed {
             self.push().await;
         }
+        failure.map_or(Ok(()), Err)
     }
 
     /// One authorized withdrawal with the outgoing account's still-valid session.
