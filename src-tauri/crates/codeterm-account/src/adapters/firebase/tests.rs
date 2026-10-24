@@ -1,5 +1,6 @@
 use super::*;
 use tokio::sync::Mutex;
+fn installation() -> InstallationId { InstallationId::parse("fixture-installation".into()).unwrap() }
 fn flow() -> LoginFlow {
     LoginFlow::from_parts(
         "fixture-state-matching".into(),
@@ -40,7 +41,7 @@ impl super::Transport for Transport {
 #[tokio::test]
 async fn redeem_and_token_exchange_produce_session() {
     let transport = Arc::new(Transport(Mutex::new(Vec::new())));
-    let provider = Firebase::new(fixture_config(), transport.clone());
+    let provider = Firebase::new(fixture_config(), transport.clone(), installation());
     let tokens = provider
         .redeem(flow().complete(callback("fixture-state-matching")).unwrap())
         .await
@@ -61,6 +62,7 @@ async fn redeem_and_token_exchange_produce_session() {
     let Body::Json(body) = &requests[0].1 else {
         panic!()
     };
+    assert_eq!(body["installation_id"], "fixture-installation");
     assert_eq!(body["code_verifier"], "fixture-verifier");
     assert_eq!(body["state"], "fixture-state-matching");
     assert_eq!(body["redirect_uri"], "domios://auth/callback");
@@ -100,7 +102,7 @@ impl super::Transport for RefreshTransport {
 }
 #[tokio::test]
 async fn refresh_posts_form_and_replaces_tokens() {
-    let provider = Firebase::new(fixture_config(), Arc::new(RefreshTransport));
+    let provider = Firebase::new(fixture_config(), Arc::new(RefreshTransport), installation());
     let tokens = provider
         .refresh(&Secret::new("refresh-before"))
         .await
@@ -122,7 +124,7 @@ impl super::Transport for LookupTransport {
     }
 }
 async fn refreshed_photo(user: Value) -> Option<String> {
-    let provider = Firebase::new(fixture_config(), Arc::new(LookupTransport(user)));
+    let provider = Firebase::new(fixture_config(), Arc::new(LookupTransport(user)), installation());
     let tokens = provider
         .refresh(&Secret::new("refresh-before"))
         .await
@@ -192,7 +194,7 @@ impl super::Transport for RefusingTransport {
 }
 #[tokio::test]
 async fn rejected_redemption_cannot_create_session() {
-    let provider = Firebase::new(fixture_config(), Arc::new(RefusingTransport));
+    let provider = Firebase::new(fixture_config(), Arc::new(RefusingTransport), installation());
     assert!(matches!(
         provider
             .redeem(flow().complete(callback("fixture-state-matching")).unwrap())
@@ -273,7 +275,7 @@ fn build_config_availability_and_overrides() {
         crate::adapters::configured(&Config {
             provider: "firebase".into(),
             ..missing
-        })
+        }, installation())
         .unwrap()
         .id(),
         "local"
@@ -291,7 +293,7 @@ fn build_config_availability_and_overrides() {
     assert_eq!(configured.signin_url, "https://auth.domios.dev/signin/");
     assert_eq!(configured.redeem_url, "https://example.test/redeem");
     assert_eq!(
-        crate::adapters::configured(&fixture_config()).unwrap().id(),
+        crate::adapters::configured(&fixture_config(), installation()).unwrap().id(),
         "firebase"
     );
 }

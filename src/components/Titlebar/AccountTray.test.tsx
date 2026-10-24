@@ -32,6 +32,8 @@ vi.mock("../../lib/webApi", async (importOriginal) => ({
 vi.mock("../../lib/nativeBridge", () => ({nativeBridge:{openUrl}}));
 import { siteLinks } from "../../../shared/siteLinks";
 import { AccountTray } from "./AccountTray";
+import { AccountMeshClientProvider } from "../MeshPanel/accountMeshClient";
+import { FakeAccountMeshClient, snapshot } from "../MeshPanel/accountMachines.testdata";
 import { accountInitials } from "../Settings/accountModel";
 (globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT = true;
 afterEach(() => {vi.clearAllMocks();});
@@ -427,5 +429,35 @@ it("exposes the session-only storage warning in the account menu", async () => {
   } finally {
     await act(async () => root.unmount()); host.remove();
     state.signedIn = false; state.sessionOnly = false;
+  }
+});
+
+it("keeps normal sign-out and confirms self session revocation separately", async () => {
+  state.signedIn = true;
+  const client = new FakeAccountMeshClient(snapshot());
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  const openMenu = () => act(async () => host.querySelector("button")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+  const chooseRevoke = async () => {
+    const items = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+    expect(items.some((item) => item.textContent === "Sign out")).toBe(true);
+    await act(async () => items.find((item) => item.textContent === "Sign out this machine")!.click());
+  };
+  try {
+    await act(async () => root.render(<AccountMeshClientProvider value={client}><AccountTrayWithActions /></AccountMeshClientProvider>));
+    await openMenu();
+    await chooseRevoke();
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(client.sessionRevokeCalls).toEqual([]);
+    await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find((button) => button.textContent === "Cancel")!.click());
+    expect(client.sessionRevokeCalls).toEqual([]);
+    await openMenu();
+    await chooseRevoke();
+    await act(async () => document.querySelector<HTMLButtonElement>('[role="dialog"] button[type="submit"]')!.click());
+    expect(client.sessionRevokeCalls).toEqual([undefined]);
+    expect(signOut).not.toHaveBeenCalled();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  } finally {
+    await act(async () => root.unmount()); host.remove(); state.signedIn = false;
   }
 });

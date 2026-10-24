@@ -170,6 +170,19 @@ describe("Mesh canvas wiring", () => {
     await act(async () => element!.click());
   };
 
+  it("confirms a named machine sign-out on the canvas without removing its pairing", async () => {
+    const client = new FakeAccountMeshClient(snapshot());
+    await mount(client);
+    await click(button("Sign out MacBook"));
+    expect(client.sessionRevokeCalls).toEqual([]);
+    const confirmation = node("MacBook")!.querySelector('[role="group"][aria-label="Sign out MacBook"]');
+    expect(confirmation).not.toBeNull();
+    await click([...confirmation!.querySelectorAll<HTMLButtonElement>("button")].find((entry) => entry.textContent === "Confirm sign out") ?? null);
+    expect(client.sessionRevokeCalls).toEqual([macRow.installation_id]);
+    expect(client.unpairCalls).toEqual([]);
+    expect(client.revokeCalls).toEqual([]);
+  });
+
   it("loads slots on the refused machine, opens plans, and removes only the selected slot before one-click join", async () => {
     const client = new FakeAccountMeshClient(snapshot({ self: null, traffic: "plan_limit_locked", enrollment: "refused", last_refusal: { reason: "mesh.machines", limit: 2, active_count: 2 }, registry: null }));
     client.listRows = [macRow, lenovoRow];

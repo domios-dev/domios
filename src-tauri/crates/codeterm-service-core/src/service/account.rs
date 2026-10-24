@@ -13,6 +13,19 @@ pub(crate) use credentials::AccountCredentialCell;
 pub use credentials::AccountCredentials;
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) use credentials::AccountDataRoot;
+struct AccountRevocations(Arc<tokio::sync::OnceCell<Arc<Account>>>);
+
+#[async_trait]
+impl codeterm_account::session_revocation::SessionRevocationObserver for AccountRevocations {
+    async fn revoked(&self, session: &codeterm_account::Session) {
+        if let Some(account) = self.0.get() {
+            if let Err(error) = account.session_revoked(session).await {
+                log::error!("Revoked account credential cleanup failed: {error}");
+            }
+        }
+    }
+}
+
 struct AnalyticsIdentity(codeterm_analytics::Worker);
 struct AccountIdentity(std::sync::Weak<super::ServiceContext>);
 
@@ -59,6 +72,10 @@ impl Browser for SystemBrowser {
     }
 }
 impl super::ServiceContext {
+    pub(super) fn session_revocations(&self) -> Arc<dyn codeterm_account::session_revocation::SessionRevocationObserver> {
+        Arc::new(AccountRevocations(self.ext::<AccountCell>().0.clone()))
+    }
+
     pub async fn account(&self) -> Result<Arc<Account>, String> {
         let account = self
             .ext::<crate::service::account::AccountCell>()
@@ -75,7 +92,7 @@ impl super::ServiceContext {
                     return Err("Invalid account deadline".into());
                 }
                 let provider =
-                    codeterm_account::adapters::configured(&config).map_err(|e| e.to_string())?;
+                    codeterm_account::adapters::configured(&config, self.installation_id().await?).map_err(|e| e.to_string())?;
                 let mut observers: Vec<Arc<dyn codeterm_account::IdentityObserver>> =
                     vec![Arc::new(AccountIdentity(self.weak_self()))];
                 if let Ok(worker) = self.analytics_worker().await {

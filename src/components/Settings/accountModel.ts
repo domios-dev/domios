@@ -15,17 +15,20 @@ export interface AccountStatus {
   identity: AccountIdentity | null;
   pending: boolean;
   session_only?: boolean;
+  session_revoked?: boolean;
   last_sign_in_failure?: SignInFailure | null;
 }
 export type AccountModel =
-  | { kind: "signed_out" }
+  | { kind: "signed_out"; sessionRevoked?: boolean }
   | { kind: "pending" }
   | { kind: "signed_in"; identity: AccountIdentity; sessionOnly?: boolean }
   | { kind: "error"; message: string; failure?: SignInFailure };
+export const SESSION_REVOKED_MESSAGE = "This machine was signed out from your account";
+
 export function accountModel(status: AccountStatus): AccountModel {
   if (status.pending) return { kind: "pending" };
   if (status.last_sign_in_failure) return { kind: "error", message: signInFailureMessage(status.last_sign_in_failure), failure: status.last_sign_in_failure };
-  return status.identity ? { kind: "signed_in", identity: status.identity, ...(status.session_only ? { sessionOnly: true } : {}) } : { kind: "signed_out" };
+  return status.identity ? { kind: "signed_in", identity: status.identity, ...(status.session_only ? { sessionOnly: true } : {}) } : { kind: "signed_out", ...(status.session_revoked ? { sessionRevoked: true } : {}) };
 }
 export function accountInitials(name: string): string {
   const parts = name.replace(/@.*/, "").split(/[\s._-]+/).filter(Boolean);

@@ -56,6 +56,7 @@ pub fn identity(uid: &str) -> Identity {
 
 pub fn session(uid: &str) -> Session {
     Session {
+        login_generation: 0,
         identity: identity(uid),
         id_token: Secret::new(format!("token-{uid}")),
         expires_at: None,
@@ -409,6 +410,7 @@ impl MeshRegistry for FakeRegistry {
             MeshOperation::Enroll { .. } => "enroll",
             MeshOperation::Renew { .. } => "renew",
             MeshOperation::Revoke { .. } => "revoke",
+            MeshOperation::SessionRevoke { .. } => "session_revoke",
             MeshOperation::Recover { .. } => "recover",
             MeshOperation::List { .. } => "list",
             MeshOperation::Update { .. } => "update",
@@ -676,6 +678,10 @@ impl MeshRegistry for FakeRegistry {
                     registry_revision: 8,
                 }))
             }
+            MeshOperation::SessionRevoke { target } => Ok(MeshResult::SessionRevoked(SessionRevokedResult {
+                target_installation_id: target.installation_id.clone(),
+                revoked_at: self.clock.now(),
+            })),
             MeshOperation::Revoke { target } => Ok(MeshResult::Revoked(RevokedResult {
                 target_installation_id: target.installation_id.clone(),
                 target_key_id: target.key_id.clone(),

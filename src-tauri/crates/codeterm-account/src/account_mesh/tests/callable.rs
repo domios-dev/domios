@@ -36,6 +36,38 @@ fn registry(reply: Result<Value, CallableFailure>) -> CallableRegistry<Scripted>
     })
 }
 
+#[derive(Default)]
+struct Revocations(Mutex<Vec<String>>);
+#[async_trait]
+impl crate::session_revocation::SessionRevocationObserver for Revocations {
+    async fn revoked(&self, session: &crate::Session) {
+        self.0.lock().unwrap().push(session.identity.uid.clone());
+    }
+}
+
+#[tokio::test]
+async fn session_revoked_from_every_mesh_callable_notifies_the_session_owner() {
+    let observer = std::sync::Arc::new(Revocations::default());
+    let body = json!({"error":{"status":"UNAUTHENTICATED","details":{"reason":"session_revoked"}}});
+    let registry = registry(Err(CallableFailure::Status { status: 401, body: Some(body) }))
+        .with_revocations(observer.clone());
+    let session = session("user-1");
+    let proof = InstallationProof { schema_version: 1, key_id: "k".into(), generation: 1, timestamp: 123,
+        nonce: "n".into(), signature: "s".into() };
+    assert_eq!(registry.challenge(&session, &ChallengeRequest { endpoint: ProofEndpoint::MeshAdmission,
+        key_id: "k".into(), body: json!({}) }).await, Err(RegistryRefusal::Unauthenticated));
+    assert_eq!(registry.enroll_key(&session, &InstallationEnrollment {
+        body: InstallationKeyBody { installation_id: "caller".into(), public_key_spki_base64: "key".into(),
+            operation: KeyOperation::Enroll, expected_generation: 0 }, proof: proof.clone(),
+    }).await, Err(RegistryRefusal::Unauthenticated));
+    assert_eq!(registry.admission(&session, &SignedEnvelope {
+        request: MeshAdmissionBody { schema_version: 1, installation_id: "caller".into(), request_id: "a".repeat(64),
+            operation: MeshOperation::SessionRevoke { target: SessionTarget { installation_id: "target".into() } } },
+        installation_proof: proof,
+    }).await, Err(RegistryRefusal::Unauthenticated));
+    assert_eq!(*observer.0.lock().unwrap(), ["user-1", "user-1", "user-1"]);
+}
+
 fn http(code: &str) -> u16 {
     match code {
         "invalid-argument" => 400,

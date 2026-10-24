@@ -2,19 +2,38 @@ use crate::*;
 use codeterm_account::Session;
 use serde::de::DeserializeOwned;
 use std::time::Duration;
+#[async_trait]
+trait CloudTransport: Send + Sync {
+    async fn execute(&self, request: reqwest::Request) -> Result<(bool, serde_json::Value)>;
+}
+
+struct HttpCloudTransport(reqwest::Client);
+#[async_trait]
+impl CloudTransport for HttpCloudTransport {
+    async fn execute(&self, request: reqwest::Request) -> Result<(bool, serde_json::Value)> {
+        let response = self.0.execute(request).await.map_err(|_| "Billing server unreachable")?;
+        let successful = response.status().is_success();
+        let body = response.json().await.map_err(|_| "Invalid billing response")?;
+        Ok((successful, body))
+    }
+}
+
 pub struct Cloud {
     base: url::Url,
     client: reqwest::Client,
+    transport: std::sync::Arc<dyn CloudTransport>,
     installation_id: codeterm_account::InstallationId,
+    revocations: Option<std::sync::Arc<dyn codeterm_account::session_revocation::SessionRevocationObserver>>,
 }
 impl Cloud {
     pub fn configured(
         override_url: Option<&str>,
         installation_id: codeterm_account::InstallationId,
+        revocations: std::sync::Arc<dyn codeterm_account::session_revocation::SessionRevocationObserver>,
     ) -> Result<std::sync::Arc<dyn BillingProvider>> {
         let endpoint = codeterm_account::firebase_endpoints::configured_functions(override_url)?;
         match endpoint {
-            Some(endpoint) => Ok(std::sync::Arc::new(Self::new(endpoint, installation_id)?)),
+            Some(endpoint) => Ok(std::sync::Arc::new(Self::new(endpoint, installation_id)?.with_revocations(revocations))),
             None => Ok(std::sync::Arc::new(super::local::Unavailable)),
         }
     }
@@ -40,8 +59,10 @@ impl Cloud {
             .map_err(|_| "Billing transport unavailable")?;
         Ok(Self {
             base,
+            transport: std::sync::Arc::new(HttpCloudTransport(client.clone())),
             client,
             installation_id,
+            revocations: None,
         })
     }
     #[cfg(test)]
@@ -49,8 +70,14 @@ impl Cloud {
         Self {
             base: url::Url::parse(base).unwrap(),
             client: reqwest::Client::new(),
+            transport: std::sync::Arc::new(HttpCloudTransport(reqwest::Client::new())),
             installation_id: id,
+            revocations: None,
         }
+    }
+    pub fn with_revocations(mut self, observer: std::sync::Arc<dyn codeterm_account::session_revocation::SessionRevocationObserver>) -> Self {
+        self.revocations = Some(observer);
+        self
     }
     fn request(
         &self,
@@ -80,19 +107,17 @@ impl Cloud {
         name: &str,
         data: serde_json::Value,
     ) -> Result<T> {
-        let response = self
-            .request(session, name, data)?
-            .send()
-            .await
-            .map_err(|_| "Billing server unreachable")?;
-        if !response.status().is_success() {
-            let body = response.json().await.unwrap_or(serde_json::Value::Null);
+        let request = self.request(session, name, data)?.build().map_err(|_| "Invalid billing request")?;
+        let (successful, body) = self.transport.execute(request).await?;
+        if codeterm_account::session_revocation::is_session_revoked(&body) {
+            if let Some(observer) = &self.revocations {
+                observer.revoked(session).await;
+            }
+            return Err(codeterm_account::session_revocation::SESSION_REVOKED.into());
+        }
+        if !successful {
             return Err(refusal_message(&body));
         }
-        let body: serde_json::Value = response
-            .json()
-            .await
-            .map_err(|_| "Invalid billing response")?;
         serde_json::from_value(
             body.get("result")
                 .cloned()

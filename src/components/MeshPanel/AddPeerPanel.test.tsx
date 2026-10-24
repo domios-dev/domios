@@ -51,6 +51,34 @@ function type(input: HTMLInputElement, value: string) {
   input.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
+it("requires a named confirmation before signing out another machine and allows cancel", async () => {
+  const client = new FakeAccountMeshClient(snapshot());
+  await mount(client, "signed_in");
+  await click(button("Sign out MacBook"));
+  expect(client.sessionRevokeCalls).toEqual([]);
+  const confirmation = account("MacBook")!.querySelector('[role="group"][aria-label="Sign out MacBook"]');
+  expect(confirmation).not.toBeNull();
+  await click([...confirmation!.querySelectorAll<HTMLButtonElement>("button")].find((entry) => entry.textContent === "Cancel") ?? null);
+  expect(client.sessionRevokeCalls).toEqual([]);
+  await click(button("Sign out MacBook"));
+  await click(button("Confirm sign out"));
+  expect(client.sessionRevokeCalls).toEqual([macRow.installation_id]);
+  expect(client.revokeCalls).toEqual([]);
+});
+
+it("offers an unchecked Also sign it out option when removing a machine", async () => {
+  const client = new FakeAccountMeshClient(snapshot());
+  await mount(client, "signed_in");
+  await click(button("Revoke MacBook"));
+  const confirmation = account("MacBook")!.querySelector('[role="group"][aria-label="Confirm revoke MacBook"]');
+  const checkbox = confirmation!.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+  expect(checkbox.checked).toBe(false);
+  await click(checkbox);
+  await click([...confirmation!.querySelectorAll<HTMLButtonElement>("button")].find((entry) => entry.textContent === "Revoke") ?? null);
+  expect(client.sessionRevokeCalls).toEqual([macRow.installation_id]);
+  expect(client.revokeCalls).toEqual([targetOf(macRow)]);
+});
+
 describe("My machines sign-in surface", () => {
   it("asks to sign in and starts the account sign-in flow", async () => {
     const client = new FakeAccountMeshClient(snapshot({ binding: "none", self: null, registry: null }));

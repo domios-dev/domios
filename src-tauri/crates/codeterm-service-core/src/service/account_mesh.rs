@@ -164,7 +164,7 @@ impl ServiceContext {
                 }
             };
         match endpoint.map(HttpCallable::new) {
-            Some(Ok(transport)) => Arc::new(CallableRegistry::new(transport)),
+            Some(Ok(transport)) => Arc::new(CallableRegistry::new(transport).with_revocations(self.session_revocations())),
             _ => Arc::new(UnavailableRegistry),
         }
     }
@@ -395,6 +395,25 @@ impl ServiceContext {
             .revoke(target)
             .await
             .map(RevokedResultView::from);
+        Ok(AccountMeshOutcome::of(result, None))
+    }
+
+    pub async fn account_mesh_session_revoke(
+        &self,
+        installation_id: Option<String>,
+    ) -> Result<AccountMeshOutcome<codeterm_account::account_mesh::wire::SessionRevokedResult>, String> {
+        let account = self.account().await?;
+        let session = account.current_session().await.map_err(|error| error.to_string())?;
+        let service = self.account_mesh().await?;
+        let self_id = self.installation_id().await?;
+        let installation_id = installation_id.unwrap_or_else(|| self_id.as_str().to_owned());
+        let own = installation_id == self_id.as_str();
+        let result = service.mesh.revoke_session(installation_id).await;
+        if result.is_ok() && own {
+            if let Some(session) = session {
+                account.session_revoked(&session).await.map_err(|error| error.to_string())?;
+            }
+        }
         Ok(AccountMeshOutcome::of(result, None))
     }
 

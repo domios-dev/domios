@@ -103,6 +103,7 @@ export interface AccountMeshClient {
   answerLink(notificationId: string, approve: boolean): Promise<void>;
   renameSelf(expectedMetadataRevision: number, displayName: string): Promise<AccountMeshOutcome>;
   renamePeer?(instanceId: string, expectedMetadataRevision: number, displayName: string): Promise<AccountMeshOutcome>;
+  revokeSession(installationId?: string): Promise<AccountMeshOutcome>;
   revoke(target: MeshTarget): Promise<AccountMeshOutcome>;
   unpair(instanceId: string): Promise<void>;
   acknowledgeLimit(requestId: string): Promise<void>;
@@ -148,6 +149,7 @@ export const bridgeAccountMeshClient: AccountMeshClient = {
   renamePeer: (instanceId, expectedMetadataRevision, displayName) => daemonTransportForPeer(instanceId).json("POST", "/api/account/mesh/rename", {
     expected_metadata_revision: expectedMetadataRevision, display_name: displayName,
   }),
+  revokeSession: (installationId) => invoke<AccountMeshOutcome>("account_mesh_session_revoke", { installationId }),
   revoke: (target) => invoke<AccountMeshOutcome>(COMMANDS.revoke, { target }),
   unpair: async (instanceId) => { await invoke("mesh_disconnect", { instanceId }); },
   acknowledgeLimit: async (requestId) => { await invoke(COMMANDS.acknowledgeLimit, { requestId }); },

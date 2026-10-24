@@ -1,4 +1,5 @@
 mod account;
+pub mod session_revocation;
 pub mod account_mesh;
 pub mod adapters;
 mod build_config;
@@ -72,6 +73,7 @@ pub fn accepted_photo_url(value: &str) -> Option<String> {
 }
 #[derive(Debug, Clone)]
 pub struct Session {
+    pub login_generation: u64,
     pub identity: Identity,
     pub id_token: Secret,
     pub expires_at: Option<u64>,

@@ -18,7 +18,7 @@ const { request, rawBody, state } = vi.hoisted(() => ({
   request: vi.fn(), rawBody: vi.fn(() => "opaque-sensitive-response"), state: {
     identity:null as null | {uid:string;display_name:string;email:null;provider:string},
     failure:null as null | {stage:"redemption";error:"provider"},
-    failLogin:false, failStatus:false, failPlan:false, failBillingAction:false, loginHeldElsewhere:false,
+    revoked:false, failLogin:false, failStatus:false, failPlan:false, failBillingAction:false, loginHeldElsewhere:false,
   },
 }));
 vi.mock("../../lib/webApi", async (importOriginal) => ({
@@ -37,10 +37,11 @@ vi.mock("../../lib/webApi", async (importOriginal) => ({
   if (url.endsWith("/plan")) return {ok:true,json:async () => ({entitlements:{plan:"free",status:"active",current_period_end:0,cancel_at_period_end:false},stale:false})};
   if (url.split("?")[0].endsWith("/login")) state.identity = {uid:"user",display_name:"Ada",email:null,provider:"fake"};
   if (url.endsWith("/logout")) state.identity = null;
-  return {ok:true,json:async () => ({identity:state.identity,pending:false,last_sign_in_failure:state.failure})};
+  return {ok:true,json:async () => ({identity:state.identity,pending:false,last_sign_in_failure:state.failure,session_revoked:state.revoked})};
   },
 }));
 import { signInFailureToastMessage, useAccount } from "./useAccount";
+import { useSessionRevocationScreen } from "./useSessionRevocationScreen";
 import { AccountTab } from "./AccountTab";
 (globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -205,5 +206,29 @@ it("attaches to a sign-in another surface holds instead of reporting a failure",
   } finally {
     await act(async () => root.unmount()); host.remove();
     state.identity = null; state.failure = null; state.loginHeldElsewhere = false;
+  }
+});
+
+it("opens sign-in once on session revocation and shows the machine sign-out explanation", async () => {
+  state.identity = null; state.failure = null; state.revoked = false;
+  const showSignIn = vi.fn();
+  function RevokedScreen() {
+    useSessionRevocationScreen(showSignIn);
+    return <AccountTab />;
+  }
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  const actions = { upsertToast: vi.fn() } as unknown as MultiplexerActionsContextType;
+  try {
+    await act(async () => root.render(<MultiplexerActionsContext.Provider value={actions}><RevokedScreen /></MultiplexerActionsContext.Provider>));
+    expect(showSignIn).not.toHaveBeenCalled();
+    state.revoked = true;
+    await act(async () => accountEvents.get("account-changed")?.forEach((handler) => handler()));
+    expect(showSignIn).toHaveBeenCalledTimes(1);
+    expect([...host.querySelectorAll('[role="status"]')].some((element) => element.textContent === "This machine was signed out from your account")).toBe(true);
+    await act(async () => accountEvents.get("account-changed")?.forEach((handler) => handler()));
+    expect(showSignIn).toHaveBeenCalledTimes(1);
+  } finally {
+    await act(async () => root.unmount()); host.remove(); state.revoked = false;
   }
 });

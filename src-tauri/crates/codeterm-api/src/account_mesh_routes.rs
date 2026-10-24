@@ -21,6 +21,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/account/mesh/list", post(list))
         .route("/api/account/mesh/rename", post(rename_self))
         .route("/api/account/mesh/revoke", post(revoke))
+        .route("/api/account/mesh/session-revoke", post(revoke_session))
         .route(
             "/api/account/mesh/limit-notice/ack",
             post(acknowledge_limit),
@@ -107,6 +108,21 @@ pub async fn revoke(
             .await
             .map_err(unavailable)?,
     ))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RevokeSession {
+    installation_id: Option<String>,
+}
+
+pub async fn revoke_session(
+    State(state): State<AppState>,
+    caller: Option<Extension<CallerIdentity>>,
+    Json(input): Json<RevokeSession>,
+) -> Result<Json<AccountMeshOutcome<codeterm_account::account_mesh::wire::SessionRevokedResult>>, Error> {
+    admit(caller.as_ref())?;
+    Ok(Json(state.svc.account_mesh_session_revoke(input.installation_id).await.map_err(unavailable)?))
 }
 
 #[derive(Deserialize)]
