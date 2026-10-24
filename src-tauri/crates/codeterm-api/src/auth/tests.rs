@@ -2,6 +2,180 @@ use super::*;
 use codeterm_service_core::api_support::access_policy::check_access;
 
 #[test]
+fn tailnet_exemptions_are_only_existing_peer_handshakes_and_liveness() {
+    for path in ["/api/health", "/api/mesh/ping"] {
+        assert!(tailnet_exempt(&Method::GET, path));
+        assert!(!tailnet_exempt(&Method::POST, path));
+    }
+    for path in [
+        "/api/mesh/link/hello",
+        "/api/mesh/link/confirm",
+        "/api/mesh/link/commit",
+        "/api/mesh/relay",
+        "/api/mesh/announce",
+        "/api/mesh/adopt/offer",
+        "/api/mesh/adopt/commit",
+    ] {
+        assert!(tailnet_exempt(&Method::POST, path));
+        assert!(!tailnet_exempt(&Method::GET, path));
+    }
+    for path in [
+        "/",
+        "/frontend/index.html",
+        "/api/config",
+        "/api/secrets/list",
+        "/api/mesh/relay-asset/peer/foo",
+        "/api/tabs/tab/hook/stop",
+    ] {
+        assert!(!tailnet_exempt(&Method::GET, path));
+        assert!(!tailnet_exempt(&Method::POST, path));
+    }
+}
+
+#[tokio::test]
+async fn tailnet_router_rejects_local_tokens_and_preserves_peer_access_policy() {
+    use axum::{body::Body, http::Request, routing::get, Router};
+    use codeterm_service_core::service::account_mesh::tailnet::PeerListener;
+    use codeterm_service_core::{
+        mesh::account_mesh::{AccountMeshState, AccountPresence},
+        mesh::types::PairedPeer,
+        multiplexer::state::MultiplexerState,
+        service::test_fixture::ServiceFixture,
+    };
+    use tower::ServiceExt;
+
+    let fixture = ServiceFixture::new(MultiplexerState::empty());
+    let state = crate::transport_tabs::fixture::app_state(&fixture);
+    assert!(std::sync::Arc::ptr_eq(
+        &state.mesh,
+        fixture
+            .service
+            .ext::<codeterm_service_core::MeshStateHandle>(),
+    ));
+    let (private_key, public_key) = codeterm_service_core::mesh::crown::generate_peer_keypair();
+    {
+        let mut mesh = state.mesh.lock();
+        mesh.insert_legacy_pair_for_test(PairedPeer {
+            instance_id: "paired".into(),
+            instance_name: "paired".into(),
+            addresses: vec![],
+            api_port: 7685,
+            public_key,
+            paired_at: "now".into(),
+            last_seen: None,
+            online: true,
+            is_primary: false,
+            access_level: AccessLevel::ReadOnly,
+            version: None,
+            web_ui: None,
+            relay_protocol_version: codeterm_service_core::mesh::types::RELAY_PROTOCOL_VERSION,
+            consecutive_misses: 0,
+            last_active_ms: None,
+        });
+        mesh.apply_account_state(AccountMeshState {
+            presence: AccountPresence::SignedIn {
+                account_id: "account".into(),
+            },
+            ..Default::default()
+        });
+    }
+    let router = Router::new()
+        .route(
+            "/api/config",
+            get(|| async { axum::Json(serde_json::json!({"backing": {"plugin_id": "browser", "surface_id": "surface", "resume_url": "private"}})) })
+                .post(|| async { "written" }),
+        )
+        .route("/api/health", get(|| async { "healthy" }))
+        .route("/api/secrets/list", get(|| async { "secret" }))
+        .route("/frontend/index.html", get(|| async { "frontend" }))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ))
+        .with_state(state.clone());
+    let signed = codeterm_service_core::mesh::crown::sign_request(&private_key, "paired").unwrap();
+    let request = |method: &str, path: &str, token: &str| {
+        let mut req = Request::builder()
+            .method(method)
+            .uri(path)
+            .header("authorization", format!("Bearer {token}"))
+            .body(Body::empty())
+            .unwrap();
+        req.extensions_mut().insert(PeerListener);
+        req
+    };
+    for token in ["", "forged", "preview-test-token"] {
+        assert_eq!(
+            router
+                .clone()
+                .oneshot(request("GET", "/api/config", token))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+    }
+    let response = router
+        .clone()
+        .oneshot(request("GET", "/api/config", &signed))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    assert!(!String::from_utf8_lossy(&bytes).contains("private"));
+    assert_eq!(
+        router
+            .clone()
+            .oneshot(request("POST", "/api/config", &signed))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        router
+            .clone()
+            .oneshot(request("GET", "/api/secrets/list", &signed))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        router
+            .clone()
+            .oneshot(request("GET", "/frontend/index.html", &signed))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        router
+            .clone()
+            .oneshot(request("GET", "/api/health", ""))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    state.mesh.lock().apply_account_state(AccountMeshState {
+        presence: AccountPresence::SignedOut,
+        ..Default::default()
+    });
+    assert_eq!(
+        router
+            .oneshot(request("GET", "/api/health", ""))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+}
+
+#[test]
 fn remote_ownership_release_accepts_only_local_identity() {
     assert!(ownership_release_is_local(CallerIdentity::Local));
     assert!(!ownership_release_is_local(CallerIdentity::Peer {

@@ -8,8 +8,10 @@ pub(crate) fn app_state(fixture: &ServiceFixture) -> AppState {
         .ext::<codeterm_service_core::config::ConfigState>()
         .clone();
     config.lock().api.token = Some("preview-test-token".into());
-    let mut mesh = codeterm_service_core::mesh::MeshManager::new("local-preview-test".into(), 0);
-    mesh.disk_persist = false;
+    let mesh = fixture
+        .service
+        .ext::<codeterm_service_core::MeshStateHandle>()
+        .clone();
     AppState {
         frontend_dev_url: None,
         svc: Arc::new(fixture.service.clone()),
@@ -32,7 +34,7 @@ pub(crate) fn app_state(fixture: &ServiceFixture) -> AppState {
             download_total_bytes: None,
         })),
         config,
-        mesh: Arc::new(parking_lot::Mutex::new(mesh)),
+        mesh,
         keepawake: Arc::new(parking_lot::Mutex::new(None)),
         resize_owner: Arc::new(parking_lot::Mutex::new(Default::default())),
         rest_api: Arc::new(codeterm_service_core::startup::RestApiControl::new()),

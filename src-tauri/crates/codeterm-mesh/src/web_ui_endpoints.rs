@@ -138,7 +138,7 @@ fn endpoint_base_url(endpoint: &WebUiEndpoint) -> String {
         }
         WebUiEndpoint::TailscaleHttps { host, port } => format!("https://{host}:{port}"),
         WebUiEndpoint::TailscaleHttp { ip, port } | WebUiEndpoint::LanHttp { ip, port } => {
-            format!("http://{ip}:{port}")
+            crate::transport::peer_http_origin(&ip.to_string(), *port)
         }
     }
 }

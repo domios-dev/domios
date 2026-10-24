@@ -442,6 +442,12 @@ fn health_get_blocking(url: &str) -> Result<(u16, String), String> {
         .build()
         .map_err(|e| e.to_string())?;
     let resp = client.get(url).send().map_err(|e| e.to_string())?;
+    if resp
+        .headers()
+        .contains_key(crate::reachability::PEER_ONLY_HEADER)
+    {
+        return Err("peer-only listener does not serve the Web UI".into());
+    }
     let status = resp.status().as_u16();
     let body = resp.text().unwrap_or_default();
     Ok((status, body))

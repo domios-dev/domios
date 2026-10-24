@@ -516,7 +516,7 @@ fn probe_address(address: SocketAddr) -> SocketAddr {
     }
 }
 
-async fn prove_health(
+pub(crate) async fn prove_health(
     address: SocketAddr,
     bearer: Option<&str>,
     deadline: tokio::time::Instant,
