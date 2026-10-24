@@ -78,6 +78,8 @@ pub enum AccountMeshRefusal {
     Invalid,
     #[serde(rename = "unauthenticated")]
     Unauthenticated,
+    #[serde(rename = "reauth_required")]
+    ReauthRequired,
     #[serde(rename = "app-check")]
     AppCheck,
     #[serde(rename = "forbidden")]
@@ -112,6 +114,7 @@ impl From<RegistryRefusal> for AccountMeshRefusal {
         match value {
             RegistryRefusal::Invalid => Self::Invalid,
             RegistryRefusal::Unauthenticated => Self::Unauthenticated,
+            RegistryRefusal::ReauthRequired => Self::ReauthRequired,
             RegistryRefusal::AppCheck => Self::AppCheck,
             RegistryRefusal::Forbidden => Self::Forbidden,
             RegistryRefusal::Conflict => Self::Conflict,

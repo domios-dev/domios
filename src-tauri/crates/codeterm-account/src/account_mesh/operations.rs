@@ -12,6 +12,7 @@ use super::state::{
 };
 use super::wire::*;
 use crate::Session;
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use rand::RngCore;
 use serde::Serialize;
 use std::future::Future;
@@ -20,6 +21,19 @@ use std::sync::Arc;
 type Outcome<T> = Result<T, AccountMeshRefusal>;
 
 const MAX_LIST_PAGES: usize = 8;
+
+fn enrollment_requires_reauthentication(session: &Session, now: u64) -> bool {
+    let Some(payload) = session.id_token.expose().split('.').nth(1) else {
+        return false;
+    };
+    let auth_time = URL_SAFE_NO_PAD.decode(payload).ok().and_then(|bytes| {
+        serde_json::from_slice::<serde_json::Value>(&bytes)
+            .ok()?
+            .get("auth_time")?
+            .as_u64()
+    });
+    auth_time.is_some_and(|auth_time| now.saturating_sub(auth_time) > 300)
+}
 
 pub(super) fn request_id() -> String {
     let mut bytes = [0u8; 32];
@@ -175,10 +189,17 @@ impl AccountMesh {
 
     /// The server key generation for this account, enrolling the installation key once.
     async fn generation(&self, signed: &Signed) -> Outcome<u64> {
+        let _guard = self.key_lock.lock().await;
+        if self.state().last_refusal == Some(AccountMeshRefusal::ReauthRequired) {
+            return Err(AccountMeshRefusal::ReauthRequired);
+        }
         let key_id = signed.key.key_id();
         let known = self.with(|inner| inner.record.keys.get(&signed.account).cloned());
         if let Some(binding) = known.as_ref().filter(|binding| binding.key_id == key_id) {
             return Ok(binding.generation);
+        }
+        if known.is_none() && enrollment_requires_reauthentication(&signed.session, self.now()) {
+            return Err(AccountMeshRefusal::ReauthRequired);
         }
         let expected_generation = known.as_ref().map_or(0, |binding| binding.generation);
         let mut generation = expected_generation

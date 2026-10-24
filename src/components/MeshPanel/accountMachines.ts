@@ -3,6 +3,7 @@ import type { AccountMachineRow, AccountMeshFailure, AccountMeshSnapshot, LocalP
 
 export const SIGNED_OUT_COPY = "Signed out — sign in to use the mesh";
 export const SIGN_IN_COPY = "Mesh connects your machines through your Domios account.";
+export const REAUTH_REQUIRED_COPY = "Sign in again to add this machine to your mesh";
 
 export type AccountPresence = "pending" | "signed_out" | "signed_in";
 
@@ -51,7 +52,7 @@ export interface SelfRowView {
 export type MyMachinesView =
   | { kind: "loading" }
   | { kind: "sign_in"; headline: string; blocked: boolean; saved: MachineRowView[]; notes: string[] }
-  | { kind: "account"; self: SelfRowView | null; machines: MachineRowView[]; saved: MachineRowView[]; notes: string[] };
+  | { kind: "account"; reauthRequired: boolean; self: SelfRowView | null; machines: MachineRowView[]; saved: MachineRowView[]; notes: string[] };
 
 export interface MyMachinesInput {
   account: AccountPresence;
@@ -84,6 +85,7 @@ export function myMachinesView({ account, snapshot, listFailure = null, linking,
   if (snapshot.binding === "other") {
     return {
       kind: "account",
+      reauthRequired: snapshot.last_refusal?.reason === "reauth_required",
       self: selfRow(snapshot),
       machines: registryRows(snapshot, [], linking, now, false),
       saved: snapshot.pairs.map((pair) => ({
@@ -103,6 +105,7 @@ export function myMachinesView({ account, snapshot, listFailure = null, linking,
     .map((pair) => blocked ? blockedRow(pair, "Mesh is blocked until your account finishes resuming") : locked ? lockedRow(pair) : savedPairRow(pair));
   return {
     kind: "account",
+    reauthRequired: snapshot.last_refusal?.reason === "reauth_required",
     self: selfRow(snapshot),
     machines: registryRows(snapshot, pairs, linking, now, !blocked && !locked),
     saved,
@@ -266,6 +269,7 @@ export function failureMessage(failure: AccountMeshFailure): string {
     case "revoked": return "That machine was removed from your account.";
     case "cancelled": return "The account changed before the request finished. Try again.";
     case "plan_limit_locked": return PLAN_LOCKED_COPY;
+    case "reauth_required": return REAUTH_REQUIRED_COPY;
     case "verification-unavailable": return "Machine membership could not be verified right now. Try again later.";
     case "unauthenticated":
     case "app-check": return "Your account session could not be verified. Sign in again.";

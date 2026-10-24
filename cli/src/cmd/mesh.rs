@@ -397,6 +397,9 @@ fn set_mesh_enabled(
 }
 
 fn account_mesh_status_lines(state: &serde_json::Value) -> Vec<String> {
+    if state["last_refusal"]["reason"] == "reauth_required" {
+        return vec!["Sign in again to add this machine to your mesh".into()];
+    }
     let mut lines = Vec::new();
     if let Some(publication) = state["publication"].as_str() {
         lines.push(format!("Account publication: {publication}"));

@@ -58,7 +58,9 @@ pub fn admission_refusal(refusal: AccountMeshRefusal) -> mesh::AdmissionRefusal 
         AccountMeshRefusal::Offline
         | AccountMeshRefusal::Unavailable
         | AccountMeshRefusal::AuthorityUnavailable => M::Offline,
-        AccountMeshRefusal::Unauthenticated | AccountMeshRefusal::AppCheck => M::Unauthenticated,
+        AccountMeshRefusal::Unauthenticated
+        | AccountMeshRefusal::ReauthRequired
+        | AccountMeshRefusal::AppCheck => M::Unauthenticated,
         AccountMeshRefusal::MachineLimit {
             limit,
             active_count,

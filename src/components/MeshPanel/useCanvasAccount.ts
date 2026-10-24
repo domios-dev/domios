@@ -25,8 +25,8 @@ export function useCanvasAccount(peers: readonly PeerStatus[], onChanged: () => 
     onDismiss: dismissFailure,
   }), [connect, disconnect, openPlans, dismissFailure]);
   return useMemo(() => ({
-    canvas, busy, signingIn, now, actions,
+    canvas, busy, signingIn, now, actions, reauthRequired: view.kind === "account" && view.reauthRequired,
     onSignIn: () => { void signIn(); },
     onRetry: () => { void load(); },
-  }), [canvas, busy, signingIn, now, actions, signIn, load]);
+  }), [canvas, busy, signingIn, now, actions, view, signIn, load]);
 }

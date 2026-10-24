@@ -44,6 +44,14 @@ describe("Account machines on the Mesh canvas", () => {
     expect(model("signed_in", snapshot({ registry: null }), { listFailed: true }).card).toEqual({ kind: "empty", listFailed: true });
   });
 
+  it("projects a reauthentication refusal without an unavailable or empty-account card", () => {
+    const state = snapshot({ self: null, registry: null, enrollment: "refused", last_refusal: { reason: "reauth_required" } });
+    const view = myMachinesView({ account: "signed_in", snapshot: state, linking: new Set(), now: NOW });
+    expect(view.kind === "account" && view.reauthRequired).toBe(true);
+    expect(model("signed_in", state).card).toBeNull();
+    expect(view.kind === "account" && view.notes.join(" ")).not.toMatch(/unavailable/i);
+  });
+
   it("puts a connected machine's account state on its paired card and draws the rest as nodes", () => {
     const state = snapshot({ pairs: [pair("mesh-mac", "mac.local", { installation_id: macRow.installation_id, online: false })] });
     const view = myMachinesView({ account: "signed_in", snapshot: state, linking: new Set(), now: NOW });
@@ -93,6 +101,7 @@ describe("Mesh canvas wiring", () => {
   let host: HTMLDivElement;
   let root: Root;
   let changed = 0;
+  let peerClicks = 0;
 
   beforeEach(() => {
     (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -102,6 +111,7 @@ describe("Mesh canvas wiring", () => {
     presence.current = "signed_in";
     presence.signIns = 0;
     changed = 0;
+    peerClicks = 0;
   });
 
   afterEach(async () => {
@@ -113,7 +123,7 @@ describe("Mesh canvas wiring", () => {
     await act(async () => root.render(
       <AccountMeshClientProvider value={client}>
         <AccountMeshCanvas onAccountChanged={() => { changed++; }} thisMachine={{ name: "Studio PC", ip: "127.0.0.1" }} peers={peers}
-          recentPushes={[]} onPeerClick={() => {}} width={1200} height={800} />
+          recentPushes={[]} onPeerClick={() => { peerClicks++; }} width={1200} height={800} />
       </AccountMeshClientProvider>,
     ));
   }
@@ -131,6 +141,20 @@ describe("Mesh canvas wiring", () => {
     expect(card).not.toBeNull();
     await click([...card!.querySelectorAll("button")].find((element) => element.textContent === "Sign in") ?? null);
     expect(presence.signIns).toBe(1);
+  });
+
+  it("offers one reauthentication action on this machine and waits for backend enrollment", async () => {
+    const client = new FakeAccountMeshClient(snapshot({ self: null, registry: null, enrollment: "refused", last_refusal: { reason: "reauth_required" } }));
+    await mount(client);
+    const card = host.querySelector('[role="group"][aria-label="Add this machine to your mesh"]');
+    expect(card).not.toBeNull();
+    expect(card!.querySelectorAll("button")).toHaveLength(1);
+    await click(card!.querySelector("button"));
+    expect(presence.signIns).toBe(1);
+    expect(client.enrollCalls).toBe(0);
+    expect(peerClicks).toBe(0);
+    await act(async () => client.emit(snapshot()));
+    expect(host.querySelector('[role="group"][aria-label="Add this machine to your mesh"]')).toBeNull();
   });
 
   it("connects a machine from its node and shows progress until both machines finish", async () => {
