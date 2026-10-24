@@ -1,12 +1,17 @@
 {
   "id": "codex",
-  "version": "1.14.49",
-  "minCodeterm": "1.14.9",
+  "version": "1.14.50",
+  "minCodeterm": "1.15.2",
   "hostApi": 2,
   "displayName": "Codex",
   "binaryName": "codex",
   "cliBinary": "codex",
   "capabilities": {
+    "attachments": {
+      "filePaths": true,
+      "inlineText": true,
+      "imagePaths": true
+    },
     "agentProvider": true,
     "subagentVisibility": true,
     "structuredControl": {

@@ -1,3 +1,5 @@
+import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
+import { composerAttachmentError } from "./composerAttachmentAdmission";
 import { useLatestCallback } from "../../hooks/useLatestCallback";
 import type { ChatSessionIntent } from "@codeterm/chat-core";
 import { canSendDelayedMessage, sendCurrentDelayedMessage } from "./delayedMessageModel";
@@ -175,6 +177,7 @@ function recordComposerIgnoredKey(key: string): void {
 
 function ChatComposerImpl({
   tabId,
+  tabProvider,
   currentPtyId,
   pendingPrompt,
   attachments,
@@ -262,7 +265,9 @@ function ChatComposerImpl({
     },
     [showComposerError],
   );
-  const capsules = useComposerCapsules({ tabId, textareaRef, sinkRef: inlineAttachmentSink, onError: flagComposerError });
+  const provider = useAgentDescriptor(tabProvider);
+  const capsules = useComposerCapsules({ tabId, textareaRef, sinkRef: inlineAttachmentSink, onError: flagComposerError,
+    keepTextInline: Boolean(tabProvider && !provider?.attachments?.filePaths) });
   const [composing, setComposing] = useState(false);
   const capsulesActive = !composing && hasCapsuleTokens(input);
   const attachInline = async (paths: string[]) => capsules.insert(await classifyAttachmentPaths(paths));
@@ -399,6 +404,9 @@ function ChatComposerImpl({
     const draft = buildDraft(extraAttachments);
     if (!draft) return;
     const { text, allAttachments, recordedVoiceAttachments, quoted } = draft;
+    const attachmentError = composerAttachmentError(provider?.attachments, text, allAttachments,
+      recordedVoiceAttachments, capsules.registryRef.current, quoted);
+    if (tabProvider && attachmentError) { flagComposerError(attachmentError); return; }
     const dupKey = `${text} ${allAttachments.join("|")} ${quoted?.path ?? ""}`;
     const duplicate = pendingDraftsRef.current.has(dupKey)
       || isDuplicateSend(lastSendRef.current, dupKey, Date.now());
@@ -467,6 +475,9 @@ function ChatComposerImpl({
     const draft = buildDraft() ?? { allAttachments: [], recordedVoiceAttachments: [], quoted: null };
     const body = text.trim();
     if (!body && draft.allAttachments.length === 0 && !draft.quoted) return;
+    const attachmentError = composerAttachmentError(provider?.attachments, body, draft.allAttachments,
+      draft.recordedVoiceAttachments, capsules.registryRef.current, draft.quoted);
+    if (tabProvider && attachmentError) { flagComposerError(attachmentError); return; }
     setScheduleBusy(true);
     try {
       const { composed, transcribeFailed } = await composeDraft(

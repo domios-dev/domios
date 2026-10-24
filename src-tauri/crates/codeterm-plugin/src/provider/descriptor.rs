@@ -23,6 +23,7 @@ pub(crate) fn describe<P: AgentProvider + ?Sized>(provider: &P) -> ProviderDescr
         settings.push(usage_store_tracking_section());
     }
     ProviderDescriptor {
+        attachments: provider.attachment_capabilities(),
         remote_task: provider.remote_task_capability(),
         agent_runtime: runtime.clone(),
         supports_session_fork: provider.fork_session_args().is_some(),
