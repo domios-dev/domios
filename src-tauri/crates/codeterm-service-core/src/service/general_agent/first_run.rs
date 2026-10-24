@@ -154,6 +154,24 @@ fn persist_first_run_completion(
     Ok(())
 }
 
+fn prepare_first_run_general(
+    mux: &mut crate::multiplexer::state::MultiplexerState,
+    default_chat_view: bool,
+) -> Result<usize, String> {
+    close_first_run_tabs(mux)?;
+    let closed = ensure_general_workspace_without_persist(mux, default_chat_view);
+    let tab = mux
+        .resolve_tab_id(GENERAL_ALIAS)
+        .ok_or("General tab is unavailable")?;
+    let workspace = mux
+        .find_workspace_for_tab(&tab)
+        .ok_or("General workspace is unavailable")?;
+    mux.set_active_workspace(&workspace)?;
+    mux.set_active_tab(&workspace, &tab)?;
+    mux.set_focused_tab(&tab)?;
+    Ok(closed)
+}
+
 pub fn complete_first_run_core(
     svc: &crate::ServiceState,
     config: &crate::config::ConfigState,
@@ -191,8 +209,7 @@ pub fn complete_first_run_core(
 
     let (close_result, history_batch) = {
         let mut mux_guard = mux.write();
-        let result = close_first_run_tabs(&mut mux_guard)
-            .map(|()| ensure_general_workspace_without_persist(&mut mux_guard, default_chat_view));
+        let result = prepare_first_run_general(&mut mux_guard, default_chat_view);
         (result, mux_guard.take_closed_history_batch())
     };
     if let Some(batch) = history_batch {

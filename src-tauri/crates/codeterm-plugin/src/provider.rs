@@ -1,3 +1,5 @@
+pub mod cli_login;
+pub use cli_login::{CliLoginCapability, CliLoginMethod};
 mod model_switch_transcript;
 pub enum LaunchSpecParams<'a> {
     Fresh(&'a AgentLaunchParams),
@@ -276,6 +278,8 @@ pub struct ProviderDescriptor {
     pub remote_task: Option<crate::remote_tasks::RemoteTaskCapability>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_runtime: Option<crate::agent_runtime::AgentRuntimeCapability>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cli_login: Option<CliLoginCapability>,
     #[serde(default)]
     pub supports_session_fork: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -427,7 +431,7 @@ pub struct ProviderUpdateAvailability {
 }
 
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
-pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 24;
+pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 25;
 
 /// One provider-owned usage log to ingest for a session. `session_id` scopes a
 /// log shared by many sessions (e.g. one sqlite database); a per-session file

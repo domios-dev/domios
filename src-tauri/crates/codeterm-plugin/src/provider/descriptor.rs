@@ -27,6 +27,7 @@ pub(crate) fn describe<P: AgentProvider + ?Sized>(provider: &P) -> ProviderDescr
         attachments: provider.attachment_capabilities(),
         remote_task: provider.remote_task_capability(),
         agent_runtime: runtime.clone(),
+        cli_login: provider.cli_login(),
         supports_session_fork: provider.fork_session_args().is_some(),
         structured_control: provider.structured_control(),
         schema_version: PROVIDER_DESCRIPTOR_SCHEMA_VERSION,

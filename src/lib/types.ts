@@ -1143,6 +1143,7 @@ export interface ProviderDescriptor {
   cli_binary?: string | null;
   /// Shell command that installs the CLI for the current platform. Used by
   /// the Install card on the per-provider Settings screen.
+  cli_login?: { methods: { id: string; label: string; args: string[] }[]; urlPattern: string; timeoutMs: number } | null;
   install_command?: string | null;
   /// Short provider-declared note shown beside the name in pickers, e.g. a
   /// free-tier offer. Absent means the provider claims nothing.

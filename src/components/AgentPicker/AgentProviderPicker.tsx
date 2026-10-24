@@ -1,5 +1,5 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ProviderDescriptor } from "../../lib/types";
 import logoUrl from "../../assets/logo.png";
 import { installSource, launchProviderInstaller } from "../../lib/providerInstall";
@@ -17,7 +17,11 @@ interface AgentProviderPickerProps {
   providers: ProviderDescriptor[];
   confirmLabel?: string;
   busy?: boolean;
+  retry?: boolean;
   onConfirm: (providerId: string) => void;
+  onInstall?: (providerId: string) => void;
+  progress?: string | null;
+  children?: ReactNode;
   navigation?: PickerNavigation;
   /** The tab hosting this picker, where a successful install returns the user. */
   home?: TabRef;
@@ -29,7 +33,11 @@ export function AgentProviderPicker({
   providers,
   confirmLabel = "Confirm",
   busy,
+  retry,
   onConfirm,
+  onInstall: installOverride,
+  progress,
+  children,
   navigation,
   home,
 }: AgentProviderPickerProps) {
@@ -109,6 +117,9 @@ export function AgentProviderPicker({
           </div>
         </div>
 
+        {progress && <p role="status" aria-live="polite">{progress}</p>}
+        {children}
+
         <div
           role="group"
           aria-label="Agent providers"
@@ -120,7 +131,7 @@ export function AgentProviderPicker({
               key={provider.id}
               provider={provider}
               selected={selectedId === provider.id}
-              onSelect={() => setSelectedId(provider.id)}
+              onSelect={() => { if (!busy && !installBusy) setSelectedId(provider.id); }}
             />
           ))}
         </div>
@@ -137,11 +148,11 @@ export function AgentProviderPicker({
               loading={busy || installBusy}
               onClick={() => {
                 if (!selected) return;
-                if (needsInstall) void onInstall(selected.id);
+                if (needsInstall) { if (installOverride) installOverride(selected.id); else void onInstall(selected.id); }
                 else onConfirm(selected.id);
               }}
             >
-              {needsInstall && selected ? `Install ${selected.display_name}` : confirmLabel}
+              {retry ? "Retry" : needsInstall && selected ? `Install ${selected.display_name}` : confirmLabel}
             </Button>
             {needsInstall && installSource(selected?.install_command) && (
               <p className="absolute left-1/2 top-full mt-3 -translate-x-1/2 whitespace-nowrap text-center font-mono text-[11px] text-[var(--ct-muted-fg)]">

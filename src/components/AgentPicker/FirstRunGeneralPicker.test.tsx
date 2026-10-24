@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { MultiplexerState, ProviderDescriptor, Tab, TabBootStageEvent } from "../../lib/types";
 import { FirstRunGeneralPicker } from "./FirstRunGeneralPicker";
 import { firstRunGeneralTarget } from "./firstRunNavigation";
+import { firstRunTransition, type FirstRunPhase } from "../../lib/firstRunFlow";
 
 const navigation = vi.hoisted(() => ({ show: vi.fn(), activeTabId: () => "installer" }));
 
@@ -23,6 +24,18 @@ import { firstRunLocked } from "../../lib/firstRunGate";
 import { FirstRunControls } from "./FirstRunControls";
 
 const events = new Map<string, (event: { payload: unknown }) => void>();
+it("models installation, sign-in, startup, readiness and failure recovery", () => {
+  let phase: FirstRunPhase = "choosing";
+  const phases = [];
+  for (const event of ["install", "installed", "authenticated", "ready"] as const) {
+    phase = firstRunTransition(phase, event);
+    phases.push(phase);
+  }
+  expect(phases).toEqual(["installing", "signIn", "starting", "ready"]);
+  expect(firstRunTransition("installing", "ready")).toBe("installing");
+  expect(firstRunTransition("installing", "failure")).toBe("failed");
+  expect(firstRunTransition("failed", "install")).toBe("installing");
+});
 beforeEach(() => {
   vi.mocked(listen).mockImplementation(async (name, handler) => {
     events.set(name, handler as (event: { payload: unknown }) => void);
@@ -188,6 +201,73 @@ it("keeps the picker visible and does not focus a tab when setup fails", async (
     expect(vi.mocked(invoke).mock.calls.map(([command]) => command)).toEqual(["complete_general_agent_first_run"]);
     expect(host.textContent).toContain("opaque setup failure");
     expect(confirm?.disabled).toBe(false);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+for (const success of [true, false]) {
+  it(`continues only its own verified installer completion (success=${success})`, async () => {
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === "install_provider_in_tab") return { tab_id: "own-install", launch_state: "command_dispatched" };
+      if (command === "mux_get_state") return snapshot();
+    });
+    const missing = { ...provider("fixture", "pty"), availability: "unavailable" as const, general_agent_offer_when_absent: true, install_command: "opaque" };
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(<FirstRunGeneralPicker providers={[missing]} />));
+      const confirm = () => host.querySelector<HTMLButtonElement>("[data-testid=agent-picker-confirm]")!;
+      await act(async () => confirm().click());
+      expect(confirm().disabled).toBe(true);
+      expect(host.querySelector('[role="status"]')?.textContent).toContain("Installing");
+      expect(navigation.show).not.toHaveBeenCalled();
+      const completion = { provider: "fixture", operation: "install", tab_id: "other-install", success: true, summary: "unrelated" };
+      await act(async () => events.get("provider-cli-completed")!({ payload: completion }));
+      expect(invoke).not.toHaveBeenCalledWith("complete_general_agent_first_run", expect.anything());
+      await act(async () => events.get("provider-cli-completed")!({ payload: { ...completion, tab_id: "own-install", success, summary: "opaque installer failure" } }));
+      if (success) {
+        expect(invoke).toHaveBeenCalledWith("complete_general_agent_first_run", { providerId: "fixture", fullAccess: true });
+        expect(navigation.show).toHaveBeenCalledExactlyOnceWith({ workspaceId: "welcome", tabId: "general" });
+      } else {
+        expect(invoke).not.toHaveBeenCalledWith("complete_general_agent_first_run", expect.anything());
+        expect(host.textContent).toContain("opaque installer failure");
+        expect(confirm().disabled).toBe(false);
+      }
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+}
+
+it("keeps multi-method sign-in on Get started and continues only authenticated completion", async () => {
+  const signedOut = { state: "loginPending", epoch: 0, auth: "signedOut", loginMethods: ["browser"],
+    loginChoices: [{ id: "plan", label: "Plan account" }, { id: "metered", label: "Usage account" }] };
+  vi.mocked(invoke).mockImplementation(async (command) => {
+    if (command === "agent_runtime_login") return { state: signedOut, login: { status: "pending", loginId: "own-login" } };
+    if (command === "mux_get_state") return snapshot();
+  });
+  const available = { ...provider("fixture", "pty"), cli_login: { methods: [], urlPattern: "", timeoutMs: 1000 } };
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<FirstRunGeneralPicker providers={[available]} home={{ workspaceId: "welcome", tabId: "home" }} />));
+    await act(async () => host.querySelector<HTMLButtonElement>("[data-testid=agent-picker-confirm]")!.click());
+    expect(invoke).not.toHaveBeenCalledWith("complete_general_agent_first_run", expect.anything());
+    const method = Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Usage account")!;
+    await act(async () => method.click());
+    expect(invoke).toHaveBeenCalledWith("agent_runtime_login", { tabId: "home", request: { method: "browser", account: "metered", providerId: "fixture" } });
+    const completed = { state: { ...signedOut, state: "loaded", auth: "signedIn" }, session_binding_nonce: null, tab_id: "other" };
+    await act(async () => events.get("agent-runtime-state")!({ payload: completed }));
+    await act(async () => events.get("agent-runtime-state")!({ payload: { ...completed, tab_id: "home", session_binding_nonce: "foreign-nonce" } }));
+    expect(invoke).not.toHaveBeenCalledWith("complete_general_agent_first_run", expect.anything());
+    await act(async () => events.get("agent-runtime-state")!({ payload: { ...completed, tab_id: "home" } }));
+    expect(invoke).toHaveBeenCalledWith("complete_general_agent_first_run", { providerId: "fixture", fullAccess: true });
+    expect(navigation.show).toHaveBeenCalledExactlyOnceWith({ workspaceId: "welcome", tabId: "general" });
   } finally {
     await act(async () => root.unmount());
     host.remove();

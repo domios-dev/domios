@@ -1,6 +1,6 @@
 use super::*;
 
-fn phone_body(login: &RuntimeLoginState) -> Result<String, String> {
+pub(super) fn phone_body(login: &RuntimeLoginState) -> Result<String, String> {
     if login.status != RuntimeLoginStatus::Pending {
         return Err("No active sign-in to send".into());
     }

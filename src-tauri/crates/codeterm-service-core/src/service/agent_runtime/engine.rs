@@ -107,6 +107,7 @@ use launch::{require_launch_authority, validate_loaded_settings};
 pub(crate) mod test_support;
 
 pub fn stop_blocking(svc: &ServiceContext, tab: &str) -> Result<(), String> {
+    super::login::close_cli(tab);
     if for_tab(tab).is_none() {
         return Ok(());
     }
