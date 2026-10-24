@@ -21,6 +21,7 @@ use std::time::Duration;
 use tokio::sync::{watch, OnceCell};
 
 mod authority;
+mod presence;
 pub mod tailnet;
 pub use authority::{mesh_state, AccountAuthority};
 
@@ -79,6 +80,9 @@ struct TransportBridge {
 }
 #[async_trait]
 impl MeshTransport for TransportBridge {
+    async fn presence_changed(&self, metadata_revision: u64) {
+        presence::notify(&self.service, metadata_revision).await;
+    }
     async fn apply(&self, state: &LifecycleState) {
         let projected = mesh_state(state);
         if let Some(service) = self.service.upgrade() {

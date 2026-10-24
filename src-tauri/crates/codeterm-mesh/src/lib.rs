@@ -13,6 +13,7 @@ pub mod paired_resolve;
 pub mod peer_services;
 pub mod peers;
 pub mod ports;
+pub mod presence_notice;
 pub mod protocol_refusals;
 pub mod reachability;
 pub mod serve_setup;

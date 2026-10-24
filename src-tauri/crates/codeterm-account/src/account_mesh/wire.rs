@@ -103,6 +103,10 @@ pub enum MeshOperation {
     Withdraw {
         expected_metadata_revision: u64,
     },
+    Presence {
+        expected_metadata_revision: u64,
+        presence: RegistryPresence,
+    },
     Link {
         expected_slot_revision: u64,
         peer: MeshTarget,
@@ -233,6 +237,25 @@ pub struct WithdrawnResult {
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct PresenceResult {
+    pub installation_id: String,
+    pub presence: RegistryPresence,
+    pub previous_metadata_revision: u64,
+    pub metadata_revision: u64,
+    pub slot_revision: u64,
+    pub registry_revision: u64,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RegistryPresence {
+    #[default]
+    Present,
+    SignedOut,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PermitResult {
     pub installation_id: String,
     pub peer_installation_id: String,
@@ -267,6 +290,7 @@ pub struct MeshManagementRow {
     pub key_generation: u64,
     pub slot_revision: u64,
     pub active: bool,
+    pub presence: RegistryPresence,
     pub admitted_at: u64,
     pub authenticated_at: u64,
     pub display_name: Option<String>,
@@ -305,6 +329,7 @@ pub enum MeshResult {
     Updated(UpdatedResult),
     Published(PublishedResult),
     Withdrawn(WithdrawnResult),
+    Presence(PresenceResult),
     Permit(PermitResult),
     Page(PageResult),
 }

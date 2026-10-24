@@ -413,5 +413,38 @@ fn account_mesh_status_lines(state: &serde_json::Value) -> Vec<String> {
             "Account mesh: waiting to retry at {at} (Unix seconds)"
         ));
     }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    if let Some(rows) = state["registry"]["rows"].as_array() {
+        for row in rows {
+            let name = row["display_name"]
+                .as_str()
+                .or_else(|| row["installation_id"].as_str())
+                .unwrap_or("Unnamed machine");
+            lines.push(format!("  {name}: {}", account_machine_status(row, now)));
+        }
+    }
     lines
+}
+
+fn account_machine_status(row: &serde_json::Value, now: u64) -> &'static str {
+    if row["active"] == false || row["eligibility"] == "revoked" {
+        "Removed"
+    } else if row["presence"] == "signed_out" {
+        "Signed out (actions disabled)"
+    } else if row["membership_expires_at"]
+        .as_u64()
+        .is_some_and(|at| at <= now)
+    {
+        "Membership expired"
+    } else if row["endpoint"]["expires_at"]
+        .as_u64()
+        .is_none_or(|at| at <= now)
+    {
+        "Offline"
+    } else {
+        "Present"
+    }
 }

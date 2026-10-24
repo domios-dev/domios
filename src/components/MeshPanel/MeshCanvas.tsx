@@ -135,6 +135,7 @@ export const MeshCanvas = memo(function MeshCanvas({
       },
     ];
     peers.forEach((p, i) => {
+      const signedOut = account?.canvas.peerFooters.get(p.instance_id)?.row.status === "signed_out";
       items.push({
         id: p.instance_id,
         name: p.name,
@@ -144,12 +145,14 @@ export const MeshCanvas = memo(function MeshCanvas({
         isPaired: !p.pending,
         pending: p.pending,
         accessLevel: p.access_level,
-        webUrl: p.online && p.relay_protocol_version === RELAY_PROTOCOL_VERSION && webUiBaseUrl
+        webUrl: !signedOut && p.online && p.relay_protocol_version === RELAY_PROTOCOL_VERSION && webUiBaseUrl
           ? webLinkWithTokenAndRelay(webUiBaseUrl, webUiToken, {
               id: p.instance_id,
             })
           : null,
-        webUnavailableReason: !p.online
+        webUnavailableReason: signedOut
+          ? `${p.name} is signed out`
+          : !p.online
           ? `${p.name} is offline`
           : p.relay_protocol_version !== RELAY_PROTOCOL_VERSION
             ? `Update Domios on ${p.name} to use Web UI relay`
@@ -163,7 +166,7 @@ export const MeshCanvas = memo(function MeshCanvas({
       items.push({ id: `account-card:${accountCard.kind}`, name: "My machines", ip: "", ...geometry.machines[items.length], account: { kind: "card", card: accountCard } });
     }
     return items;
-  }, [thisMachine, peers, accountNodes, accountCard, webUiBaseUrl, webUiToken, geometry.machines]);
+  }, [thisMachine, peers, account, accountNodes, accountCard, webUiBaseUrl, webUiToken, geometry.machines]);
 
   useLayoutEffect(() => {
     const nodes = Array.from(machineLayerRef.current?.querySelectorAll<HTMLElement>("[data-machine-index]") ?? []);
@@ -227,7 +230,7 @@ export const MeshCanvas = memo(function MeshCanvas({
     const name = peer?.name ?? footer.row.name;
     const seen = peer && !peer.online ? lastSeenMs(peer.last_seen) : null;
     return <PeerAccountFooterView footer={footer} name={name} lastSeen={seen === null ? null : formatAge(seen, account.now)}
-      busy={account.busy === footer.key} actions={account.actions} hint={tailscaleHint(name, peer?.online ?? false)} />;
+      busy={account.busy === footer.key} actions={account.actions} hint={footer.row.status === "signed_out" ? undefined : tailscaleHint(name, peer?.online ?? false)} />;
   };
 
   return (
@@ -267,8 +270,9 @@ export const MeshCanvas = memo(function MeshCanvas({
           {gatewayGraph.edges.map((edge) => {
             const machine = layout.find((item) => item.id === edge.machineId);
             if (!machine) return null;
-            const paint = meshEdgeModel(geometry.web, { ...machine, width: MACHINE_CARD_WIDTH }, edge.online);
-            const label = `${machine.name}: ${edge.online ? "online" : "offline"} ${edge.label}`;
+            const signedOut = account?.canvas.peerFooters.get(edge.machineId)?.row.status === "signed_out";
+            const paint = meshEdgeModel(geometry.web, { ...machine, width: MACHINE_CARD_WIDTH }, edge.online && !signedOut);
+            const label = `${machine.name}: ${signedOut ? "Signed out" : edge.online ? "online" : "offline"} ${edge.label}`;
             const launch = () => {
               if (machine.isThisMachine) onWebClick?.();
               else if (machine.webUrl) onOpenPeerWebUi?.(machine.webUrl);
@@ -310,7 +314,7 @@ export const MeshCanvas = memo(function MeshCanvas({
             {p.account && account ? (
               p.account.kind === "node"
                 ? <AccountMachineCard node={p.account.node} busy={account.busy === p.account.node.key} now={account.now} actions={account.actions}
-                  hint={p.account.node.row.target ? tailscaleHint(p.account.node.name, p.account.node.online !== false) : undefined} />
+                  hint={p.account.node.row.status !== "signed_out" && p.account.node.row.target ? tailscaleHint(p.account.node.name, p.account.node.online !== false) : undefined} />
                 : <AccountStateCard card={p.account.card} signingIn={account.signingIn} onSignIn={account.onSignIn} onRetry={account.onRetry} />
             ) : (
               <div style={{ transform: `scale(${MACHINE_CARD_SCALE})` }}>
@@ -326,8 +330,9 @@ export const MeshCanvas = memo(function MeshCanvas({
                 isPaired={p.isPaired}
                 pending={p.pending}
                 accessLevel={p.accessLevel as "full" | "read_only" | "agent_isolated" | undefined}
+                disabled={account?.canvas.peerFooters.get(p.id)?.row.status === "signed_out"}
                 onClick={() => onPeerClick(p.name)}
-                offline={p.isThisMachine ? !meshEnabled : !peers.find((peer) => peer.instance_id === p.id)?.online}
+                offline={p.isThisMachine ? !meshEnabled : account?.canvas.peerFooters.get(p.id)?.row.status === "signed_out" || !peers.find((peer) => peer.instance_id === p.id)?.online}
                 onGoOnline={p.isThisMachine ? onGoOnline : undefined}
               />
               </div>
