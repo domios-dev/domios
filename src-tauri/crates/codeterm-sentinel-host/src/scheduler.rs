@@ -202,6 +202,7 @@ pub fn start(
         _shutdown: None,
         apply_lock: Arc::new(Mutex::new(())),
     };
+    super::blueprint_memory::subscribe_changes(&svc);
     let callback = shutdown_callback(&handle);
     match codeterm_service_core::crash::shutdown::subscribe_sentinel_shutdown(callback) {
         Ok(subscription) => handle._shutdown = Some(Arc::new(subscription)),

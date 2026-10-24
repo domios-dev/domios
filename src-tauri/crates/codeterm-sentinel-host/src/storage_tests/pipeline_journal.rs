@@ -350,3 +350,157 @@ fn blueprint_journal_body_reference_round_trips_outside_summary_and_held_close_i
     );
     close(storage);
 }
+
+#[test]
+fn blueprint_journal_commits_coalesce_scoped_changes_with_new_revisions() {
+    let root = temp_root();
+    let storage = open(root.path());
+    let clock = Arc::new(MockClock::starting_at(1000));
+    let store = typed(&storage, &clock);
+    let job = create_pipeline(&store, owner(Some("team")));
+    store.lock().take_changes();
+    let initial = store
+        .lock()
+        .committed_revision("workspace", Some("team"))
+        .unwrap()
+        .to_owned();
+    commit(&store, |store| {
+        store.stage_pipeline_journal(&job.id, decision("run_events", 1100, "done".into()))
+    })
+    .unwrap();
+    let first = store.lock().take_changes();
+    assert_eq!(first.len(), 1);
+    assert_eq!(first[0]["workspace_id"], "workspace");
+    assert_eq!(first[0]["team_id"], "team");
+    assert_ne!(first[0]["revision"], initial);
+    assert!(first[0]["revision"]
+        .as_str()
+        .unwrap()
+        .starts_with("journal:r"));
+    for at in [1200, 1300] {
+        commit(&store, |store| {
+            store.stage_pipeline_journal(&job.id, decision("run_events", at, "done".into()))
+        })
+        .unwrap();
+    }
+    let batch = store.lock().take_changes();
+    assert_eq!(batch.len(), 1);
+    assert_ne!(batch[0]["revision"], first[0]["revision"]);
+    let log = store.lock().typed_pipeline_log(&job.id, 200).unwrap();
+    assert_eq!(done(log).value.len(), 3);
+    assert!(store.lock().take_changes().is_empty());
+    close(storage);
+}
+
+#[test]
+fn blueprint_runtime_commit_invalidates_checkpoint_state_once() {
+    let root = temp_root();
+    let storage = open(root.path());
+    let clock = Arc::new(MockClock::starting_at(1000));
+    let store = typed(&storage, &clock);
+    let job = create_pipeline(&store, owner(Some("team")));
+    store.lock().active.insert(
+        job.id.clone(),
+        Arc::new(crate::probe::cancellation::Cancellation::new(false)),
+    );
+    store.lock().take_changes();
+    let initial = store
+        .lock()
+        .committed_revision("workspace", Some("team"))
+        .unwrap()
+        .to_owned();
+    let mut admission = job.admission.clone();
+    admission.continuation = Some(json!({"run_id":"run_checkpoint"}));
+    assert!(commit(&store, |store| store
+        .stage_admission(&job.id, admission.clone()))
+    .unwrap());
+    assert_eq!(store.lock().get(&job.id).unwrap().revision, job.revision);
+    let changes = store.lock().take_changes();
+    assert_eq!(changes.len(), 1);
+    assert_ne!(changes[0]["revision"], initial);
+    assert!(!commit(&store, |store| store.stage_admission(&job.id, admission)).unwrap());
+    assert!(store.lock().take_changes().is_empty());
+    close(storage);
+}
+
+#[test]
+fn blueprint_journal_emits_once_after_commit_without_the_store_lock() {
+    struct Ui {
+        store: Mutex<Option<std::sync::Weak<Mutex<Store>>>>,
+        events: Mutex<Vec<(String, Value)>>,
+    }
+    impl codeterm_service_core::ports::host::UiEvents for Ui {
+        fn emit(&self, event: &str, payload: Value) {
+            let store = self.store.lock().as_ref().unwrap().upgrade().unwrap();
+            assert!(
+                store.try_lock().is_some(),
+                "store guard released before emit"
+            );
+            self.events.lock().push((event.into(), payload));
+        }
+        fn emit_to(&self, _: &str, event: &str, payload: Value) {
+            self.emit(event, payload);
+        }
+    }
+    let root = temp_root();
+    let storage = open(root.path());
+    let ui = Arc::new(Ui {
+        store: Mutex::new(None),
+        events: Mutex::new(Vec::new()),
+    });
+    let handle = crate::scheduler::fixture_handle_with_ui(
+        Store::with_storage(&storage, MockClock::starting_at(1000)),
+        ui.clone(),
+    );
+    *ui.store.lock() = Some(Arc::downgrade(&handle.store));
+    let job = create_pipeline(&handle.store, owner(Some("team")));
+    handle.store.lock().take_changes();
+    assert!(crate::pipeline::write_journal(
+        &handle,
+        &job,
+        decision("run_ui", 1100, "done".into())
+    ));
+    let log = handle
+        .store
+        .lock()
+        .typed_pipeline_log(&job.id, 200)
+        .unwrap();
+    assert_eq!(done(log).value.len(), 1);
+    let events = ui.events.lock();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].0, "automation-graph-changed");
+    assert_eq!(events[0].1["workspace_id"], "workspace");
+    assert_eq!(events[0].1["team_id"], "team");
+    close(storage);
+}
+
+#[test]
+fn blueprint_journal_one_event_for_a_storage_commit_batch_even_with_separate_notifies() {
+    let root = temp_root();
+    let storage = open(root.path());
+    let clock = MockClock::starting_at(1000);
+    let store = typed(&storage, &clock);
+    let job = create_pipeline(&store, owner(Some("team")));
+    store.lock().take_changes();
+    let hold = storage.hold_writer().unwrap();
+    hold.wait_held(DEADLINE).unwrap();
+    let first = store
+        .lock()
+        .stage_pipeline_journal(&job.id, decision("run_batch", 1100, "done".into()));
+    let second = store
+        .lock()
+        .stage_pipeline_journal(&job.id, decision("run_batch", 1200, "done".into()));
+    hold.release();
+    first.settle(&store).unwrap();
+    let events = store.lock().take_changes();
+    assert_eq!(events.len(), 1);
+    assert_eq!(
+        done(store.lock().typed_pipeline_log(&job.id, 200).unwrap())
+            .value
+            .len(),
+        2
+    );
+    second.settle(&store).unwrap();
+    assert!(store.lock().take_changes().is_empty());
+    close(storage);
+}

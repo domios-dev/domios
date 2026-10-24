@@ -16,6 +16,8 @@ pub trait BlueprintEnricher: Send + Sync {
 
 #[derive(Default)]
 pub(crate) struct BlueprintServices {
+    pub(super) changes: RwLock<Option<Arc<super::changes::Listener>>>,
+    pub(super) revision: std::sync::atomic::AtomicU64,
     pub(super) catalog: Mutex<super::authoring::CatalogCache>,
     pub(crate) queue: Mutex<Option<SyncSender<Pending>>>,
     pub(super) enricher: RwLock<Option<Arc<dyn BlueprintEnricher>>>,

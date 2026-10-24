@@ -253,6 +253,8 @@ pub struct SqliteBackend {
     removed: BTreeSet<String>,
     floor: Option<Revision>,
     inflight: usize,
+    pub(crate) last_receipt: Option<codeterm_storage::CommitReceipt>,
+    pub(crate) journal_revisions: BTreeMap<ScopeKey, Revision>,
 }
 
 pub fn history_versions(records: Vec<StoredDefinition>) -> Vec<DefinitionVersion> {
@@ -424,6 +426,7 @@ impl Store {
     ) -> Result<SentinelCommit, Failure> {
         if let Some(backend) = self.backend.sqlite_mut() {
             backend.inflight = backend.inflight.saturating_sub(1);
+            backend.last_receipt = outcome.as_ref().ok().map(|commit| commit.receipt);
         }
         match outcome {
             Ok(committed) => match self.publish(&committed) {
@@ -602,6 +605,8 @@ impl Store {
                 removed: BTreeSet::new(),
                 floor: None,
                 inflight: 0,
+                last_receipt: None,
+                journal_revisions: BTreeMap::new(),
             }),
             clock,
             unavailable: None,

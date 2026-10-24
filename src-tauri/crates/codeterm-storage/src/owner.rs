@@ -786,6 +786,7 @@ impl Writer {
             };
             job.settle(result.map(|done| CommitReceipt {
                 revision: done.revision,
+                batch_revision: Revision(next),
                 rows_written: done.rows_written,
                 timings,
             }));
