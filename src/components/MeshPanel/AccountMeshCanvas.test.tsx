@@ -3,7 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { accountCanvas, lastSeenMs, type AccountCanvasInput } from "./accountCanvas";
 import { myMachinesView, SIGNED_OUT_COPY, type AccountPresence } from "./accountMachines";
-import { AccountMeshClientProvider, type AccountMeshSnapshot } from "./accountMeshClient";
+import { AccountMeshClientProvider, bridgeAccountMeshClient, type AccountMeshSnapshot } from "./accountMeshClient";
 import { AccountMeshRefusalError } from "../billing/accountMeshLimit";
 import { freeLimitGate } from "../billing/freeLimitGate";
 import { deferred, FakeAccountMeshClient, machine, macRow, NOW, pair, selfRow, snapshot, targetOf } from "./accountMachines.testdata";
@@ -11,6 +11,11 @@ import type { PeerStatus } from "./useMeshData";
 import type { MachineFailure } from "./useMyMachines";
 
 const presence = vi.hoisted(() => ({ current: "signed_in" as AccountPresence, signIns: 0 }));
+const relay = vi.hoisted(() => ({ forPeer: vi.fn(), json: vi.fn(async () => ({ ok: true })) }));
+vi.mock("../../lib/daemonBootstrap", async (original) => ({
+  ...await original<typeof import("../../lib/daemonBootstrap")>(),
+  daemonTransportForPeer: (peerId: string) => { relay.forPeer(peerId); return { json: relay.json }; },
+}));
 vi.mock("./useMeshAccount", () => ({
   useMeshAccount: () => ({ presence: presence.current, signIn: async () => { presence.signIns++; } }),
 }));
@@ -32,6 +37,11 @@ function model(account: AccountPresence, state: AccountMeshSnapshot, patch: Part
 }
 
 describe("Account machines on the Mesh canvas", () => {
+  it("relays rename through the target machine's existing self-rename route", async () => {
+    expect(await bridgeAccountMeshClient.renamePeer!("mesh-mac", 17, "Travel Mac")).toEqual({ ok: true });
+    expect(relay.forPeer).toHaveBeenCalledWith("mesh-mac");
+    expect(relay.json).toHaveBeenCalledWith("POST", "/api/account/mesh/rename", { expected_metadata_revision: 17, display_name: "Travel Mac" });
+  });
   it("explains account mesh with a Sign in card when signed out", () => {
     const signedOut = model("signed_out", snapshot({ binding: "none", self: null, registry: null, traffic: "blocked_signed_out" }));
     expect(signedOut.card).toEqual({ kind: "sign_in", headline: SIGNED_OUT_COPY, blocked: true });
@@ -113,6 +123,7 @@ describe("Mesh canvas wiring", () => {
   let root: Root;
   let changed = 0;
   let selected = 0;
+  let clickedNames: string[] = [];
 
   beforeEach(() => {
     (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -123,6 +134,7 @@ describe("Mesh canvas wiring", () => {
     presence.signIns = 0;
     changed = 0;
     selected = 0;
+    clickedNames = [];
   });
 
   afterEach(async () => {
@@ -134,7 +146,7 @@ describe("Mesh canvas wiring", () => {
     await act(async () => root.render(
       <AccountMeshClientProvider value={client}>
         <AccountMeshCanvas onAccountChanged={() => { changed++; }} thisMachine={{ name: "Studio PC", ip: "127.0.0.1" }} peers={peers}
-          recentPushes={[]} onPeerClick={() => { selected++; }} webUiBaseUrl="http://127.0.0.1:7686" onOpenPeerWebUi={() => { selected++; }} width={1200} height={800} />
+          recentPushes={[]} onPeerClick={(name) => { selected++; clickedNames.push(name); }} webUiBaseUrl="http://127.0.0.1:7686" onOpenPeerWebUi={() => { selected++; }} width={1200} height={800} />
       </AccountMeshClientProvider>,
     ));
   }
@@ -152,6 +164,70 @@ describe("Mesh canvas wiring", () => {
     expect(card).not.toBeNull();
     await click([...card!.querySelectorAll("button")].find((element) => element.textContent === "Sign in") ?? null);
     expect(presence.signIns).toBe(1);
+  });
+
+  async function editName(name: string, next: string, code: "Enter" | "Escape") {
+    await click(button(`Rename ${name}`));
+    const input = host.querySelector<HTMLInputElement>(`input[aria-label="Name for ${name}"]`);
+    expect(input).not.toBeNull();
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, next);
+      input!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => input!.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, code })));
+  }
+
+  it("renames this machine inline with Enter and cancels with Escape", async () => {
+    const client = new FakeAccountMeshClient(snapshot());
+    await mount(client);
+    const name = client.state.self!.display_name ?? "Studio PC";
+    await editName(name, "Canceled", "Escape");
+    expect(client.renameCalls).toEqual([]);
+    expect(host.querySelector("input")).toBeNull();
+    client.listRows = client.state.registry!.rows.map((row) => row.installation_id === client.state.self!.installation_id ? { ...row, display_name: "Workstation", metadata_revision: row.metadata_revision + 1 } : row);
+    await editName(name, " Workstation ", "Enter");
+    expect(client.renameCalls).toEqual([[client.state.self!.metadata_revision, "Workstation"]]);
+    expect(host.querySelector("input")).toBeNull();
+    expect(button("Rename Workstation")).not.toBeNull();
+    expect(selected).toBe(0);
+    await click(host.querySelector('[role="button"][aria-label="Open Workstation"]'));
+    expect(clickedNames).toEqual(["Studio PC"]);
+  });
+
+  it("keeps the rename draft after a refusal and saves it on the next Enter", async () => {
+    const client = new FakeAccountMeshClient(snapshot());
+    client.renameOutcomes = [{ ok: false, failure: { reason: "conflict" } }, { ok: true }];
+    await mount(client);
+    const name = client.state.self!.display_name ?? "Studio PC";
+    await editName(name, "Workstation", "Enter");
+    const input = host.querySelector<HTMLInputElement>("input");
+    expect(input?.value).toBe("Workstation");
+    await act(async () => input!.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, code: "Enter" })));
+    expect(client.renameCalls).toHaveLength(2);
+    expect(host.querySelector("input")).toBeNull();
+  });
+
+  it("relays a connected account machine's rename and disables disconnected machines", async () => {
+    const client = new FakeAccountMeshClient(snapshot({ pairs: [pair("mesh-mac", "mac.local", { installation_id: macRow.installation_id })] }));
+    await mount(client, [peer("mesh-mac", "mac.local")]);
+    expect(button("Rename Lenovo")?.disabled).toBe(true);
+    expect(button("Rename Lenovo")?.title).toBe("Connect to rename it, or rename it on that machine");
+    client.listRows = client.state.registry!.rows.map((row) => row.installation_id === macRow.installation_id ? { ...row, display_name: "Travel Mac", metadata_revision: row.metadata_revision + 1 } : row);
+    await editName("MacBook", "Travel Mac", "Enter");
+    expect(client.peerRenameCalls).toEqual([["mesh-mac", macRow.metadata_revision, "Travel Mac"]]);
+    expect(client.renameCalls).toEqual([]);
+    expect(selected).toBe(0);
+    expect(button("Rename Travel Mac")).not.toBeNull();
+    await click(host.querySelector('[role="button"][aria-label="Open Travel Mac"]'));
+    expect(clickedNames).toEqual(["mac.local"]);
+  });
+
+  it("disables rename for an offline paired machine", async () => {
+    const client = new FakeAccountMeshClient(snapshot({ pairs: [pair("mesh-mac", "mac.local", { installation_id: macRow.installation_id, online: false })] }));
+    await mount(client, [peer("mesh-mac", "mac.local", { online: false })]);
+    expect(button("Rename MacBook")?.disabled).toBe(true);
+    expect(button("Rename MacBook")?.title).toBe("Connect to rename it, or rename it on that machine");
+    expect(client.peerRenameCalls).toEqual([]);
   });
 
   it("offers one reauthentication action on this machine and waits for backend enrollment", async () => {
