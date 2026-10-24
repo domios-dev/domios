@@ -58,6 +58,8 @@ const inputPathspecs = [
   "scripts/dev-prep.mjs",
   "scripts/dev-reload-inputs.cjs",
   "scripts/dev-server.mjs",
+  "scripts/dev-rebuild-stop.mjs",
+  "scripts/windows-dev-rebuild-stop.ps1",
   "scripts/dev-server-bootstrap.ps1",
   "scripts/server-artifact.mjs",
   "scripts/dev-macos-bundle.mjs",
