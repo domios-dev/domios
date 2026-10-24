@@ -53,3 +53,12 @@ fn mesh_status_exposes_publication_refusal_and_retry_deadline() {
     assert!(lines.contains("107"));
     assert!(lines.contains("waiting to retry"));
 }
+#[test]
+fn mesh_status_explains_required_reauthentication() {
+    let lines = super::account_mesh_status_lines(&serde_json::json!({
+        "enrollment": "refused",
+        "last_refusal": { "reason": "reauth_required" },
+        "retry_at": null
+    }));
+    assert_eq!(lines, ["Sign in again to add this machine to your mesh"]);
+}

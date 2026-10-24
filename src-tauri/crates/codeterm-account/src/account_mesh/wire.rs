@@ -362,6 +362,8 @@ pub enum RegistryRefusal {
     Invalid,
     #[serde(rename = "unauthenticated")]
     Unauthenticated,
+    #[serde(rename = "reauth_required")]
+    ReauthRequired,
     #[serde(rename = "app-check")]
     AppCheck,
     #[serde(rename = "forbidden")]

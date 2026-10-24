@@ -426,9 +426,21 @@ impl AccountMesh {
         (cleanup, persisted)
     }
 
-    /// Single-flight enrollment/renewal for the current account epoch. Concurrent triggers join
-    /// the running flight and an explicit one awaits its outcome; sign-out or account change
-    /// cancels it.
+    pub fn enrollment_signed_in(&self) {
+        self.with(|inner| {
+            if inner.state.last_refusal != Some(AccountMeshRefusal::ReauthRequired) {
+                return;
+            }
+            inner.retry = Default::default();
+            inner.lease += 1;
+            inner.update(&self.watch, |state| {
+                state.last_refusal = None;
+                state.enrollment = Enrollment::Idle;
+                state.retry_at = None;
+            });
+        });
+    }
+
     pub async fn refresh(self: &Arc<Self>, trigger: EnrollTrigger) -> Settled {
         let started = self.with(|inner| {
             let Presence::SignedIn { .. } = inner.state.presence else {
@@ -437,6 +449,9 @@ impl AccountMesh {
                     _ => AccountMeshRefusal::Unauthenticated,
                 });
             };
+            if inner.state.last_refusal == Some(AccountMeshRefusal::ReauthRequired) {
+                return Err(AccountMeshRefusal::ReauthRequired);
+            }
             let epoch = inner.state.account_epoch;
             if let Some(refusal) = inner.retry.pending(self.now()) {
                 return Err(refusal);
@@ -518,7 +533,10 @@ impl AccountMesh {
             }
             inner.retry.settle(self.now(), *result);
             let retry_at = inner.retry.deadline;
-            let rerun = if owned && retry_at.is_none() {
+            let rerun = if owned
+                && retry_at.is_none()
+                && *result != Err(AccountMeshRefusal::ReauthRequired)
+            {
                 inner
                     .flight
                     .as_mut()
