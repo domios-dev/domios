@@ -434,6 +434,9 @@ function TabItemInner({
       )}
       {!editing && <button
         type="button"
+        data-first-run-allowed={isFirstRunGeneralTab(tab) || undefined}
+        data-first-run-home={isFirstRunGeneralTab(tab) || undefined}
+        aria-disabled={isFirstRunGeneralTab(tab) ? false : undefined}
         aria-label={`${isGeneralAgent ? accessibleTitle : `Open tab ${accessibleTitle}`}${managedBy ? `, ${managedBy}` : ""}${restoreFailure.showFailureBadge ? ", launch failed" : ""}`}
         aria-current={isActive ? "page" : undefined}
         onClick={activate}

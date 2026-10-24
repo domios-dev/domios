@@ -1,4 +1,6 @@
 import { createNoticePublisher } from "../../lib/notices";
+import { firstRunLocked, firstRunSelection, firstRunSidebarTabs } from "../../lib/firstRunGate";
+import { FirstRunControls } from "../AgentPicker/FirstRunControls";
 import { useTeamClose } from "./useTeamClose";
 import { isWorkspaceCwdRefusal, spawnErrorMessage } from "../../lib/spawnErrorMessage";
 import { precheckFreeLimit } from "../billing/freeLimitGate";
@@ -31,7 +33,7 @@ import {
 import { RemoteFolderPicker } from "../shared/RemoteFolderPicker";
 import { LiquidFlip } from "../shared/LiquidToggle";
 import type { MeshPresence } from "./meshPresenceHeader";
-import { flattenSidebarTabs, isSidebarTabVisible, tabsInWorkspace } from "./workspaceTabs";
+import { flattenSidebarTabs, isGeneralSectionTab, isSidebarTabVisible, tabsInWorkspace } from "./workspaceTabs";
 import { aggregateTabStatuses } from "./tabStatuses";
 import { usePlanIndexOptional, useSidebarPlansOptional } from "../Canvas/PlansProvider";
 import { renamePlan } from "../Canvas/plansApi";
@@ -53,7 +55,6 @@ import type { OrchestrationGroupMember } from "./orchestrationGroupClose";
 import { hydrateProtectedExpanded, initialSidebarExpanded, partitionSidebarWorkspaces } from "./sidebarSections";
 import { NewSessionPicker } from "../Terminal/NewSessionPicker";
 import { OPEN_NEW_SESSION_EVENT, type OpenNewSessionDetail } from "../../lib/newSessionChoice";
-import { isFirstRunGeneralTab } from "../AgentPicker";
 import { RemoteTabPicker } from "./RemoteTabPicker";
 import { tabAttentionByTab } from "./tabAttention";
 import { teamCloseResourcesForId, teamCloseResourcesForWorkspace, type TeamCloseResource } from "./teamCloseResources";
@@ -133,7 +134,11 @@ export const Sidebar = memo(function Sidebar({
     selectTabByTab,
     upsertToast,
   } = useMultiplexer();
-  const state = useMuxSelector(selectSidebarState, sidebarStateEqual);
+  const backendState = useMuxSelector(selectSidebarState, sidebarStateEqual);
+  const firstRunActive = firstRunLocked(config?.general_agent);
+  const selectedState = firstRunSelection(firstRunActive, { ...backendState, focused_tab_id: null });
+  const visibleTabs = useMemo(() => firstRunSidebarTabs(firstRunActive, backendState.tabs), [firstRunActive, backendState.tabs]);
+  const state = { ...selectedState, tabs: visibleTabs };
   const reopenRecentlyClosed = useCallback((workspaceId: string, index: number, orphaned: boolean, tabId: string) => {
     if (orphaned) restoreOrphaned(tabId);
     else reopenClosed(workspaceId, index);
@@ -240,10 +245,6 @@ export const Sidebar = memo(function Sidebar({
     });
   }, [upsertToast, createOrchestrationPair, orchestrationModal, selectTabByTab]);
 
-  const firstRunActive = useMemo(
-    () => Object.values(state.tabs).some(isFirstRunGeneralTab),
-    [state.tabs],
-  );
 
   const handleNewSession = useCallback((workspaceId: string, workspaceCwd: string | null) => {
     if (firstRunActive) return;
@@ -679,10 +680,10 @@ export const Sidebar = memo(function Sidebar({
     compact: isCompact,
     sidebarActionText,
     orchestrators: orchestratorTabs,
-    newSessionDisabled: firstRunActive,
+    newSessionDisabled: false,
   }), [state.tabs, state.tabStatuses, attention, state.teams, planIndex, fullPlans.plans, visibleProviders,
     providersLoading, closingTabIds, appearingTabs, closingTeamIds, state.activeTabIds, state.active_workspace_id,
-    isWorkspaceMode, workspaceCanvasActive, touchMode, uiFontScale, isCompact, sidebarActionText, orchestratorTabs, firstRunActive]);
+    isWorkspaceMode, workspaceCanvasActive, touchMode, uiFontScale, isCompact, sidebarActionText, orchestratorTabs]);
   const workspaceDetailActions = useMemo<SidebarWorkspaceDetailActions>(() => ({
     activateWorkspace: (workspaceId) => { setActiveWorkspace(workspaceId); onNavigateToTab?.(); },
     activateTab: (workspaceId, tabId) => { setActiveTab(workspaceId, tabId); onNavigateToTab?.(); },
@@ -718,7 +719,7 @@ export const Sidebar = memo(function Sidebar({
       return { workspaceId, label, tabs, activeTabId: active?.id ?? null };
     };
     const groups: CompactRailGroup[] = [];
-    if (generalWorkspace) groups.push(railGroup(generalWorkspace.id, generalWorkspace.name, generalWorkspace.tabs, (tab) => Boolean(tab.agent_type)));
+    if (generalWorkspace) groups.push(railGroup(generalWorkspace.id, generalWorkspace.name, generalWorkspace.tabs, isGeneralSectionTab));
     const selected = ordinaryWorkspaces.find((workspace) => workspace.id === selectedWorkspaceId);
     if (selected) groups.push(railGroup(selected.id, selected.name, selected.tabs, (tab) => anchorsTeam(tab)));
     return groups;
@@ -727,7 +728,7 @@ export const Sidebar = memo(function Sidebar({
   const scrollAnchor = useSidebarScrollAnchor(!isSidebarCollapsed || isPeeking);
 
   return (
-    <>
+    <FirstRunControls locked={firstRunActive}>
       <div
         className="relative overflow-visible shrink-0 h-full"
         style={{
@@ -769,7 +770,7 @@ export const Sidebar = memo(function Sidebar({
               {!isCompact && !restoring && generalWorkspace && (
                 <SidebarGeneralSection
                   workspace={generalWorkspace}
-                  expanded={expandedWorkspaces.has(generalWorkspace.id)}
+                  expanded={firstRunActive || expandedWorkspaces.has(generalWorkspace.id)}
                   onToggle={() => toggleExpanded(generalWorkspace.id)}
                   providerId={config?.general_agent.agent_provider}
                   api={config?.api}
@@ -978,6 +979,6 @@ export const Sidebar = memo(function Sidebar({
           }}
         />
       )}
-    </>
+    </FirstRunControls>
   );
 });
