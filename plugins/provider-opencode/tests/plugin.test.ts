@@ -952,6 +952,27 @@ console.log("\n--- detectSessionModel (identity-bound, no cwd fallback) ---\n");
 
 console.log("\n--- usageSources (session-scoped sqlite log) ---\n");
 {
+  const queries: { sql: string; params: unknown[] }[] = [];
+  let sessionRow: unknown = { id: "ses_owned", model: '{"id":"big-pickle","providerID":"opencode"}' };
+  const p = loadOpencodeWithHost(ocHost({
+    fs: {
+      fileExists: () => true,
+      sqliteQuery: (_db: string, sql: string, params: unknown[]) => {
+        queries.push({ sql, params });
+        return sql.includes("FROM session") ? [sessionRow] : [];
+      },
+    },
+  }));
+  eq(p.detectSessionModel("/cwd", "ses_owned"), "opencode/big-pickle", "session model is visible before the first assistant message");
+  assert(queries.every(({ sql, params }) => sql.includes("= ?1") && params[0] === "ses_owned"), "startup model queries belong to the exact session");
+  sessionRow = { id: "ses_sibling", model: '{"id":"other","providerID":"opencode"}' };
+  eq(p.detectSessionModel("/cwd", "ses_owned"), null, "a foreign session row cannot supply the startup model");
+  sessionRow = { id: "ses_owned", model: '{"id":"big-pickle"}' };
+  eq(p.detectSessionModel("/cwd", "ses_owned"), null, "unqualified session model without its provider stays unknown");
+  sessionRow = { id: "ses_owned", model: "invalid" };
+  eq(p.detectSessionModel("/cwd", "ses_owned"), null, "malformed session model stays unknown");
+}
+{
   const dbPath = "~/.local/share/opencode/opencode.db";
   const p = loadOpencodeWithHost(ocHost({
     fs: { fileExists: (pth: string) => pth === dbPath },
