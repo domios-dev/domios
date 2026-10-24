@@ -27,6 +27,79 @@ fn journal_id(job: &Sentinel) -> SentinelId {
     SentinelId::new(job.id.clone()).expect("journal sentinel id")
 }
 
+#[test]
+fn journal_evidence_round_trip_large_marker_size_refusal_and_legacy_rows() {
+    let root = temp_root();
+    let storage = open(root.path());
+    let clock = Arc::new(MockClock::starting_at(1000));
+    let store = typed(&storage, &clock);
+    let job = create_pipeline(&store, owner(None));
+    done(storage.sentinels().write_blueprint_journal(
+        journal_id(&job),
+        BlueprintJournalWrite::Claim {
+            definition_version: Some(1),
+            parent: None,
+            run_id: "evidence".into(),
+            marker: JournalMarker::Step(70000),
+            step_name: "emit".into(),
+            generation: 0,
+            started_at_ms: 1000,
+        },
+    ));
+    let evidence = json!({"ports":{"inputs":{"in":{"preview":"7","type":"number","bytes":1,"truncated":false,"redacted":false}},"outputs":{}}}).as_object().unwrap().clone();
+    let write = |evidence| BlueprintJournalWrite::Finish {
+        evidence: Some(evidence),
+        run_id: "evidence".into(),
+        marker: JournalMarker::Step(70000),
+        state: JournalState::Done,
+        outcome: "done".into(),
+        ended_at_ms: 1100,
+        result_summary: "done".into(),
+        body_ref: None,
+        reason: None,
+    };
+    let oversized = json!({"padding":"λ".repeat(16384)})
+        .as_object()
+        .unwrap()
+        .clone();
+    assert!(storage
+        .sentinels()
+        .write_blueprint_journal(journal_id(&job), write(oversized))
+        .wait(Duration::from_secs(10))
+        .is_err());
+    done(
+        storage
+            .sentinels()
+            .write_blueprint_journal(journal_id(&job), write(evidence.clone())),
+    );
+    let mut followup = decision("evidence", 1200, "unchanged".into());
+    if let BlueprintJournalWrite::Decision { marker, .. } = &mut followup {
+        *marker = JournalMarker::Step(70000);
+    }
+    done(
+        storage
+            .sentinels()
+            .write_blueprint_journal(journal_id(&job), followup),
+    );
+    close(storage);
+    let storage = open(root.path());
+    let entries = done(storage.sentinels().blueprint_log(journal_id(&job), 1)).value;
+    assert_eq!(entries.len(), 3);
+    for entry in &entries[..2] {
+        assert_eq!(entry.marker(), JournalMarker::Step(70000));
+        assert_eq!(entry.evidence, evidence);
+        assert_eq!(
+            serde_json::to_value(entry).unwrap()["ports"],
+            evidence["ports"]
+        );
+    }
+    assert!(entries[2].evidence.is_empty());
+    let old: codeterm_storage::BlueprintJournalEntry = serde_json::from_value(json!({"entry_id":1,"run_id":"legacy","step_index":0,"step_name":"old","state":"done","outcome":"done","started_at_ms":1,"ended_at_ms":2})).unwrap();
+    assert!(old.evidence.is_empty());
+    assert!(serde_json::to_value(old).unwrap().get("ports").is_none());
+    close(storage);
+}
+
 fn decision(run_id: &str, at_ms: u64, outcome: String) -> BlueprintJournalWrite {
     BlueprintJournalWrite::Decision {
         run_id: run_id.into(),
@@ -114,6 +187,7 @@ fn blueprint_journal_refuses_summaries_over_two_hundred_characters() {
         .write_blueprint_journal(
             journal_id(&job),
             BlueprintJournalWrite::Finish {
+                evidence: None,
                 run_id: "run_summary".into(),
                 marker: JournalMarker::Step(0),
                 state: "done".into(),
@@ -144,7 +218,7 @@ fn blueprint_pipeline_journal_records_each_step_boundary_in_order() {
                 definition_version: None,
                 parent: None,
                 run_id: run_id.into(),
-                marker: JournalMarker::Step(step_index as u16),
+                marker: JournalMarker::Step(step_index as u32),
                 step_name: step_name.into(),
                 generation: 0,
                 started_at_ms: start,
@@ -153,8 +227,9 @@ fn blueprint_pipeline_journal_records_each_step_boundary_in_order() {
         done(storage.sentinels().write_blueprint_journal(
             journal_id(&job),
             BlueprintJournalWrite::Finish {
+                evidence: None,
                 run_id: run_id.into(),
-                marker: JournalMarker::Step(step_index as u16),
+                marker: JournalMarker::Step(step_index as u32),
                 state: "done".into(),
                 outcome: "done".into(),
                 ended_at_ms: end,
@@ -203,6 +278,7 @@ fn blueprint_journal_retains_a_complete_sixty_four_step_run_and_derives_its_clos
                 started_at_ms: at,
             },
             BlueprintJournalWrite::Finish {
+                evidence: None,
                 run_id: "long-run".into(),
                 marker,
                 state: JournalState::Done,
@@ -310,6 +386,7 @@ fn blueprint_journal_body_reference_round_trips_outside_summary_and_held_close_i
     done(storage.sentinels().write_blueprint_journal(
         journal_id(&job),
         BlueprintJournalWrite::Finish {
+            evidence: None,
             run_id: "result-run".into(),
             marker: JournalMarker::Result,
             state: JournalState::Failed,

@@ -2,6 +2,7 @@ mod checkpoint;
 mod code;
 mod dispatch;
 mod execution;
+pub(crate) mod previews;
 pub(crate) use checkpoint::retained_inputs;
 mod sources;
 use codeterm_blueprint_types::blueprint_execution::ExecutionEnvelope;
@@ -462,6 +463,7 @@ fn run_pipeline(
                     handle,
                     &lease.job,
                     BlueprintJournalWrite::Finish {
+                        evidence: None,
                         run_id: run_id.to_string(),
                         marker: JournalMarker::Result,
                         state: "failed".into(),
@@ -559,6 +561,7 @@ fn run_pipeline(
         };
         let summary = format!("result {}", result.state);
         let finish = BlueprintJournalWrite::Finish {
+            evidence: None,
             run_id: run_id.to_string(),
             marker: JournalMarker::Result,
             state: journal_state.into(),
@@ -751,6 +754,7 @@ fn record_result_failure(
             handle,
             &lease.job,
             BlueprintJournalWrite::Finish {
+                evidence: None,
                 run_id: run_id.into(),
                 marker: JournalMarker::Result,
                 state: "failed".into(),
@@ -770,6 +774,7 @@ fn unresolved_target_finish(
     body_ref: &str,
 ) -> BlueprintJournalWrite {
     BlueprintJournalWrite::Finish {
+        evidence: None,
         run_id: run_id.into(),
         marker: JournalMarker::Result,
         state: "failed".into(),

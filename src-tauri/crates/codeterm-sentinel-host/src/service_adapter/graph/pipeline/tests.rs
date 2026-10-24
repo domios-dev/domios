@@ -76,6 +76,7 @@ fn blueprint_pipeline_read_model_revision_tracks_journal_rows() {
     let journals = BTreeMap::from([(
         job.id.clone(),
         vec![BlueprintJournalEntry {
+            evidence: Default::default(),
             parent_step_index: None,
             definition_version: None,
             call_stack: Vec::new(),
@@ -107,6 +108,7 @@ fn blueprint_delivery_read_model_projects_reason_and_body_reference() {
     let document = json!({"schema_version":2,"kind":"pipeline","name":"result delivery","owner":"tab","trigger":{"type":"schedule","every":{"lit":"20s"}},"steps":[{"id":"emit","run":{"lit":"echo ready"}}],"result":{"to":"owner"}});
     let job = store.prepare_document(document, owner(), true).unwrap();
     let journal = BlueprintJournalEntry {
+        evidence: Default::default(),
         parent_step_index: None,
         definition_version: None,
         call_stack: Vec::new(),
@@ -163,6 +165,7 @@ fn row(
     outcome: Option<&str>,
 ) -> BlueprintJournalEntry {
     BlueprintJournalEntry {
+        evidence: Default::default(),
         parent_step_index: None,
         definition_version: None,
         call_stack: Vec::new(),
