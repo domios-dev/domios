@@ -60,11 +60,12 @@ function insertWithPadding(el: HTMLTextAreaElement, text: string, focus = true) 
   replaceTextareaRange(el, start, end, `${lead}${text}${trail}`, focus);
 }
 
-export function useComposerCapsules({ tabId, textareaRef, sinkRef, onError }: {
+export function useComposerCapsules({ tabId, textareaRef, sinkRef, onError, keepTextInline = false }: {
   tabId: string;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   sinkRef?: MutableRefObject<InlineAttachmentSink | null>;
   onError: (message: string) => void;
+  keepTextInline?: boolean;
 }) {
   const [raw, setRaw] = usePersistentDraft(`tab-session-chat-capsules:${tabId}`);
   const [registry, setRegistry] = useState(() => decodeCapsuleRegistry(raw));
@@ -158,11 +159,11 @@ export function useComposerCapsules({ tabId, textareaRef, sinkRef, onError }: {
       replaceTextareaRange(el, start, end, absorbed.text);
       return true;
     }
-    if (!isLongPaste(text)) return false;
+    if (keepTextInline || !isLongPaste(text)) return false;
     event.preventDefault();
     void storeLongText(text, el);
     return true;
-  }, [commit, storeLongText]);
+  }, [commit, storeLongText, keepTextInline]);
 
   const handleCopy = useCallback((event: ClipboardEvent<HTMLTextAreaElement>, cut: boolean) => {
     const el = event.currentTarget;

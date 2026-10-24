@@ -64,6 +64,14 @@ impl ClaudeProvider {
 }
 
 impl AgentProvider for ClaudeProvider {
+    fn attachment_capabilities(&self) -> crate::provider::AttachmentCapabilities {
+        crate::provider::AttachmentCapabilities {
+            file_paths: true,
+            inline_text: true,
+            image_paths: true,
+        }
+    }
+
     fn session_jsonl_path(&self, cwd: &str, session_id: &str) -> Option<std::path::PathBuf> {
         sessions::session_file_path(cwd, session_id)
     }

@@ -229,6 +229,7 @@ pub trait ChatBackendProvider: Send + Sync {
     fn describe(&self) -> ProviderDescriptor {
         let catalog = model_catalog::registered_snapshot(self.id());
         ProviderDescriptor {
+            attachments: Default::default(),
             remote_task: self.remote_task_capability(),
             agent_runtime: self.agent_runtime(),
             supports_session_fork: false,

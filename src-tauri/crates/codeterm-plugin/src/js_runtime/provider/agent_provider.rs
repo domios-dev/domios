@@ -642,6 +642,9 @@ impl AgentProvider for JsProvider {
         self.manifest.spawn.session_id_injection.into()
     }
 
+    fn attachment_capabilities(&self) -> crate::provider::AttachmentCapabilities {
+        self.manifest.capabilities.attachments
+    }
     fn context_attach(&self) -> Option<crate::provider::ContextAttach> {
         self.manifest.capabilities.context_attach
     }
