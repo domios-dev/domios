@@ -172,8 +172,8 @@ export function MachineManagement({ machines }: { machines: MachinesController }
       <Notes notes={view.notes} />
       {enrollmentRefused && !view.machineLimit && (
         <div className="flex gap-2">
-          {view.reauthRequired || snapshot?.last_refusal?.reason === "unauthenticated" || snapshot?.last_refusal?.reason === "app-check" ? (
-            <button type="button" onClick={() => void signIn()} disabled={signingIn} className={PRIMARY_BTN}>Sign in again</button>
+          {view.removed || view.reauthRequired || snapshot?.last_refusal?.reason === "unauthenticated" || snapshot?.last_refusal?.reason === "app-check" ? (
+            <button type="button" onClick={() => void signIn()} disabled={signingIn} className={PRIMARY_BTN}>{view.removed ? "Sign in and rejoin" : "Sign in again"}</button>
           ) : (
             <button type="button" onClick={() => void retryEnrollment()} className={ACTION_BTN}>{view.removed ? "Rejoin" : "Retry enrollment"}</button>
           )}
