@@ -289,8 +289,10 @@ fn failure((status, message): (StatusCode, String)) -> GraphError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(debug_assertions)]
     use codeterm_sentinel_host::SentinelExt;
 
+    #[cfg(debug_assertions)]
     fn native_watch(name: &str, kind: &str, target: &str) -> Value {
         json!({"schema_version":2,"kind":"watch","name":name,"steps":[
             {"id":"source","uses":"probe","with":{"command":{"lit":"status"}},"timeout":{"lit":"1h"}},
