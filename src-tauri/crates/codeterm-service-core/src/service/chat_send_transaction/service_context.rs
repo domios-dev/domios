@@ -100,7 +100,6 @@ impl crate::service::ServiceContext {
             None => pending,
         };
         let response = pending.clone();
-        let send_id = pending.send_id.clone();
         let svc = self.clone();
         let tab_id = tab_id.to_string();
         std::thread::spawn(move || {
@@ -113,21 +112,11 @@ impl crate::service::ServiceContext {
                         ),
                     );
                 }
-                // User-origin always-deliver: a transient pre-write unlink or an
-                // unconfirmed submit degrades to pending-until-link, never a refusal.
                 svc.send_human_input(
                     &tab_id,
                     crate::service::messenger::HumanInput::composer(text),
                     submit_claim,
                 )
-                .or_else(|err| {
-                    log::info!(
-                        "[chat-send] user send to Tab {tab_id} degraded to pending ({})",
-                        err.code()
-                    );
-                    svc.park_refused_user_send(&tab_id, &send_id, text, &err);
-                    err.into_surfaced(crate::service::delivery_error::SendOrigin::User)
-                })
             });
             if let Some(capture) = &capture {
                 capture

@@ -275,13 +275,39 @@ pub(crate) async fn submit_loaded(
     let submitted_turn = context.active_turn_id.clone();
     let operation = RuntimeOperation::SubmitTurn {
         thread_id: thread.clone(),
-        active_turn_id: context.active_turn_id,
+        active_turn_id: context.active_turn_id.clone(),
         send_id: pending.send_id.clone(),
         input,
-        settings: context.settings,
+        settings: context.settings.clone(),
     };
+    let starts = svc.runtime_turn_starts(tab, &context.binding_nonce, context.epoch);
+    let before_start = starts.sequence();
     let (result, handed_off) = engine::run_submit(svc, session, process, operation).await;
+    if let Err(
+        reason @ (RuntimeFailure::PipeEof
+        | RuntimeFailure::PipeFailure { .. }
+        | RuntimeFailure::ProcessExited {
+            requested: false, ..
+        }),
+    ) = &result
+    {
+        svc.recover_dead_chatbackend(
+            tab,
+            &context.binding_nonce,
+            context.epoch,
+            &reason.to_string(),
+        );
+    }
     let result = match result {
+        Err(
+            reason @ (RuntimeFailure::PipeEof
+            | RuntimeFailure::PipeFailure { .. }
+            | RuntimeFailure::ProcessExited {
+                requested: false, ..
+            }),
+        ) if !handed_off => Err(RuntimeFailure::PrewriteRefused(format!(
+            "{REJECTED_BEFORE_WRITE}: {reason}"
+        ))),
         Err(RuntimeFailure::HookFailed(reason)) if !handed_off => Err(
             RuntimeFailure::PrewriteRefused(format!("{REJECTED_BEFORE_WRITE}: {reason}")),
         ),
@@ -299,6 +325,15 @@ pub(crate) async fn submit_loaded(
             send_id,
             turn_id,
         }) if thread_id == thread && send_id == pending.send_id => {
+            if turn_id.is_none() || turn_id.as_ref() != submitted_turn.as_ref() {
+                svc.arm_runtime_turn_start(
+                    session,
+                    context.clone(),
+                    starts,
+                    before_start,
+                    turn_id.clone(),
+                );
+            }
             if let Some(turn) = turn_id {
                 session.capacity_retry.lock().bind(&send_id, &turn);
                 let mut current = session.context.lock();

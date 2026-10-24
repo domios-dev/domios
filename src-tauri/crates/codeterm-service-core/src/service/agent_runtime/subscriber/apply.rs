@@ -276,6 +276,14 @@ fn apply(svc: &ServiceContext, session: &Arc<Session>, epoch: u64, at: u64, even
             }
             match state {
                 RuntimeTurnState::Working => {
+                    if let Some(turn) = turn_id.as_deref() {
+                        svc.runtime_turn_starts(
+                            &context.tab_id,
+                            &context.binding_nonce,
+                            context.epoch,
+                        )
+                        .observe(turn);
+                    }
                     session
                         .state
                         .lock()
