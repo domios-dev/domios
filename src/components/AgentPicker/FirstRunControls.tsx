@@ -43,7 +43,7 @@ function useFirstRunControls(locked: boolean) {
     if (!locked) return;
     if (event.target instanceof Node && !root.current?.contains(event.target)) return;
     if (event.target instanceof Element && event.target.closest(allowed) && event.type !== "contextmenu" && event.type !== "dblclick") {
-      if (event.type === "pointerdown" && event.target.closest("[data-first-run-home=true]")) event.stopPropagation();
+      if (["pointerdown", "mousedown", "touchstart"].includes(event.type) && event.target.closest("[data-first-run-home=true]")) event.stopPropagation();
       return;
     }
     event.preventDefault();
@@ -55,5 +55,6 @@ function useFirstRunControls(locked: boolean) {
 export function FirstRunControls({ locked, children }: { locked: boolean; children: ReactNode }) {
   const { root, guard } = useFirstRunControls(locked);
   return <div ref={root} style={{ display: "contents" }} onClickCapture={guard} onPointerDownCapture={guard}
+    onMouseDownCapture={guard} onTouchStartCapture={guard}
     onDoubleClickCapture={guard} onContextMenuCapture={guard} onKeyDownCapture={guard}>{children}</div>;
 }
