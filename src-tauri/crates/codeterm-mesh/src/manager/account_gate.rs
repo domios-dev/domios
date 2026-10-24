@@ -6,7 +6,7 @@ use crate::account_mesh::gate::{self, BlockReason, TrafficDecision};
 use crate::account_mesh::ledger::{LinkAdmission, LinkRecord};
 use crate::account_mesh::protocol::AccountMeshPair;
 use crate::account_mesh::{
-    AccountMeshAuthority, AccountMeshState, AdmissionRefusal, SignedMembership,
+    AccountMeshAuthority, AccountMeshState, AccountPresence, AdmissionRefusal, SignedMembership,
 };
 use crate::MeshState;
 
@@ -41,6 +41,9 @@ impl MeshManager {
         if self.account_ready && self.account == state && !bound {
             return;
         }
+        if matches!(state.presence, AccountPresence::SignedOut) {
+            self.remote_access_epoch = self.remote_access_epoch.wrapping_add(1);
+        }
         self.account = state;
         self.account_ready = true;
         if bound {
@@ -53,6 +56,11 @@ impl MeshManager {
 
     pub fn account_state(&self) -> &AccountMeshState {
         &self.account
+    }
+
+    pub fn remote_access_epoch(&self) -> Option<u64> {
+        (self.account_ready && !matches!(self.account.presence, AccountPresence::SignedOut))
+            .then_some(self.remote_access_epoch)
     }
 
     pub fn bind_account_authority(&mut self, authority: Arc<dyn AccountMeshAuthority>) {
@@ -84,6 +92,7 @@ impl MeshManager {
     /// sign-out is never bypassed during startup.
     pub fn await_account_state(&mut self) {
         self.account_ready = false;
+        self.remote_access_epoch = self.remote_access_epoch.wrapping_add(1);
         self.bump_gate();
     }
 
