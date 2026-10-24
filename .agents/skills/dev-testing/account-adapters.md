@@ -23,6 +23,47 @@ QA values or a simultaneous emulator opt-in refuse startup with an explicit
 diagnostic. The target is compiled into debug builds; release and install-local
 ignore it and retain production endpoints. Production build secrets stay unchanged.
 
+### Agent sign-in without exposing the password
+
+Use an Orchestrator-owned DEV built with `DOMIOS_ACCOUNT_TARGET=qa`; verify its
+health SHA and QA target first. Workers do not start lane servers. In a DEV-bound
+bash utility shell, start login and leave the request running until completion:
+
+```bash
+source evals/_lib/lib.sh
+dc account login
+```
+
+In a second DEV-bound shell, read the pending URL and open the calling agent's
+Browser on the same machine as DEV. The authenticated debug-only route returns
+404 unless a hosted login is pending; the verifier remains in-process.
+
+```bash
+source evals/_lib/lib.sh
+login_url=$(dev_get /api/account/login/pending | python3 -c 'import json,sys; sys.stdout.write(json.load(sys.stdin)["url"])')
+domios plugin browser open "$login_url" --profile clean
+domios plugin browser snapshot
+```
+
+Select email sign-in if the hosted page first offers provider choices, then use
+the controls' exact refs from each fresh snapshot. The secret-store entry is
+a JSON object with `email` and `password`. Run without shell tracing; never print
+or save the secret. Substitute the observed refs in these commands:
+
+```bash
+domios mem secret get --name domios-qa-free | python3 -c 'import json,sys; sys.stdout.write(json.load(sys.stdin)["email"])' | domios plugin browser type <email-ref> --stdin
+domios plugin browser snapshot
+domios mem secret get --name domios-qa-free | python3 -c 'import json,sys; sys.stdout.write(json.load(sys.stdin)["password"])' | domios plugin browser type <password-ref> --stdin
+domios plugin browser press Enter
+```
+
+The extraction writes exact bytes without a trailing newline. Stdin typing also
+masks the email when using this procedure. Observe the hosted success page and
+the first request completing, then use `dev_get /api/account/status` to prove the
+QA identity is signed in and `pending` is false. The pending route must now return
+404. A hosted success page alone does not prove DEV login completed. Never reveal
+the password field or capture screenshots with unmasked credentials.
+
 Debug builds pin the TEST key `test-2026-10` and take the TEST project from build-time `DOMIOS_QA_PROJECT_ID`, which build.sh injects from the secret store. Without it, DEV refuses every verdict and stays plain free. The signing key is the secret `entitlements/test-signing-key` (base64 PKCS#8 DER); never print or copy it.
 
 1. Build DEV through build.sh on a machine whose secret store holds `DOMIOS_QA_PROJECT_ID` and `entitlements/test-signing-key`.

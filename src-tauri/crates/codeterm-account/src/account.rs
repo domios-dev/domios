@@ -36,6 +36,8 @@ struct State {
     pending: Option<(LoginFlow, oneshot::Sender<Redemption>)>,
     generation: u64,
     busy: bool,
+    #[cfg(debug_assertions)]
+    pending_url: Option<url::Url>,
     last_sign_in_failure: Option<SignInFailure>,
 }
 pub struct Account {
@@ -75,6 +77,12 @@ impl Account {
             last_sign_in_failure: state.last_sign_in_failure,
         }
     }
+    #[cfg(debug_assertions)]
+    pub async fn pending_login_url(&self) -> Option<url::Url> {
+        let state = self.state.lock().await;
+        state.pending.as_ref()?;
+        state.pending_url.clone()
+    }
     pub async fn complete(&self, callback: Callback) -> Result<()> {
         self.prepare_callback(callback).await?.send()
     }
@@ -83,6 +91,10 @@ impl Account {
         let (flow, _) = state.pending.as_mut().ok_or(Error::Consumed)?;
         let request = flow.complete(callback)?;
         let (_, sender) = state.pending.take().ok_or(Error::Consumed)?;
+        #[cfg(debug_assertions)]
+        {
+            state.pending_url = None;
+        }
         Ok(Completion { sender, request })
     }
     pub async fn login(self: &Arc<Self>, browser: &dyn Browser) -> Result<Status> {
@@ -125,6 +137,8 @@ impl Account {
                         let mut state = self.state.lock().await;
                         if generation != state.generation { return Err(Error::Cancelled); }
                         state.pending = Some((flow, sender));
+                        #[cfg(debug_assertions)]
+                        { state.pending_url = Some(url.clone()); }
                     }
                     attempt.run(SignInStage::Browser, browser.open(&url)).await?;
                     let serve = loopback.serve(self.clone());
@@ -145,6 +159,10 @@ impl Account {
     async fn finish_login(&self, result: Result<()>, attempt: &SignInAttempt) -> Result<()> {
         let mut state = self.state.lock().await;
         state.pending = None;
+        #[cfg(debug_assertions)]
+        {
+            state.pending_url = None;
+        }
         state.busy = false;
         state.last_sign_in_failure = attempt.failure(result.as_ref().err().copied());
         if let Some(failure) = state.last_sign_in_failure {
@@ -213,6 +231,10 @@ impl Account {
             let mut state = self.state.lock().await;
             state.generation += 1;
             state.pending = None;
+            #[cfg(debug_assertions)]
+            {
+                state.pending_url = None;
+            }
             state.busy = false;
             state.session = None;
             if let Some(observer) = &self.observer {
