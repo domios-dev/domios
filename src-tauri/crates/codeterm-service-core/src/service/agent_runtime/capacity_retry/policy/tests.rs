@@ -125,3 +125,17 @@ fn a_later_permanent_error_clears_earlier_transient_authority() {
     policy.clear_error("turn");
     assert_eq!(policy.finish("turn", true, 123), Decision::Ignore);
 }
+
+#[test]
+fn retry_message_ownership_ends_when_a_new_turn_begins() {
+    let mut policy = Policy::default();
+    policy.begin("original", "opaque");
+    policy.pending = Some("old-message".into());
+    assert!(policy.owns_message("old-message"));
+    policy.claim("old-message", "retry").unwrap();
+    assert!(policy.owns_message("old-message"));
+    policy.begin("new-turn", "new text");
+    policy.pending = Some("new-message".into());
+    assert!(!policy.owns_message("old-message"));
+    assert!(policy.owns_message("new-message"));
+}

@@ -17,6 +17,7 @@ pub(in crate::service::agent_runtime) struct Policy {
     failure: Option<Failure>,
     reset_retry_used: bool,
     retry_claimed: bool,
+    claimed_message: Option<String>,
     revoked_send: Option<String>,
     completed: bool,
 }
@@ -103,6 +104,7 @@ impl Policy {
             return None;
         }
         self.pending = None;
+        self.claimed_message = Some(id.into());
         self.send_id = send_id.into();
         self.turn_id = None;
         self.failure = None;
@@ -127,6 +129,10 @@ impl Policy {
 
     pub fn permits_send(&self, send_id: &str) -> bool {
         self.revoked_send.as_deref() != Some(send_id)
+    }
+
+    pub fn owns_message(&self, id: &str) -> bool {
+        self.pending.as_deref() == Some(id) || self.claimed_message.as_deref() == Some(id)
     }
 }
 

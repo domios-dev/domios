@@ -161,6 +161,22 @@ fn capacity_retry_new_user_send_and_model_choice_cancel_the_queued_attempt() {
                 .len(),
             1
         );
+        let queue = fixture.service.ext::<DelayedSendQueue>();
+        let current = queue.list(Some(&tab)).pop().unwrap();
+        let old = queue
+            .enqueue_turn_retry(
+                &tab,
+                "older turn",
+                9_999,
+                current.turn_retry.clone().unwrap(),
+            )
+            .unwrap();
+        crate::delayed_send::delete_message(&fixture.service, old.id).unwrap();
+        assert_eq!(
+            session.capacity_retry.lock().pending.as_deref(),
+            Some(current.id.as_str())
+        );
+        assert_eq!(queue.list(Some(&tab)).len(), 1);
         if model_choice {
             assert!(super::super::super::controls::switch(
                 &fixture.service,

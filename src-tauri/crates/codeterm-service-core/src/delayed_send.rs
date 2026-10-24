@@ -852,7 +852,7 @@ pub fn delete_message(
         .ext::<crate::delayed_send::DelayedSendQueue>()
         .delete(&id)?;
     if msg.turn_retry.is_some() {
-        crate::service::agent_runtime::capacity_retry::cancel(svc, &msg.tab_id)?;
+        crate::service::agent_runtime::capacity_retry::cancel_message(svc, &msg.tab_id, &msg.id)?;
     }
     emit_changed(svc, &msg.tab_id);
     Ok(to_view(svc, msg))

@@ -12,8 +12,22 @@ mod policy;
 pub(super) use policy::Policy;
 
 pub(crate) fn cancel(svc: &ServiceContext, tab: &str) -> Result<(), String> {
+    cancel_matching(svc, tab, None)
+}
+
+pub(crate) fn cancel_message(svc: &ServiceContext, tab: &str, id: &str) -> Result<(), String> {
+    cancel_matching(svc, tab, Some(id))
+}
+
+fn cancel_matching(svc: &ServiceContext, tab: &str, id: Option<&str>) -> Result<(), String> {
     if let Some(session) = engine::for_tab(tab) {
-        let pending = session.capacity_retry.lock().cancel();
+        let pending = {
+            let mut policy = session.capacity_retry.lock();
+            if id.is_some_and(|id| !policy.owns_message(id)) {
+                return Ok(());
+            }
+            policy.cancel()
+        };
         if let Some(id) = pending {
             let queue = svc.ext::<DelayedSendQueue>();
             if queue.list(Some(tab)).iter().any(|msg| {
