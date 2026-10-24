@@ -2031,6 +2031,7 @@ dependencies = [
  "codeterm-blueprint-types",
  "codeterm-cron",
  "codeterm-decision",
+ "codeterm-entitlements",
  "codeterm-events",
  "codeterm-mem",
  "codeterm-plugin",

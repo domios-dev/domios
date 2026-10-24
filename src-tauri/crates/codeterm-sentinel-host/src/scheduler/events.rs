@@ -35,7 +35,9 @@ pub(super) fn reconcile_subscriptions(svc: &ServiceContext, handle: &Handle) {
                     &pipeline.trigger,
                     codeterm_blueprint_types::blueprint_pipeline::Trigger::Event { .. }
                 )
-            }) && !job.machine.stopped
+            }) && job.admission.permits_steps()
+                && !crate::plan_lock::locked(&svc.locks(), job)
+                && !job.machine.stopped
                 && !job.machine.paused
                 && !job.expires_at.is_some_and(|at| now >= at)
                 && super::super::routes::owner_live(svc, job)
@@ -68,7 +70,9 @@ pub(super) fn reconcile_subscriptions(svc: &ServiceContext, handle: &Handle) {
             Some(job) if job.expires_at.is_some_and(|at| now >= at) => {
                 codeterm_blueprint_types::blueprint_pipeline::SubscriptionOwnerState::Expired
             }
-            Some(job) if job.machine.stopped || job.machine.paused => {
+            Some(job)
+                if job.machine.stopped || job.machine.paused || !job.admission.permits_steps() =>
+            {
                 codeterm_blueprint_types::blueprint_pipeline::SubscriptionOwnerState::Stopped
             }
             Some(job) if !super::super::routes::owner_live(svc, job) => {

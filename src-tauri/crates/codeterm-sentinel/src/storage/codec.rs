@@ -445,6 +445,7 @@ pub fn history_version(stored: StoredDefinition) -> DefinitionVersion {
 
 fn runtime(job: &Sentinel) -> StageRuntime {
     StageRuntime {
+        admission_json: Some(serde_json::json!(job.admission).to_string()),
         transition_offset: job.cleanup.transition_offset,
         action_offset: job.cleanup.action_offset,
         stopped_at: job.cleanup.stopped_at,
@@ -549,6 +550,7 @@ pub fn import(job: &Sentinel) -> Result<SentinelImport, String> {
 
 pub fn outcome(job: &Sentinel) -> RuntimeOutcome {
     RuntimeOutcome {
+        admission_json: Some(serde_json::json!(job.admission).to_string()),
         stopped_at: job.cleanup.stopped_at,
         runs_since_transition: job.progress.runs_since_transition,
         last_probe_at: job.progress.last_probe_at,
@@ -604,6 +606,17 @@ pub fn decode(stored: &StoredSentinel) -> Sentinel {
     }
     let runtime = record.runtime;
     Sentinel {
+        admission: runtime
+            .admission_json
+            .as_ref()
+            .map(|raw| {
+                serde_json::from_str(raw).unwrap_or_else(|_| crate::admission::Admission {
+                    held_reason: Some(crate::admission::HeldReason::PlanLimitLocked),
+                    baseline_pending: true,
+                    continuation: None,
+                })
+            })
+            .unwrap_or_default(),
         document: definition.document,
         creation_options: record.identity.creation_options,
         source: super::super::stage_source::StageSource::from_parts(

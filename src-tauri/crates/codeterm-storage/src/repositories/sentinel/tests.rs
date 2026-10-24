@@ -72,6 +72,7 @@ fn identity(id: &str) -> SentinelIdentity {
 
 fn runtime() -> StageRuntime {
     StageRuntime {
+        admission_json: None,
         transition_offset: 0,
         action_offset: 0,
         stopped_at: None,

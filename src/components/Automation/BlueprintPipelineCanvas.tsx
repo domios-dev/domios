@@ -1,3 +1,4 @@
+import { BlueprintPlanLock } from "./BlueprintPlanLock";
 import { blueprintSteps } from "./blueprintKinds";
 import { useId, useState, type CSSProperties } from "react";
 import { CanvasToolbar } from "@codeterm/chat-ui";
@@ -112,6 +113,7 @@ export function BlueprintPipelineCanvas({ pipeline, initialRunId, onStop, loadHi
     </div>}
     {showDiff && loadHistory && <BlueprintSemanticDiff load={loadHistory} />}
     {error != null && <InlineErrorNotice error={error} operation="stopping this Blueprint run" blocking />}
+    <BlueprintPlanLock reason={pipeline.heldReason} />
     {pipeline.heldReason && selected === pipeline && <p role="status" className="ct-job-note">Held: {heldReasonLabel(pipeline.heldReason)}</p>}
     {stop && <section aria-label="Recorded stop" className="ct-card ct-card--error ct-card--static bp-panel"><h3 className="bp-panel__title">Recorded stop</h3><dl className="bp-facts"><dt>Node</dt><dd>{stop.step_name}</dd><dt>Reason</dt><dd>{stop.reason ?? "unavailable"}</dd></dl><p aria-label="Stop call stack" className="bp-mono">{callStack(stop)}</p></section>}
     {selected?.nested_run?.id === selected?.runId && selected?.nested_run && <section aria-label="Selected run journal" className="ct-card ct-card--static bp-panel">

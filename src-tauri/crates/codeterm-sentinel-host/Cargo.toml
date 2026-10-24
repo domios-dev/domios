@@ -41,6 +41,7 @@ libc = "0.2"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking"] }
 
 [dev-dependencies]
+codeterm-entitlements = { path = "../codeterm-entitlements" }
 serde_yaml = "0.9"
 tokio = { version = "1", features = ["test-util"] }
 codeterm-service-core = { path = "../codeterm-service-core", default-features = false, features = ["test-support"] }

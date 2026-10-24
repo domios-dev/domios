@@ -1,5 +1,23 @@
 use super::*;
 use codeterm_blueprint_types::blueprint_journal::JournalMarker;
+fn admissible(
+    conn: &Connection,
+    id: &str,
+    run: &str,
+    generation: u64,
+    marker: i64,
+    parent: Option<&NestedClaimParent>,
+) -> Result<bool, StorageError> {
+    super::admissible(
+        conn,
+        id,
+        run,
+        generation,
+        JournalMarker::from_columns(marker, "call").unwrap(),
+        parent,
+    )
+}
+
 fn connection() -> Connection {
     let conn = Connection::open_in_memory().unwrap();
     conn.execute_batch("CREATE TABLE blueprint_step_journal(entry_id INTEGER PRIMARY KEY AUTOINCREMENT,blueprint_id TEXT,run_id TEXT,step_index INTEGER,step_name TEXT,state TEXT,claim_generation INTEGER,claim_parent_index INTEGER,call_stack_json TEXT);").unwrap();
@@ -79,4 +97,14 @@ fn blueprint_v2_call_claim_depth_nine_refuses() {
     assert!(admissible(&conn, "job", "run", 3, 8, Some(&parent(7))).unwrap());
     add(&conn, 8, Some(7), "running");
     assert!(!admissible(&conn, "job", "run", 3, 9, Some(&parent(8))).unwrap());
+}
+
+#[test]
+fn plan_lock_run_hold_does_not_consume_the_result_claim_identity() {
+    let conn = connection();
+    conn.execute("INSERT INTO blueprint_step_journal(blueprint_id,run_id,step_index,step_name,state) VALUES('job','run',-1,'$run','held')", []).unwrap();
+    assert!(super::admissible(&conn, "job", "run", 3, JournalMarker::Result, None).unwrap());
+    assert!(!super::admissible(&conn, "job", "run", 3, JournalMarker::Run, None).unwrap());
+    conn.execute("INSERT INTO blueprint_step_journal(blueprint_id,run_id,step_index,step_name,state) VALUES('job','run',-1,'$result','done')", []).unwrap();
+    assert!(!super::admissible(&conn, "job", "run", 3, JournalMarker::Result, None).unwrap());
 }

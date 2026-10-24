@@ -41,6 +41,12 @@ fn render(job: &Value) {
         println!("{}", quarantine_summary(job));
         return;
     }
+    if let Some(reason) = job
+        .pointer("/admission/held_reason")
+        .and_then(Value::as_str)
+    {
+        println!("Held: {reason}");
+    }
     let calls = call_view::text(job);
     if !calls.is_empty() {
         println!("{calls}");
@@ -110,6 +116,12 @@ fn watch_summary(job: &Value) -> String {
             .unwrap_or(false)
         {
             "stopped"
+        } else if job
+            .pointer("/admission/held_reason")
+            .and_then(Value::as_str)
+            .is_some()
+        {
+            "held"
         } else {
             if job
                 .pointer("/machine/paused")
@@ -138,8 +150,9 @@ fn watch_summary(job: &Value) -> String {
         },
         job["interval_ms"],
         job["last_probe_at"],
-        job["last_reason"]
-            .as_str()
+        job.pointer("/admission/held_reason")
+            .and_then(Value::as_str)
+            .or_else(|| job["last_reason"].as_str())
             .map(|reason| format!(" reason={reason}"))
             .unwrap_or_default()
     )
