@@ -466,14 +466,15 @@ ct_check_provenance() {
 }
 
 ct_cache_retention() {
-  local dir bash_exe result=0
+  local dir bash_exe result=0 incremental_allowed=0
+  if ct_gateway_owned_by_caller; then incremental_allowed=1; fi
   dir="$(ct_gateway_dir)"
   bash_exe="$BASH"
   if command -v cygpath >/dev/null 2>&1; then bash_exe="$(cygpath -w "$bash_exe")"; fi
   local retention_dir="$dir/cache-retention-state"
   mkdir -p "$retention_dir" || return 74
   ct_gateway_mutex_acquire "$retention_dir" || return $?
-  CT_CACHE_RETENTION_LOCK_HELD=1 CT_CACHE_BASH="$bash_exe" \
+  CT_CACHE_RETENTION_LOCK_HELD=1 CT_CACHE_BASH="$bash_exe" CT_CACHE_INCREMENTAL_ALLOWED="$incremental_allowed" \
     node "$CT_CACHE_POLICY_SCRIPT_ROOT/scripts/cache-retention.mjs" "$1" "$dir" "${CT_REAL_WORKTREE:-$(pwd -P)}" "${2:-}" "$(ct_cache_home)" || result=$?
   ct_gateway_mutex_release "$retention_dir" || result=$?
   return "$result"
