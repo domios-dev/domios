@@ -170,6 +170,8 @@ pub struct Script {
     pub gate: Option<Arc<Notify>>,
     pub peer_unpublished: bool,
     pub peer_presence: RegistryPresence,
+    pub peer_name: Option<String>,
+    pub peer_metadata_revision: u64,
     pub peer_membership_expires_at: Option<u64>,
     /// Seconds the issuer's clock runs ahead of the desktop's.
     pub issuer_ahead: u64,
@@ -306,6 +308,10 @@ impl FakeRegistry {
         own.presence = account.map_or(RegistryPresence::Present, |account| account.presence);
         own.endpoint = account.and_then(|a| a.endpoint.clone());
         let mut peer = row(PEER, 0, Some("Laptop"));
+        if let Some(name) = self.script.lock().unwrap().peer_name.clone() {
+            peer.display_name = Some(name);
+        }
+        peer.metadata_revision = self.script.lock().unwrap().peer_metadata_revision;
         peer.presence = self.script.lock().unwrap().peer_presence;
         if let Some(expiry) = self.script.lock().unwrap().peer_membership_expires_at {
             peer.membership_expires_at = Some(expiry);
