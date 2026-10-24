@@ -1,6 +1,7 @@
 import { spawnAiHelper, withAiHelperContext, type AiHelperSpawned } from "../../lib/aiHelperSpawn";
 import type { DaemonApiConfig } from "../../lib/webApi";
 import type { ServeStatus } from "../../lib/webAccess";
+import { transportState } from "./networkTransport";
 import type { NetworkInfo } from "./webUiTarget";
 
 export type TailscaleState =
@@ -8,6 +9,8 @@ export type TailscaleState =
   | { kind: "unknown" }
   | { kind: "not_installed" }
   | { kind: "not_connected" }
+  | { kind: "not_running" }
+  | { kind: "signed_out" }
   | { kind: "connected"; tailnet: string | null };
 
 export const TAILSCALE_COPY = "Domios connects your machines through Tailscale, a free private network. Install it on each machine and sign in with the same Tailscale account.";
@@ -22,6 +25,7 @@ export function tailnetName(selfDns: string | null | undefined): string | null {
 
 /** A Tailscale address means this machine is up and signed in; the CLI probe tells a missing install from a stopped one. */
 export function tailscaleState({ serve, network, loading }: { serve: ServeStatus | null; network: NetworkInfo | null; loading: boolean }): TailscaleState {
+  if (network?.transport) return transportState(network.transport);
   if (network?.tailscale_ip) return { kind: "connected", tailnet: tailnetName(serve?.self_dns) };
   if (loading) return { kind: "checking" };
   if (!serve) return { kind: "unknown" };

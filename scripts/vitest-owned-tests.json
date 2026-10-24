@@ -329,5 +329,6 @@
   "src/components/WebGate/WebGate.wiring.test.tsx",
   "src/components/Jobs/BlueprintPlanLock.test.tsx",
   "src/components/Terminal/ChatComposer.attachments.test.tsx",
-  "src/components/Terminal/composerAttachmentAdmission.test.ts"
+  "src/components/Terminal/composerAttachmentAdmission.test.ts",
+  "src/components/MeshPanel/networkTransport.test.ts"
 ]

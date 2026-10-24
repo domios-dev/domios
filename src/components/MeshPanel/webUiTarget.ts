@@ -5,7 +5,10 @@ import {
   type ServeStatus,
 } from "../../lib/webAccess";
 
+import type { NetworkTransportStatus } from "./networkTransport";
+
 export interface NetworkInfo {
+  transport?: NetworkTransportStatus | null;
   local_ip?: string | null;
   tailscale_ip?: string | null;
   tailscale_https_url?: string | null;

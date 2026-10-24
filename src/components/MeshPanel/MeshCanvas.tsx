@@ -15,6 +15,7 @@ import { RELAY_PROTOCOL_VERSION } from "../../lib/types";
 import { webGraphLayout, webGraphInitialView, WEB_CARD_SCALE, MACHINE_CARD_SCALE, MACHINE_CARD_WIDTH } from "./webGraphLayout";
 import { webGatewayGraph } from "./meshProjection";
 import { TailscaleFooter, TailscaleMachineHint, type CanvasTailscale } from "./TailscaleNodes";
+import { differentNetwork } from "./networkTransport";
 import { suggestsRemoteTailscale } from "./tailscaleSetup";
 import { MachineLimitPaywall } from "./MachineLimitPaywall";
 import type { MyMachines } from "./useMyMachines";
@@ -227,8 +228,8 @@ export const MeshCanvas = memo(function MeshCanvas({
     if (contentBounds) fitToView(contentBounds);
   };
 
-  const tailscaleHint = (name: string, online: boolean) => tailscale && suggestsRemoteTailscale(online, tailscale.state)
-    ? <TailscaleMachineHint name={name} tailscale={tailscale} />
+  const tailscaleHint = (name: string, online: boolean, identity?: import("./networkTransport").NetworkIdentity) => tailscale && (differentNetwork(tailscale.identity, identity) || suggestsRemoteTailscale(online, tailscale.state))
+    ? <TailscaleMachineHint name={name} tailscale={tailscale} detail={differentNetwork(tailscale.identity, identity) ? `${name} is on another private network. Sign in to the same Tailscale account on both machines.` : undefined} />
     : undefined;
 
   const peerFooter = (id: string) => {
@@ -238,7 +239,7 @@ export const MeshCanvas = memo(function MeshCanvas({
     const name = footer.row.name;
     const seen = peer && !peer.online ? lastSeenMs(peer.last_seen) : null;
     return <PeerAccountFooterView footer={footer} name={name} lastSeen={seen === null ? null : formatAge(seen, account.now)}
-      busy={account.busy === footer.key} actions={account.actions} hint={footer.row.status === "signed_out" ? undefined : tailscaleHint(name, peer?.online ?? false)} />;
+      busy={account.busy === footer.key} actions={account.actions} hint={footer.row.status === "signed_out" ? undefined : tailscaleHint(name, peer?.online ?? false, footer.row.transport)} />;
   };
 
   return (
@@ -327,7 +328,7 @@ export const MeshCanvas = memo(function MeshCanvas({
             {p.account && account ? (
               p.account.kind === "node"
                 ? <AccountMachineCard node={p.account.node} busy={account.busy === p.account.node.key} now={account.now} actions={account.actions}
-                  hint={p.account.node.row.status !== "signed_out" && p.account.node.row.target ? tailscaleHint(p.account.node.name, p.account.node.online !== false) : undefined} />
+                  hint={p.account.node.row.status !== "signed_out" && p.account.node.row.target ? tailscaleHint(p.account.node.name, p.account.node.online === true, p.account.node.row.transport) : undefined} />
                 : <AccountStateCard card={p.account.card} signingIn={account.signingIn} onSignIn={account.onSignIn} onRetry={account.onRetry} />
             ) : (
               <div style={{ transform: `scale(${MACHINE_CARD_SCALE})` }}>

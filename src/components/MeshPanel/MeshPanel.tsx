@@ -119,6 +119,18 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
 
   useEffect(() => {
     void loadServe();
+    let active = true;
+    const refresh = () => {
+      void invoke<NetworkInfo>("get_network_info").then((info) => {
+        if (active) setNetwork(info);
+      }).catch(() => undefined);
+    };
+    let stop: (() => void) | undefined;
+    void listen("mesh-state-changed", refresh).then((unlisten) => {
+      if (active) stop = unlisten; else unlisten();
+    });
+    window.addEventListener("focus", refresh);
+    return () => { active = false; stop?.(); window.removeEventListener("focus", refresh); };
   }, [loadServe, refreshKey]);
 
   const runWebUiAction = useCallback(

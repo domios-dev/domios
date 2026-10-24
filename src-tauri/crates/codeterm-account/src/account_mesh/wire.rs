@@ -49,10 +49,19 @@ pub struct MeshCursor {
     pub registry_revision: u64,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NetworkIdentity {
+    pub kind: String,
+    pub network_id: String,
+}
+
 /// Canonical Tailnet IP text plus nonzero API port; no URL, host or path.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MeshEndpointWire {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transport: Option<NetworkIdentity>,
     pub tailnet_ip: String,
     pub api_port: u16,
 }
@@ -60,6 +69,8 @@ pub struct MeshEndpointWire {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MeshEndpointObservation {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transport: Option<NetworkIdentity>,
     pub tailnet_ip: String,
     pub api_port: u16,
     pub expires_at: u64,
@@ -356,15 +367,20 @@ pub enum MeshResult {
 }
 
 /// A Tailnet listener address: canonical IP, nonzero port, nothing else.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MeshEndpoint {
     ip: IpAddr,
     port: u16,
+    transport: Option<NetworkIdentity>,
 }
 
 impl MeshEndpoint {
     pub fn new(ip: IpAddr, port: u16) -> Option<Self> {
-        (port != 0 && tailnet(ip)).then_some(Self { ip, port })
+        (port != 0 && tailnet(ip)).then_some(Self {
+            ip,
+            port,
+            transport: None,
+        })
     }
     /// Accepts only the exact canonical text, so aliases never pass.
     pub fn parse(tailnet_ip: &str, port: u16) -> Option<Self> {
@@ -372,6 +388,10 @@ impl MeshEndpoint {
         (ip.to_string() == tailnet_ip)
             .then(|| Self::new(ip, port))
             .flatten()
+    }
+    pub fn with_transport(mut self, transport: Option<NetworkIdentity>) -> Self {
+        self.transport = transport;
+        self
     }
     pub fn ip(&self) -> IpAddr {
         self.ip
@@ -381,6 +401,7 @@ impl MeshEndpoint {
     }
     pub fn wire(&self) -> MeshEndpointWire {
         MeshEndpointWire {
+            transport: self.transport.clone(),
             tailnet_ip: self.ip.to_string(),
             api_port: self.port,
         }

@@ -9,6 +9,7 @@ pub mod discovery;
 pub mod health;
 pub mod identity;
 pub mod manager;
+pub mod network_transport;
 pub mod paired_resolve;
 pub mod peer_services;
 pub mod peers;
