@@ -36,7 +36,7 @@ pub(super) fn text(raw: &str) -> String {
             let Some(key_start) = start.take() else {
                 continue;
             };
-            let name = url::form_urlencoded::parse(raw[key_start..index].as_bytes())
+            let name = url::form_urlencoded::parse(&raw.as_bytes()[key_start..index])
                 .next()
                 .map(|(name, _)| name.to_ascii_lowercase());
             if name.as_deref().is_some_and(|name| {

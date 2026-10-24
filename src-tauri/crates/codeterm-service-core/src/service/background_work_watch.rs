@@ -293,8 +293,7 @@ fn mark_unavailable(svc: &ServiceContext, id: &str, session: &str, nonce: &str) 
         let before = tab.provider_signals.background.clone();
         tab.provider_signals.background.invalidate();
         tab.provider_signals.background.history_initialized = false;
-        let changed = before != tab.provider_signals.background;
-        changed
+        before != tab.provider_signals.background
     };
     if changed {
         svc.emit_state_changed(MuxEmitCause::BackgroundWork);
