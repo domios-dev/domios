@@ -1,0 +1,45 @@
+param([ValidateSet('Inspect', 'Stop')][string] $Operation)
+$ErrorActionPreference = 'Stop'
+$request = [Console]::In.ReadToEnd() | ConvertFrom-Json
+
+function Snapshot {
+  $listeners = @(Get-NetTCPConnection -State Listen -ErrorAction Stop |
+    ForEach-Object { [pscustomobject]@{ port = [int]$_.LocalPort; pid = [int]$_.OwningProcess } } |
+    Sort-Object port, pid -Unique)
+  $processes = @(Get-CimInstance Win32_Process | ForEach-Object {
+    $created = ''
+    try {
+      $process = [Diagnostics.Process]::GetProcessById([int]$_.ProcessId)
+      try { $created = $process.StartTime.ToUniversalTime().ToFileTimeUtc().ToString() } finally { $process.Dispose() }
+    } catch {}
+    [pscustomobject]@{ pid = [int]$_.ProcessId; parent = [int]$_.ParentProcessId; executable = [string]$_.ExecutablePath; created = $created }
+  })
+  return [pscustomobject]@{ processes = $processes; listeners = $listeners }
+}
+
+if ($Operation -eq 'Inspect') { Snapshot | ConvertTo-Json -Depth 5 -Compress; exit 0 }
+if ([int]$request.port -eq 7685 -or [int]$request.port -lt 1) { throw 'Refusing production or invalid DEV port' }
+$pinned = @()
+try {
+  foreach ($row in $request.processes) {
+    try { $proc = [Diagnostics.Process]::GetProcessById([int]$row.pid) } catch [ArgumentException] { continue }
+    [void]$proc.Handle
+    if ($proc.StartTime.ToUniversalTime().ToFileTimeUtc().ToString() -ne $row.created -or
+        $proc.MainModule.FileName -ine ([string]$row.executable -replace '^\\\\\?\\', '')) {
+      $proc.Dispose()
+      throw 'DEV process changed before shutdown; refusing'
+    }
+    $pinned += $proc
+  }
+  $snapshot = Snapshot
+  $ids = @($pinned | ForEach-Object { $_.Id })
+  if (@($snapshot.listeners | Where-Object { $_.pid -in $ids -and $_.port -notin $request.allowedPorts }).Count) { throw 'DEV tree owns another listener; refusing' }
+  try {
+    Invoke-WebRequest -UseBasicParsing -Method Post -Uri "http://127.0.0.1:$($request.port)/api/app/quit" -ContentType 'application/json' -Headers @{ Authorization = "Bearer $($request.token)" } -Body ($request.quit | ConvertTo-Json -Depth 20 -Compress) -TimeoutSec 30 | Out-Null
+  } catch { }
+  foreach ($proc in $pinned) { if (-not $proc.HasExited) { $proc.Kill() } }
+  foreach ($proc in $pinned) { if (-not $proc.WaitForExit(10000)) { throw 'DEV pinned process did not exit; refusing staging' } }
+  $after = Snapshot
+  if (@($after.listeners | Where-Object { $_.port -eq [int]$request.port }).Count) { throw 'DEV listener was replaced during shutdown; refusing staging' }
+  '{"exited":true}'
+} finally { foreach ($proc in $pinned) { $proc.Dispose() } }

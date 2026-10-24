@@ -70,7 +70,7 @@ export function devServerIdentity(data) {
   };
 }
 
-function selected(recordFile, data, port) {
+export function selected(recordFile, data, port) {
   if (!Number.isInteger(port) || port < 1 || port > 65535 || port === 7685) throw Error('Invalid DEV port');
   const record = JSON.parse(readFileSync(recordFile, 'utf8'));
   if (record.schema !== 3 || Number(record.instance.apiPort) !== port) throw Error('DEV provenance/port mismatch');
@@ -82,7 +82,7 @@ function selected(recordFile, data, port) {
   return { record, identity, executable, resources, build: record.buildSha, port };
 }
 
-async function inspect(target) {
+export async function inspect(target) {
   const request = attachRequest({ protocol: 2, api_version: 3, build: target.build }, target.identity);
   const frames = await helper(target.executable, 'attach', request).done;
   if (frames.length !== 1 || frames[0].challenge !== request.challenge) throw Error('DEV inspect reply mismatch');
