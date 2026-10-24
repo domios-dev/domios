@@ -1,77 +1,64 @@
-import { Network } from "lucide-react";
+import { ShieldCheck, ShieldAlert } from "lucide-react";
 import { UI_BUTTON, UI_TEXT } from "../shared/design";
 import { BusySpinner } from "../shared/BusyState";
-import { SettingsPill } from "../Settings/shared";
-import { TAILSCALE_COPY, TAILSCALE_WHY, tailscaleReady, type TailscaleState } from "./tailscaleSetup";
+import { tailscalePrompt, type TailscaleState } from "./tailscaleSetup";
+import type { NetworkIdentity } from "./networkTransport";
 
 export interface CanvasTailscale {
   state: TailscaleState;
-  identity?: import("./networkTransport").NetworkIdentity | null;
+  identity?: NetworkIdentity | null;
   launching: boolean;
   /** Opens the General agent with the setup request; `machine` names an unreachable machine, null means this one. */
   onSetup: (machine: string | null) => void;
   onInstall: () => void;
 }
 
-const STATUS: Record<TailscaleState["kind"], { label: string; tone: "green" | "amber" | "muted" }> = {
-  connected: { label: "Private network on", tone: "green" },
-  not_running: { label: "Not running", tone: "amber" },
-  signed_out: { label: "Signed out", tone: "amber" },
-  not_connected: { label: "Not signed in", tone: "amber" },
-  not_installed: { label: "Not installed", tone: "amber" },
-  checking: { label: "Checking", tone: "muted" },
-  unknown: { label: "Unknown", tone: "muted" },
-};
+const MANUAL_LINK = "text-[12px] text-[var(--ct-muted-fg)] underline underline-offset-2 decoration-[var(--ct-border)] hover:text-[var(--ct-fg)]";
 
-function SetupButton({ label, launching, onClick }: { label: string; launching: boolean; onClick: () => void }) {
+function Actions({ tailscale, machine, ariaLabel }: { tailscale: CanvasTailscale; machine: string | null; ariaLabel?: string }) {
   return (
-    <button type="button" onClick={onClick} disabled={launching} aria-busy={launching}
-      className={`${UI_BUTTON.primary} ${UI_BUTTON.compact}`}>
-      {launching ? <><BusySpinner size={12} /> Opening…</> : label}
-    </button>
+    <div className="flex flex-wrap items-center gap-3 pt-0.5">
+      <button type="button" onClick={() => tailscale.onSetup(machine)} disabled={tailscale.launching} aria-busy={tailscale.launching}
+        aria-label={ariaLabel} className={`${UI_BUTTON.primary} ${UI_BUTTON.compact}`}>
+        {tailscale.launching ? <><BusySpinner size={12} /> Opening…</> : "Set up with General agent"}
+      </button>
+      <button type="button" onClick={tailscale.onInstall} className={MANUAL_LINK}>Set up manually</button>
+    </div>
   );
 }
 
-/** Tailscale on this machine, under its card: a quiet status when connected, the explanation and one way forward otherwise. */
+/** The private network under this machine's card: a quiet mark when it works, one friendly prompt when it needs the user. */
 export function TailscaleFooter({ tailscale }: { tailscale: CanvasTailscale }) {
   const { state } = tailscale;
-  const status = STATUS[state.kind];
   if (state.kind === "connected") {
-    return <section aria-label="Private network on" className="px-3.5 py-2 text-[12px] text-[var(--ct-muted-fg)]">Private network on</section>;
-  }
-  return (
-    <section aria-label="Tailscale on this machine" className="flex flex-col gap-2 border-t border-[var(--ct-border)] px-3.5 py-2.5" onClick={(event) => event.stopPropagation()}>
-      <div className="flex items-center gap-2 min-w-0">
-        <Network size={14} className="shrink-0 text-[var(--ct-muted-fg)]" aria-hidden="true" />
-        <span className="text-[13px] font-medium text-[var(--ct-fg)]">Tailscale</span>
-        <SettingsPill tone={status.tone}>{status.label}</SettingsPill>
+    return (
+      <div role="status" className="flex items-center gap-1.5 border-t border-[var(--ct-border)] px-3.5 py-2 text-[12px] text-[var(--ct-muted-fg)]">
+        <ShieldCheck size={13} className="shrink-0 text-[var(--ct-green)]" aria-hidden="true" />
+        Private network on
       </div>
-      {!tailscaleReady(state) && (
-        <>
-          <p className="m-0 text-[12px] text-[var(--ct-muted-fg)]">{TAILSCALE_COPY}</p>
-          <p className="m-0 text-[12px] text-[var(--ct-muted-fg)]"><span className="text-[var(--ct-fg)]">Why Tailscale?</span> {TAILSCALE_WHY}</p>
-          <div className="flex flex-wrap items-center gap-3 pt-0.5">
-            <SetupButton label="Set up with General agent" launching={tailscale.launching} onClick={() => tailscale.onSetup(null)} />
-            <button type="button" onClick={tailscale.onInstall} className="text-[12px] text-[var(--ct-accent)] underline-offset-2 hover:underline">Install Tailscale</button>
-          </div>
-        </>
-      )}
+    );
+  }
+  const prompt = tailscalePrompt(state);
+  if (!prompt) return null;
+  return (
+    <section aria-label={prompt.title} className="flex flex-col gap-1.5 border-t border-[var(--ct-border)] px-3.5 py-3" onClick={(event) => event.stopPropagation()}>
+      <div className="flex items-center gap-2 min-w-0">
+        <ShieldAlert size={14} className="shrink-0 text-[var(--ct-accent)]" aria-hidden="true" />
+        <span className="text-[13px] font-medium text-[var(--ct-fg)]">{prompt.title}</span>
+      </div>
+      <p className="m-0 text-[12px] leading-relaxed text-[var(--ct-muted-fg)]">{prompt.message}</p>
+      <Actions tailscale={tailscale} machine={null} />
     </section>
   );
 }
 
-/** On an unreachable machine while this one is on Tailscale: the likely cause is that machine's Tailscale. */
+/** On a machine this one cannot reach: the likely cause, said once, with the same two ways forward. */
 export function TailscaleMachineHint({ name, tailscale, detail }: { name: string; tailscale: CanvasTailscale; detail?: string }) {
   return (
-    <div role="note" className="flex flex-col gap-1.5 rounded border border-[var(--ct-border)] px-2.5 py-2" onClick={(event) => event.stopPropagation()}>
-      <span className="text-[12px] text-[var(--ct-fg)]">{detail ?? `Check the private network on ${name}`}</span>
-      <span className={UI_TEXT.metaMuted}>It must be running and signed in to the same Tailscale account as this machine.</span>
-      <div>
-        <button type="button" onClick={() => tailscale.onSetup(name)} disabled={tailscale.launching} aria-busy={tailscale.launching}
-          aria-label={`Ask General agent about Tailscale on ${name}`} className={`${UI_BUTTON.ghost} ${UI_BUTTON.compact} -ml-2`}>
-          Set up with General agent
-        </button>
-      </div>
+    <div role="note" className="flex flex-col gap-1.5 rounded-md border border-[var(--ct-border)] bg-[color-mix(in_srgb,var(--ct-accent)_4%,var(--ct-bg))] px-3 py-2.5" onClick={(event) => event.stopPropagation()}>
+      <span className="text-[12px] font-medium text-[var(--ct-fg)]">{detail ? "On another private network" : `Can't reach ${name}`}</span>
+      <span className={UI_TEXT.metaMuted}>{detail ?? `Make sure Tailscale is running on ${name} and signed in with the same account as this computer.`}</span>
+      <Actions tailscale={tailscale} machine={name} ariaLabel={`Set up the private network on ${name} with General agent`} />
     </div>
   );
 }
