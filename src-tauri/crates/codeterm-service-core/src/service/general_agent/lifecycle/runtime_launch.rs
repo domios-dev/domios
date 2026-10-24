@@ -173,6 +173,11 @@ fn launch(
     let bootstrap = (ownership.bootstrap() && !resuming)
         .then(|| compose_startup_message(&svc.mem, &general_dir().join("bootstrap.md")))
         .flatten();
+    let delivery = svc
+        .agent_registry
+        .with_provider(provider, |provider| provider.system_prompt_delivery())
+        .ok_or("General runtime provider unavailable")?;
+    let prompt = runtime_prompt(prompt, bootstrap.clone(), &delivery);
     svc.set_agent_session_id(&tab_id, session_id.clone());
     let nonce = svc.ensure_session_binding_nonce(&tab_id);
     let pad = svc.ensure_agent_pad(&tab_id)?;
@@ -245,6 +250,16 @@ fn launch(
     );
     svc.emit_state_changed(MuxEmitCause::GeneralAgent);
     Ok(())
+}
+
+fn runtime_prompt(
+    prompt: String,
+    bootstrap: Option<String>,
+    delivery: &crate::agent::provider::SystemPromptDelivery,
+) -> String {
+    compose_launch_instructions(prompt.clone(), bootstrap, delivery)
+        .task
+        .unwrap_or(prompt)
 }
 
 fn runtime_config(

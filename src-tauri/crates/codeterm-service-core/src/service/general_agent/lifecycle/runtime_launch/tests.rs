@@ -1,4 +1,92 @@
 use super::*;
+use crate::agent::provider::{AgentProvider, StarterPrompt, SystemPromptDelivery};
+use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
+use std::sync::Arc;
+
+#[test]
+fn general_bootstrap_composition_follows_each_provider_capability() {
+    let plugins = crate::test_support::fixture_manifest_dir().join("../../../plugins");
+    let mut providers = 0;
+    let mut runtimes = 0;
+    for entry in std::fs::read_dir(plugins).unwrap() {
+        let directory = entry.unwrap().path();
+        let path = directory.join("plugin.json");
+        if !path.is_file() {
+            continue;
+        }
+        let mut manifest: PluginManifest =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        if !manifest.general_agent_offer_when_absent {
+            continue;
+        }
+        manifest.id = format!("opaque-provider-{providers}");
+        let source = std::fs::read_to_string(directory.join("plugin.js")).unwrap();
+        let vm = PluginVm::from_source(&manifest.id, source).unwrap();
+        let provider = JsProvider::new(manifest, Arc::new(vm));
+        providers += 1;
+        runtimes += usize::from(provider.agent_runtime().is_some());
+        let delivery = provider.system_prompt_delivery();
+        assert!(matches!(
+            delivery,
+            SystemPromptDelivery::CliFlag(_) | SystemPromptDelivery::SessionConfig
+        ));
+        for bootstrap in [None, Some("fragment-b72\nλ $() `opaque`\nfragment-c38")] {
+            let expected = match bootstrap {
+                Some(bootstrap) => format!("fragment-a19\n\n{bootstrap}"),
+                None => "fragment-a19".into(),
+            };
+            let pty = compose_launch_instructions(
+                "fragment-a19".into(),
+                bootstrap.map(str::to_owned),
+                &delivery,
+            );
+            assert_eq!(pty.task.as_deref(), Some(expected.as_str()));
+            assert!(pty.startup_message.is_none());
+            assert_eq!(
+                pty.starter_prompt,
+                if bootstrap.is_some() {
+                    StarterPrompt::AssignedTask
+                } else {
+                    StarterPrompt::NoStarter
+                }
+            );
+            if provider.agent_runtime().is_some() {
+                let config = runtime_config(
+                    runtime_prompt(
+                        "fragment-a19".into(),
+                        bootstrap.map(str::to_owned),
+                        &delivery,
+                    ),
+                    None,
+                    None,
+                    false,
+                );
+                assert_eq!(config["systemPrompt"], expected);
+            }
+        }
+    }
+    assert_eq!(providers, 3);
+    assert_eq!(runtimes, 1);
+}
+
+#[test]
+fn general_runtime_external_delivery_keeps_bootstrap_out_of_instructions() {
+    assert_eq!(
+        runtime_prompt(
+            "fragment-a19".into(),
+            Some("fragment-b72".into()),
+            &SystemPromptDelivery::External,
+        ),
+        "fragment-a19"
+    );
+    let fallback = compose_launch_instructions(
+        "fragment-a19".into(),
+        Some("fragment-b72".into()),
+        &SystemPromptDelivery::External,
+    );
+    assert_eq!(fallback.startup_message.as_deref(), Some("fragment-b72"));
+    assert_eq!(fallback.starter_prompt, StarterPrompt::NoStarter);
+}
 
 #[test]
 fn general_runtime_config_preserves_permanent_context_and_tab_controls() {
