@@ -381,6 +381,45 @@ async fn account_mesh_failed_withdrawal_is_pending_and_retains_no_token() {
 }
 
 #[tokio::test]
+async fn account_mesh_resumed_publication_or_withdrawal_clears_pending_cleanup_durably() {
+    for publish in [true, false] {
+        let mut harness = enrolled().await;
+        *harness.endpoint.0.lock().unwrap() = Some(tailnet_endpoint());
+        harness.mesh.refresh(EnrollTrigger::Network).await.unwrap();
+        harness.registry.script.lock().unwrap().publication = Some(RegistryRefusal::Offline);
+        assert_eq!(harness.logout().await, Cleanup::Pending);
+        harness.restart().await;
+        harness.sign_in(UID).await;
+        if !publish {
+            *harness.endpoint.0.lock().unwrap() = None;
+        }
+        assert_eq!(harness.state().cleanup, Cleanup::Pending);
+        harness
+            .mesh
+            .refresh(EnrollTrigger::Explicit)
+            .await
+            .unwrap_err();
+        assert_eq!(harness.state().cleanup, Cleanup::Pending);
+        assert!(harness.store.record.lock().unwrap().cleanup_pending);
+        harness.registry.script.lock().unwrap().publication = None;
+        harness.clock.set(START + 60);
+        harness.mesh.refresh(EnrollTrigger::Explicit).await.unwrap();
+        assert_eq!(harness.state().cleanup, Cleanup::Confirmed);
+        assert!(!harness.store.record.lock().unwrap().cleanup_pending);
+        assert_eq!(
+            harness.state().publication,
+            if publish {
+                Publication::Published
+            } else {
+                Publication::NotReady
+            }
+        );
+        harness.restart().await;
+        assert_eq!(harness.state().cleanup, Cleanup::None);
+    }
+}
+
+#[tokio::test]
 async fn account_mesh_logout_during_enrollment_cannot_be_reopened_by_the_late_response() {
     let harness = Harness::new().await;
     harness.sign_in(UID).await;

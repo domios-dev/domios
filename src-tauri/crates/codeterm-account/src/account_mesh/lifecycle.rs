@@ -109,7 +109,7 @@ pub(super) struct Inner {
     pub(super) state: Arc<LifecycleState>,
     pub(super) record: AccountMeshRecord,
     pub(super) key: Option<Arc<InstallationKey>>,
-    pub(super) rotation_attempt: Option<(u64, Option<u64>)>,
+    pub(super) rotation_attempt: Option<u64>,
     pub(super) last_request: Option<String>,
     pub(super) metadata_revision: Option<u64>,
     pub(super) registry_presence: Option<RegistryPresence>,
@@ -449,6 +449,7 @@ impl AccountMesh {
 
     pub fn enrollment_signed_in(&self) {
         self.with(|inner| {
+            inner.rotation_attempt = None;
             if inner.state.last_refusal != Some(AccountMeshRefusal::ReauthRequired) {
                 return;
             }
