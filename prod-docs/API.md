@@ -7,7 +7,7 @@ REST, socket and CLI share authorization, PTY cleanup, events and hierarchy chec
 
 The CLI socket needs no TCP. Unix peer credentials or Windows process-token SID restrict it to the daemon's OS user; the daemon owns authentication, signing and transport.
 
-Socket/mesh envelopes require `protocol_version`; older or versionless clients get `-32002`. Wire and Mesh consent/notice routes: `API-TRANSPORT`.
+Socket/mesh envelopes require `protocol_version`; older or versionless clients get `-32002`. Wire: `API-TRANSPORT`; peer notice routes: `MESH`.
 
 Human `domios workspace list` shows authoritative topology in creation order; `domios tab inspect <id>` inspects one tab (whole-list JSON is automation-only). `workspace current --json` returns `{ "id", "source" }`; sources, in resolution order: `explicit` (`--workspace`), `caller-tab` (`$CODETERM_TAB_ID` membership), `workspace-env` (validated `$CODETERM_WORKSPACE_ID`), `focus-fallback` (active workspace). No match: exit 1, empty stdout (`--json` writes the error to stdout).
 
