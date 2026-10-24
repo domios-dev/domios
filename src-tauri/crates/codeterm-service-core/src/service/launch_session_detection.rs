@@ -647,7 +647,7 @@ fn git_worktree_metadata_dirs(
     canonical_project: &str,
 ) -> Result<Option<[std::path::PathBuf; 4]>, String> {
     use std::io::Read;
-    use std::process::{Command, Stdio};
+    use std::process::Stdio;
     use std::time::Duration;
     use wait_timeout::ChildExt;
 
@@ -666,17 +666,10 @@ fn git_worktree_metadata_dirs(
     }
 
     let cwd_text = cwd.to_string_lossy().into_owned();
-    let mut command = Command::new("git");
-    crate::process_util::no_window_std(&mut command);
+    let mut command = codeterm_util::git_checkout::command(&cwd);
     clear_git_environment(&mut command);
     let mut child = command
         .current_dir(&cwd_text)
-        .args([
-            "rev-parse",
-            "--path-format=absolute",
-            "--git-dir",
-            "--git-common-dir",
-        ])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -707,17 +700,11 @@ fn git_worktree_metadata_dirs(
     if !status.success() {
         return Err(format!("git rev-parse failed: {}", stderr.trim()));
     }
-    let mut lines = stdout
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty());
-    let (Some(git_dir), Some(common_dir)) = (lines.next(), lines.next()) else {
-        return Err("git rev-parse returned incomplete paths".into());
-    };
-    let git_dir =
-        canonical_path(git_dir).ok_or_else(|| "lane gitdir cannot be canonicalized".to_string())?;
-    let common_dir = canonical_path(common_dir)
-        .ok_or_else(|| "git common dir cannot be canonicalized".to_string())?;
+    let (git_dir, common_dir) = codeterm_util::git_checkout::parse_output(&cwd, stdout.as_bytes())
+        .map_err(|error| error.to_string())?;
+    let [git_dir, common_dir] = [git_dir, common_dir].map(|path| {
+        std::path::PathBuf::from(codeterm_paths::strip_verbatim_prefix(&path.to_string_lossy()))
+    });
     if git_dir == common_dir {
         return Ok(None);
     }

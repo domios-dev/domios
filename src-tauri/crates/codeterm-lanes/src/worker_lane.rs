@@ -34,15 +34,15 @@ pub fn same_path(a: &str, b: &str) -> bool {
 }
 
 fn git_is_primary_checkout(cwd: &Path) -> bool {
-    git_checkout_paths(cwd).is_some_and(|(git_dir, common_dir)| git_dir == common_dir)
+    git_checkout_paths(cwd).is_ok_and(|(git_dir, common_dir)| git_dir == common_dir)
 }
 
 pub fn is_linked_worktree(cwd: &Path) -> bool {
-    git_checkout_paths(cwd).is_some_and(|(git_dir, common_dir)| git_dir != common_dir)
+    git_checkout_paths(cwd).is_ok_and(|(git_dir, common_dir)| git_dir != common_dir)
 }
 
 pub fn primary_checkout(cwd: &Path) -> Option<PathBuf> {
-    let (_, common_dir) = git_checkout_paths(cwd)?;
+    let (_, common_dir) = git_checkout_paths(cwd).ok()?;
     let primary = normalize_path(common_dir.parent()?.to_str()?);
     if !git_is_primary_checkout(&primary) {
         return None;
@@ -52,30 +52,10 @@ pub fn primary_checkout(cwd: &Path) -> Option<PathBuf> {
     (top_level == primary).then_some(primary)
 }
 
-fn git_checkout_paths(cwd: &Path) -> Option<(PathBuf, PathBuf)> {
-    let mut command = Command::new("git");
-    process_util::no_window_std(&mut command);
-    let output = match command
-        .current_dir(cwd)
-        .args([
-            "rev-parse",
-            "--path-format=absolute",
-            "--git-dir",
-            "--git-common-dir",
-        ])
-        .output()
-    {
-        Ok(output) if output.status.success() => output,
-        _ => return None,
-    };
-    let text = String::from_utf8_lossy(&output.stdout);
-    let mut lines = text.lines().map(str::trim).filter(|line| !line.is_empty());
-    match (lines.next(), lines.next()) {
-        (Some(git_dir), Some(common_dir)) => {
-            Some((normalize_path(git_dir), normalize_path(common_dir)))
-        }
-        _ => None,
-    }
+fn git_checkout_paths(
+    cwd: &Path,
+) -> Result<(PathBuf, PathBuf), codeterm_util::git_checkout::GitCheckoutError> {
+    codeterm_util::git_checkout::paths(cwd)
 }
 
 fn normalize_path(path: &str) -> PathBuf {
@@ -628,8 +608,7 @@ pub fn verify_worker_lane(
             branch
         ));
     }
-    let (_, common_dir) = git_checkout_paths(&worktree)
-        .ok_or_else(|| "worker lane repository identity is unavailable".to_string())?;
+    let (_, common_dir) = git_checkout_paths(&worktree).map_err(|error| error.to_string())?;
     let repository = common_dir
         .parent()
         .and_then(Path::to_str)
