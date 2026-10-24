@@ -241,6 +241,12 @@ test('mixed build verbs share one cache startup and persist four completed histo
       else echo '{}'; fi
     }
     scripts/test-capped.sh() { cargo test "$@"; }
+    prepare_nextest_metadata() {
+      local timing_dir="$1" manifest="$2"
+      shift 2
+      cargo nextest list --manifest-path "$manifest" "$@" > "$timing_dir/binaries.json"
+      cargo metadata --manifest-path "$manifest" --format-version 1 > "$timing_dir/cargo.json"
+    }
     node() {
       if [ "$1" = scripts/check-slow-unit-tests.mjs ]; then
         case "$*" in *--candidates*) echo '{"entries":[]}' > "$4" ;; esac
