@@ -1,8 +1,9 @@
 # Blueprints
 
-Recall saved solutions before authoring, then reuse a matching graph or start from a built-in. Native Blueprint files use `schema_version: 2` and one typed graph. Older formats are refused; stored v1 graphs and saved v1 Blueprint solutions are deleted without conversion. Other memory and workspaces are retained.
+Core node kinds use bare names; plugin kinds use dotted names such as `comfyui.generate`. New kinds put configuration under `with`; only cross-cutting blocks such as `retry`, `each` and `timeout` belong at the top level.
+Named binds accept only json/text producers; media ports in named binds are not supported yet.
 
-Each code or command step runs with the user's own permissions, like an agent in a tab, without Domios credentials in its environment; foreign Blueprints are gated by folder trust (1.15.4). Execution budgets still apply on macOS, Linux and Windows.
+Recall saved solutions before authoring, then reuse a matching graph or start from a built-in. Native Blueprint files use `schema_version: 2` and one typed graph. Older formats are refused; stored v1 graphs and saved v1 Blueprint solutions are deleted without conversion. Other memory and workspaces are retained.
 
 ```bash
 domios blueprint new --intent "watch CI and report failures" --json
@@ -69,8 +70,6 @@ Ports use the restricted JSON Schema fields `type`, `properties`, `required`, `a
 ## Execution support
 
 Admission lowers a v2 document to the runtime representation or returns an explicit unsupported diagnostic before effects. Code and call nodes execute through the shared typed runtime. Runtime data binds resolve retained outputs as data. Lowering refuses any unsupported node or contract before effects; pipeline `other` handlers remain unavailable. `domios-cli` capability is unavailable.
-
-A Blueprint code or command step runs with the user's own permissions, like an agent in a tab, without Domios credentials in its environment; foreign Blueprints are gated by folder trust (1.15.4). Code runs as an ordinary child process on macOS, Linux and Windows, subject to execution budgets.
 
 Supported pipeline nodes are `code`, fixed `run` commands and `uses: http`, `github`, `ask`, `filter`, `convert` and `agent`. Parameters are explicit value forms. `ask` declares its `buckets` on the node. HTTP outcomes are `up`, `down`, `failed`; GitHub outcomes depend on `resource`; filters may declare a bucket. Commands, conversion and agent tasks return `done` or `failed`. Unspecified failure routes stop; other unspecified outcomes continue. Inputs and outputs must agree with the supported media chain. `result.to` accepts `owner`, `team`, `notify` or `tab:<id>`; offline checking refuses any other target. With the default `owner: team`, `owner` and `team` deliver to the Team Orchestrator's inbox in the Blueprint's workspace; with `owner: tab`, `owner` delivers to the applying tab.
 
@@ -212,4 +211,4 @@ Restored PTY results retain the exact saved provider/session in a durable outbox
 
 R10 and environment scrubbing prevent accidents, not hostile code. R10 joins split literals and refuses whole words `domios`/`codeterm`, tokens prefixed `DOMIOS_`/`CODETERM_` with `ambient_authority`; domios-cli capabilities also refuse. Obfuscation can pass. Children scrub instance credentials/private CLI paths and shadow CLI names with private PATH-first deny stubs, retaining shared paths such as `/usr/bin`. HOME/APPDATA and absolute executables remain available under user authority. Unavailable R13 comparisons never claim PASS.
 
-<!-- revision: 74 -->
+<!-- revision: 75 -->

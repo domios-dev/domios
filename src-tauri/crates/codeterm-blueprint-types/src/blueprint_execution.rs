@@ -148,7 +148,13 @@ impl ExecutionContract {
         let value = self
             .input_bindings
             .iter()
-            .map(|(name, binding)| resolve(binding).map(|envelope| (name.clone(), envelope.value)))
+            .map(|(name, binding)| {
+                let envelope = resolve(binding)?;
+                if crate::blueprint_document::bindings::unsupported_media(Some(&envelope.media)) {
+                    return Err(JournalReason::ContractViolation);
+                }
+                Ok((name.clone(), envelope.value))
+            })
             .collect::<Result<serde_json::Map<_, _>, _>>()?;
         Ok(ExecutionEnvelope {
             media: "json".into(),

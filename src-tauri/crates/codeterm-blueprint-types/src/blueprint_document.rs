@@ -48,7 +48,7 @@ pub struct Document {
     pub steps: Vec<Node>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub other: Vec<Node>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "ResultPort::is_default")]
     pub result: ResultPort,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub blueprints: BTreeMap<String, SubBlueprint>,

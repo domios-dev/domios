@@ -66,3 +66,36 @@ fn violation_detail_is_bounded() {
     let detail = integer.violation(&long, false).unwrap().unwrap();
     assert!(detail.chars().count() < 200, "{detail}");
 }
+
+#[test]
+fn blueprint_named_bind_media_refuses_paths_and_preserves_single_input() {
+    let input = ExecutionEnvelope::from_text("trigger");
+    for media in ["json", "text", "image", "file", "audio", "video"] {
+        let producer = ExecutionEnvelope {
+            media: media.into(),
+            schema_id: None,
+            value: json!("path"),
+            text: String::new(),
+        };
+        let named = ExecutionContract {
+            input_bindings: BTreeMap::from([("a".into(), "producer.out".into())]),
+            ..Default::default()
+        };
+        let result = named.bind_input(&input, |_| Ok(producer.clone()));
+        if matches!(media, "json" | "text") {
+            let result = result.unwrap();
+            assert_eq!(result.media, "json");
+            assert_eq!(result.value, json!({"a":"path"}));
+        } else {
+            assert_eq!(result, Err(JournalReason::ContractViolation));
+        }
+        let single = ExecutionContract {
+            input_binding: Some("producer.out".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            single.bind_input(&input, |_| Ok(producer.clone())).unwrap(),
+            producer
+        );
+    }
+}

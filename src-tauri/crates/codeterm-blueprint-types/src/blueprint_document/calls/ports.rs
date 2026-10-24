@@ -86,14 +86,15 @@ pub fn compatible(actual: &Port, expected: &Port) -> bool {
     true
 }
 pub fn binding(document: &Document, binding: &str, before: usize) -> Option<Port> {
-    let mut parts = binding.split('.');
-    let id = parts.next()?;
-    if parts.next()? != "out" {
-        return None;
-    }
+    let binding = super::super::bindings::parse(binding).ok()?;
+    let id = binding.node;
     let node = document.nodes().take(before).find(|node| node.id == id)?;
     let mut port = expand(node.output.as_ref()?, &document.types)?;
-    for field in parts {
+    for field in binding
+        .selection
+        .split('.')
+        .filter(|field| !field.is_empty())
+    {
         port = port.properties.get(field)?.clone();
     }
     Some(port)

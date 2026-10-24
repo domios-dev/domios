@@ -29,6 +29,8 @@ Everything else gets deleted. If you catch yourself writing a comment and you ca
 
 ## Rust specifics
 
+- Identity-bearing structs require `skip_serializing_if` on every default-valued field, including new fields; pin canonical identities with golden tests.
+
 - `parking_lot::Mutex` for shared state. No `tokio::sync::Mutex` unless holding across `.await`. Follow the lock order in `CLAUDE.md`.
 - `Result<T, String>` for Tauri command errors. Custom error enums only when callers branch on variant.
 - Modules have single responsibility. `mod.rs` >500 lines = split.
@@ -69,3 +71,5 @@ Moved out of the embedded `domios docs` pages because they describe Domios's own
 - [references/mesh-services.md](references/mesh-services.md) — mesh and service registry internals
 - [references/service-boundaries.md](references/service-boundaries.md) — the shared service layer behind REST, IPC and the socket
 - [references/notifications.md](references/notifications.md) — notification level routing rationale
+
+<!-- revision: 1 -->
