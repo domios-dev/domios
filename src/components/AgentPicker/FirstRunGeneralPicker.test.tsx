@@ -1,7 +1,7 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, expect, it, vi } from "vitest";
-import type { MultiplexerState, ProviderDescriptor, Tab } from "../../lib/types";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import type { MultiplexerState, ProviderDescriptor, Tab, TabBootStageEvent } from "../../lib/types";
 import { FirstRunGeneralPicker } from "./FirstRunGeneralPicker";
 import { firstRunGeneralTarget } from "./firstRunNavigation";
 
@@ -17,13 +17,90 @@ vi.mock("./pickerNavigation", async (original) => ({
   usePickerNavigation: () => navigation,
 }));
 
-import { invoke } from "../../lib/bridge";
+import { invoke, listen } from "../../lib/bridge";
+import { defaultConfig, useConfigLoader } from "../../hooks/useConfig";
+import { firstRunLocked } from "../../lib/firstRunGate";
+import { FirstRunControls } from "./FirstRunControls";
+
+const events = new Map<string, (event: { payload: unknown }) => void>();
+beforeEach(() => {
+  vi.mocked(listen).mockImplementation(async (name, handler) => {
+    events.set(name, handler as (event: { payload: unknown }) => void);
+    return () => { events.delete(name); };
+  });
+});
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 afterEach(() => {
   vi.mocked(invoke).mockReset();
   navigation.show.mockReset();
+  events.clear();
+});
+
+for (const stage of ["agent_ready", "spawn_failed"] as const) {
+  it(`releases navigation on persisted completion and leaves Working on ${stage}`, async () => {
+    const config = defaultConfig();
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === "get_config") return config;
+      if (command === "complete_general_agent_first_run") {
+        events.get("config-changed")!({ payload: { ...config, general_agent: { ...config.general_agent, first_run_complete: true } } });
+      }
+      return command === "mux_get_state" ? snapshot() : undefined;
+    });
+    function Shell() {
+      const { config } = useConfigLoader();
+      return <><FirstRunControls locked={firstRunLocked(config.general_agent)}><button>Mesh</button></FirstRunControls>
+        <FirstRunGeneralPicker providers={[provider("terminal-agent", "pty")]} /></>;
+    }
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(<Shell />));
+      const mesh = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Mesh")!;
+      const confirm = host.querySelector<HTMLButtonElement>("[data-testid=agent-picker-confirm]")!;
+      expect(mesh.disabled).toBe(true);
+      await act(async () => confirm.click());
+      expect(confirm.disabled).toBe(true);
+      expect(mesh.disabled).toBe(false);
+      await act(async () => events.get("tab-boot-stage")!({ payload: { tab_id: "unrelated", stage } satisfies TabBootStageEvent }));
+      expect(confirm.disabled).toBe(true);
+      await act(async () => events.get("tab-boot-stage")!({ payload: { tab_id: "general", stage, reason: "opaque launch error" } satisfies TabBootStageEvent }));
+      expect(confirm.disabled).toBe(false);
+      expect(mesh.disabled).toBe(false);
+      expect(host.textContent?.includes("opaque launch error")).toBe(stage === "spawn_failed");
+      expect(events.has("tab-boot-stage")).toBe(false);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+}
+
+it("observes readiness from the accepted snapshot when the ready event has already passed", async () => {
+  const ready = snapshot();
+  ready.tabs.general.boot_stage = "agent_ready";
+  vi.mocked(invoke).mockImplementation(async (command) => {
+    if (command === "complete_general_agent_first_run") {
+      events.get("tab-boot-stage")!({ payload: { tab_id: "general", stage: "agent_launching" } satisfies TabBootStageEvent });
+    }
+    return command === "mux_get_state" ? ready : undefined;
+  });
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<FirstRunGeneralPicker providers={[provider("terminal-agent", "pty")]} />));
+    const confirm = host.querySelector<HTMLButtonElement>("[data-testid=agent-picker-confirm]")!;
+    await act(async () => confirm.click());
+    expect(confirm.disabled).toBe(false);
+    expect(navigation.show).toHaveBeenCalledExactlyOnceWith({ workspaceId: "welcome", tabId: "general" });
+    expect(events.has("tab-boot-stage")).toBe(false);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
 });
 
 function snapshot(): MultiplexerState {

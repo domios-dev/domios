@@ -91,6 +91,12 @@ async function nativeConfigSaves() {
     assert(writes === 0, "native loading saves never reach persistence");
     await act(async () => finishRead(authenticated));
     assert(emit, "native config listener registered");
+    const { firstRunLocked } = await import("../lib/firstRunGate");
+    assert(firstRunLocked(current.config.general_agent), "fresh config locks navigation before General selection");
+    const completed = structuredClone(redacted);
+    completed.general_agent.first_run_complete = true;
+    await act(async () => emit!({ payload: completed }));
+    assert(!firstRunLocked(current.config.general_agent), "server completion event releases navigation before General readiness");
     await act(async () => emit!({ payload: redacted }));
     assert(current.config.api.token === "runtime-secret", "real native hook preserves a same-peer redacted token");
     await act(async () => current.updateConfig({ ...current.config, font: { ...current.config.font, size: 18 } }));
