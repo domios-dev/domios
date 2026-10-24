@@ -1,4 +1,5 @@
 use super::*;
+mod changes;
 use serde_json::json;
 use std::collections::BTreeMap;
 
@@ -332,7 +333,15 @@ fn blueprint_dreamer_only_merges_existing_solutions_and_preserves_stats() {
         .unwrap();
     let record = mem.solution_metadata(&id).unwrap().unwrap();
     metadata::write(&mem.conn.lock(), &other, &record).unwrap();
+    let events = std::sync::Arc::new(parking_lot::Mutex::new(Vec::new()));
+    let observed = events.clone();
+    let weak = std::sync::Arc::downgrade(&mem);
+    mem.set_blueprint_library_listener(std::sync::Arc::new(move |area, revision| {
+        assert!(weak.upgrade().unwrap().conn.try_lock().is_some());
+        observed.lock().push((area.to_owned(), revision));
+    }));
     assert_eq!(mem.dream_blueprints().unwrap(), 1);
+    assert_eq!(*events.lock(), vec![("project".into(), 2)]);
     let kinds = [
         mem.get(&id).unwrap().unwrap().kind,
         mem.get(&other).unwrap().unwrap().kind,
@@ -340,6 +349,7 @@ fn blueprint_dreamer_only_merges_existing_solutions_and_preserves_stats() {
     assert_eq!(kinds.iter().filter(|kind| *kind == "archived").count(), 1);
     assert_eq!(mem.recall_blueprints("project", "", 5).unwrap().len(), 1);
     assert_eq!(mem.dream_blueprints().unwrap(), 0);
+    assert_eq!(events.lock().len(), 1);
 }
 
 #[test]

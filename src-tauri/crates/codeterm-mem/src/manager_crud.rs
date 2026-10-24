@@ -237,11 +237,18 @@ impl MemManager {
         let removed_ids = {
             let conn = self.conn.lock();
             let mut removed = Vec::new();
+            let mut areas = Vec::new();
             for matching_id in matching_ids {
+                let area = store::get(&conn, &matching_id, &self.blobs_dir)?
+                    .filter(|item| item.source.as_deref() == Some(crate::blueprint_library::SOURCE))
+                    .and_then(|item| item.area);
                 if store::delete(&conn, &matching_id)? {
                     removed.push(matching_id);
+                    areas.extend(area);
                 }
             }
+            drop(conn);
+            self.notify_blueprint_library_changed(areas);
             removed
         };
 
@@ -270,17 +277,25 @@ impl MemManager {
         };
         let mut deleted = Vec::new();
         let mut skill_sources = Vec::new();
+        let mut library_changed = false;
         for id in &ids {
+            let blueprint = store::get(&conn, id, &self.blobs_dir)?.is_some_and(|item| {
+                item.source.as_deref() == Some(crate::blueprint_library::SOURCE)
+            });
             self.embed_queue.cancel(id);
             let skill_source =
                 codeterm_mem_store::skill_folders::folder_skill_source_path(&conn, id)
                     .map_err(|e| format!("read folder skill source: {e}"))?;
             if store::delete(&conn, id)? {
                 deleted.push(id.clone());
+                library_changed |= blueprint;
                 skill_sources.push((id.clone(), skill_source));
             }
         }
         drop(conn);
+        if library_changed {
+            self.notify_blueprint_library_changed([area.to_owned()]);
+        }
         for (id, source) in skill_sources {
             remove_folder_skill(source.as_deref(), &self.skill_dir, &id);
         }
