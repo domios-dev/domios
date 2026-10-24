@@ -47,6 +47,7 @@ export interface CanvasAccount {
   busy: string | null;
   signingIn: boolean;
   reauthRequired?: boolean;
+  moreMachines?: boolean;
   /** Epoch milliseconds. */
   now: number;
   actions: MachineNodeActions;
@@ -252,6 +253,8 @@ export const MeshCanvas = memo(function MeshCanvas({
       }}
     >
       {account && <AccountNotes notes={account.canvas.notes} />}
+      {account?.moreMachines && <button type="button" onMouseDown={(event) => event.stopPropagation()}
+        onClick={account.onRetry} className="ct-btn ct-btn-compact absolute bottom-3 left-3 z-10">Load more machines</button>}
       <CanvasToolbar label="Mesh graph controls" onRefresh={onRefresh} onFit={() => { userAdjustedRef.current = true; reset(); }} onZoomOut={() => { userAdjustedRef.current = true; zoomBy(-ZOOM_STEP); }} onZoomIn={() => { userAdjustedRef.current = true; zoomBy(ZOOM_STEP); }} />
       <div
         ref={(element) => { layerRef.current = element; machineLayerRef.current = element; }}

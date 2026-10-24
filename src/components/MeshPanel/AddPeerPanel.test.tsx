@@ -112,11 +112,11 @@ describe("My machines Add", () => {
     expect(host.textContent).toContain("Machine membership could not be verified right now.");
     await click(button("Retry enrollment"));
     expect(client.enrollCalls).toBe(1);
-    expect(client.listCalls).toBe(1);
+    expect(client.listCalls).toBe(0);
   });
 
   it("shows the typed list failure and retry control instead of the empty state", async () => {
-    const client = new FakeAccountMeshClient(snapshot({ registry: null }));
+    const client = new FakeAccountMeshClient(snapshot({ registry: null, registry_failure: { reason: "unauthenticated" } }));
     client.listOutcome = { ok: false, failure: { reason: "unauthenticated" } };
     await mount(client, "signed_in");
 
@@ -126,18 +126,18 @@ describe("My machines Add", () => {
     expect(button("Refresh My machines")).not.toBeNull();
   });
 
-  it("loads the registry on mount and Refresh before showing remote Add rows", async () => {
-    const client = new FakeAccountMeshClient(snapshot({ registry: null }));
+  it("uses the startup registry snapshot on mount and lists only on Refresh", async () => {
+    const client = new FakeAccountMeshClient(snapshot({ registry: { observed_at: NOW, rows: [selfRow, macRow] } }));
     client.listRows = [selfRow, macRow];
 
     await mount(client, "signed_in");
 
-    expect(client.listCalls).toBe(1);
+    expect(client.listCalls).toBe(0);
     expect(account("MacBook")?.getAttribute("data-status")).toBe("unlinked");
     expect(button("Connect MacBook")).not.toBeNull();
 
     await click(button("Refresh My machines"));
-    expect(client.listCalls).toBe(2);
+    expect(client.listCalls).toBe(1);
     expect(account("MacBook")?.getAttribute("data-status")).toBe("unlinked");
   });
 
@@ -222,7 +222,7 @@ describe("My machines Add", () => {
     expect(host.textContent).toContain("Waiting to retry at");
     await act(async () => client.emit(snapshot({ publication: "published" })));
     expect(host.textContent).not.toContain("Waiting to retry at");
-    expect(client.listCalls).toBe(1);
+    expect(client.listCalls).toBe(0);
     expect(client.snapshotCalls).toBe(before + 3);
   });
 });
