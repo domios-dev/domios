@@ -14,6 +14,7 @@ mod display_name {
     use axum::extract::State;
     use codeterm_service_core::multiplexer::state::MultiplexerState;
     use codeterm_service_core::service::test_fixture::ServiceFixture;
+    use futures_util::FutureExt;
 
     use crate::test_support::app_state;
 
@@ -38,6 +39,9 @@ mod display_name {
         let fixture = ServiceFixture::new(MultiplexerState::empty());
         let state = app_state(&fixture);
         let _held = state.mesh.lock();
-        assert_eq!(health_instance(&state).await["display_name"], "");
+        let instance = health_instance(&state)
+            .now_or_never()
+            .expect("health must complete without yielding while the mesh lock is held");
+        assert_eq!(instance["display_name"], "");
     }
 }
