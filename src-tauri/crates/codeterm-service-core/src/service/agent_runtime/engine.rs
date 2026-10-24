@@ -58,6 +58,20 @@ pub fn requested(svc: &ServiceContext, provider: &str) -> bool {
 pub fn for_tab(tab: &str) -> Option<Arc<Session>> {
     SESSIONS.lock().get(tab).cloned()
 }
+
+pub(super) fn login_pending_session(
+    svc: &ServiceContext,
+    tab: &str,
+    error: RuntimeFailure,
+) -> Result<Arc<Session>, RuntimeFailure> {
+    if matches!(error, RuntimeFailure::SignInRequired) {
+        if let Some(session) = for_tab(tab) {
+            validate_binding(svc, &session)?;
+            return Ok(session);
+        }
+    }
+    Err(error)
+}
 pub(crate) fn has_live_bound_session(tab: &crate::multiplexer::types::Tab) -> bool {
     let Some(session) = for_tab(&tab.id) else {
         return false;
@@ -644,7 +658,11 @@ async fn ensure_locked(
             })
         };
         if main {
-            let provider = owner.mux.read().get_tab(&target).and_then(|tab| tab.agent_type.clone());
+            let provider = owner
+                .mux
+                .read()
+                .get_tab(&target)
+                .and_then(|tab| tab.agent_type.clone());
             if let Some(provider) = provider {
                 crate::service::general_agent::persist_switched_session(&provider, &thread);
             }
