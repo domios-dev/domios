@@ -7,6 +7,21 @@ import { inspect, selected } from './dev-server.mjs';
 
 const image = value => typeof value === 'string' ? value.replaceAll('\\', '/').replace(/^\/\/\?\//, '').toLowerCase() : '';
 
+function processTree(processes, roots) {
+  const tree = new Set(roots);
+  for (let previous = -1; previous !== tree.size;) {
+    previous = tree.size;
+    for (const row of processes) if (tree.has(row.parent)) tree.add(row.pid);
+  }
+  return tree;
+}
+
+function serverSubcommand(commandLine) {
+  if (typeof commandLine !== 'string') return null;
+  const match = commandLine.match(/^\s*(?:"[^"]+"|[^\s"]+)\s+(?:"([a-z][a-z0-9-]*)"|([a-z][a-z0-9-]*))(?=\s|$)/);
+  return match?.[1] ?? match?.[2] ?? null;
+}
+
 export function rebuildStopPlan({ instance, data, port, app, record, ready, quit, processes, listeners }) {
   if (!Number.isInteger(port) || port < 1 || port > 65535 || port === 7685) throw Error('Refusing production or invalid DEV port');
   const candidates = processes.filter(row => image(row.executable) === image(app));
@@ -33,16 +48,20 @@ export function rebuildStopPlan({ instance, data, port, app, record, ready, quit
     const actual = processes.find(row => row.pid === root.pid);
     if (!actual || actual.created !== root.created || image(actual.executable) !== image(root.executable)) throw Error('DEV process identity changed');
   }
-  const tree = new Set(roots.map(row => row.pid));
-  for (let previous = -1; previous !== tree.size;) {
-    previous = tree.size;
-    for (const row of processes) if (tree.has(row.parent)) tree.add(row.pid);
-  }
+  const tree = processTree(processes, roots.map(row => row.pid));
+  const serverTree = processTree(processes, [ready.process.pid]);
   const pinned = processes.filter(row => tree.has(row.pid));
   if (pinned.some(row => !row.executable || !/^[0-9]+$/.test(row.created))) throw Error('Uncertain DEV descendant identity');
   const rootIds = new Set(roots.map(row => row.pid));
   const instanceImages = new Set([app, record.artifacts.server.path, 'domios-app.exe'].map(value => path.win32.basename(image(value))));
-  if (pinned.some(row => !rootIds.has(row.pid) && instanceImages.has(path.win32.basename(image(row.executable))))) {
+  const listening = new Set(listeners.map(row => row.pid));
+  if (pinned.some(row => {
+    if (rootIds.has(row.pid) || !instanceImages.has(path.win32.basename(image(row.executable)))) return false;
+    const command = serverSubcommand(row.commandLine);
+    const helper = serverTree.has(row.pid) && image(row.executable) === image(record.artifacts.server.path) &&
+      command && command !== 'serve' && !listening.has(row.pid);
+    return !helper;
+  })) {
     throw Error('DEV process tree contains another instance; refusing shutdown');
   }
   if (listeners.some(row => tree.has(row.pid) && (row.port === 7685 ||
