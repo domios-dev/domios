@@ -190,11 +190,7 @@ pub fn execute_step(
         if ctx.remaining().is_zero() {
             return Err(JournalReason::Deadline);
         }
-        let input = if let Some(binding) = &contract.input_binding {
-            ctx.resolve_binding(binding)?
-        } else {
-            input.clone()
-        };
+        let input = contract.bind_input(&input, |binding| ctx.resolve_binding(binding))?;
         check(&input, false)?;
         if matches!(
             step.kind,

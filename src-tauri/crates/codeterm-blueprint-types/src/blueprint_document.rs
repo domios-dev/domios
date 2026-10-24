@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
+pub mod bindings;
 pub mod calls;
 pub mod checker;
 pub use checker::Diagnostic;

@@ -4,7 +4,7 @@ Use this one cookbook for every model. Start with `domios blueprint new --intent
 
 v2 essentials: schema_version: 2; name; inputs mapping of typed declarations; types mapping of JSON schemas; steps list with id. A code step has does, code: {lang: python, src: ...}, in/out schemas and bind: {in: prior.out}. Python main(value) returns JSON. `lang` is `python` or `ts` (not `typescript`; `shell` is not runnable, use a fixed `run` step). Code limits go under the code block: `code: {lang: python, src: ..., limits: {wall_ms: 3000, output_bytes: 32768}}`. Code strings may not contain the whole words `domios` or `codeterm`, or names starting `DOMIOS_` or `CODETERM_` (R10). `result.to: owner` delivers to the Team Orchestrator's inbox for a Team Blueprint. The `domios` on PATH can be an older build without `blueprint new --intent`, `check --explain` or `--fix`; confirm with `domios blueprint --help` and use the running instance's CLI. Routes done/failed can target a later id, next or stop. Run `domios blueprint new --intent "<task purpose>" --json` first. Reuse a card by typed call when its purpose and complete input/result signature fit; otherwise author from scratch. A high score alone does not prove fit.
 
-`bind.in` names an earlier step's output, never a literal value or workflow input. Generic fabric example (steps only):
+`bind.in` names an earlier step's output, never a literal value or workflow input. Every bind, including call arguments and named ports, must reference a producer that executes on every path reaching its consumer (data dominance). A branch-local output cannot be used after a merge unless every incoming path executes that producer; D1 names a branch path that skips it. Generic fabric example (steps only):
 ```yaml
 - id: swatch
   does: Supply a fabric label
@@ -15,6 +15,14 @@ v2 essentials: schema_version: 2; name; inputs mapping of typed declarations; ty
   in: {type: string}
   bind: {in: swatch.out}
   code: {lang: python, src: 'def main(value): return value.upper()'}
+  out: {type: string}
+```
+
+Code and command nodes also accept named ports instead of `in`. They receive one object; its schema is inferred from the producers' outputs, or checked against the declared object `in` schema per port. Do not mix `in` with named ports. After the two steps above:
+```yaml
+- id: pair
+  bind: {original: swatch.out, caption: caption.out}
+  code: {lang: python, src: 'def main(value): return value["original"] + ": " + value["caption"]'}
   out: {type: string}
 ```
 
@@ -32,4 +40,4 @@ A fixed command `run: {lit: "<author-fixed command>"}` is a shell command line, 
 
 Choose 1-3 distinct catalogue tags with repeatable `--tag`; run `domios blueprint tags` for the controlled vocabulary and descriptions. Tags help users browse saved solutions. Unknown tags are refused with the closest valid names.
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->

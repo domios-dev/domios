@@ -278,4 +278,5 @@ fn blueprint_v2_runtime_envelope_requires_all_fields_and_preserves_text_type() {
 
 mod review;
 
+mod fanin;
 mod recipes;

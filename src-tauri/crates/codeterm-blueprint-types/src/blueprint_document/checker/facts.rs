@@ -198,7 +198,10 @@ pub(super) fn database(ir: &PositionedIr, context: &CheckContext) -> Database {
                     .as_ref()
                     .and_then(|p| ports::resolve(p, &doc.types).ok())
             } else {
-                None
+                n.input
+                    .as_ref()
+                    .and_then(|p| ports::resolve(p, &doc.types).ok())
+                    .and_then(|p| p.properties.get(slot).cloned())
             };
             if let Some(wanted) = &expected {
                 add(
@@ -208,6 +211,34 @@ pub(super) fn database(ir: &PositionedIr, context: &CheckContext) -> Database {
                 );
             }
             binding(&mut add, n, slot, bind, &field, doc, expected.as_ref());
+            if matches!(n.kind(), "command" | "code") {
+                add("data_slot", vec![n.id.clone(), slot.clone()], &field);
+                if super::super::bindings::named(n) {
+                    if let Err(why) = super::super::bindings::source_schema(doc, bind) {
+                        add(
+                            "named_port_conflict",
+                            vec![n.id.clone(), slot.clone(), why],
+                            &field,
+                        );
+                    }
+                }
+            }
+        }
+        if super::super::bindings::named(n) {
+            if let (Ok(actual), Some(wanted)) = (
+                super::super::bindings::envelope_schema(doc, n),
+                n.input
+                    .as_ref()
+                    .and_then(|p| ports::resolve(p, &doc.types).ok()),
+            ) {
+                for why in ports::subsumption_conflicts(&actual, &wanted) {
+                    add(
+                        "named_port_conflict",
+                        vec![n.id.clone(), "in".into(), why],
+                        &format!("{path}.in"),
+                    );
+                }
+            }
         }
         if n.kind() == "notify" {
             add("data_slot", vec![n.id.clone(), "with.text".into()], &path);
@@ -280,7 +311,7 @@ pub(super) fn database(ir: &PositionedIr, context: &CheckContext) -> Database {
         }
     }
     for (index, receiver) in nodes.iter().enumerate() {
-        if receiver.bind.contains_key("in") {
+        if !receiver.bind.is_empty() {
             continue;
         }
         let Some(target) = receiver
