@@ -1,36 +1,18 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { RefreshCw } from "lucide-react";
 import { UI_BUTTON, UI_TEXT } from "../shared/design";
 import { BusySpinner } from "../shared/BusyState";
 import { RegionLoader } from "../shared/RegionLoader";
 import { SettingsPill } from "../Settings/shared";
-import {
-  myMachinesView,
-  settledLinks,
-  type AccountPresence,
-  type MachineRowView,
-  type MachineStatus,
-  type SelfRowView,
-} from "./accountMachines";
-import { openLockedMachinePlans, openOnMeshRefusal } from "../billing/accountMeshLimit";
+import type { MachineRowView, MachineStatus, SelfRowView } from "./accountMachines";
 import { LockBadge } from "../billing/LockBadge";
 import { lockedDimClass } from "../billing/freeLimitModel";
 import { meshMachineLockedView } from "../billing/lockSurfaces";
-import {
-  linkFailure,
-  useAccountMeshClient,
-  type AccountMeshFailure,
-  type AccountMeshOutcome,
-  type AccountMeshSnapshot,
-  type MeshTarget,
-} from "./accountMeshClient";
+import type { AccountMeshFailure, MeshTarget } from "./accountMeshClient";
+import { useMyMachines, type MyMachinesOptions } from "./useMyMachines";
 
-export interface MyMachinesProps {
-  account: AccountPresence;
-  onSignIn: () => void | Promise<void>;
+export interface MyMachinesProps extends MyMachinesOptions {
   onFailure: (operation: string, failure: AccountMeshFailure) => void;
-  onChanged?: () => void;
-  now?: () => number;
 }
 
 type Confirm = { kind: "revoke" | "unpair"; key: string } | null;
@@ -40,9 +22,9 @@ const DANGER_BTN = `${UI_BUTTON.danger} ${UI_BUTTON.compact}`;
 const PRIMARY_BTN = `${UI_BUTTON.primary} ${UI_BUTTON.compact}`;
 
 const STATUS_PILL: Record<MachineStatus, { label: string; tone: "green" | "red" | "muted" | "accent" | "amber" }> = {
-  linked: { label: "Linked", tone: "green" },
-  linking: { label: "Linking", tone: "accent" },
-  unlinked: { label: "Not linked", tone: "muted" },
+  linked: { label: "Connected", tone: "green" },
+  linking: { label: "Connecting", tone: "accent" },
+  unlinked: { label: "Not connected", tone: "muted" },
   endpoint_missing: { label: "Unavailable", tone: "muted" },
   endpoint_stale: { label: "Stale", tone: "amber" },
   expired: { label: "Expired", tone: "amber" },
@@ -54,68 +36,11 @@ const STATUS_PILL: Record<MachineStatus, { label: string; tone: "green" | "red" 
   other_account: { label: "Other account", tone: "red" },
 };
 
-const epochSeconds = () => Math.floor(Date.now() / 1000);
-
-async function settle(run: () => Promise<AccountMeshOutcome>): Promise<AccountMeshOutcome> {
-  try {
-    return await run();
-  } catch {
-    return { ok: false, failure: { reason: "unavailable" } };
-  }
-}
-
-export default function MyMachines({ account, onSignIn, onFailure, onChanged, now = epochSeconds }: MyMachinesProps) {
-  const client = useAccountMeshClient();
-  const [snapshot, setSnapshot] = useState<AccountMeshSnapshot | null>(null);
-  const [listFailure, setListFailure] = useState<AccountMeshFailure | null>(null);
-  const [loadFailed, setLoadFailed] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [signingIn, setSigningIn] = useState(false);
-  const [linking, setLinking] = useState<ReadonlySet<string>>(() => new Set());
-  const [busy, setBusy] = useState<string | null>(null);
+export default function MyMachines(props: MyMachinesProps) {
+  const machines = useMyMachines(props);
+  const { view, snapshot, listFailure, loadFailed, refreshing, signingIn, busy, load, signIn, retryEnrollment } = machines;
   const [confirm, setConfirm] = useState<Confirm>(null);
-  const generation = useRef(0);
   const controls = useRef(new Map<string, HTMLElement>());
-
-  const load = useCallback(async () => {
-    const current = ++generation.current;
-    setRefreshing(true);
-    try {
-      if (account === "signed_in") {
-        const result = await settle(() => client.list());
-        if (current !== generation.current) return;
-        setListFailure(result.ok ? null : result.failure);
-      }
-      const next = await client.snapshot();
-      if (current !== generation.current) return;
-      setSnapshot(next);
-      setLoadFailed(false);
-    } catch {
-      if (current === generation.current) setLoadFailed(true);
-    } finally {
-      if (current === generation.current) setRefreshing(false);
-    }
-  }, [account, client]);
-
-  useEffect(() => {
-    void load();
-    return client.subscribe(() => { void load(); });
-  }, [client, load, account]);
-
-  useEffect(() => {
-    if (!snapshot || linking.size === 0) return;
-    const settled = settledLinks(linking, snapshot);
-    if (settled.length === 0) return;
-    setLinking((current) => new Set([...current].filter((id) => !settled.includes(id))));
-  }, [snapshot, linking]);
-
-  const view = useMemo(() => myMachinesView({ account, snapshot, listFailure, linking, now: now() }), [account, snapshot, listFailure, linking, now]);
-
-  const retryEnrollment = async () => {
-    const result = await settle(() => client.enroll());
-    if (!result.ok) onFailure("retry account enrollment", result.failure);
-    await load();
-  };
 
   const enrollmentRefused = view.kind === "account" && snapshot?.enrollment === "refused";
 
@@ -136,64 +61,16 @@ export default function MyMachines({ account, onSignIn, onFailure, onChanged, no
     else controls.current.delete(key);
   };
 
-  const signIn = async () => {
-    setSigningIn(true);
-    try {
-      await onSignIn();
-    } finally {
-      setSigningIn(false);
-    }
-  };
-
-  const add = async (row: MachineRowView, target: MeshTarget) => {
-    setLinking((current) => new Set(current).add(target.installation_id));
-    let failure: AccountMeshFailure | null = null;
-    let planLimit = false;
-    try {
-      planLimit = await openOnMeshRefusal(async () => { await client.link(target); return true; }) === undefined;
-    } catch (error) {
-      failure = linkFailure(error);
-    }
-    if (failure || planLimit) {
-      setLinking((current) => {
-        const next = new Set(current);
-        next.delete(target.installation_id);
-        return next;
-      });
-    }
-    if (failure) onFailure(`link ${row.name}`, failure);
-    onChanged?.();
-    await load();
-  };
+  const add = (row: MachineRowView, target: MeshTarget) => machines.connect(row, target);
 
   const revoke = async (row: MachineRowView, target: MeshTarget) => {
-    setBusy(row.key);
-    const outcome = await settle(() => client.revoke(target));
-    setBusy(null);
-    if (!outcome.ok) {
-      onFailure(`revoke ${row.name}`, outcome.failure);
-      refocus(`${row.key}:confirm-revoke`);
-      return;
-    }
-    setConfirm(null);
-    onChanged?.();
-    await load();
+    if (await machines.revoke(row, target)) setConfirm(null);
+    else refocus(`${row.key}:confirm-revoke`);
   };
 
   const unpair = async (row: MachineRowView, instanceId: string) => {
-    setBusy(row.key);
-    try {
-      await client.unpair(instanceId);
-    } catch {
-      setBusy(null);
-      onFailure(`unpair ${row.name}`, { reason: "unavailable" });
-      refocus(`${row.key}:confirm-unpair`);
-      return;
-    }
-    setBusy(null);
-    setConfirm(null);
-    onChanged?.();
-    await load();
+    if (await machines.disconnect(row, instanceId)) setConfirm(null);
+    else refocus(`${row.key}:confirm-unpair`);
   };
 
   const cancelConfirm = (key: string, kind: "revoke" | "unpair") => {
@@ -225,7 +102,7 @@ export default function MyMachines({ account, onSignIn, onFailure, onChanged, no
           confirm={confirm?.key === row.key ? confirm.kind : null}
           register={registerControl}
           onAdd={(target) => void add(row, target)}
-          onPlans={() => openLockedMachinePlans(snapshot, row.key)}
+          onPlans={() => machines.openPlans(row.key)}
           onAskConfirm={(kind) => setConfirm({ kind, key: row.key })}
           onCancelConfirm={(kind) => cancelConfirm(row.key, kind)}
           onRevoke={(target) => void revoke(row, target)}
@@ -270,20 +147,7 @@ export default function MyMachines({ account, onSignIn, onFailure, onChanged, no
         {refresh}
       </div>
       {view.self && (
-        <SelfRow
-          self={view.self}
-          onRename={async (name) => {
-            const self = view.self;
-            if (!self) return false;
-            const outcome = await settle(() => client.renameSelf(self.metadataRevision, name));
-            if (!outcome.ok) {
-              onFailure("rename this machine", outcome.failure);
-              return false;
-            }
-            await load();
-            return true;
-          }}
-        />
+        <SelfRow self={view.self} onRename={machines.renameSelf} />
       )}
       {rowList("Your account's machines", view.machines, listFailure ? "Your account's machines could not be listed." : "No other machines in your account yet. Sign in to Domios with this account on another machine.")}
       {view.saved.length > 0 && (
@@ -419,10 +283,10 @@ function MachineRow({ row, busy, confirm, register, onAdd, onPlans, onAskConfirm
                 disabled={add.reason !== null}
                 aria-busy={linking}
                 aria-describedby={add.reason && !linking ? reasonId : undefined}
-                aria-label={`Add ${row.name}`}
+                aria-label={`Connect ${row.name}`}
                 className={`${UI_BUTTON.accent} ${UI_BUTTON.compact} disabled:opacity-50`}
               >
-                {linking ? <><BusySpinner size={12} /> Linking…</> : "Add"}
+                {linking ? <><BusySpinner size={12} /> Connecting…</> : "Connect"}
               </button>
             )}
             {row.status === "over_limit" && (
@@ -431,8 +295,8 @@ function MachineRow({ row, busy, confirm, register, onAdd, onPlans, onAskConfirm
               </button>
             )}
             {unpairInstanceId && (
-              <button type="button" ref={register(`${row.key}:unpair`)} onClick={() => onAskConfirm("unpair")} aria-label={`Unpair ${row.name}`} className={ACTION_BTN}>
-                Unpair
+              <button type="button" ref={register(`${row.key}:unpair`)} onClick={() => onAskConfirm("unpair")} aria-label={`Disconnect ${row.name}`} className={ACTION_BTN}>
+                Disconnect
               </button>
             )}
             {revoke && (
@@ -459,10 +323,10 @@ function MachineRow({ row, busy, confirm, register, onAdd, onPlans, onAskConfirm
       )}
       {confirm === "unpair" && unpairInstanceId && (
         <ConfirmStrip
-          label={`Confirm unpair ${row.name}`}
-          message={`Unpair ${row.name}? This removes the pairing on this machine only. Its account slot stays allocated.`}
-          action="Unpair"
-          pendingAction="Unpairing…"
+          label={`Confirm disconnect ${row.name}`}
+          message={`Disconnect ${row.name}? This removes the connection on this machine only. Its account slot stays allocated.`}
+          action="Disconnect"
+          pendingAction="Disconnecting…"
           busy={busy}
           register={register(`${row.key}:confirm-unpair`)}
           onConfirm={() => onUnpair(unpairInstanceId)}

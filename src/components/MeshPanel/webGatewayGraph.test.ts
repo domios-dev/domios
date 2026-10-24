@@ -7,6 +7,5 @@ const graph = webGatewayGraph([peer("online", true), peer("offline", false), pee
 assert.deepEqual(graph.nodes, [WEB_NODE_ID, SELF_PEER_KEY, "online", "offline", "unpaired"]);
 assert.deepEqual(graph.edges.map(({ machineId, online }) => [machineId, online]), [[SELF_PEER_KEY, true], ["online", true], ["offline", false]]);
 assert.deepEqual(webGatewayGraph([]).nodes, [WEB_NODE_ID, SELF_PEER_KEY]);
-assert.equal(graph.nodes.includes("__ghost_add_peer__"), false);
 assert.equal(webGatewayGraph([], false).edges[0].online, false);
 console.log("✓ Gateway graph includes Web and real machines; only paired peers have presence edges");

@@ -19,6 +19,7 @@ const inventory: MeshDataResult = {
 };
 
 vi.mock("./useMeshData", () => ({ useMeshData: () => inventory }));
+vi.mock("./useCanvasAccount", () => ({ useCanvasAccount: () => undefined }));
 vi.mock("../../lib/bridge", async (original) => ({
   ...await original<typeof import("../../lib/bridge")>(),
   invoke: async (command: string) => command === "get_serve_status"

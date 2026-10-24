@@ -1,0 +1,196 @@
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { accountCanvas, lastSeenMs, type AccountCanvasInput } from "./accountCanvas";
+import { myMachinesView, SIGNED_OUT_COPY, type AccountPresence } from "./accountMachines";
+import { AccountMeshClientProvider, type AccountMeshSnapshot } from "./accountMeshClient";
+import { AccountMeshRefusalError } from "../billing/accountMeshLimit";
+import { freeLimitGate } from "../billing/freeLimitGate";
+import { deferred, FakeAccountMeshClient, machine, macRow, NOW, pair, selfRow, snapshot, targetOf } from "./accountMachines.testdata";
+import type { PeerStatus } from "./useMeshData";
+import type { MachineFailure } from "./useMyMachines";
+
+const presence = vi.hoisted(() => ({ current: "signed_in" as AccountPresence, signIns: 0 }));
+vi.mock("./useMeshAccount", () => ({
+  useMeshAccount: () => ({ presence: presence.current, signIn: async () => { presence.signIns++; } }),
+}));
+vi.mock("@codeterm/canvas-camera", async (original) => ({
+  ...await original<typeof import("@codeterm/canvas-camera")>(),
+  formatLayerTransform: () => "",
+  useCanvasViewport: () => ({ containerRef: { current: null }, layerRef: { current: null }, transform: { x: 0, y: 0, scale: 1 }, handlers: {}, fitToView: () => {}, zoomBy: () => {} }),
+}));
+
+const { AccountMeshCanvas } = await import("./AccountMeshCanvas");
+
+const peer = (instanceId: string, name: string, patch: Partial<PeerStatus> = {}): PeerStatus => ({
+  instance_id: instanceId, name, ip: "100.64.0.2", api_port: 7685, online: true, access_level: "full", last_seen: null, relay_protocol_version: 2, ...patch,
+});
+
+function model(account: AccountPresence, state: AccountMeshSnapshot, patch: Partial<AccountCanvasInput> = {}) {
+  const view = myMachinesView({ account, snapshot: state, linking: new Set(), now: NOW });
+  return accountCanvas({ view, peers: [], loadFailed: false, listFailed: false, failures: new Map(), ...patch });
+}
+
+describe("Account machines on the Mesh canvas", () => {
+  it("explains account mesh with a Sign in card when signed out", () => {
+    const signedOut = model("signed_out", snapshot({ binding: "none", self: null, registry: null, traffic: "blocked_signed_out" }));
+    expect(signedOut.card).toEqual({ kind: "sign_in", headline: SIGNED_OUT_COPY, blocked: true });
+    expect(signedOut.nodes).toEqual([]);
+  });
+
+  it("shows one empty-account node when no other machine is in the account", () => {
+    const empty = model("signed_in", snapshot({ registry: { observed_at: NOW, rows: [selfRow] } }));
+    expect(empty.card).toEqual({ kind: "empty", listFailed: false });
+    expect(model("signed_in", snapshot({ registry: null }), { listFailed: true }).card).toEqual({ kind: "empty", listFailed: true });
+  });
+
+  it("puts a connected machine's account state on its paired card and draws the rest as nodes", () => {
+    const state = snapshot({ pairs: [pair("mesh-mac", "mac.local", { installation_id: macRow.installation_id, online: false })] });
+    const view = myMachinesView({ account: "signed_in", snapshot: state, linking: new Set(), now: NOW });
+    const canvas = accountCanvas({ view, peers: [peer("mesh-mac", "MacBook", { online: false })], loadFailed: false, listFailed: false, failures: new Map() });
+    expect(canvas.card).toBeNull();
+    const footer = canvas.peerFooters.get("mesh-mac");
+    expect(footer?.status).toBe("Connected");
+    expect(footer?.disconnect).toEqual({ instanceId: "mesh-mac", confirm: false });
+    expect(canvas.nodes.map((node) => [node.name, node.status, node.action?.kind])).toEqual([["Lenovo", "Not connected", "connect"]]);
+    expect(canvas.nodes[0].lastSeenAt).toBe(NOW - 60);
+  });
+
+  it("marks a connecting machine busy and a machine outside the plan as locked with plans", () => {
+    const rows = [selfRow, macRow, machine("inst-extra-e", "Spare", { eligibility: "mesh-allowance" })];
+    const view = myMachinesView({ account: "signed_in", snapshot: snapshot({ registry: { observed_at: NOW, rows } }), linking: new Set([macRow.installation_id]), now: NOW });
+    const canvas = accountCanvas({ view, peers: [], loadFailed: false, listFailed: false, failures: new Map() });
+    const [mac, spare] = canvas.nodes;
+    expect(mac.action).toEqual({ kind: "connect", target: targetOf(macRow), disabledReason: null, connecting: true });
+    expect(spare.locked).toBe(true);
+    expect(spare.action).toEqual({ kind: "plans" });
+  });
+
+  it("turns a failed connect into a callout on that machine with a retry", () => {
+    const failures = new Map<string, MachineFailure>([[macRow.installation_id, { operation: "connect MacBook", failure: { reason: "handshake-failed" } }]]);
+    const canvas = model("signed_in", snapshot(), { failures });
+    const mac = canvas.nodes.find((node) => node.name === "MacBook");
+    expect(mac?.callout).toEqual({ title: "Could not connect MacBook", message: "The machines could not complete an authorized handshake.", retry: true });
+    expect(canvas.nodes.find((node) => node.name === "Lenovo")?.callout).toBeNull();
+  });
+
+  it("hides removed machines and asks before dropping a pairing that is not in the account", () => {
+    const rows = [selfRow, machine("inst-gone-f", "Gone", { active: false, eligibility: "revoked" })];
+    const canvas = model("signed_in", snapshot({ registry: { observed_at: NOW, rows }, pairs: [pair("mesh-old", "Old laptop", { admission: "legacy" })] }));
+    expect(canvas.nodes.map((node) => node.name)).toEqual(["Old laptop"]);
+    expect(canvas.nodes[0].disconnect).toEqual({ instanceId: "mesh-old", confirm: true });
+  });
+
+  it("reads last seen from epoch seconds, milliseconds or ISO text", () => {
+    expect(lastSeenMs(NOW)).toBe(NOW * 1000);
+    expect(lastSeenMs(NOW * 1000)).toBe(NOW * 1000);
+    expect(lastSeenMs("2027-01-15T08:00:00Z")).toBe(Date.parse("2027-01-15T08:00:00Z"));
+    expect(lastSeenMs(null)).toBeNull();
+  });
+});
+
+describe("Mesh canvas wiring", () => {
+  let host: HTMLDivElement;
+  let root: Root;
+  let changed = 0;
+
+  beforeEach(() => {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    presence.current = "signed_in";
+    presence.signIns = 0;
+    changed = 0;
+  });
+
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    host.remove();
+  });
+
+  async function mount(client: FakeAccountMeshClient, peers: PeerStatus[] = []) {
+    await act(async () => root.render(
+      <AccountMeshClientProvider value={client}>
+        <AccountMeshCanvas onAccountChanged={() => { changed++; }} thisMachine={{ name: "Studio PC", ip: "127.0.0.1" }} peers={peers}
+          recentPushes={[]} onPeerClick={() => {}} width={1200} height={800} />
+      </AccountMeshClientProvider>,
+    ));
+  }
+  const button = (label: string) => host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+  const node = (name: string) => host.querySelector<HTMLElement>(`section[aria-label="${name}"]`);
+  const click = async (element: HTMLElement | null) => {
+    expect(element).not.toBeNull();
+    await act(async () => element!.click());
+  };
+
+  it("offers Sign in from the canvas when signed out", async () => {
+    presence.current = "signed_out";
+    await mount(new FakeAccountMeshClient(snapshot({ binding: "none", self: null, registry: null })));
+    const card = node("Sign in to use Mesh");
+    expect(card).not.toBeNull();
+    await click([...card!.querySelectorAll("button")].find((element) => element.textContent === "Sign in") ?? null);
+    expect(presence.signIns).toBe(1);
+  });
+
+  it("connects a machine from its node and shows progress until both machines finish", async () => {
+    const client = new FakeAccountMeshClient(snapshot());
+    await mount(client);
+    expect(node("MacBook")?.getAttribute("data-status")).toBe("unlinked");
+    await click(button("Connect MacBook"));
+    expect(client.linkCalls).toEqual([targetOf(macRow)]);
+    expect(button("Connect MacBook")?.getAttribute("aria-busy")).toBe("true");
+    await act(async () => client.linkOutcome.resolve());
+    await act(async () => client.emit(snapshot({ pairs: [pair("mesh-mac", "mac.local", { installation_id: macRow.installation_id })] })));
+    expect(node("MacBook")?.getAttribute("data-status")).toBe("linked");
+    expect(changed).toBeGreaterThan(0);
+  });
+
+  it("shows a refused connect as a callout on the node, retries it and dismisses it", async () => {
+    const client = new FakeAccountMeshClient(snapshot());
+    await mount(client);
+    await click(button("Connect MacBook"));
+    await act(async () => client.linkOutcome.reject(new AccountMeshRefusalError({ requestId: "req-1", refusal: { reason: "peer-unreachable" } })));
+    const alert = node("MacBook")?.querySelector('[role="alert"]');
+    expect(alert?.textContent).toContain("Could not connect MacBook");
+    expect(alert?.textContent).toContain("Both machines must be online.");
+    expect(node("Lenovo")?.querySelector('[role="alert"]')).toBeNull();
+
+    client.linkOutcome = deferred<void>();
+    await click([...alert!.querySelectorAll("button")].find((element) => element.textContent?.includes("Try again")) ?? null);
+    expect(client.linkCalls).toHaveLength(2);
+    expect(node("MacBook")?.querySelector('[role="alert"]')).toBeNull();
+
+    await act(async () => client.linkOutcome.reject(new AccountMeshRefusalError({ requestId: "req-2", refusal: { reason: "handshake-failed" } })));
+    await click(button("Dismiss: Could not connect MacBook"));
+    expect(node("MacBook")?.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("disconnects a paired machine in one click from its card footer", async () => {
+    const client = new FakeAccountMeshClient(snapshot({ pairs: [pair("mesh-mac", "mac.local", { installation_id: macRow.installation_id, online: false })] }));
+    await mount(client, [peer("mesh-mac", "MacBook", { online: false, last_seen: String(NOW - 7200) })]);
+    expect(node("MacBook")).toBeNull();
+    expect(host.textContent).toContain("Last seen");
+    await click(button("Disconnect MacBook"));
+    expect(client.unpairCalls).toEqual(["mesh-mac"]);
+  });
+
+  it("locks a machine outside the plan and opens plans instead of connecting", async () => {
+    const spare = machine("inst-extra-e", "Spare", { eligibility: "mesh-allowance" });
+    const client = new FakeAccountMeshClient(snapshot({ registry: { observed_at: NOW, rows: [selfRow, spare] } }));
+    await mount(client);
+    expect(node("Spare")?.querySelector('[data-testid="lock-badge"]')).not.toBeNull();
+    expect(button("Connect Spare")).toBeNull();
+    try {
+      await click(button("See plans for Spare"));
+      expect(freeLimitGate.current()?.key).toBe("mesh.machines");
+    } finally {
+      freeLimitGate.close();
+    }
+  });
+
+  it("explains an empty account on the canvas", async () => {
+    await mount(new FakeAccountMeshClient(snapshot({ registry: { observed_at: NOW, rows: [selfRow] } })));
+    expect(host.textContent).toContain("No other machines yet");
+  });
+});

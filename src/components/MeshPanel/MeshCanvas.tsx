@@ -1,8 +1,11 @@
 import { peerInventoryModel } from "./peerInventoryModel";
 import type { Service } from "./types";
 import { memo, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowRight, Globe, Plus } from "lucide-react";
+import { Globe } from "lucide-react";
 import { PeerTerminal } from "./PeerTerminal";
+import { lastSeenMs, type AccountCanvas, type AccountCanvasCard, type AccountMachineNode } from "./accountCanvas";
+import { AccountMachineCard, AccountNotes, AccountStateCard, PeerAccountFooterView, type MachineNodeActions } from "./AccountCanvasNodes";
+import { formatAge } from "../../lib/timeLabels";
 import { meshEdgeModel } from "./meshEdgeModel";
 import type { PeerStatus } from "./useMeshData";
 import { CanvasToolbar } from "@codeterm/chat-ui";
@@ -29,9 +32,21 @@ interface PeerLayout {
   isPaired?: boolean;
   pending?: boolean;
   accessLevel?: string;
-  isGhost?: boolean;
+  account?: { kind: "node"; node: AccountMachineNode } | { kind: "card"; card: AccountCanvasCard };
   webUrl?: string | null;
   webUnavailableReason?: string;
+}
+
+/** My machines on the canvas: account nodes, paired-card footers and the actions behind them. */
+export interface CanvasAccount {
+  canvas: AccountCanvas;
+  busy: string | null;
+  signingIn: boolean;
+  /** Epoch milliseconds. */
+  now: number;
+  actions: MachineNodeActions;
+  onSignIn: () => void;
+  onRetry: () => void;
 }
 
 interface Props {
@@ -49,7 +64,7 @@ interface Props {
   onPeerClick: (peerName: string) => void;
   width: number;
   height: number;
-  onAddPeerClick?: () => void;
+  account?: CanvasAccount;
   meshEnabled?: boolean;
   onGoOnline?: () => void;
   onOpenPeerWebUi?: (url: string) => void;
@@ -77,7 +92,7 @@ export const MeshCanvas = memo(function MeshCanvas({
   onPeerClick,
   width,
   height,
-  onAddPeerClick,
+  account,
   meshEnabled = true,
   onGoOnline,
   onOpenPeerWebUi,
@@ -96,11 +111,11 @@ export const MeshCanvas = memo(function MeshCanvas({
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
-  const geometry = webGraphLayout(width, height, peers.length + 1, webHeight, machineHeights);
-  const showGhost = peers.length === 0 && !!onAddPeerClick;
+  const accountNodes = account?.canvas.nodes;
+  const accountCard = account?.canvas.card ?? null;
+  const extraCount = (accountNodes?.length ?? 0) + (accountCard ? 1 : 0);
+  const geometry = webGraphLayout(width, height, peers.length + 1 + extraCount, webHeight, machineHeights);
   const layout = useMemo<PeerLayout[]>(() => {
-    const cx = width / 2;
-    const cy = height / 2;
     const items: PeerLayout[] = [
       {
         id: "__self__",
@@ -136,19 +151,14 @@ export const MeshCanvas = memo(function MeshCanvas({
             : "The browser gateway is unavailable",
       });
     });
-    if (showGhost) {
-      items.push({
-        id: "__ghost_add_peer__",
-        name: "__ghost_add_peer__",
-        ip: "",
-        x: cx + geometry.web.width / 2 + MACHINE_CARD_WIDTH / 2 + 20,
-        y: cy,
-        height: 88,
-        isGhost: true,
-      });
+    for (const node of accountNodes ?? []) {
+      items.push({ id: `account:${node.key}`, name: node.name, ip: "", ...geometry.machines[items.length], account: { kind: "node", node } });
+    }
+    if (accountCard) {
+      items.push({ id: `account-card:${accountCard.kind}`, name: "My machines", ip: "", ...geometry.machines[items.length], account: { kind: "card", card: accountCard } });
     }
     return items;
-  }, [thisMachine, peers, width, height, showGhost, webUiBaseUrl, webUiToken, geometry.machines, geometry.web.width]);
+  }, [thisMachine, peers, accountNodes, accountCard, webUiBaseUrl, webUiToken, geometry.machines]);
 
   useLayoutEffect(() => {
     const nodes = Array.from(machineLayerRef.current?.querySelectorAll<HTMLElement>("[data-machine-index]") ?? []);
@@ -161,7 +171,7 @@ export const MeshCanvas = memo(function MeshCanvas({
     const observer = new ResizeObserver(measure);
     nodes.forEach((node) => observer.observe(node));
     return () => observer.disconnect();
-  }, [peers.length]);
+  }, [layout.length]);
 
   const gateway = { x: width / 2, y: height / 2 };
   const gatewayGraph = webGatewayGraph(peers, meshEnabled);
@@ -201,6 +211,15 @@ export const MeshCanvas = memo(function MeshCanvas({
     if (contentBounds) fitToView(contentBounds);
   };
 
+  const peerFooter = (id: string) => {
+    const footer = account?.canvas.peerFooters.get(id);
+    if (!account || !footer) return undefined;
+    const peer = peers.find((candidate) => candidate.instance_id === id);
+    const seen = peer && !peer.online ? lastSeenMs(peer.last_seen) : null;
+    return <PeerAccountFooterView footer={footer} name={peer?.name ?? footer.row.name} lastSeen={seen === null ? null : formatAge(seen, account.now)}
+      busy={account.busy === footer.key} actions={account.actions} />;
+  };
+
   return (
     <div
       ref={containerRef}
@@ -217,6 +236,7 @@ export const MeshCanvas = memo(function MeshCanvas({
         touchAction: "none",
       }}
     >
+      {account && <AccountNotes notes={account.canvas.notes} />}
       <CanvasToolbar label="Mesh graph controls" onRefresh={onRefresh} onFit={() => { userAdjustedRef.current = true; reset(); }} onZoomOut={() => { userAdjustedRef.current = true; zoomBy(-ZOOM_STEP); }} onZoomIn={() => { userAdjustedRef.current = true; zoomBy(ZOOM_STEP); }} />
       <div
         ref={(element) => { layerRef.current = element; machineLayerRef.current = element; }}
@@ -277,25 +297,14 @@ export const MeshCanvas = memo(function MeshCanvas({
               transform: "translate(-50%,-50%)",
             }}
           >
-            {p.isGhost ? (
-              <button
-                onClick={onAddPeerClick}
-                className="group flex min-h-[88px] w-[280px] items-center gap-3 rounded-lg border border-dashed border-[var(--ct-border)] bg-transparent px-4 text-left text-[var(--ct-muted-fg)] transition-colors hover:border-[color-mix(in_srgb,var(--ct-accent)_65%,var(--ct-border))] hover:bg-[color-mix(in_srgb,var(--ct-accent)_4%,transparent)] hover:text-[var(--ct-fg)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ct-accent)] cursor-pointer"
-                data-peer-card
-                aria-label="Add a machine from My machines"
-              >
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[var(--ct-border)] bg-[color-mix(in_srgb,var(--ct-fg)_4%,transparent)] text-[var(--ct-muted-fg)] transition-colors group-hover:border-[color-mix(in_srgb,var(--ct-accent)_55%,var(--ct-border))] group-hover:text-[var(--ct-accent)]">
-                  <Plus size={16} />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[12px] font-semibold text-[var(--ct-fg)]">Add a machine</span>
-                  <span className="mt-1 block text-[10px] text-[var(--ct-muted-fg)]">Link machines signed in to your account</span>
-                </span>
-                <ArrowRight size={15} className="shrink-0 text-[var(--ct-muted)] transition-transform group-hover:translate-x-0.5 group-hover:text-[var(--ct-accent)]" />
-              </button>
+            {p.account && account ? (
+              p.account.kind === "node"
+                ? <AccountMachineCard node={p.account.node} busy={account.busy === p.account.node.key} now={account.now} actions={account.actions} />
+                : <AccountStateCard card={p.account.card} signingIn={account.signingIn} onSignIn={account.onSignIn} onRetry={account.onRetry} />
             ) : (
               <div style={{ transform: `scale(${MACHINE_CARD_SCALE})` }}>
               <PeerTerminal
+                footer={peerFooter(p.id)}
                 inventory={peerInventoryModel(services, peers.find((peer) => peer.instance_id === p.id) ?? { instance_id: p.id, name: p.name, online: true }, !!p.isThisMachine, loading, error)}
                 name={p.name}
                 ip={p.ip}
