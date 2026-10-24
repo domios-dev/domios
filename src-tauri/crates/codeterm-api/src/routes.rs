@@ -730,6 +730,10 @@ pub(super) fn create_router_with_preview_admission(
             post(mesh_routes::mesh_disconnect_peer_by_id),
         )
         .route(
+            "/api/mesh/account-presence",
+            post(mesh_routes::account_presence),
+        )
+        .route(
             "/api/mesh/announce",
             post(mesh_routes::mesh_announce_inbound),
         )

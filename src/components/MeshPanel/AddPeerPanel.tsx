@@ -22,6 +22,7 @@ const DANGER_BTN = `${UI_BUTTON.danger} ${UI_BUTTON.compact}`;
 const PRIMARY_BTN = `${UI_BUTTON.primary} ${UI_BUTTON.compact}`;
 
 const STATUS_PILL: Record<MachineStatus, { label: string; tone: "green" | "red" | "muted" | "accent" | "amber" }> = {
+  signed_out: { label: "Signed out", tone: "muted" },
   linked: { label: "Connected", tone: "green" },
   linking: { label: "Connecting", tone: "accent" },
   unlinked: { label: "Not connected", tone: "muted" },

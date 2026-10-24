@@ -19,6 +19,7 @@ export interface MeshEndpointObservation {
 /** One account registry row as the server lists it; `endpoint` is published metadata, never reachability. */
 export interface AccountMachineRow extends MeshTarget {
   active: boolean;
+  presence: "present" | "signed_out";
   admitted_at: number;
   authenticated_at: number;
   display_name: string | null;

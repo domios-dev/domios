@@ -31,11 +31,11 @@
     "withdrawn": {"kind": "withdrawn", "installation_id": "desk-7f3a", "previous_metadata_revision": 2, "metadata_revision": 3, "slot_revision": 2, "registry_revision": 7},
     "page": {"kind": "page", "registry_revision": 7, "cursor": null, "rows": [
       {"installation_id": "desk-7f3a", "key_id": "1111111111111111111111111111111111111111111111111111111111111111", "key_generation": 1, "slot_revision": 2,
-        "active": true, "admitted_at": 1699990000, "authenticated_at": 1699990000, "display_name": "Desk", "metadata_revision": 1,
+        "active": true, "presence": "present", "admitted_at": 1699990000, "authenticated_at": 1699990000, "display_name": "Desk", "metadata_revision": 1,
         "publication": "complete", "membership_expires_at": 1700003600, "eligibility": "eligible",
         "endpoint": {"tailnet_ip": "100.64.0.7", "api_port": 7685, "expires_at": 1700003600}},
       {"installation_id": "laptop-91c0", "key_id": "2222222222222222222222222222222222222222222222222222222222222222", "key_generation": 1, "slot_revision": 3,
-        "active": true, "admitted_at": 1699990100, "authenticated_at": 1699990100, "display_name": null, "metadata_revision": 0,
+        "active": true, "presence": "present", "admitted_at": 1699990100, "authenticated_at": 1699990100, "display_name": null, "metadata_revision": 0,
         "publication": "complete", "membership_expires_at": 1700003000, "eligibility": "eligible", "endpoint": null}]},
     "permit": {"kind": "permit", "installation_id": "desk-7f3a", "peer_installation_id": "laptop-91c0", "slot_revision": 2, "registry_revision": 7,
       "permit": {"payload": "<base64url JCS MeshLinkPermitPayload>", "signature": "<86 base64url Ed25519>", "key_id": "<Mesh trust key id>", "alg": "Ed25519"}}

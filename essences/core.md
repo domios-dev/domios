@@ -149,6 +149,8 @@ The routing spine. Every message that enters a tab from anywhere other than its 
 
 One flat, trusted fabric of the owner's machines, and the relay that carries commands, agents, payloads and reports between them.
 
+Account slots carry explicit signed-in presence separately from endpoint availability. A confirmed sign-out appears as Signed out on other machines with actions disabled; an offline sign-out leaves their last confirmed observation until the registry accepts a transition. Connected peers refresh their registry observation after a signed transition notice; the notice never supplies presence or opens traffic. The local sign-out traffic block is authoritative.
+
 Signed-in machines with Mesh enabled automatically publish a health-proven endpoint on assigned Tailscale addresses. Native address changes update those listeners; sign-out or disabling Mesh closes them. Their surface accepts existing peer authentication and account-link handshakes, excludes local credentials and browser routes, and never binds wildcard or LAN addresses.
 
 - Part of: core:service-layer.
