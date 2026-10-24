@@ -6,6 +6,10 @@ use axum::{
 };
 use std::net::SocketAddr;
 
+pub(crate) mod remote;
+#[cfg(test)]
+mod remote_tests;
+
 use super::routes::AppState;
 use codeterm_service_core::api_support::access_policy::peer_access_allowed;
 use codeterm_service_core::mesh::types::AccessLevel;
