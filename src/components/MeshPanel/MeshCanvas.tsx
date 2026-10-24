@@ -16,6 +16,8 @@ import { webGraphLayout, webGraphInitialView, WEB_CARD_SCALE, MACHINE_CARD_SCALE
 import { webGatewayGraph } from "./meshProjection";
 import { TailscaleFooter, TailscaleMachineHint, type CanvasTailscale } from "./TailscaleNodes";
 import { suggestsRemoteTailscale } from "./tailscaleSetup";
+import { MachineLimitPaywall } from "./MachineLimitPaywall";
+import type { MyMachines } from "./useMyMachines";
 
 export interface RecentPush {
   source_id: string;
@@ -47,6 +49,7 @@ export interface CanvasAccount {
   busy: string | null;
   signingIn: boolean;
   reauthRequired?: boolean;
+  limitMachines?: MyMachines;
   moreMachines?: boolean;
   /** Epoch milliseconds. */
   now: number;
@@ -331,6 +334,7 @@ export const MeshCanvas = memo(function MeshCanvas({
                 renameDisabledReason={row && (row.status === "signed_out" || !peers.find((peer) => peer.instance_id === p.id)?.online)
                   ? "Connect to rename it, or rename it on that machine" : undefined}
                 footer={p.isThisMachine ? <>
+                  {account?.limitMachines && <MachineLimitPaywall machines={account.limitMachines} />}
                   {account?.reauthRequired && <MachineReauthentication signingIn={account.signingIn} onSignIn={account.onSignIn} />}
                   {tailscale && <TailscaleFooter tailscale={tailscale} />}
                 </> : peerFooter(p.id)}

@@ -126,7 +126,7 @@ export function accountCanvas({ view, peers, loadFailed, listFailed, failures }:
   }
   const card: AccountCanvasCard | null = view.kind === "sign_in"
     ? { kind: "sign_in", headline: view.headline, blocked: view.blocked }
-    : !view.reauthRequired && nodes.length === 0 && peerFooters.size === 0 && peers.length === 0
+    : !view.reauthRequired && !view.machineLimit && nodes.length === 0 && peerFooters.size === 0 && peers.length === 0
       ? { kind: "empty", listFailed }
       : null;
   return { card, nodes, peerFooters, notes: view.notes };

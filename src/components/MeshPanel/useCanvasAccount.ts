@@ -36,7 +36,8 @@ export function useCanvasAccount(peers: readonly PeerStatus[], onChanged: () => 
   return useMemo(() => ({
     moreMachines: !!snapshot?.registry?.cursor,
     canvas, busy, signingIn, now, actions, selfName: self?.displayName ?? undefined, onRenameSelf: self ? renameSelf : undefined, reauthRequired: view.kind === "account" && view.reauthRequired,
+    limitMachines: view.kind === "account" && view.machineLimit ? machines : undefined,
     onSignIn: () => { void signIn(); },
     onRetry: () => { void load(); },
-  }), [canvas, busy, signingIn, now, actions, self, renameSelf, view, signIn, load, snapshot]);
+  }), [canvas, busy, signingIn, now, actions, self, renameSelf, view, signIn, load, snapshot, machines]);
 }

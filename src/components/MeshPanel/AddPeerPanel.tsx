@@ -5,11 +5,12 @@ import { BusySpinner } from "../shared/BusyState";
 import { RegionLoader } from "../shared/RegionLoader";
 import { SettingsPill } from "../Settings/shared";
 import type { MachineRowView, MachineStatus, SelfRowView } from "./accountMachines";
+import { failureMessage } from "./accountMachines";
 import { LockBadge } from "../billing/LockBadge";
 import { lockedDimClass } from "../billing/freeLimitModel";
 import { meshMachineLockedView } from "../billing/lockSurfaces";
 import type { AccountMeshFailure, MeshTarget } from "./accountMeshClient";
-import { useMyMachines, type MyMachinesOptions } from "./useMyMachines";
+import { useMyMachines, type MyMachines as MachinesController, type MyMachinesOptions } from "./useMyMachines";
 
 export interface MyMachinesProps extends MyMachinesOptions {
   onFailure: (operation: string, failure: AccountMeshFailure) => void;
@@ -43,6 +44,10 @@ const STATUS_PILL: Record<MachineStatus, { label: string; tone: "green" | "red" 
 
 export default function MyMachines(props: MyMachinesProps) {
   const machines = useMyMachines(props);
+  return <MachineManagement machines={machines} />;
+}
+
+export function MachineManagement({ machines }: { machines: MachinesController }) {
   const { view, snapshot, listFailure, loadFailed, refreshing, signingIn, busy, load, signIn, retryEnrollment } = machines;
   const [confirm, setConfirm] = useState<Confirm>(null);
   const controls = useRef(new Map<string, HTMLElement>());
@@ -113,6 +118,7 @@ export default function MyMachines(props: MyMachinesProps) {
           onCancelConfirm={(kind) => cancelConfirm(row.key, kind)}
           onRevoke={(target) => void revoke(row, target)}
           onUnpair={(instanceId) => void unpair(row, instanceId)}
+          failure={machines.failures.get(row.key)?.failure}
         />
       ))}
     </ul>
@@ -163,7 +169,7 @@ export default function MyMachines(props: MyMachinesProps) {
         </>
       )}
       <Notes notes={view.notes} />
-      {enrollmentRefused && (
+      {enrollmentRefused && !view.machineLimit && (
         <div className="flex gap-2">
           {snapshot?.last_refusal?.reason === "unauthenticated" || snapshot?.last_refusal?.reason === "app-check" ? (
             <button type="button" onClick={() => void signIn()} disabled={signingIn} className={PRIMARY_BTN}>Sign in again</button>
@@ -261,7 +267,7 @@ function SelfRow({ self, onRename }: {
   );
 }
 
-function MachineRow({ row, busy, confirm, register, onDecision, onAdd, onPlans, onAskConfirm, onCancelConfirm, onRevoke, onUnpair }: {
+function MachineRow({ row, busy, confirm, register, onDecision, onAdd, onPlans, onAskConfirm, onCancelConfirm, onRevoke, onUnpair, failure }: {
   row: MachineRowView;
   busy: boolean;
   confirm: "revoke" | "unpair" | null;
@@ -273,6 +279,7 @@ function MachineRow({ row, busy, confirm, register, onDecision, onAdd, onPlans, 
   onCancelConfirm: (kind: "revoke" | "unpair") => void;
   onRevoke: (target: MeshTarget) => void;
   onUnpair: (instanceId: string) => void;
+  failure?: AccountMeshFailure;
 }) {
   const reasonId = useId();
   const pill = STATUS_PILL[row.status];
@@ -323,13 +330,14 @@ function MachineRow({ row, busy, confirm, register, onDecision, onAdd, onPlans, 
             )}
             {revoke && (
               <button type="button" ref={register(`${row.key}:revoke`)} onClick={() => onAskConfirm("revoke")} aria-label={`Revoke ${row.name}`} className={`${ACTION_BTN} text-[var(--ct-red)]`}>
-                Revoke
+                Remove from mesh
               </button>
             )}
           </div>
         )}
       </div>
       <div className={UI_TEXT.metaMuted}>{row.detail}</div>
+      {failure && <p role="alert" className={UI_TEXT.meta}>{failureMessage(failure)}</p>}
       {add?.reason && !linking && <div id={reasonId} className={UI_TEXT.metaMuted}>{add.reason}</div>}
       {confirm === "revoke" && revoke && (
         <ConfirmStrip

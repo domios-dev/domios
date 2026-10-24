@@ -6,7 +6,7 @@ import { myMachinesView, SIGNED_OUT_COPY, type AccountPresence } from "./account
 import { AccountMeshClientProvider, bridgeAccountMeshClient, type AccountMeshSnapshot } from "./accountMeshClient";
 import { AccountMeshRefusalError } from "../billing/accountMeshLimit";
 import { freeLimitGate } from "../billing/freeLimitGate";
-import { deferred, linkRequest, FakeAccountMeshClient, machine, macRow, NOW, pair, selfRow, snapshot, targetOf } from "./accountMachines.testdata";
+import { deferred, linkRequest, FakeAccountMeshClient, machine, macRow, lenovoRow, NOW, pair, selfRow, snapshot, targetOf } from "./accountMachines.testdata";
 import type { PeerStatus } from "./useMeshData";
 import type { MachineFailure } from "./useMyMachines";
 
@@ -60,6 +60,19 @@ describe("Account machines on the Mesh canvas", () => {
     expect(view.kind === "account" && view.reauthRequired).toBe(true);
     expect(model("signed_in", state).card).toBeNull();
     expect(view.kind === "account" && view.notes.join(" ")).not.toMatch(/unavailable/i);
+  });
+
+  it("projects refused enrollment with occupying machines locked and removable", () => {
+    const state = snapshot({ self: null, traffic: "plan_limit_locked", enrollment: "refused", last_refusal: { reason: "mesh.machines", limit: 2, active_count: 2 }, registry: { observed_at: NOW, rows: [macRow, lenovoRow] } });
+    const view = myMachinesView({ account: "signed_in", snapshot: state, linking: new Set(), now: NOW });
+    expect(view.kind === "account" && view.machineLimit).toEqual({ limit: 2, activeCount: 2 });
+    const canvas = model("signed_in", state);
+    expect(canvas.card).toBeNull();
+    expect(canvas.nodes.map((row) => [row.name, row.locked, row.action?.kind, row.row.controls.add, row.row.controls.revoke])).toEqual([
+      ["MacBook", true, "plans", null, targetOf(macRow)], ["Lenovo", true, "plans", null, targetOf(lenovoRow)],
+    ]);
+    expect(model("signed_out", state).nodes).toEqual([]);
+    expect(model("signed_in", snapshot()).nodes.every((row) => !row.locked)).toBe(true);
   });
 
   it("puts a connected machine's account state on its paired card and draws the rest as nodes", () => {
@@ -156,6 +169,42 @@ describe("Mesh canvas wiring", () => {
     expect(element).not.toBeNull();
     await act(async () => element!.click());
   };
+
+  it("loads slots on the refused machine, opens plans, and removes only the selected slot before one-click join", async () => {
+    const client = new FakeAccountMeshClient(snapshot({ self: null, traffic: "plan_limit_locked", enrollment: "refused", last_refusal: { reason: "mesh.machines", limit: 2, active_count: 2 }, registry: null }));
+    client.listRows = [macRow, lenovoRow];
+    const enroll = vi.spyOn(client, "enroll").mockImplementation(async () => {
+      client.emit(snapshot({ registry: { observed_at: NOW, rows: [selfRow, lenovoRow] } }));
+      return { ok: true };
+    });
+    await mount(client);
+    expect(client.listCalls).toBe(1);
+    const paywall = host.querySelector<HTMLElement>('[role="group"][aria-label="This machine is outside your plan"]');
+    expect(paywall).not.toBeNull();
+    expect(paywall!.querySelector('[aria-label="Locked: free plan limit"]')).not.toBeNull();
+    expect(node("MacBook")).not.toBeNull();
+    expect(node("Lenovo")).not.toBeNull();
+    expect(button("Connect MacBook")).toBeNull();
+    expect(client.revokeCalls).toEqual([]);
+    const textButton = (label: string) => [...paywall!.querySelectorAll<HTMLButtonElement>("button")].find((element) => element.textContent === label) ?? null;
+    await click(textButton("See plans"));
+    expect(freeLimitGate.current()).toEqual({ key: "mesh.machines", requestId: "row:__self__", limit: 2, activeCount: 2 });
+    freeLimitGate.close();
+    await click(textButton("Manage machines"));
+    expect(textButton("Join mesh")).toBeNull();
+    await click(button("Revoke MacBook"));
+    expect(client.revokeCalls).toEqual([]);
+    client.listRows = [{ ...macRow, active: false, eligibility: "revoked" }, lenovoRow];
+    await click([...host.querySelectorAll<HTMLButtonElement>('[role="group"][aria-label="Confirm revoke MacBook"] button')].find((element) => element.textContent === "Revoke") ?? null);
+    expect(client.revokeCalls).toEqual([targetOf(macRow)]);
+    expect(client.enrollCalls).toBe(0);
+    expect(enroll).not.toHaveBeenCalled();
+    await click(textButton("Join mesh"));
+    expect(enroll).toHaveBeenCalledTimes(1);
+    expect(client.unpairCalls).toEqual([]);
+    expect(host.querySelector('[aria-label="This machine is outside your plan"]')).toBeNull();
+    expect(button("Connect Lenovo")?.disabled).toBe(false);
+  });
 
   it("refreshes the account registry once on request and renders its name over the saved pair name", async () => {
     const client = new FakeAccountMeshClient(snapshot({ pairs: [pair("mesh-mac", "mac.local", { installation_id: macRow.installation_id })] }));

@@ -68,6 +68,7 @@ export function useMyMachines({ account, onSignIn, onFailure, onChanged, now = e
   const [busy, setBusy] = useState<string | null>(null);
   const [failures, setFailures] = useState<ReadonlyMap<string, MachineFailure>>(() => new Map());
   const generation = useRef(0);
+  const refusedListEpoch = useRef<number | null>(null);
 
   const load = useCallback(async (refreshRegistry = true) => {
     const current = ++generation.current;
@@ -102,6 +103,13 @@ export function useMyMachines({ account, onSignIn, onFailure, onChanged, now = e
     void load(false);
     return client.subscribe(() => { void load(false); });
   }, [client, load, account]);
+
+  useEffect(() => {
+    if (account !== "signed_in" || snapshot?.enrollment !== "refused" || snapshot.last_refusal?.reason !== "mesh.machines"
+      || refusedListEpoch.current === snapshot.account_epoch) return;
+    refusedListEpoch.current = snapshot.account_epoch;
+    void load();
+  }, [account, snapshot, load]);
 
   const fail = useCallback((key: string, operation: string, failure: AccountMeshFailure) => {
     setFailures((current) => new Map(current).set(key, { operation, failure }));
@@ -171,10 +179,13 @@ export function useMyMachines({ account, onSignIn, onFailure, onChanged, now = e
   }, [client, load, onFailure]);
 
   const retryEnrollment = useCallback(async () => {
+    dismissFailure("enrollment");
+    setBusy("enrollment");
     const result = await settle(() => client.enroll());
-    if (!result.ok) onFailure?.("retry account enrollment", result.failure);
+    setBusy(null);
+    if (!result.ok) fail("enrollment", "join mesh", result.failure);
     await load(false);
-  }, [client, load, onFailure]);
+  }, [client, load, fail, dismissFailure]);
 
   const rename = useCallback(async (row: MachineRowView, name: string) => {
     const registry = snapshot?.registry?.rows.find((candidate) => candidate.installation_id === row.key);
