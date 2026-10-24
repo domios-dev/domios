@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { rebuildStopPlan } from '../dev-rebuild-stop.mjs';
 
 function fixture() {
@@ -71,11 +72,63 @@ test('unknown identity, reused PID and duplicate native client refuse', () => {
   }
 });
 
-test('a selected tree containing production or another instance listener refuses', () => {
-  for (const port of [7685, 17998]) {
-    const input = fixture(); input.listeners.push({ port, pid: 44 });
-    assert.throws(() => rebuildStopPlan(input), /another listener/);
+test('owned browser and provider descendants may listen on their own ports', () => {
+  const input = fixture();
+  input.processes.push(
+    { pid: 60, parent: 43, created: '130', executable: 'C:/Chrome/chrome.exe' },
+    { pid: 61, parent: 43, created: '131', executable: 'C:/shell.exe' },
+    { pid: 62, parent: 61, created: '132', executable: 'C:/terminal.exe' },
+    { pid: 63, parent: 62, created: '133', executable: 'C:/opencode.exe' });
+  input.listeners.push({ pid: 60, port: 65456 }, { pid: 63, port: 54173 });
+  assert.deepEqual(rebuildStopPlan(input).map(row => row.pid), [42, 43, 44, 60, 61, 62, 63]);
+});
+
+test('loopback and tailnet IPv4 and IPv6 listeners identify one server owner', () => {
+  const input = fixture();
+  input.listeners = input.listeners.filter(row => row.port !== input.port);
+  for (const address of ['127.0.0.1', '100.64.10.1', 'fd7a:115c:a1e0::9001:9f33']) {
+    input.listeners.push({ pid: 43, port: input.port, address });
   }
+  assert.deepEqual(rebuildStopPlan(input).map(row => row.pid), [42, 43, 44]);
+  input.listeners.push({ pid: 50, port: input.port, address: '::1' });
+  assert.throws(() => rebuildStopPlan(input), /identity/);
+});
+
+test('production listeners and foreign ports on verified roots refuse', () => {
+  for (const [pid, port] of [[44, 7685], [43, 7685], [43, 17998], [42, 17998]]) {
+    const input = fixture(); input.listeners.push({ port, pid });
+    assert.throws(() => rebuildStopPlan(input), /production or foreign root listener/);
+  }
+});
+
+test('another Domios instance nested in the selected tree refuses', () => {
+  for (const executable of ['C:/other/domios-server.exe', 'C:/other/domios-dev-app.exe', 'C:/prod/domios-app.exe']) {
+    const input = fixture();
+    input.processes.push({ pid: 60, parent: 44, created: '130', executable });
+    input.listeners.push({ pid: 60, port: 17998 });
+    assert.throws(() => rebuildStopPlan(input), /another instance/);
+  }
+});
+
+test('Windows final listener guard accepts captured descendants and refuses changed ownership', { skip: process.platform !== 'win32' }, () => {
+  const source = readFileSync(new URL('../windows-dev-rebuild-stop.ps1', import.meta.url), 'utf8');
+  const guard = source.match(/^function Assert-Listeners\([^]*?^\}/m)[0];
+  const allowed = [{ pid: 43, port: 17996 }, { pid: 60, port: 65456 }, { pid: 63, port: 54173 }];
+  const cases = [
+    { listeners: allowed, allowed, ok: true },
+    { listeners: [...allowed, allowed[0]], allowed, ok: true },
+    { listeners: [...allowed, { pid: 50, port: 17998 }], allowed, ok: true },
+    { listeners: [...allowed, { pid: 50, port: 17996 }], allowed, ok: false },
+    { listeners: [...allowed, { pid: 60, port: 65457 }], allowed, ok: false },
+    { listeners: [...allowed, { pid: 63, port: 7685 }], allowed: [...allowed, { pid: 63, port: 7685 }], ok: false },
+  ];
+  const command = `${guard}\n$cases = '${JSON.stringify(cases)}' | ConvertFrom-Json\nforeach ($case in $cases) {\n  $accepted = $true\n  try { Assert-Listeners $case.listeners @(42,43,60,63) $case.allowed 17996 } catch { $accepted = $false }\n  if ($accepted -ne $case.ok) { exit 1 }\n}\nWrite-Output 'listener cases=6 passed'\n`;
+  const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(command, 'utf16le').toString('base64')], {
+    encoding: 'utf8', windowsHide: true, timeout: 10_000,
+  });
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /listener cases=6 passed/);
 });
 
 test('server-only running instance can stop without a stale native snapshot', () => {
