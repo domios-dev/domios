@@ -104,7 +104,7 @@ impl LinkLedger {
                     id.clone(),
                     LinkRecord {
                         link_nonce: None,
-                admission: LinkAdmission::Legacy {
+                        admission: LinkAdmission::Legacy {
                             public_key: peer.public_key.clone(),
                         },
                         remote_membership: None,
@@ -169,7 +169,10 @@ impl LinkLedger {
                 }
             }
         }
-        let link_nonce = self.links.get(peer_id).and_then(|record| record.link_nonce.clone());
+        let link_nonce = self
+            .links
+            .get(peer_id)
+            .and_then(|record| record.link_nonce.clone());
         self.links.insert(
             peer_id.to_string(),
             LinkRecord {

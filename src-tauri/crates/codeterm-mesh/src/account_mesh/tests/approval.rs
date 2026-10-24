@@ -9,8 +9,17 @@ use crate::account_mesh::AdmissionRefusal;
 struct ForgedApproval(Loopback);
 
 impl crate::account_mesh::link::LinkTransport for ForgedApproval {
-    fn post(&self, ip: &str, port: u16, path: &'static str, bearer: Option<String>, mut body: serde_json::Value) -> crate::account_mesh::BoxFuture<'_, Result<serde_json::Value, AdmissionRefusal>> {
-        if path == crate::account_mesh::protocol::LINK_APPROVAL_PATH { body["mesh_signature"] = serde_json::json!("forged"); }
+    fn post(
+        &self,
+        ip: &str,
+        port: u16,
+        path: &'static str,
+        bearer: Option<String>,
+        mut body: serde_json::Value,
+    ) -> crate::account_mesh::BoxFuture<'_, Result<serde_json::Value, AdmissionRefusal>> {
+        if path == crate::account_mesh::protocol::LINK_APPROVAL_PATH {
+            body["mesh_signature"] = serde_json::json!("forged");
+        }
         self.0.post(ip, port, path, bearer, body)
     }
 }
@@ -24,13 +33,20 @@ fn participants() -> (Machine, Machine) {
     (a, b)
 }
 
-async fn request(a: &Machine, b: &Machine) -> tokio::task::JoinHandle<Result<crate::account_mesh::protocol::AccountMeshPair, AdmissionRefusal>> {
+async fn request(
+    a: &Machine,
+    b: &Machine,
+) -> tokio::task::JoinHandle<Result<crate::account_mesh::protocol::AccountMeshPair, AdmissionRefusal>>
+{
     let entered = Arc::new(tokio::sync::Notify::new());
     let transport = Loopback::new(&[a, b]).hold_approval(entered.clone());
     let mesh = a.mesh.clone();
     let installation = b.installation_id.clone();
-    let task = tokio::spawn(async move { link_installation_with(&mesh, &transport, &installation).await });
-    tokio::time::timeout(std::time::Duration::from_secs(1), entered.notified()).await.unwrap();
+    let task =
+        tokio::spawn(async move { link_installation_with(&mesh, &transport, &installation).await });
+    tokio::time::timeout(std::time::Duration::from_secs(1), entered.notified())
+        .await
+        .unwrap();
     task
 }
 
@@ -47,9 +63,17 @@ async fn account_mesh_approval_blocks_admission_and_both_permits_until_receiver_
     assert!(b.mesh.lock().paired_peers.is_empty());
     assert_eq!(a.authority.authorize_calls.load(Ordering::SeqCst), 0);
     assert_eq!(b.authority.authorize_calls.load(Ordering::SeqCst), 0);
-    let premature = LinkConfirm { link_id: pending.request_id.clone(), installation_signature: String::new(), mesh_signature: String::new(), permit: String::new() };
+    let premature = LinkConfirm {
+        link_id: pending.request_id.clone(),
+        installation_signature: String::new(),
+        mesh_signature: String::new(),
+        permit: String::new(),
+    };
     assert!(b.mesh.lock().begin_link_confirm(&premature).is_err());
-    b.mesh.lock().decide_link(&pending.request_id, true).unwrap();
+    b.mesh
+        .lock()
+        .decide_link(&pending.request_id, true)
+        .unwrap();
     assert!(task.await.unwrap().is_ok());
     assert!(a.mesh.lock().paired_peers.contains_key(&b.id()));
     assert!(b.mesh.lock().paired_peers.contains_key(&a.id()));
@@ -60,8 +84,14 @@ async fn account_mesh_approval_decline_never_creates_a_pair() {
     let (a, b) = participants();
     let task = request(&a, &b).await;
     let id = b.mesh.lock().link_requests()[0].request_id.clone();
-    assert_eq!(b.mesh.lock().decide_link(&id, false).unwrap(), LinkDecision::Declined);
-    assert_eq!(b.mesh.lock().decide_link(&id, true).unwrap(), LinkDecision::Declined);
+    assert_eq!(
+        b.mesh.lock().decide_link(&id, false).unwrap(),
+        LinkDecision::Declined
+    );
+    assert_eq!(
+        b.mesh.lock().decide_link(&id, true).unwrap(),
+        LinkDecision::Declined
+    );
     assert_eq!(task.await.unwrap().unwrap_err(), AdmissionRefusal::Declined);
     assert!(a.mesh.lock().paired_peers.is_empty());
     assert!(b.mesh.lock().paired_peers.is_empty());
@@ -72,8 +102,13 @@ async fn account_mesh_approval_expiry_refuses_late_approval() {
     let (a, b) = participants();
     let task = request(&a, &b).await;
     let id = b.mesh.lock().link_requests()[0].request_id.clone();
-    b.mesh.lock().set_clock(Arc::new(|| START + APPROVAL_TTL_SECS));
-    assert_eq!(b.mesh.lock().decide_link(&id, true).unwrap_err(), AdmissionRefusal::Expired);
+    b.mesh
+        .lock()
+        .set_clock(Arc::new(|| START + APPROVAL_TTL_SECS));
+    assert_eq!(
+        b.mesh.lock().decide_link(&id, true).unwrap_err(),
+        AdmissionRefusal::Expired
+    );
     assert_eq!(task.await.unwrap().unwrap_err(), AdmissionRefusal::Expired);
     assert!(a.mesh.lock().paired_peers.is_empty());
     assert!(b.mesh.lock().paired_peers.is_empty());
@@ -84,7 +119,11 @@ async fn account_mesh_approval_duplicate_request_keeps_one_receiver_question() {
     let (a, b) = participants();
     let task = request(&a, &b).await;
     let transport = Loopback::new(&[&a, &b]);
-    assert!(link_installation_with(&a.mesh, &transport, &b.installation_id).await.is_err());
+    assert!(
+        link_installation_with(&a.mesh, &transport, &b.installation_id)
+            .await
+            .is_err()
+    );
     assert_eq!(b.mesh.lock().link_requests().len(), 1);
     let id = b.mesh.lock().link_requests()[0].request_id.clone();
     b.mesh.lock().decide_link(&id, false).unwrap();
@@ -96,7 +135,10 @@ async fn account_mesh_approval_account_change_cancels_waiting_request() {
     let (a, b) = participants();
     let task = request(&a, &b).await;
     b.sign_out(2);
-    assert_eq!(task.await.unwrap().unwrap_err(), AdmissionRefusal::SignedOut);
+    assert_eq!(
+        task.await.unwrap().unwrap_err(),
+        AdmissionRefusal::SignedOut
+    );
     assert!(b.mesh.lock().paired_peers.is_empty());
 }
 
@@ -104,7 +146,11 @@ async fn account_mesh_approval_account_change_cancels_waiting_request() {
 async fn account_mesh_approval_requires_possession_before_asking_the_receiver() {
     let (a, b) = participants();
     let transport = ForgedApproval(Loopback::new(&[&a, &b]));
-    assert!(link_installation_with(&a.mesh, &transport, &b.installation_id).await.is_err());
+    assert!(
+        link_installation_with(&a.mesh, &transport, &b.installation_id)
+            .await
+            .is_err()
+    );
     assert!(b.mesh.lock().link_requests().is_empty());
     assert_eq!(a.authority.authorize_calls.load(Ordering::SeqCst), 0);
     assert_eq!(b.authority.authorize_calls.load(Ordering::SeqCst), 0);

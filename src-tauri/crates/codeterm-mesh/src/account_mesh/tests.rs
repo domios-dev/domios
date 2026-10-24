@@ -269,7 +269,7 @@ fn account_mesh_known_local_revoke_blocks_immediately() {
     let (a, b) = (machine(1, &clock), machine(2, &clock));
     let record = LinkRecord {
         link_nonce: None,
-                admission: LinkAdmission::Adopted {
+        admission: LinkAdmission::Adopted {
             account_id: ACCOUNT.into(),
             installation_id: b.installation_id.clone(),
             public_key: b.public_key(),

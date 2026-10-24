@@ -6,8 +6,9 @@ use parking_lot::Mutex;
 
 use crate::account_mesh::link::LinkTransport;
 use crate::account_mesh::protocol::{
-    AdoptCommit, AdoptOffer, LinkCommit, LinkCommitReply, LinkConfirm, LinkConfirmReply, LinkHello,
-    LinkApproval, LinkApprovalReply, LINK_APPROVAL_PATH, ADOPT_COMMIT_PATH, ADOPT_OFFER_PATH, LINK_COMMIT_PATH, LINK_CONFIRM_PATH, LINK_HELLO_PATH,
+    AdoptCommit, AdoptOffer, LinkApproval, LinkApprovalReply, LinkCommit, LinkCommitReply,
+    LinkConfirm, LinkConfirmReply, LinkHello, ADOPT_COMMIT_PATH, ADOPT_OFFER_PATH,
+    LINK_APPROVAL_PATH, LINK_COMMIT_PATH, LINK_CONFIRM_PATH, LINK_HELLO_PATH,
 };
 use crate::account_mesh::{
     AccountMeshAuthority, AccountMeshState, AccountPresence, AdmissionRefusal, BoxFuture,
@@ -352,9 +353,14 @@ impl LinkTransport for Loopback {
                 LINK_APPROVAL_PATH => {
                     let proof: LinkApproval = decode(body)?;
                     mesh.lock().request_link_approval(&proof)?;
-                    if let Some(entered) = approval_entered { entered.notify_one(); }
-                    if let Some(approve) = approval_decision { mesh.lock().decide_link(&proof.link_id, approve)?; }
-                    crate::account_mesh::approval::wait_for_link_approval(&mesh, &proof.link_id).await?;
+                    if let Some(entered) = approval_entered {
+                        entered.notify_one();
+                    }
+                    if let Some(approve) = approval_decision {
+                        mesh.lock().decide_link(&proof.link_id, approve)?;
+                    }
+                    crate::account_mesh::approval::wait_for_link_approval(&mesh, &proof.link_id)
+                        .await?;
                     encode(LinkApprovalReply { approved: true })
                 }
                 LINK_CONFIRM_PATH => {

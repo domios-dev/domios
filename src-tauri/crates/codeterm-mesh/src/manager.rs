@@ -1,6 +1,6 @@
 mod account_admission;
-mod link_approval;
 mod account_gate;
+mod link_approval;
 mod pairing_observer;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -307,8 +307,13 @@ impl MeshManager {
             return Ok(None);
         };
         let disconnect = self.make_disconnect(peer)?;
-        let previous_disconnect = self.links.disconnects.insert(instance_id.into(), disconnect);
-        let Some(removed) = self.paired_peers.remove(instance_id) else { return Ok(None); };
+        let previous_disconnect = self
+            .links
+            .disconnects
+            .insert(instance_id.into(), disconnect);
+        let Some(removed) = self.paired_peers.remove(instance_id) else {
+            return Ok(None);
+        };
         let link = self.links.remove(instance_id);
         let revocations = self.revocation_list.clone();
         self.tombstone_peer(instance_id);
@@ -320,7 +325,9 @@ impl MeshManager {
             }
             self.revocation_list = revocations;
             self.links.disconnects.remove(instance_id);
-            if let Some(previous) = previous_disconnect { self.links.disconnects.insert(instance_id.into(), previous); }
+            if let Some(previous) = previous_disconnect {
+                self.links.disconnects.insert(instance_id.into(), previous);
+            }
             return Err(error);
         }
         self.peer_services.prune(instance_id);
@@ -330,12 +337,19 @@ impl MeshManager {
         Ok(Some(removed))
     }
 
-    pub fn saved_disconnect(&self, instance_id: &str) -> Option<&crate::disconnect::SavedDisconnect> {
+    pub fn saved_disconnect(
+        &self,
+        instance_id: &str,
+    ) -> Option<&crate::disconnect::SavedDisconnect> {
         self.links.disconnects.get(instance_id)
     }
 
     pub(crate) fn disconnect_keys(&self) -> HashMap<String, String> {
-        self.links.disconnects.iter().map(|(id, saved)| (id.clone(), saved.public_key.clone())).collect()
+        self.links
+            .disconnects
+            .iter()
+            .map(|(id, saved)| (id.clone(), saved.public_key.clone()))
+            .collect()
     }
 
     pub fn exit_mesh(&mut self) -> Vec<(String, Vec<types::PeerAddress>, u16)> {

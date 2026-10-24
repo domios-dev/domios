@@ -34,14 +34,23 @@ impl LinkRequest {
     }
 }
 
-pub async fn wait_for_link_approval(mesh: &crate::MeshState, request_id: &str) -> Result<(), super::AdmissionRefusal> {
+pub async fn wait_for_link_approval(
+    mesh: &crate::MeshState,
+    request_id: &str,
+) -> Result<(), super::AdmissionRefusal> {
     let mut changes = mesh.lock().gate_watch();
     let wait = async {
         loop {
-            if mesh.lock().link_approval_result(request_id)? { return Ok(()); }
-            changes.changed().await.map_err(|_| super::AdmissionRefusal::Cancelled)?;
+            if mesh.lock().link_approval_result(request_id)? {
+                return Ok(());
+            }
+            changes
+                .changed()
+                .await
+                .map_err(|_| super::AdmissionRefusal::Cancelled)?;
         }
     };
-    tokio::time::timeout(std::time::Duration::from_secs(APPROVAL_TTL_SECS), wait).await
+    tokio::time::timeout(std::time::Duration::from_secs(APPROVAL_TTL_SECS), wait)
+        .await
         .unwrap_or(Err(super::AdmissionRefusal::Expired))
 }
