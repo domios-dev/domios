@@ -1,4 +1,4 @@
-export type ErrorAction = "choose-folder" | "retry" | "sign-in" | "check-access" | "choose-smaller-file" | "check-executable";
+export type ErrorAction = "choose-folder" | "retry" | "sign-in" | "check-access" | "choose-smaller-file" | "check-executable" | "start-new-conversation";
 export interface ErrorDescription {
   title: string;
   cause: string;
@@ -7,6 +7,11 @@ export interface ErrorDescription {
   pending?: boolean;
 }
 export interface ErrorContext { operation?: string; cwd?: string | null }
+
+export function isMissingRuntimeConversation(input: unknown): boolean {
+  const {raw, code} = unpack(input);
+  return code === "conversationMissing" || raw.startsWith("ConversationMissing:");
+}
 
 const runtimeFailures: readonly (readonly [RegExp, string, string])[] = [
   [/\bSizeLimit\b|runtime(?: hook state)? size limit/i, "The agent runtime exceeded its size limit", "The runtime could not accept more data. Review the details and start a new session if needed."],
@@ -141,6 +146,8 @@ export function describeError(input: unknown, context: ErrorContext = {}): Error
     return result("The program could not be found", "The shell or agent program is unavailable. Check that it is installed and its path is correct.", ["check-executable", "retry"]);
   }
   const runtime = inferred ? runtimeFailures.find(([pattern]) => pattern.test(raw)) : undefined;
+  if (isMissingRuntimeConversation(input)) return result("The saved conversation is unavailable",
+    "The provider could not find this conversation's saved rollout. Its earlier messages cannot be resumed. Start a new conversation to continue.", ["start-new-conversation"]);
   if (runtime) return result(runtime[1], runtime[2], ["retry"]);
   if (kind === "spawn_failed" || inferred && spawn) {
     return result("The tab could not start", "Domios could not start the shell or agent. Check its program and starting folder, then try again.", ["retry"]);
