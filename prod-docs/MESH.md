@@ -24,6 +24,8 @@ The registry supplies the target's single published endpoint; no address is ever
 
 Mesh pairing and peer calls require both daemons to run Domios 1.15.0 or later. A 1.14.9 peer receives a version error explaining that both peers must be upgraded.
 
+Account enrollment and address publication wait for the server's retry time after a rate limit. Transient outages back off from 30 seconds to a five-minute cap. Mesh status shows the publication refusal and scheduled retry; a failed registry read keeps a confirmed publication. `domios mesh status` includes this local account state (`account_mesh` in JSON).
+
 ## Admission and sign-out
 
 Every paired edge carries a durable admission:
@@ -173,4 +175,4 @@ Mesh inventory is target-authoritative: machine-qualified rows carry provenance 
 
 Inventory opens as a full-screen searchable List beside the existing Mesh network graph. One shared mode bubble switches between the List and the graph of connected computers. Keyboard navigation preserves resource identity and focus; peer detail separates Services and Schedules and labels cached, offline, denied, and partial states.
 
-<!-- revision: 61 -->
+<!-- revision: 62 -->

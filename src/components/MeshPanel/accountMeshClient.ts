@@ -68,6 +68,9 @@ export interface AccountMeshSnapshot {
   registry_failure: AccountMeshFailure | null;
   enrollment: "idle" | "enrolling" | "enrolled" | "refused";
   last_refusal: AccountMeshFailure | null;
+  publication?: "none" | "not_ready" | "published";
+  publication_failure?: AccountMeshFailure | null;
+  retry_at?: number | null;
   pairs: LocalPairFact[];
   limit_notice?: AccountMeshLimitNotice | null;
 }
