@@ -46,6 +46,7 @@ pub struct CommitTimings {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CommitReceipt {
     pub revision: Revision,
+    pub batch_revision: Revision,
     pub rows_written: u64,
     pub timings: CommitTimings,
 }

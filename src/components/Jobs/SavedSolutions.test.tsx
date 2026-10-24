@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { configureOrchestrationTransport } from "../../lib/transport/orchestrationRuntime";
+import { orchestrationTestClient } from "../../lib/transport/orchestration.testdata";
 import { act, type ReactElement } from "react";
 import { Window } from "happy-dom";
 import { stringify } from "yaml";
@@ -80,6 +82,12 @@ async function main() {
   await act(async () => { finishSave({ id: "recipe", status: "saved" }); });
   assert.equal(saved, true);
 
+  let emit: (event: string, payload: unknown) => void = () => {};
+  let closed = 0;
+  configureOrchestrationTransport(orchestrationTestClient(async () => { throw new Error("Unexpected request"); }, (_path, handler) => {
+    emit = handler;
+    return () => { closed++; };
+  }));
   const opened: CatalogEntry[] = [];
   await render(<SavedSolutions sources={["w"]} revision={0} api={api} onOpen={(entry) => opened.push(entry)} />);
   await flush();
@@ -106,6 +114,28 @@ async function main() {
   assert.deepEqual(archived, ["w/recipe"]);
   assert.deepEqual(rows(), ["solution:helper"]);
 
+  let liveEntries = [{ id: "remote", when_to_use: "Added in another tab", how: null, uses: 0, successes: 1, last_used: 0 }];
+  let reads = 0;
+  const liveApi = { ...api, list: async () => { reads++; return liveEntries; } };
+  const sources = ["w"];
+  await render(<SavedSolutions sources={sources} revision={0} api={liveApi} />);
+  await flush();
+  const before = reads;
+  const change = (workspace: string, revision: string) => emit("automation-graph-changed", { workspace_id: workspace, team_id: null, revision });
+  liveEntries = [];
+  await act(async () => { change("other", "blueprint-library:1"); change("w", "journal:r2"); });
+  assert.equal(reads, before, "unrelated graph and workspace changes do not read the library");
+  await act(async () => { change("w", "blueprint-library:3"); });
+  await flush();
+  assert.equal(reads, before + 1);
+  assert.deepEqual(rows(), [], "a library event removes an externally archived solution from the visible list");
+  await act(async () => { change("w", "blueprint-library:3"); });
+  assert.equal(reads, before + 1, "duplicate library revisions do not reload");
+  liveEntries = [{ id: "new", when_to_use: "Saved in another tab", how: null, uses: 0, successes: 1, last_used: 0 }];
+  await act(async () => { change("w", "blueprint-library:4"); });
+  await flush();
+  assert.deepEqual(rows(), ["solution:new"], "a library event renders an externally saved solution");
+
   const exported: string[] = [];
   let deleted = 0, back = 0;
   await render(<SavedSolutionView entry={opened[0]} api={api} sharing={{ export: async () => { throw new Error("unused"); }, save: (file: { name: string }) => exported.push(file.name), import: async () => { throw new Error("unused"); } } as never}
@@ -125,6 +155,10 @@ async function main() {
   assert.deepEqual(archived, ["w/recipe", "w/helper"]);
   await act(async () => button("Back to All jobs").click());
   assert.equal(back, 1);
+  assert(closed > 0, "leaving the catalogue releases its event subscription");
+  const afterUnmount = reads;
+  await act(async () => { change("w", "blueprint-library:5"); });
+  assert.equal(reads, afterUnmount);
   await act(async () => root.unmount());
   win.happyDOM.cancelAsync();
   console.log("SavedSolutions: save completion, catalogue filters, semantic ranking, open, export and delete passed");

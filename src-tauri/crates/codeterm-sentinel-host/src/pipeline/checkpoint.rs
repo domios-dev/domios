@@ -116,6 +116,7 @@ pub(super) fn clear(handle: &Handle, source: &Sentinel) {
     if let Err(error) = result {
         log::error!("[blueprint] run checkpoint settlement failed: {error}");
     }
+    handle.notify();
 }
 
 pub(crate) fn retained_inputs(handle: &Handle, data_dir: &Path) -> BTreeSet<PathBuf> {

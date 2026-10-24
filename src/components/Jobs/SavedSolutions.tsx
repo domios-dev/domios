@@ -4,6 +4,7 @@ import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { Button } from "../shared/Button";
 import { DropdownMenu } from "../shared/DropdownMenu";
 import { JobRow } from "./JobRow";
+import { useBlueprintLibraryRevision } from "./useBlueprintLibraryRevision";
 import { blueprintSolutionsApi, type BlueprintSolutionsApi } from "./blueprintSolutions";
 import { catalogEntry, catalogKinds, catalogTags, filterCatalog, NO_CATALOG_FILTER, type CatalogEntry, type CatalogFilter, type SolutionKind } from "./solutionCatalog";
 
@@ -30,6 +31,7 @@ function Capsule({ kind, value, onRemove }: { kind: string; value: string; onRem
 export function SavedSolutions({ sources, revision, api = blueprintSolutionsApi, workspaceName = (id) => id, onOpen }: {
   sources: readonly string[]; revision: number; api?: BlueprintSolutionsApi; workspaceName?: (id: string) => string; onOpen?: (entry: CatalogEntry) => void;
 }) {
+  const libraryRevision = useBlueprintLibraryRevision(sources);
   const [entries, setEntries] = useState<CatalogEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -45,7 +47,7 @@ export function SavedSolutions({ sources, revision, api = blueprintSolutionsApi,
       if (active) setEntries(solutions.map((solution, index) => catalogEntry(solution, stored[index])));
     }, (failure: unknown) => { if (active) setError(String(failure)); });
     return () => { active = false; };
-  }, [sources, revision, api]);
+  }, [sources, revision, libraryRevision, api]);
   const shown = useMemo(() => filterCatalog(entries, filter, ranking?.query === filter.query ? ranking.ids : null), [entries, filter, ranking]);
   const kinds = catalogKinds(entries), tags = catalogTags(entries);
   const workspaces = [...new Set(entries.map((entry) => entry.solution.workspaceId))];
