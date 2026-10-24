@@ -150,8 +150,7 @@ function stageDepths(stages: readonly AutomationNode[], roots: readonly string[]
 
 /** Explodes every stored stage into Trigger → Source → Agent|Logic → Action nodes with typed pins and wires. */
 export function blueprintModel(graph: AutomationGraph, classifier: ClassifierConfig = graph.configured_fallback): BlueprintModel {
-  const pipelineIds = new Set(graph.blueprints?.map((blueprint) => blueprint.id));
-  const stages = graph.nodes.filter((node) => node.identity.kind === "blueprint" && !pipelineIds.has(node.identity.id) && node.availability !== "missing");
+  const stages = graph.nodes.filter((node) => node.identity.kind === "blueprint" && node.availability !== "missing");
   const stageKeys = new Set(stages.map((stage) => automationKey(stage.identity)));
   const chained = (stage: AutomationNode) => stage.outcomes.flatMap((outcome) => outcome.handlers.filter((handler) => actionKind(handler.type)?.chain && handler.target && stageKeys.has(automationKey(handler.target))).map((handler) => ({ bucket: outcome.bucket, handler, target: automationKey(handler.target!) })));
   const outgoing = new Map(stages.map((stage) => [automationKey(stage.identity), chained(stage)]));

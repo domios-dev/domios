@@ -5,6 +5,11 @@ import { ALL_HANDLER_TYPES, followIdentity, sourceStage, typedGraph, watchIdenti
 import { frameBlueprint, layoutBlueprint, READABLE_SCALE, ROW_HEIGHT } from "./blueprintLayout";
 import { automationKey } from "./types";
 import { inspectBlueprintNode } from "./blueprintInspector";
+import captured from "./blueprintCaptured.testdata.json";
+import watchCaptured from "./blueprintWatchCaptured.testdata.json";
+import { scenarioPipelineModel } from "./scenarioPipelineModel";
+import type { AutomationGraph } from "./types";
+import { scopedAutomationGraph } from "./model";
 
 const tests: Array<[string, () => void]> = [];
 function test(name: string, run: () => void) { tests.push([name, run]); }
@@ -16,6 +21,35 @@ const byKey = (nodes: readonly BlueprintNode[], key: string) => {
   assert.ok(found, key);
   return found;
 };
+
+test("captured projected roots remain stages in the run view", () => {
+  const graph = scopedAutomationGraph(captured as AutomationGraph, captured);
+  const root = automationKey(graph.scenarios[0].root);
+  assert.equal(graph.nodes[0].availability, "available");
+  assert.equal(graph.blueprints?.[0].id, graph.nodes[0].identity.id);
+  for (const kind of ["pipeline", "watch"] as const) {
+    const projected = { ...graph, blueprints: graph.blueprints?.map((blueprint) => ({ ...blueprint, call_graph: { ...blueprint.call_graph!, kind } })) };
+    const model = blueprintModel(projected);
+    assert.deepEqual(model.stages.map((stage) => [stage.key, stage.depth]), [[root, 0]]);
+    assert.ok(model.nodes.some((node) => node.key === nodeKeys(root).trigger));
+    assert.ok(layoutBlueprint(model).nodes.length > 0);
+  }
+  assert.equal(blueprintModel({ ...graph, nodes: graph.nodes.map((node) => ({ ...node, availability: "missing" })) }).stages.length, 0);
+});
+
+test("captured watch preserves its causal run in the native view", () => {
+  const graph = watchCaptured as AutomationGraph;
+  const model = blueprintModel(graph);
+  assert.equal(model.stages.length, 1);
+  const pipeline = scenarioPipelineModel(graph, graph.scenarios[0], graph.blueprints![0]);
+  assert.equal(graph.blueprints![0].runs?.length, 0);
+  assert.equal(pipeline.runs?.length, 1);
+  assert.equal(pipeline.runId, graph.runs![0].id);
+  assert.equal(pipeline.recordedRun?.events[0].outcome, "passed");
+  assert.equal(pipeline.recordedRun?.events[0].handler, "notify");
+  assert.equal(pipeline.recordedRun?.events[0].status, "completed");
+  assert.deepEqual(pipeline.runs![0].pipeline.recordedRun, pipeline.recordedRun);
+});
 
 test("every stage explodes into Trigger, Source, decision and one action per declared handler", () => {
   const model = blueprintModel(typedGraph());
