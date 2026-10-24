@@ -184,6 +184,8 @@ pub struct LifecycleState {
     pub revoked_installations: BTreeSet<String>,
     pub cleanup: Cleanup,
     pub publication: Publication,
+    pub publication_failure: Option<AccountMeshRefusal>,
+    pub retry_at: Option<u64>,
     pub enrollment: Enrollment,
     pub last_refusal: Option<AccountMeshRefusal>,
     pub limit_notice: Option<LimitNotice>,
@@ -247,6 +249,8 @@ impl LifecycleState {
             last_refusal: self.last_refusal,
             limit_notice: self.limit_notice.clone(),
             publication: self.publication,
+            publication_failure: self.publication_failure,
+            retry_at: self.retry_at,
             membership_expires_at: self.membership.as_ref().map(|m| m.verified.expires_at),
         }
     }
@@ -267,6 +271,8 @@ pub struct AccountMeshView {
     pub last_refusal: Option<AccountMeshRefusal>,
     pub limit_notice: Option<LimitNotice>,
     pub publication: Publication,
+    pub publication_failure: Option<AccountMeshRefusal>,
+    pub retry_at: Option<u64>,
     pub membership_expires_at: Option<u64>,
 }
 

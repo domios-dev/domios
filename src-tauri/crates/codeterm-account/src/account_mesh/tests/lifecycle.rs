@@ -115,6 +115,7 @@ async fn account_mesh_reconciles_lost_enroll_and_renew_replies_from_the_registry
         .slots
         .contains_key(&account_id(UID)));
 
+    harness.clock.set(harness.state().retry_at.unwrap());
     harness
         .mesh
         .refresh(EnrollTrigger::Automatic)
@@ -154,6 +155,7 @@ async fn account_mesh_reconciles_lost_enroll_and_renew_replies_from_the_registry
         Some(&2)
     );
 
+    harness.clock.set(harness.state().retry_at.unwrap());
     harness
         .mesh
         .refresh(EnrollTrigger::Automatic)
@@ -184,6 +186,7 @@ async fn account_mesh_recovers_when_the_enroll_key_reply_is_lost() {
     );
     assert_eq!(harness.calls("enroll_key"), 1);
 
+    harness.clock.set(harness.state().retry_at.unwrap());
     harness.mesh.refresh(EnrollTrigger::Explicit).await.unwrap();
     assert_eq!(harness.calls("enroll_key"), 2);
     assert_eq!(harness.calls("recover_key"), 1);
@@ -304,8 +307,8 @@ async fn account_mesh_concurrent_triggers_share_one_flight() {
     assert_eq!(harness.calls("enroll"), 1);
     assert_eq!(
         harness.calls("renew"),
-        1,
-        "joined triggers rerun once, not once each"
+        0,
+        "joined triggers reconcile the listener without renewing again"
     );
 }
 
@@ -795,4 +798,96 @@ async fn account_mesh_abandoned_logout_stays_blocked_until_the_next_sign_in() {
         "a later sign-in reopens Mesh"
     );
     assert_eq!(harness.mesh.refresh(EnrollTrigger::Explicit).await, Ok(()));
+}
+
+#[tokio::test]
+async fn account_mesh_publication_retry_preserves_reason_and_success() {
+    let harness = enrolled().await;
+    *harness.endpoint.0.lock().unwrap() = Some(tailnet_endpoint());
+    let refusal = AccountMeshRefusal::RateLimited {
+        retry_after_seconds: 7,
+    };
+    harness.registry.script.lock().unwrap().publication = Some(RegistryRefusal::RateLimited {
+        retry_after_seconds: 7,
+    });
+    assert_eq!(
+        harness.mesh.refresh(EnrollTrigger::Network).await,
+        Err(refusal)
+    );
+    assert_eq!(harness.state().publication_failure, Some(refusal));
+    assert_eq!(harness.state().retry_at, Some(START + 7));
+    for trigger in [
+        EnrollTrigger::Network,
+        EnrollTrigger::Explicit,
+        EnrollTrigger::Automatic,
+    ] {
+        assert_eq!(harness.mesh.refresh(trigger).await, Err(refusal));
+    }
+    assert_eq!(harness.calls("publish"), 1);
+    harness.clock.set(START + 7);
+    harness.registry.script.lock().unwrap().publication = None;
+    assert_eq!(harness.mesh.refresh(EnrollTrigger::Lease).await, Ok(()));
+    assert_eq!(harness.calls("publish"), 2);
+    assert_eq!(harness.calls("renew"), 0);
+    assert_eq!(harness.state().publication, Publication::Published);
+    assert_eq!(harness.state().publication_failure, None);
+    assert_eq!(harness.state().retry_at, None);
+    harness.mesh.refresh(EnrollTrigger::Network).await.unwrap();
+    assert_eq!(harness.calls("publish"), 2);
+    harness.registry.script.lock().unwrap().publication = Some(RegistryRefusal::Unavailable);
+    *harness.endpoint.0.lock().unwrap() = None;
+    assert_eq!(
+        harness.mesh.refresh(EnrollTrigger::Network).await,
+        Err(AccountMeshRefusal::Unavailable)
+    );
+    harness.logout().await;
+    assert_eq!(harness.state().retry_at, None);
+    assert_eq!(harness.state().publication_failure, None);
+}
+
+#[tokio::test]
+async fn account_mesh_refused_read_keeps_successful_publication() {
+    let harness = enrolled().await;
+    *harness.endpoint.0.lock().unwrap() = Some(tailnet_endpoint());
+    harness.mesh.refresh(EnrollTrigger::Network).await.unwrap();
+    assert_eq!(harness.state().publication, Publication::Published);
+    harness.registry.script.lock().unwrap().list = Some(RegistryRefusal::RateLimited {
+        retry_after_seconds: 60,
+    });
+    assert_eq!(
+        harness.mesh.list().await.unwrap_err(),
+        AccountMeshRefusal::RateLimited {
+            retry_after_seconds: 60
+        }
+    );
+    assert_eq!(harness.state().publication, Publication::Published);
+    assert_eq!(harness.state().publication_failure, None);
+    assert_eq!(harness.calls("publish"), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn account_mesh_initial_outage_schedules_one_retry_without_trigger_bursts() {
+    let harness = Harness::with_leases().await;
+    harness.sign_in(UID).await;
+    harness.registry.script.lock().unwrap().membership = Some(RegistryRefusal::Unavailable);
+    assert_eq!(
+        harness.mesh.refresh(EnrollTrigger::Automatic).await,
+        Err(AccountMeshRefusal::Unavailable)
+    );
+    harness.registry.entered.notified().await;
+    for trigger in [
+        EnrollTrigger::Network,
+        EnrollTrigger::Explicit,
+        EnrollTrigger::Automatic,
+    ] {
+        assert_eq!(
+            harness.mesh.refresh(trigger).await,
+            Err(AccountMeshRefusal::Unavailable)
+        );
+    }
+    assert_eq!(harness.calls("enroll"), 1);
+    harness.registry.script.lock().unwrap().membership = None;
+    assert_eq!(next_renewal(&harness).await, Duration::from_secs(30));
+    assert_eq!(harness.calls("enroll"), 2);
+    assert_eq!(harness.state().enrollment, Enrollment::Enrolled);
 }
