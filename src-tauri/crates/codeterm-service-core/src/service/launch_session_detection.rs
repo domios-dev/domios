@@ -703,7 +703,9 @@ fn git_worktree_metadata_dirs(
     let (git_dir, common_dir) = codeterm_util::git_checkout::parse_output(&cwd, stdout.as_bytes())
         .map_err(|error| error.to_string())?;
     let [git_dir, common_dir] = [git_dir, common_dir].map(|path| {
-        std::path::PathBuf::from(codeterm_paths::strip_verbatim_prefix(&path.to_string_lossy()))
+        std::path::PathBuf::from(codeterm_paths::strip_verbatim_prefix(
+            &path.to_string_lossy(),
+        ))
     });
     if git_dir == common_dir {
         return Ok(None);
