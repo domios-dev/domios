@@ -175,6 +175,7 @@ fn blueprint_apply_without_team_refuses_before_writing() {
 fn blueprint_apply_invalid_command_bind_is_typed_validation() {
     let root = tempfile::tempdir().unwrap();
     let (mut mux, tab) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
+    mux.get_tab_mut(&tab).unwrap().cwd = Some(root.path().to_string_lossy().into_owned());
     mux.resolve_or_mint_team_for_parent(&tab).unwrap();
     let instance = ServiceInstance::open_with_mux(root.path(), mux);
     let service = &instance.fixture.service;
