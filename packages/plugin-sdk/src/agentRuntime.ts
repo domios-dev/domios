@@ -40,7 +40,7 @@ export interface OpenItem { turnId:string; item:ChatMsg }
 export type RuntimeFailureCode =
   | "unsupported" | "invalid_schema" | "size_limit" | "hook_failed"
   | "method_not_allowed" | "binding_mismatch" | "deadline"
-  | "process_unavailable" | "protocol_error" | "provider_refused";
+  | "process_unavailable" | "protocol_error" | "provider_refused" | "thread_not_found";
 export interface RuntimeFailure { code:RuntimeFailureCode; message:string }
 export interface RuntimeContext {
   epoch:number;
