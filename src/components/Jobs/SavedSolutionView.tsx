@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Download, Trash2 } from "lucide-react";
 import { stringify } from "yaml";
-import { BlueprintView } from "../Automation/blueprint/BlueprintView";
+import { PersistedBlueprintView as BlueprintView } from "../Navigation/PersistedBlueprintView";
 import { blueprintSharingApi, type BlueprintSharingApi } from "../Automation/blueprintSharing";
 import { AUTOMATION_TOOL } from "../Automation/styles";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
@@ -29,5 +29,5 @@ export function SavedSolutionView({ entry, backLabel, onBack, onDeleted, api = b
   </>;
   const about = { purpose: entry.solution.when_to_use, intents: (entry.solution.intents ?? []).filter((intent) => intent !== entry.solution.when_to_use), facts: [solutionMeta(entry)] };
   const notices = error != null ? <InlineErrorNotice error={error} operation="deleting this saved solution" blocking /> : null;
-  return <BlueprintView pipeline={pipeline} backLabel={backLabel} onBack={onBack} actions={actions} about={about} hostNotices={notices} history={false} headingLevel={3} fill />;
+  return <BlueprintView navigationScope={JSON.stringify([entry.solution.workspaceId, "solution", entry.solution.id])} pipeline={pipeline} backLabel={backLabel} onBack={onBack} actions={actions} about={about} hostNotices={notices} history={false} headingLevel={3} fill />;
 }
