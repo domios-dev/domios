@@ -219,7 +219,10 @@ struct RefusingTransport(std::sync::Mutex<Vec<String>>);
 impl CloudTransport for RefusingTransport {
     async fn execute(&self, request: reqwest::Request) -> Result<(bool, serde_json::Value)> {
         self.0.lock().unwrap().push(request.url().path().to_owned());
-        Ok((false, serde_json::json!({"error":{"status":"UNAUTHENTICATED","details":{"reason":"session_revoked"}}})))
+        Ok((
+            false,
+            serde_json::json!({"error":{"status":"UNAUTHENTICATED","details":{"reason":"session_revoked"}}}),
+        ))
     }
 }
 
@@ -227,14 +230,41 @@ impl CloudTransport for RefusingTransport {
 async fn session_revoked_from_entitlements_checkout_portal_and_sponsor_notifies_owner() {
     let observer = std::sync::Arc::new(Revocations::default());
     let transport = std::sync::Arc::new(RefusingTransport::default());
-    let mut cloud = Cloud::fixture("https://fixture.test/", id()).with_revocations(observer.clone());
+    let mut cloud =
+        Cloud::fixture("https://fixture.test/", id()).with_revocations(observer.clone());
     cloud.transport = transport.clone();
     let mut session = local_session();
     session.login_generation = 17;
-    assert_eq!(cloud.entitlements(&session).await.unwrap_err(), "session_revoked");
-    assert_eq!(cloud.checkout_url(&session, "pro_monthly").await.unwrap_err(), "session_revoked");
-    assert_eq!(cloud.portal_url(&session).await.unwrap_err(), "session_revoked");
-    assert_eq!(cloud.checkout_url(&session, "sponsor_yearly").await.unwrap_err(), "session_revoked");
+    assert_eq!(
+        cloud.entitlements(&session).await.unwrap_err(),
+        "session_revoked"
+    );
+    assert_eq!(
+        cloud
+            .checkout_url(&session, "pro_monthly")
+            .await
+            .unwrap_err(),
+        "session_revoked"
+    );
+    assert_eq!(
+        cloud.portal_url(&session).await.unwrap_err(),
+        "session_revoked"
+    );
+    assert_eq!(
+        cloud
+            .checkout_url(&session, "sponsor_yearly")
+            .await
+            .unwrap_err(),
+        "session_revoked"
+    );
     assert_eq!(*observer.0.lock().unwrap(), [17, 17, 17, 17]);
-    assert_eq!(*transport.0.lock().unwrap(), ["/getEntitlements", "/createCheckoutSession", "/createPortalSession", "/createCheckoutSession"]);
+    assert_eq!(
+        *transport.0.lock().unwrap(),
+        [
+            "/getEntitlements",
+            "/createCheckoutSession",
+            "/createPortalSession",
+            "/createCheckoutSession"
+        ]
+    );
 }

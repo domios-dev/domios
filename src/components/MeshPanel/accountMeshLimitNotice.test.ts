@@ -21,6 +21,7 @@ function client(snapshot: Partial<AccountMeshSnapshot>) {
     link: async () => undefined,
     answerLink: async () => undefined,
     renameSelf: async () => ({ ok: true as const }),
+    revokeSession: async () => ({ ok: true as const }),
     revoke: async () => ({ ok: true as const }),
     unpair: async () => undefined,
     acknowledgeLimit: async (requestId: string) => {

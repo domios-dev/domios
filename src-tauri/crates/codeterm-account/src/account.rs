@@ -24,6 +24,7 @@ fn token_expiring(expires_at: u64) -> bool {
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct Status {
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub session_revoked: bool,
     pub provider: String,
     pub identity: Option<Identity>,
@@ -296,7 +297,16 @@ impl Account {
         }
         Ok(self.status().await)
     }
-    pub async fn session_revoked(&self, expected: &Session) -> Result<bool> {
+    pub async fn session_revoked(self: &Arc<Self>, expected: &Session) -> Result<bool> {
+        let account = self.clone();
+        let expected = expected.clone();
+        // Mesh blocking can cancel the request that detected this revocation.
+        tokio::spawn(async move { account.clear_revoked_session(&expected).await })
+            .await
+            .map_err(|_| Error::Credentials)?
+    }
+
+    async fn clear_revoked_session(&self, expected: &Session) -> Result<bool> {
         let mut state = self.state.lock().await;
         if state.generation != expected.login_generation
             || !state.session.as_ref().is_some_and(|current| {

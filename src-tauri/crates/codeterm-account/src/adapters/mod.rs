@@ -3,7 +3,10 @@ pub mod firebase;
 pub mod local;
 use crate::{Config, Error, IdentityProvider, Result};
 use std::sync::Arc;
-pub fn configured(config: &Config, installation_id: crate::InstallationId) -> Result<Arc<dyn IdentityProvider>> {
+pub fn configured(
+    config: &Config,
+    installation_id: crate::InstallationId,
+) -> Result<Arc<dyn IdentityProvider>> {
     let config = crate::firebase_endpoints::account_config(config.clone());
     let config = &config;
     match config.provider.as_str() {

@@ -1,10 +1,10 @@
 mod account;
-pub mod session_revocation;
 pub mod account_mesh;
 pub mod adapters;
 mod build_config;
 pub mod firebase_endpoints;
 mod flow;
+pub mod session_revocation;
 mod sign_in_diagnostic;
 pub use sign_in_diagnostic::{SignInFailure, SignInStage};
 mod installation;
