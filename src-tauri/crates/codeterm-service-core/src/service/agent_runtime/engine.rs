@@ -85,6 +85,7 @@ pub(super) mod backfill;
 
 #[path = "engine/launch.rs"]
 mod launch;
+mod resume;
 use launch::{require_launch_authority, validate_loaded_settings};
 
 #[cfg(test)]
@@ -568,7 +569,8 @@ async fn ensure_locked(
             },
         },
     };
-    let result = run(svc, provider, session, &process, operation).await?;
+    let result = resume::load(svc, provider, session, &process, operation).await?;
+    let context = session.context.lock().clone();
     let (thread_id, settings) = match (fork, result) {
         (
             Some((expected_source, expected_turn)),
@@ -621,6 +623,9 @@ async fn ensure_locked(
         context.settings = settings;
     }
     bind(svc, session, &thread_id)?;
+    if context.thread_id.is_none() && fork.is_none() {
+        resume::mark_unused(svc, session, &thread_id)?;
+    }
     let settings = session.context.lock().settings.clone();
     super::projections::controls(svc, session, settings);
     if let Err(reason) = super::controls::refresh_service_tiers(svc, session).await {

@@ -39,6 +39,7 @@ pub enum RuntimeFailure {
     Deadline,
     HookFailed(String),
     Refused(String),
+    ConversationMissing,
     PrewriteRefused(String),
     Superseded,
 }
@@ -78,6 +79,7 @@ impl std::fmt::Display for RuntimeFailure {
             Self::Deadline => formatter.write_str("Runtime did not respond in time"),
             Self::HookFailed(reason) => write!(formatter, "Provider operation failed: {reason}"),
             Self::Refused(reason) => write!(formatter, "Provider refused: {reason}"),
+            Self::ConversationMissing => formatter.write_str("ConversationMissing: The provider's saved conversation rollout is unavailable. Start a new conversation to continue."),
             Self::PrewriteRefused(reason) => write!(formatter, "Input was not sent: {reason}"),
             Self::Superseded => {
                 formatter.write_str("Runtime session changed; this operation was cancelled")

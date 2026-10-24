@@ -1,0 +1,11 @@
+{
+  "source": "Synthetic regression fixture for the reported missing-rollout message; opaque thread identity",
+  "threadId": "opaque-thread-719",
+  "reply": {
+    "kind": "error",
+    "error": {
+      "code": -32600,
+      "message": "no rollout found for thread id opaque-thread-719"
+    }
+  }
+}
