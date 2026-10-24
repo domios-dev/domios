@@ -118,7 +118,7 @@ async function main() {
     reader = await mount(blueprint());
     await observed(() => reader.host.querySelector('[aria-label="Node return-count in invoke"]') !== null);
     assert.equal(reader.host.querySelector('[aria-label="Run past"]')?.getAttribute("aria-pressed"), "true");
-    assert.equal(reader.host.querySelector('nav[aria-label="Blueprint path"] [aria-current="page"]')?.textContent, "mem:helper");
+    assert.equal(reader.host.querySelector('nav[aria-label="Blueprint path"] [aria-current="page"]')?.textContent, "typed-helper");
     await reader.close();
     console.log("navigationReload: selected run and callee restored");
 
