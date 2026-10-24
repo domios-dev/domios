@@ -9,6 +9,36 @@ pub struct Endpoints {
     pub qa: bool,
 }
 
+impl Endpoints {
+    pub fn functions_base<'a>(
+        self,
+        dev_build: bool,
+        saved: Option<&'a str>,
+        build: Option<&'a str>,
+    ) -> Result<Option<&'a str>, &'static str> {
+        if self.qa && saved.is_some_and(|value| !value.is_empty() && value != self.functions) {
+            return Err(
+                "account target: mixed QA billing configuration refused; clear saved billing.endpoint",
+            );
+        }
+        if !dev_build {
+            return Ok(Some(PRODUCTION.functions));
+        }
+        if self.qa || self.emulator {
+            return Ok(Some(self.functions));
+        }
+        Ok(saved.filter(|value| !value.trim().is_empty()).or(build))
+    }
+}
+
+pub fn configured_functions(saved: Option<&str>) -> Result<Option<&str>, &'static str> {
+    current().functions_base(
+        cfg!(debug_assertions),
+        saved,
+        option_env!("DOMIOS_BILLING_FUNCTIONS_URL").filter(|value| !value.trim().is_empty()),
+    )
+}
+
 pub const PRODUCTION: Endpoints = Endpoints {
     identity_toolkit: "https://identitytoolkit.googleapis.com/v1/",
     secure_token: "https://securetoken.googleapis.com/v1/",

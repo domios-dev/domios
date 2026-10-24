@@ -3,9 +3,7 @@
 use super::account::AccountCell;
 use super::ServiceContext;
 use async_trait::async_trait;
-use codeterm_account::account_mesh::callable::{
-    build_functions_url, CallableRegistry, HttpCallable,
-};
+use codeterm_account::account_mesh::callable::{CallableRegistry, HttpCallable};
 use codeterm_account::account_mesh::wire::{
     MeshEndpoint, MeshTarget, RevokedResult, UpdatedResult,
 };
@@ -144,13 +142,17 @@ impl ServiceContext {
             .billing
             .get("endpoint")
             .and_then(|value| value.as_str())
-            .filter(|value| !value.trim().is_empty())
             .map(str::to_owned);
-        match configured
-            .as_deref()
-            .or(build_functions_url())
-            .map(HttpCallable::new)
-        {
+        let endpoint =
+            match codeterm_account::firebase_endpoints::configured_functions(configured.as_deref())
+            {
+                Ok(endpoint) => endpoint,
+                Err(message) => {
+                    log::error!("{message}");
+                    return Arc::new(UnavailableRegistry);
+                }
+            };
+        match endpoint.map(HttpCallable::new) {
             Some(Ok(transport)) => Arc::new(CallableRegistry::new(transport)),
             _ => Arc::new(UnavailableRegistry),
         }

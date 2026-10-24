@@ -96,25 +96,29 @@ fn release_billing_base_ignores_saved_endpoint() {
         "http://127.0.0.1:15001/demo-domios/us-central1/",
         "https://override.test/",
     ] {
-        assert_eq!(base_for(false, PRODUCTION, endpoint), PRODUCTION.functions);
-        assert_eq!(base_for(true, PRODUCTION, endpoint), endpoint);
+        assert_eq!(
+            PRODUCTION
+                .functions_base(false, Some(endpoint), None)
+                .unwrap()
+                .unwrap(),
+            PRODUCTION.functions
+        );
+        assert_eq!(
+            PRODUCTION
+                .functions_base(true, Some(endpoint), None)
+                .unwrap()
+                .unwrap(),
+            endpoint
+        );
     }
 }
 
 #[tokio::test]
 async fn build_endpoint_missing_uses_local_free_and_honest_actions() {
-    let local = Cloud::configured_from(None, None, id()).unwrap();
-    let session = Session {
-        identity: codeterm_account::Identity {
-            uid: "user".into(),
-            email: None,
-            display_name: None,
-            provider: "local".into(),
-            photo_url: None,
-        },
-        id_token: codeterm_account::Secret::new("test-token"),
-        expires_at: None,
-    };
+    use codeterm_account::firebase_endpoints::PRODUCTION;
+    assert_eq!(PRODUCTION.functions_base(true, None, None), Ok(None));
+    let local = super::super::local::Unavailable;
+    let session = local_session();
     assert_eq!(
         local.entitlements(&session).await.unwrap(),
         Reading::current(Entitlements::default())
@@ -124,8 +128,27 @@ async fn build_endpoint_missing_uses_local_free_and_honest_actions() {
         .await
         .unwrap_err()
         .contains("unavailable"));
-    assert!(Cloud::configured_from(None, Some("https://example.test/"), id()).is_ok());
-    assert!(Cloud::configured_from(Some("https://override.test/"), Some("invalid"), id()).is_ok());
+}
+
+#[test]
+fn qa_billing_requires_the_selected_project() {
+    let endpoints = codeterm_account::firebase_endpoints::Endpoints {
+        qa: true,
+        functions: "https://us-central1-domios-signin-qa.cloudfunctions.net/",
+        ..codeterm_account::firebase_endpoints::PRODUCTION
+    };
+    for saved in [None, Some(endpoints.functions)] {
+        assert_eq!(
+            endpoints.functions_base(true, saved, None),
+            Ok(Some(endpoints.functions))
+        );
+    }
+    for saved in [
+        codeterm_account::firebase_endpoints::PRODUCTION.functions,
+        "http://127.0.0.1:15200/",
+    ] {
+        assert!(endpoints.functions_base(true, Some(saved), None).is_err());
+    }
 }
 
 #[cfg(not(debug_assertions))]
@@ -177,29 +200,5 @@ fn only_an_already_subscribed_refusal_keeps_its_reason() {
     assert_eq!(
         refusal_message(&serde_json::Value::Null),
         "Billing request refused"
-    );
-}
-#[test]
-fn qa_billing_requires_the_selected_project() {
-    let endpoints = codeterm_account::firebase_endpoints::Endpoints {
-        qa: true,
-        functions: "https://us-central1-domios-signin-qa.cloudfunctions.net/",
-        ..codeterm_account::firebase_endpoints::PRODUCTION
-    };
-    assert!(super::validate_qa_base(endpoints, None).is_ok());
-    assert!(super::validate_qa_base(endpoints, Some(endpoints.functions)).is_ok());
-    assert!(super::validate_qa_base(
-        endpoints,
-        Some(codeterm_account::firebase_endpoints::PRODUCTION.functions)
-    )
-    .is_err());
-    assert!(super::validate_qa_base(endpoints, Some("http://127.0.0.1:15200/")).is_err());
-    assert_eq!(
-        super::base_for(true, endpoints, "ignored"),
-        endpoints.functions
-    );
-    assert_eq!(
-        super::base_for(false, endpoints, endpoints.functions),
-        codeterm_account::firebase_endpoints::PRODUCTION.functions
     );
 }
