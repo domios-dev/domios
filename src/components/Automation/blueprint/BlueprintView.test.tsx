@@ -2,13 +2,14 @@ import assert from "node:assert/strict";
 import { act, Profiler } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
-import { BlueprintView } from "./BlueprintView";
+import { BlueprintView, type BlueprintRoute } from "./BlueprintView";
 import { watchRuns, withRetainedRuns } from "./runEvidence";
 import { call, diff, viewerPipeline } from "../blueprintViewer.testdata";
 import { BlueprintProjectList } from "../../Jobs/BlueprintProjectList";
 import { document as source } from "../blueprintViewer.testdata";
 import capturedWatch from "../blueprintWatchCaptured.testdata.json";
 import { pipelineModel } from "../pipelineModel";
+import { blueprintNodeKey } from "../blueprintExpansion";
 import type { AutomationGraph } from "../types";
 
 async function main() {
@@ -188,6 +189,24 @@ async function main() {
     await act(async () => button("Back to viewer-fixture").click());
     await waitForNode("Node probe");
     assert.equal(left, 0);
+
+    const routes: BlueprintRoute[] = [];
+    const lastRoute = () => routes[routes.length - 1];
+    await act(async () => root.render(<BlueprintView key="routed" pipeline={nested} onRouteChange={(route) => routes.push(route)}
+      initialRoute={{ runId: null, trail: ["invoke"], selected: blueprintNodeKey(["invoke"], "inner") }} />));
+    await waitForNode("Node inner in invoke");
+    assert.equal(host.querySelector('nav[aria-label="Blueprint path"] [aria-current="page"]')?.textContent, "mem:helper", "the restored route reopens the drilled callee");
+    assert.deepEqual(details(), ["Details: inner in invoke"], "the restored route reopens the selected node");
+    assert.equal(routes.length, 0, "restoring a route does not report it back");
+    await act(async () => button("viewer-fixture").click());
+    await waitForNode("Node probe");
+    assert.deepEqual(lastRoute()?.trail, [], "stepping out is reported");
+    await act(async () => button("Node probe").click());
+    assert.equal(lastRoute()?.selected, blueprintNodeKey([], "probe"), "selecting a node is reported");
+    await act(async () => root.render(<BlueprintView key="routed-run" pipeline={viewerPipeline()} onRouteChange={(route) => routes.push(route)} initialRoute={{ runId: "past", trail: [], selected: null }} />));
+    assert.equal(button("Run past").getAttribute("aria-pressed"), "true", "the restored route selects its run with Runs open");
+    await act(async () => button("Latest run").click());
+    assert.equal(lastRoute()?.runId, null, "switching runs is reported");
 
     const failed = viewerPipeline();
     failed.state = "failed";

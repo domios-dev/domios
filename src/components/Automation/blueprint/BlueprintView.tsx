@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { GitCompare, List, Network, Square } from "lucide-react";
 import type { BlueprintViewerHistory } from "../../../lib/blueprintApi";
 import { usePresence, type PresenceMotion } from "../../Canvas/usePresence";
@@ -68,20 +68,34 @@ export interface BlueprintExportTarget { workspaceId: string; teamId: string | n
 /** What a host knows about a Blueprint beyond its definition, shown on the canvas note. */
 export interface BlueprintAbout { purpose?: string | null; intents?: readonly string[]; facts?: readonly string[] }
 
+/** Where a reader is inside one Blueprint: the selected run (null is Latest), the drilled-in callee path and the selected node. */
+export interface BlueprintRoute { runId: string | null; trail: readonly string[]; selected: string | null }
+
 /** The one Blueprint view: every pipeline, watch and call opens here as a typed node graph with its runs and journal. */
-export function BlueprintView({ pipeline, initialRunId, backLabel, onBack, exportTarget, actions, about, hostNotices, history = true, onStop, canStop = false, loadHistory, headingLevel = 2, fill = false }: {
-  pipeline: PipelineView; initialRunId?: string; backLabel?: string; onBack?: () => void; exportTarget?: BlueprintExportTarget;
+export function BlueprintView({ pipeline, initialRunId, initialRoute, onRouteChange, backLabel, onBack, exportTarget, actions, about, hostNotices, history = true, onStop, canStop = false, loadHistory, headingLevel = 2, fill = false }: {
+  pipeline: PipelineView; initialRunId?: string; initialRoute?: BlueprintRoute; onRouteChange?: (route: BlueprintRoute) => void;
+  backLabel?: string; onBack?: () => void; exportTarget?: BlueprintExportTarget;
   actions?: ReactNode; about?: BlueprintAbout; hostNotices?: ReactNode; history?: boolean;
   onStop?: () => Promise<unknown>; canStop?: boolean; loadHistory?: () => Promise<BlueprintViewerHistory>; headingLevel?: 2 | 3; fill?: boolean;
 }) {
-  const [trail, setTrail] = useState<readonly string[]>([]);
+  const [trail, setTrail] = useState<readonly string[]>(initialRoute?.trail ?? []);
   const camera = blueprintCamera(trail.length ? `${pipeline.id}|${JSON.stringify(trail)}` : pipeline.id);
-  const [runId, setRunId] = useState<string | null>(initialRunId ?? null);
-  const [runsOpen, setRunsOpen] = useState(Boolean(initialRunId || pipeline.runs?.length || pipeline.retained || pipeline.runId));
+  const [runId, setRunId] = useState<string | null>(initialRoute ? initialRoute.runId : initialRunId ?? null);
+  const [runsOpen, setRunsOpen] = useState(Boolean(initialRunId || initialRoute?.runId || pipeline.runs?.length || pipeline.retained || pipeline.runId));
   const [diffOpen, setDiffOpen] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [stopError, setStopError] = useState<unknown>(null);
-  const [selected, setSelected] = useState<string | null>(camera.selected);
+  const [selected, setSelected] = useState<string | null>(initialRoute ? initialRoute.selected : camera.selected);
+  const routeKey = JSON.stringify([runId, trail, selected]);
+  const reportedRoute = useRef(routeKey);
+  const reportRoute = useRef(onRouteChange);
+  useLayoutEffect(() => { reportRoute.current = onRouteChange; });
+  useEffect(() => {
+    if (reportedRoute.current === routeKey) return;
+    reportedRoute.current = routeKey;
+    const [nextRun, nextTrail, nextSelected] = JSON.parse(routeKey) as [string | null, string[], string | null];
+    reportRoute.current?.({ runId: nextRun, trail: nextTrail, selected: nextSelected });
+  }, [routeKey]);
   const [expanded, setExpanded] = useState<BlueprintExpansion>(new Set());
   const [logHeight, setLogHeight] = useState(() => readLogHeight(storage()));
   const body = useElementHeight();
