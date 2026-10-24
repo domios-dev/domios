@@ -1,4 +1,6 @@
 import { WorkspacePaneState } from "./components/shared/FolderPaneState";
+import { firstRunLocked, firstRunSelection } from "./lib/firstRunGate";
+import { FirstRunGeneralPicker } from "./components/AgentPicker/FirstRunGeneralPicker";
 import { BrandState } from "./components/brand/BrandState";
 import { DeferredPresence } from "./components/shared/DeferredPresence";
 import { releaseBootCover } from "./lib/bootCover";
@@ -62,7 +64,7 @@ import { useSidebarViewport } from "./hooks/useSidebarViewport";
 import { useTabPrewarm } from "./hooks/terminal/useTabPrewarm";
 import { needsBackendPrewarm, workspacePrewarmInput } from "./hooks/terminal/workspacePrewarmModel";
 import { usageTrackingOverrides } from "./components/Terminal/usageTracking";
-import { useAgentProviderCachePublisher } from "./hooks/useAgentProviders";
+import { useAgentProviderCachePublisher, useAgentProviders } from "./hooks/useAgentProviders";
 import { usePluginProviderMetaSync } from "./hooks/usePluginProviderMeta";
 import { UpdatePanelProvider } from "./hooks/useUpdatePanel";
 import { UpdateProvider } from "./hooks/useUpdate";
@@ -155,8 +157,15 @@ function AppInner() {
       : "opacity 200ms ease, visibility 0ms linear 200ms",
   });
   const { inset: keyboardInset, keyboardOpen } = useKeyboardInset();
-  const state = useMuxSelector(selectWholeState, appShellStateEqual);
-  const { navigationReady, mainView, setMainView, automationWorkspaceId, setAutomationWorkspaceId, jobsScope, setJobsScope, workspaceMapWorkspaceId, setWorkspaceMapWorkspaceId } = useAppNavigation(state.generation, state.focused_tab_id, state.workspaces);
+  const backendState = useMuxSelector(selectWholeState, appShellStateEqual);
+  const { config, updateConfig, theme, loading: configLoading } = useConfig();
+  const locked = firstRunLocked(configLoading ? undefined : config.general_agent);
+  const state = firstRunSelection(locked, backendState);
+  const lockedRef = useRef(locked);
+  lockedRef.current = locked;
+  const { providers: firstRunProviders } = useAgentProviders();
+  const { navigationReady, mainView: savedMainView, setMainView, automationWorkspaceId, setAutomationWorkspaceId, jobsScope, setJobsScope, workspaceMapWorkspaceId, setWorkspaceMapWorkspaceId } = useAppNavigation(state.generation, state.focused_tab_id, state.workspaces);
+  const mainView = locked ? "workspace" : savedMainView;
   const automationOpener = useRef<HTMLElement | null>(null);
   const [jobsTarget, setJobsTarget] = useState<(JobsTarget & { request: number; returnTo?: ReturnTo }) | null>(null);
   const [pluginViewId, setPluginViewId] = useState<string | null>(null);
@@ -227,7 +236,6 @@ function AppInner() {
       return open ? "extensions" : "workspace";
     });
   }, []);
-  const { config, updateConfig, theme, loading: configLoading } = useConfig();
   const stableTheme = useStableJsonValue(theme);
   const stableFontConfig = useStableJsonValue(config.font);
   const stableTerminalConfig = useStableJsonValue(config.terminal);
@@ -373,6 +381,7 @@ function AppInner() {
   // (e.g. the Git plugin's "Open Git" button, or a glance's "Open settings").
   useEffect(() => {
     const onOpenPanel = (e: Event) => {
+      if (lockedRef.current) return;
       const detail = (e as CustomEvent<{
         panel?: string;
         cwd?: string | null;
@@ -403,6 +412,7 @@ function AppInner() {
   // dismiss any covering Extensions/glance overlay and focus the new tab.
   useEffect(() => {
     const onFocusTab = (e: Event) => {
+      if (lockedRef.current) return;
       const detail = (e as CustomEvent<{ tabId?: string; workspaceId?: string }>).detail;
       const tabId = detail?.tabId;
       if (!tabId) return;
@@ -482,7 +492,7 @@ function AppInner() {
     });
   }, []);
   const prewarmTabIds = useTabPrewarm({
-    ...workspacePrewarmInput(activeWs, activeTab?.id ?? null, state.tabs),
+    ...workspacePrewarmInput(locked ? undefined : activeWs, activeTab?.id ?? null, state.tabs),
     liveTabIds: state.workspaces.flatMap((ws) => ws.tabs),
     prewarmTab: prewarmBackendTab,
   });
@@ -523,6 +533,7 @@ function AppInner() {
   }, [closePluginView, closeSidebarOnMobile, setActiveWorkspace]);
   useEffect(() => {
     const onOpenJob = (event: Event) => {
+      if (lockedRef.current) return;
       const detail = (event as CustomEvent<OpenJobDetail>).detail;
       if (detail?.workspaceId) openWorkspaceAutomation(detail.workspaceId, detail.target, "workspace", detail.returnTo);
     };
@@ -562,6 +573,7 @@ function AppInner() {
   const canvasFocusOpen = useCanvasFocusOpen();
   const canvasFocusTarget = useCanvasFocusTarget();
   const handleNewTab = useCallback(() => {
+    if (lockedRef.current) return;
     if (!activeWs) return;
     const focusedTab = state.focused_tab_id ? state.tabs[state.focused_tab_id] : null;
     const cwd = focusedTab?.cwd || undefined;
@@ -569,6 +581,7 @@ function AppInner() {
   }, [activeWs, state.focused_tab_id, state.tabs, createTab]);
 
   const handleCloseCurrentTab = useCallback(() => {
+    if (lockedRef.current) return;
     if (activeWs && activeTab) {
       closeTab(activeWs.id, activeTab.id);
     }
@@ -584,6 +597,7 @@ function AppInner() {
 
   const { pickFolder, folderPicker } = useFolderPicker();
   const handleNewWorkspace = useCallback(async () => {
+    if (lockedRef.current) return;
     if (precheckFreeLimit(["workspaces"])) return;
     const folder = await pickFolder("Choose workspace folder");
     if (!folder) return;
@@ -591,6 +605,7 @@ function AppInner() {
     await createWorkspace(basename, folder);
   }, [pickFolder, createWorkspace]);
   const openSettings = useCallback((section?: SettingsLinkId) => {
+    if (lockedRef.current) return;
     setSettingsSection(section);
     setSettingsOpen(true);
   }, [setSettingsOpen]);
@@ -681,10 +696,11 @@ function AppInner() {
     zoom_reset: () => zoom("zoom_reset"),
     open_settings: () => openSettings(),
     toggle_sidebar: toggleSidebar,
-  });
+  }, locked);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (lockedRef.current) return;
       if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) return;
 
       // FALLBACK: If xterm.js textarea doesn't have focus, send keys directly to PTY.
@@ -742,12 +758,13 @@ function AppInner() {
       {/* Native + web mirror share one titlebar strip (parity decision A) — its
           own --ct-safe-top padding covers the web notch/status-bar inset. */}
       <Titlebar
+        locked={locked}
         api={stableApiConfig}
         onToggleSidebar={sidebarRailCollapsed && sidebarOpen ? () => setSidebarExpandRequest((count) => count + 1) : toggleSidebar}
         showSidebarToggle={phoneViewport || !sidebarOpen || sidebarRailCollapsed}
         onNewTab={handleNewTab}
         theme={stableTheme}
-        onOpenSettings={(section) => { setSettingsSection(section); setSettingsOpen(true); }}
+        onOpenSettings={(section) => { if (locked) return; setSettingsSection(section); setSettingsOpen(true); }}
         onOpenExtensions={() => { setExtensionsOpen(true); }}
         analyticsOpen={mainView === "analytics"}
         onToggleAnalytics={toggleAnalytics}
@@ -809,7 +826,9 @@ function AppInner() {
 
         <div className="flex-1 min-w-0 min-h-0 flex flex-col">
         <main className="flex-1 min-w-0 min-h-0 relative overflow-hidden">
-          {!routeRestored && !state.storageUnavailable ? (
+          {locked ? (configLoading ? <BrandState model={brandStateModel({ loading: true, label: "Loading settings" })} />
+            : <FirstRunGeneralPicker providers={firstRunProviders} home={state.active_workspace_id && state.focused_tab_id
+              ? { workspaceId: state.active_workspace_id, tabId: state.focused_tab_id } : undefined} />) : !routeRestored && !state.storageUnavailable ? (
             <DeferredPresence present className="absolute inset-0">
               <BrandState model={brandStateModel({ loading: true, label: "Restoring workspace" })} />
             </DeferredPresence>
@@ -1008,7 +1027,7 @@ function AppInner() {
       </AppChatBlockServices>
       </PlansProvider>
 
-      <CommandPalette commands={paletteCommands} />
+      <CommandPalette commands={paletteCommands} disabled={locked} />
       {folderPicker}
 
 

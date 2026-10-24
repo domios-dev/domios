@@ -39,6 +39,7 @@ export function filterCommands(commands: readonly CommandItem[], query: string):
 
 interface CommandPaletteProps {
   commands: CommandItem[];
+  disabled?: boolean;
 }
 
 const ICON_SIZE = 16;
@@ -68,7 +69,7 @@ function formatShortcut(shortcut: string): string {
 
 // Component
 
-export function CommandPalette({ commands }: CommandPaletteProps) {
+export function CommandPalette({ commands, disabled = false }: CommandPaletteProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -110,6 +111,7 @@ export function CommandPalette({ commands }: CommandPaletteProps) {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (disabled) return;
       const modKey = isMac ? e.metaKey : e.ctrlKey;
       if (modKey && !e.shiftKey && !e.altKey && e.code === "KeyK") {
         e.preventDefault();
@@ -123,7 +125,7 @@ export function CommandPalette({ commands }: CommandPaletteProps) {
     };
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [open, doOpen, doClose]);
+  }, [open, doOpen, doClose, disabled]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
