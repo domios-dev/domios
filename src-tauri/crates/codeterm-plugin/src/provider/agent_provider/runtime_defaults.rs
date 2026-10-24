@@ -1,5 +1,8 @@
 macro_rules! agent_provider_runtime_defaults {
     () => {
+        fn cli_login(&self) -> Option<CliLoginCapability> {
+            None
+        }
         fn capability_probe(&self) -> Option<CapabilityProbe> {
             None
         }

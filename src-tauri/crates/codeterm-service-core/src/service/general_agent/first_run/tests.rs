@@ -2,6 +2,36 @@ use super::*;
 use crate::multiplexer::state::MultiplexerState;
 
 #[test]
+fn first_run_selects_general_instead_of_the_installer_before_announcing_state() {
+    let mut mux = MultiplexerState::empty();
+    ensure_first_run_tab(&mut mux);
+    let workspace = mux.list_workspaces()[0].id.clone();
+    let installer = mux.create_tab(&workspace).unwrap();
+    mux.set_active_tab(&workspace, &installer).unwrap();
+    mux.set_focused_tab(&installer).unwrap();
+
+    prepare_first_run_general(&mut mux, true).unwrap();
+
+    let general = mux.resolve_tab_id(GENERAL_ALIAS).unwrap();
+    let snapshot = mux.snapshot();
+    assert_ne!(general, installer);
+    assert_eq!(
+        snapshot.active_workspace_id.as_deref(),
+        Some(workspace.as_str())
+    );
+    assert_eq!(snapshot.focused_tab_id.as_deref(), Some(general.as_str()));
+    assert_eq!(
+        mux.get_workspace(&workspace)
+            .unwrap()
+            .active_tab_id
+            .as_deref(),
+        Some(general.as_str())
+    );
+    assert!(mux.get_tab(&installer).is_some());
+    assert!(!has_first_run_tab(&mux));
+}
+
+#[test]
 fn first_run_completion_publishes_saved_choice_before_launch() {
     let ui = crate::service::test_fixture::RecordedUiEvents::default();
     let mut config = crate::config::schema::AppConfig::default();
