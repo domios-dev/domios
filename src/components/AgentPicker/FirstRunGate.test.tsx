@@ -89,6 +89,22 @@ it("keeps shell controls mounted and disables navigation, creation and menus in 
   expect(navigate).toHaveBeenCalledTimes(2);
 });
 
+it("keeps mouse and touch activation of Get started away from sortable drag handlers", async () => {
+  const drag = vi.fn();
+  const activate = vi.fn();
+  const { host } = await mount(<div onMouseDown={drag} onTouchStart={drag}>
+    <FirstRunControls locked><button data-first-run-allowed="true" data-first-run-home="true" onClick={activate}>Get started</button></FirstRunControls>
+  </div>);
+  const home = host.querySelector("button")!;
+  await act(async () => {
+    home.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    home.dispatchEvent(new Event("touchstart", { bubbles: true }));
+    home.click();
+  });
+  expect(drag).not.toHaveBeenCalled();
+  expect(activate).toHaveBeenCalledOnce();
+});
+
 it("blocks shortcuts and the palette until completion, then restores their handlers", async () => {
   const handlers = Object.fromEntries(APP_SHORTCUT_ACTIONS.map((action) => [action, vi.fn()])) as unknown as AppShortcutHandlers;
   function Shell({ locked }: { locked: boolean }) {
