@@ -9,6 +9,10 @@ fn runtime_heartbeat_health_tracks_loaded_and_failed_epochs_honestly() {
     use crate::service::agent_runtime::model::RuntimePhase;
     assert_eq!(snapshot::runtime_process(&RuntimePhase::Ready), "present");
     assert_eq!(snapshot::runtime_process(&RuntimePhase::Loading), "unknown");
+    assert_eq!(
+        snapshot::runtime_process(&RuntimePhase::LoginPending),
+        "unknown"
+    );
     for phase in [
         RuntimePhase::Unloaded { reason: None },
         RuntimePhase::Degraded {
