@@ -130,6 +130,27 @@ test("Runs toggles the run list and journal without replacing the graph; Stop Bl
   } finally { await view.close(); }
 });
 
+test("a new run arriving through the graph subscription appears in the open Blueprint without a refresh", async () => {
+  const view = await mount();
+  try {
+    const canvas = graphRegion(view.host);
+    const runRows = () => view.host.querySelectorAll('[aria-label="Blueprint runs"] button[aria-label^="Run "]').length;
+    assert.equal(runRows(), 1);
+    const root = view.transport.graph.nodes.find((node) => node.identity.id === "blueprint-watch")!;
+    const first = root.history![0];
+    const next = { ...first, id: "t-next", accepted_at: first.accepted_at + 60_000, causal_run: { ...first.causal_run!, id: "run-next", root_transition: "t-next", started_at: first.accepted_at + 60_000 } };
+    view.transport.graph = {
+      ...view.transport.graph,
+      nodes: view.transport.graph.nodes.map((node) => node === root ? { ...node, history: [next, ...node.history!] } : node),
+      runs: [{ ...view.transport.graph.runs![0], id: "run-next", root_transition: "t-next", started_at: next.accepted_at, transitions: [{ ...view.transport.graph.runs![0].transitions[0], transition_id: "t-next" }] }, ...view.transport.graph.runs!],
+    };
+    await act(async () => { view.transport.changed?.(); });
+    await settle();
+    assert.equal(runRows(), 2, "the new run is listed as soon as its journal revision arrives");
+    assert.equal(view.host.querySelector(".bp-canvas"), canvas, "the open canvas stays mounted while it updates");
+  } finally { await view.close(); }
+});
+
 test("Team switch removes old details and subscribes with the exact attachment", async () => {
   const view = await mount();
   try {
