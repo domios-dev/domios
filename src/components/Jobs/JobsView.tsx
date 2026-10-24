@@ -1,4 +1,6 @@
 import { SavedSolutions } from "./SavedSolutions";
+import { SavedSolutionView } from "./SavedSolutionView";
+import type { CatalogEntry } from "./solutionCatalog";
 import { SaveSolutionForm } from "./SaveSolutionForm";
 import { successfulSolutionScope, blueprintSolutionsApi, type BlueprintSolutionsApi, type SolutionScope } from "./blueprintSolutions";
 import { blueprintMeta } from "../Automation/blueprintMeta";
@@ -90,19 +92,21 @@ interface SurfaceProps {
   onExit?: () => void;
   onReturn?: () => boolean;
   onDetailChange: (open: boolean) => void;
+  workspaceName: (id: string) => string;
 }
 
-function JobsSurface({ solutionsApi, adapter, connectionId, sources, cronWorkspace, filter, emptyScope, canWiden, initialScenarioId, initialCronId, initialBlueprintId, initialRunId, cronActionAdapter, jobActionAdapter, onClearStoppedChange, clearStoppedButtonRef, onExit, onReturn, onDetailChange }: SurfaceProps) {
+function JobsSurface({ solutionsApi, adapter, connectionId, sources, cronWorkspace, filter, emptyScope, canWiden, initialScenarioId, initialCronId, initialBlueprintId, initialRunId, cronActionAdapter, jobActionAdapter, onClearStoppedChange, clearStoppedButtonRef, onExit, onReturn, onDetailChange, workspaceName }: SurfaceProps) {
   const graphs = useWorkspaceGraphs(adapter, connectionId, sources);
   const [saveScope, setSaveScope] = useState<SolutionScope | null>(null);
   const [solutionRevision, setSolutionRevision] = useState(0);
   const [solutionSaved, setSolutionSaved] = useState(false);
   const crons = useCronJobs(cronWorkspace);
   const [selection, setSelection] = useState<Selection>(initialBlueprintId ? { kind: "blueprint", id: initialBlueprintId } : initialScenarioId ? { kind: "scenario", id: initialScenarioId } : initialCronId ? { kind: "cron", id: initialCronId } : null);
+  const [openedSolution, setOpenedSolution] = useState<CatalogEntry | null>(null);
   useEffect(() => {
-    onDetailChange(selection !== null);
+    onDetailChange(selection !== null || openedSolution !== null);
     return () => onDetailChange(false);
-  }, [onDetailChange, selection]);
+  }, [onDetailChange, selection, openedSolution]);
   const list = useRef<HTMLDivElement>(null);
   const removed = useRef<HTMLParagraphElement>(null);
   const returnTo = useRef<string | null>(null);
@@ -227,12 +231,18 @@ function JobsSurface({ solutionsApi, adapter, connectionId, sources, cronWorkspa
   };
 
   useLayoutEffect(() => {
-    if (selection && !missing) return;
+    if ((selection && !missing) || openedSolution) return;
     if (returnTo.current) focusEntry(list.current, "jobKey", returnTo.current);
     else if (missing && focusLost()) removed.current?.focus();
     returnTo.current = null;
-  }, [selection, missing]);
+  }, [selection, missing, openedSolution]);
 
+  if (openedSolution) {
+    const id = openedSolution.solution.id;
+    const close = () => { returnTo.current = `solution:${id}`; setOpenedSolution(null); };
+    return <SavedSolutionView key={id} entry={openedSolution} api={solutionsApi} backLabel="All jobs" onBack={close}
+      onDeleted={() => { setOpenedSolution(null); setSolutionRevision((revision) => revision + 1); }} />;
+  }
   if (selection?.kind === "cron") {
     const id = selection.id;
     return <CronWorkspaceView cronId={id} actionAdapter={cronActionAdapter} backLabel="All jobs" onBack={() => { void crons.refresh(); back(`cron:${id}`); }} />;
@@ -279,7 +289,7 @@ function JobsSurface({ solutionsApi, adapter, connectionId, sources, cronWorkspa
       })}
     </ul>}
     {sources.map((workspaceId) => <BlueprintProjectList key={workspaceId} workspaceId={workspaceId} />)}
-    <SavedSolutions api={solutionsApi} sources={sources} revision={solutionRevision} />
+    <SavedSolutions api={solutionsApi} sources={sources} revision={solutionRevision} workspaceName={workspaceName} onOpen={setOpenedSolution} />
     {confirmation && <JobConfirmationDialog
       title={confirmation.kind === "delete" ? deleteJobConfirmation(confirmation.job).title : "Clear stopped jobs?"}
       description={confirmation.kind === "delete"
@@ -363,7 +373,7 @@ export function JobsView({ solutionsApi = blueprintSolutionsApi, machinePeers, p
       {importRevision > 0 && <p role="status" className="px-4 py-2">Blueprint imported stopped.</p>}
       {!context.ready ? <p role="status" className="p-4">Attaching jobs…</p>
         : !layout.teamAvailable ? <InlineErrorNotice error={{ code: "team_unavailable", raw: "" }} />
-          : <JobsSurface solutionsApi={solutionsApi} key={JSON.stringify([connectionId, sources, filter, importRevision])} adapter={adapter} connectionId={connectionId} sources={sources} cronWorkspace={layout.cronWorkspace} filter={filter} emptyScope={layout.emptyScope} canWiden={layout.canWiden} initialScenarioId={initialScenario} initialCronId={initialCron} initialBlueprintId={initialBlueprint} initialRunId={initialRunId} cronActionAdapter={cronActionAdapter} jobActionAdapter={jobActionAdapter} onClearStoppedChange={setClearStopped} clearStoppedButtonRef={clearStoppedButton} onExit={onClose} onReturn={onReturn} onDetailChange={setDetailOpen} />}
+          : <JobsSurface solutionsApi={solutionsApi} key={JSON.stringify([connectionId, sources, filter, importRevision])} adapter={adapter} connectionId={connectionId} sources={sources} cronWorkspace={layout.cronWorkspace} filter={filter} emptyScope={layout.emptyScope} canWiden={layout.canWiden} initialScenarioId={initialScenario} initialCronId={initialCron} initialBlueprintId={initialBlueprint} initialRunId={initialRunId} cronActionAdapter={cronActionAdapter} jobActionAdapter={jobActionAdapter} onClearStoppedChange={setClearStopped} clearStoppedButtonRef={clearStoppedButton} onExit={onClose} onReturn={onReturn} onDetailChange={setDetailOpen} workspaceName={(id) => workspaces.find((workspace) => workspace.id === id)?.name ?? id} />}
     </div>
   </section>;
 }

@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { GitCompare, List, Network, Square } from "lucide-react";
 import type { BlueprintViewerHistory } from "../../../lib/blueprintApi";
 import { usePresence, type PresenceMotion } from "../../Canvas/usePresence";
@@ -62,8 +62,9 @@ function useElementHeight() {
 export interface BlueprintExportTarget { workspaceId: string; teamId: string | null; id: string }
 
 /** The one Blueprint view: every pipeline, watch and call opens here as a typed node graph with its runs and journal. */
-export function BlueprintView({ pipeline, initialRunId, backLabel, onBack, exportTarget, onStop, canStop = false, loadHistory, headingLevel = 2, fill = false }: {
+export function BlueprintView({ pipeline, initialRunId, backLabel, onBack, exportTarget, actions, summary, history = true, onStop, canStop = false, loadHistory, headingLevel = 2, fill = false }: {
   pipeline: PipelineView; initialRunId?: string; backLabel?: string; onBack?: () => void; exportTarget?: BlueprintExportTarget;
+  actions?: ReactNode; summary?: ReactNode; history?: boolean;
   onStop?: () => Promise<unknown>; canStop?: boolean; loadHistory?: () => Promise<BlueprintViewerHistory>; headingLevel?: 2 | 3; fill?: boolean;
 }) {
   const camera = blueprintCamera(pipeline.id);
@@ -155,6 +156,7 @@ export function BlueprintView({ pipeline, initialRunId, backLabel, onBack, expor
       <Heading className="min-w-0 flex-[1_1_12rem] break-words text-[length:var(--ct-font-size-md)] font-semibold text-[var(--ct-fg)]">{pipeline.name}</Heading>
       <span className="flex items-center gap-1.5 text-xs text-[var(--ct-muted-fg)]"><span className={`h-1.5 w-1.5 rounded-full ${stateTone(pipeline.state)}`} aria-hidden="true" />{pipeline.call_graph?.kind ?? "Blueprint"} · {pipeline.state}</span>
       {loadHistory && <button type="button" className={AUTOMATION_TOOL} aria-expanded={diffOpen} onClick={() => setDiffOpen(!diffOpen)}><GitCompare size={13} aria-hidden="true" />Semantic diff</button>}
+      {actions}
       {exportTarget && <BlueprintExportButton workspaceId={exportTarget.workspaceId} teamId={exportTarget.teamId} id={exportTarget.id} />}
       {onStop && <button type="button" className={`${AUTOMATION_TOOL} bp-stop`} aria-busy={stopping || undefined} disabled={!canStop || stopping} onClick={() => void stop()}><Square size={12} aria-hidden="true" />{stopping ? "Stopping…" : "Stop Blueprint"}</button>}
     </div>
@@ -167,6 +169,7 @@ export function BlueprintView({ pipeline, initialRunId, backLabel, onBack, expor
         {recordedStop.call_stack?.length ? <span aria-label="Stop call stack" className="bp-mono">{callStack(recordedStop)}</span> : null}
       </section>}
       {pipeline.note && <p className="ct-meta-muted m-0">{pipeline.note}</p>}
+      {summary}
       {diffOpen && loadHistory && <BlueprintSemanticDiff load={loadHistory} />}
     </div>
     <div ref={body.ref} className={`relative mt-2 flex min-w-0 flex-col ${fill ? "min-h-0 flex-1" : "h-[min(46rem,80vh)] min-h-[30rem]"}`}>
@@ -175,9 +178,9 @@ export function BlueprintView({ pipeline, initialRunId, backLabel, onBack, expor
           : shown.historical_graph_available === false ? <p role="status" aria-label="Historical graph unavailable" className="bp-notice m-4">The graph for this run was not retained. Its journal is listed under Runs.</p>
             : error || shown.projection_error ? <InlineErrorNotice error={error ?? shown.projection_error} operation="building this Blueprint graph" blocking />
               : !graph ? <p role="status" className="bp-notice m-4">Building Blueprint graph…</p>
-                : <BlueprintCanvas layout={graph.layout} label={`${pipeline.name} graph`} selected={selected} camera={camera} onSelect={select} lit={lit} callouts={callouts} notices={planLock || heldNotice || evidenceNotice ? <>{planLock}{heldNotice}{evidenceNotice}</> : null} panelOpen={selected !== null} toolbar={runsToggle} />}
-        {(!graph || !shown || shown.historical_graph_available === false) && <div className="flex px-4 pb-2">{runsToggle}</div>}
-        {runsOpen && <>
+                : <BlueprintCanvas layout={graph.layout} label={`${pipeline.name} graph`} selected={selected} camera={camera} onSelect={select} lit={lit} callouts={callouts} notices={planLock || heldNotice || evidenceNotice ? <>{planLock}{heldNotice}{evidenceNotice}</> : null} panelOpen={selected !== null} toolbar={history ? runsToggle : undefined} />}
+        {history && (!graph || !shown || shown.historical_graph_available === false) && <div className="flex px-4 pb-2">{runsToggle}</div>}
+        {history && runsOpen && <>
           <RunDivider height={clampLogHeight(logHeight, available)} available={available} controls="blueprint-run-log" onResize={resizeLog} />
           <div id="blueprint-run-log" className="bp-runs" style={{ height: clampLogHeight(logHeight, available) }}>
             <div role="group" aria-label="Blueprint runs" className="bp-runs__list">
