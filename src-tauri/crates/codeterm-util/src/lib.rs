@@ -24,6 +24,7 @@ pub mod secret_file;
 pub mod sensitive_state;
 pub mod shell;
 pub mod task_files;
+pub mod tcp_listener;
 pub mod terminal;
 pub mod test_env;
 pub mod user_path;

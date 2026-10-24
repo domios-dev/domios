@@ -6,7 +6,7 @@ use codeterm_types::server_bootstrap::ProcessProvenance;
 use parking_lot::Mutex;
 use reqwest::redirect::Policy;
 #[cfg(windows)]
-use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
+use std::net::{Ipv4Addr, SocketAddrV4};
 use std::{
     sync::atomic::{AtomicBool, Ordering},
     time::Duration,
@@ -222,7 +222,7 @@ fn target_matches(
 
 #[cfg(windows)]
 pub(crate) fn port_is_available(port: u16) -> bool {
-    TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port)).is_ok()
+    codeterm_util::tcp_listener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port).into()).is_ok()
 }
 
 pub(crate) fn initial_status(

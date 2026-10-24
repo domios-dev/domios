@@ -134,4 +134,4 @@ mod platform {
     }
 }
 
-pub use platform::subscribe;
+pub use platform::{subscribe, Notifications};

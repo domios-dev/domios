@@ -15,6 +15,36 @@ mod tests;
 #[derive(Clone, Copy)]
 pub struct PeerListener;
 
+#[async_trait::async_trait]
+pub(super) trait AddressChanges: Send {
+    async fn selected(&self, signed_in: bool, enabled: bool, port: u16) -> Vec<SocketAddr>;
+    async fn changed(&mut self) -> Result<(), ()>;
+}
+
+struct NativeAddresses(network_changes::Notifications);
+
+#[async_trait::async_trait]
+impl AddressChanges for NativeAddresses {
+    async fn selected(&self, signed_in: bool, enabled: bool, port: u16) -> Vec<SocketAddr> {
+        let interfaces = if signed_in && enabled {
+            match tokio::task::spawn_blocking(if_addrs::get_if_addrs).await {
+                Ok(Ok(interfaces)) => interfaces
+                    .into_iter()
+                    .map(|interface| interface.ip())
+                    .collect(),
+                _ => Vec::new(),
+            }
+        } else {
+            Vec::new()
+        };
+        selected_addresses(signed_in, enabled, port, interfaces)
+    }
+
+    async fn changed(&mut self) -> Result<(), ()> {
+        self.0.changed().await.map_err(|_| ())
+    }
+}
+
 fn selected_addresses(
     signed_in: bool,
     enabled: bool,
@@ -116,18 +146,11 @@ impl Serving {
             if self.failed.contains(address) {
                 continue;
             }
-            let listener = match tokio::net::TcpListener::bind(address).await {
+            let listener = match codeterm_util::tcp_listener::bind(*address) {
                 Ok(listener) => listener,
                 Err(error) => {
                     log::warn!("[account-mesh] tailnet bind {address} failed: {error}");
                     self.failed.insert(*address);
-                    continue;
-                }
-            };
-            let listener = match listener.into_std() {
-                Ok(listener) => listener,
-                Err(error) => {
-                    log::warn!("[account-mesh] tailnet socket {address} failed: {error}");
                     continue;
                 }
             };
@@ -156,6 +179,21 @@ impl Serving {
 }
 
 pub(super) async fn run(service: Arc<ServiceContext>, mesh: crate::MeshStateHandle) {
+    let network = match network_changes::subscribe() {
+        Ok(network) => NativeAddresses(network),
+        Err(error) => {
+            log::error!("[account-mesh] address notifications unavailable: {error}");
+            return;
+        }
+    };
+    run_with_network(service, mesh, network).await;
+}
+
+pub(super) async fn run_with_network(
+    service: Arc<ServiceContext>,
+    mesh: crate::MeshStateHandle,
+    mut network: impl AddressChanges,
+) {
     let Some(control) = service.try_ext::<RestApiControlState>().cloned() else {
         return;
     };
@@ -166,13 +204,6 @@ pub(super) async fn run(service: Arc<ServiceContext>, mesh: crate::MeshStateHand
         .0
         .clone()
         .layer(axum::middleware::from_fn(mark_peer_listener));
-    let mut network = match network_changes::subscribe() {
-        Ok(network) => network,
-        Err(error) => {
-            log::error!("[account-mesh] address notifications unavailable: {error}");
-            return;
-        }
-    };
     let mut account = mesh.lock().gate_watch();
     let mut config = service.events.subscribe();
     let mut rest = control.subscribe_status();
@@ -203,18 +234,9 @@ pub(super) async fn run(service: Arc<ServiceContext>, mesh: crate::MeshStateHand
         };
         let port = control.bound_addr().map_or(0, |address| address.port());
         let listening = rest.borrow_and_update().phase == RestApiPhase::Listening;
-        let interfaces = if signed_in && enabled && listening {
-            match tokio::task::spawn_blocking(if_addrs::get_if_addrs).await {
-                Ok(Ok(interfaces)) => interfaces
-                    .into_iter()
-                    .map(|interface| interface.ip())
-                    .collect(),
-                _ => Vec::new(),
-            }
-        } else {
-            Vec::new()
-        };
-        let desired = selected_addresses(signed_in, enabled && listening, port, interfaces);
+        let desired = network
+            .selected(signed_in, enabled && listening, port)
+            .await;
         serving.withdraw(&desired).await;
         let retained: Vec<_> = serving.sockets.keys().copied().collect();
         if published != retained {
