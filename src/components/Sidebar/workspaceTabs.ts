@@ -1,10 +1,4 @@
 import type { Tab } from "../../lib/types";
-import { isGeneralAgent } from "../../lib/roleKind";
-import { isFirstRunGeneralTab } from "../AgentPicker/constants";
-
-export function isGeneralSectionTab(tab: Tab): boolean {
-  return isGeneralAgent(tab) || isFirstRunGeneralTab(tab);
-}
 
 function sortByOrder(items: Tab[]): Tab[] {
   return [...items].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
