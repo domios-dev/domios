@@ -103,8 +103,19 @@ fn apply_document(
         if caller.team.is_none() {
             return Err("Blueprint apply requires a caller in a Team".into());
         }
-        let mut document =
-            codeterm_blueprint_types::blueprint_document::Document::from_definition(&definition)?;
+        let mut document: codeterm_blueprint_types::blueprint_document::Document =
+            serde_json::from_value(definition.clone()).map_err(|error| ApplyError::Validation {
+                checks: vec![FieldCheck::new("", Err(error.to_string()))],
+            })?;
+        let errors = document.template_errors();
+        if !errors.is_empty() {
+            return Err(ApplyError::Validation {
+                checks: errors
+                    .into_iter()
+                    .map(|(field, message)| FieldCheck::new(field, Err(message)))
+                    .collect(),
+            });
+        }
         codeterm_sentinel::seal_code::document(&mut document, std::path::Path::new(&caller.cwd))?;
         let document = service.mem.pin_blueprint_calls(
             &format!("blueprints:{}", caller.workspace),

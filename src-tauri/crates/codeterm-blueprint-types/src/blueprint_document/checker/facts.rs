@@ -219,7 +219,7 @@ pub(super) fn database(ir: &PositionedIr, context: &CheckContext) -> Database {
                 &path,
             );
         }
-        if matches!(n.kind(), "code" | "ask" | "agent" | "call") {
+        if matches!(n.kind(), "command" | "code" | "ask" | "agent" | "call") {
             add("data_slot", vec![n.id.clone(), "in".into()], &path);
         }
         for cap in n.caps.iter().chain(n.code.iter().flat_map(|c| &c.caps)) {

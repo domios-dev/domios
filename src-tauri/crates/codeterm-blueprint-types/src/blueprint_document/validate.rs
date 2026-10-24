@@ -340,6 +340,6 @@ fn data_slot(node: &Node, slot: &str) -> bool {
         (node.kind(), slot),
         ("notify", "with.text")
             | ("send", "with.payload")
-            | ("code" | "ask" | "agent" | "call", "in")
+            | ("command" | "code" | "ask" | "agent" | "call", "in")
     ) || node.call.is_some() && slot.starts_with("call.with.")
 }
