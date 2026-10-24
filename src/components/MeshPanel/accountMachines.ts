@@ -59,7 +59,7 @@ export interface SelfRowView {
 export type MyMachinesView =
   | { kind: "loading" }
   | { kind: "sign_in"; headline: string; blocked: boolean; saved: MachineRowView[]; notes: string[] }
-  | { kind: "account"; machineLimit?: { limit: number; activeCount: number }; reauthRequired: boolean; self: SelfRowView | null; machines: MachineRowView[]; saved: MachineRowView[]; notes: string[] };
+  | { kind: "account"; machineLimit?: { limit: number; activeCount: number }; reauthRequired: boolean; removed?: boolean; self: SelfRowView | null; machines: MachineRowView[]; saved: MachineRowView[]; notes: string[] };
 
 export interface MyMachinesInput {
   account: AccountPresence;
@@ -117,6 +117,8 @@ export function myMachinesView({ account, snapshot, listFailure = null, linking,
   return {
     kind: "account",
     machineLimit,
+    removed: snapshot.last_refusal?.reason === "revoked" || snapshot.last_refusal?.reason === "forbidden"
+      || !!snapshot.registry?.rows.some((row) => row.installation_id === snapshot.self?.installation_id && !row.active),
     reauthRequired: snapshot.last_refusal?.reason === "reauth_required",
     self: selfRow(snapshot),
     machines: registryRows(snapshot, pairs, linking, now, !blocked && !locked).map((row) => machineLimit && row.status !== "revoked"

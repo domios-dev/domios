@@ -70,7 +70,10 @@ impl AccountMesh {
         self.config.installation_id.as_str().to_owned()
     }
 
-    async fn call<T>(&self, call: impl Future<Output = RegistryResult<T>>) -> Outcome<T> {
+    pub(super) async fn call<T>(
+        &self,
+        call: impl Future<Output = RegistryResult<T>>,
+    ) -> Outcome<T> {
         tokio::time::timeout(self.config.call_deadline, call)
             .await
             .map_err(|_| AccountMeshRefusal::Offline)?
@@ -118,7 +121,7 @@ impl AccountMesh {
     }
 
     /// Captures the session only if it still belongs to the signed-in account of `epoch`.
-    async fn signed(&self, epoch: Option<u64>) -> Outcome<Signed> {
+    pub(super) async fn signed(&self, epoch: Option<u64>) -> Outcome<Signed> {
         let trust = self
             .config
             .trust
@@ -154,7 +157,7 @@ impl AccountMesh {
         })
     }
 
-    async fn prove<T: Serialize>(
+    pub(super) async fn prove<T: Serialize>(
         &self,
         signed: &Signed,
         endpoint: ProofEndpoint,
@@ -188,7 +191,7 @@ impl AccountMesh {
     }
 
     /// The server key generation for this account, enrolling the installation key once.
-    async fn generation(&self, signed: &Signed) -> Outcome<u64> {
+    pub(super) async fn generation(&self, signed: &Signed) -> Outcome<u64> {
         let _guard = self.key_lock.lock().await;
         if self.state().last_refusal == Some(AccountMeshRefusal::ReauthRequired) {
             return Err(AccountMeshRefusal::ReauthRequired);
@@ -332,10 +335,11 @@ impl AccountMesh {
     }
 
     pub(super) async fn enroll_once(&self, epoch: u64, trigger: EnrollTrigger) -> Outcome<()> {
-        let signed = self.signed(Some(epoch)).await?;
+        let mut signed = self.signed(Some(epoch)).await?;
         let now = self.now();
         let current = self.with(|inner| inner.state.current_membership(now).is_some());
         if current
+            && !self.own_removed()
             && (trigger == EnrollTrigger::Network || self.state().publication_failure.is_some())
         {
             if self.with(|inner| inner.sync_pending) {
@@ -345,20 +349,25 @@ impl AccountMesh {
                 .await?;
             return self.reconcile_publication(&signed).await;
         }
-        let slot = self.own_slot(&signed.account);
-        let operation = match slot {
-            Some(expected_slot_revision) => MeshOperation::Renew {
-                expected_slot_revision,
-            },
-            None => MeshOperation::Enroll {
-                expected_slot_revision: 0,
-            },
-        };
-        let result = match self.admission(&signed, operation).await {
-            Ok(result) => result,
-            Err(AccountMeshRefusal::Conflict | AccountMeshRefusal::Forbidden) => {
-                match self.reconcile_slot(&signed).await? {
-                    Some(slot_revision) => {
+        let removed = self.own_removed();
+        let result = if removed {
+            self.rejoin(&mut signed).await?
+        } else {
+            let operation = match self.own_slot(&signed.account) {
+                Some(expected_slot_revision) => MeshOperation::Renew {
+                    expected_slot_revision,
+                },
+                None => MeshOperation::Enroll {
+                    expected_slot_revision: 0,
+                },
+            };
+            match self.admission(&signed, operation).await {
+                Ok(result) => result,
+                Err(AccountMeshRefusal::Forbidden | AccountMeshRefusal::Revoked) => {
+                    self.rejoin(&mut signed).await?
+                }
+                Err(AccountMeshRefusal::Conflict) => match self.reconcile_slot(&signed).await {
+                    Ok(Some(slot_revision)) => {
                         self.admission(
                             &signed,
                             MeshOperation::Renew {
@@ -367,7 +376,9 @@ impl AccountMesh {
                         )
                         .await?
                     }
-                    None => {
+                    Ok(None) if self.own_removed() => self.rejoin(&mut signed).await?,
+                    Err(AccountMeshRefusal::Forbidden) => self.rejoin(&mut signed).await?,
+                    Ok(None) => {
                         self.admission(
                             &signed,
                             MeshOperation::Enroll {
@@ -376,9 +387,10 @@ impl AccountMesh {
                         )
                         .await?
                     }
-                }
+                    Err(refusal) => return Err(refusal),
+                },
+                Err(refusal) => return Err(refusal),
             }
-            Err(refusal) => return Err(refusal),
         };
         let MeshResult::Membership(result) = result else {
             return Err(AccountMeshRefusal::Invalid);
@@ -427,6 +439,14 @@ impl AccountMesh {
                     metadata_revision,
                     display_name,
                 });
+                if state.registry.as_ref().is_some_and(|registry| {
+                    registry
+                        .rows
+                        .iter()
+                        .any(|row| row.installation_id == installation && !row.active)
+                }) {
+                    state.registry = None;
+                }
                 state.membership = Some(SignedMembership { token, verified });
             });
             true
