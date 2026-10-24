@@ -118,7 +118,7 @@ export function BlueprintView({ pipeline, initialRunId, initialRoute, onRouteCha
     return { ...whole, model, layout: layoutBlueprint(model) };
   }, [whole, trail]);
   const lit = useMemo(() => graph ? litWires(graph.model) : new Set<string>(), [graph]);
-  const scopeTitles = [pipeline.name, ...trail.map((id, depth) => expandedCall(graphSource, trail.slice(0, depth), id)?.pin.id ?? id)];
+  const scopeTitles = [pipeline.name, ...trail.map((id, depth) => { const call = expandedCall(graphSource, trail.slice(0, depth), id); return call?.graph.name || call?.pin.id || id; })];
   const enter = (next: readonly string[]) => {
     setTrail(next);
     setSelected(blueprintCamera(next.length ? `${pipeline.id}|${JSON.stringify(next)}` : pipeline.id).selected);
@@ -280,6 +280,7 @@ export function BlueprintView({ pipeline, initialRunId, initialRoute, onRouteCha
           call={shownNode?.definition ? expandedCall(graphSource, shownNode.callPath, shownNode.definition.id) : undefined}
           expanded={shownNode ? expanded.has(shownNode.key) : false}
           onExpand={() => shownNode && setExpanded((current) => toggleBlueprintExpansion(current, shownNode.key))}
+          onOpen={shownNode?.callee?.openable ? () => drill(shownNode.key) : undefined}
           onClose={closeDetails} panelRef={drawer.ref} presence={drawer.state} />
       </div>}
     </div>

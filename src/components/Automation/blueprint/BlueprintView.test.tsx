@@ -57,7 +57,7 @@ async function main() {
     assert(note!.closest('div[style*="transform-origin"]'), "the note pans and zooms with the graph");
     const invoke = button("Node invoke");
     assert.equal(invoke.getAttribute("data-subgraph"), "openable", "a call node reads as a sub-graph");
-    assert(invoke.textContent?.includes("mem:helper"), "the sub-graph names its callee");
+    assert(invoke.textContent?.includes("typed-helper") && !invoke.textContent.includes("mem:helper"), "the sub-graph names its callee by its readable name");
     assert(invoke.getAttribute("aria-description")?.includes("double-click"), "the sub-graph says how to open it");
     const layer = () => host.querySelector<HTMLElement>('.bp-canvas > div[style*="transform-origin"]');
     assert(layer());
@@ -81,12 +81,14 @@ async function main() {
     assert([...host.querySelectorAll(".bp-wire")].length > 0);
     await act(async () => button("Node invoke").click());
     assert.deepEqual(details(), ["Details: invoke"]);
-    assert(host.querySelector('[aria-label="Callee mem:helper"]'));
+    assert(host.querySelector('[aria-label="Callee mem:helper"]')?.textContent?.includes("a".repeat(64)), "the raw id and hash stay in the details");
+    assert(button("Double-click to open sub-graph"), "a selected sub-graph shows its open pill on the canvas");
+    assert(button("Open sub-graph"), "the details offer an explicit open action");
     assert.equal(button("Expand callee").getAttribute("aria-expanded"), "false");
     await act(async () => button("Expand callee").click());
     await waitForNode("Node return-count in invoke");
     assert.equal(button("Collapse callee").getAttribute("aria-expanded"), "true");
-    assert(host.querySelector(".bp-frame")?.textContent?.includes("mem:helper"), "the callee opens in its own frame");
+    assert(host.querySelector(".bp-frame")?.textContent?.includes("typed-helper"), "the callee opens in its own frame");
     const calloutNow = host.querySelector('[aria-label="Recorded stop"]');
     assert(calloutNow?.textContent?.includes("contract_violation"), "the stop follows the failing callee node once it is visible");
     await act(async () => button("Node return-count in invoke").click());
@@ -173,11 +175,11 @@ async function main() {
     await dispatch(button("Node invoke"), new MouseEvent("dblclick", { bubbles: true }));
     await waitForNode("Node inner in invoke");
     assert(!host.querySelector('[aria-label="Node probe"]'), "drilling in shows only the callee graph");
-    assert.equal(host.querySelector('nav[aria-label="Blueprint path"] [aria-current="page"]')?.textContent, "mem:helper");
+    assert.equal(host.querySelector('nav[aria-label="Blueprint path"] [aria-current="page"]')?.textContent, "middle");
     await dispatch(button("Node inner in invoke"), new KeyboardEvent("keydown", { code: "Enter", bubbles: true, cancelable: true }));
     await waitForNode("Node deepest in invoke / inner");
-    assert.deepEqual([...host.querySelectorAll('nav[aria-label="Blueprint path"] li')].map((entry) => entry.textContent), ["viewer-fixture", "mem:helper", "mem:leaf"]);
-    await act(async () => button("mem:helper").click());
+    assert.deepEqual([...host.querySelectorAll('nav[aria-label="Blueprint path"] li')].map((entry) => entry.textContent), ["viewer-fixture", "middle", "leaf"]);
+    await act(async () => button("middle").click());
     await waitForNode("Node inner in invoke");
     assert(!host.querySelector('[aria-label="Node deepest in invoke / inner"]'), "the breadcrumb steps back one level");
     await dispatch(button("Node inner in invoke"), new KeyboardEvent("keydown", { code: "Escape", bubbles: true, cancelable: true }));
@@ -195,7 +197,7 @@ async function main() {
     await act(async () => root.render(<BlueprintView key="routed" pipeline={nested} onRouteChange={(route) => routes.push(route)}
       initialRoute={{ runId: null, trail: ["invoke"], selected: blueprintNodeKey(["invoke"], "inner") }} />));
     await waitForNode("Node inner in invoke");
-    assert.equal(host.querySelector('nav[aria-label="Blueprint path"] [aria-current="page"]')?.textContent, "mem:helper", "the restored route reopens the drilled callee");
+    assert.equal(host.querySelector('nav[aria-label="Blueprint path"] [aria-current="page"]')?.textContent, "middle", "the restored route reopens the drilled callee");
     assert.deepEqual(details(), ["Details: inner in invoke"], "the restored route reopens the selected node");
     assert.equal(routes.length, 0, "restoring a route does not report it back");
     await act(async () => button("viewer-fixture").click());
