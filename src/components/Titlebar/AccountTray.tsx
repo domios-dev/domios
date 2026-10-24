@@ -13,6 +13,7 @@ import { communityMenu } from "../shared/CommunityLinks";
 import { legalMenuItems } from "../shared/LegalLinks";
 import { accountTrayModel, type PlanBadge } from "./accountTrayModel";
 import { AccountAvatar } from "./AccountAvatar";
+import { FIRST_RUN_DISABLED_REASON } from "../../lib/firstRunGate";
 import { useMultiplexer } from "../../store/multiplexer/context";
 
 /** Who is signed in and on which plan: information, not actions, so it sits above the menu items and never takes focus. */
@@ -37,7 +38,7 @@ function AccountHeader({ identity, email, avatarUrl, initial, badge, summary }: 
   </div>;
 }
 
-export function AccountTray({ onOpenPlans }: { onOpenPlans: () => void }) {
+export function AccountTray({ onOpenPlans, locked = false }: { onOpenPlans: () => void; locked?: boolean }) {
   const account = useAccount();
   const { upsertToast } = useMultiplexer();
   const billing = useAccountPlan(account.model.kind === "signed_in" ? account.model.identity.uid : null);
@@ -72,7 +73,17 @@ export function AccountTray({ onOpenPlans }: { onOpenPlans: () => void }) {
   if (account.model.kind === "signed_in" && account.model.sessionOnly) {
     items.unshift({label: "Signed in for this session only", description: "Secure storage is unavailable. Sign in again after restarting Domios.", disabled: true});
   }
-  items.push({separator:true,key:"community"},communityMenu());
+  if (locked && model.kind === "signed_in") {
+    for (const item of items) {
+      if (!("separator" in item) && !("items" in item)) {
+        item.disabled = true;
+        item.title = FIRST_RUN_DISABLED_REASON;
+      }
+    }
+  }
+  const community = communityMenu();
+  if (locked) community.items = community.items.map((item) => ({ ...item, disabled: true, title: FIRST_RUN_DISABLED_REASON }));
+  items.push({separator:true,key:"community"},community);
   return <div className="flex items-center">
     <DropdownMenu menuLabel={model.kind === "signed_in" ? `Account: ${model.identity}, ${model.plan}` : "Account"} items={items} onOpenChange={setOpen}
       header={model.kind === "signed_in" ? <AccountHeader identity={model.identity} email={model.email} avatarUrl={model.avatarUrl} initial={model.initial} badge={model.badge} summary={model.plan} /> : undefined} trigger={

@@ -32,7 +32,7 @@ Object.assign(globalThis, {
   __APP_VERSION__: "test",
 });
 
-function Harness() {
+function Harness({ locked = false }: { locked?: boolean }) {
   const [toasts, setToasts] = useState<Notification[]>([]);
   const actions = {
     upsertToast: (toast: Omit<Notification, "timestamp" | "read">) => setToasts((current) => [
@@ -41,6 +41,7 @@ function Harness() {
   } as unknown as MultiplexerActionsContextType;
   return <MultiplexerActionsContext.Provider value={actions}>
     <Titlebar
+      locked={locked}
       theme={{} as ThemeConfig}
       onOpenSettings={() => {}}
       toasts={toasts}
@@ -65,6 +66,33 @@ it("keeps account, billing and update errors out of the titlebar status region",
     expect(titlebar.querySelector('[role="alert"]')).toBeNull();
     expect(titlebar.querySelector('button[aria-label="Account"]')).not.toBeNull();
     expect(titlebar.querySelector('button[aria-label="Update"]')).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+it("keeps the normal titlebar mounted with only account sign-in enabled before onboarding", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<Harness locked />));
+    const settings = host.querySelector<HTMLButtonElement>('[data-testid="titlebar-settings"]')!;
+    const update = host.querySelector<HTMLButtonElement>('button[aria-label="Update"]')!;
+    const account = host.querySelector<HTMLButtonElement>('button[aria-label="Account"]')!;
+    expect(settings.disabled).toBe(true);
+    expect(update.disabled).toBe(true);
+    expect(account.disabled).toBe(false);
+    await act(async () => account.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 })));
+    expect(document.querySelector('[role="menu"]:not([hidden])')).not.toBeNull();
+    expect(Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).some((item) => !item.disabled)).toBe(true);
+    await act(async () => document.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')!.click());
+    expect(stores.account.signIn).toHaveBeenCalledOnce();
+    await act(async () => root.render(<Harness />));
+    expect(host.querySelector('[data-testid="titlebar-settings"]')).toBe(settings);
+    expect(settings.disabled).toBe(false);
+    expect(update.disabled).toBe(false);
   } finally {
     await act(async () => root.unmount());
     host.remove();

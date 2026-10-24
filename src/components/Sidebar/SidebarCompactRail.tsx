@@ -8,6 +8,7 @@ import { TerminalIcon } from "../Icons";
 import type { TabAttention } from "./tabAttention";
 import { TabAttentionMark } from "./TabAttentionMark";
 import { TabItem } from "./TabItem";
+import { isFirstRunGeneralTab } from "../AgentPicker/constants";
 
 export interface CompactRailGroup {
   workspaceId: string;
@@ -72,6 +73,9 @@ export function SidebarCompactRail({ groups, tabStatuses, onActivate, attentionB
               <button
                 key={tab.id}
                 type="button"
+                data-first-run-allowed={isFirstRunGeneralTab(tab) || undefined}
+                data-first-run-home={isFirstRunGeneralTab(tab) || undefined}
+                aria-disabled={isFirstRunGeneralTab(tab) ? false : undefined}
                 className="ct-compact-rail__tab"
                 data-active={active || undefined}
                 data-activity={activity}
