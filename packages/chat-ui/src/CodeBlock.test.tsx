@@ -65,6 +65,34 @@ setupDom();
 const { CodeBlock } = await import("./CodeBlock");
 const { RichMarkdown } = await import("./MarkdownBody");
 
+test("fullscreen code opens a centred reading view with line numbers and an optional side panel", async () => {
+  const open = async (host: HTMLElement) => {
+    const fullscreen = Array.from(host.querySelectorAll("button")).find((button) => button.textContent?.includes("Fullscreen"));
+    assert(fullscreen, "code exposes fullscreen");
+    await act(async () => fullscreen.click());
+    const dialog = document.querySelector('[aria-label="Fullscreen code"]');
+    assert(dialog, "fullscreen code has dialog semantics");
+    return dialog;
+  };
+  const withAside = await render(<CodeBlock text={"def main(value): return value + 1"} language="python" fullscreenAside={<p>Outline: main(value)</p>} />);
+  const dialog = await open(withAside.host);
+  const reader = dialog.querySelector('[data-testid="code-reader"]');
+  assert(reader?.querySelector(".ct-code-reader__sheet"), "the code sits on a reading sheet");
+  assert(reader?.querySelector('[aria-label="About this code"]')?.textContent?.includes("main(value)"), "the side panel describes the code");
+  assert(reader?.querySelector(".ct-code-reader__sheet")?.textContent?.includes("1"), "the reading view numbers its lines");
+  assert(Array.from(dialog.querySelectorAll("button")).some((button) => button.textContent?.includes("Copy")), "Copy stays");
+  await act(async () => { document.dispatchEvent(new (window as unknown as { KeyboardEvent: typeof KeyboardEvent }).KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true })); });
+  assert(!document.querySelector('[aria-label="Fullscreen code"]'), "Escape closes the reading view");
+  await act(async () => withAside.root.unmount());
+  withAside.host.remove();
+  const chat = await render(<CodeBlock text={"const answer = 42;"} language="typescript" />);
+  const chatDialog = await open(chat.host);
+  assert(chatDialog.querySelector(".ct-code-reader__sheet"), "chat code gets the same reading sheet");
+  assert(!chatDialog.querySelector('[aria-label="About this code"]'), "chat code has no side panel");
+  await act(async () => chat.root.unmount());
+  chat.host.remove();
+});
+
 test("CodeBlock renders highlighted code structure and copy button", async () => {
   const { host, root } = await render(
     <CodeBlock text={"const answer = 42;\nconsole.log(answer);\n"} language="typescript" />,

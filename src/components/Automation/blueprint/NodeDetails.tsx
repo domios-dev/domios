@@ -7,6 +7,7 @@ import { DetailsFrame, Disclosure, Facts } from "../DetailsFrame";
 import { Button } from "../../shared/Button";
 import { stateTone } from "../styles";
 import { nodeLabel, portType, type BlueprintGraphModel, type BlueprintGraphNode } from "./graphModel";
+import { CodeAside } from "./CodeAside";
 
 const SECTION = "ct-detail__heading";
 
@@ -52,7 +53,8 @@ export function BlueprintNodeDetails({ node, model, call, expanded, onExpand, on
       {node.inputs.filter((pin) => pin.id.startsWith("bind:")).map((pin) => <Fragment key={pin.id}><dt>{pin.label}</dt><dd className="ct-detail__mono">from {pin.detail}</dd></Fragment>)}
     </Facts>}
     {node.body?.kind === "prompt" && <section aria-label="Instruction" className="ct-detail__block"><h4 className={SECTION}>Instruction</h4><p className="ct-job-quote">{node.body.text}</p></section>}
-    {node.body?.kind === "code" && <section aria-label="Code body" className="ct-detail__block"><h4 className={SECTION}>{node.kindLabel === "Command" || node.kindLabel === "Probe" ? "Command" : "Code"}</h4><CodeBlock text={node.body.text} language={node.body.language} wrapLines /></section>}
+    {node.body?.kind === "code" && <section aria-label="Code body" className="ct-detail__block"><h4 className={SECTION}>{node.kindLabel === "Command" || node.kindLabel === "Probe" ? "Command" : "Code"}</h4><CodeBlock text={node.body.text} language={node.body.language} wrapLines
+      fullscreenAside={definition ? <CodeAside definition={definition} language={node.body.language} languageLabel={node.kindLabel} source={node.body.text} /> : undefined} /></section>}
     {node.routes.length > 0 && <section aria-label="Routes" className="ct-detail__block">
       <h4 className={SECTION}>Routes</h4>
       <dl className="bp-routes">{node.routes.map((route) => <Fragment key={route.outcome}><dt>{route.outcome}</dt><dd>{route.target === "$stop" ? "Stop" : route.target === "$result" ? "Result" : titles.get(route.target) ?? route.target}</dd></Fragment>)}</dl>
