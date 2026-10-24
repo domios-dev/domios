@@ -237,6 +237,7 @@ pub trait ChatBackendProvider: Send + Sync {
             attachments: Default::default(),
             remote_task: self.remote_task_capability(),
             agent_runtime: self.agent_runtime(),
+            cli_login: None,
             supports_session_fork: false,
             schema_version: PROVIDER_DESCRIPTOR_SCHEMA_VERSION,
             cli_status: None,

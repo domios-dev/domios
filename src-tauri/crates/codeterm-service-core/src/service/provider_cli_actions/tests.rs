@@ -1,4 +1,3 @@
-
 use super::*;
 #[test]
 fn a_long_install_hint_still_fits_the_tab_description() {

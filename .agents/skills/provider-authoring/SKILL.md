@@ -229,6 +229,18 @@ remaining available. Preflight, enumeration, and `host.exec` use this shared
 observation; Windows PTY launch preserves the same process → machine → user
 PATH precedence without mutating the caller's environment.
 
+### CLI sign-in
+
+`cliLogin` declares `methods: [{id, label, args}]`, `urlPattern` (capture group 1),
+`timeoutMs` and optional `codeInput`. Commands run the resolved `cliBinary`
+with those arguments in a contained process; the host grants no new plugin
+filesystem, environment or subprocess host function. Declare this only with
+`authStatusProbe()` and `parseAuthStatus(record)`: exit zero alone never proves
+sign-in. Link capture must recognize complete URLs, including OSC 8 delimiters.
+The shared card renders method labels and optionally submits a masked browser
+code through stdin. Codes never enter arguments, logs or mesh requests.
+Native providers implement `cli_login()` with manifest/JS parity coverage.
+
 ### CLI status and management
 
 `checkForUpdate()` exports `{ currentVersion, latestVersion }` or null through

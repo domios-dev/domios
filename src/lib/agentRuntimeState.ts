@@ -1,6 +1,8 @@
 import { describeError, isPendingRuntimeDeadline } from "./describeError";
 export interface AgentRuntimeState {
   auth?: "signedIn"|"signedOut"|"unknown";
+  loginCodeInput?: boolean;
+  loginChoices?: { id: string; label: string }[];
   loginMethods?: ("browser"|"device"|"apiKey")[];
   loginProviderName?: string;
   loginTerminal?: boolean;

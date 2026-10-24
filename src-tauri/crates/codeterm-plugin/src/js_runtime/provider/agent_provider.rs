@@ -109,6 +109,10 @@ impl AgentProvider for JsProvider {
         self.js_runtime_reduce(ctx, state, frames).await
     }
 
+    fn cli_login(&self) -> Option<provider::CliLoginCapability> {
+        self.manifest.cli_login.clone()
+    }
+
     fn auth_status_probe(&self) -> Option<provider::AuthStatusProbe> {
         self.try_call("authStatusProbe", &[]).flatten()
     }
@@ -691,7 +695,6 @@ impl AgentProvider for JsProvider {
         exclude: &[String],
         max_age: Option<Duration>,
     ) -> Option<String> {
-        // manifest.sessions.* when the plugin doesn't implement `detectSessionId`.
         let max_age_ms = max_age.map(|d| d.as_millis() as i64).unwrap_or(300_000);
         if let Some(v) = self.try_call::<Option<String>>(
             "detectSessionId",

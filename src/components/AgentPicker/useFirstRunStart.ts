@@ -1,12 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import { invoke, listen } from "../../lib/bridge";
 import type { MultiplexerState, TabBootStageEvent } from "../../lib/types";
 import { firstRunGeneralTarget } from "./firstRunNavigation";
 import { installAndWait } from "../../lib/firstRunInstall";
+import { firstRunTransition } from "../../lib/firstRunFlow";
 import type { TabRef } from "./pickerNavigation";
 
-export function useFirstRunStart(show: (target: TabRef) => Promise<void> | void) {
-  const [busy, setBusy] = useState(false);
+export function useFirstRunStart(show: (target: TabRef) => Promise<void> | void, beforeStart?: (providerId: string, signal: AbortSignal) => Promise<void>) {
+  const [phase, transition] = useReducer(firstRunTransition, "choosing");
+  const busy = phase === "installing" || phase === "signIn" || phase === "starting";
   const [progress, setProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const attempt = useRef<{ stop?: () => void; controller: AbortController } | null>(null);
@@ -16,7 +18,7 @@ export function useFirstRunStart(show: (target: TabRef) => Promise<void> | void)
     if (attempt.current) return;
     const current: { stop?: () => void; controller: AbortController } = { controller: new AbortController() };
     attempt.current = current;
-    setBusy(true);
+    transition(install ? "install" : "start");
     setError(null);
     setProgress(install ? "Installing provider…" : "Starting General agent…");
     let target: TabRef | null = null;
@@ -25,7 +27,7 @@ export function useFirstRunStart(show: (target: TabRef) => Promise<void> | void)
       if (attempt.current !== current || event.tab_id !== target?.tabId) return;
       if (event.stage === "agent_ready" || event.stage === "spawn_failed" || event.stage === "launch_deadline_elapsed" || event.stage === "launch_binding_unconfirmed") {
         setProgress(event.stage === "agent_ready" ? "Ready" : null);
-        setBusy(false);
+        transition(event.stage === "agent_ready" ? "ready" : "failure");
         setError(event.stage === "agent_ready" ? null : event.reason || "Failed to start General agent");
         current.stop?.();
         attempt.current = null;
@@ -40,8 +42,13 @@ export function useFirstRunStart(show: (target: TabRef) => Promise<void> | void)
       if (install) {
         await installAndWait(providerId, current.controller.signal);
         if (attempt.current !== current) return;
-        setProgress("Installation complete. Starting General agent…");
+        transition("installed");
+        setProgress("Installation complete. Checking sign-in…");
       }
+      await beforeStart?.(providerId, current.controller.signal);
+      if (attempt.current !== current) return;
+      transition("authenticated");
+      setProgress("Starting General agent…");
       await invoke("complete_general_agent_first_run", { providerId, fullAccess: true });
       const state = await invoke<MultiplexerState>("mux_get_state");
       if (attempt.current !== current) return;
@@ -55,11 +62,11 @@ export function useFirstRunStart(show: (target: TabRef) => Promise<void> | void)
     } catch (failure) {
       if (attempt.current !== current) return;
       setError(failure instanceof Error ? failure.message : typeof failure === "string" ? failure : "Failed to start General agent");
-      setBusy(false);
+      transition("failure");
       setProgress(null);
       current.stop?.();
       attempt.current = null;
     }
   };
-  return { busy, error, progress, onConfirm, onInstall: (providerId: string) => { void onConfirm(providerId, true); } };
+  return { busy, phase, error, progress, onConfirm, onInstall: (providerId: string) => { void onConfirm(providerId, true); } };
 }

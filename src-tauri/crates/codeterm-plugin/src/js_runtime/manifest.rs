@@ -147,6 +147,8 @@ pub struct PluginManifest {
     // Per-platform installer (macos/linux/windows)
     #[serde(default)]
     pub installer: std::collections::HashMap<String, String>,
+    #[serde(default)]
+    pub cli_login: Option<crate::provider::CliLoginCapability>,
 
     // Short note picker surfaces render beside the provider name.
     #[serde(default)]
