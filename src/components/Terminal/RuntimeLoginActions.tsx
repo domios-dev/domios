@@ -16,9 +16,11 @@ export function RuntimeLoginActions({ tabId, state, iconSvg, onCheck }: {
   const [keyEntry, setKeyEntry] = useState(false);
   const [apiKey, setApiKey] = useState("");
   const [copied, setCopied] = useState(false);
+  const [sentLogin, setSentLogin] = useState<string | undefined>();
   const { busy, error, operate } = useRuntimeLogin(tabId);
   const remote = tabId.startsWith("mesh:");
-  const login = state.login;
+  const expired = state.login?.status === "pending" && state.login.expiresAtMs != null && state.login.expiresAtMs <= Date.now();
+  const login = expired ? { ...state.login, status: "failed" as const, url: undefined, userCode: undefined, error: "Sign-in expired. Cancel it and try again." } : state.login;
   const pending = login?.status === "pending";
   const provider = state.loginProviderName ?? "the provider";
   const methods = state.loginMethods ?? [];
@@ -64,8 +66,11 @@ export function RuntimeLoginActions({ tabId, state, iconSvg, onCheck }: {
             {login.url && <a href={login.url} target="_blank" rel="noopener noreferrer" aria-label="Open sign-in page"
               className={primary} onClick={openLink(login.url)}>Open sign-in page</a>}
             {!login.url && <BusyState inline label="Waiting for sign-in" className="px-1 text-sm text-[var(--ct-muted-fg)]" />}
+            {login.url && <button className={quiet} type="button" disabled={busy || sentLogin === login.loginId}
+              onClick={() => { void operate({ action: "notify" }).then(sent => { if (sent) setSentLogin(login.loginId); }); }}>{sentLogin === login.loginId ? "Notification requested" : "Send to my phone"}</button>}
             <button className={quiet} type="button" disabled={busy || !login.loginId} onClick={() => { void operate({ action: "cancel" }); }}>Cancel</button>
           </> : <>
+            {login?.loginId && login.error && <button className={quiet} type="button" disabled={busy} onClick={() => { void operate({action:"cancel"}); }}>Cancel expired sign-in</button>}
             {methods.includes("browser") && <button className={primary} type="button" disabled={busy}
               onClick={() => { void operate({ method: "browser" }); }}>Continue in browser</button>}
             {methods.includes("device") && <button className={quiet} type="button" disabled={busy}

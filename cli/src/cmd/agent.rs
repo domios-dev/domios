@@ -348,11 +348,23 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             super::agent_runtime::handle_child_history(&local_http, &base, json, args)
         }
         AgentAction::Login {
+            show,
             tab,
             device,
             api_key_stdin,
             cancel,
-        } => agent_login::run(&local_http, &base, json, tab, device, api_key_stdin, cancel),
+        } => agent_login::run(
+            &local_http,
+            &base,
+            json,
+            tab,
+            agent_login::LoginOptions {
+                device,
+                api_key_stdin,
+                cancel,
+                show,
+            },
+        ),
         AgentAction::Turns { tab, last, after } => {
             let mut params = serde_json::json!({"tab_id":tab,"last":last,"after_offset":after});
             CallerContext::from_env().apply_trusted_session(&mut params);

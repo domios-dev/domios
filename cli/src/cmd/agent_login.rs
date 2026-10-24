@@ -16,15 +16,25 @@ fn read_key(input: impl Read) -> Result<String, String> {
     }
     Ok(key)
 }
+pub(super) struct LoginOptions {
+    pub device: bool,
+    pub api_key_stdin: bool,
+    pub cancel: bool,
+    pub show: bool,
+}
 pub(super) fn run(
     client: &crate::local_api::LocalApiClient,
     base: &str,
     json_output: bool,
     tab: String,
-    device: bool,
-    api_key_stdin: bool,
-    cancel: bool,
+    options: LoginOptions,
 ) {
+    let LoginOptions {
+        device,
+        api_key_stdin,
+        cancel,
+        show,
+    } = options;
     let mut request = if cancel {
         json!({"action":"cancel"})
     } else {
@@ -36,13 +46,15 @@ pub(super) fn run(
             Err(error) => crate::cmd::print::fail(1, error),
         }
     }
-    let response = client
-        .post(format!(
-            "{base}/api/tabs/{}/agent/runtime/login",
-            urlencoding::encode(&tab)
-        ))
-        .json(&request)
-        .send();
+    let endpoint = format!(
+        "{base}/api/tabs/{}/agent/runtime/login",
+        urlencoding::encode(&tab)
+    );
+    let response = if show {
+        client.get(endpoint).send()
+    } else {
+        client.post(endpoint).json(&request).send()
+    };
     let response = match response {
         Ok(response) => response,
         Err(_) => crate::cmd::print::fail(1, "Sign-in request could not reach the daemon"),
@@ -54,11 +66,17 @@ pub(super) fn run(
         Ok(value) => value,
         Err(_) => crate::cmd::print::fail(1, "Invalid sign-in response"),
     };
+    print!("{}", render(&value, json_output));
+}
+
+fn render(value: &serde_json::Value, json_output: bool) -> String {
+    use std::fmt::Write;
+    let mut output = String::new();
     if json_output {
-        println!("{value}");
-        return;
+        return format!("{value}\n");
     }
-    println!(
+    let _ = writeln!(
+        output,
         "Sign-in {}",
         value
             .pointer("/login/status")
@@ -66,59 +84,21 @@ pub(super) fn run(
             .unwrap_or("requested")
     );
     if let Some(url) = value.pointer("/login/url").and_then(|value| value.as_str()) {
-        println!("Open in your system browser: {url}");
+        let _ = writeln!(output, "Open in your system browser: {url}");
     }
     if let Some(code) = value
         .pointer("/login/userCode")
         .and_then(|value| value.as_str())
     {
-        println!("Device code: {code}");
+        let _ = writeln!(output, "Device code: {code}");
     }
+    if let Some(expiry) = value.pointer("/login/expiresAtMs").and_then(|v| v.as_u64()) {
+        let _ = writeln!(output, "Expires at (Unix milliseconds): {expiry}");
+    } else if value.pointer("/login/status").and_then(|v| v.as_str()) == Some("pending") {
+        let _ = writeln!(output, "Expiry: not reported by provider");
+    }
+    output
 }
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn login_cli_accepts_stdin_and_refuses_argv_credentials() {
-        use clap::Parser;
-        for flags in [
-            vec![],
-            vec!["--device"],
-            vec!["--api-key-stdin"],
-            vec!["--cancel"],
-        ] {
-            let mut args = vec!["codeterm", "agent", "login", "--tab", "fixture"];
-            args.extend(flags);
-            assert!(crate::args::cli::Cli::try_parse_from(args).is_ok());
-        }
-        assert!(crate::args::cli::Cli::try_parse_from([
-            "codeterm",
-            "agent",
-            "login",
-            "--tab",
-            "fixture",
-            "--api-key",
-            "fixture"
-        ])
-        .is_err());
-        assert!(crate::args::cli::Cli::try_parse_from([
-            "codeterm",
-            "agent",
-            "login",
-            "--tab",
-            "fixture",
-            "--api-key-stdin",
-            "--device"
-        ])
-        .is_err());
-    }
-    #[test]
-    fn api_key_input_is_bounded_and_trimmed() {
-        assert_eq!(
-            read_key(&b" opaque-fixture\n"[..]).unwrap(),
-            "opaque-fixture"
-        );
-        assert!(read_key(&b"\n"[..]).is_err());
-        assert!(read_key(vec![b'x'; 16385].as_slice()).is_err());
-    }
-}
+#[path = "agent_login/tests.rs"]
+mod tests;

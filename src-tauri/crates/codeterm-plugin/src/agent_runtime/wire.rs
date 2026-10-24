@@ -695,6 +695,8 @@ pub struct RuntimeLoginState {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_code: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
