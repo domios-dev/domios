@@ -8,6 +8,8 @@ import { Button } from "../../shared/Button";
 import { stateTone } from "../styles";
 import { nodeLabel, portType, type BlueprintGraphModel, type BlueprintGraphNode } from "./graphModel";
 import { CodeAside } from "./CodeAside";
+import { pinValue, portName } from "./pinValues";
+import { PinValueBody } from "./ValuePopover";
 
 const SECTION = "ct-detail__heading";
 
@@ -26,6 +28,7 @@ export function BlueprintNodeDetails({ node, model, call, expanded, onExpand, on
   const titles = new Map(model.nodes.filter((entry) => entry.scope === node.scope).map((entry) => [entry.id, entry.title]));
   const definition = node.definition;
   const time = node.evidence ? eventTime(node.evidence.at) : null;
+  const dataPins = [...node.inputs, ...node.outputs].filter((pin) => pin.kind === "data");
   return <DetailsFrame label={`Details: ${nodeLabel(node)}`} onClose={onClose} panelRef={panelRef} presence={presence} title={<div className="bp-scope flex min-w-0 items-center gap-3">
     <span className="bp-detail-icon" data-type={node.type} style={{ "--bp-type": `var(--bp-${node.type})` } as CSSProperties}><Icon size={15} aria-hidden="true" /></span>
     <span className="min-w-0">
@@ -43,6 +46,13 @@ export function BlueprintNodeDetails({ node, model, call, expanded, onExpand, on
         </div>
       </section>
       : model.mode === "unavailable" && <p role="status" className="ct-job-note">Per-node evidence is unavailable for this run.</p>}
+    {model.mode === "run" && dataPins.length > 0 && <section aria-label="Values in this run" className="ct-detail__block">
+      <h4 className={SECTION}>Values in this run</h4>
+      <ul className="bp-values">{dataPins.map((pin) => <li key={`${pin.side}:${pin.id}`} className="bp-values__row">
+        <p className="bp-value__head"><span>{pin.side === "in" ? "Received" : "Produced"}</span><code>{portName(pin)}</code></p>
+        <PinValueBody value={pinValue(model, node, pin) ?? { kind: "none" }} />
+      </li>)}</ul>
+    </section>}
     {definition?.does && <p className="ct-detail__prose m-0">{definition.does}</p>}
     {node.body && !definition?.does && node.body.kind === "text" && <p className="ct-detail__prose m-0">{node.body.text}</p>}
     {definition && <Facts>
