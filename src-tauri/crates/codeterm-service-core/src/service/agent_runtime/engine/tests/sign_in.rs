@@ -91,6 +91,40 @@ fn signed_out_launch_attaches_cancellation_stays_pending_and_login_resumes_same_
                         .await
                         .unwrap();
                     assert_eq!(value["login"]["status"], "pending");
+                    assert_eq!(login::show(&fixture.service, &id).unwrap(), value);
+                    let own_nonce = fixture
+                        .service
+                        .mux
+                        .write()
+                        .get_tab_mut(&id)
+                        .unwrap()
+                        .session_binding_nonce
+                        .replace("foreign-nonce".into());
+                    assert!(login::show(&fixture.service, &id).is_err());
+                    fixture
+                        .service
+                        .mux
+                        .write()
+                        .get_tab_mut(&id)
+                        .unwrap()
+                        .session_binding_nonce = own_nonce;
+                    assert!(value["login"]["expiresAtMs"].as_u64().unwrap() > login::now_ms());
+                    session.login.lock().phone_notification = Some("opaque-notification".into());
+                    let notification = login::operate(
+                        &fixture.service,
+                        &id,
+                        login::LoginRequest {
+                            action: Some("notify".into()),
+                            method: None,
+                            api_key: None,
+                        },
+                    )
+                    .await
+                    .unwrap();
+                    assert_eq!(
+                        notification,
+                        json!({"notificationId":"opaque-notification"})
+                    );
                     assert_eq!(value["login"]["url"], "https://example.invalid/opaque");
                     if method == RuntimeLoginMethod::Device {
                         assert_eq!(value["login"]["userCode"], "opaque-code");
@@ -106,6 +140,9 @@ fn signed_out_launch_attaches_cancellation_stays_pending_and_login_resumes_same_
                     )
                     .await
                     .unwrap();
+                    let canceled = login::show(&fixture.service, &id).unwrap();
+                    assert!(canceled["login"].get("url").is_none());
+                    assert!(canceled["login"].get("userCode").is_none());
                     assert_eq!(session.state.lock().snapshot().state, "loginPending");
                     assert_eq!(
                         session.login.lock().login.as_ref().unwrap().status,

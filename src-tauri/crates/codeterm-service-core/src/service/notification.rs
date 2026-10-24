@@ -141,7 +141,34 @@ impl ServiceContext {
             sticky,
             origin,
             intent,
+            None,
         ))
+    }
+
+    pub(crate) fn create_login_notification(
+        &self,
+        tab: &str,
+        body: String,
+    ) -> Result<String, String> {
+        let intent = PushIntent {
+            level: Some(crate::notification::push::NotifyLevel::ActionNeeded),
+            event_key: Some(uuid::Uuid::new_v4().to_string()),
+        };
+        if self.resolve_push_plan(intent.clone()).targets.is_empty() {
+            return Err("No phone notification channel is available. Configure notifications or open the sign-in link.".into());
+        }
+        Ok(self
+            .create_notification_actions_reported(
+                "Provider sign-in".into(),
+                Some("Continue provider sign-in on your phone.".into()),
+                Some("info"),
+                Ask::default(),
+                Some(false),
+                NotificationOrigin::local_tab(tab.into()),
+                intent,
+                Some(body),
+            )
+            .0)
     }
 
     /// Tell every surface these records resolved: channels stop offering
@@ -165,6 +192,7 @@ impl ServiceContext {
         sticky: Option<bool>,
         origin: NotificationOrigin,
         intent: PushIntent,
+        private_body: Option<String>,
     ) -> (String, Option<Unseen>) {
         // The declared level outlives the push policy: an install whose
         // channels resolve to nobody still has a desktop gate to satisfy.
@@ -212,9 +240,17 @@ impl ServiceContext {
                         intent,
                         per_scope_limit,
                         deliver: move |envelope: PushEnvelope| {
-                            super::notification_push::deliver_plan(
-                                &targets, &refusals, self, &envelope,
-                            )
+                            if let Some(body) = private_body {
+                                deliver_private_push(envelope, body, |envelope| {
+                                    super::notification_push::deliver_plan(
+                                        &targets, &refusals, self, &envelope,
+                                    )
+                                })
+                            } else {
+                                super::notification_push::deliver_plan(
+                                    &targets, &refusals, self, &envelope,
+                                )
+                            }
                         },
                     },
                     surfaces,
@@ -584,3 +620,16 @@ mod bell_choice_tests;
 
 #[cfg(test)]
 use crate::notification::push::NotifyLevel;
+
+fn deliver_private_push(
+    mut envelope: PushEnvelope,
+    body: String,
+    deliver: impl FnOnce(PushEnvelope) -> Result<(), String>,
+) -> Result<(), String> {
+    envelope.content.body = Some(body);
+    deliver(envelope).map_err(|_| "Private notification delivery failed".to_string())
+}
+
+#[cfg(test)]
+#[path = "notification/private_push_tests.rs"]
+mod private_push_tests;

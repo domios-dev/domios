@@ -13,6 +13,7 @@ use std::{
     time::Duration,
 };
 
+mod relay;
 #[path = "login/terminal.rs"]
 mod terminal;
 
@@ -31,6 +32,8 @@ pub struct LoginRequest {
 #[serde(rename_all = "camelCase")]
 pub(super) struct LoginState {
     pub login: Option<RuntimeLoginState>,
+    #[serde(skip)]
+    pub phone_notification: Option<String>,
 }
 
 pub fn forget(session: &Arc<Session>) {
@@ -95,6 +98,10 @@ pub async fn operate(
         .await
         .map_err(|_| "Sign-in deadline exceeded")?
         .map_err(|_| "Runtime unavailable")?;
+    engine::validate_binding(svc, &session).map_err(|error| error.to_string())?;
+    if request.action.as_deref() == Some("notify") {
+        return relay::notify(svc, tab, &session);
+    }
     let process = session
         .process
         .lock()
@@ -133,12 +140,14 @@ pub async fn operate(
             return Err("API key required (maximum 16 KiB)".into());
         }
         claim(&session)?;
+        session.login.lock().phone_notification = None;
         session.login.lock().login = Some(RuntimeLoginState {
             status: RuntimeLoginStatus::Pending,
             method: Some(method.clone()),
             login_id: None,
             url: None,
             user_code: None,
+            expires_at_ms: None,
             error: None,
         });
         engine::publish(svc, tab, &session);
@@ -167,16 +176,37 @@ pub async fn operate(
             login_id: None,
             url: None,
             user_code: None,
+            expires_at_ms: None,
             error: Some("Sign-in failed. Try again.".into()),
         });
         engine::publish(svc, tab, &session);
         return Err("Sign-in failed. Try again.".into());
     }
-    let login = session.login.lock().login.clone();
-    Ok(json!({"login":login}))
+    show(svc, tab)
 }
 
-pub fn apply(svc: &ServiceContext, session: &Arc<Session>, epoch: u64, login: RuntimeLoginState) {
+pub fn apply(
+    svc: &ServiceContext,
+    session: &Arc<Session>,
+    epoch: u64,
+    mut login: RuntimeLoginState,
+) {
+    if session.context.lock().epoch != epoch {
+        return;
+    }
+    if login.status == RuntimeLoginStatus::Pending {
+        let now = now_ms();
+        login.expires_at_ms = Some(
+            login
+                .expires_at_ms
+                .unwrap_or(u64::MAX)
+                .min(now.saturating_add(15 * 60 * 1000)),
+        );
+    } else {
+        login.url = None;
+        login.user_code = None;
+        login.expires_at_ms = None;
+    }
     if matches!(
         login.status,
         RuntimeLoginStatus::Pending | RuntimeLoginStatus::Canceled
@@ -258,3 +288,32 @@ async fn finish(
 
 #[cfg(test)]
 mod tests;
+
+pub fn show(svc: &ServiceContext, tab: &str) -> Result<Value, String> {
+    let session = engine::for_tab(tab).ok_or("Runtime binding unavailable")?;
+    engine::validate_binding(svc, &session).map_err(|error| error.to_string())?;
+    let login = project(session.login.lock().login.as_ref(), now_ms());
+    Ok(json!({"login":login}))
+}
+
+pub(super) fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+pub(super) fn project(login: Option<&RuntimeLoginState>, now: u64) -> Option<RuntimeLoginState> {
+    let mut login = login?.clone();
+    if login.status != RuntimeLoginStatus::Pending
+        || login.expires_at_ms.is_some_and(|expiry| expiry <= now)
+    {
+        login.url = None;
+        login.user_code = None;
+        if login.status == RuntimeLoginStatus::Pending {
+            login.status = RuntimeLoginStatus::Failed;
+            login.error = Some("Sign-in expired. Cancel it and try again.".into());
+        }
+    }
+    Some(login)
+}

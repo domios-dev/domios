@@ -891,7 +891,11 @@ pub fn publish(svc: &ServiceContext, tab: &str, session: &Session) {
         );
         snapshot.insert(
             "login".into(),
-            serde_json::to_value(session.login.lock().login.clone()).unwrap_or(Value::Null),
+            serde_json::to_value(super::login::project(
+                session.login.lock().login.as_ref(),
+                super::login::now_ms(),
+            ))
+            .unwrap_or(Value::Null),
         );
         let (history, pages) = {
             let cache = session.cache.lock();

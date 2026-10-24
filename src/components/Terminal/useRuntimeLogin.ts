@@ -10,12 +10,13 @@ export function useRuntimeLogin(tabId:string) {
   const current=useRef(false);
   useEffect(()=>{current.current=true;return ()=>{current.current=false;};},[]);
   async function operate(request:{action?:string;method?:string;apiKey?:string}) {
-    if (pending.current) return;
+    if (pending.current) return false;
     pending.current=true;setBusy(true);setError(null);
     try {
       const result=await invoke<{login?:AgentRuntimeState["login"]}>("agent_runtime_login",{tabId,request});
       if (current.current && request.method === "browser" && result.login?.url && !tabId.startsWith("mesh:")) await nativeBridge.openUrl(result.login.url);
-    } catch {if(current.current)setError("Sign-in failed. Try again.");}
+      return true;
+    } catch {if(current.current)setError(request.action === "notify" ? "Phone notification unavailable. Check your notification channels." : "Sign-in failed. Try again."); return false;}
     finally {pending.current=false;if(current.current)setBusy(false);}
   }
   return {busy,error,operate};

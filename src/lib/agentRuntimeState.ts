@@ -4,7 +4,7 @@ export interface AgentRuntimeState {
   loginMethods?: ("browser"|"device"|"apiKey")[];
   loginProviderName?: string;
   loginTerminal?: boolean;
-  login?: {status:"pending"|"completed"|"failed"|"canceled";loginId?:string;method?:string;url?:string;userCode?:string;error?:string}|null;
+  login?: {status:"pending"|"completed"|"failed"|"canceled";loginId?:string;method?:string;url?:string;userCode?:string; expiresAtMs?:number|null;error?:string}|null;
   state: "loading" | "loginPending" | "loaded" | "unloaded" | "degraded";
   epoch: number;
   reason?: string | null;
