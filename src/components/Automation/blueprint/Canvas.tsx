@@ -3,7 +3,7 @@ import { CanvasToolbar } from "@codeterm/chat-ui";
 import { CircleAlert, PauseCircle } from "lucide-react";
 import type { ViewportTransform } from "@codeterm/canvas-camera";
 import { BlueprintNodeCard, evidenceText } from "./NodeCard";
-import { CanvasOverlay } from "./InfoCard";
+import { CanvasNotices, NoteCard } from "./CanvasNotes";
 import { nodeLabel } from "./graphModel";
 import type { BlueprintLayout } from "./layout";
 import { useAutomationViewport, type AutomationCamera } from "./viewport";
@@ -16,9 +16,9 @@ function keyboardFocus(element: HTMLElement): boolean {
 /** A run fact pinned above the node it happened at, so it follows the graph on pan and zoom. */
 export interface CanvasCallout { nodeKey: string; tone: "failed" | "held"; label: string; lead: string; reason: string; detail: string | null }
 
-export function BlueprintCanvas({ layout, label, selected, camera, onSelect, onOpen, lit, callouts = [], info, notices, crumbs, panelOpen = false, toolbar }: {
+export function BlueprintCanvas({ layout, label, selected, camera, onSelect, onOpen, lit, callouts = [], notices, crumbs, panelOpen = false, toolbar }: {
   layout: BlueprintLayout; label: string; selected: string | null; camera: AutomationCamera; onSelect: (key: string) => void; onOpen?: (key: string) => void;
-  lit: ReadonlySet<string>; callouts?: readonly CanvasCallout[]; info?: ReactNode; notices?: ReactNode; crumbs?: ReactNode; panelOpen?: boolean; toolbar?: ReactNode;
+  lit: ReadonlySet<string>; callouts?: readonly CanvasCallout[]; notices?: ReactNode; crumbs?: ReactNode; panelOpen?: boolean; toolbar?: ReactNode;
 }) {
   const hintId = useId();
   const container = useRef<HTMLDivElement | null>(null);
@@ -38,7 +38,6 @@ export function BlueprintCanvas({ layout, label, selected, camera, onSelect, onO
     viewport.containerRef.current = element;
   }, [viewport.containerRef]);
   useLayoutEffect(() => paintGrid(viewport.transform), [paintGrid, viewport.transform]);
-  const types = new Set(layout.nodes.map((entry) => entry.node.type));
   const litNodes = new Set(layout.wires.filter((route) => lit.has(route.wire.id)).flatMap((route) => [route.wire.from.node, route.wire.to.node]));
   return <div className="bp-scope flex min-h-0 min-w-0 flex-1 flex-col">
     <div
@@ -57,12 +56,13 @@ export function BlueprintCanvas({ layout, label, selected, camera, onSelect, onO
     >
       <CanvasToolbar label="Blueprint graph controls" onFit={viewport.showOverview} onZoomOut={() => viewport.zoom(-0.2)} onZoomIn={() => viewport.zoom(0.2)} extras={toolbar} />
       {crumbs && <div className="bp-canvas-crumbs" onMouseDown={(event) => event.stopPropagation()}>{crumbs}</div>}
-      <CanvasOverlay types={types} info={info} notices={notices} />
+      <CanvasNotices>{notices}</CanvasNotices>
       <p id={hintId} className="sr-only">Arrow keys pan, plus and minus zoom, zero returns to a readable view. Tab moves between nodes.</p>
       <div ref={viewport.layerRef} className="absolute left-0 top-0" style={{ width: layout.bounds.width, height: layout.bounds.height, transformOrigin: "0 0", visibility: viewport.measured ? undefined : "hidden" }}>
         {layout.frames.map((entry) => <div key={entry.scope} className="bp-frame" style={{ left: entry.box.x, top: entry.box.y, width: entry.box.width, height: entry.box.height }}>
           <div className="bp-frame__title"><span className="shrink-0">{entry.title}</span>{entry.purpose && <span className="bp-frame__purpose">{entry.purpose}</span>}</div>
         </div>)}
+        {layout.note && <NoteCard laid={layout.note} />}
         <svg width={layout.bounds.width} height={layout.bounds.height} className="pointer-events-none absolute inset-0 overflow-visible" aria-hidden="true">
           {layout.wires.map((route) => <path key={route.wire.id} data-wire={route.wire.id} className="bp-wire" data-kind={route.wire.kind} data-lit={lit.has(route.wire.id) || undefined} d={route.path} />)}
         </svg>
@@ -86,10 +86,11 @@ ${callout.detail}` : callout.reason}
             data-type={node.type}
             data-node-key={node.key}
             data-state={node.evidence?.state}
+            data-subgraph={node.callee ? node.callee.openable ? "openable" : "pinned" : undefined}
             data-lit={litNodes.has(node.key) || undefined}
             aria-pressed={selected === node.key}
             aria-label={`Node ${nodeLabel(node)}`}
-            aria-description={node.evidence ? evidenceText(node.evidence) : undefined}
+            aria-description={[node.callee ? `Sub-graph ${node.callee.name}${node.callee.openable && onOpen ? ", double-click or Enter to open" : ""}` : null, node.evidence ? evidenceText(node.evidence) : null].filter(Boolean).join(". ") || undefined}
             style={{ left: box.x, top: box.y, width: box.width, height: box.height }}
             onFocus={(event) => { if (keyboardFocus(event.currentTarget)) viewport.reveal(box); }}
             aria-keyshortcuts={onOpen && node.type === "call" ? "Enter" : undefined}

@@ -33,6 +33,23 @@ export interface LaidOutBlueprintNode {
   rows: PinRow[];
 }
 
+/** What the Blueprint is for, pinned on the canvas above its start: description, intents and usage facts. */
+export interface CanvasNote { title: string; text: string | null; items: readonly string[]; facts: readonly string[] }
+export interface LaidOutNote { note: CanvasNote; box: Box }
+
+export const NOTE_WIDTH = 340;
+export const NOTE_LINE = 18;
+export const NOTE_TEXT_LINES = 6;
+export const NOTE_ITEMS = 5;
+const NOTE_CHARS_PER_LINE = 46;
+const NOTE_GAP = 40;
+
+export function measureNote(note: CanvasNote): number {
+  const textLines = note.text ? Math.min(NOTE_TEXT_LINES, note.text.split("\n").reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / NOTE_CHARS_PER_LINE)), 0)) : 0;
+  const items = Math.min(NOTE_ITEMS, note.items.length);
+  return 16 + 20 + (textLines ? 8 + textLines * NOTE_LINE : 0) + (items ? 8 + items * NOTE_LINE : 0) + (note.facts.length ? 10 + note.facts.length * 16 : 0) + 16;
+}
+
 export interface LaidOutWire { wire: BlueprintGraphWire; path: string; from: Point; to: Point }
 export interface LaidOutFrame { scope: string; title: string; purpose: string | null; box: Box }
 
@@ -41,6 +58,7 @@ export interface BlueprintLayout {
   byKey: Map<string, LaidOutBlueprintNode>;
   wires: LaidOutWire[];
   frames: LaidOutFrame[];
+  note: LaidOutNote | null;
   bounds: Box;
   root: Box | null;
 }
@@ -88,7 +106,9 @@ function loop(a: Point, b: Point, floor: number) {
 interface Block { width: number; height: number; positions: Map<string, Point>; frames: { scope: string; box: Box }[] }
 
 /** Ranks flow left to right along forward wires; an expanded callee is one framed block in the rank after its call. */
-export function layoutBlueprint(model: BlueprintGraphModel): BlueprintLayout {
+export function layoutBlueprint(model: BlueprintGraphModel, pinned: CanvasNote | null = null): BlueprintLayout {
+  const note = pinned ? { note: pinned, box: { x: PADDING, y: PADDING, width: NOTE_WIDTH, height: measureNote(pinned) } } : null;
+  const graphTop = note ? note.box.y + note.box.height + NOTE_GAP : PADDING;
   const measured = new Map(model.nodes.map((node) => [node.key, measureNode(node)]));
   const byScope = new Map<string, BlueprintGraphNode[]>();
   for (const node of model.nodes) byScope.set(node.scope, [...(byScope.get(node.scope) ?? []), node]);
@@ -145,10 +165,10 @@ export function layoutBlueprint(model: BlueprintGraphModel): BlueprintLayout {
     const point = root.positions.get(node.key);
     if (!point) return [];
     const size = measured.get(node.key)!;
-    return [{ node, box: { x: PADDING + point.x, y: PADDING + point.y, width: size.width, height: size.height }, bodyHeight: size.bodyHeight, bodyLines: size.bodyLines, statusHeight: size.statusHeight, rows: size.rows }];
+    return [{ node, box: { x: PADDING + point.x, y: graphTop + point.y, width: size.width, height: size.height }, bodyHeight: size.bodyHeight, bodyLines: size.bodyLines, statusHeight: size.statusHeight, rows: size.rows }];
   });
   const scopes = new Map(model.scopes.map((scope) => [scope.key, scope]));
-  const frames: LaidOutFrame[] = root.frames.map((frame) => ({ scope: frame.scope, title: scopes.get(frame.scope)?.title ?? "Callee", purpose: scopes.get(frame.scope)?.detail ?? null, box: { ...frame.box, x: PADDING + frame.box.x, y: PADDING + frame.box.y } }));
+  const frames: LaidOutFrame[] = root.frames.map((frame) => ({ scope: frame.scope, title: scopes.get(frame.scope)?.title ?? "Callee", purpose: scopes.get(frame.scope)?.detail ?? null, box: { ...frame.box, x: PADDING + frame.box.x, y: graphTop + frame.box.y } }));
   const byKey = new Map(nodes.map((entry) => [entry.node.key, entry]));
   const anchor = (key: string, pin: string, side: "in" | "out"): Point | null => {
     const entry = byKey.get(key);
@@ -158,7 +178,7 @@ export function layoutBlueprint(model: BlueprintGraphModel): BlueprintLayout {
   };
 
   const contentBottom = Math.max(PADDING, ...nodes.map((entry) => entry.box.y + entry.box.height), ...frames.map((frame) => frame.box.y + frame.box.height));
-  let right = Math.max(PADDING, ...nodes.map((entry) => entry.box.x + entry.box.width), ...frames.map((frame) => frame.box.x + frame.box.width));
+  let right = Math.max(PADDING, note ? note.box.x + note.box.width : 0, ...nodes.map((entry) => entry.box.x + entry.box.width), ...frames.map((frame) => frame.box.x + frame.box.width));
   let bottom = contentBottom;
   const lanes: { floor: number; from: number; to: number }[] = [];
   const takeLane = (base: number, from: number, to: number) => {
@@ -186,7 +206,7 @@ export function layoutBlueprint(model: BlueprintGraphModel): BlueprintLayout {
     bottom = Math.max(bottom, floor);
     return [{ wire, from, to, path: detour(from, to, floor) }];
   });
-  return { nodes, byKey, wires, frames, bounds: { x: 0, y: 0, width: right + PADDING, height: bottom + PADDING }, root: nodes[0]?.box ?? null };
+  return { nodes, byKey, wires, frames, note, bounds: { x: 0, y: 0, width: right + PADDING, height: bottom + PADDING }, root: note?.box ?? nodes[0]?.box ?? null };
 }
 
 export interface CanvasSize { width: number; height: number }

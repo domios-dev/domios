@@ -27,10 +27,7 @@ export function SavedSolutionView({ entry, backLabel, onBack, onDeleted, api = b
     <button type="button" className={AUTOMATION_TOOL} onClick={() => sharing.save({ name: document.name, yaml: stringify(document) })}><Download size={13} aria-hidden="true" />Export Blueprint</button>
     <button type="button" className={`${AUTOMATION_TOOL} bp-stop`} disabled={deleting} aria-busy={deleting || undefined} onClick={() => void remove()}><Trash2 size={12} aria-hidden="true" />{deleting ? "Deleting…" : "Delete"}</button>
   </>;
-  const summary = <section aria-label="Saved solution facts" className="bp-info__facts">
-    <p className="bp-info__purpose">{entry.solution.when_to_use}</p>
-    <p className="bp-info__meta">{solutionMeta(entry)}</p>
-    {error != null && <InlineErrorNotice error={error} operation="deleting this saved solution" blocking />}
-  </section>;
-  return <BlueprintView pipeline={pipeline} backLabel={backLabel} onBack={onBack} actions={actions} summary={summary} history={false} headingLevel={3} fill />;
+  const about = { purpose: entry.solution.when_to_use, intents: (entry.solution.intents ?? []).filter((intent) => intent !== entry.solution.when_to_use), facts: [solutionMeta(entry)] };
+  const notices = error != null ? <InlineErrorNotice error={error} operation="deleting this saved solution" blocking /> : null;
+  return <BlueprintView pipeline={pipeline} backLabel={backLabel} onBack={onBack} actions={actions} about={about} hostNotices={notices} history={false} headingLevel={3} fill />;
 }
