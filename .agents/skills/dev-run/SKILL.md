@@ -15,6 +15,41 @@ the `github-release` skill. Do not use `dev` output as an installer artifact.
 
 ## How we run DEV: two tabs
 
+### Windows account-mesh firewall permission
+
+DEV never installs firewall rules or requests administrator permission. Before
+using account mesh on a new DEV executable path, run this once in an elevated
+PowerShell window. Select the actual `domios-server.exe` from the build receipt
+(named instances and target triples can change its path), and the instance's API
+port (ordinary DEV is 7686):
+
+```powershell
+$devServer = 'C:\path\to\src-tauri\target\debug\domios-server.exe'
+$devPort = 7686
+New-NetFirewallRule -Name 'Domios.AccountMesh.Dev' -DisplayName 'Domios DEV mesh (Tailscale only)' -Direction Inbound -Action Allow -Enabled True -Profile Any -Program $devServer -Protocol TCP -LocalPort $devPort -RemoteAddress '100.64.0.0/10','fd7a:115c:a1e0::/48' -EdgeTraversalPolicy Block
+```
+
+Use a distinct rule name for each simultaneous DEV instance. Remove that rule
+with `Remove-NetFirewallRule -Name 'Domios.AccountMesh.Dev'` before changing its
+executable path or port, then recreate it. Never edit PROD rules to run DEV.
+
+The per-user Windows installer owns a separate rule for its installed
+`domios-server/domios-server.exe`: inbound TCP, all profiles, remote Tailscale
+ranges only, any local port so configured PROD API ports also work. Its helper
+is `installer/account-mesh-firewall.ps1` beside the installed application.
+`-Operation Check` is read-only (exit 0 ready, 2 missing/mismatched, 1 error).
+`Ensure` requests UAC only when repair is needed; exit 1223 means declined.
+Install continues after refusal. `Remove` removes only this installation's rule
+on uninstall; updater `/UPDATE` preserves it. A normal update with the correct
+rule requests no UAC. First-use recovery UI is owned separately from this helper.
+
+macOS application firewall policy applies to the signed app/server: trusted
+signed software may be allowed automatically; otherwise the first incoming
+connection asks to allow or deny access and is blocked pending an answer.
+Updates retaining the trusted signing identity normally retain access. Linux
+normally has no per-app desktop firewall dialog; configured host firewalls may
+still block the listener and need administrator-managed Tailscale access.
+
 DEV runs as two independent processes so every change updates live without losing the
 window: frontend edits hot-reload in place, server edits swap the backend while the window
 shows Reconnecting and returns, and only native client changes restart the window.
@@ -530,7 +565,7 @@ Claude Code should auto-load this skill whenever the user mentions:
 
 Don't preemptively run `./build.sh dev` on every edit — only when the user asks or when you have a Rust/prompt change that definitely needs a live binary to verify.
 
-<!-- revision: 13 -->
+<!-- revision: 14 -->
 
 ### REST listener bind recovery
 
