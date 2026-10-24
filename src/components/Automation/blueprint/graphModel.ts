@@ -167,6 +167,17 @@ function splitBinding(binding: string): { node: string; port: string } {
   return split > 0 ? { node: binding.slice(0, split), port: binding.slice(split + 1) } : { node: binding, port: "out" };
 }
 
+/** A callee is named by its own document; raw memory ids stay in the details. */
+export function calleeName(call: NonNullable<BlueprintIrNode["call"]>, expanded?: BlueprintExpandedCall): string {
+  if (expanded?.graph.name) return expanded.graph.name;
+  const ref = call.pin?.id ?? call.ref;
+  return ref.startsWith("mem:skill_blueprint_solution_") ? "Saved solution" : ref.replace(/^mem:/, "");
+}
+
+function calleeOf(call: NonNullable<BlueprintIrNode["call"]>, expanded?: BlueprintExpandedCall): { name: string; openable: boolean } {
+  return { name: calleeName(call, expanded), openable: Boolean(expanded) };
+}
+
 function journalEvidence(pipeline: PipelineView): Map<string, NodeEvidence> {
   const evidence = new Map<string, NodeEvidence>();
   const root = pipeline.call_graph;
@@ -262,7 +273,7 @@ export function* buildBlueprintGraph(pipeline: PipelineView, expanded: Blueprint
 
   function* graph(document: BlueprintDocument, calls: readonly BlueprintExpandedCall[], path: readonly string[], call: BlueprintExpandedCall | null): Generator<void> {
     const scope = scopeKey(path);
-    scopes.push({ key: scope, path, title: call ? call.pin.id : document.name, detail: call ? `@${call.pin.hash.slice(0, 12)}` : null, call: call ? blueprintNodeKey(path.slice(0, -1), call.node) : null });
+    scopes.push({ key: scope, path, title: call ? call.graph.name || call.pin.id : document.name, detail: call ? `@${call.pin.hash.slice(0, 12)}` : null, call: call ? blueprintNodeKey(path.slice(0, -1), call.node) : null });
     const steps = [...document.steps, ...(document.other ?? [])];
     const local = new Map<string, BlueprintGraphNode>();
     const order: string[] = [];
@@ -287,7 +298,7 @@ export function* buildBlueprintGraph(pipeline: PipelineView, expanded: Blueprint
       const node: BlueprintGraphNode = {
         key, id: definition.id, type: kind.type, icon: kind.icon, kindLabel: kind.label, title: definition.name ?? definition.id,
         body: bodyOf(definition), inputs: [pin("in", "exec", "in", "")], outputs: [], callPath: path, scope, definition, routes: [], evidence: evidenceFor(key),
-        callee: definition.call ? { name: definition.call.pin?.id ?? definition.call.ref, openable: calls.some((entry) => entry.node === definition.id) } : undefined,
+        callee: definition.call ? calleeOf(definition.call, calls.find((entry) => entry.node === definition.id)) : undefined,
       };
       const bound = bindings(definition);
       for (const [port, binding] of bound) node.inputs.push(pin(`bind:${port}`, "data", "in", port, binding));

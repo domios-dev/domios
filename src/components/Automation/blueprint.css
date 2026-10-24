@@ -341,6 +341,28 @@
   transition: opacity var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
 }
 .bp-node:is(:hover, :focus-visible) .bp-node__hint { opacity: 1; }
+.bp-node[aria-pressed="true"] .bp-node__hint { display: none; }
+.bp-open-pill {
+  position: absolute;
+  z-index: 3;
+  display: inline-flex;
+  height: 26px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 11px;
+  border: 1px solid color-mix(in srgb, var(--bp-call) 45%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bp-call) 18%, var(--ct-bg));
+  color: color-mix(in srgb, var(--bp-call) 80%, var(--ct-fg));
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: var(--ct-shadow-sm);
+}
+.bp-open-pill:hover { background: color-mix(in srgb, var(--bp-call) 26%, var(--ct-bg)); }
+.bp-open-pill:focus-visible { outline: 2px solid var(--ct-accent); outline-offset: 2px; }
 
 .bp-canvas-crumbs {
   position: absolute;

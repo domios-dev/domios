@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { performance } from "node:perf_hooks";
-import { blueprintTriggerSummary, buildBlueprintGraph, litWires, nodeLabel, type BlueprintGraphModel } from "./graphModel";
+import { blueprintTriggerSummary, buildBlueprintGraph, calleeName, litWires, nodeLabel, type BlueprintGraphModel } from "./graphModel";
 import { layoutBlueprint, ROW_HEIGHT, type BlueprintLayout } from "./layout";
 import { watchRuns, withRetainedRuns } from "./runEvidence";
 import { blueprintNodeKey, toggleBlueprintExpansion } from "../blueprintExpansion";
@@ -71,7 +71,9 @@ async function main() {
   assert.deepEqual(probe.outputs.filter((pin) => pin.kind === "exec").map((pin) => pin.label), ["done", "failed"], "one labelled exec pin per outcome");
   assert.equal(probe.type, "code");
   assert.equal(collapsed.nodes.find((node) => node.id === "invoke")?.type, "call");
-  assert.deepEqual(collapsed.nodes.find((node) => node.id === "invoke")?.callee, { name: "mem:helper", openable: true }, "a call node names its sub-graph and knows it can open");
+  assert.deepEqual(collapsed.nodes.find((node) => node.id === "invoke")?.callee, { name: "typed-helper", openable: true }, "a call node names its sub-graph by its document and knows it can open");
+  assert.equal(calleeName({ ref: "mem:skill_blueprint_solution_01abc", pin: { id: "mem:skill_blueprint_solution_01abc", hash: "f".repeat(64) } }), "Saved solution", "a raw saved-solution id never becomes the label");
+  assert.equal(calleeName({ ref: "mem:helper" }), "helper");
   assert.equal(probe.callee, undefined);
   assert.equal(collapsed.mode, "run");
 
@@ -82,7 +84,7 @@ async function main() {
   assert.equal(child.evidence?.journal?.reason, "contract_violation");
   assert.equal(child.evidence?.journal?.call_stack?.[0].hash, call.pin.hash);
   assert(graph.wires.some((wire) => wire.from.node === key([], "invoke") && wire.from.pin === "callee" && wire.to.node === key(["invoke"], "return-count")), "an expanded call wires into its callee");
-  assert.equal(graph.scopes.find((scope) => scope.call === key([], "invoke"))?.title, call.pin.id);
+  assert.equal(graph.scopes.find((scope) => scope.call === key([], "invoke"))?.title, call.graph.name);
   assert.equal(blueprintPipelineOutcome(run)?.step_name, "return-count");
   assert.equal(blueprintPipelineOutcome(pipeline), null);
   assert.equal(blueprintPipelineOutcome({ ...run, nested_run: pipeline.nested_run }), null);

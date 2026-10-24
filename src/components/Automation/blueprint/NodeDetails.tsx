@@ -14,9 +14,9 @@ function eventTime(value: number | null): string | null {
   return value === null ? null : new Date(value).toLocaleString();
 }
 
-export function BlueprintNodeDetails({ node, model, call, expanded, onExpand, onClose, panelRef, presence }: {
+export function BlueprintNodeDetails({ node, model, call, expanded, onExpand, onOpen, onClose, panelRef, presence }: {
   node: BlueprintGraphNode | null; model: BlueprintGraphModel; call?: BlueprintExpandedCall; expanded: boolean;
-  onExpand: () => void; onClose: () => void; panelRef?: RefObject<HTMLElement | null>; presence?: PresenceState;
+  onExpand: () => void; onOpen?: () => void; onClose: () => void; panelRef?: RefObject<HTMLElement | null>; presence?: PresenceState;
 }) {
   if (!node) return <DetailsFrame label="Details: unavailable node" title={<h3 className="plan-side-panel__title">Node unavailable</h3>} onClose={onClose} panelRef={panelRef} presence={presence} focusWhenLost>
     <p role="status" className="ct-detail__empty">The selected node is no longer part of this Blueprint.</p>
@@ -58,9 +58,12 @@ export function BlueprintNodeDetails({ node, model, call, expanded, onExpand, on
       <dl className="bp-routes">{node.routes.map((route) => <Fragment key={route.outcome}><dt>{route.outcome}</dt><dd>{route.target === "$stop" ? "Stop" : route.target === "$result" ? "Result" : titles.get(route.target) ?? route.target}</dd></Fragment>)}</dl>
     </section>}
     {call && <section aria-label={`Callee ${call.pin.id}`} className="ct-detail__block">
-      <h4 className={SECTION}>Callee</h4>
-      <Facts><dt>Solution</dt><dd>{call.pin.id}</dd><dt>Content hash</dt><dd className="ct-detail__mono">{call.pin.hash}</dd></Facts>
-      <div><Button variant="ghost" size="sm" aria-expanded={expanded} onClick={onExpand}>{expanded ? "Collapse callee" : "Expand callee"}</Button></div>
+      <h4 className={SECTION}>Sub-graph{node.callee ? ` · ${node.callee.name}` : ""}</h4>
+      <div className="flex flex-wrap items-center gap-2">
+        {onOpen && <Button variant="primary" size="sm" onClick={onOpen}>Open sub-graph</Button>}
+        <Button variant="ghost" size="sm" aria-expanded={expanded} onClick={onExpand}>{expanded ? "Collapse callee" : "Expand callee"}</Button>
+      </div>
+      <Facts><dt>Solution</dt><dd className="ct-detail__mono">{call.pin.id}</dd><dt>Content hash</dt><dd className="ct-detail__mono">{call.pin.hash}</dd></Facts>
       <BlueprintProjectionValue value={call.graph.inputs ?? {}} label="Callee inputs" />
       <BlueprintProjectionValue value={call.graph.result} label="Callee result" />
     </section>}

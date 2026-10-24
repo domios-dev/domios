@@ -1,6 +1,6 @@
 import { useCallback, useId, useLayoutEffect, useRef, type ReactNode } from "react";
 import { CanvasToolbar } from "@codeterm/chat-ui";
-import { CircleAlert, PauseCircle } from "lucide-react";
+import { CircleAlert, Network, PauseCircle } from "lucide-react";
 import type { ViewportTransform } from "@codeterm/canvas-camera";
 import { BlueprintNodeCard, evidenceText } from "./NodeCard";
 import { CanvasNotices, NoteCard } from "./CanvasNotes";
@@ -38,6 +38,7 @@ export function BlueprintCanvas({ layout, label, selected, camera, onSelect, onO
     viewport.containerRef.current = element;
   }, [viewport.containerRef]);
   useLayoutEffect(() => paintGrid(viewport.transform), [paintGrid, viewport.transform]);
+  const openable = selected && onOpen ? layout.byKey.get(selected) : undefined;
   const litNodes = new Set(layout.wires.filter((route) => lit.has(route.wire.id)).flatMap((route) => [route.wire.from.node, route.wire.to.node]));
   return <div className="bp-scope flex min-h-0 min-w-0 flex-1 flex-col">
     <div
@@ -99,6 +100,8 @@ ${callout.detail}` : callout.reason}
             onKeyDown={onOpen && node.type === "call" ? (event) => { if (event.code !== "Enter" && event.code !== "NumpadEnter") return; event.preventDefault(); onOpen(node.key); } : undefined}
           ><BlueprintNodeCard laid={laid} /></button>;
         })}
+        {openable?.node.callee?.openable && onOpen && <button type="button" className="bp-open-pill" style={{ left: openable.box.x + 12, top: openable.box.y + openable.box.height + 16 }}
+          onClick={() => onOpen(openable.node.key)}><Network size={12} aria-hidden="true" />Double-click to open sub-graph</button>}
       </div>
     </div>
   </div>;
