@@ -177,4 +177,12 @@ Mesh inventory is target-authoritative: machine-qualified rows carry provenance 
 
 Inventory opens as a full-screen searchable List beside the existing Mesh network graph. One shared mode bubble switches between the List and the graph of connected computers. Keyboard navigation preserves resource identity and focus; peer detail separates Services and Schedules and labels cached, offline, denied, and partial states.
 
-<!-- revision: 65 -->
+### Signed peer consent and notices (no local credentials)
+
+| Method | Path | Body | Effect |
+|---|---|---|---|
+| POST | `/api/mesh/link/approval` | `{link_id, installation_signature, mesh_signature}` | Waits for the owner's Approve or Decline; no permit meanwhile. |
+| POST | `/api/mesh/disconnect-notice` | `{from, to, link_nonce, signature}` | Removes only this exact connection. |
+| POST | `/api/mesh/account-presence` | `{metadata_revision}` | Triggers one rate-limited registry refresh. |
+
+<!-- revision: 66 -->

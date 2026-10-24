@@ -2,16 +2,6 @@
 Output cursors, streaming and socket JSON-RPC.
 
 
-### Mesh peer consent and notices
-
-These peer routes validate signed proofs; local credentials cannot replace them. See MESH for the connection lifecycle.
-
-| Method | Path | Body | Description |
-|--------|------|------|-------------|
-| POST | `/api/mesh/link/approval` | `{link_id, installation_signature, mesh_signature}` | Proves the requester, then waits for the receiving owner's Approve or Decline. No pair or link permit is created while waiting. |
-| POST | `/api/mesh/disconnect-notice` | `{from, to, link_nonce, signature}` | Signed removal of this exact connection; an older connection's proof cannot remove a newer link. |
-| POST | `/api/mesh/account-presence` | `{metadata_revision}` | Paired signed peer notice; a signed-in receiver deduplicates and rate-limits one registry refresh. Carries no presence, endpoint or traffic instructions. |
-
 ### Output Cursor Pattern
 
 Use `offset` to poll without refetching the full buffer:
@@ -228,4 +218,4 @@ For `team.rename`, an omitted `caller_tab_id` is the trusted direct-user path on
 
 Plan writes require the live bound session of the Plan owner or Planner. They, and a Planner-authored `plan.create` from a live launch presenting its own nonce, wait on the binding event through the startup deadline without blocking the HTTP runtime. On expiry HTTP returns `503` with `{ "type": "session_binding_pending", "retryable": true }`; the socket error carries the same type and retryability in `data`. A settled launch without a registered session remains the distinct `plan_binding_session_unregistered` error on both transports. Pending status never authorizes the mutation.
 
-<!-- revision: 59 -->
+<!-- revision: 60 -->
