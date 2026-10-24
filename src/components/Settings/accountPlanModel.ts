@@ -1,5 +1,13 @@
 import { parseFreeLimits, type FreeLimits } from "../billing/freeLimitModel";
 
+/** The subscription portal could not be reached or answered 503; the action can succeed later unchanged. */
+export class SubscriptionServiceUnavailable extends Error {
+  constructor(detail: string) {
+    super(detail || "Subscription service unavailable");
+    this.name = "SubscriptionServiceUnavailable";
+  }
+}
+
 export interface AccountPlan {
   entitlements: { plan: string; status: string; current_period_end: number; cancel_at_period_end: boolean };
   access: { authority: "admin" | "billing" | "free"; full_access: boolean } | null;

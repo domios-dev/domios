@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { accountAvatarUrl, accountTrayModel } from "./accountTrayModel";
+import { accountAvatarUrl, accountTrayModel, planBadge } from "./accountTrayModel";
 import { accountInitials } from "../Settings/accountModel";
 const out = accountTrayModel({kind:"signed_out"}, null);
 assert.equal(out.name, "Account");
@@ -12,6 +12,12 @@ assert.equal(signedIn.initial, accountInitials("Ada"));
 assert.equal(signedIn.identity, "Ada");
 assert.equal(signedIn.plan, "Pro · active");
 assert.equal(accountTrayModel({kind:"signed_in",identity:{...identity,display_name:null}}, null).identity, identity.email);
+assert.deepEqual(signedIn.badge, { tier: "pro", name: "Pro", status: "active", tone: "active", admin: false, stale: false });
+const plan = (status: string) => ({authority:"billing" as const,fullAccess:false,plan:"sponsor",status,stale:false,periodEnd:null,cancelAtPeriodEnd:false,limits:null});
+assert.deepEqual([planBadge(plan("past_due"))?.status, planBadge(plan("past_due"))?.tone], ["past due", "attention"]);
+assert.equal(planBadge(plan("canceled"))?.tone, "inactive");
+assert.equal(planBadge(plan("trialing"))?.name, "Sponsor");
+assert.equal(planBadge(null), null);
 
 for (const authority of ["admin", "billing", "free"] as const) {
   for (const stale of [false, true]) {

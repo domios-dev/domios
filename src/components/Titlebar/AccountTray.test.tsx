@@ -195,6 +195,34 @@ it("renders billing portal failures through the real multiplexer provider and to
   }
 });
 
+it("says the subscription service is unavailable when the portal answers 503", async () => {
+  state.signedIn = true;
+  state.useRealPlan = true;
+  localFetch.mockImplementation(async (url: string) => url === "/api/account/plan"
+    ? { ok: true, status: 200, json: async () => ({ entitlements: { plan: "sponsor", status: "active", current_period_end: 0, cancel_at_period_end: false }, access: { authority: "billing", full_access: false }, stale: false }) }
+    : { ok: false, status: 503, text: async () => "Billing request refused" });
+  await configureMultiplexerBridge();
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<AccountTrayWithRealProvider />));
+    await act(async () => host.querySelector("button")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    const manageItem = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+      .find((item) => item.textContent?.includes("Manage subscription"));
+    await act(async () => manageItem!.click());
+    const toast = host.querySelector<HTMLElement>('[data-testid="notification-toast"]');
+    expect(toast?.textContent).toContain("Subscription service unavailable");
+    expect(toast?.textContent).toContain("Try again later");
+    expect(toast?.textContent).not.toContain("Billing request refused");
+  } finally {
+    await act(async () => root.unmount()); host.remove();
+    await resetMultiplexerBridge();
+    state.signedIn = false;
+    state.useRealPlan = false;
+    localFetch.mockReset();
+  }
+});
+
 it("reports unavailable subscription management without offering a crashing retry", async () => {
   state.signedIn = true;
   state.planStatus = "unavailable";
@@ -227,7 +255,9 @@ it("shows the Admin plan line from server-authoritative billing state", async ()
   try {
     await act(async () => root.render(<AccountTrayWithActions />));
     await act(async () => host.querySelector("button")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
-    expect(document.querySelector('[role="menu"]')?.textContent).toContain("Admin · Pro · active");
+    const head = document.querySelector<HTMLElement>('[data-testid="account-menu-head"]')!;
+    expect(head.querySelector(".ct-plan-badge")?.textContent).toBe("Admin · Pro");
+    expect(head.getAttribute("aria-label")).toContain("Admin · Pro · active");
   } finally {
     await act(async () => root.unmount()); host.remove();
     state.signedIn = false; state.planAuthority = "billing"; state.fullAccess = false;
@@ -244,8 +274,14 @@ it("shows identity and plan and wires subscription and sign out", async () => {
     expect(button?.getAttribute("aria-label")).toBe("Account: Ada");
     await act(async () => button!.dispatchEvent(new KeyboardEvent("keydown", {key:"Enter",bubbles:true})));
     const menu = document.querySelector('[role="menu"]');
-    expect(menu?.textContent).toContain("ada@example.test");
-    expect(menu?.textContent).toContain("Pro · active");
+    const head = menu!.querySelector<HTMLElement>('[data-testid="account-menu-head"]')!;
+    expect(head.textContent).toContain("ada@example.test");
+    expect(head.querySelector(".ct-plan-badge")?.textContent).toBe("Pro");
+    expect(head.querySelector(".ct-plan-status")?.textContent).toBe("active");
+    expect(menu?.getAttribute("aria-label")).toBe("Account: Ada, Pro · active");
+    expect(head.closest('[role="menuitem"], button')).toBeNull();
+    expect(head.querySelector('[role="menuitem"], button, [tabindex]')).toBeNull();
+    expect(Array.from(menu!.querySelectorAll<HTMLElement>('[role="menuitem"]')).some((item) => item.textContent?.includes("ada@example.test"))).toBe(false);
     const manageItem = Array.from(menu!.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent?.includes("Manage subscription"));
     await act(async () => manageItem!.click());
     expect(manage).toHaveBeenCalledExactlyOnceWith(openPlans);
@@ -335,7 +371,7 @@ async function renderSignedIn(photoUrl: string | null) {
 }
 async function openMenuHeader(button: HTMLButtonElement) {
   await act(async () => button.dispatchEvent(new KeyboardEvent("keydown", {key:"Enter",bubbles:true})));
-  return Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent?.includes("ada@example.test"))!;
+  return document.querySelector<HTMLElement>('[data-testid="account-menu-head"]')!;
 }
 
 it("shows the provider avatar in the tray and menu header without sending a referrer", async () => {
