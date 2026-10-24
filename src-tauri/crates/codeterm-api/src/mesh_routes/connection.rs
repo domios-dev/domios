@@ -7,7 +7,7 @@ use axum::{
 };
 
 use crate::routes::{check_auth, AppState};
-use codeterm_service_core::mesh::account_mesh::{self, AdmissionRefusal};
+use codeterm_service_core::mesh::account_mesh::AdmissionRefusal;
 
 #[derive(serde::Deserialize)]
 pub struct AccountLinkBody {
@@ -27,12 +27,12 @@ pub(crate) fn refusal_status(refusal: &AdmissionRefusal) -> StatusCode {
         AdmissionRefusal::Offline | AdmissionRefusal::PeerUnreachable => {
             StatusCode::SERVICE_UNAVAILABLE
         }
-        AdmissionRefusal::Cancelled => StatusCode::CONFLICT,
+        AdmissionRefusal::Declined | AdmissionRefusal::Expired | AdmissionRefusal::Cancelled => StatusCode::CONFLICT,
         AdmissionRefusal::HandshakeFailed { .. } => StatusCode::UNPROCESSABLE_ENTITY,
     }
 }
 
-/// Add one same-account machine from the registry; resolves only after the bilateral handshake.
+/// Requests a same-account connection; the snapshot carries its pending outcome.
 pub async fn mesh_account_link(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -47,27 +47,9 @@ pub async fn mesh_account_link(
             Json(serde_json::json!({"ok": false, "request_id": request_id})),
         ));
     }
-    match account_mesh::link::link_installation(&state.mesh, &body.installation_id).await {
-        Ok(pair) => {
-            state
-                .svc
-                .ui
-                .emit("mesh-state-changed", serde_json::Value::Null);
-            Ok(Json(serde_json::json!({
-                "ok": true,
-                "request_id": request_id,
-                "pair": pair,
-            })))
-        }
-        Err(refusal) => Err((
-            refusal_status(&refusal),
-            Json(serde_json::json!({
-                "ok": false,
-                "request_id": request_id,
-                "failure": refusal,
-            })),
-        )),
-    }
+    let outgoing_id = state.svc.start_mesh_link(body.installation_id)
+        .map_err(|refusal| (refusal_status(&refusal), Json(serde_json::json!({"ok": false, "request_id": request_id, "failure": refusal}))))?;
+    Ok(Json(serde_json::json!({"ok": true, "request_id": request_id, "pending": true, "link_request_id": outgoing_id})))
 }
 
 /// Explicit local unpair. Tombstones the edge so no provenance can recreate it; frees no slot.
@@ -100,10 +82,7 @@ pub async fn mesh_disconnect_peer(
         ));
     }
 
-    state
-        .mesh
-        .lock()
-        .unpair(&instance_id)
+    state.svc.disconnect_mesh_peer(&instance_id).await
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
 
     state

@@ -107,6 +107,7 @@ fn unreadable_peers_file_does_not_overwrite_link_ledger() {
     let path = dir.0.join("peers.json");
     let ledger_path = account_mesh_ledger_path(&path);
     let original = LinkLedger {
+        disconnects: Default::default(),
         owner_account: Some("account-a".into()),
         ..LinkLedger::default()
     };
@@ -143,10 +144,12 @@ fn account_mesh_ledger_survives_an_old_peers_writer() {
     });
     let (peers, _) = rehydrate_peers_payload(&payload.to_string()).unwrap();
     let ledger = LinkLedger {
+        disconnects: Default::default(),
         owner_account: Some("account-a".into()),
         links: [(
             peer_id.to_string(),
             LinkRecord {
+                link_nonce: None,
                 admission: LinkAdmission::Adopted {
                     account_id: "account-a".into(),
                     installation_id: "installation-a".into(),

@@ -1,5 +1,6 @@
 //! Account Mesh: account-authorized links, rollout legacy continuity and the traffic gate.
 
+pub mod approval;
 pub mod gate;
 pub mod ledger;
 pub mod link;

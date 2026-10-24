@@ -5,6 +5,7 @@ pub mod broadcast;
 pub mod contract;
 pub mod crown;
 pub mod discovery;
+pub mod disconnect;
 pub mod health;
 pub mod identity;
 pub mod manager;
