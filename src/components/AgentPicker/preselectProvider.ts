@@ -6,8 +6,9 @@ export function generalAgentProviders(
   providers: ProviderDescriptor[],
 ): ProviderDescriptor[] {
   return providers.filter((provider) =>
-    provider.transport === "pty" ||
-    (provider.transport === "chat_backend" && provider.agent_runtime != null),
+    (provider.transport === "pty" ||
+      (provider.transport === "chat_backend" && provider.agent_runtime != null)) &&
+    (provider.general_agent_offer_when_absent === true || providerAvailability(provider) === "available"),
   );
 }
 

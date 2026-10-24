@@ -27,6 +27,7 @@ fn usage_tracking_section_defaults_on() {
 #[test]
 fn provider_descriptor_round_trip() {
     let original = ProviderDescriptor {
+        general_agent_offer_when_absent: true,
         attachments: Default::default(),
         remote_task: None,
         agent_runtime: None,

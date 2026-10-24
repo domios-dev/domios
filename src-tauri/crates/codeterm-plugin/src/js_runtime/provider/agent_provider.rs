@@ -29,6 +29,10 @@ use session_wire::WireUsageSource;
 
 #[async_trait::async_trait]
 impl AgentProvider for JsProvider {
+    fn general_agent_offer_when_absent(&self) -> bool {
+        self.manifest.general_agent_offer_when_absent
+    }
+
     fn supports_subagent_visibility(&self) -> bool {
         capabilities::supports_subagent_visibility(self)
     }
@@ -1138,11 +1142,7 @@ impl AgentProvider for JsProvider {
     }
 
     fn model_credential_files(&self) -> Vec<PathBuf> {
-        self.manifest
-            .model_catalogue
-            .fingerprint_files(super::host_credentials::declared_files(
-                &self.manifest.credentials,
-            ))
+        capabilities::model_credential_files(self)
     }
 
     fn settings_schema(&self) -> Vec<SettingField> {
@@ -1150,10 +1150,7 @@ impl AgentProvider for JsProvider {
     }
 
     fn notifications_schema(&self) -> Vec<SettingField> {
-        self.schema_cache
-            .get_or_init(|| self.compute_schemas())
-            .1
-            .clone()
+        capabilities::notifications_schema(self)
     }
 
     fn install_bridge_rule(&self, payload: &str) -> Result<(), String> {

@@ -69,6 +69,10 @@ impl std::error::Error for ChatBackendError {}
 /// the QuickJS `call_json` bridge is synchronous (the VM is not `Send`); the
 /// inbound poll loop calls `poll` from a background task.
 pub trait ChatBackendProvider: Send + Sync {
+    fn general_agent_offer_when_absent(&self) -> bool {
+        false
+    }
+
     fn id(&self) -> &str;
 
     fn agent_runtime(&self) -> Option<crate::agent_runtime::AgentRuntimeCapability> {
@@ -229,6 +233,7 @@ pub trait ChatBackendProvider: Send + Sync {
     fn describe(&self) -> ProviderDescriptor {
         let catalog = model_catalog::registered_snapshot(self.id());
         ProviderDescriptor {
+            general_agent_offer_when_absent: self.general_agent_offer_when_absent(),
             attachments: Default::default(),
             remote_task: self.remote_task_capability(),
             agent_runtime: self.agent_runtime(),

@@ -23,6 +23,7 @@ pub(crate) fn describe<P: AgentProvider + ?Sized>(provider: &P) -> ProviderDescr
         settings.push(usage_store_tracking_section());
     }
     ProviderDescriptor {
+        general_agent_offer_when_absent: provider.general_agent_offer_when_absent(),
         attachments: provider.attachment_capabilities(),
         remote_task: provider.remote_task_capability(),
         agent_runtime: runtime.clone(),

@@ -1,8 +1,9 @@
 {
   "id": "claude",
-  "version": "1.14.21",
+  "version": "1.14.22",
   "minCodeterm": "1.15.2",
   "hostApi": 2,
+  "generalAgentOfferWhenAbsent": true,
   "displayName": "Claude Code",
   "binaryName": "claude",
   "cliBinary": "claude",
