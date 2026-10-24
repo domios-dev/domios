@@ -1,6 +1,6 @@
 import { BlueprintPlanLock } from "./BlueprintPlanLock";
 import { blueprintSteps } from "./blueprintKinds";
-import { useId, useState, type CSSProperties } from "react";
+import { useId, useState, type CSSProperties, type ReactNode } from "react";
 import { CanvasToolbar } from "@codeterm/chat-ui";
 import { Bell, GitCompare, List, Play, Square, Workflow } from "lucide-react";
 import { AUTOMATION_LABEL, AUTOMATION_TONE, AUTOMATION_TOOL } from "./styles";
@@ -16,6 +16,7 @@ import { BlueprintProjectionValue } from "./BlueprintProjectionValue";
 import { blueprintJournalNodes, blueprintPipelineOutcome, canStopPipelineRun, heldReasonLabel } from "./blueprintPipelineOutcome";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { Button } from "../shared/Button";
+import { usePipelineViewport } from "./usePipelineViewport";
 
 function stateTone(state: string, current = false): string {
   if (current || state === "running" || state === "delivering") return "var(--ct-accent)";
@@ -94,8 +95,9 @@ export function BlueprintPipelineCanvas({ pipeline, initialRunId, onStop, loadHi
     try { await onStop(); } catch (error: unknown) { setError(error); } finally { setStopping(false); }
   };
   const row = (pressed: boolean) => `ct-row ct-run-row${pressed ? " ct-row--selected" : ""}`;
-  return <div className="relative flex min-w-0 flex-col gap-3 pt-14">
-    <CanvasToolbar label="Pipeline graph controls" extras={<button type="button" className={AUTOMATION_TOOL} aria-expanded={showRuns} onClick={() => setShowRuns(!showRuns)}><List size={13} aria-hidden="true" />Runs<span className="text-[var(--ct-muted-fg)]">{pipeline.runs?.length ?? 0}</span></button>} />
+  const runsControl = <button type="button" className={AUTOMATION_TOOL} aria-expanded={showRuns} onClick={() => setShowRuns(!showRuns)}><List size={13} aria-hidden="true" />Runs<span className="text-[var(--ct-muted-fg)]">{pipeline.runs?.length ?? 0}</span></button>;
+  return <div className="relative flex min-w-0 flex-col gap-3">
+    {!selected && runsControl}
     {showRuns && <div role="group" aria-label="Pipeline runs" className="ct-rows">
       <button type="button" className={row(runId === null)} aria-label="Latest run" aria-pressed={runId === null} onClick={() => setRunId(null)}>
         <span className="ct-detail__dot" style={{ "--ct-detail-tone": stateTone(pipeline.state) } as CSSProperties} aria-hidden="true" />
@@ -117,7 +119,14 @@ export function BlueprintPipelineCanvas({ pipeline, initialRunId, onStop, loadHi
     <BlueprintPlanLock reason={pipeline.heldReason} />
     {pipeline.heldReason && selected === pipeline && <p role="status" className="ct-job-note">Held: {heldReasonLabel(pipeline.heldReason)}</p>}
     {stop && <section aria-label="Recorded stop" className="ct-card ct-card--error ct-card--static bp-panel"><h3 className="bp-panel__title">Recorded stop</h3><dl className="bp-facts"><dt>Node</dt><dd>{stop.step_name}</dd><dt>Reason</dt><dd>{stop.reason ?? "unavailable"}</dd></dl><p aria-label="Stop call stack" className="bp-mono">{callStack(stop)}</p></section>}
-    {selected?.nested_run?.id === selected?.runId && selected?.nested_run && <section aria-label="Selected run journal" className="ct-card ct-card--static bp-panel">
+    {selected?.recordedRun && <section aria-label="Selected run journal" className="ct-card ct-card--static bp-panel">
+      <h3 className="bp-panel__title">Run journal</h3>
+      {selected.recordedRun.incomplete && <p role="status">This retained run is incomplete.</p>}
+      <ol className="bp-journal">{selected.recordedRun.events.map((event, index) => <li key={index} className="bp-journal__entry">
+        <time>{eventTime(event.at)}</time> {event.node} · {event.outcome} · {event.target ?? "No action"} · {event.status}
+      </li>)}</ol>
+    </section>}
+    {!selected?.recordedRun && selected?.nested_run?.id === selected?.runId && selected?.nested_run && <section aria-label="Selected run journal" className="ct-card ct-card--static bp-panel">
       <h3 className="bp-panel__title">Run journal</h3>
       <ol className="bp-journal">{blueprintJournalNodes(selected).map((node, index) => <li key={index} className="bp-journal__entry">
         <div className="bp-journal__head">
@@ -131,15 +140,16 @@ export function BlueprintPipelineCanvas({ pipeline, initialRunId, onStop, loadHi
       </li>)}</ol>
     </section>}
     {pipeline.note && <p className="ct-meta-muted">{pipeline.note}</p>}
-    {selected ? <PipelineChain key={selected.runId ?? "definition"} pipeline={selected} /> : <p role="status">Selected run unavailable.</p>}
+    {selected ? <PipelineChain key={selected.runId ?? "definition"} pipeline={selected} toolbar={runsControl} /> : <p role="status">Selected run unavailable.</p>}
   </div>;
 }
 
-function PipelineChain({ pipeline }: { pipeline: PipelineView }) {
+function PipelineChain({ pipeline, toolbar }: { pipeline: PipelineView; toolbar: ReactNode }) {
   const markerId = useId().replace(/[^a-zA-Z0-9_-]/g, "");
   const [expanded, setExpanded] = useState<BlueprintExpansion>(new Set());
   const [selected, setSelected] = useState<string | null>(null);
   const { graph, error } = useBlueprintGraph(pipeline, expanded);
+  const viewport = usePipelineViewport(graph?.layout.width ?? 0, graph?.layout.height ?? 0);
   if (pipeline.historical_graph_available === false) return <p role="status" aria-label="Historical graph unavailable">Historical expanded graph unavailable. The retained journal is shown above.</p>;
   if (error || pipeline.projection_error) return <InlineErrorNotice error={error ?? pipeline.projection_error} operation="building this Blueprint graph" blocking />;
   if (!graph) return <p role="status">Building Blueprint graph…</p>;
@@ -147,13 +157,14 @@ function PipelineChain({ pipeline }: { pipeline: PipelineView }) {
   const byKey = new Map(model.nodes.map((node) => [node.key, node]));
   const selectedNode = model.nodes.find((node) => node.key === selected);
   const callFor = (node: PipelineViewNode) => node.definition ? expandedCall(pipeline, node.callPath ?? [], node.definition.id) : undefined;
-  return <><div role="group" aria-label={`${pipeline.name} pipeline`} className="bp-canvas min-w-0 overflow-x-auto rounded-[14px]">
-    <div className="relative" style={{ width: layout.width, height: layout.height, minHeight: PIPELINE_CANVAS_HEIGHT }}>
+  return <><CanvasToolbar floating={false} label="Pipeline graph controls" onFit={viewport.fit} onZoomOut={() => viewport.zoomBy(-0.2)} onZoomIn={() => viewport.zoomBy(0.2)} extras={toolbar} />
+    <div ref={viewport.containerRef} role="group" aria-label={`${pipeline.name} pipeline`} onMouseDown={viewport.handlers.onMouseDown} className="bp-canvas relative h-[min(32rem,60vh)] min-h-[20rem] min-w-0 touch-none overflow-hidden rounded-[14px]" style={{ minHeight: PIPELINE_CANVAS_HEIGHT }}>
+    <div ref={viewport.layerRef} className="absolute left-0 top-0" style={{ width: layout.width, height: layout.height, transformOrigin: "0 0" }}>
       <svg className="pointer-events-none absolute inset-0" width={layout.width} height={layout.height} aria-hidden="true">
         <defs><marker id={`pipeline-arrow-${markerId}`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--ct-muted-fg)" /></marker></defs>
         {layout.edges.map((edge, index) => <path key={index} d={edge.path} fill="none" stroke="var(--ct-muted-fg)" strokeWidth="1.5" markerEnd={`url(#pipeline-arrow-${markerId})`} />)}
       </svg>
-      {layout.edges.map((edge) => edge.label ? <span key={`label:${edge.from}:${edge.to}:${edge.label}`} title={edge.label} className="absolute z-10 max-w-[4.5rem] -translate-x-1/2 truncate rounded-full bg-[color-mix(in_srgb,var(--ct-fg)_6%,var(--ct-bg))] px-1.5 py-0.5 text-[0.625rem] text-[var(--ct-muted-fg)]" style={{ left: edge.x, top: edge.y - 28 }}>{edge.label}</span> : null)}
+      {layout.edges.map((edge) => edge.label ? <span key={`label:${edge.from}:${edge.to}:${edge.label}`} title={edge.label} className="absolute z-10 max-w-[4.5rem] -translate-x-1/2 truncate rounded-full bg-[color-mix(in_srgb,var(--ct-fg)_6%,var(--ct-bg))] px-1.5 py-0.5 text-[0.625rem] text-[var(--ct-muted-fg)]" style={{ left: edge.x, top: edge.y }}>{edge.label}</span> : null)}
       {layout.nodes.map((box) => {
         const node = byKey.get(box.key);
         if (!node) return null;
