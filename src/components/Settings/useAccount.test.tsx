@@ -4,6 +4,16 @@ import { expect, it, vi } from "vitest";
 import type { Notification } from "../../lib/types";
 import { MultiplexerActionsContext, type MultiplexerActionsContextType } from "../../store/multiplexer/context";
 import { NotificationToastContainer } from "../Notifications/NotificationToast";
+const accountEvents = vi.hoisted(() => new Map<string, Set<() => void>>());
+vi.mock("../../lib/bridge", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../../lib/bridge")>(),
+  listen: async (event: string, handler: () => void) => {
+    const handlers = accountEvents.get(event) ?? new Set<() => void>();
+    accountEvents.set(event, handlers);
+    handlers.add(handler);
+    return () => { handlers.delete(handler); };
+  },
+}));
 const { request, rawBody, state } = vi.hoisted(() => ({
   request: vi.fn(), rawBody: vi.fn(() => "opaque-sensitive-response"), state: {
     identity:null as null | {uid:string;display_name:string;email:null;provider:string},
@@ -67,6 +77,23 @@ function AccountTabWithToasts() {
     <NotificationToastContainer toasts={toasts} onDismiss={(id) => setToasts((current) => current.filter((toast) => toast.id !== id))} />
   </MultiplexerActionsContext.Provider>;
 }
+it("refreshes mounted account surfaces on server identity changes and removes listeners on unmount", async () => {
+  state.identity = {uid:"external-user",display_name:"Ada",email:null,provider:"fake"};
+  state.failure = null;
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<><Surface name="header" /><Surface name="canvas" /></>));
+    expect(Array.from(host.querySelectorAll("output"), item => item.textContent)).toEqual(["external-user", "external-user"]);
+    state.identity = null;
+    await act(async () => { accountEvents.get("account-changed")?.forEach(handler => handler()); });
+    expect(Array.from(host.querySelectorAll("output"), item => item.textContent)).toEqual(["signed_out", "signed_out"]);
+  } finally {
+    await act(async () => root.unmount()); host.remove(); state.identity = null;
+  }
+  expect(accountEvents.get("account-changed")?.size).toBe(0);
+});
+
 it("updates both mounted account surfaces after login and logout and guards duplicate login", async () => {
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
