@@ -192,7 +192,7 @@ impl MeshManager {
     fn prune_pending(&mut self) {
         let now = self.now();
         self.pending_links.retain(|id, pending| {
-            let ttl = if self.link_requests.contains_key(id) {
+            let ttl = if !pending.approved && self.link_requests.contains_key(id) {
                 crate::account_mesh::approval::APPROVAL_TTL_SECS + PENDING_TTL_SECS
             } else {
                 PENDING_TTL_SECS

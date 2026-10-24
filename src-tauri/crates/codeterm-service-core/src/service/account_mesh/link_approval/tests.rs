@@ -1,6 +1,16 @@
 use super::*;
 
 #[test]
+fn account_mesh_link_completion_refreshes_transport_and_account_views() {
+    let mut success = Vec::new();
+    publish_link_completion(true, |event, _| success.push(event.to_string()));
+    assert_eq!(success, ["mesh-state-changed", "account-mesh-changed"]);
+    let mut refused = Vec::new();
+    publish_link_completion(false, |event, _| refused.push(event.to_string()));
+    assert_eq!(refused, ["account-mesh-changed"]);
+}
+
+#[test]
 fn account_mesh_approval_notification_offers_exact_request_choices() {
     let request = LinkRequest {
         request_id: "request-a".into(),

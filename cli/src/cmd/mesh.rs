@@ -134,7 +134,7 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
                         println!("{}", serde_json::to_string_pretty(&val).unwrap());
                     } else {
                         println!(
-                            "Waiting for approval on {}. Check Mesh status for the result.",
+                            "Waiting for approval on {}. Open Mesh for the result.",
                             installation_id
                         );
                     }
