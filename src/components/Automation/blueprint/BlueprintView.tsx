@@ -65,10 +65,10 @@ function useElementHeight() {
 
 export interface BlueprintExportTarget { workspaceId: string; teamId: string | null; id: string }
 
-/** The one Blueprint view: every pipeline, watch and call opens here as a typed node graph with its runs and journal. */
 /** What a host knows about a Blueprint beyond its definition, shown on the canvas note. */
 export interface BlueprintAbout { purpose?: string | null; intents?: readonly string[]; facts?: readonly string[] }
 
+/** The one Blueprint view: every pipeline, watch and call opens here as a typed node graph with its runs and journal. */
 export function BlueprintView({ pipeline, initialRunId, backLabel, onBack, exportTarget, actions, about, hostNotices, history = true, onStop, canStop = false, loadHistory, headingLevel = 2, fill = false }: {
   pipeline: PipelineView; initialRunId?: string; backLabel?: string; onBack?: () => void; exportTarget?: BlueprintExportTarget;
   actions?: ReactNode; about?: BlueprintAbout; hostNotices?: ReactNode; history?: boolean;
