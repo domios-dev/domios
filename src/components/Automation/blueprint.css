@@ -185,17 +185,18 @@
 .bp-pin-label {
   display: flex;
   min-width: 0;
-  max-width: 62%;
+  max-width: 48%;
   align-items: baseline;
   gap: 6px;
   padding: 0 14px;
   font-size: 11px;
   line-height: 16px;
 }
+.bp-row[data-pair="single"] .bp-pin-label { max-width: 88%; }
 .bp-pin-label[data-side="out"] { flex-direction: row-reverse; margin-left: auto; text-align: right; }
-.bp-pin-label__name { overflow: hidden; color: var(--ct-fg); font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
+.bp-pin-label__name { flex: none; max-width: 100%; overflow: hidden; color: var(--ct-fg); font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
 .bp-pin-label[data-kind="data"] .bp-pin-label__name { color: color-mix(in srgb, var(--bp-data) 70%, var(--ct-fg)); font-weight: 500; }
-.bp-pin-label__detail { overflow: hidden; min-width: 0; color: var(--ct-muted-fg); font-family: var(--ct-font-mono); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.bp-pin-label__detail { flex: 0 1 auto; overflow: hidden; min-width: 0; color: var(--ct-muted-fg); font-family: var(--ct-font-mono); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .bp-pin {
   position: absolute;
   top: 50%;
@@ -361,6 +362,65 @@
   cursor: pointer;
   box-shadow: var(--ct-shadow-sm);
 }
+.bp-pin-watch { display: contents; cursor: help; }
+.bp-wire-hit { fill: none; stroke: transparent; stroke-width: 12; pointer-events: stroke; cursor: help; }
+.bp-value {
+  position: absolute;
+  z-index: 4;
+  display: flex;
+  width: 19rem;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--bp-data) 40%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--ct-titlebar-bg) 96%, transparent);
+  color: var(--ct-fg);
+  font-size: 12px;
+  cursor: auto;
+  user-select: text;
+  box-shadow: var(--ct-shadow-md, var(--ct-shadow-sm));
+  transform: translate(14px, -50%);
+}
+.bp-value[data-side="in"] { transform: translate(calc(-100% - 14px), -50%); }
+.bp-value__head { display: flex; min-width: 0; align-items: baseline; gap: 6px; margin: 0; color: var(--ct-muted-fg); font-size: 11px; }
+.bp-value__head code { color: color-mix(in srgb, var(--bp-data) 75%, var(--ct-fg)); font-family: var(--ct-font-mono); font-weight: 600; }
+.bp-value__type { margin-left: auto; font-family: var(--ct-font-mono); font-size: 10.5px; }
+.bp-value__preview {
+  max-height: 12rem;
+  margin: 0;
+  overflow: auto;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ct-bg) 70%, transparent);
+  font-family: var(--ct-font-mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.bp-value__summary { display: flex; flex-direction: column; gap: 4px; margin: 0; overflow-wrap: anywhere; }
+.bp-value__summary span, .bp-value__empty { margin: 0; color: var(--ct-muted-fg); font-size: 11px; }
+.bp-value__foot { display: flex; align-items: center; gap: 8px; color: var(--ct-muted-fg); font-size: 10.5px; }
+.bp-value__foot button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  padding: 3px 9px;
+  border: 1px solid color-mix(in srgb, var(--ct-fg) 12%, transparent);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ct-fg);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.bp-value__foot button:hover { background: color-mix(in srgb, var(--ct-fg) 6%, transparent); }
+.bp-value__foot button:focus-visible { outline: 2px solid var(--ct-accent); outline-offset: 2px; }
+.bp-values { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.bp-values__row { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-radius: 10px; background: color-mix(in srgb, var(--ct-fg) 3%, transparent); }
+
 .ct-code-aside__group { display: flex; min-width: 0; flex-direction: column; gap: 6px; }
 .ct-code-aside__heading { margin: 0; color: var(--ct-muted-fg); font-size: 11px; font-weight: 650; letter-spacing: 0.02em; }
 .ct-code-aside__muted { margin: 0; color: color-mix(in srgb, var(--ct-fg) 78%, var(--ct-muted-fg)); line-height: 1.45; overflow-wrap: anywhere; }

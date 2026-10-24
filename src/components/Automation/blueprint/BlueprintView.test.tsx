@@ -52,6 +52,18 @@ async function main() {
       assert(parts[1].querySelector(".bp-canvas"), `${moment}: the canvas stays mounted`);
     };
     nothingAboveCanvas("first render");
+    const wirePaths = [...host.querySelectorAll("path.bp-wire, path.bp-wire-hit")];
+    assert(wirePaths.some((path) => path.getAttribute("data-kind") === "data"), "the fixture draws a data wire");
+    assert(wirePaths.every((path) => path.getAttribute("fill") === "none"), "wires are strokes, never filled shapes, whatever the stylesheet");
+    const boundInput = button("Node invoke").querySelector('.bp-pin-label[data-kind="data"][data-side="in"]');
+    assert.equal(boundInput?.querySelector(".bp-pin-label__detail")?.textContent, "← probe", "a bound input names its source");
+    assert.equal(boundInput?.getAttribute("title"), "count: probe.out", "the full binding stays in the tooltip");
+    const probeOut = button("Node probe").querySelector('.bp-pin-watch[data-side="out"]');
+    assert(probeOut, "a data pin is watchable while a run is selected");
+    await act(async () => { probeOut!.dispatchEvent(new (window as unknown as { PointerEvent: typeof PointerEvent }).PointerEvent("pointerover", { bubbles: true })); });
+    const popover = host.querySelector<HTMLElement>(".bp-canvas .bp-value");
+    assert(popover?.textContent?.includes("7") && popover.textContent.includes("Only a summary was recorded"), "hovering a pin shows what it produced in this run");
+    assert.equal(popover?.getAttribute("aria-label"), "Output out in this run");
     const note = host.querySelector<HTMLElement>('.bp-canvas [aria-label="Blueprint note"]');
     assert(note?.textContent?.includes("Inspect typed calls"), "the description is a note on the canvas");
     assert(note!.closest('div[style*="transform-origin"]'), "the note pans and zooms with the graph");
@@ -81,6 +93,8 @@ async function main() {
     assert([...host.querySelectorAll(".bp-wire")].length > 0);
     await act(async () => button("Node invoke").click());
     assert.deepEqual(details(), ["Details: invoke"]);
+    const values = host.querySelector('aside [aria-label="Values in this run"]');
+    assert(values?.textContent?.includes("count") && values.textContent.includes("No value recorded for this run"), "the details list each port's value for keyboard readers");
     assert(host.querySelector('[aria-label="Callee mem:helper"]')?.textContent?.includes("a".repeat(64)), "the raw id and hash stay in the details");
     assert(button("Double-click to open sub-graph"), "a selected sub-graph shows its open pill on the canvas");
     assert(button("Open sub-graph"), "the details offer an explicit open action");

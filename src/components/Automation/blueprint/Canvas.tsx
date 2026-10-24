@@ -1,11 +1,13 @@
-import { useCallback, useId, useLayoutEffect, useRef, type ReactNode } from "react";
+import { useCallback, useId, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { CanvasToolbar } from "@codeterm/chat-ui";
 import { CircleAlert, Network, PauseCircle } from "lucide-react";
 import type { ViewportTransform } from "@codeterm/canvas-camera";
-import { BlueprintNodeCard, evidenceText } from "./NodeCard";
+import { BlueprintNodeCard, evidenceText, type PinWatch } from "./NodeCard";
 import { CanvasNotices, NoteCard } from "./CanvasNotes";
-import { nodeLabel } from "./graphModel";
-import type { BlueprintLayout } from "./layout";
+import { nodeLabel, type BlueprintGraphModel } from "./graphModel";
+import { ROW_HEIGHT, type BlueprintLayout, type LaidOutBlueprintNode } from "./layout";
+import { pinValue, portName, wireValue } from "./pinValues";
+import { ValuePopover, VALUE_POPOVER_CLASS, type ValueProbe } from "./ValuePopover";
 import { useAutomationViewport, type AutomationCamera } from "./viewport";
 
 /** Pointer focus must not pan the camera, or the release lands on a different node than the press. */
@@ -16,10 +18,27 @@ function keyboardFocus(element: HTMLElement): boolean {
 /** A run fact pinned above the node it happened at, so it follows the graph on pan and zoom. */
 export interface CanvasCallout { nodeKey: string; tone: "failed" | "held"; label: string; lead: string; reason: string; detail: string | null }
 
-export function BlueprintCanvas({ layout, label, selected, camera, onSelect, onOpen, lit, callouts = [], notices, crumbs, panelOpen = false, toolbar }: {
+export function BlueprintCanvas({ layout, label, selected, camera, onSelect, onOpen, lit, callouts = [], notices, crumbs, panelOpen = false, toolbar, values }: {
   layout: BlueprintLayout; label: string; selected: string | null; camera: AutomationCamera; onSelect: (key: string) => void; onOpen?: (key: string) => void;
   lit: ReadonlySet<string>; callouts?: readonly CanvasCallout[]; notices?: ReactNode; crumbs?: ReactNode; panelOpen?: boolean; toolbar?: ReactNode;
+  /** The model of the selected run; with it, data pins and wires show what flowed through them. */
+  values?: BlueprintGraphModel;
 }) {
+  const [probe, setProbe] = useState<ValueProbe | null>(null);
+  const leave = (event: ReactPointerEvent) => {
+    const next = event.relatedTarget;
+    if (next instanceof Element && next.closest(`.${VALUE_POPOVER_CLASS}, .bp-pin-watch, .bp-wire-hit`)) return;
+    setProbe(null);
+  };
+  const watchFor = (laid: LaidOutBlueprintNode): PinWatch | undefined => values && values.mode === "run" ? {
+    onEnter: (pin, rowTop) => {
+      const value = pinValue(values, laid.node, pin);
+      if (!value) return;
+      setProbe({ key: `${laid.node.key}#${pin.id}`, side: pin.side, port: portName(pin), type: pin.detail && pin.id !== `bind:${portName(pin)}` ? pin.detail : undefined, value,
+        x: pin.side === "in" ? laid.box.x : laid.box.x + laid.box.width, y: laid.box.y + rowTop + ROW_HEIGHT / 2 });
+    },
+    onLeave: leave,
+  } : undefined;
   const hintId = useId();
   const container = useRef<HTMLDivElement | null>(null);
   const paintGrid = useCallback((t: ViewportTransform) => {
@@ -65,7 +84,14 @@ export function BlueprintCanvas({ layout, label, selected, camera, onSelect, onO
         </div>)}
         {layout.note && <NoteCard laid={layout.note} />}
         <svg width={layout.bounds.width} height={layout.bounds.height} className="pointer-events-none absolute inset-0 overflow-visible" aria-hidden="true">
-          {layout.wires.map((route) => <path key={route.wire.id} data-wire={route.wire.id} className="bp-wire" data-kind={route.wire.kind} data-lit={lit.has(route.wire.id) || undefined} d={route.path} />)}
+          {layout.wires.map((route) => <path key={route.wire.id} data-wire={route.wire.id} className="bp-wire" data-kind={route.wire.kind} data-lit={lit.has(route.wire.id) || undefined} d={route.path} fill="none" />)}
+          {values?.mode === "run" && layout.wires.filter((route) => route.wire.kind === "data").map((route) => <path key={`hit:${route.wire.id}`} className="bp-wire-hit" d={route.path} fill="none" stroke="transparent"
+            onPointerEnter={() => {
+              const value = wireValue(values, route.wire);
+              const target = layout.byKey.get(route.wire.to.node)?.node.inputs.find((pin) => pin.id === route.wire.to.pin);
+              if (value) setProbe({ key: `wire:${route.wire.id}`, side: "in", port: target ? portName(target) : "value", value, x: route.to.x, y: route.to.y });
+            }}
+            onPointerLeave={leave} />)}
         </svg>
         {callouts.map((callout) => {
           const anchor = layout.byKey.get(callout.nodeKey);
@@ -98,8 +124,9 @@ ${callout.detail}` : callout.reason}
             onClick={() => onSelect(node.key)}
             onDoubleClick={onOpen && node.type === "call" ? () => onOpen(node.key) : undefined}
             onKeyDown={onOpen && node.type === "call" ? (event) => { if (event.code !== "Enter" && event.code !== "NumpadEnter") return; event.preventDefault(); onOpen(node.key); } : undefined}
-          ><BlueprintNodeCard laid={laid} /></button>;
+          ><BlueprintNodeCard laid={laid} watch={watchFor(laid)} /></button>;
         })}
+        {probe && <ValuePopover key={probe.key} probe={probe} onLeave={leave} />}
         {openable?.node.callee?.openable && onOpen && <button type="button" className="bp-open-pill" style={{ left: openable.box.x + 12, top: openable.box.y + openable.box.height + 16 }}
           onClick={() => onOpen(openable.node.key)}><Network size={12} aria-hidden="true" />Double-click to open sub-graph</button>}
       </div>

@@ -226,7 +226,7 @@ export function BlueprintView({ pipeline, initialRunId, initialRoute, onRouteCha
     <div ref={body.ref} data-blueprint-body="" className={`relative flex min-w-0 flex-col ${fill ? "min-h-0 flex-1" : "h-[min(46rem,80vh)] min-h-[30rem]"}`}>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {shown && shown.historical_graph_available !== false && !error && !shown.projection_error && graph
-          ? <BlueprintCanvas key={JSON.stringify(trail)} onOpen={drill} layout={graph.layout} label={`${pipeline.name} graph`} selected={selected} camera={camera} onSelect={select} lit={lit} callouts={callouts}
+          ? <BlueprintCanvas key={JSON.stringify(trail)} onOpen={drill} layout={graph.layout} label={`${pipeline.name} graph`} selected={selected} camera={camera} onSelect={select} lit={lit} callouts={callouts} values={graph.model}
             notices={notices} crumbs={crumbs} panelOpen={selected !== null || diffOpen} toolbar={history ? runsToggle : undefined} />
           : <div className="bp-scope bp-canvas bp-stage relative flex min-h-[14rem] min-w-0 flex-1 flex-col items-start gap-3 p-4">
             {history && runsToggle}
