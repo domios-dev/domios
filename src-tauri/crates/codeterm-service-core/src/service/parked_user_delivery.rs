@@ -625,6 +625,7 @@ impl super::ServiceContext {
         Ok(pair)
     }
 
+    #[cfg(test)]
     pub(crate) fn park_refused_user_send(
         &self,
         tab_id: &str,

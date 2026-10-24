@@ -155,7 +155,7 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
                 svc.emit_state_changed(MuxEmitCause::RuntimeSignal);
             }
             let owner = svc.clone();
-            let ending = expired;
+            let ending = expired.clone();
             let detail = format!("runtime process ended: {reason}");
             let _ = tokio::task::spawn_blocking(move || {
                 owner
@@ -163,6 +163,25 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
                     .runtime_process_exited(&owner, &ending, detail);
             })
             .await;
+            if !session.gate.is_closed()
+                && !matches!(
+                    reason,
+                    RuntimeFailure::Superseded
+                        | RuntimeFailure::ProcessExited {
+                            requested: true,
+                            ..
+                        }
+                )
+                && engine::for_tab(&expired.tab_id)
+                    .is_some_and(|current| Arc::ptr_eq(&current, &session))
+            {
+                svc.recover_dead_chatbackend(
+                    &expired.tab_id,
+                    &expired.binding_nonce,
+                    epoch,
+                    &reason.to_string(),
+                );
+            }
         }
     });
 }
