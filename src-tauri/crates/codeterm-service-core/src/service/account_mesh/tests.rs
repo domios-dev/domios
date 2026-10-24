@@ -346,6 +346,7 @@ async fn sign_out_closes_the_mesh_manager_gate_before_persistence_can_suspend() 
     let store = Arc::new(HeldSignOutStore::default());
     let account_mesh = AccountMesh::new(
         AccountMeshConfig {
+            default_display_name: None,
             installation_id: codeterm_account::InstallationId::parse("installation-a".into())
                 .unwrap(),
             trust: None,

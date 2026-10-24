@@ -73,7 +73,7 @@ def route_calls(text: str):
 
 registered = set()
 routes_text = "\n".join(
-    source.read_text(encoding="utf-8").split("#[cfg(test)]", 1)[0]
+    re.split(r"#\[cfg\(test\)\]\s*mod tests\b", source.read_text(encoding="utf-8"), maxsplit=1)[0]
     for source in (routes_rs, routes_rs.with_name("memory_router.rs"))
 )
 for call in route_calls(routes_text):
