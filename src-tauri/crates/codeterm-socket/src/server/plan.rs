@@ -1,3 +1,4 @@
+mod lane_cleanup;
 use super::plan_fields::{groups_from_csv, kinds_from_csv, tag_facets_field};
 use super::plan_linking::{owner_from_params, tags_field};
 use super::plan_refs;
@@ -190,6 +191,15 @@ pub(super) fn dispatch(
     if super::plan_skills_rpc::handles(method) {
         return super::plan_skills_rpc::dispatch(method, params, svc, now);
     }
+    if method == "plan.lanes_clean_next" {
+        let id = get_string_param(params, "job_id")?;
+        let cursor = params
+            .as_ref()
+            .and_then(|p| p.get("cursor"))
+            .and_then(Value::as_u64)
+            .unwrap_or(0) as usize;
+        return lane_cleanup::next(svc, &id, cursor);
+    }
     if method == "plan.lanes_clean" {
         let id = plan_refs::resolve_plan(&svc.plan_store, params)?;
         let p = params.as_ref();
@@ -220,17 +230,11 @@ pub(super) fn dispatch(
             .plan_store
             .get(&id)
             .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
-        let lanes =
-            codeterm_orchestration::lane_clean::clean_plan_lanes(svc, &plan, confirm, fetch)
-                .map_err(|message| JsonRpcError {
-                    code: -32003,
-                    message,
-                    data: None,
-                })?;
-        if confirm {
-            emit_plan_changed(svc, &id);
-        }
-        return Ok(json!({"plan_id": id, "dry_run": !confirm, "lanes": lanes}));
+        let stream = p
+            .and_then(|value| value.get("stream"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        return lane_cleanup::start(svc, plan, confirm, fetch, stream);
     }
     if method == "plan.lane_remove" {
         return lane_remove(params, svc);

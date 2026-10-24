@@ -203,6 +203,7 @@ pub(super) fn dispatch(
                 "plan.task.rm",
                 "plan.lane_remove",
                 "plan.lanes_clean",
+                "plan.lanes_clean_next",
                 "plan.milestone.add",
                 "plan.milestone.update",
                 "plan.milestone.rm",

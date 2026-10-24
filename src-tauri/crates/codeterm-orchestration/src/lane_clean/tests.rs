@@ -392,3 +392,254 @@ fn lane_clean_preview_keeps_branch_only_cleanup_actionable() {
     let row = run_lane(&fixture.lane, false, &[], None);
     assert_eq!(row.action, "remove", "{row:?}");
 }
+
+#[test]
+fn lane_clean_inventory_git_call_count_is_constant_for_historical_lanes() {
+    for online in [false, true] {
+        for lane_count in [1, 1000] {
+            let mut calls = Vec::new();
+            let inventory = Inventory::load_with("project", online, |_, args| {
+                calls.push(args.join(" "));
+                Ok(match args[0] {
+                    "remote" => "origin\nbackup".into(),
+                    "worktree" => "worktree /canonical\nbranch refs/heads/main".into(),
+                    "for-each-ref" => "abc refs/heads/main".into(),
+                    "rev-list" => "abc".into(),
+                    "ls-remote" => "abc refs/heads/main".into(),
+                    _ => panic!("unexpected inventory query: {args:?}"),
+                })
+            })
+            .unwrap();
+            for index in 0..lane_count {
+                let lane = TeamCloseLane {
+                    plan_id: "plan".into(),
+                    task_id: index.to_string(),
+                    project_path: "project".into(),
+                    worktree_path: None,
+                    branch: Some(format!("lane/absent-{index}")),
+                    base: None,
+                    destination: Some("HEAD".into()),
+                    hold_reason: None,
+                };
+                let row = run_lane_with_inventory(&lane, online, &inventory, || (vec![], None));
+                assert_eq!(row.action, "absent");
+            }
+            assert_eq!(
+                calls
+                    .iter()
+                    .filter(|call| call.starts_with("worktree "))
+                    .count(),
+                1
+            );
+            assert_eq!(
+                calls
+                    .iter()
+                    .filter(|call| call.starts_with("for-each-ref "))
+                    .count(),
+                1
+            );
+            assert_eq!(
+                calls
+                    .iter()
+                    .filter(|call| call.starts_with("ls-remote "))
+                    .count(),
+                if online { 2 } else { 0 }
+            );
+            assert_eq!(calls.len(), if online { 6 } else { 4 });
+        }
+    }
+}
+
+#[test]
+fn lane_clean_inventory_preserves_remote_only_and_registered_lanes() {
+    let inventory = Inventory::load_with("project", true, |_, args| {
+        Ok(match args[0] {
+            "remote" => "origin".into(),
+            "worktree" => "worktree /registered\nbranch refs/heads/lane/registered".into(),
+            "ls-remote" => "abc refs/heads/lane/remote".into(),
+            _ => String::new(),
+        })
+    })
+    .unwrap();
+    let mut lane = TeamCloseLane {
+        plan_id: "plan".into(),
+        task_id: "task".into(),
+        project_path: "project".into(),
+        worktree_path: None,
+        branch: Some("lane/remote".into()),
+        base: None,
+        destination: Some("HEAD".into()),
+        hold_reason: None,
+    };
+    assert!(!inventory.absent(&lane));
+    lane.branch = None;
+    lane.worktree_path = Some("/registered".into());
+    assert!(!inventory.absent(&lane));
+}
+
+#[test]
+#[ignore = "requires an explicit read-only plan and tab export"]
+fn lane_clean_real_project_preview_measurement() {
+    let input = std::path::PathBuf::from(std::env::var("CODETERM_LANE_PREVIEW_INPUT_DIR").unwrap());
+    let plan: Plan =
+        serde_json::from_slice(&std::fs::read(input.join("real-plan.json")).unwrap()).unwrap();
+    let exported: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(input.join("real-tabs.json")).unwrap()).unwrap();
+    let tabs: Vec<LiveTabCwd> = exported["tabs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|tab| LiveTabCwd {
+            id: tab["id"].as_str().unwrap().into(),
+            title: tab["title"].as_str().unwrap_or("Tab").into(),
+            cwd: tab["cwd"].as_str().unwrap_or("").into(),
+        })
+        .collect();
+    let live = tabs.iter().map(|tab| tab.id.clone()).collect();
+    let started = std::time::Instant::now();
+    let project = if plan.canonical_project_path.is_empty() {
+        &plan.project_path
+    } else {
+        &plan.canonical_project_path
+    };
+    let lanes = cleanup_inventory(&plan);
+    let inventory = Inventory::load(project, false).unwrap();
+    let inventory_ms = started.elapsed().as_millis();
+    let mut rows = Vec::new();
+    for lane in &lanes {
+        let remote = plan.tasks.iter().any(|task| {
+            task.id == lane.task_id
+                && task
+                    .execution_attempts
+                    .iter()
+                    .any(|attempt| attempt.remote_worktree_path.is_some())
+        });
+        if inventory.absent(lane) && !remote {
+            rows.push(LaneCleanRow {
+                task_id: lane.task_id.clone(),
+                worktree: lane.worktree_path.clone(),
+                branch: lane.branch.clone(),
+                action: "absent",
+                reason: "lane worktree and branches already removed".into(),
+            });
+            continue;
+        }
+        let row = run_lane_with_inventory(lane, false, &inventory, || {
+            let refusal = plan
+                .tasks
+                .iter()
+                .filter(|task| {
+                    task.id == lane.task_id
+                        || task
+                            .lane
+                            .worktree_path
+                            .as_ref()
+                            .zip(lane.worktree_path.as_ref())
+                            .is_some_and(|(a, b)| {
+                                codeterm_service_core::service::worker_lane::same_path(a, b)
+                            })
+                        || task
+                            .lane
+                            .branch
+                            .as_ref()
+                            .zip(lane.branch.as_ref())
+                            .is_some_and(|(a, b)| a == b)
+                })
+                .find_map(|task| task_refusal(task, lane, &live));
+            (tabs.clone(), refusal)
+        });
+        rows.push(row);
+    }
+    let lanes_ms = started.elapsed().as_millis();
+    for residue in codeterm_service_core::service::lane_removal::residue::inventory_with_worktrees(
+        project,
+        &tabs,
+        &inventory.worktree_paths(),
+    )
+    .unwrap()
+    {
+        rows.push(LaneCleanRow {
+            task_id: String::new(),
+            worktree: Some(residue.path.display().to_string()),
+            branch: None,
+            action: if residue.refusal.is_some() {
+                "kept"
+            } else {
+                "remove"
+            },
+            reason: residue
+                .refusal
+                .unwrap_or_else(|| "unregistered artifact residue".into()),
+        });
+    }
+    let output = serde_json::json!({
+        "project": project, "recorded_lanes": lanes.len(), "inventory_ms": inventory_ms,
+        "lanes_ms": lanes_ms, "total_ms": started.elapsed().as_millis(), "lanes": rows,
+    });
+    std::fs::write(
+        input.join("real-preview-result.json"),
+        serde_json::to_vec_pretty(&output).unwrap(),
+    )
+    .unwrap();
+    println!("project={project} recorded_lanes={} inventory_ms={inventory_ms} lanes_ms={lanes_ms} total_ms={}", lanes.len(), output["total_ms"]);
+    assert!(rows
+        .iter()
+        .all(|row| matches!(row.action, "absent" | "kept" | "remove")));
+}
+
+#[test]
+fn lane_clean_absence_never_overrides_remote_or_live_worker_refusal() {
+    let lane = TeamCloseLane {
+        plan_id: "plan".into(),
+        task_id: "task".into(),
+        project_path: "project".into(),
+        worktree_path: None,
+        branch: Some("lane/absent".into()),
+        base: None,
+        destination: Some("HEAD".into()),
+        hold_reason: None,
+    };
+    for reason in [
+        "remote lane requires cleanup on its owning peer",
+        "lane Worker tab is live",
+    ] {
+        let row = run_lane_with_inventory(&lane, true, &Inventory::default(), || {
+            (vec![], Some(reason.into()))
+        });
+        assert_eq!(row.action, "kept");
+        assert_eq!(row.reason, reason);
+    }
+}
+
+#[test]
+fn lane_clean_batched_ancestry_distinguishes_merge_parents_and_checkout_heads() {
+    let inventory = Inventory::load_with("/canonical", false, |_, args| {
+        Ok(match args[0] {
+            "worktree" => "worktree /canonical\nHEAD merged\nbranch refs/heads/main\n\nworktree /lane\nHEAD ahead\nbranch refs/heads/lane/work".into(),
+            "for-each-ref" => "merged refs/heads/main\nahead refs/heads/lane/work\nleft refs/heads/lane/merged".into(),
+            "rev-list" => "merged left right\nleft base\nright base\nahead left\nbase".into(),
+            "remote" => String::new(),
+            _ => panic!("unexpected query"),
+        })
+    }).unwrap();
+    assert_eq!(
+        inventory.merged_refusal("/canonical", "refs/heads/lane/merged", "HEAD"),
+        None
+    );
+    assert!(inventory
+        .merged_refusal("/canonical", "refs/heads/lane/work", "HEAD")
+        .is_some());
+    assert_eq!(inventory.merged_refusal("/lane", "HEAD", "lane/work"), None);
+    assert!(inventory.merged_refusal("/lane", "HEAD", "main").is_some());
+    assert_eq!(
+        inventory.merged_refusal("/canonical", "right", "main"),
+        None
+    );
+    assert_eq!(inventory.merged_refusal("/canonical", "base", "main"), None);
+    assert_eq!(
+        inventory
+            .merged_refusal("/canonical", "base", "-invalid")
+            .as_deref(),
+        Some("invalid lane ancestry reference")
+    );
+}

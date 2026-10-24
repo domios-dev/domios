@@ -82,6 +82,9 @@ pub fn remove(path: &Path) -> Result<(), String> {
         Ok(_) => {}
     }
     let root = fs::canonicalize(&absolute).map_err(|error| failure("resolve", path, error))?;
+    if root.is_dir() && fs::remove_dir_all(&root).is_ok() {
+        return verify_removed(&root);
+    }
     let mut pending = vec![(root.clone(), false)];
     while let Some((path, visited)) = pending.pop() {
         let metadata = match fs::symlink_metadata(&path) {
@@ -115,7 +118,11 @@ pub fn remove(path: &Path) -> Result<(), String> {
             result.map_err(|error| failure("remove", &path, error))?;
         }
     }
-    match fs::symlink_metadata(&root) {
+    verify_removed(&root)
+}
+
+fn verify_removed(root: &Path) -> Result<(), String> {
+    match fs::symlink_metadata(root) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(failure("verify removal of", &root, error)),
         Ok(_) => Err(format!(

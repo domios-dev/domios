@@ -62,6 +62,8 @@ Close a reported Worker after its clean lane is integrated and no author correct
 
 Accepted clean merged lanes are removed completely when their Worker closes, including ignored build output; merged branches are deleted with `git branch -d`. Cancelled clean worktrees may be removed while unmerged branches remain recoverable. Dirty or unmerged accepted lanes remain cleanup debt with an exact command. Plan cleanup also previews unregistered artifact residue beneath the worktree root and removes it only with confirmation. Registered worktrees, source and link targets stay protected; deletion failures name the exact path and available holder evidence.
 
+Plan cleanup previews use local Git inventory and answer independently of a running deletion. Confirmed cleanup prints each lane as it is checked and completed; a second confirmed cleanup for that plan is refused while the first runs. JSON output remains one final result.
+
 Only the live Plan Orchestrator may run confirmed lane cleanup (including `--fetch`) from its Team utility shell. The daemon verifies launch binding, creator, Team, and live Plan ownership; shells need no agent session or rebind. Other members cannot clean lanes.
 
 Never answer, notify, or mutate from `actionable: false` tab hints; require two agreeing strong observations of the same launch before acting.
@@ -101,4 +103,4 @@ The default Curator control loop replaces the Orchestrator heartbeat. It mirrors
 
 A `[provider access lost]` notice means recover the login or respawn on another provider, never a completed task; routing is in `ORCHESTRATION-TASKS`.
 
-<!-- revision: 140 -->
+<!-- revision: 141 -->
