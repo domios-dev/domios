@@ -122,3 +122,52 @@ fn lane_clean_output_includes_residue_without_task_or_branch() {
         "remove - - orphan-path: artifact residue\n"
     );
 }
+
+#[test]
+fn lane_clean_cli_consumes_progress_by_cursor_without_resubmitting_cleanup() {
+    struct ProgressClient {
+        calls: Vec<(String, Value)>,
+    }
+    impl RpcClient for ProgressClient {
+        fn call_detailed(
+            &mut self,
+            method: &str,
+            params: Option<Value>,
+        ) -> Result<Value, SocketCallError> {
+            self.calls.push((method.into(), params.unwrap()));
+            Ok(match self.calls.len() {
+                1 => json!({"job_id": "job-token"}),
+                2 => json!({"events": [], "cursor": 3, "done": false}),
+                3 => json!({"events": [], "cursor": 4, "done": true}),
+                _ => panic!("unexpected request"),
+            })
+        }
+    }
+    let mut client = ProgressClient { calls: vec![] };
+    clean_lanes_as(
+        &mut client,
+        false,
+        Some("plan".into()),
+        true,
+        false,
+        CallerContext::default(),
+    )
+    .unwrap();
+    assert_eq!(client.calls.len(), 3);
+    assert_eq!(client.calls[0].0, "plan.lanes_clean");
+    assert_eq!(client.calls[0].1["stream"], true);
+    assert_eq!(
+        client.calls[1],
+        (
+            "plan.lanes_clean_next".into(),
+            json!({"job_id":"job-token", "cursor":0})
+        )
+    );
+    assert_eq!(
+        client.calls[2],
+        (
+            "plan.lanes_clean_next".into(),
+            json!({"job_id":"job-token", "cursor":3})
+        )
+    );
+}
