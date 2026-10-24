@@ -118,6 +118,8 @@ impl ExecutionEnvelope {
 pub struct ExecutionContract {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input_binding: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub input_bindings: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input: Option<Port>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -129,6 +131,33 @@ pub struct ExecutionContract {
 }
 
 impl ExecutionContract {
+    pub fn bind_input(
+        &self,
+        input: &ExecutionEnvelope,
+        mut resolve: impl FnMut(&str) -> Result<ExecutionEnvelope, JournalReason>,
+    ) -> Result<ExecutionEnvelope, JournalReason> {
+        if let Some(binding) = &self.input_binding {
+            if !self.input_bindings.is_empty() {
+                return Err(JournalReason::ContractViolation);
+            }
+            return resolve(binding);
+        }
+        if self.input_bindings.is_empty() {
+            return Ok(input.clone());
+        }
+        let value = self
+            .input_bindings
+            .iter()
+            .map(|(name, binding)| resolve(binding).map(|envelope| (name.clone(), envelope.value)))
+            .collect::<Result<serde_json::Map<_, _>, _>>()?;
+        Ok(ExecutionEnvelope {
+            media: "json".into(),
+            schema_id: self.input.as_ref().and_then(|p| p.reference.clone()),
+            value: Value::Object(value),
+            text: String::new(),
+        })
+    }
+
     pub fn validate(
         &self,
         envelope: &ExecutionEnvelope,

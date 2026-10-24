@@ -74,9 +74,10 @@ pub fn node(document: &Document, node: &Node) -> Result<Step, String> {
             input: if node.call.is_some() {
                 None
             } else {
-                node.input.clone()
+                crate::blueprint_document::bindings::input_schema(document, node)?
             },
             input_binding: node.bind.get("in").cloned(),
+            input_bindings: crate::blueprint_document::bindings::named_bindings(node),
             output: node.output.clone(),
             types: document.types.clone(),
             limits: node.limits.clone(),
