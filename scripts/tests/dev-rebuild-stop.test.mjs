@@ -156,18 +156,55 @@ test('helper exemption refuses listener owners, foreign images, client children 
 
 test('Windows snapshot captures the process command line for helper classification', { skip: process.platform !== 'win32' }, () => {
   const source = readFileSync(new URL('../windows-dev-rebuild-stop.ps1', import.meta.url), 'utf8');
+  const helper = fileURLToPath(new URL('../windows-dev-rebuild-process.cs', import.meta.url));
   const snapshot = source.match(/^function Snapshot[^]*?^\}/m)[0];
-  const command = `${snapshot}
+  const command = `Add-Type -Path '${helper.replaceAll("'", "''")}'
+${snapshot}
 function Get-NetTCPConnection { @() }
-function Get-CimInstance { [pscustomobject]@{ ProcessId = $PID; ParentProcessId = 1; ExecutablePath = 'C:/server.exe'; CommandLine = 'server.exe pty-child shell.exe' } }
+function Get-CimInstance { [pscustomobject]@{ ProcessId = $PID; ParentProcessId = 1; ExecutablePath = (Join-Path $PSHOME 'powershell.exe'); CommandLine = 'server.exe pty-child shell.exe' } }
 $row = (Snapshot).processes[0]
-if ($row.commandLine -cne 'server.exe pty-child shell.exe' -or $row.created -notmatch '^[0-9]+$') { exit 1 }
+if ($row.commandLine -cne 'server.exe pty-child shell.exe' -or $row.created -notmatch '^[0-9]+$' -or
+    $row.imageIdentity -cne [DevRebuildProcess]::FileIdentity($row.executable)) { exit 1 }
 `;
   const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(command, 'utf16le').toString('base64')], {
     encoding: 'utf8', windowsHide: true, timeout: 10_000,
   });
   assert.equal(result.error, undefined);
   assert.equal(result.status, 0, result.stderr);
+});
+
+test('Windows final process guard uses file identity across aliases and moves and refuses identity changes', { skip: process.platform !== 'win32' }, () => {
+  const source = readFileSync(new URL('../windows-dev-rebuild-stop.ps1', import.meta.url), 'utf8');
+  const guard = source.match(/^function Assert-ProcessIdentity\([^]*?^\}/m)[0];
+  const row = { pid: 44, created: '125', executable: 'C:/launcher/bin/agent.exe', imageIdentity: '01234567:0000000000000001' };
+  const cases = [
+    { name: 'junction', process: { ...row, Id: 44, executable: 'C:/packages/release/bin/agent.exe' }, ok: true },
+    { name: 'moved-install', process: { ...row, Id: 44, executable: 'C:/moved/bin/agent.exe' }, ok: true },
+    { name: 'different-creation', process: { ...row, Id: 44, created: '999' }, ok: false },
+    { name: 'different-file', process: { ...row, Id: 44, imageIdentity: '01234567:0000000000000002' }, ok: false },
+    { name: 'different-volume', process: { ...row, Id: 44, imageIdentity: '76543210:0000000000000001' }, ok: false },
+    { name: 'different-pid', process: { ...row, Id: 45 }, ok: false },
+    { name: 'missing-file-identity', process: { ...row, Id: 44 }, row: { ...row, imageIdentity: '' }, ok: false },
+  ];
+  const command = `$ErrorActionPreference = 'Stop'
+${guard}
+$row = '${JSON.stringify(row)}' | ConvertFrom-Json
+$cases = '${JSON.stringify(cases)}' | ConvertFrom-Json
+foreach ($case in $cases) {
+  $expected = $row
+  if ($case.row) { $expected = $case.row }
+  $accepted = $true
+  try { Assert-ProcessIdentity $case.process $expected } catch { $accepted = $false }
+  if ($accepted -ne $case.ok) { throw "Wrong identity decision: $($case.name)" }
+}
+Write-Output 'identity cases=7 passed'
+`;
+  const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(command, 'utf16le').toString('base64')], {
+    encoding: 'utf8', windowsHide: true, timeout: 10_000,
+  });
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /identity cases=7 passed/);
 });
 
 test('Windows final listener guard accepts captured descendants and refuses changed ownership', { skip: process.platform !== 'win32' }, () => {
@@ -247,8 +284,26 @@ $process = [Diagnostics.Process]::GetCurrentProcess()
 try {
   if ($self.Id -ne $PID -or $self.WaitForExit(0) -or
       $self.Created -ne $process.StartTime.ToUniversalTime().ToFileTimeUtc().ToString() -or
-      $self.Executable -ine $process.MainModule.FileName) { throw 'Pinned handle identity mismatch' }
+      $self.Executable -ine $process.MainModule.FileName -or
+      $self.ImageIdentity -cne [DevRebuildProcess]::FileIdentity($process.MainModule.FileName)) { throw 'Pinned handle identity mismatch' }
 } finally { $self.Dispose(); $process.Dispose() }
+$directory = [IO.Directory]::CreateDirectory((Join-Path ([IO.Path]::GetTempPath()) ([Guid]::NewGuid().ToString()))).FullName
+$original = Join-Path $directory 'image.exe'
+$alias = Join-Path $directory 'alias.exe'
+$moved = Join-Path $directory 'moved.exe'
+try {
+  [IO.File]::WriteAllText($original, 'opaque image fixture')
+  $identity = [DevRebuildProcess]::FileIdentity($original)
+  New-Item -ItemType HardLink -Path $alias -Target $original | Out-Null
+  if ([DevRebuildProcess]::FileIdentity($alias) -cne $identity) { throw 'Alias changed file identity' }
+  [IO.File]::Move($original, $moved)
+  if ([DevRebuildProcess]::FileIdentity($moved) -cne $identity) { throw 'Move changed file identity' }
+  [IO.File]::WriteAllText($original, 'opaque image fixture')
+  if ([DevRebuildProcess]::FileIdentity($original) -ceq $identity) { throw 'Replacement reused file identity' }
+} finally {
+  foreach ($file in @($original, $alias, $moved)) { if ([IO.File]::Exists($file)) { [IO.File]::Delete($file) } }
+  [IO.Directory]::Delete($directory)
+}
 Write-Output 'shutdown cases=6 and native pinned identity passed'
 `;
   const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(command, 'utf16le').toString('base64')], {
