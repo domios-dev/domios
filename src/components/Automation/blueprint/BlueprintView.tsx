@@ -15,6 +15,8 @@ import type { PipelineView } from "../pipelineModel";
 import { RunDivider } from "../RunDivider";
 import { AUTOMATION_TONE, AUTOMATION_TOOL, stateTone } from "../styles";
 import { BlueprintCanvas, type CanvasCallout } from "./Canvas";
+import { CanvasOverlay } from "./InfoCard";
+import { DetailsFrame } from "../DetailsFrame";
 import { expandedCall, focusScope, litWires } from "./graphModel";
 import { layoutBlueprint } from "./layout";
 import { BlueprintNodeDetails } from "./NodeDetails";
@@ -84,7 +86,7 @@ export function BlueprintView({ pipeline, initialRunId, backLabel, onBack, expor
   const shown = runId === null ? pipeline : pipeline.runs?.find((run) => run.id === runId)?.pipeline ?? null;
   const graphSource = useMemo(() => shown ?? pipeline, [shown, pipeline]);
   const built = useMemo(() => trail.length ? new Set([...expanded, ...trail.map((id, depth) => blueprintNodeKey(trail.slice(0, depth), id))]) : expanded, [expanded, trail]);
-  const { graph: whole, error } = useBlueprintGraph(graphSource, built);
+  const { graph: whole, building, error } = useBlueprintGraph(graphSource, built);
   const graph = useMemo(() => {
     if (!whole || !trail.length) return whole;
     const model = focusScope(whole.model, trail);
@@ -127,7 +129,23 @@ export function BlueprintView({ pipeline, initialRunId, backLabel, onBack, expor
   const heldNotice = pipeline.heldReason && !anchored("held") ? <p role="status" className="bp-notice" data-tone="held">Held: {heldReasonLabel(pipeline.heldReason)}</p> : null;
   const evidenceNotice = graph?.model.mode === "unavailable" ? <p role="status" className="bp-notice">Per-node evidence is unavailable for this run.</p> : null;
   const planLock = pipeline.heldReason === "plan_limit_locked" ? <span className="bp-notice"><BlueprintPlanLock reason={pipeline.heldReason} /></span> : null;
-  const canvasShown = Boolean(graph && shown && shown.historical_graph_available !== false && !error && !shown.projection_error);
+  const notices = <>
+    {building && graph && <p role="status" className="bp-notice">Updating graph…</p>}
+    {planLock}{heldNotice}{evidenceNotice}
+    {stopError != null && <InlineErrorNotice error={stopError} operation="stopping this Blueprint" blocking />}
+    {recordedStop && !anchored("failed") && <section aria-label="Recorded stop" className="bp-notice" data-tone="failed">
+      <span className="font-semibold">Stopped at {recordedStop.step_name}</span>
+      <span>{recordedStop.reason ?? "Reason unavailable"}</span>
+      {recordedStop.call_stack?.length ? <span aria-label="Stop call stack" className="bp-mono">{callStack(recordedStop)}</span> : null}
+    </section>}
+  </>;
+  const info = pipeline.note || summary ? <>{pipeline.note && <p className="bp-info__note">{pipeline.note}</p>}{summary}</> : null;
+  const crumbs = trail.length > 0 ? <nav aria-label="Blueprint path" className="bp-crumbs">
+    <ol>{scopeTitles.map((title, depth) => <li key={depth}>
+      {depth === trail.length ? <span aria-current="page">{title}</span>
+        : <button type="button" onClick={() => enter(trail.slice(0, depth))}>{title}</button>}
+    </li>)}</ol>
+  </nav> : null;
   const shownNode = drawer.item && graph ? graph.model.nodes.find((node) => node.key === drawer.item) ?? null : null;
   const Heading = headingLevel === 3 ? "h3" : "h2";
   const available = body.height || 640;
@@ -136,6 +154,7 @@ export function BlueprintView({ pipeline, initialRunId, backLabel, onBack, expor
     const active = document.activeElement;
     if (active instanceof HTMLElement && !drawer.ref.current?.contains(active)) opener.current = active;
     camera.selected = key;
+    setDiffOpen(false);
     setSelected(key);
   };
   const closeDetails = () => {
@@ -175,37 +194,24 @@ export function BlueprintView({ pipeline, initialRunId, backLabel, onBack, expor
       <span className="ct-card__icon" style={{ "--ct-card-tone": AUTOMATION_TONE.blueprint } as CSSProperties}><Network size={14} aria-hidden="true" /></span>
       <Heading className="min-w-0 flex-[1_1_12rem] break-words text-[length:var(--ct-font-size-md)] font-semibold text-[var(--ct-fg)]">{pipeline.name}</Heading>
       <span className="flex items-center gap-1.5 text-xs text-[var(--ct-muted-fg)]"><span className={`h-1.5 w-1.5 rounded-full ${stateTone(pipeline.state)}`} aria-hidden="true" />{pipeline.call_graph?.kind ?? "Blueprint"} · {pipeline.state}</span>
-      {loadHistory && <button type="button" className={AUTOMATION_TOOL} aria-expanded={diffOpen} onClick={() => setDiffOpen(!diffOpen)}><GitCompare size={13} aria-hidden="true" />Semantic diff</button>}
+      {loadHistory && <button type="button" className={AUTOMATION_TOOL} aria-expanded={diffOpen} onClick={() => { if (!diffOpen) { camera.selected = null; setSelected(null); } setDiffOpen(!diffOpen); }}><GitCompare size={13} aria-hidden="true" />Semantic diff</button>}
       {actions}
       {exportTarget && <BlueprintExportButton workspaceId={exportTarget.workspaceId} teamId={exportTarget.teamId} id={exportTarget.id} />}
       {onStop && <button type="button" className={`${AUTOMATION_TOOL} bp-stop`} aria-busy={stopping || undefined} disabled={!canStop || stopping} onClick={() => void stop()}><Square size={12} aria-hidden="true" />{stopping ? "Stopping…" : "Stop Blueprint"}</button>}
     </div>
-    <div className="flex min-w-0 flex-col gap-2 px-4 empty:hidden">
-      {!canvasShown && <>{planLock}{heldNotice}{evidenceNotice}</>}
-      {stopError != null && <InlineErrorNotice error={stopError} operation="stopping this Blueprint" blocking />}
-      {recordedStop && !anchored("failed") && <section aria-label="Recorded stop" className="bp-notice" data-tone="failed">
-        <span className="font-semibold">Stopped at {recordedStop.step_name}</span>
-        <span>{recordedStop.reason ?? "Reason unavailable"}</span>
-        {recordedStop.call_stack?.length ? <span aria-label="Stop call stack" className="bp-mono">{callStack(recordedStop)}</span> : null}
-      </section>}
-      {pipeline.note && <p className="ct-meta-muted m-0">{pipeline.note}</p>}
-      {summary}
-      {diffOpen && loadHistory && <BlueprintSemanticDiff load={loadHistory} />}
-    </div>
-    {trail.length > 0 && <nav aria-label="Blueprint path" className="bp-crumbs">
-      <ol>{scopeTitles.map((title, depth) => <li key={depth}>
-        {depth === trail.length ? <span aria-current="page">{title}</span>
-          : <button type="button" onClick={() => enter(trail.slice(0, depth))}>{title}</button>}
-      </li>)}</ol>
-    </nav>}
-    <div ref={body.ref} className={`relative mt-2 flex min-w-0 flex-col ${fill ? "min-h-0 flex-1" : "h-[min(46rem,80vh)] min-h-[30rem]"}`}>
+    <div ref={body.ref} data-blueprint-body="" className={`relative flex min-w-0 flex-col ${fill ? "min-h-0 flex-1" : "h-[min(46rem,80vh)] min-h-[30rem]"}`}>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {!shown ? <p role="status" className="bp-notice m-4">Selected run unavailable.</p>
-          : shown.historical_graph_available === false ? <p role="status" aria-label="Historical graph unavailable" className="bp-notice m-4">The graph for this run was not retained. Its journal is listed under Runs.</p>
-            : error || shown.projection_error ? <InlineErrorNotice error={error ?? shown.projection_error} operation="building this Blueprint graph" blocking />
-              : !graph ? <p role="status" className="bp-notice m-4">Building Blueprint graph…</p>
-                : <BlueprintCanvas key={JSON.stringify(trail)} onOpen={drill} layout={graph.layout} label={`${pipeline.name} graph`} selected={selected} camera={camera} onSelect={select} lit={lit} callouts={callouts} notices={planLock || heldNotice || evidenceNotice ? <>{planLock}{heldNotice}{evidenceNotice}</> : null} panelOpen={selected !== null} toolbar={history ? runsToggle : undefined} />}
-        {history && (!graph || !shown || shown.historical_graph_available === false) && <div className="flex px-4 pb-2">{runsToggle}</div>}
+        {shown && shown.historical_graph_available !== false && !error && !shown.projection_error && graph
+          ? <BlueprintCanvas key={JSON.stringify(trail)} onOpen={drill} layout={graph.layout} label={`${pipeline.name} graph`} selected={selected} camera={camera} onSelect={select} lit={lit} callouts={callouts}
+            info={info} notices={notices} crumbs={crumbs} panelOpen={selected !== null || diffOpen} toolbar={history ? runsToggle : undefined} />
+          : <div className="bp-scope bp-canvas bp-stage relative flex min-h-[14rem] min-w-0 flex-1 flex-col items-start gap-3 p-4">
+            {history && runsToggle}
+            {!shown ? <p role="status" className="bp-notice">Selected run unavailable.</p>
+              : shown.historical_graph_available === false ? <p role="status" aria-label="Historical graph unavailable" className="bp-notice">The graph for this run was not retained. Its journal is listed under Runs.</p>
+                : error || shown.projection_error ? <InlineErrorNotice error={error ?? shown.projection_error} operation="building this Blueprint graph" blocking />
+                  : <p role="status" className="bp-notice">Building Blueprint graph…</p>}
+            <CanvasOverlay types={null} info={info} notices={notices} />
+          </div>}
         {history && runsOpen && <>
           <RunDivider height={clampLogHeight(logHeight, available)} available={available} controls="blueprint-run-log" onResize={resizeLog} />
           <div id="blueprint-run-log" className="bp-runs" style={{ height: clampLogHeight(logHeight, available) }}>
@@ -240,7 +246,12 @@ export function BlueprintView({ pipeline, initialRunId, backLabel, onBack, expor
           </div>
         </>}
       </div>
-      {drawer.state && drawer.item !== null && graph && <div className="plan-side-panel-layer">
+      {diffOpen && loadHistory && <div className="plan-side-panel-layer">
+        <DetailsFrame label="Semantic diff" title={<h3 className="plan-side-panel__title">Semantic diff</h3>} onClose={() => setDiffOpen(false)}>
+          <BlueprintSemanticDiff load={loadHistory} />
+        </DetailsFrame>
+      </div>}
+      {!diffOpen && drawer.state && drawer.item !== null && graph && <div className="plan-side-panel-layer">
         <BlueprintNodeDetails key={drawer.item} node={shownNode} model={graph.model}
           call={shownNode?.definition ? expandedCall(graphSource, shownNode.callPath, shownNode.definition.id) : undefined}
           expanded={shownNode ? expanded.has(shownNode.key) : false}

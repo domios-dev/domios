@@ -13,7 +13,7 @@ function yieldToHost(): Promise<void> {
   });
 }
 
-/** Builds the typed graph in host-yielding chunks, so a large Blueprint never blocks input. */
+/** Builds the typed graph in host-yielding chunks, so a large Blueprint never blocks input; the last graph stays up while the next one builds. */
 export function useBlueprintGraph(pipeline: PipelineView, expanded: BlueprintExpansion) {
   const [result, setResult] = useState<{ source: PipelineView; expanded: BlueprintExpansion; model: BlueprintGraphModel; layout: BlueprintLayout } | null>(null);
   const [failure, setFailure] = useState<{ source: PipelineView; error: string } | null>(null);
@@ -27,6 +27,5 @@ export function useBlueprintGraph(pipeline: PipelineView, expanded: BlueprintExp
     return () => controller.abort();
   }, [pipeline, expanded]);
   const current = result?.source === pipeline && result.expanded === expanded ? result : null;
-  const previous = result?.source === pipeline ? result : null;
-  return { graph: current ?? previous, building: !current, error: failure?.source === pipeline ? failure.error : null };
+  return { graph: current ?? result, building: !current, error: failure?.source === pipeline ? failure.error : null };
 }
