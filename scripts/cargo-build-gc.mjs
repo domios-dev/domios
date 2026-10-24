@@ -152,7 +152,38 @@ export function collectCargoBuilds(checkout, { dryRun = false, runner = spawnSyn
       reclaimed += result.bytes;
     }
   }
-  reclaimed += trimBuildDirectories([...roots].map(root => ({ build: path.join(path.dirname(root), 'lanes') })), { dryRun, runner });
+  if (process.env.CT_CACHE_INCREMENTAL_ALLOWED === '1') {
+    const targets = new Map();
+    const add = (root, build) => targets.set(key(build), { root, build });
+    if (process.env.CODETERM_RUST_CACHE_ROOT) roots.add(path.join(process.env.CODETERM_RUST_CACHE_ROOT, 'build'));
+    for (const root of roots) {
+      if (!fs.existsSync(root)) continue;
+      for (const build of orphanCandidates(root, [])) add(root, build);
+    }
+    const lane = laneBuildDirectory();
+    add(path.dirname(lane), lane);
+    for (const repo of checkouts) {
+      for (const relative of ['target', 'target-check', 'src-tauri/target', 'cli/target']) {
+        const target = path.join(repo, relative);
+        add(path.dirname(target), target);
+      }
+    }
+    for (const { root, build } of targets.values()) {
+      if (!fs.existsSync(path.join(build, 'CACHEDIR.TAG'))) continue;
+      const result = runner(python, [helper, '--incremental', root, build, ...(dryRun ? ['--dry-run'] : [])],
+        { cwd: checkout, encoding: 'utf8' });
+      if (result.status !== 0) {
+        log(`incremental trim refused ${build}: ${result.stderr || result.error?.message}`);
+        continue;
+      }
+      const outcome = JSON.parse(result.stdout);
+      log(`${outcome.status} ${build}: ${outcome.bytes} bytes${outcome.reason ? ` (${outcome.reason})` : ''}`);
+      reclaimed += outcome.bytes;
+    }
+  } else log('incremental trim skipped: caller does not own the build gateway');
+  reclaimed += trimBuildDirectories([...roots].map(root => ({ build: path.join(path.dirname(root), 'lanes') })), {
+    dryRun, runner, plan: build => retentionPaths(build, { units: 2, incremental: Number.MAX_SAFE_INTEGER }),
+  });
   log(`${dryRun ? 'would free' : 'freed'} ${(reclaimed / 1024 ** 3).toFixed(3)} GiB (${reclaimed} bytes)`);
   return reclaimed;
 }
