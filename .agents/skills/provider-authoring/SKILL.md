@@ -295,6 +295,7 @@ Top-level `plugin.json` fields shared with capability plugins (`id`, `version`,
 |---|---|---|
 | `binaryName` | string? | Process name used for type-mapping a PTY to this provider. Defaults to `id`. |
 | `cliBinary` | string? | Binary probed for install/version checks. |
+| `generalAgentOfferWhenAbsent` | bool | Defaults false. Eligible PTY/runtime agents appear in General pickers only when detected available, unless this flag offers installation even when absent or unknown. Exported as `general_agent_offer_when_absent`; native/JS descriptor parity is required. Adds no sandbox access. |
 | `cliCompatibility` | `{supported: string[], breaking: {range: string, reasons: string[]}[], modelMinimumCli?: map, directSqlite?: bool}` | Rust semver ranges (comma-separated comparisons); empty supported ranges explicitly mean unknown. Breaking ranges win. `directSqlite` defaults false and gates read-only SQLite access: known breaking, invalid and undetected versions are refused; detected undeclared versions retain an unknown verdict and use best-effort SQL/JSON shape checks. Settings shows unverified compatibility quietly. |
 | `installer` | map platform→string | Per-OS install command (`macos` / `linux` / `windows`). |
 | `updater` | map platform→string | Per-OS update command run silently by the coordinator. `{version}` pins the checked target; required when compatibility declares breaking ranges. Running agents keep running. |

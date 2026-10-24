@@ -64,6 +64,10 @@ impl ClaudeProvider {
 }
 
 impl AgentProvider for ClaudeProvider {
+    fn general_agent_offer_when_absent(&self) -> bool {
+        true
+    }
+
     fn attachment_capabilities(&self) -> crate::provider::AttachmentCapabilities {
         crate::provider::AttachmentCapabilities {
             file_paths: true,
