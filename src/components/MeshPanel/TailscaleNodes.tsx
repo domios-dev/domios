@@ -57,7 +57,7 @@ export function TailscaleMachineHint({ name, tailscale, detail }: { name: string
   return (
     <div role="note" className="flex flex-col gap-1.5 rounded-md border border-[var(--ct-border)] bg-[color-mix(in_srgb,var(--ct-accent)_4%,var(--ct-bg))] px-3 py-2.5" onClick={(event) => event.stopPropagation()}>
       <span className="text-[12px] font-medium text-[var(--ct-fg)]">{detail ? "On another private network" : `Can't reach ${name}`}</span>
-      <span className={UI_TEXT.metaMuted}>{detail ?? `Make sure Tailscale is running on ${name} and signed in with the same account as this computer.`}</span>
+      <span className={UI_TEXT.metaMuted}>{detail ?? "Make sure Tailscale is running there and signed in with the same account as this computer."}</span>
       <Actions tailscale={tailscale} machine={name} ariaLabel={`Set up the private network on ${name} with General agent`} />
     </div>
   );
