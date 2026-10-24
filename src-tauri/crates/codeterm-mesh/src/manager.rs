@@ -47,6 +47,7 @@ pub struct MeshManager {
     pending_links: HashMap<String, account_admission::PendingLink>,
     pending_adoptions: HashMap<String, account_admission::PendingAdoption>,
     account_ready: bool,
+    remote_access_epoch: u64,
     adoptions: HashMap<String, account_gate::AdoptionAttempt>,
     advertised_memberships: HashMap<String, String>,
 }
@@ -127,6 +128,7 @@ impl MeshManager {
             pending_links: HashMap::new(),
             pending_adoptions: HashMap::new(),
             account_ready: true,
+            remote_access_epoch: 0,
             adoptions: HashMap::new(),
             advertised_memberships: HashMap::new(),
         }

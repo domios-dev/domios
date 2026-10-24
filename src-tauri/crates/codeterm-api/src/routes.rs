@@ -959,6 +959,10 @@ pub(super) fn apply_middleware(router: Router<AppState>, state: AppState) -> Rou
     ));
     let configured_origins = state.config.lock().api.cors_allow_origins.clone();
     let router = router.layer(cors_layer(&frontend_origins, &configured_origins));
+    let router = router.layer(middleware::from_fn_with_state(
+        state.clone(),
+        super::auth::remote::middleware,
+    ));
     #[cfg(debug_assertions)]
     let router = router.layer(middleware::from_fn(super::cors_diagnostics::record));
     #[cfg(debug_assertions)]
