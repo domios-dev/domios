@@ -56,7 +56,7 @@ pub(super) fn project_pipeline_contract(
         snapshot.revision = format!("{:x}", digest.finalize());
     }
     snapshot.blueprints.clear();
-    for job in jobs.iter().filter(|job| job.is_scenario_root()) {
+    for job in jobs.iter().filter(|job| graph::is_snapshot_root(job)) {
         let Some(node) = snapshot.nodes.iter_mut().find(|node| {
             node.pointer("/identity/id").and_then(Value::as_str) == Some(job.id.as_str())
                 && node.pointer("/identity/kind").and_then(Value::as_str) == Some("blueprint")
@@ -168,7 +168,7 @@ pub(super) fn project_pipeline_contract(
             });
         }
         node["state"] = json!(state);
-        node["held_reason"] = json!(crate::plan_lock::held_reason(job));
+        node["held_reason"] = blueprint["held_reason"].clone();
         snapshot.blueprints.push(blueprint);
     }
 }
