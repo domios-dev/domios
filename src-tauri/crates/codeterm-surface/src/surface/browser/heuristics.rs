@@ -47,6 +47,7 @@ pub fn activity_label(verb: &str, args: &[String]) -> String {
         "snapshot" => "reading the page".into(),
         "click" => format!("clicking {target}"),
         "type" => format!("typing into {target}"),
+        "type-secret" => "typing secret input".into(),
         "press" => format!("pressing {first}"),
         "scroll" => "scrolling".into(),
         "back" => "going back".into(),

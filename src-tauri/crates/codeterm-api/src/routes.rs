@@ -610,6 +610,7 @@ pub(super) fn create_router_with_preview_admission(
         )
         .route("/api/account/status", get(super::account_routes::status))
         .route("/api/account/login", post(super::account_routes::login))
+        .merge(super::account_routes::debug_login_router())
         .route(
             "/api/account/callback",
             post(super::account_routes::callback).layer(axum::extract::DefaultBodyLimit::max(

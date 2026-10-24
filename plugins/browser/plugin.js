@@ -71,10 +71,14 @@ function parseOf(raw) {
 }
 function forward(ctx, call = hostSurfaceCall()) {
   if (!call) return { error: "host.surface is unavailable in this Domios build" };
-  const verb = ctx.verb || "help";
+  const secret = ctx.body;
+  const verb = secret !== void 0 && ctx.verb === "type" ? "type-secret" : ctx.verb || "help";
+  if (secret !== void 0 && ctx.verb !== "type") return { error: "Browser body input is supported only by type" };
   const parsed = parseOf(Array.isArray(ctx.args) ? ctx.args : []);
   if ("error" in parsed) return { error: parsed.error };
+  if (secret !== void 0) parsed.args.push(secret);
   const payload = parsed.of === void 0 ? parsed.args : { args: parsed.args, of: parsed.of };
+  const redact = (text) => redactCredentials(secret ? text.split(secret).join("REDACTED") : text);
   let reply;
   try {
     reply = JSON.parse(call(verb, JSON.stringify(payload)));
@@ -83,8 +87,8 @@ function forward(ctx, call = hostSurfaceCall()) {
   }
   if (reply && typeof reply === "object") {
     const { result, error } = reply;
-    if (typeof error === "string") return { error: redactCredentials(error) };
-    if (typeof result === "string") return { result: redactCredentials(result) };
+    if (typeof error === "string") return { error: redact(error) };
+    if (typeof result === "string") return { result: redact(result) };
   }
   return { error: `the browser runtime returned no answer for ${verb}` };
 }

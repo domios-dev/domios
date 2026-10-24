@@ -39,10 +39,14 @@ export function parseOf(raw: readonly unknown[]): ParsedArgs {
 // The core browser runtime does the work; the plugin forwards the agent's verb to its own surface or `--of` another's.
 export function forward(ctx: AgentCommandCtx, call: SurfaceCall | undefined = hostSurfaceCall()): AgentCommandReply {
   if (!call) return { error: "host.surface is unavailable in this Domios build" };
-  const verb = ctx.verb || "help";
+  const secret = ctx.body;
+  const verb = secret !== undefined && ctx.verb === "type" ? "type-secret" : ctx.verb || "help";
+  if (secret !== undefined && ctx.verb !== "type") return { error: "Browser body input is supported only by type" };
   const parsed = parseOf(Array.isArray(ctx.args) ? ctx.args : []);
   if ("error" in parsed) return { error: parsed.error };
+  if (secret !== undefined) parsed.args.push(secret);
   const payload = parsed.of === undefined ? parsed.args : { args: parsed.args, of: parsed.of };
+  const redact = (text: string) => redactCredentials(secret ? text.split(secret).join("REDACTED") : text);
   let reply: unknown;
   try {
     reply = JSON.parse(call(verb, JSON.stringify(payload)));
@@ -51,8 +55,8 @@ export function forward(ctx: AgentCommandCtx, call: SurfaceCall | undefined = ho
   }
   if (reply && typeof reply === "object") {
     const { result, error } = reply as { result?: unknown; error?: unknown };
-    if (typeof error === "string") return { error: redactCredentials(error) };
-    if (typeof result === "string") return { result: redactCredentials(result) };
+    if (typeof error === "string") return { error: redact(error) };
+    if (typeof result === "string") return { result: redact(result) };
   }
   return { error: `the browser runtime returned no answer for ${verb}` };
 }

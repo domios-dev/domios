@@ -60,25 +60,28 @@ pub(super) fn text(raw: &str) -> String {
     output
 }
 
-fn value(raw: &mut Value) {
+fn value(raw: &mut Value, sanitize: &impl Fn(&str) -> String) {
     match raw {
-        Value::String(raw) => *raw = text(raw),
-        Value::Array(values) => values.iter_mut().for_each(value),
-        Value::Object(values) => values.values_mut().for_each(value),
+        Value::String(raw) => *raw = sanitize(raw),
+        Value::Array(values) => values.iter_mut().for_each(|v| value(v, sanitize)),
+        Value::Object(values) => values.values_mut().for_each(|v| value(v, sanitize)),
         _ => {}
     }
 }
 
-pub(super) fn outcome(mut outcome: SurfaceCallOutcome) -> SurfaceCallOutcome {
-    value(&mut outcome.result);
+fn outcome_with(
+    mut outcome: SurfaceCallOutcome,
+    sanitize: &impl Fn(&str) -> String,
+) -> SurfaceCallOutcome {
+    value(&mut outcome.result, sanitize);
     for effect in &mut outcome.effects {
         let SurfaceEffect::DeliverAnnotation { markdown, .. } = effect;
-        *markdown = text(markdown);
+        *markdown = sanitize(markdown);
     }
     outcome
 }
 
-pub(super) fn event(mut event: SurfaceEvent) -> SurfaceEvent {
+fn event_with(mut event: SurfaceEvent, sanitize: &impl Fn(&str) -> String) -> SurfaceEvent {
     match &mut event {
         SurfaceEvent::State(state) => {
             for field in [
@@ -88,17 +91,19 @@ pub(super) fn event(mut event: SurfaceEvent) -> SurfaceEvent {
                 &mut state.actor,
                 &mut state.owner,
                 &mut state.profile,
+                &mut state.needs_human,
+                &mut state.target_id,
             ] {
-                *field = text(field);
+                *field = sanitize(field);
             }
             state
                 .profiles
                 .iter_mut()
-                .for_each(|profile| *profile = text(profile));
+                .for_each(|profile| *profile = sanitize(profile));
         }
         SurfaceEvent::Notice(notice) => {
-            notice.text = text(&notice.text);
-            notice.detail = notice.detail.as_deref().map(text);
+            notice.text = sanitize(&notice.text);
+            notice.detail = notice.detail.as_deref().map(sanitize);
         }
         SurfaceEvent::Frame(_) => {}
     }
@@ -107,3 +112,37 @@ pub(super) fn event(mut event: SurfaceEvent) -> SurfaceEvent {
 
 #[cfg(test)]
 mod tests;
+
+impl super::BrowserRuntime {
+    pub(super) fn redact_text(&self, raw: &str) -> String {
+        let mut result = raw.to_string();
+        let secrets = self.secrets.lock();
+        let mut ordered: Vec<_> = secrets.iter().collect();
+        ordered.sort_by_key(|secret| std::cmp::Reverse(secret.len()));
+        for secret in ordered {
+            result = result.replace(secret.as_str(), "REDACTED");
+            if let Ok(encoded) = serde_json::to_string(secret) {
+                result = result.replace(&encoded[1..encoded.len() - 1], "REDACTED");
+            }
+        }
+        text(&result)
+    }
+    pub(super) fn redact_outcome(&self, raw: SurfaceCallOutcome) -> SurfaceCallOutcome {
+        outcome_with(raw, &|s| self.redact_text(s))
+    }
+    pub(super) fn redact_value(&self, raw: &mut Value) {
+        value(raw, &|s| self.redact_text(s));
+    }
+    pub(super) fn redact_event(&self, raw: SurfaceEvent) -> SurfaceEvent {
+        event_with(raw, &|s| self.redact_text(s))
+    }
+}
+
+#[cfg(test)]
+fn outcome(raw: SurfaceCallOutcome) -> SurfaceCallOutcome {
+    outcome_with(raw, &text)
+}
+#[cfg(test)]
+fn event(raw: SurfaceEvent) -> SurfaceEvent {
+    event_with(raw, &text)
+}
