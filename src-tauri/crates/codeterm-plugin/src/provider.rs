@@ -268,6 +268,8 @@ pub use worker_lane_setting::*;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ProviderDescriptor {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub general_agent_offer_when_absent: bool,
     #[serde(default)]
     pub attachments: AttachmentCapabilities,
     #[serde(default, skip_serializing_if = "Option::is_none")]
