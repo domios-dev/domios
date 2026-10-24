@@ -68,8 +68,15 @@ impl ServiceContext {
         params: &mut SpawnAgentParams,
         base_checkout: &str,
         lane_label: &str,
+        base: Option<&str>,
     ) -> Result<ProvisionedWorkerLane, String> {
-        let lane = provision_lane(base_checkout, lane_label, &self.worker_lane_settings())?;
+        let settings = self.worker_lane_settings();
+        let lane = match base {
+            Some(base) => {
+                provision_isolated_lane_at_base(base_checkout, lane_label, base, &settings)
+            }
+            None => provision_lane(base_checkout, lane_label, &settings),
+        }?;
         params.cwd = Some(lane.cwd.clone());
         params.provisioned_cwd = Some(lane.cwd.clone());
         Ok(lane)

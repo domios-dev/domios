@@ -3,7 +3,7 @@ use serde_json::json;
 use codeterm_service_core::plan::{ExecutionIntent, Plan, TaskLaneMetadata};
 use codeterm_service_core::service::lane_removal::{lane_release_command, recorded_lane_remnant};
 use codeterm_service_core::service::{
-    classify_mutating_lane, recorded_lane_matches, verify_worker_lane, LaneProtection,
+    classify_mutating_lane, recorded_lane_matches, same_path, verify_worker_lane, LaneProtection,
     UnsafeMutatingLane, WorkerLaneProvenance,
 };
 
@@ -135,6 +135,11 @@ pub(super) fn plan_dispatch_lane_placement(
     task_lane: &TaskLaneMetadata,
     resolved: WorkerLaneProvenance,
 ) -> Result<DispatchLanePlacement, JsonRpcError> {
+    let base_checkout = if same_path(&resolved.canonical_cwd, &plan.canonical_project_path) {
+        plan.project_path.clone()
+    } else {
+        resolved.canonical_cwd.clone()
+    };
     let recorded = task_lane
         .worktree_path
         .as_deref()
@@ -166,9 +171,7 @@ pub(super) fn plan_dispatch_lane_placement(
                     resolved.worktree_path
                 )));
             }
-            return Ok(DispatchLanePlacement::Provision {
-                base_checkout: resolved.canonical_cwd.clone(),
-            });
+            return Ok(DispatchLanePlacement::Provision { base_checkout });
         }
         refuse_unsafe_mutating_write(
             plan,
@@ -196,9 +199,7 @@ pub(super) fn plan_dispatch_lane_placement(
                     "task '{task_id}' records {surviving_part}. Release it with: {release}. No Worker was spawned."
                 )));
             }
-            return Ok(DispatchLanePlacement::Provision {
-                base_checkout: resolved.canonical_cwd.clone(),
-            });
+            return Ok(DispatchLanePlacement::Provision { base_checkout });
         }
     }
     // Canonical is the integration checkout, never the worker checkout: it is
@@ -206,10 +207,9 @@ pub(super) fn plan_dispatch_lane_placement(
     if matches!(
         classify_mutating_lane(plan, task_id, &resolved.worktree_path),
         Some(UnsafeMutatingLane::Canonical { .. })
-    ) {
-        return Ok(DispatchLanePlacement::Provision {
-            base_checkout: resolved.worktree_path,
-        });
+    ) || same_path(&resolved.worktree_path, &plan.project_path)
+    {
+        return Ok(DispatchLanePlacement::Provision { base_checkout });
     }
     refuse_unsafe_mutating_write(
         plan,

@@ -611,7 +611,7 @@ where
                     .as_deref()
                     .and_then(|id| mux.get_workspace(id))
                     .and_then(|workspace| workspace.cwd.clone())
-                    .or_else(|| Some(canonical_cwd.clone()))
+                    .or_else(|| Some(plan.project_path.clone()))
             };
             let caller_cwd = {
                 let mux = svc.mux.read();
@@ -774,8 +774,13 @@ where
     let lane_label = format!("{plan_id}-{task_id}");
     let provisioned_lane = match lane_placement.as_ref() {
         Some(DispatchLanePlacement::Provision { base_checkout }) => Some(
-            svc.provision_dispatch_worker_lane(&mut spawn_params, base_checkout, &lane_label)
-                .map_err(|error| dispatch_failed("lane_provision", error))?,
+            svc.provision_dispatch_worker_lane(
+                &mut spawn_params,
+                base_checkout,
+                &lane_label,
+                detail.task.lane.base.as_deref(),
+            )
+            .map_err(|error| dispatch_failed("lane_provision", error))?,
         ),
         // A lane we created on an earlier dispatch is still ours. Without this the
         // reused worktree carries no provenance and the trust dialog waits forever.
