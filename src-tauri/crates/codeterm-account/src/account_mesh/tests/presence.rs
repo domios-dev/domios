@@ -87,7 +87,7 @@ async fn account_mesh_presence_offline_sign_out_keeps_last_confirmed_state_and_l
     assert_eq!(harness.registry.presence(UID), RegistryPresence::Present);
     assert_eq!(harness.state().traffic(), Traffic::BlockedSignedOut);
     assert!(harness.sessions.0.lock().unwrap().is_none());
-    assert_eq!(harness.calls("presence"), 2);
+    assert_eq!(harness.calls("presence"), 1);
 }
 
 #[tokio::test]

@@ -172,6 +172,7 @@ pub struct RegistryObservation {
     pub observed_at: u64,
     pub registry_revision: u64,
     pub rows: Vec<MeshManagementRow>,
+    pub cursor: Option<super::wire::MeshCursor>,
 }
 
 /// Immutable lifecycle snapshot; every change is a new value with explicit epochs.

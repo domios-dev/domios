@@ -153,6 +153,10 @@ impl Clock for TestClock {
 
 #[derive(Default)]
 pub struct Script {
+    pub update: Option<RegistryRefusal>,
+    pub update_race: Option<String>,
+    pub reject_update_after_race: bool,
+    pub sync_cursor: Option<MeshCursor>,
     pub rename_race: Option<String>,
     pub enrollment: Option<RegistryRefusal>,
     pub enrollment_gate: Option<Arc<Notify>>,
@@ -400,6 +404,7 @@ impl MeshRegistry for FakeRegistry {
             MeshOperation::List { .. } => "list",
             MeshOperation::Update { .. } => "update",
             MeshOperation::Publish { .. } => "publish",
+            MeshOperation::Sync { .. } => "sync",
             MeshOperation::Withdraw { .. } => "withdraw",
             MeshOperation::Presence { .. } => "presence",
             MeshOperation::Link { .. } => "link",
@@ -473,6 +478,72 @@ impl MeshRegistry for FakeRegistry {
                     return Err(refusal);
                 }
                 Ok(result)
+            }
+            MeshOperation::Sync {
+                presence,
+                endpoint,
+                default_display_name,
+            } => {
+                if let Some(refusal) = script.1 {
+                    return Err(refusal);
+                }
+                if let Some(refusal) = self.script.lock().unwrap().presence {
+                    return Err(refusal);
+                }
+                if account.inactive || account.slot.is_none() {
+                    return Err(RegistryRefusal::Forbidden);
+                }
+                if let Some(name) = self.script.lock().unwrap().rename_race.take() {
+                    account.display_name = Some(name);
+                    account.metadata_revision += 1;
+                }
+                let previous = account.metadata_revision;
+                let mut changed = account.presence != *presence;
+                account.presence = *presence;
+                if account.display_name.is_none() {
+                    if let Some(name) = default_display_name {
+                        account.display_name = Some(name.clone());
+                        changed = true;
+                    }
+                }
+                if let Some(endpoint) = endpoint {
+                    let observation = MeshEndpointObservation {
+                        tailnet_ip: endpoint.tailnet_ip.clone(),
+                        api_port: endpoint.api_port,
+                        expires_at: now + 3600,
+                    };
+                    changed |= account.endpoint.as_ref() != Some(&observation);
+                    account.endpoint = Some(observation);
+                } else {
+                    changed |= account.endpoint.is_some();
+                    account.endpoint = None;
+                }
+                if changed {
+                    account.metadata_revision += 1;
+                }
+                let mut result = SyncResult {
+                    installation_id: INSTALLATION.into(),
+                    display_name: account.display_name.clone(),
+                    presence: account.presence,
+                    publication: if account.endpoint.is_some() {
+                        PublicationState::Complete
+                    } else {
+                        PublicationState::None
+                    },
+                    endpoint: account.endpoint.clone(),
+                    previous_metadata_revision: previous,
+                    metadata_revision: account.metadata_revision,
+                    slot_revision: account.slot.unwrap(),
+                    registry_revision: 9,
+                    registry: PageResult {
+                        registry_revision: 9,
+                        rows: Vec::new(),
+                        cursor: self.script.lock().unwrap().sync_cursor.clone(),
+                    },
+                };
+                drop(accounts);
+                result.registry.rows = self.rows(&uid, &proof.key_id);
+                Ok(MeshResult::Sync(result))
             }
             MeshOperation::Publish {
                 expected_metadata_revision,
@@ -557,6 +628,18 @@ impl MeshRegistry for FakeRegistry {
                 expected_metadata_revision,
                 display_name,
             } => {
+                if let Some(name) = self.script.lock().unwrap().update_race.take() {
+                    account.metadata_revision += 1;
+                    account.display_name = Some(name);
+                    return Err(RegistryRefusal::Forbidden);
+                }
+                if self.script.lock().unwrap().reject_update_after_race {
+                    account.metadata_revision += 1;
+                    return Err(RegistryRefusal::Forbidden);
+                }
+                if let Some(refusal) = self.script.lock().unwrap().update {
+                    return Err(refusal);
+                }
                 if let Some(name) = self.script.lock().unwrap().rename_race.take() {
                     account.metadata_revision += 1;
                     account.display_name = Some(name);

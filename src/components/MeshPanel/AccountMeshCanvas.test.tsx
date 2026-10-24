@@ -181,12 +181,13 @@ describe("Mesh canvas wiring", () => {
     const client = new FakeAccountMeshClient(snapshot());
     await mount(client);
     const name = client.state.self!.display_name ?? "Studio PC";
+    const revision = client.state.self!.metadata_revision;
     await editName(name, "Canceled", "Escape");
     expect(client.renameCalls).toEqual([]);
     expect(host.querySelector("input")).toBeNull();
     client.listRows = client.state.registry!.rows.map((row) => row.installation_id === client.state.self!.installation_id ? { ...row, display_name: "Workstation", metadata_revision: row.metadata_revision + 1 } : row);
     await editName(name, " Workstation ", "Enter");
-    expect(client.renameCalls).toEqual([[client.state.self!.metadata_revision, "Workstation"]]);
+    expect(client.renameCalls).toEqual([[revision, "Workstation"]]);
     expect(host.querySelector("input")).toBeNull();
     expect(button("Rename Workstation")).not.toBeNull();
     expect(selected).toBe(0);
@@ -202,9 +203,98 @@ describe("Mesh canvas wiring", () => {
     await editName(name, "Workstation", "Enter");
     const input = host.querySelector<HTMLInputElement>("input");
     expect(input?.value).toBe("Workstation");
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain("That machine changed since the list was loaded.");
     await act(async () => input!.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, code: "Enter" })));
     expect(client.renameCalls).toHaveLength(2);
     expect(host.querySelector("input")).toBeNull();
+  });
+
+  it.each(["Enter", "blur", "Save"])("saves once through %s without admissions while typing", async (method) => {
+    const client = new FakeAccountMeshClient(snapshot());
+    await mount(client);
+    const name = client.state.self!.display_name!;
+    const revision = client.state.self!.metadata_revision;
+    const reads = client.listCalls;
+    await click(button(`Rename ${name}`));
+    const input = host.querySelector<HTMLInputElement>(`input[aria-label="Name for ${name}"]`)!;
+    const save = [...host.querySelectorAll("button")].find((element) => element.textContent === "Save")!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, " Workstation ");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(client.renameCalls).toHaveLength(0);
+    expect(client.listCalls).toBe(reads);
+    await act(async () => {
+      if (method === "Enter") {
+        input.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, code: "Enter" }));
+        input.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, code: "Enter" }));
+      }
+      if (method === "Save") {
+        save.click();
+        save.click();
+      }
+      if (method === "blur") {
+        input.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+        input.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+      }
+    });
+    expect(client.renameCalls).toEqual([[revision, "Workstation"]]);
+    expect(client.listCalls).toBe(reads);
+    expect(button("Rename Workstation")).not.toBeNull();
+  });
+
+  it("reads the current revision when saving instead of retaining the editor's opening snapshot", async () => {
+    const client = new FakeAccountMeshClient(snapshot());
+    await mount(client);
+    await click(button("Rename Studio PC"));
+    const input = host.querySelector<HTMLInputElement>('input[aria-label="Name for Studio PC"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "Desk");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    client.state = { ...client.state, self: { ...client.state.self!, metadata_revision: 7 } };
+    await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, code: "Enter" })));
+    expect(client.renameCalls).toEqual([[7, "Desk"]]);
+    expect(client.listCalls).toBe(0);
+  });
+
+  it("shows the typed rename refusal and retains the draft", async () => {
+    const client = new FakeAccountMeshClient(snapshot());
+    client.renameOutcomes = [{ ok: false, failure: { reason: "rate-limited", retry_after_seconds: 15 } }];
+    await mount(client);
+    await editName("Studio PC", "Desk", "Enter");
+    expect(host.querySelector('[role="alert"]')?.textContent).toBe("Too many requests. Try again in 15 seconds.");
+    expect(host.querySelector<HTMLInputElement>("input")?.value).toBe("Desk");
+    expect(client.renameCalls).toHaveLength(1);
+  });
+
+  it("does not admit unchanged names or an Escape followed by blur", async () => {
+    const client = new FakeAccountMeshClient(snapshot());
+    await mount(client);
+    const name = client.state.self!.display_name!;
+    await click(button(`Rename ${name}`));
+    await act(async () => host.querySelector("input")!.dispatchEvent(new FocusEvent("focusout", { bubbles: true })));
+    expect(host.querySelector("input")).toBeNull();
+    await click(button(`Rename ${name}`));
+    const input = host.querySelector("input")!;
+    await act(async () => {
+      input.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, code: "Escape" }));
+      input.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    });
+    expect(client.renameCalls).toHaveLength(0);
+  });
+
+  it("keeps the startup page bounded and loads the remaining machines on request", async () => {
+    const client = new FakeAccountMeshClient(snapshot({ registry: { observed_at: NOW, rows: [selfRow], cursor: { after_installation_id: selfRow.installation_id, registry_revision: 3 } } }));
+    client.listRows = [selfRow, macRow];
+    await mount(client);
+    expect(client.listCalls).toBe(0);
+    expect(host.textContent).toContain("Showing part of your account's machines.");
+    const loadMore = [...host.querySelectorAll("button")].find((element) => element.textContent === "Load more machines");
+    await click(loadMore ?? null);
+    expect(client.listCalls).toBe(1);
+    expect(host.querySelector('section[aria-label="MacBook"]')).not.toBeNull();
+    expect(host.textContent).not.toContain("Showing part of your account's machines.");
   });
 
   it("relays a connected account machine's rename and disables disconnected machines", async () => {
@@ -218,8 +308,13 @@ describe("Mesh canvas wiring", () => {
     expect(client.renameCalls).toEqual([]);
     expect(selected).toBe(0);
     expect(button("Rename Travel Mac")).not.toBeNull();
+    expect(client.listCalls).toBe(0);
+    await act(async () => client.emit(client.state));
+    expect(button("Rename Travel Mac")).not.toBeNull();
     await click(host.querySelector('[role="button"][aria-label="Open Travel Mac"]'));
     expect(clickedNames).toEqual(["mac.local"]);
+    await act(async () => client.emit({ ...client.state, account_epoch: 2 }));
+    expect(button("Rename MacBook")).not.toBeNull();
   });
 
   it("disables rename for an offline paired machine", async () => {

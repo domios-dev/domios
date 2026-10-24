@@ -338,6 +338,9 @@ impl AccountMesh {
         if current
             && (trigger == EnrollTrigger::Network || self.state().publication_failure.is_some())
         {
+            if self.with(|inner| inner.sync_pending) {
+                return self.sync_registry(&signed).await;
+            }
             self.set_registry_presence(&signed, RegistryPresence::Present)
                 .await?;
             return self.reconcile_publication(&signed).await;
@@ -414,7 +417,6 @@ impl AccountMesh {
                 .as_ref()
                 .and_then(|s| s.display_name.clone());
             let metadata_revision = inner.metadata_revision.unwrap_or(0);
-            inner.published_endpoint = None;
             inner.update(&self.watch, |state| {
                 state.membership_epoch += 1;
                 state.self_installation = Some(SelfInstallation {
@@ -433,66 +435,7 @@ impl AccountMesh {
             return Err(AccountMeshRefusal::Cancelled);
         }
         self.persist().await;
-        if let Err(refusal) = self.ensure_display_name(&signed).await {
-            self.with(|inner| {
-                if inner.is_current(epoch) {
-                    if matches!(
-                        refusal,
-                        AccountMeshRefusal::Conflict | AccountMeshRefusal::Forbidden
-                    ) {
-                        inner.metadata_revision = None;
-                    }
-                    inner.update(&self.watch, |state| state.registry_failure = Some(refusal));
-                }
-            });
-        }
-        self.push().await;
-        self.set_registry_presence(&signed, RegistryPresence::Present)
-            .await?;
-        self.reconcile_publication(&signed).await
-    }
-
-    async fn ensure_display_name(&self, signed: &Signed) -> Outcome<()> {
-        let Some(name) = self
-            .config
-            .default_display_name
-            .as_deref()
-            .map(str::trim)
-            .filter(|name| !name.is_empty())
-        else {
-            return Ok(());
-        };
-        let registry = self.read_registry(signed).await?;
-        let own = registry
-            .rows
-            .iter()
-            .find(|row| row.installation_id == self.installation())
-            .ok_or(AccountMeshRefusal::Invalid)?;
-        if own.display_name.is_some() {
-            return Ok(());
-        }
-        let MeshResult::Updated(updated) = self
-            .admission(
-                signed,
-                MeshOperation::Update {
-                    expected_metadata_revision: own.metadata_revision,
-                    display_name: name.to_owned(),
-                },
-            )
-            .await?
-        else {
-            return Err(AccountMeshRefusal::Invalid);
-        };
-        if updated.installation_id != self.installation() {
-            return Err(AccountMeshRefusal::Invalid);
-        }
-        self.remember_metadata(
-            signed.epoch,
-            updated.metadata_revision,
-            Some(updated.display_name),
-        );
-        self.read_registry(signed).await?;
-        Ok(())
+        self.sync_registry(&signed).await
     }
 
     pub(super) fn remember_metadata(
@@ -506,7 +449,19 @@ impl AccountMesh {
                 return;
             }
             inner.metadata_revision = Some(revision);
+            let installation = self.installation();
             inner.update(&self.watch, |state| {
+                if let Some(row) = state.registry.as_mut().and_then(|registry| {
+                    registry
+                        .rows
+                        .iter_mut()
+                        .find(|row| row.installation_id == installation)
+                }) {
+                    row.metadata_revision = revision;
+                    if let Some(name) = display_name.as_ref() {
+                        row.display_name = Some(name.clone());
+                    }
+                }
                 if let Some(current) = state.self_installation.as_mut() {
                     current.metadata_revision = revision;
                     if display_name.is_some() {
@@ -545,6 +500,11 @@ impl AccountMesh {
         let installation = self.installation();
         let (published, metadata_revision) = match result? {
             MeshResult::Published(result) if result.installation_id == installation => {
+                self.with(|inner| {
+                    if inner.is_current(signed.epoch) {
+                        inner.published_until = result.endpoint.expires_at;
+                    }
+                });
                 (true, result.metadata_revision)
             }
             MeshResult::Withdrawn(result) if result.installation_id == installation => {
@@ -562,7 +522,13 @@ impl AccountMesh {
         let ready = self.ports.endpoint.ready_endpoint();
         if self.with(|inner| {
             inner.published_endpoint == ready
-                && inner.state.publication == Publication::Published
+                && match ready {
+                    Some(_) => {
+                        inner.state.publication == Publication::Published
+                            && inner.published_until > self.now()
+                    }
+                    None => !inner.record.published,
+                }
                 && inner.state.publication_failure.is_none()
         }) {
             return Ok(());
@@ -690,6 +656,7 @@ impl AccountMesh {
             observed_at: self.now(),
             registry_revision,
             rows,
+            cursor,
         };
         self.with(|inner| {
             if inner.is_current(signed.epoch) || signed.epoch == 0 {
@@ -726,22 +693,57 @@ impl AccountMesh {
         display_name: String,
     ) -> Outcome<UpdatedResult> {
         let signed = self.signed(None).await?;
-        let operation = MeshOperation::Update {
-            expected_metadata_revision,
-            display_name,
+        let revision = self
+            .with(|inner| inner.metadata_revision)
+            .unwrap_or(expected_metadata_revision);
+        let result = self
+            .rename_at_revision(&signed, revision, display_name.clone())
+            .await;
+        let updated = match result {
+            Err(refusal @ (AccountMeshRefusal::Forbidden | AccountMeshRefusal::Conflict)) => {
+                let observation = self.read_registry(&signed).await?;
+                let own = observation.rows.iter().find(|row| {
+                    row.installation_id == self.installation()
+                        && row.active
+                        && row.eligibility == Eligibility::Eligible
+                        && row.key_id == signed.key.key_id()
+                });
+                let Some(own) = own.filter(|own| own.metadata_revision != revision) else {
+                    return Err(refusal);
+                };
+                self.rename_at_revision(&signed, own.metadata_revision, display_name)
+                    .await?
+            }
+            result => result?,
         };
-        let MeshResult::Updated(updated) = self.admission(&signed, operation).await? else {
-            return Err(AccountMeshRefusal::Invalid);
-        };
-        if updated.installation_id != self.installation() {
-            return Err(AccountMeshRefusal::Invalid);
-        }
         self.remember_metadata(
             signed.epoch,
             updated.metadata_revision,
             Some(updated.display_name.clone()),
         );
         self.push().await;
+        Ok(updated)
+    }
+
+    async fn rename_at_revision(
+        &self,
+        signed: &Signed,
+        expected_metadata_revision: u64,
+        display_name: String,
+    ) -> Outcome<UpdatedResult> {
+        if !self.with(|inner| inner.is_current(signed.epoch)) {
+            return Err(AccountMeshRefusal::Cancelled);
+        }
+        let operation = MeshOperation::Update {
+            expected_metadata_revision,
+            display_name,
+        };
+        let MeshResult::Updated(updated) = self.admission(signed, operation).await? else {
+            return Err(AccountMeshRefusal::Invalid);
+        };
+        if updated.installation_id != self.installation() {
+            return Err(AccountMeshRefusal::Invalid);
+        }
         Ok(updated)
     }
 

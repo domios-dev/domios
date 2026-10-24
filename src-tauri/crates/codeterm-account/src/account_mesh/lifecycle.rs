@@ -114,6 +114,8 @@ pub(super) struct Inner {
     pub(super) registry_presence: Option<RegistryPresence>,
     pub(super) registry_notices: super::notice::RegistryNotices,
     pub(super) published_endpoint: Option<super::wire::MeshEndpoint>,
+    pub(super) published_until: u64,
+    pub(super) sync_pending: bool,
     pub(super) resolved: HashMap<String, MeshTarget>,
     flight: Option<Flight>,
     awaiting_logout: bool,
@@ -154,6 +156,8 @@ impl Inner {
         self.registry_presence = None;
         self.resolved.clear();
         self.published_endpoint = None;
+        self.published_until = 0;
+        self.sync_pending = false;
     }
 }
 
@@ -197,6 +201,8 @@ impl AccountMesh {
                 registry_notices: Default::default(),
                 resolved: HashMap::new(),
                 published_endpoint: None,
+                published_until: 0,
+                sync_pending: false,
                 flight: None,
                 awaiting_logout: false,
                 notice_epoch: None,

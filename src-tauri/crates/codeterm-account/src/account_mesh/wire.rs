@@ -83,6 +83,11 @@ pub enum MeshOperation {
     Renew {
         expected_slot_revision: u64,
     },
+    Sync {
+        presence: RegistryPresence,
+        endpoint: Option<MeshEndpointWire>,
+        default_display_name: Option<String>,
+    },
     Revoke {
         target: MeshTarget,
     },
@@ -227,6 +232,21 @@ pub struct PublishedResult {
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct SyncResult {
+    pub installation_id: String,
+    pub display_name: Option<String>,
+    pub presence: RegistryPresence,
+    pub publication: PublicationState,
+    pub endpoint: Option<MeshEndpointObservation>,
+    pub previous_metadata_revision: u64,
+    pub metadata_revision: u64,
+    pub slot_revision: u64,
+    pub registry_revision: u64,
+    pub registry: PageResult,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct WithdrawnResult {
     pub installation_id: String,
     pub previous_metadata_revision: u64,
@@ -324,6 +344,7 @@ pub struct PageResult {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum MeshResult {
     Membership(MembershipResult),
+    Sync(SyncResult),
     Revoked(RevokedResult),
     Recovered(RecoveredResult),
     Updated(UpdatedResult),
