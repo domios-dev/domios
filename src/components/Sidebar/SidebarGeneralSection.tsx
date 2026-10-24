@@ -11,7 +11,8 @@ import {
   type SidebarWorkspaceDetailActions,
   type SidebarWorkspaceDetailData,
 } from "./SidebarWorkspaceDetail";
-import { tabsInWorkspace } from "./workspaceTabs";
+import { isGeneralSectionTab, isSidebarTabVisible, tabsInWorkspace } from "./workspaceTabs";
+import { SidebarWorkspaceTabs, type SidebarWorkspaceTabsProps } from "./SidebarWorkspaceTabs";
 
 /** The protected General workspace: its agents and the machine-wide inventory below them. */
 export function SidebarGeneralSection({ workspace, expanded, onToggle, providerId, api, data, actions, workspaces, onOpenJobs }: {
@@ -41,7 +42,44 @@ export function SidebarGeneralSection({ workspace, expanded, onToggle, providerI
     uiFontScale: data.uiFontScale,
   }), [data]);
 
+  const tabListProps: SidebarWorkspaceTabsProps = {
+    workspace: workspace,
+    activeTabId: data.activeTabIds[workspaceId] ?? null,
+    sortedTabs: sortedTabs.filter(isGeneralSectionTab),
+    tabs: data.tabs,
+    tabStatuses: data.tabStatuses,
+    tabAttentionByTab: data.attention,
+    teams: data.teams,
+    planIndex: data.planIndex,
+    plans: data.plans,
+    providers: data.providers,
+    providersLoading: data.providersLoading,
+    closingTabIds: data.closingTabIds,
+    appearingTabIds: data.appearingTabIds,
+    isActiveVisual: isActiveVisual,
+    workspaceCanvasActive: data.workspaceCanvasActive,
+    touchMode: data.touchMode,
+    uiFontScale: data.uiFontScale,
+    compact: false,
+    sidebarActionText: data.sidebarActionText,
+    orchestrators: data.orchestrators,
+    onBeforeOpenPlan: activate,
+    onActivateTab: activateTab,
+    onCloseTab: closeTab,
+    onRenameTab: renameTab,
+    onOpenRemoteTab: openRemoteTab,
+    newSessionDisabled: data.newSessionDisabled,
+    onRenameTeam: actions.renameTeam,
+    onRenamePlan: actions.renamePlan,
+    onAddTeamMember: actions.addTeamMember,
+    closingTeamIds: data.closingTeamIds,
+    onCloseTeam: closeTeam,
+    onOpenSentinelJob: openSentinelJob,
+  };
+  const otherTabs = sortedTabs.filter((tab) => !isGeneralSectionTab(tab) && isSidebarTabVisible(tab) && !!tab.agent_type);
+
   return (
+    <>
     <section data-testid="general-section" className="sidebar-general-section" role="region" aria-label={`${workspace.name} workspace contents`}>
       <div className="sidebar-structural-header sidebar-general-header w-full">
         <SidebarDisclosure data-testid="general-section-toggle" className="sidebar-structural-toggle min-w-0" expanded={expanded} onClick={onToggle}>
@@ -50,40 +88,9 @@ export function SidebarGeneralSection({ workspace, expanded, onToggle, providerI
         <SpinalCordButton api={api} />
       </div>
       {expanded && <GeneralWorkspaceTabs
-        workspace={workspace}
+        {...tabListProps}
         providerId={providerId}
         generalCwd={generalCwd}
-        activeTabId={data.activeTabIds[workspaceId] ?? null}
-        sortedTabs={sortedTabs}
-        tabs={data.tabs}
-        tabStatuses={data.tabStatuses}
-        tabAttentionByTab={data.attention}
-        teams={data.teams}
-        planIndex={data.planIndex}
-        plans={data.plans}
-        providers={data.providers}
-        providersLoading={data.providersLoading}
-        closingTabIds={data.closingTabIds}
-        appearingTabIds={data.appearingTabIds}
-        isActiveVisual={isActiveVisual}
-        workspaceCanvasActive={data.workspaceCanvasActive}
-        touchMode={data.touchMode}
-        uiFontScale={data.uiFontScale}
-        compact={false}
-        sidebarActionText={data.sidebarActionText}
-        orchestrators={data.orchestrators}
-        onBeforeOpenPlan={activate}
-        onActivateTab={activateTab}
-        onCloseTab={closeTab}
-        onRenameTab={renameTab}
-        onOpenRemoteTab={openRemoteTab}
-        newSessionDisabled={data.newSessionDisabled}
-        onRenameTeam={actions.renameTeam}
-        onRenamePlan={actions.renamePlan}
-        onAddTeamMember={actions.addTeamMember}
-        closingTeamIds={data.closingTeamIds}
-        onCloseTeam={closeTeam}
-        onOpenSentinelJob={openSentinelJob}
       />}
       {expanded && <GeneralInventory
         generalWorkspaceId={workspaceId}
@@ -98,5 +105,10 @@ export function SidebarGeneralSection({ workspace, expanded, onToggle, providerI
         onNavigate={actions.activateTab}
       />}
     </section>
+    {expanded && otherTabs.length > 0 && <section aria-label="Other sessions">
+      <div className="sidebar-structural-header"><span className="sidebar-structural-label">OTHER SESSIONS</span></div>
+      <SidebarWorkspaceTabs {...tabListProps} sortedTabs={otherTabs} onOpenRemoteTab={undefined} />
+    </section>}
+    </>
   );
 }

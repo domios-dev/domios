@@ -1,4 +1,8 @@
 import { WorkspacePaneState } from "./components/shared/FolderPaneState";
+import { firstRunCommands, firstRunGate, firstRunSelection } from "./lib/firstRunGate";
+import { FirstRunWorkspace } from "./components/AgentPicker/FirstRunWorkspace";
+import { FirstRunGeneralPicker } from "./components/AgentPicker/FirstRunGeneralPicker";
+import { useAgentProviders } from "./hooks/useAgentProviders";
 import { BrandState } from "./components/brand/BrandState";
 import { DeferredPresence } from "./components/shared/DeferredPresence";
 import { releaseBootCover } from "./lib/bootCover";
@@ -155,7 +159,13 @@ function AppInner() {
       : "opacity 200ms ease, visibility 0ms linear 200ms",
   });
   const { inset: keyboardInset, keyboardOpen } = useKeyboardInset();
-  const state = useMuxSelector(selectWholeState, appShellStateEqual);
+  const backendState = useMuxSelector(selectWholeState, appShellStateEqual);
+  const { config, updateConfig, theme, loading: configLoading } = useConfig();
+  const gate = firstRunGate(configLoading ? undefined : config.general_agent);
+  const state = gate.complete ? backendState : { ...backendState, ...firstRunSelection(gate, backendState) };
+  const gateRef = useRef(gate);
+  gateRef.current = gate;
+  const { providers: firstRunProviders } = useAgentProviders();
   const { navigationReady, mainView, setMainView, automationWorkspaceId, setAutomationWorkspaceId, jobsScope, setJobsScope, workspaceMapWorkspaceId, setWorkspaceMapWorkspaceId } = useAppNavigation(state.generation, state.focused_tab_id, state.workspaces);
   const automationOpener = useRef<HTMLElement | null>(null);
   const [jobsTarget, setJobsTarget] = useState<(JobsTarget & { request: number; returnTo?: ReturnTo }) | null>(null);
@@ -227,7 +237,6 @@ function AppInner() {
       return open ? "extensions" : "workspace";
     });
   }, []);
-  const { config, updateConfig, theme, loading: configLoading } = useConfig();
   const stableTheme = useStableJsonValue(theme);
   const stableFontConfig = useStableJsonValue(config.font);
   const stableTerminalConfig = useStableJsonValue(config.terminal);
@@ -379,6 +388,7 @@ function AppInner() {
         memoryState?: MemoryInitialState;
       }>).detail;
       const panel = detail?.panel;
+      if (!gateRef.current.allows("app") && !panel?.startsWith("settings:")) return;
       if (panel?.startsWith("view:")) {
         const fp = stateRef.current.focused_tab_id
           ? stateRef.current.tabs[stateRef.current.focused_tab_id]
@@ -403,6 +413,7 @@ function AppInner() {
   // dismiss any covering Extensions/glance overlay and focus the new tab.
   useEffect(() => {
     const onFocusTab = (e: Event) => {
+      if (!gateRef.current.allows("app")) return;
       const detail = (e as CustomEvent<{ tabId?: string; workspaceId?: string }>).detail;
       const tabId = detail?.tabId;
       if (!tabId) return;
@@ -482,7 +493,7 @@ function AppInner() {
     });
   }, []);
   const prewarmTabIds = useTabPrewarm({
-    ...workspacePrewarmInput(activeWs, activeTab?.id ?? null, state.tabs),
+    ...workspacePrewarmInput(gate.complete ? activeWs : undefined, activeTab?.id ?? null, state.tabs),
     liveTabIds: state.workspaces.flatMap((ws) => ws.tabs),
     prewarmTab: prewarmBackendTab,
   });
@@ -681,10 +692,11 @@ function AppInner() {
     zoom_reset: () => zoom("zoom_reset"),
     open_settings: () => openSettings(),
     toggle_sidebar: toggleSidebar,
-  });
+  }, gate);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (!gateRef.current.allows("app")) return;
       if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) return;
 
       // FALLBACK: If xterm.js textarea doesn't have focus, send keys directly to PTY.
@@ -724,7 +736,7 @@ function AppInner() {
   return (
     <GuideNavigationProvider sections={GUIDE_SECTIONS} onOpen={openGuide}>
     <ChatBlockHostProvider value={appChatBlockHost}>
-    <PluginConsentDialog />
+    {gate.allows("app") && <PluginConsentDialog />}
     <div
       className={`flex flex-col w-screen overflow-hidden ${isCRT ? "crt-mode" : ""}`}
       style={{
@@ -742,6 +754,7 @@ function AppInner() {
       {/* Native + web mirror share one titlebar strip (parity decision A) — its
           own --ct-safe-top padding covers the web notch/status-bar inset. */}
       <Titlebar
+        gate={gate}
         api={stableApiConfig}
         onToggleSidebar={sidebarRailCollapsed && sidebarOpen ? () => setSidebarExpandRequest((count) => count + 1) : toggleSidebar}
         showSidebarToggle={phoneViewport || !sidebarOpen || sidebarRailCollapsed}
@@ -764,6 +777,12 @@ function AppInner() {
         onDismissToast={dismissToast}
         onNavigateToast={navigateToNotificationTab}
       />
+      <FirstRunWorkspace gate={gate} tabs={state.tabs} onGetStarted={closeSettings}
+        settings={mainView === "settings" ? <SettingsPanel config={config} onUpdateConfig={updateConfig} onClose={closeSettings}
+          initialSection={settingsSection} guideRequest={requestedGuide} /> : undefined}
+        onboarding={configLoading ? <BrandState model={brandStateModel({ loading: true, label: "Loading settings" })} />
+          : <FirstRunGeneralPicker providers={firstRunProviders} home={state.active_workspace_id && state.focused_tab_id
+            ? { workspaceId: state.active_workspace_id, tabId: state.focused_tab_id } : undefined} />}>
       <PlansProvider api={stableApiConfig} enabled={!configLoading}>
       <AppChatBlockServices api={stableApiConfig}>
       <ServerConnectionLayer
@@ -1015,9 +1034,12 @@ function AppInner() {
       <StorageUnavailableToast active={state.storageUnavailable === true} />
 
       <NavigationBackBar onBack={handleBackToMemory} />
+      </FirstRunWorkspace>
+
+      {!gate.allows("app") && <CommandPalette commands={firstRunCommands(gate, paletteCommands)} />}
 
       <UpdateProgressLayer />
-      <FreeLimitPlansModal />
+      {gate.allows("app") && <FreeLimitPlansModal />}
     </div>
     </ChatBlockHostProvider>
     </GuideNavigationProvider>
