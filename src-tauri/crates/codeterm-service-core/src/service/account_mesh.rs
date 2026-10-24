@@ -72,7 +72,10 @@ impl SessionSource for AccountSessions {
 struct ListenerEndpoint(Mutex<Option<MeshEndpoint>>);
 impl EndpointSource for ListenerEndpoint {
     fn ready_endpoint(&self) -> Option<MeshEndpoint> {
-        *self.0.lock().unwrap_or_else(|error| error.into_inner())
+        self.0
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone()
     }
 }
 
@@ -266,7 +269,7 @@ impl ServiceContext {
                 .lock()
                 .unwrap_or_else(|error| error.into_inner());
             let changed = *current != endpoint;
-            *current = endpoint;
+            *current = endpoint.clone();
             changed
         };
         if changed {
@@ -462,12 +465,25 @@ async fn push_account_mesh_listener(service: Arc<ServiceContext>, mesh: crate::M
     let mut changes = mesh.lock().gate_watch();
     let mut published: Option<Option<MeshEndpoint>> = None;
     loop {
-        let endpoint = mesh
-            .lock()
-            .ready_tailnet_endpoint()
-            .and_then(|(ip, port)| MeshEndpoint::new(ip, port));
-        if published != Some(endpoint) {
-            service.set_account_mesh_listener(endpoint).await;
+        let endpoint = {
+            let manager = mesh.lock();
+            let identity = manager
+                .network_transport
+                .as_ref()
+                .and_then(|status| status.identity.as_ref())
+                .map(
+                    |identity| codeterm_account::account_mesh::wire::NetworkIdentity {
+                        kind: identity.kind.clone(),
+                        network_id: identity.network_id.clone(),
+                    },
+                );
+            manager
+                .ready_tailnet_endpoint()
+                .and_then(|(ip, port)| MeshEndpoint::new(ip, port))
+                .map(|endpoint| endpoint.with_transport(identity))
+        };
+        if published.as_ref() != Some(&endpoint) {
+            service.set_account_mesh_listener(endpoint.clone()).await;
             published = Some(endpoint);
         }
         if changes.changed().await.is_err() {

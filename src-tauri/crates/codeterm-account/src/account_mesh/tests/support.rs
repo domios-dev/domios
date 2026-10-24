@@ -319,6 +319,7 @@ impl FakeRegistry {
             peer.membership_expires_at = Some(expiry);
         }
         peer.endpoint = (!peer_unpublished).then(|| MeshEndpointObservation {
+            transport: None,
             tailnet_ip: "100.101.102.103".into(),
             api_port: 7685,
             expires_at: self.clock.now() + 600,
@@ -523,6 +524,7 @@ impl MeshRegistry for FakeRegistry {
                 }
                 if let Some(endpoint) = endpoint {
                     let observation = MeshEndpointObservation {
+                        transport: endpoint.transport.clone(),
                         tailnet_ip: endpoint.tailnet_ip.clone(),
                         api_port: endpoint.api_port,
                         expires_at: now + 3600,
@@ -571,6 +573,7 @@ impl MeshRegistry for FakeRegistry {
                     return Err(RegistryRefusal::Conflict);
                 }
                 let observation = MeshEndpointObservation {
+                    transport: endpoint.transport.clone(),
                     tailnet_ip: endpoint.tailnet_ip.clone(),
                     api_port: endpoint.api_port,
                     expires_at: now + 3600,
@@ -778,7 +781,7 @@ impl AccountMeshStore for MemoryStore {
 pub struct FakeEndpoint(pub Mutex<Option<MeshEndpoint>>);
 impl EndpointSource for FakeEndpoint {
     fn ready_endpoint(&self) -> Option<MeshEndpoint> {
-        *self.0.lock().unwrap()
+        self.0.lock().unwrap().clone()
     }
 }
 

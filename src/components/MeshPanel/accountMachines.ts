@@ -35,6 +35,7 @@ export interface MachineControls {
 }
 
 export interface MachineRowView {
+  transport?: import("./networkTransport").NetworkIdentity;
   linkRequest?: import("./accountMeshClient").AccountLinkRequest;
   key: string;
   name: string;
@@ -175,7 +176,7 @@ function registryRows(snapshot: AccountMeshSnapshot, pairs: LocalPairFact[], lin
 
 function machineRow(row: AccountMachineRow, pair: LocalPairFact | null, context: { linking: boolean; now: number; usable: boolean; enrolled: boolean }): MachineRowView {
   const name = row.display_name ?? pair?.name ?? "Unnamed machine";
-  const base = { key: row.installation_id, name, online: pair ? pair.online : null, target: target(row), pairInstanceId: pair?.instance_id ?? null, lastSeenAt: row.authenticated_at };
+  const base = { transport: row.endpoint?.transport, key: row.installation_id, name, online: pair ? pair.online : null, target: target(row), pairInstanceId: pair?.instance_id ?? null, lastSeenAt: row.authenticated_at };
   const revoke = context.usable && row.active && row.eligibility !== "revoked" ? target(row) : null;
   const unpairInstanceId = context.usable && pair ? pair.instance_id : null;
   if (!row.active || row.eligibility === "revoked") {

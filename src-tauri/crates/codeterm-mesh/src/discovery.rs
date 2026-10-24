@@ -13,56 +13,21 @@ pub const PROACTIVE_SYNC_INTERVAL_SECS: u64 = 60;
 
 // ── Tailscale / Local IP ───────────────────────────────────────────────
 
-/// Hard cap on how long any single Tailscale CLI probe is allowed to run.
-#[cfg(not(target_os = "macos"))]
-const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
-
 /// Binary lookup order for the Tailscale CLI: bare name (resolved via PATH)
 /// first, then the common absolute install locations (macOS app bundle,
 /// Homebrew, Linux package). Shared by every probe + the serve-setup module.
-pub(crate) const TAILSCALE_CANDIDATES: [&str; 5] = [
+pub(crate) const TAILSCALE_CANDIDATES: [&str; 6] = [
     "tailscale",
+    "C:/Program Files/Tailscale/tailscale.exe",
     "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
     "/opt/homebrew/bin/tailscale",
     "/usr/local/bin/tailscale",
     "/usr/bin/tailscale",
 ];
 
-/// Detect this machine's Tailnet IPv4 and cache it on `mesh.tailscale_ip`.
-///
-/// Always PASSIVE — must never wake or launch Tailscale that is off.
-///   1. Interface scan (`find_tailscale_ip`) — zero subprocesses. Hits the
-///      common case (daemon running with utun/wintun device) without the CLI.
-///   2. Fallback when the scan misses: macOS reads the LocalAPI (the only CLI
-///      candidate is the app-bundle shim, which would LAUNCH the GUI app);
-///      Linux/Windows run `tailscale ip -4` (no GUI shim, errors if daemon down).
 pub fn detect_tailscale(mesh: &Arc<Mutex<MeshManager>>) {
-    if let Some(ip) = find_tailscale_ip() {
-        log::debug!("[mesh] Tailscale IP detected via interface scan: {}", ip);
-        mesh.lock().set_tailscale_ip(Some(ip));
-        return;
-    }
-    #[cfg(target_os = "macos")]
-    {
-        match super::serve_setup::macos_self_tailscale_ip() {
-            Some(ip) => {
-                log::debug!("[mesh] Tailscale IP detected via LocalAPI: {}", ip);
-                mesh.lock().set_tailscale_ip(Some(ip));
-            }
-            None => log::debug!("[mesh] Tailscale not available (passive LocalAPI read)"),
-        }
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        for cmd in TAILSCALE_CANDIDATES {
-            if let Some(ip) = try_tailscale_probe(cmd) {
-                log::debug!("[mesh] Tailscale IP detected via {}: {}", cmd, ip);
-                mesh.lock().set_tailscale_ip(Some(ip));
-                return;
-            }
-        }
-        log::debug!("[mesh] Tailscale not available");
-    }
+    let status = crate::network_transport::active_provider().detect();
+    mesh.lock().set_network_transport(status);
 }
 
 pub fn tailscale_self_dns_name() -> Option<String> {
@@ -76,7 +41,7 @@ pub fn tailscale_self_dns_name() -> Option<String> {
     (!dns.is_empty() && dns.ends_with(".ts.net")).then_some(dns)
 }
 
-fn tailscale_status_json() -> Option<serde_json::Value> {
+pub(crate) fn tailscale_status_json() -> Option<serde_json::Value> {
     #[cfg(target_os = "macos")]
     {
         super::serve_setup::macos_status_json()
@@ -113,11 +78,13 @@ pub(crate) fn run_tailscale_json(
         let mut c = std::process::Command::new(cmd);
         c.args(args);
         codeterm_util::process_util::no_window_std(&mut c);
-        let Some((true, raw)) = run_with_timeout(&mut c, timeout) else {
+        let Some((success, raw)) = run_with_timeout(&mut c, timeout) else {
             continue;
         };
         if let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) {
-            return Some(val);
+            if success || (args == ["status", "--json"] && val["BackendState"].is_string()) {
+                return Some(val);
+            }
         }
     }
     None
@@ -142,22 +109,7 @@ pub fn find_tailscale_ip() -> Option<String> {
     None
 }
 
-/// Linux/Windows fallback probe: run `tailscale ip -4`. Safe here — there is no
-/// GUI shim to wake, and `tailscale` against a stopped daemon just errors. macOS
-/// never reaches this (it reads passively via the LocalAPI in `detect_tailscale`).
-#[cfg(not(target_os = "macos"))]
-fn try_tailscale_probe(cmd: &str) -> Option<String> {
-    let mut command = std::process::Command::new(cmd);
-    command.args(["ip", "-4"]);
-    codeterm_util::process_util::no_window_std(&mut command);
-    let (ok, raw) = run_with_timeout(&mut command, PROBE_TIMEOUT)?;
-    if !ok {
-        return None;
-    }
-    parse_first_ip(&raw)
-}
-
-#[cfg_attr(target_os = "macos", allow(dead_code))]
+#[cfg(test)]
 fn parse_first_ip(stdout: &str) -> Option<String> {
     stdout.lines().find_map(|line| {
         let candidate = line.trim();

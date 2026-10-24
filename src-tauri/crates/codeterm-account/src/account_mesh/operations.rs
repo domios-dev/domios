@@ -542,7 +542,7 @@ impl AccountMesh {
         let ready = self.ports.endpoint.ready_endpoint();
         if self.with(|inner| {
             inner.published_endpoint == ready
-                && match ready {
+                && match &ready {
                     Some(_) => {
                         inner.state.publication == Publication::Published
                             && inner.published_until > self.now()
@@ -570,7 +570,7 @@ impl AccountMesh {
             self.persist().await;
         }
         let mut failure = None;
-        let publication = match ready {
+        let publication = match ready.clone() {
             Some(endpoint) => match self.publish(signed, Some(endpoint)).await {
                 Ok(true) => Publication::Published,
                 Err(refusal) => {
