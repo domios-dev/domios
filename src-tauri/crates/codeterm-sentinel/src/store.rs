@@ -23,6 +23,8 @@ pub use codeterm_blueprint_types::blueprint_watch::Create;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Sentinel {
+    #[serde(default)]
+    pub admission: crate::admission::Admission,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub document: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -183,6 +185,7 @@ impl Store {
         });
         if !matches_kind
             || job.machine.stopped
+            || !job.admission.permits_steps()
             || job.machine.paused
             || job.machine.held.is_some()
             || job.expires_at.is_some_and(|at| now >= at)
@@ -577,7 +580,11 @@ impl Store {
         let Some(job) = self.get(id) else {
             return false;
         };
-        if job.machine.stopped || job.machine.paused || job.machine.held.is_some() {
+        if job.machine.stopped
+            || !job.admission.permits_steps()
+            || job.machine.paused
+            || job.machine.held.is_some()
+        {
             return false;
         }
         if job.pipeline().is_some_and(|pipeline| {
@@ -849,6 +856,7 @@ impl Store {
             .iter()
             .filter(|job| {
                 !job.machine.stopped
+                    && job.admission.permits_steps()
                     && job.terminal().is_none()
                     && !job.machine.paused
                     && !job.expires_at.is_some_and(|at| now >= at)
@@ -871,6 +879,9 @@ impl Store {
         self.jobs
             .iter()
             .flat_map(|job| {
+                if !job.admission.permits_steps() {
+                    return Vec::new();
+                }
                 if job.machine.stopped {
                     return super::cleanup::deletion_deadline(&self.jobs, job, &leased)
                         .into_iter()
@@ -899,6 +910,7 @@ impl Store {
                     && !self.wake_pending.contains(&job.id))
                     || event_trigger
                     || (input_waiting && !self.wake_pending.contains(&job.id))
+                    || !job.admission.permits_steps()
                     || job.machine.paused
                     || active
                     || waiting_for_run
@@ -1039,6 +1051,7 @@ pub fn scope_revisions(jobs: &[Sentinel]) -> BTreeMap<ScopeKey, String> {
 }
 
 fn apply_finish(current: &mut Sentinel, job: &Sentinel, transition: Option<Transition>) {
+    current.admission = job.admission.clone();
     current.machine.last_hash = job.machine.last_hash.clone();
     current.machine.last_bucket = job.machine.last_bucket.clone();
     current.machine.stopped = job.machine.stopped;

@@ -1,6 +1,7 @@
 use crate::error::{sqlite_error, StorageError};
 use crate::repositories::sentinel::records::NestedClaimParent;
 use codeterm_blueprint_types::blueprint_document::calls::CallFrame;
+use codeterm_blueprint_types::blueprint_journal::JournalMarker;
 use rusqlite::{params, Connection};
 
 struct ActiveClaim {
@@ -15,10 +16,10 @@ pub(super) fn admissible(
     id: &str,
     run: &str,
     generation: u64,
-    marker: i64,
+    marker: JournalMarker,
     parent: Option<&NestedClaimParent>,
 ) -> Result<bool, StorageError> {
-    let duplicate:bool=conn.query_row("SELECT EXISTS(SELECT 1 FROM blueprint_step_journal WHERE blueprint_id=?1 AND run_id=?2 AND step_index=?3)",params![id,run,marker],|r|r.get(0)).map_err(|e|sqlite_error("inspect claim replay",e))?;
+    let duplicate:bool=conn.query_row("SELECT EXISTS(SELECT 1 FROM blueprint_step_journal WHERE blueprint_id=?1 AND run_id=?2 AND step_index=?3 AND (?3 >= 0 OR step_name=?4))",params![id,run,marker.index(),marker.name("")],|r|r.get(0)).map_err(|e|sqlite_error("inspect claim replay",e))?;
     if duplicate {
         return Ok(false);
     }

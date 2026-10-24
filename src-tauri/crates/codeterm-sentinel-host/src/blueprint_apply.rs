@@ -97,6 +97,9 @@ fn apply_document(
     recipe: Option<&str>,
 ) -> Result<Value, ApplyError> {
     {
+        if let Some(refusal) = service.tab_write_lock(&caller.tab) {
+            return Err(refusal.to_string().into());
+        }
         if caller.team.is_none() {
             return Err("Blueprint apply requires a caller in a Team".into());
         }
@@ -249,6 +252,7 @@ fn apply_document(
         };
         candidate.document = Some(definition.clone());
         with_apply_mux(service, caller, candidate, |mux, mut candidate| {
+            crate::plan_lock::refuse(service, &candidate)?;
             validate_candidate_scope(mux, caller, &candidate)?;
             let tab = mux.get_tab(&caller.tab).ok_or("Blueprint caller is gone")?;
             candidate.agent_authored = stopped.is_some()

@@ -8,7 +8,7 @@ pub struct RunCtx<'a> {
     pub deadline: Instant,
     pub call_state: crate::blueprint_calls::CallContext,
     pub outputs: std::collections::BTreeMap<String, ExecutionEnvelope>,
-    next_marker: u16,
+    pub(super) next_marker: u16,
     call_depth: u8,
     pub(crate) input_kind: Option<MediaKind>,
     pub(crate) input_source: Option<std::path::PathBuf>,

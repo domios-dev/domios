@@ -190,6 +190,7 @@ pub struct RunRecord {
 /// definition version and from the Storage commit revision.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StageRuntime {
+    pub admission_json: Option<String>,
     pub transition_offset: usize,
     pub action_offset: usize,
     pub stopped_at: Option<u64>,
@@ -337,6 +338,7 @@ pub struct BatchFence {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeOutcome {
+    pub admission_json: Option<String>,
     pub stopped_at: Option<u64>,
     pub runs_since_transition: u64,
     pub last_probe_at: Option<u64>,
@@ -803,6 +805,7 @@ impl StageRuntime {
             + optional_len(&self.last_bucket)
             + optional_len(&self.last_reason)
             + optional_len(&self.probe_state)
+            + optional_len(&self.admission_json)
             + optional_len(&self.held)
             + self
                 .run
@@ -896,6 +899,7 @@ impl RuntimeOutcome {
             + optional_len(&self.last_bucket)
             + optional_len(&self.last_reason)
             + optional_len(&self.probe_state)
+            + optional_len(&self.admission_json)
             + optional_len(&self.held)
     }
 }

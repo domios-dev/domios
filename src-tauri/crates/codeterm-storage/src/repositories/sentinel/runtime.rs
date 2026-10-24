@@ -351,8 +351,8 @@ fn insert_runtime(
         .transpose()?;
     cx.write(
         "INSERT INTO blueprint_runtime (blueprint_id, generation, next_run, expires_at, paused, \
-         stopped, last_hash, last_bucket, last_reason, held, run_id, run_tab_id, run_bound_at, run_transitions, causal_run_json, runs_since_transition, last_probe_at, probe_state, stopped_at, transition_offset, action_offset) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
+         stopped, last_hash, last_bucket, last_reason, held, run_id, run_tab_id, run_bound_at, run_transitions, causal_run_json, runs_since_transition, last_probe_at, probe_state, stopped_at, transition_offset, action_offset, admission_json) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
         params![
             id,
             to_sql_u64("generation", runtime.generation)?,
@@ -373,7 +373,7 @@ fn insert_runtime(
             runtime.last_probe_at.map(|at| to_sql_u64("last probe", at)).transpose()?,
             runtime.probe_state,
             runtime.stopped_at.map(|at| to_sql_u64("stop time", at)).transpose()?,
-            runtime.transition_offset, runtime.action_offset
+            runtime.transition_offset, runtime.action_offset, runtime.admission_json
         ],
     )?;
     Ok(())
@@ -386,7 +386,7 @@ fn write_outcome(
 ) -> Result<(), StorageError> {
     cx.write(
         "UPDATE blueprint_runtime SET last_hash = ?2, last_bucket = ?3, stopped = ?4, \
-         last_reason = ?5, held = ?6, run_transitions = ?7, runs_since_transition = ?8, last_probe_at = ?9, probe_state = ?10, stopped_at = CASE WHEN ?4 THEN COALESCE(stopped_at, ?11) ELSE NULL END WHERE blueprint_id = ?1",
+         last_reason = ?5, held = ?6, run_transitions = ?7, runs_since_transition = ?8, last_probe_at = ?9, probe_state = ?10, stopped_at = CASE WHEN ?4 THEN COALESCE(stopped_at, ?11) ELSE NULL END, admission_json = ?12 WHERE blueprint_id = ?1",
         params![
             id,
             outcome.last_hash,
@@ -398,7 +398,8 @@ fn write_outcome(
             to_sql_u64("probe count", outcome.runs_since_transition)?,
             outcome.last_probe_at.map(|at| to_sql_u64("last probe", at)).transpose()?,
             outcome.probe_state,
-            outcome.stopped_at.map(|at| to_sql_u64("stop time", at)).transpose()?
+            outcome.stopped_at.map(|at| to_sql_u64("stop time", at)).transpose()?,
+            outcome.admission_json
         ],
     )?;
     Ok(())
@@ -925,6 +926,25 @@ pub(super) fn schedule(
         MutationOutcome::Applied
     };
     finished(cx.conn, outcome, &touched)
+}
+
+pub(super) fn set_admission(
+    cx: &mut WriteCx<'_>,
+    id: &SentinelId,
+    generation: u64,
+    advance_generation: bool,
+    admission_json: &str,
+) -> Result<SentinelCommit, StorageError> {
+    let id = id.as_str();
+    let Some(current) = live(cx.conn, id)? else {
+        return Ok(SentinelCommit::fenced(Fence::Missing, None));
+    };
+    if current.generation != generation {
+        return fenced(cx.conn, Fence::Generation, id);
+    }
+    cx.write("UPDATE blueprint_runtime SET admission_json=?2, generation=generation+?3 WHERE blueprint_id=?1", params![id, admission_json, advance_generation])?;
+    touch(cx, id)?;
+    finished(cx.conn, MutationOutcome::Applied, &[id.to_string()])
 }
 
 pub(super) fn finish(

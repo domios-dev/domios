@@ -24,6 +24,7 @@ export function blueprintPipelineOutcome(pipeline: PipelineView): BlueprintJourn
   return stop;
 }
 const HELD_REASONS: Readonly<Record<string, string>> = {
+  plan_limit_locked: "the owning workspace, Team or tab is locked by your plan",
   paused: "paused by the owner",
   uncertain_pipeline_claim: "a step claim could not be confirmed after a restart",
   uncertain_pipeline_effect: "a step's effect could not be confirmed after a restart",

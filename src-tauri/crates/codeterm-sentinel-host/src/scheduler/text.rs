@@ -5,6 +5,11 @@ impl Handle {
         let mut store = self.store.lock();
         store.ensure_available()?;
         let current = store.get(&job.id).ok_or("blueprint not found")?;
+        if !current.admission.permits_steps() {
+            return Err(
+                "plan_limit_locked: the Blueprint's owning item is locked by your plan".into(),
+            );
+        }
         if current.revision != job.revision
             || current.machine.stopped
             || current.machine.paused
@@ -36,6 +41,7 @@ impl Handle {
         let mut inbox = self.inbox.lock();
         for job in store.list().iter().filter(|job| {
             !job.machine.stopped
+                && job.admission.permits_steps()
                 && !job.machine.paused
                 && matches!(&job.observe().cloned(), Some(source::TabBinding::Tab(id)) if id == tab_id)
         }) {
