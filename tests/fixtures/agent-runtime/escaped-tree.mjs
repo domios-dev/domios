@@ -6,12 +6,10 @@ if (process.argv[2] === "leaf") {
   channel.port1.on("message", (value) => channel.port2.postMessage(value));
   process.send(process.pid);
 } else {
-  process.stdin.once("data", () => {
-    const child = spawn(process.execPath, [import.meta.filename, "leaf"], {
-      stdio: ["ignore", "ignore", "inherit", "ipc"],
-    });
-    child.once("message", (pid) => {
-      process.stdout.write("fixture-tree:" + JSON.stringify([process.pid, pid]) + "\n");
-    });
+  const child = spawn(process.execPath, [import.meta.filename, "leaf"], {
+    stdio: ["ignore", "ignore", "inherit", "ipc"],
+  });
+  child.once("message", (pid) => {
+    process.stdout.write("fixture-tree:" + JSON.stringify([process.pid, pid]) + "\n");
   });
 }

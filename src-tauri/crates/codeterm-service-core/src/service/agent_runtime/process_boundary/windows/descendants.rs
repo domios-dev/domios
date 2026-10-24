@@ -31,8 +31,9 @@ pub(in crate::service::agent_runtime::process_boundary) fn capture(
                 let Some(child) = Member::retain(pid)? else {
                     continue;
                 };
+                // A recycled parent PID names an unrelated older process.
                 if !parent.owns_child(&child)? {
-                    return Err(format!("Runtime descendant {pid} ancestry changed"));
+                    continue;
                 }
                 if retained.len() + next.len() >= 256 {
                     return Err("Runtime descendant snapshot exceeds 256 members".into());
