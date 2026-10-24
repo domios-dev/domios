@@ -54,8 +54,7 @@ fn recall_reembed_measure_real_l12_1k() {
 fn recall_reembed_measure_real_l12_c10_pair() {
     use codeterm_blueprint_types::blueprint_memory::{parse_document, Evidence};
     let fx = fixture_for(Arc::new(LocalProvider::new(default_model())));
-    let root =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../evals/blueprint-recall");
+    let root = crate::test_support::fixture_manifest_dir().join("../../../evals/blueprint-recall");
     let frozen: serde_json::Value =
         serde_json::from_slice(&std::fs::read(root.join("config.frozen.json")).unwrap()).unwrap();
     let config: RecallConfig = serde_json::from_value(frozen["config"].clone()).unwrap();
