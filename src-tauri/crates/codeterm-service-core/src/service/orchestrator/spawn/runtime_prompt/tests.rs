@@ -2,6 +2,41 @@ use super::*;
 use crate::service::role_preset::{FragmentSource, PresetFragment};
 
 #[test]
+fn general_runtime_prompt_preserves_fresh_context_and_rebuilds_restored_identity() {
+    const CONTEXT: &str = "fragment-a19\nfragment-b72 λ $() `opaque`";
+    for (restored, supplied) in [
+        (false, Some(CONTEXT)),
+        (true, Some(CONTEXT)),
+        (false, None),
+        (false, Some("  ")),
+    ] {
+        let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
+        let tab = mux.get_tab_mut(&id).unwrap();
+        crate::service::general_agent::identity::apply_general_agent_kind(tab);
+        tab.agent_type = Some("opaque-runtime-provider".into());
+        tab.session_binding_nonce = Some("opaque-nonce".into());
+        tab.restored_from_snapshot = restored;
+        tab.agent_runtime_config = Some(serde_json::json!({"systemPrompt":supplied}));
+        let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+
+        ensure_tab_runtime_prompt(&fixture.service, &id).unwrap();
+
+        let mux = fixture.service.mux.read();
+        let tab = mux.get_tab(&id).unwrap();
+        let prompt = tab.agent_runtime_config.as_ref().unwrap()["systemPrompt"]
+            .as_str()
+            .unwrap();
+        if !restored && supplied == Some(CONTEXT) {
+            assert_eq!(prompt, CONTEXT);
+        } else {
+            assert!(!prompt.trim().is_empty());
+            assert_ne!(prompt, CONTEXT);
+        }
+        assert!(tab.pending_delivery.is_none());
+    }
+}
+
+#[test]
 fn read_only_runtime_brief_selects_the_stdin_reporting_fragment_once() {
     let mut params = SpawnAgentParams {
         role: Some("Worker".into()),
