@@ -5,6 +5,11 @@
       "binary": "codeterm-plugin",
       "test": "js_runtime::parity_test::runtime::replay::runtime_quickjs_frame_mapping_benchmark",
       "reason": "Measures QuickJS frame-mapping throughput and p99 latency across captured runtime fixtures by repeated replay; duration is deliberate benchmark work."
+    },
+    {
+      "binary": "codeterm-orchestration",
+      "test": "lane_clean::tests::lane_clean_real_project_preview_measurement",
+      "reason": "Measures read-only lane preview latency against an explicitly exported real plan and live-tab snapshot; the ignored fixture writes per-lane decisions and timing evidence without mutation."
     }
   ]
 }
