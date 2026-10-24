@@ -1,6 +1,7 @@
 param([ValidateSet('Inspect', 'Stop')][string] $Operation)
 $ErrorActionPreference = 'Stop'
 $request = [Console]::In.ReadToEnd() | ConvertFrom-Json
+Add-Type -Path (Join-Path $PSScriptRoot 'windows-dev-rebuild-process.cs')
 
 function Snapshot {
   $listeners = @(Get-NetTCPConnection -State Listen -ErrorAction Stop |
@@ -8,11 +9,13 @@ function Snapshot {
     Sort-Object port, pid -Unique)
   $processes = @(Get-CimInstance Win32_Process | ForEach-Object {
     $created = ''
+    $imageIdentity = ''
     try {
       $process = [Diagnostics.Process]::GetProcessById([int]$_.ProcessId)
       try { $created = $process.StartTime.ToUniversalTime().ToFileTimeUtc().ToString() } finally { $process.Dispose() }
+      $imageIdentity = [DevRebuildProcess]::FileIdentity([string]$_.ExecutablePath)
     } catch {}
-    [pscustomobject]@{ pid = [int]$_.ProcessId; parent = [int]$_.ParentProcessId; executable = [string]$_.ExecutablePath; created = $created; commandLine = [string]$_.CommandLine }
+    [pscustomobject]@{ pid = [int]$_.ProcessId; parent = [int]$_.ParentProcessId; executable = [string]$_.ExecutablePath; created = $created; imageIdentity = $imageIdentity; commandLine = [string]$_.CommandLine }
   })
   return [pscustomobject]@{ processes = $processes; listeners = $listeners }
 }
@@ -28,19 +31,22 @@ function Assert-Listeners($listeners, $ids, $allowed, $port) {
   }
 }
 
+function Assert-ProcessIdentity($proc, $row) {
+  if ($proc.Id -ne [int]$row.pid -or $proc.Created -cne $row.created -or
+      -not $row.imageIdentity -or $proc.ImageIdentity -cne $row.imageIdentity) {
+    throw 'DEV process changed before shutdown; refusing'
+  }
+}
+
 if ($Operation -eq 'Inspect') { Snapshot | ConvertTo-Json -Depth 5 -Compress; exit 0 }
 if ([int]$request.port -eq 7685 -or [int]$request.port -lt 1) { throw 'Refusing production or invalid DEV port' }
-Add-Type -Path (Join-Path $PSScriptRoot 'windows-dev-rebuild-process.cs')
 $pinned = @()
 try {
   foreach ($row in $request.processes) {
     $proc = [DevRebuildProcess]::Open([int]$row.pid)
     if ($null -eq $proc) { continue }
     $pinned += $proc
-    if ($proc.Created -ne $row.created -or
-        $proc.Executable -ine ([string]$row.executable -replace '^\\\\\?\\', '')) {
-      throw 'DEV process changed before shutdown; refusing'
-    }
+    Assert-ProcessIdentity $proc $row
   }
   $snapshot = Snapshot
   $ids = @($pinned | ForEach-Object { $_.Id })
