@@ -55,7 +55,7 @@ test("maps running terminals and capable-provider subagents into one counted bub
   assert.deepEqual(composerBackgroundWorkBubble(items), { count: 2, items });
 });
 
-test("groups historical children without claiming a running count", () => {
+test("historical children without live evidence never raise a bubble", () => {
   const items = composerBackgroundWorkItems([
     agent("a", LONG_RUNNING_WORK_MS + 1, {agent_id:"a",agent_call_id:"call-a",agent_state:"running"}),
     agent("b", LONG_RUNNING_WORK_MS + 2, {agent_id:"b",agent_call_id:"call-b",agent_state:"started"}),
@@ -64,8 +64,8 @@ test("groups historical children without claiming a running count", () => {
   ], [], now, { subagentsVisible: true, rootThreadId: "root" });
   const bubble = composerBackgroundWorkBubble(items);
 
-  assert.equal(bubble?.count, 0);
-  assert.deepEqual(bubble?.items.map(({threadId}) => threadId), ["c", "b", "a"]);
+  assert.deepEqual(items.map(({threadId, status}) => [threadId, status]), [["c", "unknown"], ["b", "unknown"], ["a", "unknown"]]);
+  assert.equal(bubble, null);
 });
 
 test("filters recent, completed, and untimed work and gates subagents by provider capability", () => {
@@ -120,13 +120,21 @@ test("deduplicates process identity while preserving distinct jobs and exact too
   assert.equal(backgroundOwnsTool(undefined,items),false);
 });
 
-test("unknown and ended provider tasks remain inspectable without a running count", () => {
-  const items = withProviderBackgroundWork([], { live: "Live task" }, "root", {
-    unknown: { dropped: "Dropped task" }, ended: { finished: "Finished task" },
-  });
-  assert.deepEqual(items.map(item => item.status), ["running", "unknown", "ended"]);
+test("only live work makes a bubble; unknown work rides along beside it and ended work is never shown", () => {
+  const items = withProviderBackgroundWork([], { live: "Live task" }, "root", { dropped: "Dropped task" });
+  assert.deepEqual(items.map(item => item.status), ["running", "unknown"]);
   assert.equal(composerBackgroundWorkBubble(items)?.count, 1);
-  assert.equal(composerBackgroundWorkBubble(items.slice(1))?.count, 0);
+  assert.deepEqual(composerBackgroundWorkBubble(items)?.items.map(item => item.name), ["Live task", "Dropped task"]);
+  assert.equal(composerBackgroundWorkBubble(items.slice(1)), null, "without running work there is no bubble at all");
+});
+
+test("unlabelled provider tasks read as numbered internal agents and keep their raw id aside", () => {
+  const items = withProviderBackgroundWork([], { bm76h90j0: "", a2: "Run the release gate", zz9: "  " }, "root");
+  assert.deepEqual(items.map(item => [item.name, item.ordinal ?? null, item.rawId]), [
+    ["Internal agent", 1, "bm76h90j0"],
+    ["Run the release gate", null, "a2"],
+    ["Internal agent", 2, "zz9"],
+  ]);
 });
 
 test("own-session compaction invalidates runtime child liveness until fresh activity", () => {
@@ -137,7 +145,7 @@ test("own-session compaction invalidates runtime child liveness until fresh acti
   const invalidated = composerBackgroundWorkItems([child,boundary],[],now,options);
   assert.equal(invalidated[0].status,"unknown");
   assert.equal(invalidated[0].elapsed,"");
-  assert.equal(composerBackgroundWorkBubble(invalidated)?.count,0);
+  assert.equal(composerBackgroundWorkBubble(invalidated),null);
   const fresh = composerBackgroundWorkItems([child,boundary,{...child,id:"fresh"}],[],now,options);
   assert.equal(fresh[0].status,"running");
   assert.equal(composerBackgroundWorkBubble(fresh)?.count,1);

@@ -14,7 +14,7 @@ import type { BackgroundProcessAuthority, BackgroundProcessSnapshot, BackgroundP
 
 interface BackgroundProcessState {
   providerWork: Readonly<Record<string, string>>;
-  inactiveWork: { unknown?: Readonly<Record<string, string>>; ended?: Readonly<Record<string, string>> };
+  unknownWork: Readonly<Record<string, string>>;
   rootThreadId: string | undefined;
   identity: BackgroundProcessAuthority | null;
   refreshKey: string;
@@ -38,13 +38,13 @@ function useBackgroundProcessState(tabId: string) {
       const epoch = tab?.agent_runtime_state?.epoch;
       return {
         providerWork: tab?.provider_signals?.background?.running ?? {},
-        inactiveWork: { unknown: tab?.provider_signals?.background?.unknown, ended: tab?.provider_signals?.background?.ended },
+        unknownWork: tab?.provider_signals?.background?.unknown ?? {},
         rootThreadId: rootThreadId ?? undefined,
         identity: rootThreadId && bindingNonce && epoch !== undefined && tab?.agent_runtime_state?.state === "loaded" ? { rootThreadId, bindingNonce, epoch } : null,
         refreshKey: JSON.stringify([tab?.agent_runtime_state?.active_turn_started_at_ms, tab?.agent_runtime_state?.last_turn_duration_ms]),
       };
     }, [tabId]),
-    (a, b) => a.rootThreadId === b.rootThreadId && sameAuthority(a.identity, b.identity) && a.refreshKey === b.refreshKey && sameJson(a.providerWork, b.providerWork) && sameJson(a.inactiveWork, b.inactiveWork),
+    (a, b) => a.rootThreadId === b.rootThreadId && sameAuthority(a.identity, b.identity) && a.refreshKey === b.refreshKey && sameJson(a.providerWork, b.providerWork) && sameJson(a.unknownWork, b.unknownWork),
   );
 }
 
@@ -66,7 +66,7 @@ function validSnapshot(snapshot: BackgroundProcessSnapshot, identity: Background
 }
 
 export function useComposerBackgroundWork(tabId: string, supported: boolean, subagentsVisible: boolean, messages: readonly NormalizedChatMessage[]) {
-  const { identity, rootThreadId: parentThreadId, refreshKey, providerWork, inactiveWork } = useBackgroundProcessState(tabId);
+  const { identity, rootThreadId: parentThreadId, refreshKey, providerWork, unknownWork } = useBackgroundProcessState(tabId);
   const revision = useMemo(() => workRevision(messages), [messages]);
   const [loaded, setLoaded] = useState<LoadedProcesses>({ identity: null, processes: [] });
 
@@ -111,7 +111,7 @@ export function useComposerBackgroundWork(tabId: string, supported: boolean, sub
   }, [acceptSnapshot, identity, tabId]);
 
   const terminals = sameAuthority(loaded.identity, identity) ? loaded.processes : [];
-  const computed = withProviderBackgroundWork(composerBackgroundWorkItems(messages, terminals, Date.now(), { subagentsVisible, rootThreadId: parentThreadId, authority: identity ?? undefined }), providerWork, parentThreadId, inactiveWork);
+  const computed = withProviderBackgroundWork(composerBackgroundWorkItems(messages, terminals, Date.now(), { subagentsVisible, rootThreadId: parentThreadId, authority: identity ?? undefined }), providerWork, parentThreadId, unknownWork);
   // The composer header consumes this through context; unchanged work must keep its identity across transcript renders.
   const itemsRef = useRef(computed);
   if (!sameJson(itemsRef.current, computed)) itemsRef.current = computed;
