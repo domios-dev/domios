@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { listen } from "../../lib/bridge";
 import { DEV_BUILD } from "../../lib/devBuild";
 import { localFetch } from "../../lib/webApi";
 import { freeLimitGate, upgradePlan } from "../billing/freeLimitGate";
@@ -55,7 +56,12 @@ export function useAccountPlan(identityKey: string | null) {
     loading.current = refresh();
     const onFocus = () => { loading.current = refresh(true); };
     window.addEventListener("focus",onFocus);
-    return () => { controller.abort(); active.current++; window.removeEventListener("focus",onFocus); };
+    let unlisten: (() => void) | undefined;
+    void listen("entitlement-changed", () => { loading.current = refresh(); }).then((fn) => {
+      if (active.current === generation) unlisten = fn;
+      else fn();
+    });
+    return () => { controller.abort(); active.current++; window.removeEventListener("focus",onFocus); unlisten?.(); };
   }, [identityKey]);
   async function knownPlan(): Promise<PlanModel> {
     const known = plan ?? await loading.current;

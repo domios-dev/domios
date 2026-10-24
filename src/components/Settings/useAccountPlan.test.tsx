@@ -9,6 +9,14 @@ vi.mock("../../lib/webApi", async (importOriginal) => ({
   ...await importOriginal<typeof import("../../lib/webApi")>(),
   localFetch: (url: string, init?: RequestInit) => network.request(url, init),
 }));
+const bridge = vi.hoisted(() => ({ handlers: new Map<string, () => void>() }));
+vi.mock("../../lib/bridge", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../../lib/bridge")>(),
+  listen: async (event: string, handler: () => void) => {
+    bridge.handlers.set(event, handler);
+    return () => bridge.handlers.delete(event);
+  },
+}));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 function plan(authority: "admin" | "billing" | "free", planName: string, status: string): AccountPlan {
@@ -29,6 +37,7 @@ const openPlans = vi.fn();
 function Harness() {
   const billing = useAccountPlan("user");
   return <div>
+    <output aria-label="Current plan">{billing.plan?.plan ?? "none"}</output>
     <output aria-label="Billing action state">{billing.pending ? "Opening subscription" : "Ready"}</output>
     <button type="button" disabled={billing.pending} onClick={() => void billing.manage(openPlans).then((failure) => { outcome.failure = failure; })}>
       Manage subscription
@@ -106,4 +115,15 @@ it("hands a portal failure back to the caller and clears the pending state", asy
 
   expect(outcome.failure).toBeInstanceOf(Error);
   expect(state(host)).toBe("Ready");
+});
+
+it("an entitlement change re-reads the plan without a window focus", async () => {
+  const host = await mount(plan("billing", "sponsor", "active"));
+  expect(host.querySelector('[aria-label="Current plan"]')?.textContent).toBe("sponsor");
+
+  network.request.mockImplementation(() => Promise.resolve(response(plan("billing", "pro", "active"))));
+  await act(async () => bridge.handlers.get("entitlement-changed")?.());
+
+  expect(host.querySelector('[aria-label="Current plan"]')?.textContent).toBe("pro");
+  expect(network.request).toHaveBeenLastCalledWith("/api/account/plan", expect.objectContaining({ method: "GET" }));
 });
