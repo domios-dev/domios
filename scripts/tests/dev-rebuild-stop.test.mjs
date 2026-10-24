@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { rebuildStopPlan } from '../dev-rebuild-stop.mjs';
 
 function fixture() {
@@ -195,6 +196,67 @@ test('server-only running instance can stop without a stale native snapshot', ()
   input.listeners = [input.listeners[0]];
   input.quit.client = null;
   assert.deepEqual(rebuildStopPlan(input).map(row => row.pid), [43]);
+});
+
+test('Windows pinned shutdown waits through termination races and refuses surviving processes', { skip: process.platform !== 'win32' }, () => {
+  const helper = fileURLToPath(new URL('../windows-dev-rebuild-process.cs', import.meta.url));
+  const command = `
+$ErrorActionPreference = 'Stop'
+Add-Type -TypeDefinition @'
+${readFileSync(helper, 'utf8')}
+public sealed class FakeDevRebuildProcess : IDevRebuildProcess {
+    public bool AlreadyExited, ExitsAfterKill;
+    public int KillError, Kills, Waits, LastBound;
+    public bool WaitForExit(int milliseconds) {
+        Waits++;
+        LastBound = milliseconds;
+        return AlreadyExited || (milliseconds > 0 && ExitsAfterKill);
+    }
+    public void Kill() {
+        Kills++;
+        if (KillError != 0) throw new System.ComponentModel.Win32Exception(KillError);
+    }
+}
+'@
+$cases = @(
+  @{ name='already-exited'; already=$true; exits=$false; error=0; ok=$true; kills=0; waits=1 },
+  @{ name='exited-during-kill'; already=$false; exits=$true; error=0; ok=$true; kills=1; waits=2 },
+  @{ name='still-running'; already=$false; exits=$false; error=0; ok=$false; kills=1; waits=2 },
+  @{ name='access-denied-then-exited'; already=$false; exits=$true; error=5; ok=$true; kills=1; waits=2 },
+  @{ name='access-denied-still-running'; already=$false; exits=$false; error=5; ok=$false; kills=1; waits=2 },
+  @{ name='other-kill-error'; already=$false; exits=$true; error=6; ok=$false; kills=1; waits=1 }
+)
+foreach ($case in $cases) {
+  $fake = New-Object FakeDevRebuildProcess
+  $fake.AlreadyExited = $case.already
+  $fake.ExitsAfterKill = $case.exits
+  $fake.KillError = $case.error
+  $accepted = $true
+  try { [DevRebuildProcess]::Stop($fake, 1234) } catch {
+    $accepted = $false
+    if ($case.waits -eq 2 -and $_.Exception.ToString() -notmatch 'did not exit; refusing staging') { throw }
+    if ($case.error -eq 6 -and $_.Exception.InnerException.NativeErrorCode -ne 6) { throw }
+  }
+  if ($accepted -ne $case.ok -or $fake.Kills -ne $case.kills -or $fake.Waits -ne $case.waits) {
+    throw "Wrong shutdown decision: $($case.name)"
+  }
+  if ($case.waits -eq 2 -and $fake.LastBound -ne 1234) { throw 'Exit wait lost its bound' }
+}
+$self = [DevRebuildProcess]::Open($PID)
+$process = [Diagnostics.Process]::GetCurrentProcess()
+try {
+  if ($self.Id -ne $PID -or $self.WaitForExit(0) -or
+      $self.Created -ne $process.StartTime.ToUniversalTime().ToFileTimeUtc().ToString() -or
+      $self.Executable -ine $process.MainModule.FileName) { throw 'Pinned handle identity mismatch' }
+} finally { $self.Dispose(); $process.Dispose() }
+Write-Output 'shutdown cases=6 and native pinned identity passed'
+`;
+  const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(command, 'utf16le').toString('base64')], {
+    encoding: 'utf8', windowsHide: true, timeout: 10_000,
+  });
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /shutdown cases=6 and native pinned identity passed/);
 });
 
 test('launcher stops before both staging and prebuilt launch; preflight refusal preserves DEV', () => {

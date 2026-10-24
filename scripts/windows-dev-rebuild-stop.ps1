@@ -30,17 +30,17 @@ function Assert-Listeners($listeners, $ids, $allowed, $port) {
 
 if ($Operation -eq 'Inspect') { Snapshot | ConvertTo-Json -Depth 5 -Compress; exit 0 }
 if ([int]$request.port -eq 7685 -or [int]$request.port -lt 1) { throw 'Refusing production or invalid DEV port' }
+Add-Type -Path (Join-Path $PSScriptRoot 'windows-dev-rebuild-process.cs')
 $pinned = @()
 try {
   foreach ($row in $request.processes) {
-    try { $proc = [Diagnostics.Process]::GetProcessById([int]$row.pid) } catch [ArgumentException] { continue }
-    [void]$proc.Handle
-    if ($proc.StartTime.ToUniversalTime().ToFileTimeUtc().ToString() -ne $row.created -or
-        $proc.MainModule.FileName -ine ([string]$row.executable -replace '^\\\\\?\\', '')) {
-      $proc.Dispose()
+    $proc = [DevRebuildProcess]::Open([int]$row.pid)
+    if ($null -eq $proc) { continue }
+    $pinned += $proc
+    if ($proc.Created -ne $row.created -or
+        $proc.Executable -ine ([string]$row.executable -replace '^\\\\\?\\', '')) {
       throw 'DEV process changed before shutdown; refusing'
     }
-    $pinned += $proc
   }
   $snapshot = Snapshot
   $ids = @($pinned | ForEach-Object { $_.Id })
@@ -48,8 +48,7 @@ try {
   try {
     Invoke-WebRequest -UseBasicParsing -Method Post -Uri "http://127.0.0.1:$($request.port)/api/app/quit" -ContentType 'application/json' -Headers @{ Authorization = "Bearer $($request.token)" } -Body ($request.quit | ConvertTo-Json -Depth 20 -Compress) -TimeoutSec 30 | Out-Null
   } catch { }
-  foreach ($proc in $pinned) { if (-not $proc.HasExited) { $proc.Kill() } }
-  foreach ($proc in $pinned) { if (-not $proc.WaitForExit(10000)) { throw 'DEV pinned process did not exit; refusing staging' } }
+  foreach ($proc in $pinned) { [DevRebuildProcess]::Stop($proc, 10000) }
   $after = Snapshot
   if (@($after.listeners | Where-Object { $_.port -eq [int]$request.port }).Count) { throw 'DEV listener was replaced during shutdown; refusing staging' }
   '{"exited":true}'
