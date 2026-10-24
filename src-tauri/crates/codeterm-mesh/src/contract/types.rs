@@ -43,6 +43,8 @@ pub fn is_tailscale_ip(ip: &str) -> bool {
     if let Ok(addr) = ip.parse::<std::net::Ipv4Addr>() {
         let o = addr.octets();
         o[0] == 100 && (64..128).contains(&o[1])
+    } else if let Ok(addr) = ip.parse::<std::net::Ipv6Addr>() {
+        addr.segments()[..3] == [0xfd7a, 0x115c, 0xa1e0]
     } else {
         false
     }

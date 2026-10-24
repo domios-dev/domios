@@ -63,6 +63,22 @@ fn bearer_exempt(method: &Method, path: &str) -> bool {
     !path.starts_with("/api/") || PUBLIC_PATHS.contains(&path) || is_custom_auth(method, path)
 }
 
+fn tailnet_exempt(method: &Method, path: &str) -> bool {
+    (method == Method::GET && matches!(path, "/api/health" | "/api/mesh/ping"))
+        || (method == Method::POST
+            && matches!(
+                path,
+                "/api/mesh/link/hello"
+                    | "/api/mesh/link/confirm"
+                    | "/api/mesh/link/commit"
+                    | "/api/mesh/relay"
+                    | "/api/mesh/announce"
+                    | "/api/mesh/adopt/offer"
+                    | "/api/mesh/adopt/commit"
+            ))
+        || (method == Method::DELETE && is_custom_auth(method, path))
+}
+
 fn peer_protocol_allowed(version: u16, _path: &str) -> bool {
     codeterm_service_core::mesh::types::is_supported_relay_protocol(version)
 }
@@ -439,6 +455,24 @@ fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
     }
     let path = req.uri().path().to_string();
     let method = req.method().clone();
+    let peer_listener = req
+        .extensions()
+        .get::<codeterm_service_core::service::account_mesh::tailnet::PeerListener>()
+        .is_some();
+    if peer_listener && !path.starts_with("/api/") {
+        return StatusCode::NOT_FOUND.into_response().into();
+    }
+    if peer_listener
+        && (state
+            .mesh
+            .lock()
+            .account_state()
+            .signed_in_account()
+            .is_none()
+            || !state.config.lock().mesh.enabled)
+    {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response().into();
+    }
 
     let remote_address = req
         .extensions()
@@ -476,7 +510,11 @@ fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
         }
     }
 
-    if bearer_exempt(&method, &path) {
+    if if peer_listener {
+        tailnet_exempt(&method, &path)
+    } else {
+        bearer_exempt(&method, &path)
+    } {
         return AuthOutcome::Allowed(req, false);
     }
 
@@ -488,6 +526,14 @@ fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
         .to_string();
 
     let caller = identify_caller(&state, &auth);
+    if peer_listener
+        && matches!(
+            &caller,
+            Ok(CallerIdentity::Local | CallerIdentity::ServicePush { .. })
+        )
+    {
+        return StatusCode::UNAUTHORIZED.into_response().into();
+    }
     if let Ok(identity) = &caller {
         req.extensions_mut().insert(identity.clone());
     }
