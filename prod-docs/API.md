@@ -12,7 +12,7 @@ Socket/mesh envelopes require `protocol_version`; older or versionless clients g
 Human `domios workspace list` shows authoritative topology in creation order; `domios tab inspect <id>` inspects one tab (whole-list JSON is automation-only). `workspace current --json` returns `{ "id", "source" }`; sources, in resolution order: `explicit` (`--workspace`), `caller-tab` (`$CODETERM_TAB_ID` membership), `workspace-env` (validated `$CODETERM_WORKSPACE_ID`), `focus-fallback` (active workspace). No match: exit 1, empty stdout (`--json` writes the error to stdout).
 
 ## REST API
-Base: `http://<host>:7685/api`. Web-mirror/debug internals omitted.
+Base: `http://<host>:7685/api`.
 
 ### Authentication
 The Bearer token lives in owner-only `<data_dir>/.secrets` as `domios.instance:api_token`, read once at startup and passed to tabs as `CODETERM_API_TOKEN`, never stored in `config.toml`. Local-only `domios system api-token` prints the credential and refuses `--mesh`. Control endpoints require it even on loopback; public health/pairing grants no control.
@@ -93,10 +93,10 @@ Restore normalizes the recorded `cwd` before matching. `GET /api/mux/state` expo
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
 | GET | `/api/shells` | `?refresh=true` | Shell profiles; refresh replaces cache. |
-| GET | `/api/tabs` | `?workspace_id=<id>&agents=<bool>` or `?all_workspaces=true` | List summaries; `workspace_id` scopes one workspace, `all_workspaces=true` scopes all, and `focused_workspace=true` uses caller/focus. Rows carry workspace scope, `agent_liveness`, `agent_label` and the same `status` as `/status`. State-lock waits past 5 s return `503`. Field details: API-TABS. |
+| GET | `/api/tabs` | `?workspace_id=<id>&agents=<bool>` or `?all_workspaces=true` | Summaries: `workspace_id` scopes one, `all_workspaces=true` lists all; `focused_workspace=true` uses caller identity, else focus. Rows: `workspace_id`, `workspace_name`, `scope` (`all_workspaces` \| `workspace`), `scope_workspace_id`, `scope_workspace_name`, `other_workspace_tab_count`, `agent_liveness` (`live` \| `absent` \| `unobserved`), `agent_label` (model/provider; `?` unobserved, `!` absent), `status` matching `/status` (`working` \| `question` \| `idle` \| `error` \| `exited`). Writer locks held over 5 s return `503`. |
 | POST | `/api/tabs/{id}/wake` | — | Local-owner request to wake a sleeping tab; returns `202 {accepted:true}` immediately. Backend materialization runs off the async runtime; observe tab state for readiness. Repeated requests materialize once while a wake runs. A failed wake publishes `spawn_failed` and `boot_failure_reason`; an explicit new wake request retries it. |
 | GET | `/api/tabs/inspect` | `?tab_ids=<id>,<id>` | Full tab payload for the selected tab IDs only. |
-| POST | `/api/tabs` | `{title?, description?, cwd?, workspace_id?, team_id?, creator_tab_id?, detach_from_team?, cmd?, eager?, chat_backend?, system_prompt?, preset?, model?}` | Create a tab. One-word `title` (64 chars), single-line `description` (200 chars). Workspace/Team inheritance, shell commands, chat-backend options and defaults: API-TABS. |
+| POST | `/api/tabs` | `{title?, description?, cwd?, workspace_id?, team_id?, creator_tab_id?, detach_from_team?, cmd?, eager?, chat_backend?, system_prompt?, preset?, model?}` | Create tab: `title` one word, max 64 chars; `description` trimmed one line, max 200 chars, empty clears. Workspace: explicit, creator-owned, then focus. PTY shells inherit the live creator Team unless `detach_from_team`; explicit `team_id` is membership-checked; chat backends never inherit. `cmd` uses `/send` plus Enter. `chat_backend` opens an installed `chatBackend` shell instead of a PTY; only these accept `system_prompt`, `preset` (plugin `defaultPreset` default), and `model`. |
 | POST | `/api/tabs/{id}/send` | `{text?, raw?, actions?: [{type:"key", key} \| {type:"delay", ms}], batch?: [{text, delay_ms?}], source_tab?}` | The ordinary write path, also used by mesh relay and service push tokens. Plain text and every batch item submit; `actions`/`raw` are only for explicit low-level terminal input. Delivery results (`sent`, `pending`, or a structured error with `bytes_written`): API-CHAT. |
 | POST | `/api/tabs/{id}/chat-send` | *(per route)* | Chat send and transcript routes: API-CHAT |
 | POST | `/api/tabs/{id}/attachments` | `{kind: "voice"\|"file", name, size, data}` (`data` is base64, at most 25 MiB decoded) | Target-host attachment ingest for mesh sends. Refuses oversized (`413`), malformed, empty or size-mismatched (`400`) payloads, sanitizes `name`, stores bytes in this host's upload directory. Returns `{path, kind, size, reference}`: `path` is host-local; for `voice`, `reference` is the voice marker transcribed here. Peers reach it through the signed relay with `/send` access. |
@@ -121,15 +121,15 @@ Restore normalizes the recorded `cwd` before matching. `GET /api/mux/state` expo
 | POST | `/api/tabs/{id}/resize` | `{cols, rows}` | Resize terminal |
 | GET | `/api/tabs/{id}/chat` | *(per route)* | Chat send and transcript routes: API-CHAT |
 | GET | `/api/tabs/{id}/agent/runtime/children/{thread}/history` | `rootThreadId`, `bindingNonce`, `epoch`, optional `cursor` | Read one recorded subagent's history under the current parent binding. Returns `child` metadata, `items`, `nextCursor` and echoed binding fields. Foreign, unrecorded and stale children are refused; this grants no send or rebind authority and creates no tab. |
-| * | `/api/tabs/{id}/session/...` | *(per route)* | Tab session binding: read the daemon's binding fact, or rebind a running tab to an existing provider session without restarting it — both in API-TABS |
-| POST | `/api/tabs/{id}/repair` | `{provider? \| session_id? \| from_evidence? \| from_journal?}` | Repair a live PTY tab's provider/session identity without restart. Modes are mutually exclusive; empty body means `from_evidence`. Caller proof comes from `X-CodeTerm-Tab-Id` and `X-CodeTerm-Binding-Nonce`, plus `X-CodeTerm-Session-Id` when the launch already knew it; the proven caller must be the target tab or the registered owner of the target's bound plan task. Response shape, journal mode, and refusals: API-REPAIR. |
+| * | `/api/tabs/{id}/session/...` | *(per route)* | Read binding state or rebind an existing provider session without restart: API-TABS. |
+| POST | `/api/tabs/{id}/repair` | `{provider? \| session_id? \| from_evidence? \| from_journal?}` | Repair a live PTY provider/session without restart; self or bound Plan-owner authority. Modes, caller headers, response and refusals: API-REPAIR. |
 | POST | `/api/tabs/{id}/adopt-agent` | See API-ADOPT | Adopt a live PTY; see API-ADOPT. |
 | * | `/api/tabs/{id}/delayed-messages`, `/api/delayed-messages/{id}` | *(per route)* | List, queue, edit, delete, and send-now for delayed Chat UI messages — all in API-CHAT |
 | POST | `/api/tabs/{id}/hook/{permission,session_state,stop,session_start}` | *(per-hook, see below)* | Agent lifecycle hooks for one tab. Payloads, modes, nonce rejection and responses live in API-TABS |
 | POST | `/api/tabs/{id}/agent/switch-provider` | `{provider, model?, reasoning_effort?, force?}` | Daemon-owned in-place handoff (also General/self); 202 + operation id; see PROVIDER-SWITCH |
 | GET | `/api/tabs/{id}/agent/switch-provider/{operation}` | `?wait=true` optional | Read pending/running/completed/failed operation and outcome. |
 | GET | `/api/tabs/{id}/agent/provider-history` | `?file=PATH` | Read this tab's archived previous provider transcript. |
-| POST | `/api/tabs/{id}/agent/restart` | `{force?: bool, grace_secs?: u64, provider?: string, handoff_history?: bool}` | Restart a live agent, fresh-launch a known provider from a confirmed unbound shell, or resume an exited provider's verified owned session. An optional PTY provider change can hand off bounded redacted history. See [Agent Restart](API-AGENTS.md#agent-restart-post-apitabsidagentrestart). |
+| POST | `/api/tabs/{id}/agent/restart` | `{force?: bool, grace_secs?: u64, provider?: string, handoff_history?: bool}` | Restart/resume the owned agent session; guarded fresh launch or optional PTY provider handoff. Full contract: API-AGENTS. |
 | POST | `/api/tabs/{id}/agent/model` | `{model: string, reasoning_effort?: string, runtime_mode?: string}` | Capability-selected model control: `next_turn` stages without restart, Live is tab-bound, otherwise idle RestartResume. Preserves provider defaults. Details: API-AGENTS. |
 | GET | `/api/tabs/{id}/agent/service-tiers` | none | Reads the exact tab's session-bound model tier catalogue and requested/confirmed service tier selections. Returns typed `no_runtime`, `no_tiers`, or `not_found` refusals. |
 
@@ -184,4 +184,4 @@ A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or `c
 
 Related: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-INTEGRATIONS`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, `TELEGRAM-SETUP`. Analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 222 -->
+<!-- revision: 223 -->
