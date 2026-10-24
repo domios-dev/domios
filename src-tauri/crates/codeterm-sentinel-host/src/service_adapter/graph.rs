@@ -5,6 +5,8 @@ use pipeline::project_pipeline_contract;
 mod retained;
 
 #[cfg(test)]
+mod admission_tests;
+#[cfg(test)]
 mod tests;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -299,7 +301,7 @@ impl AutomationGraphExt for ServiceContext {
         let journals = pipeline_journals(&handle, &jobs)?;
         let definitions = retained::definitions(&handle, &jobs, &journals)?;
         let mut grouped: BTreeMap<Option<String>, Vec<Sentinel>> = BTreeMap::new();
-        for job in jobs.iter().filter(|job| job.is_scenario_root()) {
+        for job in jobs.iter().filter(|job| graph::is_snapshot_root(job)) {
             grouped.entry(job.team_id.clone()).or_default();
         }
         if grouped.is_empty() {
@@ -353,6 +355,12 @@ impl AutomationGraphExt for ServiceContext {
                 let mut revisions = Vec::new();
                 for (team, scoped_jobs, crons) in &grouped {
                     let team_ref = team.as_deref();
+                    if team_ref.is_some_and(|team| {
+                        mux.get_team(team).is_none()
+                            || mux.team_workspace(team).as_deref() != Some(workspace)
+                    }) {
+                        continue;
+                    }
                     let snapshot = graph::project(
                         workspace,
                         team_ref,
@@ -490,7 +498,7 @@ fn pipeline_journals(
 ) -> Result<BTreeMap<String, Vec<BlueprintJournalEntry>>, String> {
     let ids = jobs
         .iter()
-        .filter(|job| job.document.is_some() && job.is_scenario_root())
+        .filter(|job| job.document.is_some() && graph::is_snapshot_root(job))
         .map(|job| job.id.clone())
         .collect::<Vec<_>>();
     if ids.is_empty() {
@@ -519,7 +527,7 @@ pub(crate) fn invalidate(
         let scopes: BTreeSet<_> = store
             .list()
             .iter()
-            .filter(|job| job.is_scenario_root())
+            .filter(|job| graph::is_snapshot_root(job))
             .map(|job| (job.workspace_id.clone(), job.team_id.clone()))
             .collect();
         scopes
