@@ -164,10 +164,10 @@ function bindings(node: BlueprintIrNode): [string, string][] {
   return bound;
 }
 
-/** `node.port[.field]`: the wire leaves the source's port; a field only narrows what flows through it. */
-function splitBinding(binding: string): { node: string; port: string } {
-  const [node, port] = binding.split(".");
-  return { node, port: port || "out" };
+export function splitBinding(binding: string): { node: string; port: string } | null {
+  const [node, port, ...fields] = binding.split(".");
+  if (!node || node.length > 64 || !/^[a-zA-Z0-9_-]+$/.test(node) || node === "next" || node === "stop" || port !== "out" || fields.some((field) => !field)) return null;
+  return { node, port };
 }
 
 function namedInputType(input: BlueprintPort | undefined, port: string): string | undefined {
@@ -363,6 +363,7 @@ export function* buildBlueprintGraph(pipeline: PipelineView, expanded: Blueprint
       }
       for (const input of node.inputs.filter((entry) => entry.id.startsWith("bind:"))) {
         const source = splitBinding(input.detail ?? "");
+        if (!source) continue;
         const from = local.get(source.node);
         if (!from) continue;
         const id = source.port === "out" ? "data:out" : `data:${source.port}`;

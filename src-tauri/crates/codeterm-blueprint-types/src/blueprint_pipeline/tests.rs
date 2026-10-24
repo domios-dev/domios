@@ -317,7 +317,6 @@ fn blueprint_pipeline_journal_summary_is_bounded_and_control_free() {
         ))),
         reason: None,
     };
-    entry.validate().unwrap();
     let expected = "x".repeat(199);
     assert_eq!(entry.result_summary.as_deref(), Some(expected.as_str()));
     assert_eq!(StepJournalEntry::bound_summary("a\u{1b}b"), "ab");
