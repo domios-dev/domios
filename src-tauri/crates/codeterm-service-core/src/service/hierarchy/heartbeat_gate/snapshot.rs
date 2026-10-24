@@ -661,7 +661,7 @@ pub(super) fn runtime_process(
     match phase {
         RuntimePhase::Ready => "present",
         RuntimePhase::Unloaded { .. } | RuntimePhase::Degraded { .. } => "absent",
-        RuntimePhase::Loading => "unknown",
+        RuntimePhase::Loading | RuntimePhase::LoginPending => "unknown",
     }
 }
 

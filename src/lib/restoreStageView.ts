@@ -50,7 +50,7 @@ export function restoreStageView(tab: Partial<Tab>, wake?: Partial<WakeRequestVi
   const runtime = tab.agent_runtime_state;
   const deadlinePending = runtimeResponseDeadlinePending(runtime, tab.boot_failure_reason);
   const activeStage = Boolean(stage && (backendStages.has(stage) || sessionStages.has(stage) || connectingStages.has(stage)));
-  const ready = !tab.frozen && stage !== "spawn_failed" && runtime?.state !== "degraded" && !deadlinePending
+  const ready = !tab.frozen && stage !== "spawn_failed" && runtime?.state !== "degraded" && runtime?.state !== "loginPending" && !deadlinePending
     && (stage === "agent_ready" || (!agent && (stage === "shell_ready" || stage === "pty_reattached"))
       || (!activeStage && !tab.agent_booting && runtime?.state === "loaded"));
   let phase: RestoreStageView["phase"] = "restoring";
@@ -72,7 +72,7 @@ export function restoreStageView(tab: Partial<Tab>, wake?: Partial<WakeRequestVi
   } else if (!deadlinePending && (stage === "spawn_failed" || (!activeStage && runtime?.state === "degraded"))) {
     phase = "failed";
     detail = tab.boot_failure_reason || runtime?.reason || "The session could not be restored.";
-  } else if (stage === "awaiting_owner_prompt") {
+  } else if (runtime?.state === "loginPending" || stage === "awaiting_owner_prompt") {
     phase = "attention";
     current = agent ? 2 : 0;
     detail = tab.pending_prompt?.question || "The session needs your input.";

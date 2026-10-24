@@ -101,6 +101,16 @@ impl ServiceContext {
         let result = crate::async_runtime::block_on(agent_runtime::restart::restart(
             self, tab_id, &provider, &nonce, fresh,
         ));
+        if result.as_ref().is_ok_and(|session| {
+            matches!(
+                session.state.lock().phase,
+                agent_runtime::model::RuntimePhase::LoginPending
+            )
+        }) {
+            self.schedule_session_persist_debounced();
+            self.emit_state_changed(MuxEmitCause::AgentRestart);
+            return Ok(outcome);
+        }
         self.clear_runtime_restart_binding(tab_id);
         match result {
             Ok(session) => {

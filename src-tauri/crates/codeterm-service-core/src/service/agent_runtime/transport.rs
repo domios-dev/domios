@@ -449,6 +449,10 @@ fn launch_with_fork(
             None => engine::ensure(svc, tab).await,
         }
     })
+    .or_else(|error| match fork {
+        None => engine::login_pending_session(svc, tab, error),
+        Some(_) => Err(error),
+    })
     .map(|_| ())
     .map_err(|error| format!("Runtime tab {tab} degraded: {error}"));
     if fork.is_none() {
@@ -477,7 +481,9 @@ pub fn snapshot(
         started.elapsed().as_millis(),
         ensured.is_ok()
     );
-    let session = ensured.map_err(|error| error.to_string())?;
+    let session = ensured
+        .or_else(|error| engine::login_pending_session(svc, tab, error))
+        .map_err(|error| error.to_string())?;
     let reading = std::time::Instant::now();
     let items = session.cache.lock().snapshot();
     log::debug!(

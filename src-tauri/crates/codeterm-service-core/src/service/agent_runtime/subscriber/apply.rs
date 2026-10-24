@@ -183,13 +183,16 @@ fn apply(svc: &ServiceContext, session: &Arc<Session>, epoch: u64, at: u64, even
                 engine::publish(svc, &context.tab_id, session);
             }
             if matches!(state, RuntimeAuthState::SignedOut) {
-                session.state.lock().degrade(
-                    epoch,
-                    &RuntimeFailure::Refused(detail.map_or_else(
-                        || "Sign-in required".into(),
-                        |detail| format!("Sign-in required: {detail}"),
-                    )),
-                );
+                if let Some(detail) = detail {
+                    log::debug!(
+                        "[runtime-auth] tab={} sign-in pending: {detail}",
+                        context.tab_id
+                    );
+                }
+                session
+                    .state
+                    .lock()
+                    .degrade(epoch, &RuntimeFailure::SignInRequired);
                 engine::publish(svc, &context.tab_id, session);
             }
         }
