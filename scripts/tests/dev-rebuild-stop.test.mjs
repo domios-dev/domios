@@ -110,6 +110,65 @@ test('another Domios instance nested in the selected tree refuses', () => {
   }
 });
 
+test('same-image PTY helpers and other non-serve descendants stop with the verified server', () => {
+  for (const commandLine of [
+    'domios-server.exe pty-child powershell.exe -NoLogo',
+    '"C:\\target\\domios-server\\domios-server.exe" pty-child "C:\\Program Files\\shell.exe" serve',
+    '"C:\\Program Files\\Domios\\domios-server.exe" "pty-child" shell.exe',
+    'domios-server.exe observe --pipe opaque',
+  ]) {
+    const input = fixture();
+    input.processes.push(
+      { pid: 60, parent: 43, created: '130', executable: 'C:/shell.exe' },
+      { pid: 61, parent: 60, created: '131', executable: input.ready.process.executable, commandLine },
+      { pid: 62, parent: 61, created: '132', executable: 'C:/shell.exe' });
+    assert.deepEqual(rebuildStopPlan(input).map(row => row.pid), [42, 43, 44, 60, 61, 62], commandLine);
+  }
+});
+
+test('same-image serve descendants refuse even before they own a listener', () => {
+  for (const commandLine of ['domios-server.exe serve', '"C:\\target\\domios-server\\domios-server.exe" "serve" --pipe pty-child']) {
+    const input = fixture();
+    input.processes.push({ pid: 60, parent: 43, created: '130', executable: input.ready.process.executable, commandLine });
+    assert.throws(() => rebuildStopPlan(input), /another instance/);
+  }
+});
+
+test('helper exemption refuses listener owners, foreign images, client children and unknown subcommands', () => {
+  for (const change of [
+    (input, child) => { input.listeners.push({ pid: child.pid, port: 17998 }); },
+    (input, child) => { input.listeners.push({ pid: child.pid, port: 7685 }); },
+    (_input, child) => { child.executable = 'C:/foreign/domios-server.exe'; },
+    (_input, child) => { child.parent = 42; },
+    (_input, child) => { delete child.commandLine; },
+    (_input, child) => { child.commandLine = 'domios-server.exe'; },
+    (_input, child) => { child.commandLine = 'domios-server.exe --pipe pty-child'; },
+  ]) {
+    const input = fixture();
+    const child = { pid: 60, parent: 43, created: '130', executable: input.ready.process.executable,
+      commandLine: 'domios-server.exe pty-child shell.exe' };
+    change(input, child);
+    input.processes.push(child);
+    assert.throws(() => rebuildStopPlan(input), /another instance/);
+  }
+});
+
+test('Windows snapshot captures the process command line for helper classification', { skip: process.platform !== 'win32' }, () => {
+  const source = readFileSync(new URL('../windows-dev-rebuild-stop.ps1', import.meta.url), 'utf8');
+  const snapshot = source.match(/^function Snapshot[^]*?^\}/m)[0];
+  const command = `${snapshot}
+function Get-NetTCPConnection { @() }
+function Get-CimInstance { [pscustomobject]@{ ProcessId = $PID; ParentProcessId = 1; ExecutablePath = 'C:/server.exe'; CommandLine = 'server.exe pty-child shell.exe' } }
+$row = (Snapshot).processes[0]
+if ($row.commandLine -cne 'server.exe pty-child shell.exe' -or $row.created -notmatch '^[0-9]+$') { exit 1 }
+`;
+  const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(command, 'utf16le').toString('base64')], {
+    encoding: 'utf8', windowsHide: true, timeout: 10_000,
+  });
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 0, result.stderr);
+});
+
 test('Windows final listener guard accepts captured descendants and refuses changed ownership', { skip: process.platform !== 'win32' }, () => {
   const source = readFileSync(new URL('../windows-dev-rebuild-stop.ps1', import.meta.url), 'utf8');
   const guard = source.match(/^function Assert-Listeners\([^]*?^\}/m)[0];

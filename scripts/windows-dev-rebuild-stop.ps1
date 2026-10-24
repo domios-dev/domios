@@ -12,7 +12,7 @@ function Snapshot {
       $process = [Diagnostics.Process]::GetProcessById([int]$_.ProcessId)
       try { $created = $process.StartTime.ToUniversalTime().ToFileTimeUtc().ToString() } finally { $process.Dispose() }
     } catch {}
-    [pscustomobject]@{ pid = [int]$_.ProcessId; parent = [int]$_.ParentProcessId; executable = [string]$_.ExecutablePath; created = $created }
+    [pscustomobject]@{ pid = [int]$_.ProcessId; parent = [int]$_.ParentProcessId; executable = [string]$_.ExecutablePath; created = $created; commandLine = [string]$_.CommandLine }
   })
   return [pscustomobject]@{ processes = $processes; listeners = $listeners }
 }

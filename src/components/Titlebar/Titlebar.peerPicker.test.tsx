@@ -4,7 +4,7 @@ beforeDaemonCase(() => configureDaemonFixture());
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ThemeConfig, Workspace } from "../../lib/types";
+import type { AppConfig, ThemeConfig, Workspace } from "../../lib/types";
 import { RELAY_PROTOCOL_VERSION } from "../../lib/types";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 
@@ -89,7 +89,7 @@ function Shell({ initiallyMounted }: { initiallyMounted: boolean }) {
   const [mounted, setMounted] = useState(initiallyMounted);
   return <>
     <Titlebar theme={{} as ThemeConfig} showSidebarToggle onToggleSidebar={() => setMounted(!mounted)} />
-    {mounted && <Sidebar />}
+    {mounted && <Sidebar config={{ general_agent: { first_run_complete: true }, agent: {}, mesh: {} } as AppConfig} />}
   </>;
 }
 

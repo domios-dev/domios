@@ -11,7 +11,8 @@ import {
   type SidebarWorkspaceDetailActions,
   type SidebarWorkspaceDetailData,
 } from "./SidebarWorkspaceDetail";
-import { tabsInWorkspace } from "./workspaceTabs";
+import { isGeneralSectionTab, isSidebarTabVisible, tabsInWorkspace } from "./workspaceTabs";
+import { SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
 
 /** The protected General workspace: its agents and the machine-wide inventory below them. */
 export function SidebarGeneralSection({ workspace, expanded, onToggle, providerId, api, data, actions, workspaces, onOpenJobs }: {
@@ -42,6 +43,7 @@ export function SidebarGeneralSection({ workspace, expanded, onToggle, providerI
   }), [data]);
 
   return (
+    <>
     <section data-testid="general-section" className="sidebar-general-section" role="region" aria-label={`${workspace.name} workspace contents`}>
       <div className="sidebar-structural-header sidebar-general-header w-full">
         <SidebarDisclosure data-testid="general-section-toggle" className="sidebar-structural-toggle min-w-0" expanded={expanded} onClick={onToggle}>
@@ -54,7 +56,7 @@ export function SidebarGeneralSection({ workspace, expanded, onToggle, providerI
         providerId={providerId}
         generalCwd={generalCwd}
         activeTabId={data.activeTabIds[workspaceId] ?? null}
-        sortedTabs={sortedTabs}
+        sortedTabs={sortedTabs.filter(isGeneralSectionTab)}
         tabs={data.tabs}
         tabStatuses={data.tabStatuses}
         tabAttentionByTab={data.attention}
@@ -98,5 +100,15 @@ export function SidebarGeneralSection({ workspace, expanded, onToggle, providerI
         onNavigate={actions.activateTab}
       />}
     </section>
+    {expanded && sortedTabs.some((tab) => !isGeneralSectionTab(tab) && isSidebarTabVisible(tab)) && <section aria-label="Other sessions">
+      <SidebarWorkspaceTabs workspace={workspace} activeTabId={data.activeTabIds[workspaceId] ?? null}
+        sortedTabs={sortedTabs.filter((tab) => !isGeneralSectionTab(tab))} tabs={data.tabs}
+        tabStatuses={data.tabStatuses} teams={data.teams} planIndex={data.planIndex} plans={data.plans}
+        providers={data.providers} closingTabIds={data.closingTabIds} appearingTabIds={data.appearingTabIds}
+        isActiveVisual={isActiveVisual} workspaceCanvasActive={data.workspaceCanvasActive} touchMode={data.touchMode}
+        compact={false} sidebarActionText={data.sidebarActionText} orchestrators={data.orchestrators}
+        onBeforeOpenPlan={activate} onActivateTab={activateTab} onCloseTab={closeTab} onRenameTab={renameTab} />
+    </section>}
+    </>
   );
 }

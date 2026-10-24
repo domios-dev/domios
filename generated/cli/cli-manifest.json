@@ -406,6 +406,16 @@
               "aliases": []
             },
             {
+              "name": "show",
+              "positional": false,
+              "required": false,
+              "value_name": "SHOW",
+              "possible_values": [],
+              "default": null,
+              "help": "Read the pending sign-in without starting another flow",
+              "aliases": []
+            },
+            {
               "name": "tab",
               "positional": false,
               "required": true,
