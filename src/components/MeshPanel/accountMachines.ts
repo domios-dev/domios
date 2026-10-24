@@ -59,7 +59,7 @@ export interface SelfRowView {
 export type MyMachinesView =
   | { kind: "loading" }
   | { kind: "sign_in"; headline: string; blocked: boolean; saved: MachineRowView[]; notes: string[] }
-  | { kind: "account"; reauthRequired: boolean; self: SelfRowView | null; machines: MachineRowView[]; saved: MachineRowView[]; notes: string[] };
+  | { kind: "account"; machineLimit?: { limit: number; activeCount: number }; reauthRequired: boolean; self: SelfRowView | null; machines: MachineRowView[]; saved: MachineRowView[]; notes: string[] };
 
 export interface MyMachinesInput {
   account: AccountPresence;
@@ -105,6 +105,9 @@ export function myMachinesView({ account, snapshot, listFailure = null, linking,
   }
   const blocked = snapshot.traffic === "blocked_signed_out";
   const locked = snapshot.traffic === "plan_limit_locked";
+  const refusal = snapshot.last_refusal;
+  const machineLimit = locked && snapshot.enrollment === "refused" && refusal?.reason === "mesh.machines"
+    ? { limit: refusal.limit, activeCount: refusal.active_count } : undefined;
   const pairs = snapshot.pairs;
   const registry = snapshot.registry?.rows ?? [];
   const known = new Set(registry.map((row) => row.installation_id));
@@ -113,9 +116,11 @@ export function myMachinesView({ account, snapshot, listFailure = null, linking,
     .map((pair) => blocked ? blockedRow(pair, "Mesh is blocked until your account finishes resuming") : locked ? lockedRow(pair) : savedPairRow(pair));
   return {
     kind: "account",
+    machineLimit,
     reauthRequired: snapshot.last_refusal?.reason === "reauth_required",
     self: selfRow(snapshot),
-    machines: registryRows(snapshot, pairs, linking, now, !blocked && !locked),
+    machines: registryRows(snapshot, pairs, linking, now, !blocked && !locked).map((row) => machineLimit && row.status !== "revoked"
+      ? { ...row, status: "over_limit", detail: PLAN_LOCKED_COPY, controls: { ...NO_CONTROLS, revoke: row.target } } : row),
     saved,
     notes: [...notes, ...registryNotes(snapshot, listFailure)],
   };

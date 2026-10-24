@@ -9,6 +9,10 @@ import { AccountMeshRefusalError, openOnMeshRefusal, raiseMeshMachineLimit } fro
 import { FreeLimitPlansModal } from "./FreeLimitPlansModal";
 import { freeLimitGate, raiseFreeLimit } from "./freeLimitGate";
 import { FREE_LIMIT_REACHED } from "./freeLimitModel";
+import { AccountMeshClientProvider } from "../MeshPanel/accountMeshClient";
+import { FakeAccountMeshClient, macRow, lenovoRow, NOW, snapshot } from "../MeshPanel/accountMachines.testdata";
+import { useMyMachines } from "../MeshPanel/useMyMachines";
+import { MachineLimitPaywall } from "../MeshPanel/MachineLimitPaywall";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -70,6 +74,24 @@ afterEach(async () => {
 });
 
 describe("automatic enroll after sign-in or restore", () => {
+  it("opens the existing plans dialog from the refused machine's See plans control", async () => {
+    const client = new FakeAccountMeshClient(snapshot({ self: null, traffic: "plan_limit_locked", enrollment: "refused", last_refusal: machineLimit() as { reason: "mesh.machines"; limit: number; active_count: number }, registry: { observed_at: NOW, rows: [macRow, lenovoRow] } }));
+    const onSignIn = () => {};
+    function RefusedMachine() {
+      const machines = useMyMachines({ account: "signed_in", onSignIn });
+      return <MachineLimitPaywall machines={machines} />;
+    }
+    await mountModal();
+    await act(async () => root!.render(<AccountMeshClientProvider value={client}><RefusedMachine /><FreeLimitPlansModal /></AccountMeshClientProvider>));
+    expect(dialog()).toBeNull();
+    await click("See plans");
+    expect(headline()).toBe(MESH);
+    await click("Not now");
+    expect(dialog()).toBeNull();
+    expect(client.revokeCalls).toEqual([]);
+    expect(client.enrollCalls).toBe(0);
+  });
+
   it("a refusal delivered before any Mesh view mounts opens the modal once mounted", async () => {
     raiseMeshMachineLimit({ requestId: requestId(), refusal: machineLimit() });
     await mountModal();
