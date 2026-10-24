@@ -40,6 +40,9 @@ mod continuation;
 #[path = "tests/rejected_before_write.rs"]
 mod rejected_before_write;
 
+#[path = "tests/bootstrap_ownership.rs"]
+mod bootstrap_ownership;
+
 #[test]
 fn bind_commit_emits_one_ready_event_with_booting_and_session_bound() {
     let (mut state, _root) = crate::multiplexer::state::MultiplexerState::new();
