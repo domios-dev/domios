@@ -3,6 +3,115 @@ use crate::startup::rest_api::listeners::ListenerPublication;
 use codeterm_account::account_mesh::wire::MeshEndpoint;
 
 #[tokio::test]
+async fn tailnet_sign_out_closes_sockets_and_sign_in_rebinds_a_healthy_listener() {
+    use codeterm_mesh::account_mesh::{AccountMeshState, AccountPresence};
+
+    let mut manager = codeterm_mesh::MeshManager::in_memory(
+        codeterm_mesh::types::MeshIdentity {
+            instance_id: "socket-owner".into(),
+            private_key: None,
+            public_key: None,
+        },
+        "socket-owner".into(),
+        7685,
+    );
+    manager.apply_account_state(AccountMeshState {
+        presence: AccountPresence::SignedIn {
+            account_id: "owner".into(),
+        },
+        ..AccountMeshState::default()
+    });
+    let mut changes = manager.gate_watch();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let listener = listener.into_std().unwrap();
+    let mut serving = Serving {
+        tasks: JoinSet::new(),
+        sockets: BTreeMap::new(),
+        failed: BTreeSet::new(),
+    };
+    let (started, ready) = tokio::sync::oneshot::channel();
+    let task = serving.tasks.spawn(async move {
+        let (_stop, stopped) = tokio::sync::oneshot::channel();
+        started.send(()).unwrap();
+        serve_listener(listener, axum::Router::new(), stopped)
+            .await
+            .unwrap();
+        address
+    });
+    serving.sockets.insert(address, task);
+    ready.await.unwrap();
+    assert!(tokio::net::TcpListener::bind(address).await.is_err());
+
+    manager.apply_account_state(AccountMeshState {
+        account_epoch: 1,
+        presence: AccountPresence::SignedOut,
+        ..AccountMeshState::default()
+    });
+    changes.changed().await.unwrap();
+    let desired = selected_addresses(
+        manager.account_state().signed_in_account().is_some(),
+        true,
+        address.port(),
+        interfaces(&["100.64.1.2"]),
+    );
+    assert!(desired.is_empty());
+    serving.withdraw(&desired).await;
+    let rebound = tokio::net::TcpListener::bind(address)
+        .await
+        .expect("sign-out withdrawal must release the listening socket before returning");
+    assert_eq!(rebound.local_addr().unwrap(), address);
+    assert!(serving.tasks.is_empty());
+    assert!(serving.sockets.is_empty());
+    assert!(serving.failed.is_empty());
+
+    drop(rebound);
+    manager.apply_account_state(AccountMeshState {
+        account_epoch: 2,
+        presence: AccountPresence::SignedIn {
+            account_id: "owner".into(),
+        },
+        ..AccountMeshState::default()
+    });
+    changes.changed().await.unwrap();
+    let router = axum::Router::new().route(
+        "/api/health",
+        axum::routing::get(|| async { "new socket is serving" }),
+    );
+    serving.reconcile(&[address], &router).await;
+    assert!(serving.sockets.contains_key(&address));
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let body = tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        client
+            .get(format!("http://{address}/api/health"))
+            .header(reqwest::header::CONNECTION, "close")
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap()
+    })
+    .await
+    .expect("sign-in must serve health through the rebound socket");
+    assert_eq!(body, "new socket is serving");
+
+    let previous = manager.account_state().clone();
+    let current = AccountMeshState {
+        account_epoch: 4,
+        ..previous.clone()
+    };
+    serving.account_changed(&previous, &current).await;
+    assert!(
+        serving.sockets.is_empty(),
+        "coalesced sign-out and sign-in must discard the old socket"
+    );
+    serving.reconcile(&[address], &router).await;
+    assert!(serving.sockets.contains_key(&address));
+    serving.withdraw(&[]).await;
+}
+
+#[tokio::test]
 async fn tailnet_server_exit_withdraws_readiness_and_waits_for_an_external_event() {
     let address = "100.64.1.2:7685".parse().unwrap();
     let mut serving = Serving {

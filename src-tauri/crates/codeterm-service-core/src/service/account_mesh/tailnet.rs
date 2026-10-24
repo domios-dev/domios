@@ -51,6 +51,20 @@ struct Serving {
 }
 
 impl Serving {
+    async fn account_changed(
+        &mut self,
+        previous: &codeterm_mesh::account_mesh::AccountMeshState,
+        current: &codeterm_mesh::account_mesh::AccountMeshState,
+    ) {
+        if previous != current {
+            self.failed.clear();
+        }
+        if previous.account_epoch != current.account_epoch || previous.presence != current.presence
+        {
+            self.withdraw(&[]).await;
+        }
+    }
+
     fn stopped(&mut self, result: Result<SocketAddr, tokio::task::JoinError>) {
         let address = match result {
             Ok(address) => Some(address),
@@ -65,19 +79,33 @@ impl Serving {
         }
     }
 
-    fn withdraw(&mut self, desired: &[SocketAddr]) {
+    async fn withdraw(&mut self, desired: &[SocketAddr]) {
+        let mut stopping = BTreeSet::new();
         self.sockets.retain(|address, task| {
             if desired.contains(address) {
                 true
             } else {
                 task.abort();
+                stopping.insert(task.id());
                 false
             }
         });
+        while !stopping.is_empty() {
+            let Some(result) = self.tasks.join_next_with_id().await else {
+                break;
+            };
+            let id = match &result {
+                Ok((id, _)) => *id,
+                Err(error) => error.id(),
+            };
+            if !stopping.remove(&id) {
+                self.stopped(result.map(|(_, address)| address));
+            }
+        }
     }
 
     async fn reconcile(&mut self, desired: &[SocketAddr], router: &axum::Router) {
-        self.withdraw(desired);
+        self.withdraw(desired).await;
         while let Some(result) = self.tasks.try_join_next() {
             self.stopped(result);
         }
@@ -157,27 +185,37 @@ pub(super) async fn run(service: Arc<ServiceContext>, mesh: crate::MeshStateHand
     let mut last_account = mesh.lock().account_state().clone();
     loop {
         let current_account = mesh.lock().account_state().clone();
+        let signed_in = current_account.signed_in_account().is_some();
         if last_account != current_account {
-            serving.failed.clear();
+            serving
+                .account_changed(&last_account, &current_account)
+                .await;
+            let retained: Vec<_> = serving.sockets.keys().copied().collect();
+            if published != retained {
+                control.listeners.publish_tailnet(retained.clone());
+                published = retained;
+            }
             last_account = current_account;
         }
-        let interfaces = tokio::task::spawn_blocking(if_addrs::get_if_addrs).await;
-        let interfaces = match interfaces {
-            Ok(Ok(interfaces)) => interfaces
-                .into_iter()
-                .map(|interface| interface.ip())
-                .collect(),
-            _ => Vec::new(),
-        };
         let enabled = {
             let config = service.ext::<crate::config::ConfigState>().lock();
             config.mesh.enabled && config.api.enabled
         };
         let port = control.bound_addr().map_or(0, |address| address.port());
-        let signed_in = mesh.lock().account_state().signed_in_account().is_some();
         let listening = rest.borrow_and_update().phase == RestApiPhase::Listening;
+        let interfaces = if signed_in && enabled && listening {
+            match tokio::task::spawn_blocking(if_addrs::get_if_addrs).await {
+                Ok(Ok(interfaces)) => interfaces
+                    .into_iter()
+                    .map(|interface| interface.ip())
+                    .collect(),
+                _ => Vec::new(),
+            }
+        } else {
+            Vec::new()
+        };
         let desired = selected_addresses(signed_in, enabled && listening, port, interfaces);
-        serving.withdraw(&desired);
+        serving.withdraw(&desired).await;
         let retained: Vec<_> = serving.sockets.keys().copied().collect();
         if published != retained {
             control.listeners.publish_tailnet(retained.clone());
@@ -209,6 +247,7 @@ pub(super) async fn run(service: Arc<ServiceContext>, mesh: crate::MeshStateHand
             }
         }
     }
+    serving.withdraw(&[]).await;
     control.listeners.publish_tailnet(Vec::new());
 }
 

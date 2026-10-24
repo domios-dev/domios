@@ -102,7 +102,7 @@ const COMMANDS = {
   revoke: "account_mesh_revoke",
   acknowledgeLimit: "account_mesh_acknowledge_limit",
 } as const;
-const CHANGE_EVENTS = ["account-mesh-changed", "mesh-state-changed"] as const;
+const CHANGE_EVENTS = ["account-changed", "account-mesh-changed", "mesh-state-changed"] as const;
 
 export const bridgeAccountMeshClient: AccountMeshClient = {
   snapshot: () => invoke<AccountMeshSnapshot>(COMMANDS.state),
