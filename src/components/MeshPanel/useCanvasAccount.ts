@@ -28,8 +28,9 @@ export function useCanvasAccount(peers: readonly PeerStatus[], onChanged: () => 
   }), [connect, decide, disconnect, openPlans, dismissFailure, rename]);
   const self = view.kind === "account" ? view.self : null;
   return useMemo(() => ({
+    moreMachines: !!snapshot?.registry?.cursor,
     canvas, busy, signingIn, now, actions, selfName: self?.displayName ?? undefined, onRenameSelf: self ? renameSelf : undefined, reauthRequired: view.kind === "account" && view.reauthRequired,
     onSignIn: () => { void signIn(); },
     onRetry: () => { void load(); },
-  }), [canvas, busy, signingIn, now, actions, self, renameSelf, view, signIn, load]);
+  }), [canvas, busy, signingIn, now, actions, self, renameSelf, view, signIn, load, snapshot]);
 }

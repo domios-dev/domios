@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { openLockedMachinePlans } from "../billing/accountMeshLimit";
-import { myMachinesView, type AccountPresence, type MachineRowView, type MyMachinesView } from "./accountMachines";
+import { failureMessage, myMachinesView, type AccountPresence, type MachineRowView, type MyMachinesView } from "./accountMachines";
 import {
   useAccountMeshClient,
   type AccountMeshFailure,
@@ -81,7 +81,15 @@ export function useMyMachines({ account, onSignIn, onFailure, onChanged, now = e
       const next = await client.snapshot();
       if (current !== generation.current) return;
       if (!refreshRegistry) setListFailure(next.registry_failure);
-      setSnapshot(next);
+      setSnapshot((previous) => ({ ...next, registry: next.registry && { ...next.registry,
+        rows: next.registry.rows.map((row) => {
+          const known = previous?.account_epoch === next.account_epoch
+            ? previous?.registry?.rows.find((candidate) => candidate.installation_id === row.installation_id) : undefined;
+          return known && known.key_id === row.key_id && known.key_generation === row.key_generation
+            && known.slot_revision === row.slot_revision && known.metadata_revision > row.metadata_revision
+            ? { ...row, display_name: known.display_name, metadata_revision: known.metadata_revision } : row;
+        }),
+      } }));
       setLoadFailed(false);
     } catch {
       if (current === generation.current) setLoadFailed(true);
@@ -91,7 +99,7 @@ export function useMyMachines({ account, onSignIn, onFailure, onChanged, now = e
   }, [account, client]);
 
   useEffect(() => {
-    void load();
+    void load(false);
     return client.subscribe(() => { void load(false); });
   }, [client, load, account]);
 
@@ -151,16 +159,16 @@ export function useMyMachines({ account, onSignIn, onFailure, onChanged, now = e
   }, [client, fail, load, onChanged]);
 
   const renameSelf = useCallback(async (name: string) => {
-    const self = view.kind === "account" ? view.self : null;
+    const self = (await client.snapshot()).self;
     if (!self) return false;
-    const outcome = await settle(() => client.renameSelf(self.metadataRevision, name));
+    const outcome = await settle(() => client.renameSelf(self.metadata_revision, name));
     if (!outcome.ok) {
       onFailure?.("rename this machine", outcome.failure);
-      return false;
+      throw new Error(failureMessage(outcome.failure));
     }
-    await load();
+    await load(false);
     return true;
-  }, [client, load, onFailure, view]);
+  }, [client, load, onFailure]);
 
   const retryEnrollment = useCallback(async () => {
     const result = await settle(() => client.enroll());
@@ -175,11 +183,14 @@ export function useMyMachines({ account, onSignIn, onFailure, onChanged, now = e
     if (!registry || !instanceId || !row.online || !renamePeer) return false;
     dismissFailure(row.key);
     const outcome = await settle(() => renamePeer.call(client, instanceId, registry.metadata_revision, name));
-    if (!outcome.ok) { fail(row.key, `rename ${row.name}`, outcome.failure); return false; }
+    if (!outcome.ok) { fail(row.key, `rename ${row.name}`, outcome.failure); throw new Error(failureMessage(outcome.failure)); }
+    const updated = outcome.result;
+    if (updated) setSnapshot((current) => current && current.account_epoch === snapshot?.account_epoch ? ({ ...current, registry: current.registry && {
+      ...current.registry, rows: current.registry.rows.map((candidate) => candidate.installation_id === row.key ? { ...candidate, ...updated } : candidate),
+    } }) : current);
     onChanged?.();
-    await load();
     return true;
-  }, [client, dismissFailure, fail, load, onChanged, snapshot]);
+  }, [client, dismissFailure, fail, onChanged, snapshot]);
 
   const openPlans = useCallback((key: string) => openLockedMachinePlans(snapshot, key), [snapshot]);
 

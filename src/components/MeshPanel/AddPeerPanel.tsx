@@ -188,6 +188,8 @@ function SelfRow({ self, onRename }: {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  const pending = useRef(false);
   const input = useRef<HTMLInputElement | null>(null);
   const button = useRef<HTMLButtonElement | null>(null);
   const returnFocus = useRef(false);
@@ -202,12 +204,20 @@ function SelfRow({ self, onRename }: {
   };
   const save = async () => {
     const name = draft.trim();
-    if (!name || saving) return;
+    if (!name || pending.current) return;
+    pending.current = true;
     setSaving(true);
-    const saved = await onRename(name);
-    setSaving(false);
-    if (saved) close();
-    else input.current?.focus();
+    setFailure(null);
+    try {
+      if (await onRename(name)) close();
+      else input.current?.focus();
+    } catch (error) {
+      setFailure(error instanceof Error ? error.message : "Could not rename. Try again.");
+      input.current?.focus();
+    } finally {
+      pending.current = false;
+      setSaving(false);
+    }
   };
   return (
     <div role="group" aria-label={`This machine: ${self.name}`} className="ct-card ct-card--quiet p-3 flex flex-col gap-2">
@@ -246,6 +256,7 @@ function SelfRow({ self, onRename }: {
           <button type="button" onClick={close} disabled={saving} className={ACTION_BTN}>Cancel</button>
         </form>
       )}
+      {editing && failure && <p role="alert">{failure}</p>}
     </div>
   );
 }

@@ -269,8 +269,8 @@ async fn account_mesh_publishes_only_a_ready_listener_and_withdraws_when_it_goes
     );
     assert_eq!(
         harness.calls("list"),
-        1,
-        "the metadata revision is read once before publishing"
+        0,
+        "sync supplies metadata without a separate list"
     );
     assert_eq!(harness.calls("publish"), 1);
     assert_eq!(harness.state().publication, Publication::Published);
@@ -283,7 +283,7 @@ async fn account_mesh_publishes_only_a_ready_listener_and_withdraws_when_it_goes
     *harness.endpoint.0.lock().unwrap() = None;
     harness.mesh.refresh(EnrollTrigger::Network).await.unwrap();
     assert_eq!(harness.calls("withdraw"), 1);
-    assert_eq!(harness.calls("list"), 1);
+    assert_eq!(harness.calls("list"), 0);
     assert!(harness.registry.endpoint(UID).is_none());
     assert!(!harness.store.record.lock().unwrap().published);
 }

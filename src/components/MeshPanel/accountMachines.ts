@@ -78,6 +78,7 @@ const CLEANUP_PENDING_NOTE = "Address cleanup is pending: this machine could not
 export function myMachinesView({ account, snapshot, listFailure = null, linking, now }: MyMachinesInput): MyMachinesView {
   if (account === "pending" || !snapshot) return { kind: "loading" };
   const notes = snapshot.cleanup === "pending" ? [CLEANUP_PENDING_NOTE] : [];
+  if (snapshot.registry?.cursor) notes.push("Showing part of your account's machines. Refresh to load more.");
   if (account === "signed_out") {
     const blocked = snapshot.traffic === "blocked_signed_out";
     const saved = snapshot.pairs.map((pair) => blocked ? blockedRow(pair, SIGNED_OUT_COPY) : signedOutLegacyRow(pair));
