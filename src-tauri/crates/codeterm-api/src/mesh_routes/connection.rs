@@ -27,7 +27,9 @@ pub(crate) fn refusal_status(refusal: &AdmissionRefusal) -> StatusCode {
         AdmissionRefusal::Offline | AdmissionRefusal::PeerUnreachable => {
             StatusCode::SERVICE_UNAVAILABLE
         }
-        AdmissionRefusal::Declined | AdmissionRefusal::Expired | AdmissionRefusal::Cancelled => StatusCode::CONFLICT,
+        AdmissionRefusal::Declined | AdmissionRefusal::Expired | AdmissionRefusal::Cancelled => {
+            StatusCode::CONFLICT
+        }
         AdmissionRefusal::HandshakeFailed { .. } => StatusCode::UNPROCESSABLE_ENTITY,
     }
 }
@@ -47,9 +49,20 @@ pub async fn mesh_account_link(
             Json(serde_json::json!({"ok": false, "request_id": request_id})),
         ));
     }
-    let outgoing_id = state.svc.start_mesh_link(body.installation_id)
-        .map_err(|refusal| (refusal_status(&refusal), Json(serde_json::json!({"ok": false, "request_id": request_id, "failure": refusal}))))?;
-    Ok(Json(serde_json::json!({"ok": true, "request_id": request_id, "pending": true, "link_request_id": outgoing_id})))
+    let outgoing_id = state
+        .svc
+        .start_mesh_link(body.installation_id)
+        .map_err(|refusal| {
+            (
+                refusal_status(&refusal),
+                Json(
+                    serde_json::json!({"ok": false, "request_id": request_id, "failure": refusal}),
+                ),
+            )
+        })?;
+    Ok(Json(
+        serde_json::json!({"ok": true, "request_id": request_id, "pending": true, "link_request_id": outgoing_id}),
+    ))
 }
 
 /// Explicit local unpair. Tombstones the edge so no provenance can recreate it; frees no slot.
@@ -82,7 +95,10 @@ pub async fn mesh_disconnect_peer(
         ));
     }
 
-    state.svc.disconnect_mesh_peer(&instance_id).await
+    state
+        .svc
+        .disconnect_mesh_peer(&instance_id)
+        .await
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
 
     state

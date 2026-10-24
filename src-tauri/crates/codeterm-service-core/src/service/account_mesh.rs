@@ -278,7 +278,10 @@ impl ServiceContext {
         Ok(AccountMeshSnapshot {
             view: service.mesh.state().view(),
             pairs: self.account_mesh_pairs(),
-            link_requests: self.try_ext::<crate::MeshStateHandle>().map(|mesh| mesh.lock().link_requests()).unwrap_or_default(),
+            link_requests: self
+                .try_ext::<crate::MeshStateHandle>()
+                .map(|mesh| mesh.lock().link_requests())
+                .unwrap_or_default(),
         })
     }
 

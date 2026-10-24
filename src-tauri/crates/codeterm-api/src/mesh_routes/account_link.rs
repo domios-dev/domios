@@ -12,8 +12,8 @@ use futures_util::StreamExt;
 use super::connection::refusal_status;
 use crate::routes::AppState;
 use codeterm_service_core::mesh::account_mesh::protocol::{
-    AdoptCommit, AdoptCommitReply, AdoptOffer, AdoptOfferReply, LinkCommit, LinkCommitReply,
-    LinkConfirm, LinkConfirmReply, LinkHello, LinkHelloReply, LinkApproval, LinkApprovalReply,
+    AdoptCommit, AdoptCommitReply, AdoptOffer, AdoptOfferReply, LinkApproval, LinkApprovalReply,
+    LinkCommit, LinkCommitReply, LinkConfirm, LinkConfirmReply, LinkHello, LinkHelloReply,
 };
 use codeterm_service_core::mesh::account_mesh::AdmissionRefusal;
 
@@ -78,7 +78,11 @@ pub async fn mesh_link_approval(
     AxumState(state): AxumState<AppState>,
     Json(proof): Json<LinkApproval>,
 ) -> Result<Json<LinkApprovalReply>, Refused> {
-    state.svc.receive_mesh_link_approval(proof).await.map_err(refused)?;
+    state
+        .svc
+        .receive_mesh_link_approval(proof)
+        .await
+        .map_err(refused)?;
     Ok(Json(LinkApprovalReply { approved: true }))
 }
 

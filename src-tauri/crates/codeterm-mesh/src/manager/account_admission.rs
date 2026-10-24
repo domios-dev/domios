@@ -191,13 +191,14 @@ impl MeshManager {
 
     fn prune_pending(&mut self) {
         let now = self.now();
-        self.pending_links
-            .retain(|id, pending| {
-                let ttl = if self.link_requests.contains_key(id) {
-                    crate::account_mesh::approval::APPROVAL_TTL_SECS + PENDING_TTL_SECS
-                } else { PENDING_TTL_SECS };
-                now.saturating_sub(pending.created_at) <= ttl
-            });
+        self.pending_links.retain(|id, pending| {
+            let ttl = if self.link_requests.contains_key(id) {
+                crate::account_mesh::approval::APPROVAL_TTL_SECS + PENDING_TTL_SECS
+            } else {
+                PENDING_TTL_SECS
+            };
+            now.saturating_sub(pending.created_at) <= ttl
+        });
         self.pending_adoptions
             .retain(|_, pending| now.saturating_sub(pending.created_at) <= PENDING_TTL_SECS);
     }
@@ -221,11 +222,26 @@ impl MeshManager {
         if self.pending_links.contains_key(&hello.link_id) {
             return Err(AdmissionRefusal::handshake("duplicate link id"));
         }
-        if self.pending_links.iter().any(|(id, pending)| pending.initiator.party.installation_id == initiator.installation_id && self.link_requests.get(id).is_some_and(|request| request.decision_at(self.now()) == crate::account_mesh::approval::LinkDecision::Waiting)) {
+        if self.pending_links.iter().any(|(id, pending)| {
+            pending.initiator.party.installation_id == initiator.installation_id
+                && self.link_requests.get(id).is_some_and(|request| {
+                    request.decision_at(self.now())
+                        == crate::account_mesh::approval::LinkDecision::Waiting
+                })
+        }) {
             return Err(AdmissionRefusal::handshake("link request already pending"));
         }
-        let superseded: Vec<String> = self.pending_links.iter().filter(|(_, pending)| pending.initiator.party.installation_id == initiator.installation_id).map(|(id, _)| id.clone()).collect();
-        for id in superseded { self.clear_link_request(&id); }
+        let superseded: Vec<String> = self
+            .pending_links
+            .iter()
+            .filter(|(_, pending)| {
+                pending.initiator.party.installation_id == initiator.installation_id
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in superseded {
+            self.clear_link_request(&id);
+        }
         let nonce = transcript::fresh_nonce();
         let digest = transcript::transcript(
             Purpose::Link,
@@ -270,7 +286,11 @@ impl MeshManager {
         confirm: &LinkConfirm,
     ) -> Result<LinkConfirmation, AdmissionRefusal> {
         self.prune_pending();
-        if !self.pending_links.get(&confirm.link_id).is_some_and(|pending| pending.approved) {
+        if !self
+            .pending_links
+            .get(&confirm.link_id)
+            .is_some_and(|pending| pending.approved)
+        {
             return Err(AdmissionRefusal::handshake("link requires local approval"));
         }
         if self
@@ -386,7 +406,9 @@ impl MeshManager {
             &[],
             pending.initiator_membership,
             &pending.account_id,
-            LinkOrigin::LocalAdd { removal_watermark: pending.removal_watermark },
+            LinkOrigin::LocalAdd {
+                removal_watermark: pending.removal_watermark,
+            },
             &commit.link_id,
         )
     }
@@ -440,7 +462,9 @@ impl MeshManager {
                 membership,
             )
             .map_err(AdmissionRefusal::handshake)?;
-        if let Some(record) = self.links.links.get_mut(&party.instance_id) { record.link_nonce = Some(link_nonce.into()); }
+        if let Some(record) = self.links.links.get_mut(&party.instance_id) {
+            record.link_nonce = Some(link_nonce.into());
+        }
         self.links.disconnects.remove(&party.instance_id);
         let record = self
             .paired_peers

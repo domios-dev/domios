@@ -645,9 +645,15 @@ pub(super) fn create_router_with_preview_admission(
             post(super::mesh_attachment::transfer),
         )
         .route("/api/mesh/link", post(mesh_routes::mesh_account_link))
-        .route("/api/mesh/disconnect-notice", post(mesh_routes::disconnect::receive_disconnect))
+        .route(
+            "/api/mesh/disconnect-notice",
+            post(mesh_routes::disconnect::receive_disconnect),
+        )
         .route("/api/mesh/link/hello", post(mesh_routes::mesh_link_hello))
-        .route("/api/mesh/link/approval", post(mesh_routes::mesh_link_approval))
+        .route(
+            "/api/mesh/link/approval",
+            post(mesh_routes::mesh_link_approval),
+        )
         .route(
             "/api/mesh/link/confirm",
             post(mesh_routes::mesh_link_confirm),

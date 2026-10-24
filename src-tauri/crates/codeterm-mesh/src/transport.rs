@@ -324,10 +324,17 @@ impl PeerClient {
     pub async fn ping_reply(&self) -> Result<serde_json::Value, String> {
         let url = format!("{}/api/mesh/ping", self.base_url);
         let mut req = self.client.get(&url).timeout(PING_TIMEOUT);
-        if let Some((key, value)) = self.auth_header() { req = req.header(key, value); }
+        if let Some((key, value)) = self.auth_header() {
+            req = req.header(key, value);
+        }
         let response = req.send().await.map_err(|_| "Ping failed")?;
-        if !response.status().is_success() { return Err("Ping refused".into()); }
-        response.json().await.map_err(|_| "Ping reply unreadable".into())
+        if !response.status().is_success() {
+            return Err("Ping refused".into());
+        }
+        response
+            .json()
+            .await
+            .map_err(|_| "Ping reply unreadable".into())
     }
 
     /// Authenticated POST, returns parsed JSON.

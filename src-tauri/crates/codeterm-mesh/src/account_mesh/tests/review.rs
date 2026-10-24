@@ -28,13 +28,20 @@ async fn account_mesh_unpaired_peer_cannot_relink_itself_from_the_other_side() {
     let held = Loopback::new(&[&a, &b]).hold_approval(entered.clone());
     let mesh = a.mesh.clone();
     let installation = b.installation_id.clone();
-    let retry = tokio::spawn(async move { link_installation_with(&mesh, &held, &installation).await });
+    let retry =
+        tokio::spawn(async move { link_installation_with(&mesh, &held, &installation).await });
     entered.notified().await;
-    assert!(b.mesh.lock().is_revoked(&a.id()), "request alone cannot lift removal");
+    assert!(
+        b.mesh.lock().is_revoked(&a.id()),
+        "request alone cannot lift removal"
+    );
     assert!(!b.mesh.lock().paired_peers.contains_key(&a.id()));
     let id = b.mesh.lock().link_requests()[0].request_id.clone();
     b.mesh.lock().decide_link(&id, false).unwrap();
-    assert_eq!(retry.await.unwrap().unwrap_err(), AdmissionRefusal::Declined);
+    assert_eq!(
+        retry.await.unwrap().unwrap_err(),
+        AdmissionRefusal::Declined
+    );
     b.mesh.lock().clear_link_request(&id);
 
     link_installation_with(&b.mesh, &transport, &a.installation_id)

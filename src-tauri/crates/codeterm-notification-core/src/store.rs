@@ -286,7 +286,11 @@ impl NotificationStore {
 
         // Send-time capture: the asking tab is read from the provenance this
         // record is being created with, never resolved when an answer is tapped.
-        let answer = answer::slot_for(actions.as_deref(), provenance.tab_id.as_deref()).map(|mut slot| { slot.daemon_request = daemon_request; slot });
+        let answer =
+            answer::slot_for(actions.as_deref(), provenance.tab_id.as_deref()).map(|mut slot| {
+                slot.daemon_request = daemon_request;
+                slot
+            });
         let notification = Notification {
             id: id.clone(),
             tab_id: provenance.tab_id,
@@ -929,7 +933,18 @@ impl NotificationStore {
     }
 
     pub fn resolve_daemon_request(&mut self, request: &str) -> Vec<String> {
-        let ids: Vec<String> = self.notifications.iter().filter(|record| record.answer.as_ref().and_then(|slot| slot.daemon_request.as_deref()) == Some(request)).map(|record| record.id.clone()).collect();
+        let ids: Vec<String> = self
+            .notifications
+            .iter()
+            .filter(|record| {
+                record
+                    .answer
+                    .as_ref()
+                    .and_then(|slot| slot.daemon_request.as_deref())
+                    == Some(request)
+            })
+            .map(|record| record.id.clone())
+            .collect();
         let resolved = ids.into_iter().filter(|id| self.resolve_id(id)).collect();
         self.close_push_scope(&format!("consent:{request}"));
         resolved
