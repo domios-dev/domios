@@ -15,7 +15,7 @@ import { SettingsCardAnchor } from "./SettingsCardAnchor";
 import type { SettingsCardAnchorId } from "./sections";
 import { useMultiplexer } from "../../store/multiplexer";
 import { billingFailureToast } from "./accountFailureToast";
-import { accountInitials, type LoginHint } from "./accountModel";
+import { SESSION_REVOKED_MESSAGE, accountInitials, type LoginHint } from "./accountModel";
 
 const MUTED = "m-0 text-xs text-[var(--ct-muted-fg)]";
 
@@ -66,6 +66,7 @@ export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) 
           <CopyRow label="Account ID" value={model.identity.uid} />
         </div>;
       })() : <div className="flex flex-col items-start gap-3 text-xs">
+        {model.kind === "signed_out" && model.sessionRevoked && <p role="status" className={MUTED}>{SESSION_REVOKED_MESSAGE}</p>}
         {model.kind === "pending"
           ? <p role="status" className={MUTED}>Finish signing in in your browser.</p>
           : <p className={MUTED}>Sign in to keep your plan and settings with your account.</p>}

@@ -200,12 +200,18 @@ fn safe_backend_error_code(body: Option<&Value>) -> &str {
         .unwrap_or("unrecognized")
 }
 pub struct Firebase {
+    installation_id: InstallationId,
     config: Config,
     transport: Arc<dyn Transport>,
 }
 impl Firebase {
-    pub fn new(config: Config, transport: Arc<dyn Transport>) -> Self {
+    pub fn new(
+        config: Config,
+        transport: Arc<dyn Transport>,
+        installation_id: InstallationId,
+    ) -> Self {
         Self {
+            installation_id,
             config: crate::firebase_endpoints::account_config(config),
             transport,
         }
@@ -259,6 +265,7 @@ impl Firebase {
         };
         Ok(Tokens {
             session: Session {
+                login_generation: 0,
                 identity,
                 id_token,
                 expires_at: Some(expires_at),
@@ -312,7 +319,7 @@ impl IdentityProvider for Firebase {
             .transport
             .post(
                 &self.config.redeem_url,
-                Body::Json(json!({ "code": request.code.expose(), "code_verifier": request.verifier.expose(), "state": request.state, "redirect_uri": request.redirect })),
+                Body::Json(json!({ "code": request.code.expose(), "code_verifier": request.verifier.expose(), "state": request.state, "redirect_uri": request.redirect, "installation_id": self.installation_id })),
                 Some(RequestDiagnostic::BackendRedeem),
             )
             .await?;

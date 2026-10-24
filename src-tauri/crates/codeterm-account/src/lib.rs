@@ -4,6 +4,7 @@ pub mod adapters;
 mod build_config;
 pub mod firebase_endpoints;
 mod flow;
+pub mod session_revocation;
 mod sign_in_diagnostic;
 pub use sign_in_diagnostic::{SignInFailure, SignInStage};
 mod installation;
@@ -72,6 +73,7 @@ pub fn accepted_photo_url(value: &str) -> Option<String> {
 }
 #[derive(Debug, Clone)]
 pub struct Session {
+    pub login_generation: u64,
     pub identity: Identity,
     pub id_token: Secret,
     pub expires_at: Option<u64>,

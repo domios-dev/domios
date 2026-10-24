@@ -39,7 +39,8 @@ export interface MyMachines {
   connect: (row: MachineRowView, target: MeshTarget) => Promise<void>;
   decide: (row: MachineRowView, notificationId: string, approve: boolean) => Promise<void>;
   disconnect: (row: MachineRowView, instanceId: string) => Promise<boolean>;
-  revoke: (row: MachineRowView, target: MeshTarget) => Promise<boolean>;
+  revoke: (row: MachineRowView, target: MeshTarget, alsoSignOut?: boolean) => Promise<boolean>;
+  revokeSession: (row: MachineRowView) => Promise<boolean>;
   renameSelf: (name: string) => Promise<boolean>;
   rename: (row: MachineRowView, name: string) => Promise<boolean>;
   retryEnrollment: () => Promise<void>;
@@ -153,8 +154,17 @@ export function useMyMachines({ account, onSignIn, onFailure, onChanged, now = e
     return true;
   }, [client, dismissFailure, fail, load, onChanged]);
 
-  const revoke = useCallback(async (row: MachineRowView, target: MeshTarget) => {
+  const revoke = useCallback(async (row: MachineRowView, target: MeshTarget, alsoSignOut = false) => {
     setBusy(row.key);
+    dismissFailure(row.key);
+    if (alsoSignOut) {
+      const signedOut = await settle(() => client.revokeSession(target.installation_id));
+      if (!signedOut.ok) {
+        setBusy(null);
+        fail(row.key, `sign out ${row.name}`, signedOut.failure);
+        return false;
+      }
+    }
     const outcome = await settle(() => client.revoke(target));
     setBusy(null);
     if (!outcome.ok) {
@@ -164,7 +174,21 @@ export function useMyMachines({ account, onSignIn, onFailure, onChanged, now = e
     onChanged?.();
     await load();
     return true;
-  }, [client, fail, load, onChanged]);
+  }, [client, dismissFailure, fail, load, onChanged]);
+
+  const revokeSession = useCallback(async (row: MachineRowView) => {
+    dismissFailure(row.key);
+    setBusy(row.key);
+    const outcome = await settle(() => client.revokeSession(row.key));
+    setBusy(null);
+    if (!outcome.ok) {
+      fail(row.key, `sign out ${row.name}`, outcome.failure);
+      return false;
+    }
+    onChanged?.();
+    await load();
+    return true;
+  }, [client, dismissFailure, fail, load, onChanged]);
 
   const renameSelf = useCallback(async (name: string) => {
     const self = (await client.snapshot()).self;
@@ -207,6 +231,6 @@ export function useMyMachines({ account, onSignIn, onFailure, onChanged, now = e
 
   return {
     view, snapshot, listFailure, loadFailed, refreshing, signingIn, busy: deciding ?? busy, failures,
-    load, signIn, connect, decide, disconnect, revoke, renameSelf, rename, retryEnrollment, openPlans, dismissFailure,
+    load, signIn, connect, decide, disconnect, revoke, revokeSession, renameSelf, rename, retryEnrollment, openPlans, dismissFailure,
   };
 }

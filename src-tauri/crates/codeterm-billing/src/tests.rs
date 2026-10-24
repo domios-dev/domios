@@ -5,6 +5,7 @@ use std::{
 };
 fn session(uid: &str) -> codeterm_account::Session {
     codeterm_account::Session {
+        login_generation: 0,
         identity: codeterm_account::Identity {
             uid: uid.into(),
             email: None,

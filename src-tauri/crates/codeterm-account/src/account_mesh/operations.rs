@@ -769,6 +769,28 @@ impl AccountMesh {
         Ok(updated)
     }
 
+    pub async fn revoke_session(&self, installation_id: String) -> Outcome<SessionRevokedResult> {
+        crate::InstallationId::parse(installation_id.clone())
+            .map_err(|_| AccountMeshRefusal::Invalid)?;
+        let signed = self.signed(None).await?;
+        let target = SessionTarget {
+            installation_id: installation_id.clone(),
+        };
+        let MeshResult::SessionRevoked(result) = self
+            .admission(&signed, MeshOperation::SessionRevoke { target })
+            .await?
+        else {
+            return Err(AccountMeshRefusal::Invalid);
+        };
+        if result.target_installation_id != installation_id || result.revoked_at == 0 {
+            return Err(AccountMeshRefusal::Invalid);
+        }
+        if !self.with(|inner| inner.is_current(signed.epoch)) {
+            return Err(AccountMeshRefusal::Cancelled);
+        }
+        Ok(result)
+    }
+
     /// Server `revoke` releases the slot once; transport owns removing the pairing.
     pub async fn revoke(&self, target: MeshTarget) -> Outcome<RevokedResult> {
         let signed = self.signed(None).await?;

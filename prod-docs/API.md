@@ -43,6 +43,10 @@ Config readback exposes actual and configured listener state through `api_listen
 
 Health `status: "ok"` proves liveness; `startup.state: "ready"` proves readiness. Only loopback health/events bypass auth. Await `ready` on `/api/startup/events` (`startup-state`). Other requests get HTTP 503 `starting`/`startup_failed` without queuing. CLI: `API-CLI`.
 
+#### Account machines
+
+Local account routes refuse Mesh callers. POST `/api/account/mesh/session-revoke` accepts `{installation_id?: string | null}`; omission selects this machine. It signs out the selected installation's account sessions and returns `{ok: true, result: {target_installation_id, revoked_at}}` or the standard typed refusal. The local installation key and saved pairings remain. The UI asks for confirmation before this action.
+
 #### Local previews
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
@@ -184,4 +188,4 @@ A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or `c
 
 Related: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-INTEGRATIONS`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, `TELEGRAM-SETUP`. Analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 226 -->
+<!-- revision: 227 -->

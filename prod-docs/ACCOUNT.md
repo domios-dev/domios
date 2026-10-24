@@ -94,9 +94,12 @@ Local callers only.
 | POST | `/api/account/mesh/enroll` | — | Retry enrollment; a refusal returns `{ok:false, request_id, failure}` |
 | POST | `/api/account/mesh/list` | — | Read the account's machines online into the snapshot |
 | POST | `/api/account/mesh/rename` | `{expected_metadata_revision, display_name}` | Rename this machine |
+| POST | `/api/account/mesh/session-revoke` | `{installation_id?: string | null}` | Revoke a machine's account sessions; omitted installation selects this machine; retains the installation key and pairings |
 | POST | `/api/account/mesh/revoke` | `{target}` | Release a machine's account slot; local unpair stays `/api/mesh/peers/disconnect` |
 | POST | `/api/account/mesh/limit-notice/ack` | `{request_id}` | Mark a `mesh.machines` notice as shown |
 
 Mesh enrollment never fails sign-in. Only a `mesh.machines` refusal (`{reason, limit, active_count}`) opens the plans dialog; offline, rate, authentication and verification refusals do not. A machine refused that way reports `traffic: "plan_limit_locked"` in the snapshot: its Mesh edges stay blocked, its rows stay listed, and a plan change re-enrolls it live.
 
-<!-- revision: 16 -->
+Authenticated server refusals with `UNAUTHENTICATED` and `details: {"reason":"session_revoked"}` clear the local account session, keep its installation key, block Mesh, and open sign-in with “This machine was signed out from your account”. A real sign-in restores access. My machines and Mesh ask for confirmation naming the selected machine. Remove from mesh offers an optional “Also sign it out” checkbox; the account menu offers Sign out this machine alongside normal Sign out.
+
+<!-- revision: 17 -->
