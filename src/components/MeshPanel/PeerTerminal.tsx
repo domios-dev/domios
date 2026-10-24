@@ -16,6 +16,7 @@ interface Props {
   pairedDuration?: string;
   onClick?: () => void;
   offline?: boolean;
+  disabled?: boolean;
   onGoOnline?: () => void;
   footer?: ReactNode;
 }
@@ -31,6 +32,7 @@ function PeerTerminalComponent({
   pairedDuration,
   onClick,
   offline = false,
+  disabled = false,
   onGoOnline,
   footer,
 }: Props) {
@@ -39,7 +41,7 @@ function PeerTerminalComponent({
     <div
       role="group"
       aria-label={name}
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
       className={`relative bg-[var(--ct-bg)] rounded-md cursor-pointer transition-shadow ${
         isThisMachine
           ? offline
@@ -49,8 +51,8 @@ function PeerTerminalComponent({
       }`}
       style={{ width: 360 }}
     >
-      <div role="button" tabIndex={0} aria-label={`Open ${name}`}
-        onKeyDown={(event) => { if (event.code === "Enter" || event.code === "Space") { event.preventDefault(); onClick?.(); } }}
+      <div role="button" tabIndex={disabled ? -1 : 0} aria-disabled={disabled} aria-label={`Open ${name}`}
+        onKeyDown={(event) => { if (event.code === "Enter" || event.code === "Space") { event.preventDefault(); if (!disabled) onClick?.(); } }}
         className={`flex items-center gap-2 px-3.5 py-2 rounded-t-md focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)] ${dim}`}>
         <span className="w-3 h-3 shrink-0 rounded-full bg-[var(--ct-window-close)]" />
         <span className="w-3 h-3 shrink-0 rounded-full bg-[var(--ct-window-minimize)]" />

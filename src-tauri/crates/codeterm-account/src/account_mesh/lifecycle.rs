@@ -9,7 +9,7 @@ use super::state::{
     AccountMeshRecord, AccountMeshRefusal, Cleanup, EnrollTrigger, Enrollment, LifecycleState,
     LimitNotice, Presence, Publication,
 };
-use super::wire::MeshTarget;
+use super::wire::{MeshTarget, RegistryPresence};
 use crate::{Identity, InstallationId};
 use std::collections::HashMap;
 use std::future::Future;
@@ -110,6 +110,7 @@ pub(super) struct Inner {
     pub(super) key: Option<Arc<InstallationKey>>,
     pub(super) last_request: Option<String>,
     pub(super) metadata_revision: Option<u64>,
+    pub(super) registry_presence: Option<RegistryPresence>,
     pub(super) published_endpoint: Option<super::wire::MeshEndpoint>,
     pub(super) resolved: HashMap<String, MeshTarget>,
     flight: Option<Flight>,
@@ -148,6 +149,7 @@ impl Inner {
         self.notice_epoch = None;
         self.retry = Default::default();
         self.metadata_revision = None;
+        self.registry_presence = None;
         self.resolved.clear();
         self.published_endpoint = None;
     }
@@ -189,6 +191,7 @@ impl AccountMesh {
                 key: None,
                 last_request: None,
                 metadata_revision: None,
+                registry_presence: None,
                 resolved: HashMap::new(),
                 published_endpoint: None,
                 flight: None,
@@ -394,10 +397,17 @@ impl AccountMesh {
         };
         self.push().await;
         let mut persisted = self.persist_checked().await;
+        let session = session.filter(|session| account == account_id(&session.identity.uid));
+        if let Some(session) = session.as_ref() {
+            let _ = tokio::time::timeout(
+                self.config.withdrawal_deadline,
+                self.announce_signed_out(session),
+            )
+            .await;
+        }
         let cleanup = if !published {
             Cleanup::Confirmed
         } else {
-            let session = session.filter(|session| account == account_id(&session.identity.uid));
             match session {
                 Some(session) => {
                     let withdrawal = self.withdraw_endpoint(&session);

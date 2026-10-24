@@ -159,6 +159,7 @@ pub struct Script {
     pub lose_membership_reply: Option<RegistryRefusal>,
     pub lose_key_reply: Option<RegistryRefusal>,
     pub publication: Option<RegistryRefusal>,
+    pub presence: Option<RegistryRefusal>,
     pub list: Option<RegistryRefusal>,
     pub permit: Option<RegistryRefusal>,
     pub gate: Option<Arc<Notify>>,
@@ -175,6 +176,7 @@ struct Account {
     metadata_revision: u64,
     endpoint: Option<MeshEndpointObservation>,
     inactive: bool,
+    presence: RegistryPresence,
 }
 
 /// Server double: checks every installation proof against the enrolled key and the exact
@@ -264,6 +266,14 @@ impl FakeRegistry {
         account.inactive = true;
     }
 
+    pub fn presence(&self, uid: &str) -> RegistryPresence {
+        self.accounts
+            .lock()
+            .unwrap()
+            .get(uid)
+            .map_or(RegistryPresence::Present, |a| a.presence)
+    }
+
     pub fn endpoint(&self, uid: &str) -> Option<MeshEndpointObservation> {
         self.accounts
             .lock()
@@ -285,6 +295,7 @@ impl FakeRegistry {
         own.key_generation = account.map_or(1, |a| a.key_generation.max(1));
         own.slot_revision = account.and_then(|a| a.slot).unwrap_or(1);
         own.active = account.is_none_or(|account| !account.inactive);
+        own.presence = account.map_or(RegistryPresence::Present, |account| account.presence);
         own.endpoint = account.and_then(|a| a.endpoint.clone());
         let mut peer = row(PEER, 0, Some("Laptop"));
         peer.endpoint = (!peer_unpublished).then(|| MeshEndpointObservation {
@@ -382,6 +393,7 @@ impl MeshRegistry for FakeRegistry {
             MeshOperation::Update { .. } => "update",
             MeshOperation::Publish { .. } => "publish",
             MeshOperation::Withdraw { .. } => "withdraw",
+            MeshOperation::Presence { .. } => "presence",
             MeshOperation::Link { .. } => "link",
         };
         self.admit(session, label);
@@ -480,6 +492,29 @@ impl MeshRegistry for FakeRegistry {
                     registry_revision: 9,
                 }))
             }
+            MeshOperation::Presence {
+                expected_metadata_revision,
+                presence,
+            } => {
+                if let Some(refusal) = self.script.lock().unwrap().presence {
+                    return Err(refusal);
+                }
+                if *expected_metadata_revision != account.metadata_revision {
+                    return Err(RegistryRefusal::Conflict);
+                }
+                if account.presence != *presence {
+                    account.metadata_revision += 1;
+                    account.presence = *presence;
+                }
+                Ok(MeshResult::Presence(PresenceResult {
+                    installation_id: INSTALLATION.into(),
+                    presence: *presence,
+                    previous_metadata_revision: *expected_metadata_revision,
+                    metadata_revision: account.metadata_revision,
+                    slot_revision: account.slot.unwrap_or(1),
+                    registry_revision: 10,
+                }))
+            }
             MeshOperation::Withdraw {
                 expected_metadata_revision,
             } => {
@@ -570,6 +605,7 @@ pub fn row(id: &str, metadata_revision: u64, name: Option<&str>) -> MeshManageme
         key_generation: 1,
         slot_revision: 1,
         active: true,
+        presence: RegistryPresence::Present,
         admitted_at: START,
         authenticated_at: START,
         display_name: name.map(str::to_owned),

@@ -18,6 +18,7 @@ export function machine(installationId: string, name: string, patch: Partial<Acc
     key_generation: 2,
     slot_revision: 7,
     active: true,
+    presence: "present",
     admitted_at: NOW - 3600,
     authenticated_at: NOW - 60,
     display_name: name,

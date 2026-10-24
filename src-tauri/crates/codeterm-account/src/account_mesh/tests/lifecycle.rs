@@ -636,7 +636,7 @@ async fn account_mesh_rename_and_list_are_observations() {
 #[tokio::test]
 async fn account_mesh_internal_registry_reads_update_the_snapshot() {
     let harness = enrolled().await;
-    assert!(harness.state().registry.is_none());
+    assert!(harness.state().registry.is_some());
 
     harness.mesh.resolve_link_identity(PEER).await.unwrap();
 
