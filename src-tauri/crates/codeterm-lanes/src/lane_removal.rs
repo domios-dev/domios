@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
 use codeterm_plan::service_plan::{PlanStore, TaskLaneUpdate};
@@ -260,11 +260,9 @@ fn remove_lane_with_policy(
 /// The checkout a linked worktree belongs to: its git common dir is that
 /// checkout's `.git`, so the parent is the canonical working tree.
 fn canonical_checkout_for(worktree_path: &str) -> Result<String, String> {
-    let common = git_value(
-        &strip_verbatim(worktree_path),
-        ["rev-parse", "--path-format=absolute", "--git-common-dir"],
-    )?;
-    Path::new(&common)
+    let (_, common) = codeterm_util::git_checkout::paths(Path::new(&strip_verbatim(worktree_path)))
+        .map_err(|error| error.to_string())?;
+    common
         .parent()
         .map(|path| codeterm_paths::canonical_cwd(&path.to_string_lossy()))
         .ok_or_else(|| {
@@ -330,16 +328,9 @@ fn remove_stale_worktree_registration(
     canonical_cwd: &str,
     worktree_path: &str,
 ) -> Result<(), String> {
-    let worktrees = git_value(
-        canonical_cwd,
-        [
-            "rev-parse",
-            "--path-format=absolute",
-            "--git-path",
-            "worktrees",
-        ],
-    )?;
-    let worktrees = PathBuf::from(strip_verbatim(&worktrees));
+    let (_, common) = codeterm_util::git_checkout::paths(Path::new(&strip_verbatim(canonical_cwd)))
+        .map_err(|error| error.to_string())?;
+    let worktrees = common.join("worktrees");
     let expected = format!(
         "{}/.git",
         comparable_path(worktree_path).trim_end_matches('/')

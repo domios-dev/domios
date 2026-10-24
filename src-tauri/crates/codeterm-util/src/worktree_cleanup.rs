@@ -26,12 +26,9 @@ pub fn remove(canonical: &str, worktree: &str, force: bool) -> Result<(), String
     crate::safe_tree::refuse_linked_ancestors(path)?;
     let canonical_path = std::fs::canonicalize(canonical).map_err(|error| error.to_string())?;
     let lane_path = std::fs::canonicalize(path).map_err(|error| error.to_string())?;
-    let common = git(
-        canonical,
-        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
-    )?;
-    let common = String::from_utf8_lossy(&common.stdout);
-    let repository = Path::new(common.trim())
+    let (_, common) =
+        crate::git_checkout::paths(Path::new(canonical)).map_err(|error| error.to_string())?;
+    let repository = common
         .parent()
         .ok_or("repository has no canonical checkout")?;
     let repository = std::fs::canonicalize(repository).map_err(|error| error.to_string())?;
@@ -75,12 +72,15 @@ pub fn remove(canonical: &str, worktree: &str, force: bool) -> Result<(), String
             return Err(format!("locked worktree protected: '{worktree}'"));
         }
     }
-    let registration = git(worktree, &["rev-parse", "--absolute-git-dir"])?;
-    let registration = String::from_utf8_lossy(&registration.stdout);
-    let registration =
-        std::fs::canonicalize(registration.trim()).map_err(|error| error.to_string())?;
-    let registrations = std::fs::canonicalize(Path::new(common.trim()).join("worktrees"))
-        .map_err(|error| error.to_string())?;
+    let (registration, lane_common) =
+        crate::git_checkout::paths(Path::new(worktree)).map_err(|error| error.to_string())?;
+    if lane_common != common {
+        return Err(format!(
+            "worktree belongs to a different repository: '{worktree}'"
+        ));
+    }
+    let registrations =
+        std::fs::canonicalize(common.join("worktrees")).map_err(|error| error.to_string())?;
     if registration.parent() != Some(registrations.as_path()) {
         return Err(format!(
             "worktree registration is outside its repository: '{}'",
