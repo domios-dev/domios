@@ -12,11 +12,12 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -45,12 +46,33 @@ function shellQuote(value) {
 }
 
 const cliNames = ["codeterm", "codeterm.exe"];
+const shadowPaths = new Map();
+let shadowRoot;
+
+after(() => {
+  if (shadowRoot) rmSync(shadowRoot, { recursive: true, force: true });
+});
 
 // The live CLI reaches the owner's daemon even with every selector scrubbed, so it must not resolve at all.
-function pathWithoutInstalledCli() {
-  return (process.env.PATH ?? "")
+function pathWithoutInstalledCli(searchPath = process.env.PATH ?? "") {
+  return searchPath
     .split(path.delimiter)
-    .filter((entry) => entry && !cliNames.some((name) => existsSync(path.join(entry, name))))
+    .filter(Boolean)
+    .flatMap((entry) => {
+      if (!cliNames.some((name) => existsSync(path.join(entry, name)))) return [entry];
+      if (process.platform === "win32") return [];
+      const source = path.resolve(entry);
+      if (!shadowPaths.has(source)) {
+        shadowRoot ??= mkdtempSync(path.join(os.tmpdir(), "utility-shell-path-"));
+        const shadow = path.join(shadowRoot, String(shadowPaths.size));
+        mkdirSync(shadow);
+        for (const name of readdirSync(source)) {
+          if (!cliNames.includes(name)) symlinkSync(path.join(source, name), path.join(shadow, name));
+        }
+        shadowPaths.set(source, shadow);
+      }
+      return [shadowPaths.get(source)];
+    })
     .join(path.delimiter);
 }
 
@@ -120,6 +142,43 @@ function makeHarness() {
     env: cleanEnv({ BUILD_NOTIFICATION_FIXTURE_PATH: fixtureBuild, BUILD_NOTIFICATION_PAD_PATH: padPath, PATH: parentBin + path.delimiter + pathWithoutInstalledCli() }),
   };
 }
+
+test("harness_excludes_installed_cli_and_preserves_system_utilities", () => {
+  const env = cleanEnv();
+  for (const name of cliNames) {
+    const result = runBash(["-c", `command -v ${name}`], env);
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.equal(result.stdout, "");
+  }
+  const result = runBash(["-c", "command -v dirname && command -v mkdir"], env);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.equal(result.stdout.trim().split("\n").length, 2);
+});
+
+test("harness_preserves_utilities_beside_installed_cli", { skip: process.platform === "win32" }, () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "utility-shell-shared-bin-"));
+  try {
+    for (const name of cliNames) writeFileSync(path.join(dir, name), "#!/bin/sh\nexit 99\n", { mode: 0o755 });
+    for (const name of ["dirname", "mkdir"]) {
+      const result = runBash(["-c", `command -v ${name}`], cleanEnv());
+      assert.equal(result.status, 0, result.stderr);
+      symlinkSync(result.stdout.trim(), path.join(dir, name));
+    }
+    const env = cleanEnv({ PATH: pathWithoutInstalledCli(dir + path.delimiter + dir) });
+    for (const name of cliNames) {
+      const result = runBash(["-c", `command -v ${name}`], env);
+      assert.equal(result.status, 1, result.stdout + result.stderr);
+      assert.equal(result.stdout, "");
+    }
+    const created = path.join(dir, "created");
+    const result = runBash(["-c", 'command -v dirname && command -v mkdir && mkdir "$1" && dirname "$1"', "_", created], env);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.ok(existsSync(created));
+    assert.equal(result.stdout.trim().split("\n").at(-1), dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test("harness_resolves_only_the_fake_codeterm", () => {
   const h = makeHarness();
