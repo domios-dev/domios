@@ -72,6 +72,8 @@ async function main() {
     list: async () => { solutionReads++; return []; },
     save: async () => { throw new Error("Unexpected solution save"); },
     archive: async () => { throw new Error("Unexpected solution archive"); },
+    document: async () => { throw new Error("Unexpected solution read"); },
+    search: async () => { throw new Error("Unexpected solution search"); },
   };
   const cronCalls: string[] = [];
   const cronActions: MeshResourceActionAdapter = {
