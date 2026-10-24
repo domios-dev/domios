@@ -433,10 +433,66 @@ impl AccountMesh {
             return Err(AccountMeshRefusal::Cancelled);
         }
         self.persist().await;
+        if let Err(refusal) = self.ensure_display_name(&signed).await {
+            self.with(|inner| {
+                if inner.is_current(epoch) {
+                    if matches!(
+                        refusal,
+                        AccountMeshRefusal::Conflict | AccountMeshRefusal::Forbidden
+                    ) {
+                        inner.metadata_revision = None;
+                    }
+                    inner.update(&self.watch, |state| state.registry_failure = Some(refusal));
+                }
+            });
+        }
         self.push().await;
         self.set_registry_presence(&signed, RegistryPresence::Present)
             .await?;
         self.reconcile_publication(&signed).await
+    }
+
+    async fn ensure_display_name(&self, signed: &Signed) -> Outcome<()> {
+        let Some(name) = self
+            .config
+            .default_display_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+        else {
+            return Ok(());
+        };
+        let registry = self.read_registry(signed).await?;
+        let own = registry
+            .rows
+            .iter()
+            .find(|row| row.installation_id == self.installation())
+            .ok_or(AccountMeshRefusal::Invalid)?;
+        if own.display_name.is_some() {
+            return Ok(());
+        }
+        let MeshResult::Updated(updated) = self
+            .admission(
+                signed,
+                MeshOperation::Update {
+                    expected_metadata_revision: own.metadata_revision,
+                    display_name: name.to_owned(),
+                },
+            )
+            .await?
+        else {
+            return Err(AccountMeshRefusal::Invalid);
+        };
+        if updated.installation_id != self.installation() {
+            return Err(AccountMeshRefusal::Invalid);
+        }
+        self.remember_metadata(
+            signed.epoch,
+            updated.metadata_revision,
+            Some(updated.display_name),
+        );
+        self.read_registry(signed).await?;
+        Ok(())
     }
 
     pub(super) fn remember_metadata(

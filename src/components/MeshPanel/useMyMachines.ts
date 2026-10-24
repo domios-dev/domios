@@ -41,6 +41,7 @@ export interface MyMachines {
   disconnect: (row: MachineRowView, instanceId: string) => Promise<boolean>;
   revoke: (row: MachineRowView, target: MeshTarget) => Promise<boolean>;
   renameSelf: (name: string) => Promise<boolean>;
+  rename: (row: MachineRowView, name: string) => Promise<boolean>;
   retryEnrollment: () => Promise<void>;
   openPlans: (key: string) => void;
   dismissFailure: (key: string) => void;
@@ -167,10 +168,23 @@ export function useMyMachines({ account, onSignIn, onFailure, onChanged, now = e
     await load(false);
   }, [client, load, onFailure]);
 
+  const rename = useCallback(async (row: MachineRowView, name: string) => {
+    const registry = snapshot?.registry?.rows.find((candidate) => candidate.installation_id === row.key);
+    const instanceId = row.pairInstanceId;
+    const renamePeer = client.renamePeer;
+    if (!registry || !instanceId || !row.online || !renamePeer) return false;
+    dismissFailure(row.key);
+    const outcome = await settle(() => renamePeer.call(client, instanceId, registry.metadata_revision, name));
+    if (!outcome.ok) { fail(row.key, `rename ${row.name}`, outcome.failure); return false; }
+    onChanged?.();
+    await load();
+    return true;
+  }, [client, dismissFailure, fail, load, onChanged, snapshot]);
+
   const openPlans = useCallback((key: string) => openLockedMachinePlans(snapshot, key), [snapshot]);
 
   return {
     view, snapshot, listFailure, loadFailed, refreshing, signingIn, busy: deciding ?? busy, failures,
-    load, signIn, connect, decide, disconnect, revoke, renameSelf, retryEnrollment, openPlans, dismissFailure,
+    load, signIn, connect, decide, disconnect, revoke, renameSelf, rename, retryEnrollment, openPlans, dismissFailure,
   };
 }

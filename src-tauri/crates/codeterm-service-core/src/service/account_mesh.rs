@@ -179,6 +179,7 @@ impl ServiceContext {
                 let mesh = AccountMesh::new(
                     AccountMeshConfig {
                         installation_id,
+                        default_display_name: Some(self.configuration().mesh.instance_name.clone()),
                         trust: trust(),
                         call_deadline: Duration::from_secs(15),
                         withdrawal_deadline: Duration::from_secs(10),

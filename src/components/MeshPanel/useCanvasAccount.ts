@@ -11,7 +11,7 @@ import { useMyMachines } from "./useMyMachines";
 export function useCanvasAccount(peers: readonly PeerStatus[], onChanged: () => void): CanvasAccount {
   const account = useMeshAccount();
   const machines = useMyMachines({ account: account.presence, onSignIn: account.signIn, onChanged });
-  const { view, snapshot, loadFailed, listFailure, failures, busy, signingIn, connect, decide, disconnect, openPlans, dismissFailure, signIn, load } = machines;
+  const { view, snapshot, loadFailed, listFailure, failures, busy, signingIn, connect, decide, disconnect, openPlans, dismissFailure, signIn, load, rename, renameSelf } = machines;
   const canvas = useMemo(
     () => accountCanvas({ view, peers, loadFailed, listFailed: listFailure !== null, failures }),
     [view, peers, loadFailed, listFailure, failures],
@@ -20,14 +20,16 @@ export function useCanvasAccount(peers: readonly PeerStatus[], onChanged: () => 
   const now = useMemo(() => Date.now(), [snapshot, peers]);
   const actions = useMemo(() => ({
     onDecide: (row: MachineRowView, notificationId: string, approve: boolean) => { void decide(row, notificationId, approve); },
+    onRename: rename,
     onConnect: (row: MachineRowView, target: MeshTarget) => { void connect(row, target); },
     onDisconnect: (row: MachineRowView, instanceId: string) => { void disconnect(row, instanceId); },
     onPlans: openPlans,
     onDismiss: dismissFailure,
-  }), [connect, decide, disconnect, openPlans, dismissFailure]);
+  }), [connect, decide, disconnect, openPlans, dismissFailure, rename]);
+  const self = view.kind === "account" ? view.self : null;
   return useMemo(() => ({
-    canvas, busy, signingIn, now, actions, reauthRequired: view.kind === "account" && view.reauthRequired,
+    canvas, busy, signingIn, now, actions, selfName: self?.displayName ?? undefined, onRenameSelf: self ? renameSelf : undefined, reauthRequired: view.kind === "account" && view.reauthRequired,
     onSignIn: () => { void signIn(); },
     onRetry: () => { void load(); },
-  }), [canvas, busy, signingIn, now, actions, view, signIn, load]);
+  }), [canvas, busy, signingIn, now, actions, self, renameSelf, view, signIn, load]);
 }
