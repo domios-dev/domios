@@ -160,6 +160,18 @@ async function main() {
   ] } });
   assert(fanIn.wires.some((wire) => wire.kind === "data" && wire.from.node === key([], "$trigger") && wire.to.pin === "data:in"), "an input trigger feeds the first typed port");
   assertGeometry(fanIn, layoutBlueprint(fanIn));
+  const named = await build({ ...pipeline, nested_run: null, call_graph: { ...document, steps: [
+    { id: "count", run: { lit: "printf 2" }, out: { type: "integer" } },
+    { id: "report", run: { lit: "printf '{}'" }, out: { type: "object" } },
+    { id: "combine", code: { lang: "python", src: "def main(a, b): return a" },
+      in: { type: "object", properties: { a: { type: "integer" }, b: { type: "string" } }, required: ["a", "b"] },
+      bind: { a: "count.out", b: "report.out.title" } },
+  ] } });
+  const combine = named.nodes.find((node) => node.id === "combine")!;
+  assert.deepEqual(combine.inputs.filter((entry) => entry.kind === "data").map((entry) => [entry.id, entry.type]), [["bind:a", "integer"], ["bind:b", "string"]], "named inputs take their type from the object schema");
+  assert.deepEqual(named.wires.filter((wire) => wire.to.node === combine.key && wire.kind === "data").map((wire) => [wire.from.node, wire.from.pin, wire.to.pin]),
+    [[key([], "count"), "data:out", "bind:a"], [key([], "report"), "data:out", "bind:b"]], "a field binding still leaves the source's out port");
+  assert(!named.nodes.find((node) => node.id === "report")!.outputs.some((entry) => entry.id === "data:out.title"), "a picked field never invents an output port");
   const noted = layoutBlueprint(fanIn, { title: "Note", text: "Normalise audio into text", items: ["transcribe a call"], facts: ["2 uses · 1 success"] });
   assertGeometry(fanIn, noted);
   assert(noted.note, "a note is laid out");

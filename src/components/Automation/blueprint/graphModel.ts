@@ -13,6 +13,8 @@ export interface BlueprintPin {
   side: "in" | "out";
   label: string;
   detail?: string;
+  /** The port's schema type when the definition declares it, e.g. from `in.properties.<port>`. */
+  type?: string;
   connected: boolean;
 }
 
@@ -162,9 +164,16 @@ function bindings(node: BlueprintIrNode): [string, string][] {
   return bound;
 }
 
+/** `node.port[.field]`: the wire leaves the source's port; a field only narrows what flows through it. */
 function splitBinding(binding: string): { node: string; port: string } {
-  const split = binding.indexOf(".");
-  return split > 0 ? { node: binding.slice(0, split), port: binding.slice(split + 1) } : { node: binding, port: "out" };
+  const [node, port] = binding.split(".");
+  return { node, port: port || "out" };
+}
+
+function namedInputType(input: BlueprintPort | undefined, port: string): string | undefined {
+  const properties = input && typeof input === "object" ? (input as Readonly<Record<string, unknown>>).properties : undefined;
+  const schema = properties && typeof properties === "object" ? (properties as Readonly<Record<string, BlueprintPort>>)[port] : undefined;
+  return schema ? portType(schema) : undefined;
 }
 
 /** A callee is named by its own document; raw memory ids stay in the details. */
@@ -301,7 +310,7 @@ export function* buildBlueprintGraph(pipeline: PipelineView, expanded: Blueprint
         callee: definition.call ? calleeOf(definition.call, calls.find((entry) => entry.node === definition.id)) : undefined,
       };
       const bound = bindings(definition);
-      for (const [port, binding] of bound) node.inputs.push(pin(`bind:${port}`, "data", "in", port, binding));
+      for (const [port, binding] of bound) node.inputs.push({ ...pin(`bind:${port}`, "data", "in", port, binding), type: namedInputType(definition.in, port) ?? (port === "in" && definition.in ? portType(definition.in) : undefined) });
       if (!bound.length && definition.in) node.inputs.push(pin("data:in", "data", "in", "in", portType(definition.in)));
       if (document.kind === "watch" && index === 0 && steps[1]) {
         node.outputs.push(pin("next", "exec", "out", ""));
