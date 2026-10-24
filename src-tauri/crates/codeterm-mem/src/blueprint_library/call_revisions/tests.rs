@@ -54,6 +54,21 @@ fn edit(mem: &MemManager, id: &str, mut document: Document, note: &str) {
     .unwrap();
 }
 #[test]
+fn blueprint_v2_call_keep_preserves_distinct_bodies_with_same_name_and_scope() {
+    let mem = MemManager::open_in_memory().unwrap();
+    let first = save(&mem, callable(103));
+    let second = save(&mem, callable(17));
+    assert_ne!(first, second);
+    assert_eq!(save(&mem, callable(17)), second);
+    assert_eq!(mem.dream_blueprints().unwrap(), 0);
+    let entries = mem
+        .list_blueprint_solutions("blueprints:workspace")
+        .unwrap();
+    assert_eq!(entries.len(), 2);
+    assert_eq!(load(&mem, &first), callable(103));
+    assert_eq!(load(&mem, &second), callable(17));
+}
+#[test]
 fn blueprint_v2_call_save_pins_id_hash_and_resave_does_not_repin() {
     let mem = MemManager::open_in_memory().unwrap();
     let callee = save(&mem, callable(8));
