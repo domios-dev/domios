@@ -31,35 +31,10 @@ fn account_mesh_reauth_required_preserves_the_callable_reason() {
 }
 
 #[tokio::test]
-async fn account_mesh_old_session_waits_without_calls_then_fresh_sign_in_enrolls_once() {
+async fn account_mesh_old_session_enrolls_without_sign_in() {
     let harness = Harness::new().await;
     harness.sign_in(UID).await;
-    set_auth_time(&harness, START - 301);
-    assert_eq!(
-        harness.mesh.refresh(EnrollTrigger::Automatic).await,
-        Err(AccountMeshRefusal::ReauthRequired)
-    );
-    assert_eq!(
-        harness.state().view().last_refusal,
-        Some(AccountMeshRefusal::ReauthRequired)
-    );
-    assert_eq!(harness.calls("enroll_key"), 0);
-    assert_eq!(harness.calls("challenge"), 0);
-    harness.clock.set(START + 3600);
-    for trigger in [
-        EnrollTrigger::Network,
-        EnrollTrigger::Lease,
-        EnrollTrigger::Automatic,
-        EnrollTrigger::Explicit,
-    ] {
-        assert_eq!(
-            harness.mesh.refresh(trigger).await,
-            Err(AccountMeshRefusal::ReauthRequired)
-        );
-    }
-    assert_eq!(harness.calls("enroll_key"), 0);
-    set_auth_time(&harness, START + 3600);
-    harness.mesh.enrollment_signed_in();
+    set_auth_time(&harness, START - 86400);
     harness
         .mesh
         .refresh(EnrollTrigger::Automatic)
@@ -102,10 +77,10 @@ async fn account_mesh_typed_reauth_waits_until_verified_sign_in() {
 }
 
 #[tokio::test]
-async fn account_mesh_auth_age_boundary_and_enrolled_key_do_not_require_sign_in() {
+async fn account_mesh_old_session_renews_without_sign_in() {
     let harness = Harness::new().await;
     harness.sign_in(UID).await;
-    set_auth_time(&harness, START - 300);
+    set_auth_time(&harness, START - 86400);
     harness
         .mesh
         .refresh(EnrollTrigger::Automatic)
@@ -115,6 +90,29 @@ async fn account_mesh_auth_age_boundary_and_enrolled_key_do_not_require_sign_in(
     harness.mesh.refresh(EnrollTrigger::Lease).await.unwrap();
     assert_eq!(harness.calls("enroll_key"), 1);
     assert_eq!(harness.calls("renew"), 1);
+}
+
+#[tokio::test]
+async fn account_mesh_old_session_rotates_a_lost_key_without_sign_in() {
+    let mut harness = Harness::new().await;
+    harness.sign_in(UID).await;
+    harness
+        .mesh
+        .refresh(EnrollTrigger::Automatic)
+        .await
+        .unwrap();
+    *harness.keys.0.lock().unwrap() = None;
+    harness.restart().await;
+    harness.sign_in(UID).await;
+    set_auth_time(&harness, START - 86400);
+    harness
+        .mesh
+        .refresh(EnrollTrigger::Automatic)
+        .await
+        .unwrap();
+    assert_eq!(harness.calls("recover_key"), 1);
+    assert_eq!(harness.state().enrollment, Enrollment::Enrolled);
+    assert_eq!(harness.state().last_refusal, None);
 }
 
 #[tokio::test]

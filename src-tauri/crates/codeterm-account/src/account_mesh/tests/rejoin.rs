@@ -38,6 +38,7 @@ async fn removed() -> Harness {
 #[tokio::test]
 async fn account_mesh_rejoin_rotates_then_enrolls_then_syncs() {
     let harness = removed().await;
+    auth_time(&harness, START - 86400);
     let old = harness.store.record.lock().unwrap().keys[&account_id(UID)].clone();
     harness.mesh.refresh(EnrollTrigger::Explicit).await.unwrap();
     assert_eq!(harness.calls("recover_key"), 1);
@@ -61,18 +62,21 @@ async fn account_mesh_rejoin_rotates_then_enrolls_then_syncs() {
 }
 
 #[tokio::test]
-async fn account_mesh_rejoin_stale_auth_requires_sign_in_without_rotation() {
+async fn account_mesh_rejoin_old_auth_is_decided_by_server() {
     let harness = removed().await;
-    auth_time(&harness, START - 301);
+    auth_time(&harness, START - 86400);
+    harness.registry.script.lock().unwrap().enrollment =
+        Some(wire::RegistryRefusal::ReauthRequired);
     assert_eq!(
         harness.mesh.refresh(EnrollTrigger::Explicit).await,
         Err(AccountMeshRefusal::ReauthRequired)
     );
-    assert_eq!(harness.calls("recover_key"), 0);
+    assert_eq!(harness.calls("recover_key"), 1);
+    harness.registry.script.lock().unwrap().enrollment = None;
     auth_time(&harness, START);
     harness.mesh.enrollment_signed_in();
     harness.mesh.refresh(EnrollTrigger::Explicit).await.unwrap();
-    assert_eq!(harness.calls("recover_key"), 1);
+    assert_eq!(harness.calls("recover_key"), 2);
 }
 
 #[tokio::test]

@@ -149,7 +149,7 @@ async fn local_login_logout_deletes_refresh_token() {
     assert!(account.session().await.is_none());
 }
 #[tokio::test]
-async fn refresh_replaces_id_token() {
+async fn fresh_session_refreshes_even_when_token_is_not_expiring() {
     let store = Arc::new(Store::default());
     store
         .save("fake", &Secret::new("fake-refresh"))
@@ -162,11 +162,18 @@ async fn refresh_replaces_id_token() {
     );
     account.refresh().await.unwrap();
     let before = account.session().await.unwrap().id_token;
-    account.refresh().await.unwrap();
-    assert_ne!(
+    assert_eq!(
         before.expose(),
-        account.session().await.unwrap().id_token.expose()
+        account
+            .current_session()
+            .await
+            .unwrap()
+            .unwrap()
+            .id_token
+            .expose()
     );
+    let refreshed = account.fresh_session().await.unwrap().unwrap();
+    assert_ne!(before.expose(), refreshed.id_token.expose());
 }
 
 struct CallbackBrowser {

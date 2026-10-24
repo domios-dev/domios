@@ -339,9 +339,9 @@ export const MeshCanvas = memo(function MeshCanvas({
                   {account?.limitMachines && <MachineLimitPaywall machines={account.limitMachines} />}
                   {account?.removed && <div role="group" aria-label="Rejoin your mesh" onClick={(event) => event.stopPropagation()} className="px-3.5 py-2.5">
                     <p role="status">This machine was removed from your mesh</p>
-                    <button type="button" disabled={!!account.busy} onClick={account.onRejoin}>Rejoin</button>
+                    <button type="button" disabled={!!account.busy || account.signingIn} onClick={account.onRejoin}>Sign in and rejoin</button>
                   </div>}
-                  {account?.reauthRequired && <MachineReauthentication signingIn={account.signingIn} onSignIn={account.onSignIn} />}
+                  {account?.reauthRequired && !account.removed && <MachineReauthentication signingIn={account.signingIn} onSignIn={account.onSignIn} />}
                   {tailscale && <TailscaleFooter tailscale={tailscale} />}
                 </> : peerFooter(p.id)}
                 inventory={peerInventoryModel(services, peers.find((peer) => peer.instance_id === p.id) ?? { instance_id: p.id, name: p.name, online: true }, !!p.isThisMachine, loading, error)}

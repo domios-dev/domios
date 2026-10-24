@@ -275,14 +275,17 @@ impl Account {
         self.state.lock().await.session.clone()
     }
     pub async fn current_session(&self) -> Result<Option<Session>> {
+        self.session_with_refresh(false).await
+    }
+    pub async fn fresh_session(&self) -> Result<Option<Session>> {
+        self.session_with_refresh(true).await
+    }
+    async fn session_with_refresh(&self, force: bool) -> Result<Option<Session>> {
         let current = self.state.lock().await.session.clone();
         let Some(current) = current else {
             return Ok(None);
         };
-        let Some(expires_at) = current.expires_at else {
-            return Ok(Some(current));
-        };
-        if !token_expiring(expires_at) {
+        if !force && !current.expires_at.is_some_and(token_expiring) {
             return Ok(Some(current));
         }
 
@@ -291,25 +294,25 @@ impl Account {
         let Some(current) = current else {
             return Ok(None);
         };
-        if current
-            .expires_at
-            .is_some_and(|expires_at| token_expiring(expires_at))
+        if force
+            || current
+                .expires_at
+                .is_some_and(|expires_at| token_expiring(expires_at))
         {
             if let Err(error) = self.refresh_locked().await {
                 if error == Error::Credentials {
-                    let expired =
-                        {
-                            let mut state = self.state.lock().await;
-                            if state.session.as_ref().is_some_and(|session| {
-                                session.expires_at.is_some_and(token_expiring)
-                            }) {
-                                state.generation += 1;
-                                state.session = None;
-                                true
-                            } else {
-                                false
-                            }
-                        };
+                    let expired = {
+                        let mut state = self.state.lock().await;
+                        if state.session.as_ref().is_some_and(|session| {
+                            force || session.expires_at.is_some_and(token_expiring)
+                        }) {
+                            state.generation += 1;
+                            state.session = None;
+                            true
+                        } else {
+                            false
+                        }
+                    };
                     if expired {
                         if let Some(observer) = &self.observer {
                             observer.changed(None).await;

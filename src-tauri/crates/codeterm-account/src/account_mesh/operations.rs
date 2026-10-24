@@ -7,12 +7,11 @@ use super::membership::{
 };
 use super::ports::RegistryResult;
 use super::state::{
-    AccountMeshRefusal, EnrollTrigger, Enrollment, KeyBinding, Presence, Publication,
+    AccountMeshRefusal, Cleanup, EnrollTrigger, Enrollment, KeyBinding, Presence, Publication,
     RegistryObservation, SelfInstallation, SignedMembership,
 };
 use super::wire::*;
 use crate::Session;
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use rand::RngCore;
 use serde::Serialize;
 use std::future::Future;
@@ -21,19 +20,6 @@ use std::sync::Arc;
 type Outcome<T> = Result<T, AccountMeshRefusal>;
 
 const MAX_LIST_PAGES: usize = 8;
-
-fn enrollment_requires_reauthentication(session: &Session, now: u64) -> bool {
-    let Some(payload) = session.id_token.expose().split('.').nth(1) else {
-        return false;
-    };
-    let auth_time = URL_SAFE_NO_PAD.decode(payload).ok().and_then(|bytes| {
-        serde_json::from_slice::<serde_json::Value>(&bytes)
-            .ok()?
-            .get("auth_time")?
-            .as_u64()
-    });
-    auth_time.is_some_and(|auth_time| now.saturating_sub(auth_time) > 300)
-}
 
 pub(super) fn request_id() -> String {
     let mut bytes = [0u8; 32];
@@ -200,9 +186,6 @@ impl AccountMesh {
         let known = self.with(|inner| inner.record.keys.get(&signed.account).cloned());
         if let Some(binding) = known.as_ref().filter(|binding| binding.key_id == key_id) {
             return Ok(binding.generation);
-        }
-        if known.is_none() && enrollment_requires_reauthentication(&signed.session, self.now()) {
-            return Err(AccountMeshRefusal::ReauthRequired);
         }
         let expected_generation = known.as_ref().map_or(0, |binding| binding.generation);
         let mut generation = expected_generation
@@ -570,9 +553,13 @@ impl AccountMesh {
             self.persist().await;
         }
         let mut failure = None;
+        let mut cleanup_confirmed = false;
         let publication = match ready {
             Some(endpoint) => match self.publish(signed, Some(endpoint)).await {
-                Ok(true) => Publication::Published,
+                Ok(true) => {
+                    cleanup_confirmed = true;
+                    Publication::Published
+                }
                 Err(refusal) => {
                     failure = Some(refusal);
                     self.state().publication
@@ -583,6 +570,7 @@ impl AccountMesh {
                 let result = self.publish(signed, None).await;
                 failure = result.err();
                 if result == Ok(false) {
+                    cleanup_confirmed = true;
                     self.with(|inner| inner.record.published = false);
                     self.persist().await;
                 }
@@ -597,13 +585,22 @@ impl AccountMesh {
             if failure.is_none() {
                 inner.published_endpoint = ready;
             }
+            if cleanup_confirmed {
+                inner.record.cleanup_pending = false;
+            }
             inner.update(&self.watch, |state| {
+                if cleanup_confirmed {
+                    state.cleanup = Cleanup::Confirmed;
+                }
                 state.publication = publication;
                 state.publication_failure = failure;
             });
             true
         });
         if changed {
+            if cleanup_confirmed {
+                self.persist().await;
+            }
             self.push().await;
         }
         failure.map_or(Ok(()), Err)
