@@ -53,6 +53,7 @@ impl AccountMesh {
         };
         let endpoint = result.endpoint.as_ref().and_then(|endpoint| {
             super::wire::MeshEndpoint::parse(&endpoint.tailnet_ip, endpoint.api_port)
+                .map(|parsed| parsed.with_transport(endpoint.transport.clone()))
         });
         let expires_at = result
             .endpoint

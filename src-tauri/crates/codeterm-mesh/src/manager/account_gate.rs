@@ -134,23 +134,29 @@ impl MeshManager {
     /// The single endpoint the account registry may publish: this instance's Tailnet IP on a
     /// listener that is actually ready for remote traffic. `gate_watch` fires when it may change.
     pub fn ready_tailnet_endpoint(&self) -> Option<(std::net::IpAddr, u16)> {
-        let candidates: Vec<crate::types::PeerAddress> = self
-            .tailscale_ip
-            .iter()
-            .map(|ip| crate::types::PeerAddress::from_ip(ip))
-            .collect();
-        let ready = crate::reachability::advertised_addresses(
-            &self.ready_listeners,
-            &candidates,
-            self.api_port,
-        );
-        let ip = ready
-            .iter()
-            .find(|address| address.is_tailscale)?
-            .ip
-            .parse()
-            .ok()?;
-        (self.api_port != 0).then_some((ip, self.api_port))
+        let status = self.network_transport.as_ref()?;
+        crate::network_transport::listener_addresses(status, true, self.api_port)
+            .into_iter()
+            .find(|address| self.ready_listeners.contains(address))
+            .map(|address| (address.ip(), address.port()))
+    }
+
+    pub fn set_network_transport(
+        &mut self,
+        status: crate::network_transport::TransportStatus,
+    ) -> bool {
+        if self.network_transport.as_ref() != Some(&status) {
+            self.tailscale_ip =
+                crate::network_transport::listener_addresses(&status, true, self.api_port)
+                    .iter()
+                    .map(|address| address.ip())
+                    .find(|ip| ip.is_ipv4())
+                    .map(|ip| ip.to_string());
+            self.network_transport = Some(status);
+            self.bump_gate();
+            return true;
+        }
+        false
     }
 
     pub fn set_ready_listeners(&mut self, ready: Vec<std::net::SocketAddr>) -> bool {

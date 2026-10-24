@@ -12,6 +12,7 @@ export interface MeshTarget {
 }
 
 export interface MeshEndpointObservation {
+  transport?: import("./networkTransport").NetworkIdentity;
   tailnet_ip: string;
   api_port: number;
   expires_at: number;

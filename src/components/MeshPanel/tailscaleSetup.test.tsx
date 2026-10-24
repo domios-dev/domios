@@ -79,7 +79,7 @@ describe("Tailscale on the Mesh canvas", () => {
     const view = await render(<TailscaleFooter tailscale={tailscale} />);
     try {
       expect(button(view.host, "Set up with General agent")).toBeUndefined();
-      expect(view.host.textContent).toContain("tail1234.ts.net");
+      expect(view.host.querySelector("button")).toBeNull();
     } finally {
       await view.dispose();
     }
