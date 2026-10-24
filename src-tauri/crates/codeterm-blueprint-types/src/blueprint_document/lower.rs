@@ -177,7 +177,8 @@ fn pipeline(doc: &Document) -> Result<Value, String> {
             .collect::<BTreeMap<_, _>>();
         let execution = crate::blueprint_execution::ExecutionContract {
             input_binding: node.bind.get("in").cloned(),
-            input: node.input.clone(),
+            input_bindings: bindings::named_bindings(node),
+            input: bindings::input_schema(doc, node)?,
             output: node.output.clone(),
             types: doc.types.clone(),
             limits: node.limits.clone(),

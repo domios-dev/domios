@@ -3,6 +3,8 @@ use super::*;
 use crate::blueprint_document::{self, ValueForm};
 use serde_json::{json, Value};
 
+mod fanin;
+
 fn document(nodes: Value) -> Document {
     serde_json::from_value(json!({"schema_version":2,"kind":"pipeline","name":"checker-fixture","owner":"tab","trigger":{"type":"schedule","every":{"lit":"20s"}},"steps":nodes})).unwrap()
 }

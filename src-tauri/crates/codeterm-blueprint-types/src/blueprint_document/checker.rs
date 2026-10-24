@@ -1,4 +1,5 @@
 mod diagnostics;
+mod dominance;
 mod engine;
 mod facts;
 pub mod fix;
@@ -125,6 +126,7 @@ fn check_ir_on_platform(
         }
     }
     let mut diagnostics = cascade(&db, found);
+    diagnostics.extend(dominance::check(&parsed, &db));
     for (field, message) in super::validate::document(&parsed.document) {
         diagnostics.push(Diagnostic::error(
             parsed.at(&field),
