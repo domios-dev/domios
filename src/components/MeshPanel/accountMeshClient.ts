@@ -49,7 +49,7 @@ export type AccountMeshFailure =
   | { reason: "invalid" | "unauthenticated" | "app-check" | "forbidden" | "conflict" | "authority-unavailable" | "unavailable" }
   | { reason: "rate-limited"; retry_after_seconds: number }
   | { reason: "mesh.machines"; limit: number; active_count: number }
-  | { reason: "offline" | "peer-unreachable" | "handshake-failed" | "signed-out" }
+  | { reason: "offline" | "peer-unreachable" | "handshake-failed" | "signed-out" | "declined" | "expired" }
   | { reason: "revoked" | "cancelled" | "verification-unavailable" | "plan_limit_locked" | "reauth_required" };
 
 export type AccountMeshOutcome = { ok: true } | { ok: false; failure: AccountMeshFailure };
@@ -61,7 +61,19 @@ export interface AccountMeshLimitNotice {
   trigger: string;
 }
 
+export interface AccountLinkRequest {
+  request_id: string;
+  installation_id: string;
+  name: string;
+  incoming: boolean;
+  expires_at: number;
+  decision: "waiting" | "approved" | "declined" | "expired" | "failed";
+  notification_id: string | null;
+  failure: AccountMeshFailure | null;
+}
+
 export interface AccountMeshSnapshot {
+  link_requests?: AccountLinkRequest[];
   binding: "none" | "current" | "other";
   traffic: "open" | "blocked_signed_out" | "plan_limit_locked";
   cleanup: "none" | "pending" | "confirmed";
@@ -84,8 +96,9 @@ export interface AccountMeshClient {
   enroll(): Promise<AccountMeshOutcome>;
   list(): Promise<AccountMeshOutcome>;
   subscribe(onChange: () => void): () => void;
-  /** Resolves after the authorized handshake; a server refusal rejects with `AccountMeshRefusalError`. */
+  /** Resolves when the request is accepted; the snapshot carries approval and the final outcome. */
   link(target: MeshTarget): Promise<void>;
+  answerLink(notificationId: string, approve: boolean): Promise<void>;
   renameSelf(expectedMetadataRevision: number, displayName: string): Promise<AccountMeshOutcome>;
   renamePeer?(instanceId: string, expectedMetadataRevision: number, displayName: string): Promise<AccountMeshOutcome>;
   revoke(target: MeshTarget): Promise<AccountMeshOutcome>;
@@ -127,6 +140,7 @@ export const bridgeAccountMeshClient: AccountMeshClient = {
     const result = await invoke<LinkResult>(COMMANDS.link, { installationId: target.installation_id });
     if (!result.ok) throw new AccountMeshRefusalError({ requestId: result.request_id, refusal: result.failure });
   },
+  answerLink: async (notificationId, approve) => { await invoke("answer_notification", { id: notificationId, label: approve ? "Approve" : "Decline" }); },
   renameSelf: (expectedMetadataRevision, displayName) =>
     invoke<AccountMeshOutcome>(COMMANDS.renameSelf, { expectedMetadataRevision, displayName }),
   renamePeer: (instanceId, expectedMetadataRevision, displayName) => daemonTransportForPeer(instanceId).json("POST", "/api/account/mesh/rename", {
@@ -144,7 +158,7 @@ export const useAccountMeshClient = () => useContext(AccountMeshClientContext);
 const FAILURE_REASONS = new Set<string>([
   "invalid", "unauthenticated", "app-check", "forbidden", "conflict", "authority-unavailable", "unavailable",
   "rate-limited", "mesh.machines", "offline", "peer-unreachable", "handshake-failed", "signed-out",
-  "revoked", "cancelled", "verification-unavailable", "reauth_required",
+  "declined", "expired", "revoked", "cancelled", "verification-unavailable", "reauth_required",
 ]);
 
 /** The typed failure a rejected link carries; anything unrecognized is reported as unavailable. */

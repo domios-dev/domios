@@ -7,7 +7,7 @@ REST, socket and CLI share authorization, PTY cleanup, events and hierarchy chec
 
 The CLI socket needs no TCP. Unix peer credentials or Windows process-token SID restrict it to the daemon's OS user; the daemon owns authentication, signing and transport.
 
-Socket/mesh envelopes require `protocol_version`; older or versionless clients get `-32002`. Wire: `domios docs API-TRANSPORT`.
+Socket/mesh envelopes require `protocol_version`; older or versionless clients get `-32002`. Wire and Mesh consent/notice routes: `domios docs API-TRANSPORT`.
 
 Human `domios workspace list` shows authoritative topology in creation order; `domios tab inspect <id>` inspects one tab (whole-list JSON is automation-only). `workspace current --json` returns `{ "id", "source" }`; sources, in resolution order: `explicit` (`--workspace`), `caller-tab` (`$CODETERM_TAB_ID` membership), `workspace-env` (validated `$CODETERM_WORKSPACE_ID`), `focus-fallback` (active workspace). No match: exit 1, empty stdout (`--json` writes the error to stdout).
 
@@ -60,7 +60,6 @@ Health `status: "ok"` proves liveness; `startup.state: "ready"` proves readiness
 | GET | `/api/automation/blueprints/viewer/history` | Query `workspace_id`, explicit `team_id` (empty for no Team), `id` | Retained definition versions with actual root/callee semantic diffs. |
 | GET | `/api/identify` | — | Version, platform, features |
 | POST | `/api/cli/rpc` | `{method, params?, protocol_version}` | Internal CLI fallback for authenticated loopback callers only. It dispatches the same RPC methods as the local socket; mesh peer tokens are refused. See API-CLI. |
-| POST | `/api/mesh/account-presence` | `{metadata_revision}` | Paired signed peer notice; a signed-in receiver deduplicates and rate-limits one registry refresh. Carries no presence, endpoint or traffic instructions. |
 | GET | `/api/network` | — | Local IP, Tailscale IP, API URLs |
 | GET | `/api/keepawake` | — | Get keep-awake status (see below) |
 | POST | `/api/keepawake/start` | `{duration_secs?, display?}` | Start / restart keep-awake session |
@@ -185,4 +184,4 @@ A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or `c
 
 Related: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-INTEGRATIONS`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, `TELEGRAM-SETUP`. Analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 224 -->
+<!-- revision: 225 -->

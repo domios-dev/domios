@@ -13,6 +13,7 @@ export type AccountCanvasCard =
   | { kind: "empty"; listFailed: boolean };
 
 export type MachineAction =
+  | { kind: "approve"; notificationId: string }
   | { kind: "connect"; target: MeshTarget; disabledReason: string | null; connecting: boolean }
   | { kind: "plans" }
   | null;
@@ -62,6 +63,10 @@ export interface AccountCanvas {
 }
 
 const STATUS: Record<MachineStatus, { label: string; tone: MachineTone }> = {
+  approval_requested: { label: "Approval requested", tone: "progress" },
+  declined: { label: "Declined", tone: "muted" },
+  link_expired: { label: "Expired", tone: "warning" },
+  link_failed: { label: "Connection failed", tone: "warning" },
   signed_out: { label: "Signed out", tone: "muted" },
   linked: { label: "Connected", tone: "ok" },
   linking: { label: "Connecting", tone: "progress" },
@@ -128,6 +133,7 @@ export function accountCanvas({ view, peers, loadFailed, listFailed, failures }:
 }
 
 function machineAction(row: MachineRowView): MachineAction {
+  if (row.status === "approval_requested" && row.linkRequest?.notification_id) return { kind: "approve", notificationId: row.linkRequest.notification_id };
   if (row.status === "over_limit") return { kind: "plans" };
   const add = row.controls.add;
   if (!add || !row.target) return null;

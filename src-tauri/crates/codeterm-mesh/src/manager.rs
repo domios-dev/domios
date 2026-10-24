@@ -1,5 +1,6 @@
 mod account_admission;
 mod account_gate;
+mod link_approval;
 mod pairing_observer;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -45,6 +46,7 @@ pub struct MeshManager {
     clock: Arc<dyn Fn() -> u64 + Send + Sync>,
     gate_generation: tokio::sync::watch::Sender<u64>,
     pending_links: HashMap<String, account_admission::PendingLink>,
+    link_requests: HashMap<String, account_mesh::approval::LinkRequest>,
     pending_adoptions: HashMap<String, account_admission::PendingAdoption>,
     account_ready: bool,
     remote_access_epoch: u64,
@@ -126,6 +128,7 @@ impl MeshManager {
             clock: Arc::new(account_gate::system_now),
             gate_generation: tokio::sync::watch::channel(0).0,
             pending_links: HashMap::new(),
+            link_requests: HashMap::new(),
             pending_adoptions: HashMap::new(),
             account_ready: true,
             remote_access_epoch: 0,
@@ -300,6 +303,14 @@ impl MeshManager {
         instance_id: &str,
         persist: impl FnOnce(&Self) -> Result<(), String>,
     ) -> Result<Option<PairedPeer>, String> {
+        let Some(peer) = self.paired_peers.get(instance_id) else {
+            return Ok(None);
+        };
+        let disconnect = self.make_disconnect(peer)?;
+        let previous_disconnect = self
+            .links
+            .disconnects
+            .insert(instance_id.into(), disconnect);
         let Some(removed) = self.paired_peers.remove(instance_id) else {
             return Ok(None);
         };
@@ -313,6 +324,10 @@ impl MeshManager {
                 self.links.links.insert(instance_id.to_string(), link);
             }
             self.revocation_list = revocations;
+            self.links.disconnects.remove(instance_id);
+            if let Some(previous) = previous_disconnect {
+                self.links.disconnects.insert(instance_id.into(), previous);
+            }
             return Err(error);
         }
         self.peer_services.prune(instance_id);
@@ -320,6 +335,21 @@ impl MeshManager {
         self.bump_gate();
         log::info!("[mesh] Unpaired {}", instance_id);
         Ok(Some(removed))
+    }
+
+    pub fn saved_disconnect(
+        &self,
+        instance_id: &str,
+    ) -> Option<&crate::disconnect::SavedDisconnect> {
+        self.links.disconnects.get(instance_id)
+    }
+
+    pub(crate) fn disconnect_keys(&self) -> HashMap<String, String> {
+        self.links
+            .disconnects
+            .iter()
+            .map(|(id, saved)| (id.clone(), saved.public_key.clone()))
+            .collect()
     }
 
     pub fn exit_mesh(&mut self) -> Vec<(String, Vec<types::PeerAddress>, u16)> {

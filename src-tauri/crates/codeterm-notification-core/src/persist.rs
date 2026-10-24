@@ -111,6 +111,10 @@ pub fn outlives_restart(notification: &Notification) -> bool {
         && !notification.resolved
         && notification.sticky == Some(true)
         && notification.surface_offer.is_none()
+        && notification
+            .answer
+            .as_ref()
+            .is_none_or(|slot| slot.daemon_request.is_none())
 }
 
 fn stored(notification: &Notification) -> StoredNotification {

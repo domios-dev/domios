@@ -154,7 +154,7 @@ Account slots carry explicit signed-in presence separately from endpoint availab
 Signed-in machines with Mesh enabled automatically publish a health-proven endpoint on assigned Tailscale addresses. Native address changes update those listeners; sign-out or disabling Mesh closes them. Their surface accepts existing peer authentication and account-link handshakes, excludes local credentials and browser routes, and never binds wildcard or LAN addresses.
 
 - Part of: core:service-layer.
-- Invariants: the account is the only authority for a new link and the backend never carries Mesh traffic; a paired edge carries traffic only while its admission is open (legacy provenance from before the gate, or adopted account membership that never downgrades); explicit sign-out blocks every edge before cleanup and never deletes it; unpair is a ban; each machine decides locally what a peer may do; a machine belongs to one mesh; hard rules bind on every peer; secrets never cross the mesh.
+- Invariants: a new link requires same-account authorization and approval on the receiving machine; decline or ten minutes without approval cancels it; the backend never carries Mesh traffic; a paired edge carries traffic only while its admission is open (legacy provenance from before the gate, or adopted account membership that never downgrades); explicit sign-out blocks every edge before cleanup and never deletes it; disconnect removes the edge on both machines, with a signed removal learned on next contact if the peer was offline; reconnection requires fresh approval; each machine decides locally what a peer may do; a machine belongs to one mesh; hard rules bind on every peer; secrets never cross the mesh.
 
 ### Plugin host {#core:plugin-host}
 

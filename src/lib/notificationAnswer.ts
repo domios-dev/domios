@@ -5,7 +5,7 @@ import type { NotificationAnswer } from "./types";
  * than offering buttons that would quietly do nothing.
  */
 export function isAnswerUndeliverable(answer: NotificationAnswer): boolean {
-  return answer.answered === null && answer.asked_from_tab === null;
+  return answer.answered === null && answer.asked_from_tab === null && !answer.daemon_request;
 }
 
 /**

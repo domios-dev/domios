@@ -22,6 +22,10 @@ const DANGER_BTN = `${UI_BUTTON.danger} ${UI_BUTTON.compact}`;
 const PRIMARY_BTN = `${UI_BUTTON.primary} ${UI_BUTTON.compact}`;
 
 const STATUS_PILL: Record<MachineStatus, { label: string; tone: "green" | "red" | "muted" | "accent" | "amber" }> = {
+  approval_requested: { label: "Approval requested", tone: "accent" },
+  declined: { label: "Declined", tone: "muted" },
+  link_expired: { label: "Expired", tone: "amber" },
+  link_failed: { label: "Connection failed", tone: "amber" },
   signed_out: { label: "Signed out", tone: "muted" },
   linked: { label: "Connected", tone: "green" },
   linking: { label: "Connecting", tone: "accent" },
@@ -102,6 +106,7 @@ export default function MyMachines(props: MyMachinesProps) {
           busy={busy === row.key}
           confirm={confirm?.key === row.key ? confirm.kind : null}
           register={registerControl}
+          onDecision={(approve) => { if (row.linkRequest?.notification_id) void machines.decide(row, row.linkRequest.notification_id, approve); }}
           onAdd={(target) => void add(row, target)}
           onPlans={() => machines.openPlans(row.key)}
           onAskConfirm={(kind) => setConfirm({ kind, key: row.key })}
@@ -245,11 +250,12 @@ function SelfRow({ self, onRename }: {
   );
 }
 
-function MachineRow({ row, busy, confirm, register, onAdd, onPlans, onAskConfirm, onCancelConfirm, onRevoke, onUnpair }: {
+function MachineRow({ row, busy, confirm, register, onDecision, onAdd, onPlans, onAskConfirm, onCancelConfirm, onRevoke, onUnpair }: {
   row: MachineRowView;
   busy: boolean;
   confirm: "revoke" | "unpair" | null;
   register: (key: string) => (element: HTMLElement | null) => void;
+  onDecision: (approve: boolean) => void;
   onAdd: (target: MeshTarget) => void;
   onPlans: () => void;
   onAskConfirm: (kind: "revoke" | "unpair") => void;
@@ -276,18 +282,22 @@ function MachineRow({ row, busy, confirm, register, onAdd, onPlans, onAskConfirm
         </div>
         {!confirm && (
           <div className="flex items-center gap-1.5 flex-shrink-0">
+            {row.status === "approval_requested" && row.linkRequest?.notification_id && <>
+              <button type="button" disabled={busy} className={PRIMARY_BTN} onClick={() => onDecision(true)}>Approve</button>
+              <button type="button" disabled={busy} className={ACTION_BTN} onClick={() => onDecision(false)}>Decline</button>
+            </>}
             {add && row.target && (
               <button
                 type="button"
                 ref={register(`${row.key}:add`)}
                 onClick={() => row.target && onAdd(row.target)}
-                disabled={add.reason !== null}
+                disabled={linking || add.reason !== null}
                 aria-busy={linking}
                 aria-describedby={add.reason && !linking ? reasonId : undefined}
                 aria-label={`Connect ${row.name}`}
                 className={`${UI_BUTTON.accent} ${UI_BUTTON.compact} disabled:opacity-50`}
               >
-                {linking ? <><BusySpinner size={12} /> Connecting…</> : "Connect"}
+                {linking ? <><BusySpinner size={12} /> Connecting…</> : ["declined", "link_expired", "link_failed"].includes(row.status) ? "Try again" : "Connect"}
               </button>
             )}
             {row.status === "over_limit" && (

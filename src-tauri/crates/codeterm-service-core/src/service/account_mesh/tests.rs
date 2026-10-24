@@ -150,6 +150,7 @@ fn account_mesh_snapshot_and_outcomes_match_the_desktop_client() {
     let snapshot = AccountMeshSnapshot {
         view: state.view(),
         pairs: Vec::new(),
+        link_requests: Vec::new(),
     };
     let value = serde_json::to_value(&snapshot).unwrap();
     for key in [

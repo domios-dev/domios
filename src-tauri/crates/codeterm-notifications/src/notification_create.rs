@@ -149,6 +149,7 @@ use admission::{destination, NoticeDestination, NoticeSource};
 #[derive(Debug)]
 pub enum NotificationAdmission {
     Diagnostic,
+    UserConsent,
     /// Admitted through the agent notify-send boundary.
     Explicit,
 }
@@ -179,6 +180,7 @@ pub fn create_notification_with_delivery(
 ) -> String {
     let source = match admission {
         NotificationAdmission::Diagnostic => NoticeSource::System,
+        NotificationAdmission::UserConsent => NoticeSource::UserConsent,
         NotificationAdmission::Explicit => NoticeSource::AgentNotifySend,
     };
     if destination(source, true) == NoticeDestination::Log {
@@ -198,7 +200,10 @@ pub fn create_notification_with_delivery(
     } else {
         origin.target.clone()
     };
-    let explicit = matches!(admission, NotificationAdmission::Explicit);
+    let explicit = matches!(
+        admission,
+        NotificationAdmission::Explicit | NotificationAdmission::UserConsent
+    );
     let parsed_severity = notification_severity(severity);
     let severity_str = match &parsed_severity {
         NotificationSeverity::Warning => "Warning",
@@ -207,89 +212,95 @@ pub fn create_notification_with_delivery(
     };
     let id = match admission {
         NotificationAdmission::Diagnostic => unreachable!(),
-        NotificationAdmission::Explicit => match push.intent.level {
-            // An identical live message is the same message: it keeps its record and reaches neither the native sink nor the panel again.
-            None => {
-                let mut store = store.lock();
-                let keyed_question = ask.condition.is_none()
-                    && crate::notification::answer::slot_for(
-                        ask.actions.as_deref(),
-                        provenance.tab_id.as_deref(),
-                    )
-                    .is_some();
-                let admitted = if let Some(event_key) =
-                    push.intent.event_key.as_deref().filter(|_| keyed_question)
-                {
-                    let scope = push::scope_key(&provenance);
-                    let event_key = push::event_key(Some(event_key), &title);
-                    store.supersede_question(&scope, &event_key);
-                    let id = store.add_ext(
-                        title.clone(),
-                        body.clone(),
-                        parsed_severity,
-                        provenance.clone(),
-                        ask,
-                        sticky,
-                        surfaces.declared,
-                    );
-                    store.remember_question(scope, event_key, &id);
-                    DeliveryAdmission::Deliver(id)
-                } else {
-                    store.add_deduped(
-                        title.clone(),
-                        body.clone(),
-                        parsed_severity,
-                        provenance.clone(),
-                        ask,
-                        sticky,
-                        surfaces.declared,
-                    )
-                };
-                match admitted {
-                    DeliveryAdmission::Deliver(id) => id,
-                    DeliveryAdmission::Duplicate(id) => return id,
-                }
-            }
-            Some(level) => {
-                let admitted = store.lock().add_push(PushRequest {
-                    scope: push::scope_key(&provenance),
-                    level,
-                    event_key: push::event_key(push.intent.event_key.as_deref(), &title),
-                    title: title.clone(),
-                    body: body.clone(),
-                    severity: parsed_severity,
-                    provenance: provenance.clone(),
-                    per_scope_limit: push.per_scope_limit,
-                    ask,
-                });
-                // A duplicate reuses an open record: nothing new to toast or emit.
-                if !admitted.opened_or_changed_record() {
-                    return admitted.id().to_string();
-                }
-                if admitted.should_push() {
-                    let envelope = PushEnvelope {
-                        content: push::PushContent {
-                            level,
-                            title: title.clone(),
-                            body: body.clone(),
-                            provenance: provenance.clone(),
-                        },
-                        // Read off the record: the position a token names is
-                        // the position that record will resolve it at.
-                        choices: store.lock().offered_choices_for_channel(admitted.id()),
-                        record: admitted.id().to_string(),
-                    };
-                    if let Err(reason) = (push.deliver)(envelope) {
-                        log::warn!(
-                            "[notify-push] delivery failed for {}: {reason}",
-                            admitted.id()
+        NotificationAdmission::Explicit | NotificationAdmission::UserConsent => {
+            match push.intent.level {
+                // An identical live message is the same message: it keeps its record and reaches neither the native sink nor the panel again.
+                None => {
+                    let mut store = store.lock();
+                    let keyed_question = ask.condition.is_none()
+                        && crate::notification::answer::slot_for(
+                            ask.actions.as_deref(),
+                            provenance.tab_id.as_deref(),
+                        )
+                        .is_some();
+                    let admitted = if let Some(event_key) =
+                        push.intent.event_key.as_deref().filter(|_| keyed_question)
+                    {
+                        let scope = push::scope_key(&provenance);
+                        let event_key = push::event_key(Some(event_key), &title);
+                        store.supersede_question(&scope, &event_key);
+                        let id = store.add_ext(
+                            title.clone(),
+                            body.clone(),
+                            parsed_severity,
+                            provenance.clone(),
+                            ask,
+                            sticky,
+                            surfaces.declared,
                         );
-                        store.lock().mark_push_failed(admitted.id());
+                        store.remember_question(scope, event_key, &id);
+                        DeliveryAdmission::Deliver(id)
+                    } else {
+                        store.add_deduped(
+                            title.clone(),
+                            body.clone(),
+                            parsed_severity,
+                            provenance.clone(),
+                            ask,
+                            sticky,
+                            surfaces.declared,
+                        )
+                    };
+                    match admitted {
+                        DeliveryAdmission::Deliver(id) => id,
+                        DeliveryAdmission::Duplicate(id) => return id,
                     }
                 }
-                admitted.id().to_string()
+                Some(level) => {
+                    let admitted = store.lock().add_push(PushRequest {
+                        scope: ask
+                            .daemon_request
+                            .as_ref()
+                            .map(|request| format!("consent:{request}"))
+                            .unwrap_or_else(|| push::scope_key(&provenance)),
+                        level,
+                        event_key: push::event_key(push.intent.event_key.as_deref(), &title),
+                        title: title.clone(),
+                        body: body.clone(),
+                        severity: parsed_severity,
+                        provenance: provenance.clone(),
+                        per_scope_limit: push.per_scope_limit,
+                        ask,
+                    });
+                    // A duplicate reuses an open record: nothing new to toast or emit.
+                    if !admitted.opened_or_changed_record() {
+                        return admitted.id().to_string();
+                    }
+                    if admitted.should_push() {
+                        let envelope = PushEnvelope {
+                            content: push::PushContent {
+                                level,
+                                title: title.clone(),
+                                body: body.clone(),
+                                provenance: provenance.clone(),
+                            },
+                            // Read off the record: the position a token names is
+                            // the position that record will resolve it at.
+                            choices: store.lock().offered_choices_for_channel(admitted.id()),
+                            record: admitted.id().to_string(),
+                        };
+                        if let Err(reason) = (push.deliver)(envelope) {
+                            log::warn!(
+                                "[notify-push] delivery failed for {}: {reason}",
+                                admitted.id()
+                            );
+                            store.lock().mark_push_failed(admitted.id());
+                        }
+                    }
+                    admitted.id().to_string()
+                }
             }
-        },
+        }
     };
 
     if explicit {

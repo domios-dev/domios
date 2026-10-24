@@ -1,4 +1,4 @@
-use crate::{transport, MeshManager, MeshState};
+use crate::{MeshManager, MeshState};
 use serde::{Deserialize, Serialize};
 
 pub const PATH: &str = "/api/mesh/account-presence";
@@ -20,33 +20,10 @@ pub async fn broadcast_presence_notice(mesh: &MeshState, metadata_revision: u64)
     };
     let mut sends = tokio::task::JoinSet::new();
     for (addresses, port) in peers {
-        let http = transport::shared_http_client();
         let token = token.clone();
         sends.spawn(async move {
             let notice = PresenceNotice { metadata_revision };
-            let _ = transport::try_peer(&addresses, |address| {
-                let request = http
-                    .post(format!(
-                        "{}{PATH}",
-                        transport::peer_http_origin(&address.ip, port)
-                    ))
-                    .header("Authorization", format!("Bearer {token}"))
-                    .header(
-                        crate::version::VERSION_HEADER,
-                        crate::version::local_version(),
-                    )
-                    .json(&notice);
-                async move {
-                    match request.send().await {
-                        Ok(response) if response.status().is_success() => {
-                            transport::TryNext::Success(())
-                        }
-                        Ok(_) => transport::TryNext::Stop("presence notice refused".into()),
-                        Err(_) => transport::TryNext::Retry("presence notice unavailable".into()),
-                    }
-                }
-            })
-            .await;
+            let _ = crate::signed_notice::send(&addresses, port, PATH, &token, &notice).await;
         });
     }
     let _ = tokio::time::timeout(std::time::Duration::from_secs(3), async {

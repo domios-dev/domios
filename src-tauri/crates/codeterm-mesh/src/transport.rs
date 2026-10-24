@@ -318,9 +318,23 @@ impl PeerClient {
 
     /// Ping a peer — returns true if reachable.
     pub async fn ping(&self) -> bool {
+        self.ping_reply().await.is_ok()
+    }
+
+    pub async fn ping_reply(&self) -> Result<serde_json::Value, String> {
         let url = format!("{}/api/mesh/ping", self.base_url);
-        let req = self.client.get(&url).timeout(PING_TIMEOUT);
-        matches!(req.send().await, Ok(resp) if resp.status().is_success())
+        let mut req = self.client.get(&url).timeout(PING_TIMEOUT);
+        if let Some((key, value)) = self.auth_header() {
+            req = req.header(key, value);
+        }
+        let response = req.send().await.map_err(|_| "Ping failed")?;
+        if !response.status().is_success() {
+            return Err("Ping refused".into());
+        }
+        response
+            .json()
+            .await
+            .map_err(|_| "Ping reply unreadable".into())
     }
 
     /// Authenticated POST, returns parsed JSON.

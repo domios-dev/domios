@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { openLockedMachinePlans, openOnMeshRefusal } from "../billing/accountMeshLimit";
-import { myMachinesView, settledLinks, type AccountPresence, type MachineRowView, type MyMachinesView } from "./accountMachines";
+import { openLockedMachinePlans } from "../billing/accountMeshLimit";
+import { myMachinesView, type AccountPresence, type MachineRowView, type MyMachinesView } from "./accountMachines";
 import {
-  linkFailure,
   useAccountMeshClient,
   type AccountMeshFailure,
   type AccountMeshOutcome,
   type AccountMeshSnapshot,
   type MeshTarget,
 } from "./accountMeshClient";
+
+import { useMachineLinkActions } from "./useMachineLinkActions";
 
 export interface MachineFailure {
   operation: string;
@@ -36,6 +37,7 @@ export interface MyMachines {
   load: () => Promise<void>;
   signIn: () => Promise<void>;
   connect: (row: MachineRowView, target: MeshTarget) => Promise<void>;
+  decide: (row: MachineRowView, notificationId: string, approve: boolean) => Promise<void>;
   disconnect: (row: MachineRowView, instanceId: string) => Promise<boolean>;
   revoke: (row: MachineRowView, target: MeshTarget) => Promise<boolean>;
   renameSelf: (name: string) => Promise<boolean>;
@@ -63,7 +65,6 @@ export function useMyMachines({ account, onSignIn, onFailure, onChanged, now = e
   const [loadFailed, setLoadFailed] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
-  const [linking, setLinking] = useState<ReadonlySet<string>>(() => new Set());
   const [busy, setBusy] = useState<string | null>(null);
   const [failures, setFailures] = useState<ReadonlyMap<string, MachineFailure>>(() => new Map());
   const generation = useRef(0);
@@ -94,15 +95,6 @@ export function useMyMachines({ account, onSignIn, onFailure, onChanged, now = e
     return client.subscribe(() => { void load(false); });
   }, [client, load, account]);
 
-  useEffect(() => {
-    if (!snapshot || linking.size === 0) return;
-    const settled = settledLinks(linking, snapshot);
-    if (settled.length === 0) return;
-    setLinking((current) => new Set([...current].filter((id) => !settled.includes(id))));
-  }, [snapshot, linking]);
-
-  const view = useMemo(() => myMachinesView({ account, snapshot, listFailure, linking, now: now() }), [account, snapshot, listFailure, linking, now]);
-
   const fail = useCallback((key: string, operation: string, failure: AccountMeshFailure) => {
     setFailures((current) => new Map(current).set(key, { operation, failure }));
     onFailure?.(operation, failure);
@@ -126,27 +118,8 @@ export function useMyMachines({ account, onSignIn, onFailure, onChanged, now = e
     }
   }, [onSignIn]);
 
-  const connect = useCallback(async (row: MachineRowView, target: MeshTarget) => {
-    dismissFailure(row.key);
-    setLinking((current) => new Set(current).add(target.installation_id));
-    let failure: AccountMeshFailure | null = null;
-    let planLimit = false;
-    try {
-      planLimit = await openOnMeshRefusal(async () => { await client.link(target); return true; }) === undefined;
-    } catch (error) {
-      failure = linkFailure(error);
-    }
-    if (failure || planLimit) {
-      setLinking((current) => {
-        const next = new Set(current);
-        next.delete(target.installation_id);
-        return next;
-      });
-    }
-    if (failure) fail(row.key, `connect ${row.name}`, failure);
-    onChanged?.();
-    await load();
-  }, [client, dismissFailure, fail, load, onChanged]);
+  const { linking, connect, decide, deciding } = useMachineLinkActions({ client, snapshot, load, onChanged, fail, dismissFailure });
+  const view = useMemo(() => myMachinesView({ account, snapshot, listFailure, linking, now: now() }), [account, snapshot, listFailure, linking, now]);
 
   const disconnect = useCallback(async (row: MachineRowView, instanceId: string) => {
     dismissFailure(row.key);
@@ -211,7 +184,7 @@ export function useMyMachines({ account, onSignIn, onFailure, onChanged, now = e
   const openPlans = useCallback((key: string) => openLockedMachinePlans(snapshot, key), [snapshot]);
 
   return {
-    view, snapshot, listFailure, loadFailed, refreshing, signingIn, busy, failures,
-    load, signIn, connect, disconnect, revoke, renameSelf, rename, retryEnrollment, openPlans, dismissFailure,
+    view, snapshot, listFailure, loadFailed, refreshing, signingIn, busy: deciding ?? busy, failures,
+    load, signIn, connect, decide, disconnect, revoke, renameSelf, rename, retryEnrollment, openPlans, dismissFailure,
   };
 }

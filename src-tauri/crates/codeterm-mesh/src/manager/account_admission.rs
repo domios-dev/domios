@@ -18,17 +18,19 @@ pub(crate) const PENDING_TTL_SECS: u64 = 60;
 pub(crate) const MAX_PENDING: usize = 8;
 
 pub struct PendingLink {
-    initiator: PartyDescriptor,
-    initiator_membership: SignedMembership,
-    transcript: [u8; 32],
-    account_id: String,
-    account_epoch: u64,
-    created_at: u64,
+    pub(super) initiator: PartyDescriptor,
+    pub(super) initiator_membership: SignedMembership,
+    pub(super) transcript: [u8; 32],
+    pub(super) account_id: String,
+    pub(super) account_epoch: u64,
+    pub(super) created_at: u64,
+    pub(super) approved: bool,
+    removal_watermark: u64,
     /// Both permits are held; the pair is recorded only on the initiator's commit.
     confirmed: bool,
 }
 
-/// Only a local, user-initiated Add may lift this machine's own removal of a peer.
+/// Local Connect or Approve may lift this machine's own removal of a peer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LinkOrigin {
     LocalAdd { removal_watermark: u64 },
@@ -189,8 +191,14 @@ impl MeshManager {
 
     fn prune_pending(&mut self) {
         let now = self.now();
-        self.pending_links
-            .retain(|_, pending| now.saturating_sub(pending.created_at) <= PENDING_TTL_SECS);
+        self.pending_links.retain(|id, pending| {
+            let ttl = if !pending.approved && self.link_requests.contains_key(id) {
+                crate::account_mesh::approval::APPROVAL_TTL_SECS + PENDING_TTL_SECS
+            } else {
+                PENDING_TTL_SECS
+            };
+            now.saturating_sub(pending.created_at) <= ttl
+        });
         self.pending_adoptions
             .retain(|_, pending| now.saturating_sub(pending.created_at) <= PENDING_TTL_SECS);
     }
@@ -203,7 +211,6 @@ impl MeshManager {
         let context = self.admission_context()?;
         let initiator = &hello.initiator.party;
         self.check_link_identity(&initiator.instance_id, &initiator.mesh_public_key)?;
-        self.refuse_removed_peer(&initiator.instance_id)?;
         let membership =
             self.verify_peer_membership(&context, &hello.membership, &initiator.installation_id)?;
         self.prune_pending();
@@ -214,6 +221,26 @@ impl MeshManager {
         }
         if self.pending_links.contains_key(&hello.link_id) {
             return Err(AdmissionRefusal::handshake("duplicate link id"));
+        }
+        if self.pending_links.iter().any(|(id, pending)| {
+            pending.initiator.party.installation_id == initiator.installation_id
+                && self.link_requests.get(id).is_some_and(|request| {
+                    request.decision_at(self.now())
+                        == crate::account_mesh::approval::LinkDecision::Waiting
+                })
+        }) {
+            return Err(AdmissionRefusal::handshake("link request already pending"));
+        }
+        let superseded: Vec<String> = self
+            .pending_links
+            .iter()
+            .filter(|(_, pending)| {
+                pending.initiator.party.installation_id == initiator.installation_id
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in superseded {
+            self.clear_link_request(&id);
         }
         let nonce = transcript::fresh_nonce();
         let digest = transcript::transcript(
@@ -238,6 +265,8 @@ impl MeshManager {
                 account_id: context.account_id.clone(),
                 account_epoch: context.account_epoch,
                 created_at: self.now(),
+                approved: false,
+                removal_watermark: context.removal_watermark,
                 confirmed: false,
             },
         );
@@ -257,6 +286,13 @@ impl MeshManager {
         confirm: &LinkConfirm,
     ) -> Result<LinkConfirmation, AdmissionRefusal> {
         self.prune_pending();
+        if !self
+            .pending_links
+            .get(&confirm.link_id)
+            .is_some_and(|pending| pending.approved)
+        {
+            return Err(AdmissionRefusal::handshake("link requires local approval"));
+        }
         if self
             .pending_links
             .get(&confirm.link_id)
@@ -345,6 +381,7 @@ impl MeshManager {
         {
             return Err(AdmissionRefusal::handshake("unknown or unconfirmed link"));
         }
+        self.link_requests.remove(&commit.link_id);
         let pending = self
             .pending_links
             .remove(&commit.link_id)
@@ -369,7 +406,10 @@ impl MeshManager {
             &[],
             pending.initiator_membership,
             &pending.account_id,
-            LinkOrigin::Remote,
+            LinkOrigin::LocalAdd {
+                removal_watermark: pending.removal_watermark,
+            },
+            &commit.link_id,
         )
     }
 
@@ -390,6 +430,7 @@ impl MeshManager {
         membership: SignedMembership,
         account_id: &str,
         origin: LinkOrigin,
+        link_nonce: &str,
     ) -> Result<(), AdmissionRefusal> {
         let party = &peer.party;
         self.check_link_identity(&party.instance_id, &party.mesh_public_key)?;
@@ -421,6 +462,10 @@ impl MeshManager {
                 membership,
             )
             .map_err(AdmissionRefusal::handshake)?;
+        if let Some(record) = self.links.links.get_mut(&party.instance_id) {
+            record.link_nonce = Some(link_nonce.into());
+        }
+        self.links.disconnects.remove(&party.instance_id);
         let record = self
             .paired_peers
             .entry(party.instance_id.clone())
