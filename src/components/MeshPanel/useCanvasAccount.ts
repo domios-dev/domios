@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { accountCanvas } from "./accountCanvas";
 import type { MachineRowView } from "./accountMachines";
 import type { MeshTarget } from "./accountMeshClient";
@@ -8,10 +8,16 @@ import { useMeshAccount } from "./useMeshAccount";
 import { useMyMachines } from "./useMyMachines";
 
 /** My machines projected onto the Mesh canvas, live with the account and the paired peers. */
-export function useCanvasAccount(peers: readonly PeerStatus[], onChanged: () => void): CanvasAccount {
+export function useCanvasAccount(peers: readonly PeerStatus[], onChanged: () => void, registryRefreshKey = 0): CanvasAccount {
   const account = useMeshAccount();
   const machines = useMyMachines({ account: account.presence, onSignIn: account.signIn, onChanged });
   const { view, snapshot, loadFailed, listFailure, failures, busy, signingIn, connect, decide, disconnect, openPlans, dismissFailure, signIn, load, rename, renameSelf } = machines;
+  const lastRefreshKey = useRef(registryRefreshKey);
+  useEffect(() => {
+    if (lastRefreshKey.current === registryRefreshKey) return;
+    lastRefreshKey.current = registryRefreshKey;
+    void load();
+  }, [registryRefreshKey, load]);
   const canvas = useMemo(
     () => accountCanvas({ view, peers, loadFailed, listFailed: listFailure !== null, failures }),
     [view, peers, loadFailed, listFailure, failures],
