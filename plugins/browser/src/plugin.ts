@@ -1,4 +1,5 @@
 import type { AgentCommandCtx, PluginModule } from "@codeterm/plugin-sdk";
+import { redactCredentials } from "./redaction";
 
 export type AgentCommandReply = { result: string } | { error: string };
 
@@ -50,8 +51,8 @@ export function forward(ctx: AgentCommandCtx, call: SurfaceCall | undefined = ho
   }
   if (reply && typeof reply === "object") {
     const { result, error } = reply as { result?: unknown; error?: unknown };
-    if (typeof error === "string") return { error };
-    if (typeof result === "string") return { result };
+    if (typeof error === "string") return { error: redactCredentials(error) };
+    if (typeof result === "string") return { result: redactCredentials(result) };
   }
   return { error: `the browser runtime returned no answer for ${verb}` };
 }

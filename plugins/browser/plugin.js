@@ -25,6 +25,25 @@ __export(plugin_exports, {
   parseOf: () => parseOf
 });
 module.exports = __toCommonJS(plugin_exports);
+
+// plugins/browser/src/redaction.ts
+var CREDENTIALS = /* @__PURE__ */ new Set(["token", "access_token", "api_token", "key", "secret", "password"]);
+function redactCredentials(text) {
+  return text.replace(
+    /(^|[?#&;\s"'<>`()\[\]{}\\])([^=?#&;\s"'<>`()\[\]{}\\]+)=([^?#&;\s"'<>`()\[\]{}\\]*)/g,
+    (match, prefix, name) => {
+      let decoded;
+      try {
+        decoded = decodeURIComponent(name.replace(/\+/g, " ")).toLowerCase();
+      } catch {
+        return match;
+      }
+      return CREDENTIALS.has(decoded) ? `${prefix}${name}=REDACTED` : match;
+    }
+  );
+}
+
+// plugins/browser/src/plugin.ts
 function hostSurfaceCall() {
   return typeof host === "object" && host && host.surface ? host.surface.call : void 0;
 }
@@ -64,8 +83,8 @@ function forward(ctx, call = hostSurfaceCall()) {
   }
   if (reply && typeof reply === "object") {
     const { result, error } = reply;
-    if (typeof error === "string") return { error };
-    if (typeof result === "string") return { result };
+    if (typeof error === "string") return { error: redactCredentials(error) };
+    if (typeof result === "string") return { result: redactCredentials(result) };
   }
   return { error: `the browser runtime returned no answer for ${verb}` };
 }

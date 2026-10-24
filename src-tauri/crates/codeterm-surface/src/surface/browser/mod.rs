@@ -4,6 +4,7 @@ mod heuristics;
 mod inbox;
 mod input;
 mod page;
+mod redaction;
 mod resume;
 mod snip;
 mod stream;
@@ -375,7 +376,10 @@ impl SurfaceRuntime for BrowserRuntime {
         method: &str,
         args: Value,
     ) -> Result<SurfaceCallOutcome, String> {
-        self.view_call(ctx, method, args).await
+        self.view_call(ctx, method, args)
+            .await
+            .map(redaction::outcome)
+            .map_err(|error| redaction::text(&error))
     }
 
     async fn agent_verb(
@@ -384,7 +388,10 @@ impl SurfaceRuntime for BrowserRuntime {
         verb: &str,
         args: &[String],
     ) -> Result<String, String> {
-        self.run_verb(ctx, verb, args).await
+        self.run_verb(ctx, verb, args)
+            .await
+            .map(|result| redaction::text(&result))
+            .map_err(|error| redaction::text(&error))
     }
 
     async fn annotate(
@@ -392,7 +399,10 @@ impl SurfaceRuntime for BrowserRuntime {
         ctx: &SurfaceCallCtx,
         args: &[String],
     ) -> Result<SurfaceCallOutcome, String> {
-        self.run_annotate(ctx, args).await
+        self.run_annotate(ctx, args)
+            .await
+            .map(redaction::outcome)
+            .map_err(|error| redaction::text(&error))
     }
 
     fn annotation_delivered(&self, id: &str) {

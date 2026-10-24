@@ -3,6 +3,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import plugin, { forward, parseOf } from "../src/plugin";
+import { redactCredentials } from "../src/redaction";
+import redactionCases from "./redaction-cases.json";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const manifest = JSON.parse(readFileSync(join(root, "plugin.json"), "utf8"));
@@ -59,5 +61,22 @@ describe("browser plugin onAgentCommand", () => {
     expect(manifest.permissions).toEqual({ agentCommands: true, surfaces: true });
     expect(manifest.agentKeywords.length).toBeLessThanOrEqual(10);
     expect(readFileSync(join(root, manifest.agentGuide), "utf8").length).toBeLessThan(16 * 1024);
+  });
+});
+
+
+describe("Browser credential redaction", () => {
+  it.each(redactionCases)("redacts $input", ({ input, expected }) => {
+    expect(redactCredentials(input)).toBe(expected);
+    expect(redactCredentials(expected)).toBe(expected);
+  });
+
+  it.each(["snapshot", "goto", "status", "text", "wait", "inbox", "open", "back", "forward", "reload", "click"])("redacts %s successes and failures without changing navigation input", (verb) => {
+    const url = "https://example.test/#token=opaque";
+    for (const field of ["result", "error"] as const) {
+      const call = vi.fn(() => JSON.stringify({ [field]: url }));
+      expect(forward({ sessionId: "s", verb, args: [url] }, call)).toEqual({ [field]: "https://example.test/#token=REDACTED" });
+      expect(call).toHaveBeenCalledWith(verb, JSON.stringify([url]));
+    }
   });
 });
