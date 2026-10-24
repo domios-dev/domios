@@ -15,6 +15,7 @@ struct PublicationState {
     remote_bind: Option<SocketAddr>,
     proof_token: Option<String>,
     ready: Vec<SocketAddr>,
+    tailnet: Vec<SocketAddr>,
     suspended: Vec<SocketAddr>,
     observer: Option<Observer>,
 }
@@ -40,7 +41,12 @@ impl ListenerPublication {
     }
 
     pub fn ready(&self) -> Vec<SocketAddr> {
-        self.state.lock().ready.clone()
+        let state = self.state.lock();
+        combined_ready(&state)
+    }
+
+    pub(crate) fn publish_tailnet(&self, ready: Vec<SocketAddr>) {
+        self.update_ready(move |state| state.tailnet = ready);
     }
 
     pub fn publish(&self, ready: Vec<SocketAddr>) {
@@ -76,7 +82,7 @@ impl ListenerPublication {
         let (observer, ready) = {
             let mut state = self.state.lock();
             update(&mut state);
-            (state.observer.clone(), state.ready.clone())
+            (state.observer.clone(), combined_ready(&state))
         };
         if let Some(observer) = observer {
             observer(ready);
@@ -89,6 +95,16 @@ impl ListenerPublication {
             state.suspended.retain(|address| *address != remote);
         });
     }
+}
+
+fn combined_ready(state: &PublicationState) -> Vec<SocketAddr> {
+    let mut ready = state.ready.clone();
+    for address in &state.tailnet {
+        if !ready.contains(address) {
+            ready.push(*address);
+        }
+    }
+    ready
 }
 
 pub fn additional_bind(
@@ -167,7 +183,7 @@ where
     serve_pair(primary, remote, address, publication, Some(shutdown_tx)).await
 }
 
-pub(super) async fn serve_listener(
+pub(crate) async fn serve_listener(
     listener: std::net::TcpListener,
     router: axum::Router,
     shutdown: oneshot::Receiver<()>,
