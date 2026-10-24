@@ -96,6 +96,7 @@ async fn external_tree() -> Tree {
 }
 
 #[tokio::test]
+#[ignore = "requires the Microsoft Store pwsh app-execution alias; run with --ignored on a Windows host that has it"]
 async fn runtime_job_alone_leaves_external_conpty_commands_alive() {
     let mut tree = external_tree().await;
     tree.boundary.job.try_terminate().unwrap();
@@ -109,6 +110,7 @@ async fn runtime_job_alone_leaves_external_conpty_commands_alive() {
 }
 
 #[tokio::test]
+#[ignore = "requires the Microsoft Store pwsh app-execution alias; run with --ignored on a Windows host that has it"]
 async fn retirement_captures_external_conpty_descendants() {
     let mut tree = external_tree().await;
     let boundary = tree.boundary.clone();
