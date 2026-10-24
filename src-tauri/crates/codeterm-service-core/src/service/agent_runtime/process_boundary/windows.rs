@@ -2,11 +2,20 @@ use super::Boundary;
 use std::time::Instant;
 use windows_sys::Win32::{Foundation::*, System::Threading::*};
 
+mod descendants;
+pub(super) use descendants::capture as descendants;
+
 pub(super) fn ids(boundary: &Boundary) -> Result<Vec<u32>, String> {
-    boundary.job.process_ids()
+    boundary
+        .job
+        .process_ids()
+        .map_err(|reason| format!("QueryInformationJobObject: {reason}"))
 }
 pub(super) fn terminate(boundary: &Boundary) -> Result<(), String> {
-    boundary.job.try_terminate()
+    boundary
+        .job
+        .try_terminate()
+        .map_err(|reason| format!("TerminateJobObject: {reason}"))
 }
 
 pub(super) struct Member {
@@ -15,6 +24,16 @@ pub(super) struct Member {
 }
 impl Member {
     pub(super) fn open(boundary: &Boundary, pid: u32) -> Result<Option<Self>, String> {
+        let Some(member) = Self::retain(pid)? else {
+            return Ok(None);
+        };
+        if !unsafe { boundary.job.contains_process(member.handle as HANDLE) }? {
+            return Err("Process left the owned Job before observation".into());
+        }
+        Ok(Some(member))
+    }
+
+    fn retain(pid: u32) -> Result<Option<Self>, String> {
         let handle = unsafe {
             OpenProcess(
                 PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE | PROCESS_SYNCHRONIZE,
@@ -27,21 +46,21 @@ impl Member {
             if error.raw_os_error() == Some(ERROR_INVALID_PARAMETER as i32) {
                 return Ok(None);
             }
-            return Err(error.to_string());
+            return Err(format!("OpenProcess pid={pid} access=QUERY_LIMITED_INFORMATION|TERMINATE|SYNCHRONIZE: {error}"));
         }
         let mut member = Self {
             handle: handle as usize,
             born: 0,
         };
-        if !unsafe { boundary.job.contains_process(handle) }? {
-            return Err("Process left the owned Job before observation".into());
-        }
         let mut born = FILETIME::default();
         let mut exited = FILETIME::default();
         let mut kernel = FILETIME::default();
         let mut user = FILETIME::default();
         if unsafe { GetProcessTimes(handle, &mut born, &mut exited, &mut kernel, &mut user) } == 0 {
-            return Err(std::io::Error::last_os_error().to_string());
+            return Err(format!(
+                "GetProcessTimes pid={pid}: {}",
+                std::io::Error::last_os_error()
+            ));
         }
         member.born = ((u128::from(born.dwHighDateTime)) << 32) | u128::from(born.dwLowDateTime);
         Ok(Some(member))
@@ -65,11 +84,23 @@ impl Member {
     }
     pub(super) fn terminate(&self, boundary: &Boundary) -> Result<(), String> {
         self.validate_identity(boundary)?;
+        self.terminate_retained()
+    }
+    pub(super) fn terminate_retained(&self) -> Result<(), String> {
         if self.exited()? {
             return Ok(());
         }
-        if unsafe { TerminateProcess(self.handle as HANDLE, 1) } == 0 && !self.exited()? {
-            return Err(std::io::Error::last_os_error().to_string());
+        if unsafe { TerminateProcess(self.handle as HANDLE, 1) } == 0 {
+            let error = std::io::Error::last_os_error();
+            // A Job termination can be pending before the retained exit handle signals.
+            if error.raw_os_error() == Some(ERROR_ACCESS_DENIED as i32) || self.exited()? {
+                return Ok(());
+            }
+            return Err(format!(
+                "TerminateProcess pid={}: {}",
+                unsafe { GetProcessId(self.handle as HANDLE) },
+                error
+            ));
         }
         Ok(())
     }
@@ -82,7 +113,7 @@ impl Member {
         if unsafe { WaitForSingleObject(self.handle as HANDLE, millis) } == WAIT_OBJECT_0 {
             Ok(())
         } else {
-            Err("Owned process exit wait failed or reached its deadline".into())
+            Err(format!("WaitForSingleObject pid={}: owned process exit wait failed or reached its deadline", unsafe { GetProcessId(self.handle as HANDLE) }))
         }
     }
 }
@@ -93,3 +124,6 @@ impl Drop for Member {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
