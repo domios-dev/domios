@@ -124,6 +124,7 @@ on a file two runners discover, on an empty test file, on an invalid field, on a
 | `core-journeys-offline` | unit | js | pr | no | no | 30 | glob `evals/core-journeys/*.test.mjs` `evals/core-journeys/lib/*.test.mjs` | `node scripts/test-catalogue.mjs run --entry core-journeys-offline`; depends on `evals/restart-endurance/restart.mjs` | `evals/core-journeys/README.md` |
 | `evals-offline-node` | unit | js | manual | no | no | 120 | glob `evals/**/*.test.mjs` `evals/**/*.test.cjs` minus `evals/core-journeys/**` | `node scripts/test-catalogue.mjs run --entry evals-offline-node` | `evals/README.md` |
 | `evals-offline-python` | unit | python | manual | no | no | 120 | glob `evals/**/test_*.py` minus `evals/_lib/**` | `node scripts/test-catalogue.mjs run --entry evals-offline-python` | `evals/README.md` |
+| `hand-test-blueprint-intent-self` | unit | python | manual | no | no | 60 | glob `scripts/hand-tests/blueprint-v2-intent/self_test.py` | `python3 scripts/hand-tests/blueprint-v2-intent/self_test.py` | `scripts/hand-tests/blueprint-v2-intent/README.md` |
 | `evals-lib-guards` | guard | mixed | manual | no | no | 60 | glob `evals/_lib/test-*.sh` `evals/_lib/test_*.py` | `bash evals/_lib/test-dc-cli-resolution.sh && bash evals/_lib/test-source-purity.sh && python3 evals/_lib/test_bench_infrastructure.py` | `AGENTS.md` |
 | `playwright-helpers` | unit | ts | manual (suspended) | no | no | 120 | glob `tests/playwright/helpers/*.test.{ts,mjs}` `tests/playwright/fixtures/**/*.test.mjs` | `node scripts/test-catalogue.mjs run --entry playwright-helpers` | `tests/playwright/README.md` |
 | `fixture-self-tests` | unit | js | manual | no | no | 60 | glob `tests/fixtures/**/*.test.mjs` | `node scripts/test-catalogue.mjs run --entry fixture-self-tests` | `.agents/skills/testing/SKILL.md` |
@@ -178,6 +179,7 @@ Not tests:
 - `src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/fixtures/**`: Scripts the codeterm-plugin parity_test Rust tests execute as fixtures; owned by rust-plugin.
 - `scripts/tests/fixtures/**`: Fixture trees read by scripts/tests (Cargo manifests for the rust-test-inventory tests), not crates.
 - `src-tauri/vendor/**`: Vendored upstream crate (tauri-runtime-wry); its tests belong upstream.
+- `evals/mem-embedder/Cargo.toml`: Embedder evaluation oracle crate whose results are recorded in evals/mem-embedder/REPORT.md, not a test crate.
 
 ## STALE (no longer matches the product; left out, never healthy)
 
