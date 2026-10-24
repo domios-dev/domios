@@ -23,7 +23,13 @@ export interface ComposerBackgroundWorkItem {
   sourceItemId?: string;
   cwd?: string;
   osPid?: number | null;
+  /** Set when the provider gave nothing readable: the item shows as "Internal agent" with this number. */
+  ordinal?: number;
+  /** The provider's own id, kept for the tooltip and the accessible description. */
+  rawId?: string;
 }
+
+export const INTERNAL_AGENT_NAME = "Internal agent";
 
 export interface ComposerBackgroundWorkBubble {
   count: number;
@@ -109,12 +115,14 @@ function agentWork(messages: readonly NormalizedChatMessage[], rootThreadId: str
     const prompt = string(source.agent_description) ?? previous?.item.prompt;
     const path = string(source.agent_path);
     const current = authority?.rootThreadId === rootThreadId && source.agent_binding_nonce === authority?.bindingNonce && source.agent_runtime_epoch === authority?.epoch;
+    const readable = prompt ?? string(source.agent_type) ?? path;
     latest.set(key, {
       order,
       item: {
         id: `agent:${threadId}`,
         kind: "agent",
-        name: shortName(undefined, prompt ?? string(source.agent_type) ?? path ?? threadId),
+        name: readable ? shortName(undefined, readable) : INTERNAL_AGENT_NAME,
+        rawId: threadId,
         threadId,
         transcriptThreadId,
         startedAtMs: earliest,
@@ -166,19 +174,29 @@ export function composerBackgroundWorkItems(
     .sort((a, b) => a.startedAtMs - b.startedAtMs);
 }
 
-export function composerBackgroundWorkBubble(items: readonly ComposerBackgroundWorkItem[]): ComposerBackgroundWorkBubble | null {
-  return items.length ? { count: items.filter(item => item.status === "running" || item.status === "started").length, items: [...items] } : null;
+export function isRunningWork(item: ComposerBackgroundWorkItem): boolean {
+  return item.status === "running" || item.status === "started";
 }
 
-export function withProviderBackgroundWork(items: ComposerBackgroundWorkItem[], running: Readonly<Record<string, string>>, rootThreadId?: string, inactive: { unknown?: Readonly<Record<string, string>>; ended?: Readonly<Record<string, string>> } = {}): ComposerBackgroundWorkItem[] {
-  if (!rootThreadId) return items;
+/** Only live work is shown; without anything running there is no bubble at all, and stale unknown work rides along only beside live work. */
+export function composerBackgroundWorkBubble(items: readonly ComposerBackgroundWorkItem[]): ComposerBackgroundWorkBubble | null {
+  const count = items.filter(isRunningWork).length;
+  return count ? { count, items: items.filter((item) => isRunningWork(item) || item.status === "unknown") } : null;
+}
+
+function numberInternalAgents(items: ComposerBackgroundWorkItem[]): ComposerBackgroundWorkItem[] {
+  let ordinal = 0;
+  return items.map((item) => item.kind === "agent" && item.name === INTERNAL_AGENT_NAME ? { ...item, ordinal: ++ordinal } : item);
+}
+
+export function withProviderBackgroundWork(items: ComposerBackgroundWorkItem[], running: Readonly<Record<string, string>>, rootThreadId?: string, unknown: Readonly<Record<string, string>> = {}): ComposerBackgroundWorkItem[] {
+  if (!rootThreadId) return numberInternalAgents(items);
   const known = new Set(items.flatMap(item => [item.threadId, item.processId].filter(Boolean)));
-  return [...items, ...[
-    ...Object.entries(running).map(([id, label]) => ({id, label, status: "running"})),
-    ...Object.entries(inactive.unknown ?? {}).map(([id, label]) => ({id, label, status: "unknown"})),
-    ...Object.entries(inactive.ended ?? {}).map(([id, label]) => ({id, label, status: "ended"})),
+  return numberInternalAgents([...items, ...[
+    ...Object.entries(running).map(([id, label]) => ({id, label: label.trim(), status: "running"})),
+    ...Object.entries(unknown).map(([id, label]) => ({id, label: label.trim(), status: "unknown"})),
   ].filter(({id}) => !known.has(id)).map(({id, label, status}): ComposerBackgroundWorkItem => ({
-    id: `provider:${rootThreadId}:${id}`, kind: "agent", name: shortName(undefined, label || id),
+    id: `provider:${rootThreadId}:${id}`, kind: "agent", name: label || INTERNAL_AGENT_NAME, rawId: id,
     threadId: id, startedAtMs: 0, elapsed: "", status, prompt: label || undefined,
-  }))];
+  }))]);
 }

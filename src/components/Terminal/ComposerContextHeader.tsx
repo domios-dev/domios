@@ -162,7 +162,8 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
   const descriptor = useAgentDescriptor(providerId);
   const backgroundWork = useComposerBackgroundWorkStatus();
   const backgroundBubble = composerBackgroundWorkBubble(backgroundWork.items);
-  const onlySubagents = backgroundWork.items.length > 0 && backgroundWork.items.every(item => item.kind === "agent");
+  const backgroundItems = backgroundBubble?.items ?? [];
+  const onlySubagents = backgroundItems.length > 0 && backgroundItems.every(item => item.kind === "agent");
   const internalAgentLabel = `Internal agent of ${descriptor?.display_name ?? "parent harness"}`;
   const { chips, byKey, blueprints, context, refresh } = useTabJobs(tabId, workspaceId, adapter, jobActionAdapter);
   const [requested, setRequested] = useState<ContextKind | null>(null);
@@ -210,11 +211,11 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
     goal: false,
     background: false,
   };
-  const kinds = (Object.keys(counts) as ContextKind[]).filter((kind) => counts[kind] > 0 || (kind === "delayed" && heartbeats.length > 0) || (kind === "background" && backgroundWork.items.length > 0));
+  const kinds = (Object.keys(counts) as ContextKind[]).filter((kind) => counts[kind] > 0 || (kind === "delayed" && heartbeats.length > 0));
   const open = requested && kinds.includes(requested) ? requested : null;
 
   const hasPluginError = removedChatPluginId(pluginError ?? null) !== null;
-  if (!hasGoal && !hasPluginError && !plan && kinds.length === 0 && heartbeats.length === 0 && backgroundWork.items.length === 0) return null;
+  if (!hasGoal && !hasPluginError && !plan && kinds.length === 0 && heartbeats.length === 0) return null;
 
   const toggle = (kind: ContextKind) => {
     setRequested(open === kind ? null : kind);
@@ -308,7 +309,7 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
         </button>
       </>
     ),
-    background: () => <ComposerBackgroundWorkPanel items={backgroundBubble?.items ?? []} onStop={backgroundWork.stop} internalAgentLabel={internalAgentLabel} />,
+    background: () => <ComposerBackgroundWorkPanel items={backgroundItems} onStop={backgroundWork.stop} internalAgentLabel={internalAgentLabel} />,
   };
 
   const fallbackTitle = () => {

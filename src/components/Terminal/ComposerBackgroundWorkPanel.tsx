@@ -5,32 +5,46 @@ import type { ComposerBackgroundWorkItem } from "./composerBackgroundWorkModel";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { subagentTone } from "./childTranscriptViewModel";
 
-function subagentMeta(item: ComposerBackgroundWorkItem): string {
-  const state = !item.status || item.status === "unknown" ? "State not reported" : item.status;
-  return [item.model, item.effort, state, item.elapsed && `${item.elapsed} elapsed`].filter(Boolean).join(" · ");
+const NO_LIVE_EVIDENCE = "No live evidence";
+
+function stateLabel(item: ComposerBackgroundWorkItem): string {
+  if (item.status === "unknown" || !item.status) return "unknown";
+  return item.elapsed ? `running · ${item.elapsed}` : "running";
+}
+
+function displayName(item: ComposerBackgroundWorkItem): string {
+  return item.ordinal ? `${item.name} ${item.ordinal}` : item.name;
+}
+
+function describe(item: ComposerBackgroundWorkItem): string {
+  return [`Task ${displayName(item)}, ${item.status === "unknown" ? NO_LIVE_EVIDENCE.toLowerCase() : stateLabel(item)}`, item.model, item.effort, item.rawId && `id ${item.rawId}`].filter(Boolean).join(". ");
+}
+
+function WorkState({ item, label = stateLabel(item) }: { item: ComposerBackgroundWorkItem; label?: string }) {
+  const unknown = item.status === "unknown" || !item.status;
+  return <span className="ct-work-state" data-state={unknown ? "unknown" : "running"} title={unknown ? NO_LIVE_EVIDENCE : undefined}>
+    <span className="ct-work-state__dot" aria-hidden="true" />{label.replace(/^running · /, "")}
+  </span>;
 }
 
 function SubagentRow({ item, internalAgentLabel }: { item: ComposerBackgroundWorkItem; internalAgentLabel: string }) {
   const inspect = useAgentInspection();
   const [expanded, setExpanded] = useState(false);
   const promptId = useId();
-  const meta = subagentMeta(item);
   return <li className="ct-background-command">
-    <span className="ct-ctx-bubble" data-tone={subagentTone(item.status)}>
-      <button type="button" className="ct-ctx-bubble__open" aria-label={`Open transcript for ${item.name}, ${internalAgentLabel}`} disabled={!inspect || !item.transcriptThreadId} title={`${internalAgentLabel} · ${meta}`} onClick={() => { if (item.transcriptThreadId) inspect?.(item.transcriptThreadId); }}>
+    <span className="ct-ctx-bubble ct-work-bubble" data-tone={subagentTone(item.status)}>
+      <button type="button" className="ct-ctx-bubble__open" aria-label={`Open transcript for ${item.name}, ${internalAgentLabel}`} aria-description={describe(item)}
+        disabled={!inspect || !item.transcriptThreadId} title={`${describe(item)} · ${internalAgentLabel}`} onClick={() => { if (item.transcriptThreadId) inspect?.(item.transcriptThreadId); }}>
         <Bot size={13} aria-hidden="true" />
         <span className="ct-ctx-bubble__title">{item.name}</span>
+        {item.ordinal && <span className="ct-work-bubble__ordinal" aria-hidden="true">{item.ordinal}</span>}
+        <WorkState item={item} />
       </button>
+      {item.prompt && <button type="button" className="ct-ctx-bubble__dismiss" aria-label={`Task details for ${item.name}`} aria-expanded={expanded} aria-controls={promptId} title="Task details" onClick={() => setExpanded(!expanded)}>
+        <ChevronDown size={11} className={expanded ? "rotate-180" : undefined} aria-hidden="true" />
+      </button>}
     </span>
-    <div className="ct-background-command__details">
-      <div>{meta}</div>
-      {item.prompt && <>
-        <button type="button" className="ct-ctx-bubble ct-liquid-interactive min-h-11 gap-1.5 px-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ct-accent)]" aria-label={`Task details for ${item.name}`} aria-expanded={expanded} aria-controls={promptId} onClick={() => setExpanded(!expanded)}>
-          Task details <ChevronDown size={11} aria-hidden="true" />
-        </button>
-        {expanded && <div id={promptId} role="region" aria-label={`Task details for ${item.name}`} className="ct-background-command__prompt">{item.prompt}</div>}
-      </>}
-    </div>
+    {expanded && item.prompt && <div id={promptId} role="region" aria-label={`Task details for ${item.name}`} className="ct-background-command__details ct-background-command__prompt">{item.prompt}</div>}
   </li>;
 }
 
@@ -66,11 +80,11 @@ function WorkDetails({ item, onStop }: {
   };
 
   return <li className="ct-background-command">
-      <span className="ct-ctx-bubble" data-tone="active">
-        <button type="button" className="ct-ctx-bubble__open" aria-label={`Details for ${item.name}`} aria-expanded={expanded} aria-controls={detailsId} onClick={() => setExpanded(!expanded)}>
+      <span className="ct-ctx-bubble ct-work-bubble" data-tone="active">
+        <button type="button" className="ct-ctx-bubble__open" aria-label={`Details for ${item.name}`} aria-description={`Task ${item.name}, ${busy ? "stopping" : stateLabel(item)}`} aria-expanded={expanded} aria-controls={detailsId} title={item.command} onClick={() => setExpanded(!expanded)}>
           <SquareTerminal size={13} aria-hidden="true" />
           <span className="ct-ctx-bubble__title">{item.name}</span>
-          <span className="ct-ctx-bubble__meta">{busy ? "Stopping" : item.status} · {item.elapsed}</span>
+          <WorkState item={item} label={busy ? "stopping" : stateLabel(item)} />
           <ChevronDown size={11} aria-hidden="true" />
         </button>
         <button type="button" className="ct-ctx-bubble__dismiss" aria-label={`Stop ${item.name}`} title={`Stop ${item.name}`} disabled={busy} aria-busy={busy || undefined} onClick={() => void stop()}><Square size={10} fill="currentColor" aria-hidden="true" /></button>

@@ -204,21 +204,40 @@ it("keeps mixed background work distinct from harness-internal agents", async ()
   }
 });
 
-it("shows dropped and ended provider tasks with zero running work", async () => {
+it("shows no background row when nothing is running, even with dropped or ended tasks", async () => {
   configureOrchestrationTransport(orchestrationTestClient(async <T,>() => [] as T));
   setAgentDescriptors([{ id: "codex", display_name: "Fixture Harness" }] as ProviderDescriptor[]);
   const view = harness([], vi.fn(), { running: {}, unknown: { dropped: "Dropped task" }, ended: { completed: "Ended task" } });
   try {
     await act(async () => { view.render(); });
-    const chip = view.host.querySelector<HTMLButtonElement>('button[aria-label="0 background work, Internal agent of Fixture Harness"]');
+    expect(view.host.querySelector('button[aria-label^="0 background work"]')).toBeNull();
+    expect(view.host.querySelector('[aria-label="Background work"]')).toBeNull();
+  } finally {
+    await act(async () => view.root.unmount());
+  }
+});
+
+it("renders each live task as one bubble with its state inside and a readable name", async () => {
+  configureOrchestrationTransport(orchestrationTestClient(async <T,>() => [] as T));
+  setAgentDescriptors([{ id: "codex", display_name: "Fixture Harness" }] as ProviderDescriptor[]);
+  const view = harness([], vi.fn(), { running: { bm76h90j0: "", a2: "Run the release gate" }, unknown: { dropped: "Dropped task" }, ended: { completed: "Ended task" } });
+  try {
+    await act(async () => { view.render(); });
+    const chip = view.host.querySelector<HTMLButtonElement>('button[aria-label="2 background work, Internal agent of Fixture Harness"]');
     expect(chip).not.toBeNull();
     await act(async () => { chip!.click(); });
-    const panel = view.host.querySelector('[role="group"][aria-label="Background work"]');
-    expect(panel?.textContent).toContain("Dropped task");
-    expect(panel?.textContent).toContain("State not reported");
-    expect(panel?.textContent).toContain("Ended task");
-    expect(panel?.textContent).toContain("ended");
-    expect(panel?.textContent).not.toContain("running");
+    const panel = view.host.querySelector<HTMLElement>('[role="group"][aria-label="Background work"]')!;
+    const bubbles = Array.from(panel.querySelectorAll<HTMLButtonElement>('button[aria-label^="Open transcript for "]'));
+    expect(bubbles.map((bubble) => bubble.querySelector(".ct-work-state")?.getAttribute("data-state"))).toEqual(["running", "running", "unknown"]);
+    expect(bubbles.every((bubble) => bubble.closest("li")?.querySelectorAll(".ct-ctx-bubble").length === 1)).toBe(true);
+    const internal = bubbles.find((bubble) => bubble.getAttribute("aria-label")?.startsWith("Open transcript for Internal agent"))!;
+    expect(internal.textContent).not.toContain("bm76h90j0");
+    expect(internal.querySelector(".ct-work-bubble__ordinal")?.textContent).toBe("1");
+    expect(internal.getAttribute("aria-description")).toContain("Task Internal agent 1, running");
+    expect(internal.getAttribute("aria-description")).toContain("id bm76h90j0");
+    expect(panel.textContent).toContain("Run the release gate");
+    expect(panel.querySelector('.ct-work-state[data-state="unknown"]')?.getAttribute("title")).toBe("No live evidence");
+    expect(panel.textContent).not.toContain("Ended task");
   } finally {
     await act(async () => view.root.unmount());
   }
