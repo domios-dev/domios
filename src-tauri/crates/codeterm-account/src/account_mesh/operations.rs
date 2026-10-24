@@ -722,6 +722,10 @@ impl AccountMesh {
             Some(updated.display_name.clone()),
         );
         self.push().await;
+        self.ports
+            .transport
+            .presence_changed(updated.metadata_revision)
+            .await;
         Ok(updated)
     }
 

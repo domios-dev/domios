@@ -65,6 +65,7 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
   }, [config, onConfigUpdate]);
   const [activeTab, setActiveTab] = useState<MeshTab>(() => normalizeTab("map"));
   const [refreshKey, setRefreshKey] = useState(0);
+  const [registryRefreshKey, setRegistryRefreshKey] = useState(0);
   const data = useMeshData(refreshKey);
   const [recentPushes, setRecentPushes] = useState<RecentPush[]>([]);
   const [network, setNetwork] = useState<NetworkInfo | null>(null);
@@ -72,6 +73,10 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
   const [serveLoading, setServeLoading] = useState(true);
 
   const triggerRefresh = useCallback(() => setRefreshKey((k) => k + 1), []);
+  const refreshAll = useCallback(() => {
+    triggerRefresh();
+    setRegistryRefreshKey((key) => key + 1);
+  }, [triggerRefresh]);
   const header = useMemo(
     () => meshHeaderState({ error: data.error, loaded: data.loaded, peers: data.peers }, activeTab === "inventory"),
     [data.error, data.loaded, data.peers, activeTab],
@@ -215,7 +220,7 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
                 : `${header.count} peer${header.count === 1 ? "" : "s"}`}
           </div>
           {activeTab !== "inventory" && <button
-            onClick={() => setRefreshKey((k) => k + 1)}
+            onClick={refreshAll}
             className={`flex ${touchUi ? "h-9 w-9" : "h-7 w-7"} shrink-0 items-center justify-center p-0 text-[var(--ct-muted-fg)] transition-colors hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)] active:scale-95`}
             style={{ borderRadius: "9999px" }}
             title="Refresh"
@@ -257,8 +262,9 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
         {activeTab === "inventory" && graphReady && (
           <div ref={mapRef} className="absolute inset-0">
             <AccountMeshCanvas
+              registryRefreshKey={registryRefreshKey}
               onAccountChanged={triggerRefresh}
-              onRefresh={triggerRefresh}
+              onRefresh={refreshAll}
               webCard={webCard}
               webStatus={deriveWebUiView(serve?.snapshot, serveLoading).label}
               thisMachine={data.thisMachine}
