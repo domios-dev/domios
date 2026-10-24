@@ -1,4 +1,4 @@
-import type { BlueprintDocument, BlueprintExpandedCall, BlueprintIrNode, BlueprintJournalNode, BlueprintProjection } from "../../lib/blueprintApi";
+import type { BlueprintDocument, BlueprintExpandedCall, BlueprintIrNode, BlueprintJournalNode, BlueprintProjection, BlueprintValue } from "../../lib/blueprintApi";
 import type { PipelineView, PipelineViewEdge, PipelineViewNode } from "./pipelineModel";
 import { blueprintNodeKey, type BlueprintExpansion } from "./blueprintExpansion";
 import { blueprintJournalNodes } from "./blueprintPipelineOutcome";
@@ -33,6 +33,23 @@ function outcomes(node: BlueprintIrNode): readonly string[] {
   }
   const bucket = node.uses === "filter" && node.with && typeof node.with === "object" ? (node.with as Record<string, { lit?: unknown }>).bucket?.lit : undefined;
   return ["done", "failed", ...(typeof bucket === "string" ? [bucket] : [])];
+}
+
+export function blueprintTriggerSummary(trigger: BlueprintValue): string {
+  if (!trigger || typeof trigger !== "object" || Array.isArray(trigger)) return "Trigger details unavailable";
+  const fields = trigger as Readonly<Record<string, BlueprintValue>>;
+  const literal = (value: BlueprintValue | undefined) => {
+    if (value && typeof value === "object" && !Array.isArray(value)) return (value as Readonly<Record<string, BlueprintValue>>).lit;
+    return value;
+  };
+  const kind = literal(fields.kind);
+  if (fields.type === "schedule") {
+    const every = literal(fields.every);
+    return typeof every === "string" ? `Every ${every}` : "On schedule";
+  }
+  if (fields.type === "input") return typeof kind === "string" ? `Input: ${kind}` : "On input";
+  if (fields.type === "event") return typeof kind === "string" ? `Event: ${kind}` : "On event";
+  return "Trigger details unavailable";
 }
 
 export function* buildBlueprintGraph(pipeline: PipelineView, expanded: BlueprintExpansion): Generator<void, BlueprintGraphModel> {
@@ -79,7 +96,7 @@ export function* buildBlueprintGraph(pipeline: PipelineView, expanded: Blueprint
     const resultKey = blueprintNodeKey(path, "$result");
     if (document.trigger) {
       const key = blueprintNodeKey(path, "$trigger");
-      nodes.push({ ...controlNode(path, "$trigger", "Trigger", "trigger", journal.get(key)), summary: document.kind });
+      nodes.push({ ...controlNode(path, "$trigger", "Trigger", "trigger", journal.get(key)), summary: blueprintTriggerSummary(document.trigger) });
       if (steps[0]) edges.push({ from: key, to: blueprintNodeKey(path, steps[0].id), label: null });
     }
     for (const [index, definition] of steps.entries()) {

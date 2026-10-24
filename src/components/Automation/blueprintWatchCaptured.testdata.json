@@ -1,0 +1,307 @@
+{
+  "workspace_id": "workspace-watch",
+  "team_id": "team-watch",
+  "all_teams": false,
+  "revision": "932a58c055237d4e7e69a36f231d9c8497087fe52c4ea348db58b5ac01c7821e",
+  "scenarios": [
+    {
+      "id": "blueprint-watch",
+      "name": "QA-Render-GithubStub",
+      "root": {
+        "kind": "blueprint",
+        "id": "blueprint-watch",
+        "workspace_id": "workspace-watch",
+        "team_id": "team-watch",
+        "owner_tab_id": "owner-watch"
+      }
+    }
+  ],
+  "nodes": [
+    {
+      "availability": "available",
+      "blueprint_definition": {
+        "creator_tab_id": "owner-watch",
+        "definition_id": "blueprint-watch",
+        "definition_version": 1,
+        "lineage": [],
+        "source": "stored_agent_definition"
+      },
+      "cadence_ms": 1800000,
+      "conversation": {
+        "actions": 1,
+        "enabled": false,
+        "exchanges": 1,
+        "rate_limit_per_minute": 120,
+        "safety_limit": 16384
+      },
+      "deletes_at": null,
+      "detail": {
+        "creator": {
+          "name": "Faraday",
+          "tab_id": "owner-watch"
+        },
+        "decisions": {
+          "adapter_used": false,
+          "history_complete": true
+        },
+        "definition": {
+          "buckets": [
+            {
+              "name": "waiting",
+              "pattern": "waiting"
+            },
+            {
+              "name": "passed",
+              "pattern": "passed"
+            }
+          ],
+          "command_language": "powershell",
+          "commands": [],
+          "decision_kind": "pattern",
+          "language": "powershell",
+          "model_classification": false,
+          "probe": "Write-Output 'passed github-run-status-check stub run 42'",
+          "probe_truncated": false,
+          "question": "Is the local run waiting or passed?"
+        },
+        "last_probe_at": 1792821836666,
+        "next_check_at_ms": 1792823634720,
+        "observe_target": null,
+        "origin": "agent",
+        "probe_state": "passed",
+        "runs_since_transition": 0,
+        "scope": {
+          "node_id": "blueprint-watch",
+          "team_id": "team-watch",
+          "workspace_id": "workspace-watch"
+        },
+        "team": {
+          "id": "team-watch",
+          "name": "BPQA"
+        },
+        "version": 1
+      },
+      "executor": null,
+      "expires_at": 1792825434720,
+      "held_reason": null,
+      "hidden": false,
+      "history": [
+        {
+          "accepted_at": 1792821836667,
+          "adapter_id": null,
+          "bucket": "passed",
+          "causal_run": {
+            "id": "49eacaf5-60b7-459c-98a5-5480838367fd",
+            "parent": null,
+            "root_node": "blueprint-watch",
+            "root_transition": "86716781-b6a4-48f9-b2b8-0ba5781134c0",
+            "started_at": 1792821836667
+          },
+          "confidence": 1.0,
+          "decided_by": "pattern",
+          "handlers": [
+            {
+              "accepted_at": 1792821836675,
+              "execution_id": "1cc14d0f-876d-4d0f-aa18-c94c87e0ec94",
+              "handler_id": "notify",
+              "status": "completed"
+            }
+          ],
+          "id": "86716781-b6a4-48f9-b2b8-0ba5781134c0",
+          "model": null,
+          "pending_handlers": false,
+          "routes_current": true
+        }
+      ],
+      "history_truncated": false,
+      "identity": {
+        "id": "blueprint-watch",
+        "kind": "blueprint",
+        "owner_tab_id": "owner-watch",
+        "team_id": "team-watch",
+        "workspace_id": "workspace-watch"
+      },
+      "last_result": {
+        "accepted_at": 1792821836667,
+        "adapter_id": null,
+        "bucket": "passed",
+        "confidence": 1.0,
+        "decided_by": "pattern",
+        "handlers": [
+          {
+            "accepted_at": 1792821836675,
+            "execution_id": "1cc14d0f-876d-4d0f-aa18-c94c87e0ec94",
+            "handler_id": "notify",
+            "status": "completed"
+          }
+        ],
+        "model": null
+      },
+      "name": "QA-Render-GithubStub",
+      "note": null,
+      "outcomes": [
+        {
+          "bucket": "waiting",
+          "handlers": []
+        },
+        {
+          "bucket": "passed",
+          "handlers": [
+            {
+              "availability": "available",
+              "id": "notify",
+              "last_result": {
+                "accepted_at": 1792821836675,
+                "execution_id": "1cc14d0f-876d-4d0f-aa18-c94c87e0ec94",
+                "status": "completed"
+              },
+              "target": null,
+              "type": "notify"
+            }
+          ]
+        }
+      ],
+      "purpose": "Is the local run waiting or passed?",
+      "schedule": null,
+      "solution_success": true,
+      "source": {
+        "type": "probe"
+      },
+      "state": "active",
+      "stop": {
+        "allowed": true,
+        "reason": null
+      },
+      "stopped_at": null
+    }
+  ],
+  "runs": [
+    {
+      "id": "49eacaf5-60b7-459c-98a5-5480838367fd",
+      "incomplete": false,
+      "root_node": "blueprint-watch",
+      "root_transition": "86716781-b6a4-48f9-b2b8-0ba5781134c0",
+      "started_at": 1792821836667,
+      "state": "completed",
+      "transitions": [
+        {
+          "conversation": {
+            "actions": 1,
+            "enabled": false,
+            "exchanges": 1,
+            "rate_limit_per_minute": 120,
+            "safety_limit": 16384
+          },
+          "node": {
+            "id": "blueprint-watch",
+            "kind": "blueprint",
+            "owner_tab_id": "owner-watch",
+            "team_id": "team-watch",
+            "workspace_id": "workspace-watch"
+          },
+          "parent": null,
+          "transition_id": "86716781-b6a4-48f9-b2b8-0ba5781134c0"
+        }
+      ]
+    }
+  ],
+  "blueprints": [
+    {
+      "call_graph": {
+        "kind": "watch",
+        "name": "QA-Render-GithubStub",
+        "result": {},
+        "schema_version": 2,
+        "steps": [
+          {
+            "every": {
+              "lit": "1800s"
+            },
+            "id": "source",
+            "model_classification": false,
+            "paused": false,
+            "session": false,
+            "timeout": {
+              "lit": "1h"
+            },
+            "uses": "probe",
+            "with": {
+              "command": {
+                "lit": "Write-Output 'passed github-run-status-check stub run 42'"
+              }
+            }
+          },
+          {
+            "buckets": [
+              "waiting",
+              "passed"
+            ],
+            "id": "decide",
+            "matches": {
+              "passed": {
+                "lit": "passed"
+              },
+              "waiting": {
+                "lit": "waiting"
+              }
+            },
+            "model_classification": false,
+            "paused": false,
+            "rearm_on_change": [
+              "passed"
+            ],
+            "routes": {
+              "passed": "notify",
+              "waiting": "@stop"
+            },
+            "session": false,
+            "uses": "ask",
+            "with": {
+              "question": {
+                "lit": "Is the local run waiting or passed?"
+              }
+            }
+          },
+          {
+            "id": "notify",
+            "model_classification": false,
+            "paused": false,
+            "session": false,
+            "uses": "notify"
+          }
+        ]
+      },
+      "current_step": null,
+      "deletes_at": null,
+      "expanded_calls": [],
+      "graph_definition_version": 1,
+      "held_reason": null,
+      "historical_graph_available": true,
+      "id": "blueprint-watch",
+      "last_event_at_ms": null,
+      "name": "QA-Render-GithubStub",
+      "nested_run": {
+        "definition_version": 1,
+        "id": null,
+        "nodes": []
+      },
+      "note": null,
+      "owner": {
+        "kind": "tab",
+        "tab_id": "owner-watch",
+        "team_id": "team-watch"
+      },
+      "run_id": null,
+      "runs": [],
+      "state": "idle",
+      "steps": [],
+      "stopped_at": null
+    }
+  ],
+  "edges": [],
+  "truncated": false,
+  "configured_fallback": {
+    "adapter_id": "typesafe-jev",
+    "model": "jev-latest"
+  }
+}
