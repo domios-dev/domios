@@ -8,12 +8,12 @@ import type { PipelineView, PipelineViewNode } from "./pipelineModel";
 import { PIPELINE_CANVAS_HEIGHT, PIPELINE_CARD_HEIGHT, PIPELINE_CARD_WIDTH } from "./pipelineLayout";
 import type { BlueprintViewerHistory } from "../../lib/blueprintApi";
 import { useBlueprintGraph } from "./useBlueprintGraph";
-import { toggleBlueprintExpansion, type BlueprintExpansion } from "./blueprintExpansion";
+import { blueprintNodeKey, toggleBlueprintExpansion, type BlueprintExpansion } from "./blueprintExpansion";
 import { expandedCall, nodeLabel } from "./blueprintGraphModel";
 import { BlueprintPipelineNodeDetails } from "./BlueprintPipelineNodeDetails";
 import { BlueprintSemanticDiff } from "./BlueprintSemanticDiff";
 import { BlueprintProjectionValue } from "./BlueprintProjectionValue";
-import { blueprintPipelineOutcome, canStopPipelineRun, heldReasonLabel } from "./blueprintPipelineOutcome";
+import { blueprintJournalNodes, blueprintPipelineOutcome, canStopPipelineRun, heldReasonLabel } from "./blueprintPipelineOutcome";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { Button } from "../shared/Button";
 
@@ -42,6 +42,7 @@ function eventTime(value: number | null): string {
 }
 
 function PipelineNodeCard({ node }: { node: PipelineViewNode }) {
+  const isStop = node.key === blueprintNodeKey(node.callPath ?? [], "$stop");
   const source = node.capability && Object.prototype.hasOwnProperty.call(blueprintSteps, node.capability) ? blueprintSteps[node.capability as keyof typeof blueprintSteps] : null;
   const Icon = node.kind === "trigger" ? Play : node.kind === "result" ? Bell : source?.icon ?? Workflow;
   const state = node.sourceState ?? node.state;
@@ -52,7 +53,7 @@ function PipelineNodeCard({ node }: { node: PipelineViewNode }) {
   >
     <div className={`flex items-center gap-1.5 ${AUTOMATION_LABEL}`}>
       <Icon size={12} className="text-[var(--ct-card-tone)]" aria-hidden="true" />
-      <span>{node.capability === "github" ? "GitHub source" : node.capability === "http" ? "HTTP health" : KIND_LABEL[node.kind]}</span>
+      <span>{isStop ? "Stop" : node.capability === "github" ? "GitHub source" : node.capability === "http" ? "HTTP health" : KIND_LABEL[node.kind]}</span>
       <span className="ml-auto flex items-center gap-1.5 font-medium" style={{ "--ct-detail-tone": stateTone(state, node.current) } as CSSProperties}>
         <span className="ct-detail__dot" aria-hidden="true" />{state}
       </span>
@@ -61,7 +62,7 @@ function PipelineNodeCard({ node }: { node: PipelineViewNode }) {
     <h4 className="truncate text-[length:var(--ct-font-size-sm)] font-semibold text-[var(--ct-fg)]" title={node.title}>{node.title}</h4>
     {node.kind === "result"
       ? <>
-        <p className="truncate text-xs text-[var(--ct-muted-fg)]" title={node.targetSummary ?? "Target unavailable"}>{node.targetSummary ?? "Target unavailable"}</p>
+        {!isStop && <p className="truncate text-xs text-[var(--ct-muted-fg)]" title={node.targetSummary ?? "Target unavailable"}>{node.targetSummary ?? "Target unavailable"}</p>}
         {node.summary && <p className="truncate text-xs text-[var(--ct-muted-fg)]">{node.summary}</p>}
         {node.resultSummary && <p className="line-clamp-2 text-[0.6875rem] text-[var(--ct-muted-fg)]">{node.resultSummary}</p>}
       </>
@@ -118,12 +119,13 @@ export function BlueprintPipelineCanvas({ pipeline, initialRunId, onStop, loadHi
     {stop && <section aria-label="Recorded stop" className="ct-card ct-card--error ct-card--static bp-panel"><h3 className="bp-panel__title">Recorded stop</h3><dl className="bp-facts"><dt>Node</dt><dd>{stop.step_name}</dd><dt>Reason</dt><dd>{stop.reason ?? "unavailable"}</dd></dl><p aria-label="Stop call stack" className="bp-mono">{callStack(stop)}</p></section>}
     {selected?.nested_run?.id === selected?.runId && selected?.nested_run && <section aria-label="Selected run journal" className="ct-card ct-card--static bp-panel">
       <h3 className="bp-panel__title">Run journal</h3>
-      <ol className="bp-journal">{selected.nested_run.nodes.map((node, index) => <li key={index} className="bp-journal__entry">
+      <ol className="bp-journal">{blueprintJournalNodes(selected).map((node, index) => <li key={index} className="bp-journal__entry">
         <div className="bp-journal__head">
           <span className="ct-detail__dot" style={{ "--ct-detail-tone": stateTone(node.state) } as CSSProperties} aria-hidden="true" />
           <span className="bp-journal__name">{node.step_name}</span>
           <span className="bp-journal__state">{node.state}</span>
         </div>
+        {node.reason && <p aria-label="Recorded reason">{node.reason}</p>}
         {node.call_stack?.length ? <p className="bp-mono">{callStack(node)}</p> : null}
         <BlueprintProjectionValue value={node} label={`Journal entry ${index + 1}`} />
       </li>)}</ol>

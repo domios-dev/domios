@@ -2,6 +2,24 @@ use super::*;
 use serde_json::json;
 const ECHO: &str = include_str!("../../../../../resources/blueprints/echo.yaml");
 #[test]
+fn command_stdin_bind_is_data_but_run_bind_is_positioned_validation() {
+    let raw = "schema_version: 2\nkind: pipeline\nname: command-stdin\ntrigger: {type: schedule, every: {lit: 20s}}\nsteps:\n- id: prior\n  run: {lit: echo ready}\n  out: {type: string}\n- id: consume\n  run: {lit: echo fixed}\n  in: {type: string}\n  bind: {in: prior.out}\nresult: {to: notify}\n";
+    let checked = check("stdin.yaml", raw, &[]);
+    assert!(checked.ok, "{:?}", checked.diagnostics);
+    let runtime = parse("stdin.yaml", raw).unwrap().document.lower().unwrap();
+    assert_eq!(
+        runtime["spec"]["steps"][1]["execution"]["input_binding"],
+        "prior.out"
+    );
+    let invalid = raw.replace("run: {lit: echo fixed}", "run: {bind: prior.out}");
+    let checked = check("stdin.yaml", &invalid, &[]);
+    assert!(!checked.ok);
+    assert!(checked.diagnostics.iter().any(|d| d.field == "steps[1].run"
+        && d.file == "stdin.yaml"
+        && d.line == 10
+        && !d.hint.is_empty()));
+}
+#[test]
 fn native_v2_roundtrip_identity_and_positions() {
     let raw="schema_version: 2\nkind: pipeline\nname: typed-example\nintent: grade a probe\nanchors: [health]\ntrigger: {type: schedule, every: {lit: 20s}}\ntypes: {Count: {type: integer}}\nsteps:\n- id: measure\n  code: {lang: python, src: 'def main(p): return 1', caps: [], limits: {wall_ms: 1000}}\n  out: {$ref: Count}\n  routes: {done: child}\n- id: child\n  call: {ref: helper, with: {count: {bind: measure.out}}}\n  in: {$ref: Count}\n  bind: {in: measure.out}\nother:\n- id: alert\n  uses: notify\n  with: {text: {bind: child.out}}\nblueprints:\n  helper:\n    inputs: {count: {type: integer}}\n    steps: [{id: return-count, run: {lit: 'echo 1'}}]\n    result: {type: {type: integer}, from: return-count.out}\n";
     let parsed = parse("typed.yaml", raw).unwrap();

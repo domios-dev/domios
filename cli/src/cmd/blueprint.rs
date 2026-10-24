@@ -305,7 +305,15 @@ pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: Blue
         std::env::var("CODETERM_TAB_ID").ok(),
         std::env::var("CODETERM_SESSION_BINDING_NONCE").ok(),
     )
-    .unwrap_or_else(|error| fail(2, error));
+    .unwrap_or_else(|error| {
+        if let Some(source) = apply_source.as_deref() {
+            crate::cmd::print::exit_with_cli_error(
+                json_mode,
+                &authoring::apply_request_error(source, error),
+            );
+        }
+        fail(2, error)
+    });
     let transition_id = params["transition_id"].as_str().map(str::to_owned);
     let intent = params["intent"].as_str().unwrap_or("").to_owned();
     let recalled = client.call_detailed(method, Some(params));
