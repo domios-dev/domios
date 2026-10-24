@@ -1000,6 +1000,17 @@ export function scanSessionDirectory(db: string, sessionId: string): string | nu
   }
 }
 
+export function scanSessionModel(db: string, sessionId: string): string | null {
+  const rows = host.fs.sqliteQuery<{ id?: string; model?: string }>(
+    db,
+    "SELECT id, model FROM session WHERE id = ?1 AND octet_length(model) <= ?2 LIMIT 1",
+    [sessionId, MESSAGE_ROLE_MAX_BYTES],
+  );
+  const session = rows.find((row) => row.id === sessionId);
+  const model = session?.model ? safeJson(session.model) as { providerID?: unknown; id?: unknown } | null : null;
+  return sessionModelIdentity({ role: "assistant", providerID: model?.providerID, modelID: model?.id });
+}
+
 export function sessionModelIdentity(value: unknown): string | null {
   if (!value || typeof value !== "object") return null;
   const message = value as { role?: string; providerID?: unknown; modelID?: unknown };
