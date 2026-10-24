@@ -48,7 +48,7 @@ export type AccountMeshFailure =
   | { reason: "rate-limited"; retry_after_seconds: number }
   | { reason: "mesh.machines"; limit: number; active_count: number }
   | { reason: "offline" | "peer-unreachable" | "handshake-failed" | "signed-out" }
-  | { reason: "revoked" | "cancelled" | "verification-unavailable" | "plan_limit_locked" };
+  | { reason: "revoked" | "cancelled" | "verification-unavailable" | "plan_limit_locked" | "reauth_required" };
 
 export type AccountMeshOutcome = { ok: true } | { ok: false; failure: AccountMeshFailure };
 
@@ -138,7 +138,7 @@ export const useAccountMeshClient = () => useContext(AccountMeshClientContext);
 const FAILURE_REASONS = new Set<string>([
   "invalid", "unauthenticated", "app-check", "forbidden", "conflict", "authority-unavailable", "unavailable",
   "rate-limited", "mesh.machines", "offline", "peer-unreachable", "handshake-failed", "signed-out",
-  "revoked", "cancelled", "verification-unavailable",
+  "revoked", "cancelled", "verification-unavailable", "reauth_required",
 ]);
 
 /** The typed failure a rejected link carries; anything unrecognized is reported as unavailable. */

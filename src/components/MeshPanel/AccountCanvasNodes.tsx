@@ -11,6 +11,7 @@ import { EMPTY_ACCOUNT_COPY, type AccountCanvasCard, type AccountMachineNode, ty
 import { MACHINE_CARD_WIDTH } from "./webGraphLayout";
 import type { MeshTarget } from "./accountMeshClient";
 import type { MachineRowView } from "./accountMachines";
+import { REAUTH_REQUIRED_COPY } from "./accountMachines";
 
 const PILL_TONE: Record<MachineTone, "green" | "accent" | "muted" | "amber" | "red"> = {
   ok: "green",
@@ -23,6 +24,15 @@ const PILL_TONE: Record<MachineTone, "green" | "accent" | "muted" | "amber" | "r
 const COMPACT_GHOST = `${UI_BUTTON.ghost} ${UI_BUTTON.compact}`;
 const COMPACT_ACCENT = `${UI_BUTTON.accent} ${UI_BUTTON.compact}`;
 const NODE_FRAME = "flex flex-col gap-2 rounded-md bg-[var(--ct-bg)] px-3.5 py-3 text-left shadow-sm";
+
+export function MachineReauthentication({ signingIn, onSignIn }: { signingIn: boolean; onSignIn: () => void }) {
+  return <div role="group" aria-label="Add this machine to your mesh" className="flex flex-col gap-2 border-t border-[var(--ct-border)] px-3.5 py-2.5" onClick={(event) => event.stopPropagation()}>
+    <p role="status" className="m-0 text-[12px] text-[var(--ct-muted-fg)]">{REAUTH_REQUIRED_COPY}</p>
+    <button type="button" onClick={onSignIn} disabled={signingIn} aria-busy={signingIn} className={`${UI_BUTTON.primary} ${UI_BUTTON.compact}`}>
+      {signingIn ? "Signing in…" : "Sign in again"}
+    </button>
+  </div>;
+}
 
 export interface MachineNodeActions {
   onConnect: (row: MachineRowView, target: MeshTarget) => void;
