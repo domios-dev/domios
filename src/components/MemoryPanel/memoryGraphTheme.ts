@@ -16,8 +16,8 @@ export function deriveMemoryGraphPalette(background: string, foreground: string)
     edgeRgb: fg.join(","),
     edgeColor: (alpha: number) => premultipliedRgba(fg, alpha),
     labelColor: foreground,
-    clusterEdgeAlpha: light ? 0.3 : 0.18,
-    egoEdgeAlpha: light ? 0.62 : 0.55,
+    clusterEdgeAlpha: light ? 0.16 : 0.18,
+    egoEdgeAlpha: light ? 0.35 : 0.55,
     realEdgeAlpha: (confidence: number) => {
       const conf = Math.max(0, Math.min(1, confidence));
       return light ? 0.1 + conf * 0.11 : 0.035 + conf * 0.055;
