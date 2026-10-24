@@ -17,6 +17,17 @@ function Snapshot {
   return [pscustomobject]@{ processes = $processes; listeners = $listeners }
 }
 
+function Assert-Listeners($listeners, $ids, $allowed, $port) {
+  $allowedListeners = @($allowed | ForEach-Object { "$($_.pid):$($_.port)" })
+  if (@($listeners | Where-Object { $_.pid -in $ids -and
+      ($_.port -eq 7685 -or "$($_.pid):$($_.port)" -notin $allowedListeners) }).Count) {
+    throw 'DEV tree listener changed before shutdown; refusing'
+  }
+  if (@($listeners | Where-Object { $_.port -eq $port -and $_.pid -notin $ids }).Count) {
+    throw 'DEV listener owner changed before shutdown; refusing'
+  }
+}
+
 if ($Operation -eq 'Inspect') { Snapshot | ConvertTo-Json -Depth 5 -Compress; exit 0 }
 if ([int]$request.port -eq 7685 -or [int]$request.port -lt 1) { throw 'Refusing production or invalid DEV port' }
 $pinned = @()
@@ -33,7 +44,7 @@ try {
   }
   $snapshot = Snapshot
   $ids = @($pinned | ForEach-Object { $_.Id })
-  if (@($snapshot.listeners | Where-Object { $_.pid -in $ids -and $_.port -notin $request.allowedPorts }).Count) { throw 'DEV tree owns another listener; refusing' }
+  Assert-Listeners $snapshot.listeners $ids $request.allowedListeners ([int]$request.port)
   try {
     Invoke-WebRequest -UseBasicParsing -Method Post -Uri "http://127.0.0.1:$($request.port)/api/app/quit" -ContentType 'application/json' -Headers @{ Authorization = "Bearer $($request.token)" } -Body ($request.quit | ConvertTo-Json -Depth 20 -Compress) -TimeoutSec 30 | Out-Null
   } catch { }

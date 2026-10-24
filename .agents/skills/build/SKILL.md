@@ -852,6 +852,7 @@ initialization. Smoke the produced bundled CLI directly as well.
 
 | Symptom | Cause | Recovery |
 |---|---|---|
+| DEV rebuild refuses with `DEV process tree owns another listener` while Browser or a provider server is running | The stop guard treated owned descendant listeners as foreign ports. | Use the stop guard that accepts verified descendants and revalidates captured PID/port pairs; keep production, nested instances and foreign API owners protected. Verify with `node --test scripts/tests/dev-rebuild-stop.test.mjs`. |
 | A broad gate or its gateway metadata write fails with `ENOSPC` | Repeated compiler/profile experiments retain superseded incremental graphs on a small cloud disk | Stop compilation, inspect `df` and target sizes, and remove only inactive session-owned caches after preserving final outputs. Keep at least 6 GiB free before a full build. Run `gateway-status` to reap a finished failed owner; never delete an unknown state lock. Then rerun the interrupted gate. |
 | A Rust pin upgrade reports `double_must_use` from `async_trait` | Old macro expansions add a redundant attribute to boxed futures | Keep both lockfiles on `async-trait` 0.1.92 or newer and run `./build.sh ci-clippy`; do not suppress application warnings. |
 | An unchanged CLI recompiles on every invocation | A `rerun-if-changed` input names an absent `packed-refs` file | Watch existing Git metadata; for packed branch refs watch the nearest existing ref parent so loose-ref creation remains visible. Preserve SHA-triggered rebuilds. |
