@@ -153,6 +153,7 @@ impl Clock for TestClock {
 
 #[derive(Default)]
 pub struct Script {
+    pub rename_race: Option<String>,
     pub enrollment: Option<RegistryRefusal>,
     pub enrollment_gate: Option<Arc<Notify>>,
     pub membership: Option<RegistryRefusal>,
@@ -172,6 +173,7 @@ pub struct Script {
 
 #[derive(Default)]
 struct Account {
+    display_name: Option<String>,
     key: Option<String>,
     key_generation: u64,
     slot: Option<u64>,
@@ -291,7 +293,7 @@ impl FakeRegistry {
         let mut own = row(
             INSTALLATION,
             account.map_or(0, |a| a.metadata_revision),
-            None,
+            account.and_then(|a| a.display_name.as_deref()),
         );
         own.key_id = key_id.to_owned();
         own.key_generation = account.map_or(1, |a| a.key_generation.max(1));
@@ -555,10 +557,15 @@ impl MeshRegistry for FakeRegistry {
                 expected_metadata_revision,
                 display_name,
             } => {
+                if let Some(name) = self.script.lock().unwrap().rename_race.take() {
+                    account.metadata_revision += 1;
+                    account.display_name = Some(name);
+                }
                 if *expected_metadata_revision != account.metadata_revision {
                     return Err(RegistryRefusal::Conflict);
                 }
                 account.metadata_revision += 1;
+                account.display_name = Some(display_name.clone());
                 Ok(MeshResult::Updated(UpdatedResult {
                     installation_id: INSTALLATION.into(),
                     display_name: display_name.clone(),
@@ -723,6 +730,7 @@ pub struct Harness {
     pub log: Log,
     trust: Option<MembershipTrust>,
     leases: bool,
+    pub default_name: Option<String>,
 }
 
 impl Harness {
@@ -774,6 +782,7 @@ impl Harness {
             log,
             trust,
             leases,
+            default_name: None,
         };
         harness.mesh = harness.controller();
         harness.mesh.load().await;
@@ -781,8 +790,10 @@ impl Harness {
     }
 
     fn controller(&self) -> Arc<AccountMesh> {
+        let mut config = config(self.trust.clone(), self.leases);
+        config.default_display_name = self.default_name.clone();
         AccountMesh::new(
-            config(self.trust.clone(), self.leases),
+            config,
             AccountMeshPorts {
                 registry: self.registry.clone(),
                 sessions: self.sessions.clone(),
@@ -826,6 +837,7 @@ impl Harness {
 
 fn config(trust: Option<MembershipTrust>, schedule_leases: bool) -> AccountMeshConfig {
     AccountMeshConfig {
+        default_display_name: None,
         installation_id: InstallationId::parse(INSTALLATION.into()).unwrap(),
         trust,
         call_deadline: Duration::from_secs(30),
