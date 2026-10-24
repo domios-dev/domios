@@ -56,7 +56,7 @@ describe("My machines sign-in surface", () => {
     const client = new FakeAccountMeshClient(snapshot({ binding: "none", self: null, registry: null }));
     const spies = await mount(client, "signed_out");
     expect(host.querySelector('[role="status"]')?.textContent).toBe(SIGN_IN_COPY);
-    expect(host.querySelector('button[aria-label^="Add "]')).toBeNull();
+    expect(host.querySelector('button[aria-label^="Connect "]')).toBeNull();
     await click(button("Sign in"));
     expect(spies.onSignIn).toHaveBeenCalledTimes(1);
   });
@@ -133,7 +133,7 @@ describe("My machines Add", () => {
 
     expect(client.listCalls).toBe(1);
     expect(account("MacBook")?.getAttribute("data-status")).toBe("unlinked");
-    expect(button("Add MacBook")).not.toBeNull();
+    expect(button("Connect MacBook")).not.toBeNull();
 
     await click(button("Refresh My machines"));
     expect(client.listCalls).toBe(2);
@@ -147,27 +147,27 @@ describe("My machines Add", () => {
     expect(account("Lenovo")?.getAttribute("data-status")).toBe("unlinked");
     expect(host.querySelector('input[placeholder*=":"]')).toBeNull();
 
-    await click(button("Add MacBook"));
+    await click(button("Connect MacBook"));
     expect(client.linkCalls).toEqual([targetOf(macRow)]);
     expect(account("MacBook")?.getAttribute("data-status")).toBe("linking");
-    expect(button("Add MacBook")?.disabled).toBe(true);
-    expect(button("Add MacBook")?.getAttribute("aria-busy")).toBe("true");
-    expect(button("Add Lenovo")?.disabled).toBe(false);
+    expect(button("Connect MacBook")?.disabled).toBe(true);
+    expect(button("Connect MacBook")?.getAttribute("aria-busy")).toBe("true");
+    expect(button("Connect Lenovo")?.disabled).toBe(false);
 
     await act(async () => client.linkOutcome.resolve());
     expect(account("MacBook")?.getAttribute("data-status")).toBe("linking");
 
     await act(async () => client.emit(snapshot({ pairs: [pair("mesh-mac", "mac.local", { installation_id: macRow.installation_id })] })));
     expect(account("MacBook")?.getAttribute("data-status")).toBe("linked");
-    expect(button("Add MacBook")).toBeNull();
-    expect(button("Unpair MacBook")).not.toBeNull();
+    expect(button("Connect MacBook")).toBeNull();
+    expect(button("Disconnect MacBook")).not.toBeNull();
     expect(spies.onFailure).not.toHaveBeenCalled();
   });
 
   it("disables Add with a reason when the machine has no reachable endpoint", async () => {
     const client = new FakeAccountMeshClient(snapshot({ registry: { observed_at: NOW, rows: [selfRow, airRow] } }));
     await mount(client, "signed_in");
-    const add = button("Add Air");
+    const add = button("Connect Air");
     expect(add?.disabled).toBe(true);
     const reason = host.querySelector(`#${CSS.escape(add!.getAttribute("aria-describedby")!)}`);
     expect(reason?.textContent).toBeTruthy();
@@ -177,31 +177,31 @@ describe("My machines Add", () => {
   it("keeps the record and reports a failed link through the toast handler", async () => {
     const client = new FakeAccountMeshClient(snapshot());
     const spies = await mount(client, "signed_in");
-    await click(button("Add MacBook"));
+    await click(button("Connect MacBook"));
     await act(async () => client.linkOutcome.reject(new AccountMeshRefusalError({ requestId: "req-unreachable", refusal: { reason: "peer-unreachable" } })));
-    expect(spies.onFailure).toHaveBeenCalledWith("link MacBook", { reason: "peer-unreachable" });
+    expect(spies.onFailure).toHaveBeenCalledWith("connect MacBook", { reason: "peer-unreachable" });
     expect(freeLimitGate.current()).toBeNull();
     expect(account("MacBook")?.getAttribute("data-status")).toBe("unlinked");
-    expect(button("Add MacBook")?.disabled).toBe(false);
+    expect(button("Connect MacBook")?.disabled).toBe(false);
 
     client.linkOutcome = deferred<void>();
-    await click(button("Add MacBook"));
+    await click(button("Connect MacBook"));
     await act(async () => client.linkOutcome.reject(new Error("transport closed")));
-    expect(spies.onFailure).toHaveBeenLastCalledWith("link MacBook", { reason: "unavailable" });
+    expect(spies.onFailure).toHaveBeenLastCalledWith("connect MacBook", { reason: "unavailable" });
     expect(account("MacBook")?.getAttribute("data-status")).toBe("unlinked");
   });
 
   it("opens the plans modal for the server's machine-limit refusal instead of a toast", async () => {
     const client = new FakeAccountMeshClient(snapshot());
     const spies = await mount(client, "signed_in");
-    await click(button("Add Lenovo"));
+    await click(button("Connect Lenovo"));
     const refusal = { reason: "mesh.machines" as const, limit: 2, active_count: 2 };
     try {
       await act(async () => client.linkOutcome.reject(new AccountMeshRefusalError({ requestId: "req-limit", refusal })));
       expect(freeLimitGate.current()).toEqual({ key: "mesh.machines", requestId: "req-limit", limit: 2, activeCount: 2 });
       expect(spies.onFailure).not.toHaveBeenCalled();
       expect(account("Lenovo")?.getAttribute("data-status")).toBe("unlinked");
-      expect(button("Add Lenovo")?.disabled).toBe(false);
+      expect(button("Connect Lenovo")?.disabled).toBe(false);
     } finally {
       freeLimitGate.close();
     }
@@ -272,8 +272,8 @@ describe("My machines management", () => {
     const legacy = row("Saved pairings", "Old laptop");
     expect(legacy?.getAttribute("data-status")).toBe("legacy");
     expect(button("Revoke Old laptop")).toBeNull();
-    await click(button("Unpair Old laptop"));
-    await click([...host.querySelectorAll<HTMLButtonElement>('[aria-label="Confirm unpair Old laptop"] button')].find((b) => b.textContent === "Unpair")!);
+    await click(button("Disconnect Old laptop"));
+    await click([...host.querySelectorAll<HTMLButtonElement>('[aria-label="Confirm disconnect Old laptop"] button')].find((b) => b.textContent === "Disconnect")!);
     expect(client.unpairCalls).toEqual(["mesh-old"]);
     expect(client.revokeCalls).toEqual([]);
     expect(spies.onChanged).toHaveBeenCalled();
@@ -284,11 +284,11 @@ describe("My machines management", () => {
     const client = new FakeAccountMeshClient(snapshot({ pairs: [pair("mesh-mac", "MacBook", { installation_id: macRow.installation_id })] }));
     client.unpairFailure = new Error("daemon unavailable");
     const spies = await mount(client, "signed_in");
-    await click(button("Unpair MacBook"));
-    await click([...host.querySelectorAll<HTMLButtonElement>('[aria-label="Confirm unpair MacBook"] button')].find((b) => b.textContent === "Unpair")!);
-    expect(spies.onFailure).toHaveBeenCalledWith("unpair MacBook", { reason: "unavailable" });
+    await click(button("Disconnect MacBook"));
+    await click([...host.querySelectorAll<HTMLButtonElement>('[aria-label="Confirm disconnect MacBook"] button')].find((b) => b.textContent === "Disconnect")!);
+    expect(spies.onFailure).toHaveBeenCalledWith("disconnect MacBook", { reason: "unavailable" });
     expect(account("MacBook")?.getAttribute("data-status")).toBe("linked");
-    expect(host.querySelector('[aria-label="Confirm unpair MacBook"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label="Confirm disconnect MacBook"]')).not.toBeNull();
   });
 
   it("does not offer any control for a pending sign-in", async () => {

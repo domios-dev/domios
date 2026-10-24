@@ -5,7 +5,8 @@ import { invoke, listen } from "../../lib/bridge";
 import { BusySpinner } from "../shared/BusyState";
 import type { ApiConfig, AppConfig } from "../../lib/types";
 import type { MeshTab } from "./types";
-import { MeshCanvas, type RecentPush } from "./MeshCanvas";
+import type { RecentPush } from "./MeshCanvas";
+import { AccountMeshCanvas } from "./AccountMeshCanvas";
 import { ServiceDrawer, type DrawerState } from "./ServiceDrawer";
 import { useMeshData } from "./useMeshData";
 import { meshDataUnavailable, meshHeaderState } from "./meshProjection";
@@ -144,7 +145,6 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
     setDrawerState({ kind: "peer", id: name });
   }, []);
   const closeDrawer = useCallback(() => setDrawerState(null), []);
-  const showNetwork = useCallback(() => setActiveTab("network"), []);
   const setupWebAccess = useCallback(async () => {
     await startWebAccessSetupHelper(serve, buildWebUiTarget(config, network, serve).port, config.api);
     onClose();
@@ -254,7 +254,8 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
         )}
         {activeTab === "inventory" && graphReady && (
           <div ref={mapRef} className="absolute inset-0">
-            <MeshCanvas
+            <AccountMeshCanvas
+              onAccountChanged={triggerRefresh}
               onRefresh={triggerRefresh}
               webCard={webCard}
               webStatus={deriveWebUiView(serve?.snapshot, serveLoading).label}
@@ -267,7 +268,6 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
               onPeerClick={handlePeerClick}
               width={mapSize.width}
               height={mapSize.height}
-              onAddPeerClick={showNetwork}
               meshEnabled={config.mesh.enabled}
               onGoOnline={goOnline}
               onOpenPeerWebUi={openPeerWebUi}

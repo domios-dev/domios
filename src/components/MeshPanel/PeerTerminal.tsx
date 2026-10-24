@@ -1,6 +1,6 @@
 import { PeerCapsuleSections } from "./PeerCapsuleSections";
 import type { PeerInventory } from "./peerInventoryModel";
-import { memo } from "react";
+import { memo, type ReactNode } from "react";
 
 type AccessLevel = "full" | "read_only" | "agent_isolated";
 
@@ -17,6 +17,7 @@ interface Props {
   onClick?: () => void;
   offline?: boolean;
   onGoOnline?: () => void;
+  footer?: ReactNode;
 }
 
 function PeerTerminalComponent({
@@ -31,7 +32,9 @@ function PeerTerminalComponent({
   onClick,
   offline = false,
   onGoOnline,
+  footer,
 }: Props) {
+  const dim = offline ? "opacity-55 grayscale" : "";
   return (
     <div
       role="group"
@@ -40,15 +43,15 @@ function PeerTerminalComponent({
       className={`relative bg-[var(--ct-bg)] rounded-md cursor-pointer transition-shadow ${
         isThisMachine
           ? offline
-            ? "border border-[var(--ct-border)] shadow-none opacity-55 grayscale"
+            ? "border border-[var(--ct-border)] shadow-none"
             : "border border-[color-mix(in_srgb,var(--ct-accent)_72%,var(--ct-border))] shadow-[var(--ct-shadow-capsule)]"
-          : `border border-[var(--ct-border)] shadow-sm ${offline ? "opacity-55 grayscale" : ""}`
+          : "border border-[var(--ct-border)] shadow-sm"
       }`}
       style={{ width: 360 }}
     >
       <div role="button" tabIndex={0} aria-label={`Open ${name}`}
         onKeyDown={(event) => { if (event.code === "Enter" || event.code === "Space") { event.preventDefault(); onClick?.(); } }}
-        className="flex items-center gap-2 px-3.5 py-2 rounded-t-md focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]">
+        className={`flex items-center gap-2 px-3.5 py-2 rounded-t-md focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)] ${dim}`}>
         <span className="w-3 h-3 shrink-0 rounded-full bg-[var(--ct-window-close)]" />
         <span className="w-3 h-3 shrink-0 rounded-full bg-[var(--ct-window-minimize)]" />
         <span className="w-3 h-3 shrink-0 rounded-full bg-[var(--ct-window-maximize)]" />
@@ -76,7 +79,7 @@ function PeerTerminalComponent({
         </button>
       )}
       <div
-        className="px-3.5 py-2 text-[12px]"
+        className={`px-3.5 py-2 text-[12px] ${dim}`}
         style={{
           color: "var(--ct-muted-fg)",
         }}
@@ -94,6 +97,7 @@ function PeerTerminalComponent({
           </div>
         )}
       </div>
+      {footer}
     </div>
   );
 }

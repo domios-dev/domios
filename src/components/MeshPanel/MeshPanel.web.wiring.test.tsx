@@ -20,6 +20,7 @@ const refreshKeys: number[] = [];
 
 vi.mock("./useMeshData", () => ({ useMeshData: (refreshKey: number) => { refreshKeys.push(refreshKey); return meshData; } }));
 vi.mock("../Jobs/JobsView", () => ({ JobsView: () => <section aria-label="Jobs" /> }));
+vi.mock("./useCanvasAccount", () => ({ useCanvasAccount: () => undefined }));
 vi.mock("../../lib/bridge", async (original) => ({
   ...await original<typeof import("../../lib/bridge")>(),
   invoke: async (command: string) => command === "get_serve_status"
@@ -49,7 +50,6 @@ it("shows the inventory as unavailable instead of an empty graph when the first 
     const view = host.querySelector('section[aria-label="Mesh inventory"]');
     expect(view?.textContent).toContain("Mesh data is unavailable.");
     expect(host.querySelector('[role="status"]')?.textContent).toBe("Mesh data is unavailable.");
-    expect(host.querySelector('button[aria-label="Add a machine from My machines"]')).toBeNull();
     expect(host.querySelector('[role="region"][aria-label="Mesh UI"]')).toBeNull();
     expect(host.textContent).not.toContain("0 peers");
     expect(host.textContent).not.toContain("127.0.0.1");
@@ -87,7 +87,6 @@ it("renders a loading header and inventory until cached or live data arrives, ne
     expect(host.textContent).not.toContain("0 peers");
     expect(host.querySelector('[aria-busy="true"]')?.textContent).toBe("Loading peers");
     expect(host.querySelector('section[aria-label="Mesh inventory"][aria-busy="true"]')).not.toBeNull();
-    expect(host.querySelector('button[aria-label="Add a machine from My machines"]')).toBeNull();
     expect(host.textContent).not.toContain("127.0.0.1");
 
     const second = { ...inventory.peers[0], instance_id: "second", name: "Second machine" };

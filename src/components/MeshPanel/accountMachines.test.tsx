@@ -192,7 +192,7 @@ describe("My machines account transitions", () => {
       await act(async () => render("signed_in"));
       const linkedRow = host.querySelector('ul[aria-label="Your account\'s machines"] li[aria-label="MacBook"]');
       expect(linkedRow?.getAttribute("data-status")).toBe("linked");
-      expect(linkedRow?.querySelector('button[aria-label="Unpair MacBook"]')).not.toBeNull();
+      expect(linkedRow?.querySelector('button[aria-label="Disconnect MacBook"]')).not.toBeNull();
 
       await act(async () => client.emit(snapshot({ binding: "other", pairs: [saved] })));
       const foreignRow = host.querySelector('ul[aria-label="Saved pairings"] li[aria-label="MacBook"]');

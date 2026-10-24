@@ -2,7 +2,7 @@ import type { Notification } from "../../lib/notificationTypes";
 import type { AccountMachineRow, AccountMeshFailure, AccountMeshSnapshot, LocalPairFact, MeshTarget } from "./accountMeshClient";
 
 export const SIGNED_OUT_COPY = "Signed out — sign in to use the mesh";
-export const SIGN_IN_COPY = "Mesh links your machines through your Domios account.";
+export const SIGN_IN_COPY = "Mesh connects your machines through your Domios account.";
 
 export type AccountPresence = "pending" | "signed_out" | "signed_in";
 
@@ -35,6 +35,10 @@ export interface MachineRowView {
   online: boolean | null;
   target: MeshTarget | null;
   controls: MachineControls;
+  /** The local pairing behind this row, whether or not this machine may act on it. */
+  pairInstanceId: string | null;
+  /** Epoch seconds the machine last authenticated to the account. */
+  lastSeenAt: number | null;
 }
 
 export interface SelfRowView {
@@ -146,7 +150,7 @@ function registryRows(snapshot: AccountMeshSnapshot, pairs: LocalPairFact[], lin
 
 function machineRow(row: AccountMachineRow, pair: LocalPairFact | null, context: { linking: boolean; now: number; usable: boolean; enrolled: boolean }): MachineRowView {
   const name = row.display_name ?? pair?.name ?? "Unnamed machine";
-  const base = { key: row.installation_id, name, online: pair ? pair.online : null, target: target(row) };
+  const base = { key: row.installation_id, name, online: pair ? pair.online : null, target: target(row), pairInstanceId: pair?.instance_id ?? null, lastSeenAt: row.authenticated_at };
   const revoke = context.usable && row.active && row.eligibility !== "revoked" ? target(row) : null;
   const unpairInstanceId = context.usable && pair ? pair.instance_id : null;
   if (!row.active || row.eligibility === "revoked") {
@@ -159,14 +163,14 @@ function machineRow(row: AccountMachineRow, pair: LocalPairFact | null, context:
     return { ...base, status: "unverified", detail: "Account verification is unavailable", controls: { add: pair ? null : { reason: "Account verification is unavailable right now" }, revoke, unpairInstanceId } };
   }
   if (row.membership_expires_at !== null && row.membership_expires_at <= context.now) {
-    const detail = pair ? "Linked · membership expired — traffic resumes when that machine renews" : "Membership expired — that machine needs to come online and renew";
+    const detail = pair ? "Connected · membership expired — traffic resumes when that machine renews" : "Membership expired — that machine needs to come online and renew";
     return { ...base, status: "expired", detail, controls: { add: pair ? null : { reason: "That machine's membership expired" }, revoke, unpairInstanceId } };
   }
   if (pair) {
-    return { ...base, status: "linked", detail: pair.online ? "Linked · online" : "Linked · offline", controls: { add: null, revoke, unpairInstanceId } };
+    return { ...base, status: "linked", detail: pair.online ? "Connected · online" : "Connected · offline", controls: { add: null, revoke, unpairInstanceId } };
   }
   if (context.linking) {
-    return { ...base, status: "linking", detail: "Linking — waiting for both machines to finish the handshake", controls: { add: { reason: "Linking…" }, revoke: null, unpairInstanceId: null } };
+    return { ...base, status: "linking", detail: "Connecting — waiting for both machines to finish the handshake", controls: { add: { reason: "Connecting…" }, revoke: null, unpairInstanceId: null } };
   }
   if (!row.endpoint) {
     return { ...base, status: "endpoint_missing", detail: "Not reachable — open Domios on that machine and sign in", controls: { add: { reason: "That machine has not published a connection endpoint" }, revoke, unpairInstanceId: null } };
@@ -175,7 +179,7 @@ function machineRow(row: AccountMachineRow, pair: LocalPairFact | null, context:
     return { ...base, status: "endpoint_stale", detail: "Last seen endpoint expired — that machine may be offline", controls: { add: { reason: "That machine's endpoint is stale" }, revoke, unpairInstanceId: null } };
   }
   const reason = !context.usable ? "Mesh is blocked on this machine" : !context.enrolled ? "This machine is not enrolled in your account yet" : null;
-  return { ...base, status: "unlinked", detail: "Not linked", controls: { add: { reason }, revoke, unpairInstanceId: null } };
+  return { ...base, status: "unlinked", detail: "Not connected", controls: { add: { reason }, revoke, unpairInstanceId: null } };
 }
 
 const pairKey = (pair: LocalPairFact) => pair.installation_id ?? `pair:${pair.instance_id}`;
@@ -188,15 +192,17 @@ function savedPairRow(pair: LocalPairFact): MachineRowView {
     status: legacy ? "legacy" : "linked",
     detail: legacy
       ? `Paired before account Mesh · ${pair.online ? "online" : "offline"}`
-      : `Linked · ${pair.online ? "online" : "offline"} · not in your account list`,
+      : `Connected · ${pair.online ? "online" : "offline"} · not in your account list`,
     online: pair.online,
     target: null,
     controls: { ...NO_CONTROLS, unpairInstanceId: pair.instance_id },
+    pairInstanceId: pair.instance_id,
+    lastSeenAt: null,
   };
 }
 
 function signedOutLegacyRow(pair: LocalPairFact): MachineRowView {
-  if (pair.admission !== "legacy") return blockedRow(pair, "Sign in to use this link");
+  if (pair.admission !== "legacy") return blockedRow(pair, "Sign in to use this connection");
   return {
     key: pairKey(pair),
     name: pair.name,
@@ -205,15 +211,17 @@ function signedOutLegacyRow(pair: LocalPairFact): MachineRowView {
     online: pair.online,
     target: null,
     controls: NO_CONTROLS,
+    pairInstanceId: pair.instance_id,
+    lastSeenAt: null,
   };
 }
 
 function lockedRow(pair: LocalPairFact): MachineRowView {
-  return { key: pairKey(pair), name: pair.name, status: "over_limit", detail: PLAN_LOCKED_COPY, online: pair.online, target: null, controls: { ...NO_CONTROLS, unpairInstanceId: pair.instance_id } };
+  return { key: pairKey(pair), name: pair.name, status: "over_limit", detail: PLAN_LOCKED_COPY, online: pair.online, target: null, controls: { ...NO_CONTROLS, unpairInstanceId: pair.instance_id }, pairInstanceId: pair.instance_id, lastSeenAt: null };
 }
 
 function blockedRow(pair: LocalPairFact, detail: string): MachineRowView {
-  return { key: pairKey(pair), name: pair.name, status: "blocked", detail, online: null, target: null, controls: NO_CONTROLS };
+  return { key: pairKey(pair), name: pair.name, status: "blocked", detail, online: null, target: null, controls: NO_CONTROLS, pairInstanceId: pair.instance_id, lastSeenAt: null };
 }
 
 function target(row: MeshTarget): MeshTarget {
