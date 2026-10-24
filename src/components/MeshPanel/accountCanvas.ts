@@ -62,6 +62,7 @@ export interface AccountCanvas {
 }
 
 const STATUS: Record<MachineStatus, { label: string; tone: MachineTone }> = {
+  signed_out: { label: "Signed out", tone: "muted" },
   linked: { label: "Connected", tone: "ok" },
   linking: { label: "Connecting", tone: "progress" },
   unlinked: { label: "Not connected", tone: "muted" },
@@ -92,7 +93,7 @@ export function accountCanvas({ view, peers, loadFailed, listFailed, failures }:
   const nodes: AccountMachineNode[] = [];
   const peerFooters = new Map<string, PeerAccountFooter>();
   for (const row of rows) {
-    const callout = machineCallout(failures.get(row.key));
+    const callout = row.status === "signed_out" ? null : machineCallout(failures.get(row.key));
     const { label, tone } = STATUS[row.status];
     const locked = row.status === "over_limit";
     const disconnect = row.controls.unpairInstanceId

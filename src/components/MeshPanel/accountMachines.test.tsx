@@ -64,6 +64,22 @@ describe("My machines projection", () => {
     expect(mac.controls.unpairInstanceId).toBe("mesh-mac");
   });
 
+  it("uses explicit presence before expired or stale endpoints, and restores actions on present", () => {
+    const remote = machine("inst-away-f", "Away", { presence: "signed_out", membership_expires_at: NOW - 1 });
+    const state = snapshot({ registry: { observed_at: NOW, rows: [selfRow, remote] }, pairs: [pair("mesh-away", "Away", { installation_id: remote.installation_id, online: true })] });
+    const row = accountView(view("signed_in", state)).machines[0];
+    expect(row.status).toBe("signed_out");
+    expect(row.detail).toBe("Away is signed out");
+    expect(noControls(row)).toBe(true);
+    expect(row.online).toBe(false);
+    remote.presence = "present";
+    expect(accountView(view("signed_in", state)).machines[0].status).toBe("expired");
+    remote.membership_expires_at = NOW + 60;
+    const present = accountView(view("signed_in", state)).machines[0];
+    expect(present.status).toBe("linked");
+    expect(present.controls.unpairInstanceId).toBe("mesh-away");
+  });
+
   it("never treats registry metadata as reachability", () => {
     const rows = [
       selfRow,

@@ -89,6 +89,17 @@ describe("Account machines on the Mesh canvas", () => {
     expect(canvas.nodes[0].disconnect).toEqual({ instanceId: "mesh-old", confirm: true });
   });
 
+  it("shows signed-out machines without connect, retry or disconnect actions", () => {
+    const remote = { ...macRow, presence: "signed_out" as const };
+    const state = snapshot({ registry: { observed_at: NOW, rows: [selfRow, remote] } });
+    const failures = new Map<string, MachineFailure>([[remote.installation_id, { operation: "connect MacBook", failure: { reason: "handshake-failed" } }]]);
+    const canvas = model("signed_in", state, { failures });
+    expect(canvas.nodes[0]).toMatchObject({ status: "Signed out", action: null, disconnect: null, callout: null });
+    state.pairs = [pair("mesh-mac", "MacBook", { installation_id: remote.installation_id })];
+    const paired = model("signed_in", state, { peers: [peer("mesh-mac", "MacBook")], failures }).peerFooters.get("mesh-mac");
+    expect(paired).toMatchObject({ status: "Signed out", disconnect: null, callout: null });
+  });
+
   it("reads last seen from epoch seconds, milliseconds or ISO text", () => {
     expect(lastSeenMs(NOW)).toBe(NOW * 1000);
     expect(lastSeenMs(NOW * 1000)).toBe(NOW * 1000);
@@ -101,7 +112,7 @@ describe("Mesh canvas wiring", () => {
   let host: HTMLDivElement;
   let root: Root;
   let changed = 0;
-  let peerClicks = 0;
+  let selected = 0;
 
   beforeEach(() => {
     (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -111,7 +122,7 @@ describe("Mesh canvas wiring", () => {
     presence.current = "signed_in";
     presence.signIns = 0;
     changed = 0;
-    peerClicks = 0;
+    selected = 0;
   });
 
   afterEach(async () => {
@@ -123,7 +134,7 @@ describe("Mesh canvas wiring", () => {
     await act(async () => root.render(
       <AccountMeshClientProvider value={client}>
         <AccountMeshCanvas onAccountChanged={() => { changed++; }} thisMachine={{ name: "Studio PC", ip: "127.0.0.1" }} peers={peers}
-          recentPushes={[]} onPeerClick={() => { peerClicks++; }} width={1200} height={800} />
+          recentPushes={[]} onPeerClick={() => { selected++; }} webUiBaseUrl="http://127.0.0.1:7686" onOpenPeerWebUi={() => { selected++; }} width={1200} height={800} />
       </AccountMeshClientProvider>,
     ));
   }
@@ -152,7 +163,7 @@ describe("Mesh canvas wiring", () => {
     await click(card!.querySelector("button"));
     expect(presence.signIns).toBe(1);
     expect(client.enrollCalls).toBe(0);
-    expect(peerClicks).toBe(0);
+    expect(selected).toBe(0);
     await act(async () => client.emit(snapshot()));
     expect(host.querySelector('[role="group"][aria-label="Add this machine to your mesh"]')).toBeNull();
   });
@@ -188,6 +199,27 @@ describe("Mesh canvas wiring", () => {
     await act(async () => client.linkOutcome.reject(new AccountMeshRefusalError({ requestId: "req-2", refusal: { reason: "handshake-failed" } })));
     await click(button("Dismiss: Could not connect MacBook"));
     expect(node("MacBook")?.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("disables a signed-out paired card and relay despite the last peer heartbeat being online", async () => {
+    const remote = { ...macRow, presence: "signed_out" as const };
+    const state = snapshot({ registry: { observed_at: NOW, rows: [selfRow, remote] }, pairs: [pair("mesh-mac", "MacBook", { installation_id: remote.installation_id, online: true })] });
+    const client = new FakeAccountMeshClient(state);
+    await mount(client, [peer("mesh-mac", "MacBook")]);
+    const open = host.querySelector<HTMLElement>('[role="button"][aria-label="Open MacBook"]');
+    expect(open?.getAttribute("aria-disabled")).toBe("true");
+    expect(host.querySelector('[role="group"][aria-label="MacBook"]')?.textContent).toContain("Signed out");
+    expect(button("Disconnect MacBook")).toBeNull();
+    await click(open);
+    const relay = host.querySelector<SVGElement>('g[aria-label*="MacBook: Signed out"]');
+    expect(relay?.getAttribute("aria-disabled")).toBe("true");
+    await act(async () => { relay?.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    expect(selected).toBe(0);
+    expect(client.linkCalls).toEqual([]);
+    await act(async () => client.emit({ ...state, registry: { observed_at: NOW, rows: [selfRow, macRow] } }));
+    expect(open?.getAttribute("aria-disabled")).toBe("false");
+    await click(open);
+    expect(selected).toBe(1);
   });
 
   it("disconnects a paired machine in one click from its card footer", async () => {

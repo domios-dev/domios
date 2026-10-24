@@ -7,6 +7,7 @@ mod lifecycle;
 mod membership;
 mod operations;
 mod ports;
+mod registry_presence;
 mod retry;
 mod state;
 mod store;

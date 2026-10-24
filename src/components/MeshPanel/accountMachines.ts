@@ -8,6 +8,7 @@ export const REAUTH_REQUIRED_COPY = "Sign in again to add this machine to your m
 export type AccountPresence = "pending" | "signed_out" | "signed_in";
 
 export type MachineStatus =
+  | "signed_out"
   | "linked"
   | "linking"
   | "unlinked"
@@ -164,6 +165,9 @@ function machineRow(row: AccountMachineRow, pair: LocalPairFact | null, context:
   const unpairInstanceId = context.usable && pair ? pair.instance_id : null;
   if (!row.active || row.eligibility === "revoked") {
     return { ...base, status: "revoked", detail: pair ? "Revoked from your account — the local pairing stays until you unpair it" : "Revoked from your account", controls: { add: null, revoke: null, unpairInstanceId } };
+  }
+  if (row.presence === "signed_out") {
+    return { ...base, status: "signed_out", detail: `${name} is signed out`, online: false, controls: NO_CONTROLS };
   }
   if (row.eligibility === "mesh-allowance") {
     return { ...base, status: "over_limit", detail: "Outside your plan's machine limit", controls: { add: pair ? null : { reason: "This machine is outside your plan's machine limit" }, revoke, unpairInstanceId } };
