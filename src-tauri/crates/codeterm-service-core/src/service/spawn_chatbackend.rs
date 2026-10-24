@@ -701,7 +701,9 @@ impl ServiceContext {
             let mut last_watcher_verdict_ids: HashMap<String, String> = HashMap::new();
             loop {
                 tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
-                if svc.mux.read().get_tab(&tab_id).is_none() {
+                if svc.tab_chat_backing(&tab_id).as_ref()
+                    != Some(&(plugin_id.clone(), session_id.clone()))
+                {
                     break;
                 }
                 let (svc2, plugin2, sid2, cur) = (
@@ -721,7 +723,7 @@ impl ServiceContext {
                         let mut cooldowns = cooldowns;
                         let mut verdict_ids = verdict_ids;
                         // Advance async work before reading, so a host-driven async chatBackend progresses.
-                        let _ = svc2.chatbackend_pump(&plugin2, &sid2);
+                        svc2.chatbackend_pump(&plugin2, &sid2)?;
                         let delta = svc2.chatbackend_poll(&plugin2, &sid2, cur.as_deref())?;
                         let now_ms = epoch_ms();
                         svc2.clear_stale_watcher_inflight(&tab_id_for_tick, now_ms);
@@ -756,7 +758,11 @@ impl ServiceContext {
                         }
                     }
                     Ok(Err(e)) => {
-                        log::warn!("[chatbackend] poll Tab {} failed: {}", tab_id, e)
+                        if let Ok(bound) = svc.chatbackend_bound_session(&plugin_id, &session_id) {
+                            svc.chatbackend_liveness_failure(&plugin_id, &session_id, &bound, &e);
+                        }
+                        log::warn!("[chatbackend] poll Tab {} failed: {}", tab_id, e);
+                        break;
                     }
                     Err(e) => {
                         log::warn!("[chatbackend] poll task join error: {}", e);

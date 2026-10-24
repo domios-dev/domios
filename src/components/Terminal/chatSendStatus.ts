@@ -60,7 +60,7 @@ async function reconcileReadyChatMessages(tabId: string): Promise<ChatSendStatus
   ]);
   if (Array.isArray(dismissals)) for (const receipt of dismissals) if (receipt.send?.id) observeChatSendDismissal(tabId, receipt);
   reconcileDeliveryStatuses(tabId, statuses, requested);
-  const unresolved = readChatSends(tabId).filter((send) => !send.dismissed && !send.status && send.correlationId
+  const unresolved = readChatSends(tabId).filter((send) => !send.dismissed && !send.status && !send.admissionSettled && send.correlationId
     && !activeAdmissions.has(admissionKey(tabId, send.correlationId)));
   if (unresolved.length > 0) {
     for (const send of unresolved) reconcileChatSendAdmission(tabId, send.correlationId!, "unknown");

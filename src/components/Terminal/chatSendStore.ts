@@ -462,7 +462,7 @@ export function beginChatSendRetry(tabId: string, id: string): DeliverySend | un
   const current = readChatSends(tabId);
   const send = current.find((item) => item.id === id);
   if (!send || deleting.has(deletionKey(tabId, id)) || !canRetryChatSend(send)) return;
-  const next = { ...send, requestFailed: false, requestUncertain: false, requestHadResponse: undefined, status: undefined,
+  const next = { ...send, requestFailed: false, requestUncertain: false, requestHadResponse: undefined, admissionSettled: undefined, status: undefined,
     matchedRow: undefined, correlationId: uid() };
   publish(tabId, current.map((item) => item.id === id ? next : item));
   return next;

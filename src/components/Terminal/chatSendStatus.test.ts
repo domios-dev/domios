@@ -10,6 +10,28 @@ import { MemoryChatSendRepository } from "./chatSendRepository.testSupport";
 
 beforeEach(() => __setChatSendRepositoryForTest(new MemoryChatSendRepository()));
 
+test("chat backend not-applicable admission settles across reload without Retry or resubmission", async () => {
+  const tabId = "backend-admission";
+  addChatSend(tabId, { id: "bubble", correlationId: "backend-token", content: "opaque", sentAtMs: 1 });
+  let admissions = 0;
+  __setInvokeForTest(async <T>(command: string) => {
+    if (command === "chat_send_admissions") {
+      admissions++;
+      return [{ correlationId: "backend-token", evidence: "not_applicable" }] as T;
+    }
+    assert.ok(command === "chat_send_status" || command === "chat_send_dismissals");
+    return [] as T;
+  });
+  await reconcileTrackedChatMessages(tabId);
+  assert.equal(deliveryState(readChatSends(tabId)[0]), "uncertain");
+  assert.equal(beginChatSendRetry(tabId, "bubble"), undefined);
+  forgetChatSendsInMemory();
+  await ensureChatSendTabHydrated(tabId);
+  await reconcileTrackedChatMessages(tabId);
+  assert.equal(admissions, 1);
+  assert.equal(readChatSends(tabId)[0].admissionSettled, true);
+});
+
 function heldStatus(): ChatSendStatus {
   return {
     send_id: "send-1",
