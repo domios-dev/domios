@@ -10,7 +10,7 @@ const image = value => typeof value === 'string' ? value.replaceAll('\\', '/').r
 export function rebuildStopPlan({ instance, data, port, app, record, ready, quit, processes, listeners }) {
   if (!Number.isInteger(port) || port < 1 || port > 65535 || port === 7685) throw Error('Refusing production or invalid DEV port');
   const candidates = processes.filter(row => image(row.executable) === image(app));
-  const owners = listeners.filter(row => row.port === port);
+  const owners = [...new Set(listeners.filter(row => row.port === port).map(row => row.pid))];
   if (!owners.length && !candidates.length) return [];
   const expectedData = `.domios-dev${instance ? `-${instance}` : ''}`;
   if (record?.schema !== 3 || record.instance?.name !== instance || Number(record.instance.apiPort) !== port ||
@@ -19,7 +19,7 @@ export function rebuildStopPlan({ instance, data, port, app, record, ready, quit
       image(ready?.identity?.config) !== image(path.win32.join(data, 'config.toml')) ||
       ready?.api_address !== `127.0.0.1:${port}` ||
       image(ready?.process?.executable) !== image(record.artifacts?.server?.path) ||
-      owners.length !== 1 || owners[0].pid !== ready?.process?.pid) throw Error('Uncertain DEV instance identity; refusing shutdown');
+      owners.length !== 1 || owners[0] !== ready?.process?.pid) throw Error('Uncertain DEV instance identity; refusing shutdown');
   if (!isDeepStrictEqual(quit?.ready, ready)) throw Error('Uncertain DEV quit snapshot identity');
   const native = quit.client?.process;
   if (candidates.length && (candidates.length !== 1 || !native ||
@@ -38,11 +38,17 @@ export function rebuildStopPlan({ instance, data, port, app, record, ready, quit
     previous = tree.size;
     for (const row of processes) if (tree.has(row.parent)) tree.add(row.pid);
   }
-  if (listeners.some(row => tree.has(row.pid) && ![port, Number(record.instance.cdpPort)].includes(row.port))) {
-    throw Error('DEV process tree owns another listener; refusing shutdown');
-  }
   const pinned = processes.filter(row => tree.has(row.pid));
   if (pinned.some(row => !row.executable || !/^[0-9]+$/.test(row.created))) throw Error('Uncertain DEV descendant identity');
+  const rootIds = new Set(roots.map(row => row.pid));
+  const instanceImages = new Set([app, record.artifacts.server.path, 'domios-app.exe'].map(value => path.win32.basename(image(value))));
+  if (pinned.some(row => !rootIds.has(row.pid) && instanceImages.has(path.win32.basename(image(row.executable))))) {
+    throw Error('DEV process tree contains another instance; refusing shutdown');
+  }
+  if (listeners.some(row => tree.has(row.pid) && (row.port === 7685 ||
+      (rootIds.has(row.pid) && ![port, Number(record.instance.cdpPort)].includes(row.port))))) {
+    throw Error('DEV process tree owns a production or foreign root listener; refusing shutdown');
+  }
   return pinned;
 }
 
@@ -79,7 +85,8 @@ async function main() {
   const quit = await response.json();
   const processes = rebuildStopPlan({ instance, data, port, app, record, ready, quit, ...snapshot });
   windowsHelper('Stop', { processes, quit, port,
-    allowedPorts: [port, Number(record.instance.cdpPort)], token: token.stdout.trim() });
+    allowedListeners: snapshot.listeners.filter(row => processes.some(process => process.pid === row.pid)),
+    token: token.stdout.trim() });
   console.log(`DEV instance '${instance || 'default'}' pinned process exit confirmed before artifact replacement.`);
 }
 
