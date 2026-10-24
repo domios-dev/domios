@@ -12,6 +12,7 @@ import { MACHINE_CARD_WIDTH } from "./webGraphLayout";
 import type { MeshTarget } from "./accountMeshClient";
 import type { MachineRowView } from "./accountMachines";
 import { REAUTH_REQUIRED_COPY } from "./accountMachines";
+import { MachineName } from "./MachineName";
 
 const PILL_TONE: Record<MachineTone, "green" | "accent" | "muted" | "amber" | "red"> = {
   ok: "green",
@@ -35,6 +36,7 @@ export function MachineReauthentication({ signingIn, onSignIn }: { signingIn: bo
 }
 
 export interface MachineNodeActions {
+  onRename?: (row: MachineRowView, name: string) => Promise<boolean>;
   onConnect: (row: MachineRowView, target: MeshTarget) => void;
   onDisconnect: (row: MachineRowView, instanceId: string) => void;
   onPlans: (key: string) => void;
@@ -105,7 +107,10 @@ export function AccountMachineCard({ node, busy, now, actions, hint }: { node: A
         onRetry={action?.kind === "connect" ? () => actions.onConnect(node.row, action.target) : undefined} />}
       <div className="flex items-center gap-2 min-w-0">
         <Laptop size={15} className="shrink-0 text-[var(--ct-muted-fg)]" aria-hidden="true" />
-        <span className={`min-w-0 flex-1 truncate text-[14px] font-medium text-[var(--ct-fg)] ${lockedDimClass(lock)}`}>{node.name}</span>
+        <span className={`min-w-0 flex flex-1 text-[14px] font-medium text-[var(--ct-fg)] ${lockedDimClass(lock)}`}>
+          <MachineName name={node.name} onRename={actions.onRename ? (name) => actions.onRename!(node.row, name) : undefined}
+            disabledReason={!node.row.target || !node.row.pairInstanceId || !node.row.online ? "Connect to rename it, or rename it on that machine" : undefined} />
+        </span>
         <LockBadge view={lock} />
         <SettingsPill tone={PILL_TONE[node.tone]}>{node.status}</SettingsPill>
       </div>

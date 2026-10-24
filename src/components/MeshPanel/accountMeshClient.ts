@@ -1,5 +1,6 @@
 import { createContext, useContext } from "react";
 import { invoke, listen } from "../../lib/bridge";
+import { daemonTransportForPeer } from "../../lib/daemonBootstrap";
 import { AccountMeshRefusalError } from "../billing/accountMeshLimit";
 
 /** Exact registry slot identity the server checks before revoke or link. */
@@ -86,6 +87,7 @@ export interface AccountMeshClient {
   /** Resolves after the authorized handshake; a server refusal rejects with `AccountMeshRefusalError`. */
   link(target: MeshTarget): Promise<void>;
   renameSelf(expectedMetadataRevision: number, displayName: string): Promise<AccountMeshOutcome>;
+  renamePeer?(instanceId: string, expectedMetadataRevision: number, displayName: string): Promise<AccountMeshOutcome>;
   revoke(target: MeshTarget): Promise<AccountMeshOutcome>;
   unpair(instanceId: string): Promise<void>;
   acknowledgeLimit(requestId: string): Promise<void>;
@@ -127,6 +129,9 @@ export const bridgeAccountMeshClient: AccountMeshClient = {
   },
   renameSelf: (expectedMetadataRevision, displayName) =>
     invoke<AccountMeshOutcome>(COMMANDS.renameSelf, { expectedMetadataRevision, displayName }),
+  renamePeer: (instanceId, expectedMetadataRevision, displayName) => daemonTransportForPeer(instanceId).json("POST", "/api/account/mesh/rename", {
+    expected_metadata_revision: expectedMetadataRevision, display_name: displayName,
+  }),
   revoke: (target) => invoke<AccountMeshOutcome>(COMMANDS.revoke, { target }),
   unpair: async (instanceId) => { await invoke("mesh_disconnect", { instanceId }); },
   acknowledgeLimit: async (requestId) => { await invoke(COMMANDS.acknowledgeLimit, { requestId }); },

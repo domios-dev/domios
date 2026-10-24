@@ -85,6 +85,7 @@ export class FakeAccountMeshClient implements AccountMeshClient {
   linkCalls: MeshTarget[] = [];
   revokeCalls: MeshTarget[] = [];
   renameCalls: Array<[number, string]> = [];
+  peerRenameCalls: Array<[string, number, string]> = [];
   unpairCalls: string[] = [];
   linkOutcome = deferred<void>();
   revokeOutcomes: AccountMeshOutcome[] = [];
@@ -131,6 +132,11 @@ export class FakeAccountMeshClient implements AccountMeshClient {
 
   async renameSelf(expectedMetadataRevision: number, displayName: string): Promise<AccountMeshOutcome> {
     this.renameCalls.push([expectedMetadataRevision, displayName]);
+    return this.renameOutcomes.shift() ?? { ok: true };
+  }
+
+  async renamePeer(instanceId: string, expectedMetadataRevision: number, displayName: string): Promise<AccountMeshOutcome> {
+    this.peerRenameCalls.push([instanceId, expectedMetadataRevision, displayName]);
     return this.renameOutcomes.shift() ?? { ok: true };
   }
 
