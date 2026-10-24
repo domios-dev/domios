@@ -1,4 +1,5 @@
 [
+  "src/components/AgentPicker/FirstRunGate.test.tsx",
   "src/components/Terminal/chatPagingModel.test.ts",
   "src/components/Terminal/useChatWindowView.paging.test.tsx",
   "src/components/Jobs/jobsCount.test.ts",
