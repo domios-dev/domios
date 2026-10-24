@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { AlertTriangle, Laptop, RefreshCw, UserRound, X } from "lucide-react";
 import { formatAge } from "../../lib/timeLabels";
 import { UI_BUTTON, UI_TEXT } from "../shared/design";
@@ -81,7 +81,7 @@ function DisconnectControl({ name, instanceId, confirm, busy, onDisconnect }: {
 }
 
 /** An account machine that is not drawn as a paired card: name, state and the one action that moves it forward. */
-export function AccountMachineCard({ node, busy, now, actions }: { node: AccountMachineNode; busy: boolean; now: number; actions: MachineNodeActions }) {
+export function AccountMachineCard({ node, busy, now, actions, hint }: { node: AccountMachineNode; busy: boolean; now: number; actions: MachineNodeActions; hint?: ReactNode }) {
   const reasonId = useId();
   const lock = meshMachineLockedView(node.row);
   const action = node.action;
@@ -101,6 +101,7 @@ export function AccountMachineCard({ node, busy, now, actions }: { node: Account
       </div>
       <div className="text-[12px] text-[var(--ct-muted-fg)]">{node.detail}</div>
       {seen && <div className={UI_TEXT.metaMuted}>Last seen {seen}</div>}
+      {hint}
       {(action || node.disconnect) && (
         <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
           {action?.kind === "connect" && (
@@ -126,13 +127,14 @@ export function AccountMachineCard({ node, busy, now, actions }: { node: Account
 }
 
 /** Account state and actions under a paired machine's card. */
-export function PeerAccountFooterView({ footer, name, lastSeen, busy, actions }: {
+export function PeerAccountFooterView({ footer, name, lastSeen, busy, actions, hint }: {
   footer: PeerAccountFooter;
   name: string;
   /** Shown only while the machine is offline. */
   lastSeen: string | null;
   busy: boolean;
   actions: MachineNodeActions;
+  hint?: ReactNode;
 }) {
   const lock = meshMachineLockedView(footer.row);
   return (
@@ -150,6 +152,7 @@ export function PeerAccountFooterView({ footer, name, lastSeen, busy, actions }:
             busy={busy} onDisconnect={(instanceId) => actions.onDisconnect(footer.row, instanceId)} />}
         </div>
       </div>
+      {hint}
     </div>
   );
 }

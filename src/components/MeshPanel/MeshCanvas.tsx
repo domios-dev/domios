@@ -14,6 +14,8 @@ import { webLinkWithTokenAndRelay } from "../../lib/webAccess";
 import { RELAY_PROTOCOL_VERSION } from "../../lib/types";
 import { webGraphLayout, webGraphInitialView, WEB_CARD_SCALE, MACHINE_CARD_SCALE, MACHINE_CARD_WIDTH } from "./webGraphLayout";
 import { webGatewayGraph } from "./meshProjection";
+import { TailscaleFooter, TailscaleMachineHint, type CanvasTailscale } from "./TailscaleNodes";
+import { suggestsRemoteTailscale } from "./tailscaleSetup";
 
 export interface RecentPush {
   source_id: string;
@@ -65,6 +67,7 @@ interface Props {
   width: number;
   height: number;
   account?: CanvasAccount;
+  tailscale?: CanvasTailscale;
   meshEnabled?: boolean;
   onGoOnline?: () => void;
   onOpenPeerWebUi?: (url: string) => void;
@@ -93,6 +96,7 @@ export const MeshCanvas = memo(function MeshCanvas({
   width,
   height,
   account,
+  tailscale,
   meshEnabled = true,
   onGoOnline,
   onOpenPeerWebUi,
@@ -211,13 +215,18 @@ export const MeshCanvas = memo(function MeshCanvas({
     if (contentBounds) fitToView(contentBounds);
   };
 
+  const tailscaleHint = (name: string, online: boolean) => tailscale && suggestsRemoteTailscale(online, tailscale.state)
+    ? <TailscaleMachineHint name={name} tailscale={tailscale} />
+    : undefined;
+
   const peerFooter = (id: string) => {
     const footer = account?.canvas.peerFooters.get(id);
     if (!account || !footer) return undefined;
     const peer = peers.find((candidate) => candidate.instance_id === id);
+    const name = peer?.name ?? footer.row.name;
     const seen = peer && !peer.online ? lastSeenMs(peer.last_seen) : null;
-    return <PeerAccountFooterView footer={footer} name={peer?.name ?? footer.row.name} lastSeen={seen === null ? null : formatAge(seen, account.now)}
-      busy={account.busy === footer.key} actions={account.actions} />;
+    return <PeerAccountFooterView footer={footer} name={name} lastSeen={seen === null ? null : formatAge(seen, account.now)}
+      busy={account.busy === footer.key} actions={account.actions} hint={tailscaleHint(name, peer?.online ?? false)} />;
   };
 
   return (
@@ -299,12 +308,13 @@ export const MeshCanvas = memo(function MeshCanvas({
           >
             {p.account && account ? (
               p.account.kind === "node"
-                ? <AccountMachineCard node={p.account.node} busy={account.busy === p.account.node.key} now={account.now} actions={account.actions} />
+                ? <AccountMachineCard node={p.account.node} busy={account.busy === p.account.node.key} now={account.now} actions={account.actions}
+                  hint={p.account.node.row.target ? tailscaleHint(p.account.node.name, p.account.node.online !== false) : undefined} />
                 : <AccountStateCard card={p.account.card} signingIn={account.signingIn} onSignIn={account.onSignIn} onRetry={account.onRetry} />
             ) : (
               <div style={{ transform: `scale(${MACHINE_CARD_SCALE})` }}>
               <PeerTerminal
-                footer={peerFooter(p.id)}
+                footer={p.isThisMachine ? tailscale && <TailscaleFooter tailscale={tailscale} /> : peerFooter(p.id)}
                 inventory={peerInventoryModel(services, peers.find((peer) => peer.instance_id === p.id) ?? { instance_id: p.id, name: p.name, online: true }, !!p.isThisMachine, loading, error)}
                 name={p.name}
                 ip={p.ip}
