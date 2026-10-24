@@ -940,7 +940,10 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
                 Some(body.to_string()),
             )
         }
-        crate::AgentAction::Login { tab, device, api_key_stdin: false, cancel } => (
+        crate::AgentAction::Login { tab, show: true, api_key_stdin: false, .. } => (
+            "GET".into(), format!("/api/tabs/{}/agent/runtime/login", urlencoding::encode(tab)), None,
+        ),
+        crate::AgentAction::Login { tab, device, api_key_stdin: false, cancel, show: false } => (
             "POST".into(), format!("/api/tabs/{}/agent/runtime/login", urlencoding::encode(tab)),
             Some(if *cancel {serde_json::json!({"action":"cancel"})} else {serde_json::json!({"method":if *device {"device"} else {"browser"}})}.to_string()),
         ),

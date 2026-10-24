@@ -173,4 +173,4 @@ export type RuntimeRestoreContext = {instructions:string|null; additionalContext
 export type RuntimeAdditionalContext = {key:string; kind:"application"|"user"; value:string}
 
 export type RuntimeLoginMethod = "browser"|"device"|"apiKey";
-export interface RuntimeLoginState {status:"pending"|"completed"|"failed"|"canceled"; loginId?:string; method?:RuntimeLoginMethod; url?:string; userCode?:string; error?:string}
+export interface RuntimeLoginState {status:"pending"|"completed"|"failed"|"canceled"; loginId?:string; method?:RuntimeLoginMethod; url?:string; userCode?:string; expiresAtMs?:number|null; error?:string}

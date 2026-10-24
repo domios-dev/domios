@@ -185,6 +185,8 @@ Runtime provider sign-in is available from the Chat banner or CLI:
 ```bash
 domios agent login --tab <ID>
 domios agent login --tab <ID> --device
+domios agent login --tab <ID> --show
+domios agent login --tab <ID> --show --mesh <PEER> --json
 domios agent login --tab <ID> --api-key-stdin
 domios agent login --tab <ID> --cancel
 ```
@@ -194,6 +196,14 @@ sign-in uses the default system browser. Device sign-in prints the link and code
 Mesh sign-in shows the URL and code for the user to open; API keys stay on the
 provider's own machine. Completion verifies the account and resumes the tab's
 same thread without restarting or replaying input. Only one sign-in per provider
-can be pending; Cancel releases it before a retry.
+can be pending; Cancel releases it before a retry. Read an existing login with
+`--show`; this never starts another flow. The response contains `login.url`,
+`login.userCode` and `login.expiresAtMs` (Unix milliseconds). Links and codes stop
+being exposed at completion, cancellation or expiry. Domios limits disclosure to
+15 minutes; a provider-reported earlier deadline wins. Cancel an expired flow
+before starting again. The sign-in card's **Send to my phone** requests one
+`action_needed` notification through configured phone channels. Login values
+travel only in the push payload and remain absent from saved notifications and
+sessions.
 
-<!-- revision: 62 -->
+<!-- revision: 63 -->

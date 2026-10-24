@@ -142,6 +142,9 @@ pub enum AgentAction {
     ChildHistory(ChildHistoryArgs),
     /// Sign in to the tab's runtime provider without a terminal
     Login {
+        /// Read the pending sign-in without starting another flow
+        #[arg(long, conflicts_with_all = ["device", "api_key_stdin", "cancel"])]
+        show: bool,
         #[arg(long, value_name = "TAB")]
         tab: String,
         #[arg(long, conflicts_with_all = ["api_key_stdin", "cancel"])]

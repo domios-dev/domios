@@ -65,6 +65,7 @@ pub struct AgentIdentitySnapshot {
     #[serde(default)]
     pub description_origin: crate::multiplexer::types::TabDescriptionOrigin,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(serialize_with = "serialize_runtime_state")]
     pub agent_runtime_state: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_runtime_config: Option<serde_json::Value>,
@@ -961,3 +962,14 @@ pub use storage_adapter::{orphan_teams, project_snapshot, prune_orphan_teams, St
 
 #[cfg(test)]
 mod tests;
+
+fn serialize_runtime_state<S: serde::Serializer>(
+    state: &Option<serde_json::Value>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    let mut state = state.clone();
+    if let Some(serde_json::Value::Object(value)) = state.as_mut() {
+        value.remove("login");
+    }
+    state.serialize(serializer)
+}

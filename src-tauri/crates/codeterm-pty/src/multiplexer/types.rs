@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 mod activity;
+mod runtime_state;
 mod shell;
 pub use shell::{CloseRestoreTabState, ShellActivity, ShellCommandState, ShellPurpose};
 mod managed_tab;
@@ -694,6 +695,7 @@ pub struct Tab {
     #[serde(default)]
     pub structured_control_active: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(serialize_with = "runtime_state::serialize")]
     pub agent_runtime_state: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_runtime_config: Option<serde_json::Value>,
