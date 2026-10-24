@@ -2564,12 +2564,8 @@ prepare_release_bundle_inputs() {
 }
 
 enter_cargo_gateway() {
-  local phase_start=$SECONDS
   enter_build_gateway "$@"
-  printf '[test-loop] gateway %ss\n' "$((SECONDS - phase_start))"
-  phase_start=$SECONDS
   ct_configure_sccache
-  printf '[test-loop] sccache %ss\n' "$((SECONDS - phase_start))"
 }
 
 package_platform() {

@@ -479,3 +479,6 @@ mod startup_backfill_tests {
         worker.join().unwrap();
     }
 }
+
+#[cfg(all(test, feature = "embeddings"))]
+mod test_support;

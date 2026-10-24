@@ -354,8 +354,7 @@ fn blueprint_v2_check_engine_stratification_safety_and_recursive_provenance() {
 }
 #[test]
 fn blueprint_v2_check_native_recipes_have_no_static_errors() {
-    let root =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../resources/blueprints");
+    let root = crate::test_support::fixture_manifest_dir().join("../../../resources/blueprints");
     let mut count = 0;
     for file in std::fs::read_dir(root).unwrap() {
         let file = file.unwrap().path();

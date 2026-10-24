@@ -3,7 +3,8 @@ use std::sync::Arc;
 
 #[test]
 fn blueprint_v2_runtime_bundled_probe_recipes_execute() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../resources/blueprints");
+    let root = codeterm_service_core::test_support::fixture_manifest_dir()
+        .join("../../../resources/blueprints");
     let mut count = 0;
     for file in std::fs::read_dir(root).unwrap() {
         let path = file.unwrap().path();

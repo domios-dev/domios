@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { RefreshCw } from "lucide-react";
 import { UI_BUTTON, UI_TEXT } from "../shared/design";
@@ -263,7 +264,7 @@ function SelfRow({ self, onRename }: {
           <button type="button" onClick={close} disabled={saving} className={ACTION_BTN}>Cancel</button>
         </form>
       )}
-      {editing && failure && <p role="alert">{failure}</p>}
+      {editing && failure && <InlineErrorNotice error={failure} operation="renaming the machine" />}
     </div>
   );
 }
@@ -338,7 +339,7 @@ function MachineRow({ row, busy, confirm, register, onDecision, onAdd, onPlans, 
         )}
       </div>
       <div className={UI_TEXT.metaMuted}>{row.detail}</div>
-      {failure && <p role="alert" className={UI_TEXT.meta}>{failureMessage(failure)}</p>}
+      {failure && <InlineErrorNotice description={{ title: "The machine action could not be completed", cause: failureMessage(failure), raw: JSON.stringify(failure), actions: [] }} />}
       {add?.reason && !linking && <div id={reasonId} className={UI_TEXT.metaMuted}>{add.reason}</div>}
       {confirm === "revoke" && revoke && (
         <ConfirmStrip

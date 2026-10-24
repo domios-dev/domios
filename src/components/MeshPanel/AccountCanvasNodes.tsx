@@ -1,6 +1,7 @@
 import { useId, useState, type ReactNode } from "react";
-import { AlertTriangle, Laptop, RefreshCw, UserRound, X } from "lucide-react";
+import { Laptop, RefreshCw, UserRound } from "lucide-react";
 import { formatAge } from "../../lib/timeLabels";
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { UI_BUTTON, UI_TEXT } from "../shared/design";
 import { BusySpinner } from "../shared/BusyState";
 import { SettingsPill } from "../Settings/shared";
@@ -55,23 +56,14 @@ function ApprovalControls({ row, busy, actions }: { row: MachineRowView; busy: b
 }
 
 function Callout({ callout, onRetry, onDismiss }: { callout: MachineCallout; onRetry?: () => void; onDismiss: () => void }) {
-  return (
-    <div role="alert" className="flex items-start gap-2 rounded border border-[color-mix(in_srgb,var(--ct-red)_45%,var(--ct-border))] bg-[color-mix(in_srgb,var(--ct-red)_8%,var(--ct-bg))] px-2.5 py-2 text-[12px]">
-      <AlertTriangle size={14} className="mt-px shrink-0 text-[var(--ct-red)]" aria-hidden="true" />
-      <div className="min-w-0 flex-1">
-        <div className="font-medium text-[var(--ct-fg)]">{callout.title}</div>
-        <div className="text-[var(--ct-muted-fg)]">{callout.message}</div>
-        {callout.retry && onRetry && (
-          <button type="button" onClick={onRetry} className={`${COMPACT_GHOST} mt-1.5 -ml-2`}>
-            <RefreshCw size={12} aria-hidden="true" /> Try again
-          </button>
-        )}
-      </div>
-      <button type="button" onClick={onDismiss} aria-label={`Dismiss: ${callout.title}`} className={UI_BUTTON.icon}>
-        <X size={12} aria-hidden="true" />
-      </button>
-    </div>
-  );
+  return <InlineErrorNotice
+    role="alert"
+    description={{ title: callout.title, cause: callout.message, raw: callout.message, actions: [] }}
+    actions={[
+      ...(callout.retry && onRetry ? [{ label: "Try again", onClick: onRetry }] : []),
+      { label: "Dismiss", ariaLabel: `Dismiss: ${callout.title}`, onClick: onDismiss },
+    ]}
+  />;
 }
 
 function DisconnectControl({ name, instanceId, confirm, busy, onDisconnect }: {

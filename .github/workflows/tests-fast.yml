@@ -147,6 +147,16 @@ jobs:
       - name: Plugin release and scope script tests
         if: ${{ !cancelled() }}
         run: node --test scripts/tests/plugin-releases.test.mjs scripts/tests/ci-scope.test.mjs
+      # Light services can miss the runner user's rustup on PATH.
+      - name: Ensure Rust toolchain on PATH
+        if: ${{ !cancelled() }}
+        run: |
+          if command -v cargo >/dev/null 2>&1; then exit 0; fi
+          for dir in "${CARGO_HOME:-}/bin" "$HOME/.cargo/bin" /home/*/.cargo/bin /Users/*/.cargo/bin; do
+            if [ -x "$dir/cargo" ]; then echo "$dir" >> "$GITHUB_PATH"; exit 0; fi
+          done
+          echo "cargo not found; restore Rust on the runner" >&2
+          exit 1
       # POSIX-only fixtures that a Windows release-preflight cannot run; policy also covers release signing.
       - name: Build gateway guards and serial gateway script tests
         if: ${{ !cancelled() }}
@@ -155,16 +165,6 @@ jobs:
           bash scripts/check-build-gateway-policy.sh
           bash scripts/check-build-gateway-mutex-cleanup.sh
           node scripts/test-catalogue.mjs run --entry node-script-tests-serial
-      # Light services can miss the runner user's rustup on PATH.
-      - name: Ensure Rust toolchain on PATH
-        if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
-        run: |
-          if command -v cargo >/dev/null 2>&1; then exit 0; fi
-          for dir in "${CARGO_HOME:-}/bin" "$HOME/.cargo/bin" /home/*/.cargo/bin /Users/*/.cargo/bin; do
-            if [ -x "$dir/cargo" ]; then echo "$dir" >> "$GITHUB_PATH"; exit 0; fi
-          done
-          echo "cargo not found; restore Rust on the runner" >&2
-          exit 1
       - name: cargo fmt --check
         if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
         run: ${{ fromJSON(steps.catalogue.outputs.commands)['rust-fmt'] }}

@@ -36,6 +36,7 @@ ${clientFn}
 ${serverFn}
 ${config}
 ${fn.replace('exec bash ./build.sh', 'launch')}
+unset DOMIOS_FIREBASE_API_KEY DOMIOS_FIREBASE_PROJECT_ID DOMIOS_FIREBASE_APP_ID DOMIOS_ACCOUNT_REDEEM_URL DOMIOS_BILLING_FUNCTIONS_URL
 DOMIOS_QA_PROJECT_ID=inherited-wrong-project
 export DOMIOS_ACCOUNT_TARGET='${target}'
 codeterm() {

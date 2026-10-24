@@ -19,8 +19,10 @@ export function floatingLiveRegions(source, filename = "fixture.tsx", fixedClass
     if (opening) {
       const attributes = opening.attributes.properties.filter(ts.isJsxAttribute);
       const attribute = (name) => attributes.find((item) => item.name.getText(file) === name)?.initializer?.getText(file) ?? "";
+      const modal = /["']dialog["']/.test(attribute("role")) && /["']true["']/.test(attribute("aria-modal"));
       const classes = attribute("className");
-      floating ||= /\bfixed\b/.test(classes) || [...fixedClasses].some((name) => classes.includes(name)) || /position\s*:\s*["']fixed["']/.test(attribute("style"));
+      if (modal) floating = false;
+      else floating ||= /\bfixed\b/.test(classes) || [...fixedClasses].some((name) => classes.includes(name)) || /position\s*:\s*["']fixed["']/.test(attribute("style"));
       if (floating && (attribute("aria-live") || /["'](?:status|alert)["']/.test(attribute("role")))) {
         failures.push(file.getLineAndCharacterOfPosition(opening.getStart(file)).line + 1);
       }
