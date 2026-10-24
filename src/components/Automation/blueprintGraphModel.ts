@@ -1,6 +1,7 @@
 import type { BlueprintDocument, BlueprintExpandedCall, BlueprintIrNode, BlueprintJournalNode, BlueprintProjection } from "../../lib/blueprintApi";
 import type { PipelineView, PipelineViewEdge, PipelineViewNode } from "./pipelineModel";
 import { blueprintNodeKey, type BlueprintExpansion } from "./blueprintExpansion";
+import { blueprintJournalNodes } from "./blueprintPipelineOutcome";
 
 export interface BlueprintGraphModel { nodes: readonly PipelineViewNode[]; edges: readonly PipelineViewEdge[] }
 const baseNode = (key: string, title: string, kind: PipelineViewNode["kind"]): PipelineViewNode => ({
@@ -41,7 +42,7 @@ export function* buildBlueprintGraph(pipeline: PipelineView, expanded: Blueprint
   const edges: PipelineViewEdge[] = [];
   const rows = pipeline.nested_run && pipeline.nested_run.id === pipeline.runId
     && (pipeline.graph_definition_version == null || pipeline.nested_run.definition_version === pipeline.graph_definition_version)
-    ? pipeline.nested_run.nodes.filter((row) => (row.run_id == null || row.run_id === pipeline.runId)
+    ? blueprintJournalNodes(pipeline).filter((row) => (row.run_id == null || row.run_id === pipeline.runId)
       && (pipeline.graph_definition_version == null || row.definition_version === pipeline.graph_definition_version)) : [];
   const journal = new Map<string, BlueprintJournalNode>();
   const byMarker = new Map<number, BlueprintJournalNode>();

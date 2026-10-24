@@ -1,5 +1,21 @@
 use super::*;
 
+#[test]
+fn blueprint_v2_call_retained_failure_survives_unchanged_decision() {
+    for parent in [serde_json::Value::Null, json!(0)] {
+        let entries = [
+            json!({"entry_id":3,"run_id":"run","step_index":1,"parent_step_index":parent,"step_name":"command","state":"done","outcome":"unchanged","started_at_ms":2,"ended_at_ms":2,"reason":null}),
+            json!({"entry_id":2,"run_id":"run","step_index":1,"parent_step_index":parent,"step_name":"command","state":"failed","outcome":"failed","started_at_ms":1,"ended_at_ms":2,"reason":"deadline"}),
+        ].into_iter().map(|value| serde_json::from_value(value).unwrap()).collect::<Vec<_>>();
+        let projection = project_retained(None, &entries, None).unwrap();
+        let nodes = projection["nested_run"]["nodes"].as_array().unwrap();
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(nodes[0]["state"], "failed");
+        assert_eq!(nodes[0]["reason"], "deadline");
+        assert_eq!(nodes[0]["parent_step_index"], parent);
+    }
+}
+
 fn edit_callee(document: &mut Document, edit: impl FnOnce(&mut Document)) {
     let key = document.dependencies.keys().next().unwrap().clone();
     let mut callee = document.dependencies.remove(&key).unwrap();

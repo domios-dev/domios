@@ -4,13 +4,29 @@ import { buildBlueprintGraph, nodeLabel } from "./blueprintGraphModel";
 import { blueprintNodeKey, toggleBlueprintExpansion } from "./blueprintExpansion";
 import { buildIncrementally } from "./blueprintIncremental";
 import { blueprintDiffModel } from "./blueprintDiffModel";
-import { blueprintPipelineOutcome, canStopPipelineRun, heldReasonLabel } from "./blueprintPipelineOutcome";
+import { blueprintJournalNodes, blueprintPipelineOutcome, canStopPipelineRun, heldReasonLabel } from "./blueprintPipelineOutcome";
 import { layoutPipelineChain } from "./pipelineLayout";
 import { call, document, diff, viewerPipeline } from "./blueprintViewer.testdata";
 
 async function main() {
   assert.equal(heldReasonLabel("uncertain_pipeline_result"), "the result delivery could not be confirmed");
   const pipeline = viewerPipeline();
+  for (const reason of ["command_failed", "deadline"]) {
+    const failed = { ...pipeline, state: "failed", nodes: [{ ...pipeline.nodes[0], key: "step-0", kind: "step" as const,
+      state: "failed", reason, resultSummary: reason }], nested_run: { id: pipeline.runId!, nodes: [
+      { step_index: 0, step_name: "probe", state: "done", outcome: "unchanged" },
+    ] } };
+    const rows = blueprintJournalNodes(failed);
+    assert.equal(rows[0].state, "failed");
+    assert.equal(rows[0].reason, reason);
+    assert.equal(blueprintPipelineOutcome(failed)?.reason, reason);
+    const graph = await buildIncrementally(buildBlueprintGraph(failed, new Set()), async () => {}, new AbortController().signal);
+    assert.equal(graph.nodes.find((node) => node.definition?.id === "probe")?.state, "failed");
+    assert.equal(graph.nodes.find((node) => node.definition?.id === "probe")?.journal?.reason, reason);
+    assert.equal(failed.nested_run.nodes[0].state, "done");
+    const foreign = { ...failed, nested_run: { ...failed.nested_run, nodes: [{ ...failed.nested_run.nodes[0], run_id: "other" }] } };
+    assert.equal(blueprintJournalNodes(foreign)[0].state, "done");
+  }
   const empty = new Set<string>();
   const expanded = toggleBlueprintExpansion(empty, blueprintNodeKey([], "invoke"));
   assert.equal(empty.size, 0);

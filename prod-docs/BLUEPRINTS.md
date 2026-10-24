@@ -62,7 +62,7 @@ Values in `with`, `run`, timing fields and call arguments have exactly one form:
 | `{input: name}` | An author input supplied before apply |
 | `{bind: node.out.field}` | Runtime data from a preceding node |
 
-There is no expression evaluation or executable template expansion. A `run` input supplies the entire fixed command, rather than inserting data into a command. `name: '{{name}}'` may refer to one whole string input. Literal command text, including braces, remains literal. Non-string `--set key=value` values use JSON syntax. Unknown, duplicate or missing input assignments refuse.
+Domios does not evaluate expressions or expand executable templates. A `run` input supplies the entire author-fixed shell command line, rather than inserting runtime data into a command. `name: '{{name}}'` may refer to one whole string input. Domios passes command text unchanged to the shell, which applies its own quoting and expansion. Non-string `--set key=value` values use JSON syntax. Unknown, duplicate or missing input assignments refuse.
 
 Ports use the restricted JSON Schema fields `type`, `properties`, `required`, `additionalProperties`, `enum`, `items`, `maxLength` and `x-media`, or `{$ref: TypeName}`. Inputs additionally support `default` and `description`. Typed `in`/`out`, `bind`, capability `caps`, code metadata, local `imports`, inline `blueprints` and pipeline `other` handlers are represented in the document and its canonical graph/diff projections.
 
@@ -73,6 +73,8 @@ Admission lowers a v2 document to the runtime representation or returns an expli
 A Blueprint code or command step runs with the user's own permissions, like an agent in a tab, without Domios credentials in its environment; foreign Blueprints are gated by folder trust (1.15.4). Code runs as an ordinary child process on macOS, Linux and Windows, subject to execution budgets.
 
 Supported pipeline nodes are `code`, fixed `run` commands and `uses: http`, `github`, `ask`, `filter`, `convert` and `agent`. Parameters are explicit value forms. `ask` declares its `buckets` on the node. HTTP outcomes are `up`, `down`, `failed`; GitHub outcomes depend on `resource`; filters may declare a bucket. Commands, conversion and agent tasks return `done` or `failed`. Unspecified failure routes stop; other unspecified outcomes continue. Inputs and outputs must agree with the supported media chain. `result.to` accepts `owner`, `team`, `notify` or `tab:<id>`; offline checking refuses any other target. With the default document `owner: team`, `owner` and `team` both deliver to the Team Orchestrator's inbox in the Blueprint's workspace; with `owner: tab`, `owner` delivers to the tab that applied the Blueprint.
+
+`run` is a shell command line, not an argv array: macOS and Linux execute `/bin/sh -c`; Windows executes `powershell.exe -NoLogo -NoProfile -NonInteractive -Command`. Shell quoting, variable expansion and command substitution apply; for example, `$(...)` expands inside double quotes. `{lit: ...}` fixes the author-supplied text; it does not disable the shell. A command's `bind: {in: prior.out}` supplies the JSON stdin envelope `{media, schema_id, value, text}`. Runtime values stay in that envelope and never become shell text.
 
 Command steps default to a 10-second runtime on every platform. Override it on the node with `timeout: {lit: 30s}` (also accepts an author input). The timeout must be positive and at most 60 seconds; invalid values receive a positioned checker diagnostic. For example:
 
@@ -145,6 +147,8 @@ A watch starts with one source and an `ask` decision. Sources are `probe` with a
 
 Source `every` defaults to 20 seconds and is at least 10 seconds. Durations use `s`, `m`, `h`, `d` or combinations, bounded to 366 days. `timeout`, `paused` and `session` belong on the source. The decision owns `matches`, `until`, `rearm_on_change`, `model_classification` and `escalation_timeout_ms`. Keep waiting silent by routing it to `@stop`; this ends that watch's action chain without stopping future observations.
 
+`rearm_on_change` is a YAML sequence of declared bucket names, for example `rearm_on_change: [passed]` on the decision above. It lets a bucket fire again when its observed content changes. It is unavailable for input sources.
+
 Effects are nodes: `notify`, `send`, `cron`, `blueprint`, `respond_prompt`, `escalate` and `stop`. Targeted effects use `with: {target: {lit: ...}}`; a `done` route can chain later effects. An `other` route may reach notify/escalate nodes and requires a positive escalation timeout on the decision. Only unknown cases escalate. Prompt-response effects request the provider-declared safe path; they do not select keys or options. Commands and targets stay author-fixed and scope-bound. Claims persist before effects, and uncertain delivery never authorizes replay.
 
 ## Checking, apply and sharing
@@ -208,4 +212,4 @@ Restored PTY results retain the exact saved provider/session in a durable outbox
 
 R10 and environment scrubbing prevent accidents only; neither is a security boundary. R10 scans executable text and joins split literals. Whole words `domios`/`codeterm` or tokens prefixed `DOMIOS_`/`CODETERM_` in run commands or code, including comments and strings, refuse with `ambient_authority`; domios-cli capabilities also refuse. Obfuscation can pass. Children scrub instance credentials/private CLI directories, keep shared paths such as `/usr/bin`, and shadow CLI names with private PATH-first deny stubs. HOME/APPDATA remain visible: reading user data or invoking an absolute CLI path still uses the user's authority. Unavailable R13 comparisons never claim PASS.
 
-<!-- revision: 69 -->
+<!-- revision: 70 -->

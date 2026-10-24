@@ -91,6 +91,21 @@ async function main() {
     await act(async () => button("Node call-0").click());
     await act(async () => button("Expand callee").click());
     await waitForNode("Node return-count in call-0");
+    const failed = viewerPipeline();
+    failed.state = "failed";
+    failed.runs = [];
+    failed.nodes = [{ ...failed.nodes[0], key: "step-0", kind: "step", state: "failed", reason: "deadline", resultSummary: "deadline" }];
+    failed.nested_run = { id: "live", nodes: [{ step_index: 0, step_name: "probe", state: "done", outcome: "unchanged" }] };
+    await act(async () => root.render(<BlueprintPipelineCanvas key="failed" pipeline={failed} />));
+    await waitForNode("Node probe");
+    assert(button("Node probe").textContent?.includes("failed"));
+    assert(button("Node probe").textContent?.includes("deadline"));
+    const journal = host.querySelector('[aria-label="Selected run journal"]');
+    assert(journal?.textContent?.includes("failed"));
+    assert(journal?.textContent?.includes("deadline"));
+    const stop = button("Node Stop");
+    assert(!stop.textContent?.includes("Result"));
+    assert(!stop.textContent?.includes("Target unavailable"));
     console.log(`BlueprintPipelineCanvas: accessible interactions passed; 24 root calls + expanded callee; headless maxReactRender=${maxRender.toFixed(3)}ms inputDispatch=${inputLatency.toFixed(3)}ms scrollDispatch=${scrollLatency.toFixed(3)}ms`);
   } finally { await act(async () => root.unmount()); host.remove(); await window.happyDOM.close(); Object.defineProperty(globalThis, "MessageChannel", { configurable: true, value: nativeMessageChannel }); }
 }
