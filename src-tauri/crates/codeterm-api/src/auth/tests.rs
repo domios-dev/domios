@@ -13,6 +13,7 @@ fn tailnet_exemptions_are_only_existing_peer_handshakes_and_liveness() {
         "/api/mesh/link/commit",
         "/api/mesh/relay",
         "/api/mesh/announce",
+        "/api/mesh/account-presence",
         "/api/mesh/adopt/offer",
         "/api/mesh/adopt/commit",
     ] {
@@ -697,4 +698,18 @@ fn plan_limit_locked_peer_is_named_instead_of_an_unknown_signature() {
     state.mesh.lock().apply_account_state(sign_in(false));
     assert!(identify_caller(&state, &format!("Bearer {token}")).is_ok());
     assert_eq!(plan_limit_locked_peer(&state, &token), None);
+}
+
+#[test]
+fn presence_notice_auth_exemption_is_exact_and_post_only() {
+    assert!(is_custom_auth(&Method::POST, "/api/mesh/account-presence"));
+    for path in [
+        "/api/mesh/account-presence/extra",
+        "/api/mesh/account-presence-all",
+    ] {
+        assert!(!is_custom_auth(&Method::POST, path));
+        assert!(!tailnet_exempt(&Method::POST, path));
+    }
+    assert!(!is_custom_auth(&Method::GET, "/api/mesh/account-presence"));
+    assert!(!tailnet_exempt(&Method::GET, "/api/mesh/account-presence"));
 }

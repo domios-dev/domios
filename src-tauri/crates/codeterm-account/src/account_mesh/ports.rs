@@ -58,6 +58,7 @@ pub trait EndpointSource: Send + Sync {
 pub trait MeshTransport: Send + Sync {
     async fn apply(&self, state: &LifecycleState);
     async fn installation_revoked(&self, installation_id: &str);
+    async fn presence_changed(&self, metadata_revision: u64);
 }
 
 pub trait Clock: Send + Sync {

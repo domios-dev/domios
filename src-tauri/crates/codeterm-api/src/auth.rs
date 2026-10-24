@@ -73,6 +73,7 @@ fn tailnet_exempt(method: &Method, path: &str) -> bool {
                     | "/api/mesh/link/commit"
                     | "/api/mesh/relay"
                     | "/api/mesh/announce"
+                    | "/api/mesh/account-presence"
                     | "/api/mesh/adopt/offer"
                     | "/api/mesh/adopt/commit"
             ))
@@ -178,7 +179,8 @@ pub(crate) fn is_custom_auth(method: &Method, path: &str) -> bool {
         return true;
     }
     // Announce verifies its sender itself so an adopted peer can deliver a renewed membership.
-    if method == Method::POST && path == "/api/mesh/announce" {
+    if method == Method::POST && matches!(path, "/api/mesh/announce" | "/api/mesh/account-presence")
+    {
         return true;
     }
     if is_inbound_webhook_path(method, path) {

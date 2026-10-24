@@ -59,6 +59,10 @@ async fn account_mesh_presence_sign_out_is_blocked_and_announced_before_credenti
             assert!(harness.store.record.lock().unwrap().signed_out);
             assert_eq!(harness.registry.presence(UID), RegistryPresence::SignedOut);
             assert!(harness.sessions.0.lock().unwrap().is_some());
+            assert!(
+                position(&harness.log, "registry:presence:token-user-1")
+                    < position(&harness.log, "transport:presence:")
+            );
             *harness.sessions.0.lock().unwrap() = None;
         })
         .await;
@@ -112,4 +116,47 @@ async fn account_mesh_presence_endpoint_withdrawal_does_not_sign_out() {
     harness.mesh.refresh(EnrollTrigger::Network).await.unwrap();
     assert!(harness.registry.endpoint(UID).is_none());
     assert_eq!(harness.registry.presence(UID), RegistryPresence::Present);
+}
+
+#[tokio::test]
+async fn account_mesh_presence_notice_triggers_one_registry_read_without_snapshot_feedback() {
+    let harness = enrolled().await;
+    let before = harness.calls("list");
+    harness.registry.script.lock().unwrap().peer_presence = RegistryPresence::SignedOut;
+    assert_eq!(harness.mesh.presence_notice("peer", 1).await, Ok(true));
+    assert_eq!(harness.calls("list"), before + 1);
+    assert_eq!(harness.mesh.presence_notice("peer", 1).await, Ok(false));
+    assert_eq!(harness.calls("list"), before + 1);
+    let peer = harness
+        .state()
+        .registry
+        .as_ref()
+        .unwrap()
+        .rows
+        .iter()
+        .find(|row| row.installation_id == PEER)
+        .unwrap()
+        .clone();
+    assert_eq!(peer.presence, RegistryPresence::SignedOut);
+    harness.registry.script.lock().unwrap().peer_presence = RegistryPresence::Present;
+    assert_eq!(harness.mesh.presence_notice("peer", 2).await, Ok(true));
+    assert_eq!(harness.calls("list"), before + 2);
+    let peer = harness
+        .state()
+        .registry
+        .as_ref()
+        .unwrap()
+        .rows
+        .iter()
+        .find(|row| row.installation_id == PEER)
+        .unwrap()
+        .clone();
+    assert_eq!(peer.presence, RegistryPresence::Present);
+    harness.logout().await;
+    let blocked = harness.calls("list");
+    assert_eq!(
+        harness.mesh.presence_notice("peer", 2).await,
+        Err(AccountMeshRefusal::SignedOut)
+    );
+    assert_eq!(harness.calls("list"), blocked);
 }

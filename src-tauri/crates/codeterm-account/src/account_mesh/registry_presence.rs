@@ -27,7 +27,10 @@ impl AccountMesh {
                 },
             )
             .await;
-        if result == Err(AccountMeshRefusal::Conflict) {
+        if matches!(
+            result,
+            Err(AccountMeshRefusal::Conflict | AccountMeshRefusal::Forbidden)
+        ) {
             self.with(|inner| inner.metadata_revision = None);
         }
         let MeshResult::Presence(result) = result? else {
@@ -36,12 +39,19 @@ impl AccountMesh {
         if result.installation_id != self.installation() || result.presence != presence {
             return Err(AccountMeshRefusal::Invalid);
         }
+        if signed.epoch != 0 && !self.with(|inner| inner.is_current(signed.epoch)) {
+            return Err(AccountMeshRefusal::Cancelled);
+        }
         self.remember_metadata(signed.epoch, result.metadata_revision, None);
         self.with(|inner| {
             if inner.is_current(signed.epoch) {
                 inner.registry_presence = Some(presence);
             }
         });
+        self.ports
+            .transport
+            .presence_changed(result.metadata_revision)
+            .await;
         Ok(())
     }
 
