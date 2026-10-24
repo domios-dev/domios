@@ -66,6 +66,7 @@ fn capture_launch(version: &str, bootstrap: Option<&str>) {
         .unwrap()
         .agent_session_id = None;
     let version = version.to_owned();
+    let fixture_home = fixture.temp.path().to_string_lossy().into_owned();
     let expected_bootstrap = bootstrap.map(str::to_owned);
     let capture = crate::async_runtime::spawn(async move {
         let mut peer = BufReader::new(peer);
@@ -85,12 +86,30 @@ fn capture_launch(version: &str, bootstrap: Option<&str>) {
                 continue;
             }
             let result = match method {
-                "initialize" => json!({"userAgent":format!("opaque/{version}")}),
-                "account/read" => json!({"account":{"type":"apiKey"}}),
-                "thread/start" => json!({"thread":{"id":"fixture-thread"}}),
+                "initialize" => json!({
+                    "userAgent":format!("opaque/{version}"),"codexHome":fixture_home,
+                    "platformFamily":std::env::consts::FAMILY,"platformOs":std::env::consts::OS,
+                }),
+                "account/read" => json!({"account":{"type":"apiKey"},"requiresOpenaiAuth":false}),
+                "thread/start" => json!({
+                    "thread":{
+                        "id":"fixture-thread","sessionId":"fixture-session","cliVersion":version,
+                        "createdAt":1,"updatedAt":1,"cwd":frame["params"]["cwd"],
+                        "ephemeral":true,"modelProvider":"opaque","preview":"","projectId":null,
+                        "source":"appServer","status":{"type":"idle"},"turns":[],
+                    },
+                    "cwd":frame["params"]["cwd"],"model":"opaque-model","modelProvider":"opaque",
+                    "approvalPolicy":"on-request","approvalsReviewer":"user","sandbox":{"type":"workspaceWrite"},
+                }),
+                "model/list" => json!({"data":[],"nextCursor":null}),
+                "configRequirements/read" => {
+                    json!({"requirements":null,"supportsIndependentSpeedModes":true})
+                }
                 "thread/turns/list" => json!({"data":[],"nextCursor":null}),
                 "thread/goal/get" => json!({"goal":null}),
-                "turn/start" => json!({"turn":{"id":"fixture-turn"}}),
+                "turn/start" => {
+                    json!({"turn":{"id":"fixture-turn","items":[],"status":"inProgress"}})
+                }
                 _ => panic!("Unexpected request: {method}"),
             };
             let finished = method == "turn/start"
@@ -131,6 +150,15 @@ fn capture_launch(version: &str, bootstrap: Option<&str>) {
         )
         .unwrap();
     let (frames, _peer) = crate::async_runtime::block_on(capture).unwrap();
+    for method in ["model/list", "configRequirements/read"] {
+        assert_eq!(
+            frames
+                .iter()
+                .filter(|frame| frame["method"] == method)
+                .count(),
+            1
+        );
+    }
     let start = frames
         .iter()
         .find(|frame| frame["method"] == "thread/start")
