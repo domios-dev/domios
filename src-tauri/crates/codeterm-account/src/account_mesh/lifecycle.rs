@@ -20,6 +20,7 @@ use tokio::sync::{watch, Notify};
 
 pub struct AccountMeshConfig {
     pub installation_id: InstallationId,
+    pub default_display_name: Option<String>,
     /// `None` until a release pins issuer trust: nothing is enrolled or admitted.
     pub trust: Option<MembershipTrust>,
     pub call_deadline: Duration,

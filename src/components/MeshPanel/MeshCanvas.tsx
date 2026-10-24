@@ -41,6 +41,8 @@ interface PeerLayout {
 
 /** My machines on the canvas: account nodes, paired-card footers and the actions behind them. */
 export interface CanvasAccount {
+  selfName?: string;
+  onRenameSelf?: (name: string) => Promise<boolean>;
   canvas: AccountCanvas;
   busy: string | null;
   signingIn: boolean;
@@ -124,7 +126,7 @@ export const MeshCanvas = memo(function MeshCanvas({
     const items: PeerLayout[] = [
       {
         id: "__self__",
-        name: thisMachine.name,
+        name: account?.selfName ?? thisMachine.name,
         ip: thisMachine.ip,
         ...geometry.machines[0],
         isThisMachine: true,
@@ -138,7 +140,7 @@ export const MeshCanvas = memo(function MeshCanvas({
       const signedOut = account?.canvas.peerFooters.get(p.instance_id)?.row.status === "signed_out";
       items.push({
         id: p.instance_id,
-        name: p.name,
+        name: account?.canvas.peerFooters.get(p.instance_id)?.row.name ?? p.name,
         ip: p.ip,
         ...geometry.machines[i + 1],
         // A discovered-but-not-paired (vouched) peer must never render as paired (codeterm#440).
@@ -299,7 +301,10 @@ export const MeshCanvas = memo(function MeshCanvas({
             </button>}
           </div>
         </div>
-        {layout.map((p, i) => (
+        {layout.map((p, i) => {
+          const row = account?.canvas.peerFooters.get(p.id)?.row;
+          const onRename = account?.actions.onRename;
+          return (
           <div
             key={`${p.id}-${i}`}
             data-peer-card
@@ -319,6 +324,9 @@ export const MeshCanvas = memo(function MeshCanvas({
             ) : (
               <div style={{ transform: `scale(${MACHINE_CARD_SCALE})` }}>
               <PeerTerminal
+                onRename={p.isThisMachine ? account?.onRenameSelf : row?.target && onRename ? (name) => onRename(row, name) : undefined}
+                renameDisabledReason={row && (row.status === "signed_out" || !peers.find((peer) => peer.instance_id === p.id)?.online)
+                  ? "Connect to rename it, or rename it on that machine" : undefined}
                 footer={p.isThisMachine ? <>
                   {account?.reauthRequired && <MachineReauthentication signingIn={account.signingIn} onSignIn={account.onSignIn} />}
                   {tailscale && <TailscaleFooter tailscale={tailscale} />}
@@ -330,15 +338,16 @@ export const MeshCanvas = memo(function MeshCanvas({
                 isPaired={p.isPaired}
                 pending={p.pending}
                 accessLevel={p.accessLevel as "full" | "read_only" | "agent_isolated" | undefined}
-                disabled={account?.canvas.peerFooters.get(p.id)?.row.status === "signed_out"}
-                onClick={() => onPeerClick(p.name)}
-                offline={p.isThisMachine ? !meshEnabled : account?.canvas.peerFooters.get(p.id)?.row.status === "signed_out" || !peers.find((peer) => peer.instance_id === p.id)?.online}
+                disabled={row?.status === "signed_out"}
+                onClick={() => onPeerClick(p.isThisMachine ? thisMachine.name : peers.find((peer) => peer.instance_id === p.id)?.name ?? p.name)}
+                offline={p.isThisMachine ? !meshEnabled : row?.status === "signed_out" || !peers.find((peer) => peer.instance_id === p.id)?.online}
                 onGoOnline={p.isThisMachine ? onGoOnline : undefined}
               />
               </div>
             )}
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
