@@ -31,6 +31,38 @@ pub async fn status(
             .await,
     ))
 }
+pub(crate) fn debug_login_router() -> axum::Router<AppState> {
+    let router = axum::Router::new();
+    #[cfg(debug_assertions)]
+    let router = router.route(
+        "/api/account/login/pending",
+        axum::routing::get(pending_login),
+    );
+    router
+}
+
+#[cfg(debug_assertions)]
+pub async fn pending_login(
+    State(state): State<AppState>,
+    caller: Option<Extension<CallerIdentity>>,
+) -> Result<(axum::http::HeaderMap, Json<serde_json::Value>), Error> {
+    admit(caller.as_ref())?;
+    let url = state
+        .svc
+        .account()
+        .await
+        .map_err(unavailable)?
+        .pending_login_url()
+        .await
+        .ok_or((StatusCode::NOT_FOUND, "No pending account login".into()))?;
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("no-store"),
+    );
+    Ok((headers, Json(serde_json::json!({"url": url.as_str()}))))
+}
+
 pub async fn login(
     State(state): State<AppState>,
     Query(hint): Query<codeterm_account::LoginHint>,

@@ -1,5 +1,65 @@
 use super::*;
 
+#[tokio::test]
+async fn pending_login_route_is_compiled_out_without_debug_assertions() {
+    use axum::{body::Body, http::Request};
+    use tower::ServiceExt;
+    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(
+        codeterm_service_core::multiplexer::state::MultiplexerState::empty(),
+    );
+    let state = crate::transport_tabs::fixture::app_state(&fixture);
+    let response = debug_login_router()
+        .with_state(state)
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/account/login/pending")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        if cfg!(debug_assertions) {
+            StatusCode::METHOD_NOT_ALLOWED
+        } else {
+            StatusCode::NOT_FOUND
+        }
+    );
+}
+
+#[cfg(debug_assertions)]
+#[tokio::test]
+async fn pending_login_route_requires_local_auth_and_returns_404_when_idle() {
+    use axum::{body::Body, http::Request};
+    use tower::ServiceExt;
+    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(
+        codeterm_service_core::multiplexer::state::MultiplexerState::empty(),
+    );
+    let state = crate::transport_tabs::fixture::app_state(&fixture);
+    state.config.lock().api.token = Some("fixture-token".into());
+    state.config.lock().account = serde_json::json!({"provider":"local"});
+    let router = crate::routes::create_router(state);
+    for (token, expected) in [
+        ("", StatusCode::UNAUTHORIZED),
+        ("Bearer fixture-token", StatusCode::NOT_FOUND),
+    ] {
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/account/login/pending")
+                    .header("authorization", token)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), expected);
+    }
+}
+
 #[test]
 fn account_routes_admission_refuses_nonlocal_callers() {
     assert_eq!(admit(None).unwrap_err().0, StatusCode::FORBIDDEN);

@@ -9,6 +9,30 @@ import redactionCases from "./redaction-cases.json";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const manifest = JSON.parse(readFileSync(join(root, "plugin.json"), "utf8"));
 
+describe("Browser stdin typing", () => {
+  it("delivers the separate body without echoing it in successes or failures", () => {
+    const secret = "opaque-body-λ\"\n";
+    for (const field of ["result", "error"] as const) {
+      const call = vi.fn((_verb: string, payload: string) => {
+        expect(JSON.parse(payload)).toEqual(["textbox", "Password", secret]);
+        return JSON.stringify({ [field]: `field value: ${secret}` });
+      });
+      expect(forward({ sessionId: "stdin", verb: "type", args: ["textbox", "Password"], body: secret }, call))
+        .toEqual({ [field]: "field value: REDACTED" });
+      expect(call.mock.calls[0][0]).toBe("type-secret");
+    }
+  });
+
+  it("keeps owner routing and rejects bodies on unrelated verbs", () => {
+    const call = vi.fn(() => JSON.stringify({ result: "typed" }));
+    forward({ sessionId: "stdin", verb: "type", args: ["@e3", "--of", "QA"], body: "opaque-body" }, call);
+    expect(call).toHaveBeenCalledWith("type-secret", JSON.stringify({ args: ["@e3", "opaque-body"], of: "QA" }));
+    call.mockClear();
+    expect(forward({ sessionId: "stdin", verb: "goto", args: [], body: "opaque-body" }, call)).toHaveProperty("error");
+    expect(call).not.toHaveBeenCalled();
+  });
+});
+
 describe("browser plugin onAgentCommand", () => {
   it("forwards the verb and its args to the caller's own surface as a JSON array", () => {
     const call = vi.fn(() => JSON.stringify({ result: "clicked @e3" }));
