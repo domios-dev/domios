@@ -1,3 +1,6 @@
+#[path = "support/codeterm_bin.rs"]
+mod codeterm_bin;
+
 use std::process::Command;
 
 #[test]
@@ -11,7 +14,7 @@ fn blueprint_v2_project_offline_list_view_and_refusals() {
     std::fs::write(directory.join("valid.yaml"), text("valid")).unwrap();
     std::fs::write(directory.join("mismatch.yaml"), text("other")).unwrap();
     let call = |args: &[&str]| {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_codeterm"));
+        let mut command = Command::new(codeterm_bin::codeterm_bin());
         command
             .current_dir(root.path())
             .args(["--json", "blueprint", "project"])

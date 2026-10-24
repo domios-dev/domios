@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn blueprint_document_identity_golden() {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    let path = crate::test_support::fixture_manifest_dir()
         .join("../../../tests/fixtures/blueprint-identities.golden.json");
     let mut fixtures: Value =
         serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();

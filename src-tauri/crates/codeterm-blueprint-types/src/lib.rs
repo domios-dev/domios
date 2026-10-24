@@ -27,3 +27,6 @@ pub mod blueprint_contract;
 
 pub mod blueprint_project;
 pub mod code_source;
+
+#[cfg(test)]
+mod test_support;

@@ -342,3 +342,12 @@ test("CI jobs queue for a shared builder's gateway slot instead of failing busy"
     assert.equal(workflow(name).env.CODETERM_BUILD_GATEWAY_MODE, "queue", name);
   }
 });
+
+
+test("guards prepare Rust before cargo-dependent serial script tests in every scope", () => {
+  const steps = fast.jobs.guards.steps;
+  const setup = steps.findIndex(step => step.name === "Ensure Rust toolchain on PATH");
+  const serial = steps.findIndex(step => step.name === "Build gateway guards and serial gateway script tests");
+  assert.ok(setup >= 0 && setup < serial);
+  assert.equal(steps[setup].if, "${{ !cancelled() }}");
+});
