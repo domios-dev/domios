@@ -10,7 +10,7 @@ export function FirstRunGeneralPicker({ providers, home }: { providers: Provider
   const eligibleProviders = useMemo(() => generalAgentProviders(providers), [providers]);
   const navigation = usePickerNavigation();
 
-  const { busy, error, onConfirm } = useFirstRunStart(navigation.show);
+  const { busy, error, progress, onConfirm, onInstall } = useFirstRunStart(navigation.show);
 
   return (
     <div className="h-full w-full bg-[var(--ct-bg)]" data-testid="first-run-general-picker">
@@ -21,6 +21,8 @@ export function FirstRunGeneralPicker({ providers, home }: { providers: Provider
         confirmLabel="Start General agent"
         busy={busy}
         onConfirm={onConfirm}
+        onInstall={onInstall}
+        progress={progress}
         navigation={navigation}
         home={home}
       />

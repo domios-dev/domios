@@ -18,6 +18,8 @@ interface AgentProviderPickerProps {
   confirmLabel?: string;
   busy?: boolean;
   onConfirm: (providerId: string) => void;
+  onInstall?: (providerId: string) => void;
+  progress?: string | null;
   navigation?: PickerNavigation;
   /** The tab hosting this picker, where a successful install returns the user. */
   home?: TabRef;
@@ -30,6 +32,8 @@ export function AgentProviderPicker({
   confirmLabel = "Confirm",
   busy,
   onConfirm,
+  onInstall: installOverride,
+  progress,
   navigation,
   home,
 }: AgentProviderPickerProps) {
@@ -109,6 +113,8 @@ export function AgentProviderPicker({
           </div>
         </div>
 
+        {progress && <p role="status" aria-live="polite">{progress}</p>}
+
         <div
           role="group"
           aria-label="Agent providers"
@@ -120,7 +126,7 @@ export function AgentProviderPicker({
               key={provider.id}
               provider={provider}
               selected={selectedId === provider.id}
-              onSelect={() => setSelectedId(provider.id)}
+              onSelect={() => { if (!busy && !installBusy) setSelectedId(provider.id); }}
             />
           ))}
         </div>
@@ -137,7 +143,7 @@ export function AgentProviderPicker({
               loading={busy || installBusy}
               onClick={() => {
                 if (!selected) return;
-                if (needsInstall) void onInstall(selected.id);
+                if (needsInstall) { if (installOverride) installOverride(selected.id); else void onInstall(selected.id); }
                 else onConfirm(selected.id);
               }}
             >
