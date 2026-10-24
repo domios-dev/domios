@@ -189,6 +189,8 @@ domios blueprint apply memory:<recipe-id> --set key=value
 
 Only the Team Orchestrator keeps solutions. Supply one to five intents, preferably three to five distinct requests. Generalization preserves typed required inputs and removes instance defaults. Existing vector recall, per-intent matching, semantic canon, structural signatures, enrichment provenance and bounded variant merging remain in use. CLI offers preserve the server's ranking. A save retains its own entry and reports archived IDs when the area storage cap applies. Worker unavailability leaves enrichment pending without failing the save.
 
+Callable names must describe their contents. Keeping different contents under an existing name in the same scope refuses with `blueprint_name_conflict` and suggests a purpose-based name. Use a distinct descriptive name for a new solution; an intended revision explicitly updates the existing solution ID. Automatic callable merges require matching executable contents and agreeing purposes; distant purpose vectors never merge. Without purpose vectors, only identical purpose text can merge. Presentation-only title and note changes do not change executable identity. Retained pins continue to use their immutable revisions.
+
 Full recipe purposes and inputs: `domios docs BLUEPRINT-RECIPES`.
 
 A callable declares its result as `result: {type: <schema>, from: <node>.out}`. The `type` key holds one schema, so an integer result is written `result: {type: {type: integer}, from: add.out}`; `type` must be a schema object, not a bare type name.
@@ -210,4 +212,4 @@ Restored PTY results retain the exact saved provider/session in a durable outbox
 
 R10 and environment scrubbing prevent accidents only; neither is a security boundary. R10 scans executable text and joins split literals. Whole words `domios`/`codeterm` or tokens prefixed `DOMIOS_`/`CODETERM_` in run commands or code, including comments and strings, refuse with `ambient_authority`; domios-cli capabilities also refuse. Obfuscation can pass. Children scrub instance credentials/private CLI directories, keep shared paths such as `/usr/bin`, and shadow CLI names with private PATH-first deny stubs. HOME/APPDATA remain visible: reading user data or invoking an absolute CLI path still uses the user's authority. Unavailable R13 comparisons never claim PASS.
 
-<!-- revision: 71 -->
+<!-- revision: 72 -->
