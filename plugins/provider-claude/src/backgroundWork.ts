@@ -11,6 +11,11 @@ export function parseBackgroundWork(value:unknown):Observation[] {
     if (typeof id==="string" && /^[A-Za-z0-9_-]{1,256}$/.test(id) && ["running","completed","failed","killed"].includes(String(state))) events.push({id,state:state as Observation["state"]});
   }
   const content=object(row.message)?.content;
+  if (row.type === "user" && result?.task_type === "local_bash" && typeof result.command === "string" &&
+      !(Array.isArray(content) && content.some(block => object(block)?.is_error === true))) {
+    const id = result.task_id;
+    if (typeof id === "string" && /^[A-Za-z0-9_-]{1,256}$/.test(id)) events.push({id, state:"killed"});
+  }
   const prompt=object(row.attachment)?.prompt;
   const texts=typeof content==="string" ? [content] : Array.isArray(content) ? content.map(block=>object(block)?.text).filter((text):text is string=>typeof text==="string") : [];
   if (typeof prompt==="string") texts.push(prompt);
