@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { MachineSessionControls } from "./MachineSessionControls";
 import { RefreshCw } from "lucide-react";
 import { UI_BUTTON, UI_TEXT } from "../shared/design";
 import { BusySpinner } from "../shared/BusyState";
@@ -73,8 +74,8 @@ export function MachineManagement({ machines }: { machines: MachinesController }
 
   const add = (row: MachineRowView, target: MeshTarget) => machines.connect(row, target);
 
-  const revoke = async (row: MachineRowView, target: MeshTarget) => {
-    if (await machines.revoke(row, target)) setConfirm(null);
+  const revoke = async (row: MachineRowView, target: MeshTarget, alsoSignOut: boolean) => {
+    if (await machines.revoke(row, target, alsoSignOut)) setConfirm(null);
     else refocus(`${row.key}:confirm-revoke`);
   };
 
@@ -116,7 +117,8 @@ export function MachineManagement({ machines }: { machines: MachinesController }
           onPlans={() => machines.openPlans(row.key)}
           onAskConfirm={(kind) => setConfirm({ kind, key: row.key })}
           onCancelConfirm={(kind) => cancelConfirm(row.key, kind)}
-          onRevoke={(target) => void revoke(row, target)}
+          onRevoke={(target, alsoSignOut) => void revoke(row, target, alsoSignOut)}
+          onSignOut={() => machines.revokeSession(row)}
           onUnpair={(instanceId) => void unpair(row, instanceId)}
           failure={machines.failures.get(row.key)?.failure}
         />
@@ -268,7 +270,7 @@ function SelfRow({ self, onRename }: {
   );
 }
 
-function MachineRow({ row, busy, confirm, register, onDecision, onAdd, onPlans, onAskConfirm, onCancelConfirm, onRevoke, onUnpair, failure }: {
+function MachineRow({ row, busy, confirm, register, onDecision, onAdd, onPlans, onAskConfirm, onCancelConfirm, onRevoke, onUnpair, onSignOut, failure }: {
   row: MachineRowView;
   busy: boolean;
   confirm: "revoke" | "unpair" | null;
@@ -278,11 +280,13 @@ function MachineRow({ row, busy, confirm, register, onDecision, onAdd, onPlans, 
   onPlans: () => void;
   onAskConfirm: (kind: "revoke" | "unpair") => void;
   onCancelConfirm: (kind: "revoke" | "unpair") => void;
-  onRevoke: (target: MeshTarget) => void;
+  onRevoke: (target: MeshTarget, alsoSignOut: boolean) => void;
+  onSignOut: () => Promise<boolean>;
   onUnpair: (instanceId: string) => void;
   failure?: AccountMeshFailure;
 }) {
   const reasonId = useId();
+  const [alsoSignOut, setAlsoSignOut] = useState(false);
   const pill = STATUS_PILL[row.status];
   const { add, revoke, unpairInstanceId } = row.controls;
   const linking = row.status === "linking";
@@ -337,18 +341,20 @@ function MachineRow({ row, busy, confirm, register, onDecision, onAdd, onPlans, 
           </div>
         )}
       </div>
+      {row.canSignOut && <MachineSessionControls name={row.name} busy={busy} onSignOut={onSignOut} />}
       <div className={UI_TEXT.metaMuted}>{row.detail}</div>
       {failure && <p role="alert" className={UI_TEXT.meta}>{failureMessage(failure)}</p>}
       {add?.reason && !linking && <div id={reasonId} className={UI_TEXT.metaMuted}>{add.reason}</div>}
       {confirm === "revoke" && revoke && (
         <ConfirmStrip
           label={`Confirm revoke ${row.name}`}
-          message={`Revoke ${row.name}? It leaves your account and frees its machine slot. It must sign in again to rejoin.`}
+          message={`Remove ${row.name} from mesh? It frees its machine slot. It must sign in again to rejoin.`}
           action="Revoke"
           pendingAction="Revoking…"
           busy={busy}
           register={register(`${row.key}:confirm-revoke`)}
-          onConfirm={() => onRevoke(revoke)}
+          extra={<label className={UI_TEXT.meta}><input type="checkbox" checked={alsoSignOut} disabled={busy} onChange={(event) => setAlsoSignOut(event.target.checked)} /> Also sign it out</label>}
+          onConfirm={() => onRevoke(revoke, alsoSignOut)}
           onCancel={() => onCancelConfirm("revoke")}
         />
       )}
@@ -368,9 +374,10 @@ function MachineRow({ row, busy, confirm, register, onDecision, onAdd, onPlans, 
   );
 }
 
-function ConfirmStrip({ label, message, action, pendingAction, busy, register, onConfirm, onCancel }: {
+function ConfirmStrip({ label, message, action, pendingAction, busy, register, onConfirm, onCancel, extra }: {
   label: string;
   message: string;
+  extra?: ReactNode;
   action: string;
   pendingAction: string;
   busy: boolean;
@@ -380,7 +387,7 @@ function ConfirmStrip({ label, message, action, pendingAction, busy, register, o
 }) {
   return (
     <div role="group" aria-label={label} className="flex items-center justify-between gap-2 pt-1">
-      <span className={UI_TEXT.meta}>{message}</span>
+      <span className={UI_TEXT.meta}>{message}{extra}</span>
       <div className="flex items-center gap-1.5 flex-shrink-0">
         <button type="button" ref={register} onClick={onConfirm} disabled={busy} aria-busy={busy} className={DANGER_BTN} autoFocus>
           {busy ? pendingAction : action}

@@ -12,6 +12,7 @@ import { MACHINE_CARD_WIDTH } from "./webGraphLayout";
 import type { MeshTarget } from "./accountMeshClient";
 import type { MachineRowView } from "./accountMachines";
 import { REAUTH_REQUIRED_COPY } from "./accountMachines";
+import { MachineSessionControls } from "./MachineSessionControls";
 import { MachineName } from "./MachineName";
 
 const PILL_TONE: Record<MachineTone, "green" | "accent" | "muted" | "amber" | "red"> = {
@@ -36,12 +37,21 @@ export function MachineReauthentication({ signingIn, onSignIn }: { signingIn: bo
 }
 
 export interface MachineNodeActions {
+  onSignOut?: (row: MachineRowView) => Promise<boolean>;
+  onRemove?: (row: MachineRowView, target: MeshTarget, alsoSignOut?: boolean) => Promise<boolean>;
   onDecide?: (row: MachineRowView, notificationId: string, approve: boolean) => void;
   onRename?: (row: MachineRowView, name: string) => Promise<boolean>;
   onConnect: (row: MachineRowView, target: MeshTarget) => void;
   onDisconnect: (row: MachineRowView, instanceId: string) => void;
   onPlans: (key: string) => void;
   onDismiss: (key: string) => void;
+}
+
+function SessionControls({ row, busy, actions }: { row: MachineRowView; busy: boolean; actions: MachineNodeActions }) {
+  const target = row.controls.revoke;
+  if (!row.canSignOut || !actions.onSignOut) return null;
+  return <MachineSessionControls name={row.name} busy={busy} onSignOut={() => actions.onSignOut!(row)}
+    onRemove={target && actions.onRemove ? (alsoSignOut) => actions.onRemove!(row, target, alsoSignOut) : undefined} />;
 }
 
 function ApprovalControls({ row, busy, actions }: { row: MachineRowView; busy: boolean; actions: MachineNodeActions }) {
@@ -129,6 +139,7 @@ export function AccountMachineCard({ node, busy, now, actions, hint }: { node: A
       <div className="text-[12px] text-[var(--ct-muted-fg)]">{node.detail}</div>
       {seen && <div className={UI_TEXT.metaMuted}>Last seen {seen}</div>}
       {hint}
+      <SessionControls row={node.row} busy={busy} actions={actions} />
       {(action || node.disconnect) && (
         <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
           {action?.kind === "connect" && (
@@ -181,6 +192,7 @@ export function PeerAccountFooterView({ footer, name, lastSeen, busy, actions, h
         </div>
       </div>
       {hint}
+      <SessionControls row={footer.row} busy={busy} actions={actions} />
       <ApprovalControls row={footer.row} busy={busy} actions={actions} />
     </div>
   );

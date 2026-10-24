@@ -102,6 +102,9 @@ pub enum MeshOperation {
     Revoke {
         target: MeshTarget,
     },
+    SessionRevoke {
+        target: SessionTarget,
+    },
     Recover {
         target: MeshTarget,
     },
@@ -195,6 +198,19 @@ pub struct MembershipResult {
     pub slot_revision: u64,
     pub registry_revision: u64,
     pub membership: DetachedGrant,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SessionTarget {
+    pub installation_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SessionRevokedResult {
+    pub target_installation_id: String,
+    pub revoked_at: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
@@ -357,6 +373,7 @@ pub enum MeshResult {
     Membership(MembershipResult),
     Sync(SyncResult),
     Revoked(RevokedResult),
+    SessionRevoked(SessionRevokedResult),
     Recovered(RecoveredResult),
     Updated(UpdatedResult),
     Published(PublishedResult),

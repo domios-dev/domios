@@ -91,6 +91,7 @@ impl RefreshProvider {
     fn tokens() -> Tokens {
         Tokens {
             session: Session {
+                login_generation: 0,
                 identity: Identity {
                     uid: "refreshed-user".into(),
                     email: None,
@@ -140,6 +141,7 @@ fn account(store: Arc<Store>) -> Arc<Account> {
 
 fn expired_session() -> Session {
     Session {
+        login_generation: 0,
         identity: Identity {
             uid: "refreshed-user".into(),
             email: None,

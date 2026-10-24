@@ -10,6 +10,7 @@ impl Fake {
         let n = self.count.fetch_add(1, Ordering::SeqCst);
         Tokens {
             session: Session {
+                login_generation: 0,
                 identity: Identity {
                     uid: "fake-user".into(),
                     email: None,

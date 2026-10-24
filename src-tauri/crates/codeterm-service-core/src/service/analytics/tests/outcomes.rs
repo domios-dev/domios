@@ -50,6 +50,7 @@ async fn product_subscription_changed_uses_authoritative_refresh_and_closed_enum
     let billing =
         Billing::new(provider.clone()).with_observer(billing_observer(sink.worker.clone()));
     let session = codeterm_account::Session {
+        login_generation: 0,
         identity: codeterm_account::Identity {
             uid: "private-owner".into(),
             email: None,
@@ -95,6 +96,7 @@ async fn product_checkout_started_records_browser_open_with_closed_plan_only() {
         codeterm_billing::Billing::new(Arc::new(codeterm_billing::adapters::fake::Fake::default()))
             .with_observer(billing_observer(sink.worker.clone()));
     let session = codeterm_account::Session {
+        login_generation: 0,
         identity: codeterm_account::Identity {
             uid: "private-owner".into(),
             email: None,

@@ -1,10 +1,14 @@
 use super::ports::{MeshRegistry, RegistryResult};
 use super::wire::*;
-use crate::Session;
+use crate::{
+    session_revocation::{is_session_revoked, SessionRevocationObserver},
+    Session,
+};
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::Value;
+use std::sync::Arc;
 use std::time::Duration;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -34,6 +38,9 @@ pub fn refusal(failure: &CallableFailure) -> RegistryRefusal {
         CallableFailure::Offline => return RegistryRefusal::Offline,
         CallableFailure::Status { status, body } => (*status, body),
     };
+    if body.as_ref().is_some_and(is_session_revoked) {
+        return RegistryRefusal::Unauthenticated;
+    }
     if let Some(details) = body
         .as_ref()
         .and_then(|body| body.pointer("/error/details"))
@@ -60,11 +67,20 @@ pub fn result<T: DeserializeOwned>(body: Value) -> RegistryResult<T> {
 
 pub struct CallableRegistry<T> {
     transport: T,
+    revocations: Option<Arc<dyn SessionRevocationObserver>>,
 }
 
 impl<T: CallableTransport> CallableRegistry<T> {
     pub fn new(transport: T) -> Self {
-        Self { transport }
+        Self {
+            transport,
+            revocations: None,
+        }
+    }
+
+    pub fn with_revocations(mut self, observer: Arc<dyn SessionRevocationObserver>) -> Self {
+        self.revocations = Some(observer);
+        self
     }
 
     pub fn transport(&self) -> &T {
@@ -78,11 +94,31 @@ impl<T: CallableTransport> CallableRegistry<T> {
         data: &impl Serialize,
     ) -> RegistryResult<R> {
         let data = serde_json::to_value(data).map_err(|_| RegistryRefusal::Invalid)?;
-        let body = self
+        let response = self
             .transport
             .call(route, session.id_token.expose(), data)
-            .await
-            .map_err(|failure| refusal(&failure))?;
+            .await;
+        let body = match response {
+            Ok(body) if !is_session_revoked(&body) => body,
+            response => {
+                let body = match &response {
+                    Ok(body) => Some(body),
+                    Err(CallableFailure::Status { body, .. }) => body.as_ref(),
+                    Err(CallableFailure::Offline) => None,
+                };
+                if body.is_some_and(is_session_revoked) {
+                    if let Some(observer) = &self.revocations {
+                        observer.revoked(session).await;
+                    }
+                    return Err(RegistryRefusal::Unauthenticated);
+                }
+                return Err(response
+                    .as_ref()
+                    .err()
+                    .map(refusal)
+                    .unwrap_or(RegistryRefusal::Unavailable));
+            }
+        };
         result(body)
     }
 }

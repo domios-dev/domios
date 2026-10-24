@@ -3,6 +3,7 @@ pub struct Local;
 fn tokens() -> Tokens {
     Tokens {
         session: Session {
+            login_generation: 0,
             identity: Identity {
                 uid: "local-dev-user".into(),
                 email: Some("dev@localhost".into()),

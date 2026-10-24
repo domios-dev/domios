@@ -29,3 +29,5 @@ for (const stage of ["preparation", "browser", "callback", "redemption", "creden
   assert.deepEqual(accountModel({ ...status, last_sign_in_failure: null }), { kind: "signed_out" });
 }
 console.log("24 retained sign-in failure assertions passed");
+
+assert.deepEqual(accountModel({ identity: null, pending: false, session_revoked: true }), { kind: "signed_out", sessionRevoked: true });

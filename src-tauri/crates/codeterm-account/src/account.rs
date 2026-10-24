@@ -24,6 +24,8 @@ fn token_expiring(expires_at: u64) -> bool {
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct Status {
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub session_revoked: bool,
     pub provider: String,
     pub identity: Option<Identity>,
     pub pending: bool,
@@ -32,6 +34,7 @@ pub struct Status {
 }
 #[derive(Default)]
 struct State {
+    session_revoked: bool,
     session: Option<Session>,
     pending: Option<(LoginFlow, oneshot::Sender<Redemption>)>,
     generation: u64,
@@ -71,6 +74,7 @@ impl Account {
     pub async fn status(&self) -> Status {
         let state = self.state.lock().await;
         Status {
+            session_revoked: state.session_revoked,
             provider: self.provider.id().into(),
             identity: state.session.as_ref().map(|s| s.identity.clone()),
             pending: state.busy,
@@ -121,6 +125,7 @@ impl Account {
         let (cancel, mut cancelled) = oneshot::channel();
         let generation = {
             let mut state = self.state.lock().await;
+            state.generation += 1;
             state.busy = true;
             state.login_cancel = Some(cancel);
             state.last_sign_in_failure = None;
@@ -177,6 +182,12 @@ impl Account {
             state.pending_url = None;
         }
         state.busy = false;
+        if result.is_err() {
+            let generation = state.generation;
+            if let Some(session) = state.session.as_mut() {
+                session.login_generation = generation;
+            }
+        }
         state.last_sign_in_failure = attempt.failure(result.as_ref().err().copied());
         if let Some(failure) = state.last_sign_in_failure {
             log::info!(target: "codeterm_account::sign_in", "sign_in attempt outcome=failure stage={} error_kind={}", failure.stage.name(), crate::sign_in_diagnostic::error_kind(failure.error));
@@ -195,7 +206,7 @@ impl Account {
     }
     async fn commit_tokens(
         &self,
-        tokens: Tokens,
+        mut tokens: Tokens,
         generation: u64,
         attempt: &mut SignInAttempt,
         announce_sign_in: bool,
@@ -218,10 +229,12 @@ impl Account {
             .await?;
         attempt.enter(SignInStage::Publication);
         log::debug!(target: "codeterm_account::sign_in", "sign_in detail stage={} identity_present=true", SignInStage::Publication.name());
+        tokens.session.login_generation = generation;
         let announce_identity = announce_sign_in
             || state.session.as_ref().map(|session| &session.identity)
                 != Some(&tokens.session.identity);
         state.session = Some(tokens.session);
+        state.session_revoked = false;
         state.last_sign_in_failure = None;
         if let Some(observer) = self.observer.as_ref().filter(|_| announce_identity) {
             observer
@@ -265,6 +278,7 @@ impl Account {
             }
             state.busy = false;
             state.session = None;
+            state.session_revoked = false;
             if let Some(observer) = &self.observer {
                 observer.changed(None).await;
             }
@@ -283,6 +297,38 @@ impl Account {
         }
         Ok(self.status().await)
     }
+    pub async fn session_revoked(self: &Arc<Self>, expected: &Session) -> Result<bool> {
+        let account = self.clone();
+        let expected = expected.clone();
+        // Mesh blocking can cancel the request that detected this revocation.
+        tokio::spawn(async move { account.clear_revoked_session(&expected).await })
+            .await
+            .map_err(|_| Error::Credentials)?
+    }
+
+    async fn clear_revoked_session(&self, expected: &Session) -> Result<bool> {
+        let mut state = self.state.lock().await;
+        if state.generation != expected.login_generation
+            || !state.session.as_ref().is_some_and(|current| {
+                current.login_generation == expected.login_generation
+                    && current.identity.uid == expected.identity.uid
+            })
+        {
+            return Ok(false);
+        }
+        state.generation += 1;
+        state.session = None;
+        state.session_revoked = true;
+        state.last_sign_in_failure = None;
+        if let Some(observer) = &self.observer {
+            observer.changed(None).await;
+        }
+        tokio::time::timeout(self.deadline, self.store.delete(self.provider.id()))
+            .await
+            .map_err(|_| Error::Timeout)??;
+        Ok(true)
+    }
+
     pub async fn session(&self) -> Option<Session> {
         self.state.lock().await.session.clone()
     }
