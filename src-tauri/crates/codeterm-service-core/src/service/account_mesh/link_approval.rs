@@ -24,6 +24,13 @@ fn approval_ask(request: &LinkRequest) -> Ask {
     }
 }
 
+fn publish_link_completion(success: bool, mut emit: impl FnMut(&str, serde_json::Value)) {
+    if success {
+        emit("mesh-state-changed", serde_json::Value::Null);
+    }
+    emit("account-mesh-changed", serde_json::Value::Null);
+}
+
 impl ServiceContext {
     pub fn start_mesh_link(&self, installation_id: String) -> Result<String, AdmissionRefusal> {
         let mesh = self
@@ -42,9 +49,9 @@ impl ServiceContext {
             let result =
                 codeterm_mesh::account_mesh::link::link_installation(&mesh, &installation_id).await;
             mesh.lock().finish_outgoing_link(&outgoing_id, &result);
-            service
-                .ui
-                .emit("account-mesh-changed", serde_json::Value::Null);
+            publish_link_completion(result.is_ok(), |event, payload| {
+                service.ui.emit(event, payload)
+            });
         });
         Ok(request_id)
     }

@@ -155,3 +155,33 @@ async fn account_mesh_approval_requires_possession_before_asking_the_receiver() 
     assert_eq!(a.authority.authorize_calls.load(Ordering::SeqCst), 0);
     assert_eq!(b.authority.authorize_calls.load(Ordering::SeqCst), 0);
 }
+
+#[tokio::test]
+async fn account_mesh_approval_wait_has_its_own_window_before_permits() {
+    let (a, b) = participants();
+    let task = request(&a, &b).await;
+    let id = b.mesh.lock().link_requests()[0].request_id.clone();
+    b.mesh
+        .lock()
+        .set_clock(Arc::new(|| START + APPROVAL_TTL_SECS - 1));
+    b.mesh.lock().decide_link(&id, true).unwrap();
+    assert!(task.await.unwrap().is_ok());
+}
+
+#[tokio::test]
+async fn account_mesh_approval_does_not_extend_the_confirmed_commit_window() {
+    let (a, b) = participants();
+    let responder = b.mesh.clone();
+    let transport = Loopback::new(&[&a, &b]).after_each(Arc::new(move |path| {
+        if path == crate::account_mesh::protocol::LINK_CONFIRM_PATH {
+            responder.lock().set_clock(Arc::new(|| START + 61));
+        }
+    }));
+    assert!(
+        link_installation_with(&a.mesh, &transport, &b.installation_id)
+            .await
+            .is_err()
+    );
+    assert!(a.mesh.lock().paired_peers.is_empty());
+    assert!(b.mesh.lock().paired_peers.is_empty());
+}
