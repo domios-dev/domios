@@ -584,7 +584,7 @@ async function main() {
 
   let passed = 0;
   try {
-    for (const [name, run] of tests) { await run(); passed++; console.log(`✓ ${name}`); }
+    for (const [name, run] of tests) { win.sessionStorage.clear(); await run(); passed++; console.log(`✓ ${name}`); }
     console.log(`${passed}/${tests.length} Jobs view cases passed`);
   } catch (error) {
     console.error(error);

@@ -4,7 +4,7 @@ import { BackPill } from "../../shared/BackPill";
 import { InlineErrorNotice } from "../../shared/ErrorNotice";
 import { pipelineModel } from "../pipelineModel";
 import { automationKey, type AutomationAttachment, type AutomationGraph, type AutomationGraphAdapter, type AutomationIdentity } from "../types";
-import { BlueprintView } from "./BlueprintView";
+import { PersistedBlueprintView as BlueprintView } from "../../Navigation/PersistedBlueprintView";
 import { watchRuns, withRetainedRuns } from "./runEvidence";
 
 const STOPPABLE = new Set(["running", "active", "idle", "held", "finishing"]);
@@ -30,7 +30,7 @@ export function HostBlueprintView({ graph, attachment, adapter, refresh, bluepri
     await adapter.stop(attachment, identity);
     await refresh();
   };
-  return <BlueprintView key={blueprintId} pipeline={pipeline} initialRunId={initialRunId} backLabel={backLabel} onBack={onBack}
+  return <BlueprintView key={blueprintId} navigationScope={JSON.stringify([workspaceId, teamId, blueprintId])} pipeline={pipeline} initialRunId={initialRunId} backLabel={backLabel} onBack={onBack}
     exportTarget={{ workspaceId, teamId: identity.team_id, id: blueprintId }} loadHistory={history}
     onStop={stop} canStop={STOPPABLE.has(pipeline.state) && (root?.stop.allowed ?? true)} headingLevel={headingLevel} fill={fill} />;
 }

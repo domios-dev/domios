@@ -5,6 +5,7 @@ import { releaseBootCover } from "./lib/bootCover";
 import { brandStateModel } from "./components/brand/brandStateModel";
 import { ServerConnectionLayer } from "./components/brand/ServerConnectionLayer";
 import { initialRouteReady } from "./store/multiplexer/pageSelection";
+import { useAppNavigation } from "./hooks/useAppNavigation";
 import { emitFeatureUsed } from "./lib/productAnalytics";
 import { localJson } from "./lib/webApi";
 import { frontendBootDiagnostic } from "./lib/frontendBootDiagnostic";
@@ -154,12 +155,10 @@ function AppInner() {
       : "opacity 200ms ease, visibility 0ms linear 200ms",
   });
   const { inset: keyboardInset, keyboardOpen } = useKeyboardInset();
-  const [mainView, setMainView] = useState<"workspace" | "settings" | "memory" | "mesh" | "extensions" | "analytics">("workspace");
+  const state = useMuxSelector(selectWholeState, appShellStateEqual);
+  const { navigationReady, mainView, setMainView, automationWorkspaceId, setAutomationWorkspaceId, jobsScope, setJobsScope, workspaceMapWorkspaceId, setWorkspaceMapWorkspaceId } = useAppNavigation(state.generation, state.focused_tab_id, state.workspaces);
   const automationOpener = useRef<HTMLElement | null>(null);
-  const [automationWorkspaceId, setAutomationWorkspaceId] = useState<string | null>(null);
   const [jobsTarget, setJobsTarget] = useState<(JobsTarget & { request: number; returnTo?: ReturnTo }) | null>(null);
-  const [jobsScope, setJobsScope] = useState<JobsOpenScope>("workspace");
-  const [workspaceMapWorkspaceId, setWorkspaceMapWorkspaceId] = useState<string | null>(null);
   const [pluginViewId, setPluginViewId] = useState<string | null>(null);
   const [pluginViewCwd, setPluginViewCwd] = useState<string | null>(null);
   const [pluginViewOwner, setPluginViewOwner] = useState<PluginViewScope | null>(null);
@@ -263,7 +262,6 @@ function AppInner() {
     dismissToast,
     spawnClaudeTab,
   } = useMultiplexer();
-  const state = useMuxSelector(selectWholeState, appShellStateEqual);
   useEffect(() => {
     if (IS_WEB && !configLoading) void emitFeatureUsed(localJson, "web_ui_opened");
   }, [configLoading]);
@@ -356,16 +354,6 @@ function AppInner() {
     },
     [selectTabByTab, setFocusedTab],
   );
-
-  const lastFocusedRef = useRef(state.focused_tab_id);
-  useEffect(() => {
-    if (state.focused_tab_id !== lastFocusedRef.current) {
-      lastFocusedRef.current = state.focused_tab_id;
-      if (state.focused_tab_id != null && mainView !== "workspace") {
-        setMainView("workspace");
-      }
-    }
-  }, [state.focused_tab_id, mainView]);
 
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -566,8 +554,8 @@ function AppInner() {
     if (mainView !== "workspace") setWorkspaceMapWorkspaceId(null);
   }, [mainView]);
   useEffect(() => {
-    if (mainView !== "workspace" || cronSelection || (automationWorkspaceId && !state.workspaces.some((workspace) => workspace.id === automationWorkspaceId))) setAutomationWorkspaceId(null);
-  }, [mainView, cronSelection, automationWorkspaceId, state.workspaces]);
+    if (mainView !== "workspace" || cronSelection) setAutomationWorkspaceId(null);
+  }, [mainView, cronSelection, setAutomationWorkspaceId]);
   useEffect(() => {
     if (!activeTab) canvasFocusStore.resetWorkspaceDismissed();
   }, [activeTab]);
@@ -918,12 +906,12 @@ function AppInner() {
               <PluginView pluginId={pluginViewId} api={config.api} cwd={pluginViewCwd} onClose={closePluginView} />
             </div>
           )}
-          {automationWorkspaceId && mainView === "workspace" && (
+          {automationWorkspaceId && navigationReady && mainView === "workspace" && (
             <div className="absolute inset-0" style={{ zIndex: 26 }}>
               <JobsView key={`${automationWorkspaceId}:${jobsScope}:${jobsTarget?.request ?? 0}`} workspaces={state.workspaces} teams={state.teams} tabs={state.tabs} initialFilter={jobsEntryFilter(jobsOpenEntry(automationWorkspaceId, jobsScope, jobsTarget?.teamId))} initialScenarioId={jobsTarget?.scenarioId} initialRunId={jobsTarget?.runId} initialCronId={jobsTarget?.cronId} initialBlueprintId={jobsTarget?.blueprintId} returnTo={jobsTarget?.returnTo} onReturnTo={activateReturnTo} onClose={closeWorkspaceAutomation} />
             </div>
           )}
-          {workspaceMapWorkspaceId && mainView === "workspace" && (
+          {workspaceMapWorkspaceId && navigationReady && mainView === "workspace" && (
             <div className="absolute inset-0" style={{ zIndex: 26 }}>
               <EssenceMapCanvas workspaceId={workspaceMapWorkspaceId} onClose={closeWorkspaceMap} />
             </div>
