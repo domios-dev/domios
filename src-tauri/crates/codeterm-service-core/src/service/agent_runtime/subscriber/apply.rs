@@ -183,10 +183,10 @@ fn apply(svc: &ServiceContext, session: &Arc<Session>, epoch: u64, at: u64, even
                 engine::publish(svc, &context.tab_id, session);
             }
             if matches!(state, RuntimeAuthState::SignedOut) {
-                session.state.lock().degrade(
-                    epoch,
-                    &RuntimeFailure::SignInRequired,
-                );
+                session
+                    .state
+                    .lock()
+                    .degrade(epoch, &RuntimeFailure::SignInRequired);
                 engine::publish(svc, &context.tab_id, session);
             }
         }

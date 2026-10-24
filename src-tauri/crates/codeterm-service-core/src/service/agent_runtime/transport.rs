@@ -450,7 +450,7 @@ fn launch_with_fork(
         }
     })
     .or_else(|error| match fork {
-        None => login_pending_session(tab, error),
+        None => engine::login_pending_session(svc, tab, error),
         Some(_) => Err(error),
     })
     .map(|_| ())
@@ -482,7 +482,7 @@ pub fn snapshot(
         ensured.is_ok()
     );
     let session = ensured
-        .or_else(|error| login_pending_session(tab, error))
+        .or_else(|error| engine::login_pending_session(svc, tab, error))
         .map_err(|error| error.to_string())?;
     let reading = std::time::Instant::now();
     let items = session.cache.lock().snapshot();
@@ -492,15 +492,6 @@ pub fn snapshot(
         items.len()
     );
     Ok((session, items))
-}
-
-fn login_pending_session(tab: &str, error: RuntimeFailure) -> Result<Arc<Session>, RuntimeFailure> {
-    if matches!(error, RuntimeFailure::SignInRequired) {
-        if let Some(session) = engine::for_tab(tab) {
-            return Ok(session);
-        }
-    }
-    Err(error)
 }
 
 #[cfg(test)]

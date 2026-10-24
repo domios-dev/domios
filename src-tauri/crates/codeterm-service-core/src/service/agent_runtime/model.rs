@@ -654,4 +654,3 @@ pub fn accepts_response_event(
 
 #[cfg(test)]
 mod tests;
-
