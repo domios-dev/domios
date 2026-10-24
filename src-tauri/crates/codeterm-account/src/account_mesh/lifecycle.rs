@@ -504,7 +504,7 @@ impl AccountMesh {
             Start::Joined(settled) => return Self::joined(settled).await,
         };
         let _owner = FlightOwner {
-            mesh: &**self,
+            mesh: self,
             cancel: cancel.clone(),
         };
         self.push().await;

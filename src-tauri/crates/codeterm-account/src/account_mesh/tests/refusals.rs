@@ -36,7 +36,7 @@ async fn account_mesh_third_machine_refusal_keeps_sign_in_and_raises_one_owned_n
     assert_eq!(notice.trigger, EnrollTrigger::Automatic);
     assert_eq!(notice.request_id.len(), 64);
     assert_eq!(
-        serde_json::to_value(&notice.refusal).unwrap(),
+        serde_json::to_value(notice.refusal).unwrap(),
         serde_json::json!({"reason": "mesh.machines", "limit": 2, "active_count": 2})
     );
 
