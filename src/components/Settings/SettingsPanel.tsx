@@ -1,4 +1,5 @@
 import { DropdownSelect } from "../shared/DropdownMenu";
+import { firstRunGate } from "../../lib/firstRunGate";
 import { useSettingsNavigation, type SettingsRoute as Route } from "../../hooks/useSettingsNavigation";
 import { nativeBridge } from "../../lib/nativeBridge";
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -78,7 +79,10 @@ export function SettingsPanel({
   guideRequest,
 }: SettingsPanelProps) {
   const [stack, setStack] = useSettingsNavigation(initialSection, guideRequest);
-  const top = stack[stack.length - 1];
+  const gate = firstRunGate(config.general_agent);
+  const sessionActionsAllowed = gate.allows("app");
+  const requested = stack[stack.length - 1];
+  const top = requested.kind === "section" && !gate.allowsSettingsSection(requested.id) ? { kind: "root" } as const : requested;
   const push = useCallback((r: Route) => setStack((s) => [...s, r]), []);
   const pop = useCallback(
     () => setStack((s) => (s.length > 1 ? s.slice(0, -1) : s)),
@@ -156,8 +160,8 @@ export function SettingsPanel({
     const updated = { config: next, save: onUpdateConfig };
     draftRef.current = updated;
     setDraft(updated);
-    if (next.general_agent.enabled !== false) await invoke("restart_general_agent");
-  }, [onUpdateConfig]);
+    if (sessionActionsAllowed && next.general_agent.enabled !== false) await invoke("restart_general_agent");
+  }, [onUpdateConfig, sessionActionsAllowed]);
 
   const headerTitle =
     top.kind === "root"
@@ -200,7 +204,7 @@ export function SettingsPanel({
           <div className="flex-1 overflow-y-auto px-5 py-5" data-testid="settings-body">
             {top.kind === "root" && (
               <div role="navigation" aria-label="Settings sections" className="ct-settings-nav">
-                {SETTINGS_SECTIONS.map((s) => {
+                {SETTINGS_SECTIONS.filter((s) => gate.allowsSettingsSection(s.id)).map((s) => {
                   const Icon = SECTION_ICONS[s.id];
                   return (
                     <button
