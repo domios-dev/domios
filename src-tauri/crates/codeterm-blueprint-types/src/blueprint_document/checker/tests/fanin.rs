@@ -136,3 +136,132 @@ fn blueprint_v2_fanin_refuses_missing_required_extra_and_unproven_fields() {
         .iter()
         .any(|d| d.name == "named_port_conflict" && d.field == "steps[2].bind.count"));
 }
+
+#[test]
+fn blueprint_v2_named_bind_media_is_positioned_and_typed() {
+    for media in ["image", "file", "audio", "video"] {
+        for explicit in [false, true] {
+            let mut doc = fanin();
+            doc.steps[0].output =
+                Some(serde_json::from_value(json!({"type":"string", "x-media":media})).unwrap());
+            if explicit {
+                doc.steps[2].input =
+                    Some(serde_json::from_value(json!({"type":"object"})).unwrap());
+            }
+            let diagnostics = inspect(&doc);
+            let diagnostic = diagnostics
+                .iter()
+                .find(|d| d.name == "named_bind_media")
+                .unwrap();
+            assert_eq!(diagnostic.rule, "B2");
+            assert_eq!(diagnostic.severity, "error");
+            assert_eq!(diagnostic.field, "steps[2].bind.count");
+            assert_eq!(diagnostic.file, "fixture.yaml");
+            assert!(diagnostic.line > 1 && diagnostic.column > 0);
+            assert!(diagnostic
+                .message
+                .contains("media ports in named binds are not supported yet"));
+        }
+    }
+    for producer in ["convert", "input", "call", "reference", "field"] {
+        let mut doc = fanin();
+        match producer {
+            "convert" | "input" => {
+                doc.steps[0].code = None;
+                doc.steps[0].uses = Some(if producer == "convert" {
+                    crate::blueprint_document::NodeKind::Convert
+                } else {
+                    crate::blueprint_document::NodeKind::Input
+                });
+                doc.steps[0].output = None;
+                doc.steps[0].params.insert(
+                    if producer == "convert" { "to" } else { "kind" }.into(),
+                    crate::blueprint_document::ValueForm::literal("image"),
+                );
+            }
+            "call" => {
+                let mut child = fanin();
+                child.trigger = None;
+                child.steps.truncate(1);
+                child.steps[0].code.as_mut().unwrap().src =
+                    Some("def main(value): return 'picture'".into());
+                child.steps[0].output = Some(
+                    serde_json::from_value(json!({"type":"string", "x-media":"image"})).unwrap(),
+                );
+                child.result = serde_json::from_value(
+                    json!({"type":{"type":"string", "x-media":"image"},"from":"a.out"}),
+                )
+                .unwrap();
+                let hash = crate::blueprint_document::projection::identity(&child).unwrap();
+                let callee = crate::blueprint_document::calls::FrozenCallee {
+                    id: "mem:media".into(),
+                    hash,
+                    document: Box::new(child),
+                    locations: BTreeMap::new(),
+                    source_hash: None,
+                };
+                let pin = callee.pin();
+                doc.dependencies.insert(pin.key(), callee);
+                doc.steps[0].code = None;
+                doc.steps[0].output = None;
+                doc.steps[0].call = Some(crate::blueprint_document::Call {
+                    reference: pin.id.clone(),
+                    pin: Some(pin),
+                    arguments: BTreeMap::new(),
+                });
+                let closure =
+                    crate::blueprint_document::calls::FrozenClosure::from_document(doc.clone())
+                        .unwrap();
+                let context =
+                    crate::blueprint_document::calls::check_context(&closure, &Default::default());
+                assert_eq!(
+                    context.call_output_media.get("a").map(String::as_str),
+                    Some("image")
+                );
+                assert!(crate::blueprint_document::checker::check_document(
+                    &closure.root.document,
+                    &context
+                )
+                .iter()
+                .any(|d| d.name == "named_bind_media" && d.field == "steps[2].bind.count"));
+            }
+            "field" => {
+                doc.steps[0].output = Some(serde_json::from_value(json!({"type":"object", "required":["picture"], "properties":{"picture":{"type":"string", "x-media":"image"}}})).unwrap());
+                doc.steps[2]
+                    .bind
+                    .insert("count".into(), "a.out.picture".into());
+            }
+            _ => {
+                doc.types.insert(
+                    "Picture".into(),
+                    serde_json::from_value(json!({"type":"string", "x-media":"image"})).unwrap(),
+                );
+                doc.steps[0].output =
+                    Some(serde_json::from_value(json!({"$ref":"Picture"})).unwrap());
+            }
+        }
+        assert!(
+            inspect(&doc)
+                .iter()
+                .any(|d| d.name == "named_bind_media" && d.field == "steps[2].bind.count"),
+            "{producer}"
+        );
+    }
+    for media in [None, Some("text")] {
+        let mut doc = fanin();
+        doc.steps[0].output.as_mut().unwrap().media = media.map(str::to_owned);
+        assert!(!has_errors(&inspect(&doc)), "{:?}", inspect(&doc));
+    }
+}
+
+#[test]
+fn blueprint_v2_malformed_binding_refuses_single_and_named_inputs() {
+    for binding in ["a.outfoo", "a.out.", "a.out..field"] {
+        for slot in ["in", "count"] {
+            let mut doc = fanin();
+            doc.steps[2].bind = BTreeMap::from([(slot.into(), binding.into())]);
+            assert!(has_errors(&inspect(&doc)), "{binding}");
+            assert!(doc.lower().is_err(), "{binding}");
+        }
+    }
+}

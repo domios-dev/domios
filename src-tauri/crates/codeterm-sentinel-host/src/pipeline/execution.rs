@@ -64,21 +64,18 @@ impl<'a> RunCtx<'a> {
     }
 
     pub fn resolve_binding(&self, path: &str) -> Result<ExecutionEnvelope, JournalReason> {
-        let mut parts = path.split('.');
-        let name = parts.next().ok_or(JournalReason::ContractViolation)?;
-        if parts.next() != Some("out") {
-            return Err(JournalReason::ContractViolation);
-        }
+        let binding = codeterm_blueprint_types::blueprint_document::bindings::parse(path)
+            .map_err(|_| JournalReason::ContractViolation)?;
+        let name = binding.node;
         let original = self
             .outputs
             .get(name)
             .ok_or(JournalReason::ContractViolation)?;
-        let fields = parts.collect::<Vec<_>>();
-        if fields.is_empty() {
+        if binding.selection.is_empty() {
             return Ok(original.clone());
         }
         let mut value = &original.value;
-        for field in fields {
+        for field in binding.selection.split('.') {
             value = if let Some(object) = value.as_object() {
                 object.get(field)
             } else if let Some(array) = value.as_array() {

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { performance } from "node:perf_hooks";
-import { blueprintTriggerSummary, buildBlueprintGraph, calleeName, litWires, nodeLabel, type BlueprintGraphModel } from "./graphModel";
+import { splitBinding, blueprintTriggerSummary, buildBlueprintGraph, calleeName, litWires, nodeLabel, type BlueprintGraphModel } from "./graphModel";
 import { layoutBlueprint, ROW_HEIGHT, type BlueprintLayout } from "./layout";
 import { watchRuns, withRetainedRuns } from "./runEvidence";
 import { blueprintNodeKey, toggleBlueprintExpansion } from "../blueprintExpansion";
@@ -35,6 +35,8 @@ function assertGeometry(model: BlueprintGraphModel, layout: BlueprintLayout) {
 }
 
 async function main() {
+  const bindings: { binding: string; node: string | null }[] = JSON.parse(readFileSync(new URL("../../../../tests/fixtures/blueprint-bindings.json", import.meta.url), "utf8"));
+  for (const fixture of bindings) assert.deepEqual(splitBinding(fixture.binding), fixture.node === null ? null : { node: fixture.node, port: "out" }, fixture.binding);
   const faninContract = JSON.parse(readFileSync(new URL("../../../../tests/fixtures/blueprint-fanin.golden.json", import.meta.url), "utf8"));
   const faninGraph = await buildIncrementally(buildBlueprintGraph(pipelineModel(faninContract), new Set()), async () => {}, new AbortController().signal);
   const incoming = faninGraph.wires.filter((wire) => wire.kind === "data" && wire.to.node === key([], "join"));

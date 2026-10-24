@@ -166,3 +166,6 @@ fn keys_changed(a: &Value, b: &Value) -> Vec<String> {
         .cloned()
         .collect()
 }
+
+#[cfg(test)]
+mod tests;

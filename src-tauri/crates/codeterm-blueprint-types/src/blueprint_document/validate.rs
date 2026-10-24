@@ -344,8 +344,8 @@ fn nodes(
     }
 }
 fn binding(bind: &str, ids: &BTreeMap<&str, usize>, order: usize, path: &str, errors: &mut Errors) {
-    let parts = bind.split('.').collect::<Vec<_>>();
-    if parts.len() < 2 || parts[1] != "out" || !ids.get(parts[0]).is_some_and(|i| *i < order) {
+    if !bindings::parse(bind).is_ok_and(|binding| ids.get(binding.node).is_some_and(|i| *i < order))
+    {
         errors.push((
             path.into(),
             "Bind a preceding node's out port, optionally a field".into(),
