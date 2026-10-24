@@ -35,6 +35,8 @@ impl LinkAdmission {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LinkRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link_nonce: Option<String>,
     pub admission: LinkAdmission,
     #[serde(default)]
     pub remote_membership: Option<SignedMembership>,
@@ -61,6 +63,8 @@ pub enum PeersLoad {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LinkLedger {
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub disconnects: HashMap<String, crate::disconnect::SavedDisconnect>,
     /// First account this machine signed in with; never rebinds.
     #[serde(default)]
     pub owner_account: Option<String>,
@@ -99,6 +103,7 @@ impl LinkLedger {
                 (
                     id.clone(),
                     LinkRecord {
+                        link_nonce: None,
                         admission: LinkAdmission::Legacy {
                             public_key: peer.public_key.clone(),
                         },
@@ -110,6 +115,7 @@ impl LinkLedger {
         Self {
             owner_account: None,
             links,
+            disconnects: HashMap::new(),
         }
     }
 
@@ -163,9 +169,14 @@ impl LinkLedger {
                 }
             }
         }
+        let link_nonce = self
+            .links
+            .get(peer_id)
+            .and_then(|record| record.link_nonce.clone());
         self.links.insert(
             peer_id.to_string(),
             LinkRecord {
+                link_nonce,
                 admission: LinkAdmission::Adopted {
                     account_id: account_id.to_string(),
                     installation_id: installation_id.to_string(),

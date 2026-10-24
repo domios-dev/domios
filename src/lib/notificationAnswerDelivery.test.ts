@@ -5,6 +5,7 @@ import { sendNotificationAnswer, type AnswerResult } from "./notificationAnswerS
 import { reducer } from "../store/multiplexer/reducer";
 import type { ExtendedState } from "../store/multiplexer/tree";
 import type { Notification } from "./types";
+import { isAnswerUndeliverable } from "./notificationAnswer";
 import type { AnswerUpdate } from "./notificationAnswer";
 
 const ASKING_TAB = "tab-asking";
@@ -86,3 +87,5 @@ async function run() {
 }
 
 void run();
+
+assert.equal(isAnswerUndeliverable({ asked_from_tab: null, daemon_request: "mesh-link:request", answered: null, delivered: false }), false);

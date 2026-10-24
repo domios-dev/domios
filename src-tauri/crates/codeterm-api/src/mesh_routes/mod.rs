@@ -13,6 +13,7 @@ mod version_tests;
 pub mod account_link;
 pub mod announce;
 pub mod connection;
+pub mod disconnect;
 pub mod pairing;
 mod presence;
 pub use presence::account_presence;
@@ -27,7 +28,8 @@ pub mod worker_transfer;
 pub use worker_observation::mesh_worker_observation;
 
 pub use account_link::{
-    mesh_adopt_commit, mesh_adopt_offer, mesh_link_commit, mesh_link_confirm, mesh_link_hello,
+    mesh_adopt_commit, mesh_adopt_offer, mesh_link_approval, mesh_link_commit, mesh_link_confirm,
+    mesh_link_hello,
 };
 pub use announce::{mesh_announce_all, mesh_announce_inbound, mesh_refresh, mesh_set_peer_addr};
 pub use connection::{mesh_account_link, mesh_disconnect_peer, mesh_disconnect_peer_by_id};
@@ -60,8 +62,16 @@ pub(crate) fn current_peer_version_header() -> HeaderMap {
     headers
 }
 
-pub async fn mesh_ping() -> Json<serde_json::Value> {
-    Json(serde_json::json!({"mesh": true}))
+pub async fn mesh_ping(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Json<serde_json::Value> {
+    let token = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "));
+    let notice = token.and_then(|token| state.mesh.lock().disconnect_notice_for(token));
+    Json(serde_json::json!({"mesh": true, "disconnect_notice": notice}))
 }
 
 pub async fn mesh_debug_sign(

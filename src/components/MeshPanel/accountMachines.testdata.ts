@@ -150,9 +150,17 @@ export class FakeAccountMeshClient implements AccountMeshClient {
     if (this.unpairFailure) throw this.unpairFailure;
   }
 
+  answeredLinks: Array<[string, boolean]> = [];
+  async answerLink(id: string, approve: boolean): Promise<void> { this.answeredLinks.push([id, approve]); }
+
   acknowledgedLimits: string[] = [];
 
   async acknowledgeLimit(requestId: string): Promise<void> {
     this.acknowledgedLimits.push(requestId);
   }
+}
+
+export function linkRequest(patch: Partial<import("./accountMeshClient").AccountLinkRequest> = {}): import("./accountMeshClient").AccountLinkRequest {
+  return { request_id: "request-1", installation_id: macRow.installation_id, name: macRow.display_name!, incoming: false,
+    decision: "waiting", expires_at: NOW + 600, notification_id: null, failure: null, ...patch };
 }

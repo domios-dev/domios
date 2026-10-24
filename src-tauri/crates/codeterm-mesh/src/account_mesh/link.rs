@@ -4,9 +4,10 @@ use serde::Serialize;
 use super::ledger::LinkAdmission;
 use super::ports::{AdmissionRefusal, BoxFuture, LinkAuthorizationRequest, LinkPermitExpectation};
 use super::protocol::{
-    AccountMeshPair, AdoptCommit, AdoptCommitReply, AdoptOffer, AdoptOfferReply, LinkCommit,
-    LinkCommitReply, LinkConfirm, LinkConfirmReply, LinkHello, LinkHelloReply, PartyDescriptor,
-    ADOPT_COMMIT_PATH, ADOPT_OFFER_PATH, LINK_COMMIT_PATH, LINK_CONFIRM_PATH, LINK_HELLO_PATH,
+    AccountMeshPair, AdoptCommit, AdoptCommitReply, AdoptOffer, AdoptOfferReply, LinkApproval,
+    LinkApprovalReply, LinkCommit, LinkCommitReply, LinkConfirm, LinkConfirmReply, LinkHello,
+    LinkHelloReply, PartyDescriptor, ADOPT_COMMIT_PATH, ADOPT_OFFER_PATH, LINK_APPROVAL_PATH,
+    LINK_COMMIT_PATH, LINK_CONFIRM_PATH, LINK_HELLO_PATH,
 };
 use super::transcript::{
     self, possession_digest, Party, Purpose, COMMIT_ROLE, INITIATOR_ROLE, RESPONDER_ROLE,
@@ -47,6 +48,11 @@ impl LinkTransport for HttpLinkTransport {
             let mut request = crate::transport::shared_http_client()
                 .post(&url)
                 .json(&body);
+            if path == LINK_APPROVAL_PATH {
+                request = request.timeout(std::time::Duration::from_secs(
+                    super::approval::APPROVAL_TTL_SECS + 10,
+                ));
+            }
             if let Some(token) = bearer {
                 request = request.header("Authorization", format!("Bearer {token}"));
             }
@@ -176,6 +182,29 @@ pub async fn link_installation_with(
         &reply.mesh_signature,
     )?;
 
+    let approval = LinkApproval {
+        link_id: link_id.clone(),
+        installation_signature: context
+            .authority
+            .sign_possession(&possession_digest(&digest, INITIATOR_ROLE))?,
+        mesh_signature: transcript::sign_mesh(&context.private_key, &digest, INITIATOR_ROLE)
+            .map_err(AdmissionRefusal::handshake)?,
+    };
+    let approved: LinkApprovalReply = decode(
+        transport
+            .post(
+                &target.ip,
+                target.api_port,
+                LINK_APPROVAL_PATH,
+                None,
+                encode(&approval)?,
+            )
+            .await?,
+    )?;
+    fence(mesh, &context)?;
+    if !approved.approved {
+        return Err(AdmissionRefusal::Declined);
+    }
     let permit = context
         .authority
         .authorize_link(LinkAuthorizationRequest {
@@ -257,6 +286,7 @@ pub async fn link_installation_with(
         LinkOrigin::LocalAdd {
             removal_watermark: context.removal_watermark,
         },
+        &link_id,
     )?;
     manager
         .account_mesh_pairs()

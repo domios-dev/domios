@@ -51,6 +51,7 @@ fn ask(labels: &[&str], offer: Option<SurfaceOffer>) -> Ask {
         actions: Some(adopt_caller_actions(choice_set(labels))),
         offer,
         condition: None,
+        daemon_request: None,
     }
 }
 

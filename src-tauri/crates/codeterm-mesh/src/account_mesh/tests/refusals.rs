@@ -19,6 +19,7 @@ fn signed_in(locked: bool, enrolled: bool) -> AccountMeshState {
 
 fn legacy() -> LinkRecord {
     LinkRecord {
+        link_nonce: None,
         admission: LinkAdmission::Legacy {
             public_key: "peer-key".into(),
         },
@@ -28,6 +29,7 @@ fn legacy() -> LinkRecord {
 
 fn adopted() -> LinkRecord {
     LinkRecord {
+        link_nonce: None,
         admission: LinkAdmission::Adopted {
             account_id: ACCOUNT.into(),
             installation_id: "peer".into(),

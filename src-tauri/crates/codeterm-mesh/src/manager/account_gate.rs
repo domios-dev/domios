@@ -33,6 +33,7 @@ impl MeshManager {
         }
         if state.account_epoch != self.account.account_epoch {
             self.pending_links.clear();
+            self.link_requests.clear();
             self.pending_adoptions.clear();
         }
         let bound = state
@@ -306,6 +307,7 @@ impl MeshManager {
         self.links.links.insert(
             id.clone(),
             LinkRecord {
+                link_nonce: None,
                 admission: LinkAdmission::Legacy {
                     public_key: peer.public_key.clone(),
                 },

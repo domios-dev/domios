@@ -9,6 +9,8 @@ fn tailnet_exemptions_are_only_existing_peer_handshakes_and_liveness() {
     }
     for path in [
         "/api/mesh/link/hello",
+        "/api/mesh/link/approval",
+        "/api/mesh/disconnect-notice",
         "/api/mesh/link/confirm",
         "/api/mesh/link/commit",
         "/api/mesh/relay",

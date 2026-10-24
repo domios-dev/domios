@@ -4,6 +4,7 @@ use super::transcript::Party;
 use crate::types::PeerAddress;
 
 pub const LINK_HELLO_PATH: &str = "/api/mesh/link/hello";
+pub const LINK_APPROVAL_PATH: &str = "/api/mesh/link/approval";
 pub const LINK_CONFIRM_PATH: &str = "/api/mesh/link/confirm";
 pub const LINK_COMMIT_PATH: &str = "/api/mesh/link/commit";
 pub const ADOPT_OFFER_PATH: &str = "/api/mesh/adopt/offer";
@@ -13,7 +14,12 @@ pub const ADOPT_COMMIT_PATH: &str = "/api/mesh/adopt/commit";
 pub const MEMBERSHIP_HEADER: &str = "x-domios-account-membership";
 
 /// Handshake routes authenticate by membership and transcript proof, never by a pairing key.
-pub const LINK_PATHS: [&str; 3] = [LINK_HELLO_PATH, LINK_CONFIRM_PATH, LINK_COMMIT_PATH];
+pub const LINK_PATHS: [&str; 4] = [
+    LINK_HELLO_PATH,
+    LINK_APPROVAL_PATH,
+    LINK_CONFIRM_PATH,
+    LINK_COMMIT_PATH,
+];
 
 /// Metadata a side reveals about itself; addresses never carry authority.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,6 +56,18 @@ pub struct LinkConfirm {
     pub installation_signature: String,
     pub mesh_signature: String,
     pub permit: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LinkApproval {
+    pub link_id: String,
+    pub installation_signature: String,
+    pub mesh_signature: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LinkApprovalReply {
+    pub approved: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

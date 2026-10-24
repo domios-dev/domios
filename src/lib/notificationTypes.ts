@@ -24,6 +24,7 @@ export interface NotificationPromptIdentity {
 /** The answer slot of one notification: the tab captured when the question was
  * sent, and the single label it may ever hold. */
 export interface NotificationAnswer {
+  daemon_request?: string;
   asked_from_tab: string | null;
   answered: string | null;
   /** Whether the standing answer reached the asking tab. Recording an answer and

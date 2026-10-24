@@ -268,6 +268,7 @@ fn account_mesh_known_local_revoke_blocks_immediately() {
     let clock = clock();
     let (a, b) = (machine(1, &clock), machine(2, &clock));
     let record = LinkRecord {
+        link_nonce: None,
         admission: LinkAdmission::Adopted {
             account_id: ACCOUNT.into(),
             installation_id: b.installation_id.clone(),
@@ -333,7 +334,7 @@ async fn account_mesh_new_link_needs_both_fresh_permits_and_records_both_sides()
 
     let pair = link_installation_with(&a.mesh, &transport, &b.installation_id)
         .await
-        .expect("same-account online link succeeds without remote approval");
+        .expect("same-account online link succeeds after receiver approval");
     assert_eq!(pair.instance_id, b.id());
     assert_eq!(pair.admission, "adopted");
     assert_eq!(a.authority.authorize_calls.load(Ordering::SeqCst), 1);
@@ -522,3 +523,6 @@ fn account_mesh_unpair_removes_provenance_for_good() {
         "a re-inserted record cannot regain the legacy exception"
     );
 }
+
+mod approval;
+mod disconnect;

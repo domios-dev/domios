@@ -59,6 +59,8 @@ pub(crate) const PUBLIC_PATHS: &[&str] = &[
     "/api/health",
     "/api/mesh/ping",
     "/api/mesh/link/hello",
+    "/api/mesh/link/approval",
+    "/api/mesh/disconnect-notice",
     "/api/mesh/link/confirm",
     "/api/mesh/link/commit",
 ];
@@ -73,6 +75,8 @@ fn tailnet_exempt(method: &Method, path: &str) -> bool {
             && matches!(
                 path,
                 "/api/mesh/link/hello"
+                    | "/api/mesh/link/approval"
+                    | "/api/mesh/disconnect-notice"
                     | "/api/mesh/link/confirm"
                     | "/api/mesh/link/commit"
                     | "/api/mesh/relay"

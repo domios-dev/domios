@@ -36,11 +36,22 @@ export function MachineReauthentication({ signingIn, onSignIn }: { signingIn: bo
 }
 
 export interface MachineNodeActions {
+  onDecide?: (row: MachineRowView, notificationId: string, approve: boolean) => void;
   onRename?: (row: MachineRowView, name: string) => Promise<boolean>;
   onConnect: (row: MachineRowView, target: MeshTarget) => void;
   onDisconnect: (row: MachineRowView, instanceId: string) => void;
   onPlans: (key: string) => void;
   onDismiss: (key: string) => void;
+}
+
+function ApprovalControls({ row, busy, actions }: { row: MachineRowView; busy: boolean; actions: MachineNodeActions }) {
+  const request = row.linkRequest;
+  if (row.status !== "approval_requested" || !request?.notification_id) return null;
+  const id = request.notification_id;
+  return <div role="group" aria-label={`Connection request from ${row.name}`} className="flex items-center gap-1.5">
+    <button type="button" disabled={busy || !actions.onDecide} className={COMPACT_ACCENT} onClick={() => actions.onDecide?.(row, id, true)}>Approve</button>
+    <button type="button" disabled={busy || !actions.onDecide} className={COMPACT_GHOST} onClick={() => actions.onDecide?.(row, id, false)}>Decline</button>
+  </div>;
 }
 
 function Callout({ callout, onRetry, onDismiss }: { callout: MachineCallout; onRetry?: () => void; onDismiss: () => void }) {
@@ -99,6 +110,7 @@ export function AccountMachineCard({ node, busy, now, actions, hint }: { node: A
   const action = node.action;
   const seen = node.online || node.lastSeenAt === null ? null : formatAge(node.lastSeenAt * 1000, now);
   const solid = node.tone === "ok" || node.tone === "progress";
+  const retry = ["declined", "link_expired", "link_failed"].includes(node.row.status);
   return (
     <section aria-label={node.name} data-status={node.row.status}
       className={`${NODE_FRAME} border ${solid ? "border-[var(--ct-border)]" : "border-dashed border-[var(--ct-border)]"}`}
@@ -123,8 +135,8 @@ export function AccountMachineCard({ node, busy, now, actions, hint }: { node: A
             <button type="button" onClick={() => actions.onConnect(node.row, action.target)}
               disabled={action.connecting || action.disabledReason !== null} aria-busy={action.connecting}
               aria-describedby={action.disabledReason ? reasonId : undefined}
-              aria-label={`Connect ${node.name}`} className={`${COMPACT_ACCENT} disabled:opacity-50`}>
-              {action.connecting ? <><BusySpinner size={12} /> Connecting…</> : "Connect"}
+              aria-label={`${retry ? "Try again to connect" : "Connect"} ${node.name}`} className={`${COMPACT_ACCENT} disabled:opacity-50`}>
+              {action.connecting ? <><BusySpinner size={12} /> Connecting…</> : retry ? "Try again" : "Connect"}
             </button>
           )}
           {action?.kind === "plans" && (
@@ -132,6 +144,7 @@ export function AccountMachineCard({ node, busy, now, actions, hint }: { node: A
               See plans
             </button>
           )}
+          {action?.kind === "approve" && <ApprovalControls row={node.row} busy={busy} actions={actions} />}
           {node.disconnect && <DisconnectControl name={node.name} instanceId={node.disconnect.instanceId} confirm={node.disconnect.confirm}
             busy={busy} onDisconnect={(instanceId) => actions.onDisconnect(node.row, instanceId)} />}
         </div>
@@ -168,6 +181,7 @@ export function PeerAccountFooterView({ footer, name, lastSeen, busy, actions, h
         </div>
       </div>
       {hint}
+      <ApprovalControls row={footer.row} busy={busy} actions={actions} />
     </div>
   );
 }
