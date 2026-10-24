@@ -62,3 +62,28 @@ fn mesh_status_explains_required_reauthentication() {
     }));
     assert_eq!(lines, ["Sign in again to add this machine to your mesh"]);
 }
+
+#[test]
+fn mesh_account_presence_is_distinct_from_offline_and_expired() {
+    use serde_json::json;
+    let mut row =
+        json!({"active":true,"presence":"signed_out","membership_expires_at":1,"endpoint":null});
+    assert_eq!(
+        super::account_machine_status(&row, 10),
+        "Signed out (actions disabled)"
+    );
+    row["presence"] = json!("present");
+    assert_eq!(
+        super::account_machine_status(&row, 10),
+        "Membership expired"
+    );
+    row["membership_expires_at"] = json!(20);
+    assert_eq!(super::account_machine_status(&row, 10), "Offline");
+    row["endpoint"] = json!({"expires_at":20});
+    assert_eq!(super::account_machine_status(&row, 10), "Present");
+    row["active"] = json!(false);
+    assert_eq!(super::account_machine_status(&row, 10), "Removed");
+    let state = json!({"registry":{"rows":[{"display_name":"Laptop","active":true,"presence":"signed_out"}]}});
+    assert!(super::account_mesh_status_lines(&state)
+        .contains(&"  Laptop: Signed out (actions disabled)".to_owned()));
+}

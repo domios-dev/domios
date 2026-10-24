@@ -14,6 +14,8 @@ pub mod account_link;
 pub mod announce;
 pub mod connection;
 pub mod pairing;
+mod presence;
+pub use presence::account_presence;
 pub mod relay;
 pub(crate) mod relay_stream;
 pub mod remote_tabs;

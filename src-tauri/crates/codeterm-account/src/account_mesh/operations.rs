@@ -264,7 +264,11 @@ impl AccountMesh {
     }
 
     /// Every registry operation goes through the one proof-bound admission callable.
-    async fn admission(&self, signed: &Signed, operation: MeshOperation) -> Outcome<MeshResult> {
+    pub(super) async fn admission(
+        &self,
+        signed: &Signed,
+        operation: MeshOperation,
+    ) -> Outcome<MeshResult> {
         let generation = self.generation(signed).await?;
         let request = MeshAdmissionBody {
             schema_version: MESH_SCHEMA_VERSION,
@@ -334,6 +338,8 @@ impl AccountMesh {
         if current
             && (trigger == EnrollTrigger::Network || self.state().publication_failure.is_some())
         {
+            self.set_registry_presence(&signed, RegistryPresence::Present)
+                .await?;
             return self.reconcile_publication(&signed).await;
         }
         let slot = self.own_slot(&signed.account);
@@ -428,10 +434,17 @@ impl AccountMesh {
         }
         self.persist().await;
         self.push().await;
+        self.set_registry_presence(&signed, RegistryPresence::Present)
+            .await?;
         self.reconcile_publication(&signed).await
     }
 
-    fn remember_metadata(&self, epoch: u64, revision: u64, display_name: Option<String>) {
+    pub(super) fn remember_metadata(
+        &self,
+        epoch: u64,
+        revision: u64,
+        display_name: Option<String>,
+    ) {
         self.with(|inner| {
             if epoch != 0 && !inner.is_current(epoch) {
                 return;
@@ -448,7 +461,7 @@ impl AccountMesh {
         });
     }
 
-    async fn metadata_revision(&self, signed: &Signed) -> Outcome<u64> {
+    pub(super) async fn metadata_revision(&self, signed: &Signed) -> Outcome<u64> {
         if let Some(revision) = self.with(|inner| inner.metadata_revision) {
             return Ok(revision);
         }
@@ -554,8 +567,8 @@ impl AccountMesh {
         failure.map_or(Ok(()), Err)
     }
 
-    /// One authorized withdrawal with the outgoing account's still-valid session.
-    pub(super) async fn withdraw_endpoint(&self, session: &Session) -> Outcome<()> {
+    /// The outgoing account's still-valid session, restricted to its enrolled key.
+    pub(super) async fn outgoing_signed(&self, session: &Session) -> Outcome<Signed> {
         let trust = self
             .config
             .trust
@@ -578,6 +591,11 @@ impl AccountMesh {
         if !enrolled {
             return Err(AccountMeshRefusal::Unavailable);
         }
+        Ok(signed)
+    }
+
+    pub(super) async fn withdraw_endpoint(&self, session: &Session) -> Outcome<()> {
+        let signed = self.outgoing_signed(session).await?;
         match self.publish(&signed, None).await? {
             false => Ok(()),
             true => Err(AccountMeshRefusal::Unavailable),
@@ -723,6 +741,9 @@ impl AccountMesh {
         if !row.active || row.eligibility != Eligibility::Eligible {
             return Err(AccountMeshRefusal::Revoked);
         }
+        if row.presence == RegistryPresence::SignedOut {
+            return Err(AccountMeshRefusal::SignedOut);
+        }
         let target = row.target();
         if !self.with(|inner| inner.is_current(signed.epoch)) {
             return Err(AccountMeshRefusal::Cancelled);
@@ -742,6 +763,9 @@ impl AccountMesh {
             .ok_or(AccountMeshRefusal::Invalid)?;
         if !row.active || row.eligibility != Eligibility::Eligible {
             return Err(AccountMeshRefusal::Revoked);
+        }
+        if row.presence == RegistryPresence::SignedOut {
+            return Err(AccountMeshRefusal::SignedOut);
         }
         let endpoint = row
             .endpoint
