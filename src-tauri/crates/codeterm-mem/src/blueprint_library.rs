@@ -19,6 +19,7 @@ mod merge_policy;
 mod qualification;
 pub mod recall;
 pub mod services;
+mod show;
 use qualification::PreparedBlueprint;
 pub use recall::{BlueprintHit, Fusion, RecallConfig, Weights};
 pub use services::{BlueprintEnricher, EnrichmentJob};

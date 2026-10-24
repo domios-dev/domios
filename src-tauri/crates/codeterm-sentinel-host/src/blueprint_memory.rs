@@ -22,6 +22,7 @@ pub trait BlueprintMemoryExt {
         when: &str,
     ) -> Result<Value, String>;
     fn blueprint_solutions_host(&self, workspace: &str) -> Result<Value, String>;
+    fn blueprint_solution_show_host(&self, workspace: &str, id: &str) -> Result<Value, String>;
     fn blueprint_archive_solution_host(&self, workspace: &str, id: &str) -> Result<Value, String>;
 
     fn blueprint_keep(
@@ -99,6 +100,11 @@ impl BlueprintMemoryExt for ServiceContext {
         crate::graph::validate_scope(&self.mux.read(), workspace, None)?;
         let entries = self.mem.list_blueprint_solutions(&area(workspace))?;
         Ok(json!(entries.into_iter().map(|entry| json!({"id":entry.id,"when_to_use":entry.when_to_use(),"intents":entry.intents,"how":entry.document.note,"uses":entry.uses,"successes":entry.successes,"last_used":entry.last_used})).collect::<Vec<_>>()))
+    }
+    fn blueprint_solution_show_host(&self, workspace: &str, id: &str) -> Result<Value, String> {
+        crate::graph::validate_scope(&self.mux.read(), workspace, None)?;
+        let graph = self.mem.blueprint_solution_show(&area(workspace), id)?;
+        Ok(json!({"document":graph.root,"expanded_calls":graph.calls}))
     }
     fn blueprint_archive_solution_host(&self, workspace: &str, id: &str) -> Result<Value, String> {
         crate::graph::validate_scope(&self.mux.read(), workspace, None)?;
