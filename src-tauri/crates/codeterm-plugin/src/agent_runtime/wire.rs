@@ -130,6 +130,7 @@ pub enum RuntimeFailureCode {
     ProcessUnavailable,
     ProtocolError,
     ProviderRefused,
+    ThreadNotFound,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

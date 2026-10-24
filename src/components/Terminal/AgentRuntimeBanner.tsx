@@ -6,6 +6,8 @@ import { runtimeStatusPresentation, type AgentRuntimeState } from "../../lib/age
 import { TabLoadingIndicator } from "../shared/TabLoadingIndicator";
 import { useRuntimeStatusPopover } from "./useRuntimeStatusPopover";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
+import { isMissingRuntimeConversation } from "../../lib/describeError";
+import { useStartNewSession } from "./useStartNewSession";
 
 export function AgentRuntimeBanner({ state, onRetry, tabId, iconSvg, startupOwned = false }: { tabId?: string; state: AgentRuntimeState | null; onRetry: () => void; iconSvg?: string | null; startupOwned?: boolean }) {
   if (tabId && state?.auth === "signedOut" && state.loginMethods?.length) {
@@ -14,10 +16,12 @@ export function AgentRuntimeBanner({ state, onRetry, tabId, iconSvg, startupOwne
     </>;
   }
   const view = runtimeStatusPresentation(state, startupOwned);
-  return <RuntimeStatusBadge view={view} onRetry={onRetry} />;
+  return <RuntimeStatusBadge view={view} onRetry={onRetry} tabId={tabId} />;
 }
 
-function RuntimeStatusBadge({ view, onRetry }: { view: ReturnType<typeof runtimeStatusPresentation>; onRetry: () => void }) {
+function RuntimeStatusBadge({ view, onRetry, tabId }: { view: ReturnType<typeof runtimeStatusPresentation>; onRetry: () => void; tabId?: string }) {
+  const fresh = useStartNewSession(tabId ?? "");
+  const missing = isMissingRuntimeConversation(view?.details);
   const { open, triggerRef, popoverRef, toggle, close } = useRuntimeStatusPopover();
   const id = useId();
   const active = Boolean(view);
@@ -35,7 +39,10 @@ function RuntimeStatusBadge({ view, onRetry }: { view: ReturnType<typeof runtime
         {view && <InlineErrorNotice
           description={view.severity === "transient" ? { title: view.label, cause: view.reason, raw: view.details ?? "", actions: [] } : undefined}
           error={view.details} operation="connecting to the agent runtime"
-          actions={[{ label: "Retry", disabled: !view.canRetry, onClick: onRetry }]} />}
+          actions={missing && tabId
+            ? [{label:"Start a new conversation",disabled:fresh.startingNewSession,onClick:() => void fresh.onStartNewSession()}]
+            : [{ label: "Retry", disabled: !view.canRetry, onClick: onRetry }]} />}
+        {fresh.actionError && <InlineErrorNotice error={fresh.actionError} operation="starting a new conversation" />}
       </div>
       </AnchoredPopover>
     </div>

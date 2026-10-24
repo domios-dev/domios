@@ -2,6 +2,9 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 import { AgentRuntimeBanner } from "./AgentRuntimeBanner";
+import { invoke } from "../../lib/bridge";
+
+vi.mock("../../lib/bridge", () => ({invoke:vi.fn().mockResolvedValue(undefined)}));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -53,4 +56,20 @@ it("offers history Retry while the conversation runtime is loaded", async () => 
     expect(control.disabled).toBe(false);
     await act(async()=>control.click());expect(retry).toHaveBeenCalledTimes(1);
   } finally { await act(async()=>root.unmount());host.remove(); }
+});
+
+it("offers one fresh-conversation action for a missing saved rollout", async () => {
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  const retry = vi.fn();
+  try {
+    await act(async () => root.render(<AgentRuntimeBanner tabId="opaque-tab" state={{state:"degraded",epoch:2,reason:"ConversationMissing: opaque diagnostic"}} onRetry={retry} />));
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!.click());
+    const start = document.querySelector<HTMLButtonElement>('button[aria-label="Start a new conversation"]');
+    expect(start).not.toBeNull();
+    expect(document.querySelector('button[aria-label="Retry"]')).toBeNull();
+    await act(async () => start!.click());
+    expect(invoke).toHaveBeenCalledWith("restart_agent_tab",{tabId:"opaque-tab",fresh:true});
+    expect(retry).not.toHaveBeenCalled();
+  } finally { await act(async () => root.unmount()); host.remove(); }
 });
