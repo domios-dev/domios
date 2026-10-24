@@ -5,8 +5,21 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { runDevApp, windowsDevArguments, nativeLocatorRecord, prebuiltReadinessPhase } from '../dev-app-process.mjs';
 import { devRuntimeEnvironment } from '../dev-runtime-environment.mjs';
+
+for (const [flags, survives] of [[0, true], [0x1800, true], [0x2800, false]]) {
+  test(`Windows DEV helper job survival, flags=0x${flags.toString(16)}`, { skip: process.platform !== 'win32', timeout: 15_000 }, () => {
+    const result = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+      fileURLToPath(new URL('./fixtures/windows-dev-job.ps1', import.meta.url)),
+      '-Root', fileURLToPath(new URL('../../', import.meta.url)), '-Flags', String(flags)], { encoding: 'utf8', timeout: 10_000 });
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.trim(), survives ? 'True' : 'False');
+  });
+}
 
 for (const code of [0, 17]) {
   test(`DEV child stdio is regular files or synchronous pipes, output drains completely, exit=${code}`, { timeout: 10_000 }, async () => {
