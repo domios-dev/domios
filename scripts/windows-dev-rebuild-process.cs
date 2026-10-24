@@ -1,0 +1,95 @@
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using System.Text;
+using Microsoft.Win32.SafeHandles;
+
+public interface IDevRebuildProcess
+{
+    bool WaitForExit(int milliseconds);
+    void Kill();
+}
+
+public sealed class DevRebuildProcess : IDevRebuildProcess, IDisposable
+{
+    const uint PROCESS_TERMINATE = 0x0001;
+    const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+    const uint SYNCHRONIZE = 0x00100000;
+    const uint WAIT_OBJECT_0 = 0;
+    const uint WAIT_TIMEOUT = 258;
+    readonly SafeProcessHandle handle;
+    public int Id { get; private set; }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern SafeProcessHandle OpenProcess(uint access, bool inherit, int pid);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool GetProcessTimes(SafeProcessHandle process, out long created, out long exited, out long kernel, out long user);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern bool QueryFullProcessImageName(SafeProcessHandle process, uint flags, StringBuilder name, ref int length);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool TerminateProcess(SafeProcessHandle process, uint exitCode);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern uint WaitForSingleObject(SafeProcessHandle process, uint milliseconds);
+
+    DevRebuildProcess(SafeProcessHandle process, int pid) { handle = process; Id = pid; }
+
+    public static DevRebuildProcess Open(int pid)
+    {
+        var process = OpenProcess(SYNCHRONIZE | PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
+        if (!process.IsInvalid) return new DevRebuildProcess(process, pid);
+        int error = Marshal.GetLastWin32Error();
+        process.Dispose();
+        if (error == 87) return null;
+        throw new Win32Exception(error, "OpenProcess(DEV)");
+    }
+
+    public string Created
+    {
+        get
+        {
+            long created, exited, kernel, user;
+            if (!GetProcessTimes(handle, out created, out exited, out kernel, out user))
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "GetProcessTimes(DEV)");
+            return created.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+    }
+
+    public string Executable
+    {
+        get
+        {
+            int length = 32768;
+            var name = new StringBuilder(length);
+            if (!QueryFullProcessImageName(handle, 0, name, ref length))
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "QueryFullProcessImageName(DEV)");
+            return name.ToString();
+        }
+    }
+
+    public bool WaitForExit(int milliseconds)
+    {
+        if (milliseconds < 0) throw new ArgumentOutOfRangeException("milliseconds");
+        uint result = WaitForSingleObject(handle, (uint)milliseconds);
+        if (result == WAIT_OBJECT_0) return true;
+        if (result == WAIT_TIMEOUT) return false;
+        if (result == 0xFFFFFFFF) throw new Win32Exception(Marshal.GetLastWin32Error(), "WaitForSingleObject(DEV)");
+        throw new InvalidOperationException("Unexpected DEV process wait result: " + result);
+    }
+
+    public void Kill()
+    {
+        if (!TerminateProcess(handle, 1))
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "TerminateProcess(DEV)");
+    }
+
+    public static void Stop(IDevRebuildProcess process, int milliseconds)
+    {
+        if (process.WaitForExit(0)) return;
+        try { process.Kill(); }
+        catch (Win32Exception error) { if (error.NativeErrorCode != 5) throw; }
+        if (!process.WaitForExit(milliseconds))
+            throw new InvalidOperationException("DEV pinned process did not exit; refusing staging");
+    }
+
+    public void Dispose() { handle.Dispose(); }
+}
