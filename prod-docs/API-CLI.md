@@ -180,30 +180,20 @@ Overlay files add leaf kinds only; one that declares capability, claims an ancho
 
 Domios account commands and routes: `domios docs ACCOUNT`.
 
-Runtime provider sign-in is available from the Chat banner or CLI:
+Runtime provider sign-in (Chat card or CLI):
 
 ```bash
-domios agent login --tab <ID>
-domios agent login --tab <ID> --device
-domios agent login --tab <ID> --show
-domios agent login --tab <ID> --show --mesh <PEER> --json
-domios agent login --tab <ID> --api-key-stdin
-domios agent login --tab <ID> --cancel
+domios agent login --tab ID --device
+domios agent login --tab ID --show --mesh PEER --json
+domios agent login --tab ID --cancel
 ```
 
-The API key is read only from stdin; never put it in command arguments. Browser
-sign-in uses the default system browser. Device sign-in prints the link and code.
-Mesh sign-in shows the URL and code for the user to open; API keys stay on the
-provider's own machine. Completion verifies the account and resumes the tab's
-same thread without restarting or replaying input. Only one sign-in per provider
-can be pending; Cancel releases it before a retry. Read an existing login with
-`--show`; this never starts another flow. The response contains `login.url`,
-`login.userCode` and `login.expiresAtMs` (Unix milliseconds). Links and codes stop
-being exposed at completion, cancellation or expiry. Domios limits disclosure to
-15 minutes; a provider-reported earlier deadline wins. Cancel an expired flow
-before starting again. The sign-in card's **Send to my phone** requests one
-`action_needed` notification through configured phone channels. Login values
-travel only in the push payload and remain absent from saved notifications and
-sessions.
+Provider-declared flows also support default browser sign-in and local
+`--api-key-stdin` (never argv or mesh). `--show` reads without starting:
+`login.url`, `userCode`, `expiresAtMs` (Unix milliseconds). Values disappear at
+completion, cancellation or within 15 minutes; an earlier provider deadline wins.
+One flow per provider; cancel before retry. Verified completion resumes the same
+thread without replay. **Send to my phone** requests one `action_needed` push;
+saved sessions and notifications omit login values.
 
-<!-- revision: 63 -->
+<!-- revision: 64 -->
