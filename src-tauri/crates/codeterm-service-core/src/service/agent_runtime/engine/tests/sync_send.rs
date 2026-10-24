@@ -5,7 +5,7 @@ use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
 use serde_json::json;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-pub(super) struct Cleanup(String);
+pub(in crate::service::agent_runtime::engine) struct Cleanup(String);
 impl Drop for Cleanup {
     fn drop(&mut self) {
         test_support::stop_test(&self.0);
@@ -32,7 +32,7 @@ pub(super) fn runtime_fixture() -> (ServiceFixture, String, tokio::io::DuplexStr
     runtime_fixture_with(RUNTIME_FIXTURE_SOURCE)
 }
 
-pub(super) fn runtime_fixture_with(
+pub(in crate::service::agent_runtime::engine) fn runtime_fixture_with(
     source: &str,
 ) -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
     runtime_fixture_with_notifications(source, &[])
@@ -66,7 +66,7 @@ pub(super) fn runtime_fixture_with_notifications(
         "id":PROVIDER,"version":"1.0.0","displayName":"Fixture",
         "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
             "agentRuntime":{"runtime":"stdio-jsonrpc","command":{"binary":"fixture-cli","args":[]},
-                "requestMethods":{"initialize":["fixture/initialize"],"resumeThread":["fixture/resume"],"readHistory":["fixture/history"],"submitTurn":["fixture/submit"]},"notificationMethods":notifications}},
+                "requestMethods":{"initialize":["fixture/initialize"],"openThread":["fixture/open"],"resumeThread":["fixture/resume"],"readHistory":["fixture/history"],"submitTurn":["fixture/submit"]},"notificationMethods":notifications}},
         "permissions":{"subprocess":{"allow":["fixture-cli"]}}
     }).to_string()).unwrap();
     fixture
