@@ -91,6 +91,12 @@ fn parity_claude_background_work_and_fork_capabilities() {
     );
     assert!(native_roster.unknown.contains_key("dropped"));
     assert!(native_roster.ended.contains_key("finished"));
+    assert!(native_roster.ended.contains_key("opaque-stopped"));
+    let stopped: serde_json::Value = serde_json::from_str(fixture.lines().last().unwrap()).unwrap();
+    assert_eq!(
+        native.parse_background_work(&stopped)[0].state,
+        codeterm_types::agent::background_work::BackgroundWorkState::Killed
+    );
     let replay: serde_json::Value = serde_json::from_str(fixture.lines().next().unwrap()).unwrap();
     for observation in native.parse_background_work(&replay) {
         native_roster.observe(&observation, "");

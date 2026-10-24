@@ -15,5 +15,16 @@ const rows = readFileSync(new URL("./fixtures/background-work.jsonl", import.met
 assert.deepEqual(rows.flatMap(parseBackgroundWork), [
   {id:"dropped",state:"running"}, {id:"",state:"session_boundary"},
   {id:"finished",state:"running"}, {id:"finished",state:"completed"}, {id:"live",state:"running"},
+  {id:"opaque-stopped",state:"running"}, {id:"opaque-stopped",state:"killed"},
 ]);
-console.log("13 passed, 0 failed");
+const stop = rows[rows.length - 1] as Record<string, unknown>;
+const result = stop.toolUseResult as Record<string, unknown>;
+for (const value of [
+  {...stop, type:"assistant"},
+  {...stop, toolUseResult:{...result,task_type:"opaque"}},
+  {...stop, toolUseResult:{...result,task_id:"../foreign"}},
+  {...stop, toolUseResult:{...result,command:null}},
+  {...stop, message:{content:[{type:"tool_result",is_error:true}]}},
+  {type:"user", toolUseResult:{message:"opaque-b",task_id:"opaque-stopped"}},
+]) assert.deepEqual(parseBackgroundWork(value), []);
+console.log("19 passed, 0 failed");

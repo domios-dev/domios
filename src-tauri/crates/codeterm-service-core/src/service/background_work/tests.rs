@@ -59,6 +59,25 @@ fn background_record_compute_keeps_fork_and_session_filters_and_completion_dedup
     let running = observe_background_records(&before, false, "own", &[unbound], true);
     assert_eq!(running.running.len(), 1);
     assert!(before.running.is_empty());
+    assert_eq!(
+        observe_background_records(
+            &running,
+            false,
+            "own",
+            &[record(Some("foreign"), BackgroundWorkState::Killed)],
+            true
+        ),
+        running
+    );
+    let stopped = observe_background_records(
+        &running,
+        false,
+        "own",
+        &[record(Some("own"), BackgroundWorkState::Killed)],
+        true,
+    );
+    assert!(stopped.running.is_empty());
+    assert!(stopped.ended.contains_key("work"));
     let completed = observe_background_records(
         &running,
         true,
