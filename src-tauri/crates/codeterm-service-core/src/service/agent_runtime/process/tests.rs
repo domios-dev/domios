@@ -68,6 +68,87 @@ fn stderr_tail_stays_bounded() {
     assert_eq!(output.len(), 8192);
     assert!(output.ends_with(b"last"));
 }
+
+#[tokio::test]
+async fn finish_confirms_command_parent_and_child_exit_by_retained_handles() {
+    assert_tree_exit("finish").await;
+}
+
+#[tokio::test]
+async fn stop_confirms_command_parent_and_child_exit_by_retained_handles() {
+    assert_tree_exit("stop").await;
+}
+
+#[tokio::test]
+async fn drop_confirms_command_parent_and_child_exit_by_retained_handles() {
+    assert_tree_exit("drop").await;
+}
+
+async fn assert_tree_exit(action: &str) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cap = capability();
+    cap.command.args = vec![format!(
+        "{}/../../../tests/fixtures/agent-runtime/owned-tree.mjs",
+        crate::test_support::fixture_manifest_dir().display()
+    )];
+    let process = spawn(
+        Path::new("node"),
+        &cap,
+        dir.path().to_str().unwrap(),
+        HashMap::new(),
+        "fixture-owned-tree",
+    )
+    .unwrap();
+    let result = process
+        .client
+        .request_guarded(
+            &RpcCall {
+                target: None,
+                method: "fixture/tree".into(),
+                params: serde_json::json!({}),
+            },
+            None,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    let pids: Vec<u32> = serde_json::from_value(result["pids"].clone()).unwrap();
+    assert_eq!(pids.len(), 2);
+    let members = process.boundary.as_ref().unwrap().snapshot().unwrap();
+    for pid in &pids {
+        let member = members.iter().find(|member| member.pid == *pid).unwrap();
+        assert!(
+            !member.exited().unwrap(),
+            "{action}: command {pid} must start alive"
+        );
+    }
+    let mut ended = process.ended.clone();
+    match action {
+        "finish" => process.finish().await.unwrap(),
+        "stop" => process.stop(),
+        "drop" => drop(process),
+        _ => unreachable!(),
+    }
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while ended.borrow_and_update().is_none() {
+            ended.changed().await.unwrap();
+        }
+    })
+    .await
+    .unwrap();
+    assert!(
+        matches!(*ended.borrow(), Some(RuntimeFailure::ProcessExited { .. })),
+        "{action}: {:?}",
+        *ended.borrow()
+    );
+    for member in members {
+        assert!(
+            member.exited().unwrap(),
+            "{action}: {} survived",
+            member.pid
+        );
+    }
+}
 #[tokio::test]
 async fn own_tab_environment_reaches_the_child_and_its_shell_commands() {
     let dir = tempfile::tempdir().unwrap();

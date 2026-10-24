@@ -22,6 +22,13 @@ pub(super) struct Member {
     native: native::Member,
 }
 
+#[cfg(test)]
+impl Member {
+    pub(super) fn exited(&self) -> Result<bool, RuntimeFailure> {
+        self.native.exited().map_err(failure)
+    }
+}
+
 pub(super) struct Boundary {
     pid: u32,
     infrastructure: HashMap<u32, native::Member>,
@@ -187,18 +194,23 @@ impl Boundary {
 
     pub(super) fn retire(&self) -> Result<(), RuntimeFailure> {
         let deadline = Instant::now() + Duration::from_secs(5);
+        let mut termination_requested = false;
         for _ in 0..4 {
             if Instant::now() >= deadline {
                 return Err(failure("process tree retirement deadline"));
             }
             let members = self.snapshot()?;
-            if members
+            let all_exited = members
                 .iter()
-                .all(|member| member.native.exited().unwrap_or(false))
-            {
+                .map(|member| member.native.exited().map_err(failure))
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .all(|exited| exited);
+            if retirement_confirmed(termination_requested, all_exited) {
                 return Ok(());
             }
             native::terminate(self).map_err(failure)?;
+            termination_requested = true;
             for member in members {
                 member.native.wait(deadline).map_err(failure)?;
             }
@@ -207,6 +219,10 @@ impl Boundary {
             "process tree continued growing after observed exit events",
         ))
     }
+}
+
+fn retirement_confirmed(termination_requested: bool, all_observed_exited: bool) -> bool {
+    termination_requested && all_observed_exited
 }
 
 fn executable(value: &str) -> String {
