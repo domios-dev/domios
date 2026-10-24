@@ -157,6 +157,7 @@ pub struct Script {
     pub lose_membership_reply: Option<RegistryRefusal>,
     pub lose_key_reply: Option<RegistryRefusal>,
     pub publication: Option<RegistryRefusal>,
+    pub list: Option<RegistryRefusal>,
     pub permit: Option<RegistryRefusal>,
     pub gate: Option<Arc<Notify>>,
     pub peer_unpublished: bool,
@@ -489,6 +490,9 @@ impl MeshRegistry for FakeRegistry {
                 }))
             }
             MeshOperation::List { .. } => {
+                if let Some(refusal) = self.script.lock().unwrap().list {
+                    return Err(refusal);
+                }
                 drop(accounts);
                 Ok(MeshResult::Page(PageResult {
                     registry_revision: 7,
