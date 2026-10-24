@@ -1,6 +1,6 @@
 import { SavedSolutions } from "./SavedSolutions";
+import { useJobsFilterNavigation, useJobsNavigation, useMissingJobFallback } from "../../hooks/useJobsNavigation";
 import { SavedSolutionView } from "./SavedSolutionView";
-import type { CatalogEntry } from "./solutionCatalog";
 import { SaveSolutionForm } from "./SaveSolutionForm";
 import { successfulSolutionScope, blueprintSolutionsApi, type BlueprintSolutionsApi, type SolutionScope } from "./blueprintSolutions";
 import { blueprintMeta } from "../Automation/blueprintMeta";
@@ -45,8 +45,6 @@ export interface JobsTarget {
   cronId?: string;
   blueprintId?: string;
 }
-
-type Selection = { kind: "cron" | "scenario" | "blueprint"; id: string } | null;
 
 type Confirmation = { kind: "delete"; job: MergedJob } | { kind: "clear"; jobs: MergedJob[] };
 
@@ -101,8 +99,7 @@ function JobsSurface({ solutionsApi, adapter, connectionId, sources, cronWorkspa
   const [solutionRevision, setSolutionRevision] = useState(0);
   const [solutionSaved, setSolutionSaved] = useState(false);
   const crons = useCronJobs(cronWorkspace);
-  const [selection, setSelection] = useState<Selection>(initialBlueprintId ? { kind: "blueprint", id: initialBlueprintId } : initialScenarioId ? { kind: "scenario", id: initialScenarioId } : initialCronId ? { kind: "cron", id: initialCronId } : null);
-  const [openedSolution, setOpenedSolution] = useState<CatalogEntry | null>(null);
+  const { selection, setSelection, openedSolution, setOpenedSolution } = useJobsNavigation(JSON.stringify(filter), initialBlueprintId ? { kind: "blueprint", id: initialBlueprintId } : initialScenarioId ? { kind: "scenario", id: initialScenarioId } : initialCronId ? { kind: "cron", id: initialCronId } : null, solutionsApi);
   useEffect(() => {
     onDetailChange(selection !== null || openedSolution !== null);
     return () => onDetailChange(false);
@@ -141,6 +138,8 @@ function JobsSurface({ solutionsApi, adapter, connectionId, sources, cronWorkspa
     return undefined;
   }, [graphs, selection]);
   const openedBlueprint = selection?.kind === "blueprint" ? pipelines.find(({ pipeline }) => pipeline.id === selection.id) : undefined;
+  useMissingJobFallback(selection, selection?.kind === "cron" ? crons.jobs !== null && !crons.failed : selection?.kind !== "scenario" && graphsRead && !graphsFailed,
+    selection?.kind === "cron" ? Boolean(crons.jobs?.some((job) => job.id === selection.id)) : Boolean(opened || openedBlueprint), setSelection);
   const missing = selection?.kind === "scenario" && graphsRead && !opened;
   const notices = useMemo(() => ({ graph: graphs.find((graph) => graph.graph?.truncated)?.graph ?? graphs.find((graph) => graph.graph)?.graph ?? null, loading: false, failed: graphsFailed, stopping: null, stopFailed: null }), [graphs, graphsFailed]);
   const refreshAll = useCallback(() => Promise.all([crons.refresh(), ...graphs.map((graph) => graph.refresh())]), [crons.refresh, graphs]);
@@ -340,7 +339,7 @@ export function JobsView({ solutionsApi = blueprintSolutionsApi, machinePeers, p
   const [importOpen, setImportOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const [importRevision, setImportRevision] = useState(0);
-  const [filter, setFilter] = useState<JobsFilter>(initialFilter);
+  const [filter, setFilter] = useJobsFilterNavigation(initialFilter, !initialScenarioId && !initialCronId && !initialBlueprintId, context.ready, workspaces, teams);
   const [initialScenario, setInitialScenario] = useState(initialScenarioId);
   const [initialCron, setInitialCron] = useState(initialCronId);
   const [initialBlueprint, setInitialBlueprint] = useState(initialBlueprintId);

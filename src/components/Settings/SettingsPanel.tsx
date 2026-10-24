@@ -1,9 +1,11 @@
 import { DropdownSelect } from "../shared/DropdownMenu";
+import { useSettingsNavigation, type SettingsRoute as Route } from "../../hooks/useSettingsNavigation";
 import { nativeBridge } from "../../lib/nativeBridge";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "../../lib/bridge";
 import type { AppConfig } from "../../lib/types";
 import { useMuxSelector } from "../../store/multiplexer";
+import { HYDRATED_GENERATION } from "../../store/multiplexer/initialState";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 import {
   ChevronRight,
@@ -33,16 +35,13 @@ import { LogsTab } from "./LogsTab";
 import { JobsView } from "../Jobs/JobsView";
 import { jobsEntryFilter } from "../Jobs/jobsLayout";
 import { HelpPanel } from "../../help/HelpPanel";
-import type { HelpSectionId } from "../../help/types";
 import type { GuideRequest } from "../../help/guideNavigation";
 import {
-  type SectionId,
   SECTION_ICONS,
   SETTINGS_SECTIONS,
   sectionTitle,
   resolveSettingsLink,
   settingsRouteForHelpTarget,
-  type SettingsCardAnchorId,
   type SettingsLinkId,
 } from "./sections";
 
@@ -54,31 +53,22 @@ interface SettingsPanelProps {
   guideRequest?: GuideRequest;
 }
 
-function initialStack(link: SettingsLinkId | undefined, guideRequest: GuideRequest | undefined): Route[] {
-  const route = resolveSettingsLink(link);
-  if (!route) return [{ kind: "root" }];
-  const helpSection = route.section === "guide" ? guideRequest?.section : undefined;
-  return [{ kind: "root" }, { kind: "section", id: route.section, helpSection, card: route.card }];
-}
 const selectWorkspaces = (state: ExtendedState) => state.workspaces;
 const selectTabs = (state: ExtendedState) => state.tabs;
 const selectTeams = (state: ExtendedState) => state.teams;
+const selectNavigationReady = (state: ExtendedState) => state.generation > HYDRATED_GENERATION;
 
 /** The settings panel stays mounted while hidden; only its Jobs page follows workspace and tab changes. */
 function MachineJobsView({ onClose }: { onClose: () => void }) {
   const workspaces = useMuxSelector(selectWorkspaces);
   const tabs = useMuxSelector(selectTabs);
   const teams = useMuxSelector(selectTeams);
-  return <JobsView workspaces={workspaces} teams={teams} tabs={tabs} initialFilter={jobsEntryFilter({ kind: "machine" })} onClose={onClose} />;
+  const ready = useMuxSelector(selectNavigationReady);
+  return ready ? <JobsView workspaces={workspaces} teams={teams} tabs={tabs} initialFilter={jobsEntryFilter({ kind: "machine" })} onClose={onClose} /> : <p role="status">Reading jobs…</p>;
 }
 
 /** Names the settings dialog from its live header — one panel is mounted at a time. */
 const SETTINGS_TITLE_ID = "codeterm-settings-title";
-
-type Route =
-  | { kind: "root" }
-  | { kind: "section"; id: SectionId; helpSection?: HelpSectionId; card?: SettingsCardAnchorId }
-  | { kind: "agent-provider"; providerId: string };
 
 export function SettingsPanel({
   config,
@@ -87,16 +77,13 @@ export function SettingsPanel({
   initialSection,
   guideRequest,
 }: SettingsPanelProps) {
-  const [stack, setStack] = useState<Route[]>(() => initialStack(initialSection, guideRequest));
+  const [stack, setStack] = useSettingsNavigation(initialSection, guideRequest);
   const top = stack[stack.length - 1];
   const push = useCallback((r: Route) => setStack((s) => [...s, r]), []);
   const pop = useCallback(
     () => setStack((s) => (s.length > 1 ? s.slice(0, -1) : s)),
     [],
   );
-  useEffect(() => {
-    setStack(initialStack(initialSection, guideRequest));
-  }, [initialSection, guideRequest]);
 
   // Settings is a full-view modal — Esc closes it (matching the close button).
   useEffect(() => {
