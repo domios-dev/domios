@@ -2,7 +2,7 @@ import { BlueprintParameters } from "../Automation/BlueprintParameters";
 import { useState } from "react";
 import type { BlueprintProjectEntry, BlueprintProjectView } from "../../lib/blueprintApi";
 import { orchestrationTransport } from "../../lib/transport/orchestrationRuntime";
-import { BlueprintPipelineCanvas } from "../Automation/BlueprintPipelineCanvas";
+import { BlueprintView } from "../Automation/blueprint/BlueprintView";
 import { pipelineModel } from "../Automation/pipelineModel";
 import { BlueprintProjectionValue } from "../Automation/BlueprintProjectionValue";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
@@ -39,7 +39,7 @@ export function BlueprintProjectList({ workspaceId, api = hostApi }: { workspace
     {view && <section aria-label={`Repository source ${view.path}`}>
       <h3>{view.document.name}</h3><p>{view.document.intent}</p>
       <BlueprintParameters key={view.path} inputs={view.document.inputs ?? {}} />
-      {pipeline && <BlueprintPipelineCanvas pipeline={pipeline} />}
+      {pipeline && <BlueprintView pipeline={pipeline} headingLevel={3} />}
       <BlueprintProjectionValue value={view.document} label="Source definition" />
     </section>}
   </section>;

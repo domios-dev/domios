@@ -2,13 +2,11 @@ import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useLayoutEffect, useRef, useState } from "react";
 import { ChevronRight, Network } from "lucide-react";
 import { focusEntry, focusLost } from "./focus";
-import { ScopedScenarioPanel } from "./ScopedScenarioPanel";
-import { ScenarioPanel } from "./ScenarioPanel";
+import { HostBlueprintView } from "./blueprint/HostBlueprintView";
 import { blueprintScenarioJobs, blueprintTitle } from "./scenarios";
 import { AUTOMATION_ROW, stateTone } from "./styles";
-import { ALL_JOBS_SCOPE, type AutomationAttachment, type AutomationGraphAdapter } from "./types";
+import type { AutomationAttachment, AutomationGraphAdapter } from "./types";
 import { useAutomationGraph } from "./useAutomationGraph";
-import { createAutomationCamera, type AutomationCamera } from "./useAutomationViewport";
 import type { AutomationSnapshot } from "./resource";
 
 export interface AutomationGraphViewProps {
@@ -33,25 +31,9 @@ export function AutomationNotices({ state, noun }: { state: AutomationSnapshot; 
   </>;
 }
 
-const cameras = new Map<string, AutomationCamera>();
-
-/** Cameras outlive the view, so a reopened Blueprint keeps its framing and selected node. */
-export function scenarioCamera(scenarioId: string): AutomationCamera {
-  const existing = cameras.get(scenarioId);
-  if (existing) return existing;
-  const created = createAutomationCamera();
-  cameras.set(scenarioId, created);
-  return created;
-}
-
-export function useScenarioCameras() {
-  return scenarioCamera;
-}
-
 function AutomationGraphSurface({ adapter, attachment }: AutomationGraphViewProps) {
   const state = useAutomationGraph(adapter, attachment);
   const [scenarioId, setScenarioId] = useState<string | null>(null);
-  const cameraFor = useScenarioCameras();
   const list = useRef<HTMLUListElement>(null);
   const removed = useRef<HTMLParagraphElement>(null);
   const returnTo = useRef<string | null>(null);
@@ -64,9 +46,10 @@ function AutomationGraphSurface({ adapter, attachment }: AutomationGraphViewProp
     returnTo.current = null;
   }, [scenario, missing]);
   return <section aria-label="Automations" className="min-w-0 text-[length:var(--ct-font-size-sm)] text-[var(--ct-fg)]">
-    {scenario && attachment.team_id === ALL_JOBS_SCOPE ? <ScopedScenarioPanel adapter={adapter} attachment={attachment} scenario={scenario} camera={cameraFor(scenario.id)} backLabel="All Blueprints" onBack={() => { returnTo.current = scenario.id; setScenarioId(null); }} /> : scenario ? <ScenarioPanel state={state} scope={attachment} scenario={scenario} camera={cameraFor(scenario.id)} backLabel="All Blueprints" onBack={() => { returnTo.current = scenario.id; setScenarioId(null); }}>
+    {scenario && state.graph ? <>
       <AutomationNotices state={state} noun="automations" />
-    </ScenarioPanel> : <>
+      <HostBlueprintView graph={state.graph} attachment={attachment} adapter={adapter} refresh={state.refresh} blueprintId={scenario.root.id} backLabel="All Blueprints" onBack={() => { returnTo.current = scenario.id; setScenarioId(null); }} />
+    </> : <>
       <div className="ct-jobs-header px-4 py-3"><h2 className="text-[length:var(--ct-font-size-md)] font-semibold">Blueprints</h2></div>
       <AutomationNotices state={state} noun="automations" />
       {missing && <div ref={removed} tabIndex={-1}  className="px-4 py-3 outline-none"><InlineErrorNotice error={{ code: "blueprint_unavailable", raw: "" }} /></div>}

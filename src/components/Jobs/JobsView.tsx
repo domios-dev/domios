@@ -8,7 +8,7 @@ import { PeerJobsView } from "./PeerJobsView";
 import { jobsEntryState, THIS_MACHINE } from "./jobsMachineModel";
 import { useJobsMachines } from "./useJobsMachines";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Clock3, Network, Plus, Square, Trash2, Workflow } from "lucide-react";
 import { BackPill } from "../shared/BackPill";
 import { returnToOrigin, type ReturnTo, type ReturnToRoute } from "../../lib/returnTo";
@@ -16,16 +16,14 @@ import type { PairedPeer, Tab, Team } from "../../lib/types";
 import { usePlanPeerContext } from "../Canvas/usePlanPeerContext";
 import { CronWorkspaceView } from "../Cron/CronWorkspaceView";
 import type { MeshResourceActionAdapter } from "../MeshPanel/meshResourceActions";
-import { AutomationNotices, useScenarioCameras } from "../Automation/AutomationGraphView";
+import { AutomationNotices } from "../Automation/AutomationGraphView";
 import { focusEntry, focusLost } from "../Automation/focus";
 import { hostAutomationAdapter } from "../Automation/hostAdapter";
-import { ScopedScenarioPanel } from "../Automation/ScopedScenarioPanel";
+import { HostBlueprintView } from "../Automation/blueprint/HostBlueprintView";
 import { blueprintScenarioJobs } from "../Automation/scenarios";
-import { AUTOMATION_TONE, AUTOMATION_TOOL } from "../Automation/styles";
+import { AUTOMATION_TOOL } from "../Automation/styles";
 import type { AutomationGraphAdapter } from "../Automation/types";
-import { BlueprintPipelineView } from "../Automation/BlueprintPipelineView";
 import { BlueprintProjectList } from "./BlueprintProjectList";
-import { BlueprintExportButton } from "../Automation/BlueprintExportButton";
 import { BlueprintImportForm } from "./BlueprintImportForm";
 import { JobConfirmationDialog } from "./JobConfirmationDialog";
 import { cronMeta, JobRow, sentinelRowText, sentinelStateLabel } from "./JobRow";
@@ -105,7 +103,6 @@ function JobsSurface({ solutionsApi, adapter, connectionId, sources, cronWorkspa
     onDetailChange(selection !== null);
     return () => onDetailChange(false);
   }, [onDetailChange, selection]);
-  const cameraFor = useScenarioCameras();
   const list = useRef<HTMLDivElement>(null);
   const removed = useRef<HTMLParagraphElement>(null);
   const returnTo = useRef<string | null>(null);
@@ -240,26 +237,17 @@ function JobsSurface({ solutionsApi, adapter, connectionId, sources, cronWorkspa
     const id = selection.id;
     return <CronWorkspaceView cronId={id} actionAdapter={cronActionAdapter} backLabel="All jobs" onBack={() => { void crons.refresh(); back(`cron:${id}`); }} />;
   }
-  if (selection?.kind === "blueprint") {
-    return <section className="flex min-w-0 flex-col" aria-label="Blueprint view">
-      <div className="ct-jobs-header flex flex-wrap items-center gap-x-3 gap-y-2 py-2.5 pl-4 pr-3">
-        <BackPill label="All jobs" onBack={() => back(`${blueprints.some(({ pipeline }) => pipeline.id === selection.id) ? "blueprint" : "scenario"}:${selection.id}`)} />
-        {openedBlueprint && <>
-          <span className="ct-card__icon" style={{ "--ct-card-tone": AUTOMATION_TONE.blueprint } as CSSProperties}><Network size={14} aria-hidden="true" /></span>
-          <h3 className="min-w-0 flex-[1_1_12rem] break-words text-[length:var(--ct-font-size-md)] font-semibold">{openedBlueprint.pipeline.name}</h3>
-          <BlueprintExportButton workspaceId={openedBlueprint.workspaceId} teamId={openedBlueprint.pipeline.owner.team_id} id={graphs.flatMap((entry) => entry.graph?.scenarios ?? []).find((scenario) => scenario.id === openedBlueprint.pipeline.id)?.root.id ?? openedBlueprint.pipeline.id} />
-        </>}
-      </div>
-      <div className="min-w-0 px-4 py-3">
-        {openedBlueprint
-          ? <BlueprintPipelineView pipeline={openedBlueprint.pipeline} workspaceId={openedBlueprint.workspaceId} attachment={graphFor(openedBlueprint.workspaceId)!.attachment} adapter={adapter} refresh={graphFor(openedBlueprint.workspaceId)!.refresh} initialRunId={initialRunId} />
-          : graphsRead ? <InlineErrorNotice error={{ code: "blueprint_unavailable", raw: "" }} /> : graphsFailed ? <p role="status" className="ct-job-note">Blueprint is unavailable.</p> : <p role="status" className="ct-job-note">Reading Blueprint…</p>}
-      </div>
+  if (selection?.kind === "blueprint" || opened) {
+    const target = opened ? { graph: opened.graph, id: opened.scenario.root.id } : openedBlueprint ? { graph: graphFor(openedBlueprint.workspaceId), id: openedBlueprint.pipeline.id } : null;
+    const scenarioId = opened?.scenario.id ?? null;
+    const backLabel = scenarioId && openedDirectly.current === scenarioId && onExit ? "where you were" : "All jobs";
+    const onBack = () => scenarioId ? closeScenario(scenarioId) : back(`${blueprints.some(({ pipeline }) => pipeline.id === selection?.id) ? "blueprint" : "scenario"}:${selection?.id}`);
+    if (target?.graph?.graph) return <HostBlueprintView graph={target.graph.graph} attachment={target.graph.attachment} adapter={adapter} refresh={target.graph.refresh}
+      blueprintId={target.id} initialRunId={!scenarioId || initialScenarioId === scenarioId ? initialRunId : undefined} backLabel={backLabel} onBack={onBack} headingLevel={3} fill />;
+    return <section className="flex min-w-0 flex-col gap-3 px-4 py-3" aria-label="Blueprint view">
+      <BackPill label={backLabel} onBack={onBack} />
+      {graphsRead ? <InlineErrorNotice error={{ code: "blueprint_unavailable", raw: "" }} /> : graphsFailed ? <p role="status" className="ct-job-note">Blueprint is unavailable.</p> : <p role="status" className="ct-job-note">Reading Blueprint…</p>}
     </section>;
-  }
-  if (opened) {
-    const { graph, scenario } = opened;
-    return <ScopedScenarioPanel adapter={adapter} attachment={graph.attachment} scenario={scenario} initialRunId={initialScenarioId === scenario.id ? initialRunId : undefined} camera={cameraFor(scenario.id)} backLabel={openedDirectly.current === scenario.id && onExit ? "where you were" : "All jobs"} headingLevel={3} fill onBack={() => closeScenario(scenario.id)} />;
   }
   const reading = (crons.jobs === null && !crons.failed) || graphs.some((graph) => graph.loading);
   const empty = jobs.length === 0 && crons.jobs !== null && graphsRead && !crons.failed && !graphsFailed;

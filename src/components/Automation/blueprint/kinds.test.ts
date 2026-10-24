@@ -1,28 +1,28 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { actionKind, actionTitle, blueprintActions, blueprintLegend, blueprintNodeKinds, blueprintSources, blueprintSteps, blueprintTriggers, nodeIcon } from "./blueprintKinds";
-import { blueprintModel } from "./blueprintModel";
-import { typedGraph } from "./blueprintModel.testdata";
+import { blueprintActions, blueprintLegend, blueprintNodeKinds, blueprintSources, blueprintSteps, blueprintTriggers, irNodeKind } from "./kinds";
 
-const fixture = JSON.parse(readFileSync(new URL("../../../tests/fixtures/blueprint-nodes.golden.json", import.meta.url), "utf8")) as { nodes: { kind: string; type: string }[] };
+const fixture = JSON.parse(readFileSync(new URL("../../../../tests/fixtures/blueprint-nodes.golden.json", import.meta.url), "utf8")) as { nodes: { kind: string; type: string }[] };
 const catalogTypes = (kind: string) => fixture.nodes.filter((node) => node.kind === kind).map((node) => node.type).sort();
 assert.deepEqual(Object.keys(blueprintSteps).sort(), catalogTypes("step"));
-assert.equal(blueprintSteps.agent.type, "agent");
-assert.equal(blueprintSteps.github.type, "source");
-assert.ok(blueprintSteps.github.icon);
-assert.equal(blueprintSteps.http.type, "source");
-assert.notEqual(blueprintSteps.http.icon, blueprintSteps.github.icon);
 assert.deepEqual(Object.keys(blueprintActions).sort(), catalogTypes("handler"));
 assert.deepEqual(Object.values(blueprintTriggers).map((kind) => kind.catalogType).sort(), catalogTypes("trigger"));
 assert.deepEqual(Object.values(blueprintSources).map((kind) => kind.catalogType).sort(), catalogTypes("source"));
 assert.equal(new Set(blueprintLegend).size, Object.keys(blueprintNodeKinds).length);
-for (const node of blueprintModel(typedGraph()).nodes) {
-  assert.ok(nodeIcon(node));
-  assert.ok(blueprintNodeKinds[node.type].width > 0);
-  assert.ok(blueprintNodeKinds[node.type].label);
-  if (node.action?.handler) assert.ok(actionKind(node.action.handler.type));
-}
-assert.equal(actionKind("unknown"), undefined);
-assert.equal(actionKind("toString"), undefined);
-assert.equal(actionTitle("unknown", null, null), "unknown");
-console.log("Blueprint kind registry covers the canonical Rust node catalog");
+assert.notEqual(blueprintSteps.http.icon, blueprintSteps.github.icon);
+for (const kind of Object.values(blueprintNodeKinds)) assert.ok(kind.width > 0 && kind.label);
+
+const kind = (node: Parameters<typeof irNodeKind>[0], deterministic = false) => irNodeKind(node, deterministic);
+assert.equal(kind({ id: "a", uses: "http" }).type, "source");
+assert.equal(kind({ id: "a", uses: "github" }).type, "source");
+assert.equal(kind({ id: "a", uses: "probe" }).type, "source");
+assert.equal(kind({ id: "a", uses: "convert" }).type, "code");
+assert.equal(kind({ id: "a", run: { lit: "echo" } }).type, "code");
+assert.deepEqual([kind({ id: "a", code: { lang: "python", src: "" } }).type, kind({ id: "a", code: { lang: "ts", src: "" } }).label], ["code", "TypeScript"]);
+assert.equal(kind({ id: "a", uses: "ask" }).type, "agent");
+assert.equal(kind({ id: "a", uses: "ask" }, true).type, "logic", "a pattern-only classifier is logic");
+assert.equal(kind({ id: "a", uses: "filter" }).type, "logic");
+assert.equal(kind({ id: "a", call: { ref: "mem:x" } }).type, "call");
+for (const action of Object.keys(blueprintActions)) assert.equal(kind({ id: "a", uses: action }).type, action === "command" ? "code" : "action");
+assert.equal(kind({ id: "a", uses: "toString" }).type, "action", "inherited names never match a registry entry");
+console.log("Blueprint kind registry covers the canonical Rust node catalog and classifies definition nodes");
