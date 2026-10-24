@@ -37,5 +37,5 @@ fn next_transition_walks_refresh_then_effective_end_then_none() {
     assert_eq!(grant.next_transition(T + 86_400), None);
     let ending = signer.accept(&with(paid(), json!({"period_end": T + 7_200})), T);
     assert_eq!(ending.next_transition(T + 3_600), Some(T + 7_200));
-    assert!(PERIOD_END > T + 86_400);
+    const { assert!(PERIOD_END > T + 86_400) };
 }
