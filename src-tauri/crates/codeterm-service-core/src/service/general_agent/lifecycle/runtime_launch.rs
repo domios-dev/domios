@@ -237,6 +237,14 @@ fn launch(
         permission_bypass,
     );
     svc.launch_chatbackend_runtime_existing(&tab_id, &metadata, launch_config)?;
+    if crate::service::agent_runtime::engine::for_tab(&tab_id).is_some_and(|session| {
+        matches!(
+            session.state.lock().phase,
+            crate::service::agent_runtime::model::RuntimePhase::LoginPending
+        )
+    }) {
+        return Ok(());
+    }
     let bound_session = mux
         .read()
         .get_tab(&tab_id)

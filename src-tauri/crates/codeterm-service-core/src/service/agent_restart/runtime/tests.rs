@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 mod provider_switch;
 mod rebind;
+mod sign_in;
 
 #[test]
 fn restart_routing_requires_runtime_capability_and_chat_backing() {
@@ -66,6 +67,9 @@ impl Drop for RuntimeFixture {
 }
 impl RuntimeFixture {
     fn new() -> Self {
+        Self::with_source(SOURCE)
+    }
+    fn with_source(source: &str) -> Self {
         let (mut mux, tab) = MultiplexerState::new();
         let target = mux.get_tab_mut(&tab).unwrap();
         target.agent_type = Some(PROVIDER.into());
@@ -119,6 +123,7 @@ impl RuntimeFixture {
             "resumeThread",
             "readHistory",
             "submitTurn",
+            "control",
         ]
         .into_iter()
         .map(|kind| (kind.to_string(), json!([kind])))
@@ -126,7 +131,7 @@ impl RuntimeFixture {
         let manifest = PluginManifest::from_json_str(&json!({
             "id":PROVIDER,"version":"1.0.0","displayName":"Fixture","binaryName":"node",
             "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
-                "agentRuntime":{"runtime":"stdio-jsonrpc","command":{"binary":"node","args":[]},"requestMethods":methods,"notificationMethods":[]}},
+                "agentRuntime":{"runtime":"stdio-jsonrpc","command":{"binary":"node","args":[]},"requestMethods":methods,"notificationMethods":[],"login":{"methods":["browser"]}}},
             "spawn":{"readinessStrategy":{"kind":"poll_shell_prompt","timeoutSecs":1},
                 "taskDelivery":"inline_flag","systemPromptDelivery":{"kind":"cli_flag","flag":"--opaque-system"},
                 "verifySubmit":{"kind":"none"}},
@@ -137,7 +142,7 @@ impl RuntimeFixture {
             .agent_registry
             .register_provider(Box::new(JsProvider::new(
                 manifest,
-                Arc::new(PluginVm::from_source(PROVIDER, SOURCE.into()).unwrap()),
+                Arc::new(PluginVm::from_source(PROVIDER, source.into()).unwrap()),
             )));
         agent_runtime::transport::launch(
             &fixture.service,

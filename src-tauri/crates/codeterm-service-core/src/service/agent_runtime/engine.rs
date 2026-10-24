@@ -58,6 +58,20 @@ pub fn requested(svc: &ServiceContext, provider: &str) -> bool {
 pub fn for_tab(tab: &str) -> Option<Arc<Session>> {
     SESSIONS.lock().get(tab).cloned()
 }
+
+pub(super) fn login_pending_session(
+    svc: &ServiceContext,
+    tab: &str,
+    error: RuntimeFailure,
+) -> Result<Arc<Session>, RuntimeFailure> {
+    if matches!(error, RuntimeFailure::SignInRequired) {
+        if let Some(session) = for_tab(tab) {
+            validate_binding(svc, &session)?;
+            return Ok(session);
+        }
+    }
+    Err(error)
+}
 pub(crate) fn has_live_bound_session(tab: &crate::multiplexer::types::Tab) -> bool {
     let Some(session) = for_tab(&tab.id) else {
         return false;
@@ -537,7 +551,7 @@ async fn ensure_locked(
         )
         .await?;
         if matches!(*session.auth.lock(), RuntimeAuthState::SignedOut) {
-            return Err(RuntimeFailure::Refused("Sign-in required".into()));
+            return Err(RuntimeFailure::SignInRequired);
         }
     }
     let context = session.context.lock().clone();
@@ -636,7 +650,24 @@ async fn ensure_locked(
     let thread = thread_id.clone();
     let nonce = session.context.lock().binding_nonce.clone();
     tokio::task::spawn_blocking(move || {
-        owner.finalize_runtime_worker_session(&target, &thread, &nonce)
+        owner.finalize_runtime_worker_session(&target, &thread, &nonce)?;
+        let main = {
+            let mux = owner.mux.read();
+            mux.get_tab(&target).is_some_and(|tab| {
+                crate::service::general_agent::session_contract::owns_main(&mux, tab)
+            })
+        };
+        if main {
+            let provider = owner
+                .mux
+                .read()
+                .get_tab(&target)
+                .and_then(|tab| tab.agent_type.clone());
+            if let Some(provider) = provider {
+                crate::service::general_agent::persist_switched_session(&provider, &thread);
+            }
+        }
+        Ok::<(), String>(())
     })
     .await
     .map_err(|reason| RuntimeFailure::HookFailed(reason.to_string()))?

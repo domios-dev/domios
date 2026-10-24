@@ -180,7 +180,9 @@ async fn restart_inner(
     .await;
     drop(_permit);
     let loaded = match result {
-        Ok(()) => engine::ensure(svc, tab).await?,
+        Ok(()) => engine::ensure(svc, tab)
+            .await
+            .or_else(|error| engine::login_pending_session(svc, tab, error))?,
         Err(reason) => return Err(reason),
     };
     if fresh && old_thread.is_some() && loaded.context.lock().thread_id == old_thread {

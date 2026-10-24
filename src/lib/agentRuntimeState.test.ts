@@ -8,6 +8,15 @@ const authority = { tabId: "owned", nonce: "binding" };
 const states: AgentRuntimeState["state"][] = ["loading", "loaded", "unloaded", "degraded"];
 
 describe("agent runtime state", () => {
+  it("keeps login pending actionable without a stale launch failure", () => {
+    const state = runtimeStateFromSnapshot({ state: "degraded", epoch: 3, reason: "opaque" }, {
+      state: "loginPending", epoch: 3, auth: "signedOut", loginMethods: ["browser", "device", "apiKey"],
+    });
+    expect(state?.reason).toBeUndefined();
+    expect(state?.auth).toBe("signedOut");
+    expect(runtimeStatusPresentation(state, true)?.canRetry).toBe(true);
+    expect(runtimeResponseDeadlinePending(state)).toBe(false);
+  });
   it("leaves initial loading to the startup surface while preserving actionable failures", () => {
     expect(runtimeStatusPresentation({ state: "loading", epoch: 1 }, true)).toBeNull();
     expect(runtimeStatusPresentation({ state: "degraded", epoch: 1 }, true)?.canRetry).toBe(true);
