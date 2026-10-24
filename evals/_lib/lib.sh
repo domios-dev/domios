@@ -144,8 +144,35 @@ dev_shell_path() {
   fi
 }
 
+dev_provenance_ports() {
+  python3 -c '
+import json, pathlib, re, sys
+record, name, api = sys.argv[1:]
+try:
+    path = pathlib.Path(record)
+    if not path.is_file() or path.is_symlink():
+        raise ValueError("provenance must be a regular file")
+    receipt = json.loads(path.read_text())
+    selected = receipt["instance"]
+    if (receipt.get("schema") != 3 or
+        re.fullmatch("[a-f0-9]{40}", receipt.get("buildSha", "")) is None or
+        selected.get("name") != name or str(selected.get("apiPort")) != api):
+        raise ValueError("provenance selects another build or instance")
+    ports = [str(selected[key]) for key in ("vitePort", "cdpPort")]
+    if any(re.fullmatch("[1-9][0-9]*", port) is None or not 1 <= int(port) <= 65535
+           or int(port) == 7685 for port in ports):
+        raise ValueError("provenance has invalid frontend or diagnostics ports")
+    if len(set(ports + [api])) != 3:
+        raise ValueError("provenance ports overlap")
+    print("\t".join(ports))
+except (OSError, ValueError, KeyError, TypeError) as error:
+    print("ERROR [dev-resolution]: invalid launch provenance: " + str(error), file=sys.stderr)
+    sys.exit(7)
+' "$1" "$2" "$3"
+}
+
 dev_resolve_identity() {
-  local cli output parsed data_dir expected_data_dir expected_socket expected_instance expected_port
+  local cli output parsed data_dir expected_data_dir expected_socket expected_instance expected_port record ports
   if [ -n "$EVAL_LIB_REQUESTED_INSTANCE" ] &&
      { [ "$EVAL_LIB_REQUESTED_API_PORT" = 7685 ] || [ "$EVAL_LIB_REQUESTED_API_PORT" = 7686 ]; }; then
     dev_resolution_error '<conflicting target selectors>' "$(dev_requested_data_dir)"
@@ -224,6 +251,11 @@ print("\t".join(values))
   fi
   EVAL_LIB_DEV_VITE_PORT="$(dev_vite_port_from_instance "$EVAL_LIB_RESOLVED_INSTANCE")"
   EVAL_LIB_DEV_CDP_PORT="$(dev_cdp_port_from_instance "$EVAL_LIB_RESOLVED_INSTANCE")"
+  record="$EVAL_LIB_RESOLVED_DATA_DIR/dev-build-provenance.json"
+  if [ -e "$record" ] || [ -L "$record" ]; then
+    ports="$(dev_provenance_ports "$record" "$EVAL_LIB_RESOLVED_INSTANCE" "$EVAL_LIB_DEV_API_PORT")" || return 7
+    IFS=$'\t' read -r EVAL_LIB_DEV_VITE_PORT EVAL_LIB_DEV_CDP_PORT <<<"$ports"
+  fi
   EVAL_LIB_TARGET_DATA_DIR="$EVAL_LIB_RESOLVED_DATA_DIR"
   EVAL_LIB_TARGET_API_PORT="$EVAL_LIB_DEV_API_PORT"
   EVAL_LIB_TARGET_VITE_PORT="$EVAL_LIB_DEV_VITE_PORT"

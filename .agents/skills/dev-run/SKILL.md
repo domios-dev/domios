@@ -47,6 +47,12 @@ launch. Inspect helper job limits when diagnosing this refusal; Team DEV breakaw
 policy does not change Explorer's job membership. No production restart is needed
 for a launcher-script repair.
 
+Bench helpers sourced from `evals/_lib/lib.sh` select frontend/CDP ports from the
+matching schema3 launch provenance, including explicit launch overrides. Select
+the named instance with `CODETERM_INSTANCE` and `CODETERM_API_PORT` before sourcing;
+the helper still verifies the selected instance, build SHA and ports against health
+and provenance before any authenticated request.
+
 With `dev-back`, native attachment has a 180-second failure deadline after reply validation
 to allow Vite's unbundled modules and large restored workspaces to load. Progress events
 advance the startup phases; only the native attachment acknowledgement and server readiness

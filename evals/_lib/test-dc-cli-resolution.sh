@@ -212,6 +212,30 @@ if [ "$default_named_status" -eq 0 ] || ! grep -q 'named instance resolved to a 
   exit 1
 fi
 
+printf '%s\n' '{"schema":3,"buildSha":"1111111111111111111111111111111111111111","instance":{"name":"Named_Instance","apiPort":"7788","vitePort":"14996","cdpPort":"9296"}}' \
+  > "$FIXTURE/home/.domios-dev-named-instance/dev-build-provenance.json"
+custom_output="$(
+  HOME="$FIXTURE/home" PATH="$FIXTURE/hostile:$PATH" CODETERM_INSTANCE=Named_Instance \
+    HEALTH_INSTANCE=Named_Instance HEALTH_API_PORT=7788 HEALTH_VITE_PORT=14996 HEALTH_CDP_PORT=9296 \
+    bash -c 'source "$1"; dc identify' _ "$LIB"
+)"
+if ! grep -q 'vite=14996 cdp=9296' <<<"$custom_output"; then
+  echo "named custom ports did not come from launch provenance: $custom_output" >&2
+  exit 1
+fi
+set +e
+custom_mismatch_output="$(
+  HOME="$FIXTURE/home" PATH="$FIXTURE/hostile:$PATH" CODETERM_INSTANCE=Named_Instance \
+    HEALTH_INSTANCE=Named_Instance HEALTH_API_PORT=7788 HEALTH_VITE_PORT=14996 HEALTH_CDP_PORT=9999 \
+    bash -c 'source "$1"; dc identify' _ "$LIB" 2>&1
+)"
+custom_mismatch_status=$?
+set -e
+if [ "$custom_mismatch_status" -eq 0 ] || grep -q NAMED_DEV_CLI_WON <<<"$custom_mismatch_output"; then
+  echo "custom-port target drift was accepted: $custom_mismatch_output" >&2
+  exit 1
+fi
+
 chmod +x "$FIXTURE/home/.domios-dev/bin/codeterm"
 set +e
 starting_output="$(
