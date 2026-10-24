@@ -1,0 +1,9 @@
+[
+  {"input":"page: http://localhost:7686/#token=opaque-value","expected":"page: http://localhost:7686/#token=REDACTED"},
+  {"input":"https://example.test/?token=a&access_token=b&api_token=c&key=d&secret=e&password=f#top","expected":"https://example.test/?token=REDACTED&access_token=REDACTED&api_token=REDACTED&key=REDACTED&secret=REDACTED&password=REDACTED#top"},
+  {"input":"https://example.test/#/route?ToKeN=a%26b&%61pi_token=c&view=all","expected":"https://example.test/#/route?ToKeN=REDACTED&%61pi_token=REDACTED&view=all"},
+  {"input":"url containing \"token=opaque\" failed\npage: https://example.test/?key=second","expected":"url containing \"token=REDACTED\" failed\npage: https://example.test/?key=REDACTED"},
+  {"input":"https://example.test/path?view=all#top","expected":"https://example.test/path?view=all#top"},
+  {"input":"https://example.test/?not_token=visible&token=&password=","expected":"https://example.test/?not_token=visible&token=REDACTED&password=REDACTED"},
+  {"input":"[https://example.test/#secret=one](https://other.test/?password=two)","expected":"[https://example.test/#secret=REDACTED](https://other.test/?password=REDACTED)"}
+]
