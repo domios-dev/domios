@@ -49,6 +49,8 @@ export interface CanvasAccount {
   busy: string | null;
   signingIn: boolean;
   reauthRequired?: boolean;
+  removed?: boolean;
+  onRejoin?: () => void;
   limitMachines?: MyMachines;
   moreMachines?: boolean;
   /** Epoch milliseconds. */
@@ -335,6 +337,10 @@ export const MeshCanvas = memo(function MeshCanvas({
                   ? "Connect to rename it, or rename it on that machine" : undefined}
                 footer={p.isThisMachine ? <>
                   {account?.limitMachines && <MachineLimitPaywall machines={account.limitMachines} />}
+                  {account?.removed && <div role="group" aria-label="Rejoin your mesh" onClick={(event) => event.stopPropagation()} className="px-3.5 py-2.5">
+                    <p role="status">This machine was removed from your mesh</p>
+                    <button type="button" disabled={!!account.busy} onClick={account.onRejoin}>Rejoin</button>
+                  </div>}
                   {account?.reauthRequired && <MachineReauthentication signingIn={account.signingIn} onSignIn={account.onSignIn} />}
                   {tailscale && <TailscaleFooter tailscale={tailscale} />}
                 </> : peerFooter(p.id)}

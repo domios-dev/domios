@@ -9,6 +9,7 @@ mod notice;
 mod operations;
 mod ports;
 mod registry_presence;
+mod rejoin;
 mod retry;
 mod state;
 mod store;

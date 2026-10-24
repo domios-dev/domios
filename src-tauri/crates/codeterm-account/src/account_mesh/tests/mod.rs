@@ -5,5 +5,6 @@ mod naming;
 mod presence;
 mod reauthentication;
 mod refusals;
+mod rejoin;
 mod startup;
 mod support;
