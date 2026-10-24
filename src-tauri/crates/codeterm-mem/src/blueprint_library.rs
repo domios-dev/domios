@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 pub mod authoring;
 mod call_revisions;
 pub mod catalog;
+mod changes;
 pub(crate) mod cleanup;
 pub mod dedupe;
 pub mod enrichment;
@@ -428,16 +429,9 @@ impl MemManager {
             archive(&tx, evicted, "blueprint solution area cap")?;
         }
         tx.commit().map_err(|e| e.to_string())?;
-        let added: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM mem_items WHERE source=?1 AND date(created_at)=date('now')",
-                [SOURCE],
-                |row| row.get(0),
-            )
-            .map_err(|e| e.to_string())?;
         drop(conn);
+        self.notify_blueprint_library_changed([area.to_owned()]);
         self.refresh_embedding(&id);
-        log::debug!("[blueprint-memory] added_today={added}");
         Ok(SaveResult { id, evicted_ids })
     }
 
@@ -554,13 +548,20 @@ impl MemManager {
     pub fn archive_blueprint_solution(&self, area: &str, id: &str) -> Result<(), String> {
         self.guard_commit()?;
         let conn = self.conn.lock();
-        if !entries(&conn, &self.blobs_dir, area)?
+        let tx = conn
+            .unchecked_transaction()
+            .map_err(|error| error.to_string())?;
+        if !entries(&tx, &self.blobs_dir, area)?
             .iter()
             .any(|entry| entry.id == id)
         {
             return Err("Saved Blueprint recipe not found in this project".into());
         }
-        archive(&conn, id, "Archived by owner")
+        archive(&tx, id, "Archived by owner")?;
+        tx.commit().map_err(|error| error.to_string())?;
+        drop(conn);
+        self.notify_blueprint_library_changed([area.to_owned()]);
+        Ok(())
     }
 
     pub fn blueprint_recipe(
@@ -604,6 +605,7 @@ impl MemManager {
             rows
         };
         let mut changed = Vec::new();
+        let mut changed_areas = std::collections::BTreeSet::new();
         for area in areas {
             let library = entries(&tx, &self.blobs_dir, &area)?;
             for entry in &library {
@@ -647,10 +649,12 @@ impl MemManager {
                     &format!("blueprint solution merged into {}", merge.keeper.id),
                 )?;
                 changed.push(merge.keeper.id);
+                changed_areas.insert(area.clone());
             }
         }
         tx.commit().map_err(|e| e.to_string())?;
         drop(conn);
+        self.notify_blueprint_library_changed(changed_areas);
         for id in &changed {
             self.refresh_embedding(id);
         }

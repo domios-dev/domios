@@ -9,6 +9,24 @@ use serde_json::{json, Value};
 mod cards;
 pub(crate) mod curator;
 
+pub(crate) fn subscribe_changes(svc: &ServiceContext) {
+    let ui = svc.ui.clone();
+    let epoch = uuid::Uuid::new_v4().simple().to_string();
+    svc.mem
+        .set_blueprint_library_listener(std::sync::Arc::new(move |area, revision| {
+            if let Some(workspace) = area.strip_prefix("blueprints:") {
+                ui.emit(
+                    "automation-graph-changed",
+                    json!({
+                        "workspace_id": workspace,
+                        "team_id": null,
+                        "revision": format!("blueprint-library:{epoch}:{revision}")
+                    }),
+                );
+            }
+        }));
+}
+
 fn area(workspace: &str) -> String {
     format!("blueprints:{workspace}")
 }

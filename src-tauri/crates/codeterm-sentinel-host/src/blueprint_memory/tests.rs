@@ -124,3 +124,54 @@ fn worker_keep_is_refused_and_saved_recipe_applies_only_in_its_project() {
         .is_err());
     close(instance);
 }
+
+#[test]
+fn blueprint_library_commits_push_workspace_graph_events() {
+    let (mux, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
+    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    subscribe_changes(&fixture.service);
+    let document = Document::from_definition(&json!({"schema_version":2,"kind":"pipeline","name":"saved-filter","owner":"tab","trigger":{"type":"schedule","every":{"lit":"20s"}},"steps":[{"id":"match","uses":"filter","with":{"pattern":{"lit":"ready"}}}]})).unwrap();
+    let saved = fixture
+        .service
+        .mem
+        .save_blueprint(
+            "blueprints:workspace",
+            document,
+            &["Filter ready messages".into()],
+            Evidence {
+                kept: true,
+                successes: 1,
+                ..Evidence::default()
+            },
+        )
+        .unwrap();
+    fixture
+        .service
+        .mem
+        .list_blueprint_solutions("blueprints:workspace")
+        .unwrap();
+    fixture
+        .service
+        .mem
+        .archive_blueprint_solution("blueprints:workspace", &saved.id)
+        .unwrap();
+    let events = fixture.ui.0.lock();
+    let events: Vec<_> = events
+        .iter()
+        .filter(|(event, _)| event == "automation-graph-changed")
+        .collect();
+    assert_eq!(events.len(), 2);
+    for (_, payload) in &events {
+        assert_eq!(payload["workspace_id"], "workspace");
+        assert!(payload["team_id"].is_null());
+        assert!(payload["revision"]
+            .as_str()
+            .unwrap()
+            .starts_with("blueprint-library:"));
+    }
+    let first = events[0].1["revision"].as_str().unwrap();
+    let second = events[1].1["revision"].as_str().unwrap();
+    assert_ne!(first, second);
+    assert!(first.ends_with(":1"));
+    assert!(second.ends_with(":2"));
+}

@@ -30,10 +30,28 @@ impl Store {
                     let applied = commit.outcome == MutationOutcome::Applied;
                     let changed = applied
                         || matches!(commit.outcome, MutationOutcome::Fenced(Fence::Claimed));
-                    if changed {
-                        if let Some(revision) = store.committed_revisions.get(&scope).cloned() {
-                            store.changes.insert(scope.clone(), revision);
+                    if let Some(receipt) = store
+                        .backend
+                        .sqlite()
+                        .and_then(|backend| backend.last_receipt)
+                        .filter(|receipt| changed && receipt.rows_written > 0)
+                    {
+                        let Some(backend) = store.backend.sqlite_mut() else {
+                            return Ok(applied);
+                        };
+                        let revisions = &mut backend.journal_revisions;
+                        if revisions
+                            .get(&scope)
+                            .is_some_and(|revision| *revision >= receipt.batch_revision)
+                        {
+                            return Ok(applied);
                         }
+                        revisions.insert(scope.clone(), receipt.batch_revision);
+                        let revision = format!("journal:{}", receipt.batch_revision);
+                        store
+                            .committed_revisions
+                            .insert(scope.clone(), revision.clone());
+                        store.changes.insert(scope.clone(), revision);
                     }
                     Ok(applied)
                 }
