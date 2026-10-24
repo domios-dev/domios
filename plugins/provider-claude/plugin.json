@@ -1,7 +1,7 @@
 {
   "id": "claude",
-  "version": "1.14.20",
-  "minCodeterm": "1.15.1",
+  "version": "1.14.21",
+  "minCodeterm": "1.15.2",
   "hostApi": 2,
   "displayName": "Claude Code",
   "binaryName": "claude",
@@ -317,6 +317,11 @@
     }
   ],
   "capabilities": {
+    "attachments": {
+      "filePaths": true,
+      "inlineText": true,
+      "imagePaths": true
+    },
     "agentProvider": true,
     "subagentVisibility": true,
     "recordSources": {

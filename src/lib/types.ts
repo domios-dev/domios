@@ -1069,7 +1069,14 @@ export interface ModelCatalogueCapability {
 
 export type ModelSwitchMode = "live" | "live_command" | "next_turn" | "restart_resume" | "unsupported";
 
+export interface ProviderAttachmentCapabilities {
+  filePaths: boolean;
+  inlineText: boolean;
+  imagePaths: boolean;
+}
+
 export interface ProviderDescriptor {
+  attachments?: ProviderAttachmentCapabilities;
   remote_task?: import("../../packages/plugin-sdk/src/remoteTasks").RemoteTaskCapability;
   agent_runtime?: {
     serviceTiers?: readonly import("../../packages/plugin-sdk/src/agentRuntime").RuntimeServiceTier[];

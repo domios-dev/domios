@@ -359,6 +359,8 @@ pub struct WebhookReceiverCap {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Capabilities {
+    #[serde(default)]
+    pub attachments: crate::provider::AttachmentCapabilities,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote_task: Option<crate::remote_tasks::RemoteTaskCapability>,
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]

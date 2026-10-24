@@ -323,5 +323,7 @@
   "src/components/Terminal/useChatSession.failure.test.tsx",
   "src/components/WebGate/webEntry.test.ts",
   "src/components/WebGate/WebGate.wiring.test.tsx",
-  "src/components/Jobs/BlueprintPlanLock.test.tsx"
+  "src/components/Jobs/BlueprintPlanLock.test.tsx",
+  "src/components/Terminal/ChatComposer.attachments.test.tsx",
+  "src/components/Terminal/composerAttachmentAdmission.test.ts"
 ]

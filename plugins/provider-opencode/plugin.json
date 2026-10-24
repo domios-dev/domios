@@ -1,9 +1,14 @@
 {
   "id": "opencode",
-  "version": "1.14.10",
-  "minCodeterm": "1.14.9",
+  "version": "1.14.11",
+  "minCodeterm": "1.15.2",
   "hostApi": 2,
   "capabilities": {
+    "attachments": {
+      "filePaths": true,
+      "inlineText": true,
+      "imagePaths": true
+    },
     "agentProvider": true,
     "modelProviderConfig": true,
     "decisionModel": {

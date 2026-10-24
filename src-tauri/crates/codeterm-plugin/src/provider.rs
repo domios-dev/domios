@@ -29,6 +29,24 @@ pub struct ContextAttach {
     pub read_only: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AttachmentCapabilities {
+    pub file_paths: bool,
+    pub inline_text: bool,
+    pub image_paths: bool,
+}
+
+impl Default for AttachmentCapabilities {
+    fn default() -> Self {
+        Self {
+            file_paths: false,
+            inline_text: true,
+            image_paths: false,
+        }
+    }
+}
+
 pub use reply_relay::{
     ReplyRelayEndedTurn, ReplyRelayEvidence, ReplyRelayOutcome, ReplyRelayTurn,
     ReplyRelayUnavailable,
@@ -250,6 +268,8 @@ pub use worker_lane_setting::*;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ProviderDescriptor {
+    #[serde(default)]
+    pub attachments: AttachmentCapabilities,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote_task: Option<crate::remote_tasks::RemoteTaskCapability>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -405,7 +425,7 @@ pub struct ProviderUpdateAvailability {
 }
 
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
-pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 23;
+pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 24;
 
 /// One provider-owned usage log to ingest for a session. `session_id` scopes a
 /// log shared by many sessions (e.g. one sqlite database); a per-session file
