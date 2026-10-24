@@ -28,4 +28,6 @@ Native documents also declare `kind: pipeline` or `kind: watch`. A callable has 
 
 A fixed command `run: {lit: "<author-fixed command>"}` is a shell command line, not argv: macOS/Linux use `/bin/sh -c`; Windows uses `powershell.exe -NoLogo -NoProfile -NonInteractive -Command`. Shell quoting and expansion apply, including `$(...)` inside double quotes; `lit` does not disable expansion. With `in` and `bind: {in: prior.out}`, the command receives the JSON stdin envelope `{media, schema_id, value, text}`. Runtime data stays in `value` and never becomes shell text. Full node/format reference: `domios docs BLUEPRINTS`; named recipes: `domios docs BLUEPRINT-RECIPES`. Save reusable triggerless files with `domios blueprint keep --file callable.yaml --when "<when to use it>"` from the Team Orchestrator.
 
-<!-- revision: 5 -->
+`rearm_on_change` is a YAML sequence of declared bucket names, for example `rearm_on_change: [passed]` on the decision above. It lets a bucket fire again when its observed content changes. It is unavailable for input sources.
+
+<!-- revision: 6 -->
