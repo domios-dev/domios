@@ -132,6 +132,12 @@ fn blueprint_delivery_read_model_projects_reason_and_body_reference() {
 }
 
 fn contract_job() -> Sentinel {
+    contract_job_with_steps(
+        json!([{"id":"emit","run":{"lit":"echo ready"}},{"id":"match","uses":"filter","with":{"pattern":{"lit":"ready"}}}]),
+    )
+}
+
+fn contract_job_with_steps(steps: Value) -> Sentinel {
     let directory = tempfile::tempdir().unwrap();
     let store = Store::new(
         directory.path().join("blueprints.json"),
@@ -139,7 +145,7 @@ fn contract_job() -> Sentinel {
     );
     let mut job = store
         .prepare_document(
-            json!({"schema_version":2,"kind":"pipeline","name":"Echo pipeline","owner":"tab","trigger":{"type":"schedule","every":{"lit":"20s"}},"steps":[{"id":"emit","run":{"lit":"echo ready"}},{"id":"match","uses":"filter","with":{"pattern":{"lit":"ready"}}}],"result":{"to":"notify"}}),
+            json!({"schema_version":2,"kind":"pipeline","name":"Echo pipeline","owner":"tab","trigger":{"type":"schedule","every":{"lit":"20s"}},"steps":steps,"result":{"to":"notify"}}),
             owner(),
             false,
         )
@@ -255,6 +261,43 @@ fn pipeline_contract_golden_json() {
         rendered,
     )
     .unwrap();
+}
+
+#[test]
+fn pipeline_fanin_contract_golden_json() {
+    let job = contract_job_with_steps(json!([
+        {"id":"first","run":{"lit":"echo linen"},"out":{"type":"string"}},
+        {"id":"second","run":{"lit":"echo silk"},"out":{"type":"string"}},
+        {"id":"join","code":{"lang":"python","src":"def main(value): return value['a'] + value['b']"},"bind":{"a":"first.out","b":"second.out"},"out":{"type":"string"}}
+    ]));
+    let mut snapshot = project_snapshot(&job, &BTreeMap::new());
+    let definitions = BTreeMap::from([(
+        job.id.clone(),
+        BTreeMap::from([(job.definition_version, job.document.clone().unwrap())]),
+    )]);
+    super::super::retained::project(
+        &mut snapshot,
+        std::slice::from_ref(&job),
+        &BTreeMap::new(),
+        &definitions,
+    )
+    .unwrap();
+    let value = snapshot.blueprints.remove(0);
+    assert_eq!(
+        value["call_graph"]["steps"][2]["bind"],
+        json!({"a":"first.out","b":"second.out"})
+    );
+    let path = codeterm_service_core::test_support::fixture_manifest_dir()
+        .join("../../../tests/fixtures/blueprint-fanin.golden.json");
+    if std::env::var_os("UPDATE_BLUEPRINT_GOLDEN").is_some() {
+        std::fs::write(
+            &path,
+            format!("{}\n", serde_json::to_string_pretty(&value).unwrap()),
+        )
+        .unwrap();
+    }
+    let expected: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    assert_eq!(value, expected);
 }
 
 #[test]

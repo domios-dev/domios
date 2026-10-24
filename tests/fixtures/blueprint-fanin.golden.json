@@ -1,0 +1,135 @@
+{
+  "call_graph": {
+    "kind": "pipeline",
+    "name": "Echo pipeline",
+    "owner": "tab",
+    "result": {
+      "to": "notify"
+    },
+    "schema_version": 2,
+    "steps": [
+      {
+        "id": "first",
+        "model_classification": false,
+        "out": {
+          "type": "string"
+        },
+        "paused": false,
+        "run": {
+          "lit": "echo linen"
+        },
+        "session": false
+      },
+      {
+        "id": "second",
+        "model_classification": false,
+        "out": {
+          "type": "string"
+        },
+        "paused": false,
+        "run": {
+          "lit": "echo silk"
+        },
+        "session": false
+      },
+      {
+        "bind": {
+          "a": "first.out",
+          "b": "second.out"
+        },
+        "code": {
+          "lang": "python",
+          "limits": {},
+          "src": "def main(value): return value['a'] + value['b']"
+        },
+        "id": "join",
+        "model_classification": false,
+        "out": {
+          "type": "string"
+        },
+        "paused": false,
+        "session": false
+      }
+    ],
+    "trigger": {
+      "every": {
+        "lit": "20s"
+      },
+      "type": "schedule"
+    }
+  },
+  "current_step": null,
+  "deletes_at": null,
+  "expanded_calls": [],
+  "graph_definition_version": 1,
+  "historical_graph_available": true,
+  "id": "blueprint-echo",
+  "last_event_at_ms": null,
+  "name": "Echo pipeline",
+  "nested_run": {
+    "definition_version": 1,
+    "id": null,
+    "nodes": []
+  },
+  "note": null,
+  "owner": {
+    "kind": "tab",
+    "tab_id": "creator",
+    "team_id": "team"
+  },
+  "result": {
+    "body_ref": null,
+    "reason": null,
+    "state": "waiting",
+    "target": {
+      "id": null,
+      "kind": "notify"
+    }
+  },
+  "run_id": null,
+  "runs": [],
+  "state": "idle",
+  "steps": [
+    {
+      "ended_at_ms": null,
+      "index": 0,
+      "kind": "command",
+      "name": "first",
+      "outcome": null,
+      "reason": null,
+      "result_summary": null,
+      "started_at_ms": null,
+      "state": "waiting",
+      "title": "command: first"
+    },
+    {
+      "ended_at_ms": null,
+      "index": 1,
+      "kind": "command",
+      "name": "second",
+      "outcome": null,
+      "reason": null,
+      "result_summary": null,
+      "started_at_ms": null,
+      "state": "waiting",
+      "title": "command: second"
+    },
+    {
+      "ended_at_ms": null,
+      "index": 2,
+      "kind": "code",
+      "name": "join",
+      "outcome": null,
+      "reason": null,
+      "result_summary": null,
+      "started_at_ms": null,
+      "state": "waiting",
+      "title": "code: join"
+    }
+  ],
+  "stopped_at": null,
+  "trigger": {
+    "summary": "every 20s",
+    "type": "schedule"
+  }
+}

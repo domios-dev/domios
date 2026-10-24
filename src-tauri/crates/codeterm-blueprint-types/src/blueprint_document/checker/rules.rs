@@ -402,6 +402,14 @@ pub(super) fn findings() -> Vec<Spec> {
         ),
         (
             "R3",
+            "named_port_conflict",
+            "error",
+            "named_port_conflict",
+            "{0}.{1} has incompatible named input ports: {2}",
+            "Match each named binding to the declared object input schema",
+        ),
+        (
+            "R3",
             "type_mismatch",
             "error",
             "bind,port_conflict",
@@ -596,6 +604,7 @@ pub(super) fn findings() -> Vec<Spec> {
                 "typed_out" => &["typed_out"],
                 "bind,port_conflict" => &["bind", "port_conflict"],
                 "flow_port_conflict" => &["flow_port_conflict"],
+                "named_port_conflict" => &["named_port_conflict"],
                 "port_media" => &["port_media"],
                 "route" => &["route"],
                 "bind" => &["bind"],

@@ -61,6 +61,12 @@ fn serde_schema_and_value_forms_have_one_contract() {
     assert_eq!(schema["properties"]["schema_version"]["minimum"], 2.0);
     assert_eq!(schema["properties"]["schema_version"]["maximum"], 2.0);
     assert!(schema["properties"].get("watch").is_none());
+    let bind = &schema["definitions"]["Node"]["properties"]["bind"];
+    assert_eq!(bind["additionalProperties"]["type"], "string");
+    assert!(bind["description"]
+        .as_str()
+        .unwrap()
+        .contains("named ports"));
     assert!(serde_yaml::from_str::<ValueForm>("input: a\nlit: b").is_err());
     assert!(serde_yaml::from_str::<ValueForm>("echo '{{message}}'").is_err());
 }

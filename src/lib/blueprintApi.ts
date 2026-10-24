@@ -1,6 +1,7 @@
 export const BLUEPRINT_API_BASE = "/api/automation/blueprints";
 
 export type BlueprintValue = null | boolean | number | string | readonly BlueprintValue[] | { readonly [key: string]: BlueprintValue };
+export type BlueprintDataBindings = Readonly<Record<string, string>>;
 export interface BlueprintPort {
   type?: string;
   $ref?: string;
@@ -19,7 +20,7 @@ export interface BlueprintIrNode {
   call?: { ref: string; with?: Readonly<Record<string, BlueprintValue>>; pin?: BlueprintCallPin };
   in?: BlueprintPort;
   out?: BlueprintPort;
-  bind?: Readonly<Record<string, string>>;
+  bind?: BlueprintDataBindings;
   routes?: Readonly<Record<string, string>>;
   buckets?: readonly string[];
   outcomes?: readonly string[];

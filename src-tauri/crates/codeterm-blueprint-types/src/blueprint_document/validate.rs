@@ -310,13 +310,31 @@ fn nodes(
             }
         }
         for (field, bind) in &node.bind {
-            if !data_slot(node, field) {
+            if !data_slot(node, field) && !matches!(node.kind(), "code" | "command") {
                 errors.push((
                     format!("{path}.bind.{field}"),
                     "Runtime binds are allowed only in data slots".into(),
                 ));
             }
             binding(bind, &ids, i, &format!("{path}.bind.{field}"), errors);
+        }
+        if node.bind.contains_key("in") && node.bind.len() > 1 {
+            errors.push((
+                format!("{path}.bind"),
+                "Use bind.in alone or named input ports, never both".into(),
+            ));
+        }
+        if node.bind.len() > 32
+            || matches!(node.kind(), "code" | "command")
+                && node
+                    .bind
+                    .keys()
+                    .any(|key| key.is_empty() || key.len() > 64 || key.contains('.'))
+        {
+            errors.push((
+                format!("{path}.bind"),
+                "Use at most 32 nonempty input port names of at most 64 bytes without dots".into(),
+            ));
         }
         for (field, p) in [("in", &node.input), ("out", &node.output)] {
             if let Some(p) = p {

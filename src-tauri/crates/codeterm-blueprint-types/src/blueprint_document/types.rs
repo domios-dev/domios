@@ -271,6 +271,9 @@ pub struct Node {
     #[serde(default, rename = "out", skip_serializing_if = "Option::is_none")]
     pub output: Option<Port>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[schemars(
+        description = "Data bindings: use in alone for a single value, or named ports on code and command nodes for an object input. Every producer must execute on every path reaching this node."
+    )]
     pub bind: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub buckets: Vec<String>,

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { performance } from "node:perf_hooks";
 import { blueprintTriggerSummary, buildBlueprintGraph, calleeName, litWires, nodeLabel, type BlueprintGraphModel } from "./graphModel";
 import { layoutBlueprint, ROW_HEIGHT, type BlueprintLayout } from "./layout";
@@ -34,6 +35,11 @@ function assertGeometry(model: BlueprintGraphModel, layout: BlueprintLayout) {
 }
 
 async function main() {
+  const faninContract = JSON.parse(readFileSync(new URL("../../../../tests/fixtures/blueprint-fanin.golden.json", import.meta.url), "utf8"));
+  const faninGraph = await buildIncrementally(buildBlueprintGraph(pipelineModel(faninContract), new Set()), async () => {}, new AbortController().signal);
+  const incoming = faninGraph.wires.filter((wire) => wire.kind === "data" && wire.to.node === key([], "join"));
+  assert.deepEqual(incoming.map((wire) => [wire.from.node, wire.to.pin]).sort(), [[key([], "first"), "bind:a"], [key([], "second"), "bind:b"]]);
+  assertGeometry(faninGraph, layoutBlueprint(faninGraph));
   assert.equal(blueprintTriggerSummary({ type: "schedule", every: { lit: "1800s" } }), "Every 1800s");
   assert.equal(blueprintTriggerSummary({ type: "input", kind: { lit: "audio" } }), "Input: audio");
   assert.equal(blueprintTriggerSummary({ type: "event", kind: { lit: "tab_output" } }), "Event: tab_output");
