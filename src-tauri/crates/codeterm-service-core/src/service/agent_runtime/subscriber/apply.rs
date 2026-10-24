@@ -162,7 +162,7 @@ fn apply(svc: &ServiceContext, session: &Arc<Session>, epoch: u64, at: u64, even
         RuntimeEvent::SessionUpdated {
             auth: Some(state),
             billing_mode,
-            detail: _,
+            detail,
             ..
         } => {
             super::super::projections::billing(svc, session, billing_mode.unwrap_or_default(), at);
@@ -183,6 +183,12 @@ fn apply(svc: &ServiceContext, session: &Arc<Session>, epoch: u64, at: u64, even
                 engine::publish(svc, &context.tab_id, session);
             }
             if matches!(state, RuntimeAuthState::SignedOut) {
+                if let Some(detail) = detail {
+                    log::debug!(
+                        "[runtime-auth] tab={} sign-in pending: {detail}",
+                        context.tab_id
+                    );
+                }
                 session
                     .state
                     .lock()
