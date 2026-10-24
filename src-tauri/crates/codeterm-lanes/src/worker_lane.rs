@@ -91,6 +91,7 @@ pub struct ProvisionedWorkerLane {
     pub cwd: String,
     pub branch: String,
     base: String,
+    destination: Option<String>,
 }
 
 impl ProvisionedWorkerLane {
@@ -100,13 +101,15 @@ impl ProvisionedWorkerLane {
     }
 
     pub fn verify(&self) -> Result<WorkerLaneProvenance, String> {
-        verify_worker_lane(
+        let mut provenance = verify_worker_lane(
             &self.canonical_cwd,
             &self.cwd,
             Some(&self.branch),
             Some(&self.base),
             LaneProtection::Enforced,
-        )
+        )?;
+        provenance.destination = self.destination.clone();
+        Ok(provenance)
     }
 
     pub fn cleanup(self) -> Result<(), String> {
@@ -549,6 +552,7 @@ fn provision_lane_at_base(
             &format!("{}^{{commit}}", requested_base),
         ],
     )?;
+    let destination = current_branch(&project_cwd)?;
     if let Err(error) = run_git(
         &project_cwd,
         ["worktree", "add", "-b", &branch, &lane_cwd, &base],
@@ -563,6 +567,7 @@ fn provision_lane_at_base(
         cwd: lane_cwd,
         branch,
         base,
+        destination: (!destination.is_empty()).then_some(destination),
     };
     if let Err(error) = language_server_settings::configure(&lane.cwd, lane_settings) {
         let cleanup = lane.cleanup();
