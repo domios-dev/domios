@@ -38,6 +38,7 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
         expected_metadata_revision: a.expectedMetadataRevision,
         display_name: a.displayName,
       }),
+    account_mesh_session_revoke: (a) => localJson("POST", "/api/account/mesh/session-revoke", { installation_id: a.installationId ?? null }),
     account_mesh_revoke: (a) => localJson("POST", "/api/account/mesh/revoke", { target: a.target }),
     account_mesh_acknowledge_limit: (a) =>
       localJson("POST", "/api/account/mesh/limit-notice/ack", { request_id: s(a, "requestId") }),

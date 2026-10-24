@@ -91,6 +91,7 @@ import { cacheThemeSnapshot, isLightColor, themeToCSS } from "./lib/themeCss";
 import { fontSizeToUiFontScale } from "./lib/uiFontScale";
 import { DEV_BUILD } from "./lib/devBuild";
 import { FreeLimitPlansModal } from "./components/billing/FreeLimitPlansModal";
+import { useSessionRevocationScreen } from "./components/Settings/useSessionRevocationScreen";
 import { useAccountMeshLimitNotice } from "./components/MeshPanel/accountMeshLimitNotice";
 import { precheckFreeLimit } from "./components/billing/freeLimitGate";
 // TODO: Agent Swarm Visualization — future feature import { SwarmOverlay } from "./components/Swarm/SwarmOverlay";
@@ -609,6 +610,8 @@ function AppInner() {
     setSettingsSection(section);
     setSettingsOpen(true);
   }, [setSettingsOpen]);
+  const showRevokedSignIn = useCallback(() => openSettings("account"), [openSettings]);
+  useSessionRevocationScreen(showRevokedSignIn);
   const showBell = config.notifications?.show_bell !== false;
 
   const paletteCommands = useMemo(

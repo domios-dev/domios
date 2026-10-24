@@ -188,6 +188,7 @@ fn forged_paid_hint_keeps_every_write_path_closed_while_checking() {
     )
     .unwrap();
     let session = codeterm_account::Session {
+        login_generation: 0,
         identity: codeterm_account::Identity {
             uid: "fixture-user".into(),
             email: None,

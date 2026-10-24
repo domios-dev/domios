@@ -530,6 +530,19 @@ async fn account_mesh_revoke_releases_the_slot_and_delegates_pairing_removal() {
 }
 
 #[tokio::test]
+async fn account_mesh_session_revoke_uses_a_signed_request_and_keeps_the_pairing() {
+    let harness = enrolled().await;
+    let before = harness.state();
+    let revoked = harness.mesh.revoke_session(PEER.into()).await.unwrap();
+    assert_eq!(revoked.target_installation_id, PEER);
+    assert_eq!(revoked.revoked_at, START);
+    assert_eq!(harness.calls("session_revoke"), 1);
+    assert!(harness.transport.revoked.lock().unwrap().is_empty());
+    assert_eq!(harness.state().self_installation, before.self_installation);
+    assert!(harness.state().current_membership(START).is_some());
+}
+
+#[tokio::test]
 async fn account_mesh_new_links_need_the_online_permit_and_the_registry_address() {
     let harness = enrolled().await;
     let target = harness.mesh.resolve_link_target(PEER).await.unwrap();

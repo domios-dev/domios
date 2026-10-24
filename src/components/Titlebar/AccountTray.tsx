@@ -12,6 +12,8 @@ import { UI_TRAY_BTN } from "../shared/design";
 import { communityMenu } from "../shared/CommunityLinks";
 import { legalMenuItems } from "../shared/LegalLinks";
 import { accountTrayModel, type PlanBadge } from "./accountTrayModel";
+import { SelfSessionSignOut } from "./SelfSessionSignOut";
+import { SESSION_REVOKED_MESSAGE } from "../Settings/accountModel";
 import { AccountAvatar } from "./AccountAvatar";
 import { FIRST_RUN_DISABLED_REASON } from "../../lib/firstRunGate";
 import { useMultiplexer } from "../../store/multiplexer/context";
@@ -44,6 +46,7 @@ export function AccountTray({ onOpenPlans, locked = false }: { onOpenPlans: () =
   const billing = useAccountPlan(account.model.kind === "signed_in" ? account.model.identity.uid : null);
   const model = accountTrayModel(account.model, billing.plan);
   const [open, setOpen] = useState(false);
+  const [confirmSignOut, setConfirmSignOut] = useState(false);
   const pending = model.kind === "pending";
   const startSignIn = async (hint: SignInOption["hint"]) => {
     const failure = await account.signIn(hint);
@@ -62,6 +65,7 @@ export function AccountTray({ onOpenPlans, locked = false }: { onOpenPlans: () =
     { label: billing.pending ? "Opening subscription…" : "Manage subscription", disabled: billing.pending, onClick: () => void manageSubscription() },
     ...legalMenuItems(["terms", "privacy"]),
     { separator: true, key: "sign-out" },
+    { label: "Sign out this machine", onClick: () => setConfirmSignOut(true) },
     { label: "Sign out", onClick: () => void account.signOut() },
   ] : pending ? [
     { label: "Loading account…", disabled: true },
@@ -85,8 +89,9 @@ export function AccountTray({ onOpenPlans, locked = false }: { onOpenPlans: () =
   if (locked) community.items = community.items.map((item) => ({ ...item, disabled: true, title: FIRST_RUN_DISABLED_REASON }));
   items.push({separator:true,key:"community"},community);
   return <div className="flex items-center">
+    {confirmSignOut && <SelfSessionSignOut onClose={() => setConfirmSignOut(false)} />}
     <DropdownMenu menuLabel={model.kind === "signed_in" ? `Account: ${model.identity}, ${model.plan}` : "Account"} items={items} onOpenChange={setOpen}
-      header={model.kind === "signed_in" ? <AccountHeader identity={model.identity} email={model.email} avatarUrl={model.avatarUrl} initial={model.initial} badge={model.badge} summary={model.plan} /> : undefined} trigger={
+      header={model.kind === "signed_in" ? <AccountHeader identity={model.identity} email={model.email} avatarUrl={model.avatarUrl} initial={model.initial} badge={model.badge} summary={model.plan} /> : account.model.kind === "signed_out" && account.model.sessionRevoked ? <p role="status" className="px-3 py-2 text-xs">{SESSION_REVOKED_MESSAGE}</p> : undefined} trigger={
       <button type="button" className={UI_TRAY_BTN} aria-label={billing.pending ? "Opening subscription" : model.name}
         title={billing.pending ? "Opening subscription…" : model.name} aria-haspopup="menu" aria-expanded={open} aria-busy={pending || billing.pending}>
         {pending

@@ -148,6 +148,13 @@ export class FakeAccountMeshClient implements AccountMeshClient {
     return result.ok ? { ok: true, result: { display_name: displayName, metadata_revision: expectedMetadataRevision + 1 } } : result;
   }
 
+  sessionRevokeCalls: Array<string | undefined> = [];
+  sessionRevokeOutcomes: AccountMeshOutcome[] = [];
+  async revokeSession(installationId?: string): Promise<AccountMeshOutcome> {
+    this.sessionRevokeCalls.push(installationId);
+    return this.sessionRevokeOutcomes.shift() ?? { ok: true };
+  }
+
   async revoke(target: MeshTarget): Promise<AccountMeshOutcome> {
     this.revokeCalls.push(target);
     return this.revokeOutcomes.shift() ?? { ok: true };
