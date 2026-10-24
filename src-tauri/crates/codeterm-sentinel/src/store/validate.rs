@@ -353,6 +353,7 @@ impl Store {
             &uuid::Uuid::new_v4().simple().to_string()[..12]
         );
         let job = Sentinel {
+            admission: Default::default(),
             document: None,
             creation_options: Some(codeterm_blueprint_types::blueprint_watch::CreationOptions {
                 timeout_ms: params.timeout.as_deref().map(duration_ms).transpose()?,

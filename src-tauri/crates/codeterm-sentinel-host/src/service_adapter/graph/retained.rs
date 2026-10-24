@@ -139,7 +139,8 @@ fn watch_view(job: &Sentinel) -> Value {
         .unwrap_or("tab");
     json!({"id":job.id,"name":job.name,"note":job.note,"stopped_at":job.cleanup.stopped_at,"deletes_at":job.cleanup.deletes_at,
         "owner":{"kind":owner,"tab_id":if owner == "team" {None} else {Some(&job.creator_tab_id)},"team_id":job.team_id},
-        "state":if job.machine.stopped {"stopped"} else if job.machine.paused || job.machine.held.is_some() {"held"} else {"idle"},
+        "state":if job.machine.stopped {"stopped"} else if !job.admission.permits_steps() || job.machine.paused || job.machine.held.is_some() {"held"} else {"idle"},
+        "held_reason":crate::plan_lock::held_reason(job),
         "run_id":null,"current_step":null,"last_event_at_ms":null,"steps":[],"runs":[]})
 }
 

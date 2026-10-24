@@ -140,6 +140,7 @@ impl SentinelExt for ServiceContext {
             codeterm_service_core::service::role_policy::BlueprintAction::Input,
         )?;
         let job = self.sentinel_show(caller, id)?;
+        crate::plan_lock::refuse(self, &job)?;
         let input = job.input().ok_or("blueprint is not a text input stage")?;
         if input.kind != codeterm_blueprint_types::sentinel_input::MediaKind::Text
             || input.convert_to.is_some()
@@ -351,12 +352,14 @@ impl SentinelExt for ServiceContext {
             .ok_or("blueprints not initialized")?;
         let store = handle.store.lock();
         store.ensure_available()?;
-        let jobs = store
+        let mut jobs: Vec<_> = store
             .list()
             .iter()
             .filter(|job| caller.may_list(job, team_owner))
             .cloned()
             .collect();
+        drop(store);
+        crate::plan_lock::project(self, &mut jobs);
         Ok(jobs)
     }
 
@@ -377,6 +380,9 @@ impl SentinelExt for ServiceContext {
             })
             .cloned()
             .ok_or_else(|| format!("blueprint not found for this creator and Team: {id}"))?;
+        drop(store);
+        let mut job = job;
+        crate::plan_lock::project(self, std::slice::from_mut(&mut job));
         Ok(job)
     }
 

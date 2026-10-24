@@ -111,6 +111,7 @@ pub(super) fn project(
         && !job.machine.paused
         && !job.machine.stopped
         && job.machine.held.is_none()
+        && job.admission.permits_steps()
         && job
             .expires_at
             .is_none_or(|at| now_ms < at && job.next_run < at)

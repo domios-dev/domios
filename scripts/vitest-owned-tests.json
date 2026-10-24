@@ -322,5 +322,6 @@
   "src/components/Sidebar/sortable.stableDrag.test.tsx",
   "src/components/Terminal/useChatSession.failure.test.tsx",
   "src/components/WebGate/webEntry.test.ts",
-  "src/components/WebGate/WebGate.wiring.test.tsx"
+  "src/components/WebGate/WebGate.wiring.test.tsx",
+  "src/components/Jobs/BlueprintPlanLock.test.tsx"
 ]

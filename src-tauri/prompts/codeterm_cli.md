@@ -88,6 +88,8 @@ The owner's explicit `domios agent restart --tab <ID> --fresh` starts a new sess
 
 For an in-place provider handoff, use `domios agent switch-provider TARGET --tab TAB`. The target builds its summary from bounded recent messages and host context. Full history is not transferred. Optional `--model` and `--reasoning-effort` follow the target catalogue; a busy tab requires waiting or explicit `--force` to stop first. Self-switch is daemon-owned and returns an operation id immediately; read it with `agent switch-provider-status ID --tab TAB`. Switching `main` also saves the General’s provider/model/effort defaults.
 
+Plan-locked Blueprint owners hold their automations with `plan_limit_locked`. Apply, edit and run-now refuse; delete and export remain available. Paid unlock resumes without replaying missed changes.
+
 Typed callable Blueprints are saved with `domios blueprint keep --file callable.yaml --when "Reuse this typed helper"`; inputs stay their signature and no scheduler job is created. Reuse the returned `mem:` identity through `call.ref`. `domios blueprint show mem:<id> --json` exposes the pinned callee graph; show on a caller also includes bounded nested results and stops. Call admission uses the host checker and caller Team/workspace. The CLI freezes local import bytes before sending them; source labels never authorize daemon file reads.
 
 ## Mesh (remote peers)

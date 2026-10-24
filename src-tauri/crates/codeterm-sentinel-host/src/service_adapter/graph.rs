@@ -248,7 +248,8 @@ impl AutomationGraphExt for ServiceContext {
             .host_extension::<Handle>()
             .ok_or("blueprints not initialized")?;
         graph::validate_scope(&self.mux.read(), workspace, team)?;
-        let (jobs, live_leases) = storage::committed_scope(&handle.store, workspace, team)?;
+        let (mut jobs, live_leases) = storage::committed_scope(&handle.store, workspace, team)?;
+        crate::plan_lock::project(self, &mut jobs);
         let journals = pipeline_journals(&handle, &jobs)?;
         let definitions = retained::definitions(&handle, &jobs, &journals)?;
         let crons = self
@@ -293,7 +294,8 @@ impl AutomationGraphExt for ServiceContext {
             let mux = self.mux.read();
             graph::validate_scope(&mux, workspace, None)?;
         }
-        let (jobs, live_leases) = storage::committed_workspace(&handle.store, workspace)?;
+        let (mut jobs, live_leases) = storage::committed_workspace(&handle.store, workspace)?;
+        crate::plan_lock::project(self, &mut jobs);
         let journals = pipeline_journals(&handle, &jobs)?;
         let definitions = retained::definitions(&handle, &jobs, &journals)?;
         let mut grouped: BTreeMap<Option<String>, Vec<Sentinel>> = BTreeMap::new();

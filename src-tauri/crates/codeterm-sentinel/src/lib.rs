@@ -1,3 +1,4 @@
+pub mod admission;
 pub mod agent_stage;
 pub mod amend;
 pub mod classification_policy;

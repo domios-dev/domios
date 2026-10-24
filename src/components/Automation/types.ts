@@ -69,6 +69,7 @@ export interface AgentBlueprintDefinition {
 }
 
 export interface AutomationNode {
+  held_reason?: string | null;
   solution_success?: boolean;
   conversation?: import("../../lib/blueprintRun").ConversationCounts;
   source?: { type: string; kind?: string; display_name?: string; ref_type?: string; convert_to?: string | null; pattern?: string | null; idle_ms?: number | null };

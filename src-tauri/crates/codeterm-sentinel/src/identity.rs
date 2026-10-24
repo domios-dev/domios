@@ -46,6 +46,7 @@ pub fn scope_revision(jobs: &[Sentinel], workspace: &str, team: Option<&str>) ->
                 j.model_classification,
                 j.name,
                 j.scenario_id,
+                j.admission.held_reason,
                 j.machine.paused,
                 j.machine.stopped,
                 j.machine.last_bucket,

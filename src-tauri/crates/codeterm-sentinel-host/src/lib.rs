@@ -11,6 +11,7 @@ pub use blueprint_memory::BlueprintMemoryExt;
 pub mod blueprint_pipeline;
 pub mod blueprint_portable;
 pub use blueprint_apply::BlueprintApplyExt;
+mod plan_lock;
 mod ports_impl;
 pub mod service_adapter;
 pub use blueprint_pipeline::BlueprintExt;
