@@ -48,6 +48,7 @@ pub(super) fn keep(
     caller: &SentinelCaller,
     id: &str,
     when: &[String],
+    tags: &[String],
 ) -> Result<Value, String> {
     let session = {
         let mux = ctx.mux.read();
@@ -99,6 +100,7 @@ pub(super) fn keep(
         }
     }
     let mut proof = evidence(&handle, job)?;
+    proof.tags = tags.to_vec();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -133,5 +135,5 @@ pub(super) fn keep(
             Ok(saved.id)
         },
     )?;
-    Ok(json!({"id":saved,"evicted_ids":evicted_ids,"status":"saved"}))
+    Ok(json!({"id":saved,"evicted_ids":evicted_ids,"status":"saved","tags":tags}))
 }

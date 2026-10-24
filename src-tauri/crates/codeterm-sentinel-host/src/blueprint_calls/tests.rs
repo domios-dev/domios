@@ -115,16 +115,38 @@ fn run_fixture(
             .document
             .as_ref()
             .clone();
+        for tags in [
+            vec![],
+            vec!["githb".into()],
+            vec!["ci".into(), "git".into(), "http".into(), "health".into()],
+        ] {
+            assert!(service
+                .blueprint_keep_callable(
+                    &caller,
+                    original.clone(),
+                    &[],
+                    &["Increment typed counter".into()],
+                    &tags
+                )
+                .unwrap_err()
+                .contains("blueprint_tags_invalid"));
+        }
         let kept = service
             .blueprint_keep_callable(
                 &caller,
                 original.clone(),
                 &[],
                 &["Increment typed counter".into()],
+                &["data-transform".into()],
             )
             .unwrap();
         let id = kept["id"].as_str().unwrap();
         let raw = id.strip_prefix("mem:").unwrap();
+        assert_eq!(kept["tags"], json!(["data-transform"]));
+        assert_eq!(
+            show_callable(service, &caller, id).unwrap()["tags"],
+            json!(["data-transform"])
+        );
         assert_eq!(handle.store.lock().jobs.len(), 0, "keep schedules no job");
         assert!(service.notif.lock().list(false).is_empty());
         let recall = service

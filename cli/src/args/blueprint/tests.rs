@@ -7,7 +7,14 @@ fn blueprint_memory_intents_and_keep_are_explicit() {
     for args in [
         vec!["new", "--like", "watch CI failure"],
         vec!["apply", "--like", "watch CI failure"],
-        vec!["keep", "graph-id", "--when", "Watch CI failures"],
+        vec![
+            "keep",
+            "graph-id",
+            "--when",
+            "Watch CI failures",
+            "--tag",
+            "ci",
+        ],
     ] {
         assert!(Cli::try_parse_from(["codeterm", "blueprint"].into_iter().chain(args)).is_ok());
     }
@@ -33,6 +40,8 @@ fn blueprint_keep_when_repeats_one_to_five_times() {
             "blueprint".into(),
             "keep".into(),
             "graph-id".into(),
+            "--tag".into(),
+            "ci".into(),
         ];
         for index in 0..count {
             args.push("--when".into());
@@ -216,7 +225,9 @@ fn blueprint_v2_call_keep_file_and_id_are_mutually_exclusive() {
         "--file",
         "callable.yaml",
         "--when",
-        "Increment typed data"
+        "Increment typed data",
+        "--tag",
+        "data-transform"
     ])
     .is_ok());
     assert!(Cli::try_parse_from([
@@ -227,7 +238,9 @@ fn blueprint_v2_call_keep_file_and_id_are_mutually_exclusive() {
         "--file",
         "callable.yaml",
         "--when",
-        "Increment typed data"
+        "Increment typed data",
+        "--tag",
+        "data-transform"
     ])
     .is_err());
     assert!(Cli::try_parse_from([
@@ -235,7 +248,38 @@ fn blueprint_v2_call_keep_file_and_id_are_mutually_exclusive() {
         "blueprint",
         "keep",
         "--when",
-        "Increment typed data"
+        "Increment typed data",
+        "--tag",
+        "data-transform"
     ])
     .is_err());
+}
+
+#[test]
+fn blueprint_keep_tags_are_required_and_vocabulary_is_discoverable() {
+    assert!(
+        Cli::try_parse_from(["domios", "blueprint", "keep", "graph", "--when", "Watch CI"])
+            .is_err()
+    );
+    assert!(Cli::try_parse_from(["domios", "blueprint", "tags", "--json"]).is_ok());
+    let cli = Cli::try_parse_from([
+        "domios",
+        "blueprint",
+        "keep",
+        "graph",
+        "--when",
+        "Watch CI",
+        "--tag",
+        "ci",
+        "--tag",
+        "github",
+    ])
+    .unwrap();
+    let Commands::Blueprint {
+        action: BlueprintAction::Keep { tags, .. },
+    } = cli.command
+    else {
+        panic!("wrong command")
+    };
+    assert_eq!(tags, vec!["ci", "github"]);
 }

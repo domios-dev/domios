@@ -74,6 +74,16 @@ pub fn handle_local(json_mode: bool, action: &BlueprintAction) -> bool {
                 );
             }
         }
+        BlueprintAction::Tags => {
+            let tags = codeterm_blueprint_types::blueprint_tags::vocabulary();
+            if json_mode {
+                crate::cmd::print::print_json(&json!(tags));
+            } else {
+                for tag in tags {
+                    println!("{}\t{}", tag.name, tag.description);
+                }
+            }
+        }
         BlueprintAction::Schema => {
             crate::cmd::print::print_json(&blueprint_document::schema::schema())
         }

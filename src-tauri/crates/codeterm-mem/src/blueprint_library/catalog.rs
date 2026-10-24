@@ -61,3 +61,15 @@ pub fn document(id: &str) -> Result<Document, String> {
 
 #[cfg(test)]
 mod tests;
+
+pub fn tags(id: &str) -> &'static [&'static str] {
+    match id {
+        "catalog:checks-fan-in" => &["ci", "data-transform"],
+        "catalog:command-lines" => &["text", "parsing"],
+        "catalog:latency-percentiles" => &["monitoring", "reporting"],
+        "catalog:log-dedupe" => &["logs", "data-transform"],
+        "catalog:rule-classifier" => &["validation", "data-transform"],
+        "catalog:severity-grade" => &["incident", "data-transform"],
+        _ => &[],
+    }
+}

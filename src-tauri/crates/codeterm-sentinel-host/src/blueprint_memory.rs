@@ -20,6 +20,7 @@ pub trait BlueprintMemoryExt {
         team: Option<&str>,
         id: &str,
         when: &str,
+        tags: &[String],
     ) -> Result<Value, String>;
     fn blueprint_solutions_host(&self, workspace: &str) -> Result<Value, String>;
     fn blueprint_archive_solution_host(&self, workspace: &str, id: &str) -> Result<Value, String>;
@@ -29,6 +30,7 @@ pub trait BlueprintMemoryExt {
         caller: &SentinelCaller,
         id: &str,
         when: &[String],
+        tags: &[String],
     ) -> Result<Value, String>;
     fn blueprint_recall_cards(
         &self,
@@ -42,6 +44,7 @@ pub trait BlueprintMemoryExt {
         document: codeterm_blueprint_types::blueprint_document::Document,
         local_callees: &[codeterm_blueprint_types::blueprint_document::calls::LocalCallee],
         when: &[String],
+        tags: &[String],
     ) -> Result<Value, String>;
     fn blueprint_recall(&self, caller: &SentinelCaller, intent: &str) -> Result<Value, String>;
     fn blueprint_apply_recipe(
@@ -64,7 +67,10 @@ impl BlueprintMemoryExt for ServiceContext {
         team: Option<&str>,
         id: &str,
         when: &str,
+        tags: &[String],
     ) -> Result<Value, String> {
+        let tags = codeterm_blueprint_types::blueprint_tags::validate(tags)
+            .map_err(|error| error.to_string())?;
         crate::graph::validate_scope(&self.mux.read(), workspace, team)?;
         let handle = self
             .host_extension::<Handle>()
@@ -78,7 +84,8 @@ impl BlueprintMemoryExt for ServiceContext {
                 .cloned()
                 .ok_or("Blueprint not found in this scope")?
         };
-        let evidence = evidence(&handle, &job)?;
+        let mut evidence = evidence(&handle, &job)?;
+        evidence.tags = tags.to_vec();
         if evidence.successes == 0 {
             return Err("Only a successful Blueprint can be saved as a solution".into());
         }
@@ -93,12 +100,12 @@ impl BlueprintMemoryExt for ServiceContext {
             evidence,
         )?;
         self.mem.blueprint_recipe(&area(workspace), &saved.id)?;
-        Ok(json!({"id":saved.id,"evicted_ids":saved.evicted_ids,"status":"saved"}))
+        Ok(json!({"id":saved.id,"evicted_ids":saved.evicted_ids,"status":"saved","tags":tags}))
     }
     fn blueprint_solutions_host(&self, workspace: &str) -> Result<Value, String> {
         crate::graph::validate_scope(&self.mux.read(), workspace, None)?;
         let entries = self.mem.list_blueprint_solutions(&area(workspace))?;
-        Ok(json!(entries.into_iter().map(|entry| json!({"id":entry.id,"when_to_use":entry.when_to_use(),"intents":entry.intents,"how":entry.document.note,"uses":entry.uses,"successes":entry.successes,"last_used":entry.last_used})).collect::<Vec<_>>()))
+        Ok(json!(entries.into_iter().map(|entry| Ok(json!({"id":entry.id,"tags":self.mem.blueprint_tags(&entry.id)?,"when_to_use":entry.when_to_use(),"intents":entry.intents,"how":entry.document.note,"uses":entry.uses,"successes":entry.successes,"last_used":entry.last_used}))).collect::<Result<Vec<_>, String>>()?))
     }
     fn blueprint_archive_solution_host(&self, workspace: &str, id: &str) -> Result<Value, String> {
         crate::graph::validate_scope(&self.mux.read(), workspace, None)?;
@@ -111,13 +118,16 @@ impl BlueprintMemoryExt for ServiceContext {
         caller: &SentinelCaller,
         id: &str,
         when: &[String],
+        tags: &[String],
     ) -> Result<Value, String> {
+        let tags = codeterm_blueprint_types::blueprint_tags::validate(tags)
+            .map_err(|error| error.to_string())?;
         let when = &codeterm_blueprint_types::blueprint_memory::validate_intents(when)?;
         if self
             .role_policy_for_tab(&caller.tab)
             .is_some_and(|policy| policy.conservative_save())
         {
-            return curator::keep(self, caller, id, when);
+            return curator::keep(self, caller, id, when, &tags);
         }
         let handle = self
             .host_extension::<Handle>()
@@ -140,7 +150,8 @@ impl BlueprintMemoryExt for ServiceContext {
                 .cloned()
                 .ok_or("Blueprint not found in this Team")?
         };
-        let evidence = evidence(&handle, &job)?;
+        let mut evidence = evidence(&handle, &job)?;
+        evidence.tags = tags.to_vec();
         let saved = self.mem.enqueue_blueprint_scoped(
             area(&caller.workspace),
             caller
@@ -151,7 +162,7 @@ impl BlueprintMemoryExt for ServiceContext {
             when.clone(),
             evidence,
         )?;
-        Ok(json!({"id":saved.id,"evicted_ids":saved.evicted_ids,"status":"saved"}))
+        Ok(json!({"id":saved.id,"evicted_ids":saved.evicted_ids,"status":"saved","tags":tags}))
     }
     fn blueprint_recall_cards(
         &self,
@@ -167,8 +178,11 @@ impl BlueprintMemoryExt for ServiceContext {
         document: codeterm_blueprint_types::blueprint_document::Document,
         local_callees: &[codeterm_blueprint_types::blueprint_document::calls::LocalCallee],
         when: &[String],
+        tags: &[String],
     ) -> Result<Value, String> {
         use codeterm_blueprint_types::blueprint_document::{calls, checker, Kind};
+        let tags = codeterm_blueprint_types::blueprint_tags::validate(tags)
+            .map_err(|error| error.to_string())?;
         let when = codeterm_blueprint_types::blueprint_memory::validate_intents(when)?;
         {
             let mux = self.mux.read();
@@ -215,6 +229,7 @@ impl BlueprintMemoryExt for ServiceContext {
             &when,
             Evidence {
                 kept: true,
+                tags: tags.clone(),
                 ..Default::default()
             },
         )?;
@@ -224,7 +239,9 @@ impl BlueprintMemoryExt for ServiceContext {
             .blueprint_callable(&area(&caller.workspace), team, &id)?;
         body.dependencies.clear();
         let hash = codeterm_blueprint_types::blueprint_document::projection::identity(&body)?;
-        Ok(json!({"id":id,"hash":hash,"status":"saved","evicted_ids":saved.evicted_ids}))
+        Ok(
+            json!({"id":id,"hash":hash,"status":"saved","tags":tags,"evicted_ids":saved.evicted_ids}),
+        )
     }
     fn blueprint_recall(&self, caller: &SentinelCaller, intent: &str) -> Result<Value, String> {
         if intent.len() > 4096 {
@@ -236,7 +253,7 @@ impl BlueprintMemoryExt for ServiceContext {
         let offers=entries.into_iter().map(|hit| {
             let entry=hit.entry;
             let yaml=entry.document.yaml()?;
-            Ok(json!({"id":entry.id,"name":entry.document.name,"when_to_use":entry.when_to_use(),"intents":entry.intents,"how":entry.document.note,"uses":entry.uses,"successes":entry.successes,"last_used":entry.last_used,"yaml":yaml,"why":hit.why,"enrichment_pending":hit.enrichment_pending}))
+            Ok(json!({"id":entry.id,"tags":self.mem.blueprint_tags(&entry.id)?,"name":entry.document.name,"when_to_use":entry.when_to_use(),"intents":entry.intents,"how":entry.document.note,"uses":entry.uses,"successes":entry.successes,"last_used":entry.last_used,"yaml":yaml,"why":hit.why,"enrichment_pending":hit.enrichment_pending}))
         }).collect::<Result<Vec<_>,String>>()?;
         Ok(json!(offers))
     }
