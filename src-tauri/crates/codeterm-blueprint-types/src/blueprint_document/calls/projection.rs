@@ -2,12 +2,23 @@ use super::*;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ExpandedCall {
     pub node: String,
     pub pin: CallPin,
     pub graph: Value,
     pub children: Vec<ExpandedCall>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unavailable: Option<UnavailableCall>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UnavailableCall {
+    PinnedRevisionUnavailable,
+    BudgetExhausted,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ExpandedGraph {
@@ -16,38 +27,84 @@ pub struct ExpandedGraph {
 }
 pub fn graph(closure: &FrozenClosure) -> Result<ExpandedGraph, String> {
     closure.verify()?;
+    graph_resolved(&closure.root.document, |pin| {
+        Ok((*closure.callee(pin)?.document).clone())
+    })
+}
+pub fn graph_resolved(
+    document: &Document,
+    mut revision: impl FnMut(&CallPin) -> Result<Document, String>,
+) -> Result<ExpandedGraph, String> {
+    let mut budget = MAX_CLOSURE_BYTES;
+    let mut count = 0;
     Ok(ExpandedGraph {
         root: bounded(
-            &serde_json::to_value(&closure.root.document).map_err(|e| e.to_string())?,
+            &serde_json::to_value(document).map_err(|e| e.to_string())?,
             0,
         ),
-        calls: expand(closure, &closure.root.document, &mut Vec::new())?,
+        calls: expand(
+            document,
+            &mut revision,
+            &mut Vec::new(),
+            &mut budget,
+            &mut count,
+        )?,
     })
 }
 fn expand(
-    closure: &FrozenClosure,
     document: &Document,
+    revision: &mut impl FnMut(&CallPin) -> Result<Document, String>,
     stack: &mut Vec<CallPin>,
+    budget: &mut usize,
+    count: &mut usize,
 ) -> Result<Vec<ExpandedCall>, String> {
-    if stack.len() > MAX_CALL_DEPTH {
-        return Err("budget_exhausted".into());
-    }
     let mut result = Vec::new();
     for node in document.nodes() {
         let Some(call) = &node.call else { continue };
         let pin = call.pin.as_ref().ok_or("Missing call pin")?;
-        let callee = closure.callee(pin)?;
-        stack.push(pin.clone());
-        let children = expand(closure, &callee.document, stack)?;
-        stack.pop();
+        if *count >= 64 {
+            break;
+        }
+        *count += 1;
+        let callee = if stack.len() >= MAX_CALL_DEPTH {
+            Err(UnavailableCall::BudgetExhausted)
+        } else if stack.iter().any(|prior| prior.id == pin.id) {
+            Err(UnavailableCall::PinnedRevisionUnavailable)
+        } else {
+            revision(pin).map_err(|_| UnavailableCall::PinnedRevisionUnavailable)
+        };
+        let callee = callee.and_then(|mut callee| {
+            callee.dependencies.clear();
+            let bytes = serde_json::to_vec(&callee)
+                .map_err(|_| UnavailableCall::PinnedRevisionUnavailable)?;
+            if bytes.len() > *budget {
+                return Err(UnavailableCall::BudgetExhausted);
+            }
+            *budget -= bytes.len();
+            Ok(callee)
+        });
+        let (graph, children, unavailable) = match callee {
+            Ok(callee) => {
+                stack.push(pin.clone());
+                let children = expand(&callee, revision, stack, budget, count)?;
+                stack.pop();
+                (
+                    bounded(
+                        &serde_json::to_value(&callee).map_err(|e| e.to_string())?,
+                        0,
+                    ),
+                    children,
+                    None,
+                )
+            }
+            Err(reason) => (Value::Null, Vec::new(), Some(reason)),
+        };
         result.push(ExpandedCall {
             node: node.id.clone(),
             pin: pin.clone(),
-            graph: bounded(
-                &serde_json::to_value(&callee.document).map_err(|e| e.to_string())?,
-                0,
-            ),
+            graph,
             children,
+            unavailable,
         });
     }
     Ok(result)

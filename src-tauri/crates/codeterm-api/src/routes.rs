@@ -149,6 +149,10 @@ pub(super) fn create_router_with_preview_admission(
             post(super::blueprint_solution_routes::list),
         )
         .route(
+            "/api/automation/blueprints/solutions/show",
+            post(super::blueprint_solution_routes::show),
+        )
+        .route(
             "/api/automation/blueprints/solutions/save",
             post(super::blueprint_solution_routes::save),
         )
