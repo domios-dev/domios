@@ -94,7 +94,7 @@ test('live preflight profile tool sets cover the entire ordinary CI job inventor
       for(const scenario of runnerScenarios(job)){
         const placement=JSON.stringify(scenario.labels)+' '+JSON.stringify(scenario.matrix);
         const os=/Windows|windows-/.test(placement)?'windows':/macOS|macos-/.test(placement)?'macos':'linux';
-        const profile=scenario.kind==='github-hosted'?'hosted-'+os:os==='linux'?'self-linux-blackstar':'self-'+os;
+        const profile=scenario.kind==='github-hosted'?'hosted-'+os:os==='linux'?(jobTools(job).includes('cargo')?'self-linux-ubunta-compile':'self-linux-ubunta-light'):'self-'+os;
         for(const tool of jobTools(job))assert.ok(PREFLIGHT_PROFILES[profile].includes(tool),file+'/'+id+'/'+profile+'/'+tool);
       }
     }
