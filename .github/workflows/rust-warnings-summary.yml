@@ -56,6 +56,11 @@ jobs:
         run: node scripts/ci-warning-base.mjs
       - name: Runner preflight
         run: node scripts/ci-runner-paths.mjs receipt
+      - name: Fetch fallback run artifact evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: ci-artifact-spool-*
+          path: ${{ runner.temp }}/ci-artifact-fallback/${{ github.run_id }}
       - name: Fetch warning collections
         continue-on-error: true
         env:

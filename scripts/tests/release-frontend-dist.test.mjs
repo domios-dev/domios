@@ -62,14 +62,12 @@ test('hosted frontend transport reads the producing run artifact and refuses cha
     const digest = await publish(dist, source, '41', { put: () => {} });
     const fetched = path.join(root, 'hosted', 'frontend-dist.tar');
     const env = { GITHUB_ENV: path.join(root, 'github-env'), GITHUB_REPOSITORY: 'owner/repo', GITHUB_RUN_ATTEMPT: '2' };
-    const download = args => {
-      assert.deepEqual(args, ['run', 'download', '41', '--repo', 'owner/repo', '--name', 'frontend-dist-2', '--dir', path.dirname(fetched)]);
-      copyFileSync(source, fetched);
-    };
-    await fetchRunArtifact('41', digest, fetched, { download, env });
+    await mkdir(path.dirname(fetched), { recursive: true });
+    copyFileSync(source, fetched);
+    await fetchRunArtifact('41', digest, fetched, { env });
     assert.equal(await sha256(fetched), digest);
     await rm(env.GITHUB_ENV);
-    await assert.rejects(fetchRunArtifact('41', 'f'.repeat(64), fetched, { download, env }), /differs from the run/);
+    await assert.rejects(fetchRunArtifact('41', 'f'.repeat(64), fetched, { env }), /differs from the run/);
     await assert.rejects(readFile(env.GITHUB_ENV), /ENOENT/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });

@@ -1232,6 +1232,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
         with:
           toolchain: 1.99.1
+          components: clippy,rustfmt
         if: runner.environment == 'github-hosted'
       - name: Verify exact source and run five native controls
         shell: bash
@@ -1350,6 +1351,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
         with:
           toolchain: 1.99.1
+          components: clippy,rustfmt
         if: runner.environment == 'github-hosted'
       - name: Ensure Rust toolchain on PATH
         shell: bash
@@ -1798,6 +1800,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
         with:
           toolchain: 1.99.1
+          components: clippy,rustfmt
         if: runner.environment == 'github-hosted'
       - name: Ensure Rust toolchain on PATH
         shell: bash
@@ -2366,6 +2369,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
         with:
           toolchain: 1.99.1
+          components: clippy,rustfmt
         if: runner.environment == 'github-hosted'
       - name: Ensure Rust toolchain on PATH
         shell: bash

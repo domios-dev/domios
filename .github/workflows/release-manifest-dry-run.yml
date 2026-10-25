@@ -62,6 +62,13 @@ jobs:
       - name: Discover installed runner tools
         if: runner.environment == 'self-hosted'
         run: node scripts/ci-runner-paths.mjs --paths-only
+      - name: Fetch fallback run artifact evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.artifact_run_id }}
+          pattern: ci-artifact-spool-*
+          path: ${{ runner.temp }}/ci-artifact-fallback/${{ inputs.artifact_run_id }}
       - name: Assemble and verify local channel manifests
         env:
           TAG: ${{ inputs.tag }}

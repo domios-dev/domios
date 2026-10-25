@@ -17,8 +17,7 @@ export function ciFailures(event, needs, scope = '') {
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const needs = JSON.parse(process.env.CI_NEEDS);
   const failures = ciFailures(process.env.CI_EVENT, needs, process.env.CI_SCOPE);
-  const details = fs.existsSync('ci-job-failures.txt') ? fs.readFileSync('ci-job-failures.txt', 'utf8').trim() : '';
-  const summary = Object.entries(needs).map(([id, job]) => '- ' + id + ': ' + job.result).join('\n') + (details ? '\n' + details : '');
+  const summary = Object.entries(needs).map(([id, job]) => '- ' + id + ': ' + job.result).join('\n');
   if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary + '\n');
-  if (failures.length) throw new Error('CI did not pass: ' + failures.join(', ') + (details ? '\n' + details : ''));
+  if (failures.length) throw new Error('CI did not pass: ' + failures.join(', '));
 }

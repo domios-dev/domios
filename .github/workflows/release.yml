@@ -59,22 +59,20 @@ jobs:
       - name: Admit only the exact qualified branch head
         id: source
         env:
-          GH_TOKEN: ${{ github.token }}
           QUALIFIED_BRANCH: ${{ github.event.workflow_run.head_branch }}
           QUALIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          [[ "$QUALIFIED_SHA" =~ ^[a-f0-9]{40}$ ]] || exit 1
-          if ! head=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$QUALIFIED_BRANCH" --jq .object.sha); then
-            echo "::notice::Release branch is unavailable; no packaging requested"
-            exit 0
-          fi
-          if [ "$head" != "$QUALIFIED_SHA" ]; then
-            echo "::notice::Qualification is for a superseded head; no packaging requested"
-            exit 0
-          fi
-          echo "source_sha=$QUALIFIED_SHA" >> "$GITHUB_OUTPUT"
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            const {pathToFileURL} = require('node:url');
+            // Admission precedes checkout, so validate the event head directly.
+            const sha = process.env.QUALIFIED_SHA;
+            if (!/^[a-f0-9]{40}$/.test(sha)) throw new Error('Invalid qualified SHA');
+            let head;
+            try {head = (await github.rest.git.getRef({...context.repo,ref:'heads/' + process.env.QUALIFIED_BRANCH})).data.object.sha;}
+            catch(error){if(error.status===404){core.notice('Release branch unavailable');return;}throw error;}
+            if(head!==sha){core.notice('Qualification is for a superseded head');return;}
+            core.setOutput('source_sha',sha);
 
   prepare:
     name: prepare release
@@ -139,10 +137,13 @@ jobs:
         run: node scripts/ci-runner-paths.mjs packaging
 
       - name: Require green dev qualification for the exact release SHA
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: node scripts/ci-qualification.mjs check "$(git rev-parse HEAD)"
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            const {pathToFileURL} = require('node:url');
+            const {requireQualificationWithGithub} = await import(pathToFileURL(process.env.GITHUB_WORKSPACE + '/scripts/ci-workflow-api.mjs').href);
+            const sha = process.env.QUALIFICATION_SHA || require('node:child_process').execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+            await requireQualificationWithGithub(github, context, sha);
 
       - name: Resolve release version
         id: release
@@ -323,10 +324,11 @@ jobs:
       - name: Retain frontend bytes for hosted arm64 compilation
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: frontend-dist-${{ github.run_attempt }}
+          overwrite: true
+          name: frontend-dist-${{ steps.bundle.outputs.sha256 }}
           path: ${{ runner.temp }}/frontend-dist.tar
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 1
       - name: Upload artifacts spooled while the private store was unreachable
         if: always()
         uses: ./.github/actions/ci-artifact-spool

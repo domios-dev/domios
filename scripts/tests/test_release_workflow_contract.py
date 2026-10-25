@@ -189,7 +189,7 @@ class SingleRunGraphTest(unittest.TestCase):
         linux = read("release-linux.yml")
         windows = read("release-windows.yml")
         self.assertIn("APPLE_PASSWORD", mac)
-        self.assertIn("apple-actions/import-codesign-certs", read("release-macos.yml"))
+        self.assertFalse((WORKFLOWS / "release-macos.yml").exists())
         self.assertIn("bundles deb,appimage", linux)
         self.assertIn("bundleRoot/nsis", windows)
         self.assertNotIn("bundleRoot/nsis", linux)

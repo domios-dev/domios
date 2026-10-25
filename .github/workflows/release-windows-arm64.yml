@@ -131,13 +131,14 @@ jobs:
       - name: Install npm dependencies
         shell: pwsh
         run: pnpm install --frozen-lockfile
+      - name: Download unsigned arm64 handoff
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: unsigned-aarch64-pc-windows-msvc-${{ needs.compile.outputs.sha256 }}
+          path: ${{ runner.temp }}/hosted-arm64
       - name: Download and verify unsigned arm64 handoff
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |-
-          gh run download "$env:GITHUB_RUN_ID" --repo "$env:GITHUB_REPOSITORY" --name "unsigned-aarch64-pc-windows-msvc-$env:GITHUB_RUN_ATTEMPT" --dir "$env:RUNNER_TEMP/hosted-arm64"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node scripts/release-arm64-handoff.mjs unpack "$env:TARGET" "${{ inputs.tag }}" "${{ inputs.source_ref }}" "$env:RUNNER_TEMP/hosted-arm64/arm64-handoff.tar" "${{ needs.compile.outputs.sha256 }}"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Sign transferred updater bundle

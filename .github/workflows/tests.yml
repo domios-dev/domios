@@ -64,7 +64,7 @@ jobs:
           PUSH_BEFORE: ${{ github.event.before }}
         run: node scripts/ci-git-history.mjs policy
       - name: Runner preflight
-        run: node scripts/ci-runner-paths.mjs bash,curl,gh,git,jq,node,python,tar
+        run: node scripts/ci-runner-paths.mjs bash,curl,git,jq,node,python,tar
       - name: Embedded docs and generated contract preflight
         if: ${{ !cancelled() }}
         run: node scripts/check-ci-docs.mjs
@@ -206,36 +206,18 @@ jobs:
             > "$RUNNER_TEMP/public-issues.txt"
           jq -r '.repository_issues[].reference' "$RUNNER_TEMP/resolved-public-issues.json" \
             > "$RUNNER_TEMP/repository-issues.txt"
-
-          {
-            echo "## Public issue contract"
-            if [ -s "$RUNNER_TEMP/public-issues.txt" ]; then
-              while IFS= read -r reference; do
-                number="${reference##*#}"
-                gh issue view "$number" \
-                  --repo rollacode/codeterm-releases \
-                  --json number,state,title >/dev/null
-                echo "- $reference"
-              done < "$RUNNER_TEMP/public-issues.txt"
-            else
-              echo "No public issues declared."
-            fi
-
-            echo
-            echo "## Source repository issue contract"
-            if [ -s "$RUNNER_TEMP/repository-issues.txt" ]; then
-              while IFS= read -r reference; do
-                number="${reference##*#}"
-                gh issue view "$number" \
-                  --repo "$GITHUB_REPOSITORY" \
-                  --json number,state,title >/dev/null
-                echo "- $reference"
-              done < "$RUNNER_TEMP/repository-issues.txt"
-            else
-              echo "No source repository issues declared."
-            fi
-          } | tee -a "$GITHUB_STEP_SUMMARY"
         if: ${{ !cancelled() }}
+      - name: Verify declared issue references
+        if: "!cancelled()"
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            const fs = require('node:fs');
+            const {pathToFileURL} = require('node:url');
+            const {verifyIssueReferences} = await import(pathToFileURL(process.env.GITHUB_WORKSPACE + '/scripts/ci-workflow-api.mjs').href);
+            const selection = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/resolved-public-issues.json','utf8'));
+            await verifyIssueReferences(github, selection);
+            await core.summary.addHeading('Issue contracts').addList([...selection.issues,...selection.repository_issues].map(issue=>issue.reference)).write();
     if: inputs.scope != 'preflight'
   pr:
     name: Pull request checks
@@ -326,7 +308,12 @@ jobs:
         if: runner.environment == 'self-hosted'
         run: node scripts/ci-runner-paths.mjs --paths-only
       - name: Runner preflight
-        run: node scripts/ci-runner-paths.mjs bash,curl,gh,git,node
+        run: node scripts/ci-runner-paths.mjs bash,curl,git,node
+      - name: Fetch fallback run artifact evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: ci-artifact-spool-*
+          path: ${{ runner.temp }}/ci-artifact-fallback/${{ github.run_id }}
       - name: Fetch executed Rust receipts
         env:
           GH_TOKEN: ${{ github.token }}
@@ -341,7 +328,7 @@ jobs:
           name: qualification-${{ needs.fast.outputs.source_sha }}
           path: qualification.json
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 3
   runner-preflight:
     name: Runner preflight (${{ matrix.profile }})
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.scope == 'preflight' && (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' }}
@@ -417,6 +404,7 @@ jobs:
         if: runner.environment == 'github-hosted' && matrix.profile != 'hosted-windows'
         with:
           toolchain: 1.99.1
+          components: clippy,rustfmt
       - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8
         if: runner.environment == 'github-hosted' && matrix.profile != 'hosted-windows'
         with:
@@ -451,14 +439,15 @@ jobs:
         with:
           ref: ${{ needs.fast.outputs.source_sha || github.sha }}
           fetch-depth: 1
-      - name: Runner preflight
-        run: node scripts/ci-runner-paths.mjs bash,gh,git,node
       - name: Read named job failures and timeouts
         if: ${{ contains(toJSON(needs), 'failure') || contains(toJSON(needs), 'cancelled') }}
         continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: 'gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs?per_page=100" --jq ".jobs[] | select(.conclusion != null and .conclusion != \"success\" and .conclusion != \"skipped\") | \"\(.name): \(.conclusion)\"" > ci-job-failures.txt'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            const {pathToFileURL} = require('node:url');
+            const {listFailureJobs} = await import(pathToFileURL(process.env.GITHUB_WORKSPACE + '/scripts/ci-workflow-api.mjs').href);
+            await core.summary.addHeading('Job failures').addList(await listFailureJobs(github, context)).write();
       - name: Require the complete event graph
         env:
           CI_EVENT: ${{ github.event_name }}

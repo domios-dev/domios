@@ -329,13 +329,19 @@ jobs:
           & .\build.ps1 cache-verify
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Download digest-pinned frontend bundle
+        if: ${{ inputs.frontend_sha256 != '' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: frontend-dist-${{ inputs.frontend_sha256 }}
+          path: ${{ runner.temp }}
       - name: Fetch the run's frontend bundle
         if: ${{ inputs.frontend_sha256 != '' }}
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          node scripts/release-frontend-dist.mjs fetch "$env:GITHUB_RUN_ID" "${{ inputs.frontend_sha256 }}" "$env:RUNNER_TEMP/frontend-dist.tar"
+          node scripts/release-frontend-dist.mjs fetch-run-artifact "$env:GITHUB_RUN_ID" "${{ inputs.frontend_sha256 }}" "$env:RUNNER_TEMP/frontend-dist.tar"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       # A dropped upload leaves a starter asset that holds the name and makes every

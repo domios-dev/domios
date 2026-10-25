@@ -97,6 +97,7 @@ jobs:
         uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
         with:
           toolchain: 1.99.1
+          components: clippy,rustfmt
       - name: Runner preflight
         run: node scripts/ci-runner-paths.mjs bash,cargo,git,nextest,node,pnpm,python,python:yaml
       - &a1
@@ -334,6 +335,7 @@ jobs:
         uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
         with:
           toolchain: 1.99.1
+          components: clippy,rustfmt
       - name: Runner preflight
         run: node scripts/ci-runner-paths.mjs bash,cargo,git,node,pnpm
       - name: Install dependencies
@@ -485,6 +487,7 @@ jobs:
         uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
         with:
           toolchain: 1.99.1
+          components: clippy,rustfmt
       - name: Runner preflight
         run: node scripts/ci-runner-paths.mjs bash,cargo,git,node
       - name: CLI manifest and plugin parsing contracts

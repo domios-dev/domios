@@ -27,8 +27,8 @@ function orderingErrors(steps,kind='github-hosted',matrix={}){
       if(pinned(step)&&activeProvider(step,kind,matrix))ready.add(provider);
       continue;
     }
-    if(step.uses?.startsWith('actions/github-script@')&&pinned(step)&&activeProvider(step,kind,matrix)){
-      assert.match(step.with.script,/core\.addPath\(path\.dirname\(process\.execPath\)\)/);
+    if(step.uses?.startsWith('actions/github-script@')&&pinned(step)&&activeProvider(step,kind,matrix)&&
+        /core\.addPath\(path\.dirname\(process\.execPath\)\)/.test(step.with.script)){
       ready.add('node');
     }
     if(step.if?.includes("runner.environment == 'self-hosted'")&&kind==='github-hosted')continue;

@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
 import { stripVTControlCharacters } from 'node:util';
 import { pathToFileURL } from 'node:url';
 import { StringDecoder } from 'node:string_decoder';
@@ -49,17 +48,13 @@ export function failureAnnotation(event) {
   return `::error title=CI test failure::${message.replaceAll('%', '%25').replaceAll('\r', '%0D').replaceAll('\n', '%0A')}\n`;
 }
 
-function cancelRun(env) {
-  return new Promise((resolve, reject) => {
-    const child = spawn('gh', ['run', 'cancel', env.GITHUB_RUN_ID, '--repo', env.GITHUB_REPOSITORY],
-      { env, stdio: ['ignore', 'ignore', 'ignore'] });
-    const deadline = setTimeout(() => { child.kill(); reject(new Error('cancel deadline exceeded')); }, 5000);
-    child.on('error', reject);
-    child.on('close', (code) => {
-      clearTimeout(deadline);
-      if (code === 0) resolve(); else reject(new Error(`gh run cancel exited ${code}`));
+export async function cancelRun(env, request = fetch) {
+  const response = await request((env.GITHUB_API_URL || 'https://api.github.com') +
+    '/repos/' + env.GITHUB_REPOSITORY + '/actions/runs/' + env.GITHUB_RUN_ID + '/cancel', {
+      method:'POST',headers:{Authorization:'Bearer '+(env.GITHUB_TOKEN||env.GH_TOKEN),
+      Accept:'application/vnd.github+json'},signal:AbortSignal.timeout(5000),
     });
-  });
+  if(!response.ok)throw new Error('Workflow cancellation failed: HTTP '+response.status);
 }
 
 export async function firstFailure(detail = {}, {

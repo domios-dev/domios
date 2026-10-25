@@ -22,8 +22,9 @@ function externalTargets(workspace, root) {
     .filter(({ project }) => project);
 }
 
-export function sweepRustTargets(workspace, run = spawnSync, root = process.env.CI_TARGET_ROOT) {
+export function sweepRustTargets(workspace, run = spawnSync, root = process.env.CI_TARGET_ROOT, env = process.env) {
   const swept = [];
+  if (env.RUNNER_ENVIRONMENT === "github-hosted") return swept;
   const candidates = [
     ...RUST_PROJECTS.filter(project => fs.existsSync(path.join(workspace, project, 'target'))).map(project => ({ project })),
     ...externalTargets(workspace, root),

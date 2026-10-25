@@ -180,11 +180,17 @@ jobs:
       - name: Frozen dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Download digest-pinned frontend bundle
+        if: ${{ inputs.frontend_sha256 != '' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: frontend-dist-${{ inputs.frontend_sha256 }}
+          path: ${{ runner.temp }}
       - name: Fetch the run's frontend bundle
         if: ${{ inputs.frontend_sha256 != '' }}
         env:
           GH_TOKEN: ${{ github.token }}
-        run: node scripts/release-frontend-dist.mjs fetch "$GITHUB_RUN_ID" "${{ inputs.frontend_sha256 }}" "$RUNNER_TEMP/frontend-dist.tar"
+        run: node scripts/release-frontend-dist.mjs fetch-run-artifact "$GITHUB_RUN_ID" "${{ inputs.frontend_sha256 }}" "$RUNNER_TEMP/frontend-dist.tar"
 
       - name: Build signed and notarized macOS bundle
         id: compile

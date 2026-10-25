@@ -83,8 +83,14 @@ jobs:
           version: 10.32.1
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
+      - name: Prepare pinned toolchain
+        shell: bash
+        run: |-
+          rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --component clippy,rustfmt
+          rustup target add --toolchain "$RUSTUP_TOOLCHAIN" "$TARGET"
+          rustc -vV
       - name: Runner preflight
-        run: node scripts/ci-runner-paths.mjs packaging
+        run: node scripts/ci-runner-paths.mjs node,git,bash,python,cargo,pnpm
       - name: Validate source, platform and public build configuration
         shell: bash
         run: |-
@@ -101,20 +107,18 @@ jobs:
         run: |-
           sudo apt-get update -qq
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libgtk-3-dev pkg-config xdg-utils patchelf libfuse2t64
-      - name: Prepare pinned toolchain
-        shell: bash
-        run: |-
-          rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
-          rustup target add --toolchain "$RUSTUP_TOOLCHAIN" "$TARGET"
-          rustc -vV
       - name: Install frozen dependencies
         shell: bash
         run: pnpm install --frozen-lockfile
+      - name: Download digest-pinned frontend bundle
+        if: ${{ inputs.frontend_sha256 != '' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: frontend-dist-${{ inputs.frontend_sha256 }}
+          path: ${{ runner.temp }}
       - name: Fetch the run's frontend bundle
         if: ${{ inputs.frontend_sha256 != '' }}
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: node scripts/release-frontend-dist.mjs fetch-run-artifact "$GITHUB_RUN_ID" "${{ inputs.frontend_sha256 }}" "$RUNNER_TEMP/frontend-dist.tar"
       - name: Compile unsigned release bundles and freeze digest handoff
         id: handoff
@@ -123,11 +127,12 @@ jobs:
       - name: Upload immutable unsigned handoff
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: unsigned-${{ inputs.target }}-${{ github.run_attempt }}
+          name: unsigned-${{ inputs.target }}-${{ steps.handoff.outputs.sha256 }}
           path: ${{ runner.temp }}/arm64-handoff.tar
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 1
           compression-level: 0
+          overwrite: true
       - uses: ./.github/actions/rust-warnings
         if: always()
         continue-on-error: true

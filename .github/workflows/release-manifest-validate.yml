@@ -91,8 +91,14 @@ jobs:
 
       - name: Recheck exact-SHA dev qualification before publication
         env:
-          GH_TOKEN: ${{ github.token }}
-        run: node scripts/ci-qualification.mjs check "${{ inputs.source_sha }}"
+          QUALIFICATION_SHA: ${{ inputs.source_sha }}
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            const {pathToFileURL} = require('node:url');
+            const {requireQualificationWithGithub} = await import(pathToFileURL(process.env.GITHUB_WORKSPACE + '/scripts/ci-workflow-api.mjs').href);
+            const sha = process.env.QUALIFICATION_SHA || require('node:child_process').execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+            await requireQualificationWithGithub(github, context, sha);
 
       - name: Stamp the source release tag after all gates succeed
         env:

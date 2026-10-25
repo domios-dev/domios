@@ -57,20 +57,23 @@ test('packaging admits only green trusted release push qualification, with owner
   assert.equal(condition(release.concurrency['cancel-in-progress'], { github: qualifiedGithub }), false, 'unadmitted completions cannot cancel packaging');
 });
 
-test('admission compares the exact live head and skips superseded or deleted branches without a red check', t => {
-  const directory = mkdtempSync(join(tmpdir(), 'release-admission-'));
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
+test('admission compares the exact live head and skips superseded or deleted branches without a red check', async () => {
   const step = release.jobs['qualified-source'].steps.find(step => step.id === 'source');
+  const execute = new (Object.getPrototypeOf(async function(){}).constructor)('require','process','github','context','core', step.with.script);
   for (const [label, head, expected] of [['same', qualifiedSha, true], ['foreign', 'b'.repeat(40), false], ['deleted', '', false]]) {
-    const output = join(directory, label);
-    const script = 'gh() { printf "%s" "$MOCK_HEAD"; [ -n "$MOCK_HEAD" ]; }\n' + step.run;
-    execFileSync(bash, ['-euo', 'pipefail', '-c', script], { env: { ...process.env,
-      QUALIFIED_SHA: qualifiedSha, QUALIFIED_BRANCH: 'release/9.9.9', GITHUB_REPOSITORY: 'rollacode/codeterm', GITHUB_OUTPUT: output, MOCK_HEAD: head,
-    } });
-    let actual = '';
-    try { actual = readFileSync(output, 'utf8'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
-    assert.equal(actual, expected ? `source_sha=${qualifiedSha}\n` : '', label);
+    const outputs = [];
+    await execute(() => ({}), {env:{QUALIFIED_SHA:qualifiedSha,QUALIFIED_BRANCH:'release/9.9.9'}},
+      {rest:{git:{getRef:async args=>{
+        assert.equal(args.ref,'heads/release/9.9.9');
+        if (!head) throw Object.assign(new Error('deleted'),{status:404});
+        return {data:{object:{sha:head}}};
+      }}}}, {repo:{owner:'fixture',repo:'source'}},
+      {notice:()=>{},setOutput:(key,value)=>outputs.push([key,value])});
+    assert.deepEqual(outputs,expected ? [['source_sha',qualifiedSha]] : [],label);
   }
+  await assert.rejects(execute(()=>({}),{env:{QUALIFIED_SHA:qualifiedSha,QUALIFIED_BRANCH:'release/9.9.9'}},
+    {rest:{git:{getRef:async()=>{throw Object.assign(new Error('denied'),{status:403});}}}},
+    {repo:{}},{notice:()=>{}}),/denied/);
 });
 
 test('every privileged reusable release job accepts the qualified caller with protected environment intact', () => {
@@ -228,7 +231,7 @@ test("dev pushes and nightly fallback qualify every exact SHA, and release reuse
   assert.match(qualify.if, /needs.fast.outputs.heavy == 'true'/);
   assert.equal(qualify.steps.at(-1).with.name, 'qualification-${{ needs.fast.outputs.source_sha }}');
   const prepare = release.jobs.prepare.steps;
-  const check = prepare.findIndex(step => /ci-qualification.mjs check/.test(step.run ?? ''));
+  const check = prepare.findIndex(step => /requireQualificationWithGithub\(github, context, sha\)/.test(step.with?.script ?? ''));
   const drafts = prepare.findIndex(step => step.name === 'Create draft releases before parallel uploads');
   assert.ok(check >= 0 && check < drafts);
   assert.equal(prepare[check].if, undefined, 'dry runs cannot bypass qualification');
@@ -238,7 +241,7 @@ test("dev pushes and nightly fallback qualify every exact SHA, and release reuse
     const source = readFileSync(new URL('../' + file, import.meta.url), 'utf8');
     assert.match(source, /requireQualification|release-promote.mjs check/);
   }
-  assert.ok(workflow('release-manifest-validate').jobs.validate.steps.some(step => /ci-qualification.mjs check/.test(step.run ?? '')));
+  assert.ok(workflow('release-manifest-validate').jobs.validate.steps.some(step => /requireQualificationWithGithub\(github, context, sha\)/.test(step.with?.script ?? '')));
 });
 
 test("Rust qualification stays self-hosted and hosted frontend jobs have no secrets or private cache", () => {
