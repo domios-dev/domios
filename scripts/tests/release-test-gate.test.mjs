@@ -108,14 +108,20 @@ test("dry runs use both test stages by default; bundle-only diagnostics explicit
   assert.equal(draft.if, "steps.release.outputs.dry_run != 'true' && steps.release.outputs.published != 'true' && steps.release.outputs.kind == 'app'");
 });
 
-test("guards gate every other fast check, and the two tier workflows partition every check", () => {
+test("fast checks start in parallel with required guards, and the tier workflows partition every check", () => {
   assert.deepEqual(Object.keys(fast.jobs).sort(), ["changed", ...fastJobs].sort());
   assert.deepEqual(Object.keys(rust.jobs).sort(), ["changed", ...longJobs].sort());
   assert.deepEqual(fast.jobs.changed, rust.jobs.changed, "both tiers gate on one scope decision");
   const needs = { changed: { result: "success", outputs: { heavy: "true", rust: "true", frontend: "true", plugins: '[{"id":"test"}]' } }, guards: { result: "success" }, "rust-tests": { result: "success" }, "rust-platform": { result: "success" }, "rust-embeddings": { result: "success" } };
   for (const id of fastJobs) {
-    assert.deepEqual(dependencies(fast.jobs[id]), id === "guards" ? ["changed"] : ["changed", "guards"], id);
+    assert.deepEqual(dependencies(fast.jobs[id]), ["changed"], id);
+    assert.notEqual(fast.jobs[id]["continue-on-error"], true, `${id}: failure must fail the reusable tier`);
     assert.equal(fast.jobs[id].if === undefined || condition(fast.jobs[id].if, { needs }), true, id);
+    if (id !== "guards") {
+      for (const result of ["failure", "skipped", "cancelled"]) {
+        assert.equal(fast.jobs[id].if === undefined || condition(fast.jobs[id].if, { needs: { ...needs, guards: { result } } }), true, `${id}: guards do not serialize siblings`);
+      }
+    }
   }
   const steps = fast.jobs.guards.steps.filter(step => step.run && !/gh run cancel/.test(step.run));
   assert.equal(steps[0].id, "catalogue");
