@@ -82,6 +82,11 @@ jobs:
       - name: Discover installed runner tools
         if: runner.environment == 'self-hosted'
         run: node scripts/ci-runner-paths.mjs --paths-only
+      - name: Fetch scoped baseline history
+        if: inputs.recipe != 'node-test'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci-git-history.mjs baseline
       - name: Validate the requested step
         shell: bash
         run: |
