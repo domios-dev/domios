@@ -107,7 +107,7 @@ jobs:
       - *cancel-run-on-failure
       - id: tree
         env:
-          CI_RELEASE_CALL: ${{ inputs.source_ref != '' || github.event_name == 'push' && (github.ref_name == 'develop' || github.ref_name == 'rename/domios') || github.event_name == 'schedule' }}
+          CI_RELEASE_CALL: ${{ inputs.source_ref != '' || github.event_name == 'push' && (github.ref_name == 'develop' || github.ref_name == 'rename/domios' || startsWith(github.ref_name, 'release/')) || github.event_name == 'schedule' }}
         shell: bash
         run: |
           set -euo pipefail
