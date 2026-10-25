@@ -238,6 +238,11 @@ async fn early_health_reads_live_native_diagnostics_and_clears_detached_port() {
     let mut api = EarlyApi::new(None);
     let port = Arc::new(AtomicU16::new(0));
     let attached = port.clone();
+    let frontend = port.clone();
+    api.frontend_identity = codeterm_api::health_routes::NativeFrontendIdentity {
+        port: Arc::new(move || (frontend.load(Ordering::Acquire) != 0).then_some(14998)),
+        identifier: "com.domios.dev.fixture".into(),
+    };
     api.diagnostics_port =
         codeterm_api::health_routes::NativeDiagnosticsPort(Arc::new(move || {
             match attached.load(Ordering::Acquire) {
@@ -258,6 +263,19 @@ async fn early_health_reads_live_native_diagnostics_and_clears_detached_port() {
         } else {
             ""
         };
-        assert_eq!(json(response).await["instance"]["cdp_port"], expected);
+        let body = json(response).await;
+        assert_eq!(body["instance"]["cdp_port"], expected);
+        assert_eq!(
+            body["instance"]["vite_port"],
+            if expected.is_empty() { "" } else { "14998" }
+        );
+        assert_eq!(
+            body["instance"]["identifier"],
+            if cfg!(debug_assertions) {
+                "com.domios.dev.fixture"
+            } else {
+                ""
+            }
+        );
     }
 }

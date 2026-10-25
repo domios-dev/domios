@@ -149,9 +149,19 @@ pub fn run(
         codeterm_api::health_routes::NativeDiagnosticsPort(Arc::new(move || {
             diagnostics_native.read().as_ref()?.cdp_port()
         }));
+    let frontend_native = native_events.clone();
+    let frontend_identity = codeterm_api::health_routes::NativeFrontendIdentity {
+        port: Arc::new(move || frontend_native.read().as_ref()?.frontend_port()),
+        identifier: if frontend_dev_url.is_some() {
+            env!("SERVER_DEV_IDENTIFIER").to_owned()
+        } else {
+            String::new()
+        },
+    };
     let prepared = crate::startup::early_api::PreparedStartup::new(
         frontend_dev_url.as_ref(),
         diagnostics_port.clone(),
+        frontend_identity.clone(),
     )
     .map_err(io::Error::other)?;
     let address = runtime
@@ -284,6 +294,10 @@ pub fn run(
                 .service
                 .register_host_extension(Arc::new(diagnostics_port))
                 .map_err(|_| "native diagnostics port already registered".to_string())?;
+            running
+                .service
+                .register_host_extension(Arc::new(frontend_identity))
+                .map_err(|_| "native frontend identity already registered".to_string())?;
             running
                 .service
                 .register_host_extension(Arc::new(

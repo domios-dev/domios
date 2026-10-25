@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { client, dcJson, target } from "./lib/env.mjs";
 import { runId } from "./lib/fixtures.mjs";
-import { chooseAgentAccess } from "./lib/setup.mjs";
+import { chooseAgentAccess, completeFirstRun } from "./lib/setup.mjs";
 import { planFromEnv, renderPlan } from "./lib/plan.mjs";
 import { captureScreenshot } from "./lib/screenshots.mjs";
 import { REQUIRED_PROVIDERS } from "./lib/oracle.mjs";
@@ -76,6 +76,11 @@ async function setup(ctx) {
   if (!(await provisionWorkspace(ctx))) return;
   const selected = await providers(ctx);
   const pty = preferred(selected.run, false), runtime = preferred(selected.run, true);
+  const firstRun = await ctx.check("SETUP", "general_first_run_completed", ctx.state.run, async () => {
+    const evidence = await completeFirstRun(ctx.api, pty?.id ?? runtime?.id);
+    return { summary: `General Agent ${evidence.provider} chosen`, evidence };
+  });
+  if (!firstRun) return;
   const ui = serial();
   await Promise.all([
     journeyOne(ctx, selected),

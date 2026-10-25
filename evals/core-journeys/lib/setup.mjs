@@ -2,6 +2,10 @@ import { dcJson } from "./env.mjs";
 
 const firstTab = (value) => (Array.isArray(value) ? value[0] : value?.tabs?.[0] ?? value);
 
+export function promoteFixtureOrchestrator(id, command = dcJson) {
+  return command(["agent", "set-orchestrator", "--tab", id], { asTab: id });
+}
+
 export async function chooseAgentAccess(api) {
   let config = await api("/api/config");
   if (typeof config.agent?.full_access !== "boolean") {
@@ -10,6 +14,18 @@ export async function chooseAgentAccess(api) {
   }
   if (typeof config.agent?.full_access !== "boolean") throw new Error("Agent access choice was not persisted");
   return { full_access: config.agent.full_access };
+}
+
+export async function completeFirstRun(api, providerId) {
+  let config = await api("/api/config");
+  if (config.general_agent?.first_run_complete !== true) {
+    if (!providerId) throw new Error("First run requires an installed provider");
+    await api("/api/agents/general/complete-first-run", { method: "POST",
+      body: { provider_id: providerId, full_access: config.agent.full_access } });
+    config = await api("/api/config");
+  }
+  if (config.general_agent?.first_run_complete !== true) throw new Error("General Agent first run was not persisted");
+  return { provider: config.general_agent.agent_provider, first_run_complete: true };
 }
 
 export function requireCdp(health) {
