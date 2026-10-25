@@ -101,6 +101,59 @@ pub struct PtyReaper {
     pub(super) session: Arc<PtySession>,
     pub(super) kill_error: Option<String>,
     pub(super) tree_killer: Box<dyn portable_pty::ChildKiller + Send + Sync>,
+    #[cfg(target_os = "macos")]
+    pub(super) child_pid: Option<u32>,
+}
+
+pub(super) fn classify_tree_kill(
+    result: std::io::Result<()>,
+    exited_group_errno: Option<i32>,
+    leader_exited: impl FnOnce() -> bool,
+) -> std::io::Result<()> {
+    match result {
+        Err(error)
+            if exited_group_errno.is_some()
+                && error.raw_os_error() == exited_group_errno
+                && leader_exited() =>
+        {
+            Ok(())
+        }
+        result => result,
+    }
+}
+
+pub(super) fn exited_group_errno() -> Option<i32> {
+    #[cfg(target_os = "macos")]
+    {
+        Some(libc::EPERM)
+    }
+    #[cfg(not(target_os = "macos"))]
+    None
+}
+
+#[cfg(target_os = "macos")]
+fn native_leader_exited(pid: Option<u32>) -> bool {
+    let Some(pid) = pid.filter(|pid| *pid > 1 && *pid <= i32::MAX as u32) else {
+        return false;
+    };
+    let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+    let result = unsafe {
+        libc::waitid(
+            libc::P_PID,
+            pid as libc::id_t,
+            &mut info,
+            libc::WEXITED | libc::WNOWAIT | libc::WNOHANG,
+        )
+    };
+    if result == 0 {
+        return unsafe { info.si_pid() } == pid as libc::pid_t;
+    }
+    if std::io::Error::last_os_error().raw_os_error() != Some(libc::ECHILD) {
+        return false;
+    }
+    // The reaper may already own the exit status; a live inaccessible leader still fails.
+    (unsafe { libc::kill(pid as libc::pid_t, 0) }) == -1
+        && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
 }
 
 fn restart_after_grace(
@@ -143,9 +196,15 @@ impl PtyReaper {
         restart_after_grace(
             process_exited,
             || {
-                self.tree_killer
-                    .kill_tree()
-                    .map_err(|error| error.to_string())
+                classify_tree_kill(self.tree_killer.kill_tree(), exited_group_errno(), || {
+                    #[cfg(target_os = "macos")]
+                    {
+                        native_leader_exited(self.child_pid)
+                    }
+                    #[cfg(not(target_os = "macos"))]
+                    false
+                })
+                .map_err(|error| error.to_string())
             },
             || self.session.teardown.wait_for_boundary(None, false),
         )
