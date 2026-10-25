@@ -128,7 +128,7 @@ class SingleRunGraphTest(unittest.TestCase):
             ("linux-arm64", "release-linux-arm64.yml"),
             ("linux-x86_64", "release-linux.yml"),
             ("windows-x64", "release-windows.yml"),
-            ("windows-arm64", "release-windows.yml"),
+            ("windows-arm64", "release-windows-arm64.yml"),
         ):
             self.assertIn(f"  {job}:\n    name:", caller)
             block = caller[caller.index(f"  {job}:") :].split("\n\n", 1)[0]
@@ -153,7 +153,7 @@ class SingleRunGraphTest(unittest.TestCase):
     def test_reusable_platform_jobs_can_clear_incomplete_uploads_when_retried_alone(self):
         for name, build_marker in (
             ("release-macos-build.yml", "Build signed and notarized macOS bundle"),
-            ("release-linux-arm64.yml", "Build and smoke Linux arm64 in native container"),
+            ("release-linux-arm64.yml", "Verify transferred stage and smoke Linux arm64 in native container"),
             ("release-linux.yml", "Build release bundle inputs"),
             ("release-windows.yml", "Build and sign release assets"),
         ):
@@ -179,7 +179,7 @@ class SingleRunGraphTest(unittest.TestCase):
         self.assertIn("bundles deb,appimage", linux)
         self.assertIn("name: build (${{ matrix.target }})", windows)
         self.assertIn("windows-x86_64", windows)
-        self.assertIn("windows-aarch64", windows)
+        self.assertIn("windows-aarch64", read("release-windows-arm64.yml"))
         self.assertIn("PLATFORM_KEY: ${{ matrix.platform_key }}", windows)
 
     def test_platform_packaging_and_signing_stay_on_the_owning_platform(self):

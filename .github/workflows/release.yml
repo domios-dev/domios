@@ -42,7 +42,8 @@ concurrency:
 jobs:
   prepare:
     name: prepare release
-    if: github.event_name != 'push' || github.actor == 'rollacode'
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && startsWith(github.ref, 'refs/heads/release/') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    environment: release
     runs-on: [self-hosted, linux-build]
     timeout-minutes: 30
     outputs:
@@ -203,8 +204,8 @@ jobs:
   frontend-dist:
     name: frontend bundle
     needs: prepare
-    if: >-
-      needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && startsWith(github.ref, 'refs/heads/release/') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == '') }}
+    environment: release
     runs-on: [self-hosted, linux-build]
     timeout-minutes: 20
     env:
@@ -236,6 +237,13 @@ jobs:
           [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
           echo "sha256=$digest" >> "$GITHUB_OUTPUT"
           echo "Frontend bundle sha256 $digest" >> "$GITHUB_STEP_SUMMARY"
+      - name: Retain frontend bytes for hosted arm64 compilation
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: frontend-dist-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/frontend-dist.tar
+          if-no-files-found: error
+          retention-days: 7
       - name: Upload artifacts spooled while the private store was unreachable
         if: always()
         uses: ./.github/actions/ci-artifact-spool
@@ -324,14 +332,13 @@ jobs:
     if: >-
       !cancelled() && needs.prepare.result == 'success' && needs.frontend-dist.result == 'success'
       && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
-    uses: ./.github/workflows/release-windows.yml
+    uses: ./.github/workflows/release-windows-arm64.yml
     with:
       tag: ${{ needs.prepare.outputs.tag }}
       source_ref: ${{ needs.prepare.outputs.source_ref }}
       mirror: ${{ needs.prepare.outputs.mirror == 'true' }}
       dry_run: ${{ needs.prepare.outputs.dry_run == 'true' }}
       frontend_sha256: ${{ needs.frontend-dist.outputs.sha256 }}
-      arch: arm64
     secrets: inherit
 
   dry-run-manifest:
@@ -349,9 +356,8 @@ jobs:
   promote-evidence:
     name: promote qualified dry-run evidence
     needs: prepare
-    if: >-
-      needs.prepare.outputs.promote_run_id != '' && vars.RELEASE_PUBLISH_ENABLED == 'true'
-      && needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && startsWith(github.ref, 'refs/heads/release/') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (needs.prepare.outputs.promote_run_id != '' && vars.RELEASE_PUBLISH_ENABLED == 'true'       && needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app') }}
+    environment: release
     runs-on: [self-hosted, linux-build]
     timeout-minutes: 120
     env:
@@ -410,9 +416,8 @@ jobs:
   promote:
     name: merge the release into master and develop
     needs: [prepare, release-manifest, frontend]
-    if: >-
-      always() && needs.prepare.outputs.branch != '' && needs.prepare.outputs.published != 'true'
-      && (needs.release-manifest.result == 'success' || needs.frontend.result == 'success')
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && startsWith(github.ref, 'refs/heads/release/') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (always() && needs.prepare.outputs.branch != '' && needs.prepare.outputs.published != 'true'       && (needs.release-manifest.result == 'success' || needs.frontend.result == 'success')) }}
+    environment: release
     runs-on: [self-hosted, Linux, light, host-ubunta]
     timeout-minutes: 30
     env:
@@ -464,7 +469,6 @@ jobs:
             git checkout -B develop origin/master
           fi
           git push origin develop
-          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then git push origin --delete "$BRANCH"; fi
 
   rust-warnings:
     permissions:

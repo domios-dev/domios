@@ -232,8 +232,30 @@ ct_msvc_build_tools_base() {
   fi
 }
 
+ct_msvc_native_arm64_env() {
+  [ "${VSCMD_ARG_HOST_ARCH:-}" = arm64 ] && [ "${VSCMD_ARG_TGT_ARCH:-}" = arm64 ] && [ -n "${LIB:-}" ] || {
+    echo "ERROR: hosted arm64 requires a native arm64 Visual Studio environment" >&2; return 2;
+  }
+  local native_tools native_compiler
+  native_tools="$(cygpath -m "${VCToolsInstallDir:?Native MSVC tools directory required}")"
+  native_tools="${native_tools%/}"
+  native_compiler="$native_tools/bin/Hostarm64/arm64"
+  [ -f "$native_compiler/cl.exe" ] && [ -f "$native_compiler/lib.exe" ] || {
+    echo "ERROR: native arm64 MSVC tools are missing" >&2; return 2;
+  }
+  ct_assert_msvc_lib_arch arm64 || return
+  export CC="$native_compiler/cl.exe" CXX="$native_compiler/cl.exe"
+  export CC_aarch64_pc_windows_msvc="$CC" CXX_aarch64_pc_windows_msvc="$CXX"
+  export AR_aarch64_pc_windows_msvc="$native_compiler/lib.exe"
+  export npm_config_script_shell="$(cygpath -w "$(command -v bash)")"
+}
+
 setup_env() {
   if [[ "$OSTYPE" != darwin* ]] && [[ "$OSTYPE" != linux* ]]; then
+    if [ "$CMD" = release-arm64-compile ]; then
+      ct_msvc_native_arm64_env
+      return
+    fi
     BT_BASE="$(ct_msvc_build_tools_base \
       "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools" \
       "C:/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe")"
@@ -2599,7 +2621,7 @@ package_platform() {
 # Arguments, when given, prefix each Tauri command (local builds add their build config).
 bundle_common_stage() {
   local target="${CARGO_BUILD_TARGET:-$(ct_host_triple)}" client_dir="${CARGO_TARGET_DIR:-src-tauri/target}"
-  local platform client=domios-app target_args=() compile_config=() run=("$@")
+  local platform client=domios-app target_args=() compile_config=() unsigned_config=() run=("$@")
   platform="$(package_platform "$target")" || return
   if [ -n "${CARGO_BUILD_TARGET:-}" ]; then
     target_args=(--target "$CARGO_BUILD_TARGET")
@@ -2611,15 +2633,19 @@ bundle_common_stage() {
     macos) compile_config=(--config '{"bundle":{"externalBin":[]}}') ;;
     linux) compile_config=(--config '{"bundle":{"resources":[],"externalBin":[]}}') ;;
   esac
-  "${run[@]}" pnpm tauri build --no-bundle "${target_args[@]}" ${CODETERM_RELEASE_FEATURES:+--features "$CODETERM_RELEASE_FEATURES"} "${compile_config[@]}"
+  if [ "${CODETERM_RELEASE_UNSIGNED:-0}" = 1 ]; then
+    [ "$platform" != macos ] || { echo "Unsigned hosted compilation excludes macOS" >&2; return 2; }
+    unsigned_config=(--config '{"bundle":{"createUpdaterArtifacts":false}}')
+  fi
+  "${run[@]}" pnpm tauri build --no-bundle "${target_args[@]}" ${CODETERM_RELEASE_FEATURES:+--features "$CODETERM_RELEASE_FEATURES"} "${compile_config[@]}" "${unsigned_config[@]}"
   node scripts/release-stage.mjs stage-full --target "$target" \
     --source-sha "$(git rev-parse HEAD)" \
     --cargo-log "release-artifacts/build-logs/$target/server.jsonl" \
     --tree-log "release-artifacts/build-logs/$target/closure.txt" \
     --client-file "$client_dir/release/$client"
   case "$platform" in
-    windows) "${run[@]}" pnpm tauri bundle --no-binary-patching "${target_args[@]}" ${CODETERM_RELEASE_FEATURES:+--features "$CODETERM_RELEASE_FEATURES"} --bundles nsis ;;
-    linux) "${run[@]}" pnpm tauri bundle --no-binary-patching "${target_args[@]}" ${CODETERM_RELEASE_FEATURES:+--features "$CODETERM_RELEASE_FEATURES"} --bundles deb,appimage ;;
+    windows) "${run[@]}" pnpm tauri bundle --no-binary-patching "${target_args[@]}" ${CODETERM_RELEASE_FEATURES:+--features "$CODETERM_RELEASE_FEATURES"} --bundles nsis "${unsigned_config[@]}" ;;
+    linux) "${run[@]}" pnpm tauri bundle --no-binary-patching "${target_args[@]}" ${CODETERM_RELEASE_FEATURES:+--features "$CODETERM_RELEASE_FEATURES"} --bundles deb,appimage "${unsigned_config[@]}" ;;
     macos) "${run[@]}" node scripts/release-macos-bundle.mjs "$target" ;;
   esac
 }
@@ -2694,7 +2720,7 @@ case "$CMD" in
 esac
 
 case "$CMD" in
-  process-probe|lane-wrapper-check|cache-wrapper-check|dev-link-measure|feature-cycle|embedding-parity|fmt-check|check|check-tests|ci-tests|ci-clippy|ci-cli-tests|release-inputs|release-bundle|release-finalize|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|cli|cli-docs|clean|test:all)
+  process-probe|lane-wrapper-check|cache-wrapper-check|dev-link-measure|feature-cycle|embedding-parity|fmt-check|check|check-tests|ci-tests|ci-clippy|ci-cli-tests|release-inputs|release-bundle|release-finalize|release-arm64-compile|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|cli|cli-docs|clean|test:all)
     enter_cargo_gateway "$CMD ${*:2}"
     ;;
   frontend-build)
@@ -2739,6 +2765,7 @@ Domios build commands
   frontend                    Production frontend typecheck + bundle
   release-inputs [--for-bundle] Build target-aware inputs; defer native compilation for bundling
   release-bundle [--fresh-target] [tauri args...]  Package in one session; optionally use the fresh release target policy
+  release-arm64-compile TAG SHA ARCHIVE  Build unsigned hosted bundles and freeze handoff in one session
   release-finalize [stage args...]  Verify/package final bytes while the stable gateway path exists
   ci-tests full|platform|embeddings  Compile and run ordinary, OS-specific, or embeddings Rust tests
   ci-clippy                   Run the clippy repo gate through the shared compile cache
@@ -3077,6 +3104,18 @@ EOF
     ;;
   release-finalize)
     node scripts/release-stage.mjs finalize "${@:2}"
+    ;;
+  release-arm64-compile)
+    case "${CARGO_BUILD_TARGET:-}" in
+      aarch64-unknown-linux-gnu|aarch64-pc-windows-msvc) ;;
+      *) echo "Hosted compilation requires an explicit arm64 target" >&2; exit 2 ;;
+    esac
+    [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}${TAURI_SIGNING_PRIVATE_KEY_PATH:-}${AWS_SECRET_ACCESS_KEY:-}" ] || { echo "Hosted compilation must be credential-free" >&2; exit 2; }
+    export CODETERM_RELEASE_COMMON_STAGE=1 CODETERM_RELEASE_UNSIGNED=1
+    ensure_deps
+    prepare_release_bundle_inputs bundle
+    bundle_common_stage
+    node scripts/release-arm64-handoff.mjs pack "$CARGO_BUILD_TARGET" "${2:?tag required}" "${3:?source SHA required}" "${4:?archive required}"
     ;;
   release-preflight)
     prepare_dev_frontend_dist "$(pwd -P)"

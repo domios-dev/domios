@@ -50,6 +50,7 @@ fn blueprint_catalog_equals_enum_names_and_shared_golden_fixture() {
         STEPS.iter().map(|entry| entry.name).collect()
     );
     let triggers = [
+        Trigger::Webhook { schema: None },
         Trigger::Schedule {
             every: "20s".into(),
         },

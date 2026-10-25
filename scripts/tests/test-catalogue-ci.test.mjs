@@ -19,30 +19,9 @@ export function prCondition(expression, context = {}) {
   return condition(source, { ...context, inputs });
 }
 
-// A pull request runs tests.yml, which calls its tiers: inline the PR-reachable tiers into one job graph
-// and read their outputs from the shared scope gate. jobFiles names the file that owns each job.
 export function prWorkflow(workflows) {
-  const caller = workflows["tests.yml"];
-  const jobs = {};
-  const jobFiles = {};
-  const tiers = {};
-  for (const [id, job] of Object.entries(caller.jobs)) {
-    const file = job.uses?.match(/^\.\/\.github\/workflows\/(tests-[\w-]+\.yml)$/)?.[1];
-    if (!file) continue;
-    tiers[id] = file;
-    if (job.if !== undefined && !prCondition(job.if)) continue;
-    for (const [childId, child] of Object.entries(workflows[file].jobs)) {
-      jobs[childId] = child;
-      jobFiles[childId] = file;
-    }
-  }
-  for (const [id, job] of Object.entries(caller.jobs)) {
-    if (tiers[id]) continue;
-    const needs = [job.needs ?? []].flat().some(need => tiers[need]) ? ["changed"] : job.needs;
-    jobs[id] = { ...job, needs, if: job.if?.replace(/needs\.(\w+)\.outputs\./g, (match, need) => tiers[need] ? "needs.changed.outputs." : match) };
-    jobFiles[id] = "tests.yml";
-  }
-  return { ...caller, jobs, jobFiles };
+  const caller = workflows["tests-pr.yml"];
+  return { ...caller, jobFiles: Object.fromEntries(Object.keys(caller.jobs).map(id => [id, "tests-pr.yml"])) };
 }
 
 const ownerOf = (workflow, id) => `${workflow.jobFiles?.[id] ?? "tests.yml"}:${id}`;
@@ -219,7 +198,7 @@ test("fast checks run alongside required guards and retain failure cancellation"
   assert.equal(cancel.if, "failure() && inputs.cancel_run");
   assert.match(cancel.run, /gh run cancel/);
   assert.equal(fast.jobs.guards["continue-on-error"], undefined);
-  assert.equal(fast.jobs.guards.if, undefined);
+  assert.match(fast.jobs.guards.if, /github.actor == 'rollacode'/);
   for (const [id, job] of Object.entries(fast.jobs)) {
     if (id === "changed") continue;
     assert.deepEqual([job.needs].flat(), ["changed"], id);
@@ -242,7 +221,7 @@ test("Windows retains focused stable-path TS2451 coverage; the frontend producer
   assert.ok(job.steps.some(step => step.run === commandRef("frontend-windows-build")));
   assert.equal(catalogue.runners.find(entry => entry.id === "frontend-windows-build").runner, "node --test scripts/tests/windows-path-identity.test.mjs");
   assert.equal(catalogue.runners.find(entry => entry.id === "ts-typecheck").runner, "pnpm build");
-  assert.deepEqual(catalogue.runners.find(entry => entry.id === "ts-typecheck").ci, ["tests-fast.yml:frontend-dist"]);
+  assert.ok(catalogue.runners.find(entry => entry.id === "ts-typecheck").ci.includes("tests-pr.yml:frontend-dist"));
 });
 
 
@@ -281,9 +260,7 @@ test("red demos: missing and excessive PR timeouts are rejected", t => {
     assert.ok(errors.some(error => error.includes("guards: PR timeout-minutes")));
     t.diagnostic(`RED timeout=${timeout}: ${errors[0]}`);
   }
-  const copy = structuredClone(workflows);
-  copy["rust-warnings-summary.yml"].jobs.report["timeout-minutes"] = 20;
-  assert.ok(check(workflow, catalogue, copy).some(error => error.includes("rust-warnings/report: PR timeout-minutes")));
+  assert.equal(workflow.jobs["rust-warnings"], undefined, "private warning storage is not PR-reachable");
 });
 
 test("red demo: a schedule trigger requires a declared scheduled tier", t => {

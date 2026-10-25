@@ -7,6 +7,7 @@ on:
 
 jobs:
   cargo-audit:
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' }}
     runs-on: [self-hosted, Linux, linux-build, host-ubunta]
     strategy:
       matrix:
@@ -22,6 +23,7 @@ jobs:
         continue-on-error: true
 
   pnpm-audit:
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' }}
     runs-on: [self-hosted, Linux, light, host-ubunta]
     steps:
       - uses: actions/checkout@v5

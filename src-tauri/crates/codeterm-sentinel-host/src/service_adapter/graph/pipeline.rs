@@ -286,6 +286,7 @@ fn pipeline_step_view(
 fn trigger_view(trigger: &codeterm_blueprint_types::blueprint_pipeline::Trigger) -> Value {
     use codeterm_blueprint_types::blueprint_pipeline::Trigger;
     match trigger {
+        Trigger::Webhook { .. } => json!({"type":"webhook","summary":"authenticated JSON webhook"}),
         Trigger::Schedule { every } => {
             json!({"type":"schedule","summary":format!("every {every}")})
         }

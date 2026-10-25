@@ -518,6 +518,36 @@ Replace one native v2 YAML definition at the expected version
 - `<id>`
 - `--note` — Replace the Blueprint note (at most 200 plain-text characters)
 
+#### `domios blueprint webhook`
+
+Manage the per-graph webhook credential; secrets appear only with --reveal
+
+#### `domios blueprint webhook disable`
+
+Remove the webhook credential
+
+- `<id>`
+
+#### `domios blueprint webhook enable`
+
+Generate and store a new webhook credential
+
+- `<id>`
+- `--reveal` — Print the newly generated secret once to stdout
+
+#### `domios blueprint webhook rotate`
+
+Replace the credential, immediately invalidating the previous secret
+
+- `<id>`
+- `--reveal` — Print the newly generated secret once to stdout
+
+#### `domios blueprint webhook show-url`
+
+Print the webhook URL without revealing a credential
+
+- `<id>`
+
 #### `domios bridge`
 
 Send a message to an external service (Telegram, etc.)

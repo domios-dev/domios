@@ -13,15 +13,18 @@ permissions:
 jobs:
   source:
     name: master PR comes from release/X.Y.Z
-    runs-on: [self-hosted, Linux, light, host-ubunta]
+    runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
       - name: Require a release branch
         env:
           HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         shell: bash
         run: |
           set -euo pipefail
+          [[ "$HEAD_REPO" == rollacode/codeterm && "$PR_AUTHOR" == rollacode ]]
           if [[ ! "$HEAD_REF" =~ ^release/[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::master accepts only release/X.Y.Z; open this pull request against develop (head was '$HEAD_REF')"
             exit 1

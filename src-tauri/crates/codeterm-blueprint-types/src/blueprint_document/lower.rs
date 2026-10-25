@@ -104,6 +104,7 @@ fn pipeline(doc: &Document) -> Result<Value, String> {
         return Err("unsupported: pipeline other handlers".into());
     }
     let trigger = match doc.trigger.as_ref().ok_or("Pipeline trigger required")? {
+        Trigger::Webhook { schema } => json!({"type":"webhook","schema":schema}),
         Trigger::Schedule { every } => json!({"type":"schedule","every":lit(every)?}),
         Trigger::Event { kind, params } => {
             json!({"type":"event","kind":lit(kind)?,"params":params.iter().map(|(k,v)|Ok((k.clone(),lit(v)?))).collect::<Result<BTreeMap<_,_>,String>>()?})

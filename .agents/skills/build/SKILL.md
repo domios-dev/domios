@@ -41,6 +41,13 @@ publishing keeps the signed release workflow. The package is written under
 `src-tauri/target/release/bundle/deb` unless the normal target policy selects
 another existing target root.
 
+Hosted Linux/Windows arm64 use `release-arm64-compile TAG SOURCE_SHA ARCHIVE` with
+an explicit `CARGO_BUILD_TARGET` and `CODETERM_USE_SCCACHE=0`. This operation builds
+the shared inputs and unsigned bundles, then freezes the handoff inside the same
+gateway session so Windows Cargo receipt paths stay accessible. No signing or S3
+credentials may be present. Private finalizers consume the digest-pinned archive;
+they do not invoke a compiler. Setup and measurement: [hosted arm64](../../../docs/release/hosted-arm64.md).
+
 Queued builds watch only the gateway root, queue entries and the current owner
 directory. Recursive slot watchers also traverse Cargo artifacts and transient
 `state.lock.pending.*` directories; Node can race their removal and abort a

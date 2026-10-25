@@ -1,0 +1,450 @@
+name: Pull request checks
+on:
+  pull_request:
+    branches:
+      - master
+      - develop
+      - rename/domios
+permissions:
+  contents: read
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+env:
+  CI_SOURCE_SHA: ${{ github.sha }}
+  CODETERM_USE_SCCACHE: "0"
+jobs:
+  changed:
+    name: tree is new
+    if: ${{ github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release/') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      source_sha: ${{ steps.source.outputs.sha }}
+      frontend: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.frontend == 'true' }}
+      rust: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.rust == 'true' }}
+      heavy: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.heavy == 'true' }}
+      plugins: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.plugins || '[]' }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        id: ci-1
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 2
+      - id: source
+        shell: bash
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - id: tree
+        env:
+          CI_RELEASE_CALL: ${{ false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$CI_RELEASE_CALL" = true ] || [ "${{ github.event_name }}" != push ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          tree=$(git rev-parse 'HEAD^{tree}')
+          for parent in $(git rev-parse 'HEAD^@'); do
+            if [ "$(git rev-parse "$parent^{tree}")" = "$tree" ]; then
+              echo "HEAD tree $tree already carried by parent $parent"
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "run=true" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        id: ci-4
+        if: steps.tree.outputs.run == 'true'
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+      - id: scope
+        if: steps.tree.outputs.run == 'true'
+        env:
+          CI_FULL_MATRIX: ${{ false }}
+          CI_FRONTEND_ONLY: ${{ false }}
+          CI_FAST_ONLY: ${{ true }}
+        run: node scripts/ci-scope.mjs HEAD^ HEAD
+  guards:
+    name: guards
+    needs: changed
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        id: ci-1
+        with:
+          ref: ${{ github.ref }}
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        id: ci-2
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+      - &a1
+        name: Select PR catalogue
+        id: catalogue
+        shell: bash
+        run: |
+          node scripts/test-catalogue.mjs select --tier pr --format json > "$RUNNER_TEMP/pr-catalogue.json"
+          node -e 'const fs = require("node:fs"); const selected = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/pr-catalogue.json", "utf8")); fs.appendFileSync(process.env.GITHUB_OUTPUT, "commands=" + JSON.stringify(Object.fromEntries(selected.runners.map(entry => [entry.id, entry.runner]))) + "\n");'
+      - name: Source file size discipline
+        id: ci-4
+        run: bash scripts/check-file-sizes.sh --fail
+      - name: Installed application identity
+        id: ci-5
+        if: ${{ !cancelled() }}
+        run: node scripts/check-installed-identity.mjs
+      - name: Plugin release contracts
+        id: ci-6
+        if: ${{ !cancelled() }}
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['plugin-release-contracts'] }}
+      - name: Plugin release and scope script tests
+        id: ci-7
+        if: ${{ !cancelled() }}
+        run: node --test scripts/tests/plugin-releases.test.mjs scripts/tests/ci-scope.test.mjs
+      - name: Ensure Rust toolchain on PATH
+        id: ci-8
+        if: ${{ !cancelled() }}
+        run: |
+          if command -v cargo >/dev/null 2>&1; then exit 0; fi
+          for dir in "${CARGO_HOME:-}/bin" "$HOME/.cargo/bin" /home/*/.cargo/bin /Users/*/.cargo/bin; do
+            if [ -x "$dir/cargo" ]; then echo "$dir" >> "$GITHUB_PATH"; exit 0; fi
+          done
+          echo "cargo not found; restore Rust on the runner" >&2
+          exit 1
+      - name: Build gateway guards and serial gateway script tests
+        id: ci-9
+        if: ${{ !cancelled() }}
+        run: |
+          bash scripts/check-build-gateway-serialization.sh
+          bash scripts/check-build-gateway-policy.sh
+          bash scripts/check-build-gateway-mutex-cleanup.sh
+          node scripts/test-catalogue.mjs run --entry node-script-tests-serial
+      - name: cargo fmt --check
+        id: ci-10
+        if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['rust-fmt'] }}
+      - name: Archive-portable Rust test paths
+        id: ci-11
+        if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
+        run: node scripts/check-archive-portable-test-paths.mjs
+      - name: Setup pnpm
+        id: ci-12
+        if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
+      - name: Install dependencies
+        id: ci-13
+        if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
+        run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
+      - name: Node script tests (tests/catalogue.json node-script-tests)
+        id: ci-14
+        if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['node-script-tests'] }}
+      - name: Python script tests (tests/catalogue.json python-script-tests)
+        id: ci-15
+        if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['python-script-tests'] }}
+      - name: Offline core journey contracts
+        id: ci-16
+        if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['core-journeys-offline'] }}
+  plugins:
+    name: plugin (${{ matrix.plugin.id }})
+    needs: changed
+    if: ${{ needs.changed.outputs.plugins != '[]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        plugin: ${{ fromJSON(needs.changed.outputs.plugins) }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        id: ci-1
+        with:
+          ref: ${{ github.ref }}
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        id: ci-2
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        id: ci-3
+        with:
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
+      - run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
+        id: ci-4
+      - *a1
+      - id: ci-6
+        env:
+          PLUGIN_COMMAND: ${{ fromJSON(steps.catalogue.outputs.commands)['plugin-check'] }}
+          PLUGIN_ID: ${{ matrix.plugin.id }}
+        shell: bash
+        run: ${PLUGIN_COMMAND//<plugin-id>/"$PLUGIN_ID"}
+  ts-static:
+    name: ts static checks
+    needs: changed
+    if: ${{ needs.changed.outputs.frontend == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        id: ci-1
+        with:
+          ref: ${{ github.ref }}
+      - name: Setup Node.js
+        id: ci-2
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+      - name: Setup pnpm
+        id: ci-3
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
+      - name: Install dependencies
+        id: ci-4
+        run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
+      - *a1
+      - name: TypeScript unused exports
+        id: ci-6
+        if: ${{ !cancelled() }}
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-unused-exports'] }}
+      - name: Repository Knip report
+        id: ci-7
+        if: ${{ !cancelled() }}
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-knip-report'] }}
+      - name: Check API effect dependencies
+        id: ci-8
+        if: ${{ !cancelled() }}
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-api-effects'] }}
+      - name: Biome (TS lint)
+        id: ci-9
+        if: ${{ !cancelled() }}
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-biome'] }}
+  frontend-dist:
+    name: frontend producer
+    needs: changed
+    if: ${{ needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        id: ci-1
+        with:
+          ref: ${{ github.ref }}
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        id: ci-2
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        id: ci-3
+        with:
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
+      - name: Install dependencies
+        id: ci-4
+        run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
+      - *a1
+      - name: Build and typecheck frontend
+        id: ci-6
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-typecheck'] }}
+  frontend-windows:
+    name: Windows path identity
+    needs: changed
+    if: ${{ needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true' }}
+    runs-on: windows-2022
+    timeout-minutes: 8
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        id: ci-1
+        with:
+          ref: ${{ github.ref }}
+      - name: Setup Node.js
+        id: ci-2
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+      - name: Setup pnpm
+        id: ci-3
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
+      - name: Install dependencies
+        id: ci-4
+        run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
+      - *a1
+      - name: Check pnpm workspace path identity
+        id: ci-6
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['frontend-windows-build'] }}
+  ts-types:
+    name: ts generated types
+    needs: changed
+    if: ${{ needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        id: ci-1
+        with:
+          ref: ${{ github.ref }}
+      - name: Ensure Rust toolchain on PATH
+        id: ci-2
+        run: |
+          if command -v cargo >/dev/null 2>&1; then exit 0; fi
+          for dir in "${CARGO_HOME:-}/bin" "$HOME/.cargo/bin" /home/*/.cargo/bin /Users/*/.cargo/bin; do
+            if [ -x "$dir/cargo" ]; then echo "$dir" >> "$GITHUB_PATH"; exit 0; fi
+          done
+          echo "cargo not found; restore Rust on the runner" >&2
+          exit 1
+      - name: Setup Node.js
+        id: ci-3
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+      - name: Setup pnpm
+        id: ci-4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
+      - name: Install dependencies
+        id: ci-5
+        run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
+      - *a1
+      - name: Reset compiler capture
+        id: ci-7
+        continue-on-error: true
+        run: node -e "require('fs').writeFileSync('ci-rust-warnings.log', '')"
+      - name: Check Rust generated TypeScript types
+        id: ci-8
+        run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash -c '${{ fromJSON(steps.catalogue.outputs.commands)['ts-generated-types'] }}'
+      - name: Stop this job's local compile cache
+        if: always()
+        shell: bash
+        run: bash build.sh cache-release
+      - name: Remove job archives and sweep old Rust targets
+        if: always()
+        continue-on-error: true
+        run: node scripts/ci-workspace-cleanup.mjs
+  ts-unit:
+    name: ts unit
+    needs: changed
+    if: ${{ needs.changed.outputs.frontend == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        id: ci-1
+        with:
+          ref: ${{ github.ref }}
+      - name: Setup Node.js
+        id: ci-2
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+      - name: Setup pnpm
+        id: ci-3
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
+      - name: Install dependencies
+        id: ci-4
+        run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
+      - *a1
+      - name: Run TS unit tests
+        id: ci-6
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-unit'] }}
+      - name: TS unit runner contracts
+        id: ci-7
+        if: ${{ !cancelled() }}
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-unit-runner-tests'] }}
+  ts-vitest:
+    name: ts vitest
+    needs: changed
+    if: ${{ needs.changed.outputs.frontend == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        id: ci-1
+        with:
+          ref: ${{ github.ref }}
+      - name: Setup Node.js
+        id: ci-2
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+      - name: Setup pnpm
+        id: ci-3
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
+      - name: Install dependencies
+        id: ci-4
+        run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
+      - *a1
+      - name: Run vitest-owned TS tests
+        id: ci-6
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-vitest'] }}
+  ts-plugins:
+    name: plugin bundles + tests
+    needs: changed
+    if: ${{ needs.changed.outputs.rust == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        id: ci-1
+        with:
+          ref: ${{ github.ref }}
+      - name: Setup Node.js
+        id: ci-2
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+      - name: Setup pnpm
+        id: ci-3
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
+      - name: Install dependencies
+        id: ci-4
+        run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
+      - *a1
+      - name: Check generated plugin bundles
+        id: ci-6
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['plugin-bundles'] }}
+      - name: Run plugin tests
+        id: ci-7
+        if: ${{ !cancelled() }}
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['plugin-tests'] }}
