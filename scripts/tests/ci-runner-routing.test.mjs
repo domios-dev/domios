@@ -79,7 +79,8 @@ test('Linux routing excludes BLACKSTAR and all private compilation uses the same
   assert.doesNotMatch(JSON.stringify(guards),/secrets\./);
   assert.equal(guards.env.CI_ARTIFACT_STORAGE,'github');
   const compilerJobs=[fast.jobs['clippy-linux'],fast.jobs['cli-tests'],rust.jobs['rust-tests']];
-  const labels=compilerJobs.map(job=>value(job['runs-on'],{vars:{}}));
+  for(const job of compilerJobs)assert.equal(value(job['runs-on'],{vars:{}}),'ubuntu-24.04');
+  const labels=compilerJobs.map(job=>value(job['runs-on'],{vars:{CI_LINUX_RUST_COMPILE_RUNNER:'private',CI_LINUX_RUST_FULL_RUNNER:'private'}}));
   for(const placement of labels){
     assert.ok(placement.includes('host-ubunta')&&placement.includes('linux-build'));
     assert.deepEqual(placement,labels[0]);

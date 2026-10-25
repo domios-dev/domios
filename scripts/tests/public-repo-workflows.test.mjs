@@ -113,6 +113,8 @@ test('release jobs gate runner acquisition and secrets on owner, release branch 
   assert.equal(condition(workflows['plugin-release.yml'].jobs.publish.if, { github: { ...github, event_name: 'workflow_dispatch' } }), true);
 });
 
+const privateLinux = { CI_LINUX_RUST_COMPILE_RUNNER: 'private', CI_LINUX_RUST_FULL_RUNNER: 'private' };
+
 test('all secret references resolve inside a protected job environment', () => {
   for (const [name, workflow] of Object.entries(workflows)) {
     assert.ok(!secrets(workflow.env), `${name}: secrets must resolve after job environment approval`);
@@ -121,7 +123,7 @@ test('all secret references resolve inside a protected job environment', () => {
       if (releaseWorkflow(name)) assert.equal(job.environment, 'release', `${name}/${id}`);
       else if (name === 'rust-warnings-summary.yml') {
         assert.equal(evaluateCondition(job.environment, { github }), 'release');
-      } else assert.equal(evaluateCondition(job.environment === 'ci' ? "'ci'" : job.environment, { github }), 'ci', `${name}/${id}`);
+      } else assert.equal(evaluateCondition(job.environment === 'ci' ? "'ci'" : job.environment, { github, vars: privateLinux }), 'ci', `${name}/${id}`);
     }
   }
 });
