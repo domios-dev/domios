@@ -204,7 +204,8 @@ ct_assert_msvc_lib_arch() {
     [ -n "$entry" ] || continue
     leaf="${entry##*/}"
     leaf="${leaf##*\\}"
-    if [ "$leaf" != "$want" ]; then
+    # Visual Studio spells some library directories ARM64.
+    if [ "${leaf,,}" != "${want,,}" ]; then
       echo "ERROR: LIB entry '$entry' is not $want — refusing to link $want objects against host libraries" >&2
       return 1
     fi
