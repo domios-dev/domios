@@ -80,3 +80,36 @@ origin for local scripts; DOMIOS_SOURCE_REPOSITORY is the explicit local overrid
 Historical issue declarations use one reviewed alias list in
 scripts/source-repository-aliases.json and normalize to the runtime repository.
 New declarations and API routes always use that runtime name.
+
+## macOS x64 compilation split: 1.15.4 design
+
+For 1.15.3, macOS x64 compilation, signing and notarization stay on the existing
+private Mac job. The server embeds the exact SHA-256 of the signed worker CLI
+as SERVER_CLI_SHA256 and checks it when pinning that executable. Signing the CLI
+after compiling the server changes its bytes and invalidates that pin. Final
+macOS resource staging also verifies the server's approved Developer ID team.
+An unsigned hosted build followed by private signing cannot preserve these
+contracts as a two-phase graph.
+
+The 1.15.4 design preserves the pin through four phases:
+
+1. A hosted Intel Mac compiles the CLI and freezes an unsigned digest handoff.
+2. A private Mac verifies that handoff, signs only the CLI, and returns its exact
+   signed bytes in a second digest-pinned artifact.
+3. A hosted Intel Mac verifies the signed CLI artifact, then compiles the server
+   and client against those bytes. The server's compiled CLI digest must equal
+   the signed artifact's SHA-256. It freezes the raw binaries, build/closure
+   receipts and resources in another digest-verified handoff.
+4. The private Mac verifies that handoff, signs the server and app, creates the
+   DMG without compiling, notarizes/staples, and finalizes the full/headless pair.
+
+Hosted phases receive only the six approved public-client configuration secrets;
+signing, notarization, updater and publication credentials remain private.
+Every handoff binds its inventory to the target, source SHA, tag, producing run
+and attempt. The finalization proof must distinguish approved signing changes
+from unexpected byte changes, retain the signed CLI digest unchanged, and prove
+the full and headless packages contain the same final server/CLI pair.
+
+Use the hosted Intel label macos-15-intel when implementing the bridge, after
+rechecking the [official runner image list](https://github.com/actions/runner-images).
+This design changes neither the runtime CLI pin nor its trust policy.
