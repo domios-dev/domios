@@ -38,6 +38,20 @@ test("readiness accepts a bound session and, before first send, a nonce-only laz
   assert.ok(readiness({ agent_type: "claude", boot_stage: "agent_launching" }).pending);
 });
 
+test("first-turn admission requires current PTY and nonce evidence and never substitutes for a bound session", () => {
+  const record = { agent_type: "fixture", boot_stage: "launch_binding_unconfirmed", pty_id: "pty", session_binding_nonce: "nonce",
+    provisional_launch: { pty_id: "pty", binding_nonce: "nonce", first_turn_input_ready: true, first_turn_payload_written: false } };
+  assert.equal(readiness(record, { allowFirstTurn: true }).done, record);
+  assert.ok(readiness(record).fail);
+  assert.ok(readiness(record, { allowFirstTurn: true, requireSession: true }).fail);
+  for (const patch of [{ pty_id: "old" }, { binding_nonce: "old" }, { first_turn_input_ready: false }, { first_turn_payload_written: true }]) {
+    assert.ok(readiness({ ...record, provisional_launch: { ...record.provisional_launch, ...patch } }, { allowFirstTurn: true }).fail);
+  }
+  assert.ok(readiness({ ...record, pending_prompt: { kind: "auth" } }, { allowFirstTurn: true }).fail);
+  const probe = { messages: [{ id: "a", type: "assistant", content: "marker" }], baselineIds: new Set(), marker: "marker" };
+  assert.ok(replyVerdict({ ...probe, record: { ...record, status: "idle" } }).pending);
+});
+
 test("replyVerdict needs a new assistant item with the exact marker and idle", () => {
   const baselineIds = new Set(["old"]);
   const messages = [

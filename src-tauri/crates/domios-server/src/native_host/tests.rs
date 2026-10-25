@@ -651,9 +651,14 @@ fn health_cdp_port_follows_authenticated_view_diagnostics_and_attachment_lifetim
         manifest,
     };
     assert_eq!(endpoint.cdp_port(), None);
+    assert_eq!(endpoint.frontend_port(), None);
     let view = NativeViewBinding::observed("http://127.0.0.1:7686".into()).unwrap();
     let client = session(Some(view.clone()));
     *endpoint.active.write() = Some(client.clone());
+    assert_eq!(endpoint.frontend_port(), Some(7686));
+    endpoint.active_generation.store(10, Ordering::Release);
+    assert_eq!(endpoint.frontend_port(), None);
+    endpoint.active_generation.store(9, Ordering::Release);
     assert_eq!(endpoint.cdp_port(), None);
     let report = NativeWebviewDiagnosticsReport {
         connection: client.connection.clone(),
@@ -670,11 +675,13 @@ fn health_cdp_port_follows_authenticated_view_diagnostics_and_attachment_lifetim
     client.accept_diagnostics_status(report.clone());
     assert_eq!(endpoint.cdp_port(), Some(9398));
     client.release_view(view.session_id);
+    assert_eq!(endpoint.frontend_port(), None);
     assert_eq!(endpoint.cdp_port(), None);
     client.bind_view(view);
     client.accept_diagnostics_status(report);
     assert_eq!(endpoint.cdp_port(), Some(9398));
     client.retire(NativeHostUncertainty::DisconnectedAfterDispatch);
+    assert_eq!(endpoint.frontend_port(), None);
     assert_eq!(endpoint.cdp_port(), None);
     endpoint.active.write().take();
     assert_eq!(endpoint.cdp_port(), None);

@@ -1552,6 +1552,7 @@ reload_dev_server() {
   fi
   export CODETERM_SERVER_CLI_SHA256="$built_cli_hash"
   export CODETERM_SERVER_DEV_FRONTEND_ORIGIN="http://127.0.0.1:$CT_VITE_PORT"
+  export CODETERM_SERVER_DEV_IDENTIFIER="$CT_IDENTIFIER"
   ct_with_firebase_build_config build_dev_server "$split_logs/server.jsonl"
   cargo tree --manifest-path src-tauri/Cargo.toml -p domios-server --no-default-features \
     --features domios-server/embeddings --edges normal,build --prefix none > "$split_logs/server-tree.txt"
@@ -2163,6 +2164,7 @@ build_and_launch_dev() {
   local split_logs="$(tauri_debug_dir)/.domios-dev-build"
   export CODETERM_SERVER_CLI_SHA256="$built_cli_hash"
   export CODETERM_SERVER_DEV_FRONTEND_ORIGIN="http://127.0.0.1:$CT_VITE_PORT"
+  export CODETERM_SERVER_DEV_IDENTIFIER="$CT_IDENTIFIER"
   ct_with_firebase_build_config build_dev_server "$split_logs/server.jsonl"
   cargo tree --manifest-path src-tauri/Cargo.toml -p domios-server --no-default-features \
     --features domios-server/embeddings --edges normal,build --prefix none > "$split_logs/server-tree.txt"
