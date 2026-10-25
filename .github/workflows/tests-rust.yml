@@ -90,7 +90,7 @@ jobs:
         shell: bash
         env:
           CI_FAILURE_STEPS: ${{ toJSON(steps) }}
-          CI_SOURCE_SHA: ${{ needs.changed.outputs.source_sha || steps.source.outputs.sha || inputs.source_ref || github.sha }}
+          CI_SOURCE_SHA: ${{ inputs.source_ref || github.sha }}
         run: |
           node "$GITHUB_WORKSPACE/scripts/ci-first-failure.mjs" || gh run cancel "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" || true
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
@@ -98,6 +98,12 @@ jobs:
         with:
           package-manager-cache: false
           node-version: '22.22.0'
+      - *cancel-run-on-failure
+      - name: Provide Python for Windows native runtime tests
+        if: runner.os == 'Windows'
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
       - *cancel-run-on-failure
       - name: Prepare runner tool paths
         id: ci-3
