@@ -67,7 +67,7 @@ verifies the anonymous download. Every install refreshes `codeterm-core` from th
 | Branch | Purpose |
 |---|---|
 | `develop` | Integration through reviewed real merges. |
-| `release/X.Y.Z` | One version; owner pushes start the publishing release graph. |
+| `release/X.Y.Z` | One version; owner pushes qualify; green qualification starts packaging. |
 | `master` | Released code, promoted by the successful release workflow. |
 | `ci/*` | Reviewed non-publishing candidate refs for diagnostics. |
 
@@ -87,8 +87,14 @@ verifies the anonymous download. Every install refreshes `codeterm-core` from th
    Keep the release branch separate from moving `develop`. Commit release fixes on that line,
    then real-merge the release into `develop`; never pull unrelated dev work into the release.
    Pushes to `release/X.Y.Z` qualify their exact SHA through `tests.yml`, as do dev/master pushes.
-   If release prepare runs before its qualification receipt exists, rerun it only after that
-   qualification is green. Two nightly schedules qualify dev as fallback. Fast checks own
+   The successful push qualification triggers release.yml through workflow_run; failed qualification
+   never starts packaging. Admission checks the trusted tests.yml event, repository, owner actors
+   and exact current release head before any release runner or secret is acquired. Superseded heads
+   skip packaging successfully. Prepare still verifies the exact-SHA receipt; owner workflow_dispatch
+   reruns retain that gate. workflow_run uses the default branch workflow definition: this trigger
+   and its reusable guards must reach the default branch before automatic packaging can activate.
+   Until then, dispatch the reviewed release branch after its exact-SHA qualification is green.
+   Two nightly schedules qualify dev as fallback. Fast checks own
    frontend production/typechecking, static/plugin/TS suites, Clippy and the CLI suite.
    The Rust tier owns the Linux full suite, native macOS/Windows subsets and embeddings.
    `scripts/ci-qualification.mjs check <40-hex-sha>` verifies a green trusted tests run,
@@ -115,7 +121,7 @@ gh workflow run release.yml --repo rollacode/codeterm --ref <reviewed-ref> \
   -f tag=<version-tag> -f dry_run=true -f mirror=false
 ```
 
-Until repository variable `RELEASE_PUBLISH_ENABLED` is `true`, a `release/X.Y.Z` push runs as a
+Until repository variable `RELEASE_PUBLISH_ENABLED` is `true`, a green qualification of a `release/X.Y.Z` push runs as a
 full dry run of that branch (tests included, no drafts or uploads) in its own concurrency group, so
 it never cancels another version's run; its branch must carry version X.Y.Z.
 
@@ -152,7 +158,7 @@ on `release/X.Y.Z` whose platform, test and manifest jobs all succeeded. A rehea
 tokens' write access, downloads and re-validates every retained byte and signature, and changes
 nothing. Publication creates both drafts, uploads the retained bytes (fragments only to the source
 draft) with read-back against each receipt, merges and verifies `domios-latest.json`/`domios-latest-deb.json`,
-tags `vX.Y.Z` on the run's SHA, publishes both releases and verifies the served manifests. Automatic `workflow_run` publication is disabled; the owner dispatches this workflow and approves the release environment. Issue closure and the
+tags `vX.Y.Z` on the run's SHA, publishes both releases and verifies the served manifests. Automatic publication through `release-publish.yml` is disabled; the owner dispatches this workflow and approves the release environment. Issue closure and the
 merge to master stay separate steps.
 
 The store endpoint is defined once in `scripts/ci-store.sh`. When a CI job finds it unreachable,

@@ -100,7 +100,7 @@ GH_TOKEN="$(gh auth token --user rollacode)" gh api --method PUT repos/rollacode
 
 ## Release commands
 
-Run dispatches from a reviewed `release/X.Y.Z` branch. Tag-triggered plugin/SDK publication and `workflow_run` auto-publication are disabled. Plugin dispatch takes an existing plugin tag; the tag must resolve to the reviewed branch SHA. SDK publication uses the committed package version. All runnable release jobs require both the original and rerun actor to be the owner and the `release` environment, including reusable platform jobs and dry runs.
+Run dispatches from a reviewed `release/X.Y.Z` branch. Tag-triggered plugin/SDK publication and release-publish.yml automatic publication are disabled. Owner release pushes start tests.yml qualification; release.yml starts packaging only after that workflow succeeds for the same exact current release head. Its workflow_run admission rejects foreign repositories, actors, source events and branches before acquiring a release runner or secrets. Superseded heads skip packaging successfully. The exact-SHA receipt check remains mandatory in prepare, including owner dispatches. Deploy the trigger and reusable guards to the default branch to activate workflow_run; GitHub reads that event's workflow definition there. Plugin dispatch takes an existing plugin tag; the tag must resolve to the reviewed branch SHA. SDK publication uses the committed package version. All privileged release jobs require both the original and rerun actor to be the owner and the `release` environment, including reusable platform jobs and dry runs.
 
 ```bash
 gh workflow run release.yml --repo rollacode/codeterm --ref release/X.Y.Z -f tag=vX.Y.Z -f dry_run=true -f mirror=false

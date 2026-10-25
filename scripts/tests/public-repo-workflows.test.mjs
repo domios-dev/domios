@@ -7,8 +7,8 @@ import { condition } from './workflow-condition.mjs';
 const directory = new URL('../../.github/workflows/', import.meta.url);
 const workflows = Object.fromEntries(readdirSync(directory).filter(name => name.endsWith('.yml'))
   .map(name => [name, parse(readFileSync(new URL(name, directory), 'utf8'))]));
-const github = { repository: 'rollacode/codeterm', repository_owner: 'rollacode', actor: 'rollacode', triggering_actor: 'rollacode', event_name: 'push', ref: 'refs/heads/release/9.9.9' };
-const hostedCompile = name => name === 'release-arm64-compile.yml';
+const github = { repository: 'rollacode/codeterm', repository_owner: 'rollacode', actor: 'rollacode', triggering_actor: 'rollacode', event_name: 'push', ref: 'refs/heads/release/9.9.9', event: { workflow_run: {} } };
+const hostedCompile = (name, id) => name === 'release-arm64-compile.yml' || (name === 'release.yml' && id === 'qualified-source');
 const releaseWorkflow = name => /^(release|frontend-release|plugin-release|publish-plugin-sdk)/.test(name);
 const stringify = value => JSON.stringify(value ?? {});
 const secrets = value => /\bsecrets\./.test(stringify(value));
@@ -73,7 +73,7 @@ test('privileged reusable jobs refuse every PR actor, even the owner and same-re
   let guarded = 0;
   for (const [name, workflow] of Object.entries(workflows)) {
     for (const [id, job] of Object.entries(workflow.jobs)) {
-      if (!job['runs-on'] || hostedCompile(name)) continue;
+      if (!job['runs-on'] || hostedCompile(name, id)) continue;
       if (!stringify(job['runs-on']).includes('self-hosted') && !secrets(job) && !releaseWorkflow(name)) continue;
       guarded++;
       assert.match(job.if, /github\.repository_owner == 'rollacode' \|\| github\.repository_owner == 'domios-dev'/, `${name}/${id}`);
@@ -91,10 +91,10 @@ test('privileged reusable jobs refuse every PR actor, even the owner and same-re
 
 test('release jobs gate runner acquisition and secrets on owner, release branch and allowed event', () => {
   for (const [name, workflow] of Object.entries(workflows).filter(([name]) => releaseWorkflow(name))) {
-    for (const trigger of Object.keys(workflow.on)) assert.ok(['push', 'workflow_dispatch', 'workflow_call'].includes(trigger), `${name}/${trigger}`);
+    for (const trigger of Object.keys(workflow.on)) assert.ok(['push', 'workflow_dispatch', 'workflow_call', 'workflow_run'].includes(trigger), `${name}/${trigger}`);
     if (workflow.on.push) assert.deepEqual(workflow.on.push, { branches: ['release/**'] });
     for (const [id, job] of Object.entries(workflow.jobs)) {
-      if (job.uses || hostedCompile(name)) continue;
+      if (job.uses || hostedCompile(name, id)) continue;
       assert.equal(job.environment, 'release', `${name}/${id}`);
       for (const invalid of [
         { actor: 'outside-collaborator' }, { triggering_actor: 'outside-collaborator' }, { repository: 'fork/codeterm', repository_owner: 'fork' },
@@ -103,7 +103,7 @@ test('release jobs gate runner acquisition and secrets on owner, release branch 
       ]) assert.equal(condition(job.if, { github: { ...github, ...invalid } }), false, `${name}/${id}/${stringify(invalid)}`);
     }
   }
-  for (const event_name of ['push', 'workflow_dispatch']) {
+  for (const event_name of ['workflow_dispatch']) {
     assert.equal(condition(workflows['release.yml'].jobs.prepare.if, { github: { ...github, event_name } }), true);
   }
   assert.equal(condition(workflows['plugin-release.yml'].jobs.publish.if, { github: { ...github, event_name: 'workflow_dispatch' } }), true);
@@ -116,7 +116,7 @@ test('all secret references resolve inside a protected job environment', () => {
       if (job.uses || !secrets(job)) continue;
       if (releaseWorkflow(name)) assert.equal(job.environment, 'release', `${name}/${id}`);
       else if (name === 'rust-warnings-summary.yml') {
-        assert.equal(job.environment, "${{ startsWith(github.ref, 'refs/heads/release/') && 'release' || 'ci' }}");
+        assert.equal(job.environment, "${{ (startsWith(github.ref, 'refs/heads/release/') || (github.event_name == 'workflow_run' && startsWith(github.event.workflow_run.head_branch, 'release/'))) && 'release' || 'ci' }}");
       } else assert.equal(job.environment, 'ci', `${name}/${id}`);
     }
   }
@@ -145,7 +145,7 @@ test('repository owner policy survives the organization transfer and refuses for
       assert.equal(evaluate('fork'), false, `${name}/${id}: foreign owner`);
     }
   }
-  assert.equal(condition(workflows['release.yml'].jobs.prepare.if, { github: { ...github, repository: 'domios-dev/domios', repository_owner: 'domios-dev' } }), true);
+  assert.equal(condition(workflows['release.yml'].jobs.prepare.if, { github: { ...github, repository: 'domios-dev/domios', repository_owner: 'domios-dev', event_name: 'workflow_dispatch' } }), true);
 });
 
 test('hosted arm64 compiler stays outside protected environments', () => {
