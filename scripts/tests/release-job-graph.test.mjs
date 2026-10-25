@@ -124,25 +124,15 @@ test('every platform checks its own built bundle before any upload, with indepen
 });
 const expression = text => (github, inputs, vars) => evaluateCondition(text, { github, inputs, vars });
 
-test('a qualified release head stays a dry run of its own branch until publication is enabled', () => {
+test('release push dry runs cannot publish and merged publication serializes', () => {
   const env = release.jobs.prepare.steps.find(step => step.id === 'release').env;
-  const dryRun = expression(env.DRY_RUN);
-  const group = expression(release.concurrency.group);
-  const push = { event_name: 'workflow_run', ref_name: 'master', event: { workflow_run: { head_branch: 'release/1.15.0' } } };
-  const dispatch = { event_name: 'workflow_dispatch', ref_name: 'release/1.15.0', event: { workflow_run: {} } };
-  const off = {};
-  const on = { RELEASE_PUBLISH_ENABLED: 'true' };
-  assert.equal(dryRun(push, {}, off), 'true');
-  assert.equal(group(push, {}, off), 'release-dry-run-release/1.15.0');
-  assert.equal(dryRun(push, {}, on), 'false');
-  assert.equal(group(push, {}, on), 'release-publication');
-  const dry = { dry_run: true, tag: 'v1.15.0', dry_run_tests: false };
-  assert.equal(dryRun(dispatch, dry, on), 'true');
-  assert.equal(group(dispatch, dry, on), 'release-dry-run-v1.15.0');
-  for (const [id, job] of Object.entries(release.jobs)) assert.doesNotMatch(job.if || '', /inputs\.dry_run_tests/, id);
+  assert.equal(expression(env.DRY_RUN)({event_name:'push'}, {dry_run:true}, {}), 'true');
+  assert.equal(expression(env.DRY_RUN)({event_name:'push'}, {}, {}), 'false');
+  assert.equal(expression(release.concurrency.group)({event_name:'push'}, {}, {}), 'release-publication');
 });
+
 test('production publications serialize and verify draft bytes before becoming public', () => {
-  assert.equal(release.concurrency['cancel-in-progress'], "${{ github.event_name != 'workflow_run' && (inputs.dry_run == true || vars.RELEASE_PUBLISH_ENABLED != 'true') }}");
+  assert.equal(release.concurrency['cancel-in-progress'], "${{ inputs.dry_run == true }}");
   assert.match(release.concurrency.group, /release-publication/);
   const steps = workflow('release-manifest-validate').jobs.validate.steps;
   const verify = steps.findIndex(step => step.name === 'Verify draft artifact signatures before publication');

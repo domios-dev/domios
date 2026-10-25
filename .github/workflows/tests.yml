@@ -36,6 +36,42 @@ concurrency:
   group: ${{ inputs.source_ref != '' && format('tests-dispatch-{0}', github.run_id) || format('tests-{0}', github.event_name == 'schedule' && format('refs/heads/{0}', github.event.schedule == '17 2 * * *' && 'rename/domios' || 'develop') || github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref) }}
   cancel-in-progress: true
 jobs:
+  admission:
+    name: Select CI owner
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+    outputs:
+      run: ${{ steps.route.outputs.run }}
+      release_head: ${{ steps.route.outputs.release_head }}
+    steps:
+      - id: route
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            const release = context.eventName === 'push' && /^refs\/heads\/release\/\d+\.\d+\.\d+$/.test(context.ref) &&
+              context.actor === 'rollacode' && process.env.GITHUB_TRIGGERING_ACTOR === 'rollacode';
+            core.setOutput('release_head', String(release));
+            if (context.eventName === 'push' && context.ref === 'refs/heads/master') {
+              core.notice('Skipping heavy CI on master: release publication reuses qualified release-head artifacts');
+              core.setOutput('run', 'false');
+              return;
+            }
+            if (context.eventName === 'push' && context.ref === 'refs/heads/develop') {
+              const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {...context.repo,
+                workflow_id:'tests.yml', event:'push', head_sha:context.sha, per_page:100});
+              if (runs.some(run => run.id !== context.runId && run.head_sha === context.sha &&
+                /^release\/\d+\.\d+\.\d+$/.test(run.head_branch) &&
+                run.head_repository.full_name === context.repo.owner + '/' + context.repo.repo)) {
+                core.notice('Skipping heavy CI: a release push run owns this exact SHA');
+                core.setOutput('run', 'false');
+                return;
+              }
+            }
+            core.setOutput('run', 'true');
   policy:
     name: Repository guards
     runs-on: ubuntu-24.04
@@ -55,7 +91,7 @@ jobs:
           python-version: "3.12"
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: ${{ github.event_name == 'schedule' && (github.event.schedule == '17 2 * * *' && 'rename/domios' || 'develop') || inputs.source_ref || github.sha }}
+          ref: ${{ github.event_name == 'schedule' && (github.event.schedule == '17 2 * * *' && 'rename/domios' || 'develop') || inputs.source_ref || github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 1
       - name: Fetch scoped policy history
         env:
@@ -219,10 +255,11 @@ jobs:
             const selection = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/resolved-public-issues.json','utf8'));
             await verifyIssueReferences(github, selection);
             await core.summary.addHeading('Issue contracts').addList([...selection.issues,...selection.repository_issues].map(issue=>issue.reference)).write();
+    needs: admission
     if: inputs.scope != 'preflight'
   pr:
     name: Pull request checks
-    if: ${{ github.event_name == 'pull_request' }}
+    if: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'release/') }}
     uses: ./.github/workflows/tests-pr.yml
     permissions:
       contents: read
@@ -239,11 +276,11 @@ jobs:
       actions: write
       pull-requests: write
     secrets: inherit
-    if: ${{ github.event_name != 'pull_request' && inputs.scope != 'preflight' }}
-    needs: policy
+    if: ${{ github.event_name != 'pull_request' && needs.admission.outputs.run != 'false' && inputs.scope != 'preflight' }}
+    needs: [policy, admission]
   rust:
     name: Rust tests
-    needs: fast
+    needs: [fast, admission]
     if: ${{ !cancelled() && inputs.scope != 'fast' && (github.event_name == 'push' || github.event_name == 'schedule') && needs.fast.outputs.resolved_scope != '' }}
     uses: ./.github/workflows/tests-rust.yml
     with:
@@ -262,6 +299,7 @@ jobs:
       actions: write
       pull-requests: write
     needs:
+      - admission
       - fast
       - rust
     if: ${{ always() && inputs.scope != 'fast' && github.event_name != 'pull_request' && inputs.source_ref == '' && needs.fast.outputs.heavy != '' }}
@@ -274,6 +312,7 @@ jobs:
   qualification:
     name: qualification receipt
     needs:
+      - admission
       - fast
       - rust
       - rust-warnings
@@ -330,6 +369,22 @@ jobs:
           path: qualification.json
           if-no-files-found: error
           retention-days: 3
+  release-dry-run:
+    name: Release packaging
+    needs: [admission, policy, fast, rust, rust-warnings, qualification]
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.admission.outputs.release_head == 'true' && needs.policy.result == 'success' && needs.qualification.result == 'success' }}
+    uses: ./.github/workflows/release.yml
+    permissions:
+      contents: write
+      actions: read
+      issues: write
+      pull-requests: write
+    with:
+      tag: ${{ github.ref_name }}
+      source_sha: ${{ needs.fast.outputs.source_sha }}
+      dry_run: true
+      mirror: false
+    secrets: inherit
   runner-preflight:
     name: Runner preflight (${{ matrix.profile }})
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.scope == 'preflight' && (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' }}
@@ -416,15 +471,17 @@ jobs:
       - name: Probe actual runner prerequisites
         run: node scripts/ci-preflight-profile.mjs "${{ matrix.profile }}"
   result:
-    name: CI result
+    name: ${{ github.event_name == 'pull_request' && startsWith(github.head_ref, 'release/') && 'Release PR checks' || 'CI result' }}
     if: ${{ always() }}
     needs:
+      - admission
       - policy
       - pr
       - fast
       - rust
       - rust-warnings
       - qualification
+      - release-dry-run
       - runner-preflight
     runs-on: ubuntu-24.04
     timeout-minutes: 2
@@ -454,4 +511,7 @@ jobs:
           CI_EVENT: ${{ github.event_name }}
           CI_NEEDS: ${{ toJSON(needs) }}
           CI_SCOPE: ${{ inputs.scope }}
+          CI_RELEASE_PR_LIGHT: ${{ github.event_name == 'pull_request' && startsWith(github.head_ref, 'release/') }}
+          CI_RELEASE_HEAD: ${{ needs.admission.outputs.release_head }}
+          CI_SKIP_HEAVY: ${{ needs.admission.outputs.run == 'false' }}
         run: node scripts/ci-result.mjs

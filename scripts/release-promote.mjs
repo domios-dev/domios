@@ -31,8 +31,16 @@ function refuse(message) {
   throw new Error('promotion refused: ' + message);
 }
 
+export function isReleasePushRun(run, sha) {
+  return run.event === 'push' && run.head_sha === sha && /^release\/\d+\.\d+\.\d+$/.test(run.head_branch) &&
+    ['rollacode','domios-dev'].includes(run.repository?.owner?.login) &&
+    run.head_repository?.full_name === run.repository?.full_name &&
+    run.actor?.login === 'rollacode' && run.triggering_actor?.login === 'rollacode';
+}
+
 export function checkQualifiedRun({ run, jobs, sourceSha, branch }) {
-  if (run.path !== '.github/workflows/release.yml') refuse(`run ${run.id} is not a release.yml run`);
+  const pushRun = run.path === '.github/workflows/tests.yml' && isReleasePushRun(run, sourceSha);
+  if (run.path !== '.github/workflows/release.yml' && !pushRun) refuse(`run ${run.id} is not a release.yml run`);
   if (run.status !== 'completed' || run.conclusion !== 'success') refuse(`run ${run.id} is ${run.status}/${run.conclusion}`);
   if (run.head_sha !== sourceSha) refuse(`run ${run.id} built ${run.head_sha}, not ${sourceSha}`);
   if (run.head_branch !== branch) refuse(`run ${run.id} ran on ${run.head_branch}, not ${branch}`);
@@ -40,7 +48,8 @@ export function checkQualifiedRun({ run, jobs, sourceSha, branch }) {
     if (!['success', 'skipped'].includes(job.conclusion)) refuse(`${job.name} is ${job.conclusion}`);
   }
   for (const required of REQUIRED_JOBS) {
-    const matching = jobs.filter(job => job.name.startsWith(required));
+    const prefix = pushRun ? 'Release packaging / ' + required : required;
+    const matching = jobs.filter(job => job.name.startsWith(prefix));
     if (!matching.length) refuse(`run ${run.id} has no ${required.replace(/ \/ $/, '')} job`);
     const unfinished = matching.find(job => job.conclusion !== 'success');
     if (unfinished) refuse(`${unfinished.name} is ${unfinished.conclusion}`);
@@ -94,7 +103,8 @@ async function main([verb, ...args]) {
     const jobs = execFileSync('gh', ['api', '--paginate', '--jq', '.jobs[] | tojson', `repos/${SOURCE_REPO}/actions/runs/${runId}/jobs?per_page=100`],
       { encoding: 'utf8' }).split('\n').filter(Boolean).map(line => JSON.parse(line));
     checkQualifiedRun({ run, jobs, sourceSha, branch });
-    requireQualification(sourceSha);
+    const receipt = requireQualification(sourceSha);
+    if (run.path === '.github/workflows/tests.yml' && String(receipt.run_id) !== String(run.id)) refuse('qualification belongs to a different release push run');
     console.log(`run ${runId} qualifies ${sourceSha} on ${branch}`);
   } else if (verb === 'publish') {
     const [tag, sourceSha, runId, work] = args;
