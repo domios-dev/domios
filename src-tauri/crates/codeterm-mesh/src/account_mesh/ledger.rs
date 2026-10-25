@@ -206,10 +206,13 @@ impl LinkLedger {
         {
             return false;
         }
-        let newer = record
-            .remote_membership
-            .as_ref()
-            .is_none_or(|known| renewed.verified.expires_at > known.verified.expires_at);
+        let newer = record.remote_membership.as_ref().is_none_or(|known| {
+            renewed.verified.key_generation > known.verified.key_generation
+                || (renewed.verified.key_generation == known.verified.key_generation
+                    && renewed.verified.key_id == known.verified.key_id
+                    && renewed.verified.slot_revision >= known.verified.slot_revision
+                    && renewed.verified.expires_at > known.verified.expires_at)
+        });
         if newer {
             record.remote_membership = Some(renewed);
         }
