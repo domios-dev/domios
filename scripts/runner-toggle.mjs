@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sourceRepository } from './source-repository.mjs';
 // Caller: build.sh runner-pause, runner-resume, runner-status
 // Park or restore one machine's GitHub self-hosted runners by their custom labels.
 import { execFileSync } from "node:child_process";
@@ -6,7 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const REPO = process.env.GH_REPO || "rollacode/codeterm";
+const REPO = sourceRepository();
 const STATE_DIR = path.join(".codeterm", "build-machine", "paused");
 const PAUSED_LABEL = "paused";
 const OS_LABELS = ["Windows", "Linux", "macOS"];

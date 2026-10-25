@@ -18,6 +18,7 @@ test('one CI event entrypoint owns every guard and its aggregate is the only req
       assert.equal(name, 'tests.yml');
     }
   }
+  for (const id of ['fast', 'pr']) assert.equal(ci.jobs[id].needs, 'policy', 'source guards finish before compiler acquisition');
   const dependencies = new Set(ci.jobs.result.needs);
   assert.deepEqual(dependencies, new Set(Object.keys(ci.jobs).filter(id => id !== 'result')));
   assert.equal(condition(ci.jobs.result.if, { failed: true }), true);

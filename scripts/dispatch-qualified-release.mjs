@@ -1,3 +1,4 @@
+import { sourceRepository } from './source-repository.mjs';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -6,7 +7,7 @@ import { requireQualification } from './ci-qualification.mjs';
 const gh = args => execFileSync('gh', args, { encoding: 'utf8', timeout: 120000 }).trim();
 
 export function dispatchQualifiedRelease(sha, branch, {
-  repository = process.env.GITHUB_REPOSITORY || 'rollacode/codeterm',
+  repository = sourceRepository(),
   qualify = requireQualification, run = gh,
 } = {}) {
   if (!/^[a-f0-9]{40}$/.test(sha) || !/^release\/\d+\.\d+\.\d+$/.test(branch)) {

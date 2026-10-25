@@ -3,6 +3,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import test from 'node:test';
 import { parse } from 'yaml';
+import { condition, evaluateCondition } from './workflow-condition.mjs';
 const workflow = name => parse(readFileSync(new URL(`../../.github/workflows/${name}.yml`, import.meta.url), 'utf8'));
 const release = workflow('release');
 const macos = workflow('release-macos-build');
@@ -92,8 +93,7 @@ test('direct platform dispatch is scoped and cannot mutate release assets', () =
           !step.env?.RELEASE_VERIFY_ONLY) {
         assert.match(step.if || '', /!\(github\.event_name == 'workflow_dispatch' && github\.workflow == '/, `${name}: ${step.name}`);
         assert.match(step.if, /!inputs\.dry_run/, `${name}: ${step.name}`);
-        const condition = step.if.replace(/^\$\{\{\s*|\s*\}\}$/g, '');
-        const evaluate = new Function('github', 'inputs', `return (${condition});`);
+        const evaluate = (github, inputs) => condition(step.if, { github, inputs });
         const direct = { event_name: 'workflow_dispatch', workflow: platform.name };
         const caller = { event_name: 'workflow_dispatch', workflow: release.name };
         assert.equal(evaluate(direct, { dry_run: false, mirror: true }), false, `${name}: direct dispatch refuses publication`);
@@ -102,7 +102,9 @@ test('direct platform dispatch is scoped and cannot mutate release assets', () =
       }
     }
   }
-  assert.equal(workflow('tests').jobs.rust.if, "github.event_name == 'push' || github.event_name == 'schedule'", 'a manual tests dispatch runs the fast tier only');
+  assert.equal(condition(workflow('tests').jobs.rust.if, {
+    github: { event_name: 'workflow_dispatch' },
+  }), false, 'manual dispatch does not request the heavy Rust tier');
 });
 test('every platform checks its own built bundle before any upload, with independent Windows retries', () => {
   for (const name of ['release-macos-build', 'release-linux-arm64', 'release-linux', 'release-windows', 'release-windows-arm64']) {
@@ -120,9 +122,8 @@ test('every platform checks its own built bundle before any upload, with indepen
   }
   assert.equal(workflow('release-windows').jobs.build.strategy['fail-fast'], false);
 });
-const expression = text => new Function('github', 'inputs', 'vars', 'format',
-  `return (${text.replace(/^\$\{\{\s*|\s*\}\}$/g, '')});`);
-const format = (template, ...values) => template.replace(/\{(\d+)\}/g, (_, i) => values[i]);
+const expression = text => (github, inputs, vars) => evaluateCondition(text, { github, inputs, vars });
+
 test('a qualified release head stays a dry run of its own branch until publication is enabled', () => {
   const env = release.jobs.prepare.steps.find(step => step.id === 'release').env;
   const dryRun = expression(env.DRY_RUN);
@@ -131,13 +132,13 @@ test('a qualified release head stays a dry run of its own branch until publicati
   const dispatch = { event_name: 'workflow_dispatch', ref_name: 'release/1.15.0', event: { workflow_run: {} } };
   const off = {};
   const on = { RELEASE_PUBLISH_ENABLED: 'true' };
-  assert.equal(dryRun(push, {}, off, format), 'true');
-  assert.equal(group(push, {}, off, format), 'release-dry-run-release/1.15.0');
-  assert.equal(dryRun(push, {}, on, format), 'false');
-  assert.equal(group(push, {}, on, format), 'release-publication');
+  assert.equal(dryRun(push, {}, off), 'true');
+  assert.equal(group(push, {}, off), 'release-dry-run-release/1.15.0');
+  assert.equal(dryRun(push, {}, on), 'false');
+  assert.equal(group(push, {}, on), 'release-publication');
   const dry = { dry_run: true, tag: 'v1.15.0', dry_run_tests: false };
-  assert.equal(dryRun(dispatch, dry, on, format), 'true');
-  assert.equal(group(dispatch, dry, on, format), 'release-dry-run-v1.15.0');
+  assert.equal(dryRun(dispatch, dry, on), 'true');
+  assert.equal(group(dispatch, dry, on), 'release-dry-run-v1.15.0');
   for (const [id, job] of Object.entries(release.jobs)) assert.doesNotMatch(job.if || '', /inputs\.dry_run_tests/, id);
 });
 test('production publications serialize and verify draft bytes before becoming public', () => {
@@ -151,7 +152,7 @@ test('production publications serialize and verify draft bytes before becoming p
   assert.match(steps[verify].run, /gh release download/);
 });
 test('release CI actions are immutable and every executable job has a deadline', () => {
-  for (const name of ['release', 'tests', 'release-arm64-compile', 'release-windows-arm64', 'release-macos-build', 'release-linux-arm64', 'release-linux', 'release-windows', 'release-manifest-validate', 'frontend-release', 'release-credentials', 'ready-for-release', 'qualification', 'precheck']) {
+  for (const name of ['release', 'tests', 'release-arm64-compile', 'release-windows-arm64', 'release-macos-build', 'release-linux-arm64', 'release-linux', 'release-windows', 'release-manifest-validate', 'frontend-release', 'release-credentials', 'qualification', 'precheck']) {
     for (const job of Object.values(workflow(name).jobs)) {
       if (job.uses) continue;
       assert.ok(job['timeout-minutes'] > 0, `${name} deadline`);

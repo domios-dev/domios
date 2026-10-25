@@ -261,13 +261,13 @@ jobs:
               gh release create "$TAG" \
                 --repo "$MIRROR_REPO" \
                 --title "Domios $TAG" \
-                --notes "Auto-mirrored from rollacode/codeterm. See the source repo for full release notes." \
+                --notes "Auto-mirrored from $GITHUB_REPOSITORY. See the source repo for full release notes." \
                 --prerelease
             else
               gh release create "$TAG" \
                 --repo "$MIRROR_REPO" \
                 --title "Domios $TAG" \
-                --notes "Auto-mirrored from rollacode/codeterm. See the source repo for full release notes."
+                --notes "Auto-mirrored from $GITHUB_REPOSITORY. See the source repo for full release notes."
             fi
           fi
 

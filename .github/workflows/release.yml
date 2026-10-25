@@ -230,7 +230,7 @@ jobs:
             if ! gh release view "$TAG" --repo rollacode/codeterm-releases >/dev/null 2>&1; then
               gh release create "$TAG" --repo rollacode/codeterm-releases \
                 --draft --title "Domios $TAG" \
-                --notes "Auto-mirrored from rollacode/codeterm. See the source repo for full release notes."
+                --notes "Auto-mirrored from $GITHUB_REPOSITORY. See the source repo for full release notes."
             fi
             node scripts/release-clear-wedged-assets.mjs rollacode/codeterm-releases "$TAG"
           fi

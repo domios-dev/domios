@@ -1,3 +1,4 @@
+import { sourceRepository } from './source-repository.mjs';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -33,7 +34,7 @@ export function verifyQualification(receipt, run, jobs, sha) {
 const gh = args => execFileSync('gh', args, { encoding: 'utf8', timeout: 120_000, maxBuffer: 16 * 1024 * 1024 });
 const api = route => JSON.parse(gh(['api', route]));
 
-export function requireQualification(sha, { repository = process.env.GITHUB_REPOSITORY || 'rollacode/codeterm', request = api, download = gh } = {}) {
+export function requireQualification(sha, { repository = sourceRepository(), request = api, download = gh } = {}) {
   if (!/^[a-f0-9]{40}$/.test(sha)) throw new Error('Invalid qualification SHA');
   const name = `qualification-${sha}`;
   const artifacts = request(`repos/${repository}/actions/artifacts?name=${name}&per_page=100`).artifacts;

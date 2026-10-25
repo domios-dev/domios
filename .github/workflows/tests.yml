@@ -215,7 +215,7 @@ jobs:
               while IFS= read -r reference; do
                 number="${reference##*#}"
                 gh issue view "$number" \
-                  --repo rollacode/codeterm \
+                  --repo "$GITHUB_REPOSITORY" \
                   --json number,state,title >/dev/null
                 echo "- $reference"
               done < "$RUNNER_TEMP/repository-issues.txt"
@@ -230,6 +230,7 @@ jobs:
     uses: ./.github/workflows/tests-pr.yml
     permissions:
       contents: read
+    needs: policy
   fast:
     name: Fast checks
     uses: ./.github/workflows/tests-fast.yml
@@ -243,6 +244,7 @@ jobs:
       pull-requests: write
     secrets: inherit
     if: ${{ github.event_name != 'pull_request' }}
+    needs: policy
   rust:
     name: Rust tests
     needs: fast

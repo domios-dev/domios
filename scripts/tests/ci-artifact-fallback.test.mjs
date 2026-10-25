@@ -6,6 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
+import { evaluateCondition } from './workflow-condition.mjs';
 import { spoolOutputs } from '../ci-artifact-spool.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -107,7 +108,7 @@ test('every job that stores CI artifacts uploads its spool and every reader has 
       }
       for (const step of steps) {
         if (/ci-artifact\.sh get|release-dry-run-manifest\.mjs aggregate/.test(step.run ?? '')) {
-          assert.equal(step.env?.GH_TOKEN ?? job.env?.GH_TOKEN ?? parse(text).env?.GH_TOKEN, '${{ github.token }}', `${name}/${id}/${step.name}`);
+          assert.equal(evaluateCondition(step.env?.GH_TOKEN ?? job.env?.GH_TOKEN ?? parse(text).env?.GH_TOKEN, { github: { token: 'read-token' } }), 'read-token', `${name}/${id}/${step.name}`);
         }
       }
     }

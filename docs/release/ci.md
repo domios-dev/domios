@@ -13,6 +13,7 @@ operation. Existing live rules do not change when that script is edited.
 | Nightly | Complete qualification of rename/domios and develop |
 | Owner CI dispatch | Guards and fast checks for source_ref; diagnostic evidence only |
 
+The source guards finish successfully before either test branch can acquire compilers.
 Shared guards cover sizes, provider boundary, crate layering, Tauri reach,
 changed-file comments, API/prompt/eval documentation, secret scanning, issue
 metadata and master accepting only owner release/X.Y.Z PRs. Each runner checks
@@ -42,8 +43,9 @@ branch contains the trigger, a green release push starts packaging automatically
 
 Read status by commit, not by the latest run:
 
-    gh api repos/rollacode/codeterm/commits/<sha>/check-runs --jq '.check_runs[] | {name, status, conclusion, details_url}'
-    gh run list --repo rollacode/codeterm --workflow tests.yml --commit <sha>
+    source_repository=$(node scripts/source-repository.mjs)
+    gh api repos/$source_repository/commits/<sha>/check-runs --jq '.check_runs[] | {name, status, conclusion, details_url}'
+    gh run list --repo "$source_repository" --workflow tests.yml --commit <sha>
     node scripts/ci-qualification.mjs check <sha>
 
 CI result summarizes its dependency results. Its success proves the event's
@@ -72,3 +74,9 @@ runners keep their existing cache and receipt paths. The hosted macOS capacity
 must be measured for embeddings before enabling it; signing and notarization
 always remain on the private Macs. Pure TS/plugin jobs already use hosted
 Ubuntu, and Windows path identity uses windows-latest.
+
+Source-repository selection uses GITHUB_REPOSITORY in Actions and the checkout's
+origin for local scripts; DOMIOS_SOURCE_REPOSITORY is the explicit local override.
+Historical issue declarations use one reviewed alias list in
+scripts/source-repository-aliases.json and normalize to the runtime repository.
+New declarations and API routes always use that runtime name.

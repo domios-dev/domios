@@ -2,7 +2,7 @@
 set -euo pipefail
 
 [[ "${1:-}" == --apply ]] || { echo 'Owner only: review docs/release/public-repo.md, then pass --apply' >&2; exit 2; }
-repo=rollacode/codeterm
+repo="$(node scripts/source-repository.mjs)"
 api_version=2026-03-10
 api() { gh api -H "X-GitHub-Api-Version: $api_version" "$@"; }
 [[ "$(api user --jq .login)" == rollacode ]] || { echo 'Authenticate as rollacode' >&2; exit 2; }
