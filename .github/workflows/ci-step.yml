@@ -14,6 +14,8 @@ on:
           - ubunta-build
           - rog-windows
           - hosted-linux
+          - blackstar-windows
+          - eight-macos
       recipe:
         type: choice
         options:
@@ -39,7 +41,7 @@ jobs:
     name: ${{ inputs.recipe }} ${{ inputs.target }} on ${{ inputs.runner }}
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' }}
     environment: ${{ inputs.runner != 'hosted-linux' && 'ci' || '' }}
-    runs-on: ${{ fromJSON('{"air-macos":["self-hosted","macOS","rust-shard","host-air"],"ubunta-build":["self-hosted","Linux","linux-build","host-ubunta"],"rog-windows":["self-hosted","Windows","host-rog","windows-build"],"hosted-linux":"ubuntu-24.04"}')[inputs.runner] }}
+    runs-on: ${{ fromJSON('{"air-macos":["self-hosted","macOS","rust-shard","host-air"],"ubunta-build":["self-hosted","Linux","linux-build","host-ubunta"],"rog-windows":["self-hosted","Windows","host-rog","windows-build"],"hosted-linux":"ubuntu-24.04","blackstar-windows":["self-hosted","Windows","windows-ci","host-blackstar"],"eight-macos":["self-hosted","macOS","codeterm-builder","host-eight"]}')[inputs.runner] }}
     timeout-minutes: 60
     env:
       AWS_ACCESS_KEY_ID: ${{ inputs.runner != 'hosted-linux' && secrets.SCCACHE_AWS_ACCESS_KEY_ID || '' }}
