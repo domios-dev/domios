@@ -226,15 +226,21 @@ impl PtyReaper {
         restart_after_grace(
             process_exited,
             || {
-                classify_tree_kill(self.tree_killer.kill_tree(), exited_group_errno(), || {
+                let group_errno = exited_group_errno();
+                match classify_tree_kill(self.tree_killer.kill_tree(), group_errno, || {
                     #[cfg(target_os = "macos")]
                     {
                         native_leader_exited(self.child_pid)
                     }
                     #[cfg(not(target_os = "macos"))]
                     false
-                })
-                .map_err(|error| error.to_string())
+                }) {
+                    // The bounded exit wait below decides a group whose leader is still exiting.
+                    Err(error) if group_errno.is_some() && error.raw_os_error() == group_errno => {
+                        Ok(())
+                    }
+                    result => result.map_err(|error| error.to_string()),
+                }
             },
             || {
                 self.session
