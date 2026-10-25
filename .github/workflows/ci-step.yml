@@ -1,0 +1,137 @@
+name: CI step
+run-name: "CI step ${{ inputs.recipe }} ${{ inputs.target }} ${{ inputs.filter }} on ${{ inputs.runner }}"
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Exact source commit SHA
+        required: true
+        type: string
+      runner:
+        type: choice
+        options:
+          - air-macos
+          - ubunta-build
+          - rog-windows
+          - hosted-linux
+      recipe:
+        type: choice
+        options:
+          - test-one
+          - ci-suite
+          - node-test
+      target:
+        description: "test-one: build.sh scope (pty, mem, cli, ...); ci-suite: full, platform or embeddings; node-test: scripts/tests file"
+        required: true
+        type: string
+      filter:
+        description: "test-one: test name filter"
+        required: false
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: ci-step-${{ inputs.runner }}-${{ inputs.recipe }}-${{ inputs.target }}-${{ inputs.filter }}
+  cancel-in-progress: true
+jobs:
+  step:
+    name: ${{ inputs.recipe }} ${{ inputs.target }} ${{ inputs.filter }} on ${{ inputs.runner }}
+    if: ${{ github.actor == 'rollacode' }}
+    environment: ${{ inputs.runner != 'hosted-linux' && 'ci' || '' }}
+    runs-on: ${{ fromJSON('{"air-macos":["self-hosted","macOS","rust-shard","host-air"],"ubunta-build":["self-hosted","Linux","linux-build","host-ubunta"],"rog-windows":["self-hosted","Windows","host-rog","windows-build"],"hosted-linux":"ubuntu-24.04"}')[inputs.runner] }}
+    timeout-minutes: 60
+    env:
+      AWS_ACCESS_KEY_ID: ${{ inputs.runner != 'hosted-linux' && secrets.SCCACHE_AWS_ACCESS_KEY_ID || '' }}
+      AWS_SECRET_ACCESS_KEY: ${{ inputs.runner != 'hosted-linux' && secrets.SCCACHE_AWS_SECRET_ACCESS_KEY || '' }}
+      DOMIOS_FIREBASE_API_KEY: ${{ inputs.runner != 'hosted-linux' && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
+      DOMIOS_FIREBASE_PROJECT_ID: ${{ inputs.runner != 'hosted-linux' && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
+      DOMIOS_FIREBASE_APP_ID: ${{ inputs.runner != 'hosted-linux' && secrets.DOMIOS_FIREBASE_APP_ID || '' }}
+      DOMIOS_ACCOUNT_REDEEM_URL: ${{ inputs.runner != 'hosted-linux' && secrets.DOMIOS_ACCOUNT_REDEEM_URL || '' }}
+      DOMIOS_BILLING_FUNCTIONS_URL: ${{ inputs.runner != 'hosted-linux' && secrets.DOMIOS_BILLING_FUNCTIONS_URL || '' }}
+      CI_TARGET_ROOT: ${{ github.workspace }}/../ci-targets/step
+      CODETERM_ALLOW_EXTERNAL_TARGET: '1'
+      CI_HOSTED: ${{ inputs.runner == 'hosted-linux' }}
+      SCCACHE_GHA_ENABLED: ${{ inputs.runner == 'hosted-linux' && 'true' || 'false' }}
+      CODETERM_SCCACHE_VERIFY_ONLY: ${{ inputs.runner == 'hosted-linux' && '0' || '1' }}
+      CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
+      STEP_RECIPE: ${{ inputs.recipe }}
+      STEP_TARGET: ${{ inputs.target }}
+      STEP_FILTER: ${{ inputs.filter }}
+    steps:
+      - name: Use the runner bundled Node
+        if: runner.environment == 'self-hosted'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            const path = require('node:path');
+            core.addPath(path.dirname(process.execPath));
+            core.info('Using runner Node ' + process.version);
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        if: runner.environment == 'github-hosted'
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+      - name: Validate the requested step
+        shell: bash
+        run: |
+          set -euo pipefail
+          safe='^[A-Za-z0-9_:./=~-]*$'
+          [[ "$STEP_TARGET" =~ $safe && -n "$STEP_TARGET" ]] || { echo "::error::invalid target"; exit 2; }
+          [[ "$STEP_FILTER" =~ $safe ]] || { echo "::error::invalid filter"; exit 2; }
+          case "$STEP_RECIPE" in
+            test-one) [ -n "$STEP_FILTER" ] || { echo "::error::test-one needs a filter"; exit 2; } ;;
+            ci-suite) case "$STEP_TARGET" in full|platform|embeddings) ;; *) echo "::error::ci-suite target is full, platform or embeddings"; exit 2 ;; esac ;;
+            node-test) [[ "$STEP_TARGET" == scripts/tests/*.test.mjs ]] || { echo "::error::node-test target is a scripts/tests/*.test.mjs file"; exit 2; } ;;
+          esac
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ inputs.source_ref }}
+          fetch-depth: 1
+        env:
+          GIT_CONFIG_COUNT: "1"
+          GIT_CONFIG_KEY_0: core.longpaths
+          GIT_CONFIG_VALUE_0: "true"
+      - name: Discover installed runner tools
+        if: runner.environment == 'self-hosted'
+        run: node scripts/ci-runner-paths.mjs --paths-only
+      - name: Hosted Rust toolchain
+        if: runner.environment == 'github-hosted' && inputs.recipe != 'node-test'
+        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
+        with:
+          toolchain: 1.99.1
+          components: clippy,rustfmt
+      - name: Hosted nextest
+        if: runner.environment == 'github-hosted' && inputs.recipe != 'node-test'
+        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8
+        with:
+          tool: cargo-nextest@0.9.148
+      - name: Hosted sccache
+        if: runner.environment == 'github-hosted' && inputs.recipe != 'node-test'
+        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
+      - name: Prepare compile fixtures
+        if: inputs.recipe != 'node-test'
+        run: node scripts/ci-rust-prepare.mjs
+      - name: Run the step (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = macOS ] && [ "$STEP_RECIPE" != node-test ]; then
+            # Large test binaries exceed Mach-O compact-unwind offsets, as in the CI platform suite.
+            export CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS="${CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS:+$CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS }-C link-arg=-Wl,-no_compact_unwind"
+          fi
+          case "$STEP_RECIPE" in
+            test-one) bash build.sh test-one "$STEP_TARGET" "$STEP_FILTER" ;;
+            ci-suite) bash build.sh ci-tests "$STEP_TARGET" ;;
+            node-test) node --test "$STEP_TARGET" ;;
+          esac
+      - name: Run the step (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          switch ($env:STEP_RECIPE) {
+            'test-one' { & .\build.ps1 test-one $env:STEP_TARGET $env:STEP_FILTER }
+            'ci-suite' { & .\build.ps1 ci-tests $env:STEP_TARGET }
+            'node-test' { node --test $env:STEP_TARGET }
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
