@@ -20,12 +20,13 @@ on:
           - test-one
           - ci-suite
           - node-test
+          - nextest
       target:
-        description: "test-one: build.sh scope (pty, mem, cli, ...); ci-suite: full, platform or embeddings; node-test: scripts/tests file"
+        description: "test-one: build.sh scope (pty, mem, cli, ...); ci-suite: full, platform or embeddings; node-test: scripts/tests file; nextest: build.sh nextest scope, usually workspace"
         required: true
         type: string
       filter:
-        description: "test-one: test name filter"
+        description: "test-one: test name filter; nextest: one filterset across crates, e.g. package(codeterm-api) & test(~auth::tests) | package(codeterm-config) & test(~load::tests)"
         required: false
         type: string
 permissions:
@@ -94,7 +95,9 @@ jobs:
           set -euo pipefail
           safe='^[A-Za-z0-9_:./=~-]*$'
           [[ "$STEP_TARGET" =~ $safe && -n "$STEP_TARGET" ]] || { echo "::error::invalid target"; exit 2; }
-          [[ "$STEP_FILTER" =~ $safe ]] || { echo "::error::invalid filter"; exit 2; }
+          filterset='^[A-Za-z0-9_:./=~()&| -]*$'
+          if [ "$STEP_RECIPE" = nextest ]; then [[ "$STEP_FILTER" =~ $filterset && -n "$STEP_FILTER" ]] || { echo "::error::invalid nextest filterset"; exit 2; }
+          else [[ "$STEP_FILTER" =~ $safe ]] || { echo "::error::invalid filter"; exit 2; }; fi
           case "$STEP_RECIPE" in
             test-one) [ -n "$STEP_FILTER" ] || { echo "::error::test-one needs a filter"; exit 2; } ;;
             ci-suite) case "$STEP_TARGET" in full|platform|embeddings) ;; *) echo "::error::ci-suite target is full, platform or embeddings"; exit 2 ;; esac ;;
@@ -141,6 +144,7 @@ jobs:
             test-one) bash build.sh test-one "$STEP_TARGET" "$STEP_FILTER" ;;
             ci-suite) bash build.sh ci-tests "$STEP_TARGET" ;;
             node-test) node --test "$STEP_TARGET" ;;
+            nextest) bash build.sh nextest "$STEP_TARGET" "$STEP_FILTER" ;;
           esac
       - name: Run the step (Windows)
         if: runner.os == 'Windows'
@@ -150,5 +154,6 @@ jobs:
             'test-one' { & .\build.ps1 test-one $env:STEP_TARGET $env:STEP_FILTER }
             'ci-suite' { & .\build.ps1 ci-tests $env:STEP_TARGET }
             'node-test' { node --test $env:STEP_TARGET }
+            'nextest' { & .\build.ps1 nextest $env:STEP_TARGET $env:STEP_FILTER }
           }
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
