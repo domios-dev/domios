@@ -98,12 +98,15 @@ jobs:
         shell: bash
         env:
           CI_FAILURE_STEPS: ${{ toJSON(steps) }}
-          CI_SOURCE_SHA: ${{ needs.changed.outputs.source_sha || steps.source.outputs.sha || github.sha }}
+          CI_SOURCE_SHA: ${{ env.CI_SOURCE_SHA }}
         run: |
           node "$GITHUB_WORKSPACE/scripts/ci-first-failure.mjs" || gh run cancel "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" || true
       - id: source
         shell: bash
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        run: |
+          sha=$(git rev-parse HEAD)
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "CI_SOURCE_SHA=$sha" >> "$GITHUB_ENV"
       - *cancel-run-on-failure
       - id: tree
         env:
@@ -157,6 +160,7 @@ jobs:
       actions: write
     timeout-minutes: 8
     env:
+      CI_SOURCE_SHA: ${{ needs.changed.outputs.source_sha || github.sha }}
       DOMIOS_CI_WEBHOOK_URL: ${{ secrets.DOMIOS_CI_WEBHOOK_URL }}
       DOMIOS_CI_WEBHOOK_TOKEN: ${{ secrets.DOMIOS_CI_WEBHOOK_TOKEN }}
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
@@ -284,6 +288,7 @@ jobs:
       matrix:
         plugin: ${{ fromJSON(needs.changed.outputs.plugins) }}
     env:
+      CI_SOURCE_SHA: ${{ needs.changed.outputs.source_sha || github.sha }}
       DOMIOS_CI_WEBHOOK_URL: ${{ secrets.DOMIOS_CI_WEBHOOK_URL }}
       DOMIOS_CI_WEBHOOK_TOKEN: ${{ secrets.DOMIOS_CI_WEBHOOK_TOKEN }}
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
@@ -337,6 +342,7 @@ jobs:
       actions: write
     timeout-minutes: 30
     env:
+      CI_SOURCE_SHA: ${{ needs.changed.outputs.source_sha || github.sha }}
       DOMIOS_CI_WEBHOOK_URL: ${{ secrets.DOMIOS_CI_WEBHOOK_URL }}
       DOMIOS_CI_WEBHOOK_TOKEN: ${{ secrets.DOMIOS_CI_WEBHOOK_TOKEN }}
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
@@ -423,6 +429,7 @@ jobs:
       actions: write
     timeout-minutes: 30
     env:
+      CI_SOURCE_SHA: ${{ needs.changed.outputs.source_sha || github.sha }}
       DOMIOS_CI_WEBHOOK_URL: ${{ secrets.DOMIOS_CI_WEBHOOK_URL }}
       DOMIOS_CI_WEBHOOK_TOKEN: ${{ secrets.DOMIOS_CI_WEBHOOK_TOKEN }}
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
@@ -481,6 +488,7 @@ jobs:
       actions: write
     timeout-minutes: 8
     env:
+      CI_SOURCE_SHA: ${{ needs.changed.outputs.source_sha || github.sha }}
       DOMIOS_CI_WEBHOOK_URL: ${{ secrets.DOMIOS_CI_WEBHOOK_URL }}
       DOMIOS_CI_WEBHOOK_TOKEN: ${{ secrets.DOMIOS_CI_WEBHOOK_TOKEN }}
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
@@ -554,6 +562,7 @@ jobs:
       actions: write
     timeout-minutes: 8
     env:
+      CI_SOURCE_SHA: ${{ needs.changed.outputs.source_sha || github.sha }}
       DOMIOS_CI_WEBHOOK_URL: ${{ secrets.DOMIOS_CI_WEBHOOK_URL }}
       DOMIOS_CI_WEBHOOK_TOKEN: ${{ secrets.DOMIOS_CI_WEBHOOK_TOKEN }}
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
@@ -615,6 +624,7 @@ jobs:
       run:
         shell: bash
     env:
+      CI_SOURCE_SHA: ${{ needs.changed.outputs.source_sha || github.sha }}
       DOMIOS_CI_WEBHOOK_URL: ${{ secrets.DOMIOS_CI_WEBHOOK_URL }}
       DOMIOS_CI_WEBHOOK_TOKEN: ${{ secrets.DOMIOS_CI_WEBHOOK_TOKEN }}
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
@@ -669,6 +679,7 @@ jobs:
       actions: write
     timeout-minutes: 8
     env:
+      CI_SOURCE_SHA: ${{ needs.changed.outputs.source_sha || github.sha }}
       DOMIOS_CI_WEBHOOK_URL: ${{ secrets.DOMIOS_CI_WEBHOOK_URL }}
       DOMIOS_CI_WEBHOOK_TOKEN: ${{ secrets.DOMIOS_CI_WEBHOOK_TOKEN }}
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
@@ -753,6 +764,7 @@ jobs:
       actions: write
     timeout-minutes: 8
     env:
+      CI_SOURCE_SHA: ${{ needs.changed.outputs.source_sha || github.sha }}
       DOMIOS_CI_WEBHOOK_URL: ${{ secrets.DOMIOS_CI_WEBHOOK_URL }}
       DOMIOS_CI_WEBHOOK_TOKEN: ${{ secrets.DOMIOS_CI_WEBHOOK_TOKEN }}
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
@@ -813,6 +825,7 @@ jobs:
       actions: write
     timeout-minutes: 8
     env:
+      CI_SOURCE_SHA: ${{ needs.changed.outputs.source_sha || github.sha }}
       DOMIOS_CI_WEBHOOK_URL: ${{ secrets.DOMIOS_CI_WEBHOOK_URL }}
       DOMIOS_CI_WEBHOOK_TOKEN: ${{ secrets.DOMIOS_CI_WEBHOOK_TOKEN }}
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
@@ -871,6 +884,7 @@ jobs:
       actions: write
     timeout-minutes: 8
     env:
+      CI_SOURCE_SHA: ${{ needs.changed.outputs.source_sha || github.sha }}
       DOMIOS_CI_WEBHOOK_URL: ${{ secrets.DOMIOS_CI_WEBHOOK_URL }}
       DOMIOS_CI_WEBHOOK_TOKEN: ${{ secrets.DOMIOS_CI_WEBHOOK_TOKEN }}
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
