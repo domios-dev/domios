@@ -2,6 +2,40 @@ use super::*;
 use codeterm_service_core::api_support::access_policy::check_access;
 
 #[test]
+fn tailnet_webhooks_reach_handler_authentication_only_on_exact_post_routes() {
+    for path in [
+        crate::inbound_webhook::ci::PATH,
+        "/api/blueprints/graph/webhook",
+        codeterm_service_core::service::web_access::PEBBLE_WEBHOOK_PATH,
+    ] {
+        assert!(listener_bearer_exempt(&Method::POST, path, true), "{path}");
+        assert!(listener_bearer_exempt(&Method::POST, path, false), "{path}");
+        assert!(!tailnet_exempt(&Method::POST, path), "{path}");
+        for method in [Method::GET, Method::PUT, Method::DELETE] {
+            assert!(
+                !listener_bearer_exempt(&method, path, true),
+                "{method} {path}"
+            );
+        }
+        assert!(!listener_bearer_exempt(
+            &Method::POST,
+            &format!("{path}/extra"),
+            true,
+        ));
+    }
+    for path in [
+        "/api/blueprints/graph/webhook/configure",
+        "/api/blueprints/graph/extra/webhook",
+        "/api/ci/webhook/extra",
+        "/api/graph/events/graph",
+        "/api/mesh/relay-asset/peer/foo",
+        "/api/secrets/list",
+    ] {
+        assert!(!listener_bearer_exempt(&Method::POST, path, true), "{path}");
+    }
+}
+
+#[test]
 fn tailnet_exemptions_are_only_existing_peer_handshakes_and_liveness() {
     for path in ["/api/health", "/api/mesh/ping"] {
         assert!(tailnet_exempt(&Method::GET, path));
