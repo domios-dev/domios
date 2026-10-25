@@ -73,6 +73,12 @@ The plugin-metadata two-file command is an explicit subset exception to node-scr
 
 The table above is the pre-catalogue baseline. Since then `file-sizes`, `plugin-metadata`, `fmt` and `release-contracts` merged into one `guards` job; its Rust-scoped steps carry `needs.changed.outputs.rust == 'true'`, and an entry's recorded step condition decides in which change classes the drift guard expects it.
 
+Every fast job depends only on `changed`, so guards and sibling checks can start together. Guards remain a required job in the reusable fast tier: a guard failure fails that tier and prevents its dependent Rust tier and release aggregates from succeeding. Every fast check retains the `cancel_run` failure handler.
+
+The Windows frontend still runs `bash build.sh frontend-build` from the stable mapped path, including dependency preparation, TypeScript, Vite and the warning ratchet. It caches only `node_modules/.cache/codeterm-types.tsbuildinfo`, scoped by runner, Node/pnpm versions, lockfile and TypeScript configuration, with a source-specific key and a dependency-compatible restore prefix. TypeScript checks changed inputs on every run; checkout still cleans all source and installed dependencies. The existing pnpm content store is already warm, so caching the entire dependency tree would add archive overhead without addressing the dominant typecheck cost.
+
+In [release run 40168829388](https://github.com/rollacode/codeterm/actions/runs/40168829388), Windows took 4:50: checkout took 39 seconds, installation 37 seconds (629 reused packages, no downloads), and TypeScript about 103 seconds before Vite started. Parallel scheduling removes the approximately 3:05 guard barrier; a warm incremental cache should bring Windows toward 3–4 minutes and the whole fast tier toward 4–5 minutes, subject to runner queues and changed-input volume. The first cache miss retains the full build cost. Confirm wall time with a fast-tier dispatch after integration.
+
 Job conditions below are the tier files' own; the `phase` input that once selected a tier inside one tests.yml is gone. The JSON below is the exact infrastructure/subset exception set used by the drift guard. Run text and step conditions must match; adding arbitrary run steps is rejected. Catalogue commands are compared separately in both directions for every change class, including plugin-only and docs-only PRs.
 
 ```json
@@ -109,7 +115,7 @@ Job conditions below are the tier files' own; the `phase` input that once select
     "job": "guards",
     "run": "bash scripts/check-file-sizes.sh --fail",
     "if": null,
-    "reason": "Source size gate; first guard, and guards gate every other fast check",
+    "reason": "Source size gate; guards remain required while sibling fast checks run in parallel",
     "job_if": null
   },
   {
