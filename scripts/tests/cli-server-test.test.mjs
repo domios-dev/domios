@@ -72,7 +72,7 @@ test('the Tauri resource directory cannot squat on the isolated server binary pa
         const artifact = path.join(options.env.CARGO_TARGET_DIR, 'debug', binary);
         mkdirSync(path.dirname(artifact), { recursive: true });
         writeFileSync(artifact, binary);
-        return JSON.stringify({ reason: 'compiler-artifact', target: { name: binary }, executable: artifact }) + '\\n' +
+        return JSON.stringify({ reason: 'compiler-artifact', target: { name: binary }, executable: artifact }) + '\n' +
           JSON.stringify({ reason: 'build-finished', success: true });
       },
     });
