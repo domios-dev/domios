@@ -51,7 +51,7 @@ test('the executor uses the selected CI command, preserves failure and prints re
   fs.writeFileSync(path.join(directory,'pr-catalogue.json'),JSON.stringify({runners:[entry]}));
   const calls=[],output=[],sha='a'.repeat(40);
   const result=await runStep({step:entry.id,ci:true,profile:'hosted-linux',checkout:directory,sha},{
-   base:{RUNNER_TEMP:directory},write:line=>output.push(line),
+   base:{RUNNER_TEMP:directory,PATH:process.env.PATH},write:line=>output.push(line),
    execute:(program,args,options)=>{
     calls.push({program,args,options});
     if(program==='git'&&args[0]==='rev-parse')return{status:0,stdout:sha};
