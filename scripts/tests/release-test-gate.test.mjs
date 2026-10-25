@@ -150,7 +150,7 @@ test("guards prepare Rust before cargo-dependent serial script tests in every sc
 });
 
 test("dev pushes and nightly fallback qualify every exact SHA, and release reuses the evidence", () => {
-  assert.deepEqual(tests.on.push.branches, ['master', 'develop', 'rename/domios']);
+  assert.deepEqual(tests.on.push.branches, ['master', 'develop', 'rename/domios', 'release/**']);
   assert.equal(tests.on.push['paths-ignore'], undefined);
   assert.equal(tests.on.schedule.length, 2);
   assert.match(tests.concurrency.group, /github.ref/);
