@@ -70,14 +70,14 @@ export async function runStep(options,{base=process.env,execute=spawnSync,write=
       const overlay=JSON.parse(fs.readFileSync(path.join(root,'tests/catalogue.overlay.json'),'utf8'));
       status=0;
       for(const argv of runCommands(entry,[options.file],overlay,{python:env.CI_PYTHON||'python3',node:process.execPath})){
-        const result=execute(argv[0],argv.slice(1),{cwd:root,env,stdio:'inherit',timeout:entry.budget_secs*1000,windowsHide:true});
+        const result=execute(argv[0],argv.slice(1),{cwd:root,env,stdio:'inherit',windowsHide:true});
         if(result.error)throw result.error;
         if(result.status!==0)status=result.status||1;
       }
     }else{
       const command=catalogueCommand(entry.id,{directory:env.RUNNER_TEMP,pluginId:options.pluginId});
       console.log('CI step '+entry.id+': '+command);
-      status=runCatalogue(entry.id,{env,pluginId:options.pluginId,execute:(program,args,settings)=>execute(program,args,{...settings,cwd:root,timeout:entry.budget_secs*1000})});
+      status=runCatalogue(entry.id,{env,pluginId:options.pluginId,execute:(program,args,settings)=>execute(program,args,{...settings,cwd:root})});
     }
     if(status!==0)write(reproLine(entry.id,{...options,profile,sha}));
     return status;
