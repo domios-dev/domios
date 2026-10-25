@@ -197,7 +197,7 @@ jobs:
             exit 1
           fi
           # The diff since the last app release decides: any Rust is an app release, else a frontend release.
-          previous=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' "$sha" 2>/dev/null || true)
+          previous=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' "$sha^" 2>/dev/null || true)
           kind=$(node scripts/ci-scope.mjs --release-kind "$previous" "$sha")
           echo "kind=$kind" >> "$GITHUB_OUTPUT"
           if [ "$kind" = app ]; then
