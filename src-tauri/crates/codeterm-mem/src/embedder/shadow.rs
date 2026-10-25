@@ -297,6 +297,7 @@ impl MemManager {
                     docs = Some(crate::docs_source::prepare_reembed(
                         data_dir,
                         &target,
+                        self.docs_sections(),
                         || {
                             self.reembed.advance(generation, Ok(()), &self.embedder);
                             let _ = changed.send(());

@@ -183,6 +183,7 @@ pub(crate) fn fixture_with_docs(
     docs: bool,
 ) -> Fixture {
     let dir = tempfile::tempdir().unwrap();
+    crate::test_support::seed_schema(&dir.path().join("mem"));
     let embedder = ActiveEmbedder::new(provider);
     let (sender, events) = mpsc::channel();
     let sender = Mutex::new(sender);
@@ -191,6 +192,11 @@ pub(crate) fn fixture_with_docs(
     }));
     let docs_dir = docs.then(|| dir.path().to_path_buf());
     let mem = MemManager::open_with(dir.path(), embedder.clone(), clock, docs_dir).unwrap();
+    if docs {
+        mem.docs_sections
+            .set(crate::docs_source::fixture_sections())
+            .unwrap();
+    }
     Fixture {
         _dir: dir,
         mem,
