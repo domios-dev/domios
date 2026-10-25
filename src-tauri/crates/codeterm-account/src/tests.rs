@@ -107,7 +107,7 @@ async fn login_failure_deadline_returns_timeout() {
         Duration::from_secs(1),
     ));
     assert_eq!(
-        account.login(&WaitingBrowser).await.unwrap_err(),
+        account.login(Arc::new(WaitingBrowser)).await.unwrap_err(),
         Error::Timeout
     );
     assert_eq!(
@@ -136,7 +136,7 @@ async fn local_login_logout_deletes_refresh_token() {
     ));
     assert_eq!(
         account
-            .login(&NoBrowser)
+            .login(Arc::new(NoBrowser))
             .await
             .unwrap()
             .identity
@@ -221,9 +221,9 @@ async fn deep_link_entry_redeems_only_matching_callback_once() {
         Duration::from_secs(1),
     ));
     let status = account
-        .login(&CallbackBrowser {
+        .login(Arc::new(CallbackBrowser {
             account: account.clone(),
-        })
+        }))
         .await
         .unwrap();
     assert_eq!(status.identity.unwrap().uid, "fake-user");
@@ -250,9 +250,9 @@ async fn logout_cancels_pending_login_without_storing_credential() {
     ));
     assert_eq!(
         account
-            .login(&CancelBrowser {
+            .login(Arc::new(CancelBrowser {
                 account: account.clone()
-            })
+            }))
             .await
             .unwrap_err(),
         Error::Cancelled
@@ -302,7 +302,7 @@ async fn identity_observer_tracks_committed_sign_in_and_sign_out() {
         )
         .with_identity_observer(observer.clone()),
     );
-    let status = account.login(&NoBrowser).await.unwrap();
+    let status = account.login(Arc::new(NoBrowser)).await.unwrap();
     assert_eq!(
         *observer.0.lock().await,
         vec![status.identity.map(|value| value.uid)]

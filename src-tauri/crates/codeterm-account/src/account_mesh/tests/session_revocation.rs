@@ -61,7 +61,7 @@ async fn session_revoked_cleanup_survives_the_detecting_request_being_cancelled(
         store.clone(),
         Duration::from_secs(1),
     ));
-    account.login(&NoBrowser).await.unwrap();
+    account.login(Arc::new(NoBrowser)).await.unwrap();
     let expected = account.session().await.unwrap();
     let caller = account.clone();
     let detecting_request = tokio::spawn(async move { caller.session_revoked(&expected).await });
@@ -91,7 +91,7 @@ async fn session_revoked_clears_credentials_blocks_mesh_and_preserves_installati
         )
         .with_identity_observer(mesh.mesh.clone()),
     );
-    account.login(&NoBrowser).await.unwrap();
+    account.login(Arc::new(NoBrowser)).await.unwrap();
     let original = account.session().await.unwrap();
     account.refresh().await.unwrap();
     assert!(account.session_revoked(&original).await.unwrap());
@@ -112,7 +112,7 @@ async fn session_revoked_clears_credentials_blocks_mesh_and_preserves_installati
         mesh.state().traffic(),
         crate::account_mesh::Traffic::BlockedSignedOut
     );
-    account.login(&NoBrowser).await.unwrap();
+    account.login(Arc::new(NoBrowser)).await.unwrap();
     assert!(account.status().await.identity.is_some());
     assert!(!account.status().await.session_revoked);
     assert!(!account.session_revoked(&original).await.unwrap());
