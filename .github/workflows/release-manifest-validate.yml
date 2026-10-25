@@ -66,6 +66,11 @@ jobs:
             echo "source_sha=$source_sha"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Recheck exact-SHA dev qualification before publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci-qualification.mjs check "${{ inputs.source_sha }}"
+
       - name: Stamp the source release tag after all gates succeed
         env:
           TAG: ${{ steps.release.outputs.tag }}

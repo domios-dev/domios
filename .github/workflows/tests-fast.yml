@@ -26,6 +26,12 @@ on:
         default: false
         type: boolean
     outputs:
+      source_sha:
+        description: Exact tested source
+        value: ${{ jobs.changed.outputs.source_sha }}
+      resolved_scope:
+        description: Shared scope decision for the Rust tier
+        value: ${{ toJSON(jobs.changed.outputs) }}
       heavy:
         description: The Rust build scope ran; empty when the scope gate skipped
         value: ${{ jobs.changed.outputs.heavy }}
@@ -66,12 +72,13 @@ jobs:
     # A release branch's push already runs these checks on the exact SHA in release.yml.
     if: ${{ github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release/') }}
     # Every job waits on this gate, so any free light runner takes it.
-    runs-on: [self-hosted, light]
+    runs-on: [self-hosted, Linux, light, host-ubunta]
     permissions:
       contents: read
       actions: write
     timeout-minutes: 5
     outputs:
+      source_sha: ${{ steps.source.outputs.sha }}
       frontend: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.frontend == 'true' }}
       rust: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.rust == 'true' }}
       heavy: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.heavy == 'true' }}
@@ -89,11 +96,16 @@ jobs:
         shell: bash
         env:
           CI_FAILURE_STEPS: ${{ toJSON(steps) }}
+          CI_SOURCE_SHA: ${{ needs.changed.outputs.source_sha || steps.source.outputs.sha || github.sha }}
         run: |
           node "$GITHUB_WORKSPACE/scripts/ci-first-failure.mjs" || gh run cancel "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" || true
+      - id: source
+        shell: bash
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - *cancel-run-on-failure
       - id: tree
         env:
-          CI_RELEASE_CALL: ${{ inputs.source_ref != '' }}
+          CI_RELEASE_CALL: ${{ inputs.source_ref != '' || github.event_name == 'push' && (github.ref_name == 'develop' || github.ref_name == 'rename/domios') || github.event_name == 'schedule' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -110,18 +122,20 @@ jobs:
             fi
           done
           echo "run=true" >> "$GITHUB_OUTPUT"
+
       - *cancel-run-on-failure
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
-        id: ci-3
+        id: ci-4
         if: steps.tree.outputs.run == 'true'
         with:
           package-manager-cache: false
           node-version: '22.22.0'
+
       - *cancel-run-on-failure
       - id: scope
         if: steps.tree.outputs.run == 'true'
         env:
-          CI_FULL_MATRIX: ${{ (inputs.source_ref != '' && inputs.scope != 'frontend') }}
+          CI_FULL_MATRIX: ${{ inputs.scope != 'frontend' && (inputs.source_ref != '' || github.event_name == 'push' || github.event_name == 'schedule') }}
           CI_FRONTEND_ONLY: ${{ inputs.source_ref != '' && inputs.scope == 'frontend' }}
           CI_FAST_ONLY: ${{ github.event_name == 'pull_request' }}
         run: node scripts/ci-scope.mjs HEAD^ HEAD
@@ -132,7 +146,7 @@ jobs:
     name: guards
     needs: changed
     # The Node and Python release contracts assume Linux paths (macOS /var is a symlink).
-    runs-on: [self-hosted, Linux, light]
+    runs-on: [self-hosted, Linux, light, host-ubunta]
     permissions:
       contents: read
       actions: write
@@ -238,12 +252,13 @@ jobs:
         id: ci-16
         if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
         run: ${{ fromJSON(steps.catalogue.outputs.commands)['core-journeys-offline'] }}
+
       - *cancel-run-on-failure
   plugins:
     name: plugin (${{ matrix.plugin.id }})
     needs: changed
     if: ${{ needs.changed.outputs.plugins != '[]' }}
-    runs-on: [self-hosted, linux-ci]
+    runs-on: [self-hosted, Linux, linux-build, host-ubunta]
     permissions:
       contents: read
       actions: write
@@ -282,12 +297,14 @@ jobs:
           PLUGIN_ID: ${{ matrix.plugin.id }}
         shell: bash
         run: ${PLUGIN_COMMAND//<plugin-id>/"$PLUGIN_ID"}
+
+
       - *cancel-run-on-failure
   clippy-linux:
     name: clippy (linux)
     needs: changed
     if: ${{ needs.changed.outputs.heavy == 'true' }}
-    runs-on: [self-hosted, linux-ci]
+    runs-on: [self-hosted, Linux, linux-build, host-ubunta]
     permissions:
       contents: read
       actions: write
@@ -363,7 +380,7 @@ jobs:
     name: cli tests
     needs: changed
     if: ${{ needs.changed.outputs.heavy == 'true' }}
-    runs-on: [self-hosted, linux-ci]
+    runs-on: [self-hosted, Linux, linux-build, host-ubunta]
     permissions:
       contents: read
       actions: write
@@ -411,7 +428,7 @@ jobs:
     name: ts static checks
     needs: changed
     if: ${{ needs.changed.outputs.frontend == 'true' }}
-    runs-on: [self-hosted, light]
+    runs-on: [self-hosted, Linux, light, host-ubunta]
     permissions:
       contents: read
       actions: write
@@ -428,6 +445,7 @@ jobs:
         with:
           package-manager-cache: false
           node-version: '22.22.0'
+
       - *cancel-run-on-failure
       - name: Setup pnpm
         id: ci-3
@@ -436,6 +454,7 @@ jobs:
           version: 10.32.1
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
+
       - *cancel-run-on-failure
       - name: Install dependencies
         id: ci-4
@@ -444,37 +463,78 @@ jobs:
       - *cancel-run-on-failure
       - *select-pr-catalogue
       - *cancel-run-on-failure
-      - name: TS strict typecheck (prod build gate)
-        id: ci-6
-        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-typecheck'] }}
-      - *cancel-run-on-failure
       - name: TypeScript unused exports
-        id: ci-7
+        id: ci-6
         if: ${{ !cancelled() }}
         run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-unused-exports'] }}
       - *cancel-run-on-failure
       - name: Repository Knip report
-        id: ci-8
+        id: ci-7
         if: ${{ !cancelled() }}
         run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-knip-report'] }}
       # An effect that reaches the API must key on primitives; a mux-rebuilt object
       # re-runs it at broadcast rate. Five such sites shipped before this existed.
       - *cancel-run-on-failure
       - name: Check API effect dependencies
-        id: ci-9
+        id: ci-8
         if: ${{ !cancelled() }}
         run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-api-effects'] }}
       - *cancel-run-on-failure
       - name: Biome (TS lint)
-        id: ci-10
+        id: ci-9
         if: ${{ !cancelled() }}
         run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-biome'] }}
 
-  # Windows bundles build the frontend from the gateway's subst drive, where a pnpm
-  # workspace symlink can give one file two identities; nothing else runs from there.
       - *cancel-run-on-failure
+  frontend-dist:
+    name: frontend producer
+    needs: changed
+    if: ${{ needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true' }}
+    runs-on: [self-hosted, Linux, light, host-ubunta]
+    permissions:
+      contents: read
+      actions: write
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        id: ci-1
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
+      - *cancel-run-on-failure
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        id: ci-2
+        with:
+          package-manager-cache: false
+          node-version: '22.22.0'
+      - *cancel-run-on-failure
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        id: ci-3
+        with:
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
+      - *cancel-run-on-failure
+      - name: Install dependencies
+        id: ci-4
+        run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
+      - *cancel-run-on-failure
+      - *select-pr-catalogue
+      - *cancel-run-on-failure
+      - name: Build and typecheck frontend
+        id: ci-6
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-typecheck'] }}
+
+      - *cancel-run-on-failure
+      - name: Store frontend warning collection
+        if: always()
+        continue-on-error: true
+        run: test ! -f ci-rust-warnings/rust-warnings-linux-frontend.json || bash scripts/ci-artifact.sh put "$GITHUB_RUN_ID/rust-warnings/rust-warnings-linux-frontend.json" ci-rust-warnings/rust-warnings-linux-frontend.json
+      - name: Upload artifacts spooled while the private store was unreachable
+        if: always()
+        uses: ./.github/actions/ci-artifact-spool
+
   frontend-windows:
-    name: frontend (Windows, stable path)
+    name: Windows path identity
     needs: changed
     if: ${{ needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true' }}
     runs-on: [self-hosted, Windows, windows-light]
@@ -497,6 +557,7 @@ jobs:
         with:
           package-manager-cache: false
           node-version: '22.22.0'
+
       - *cancel-run-on-failure
       - name: Setup pnpm
         id: ci-3
@@ -505,36 +566,24 @@ jobs:
           version: 10.32.1
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
+
       - *cancel-run-on-failure
-      - name: Restore incremental Windows typecheck
+      - name: Install dependencies
         id: ci-4
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: node_modules/.cache/codeterm-types.tsbuildinfo
-          key: windows-frontend-types-v1-${{ runner.name }}-node22-pnpm10-${{ hashFiles('pnpm-lock.yaml', 'tsconfig*.json') }}-${{ inputs.source_ref || github.sha }}
-          restore-keys: |
-            windows-frontend-types-v1-${{ runner.name }}-node22-pnpm10-${{ hashFiles('pnpm-lock.yaml', 'tsconfig*.json') }}-
+        run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
       - *cancel-run-on-failure
       - *select-pr-catalogue
-      # frontend-build installs through the bundle's own ensure_deps, from the mapped path.
       - *cancel-run-on-failure
-      - name: Build the release frontend from the stable build path
+      - name: Check pnpm workspace path identity
         id: ci-6
         run: ${{ fromJSON(steps.catalogue.outputs.commands)['frontend-windows-build'] }}
-      - *cancel-run-on-failure
-      - name: Store frontend warning collection
-        if: always()
-        continue-on-error: ${{ inputs.artifacts_optional }}
-        run: test ! -f ci-rust-warnings/rust-warnings-win32-frontend.json || bash scripts/ci-artifact.sh put "$GITHUB_RUN_ID/rust-warnings/rust-warnings-win32-frontend.json" ci-rust-warnings/rust-warnings-win32-frontend.json
-      - name: Upload artifacts spooled while the private store was unreachable
-        if: always()
-        uses: ./.github/actions/ci-artifact-spool
 
+      - *cancel-run-on-failure
   ts-types:
     name: ts generated types
     needs: changed
     if: ${{ needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true' }}
-    runs-on: [self-hosted, light]
+    runs-on: [self-hosted, Linux, linux-build, host-ubunta]
     permissions:
       contents: read
       actions: write
@@ -561,6 +610,7 @@ jobs:
         with:
           package-manager-cache: false
           node-version: '22.22.0'
+
       - *cancel-run-on-failure
       - name: Setup pnpm
         id: ci-4
@@ -569,6 +619,7 @@ jobs:
           version: 10.32.1
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
+
       - *cancel-run-on-failure
       - name: Install dependencies
         id: ci-5
@@ -585,6 +636,7 @@ jobs:
       - name: Check Rust generated TypeScript types
         id: ci-8
         run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash -c '${{ fromJSON(steps.catalogue.outputs.commands)['ts-generated-types'] }}'
+
       - *cancel-run-on-failure
       - uses: ./.github/actions/rust-warnings
         if: always()
@@ -603,7 +655,7 @@ jobs:
     name: ts unit
     needs: changed
     if: ${{ needs.changed.outputs.frontend == 'true' }}
-    runs-on: [self-hosted, light]
+    runs-on: [self-hosted, Linux, light, host-ubunta]
     permissions:
       contents: read
       actions: write
@@ -620,6 +672,7 @@ jobs:
         with:
           package-manager-cache: false
           node-version: '22.22.0'
+
       - *cancel-run-on-failure
       - name: Setup pnpm
         id: ci-3
@@ -628,6 +681,7 @@ jobs:
           version: 10.32.1
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
+
       - *cancel-run-on-failure
       - name: Install dependencies
         id: ci-4
@@ -644,12 +698,13 @@ jobs:
         id: ci-7
         if: ${{ !cancelled() }}
         run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-unit-runner-tests'] }}
+
       - *cancel-run-on-failure
   ts-vitest:
     name: ts vitest
     needs: changed
     if: ${{ needs.changed.outputs.frontend == 'true' }}
-    runs-on: [self-hosted, light]
+    runs-on: [self-hosted, Linux, light, host-ubunta]
     permissions:
       contents: read
       actions: write
@@ -666,6 +721,7 @@ jobs:
         with:
           package-manager-cache: false
           node-version: '22.22.0'
+
       - *cancel-run-on-failure
       - name: Setup pnpm
         id: ci-3
@@ -674,6 +730,7 @@ jobs:
           version: 10.32.1
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
+
       - *cancel-run-on-failure
       - name: Install dependencies
         id: ci-4
@@ -688,12 +745,13 @@ jobs:
       - name: Run vitest-owned TS tests
         id: ci-6
         run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-vitest'] }}
+
       - *cancel-run-on-failure
   ts-plugins:
     name: plugin bundles + tests
     needs: changed
     if: ${{ needs.changed.outputs.rust == 'true' }}
-    runs-on: [self-hosted, light]
+    runs-on: [self-hosted, Linux, light, host-ubunta]
     permissions:
       contents: read
       actions: write
@@ -710,6 +768,7 @@ jobs:
         with:
           package-manager-cache: false
           node-version: '22.22.0'
+
       - *cancel-run-on-failure
       - name: Setup pnpm
         id: ci-3
@@ -718,6 +777,7 @@ jobs:
           version: 10.32.1
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
+
       - *cancel-run-on-failure
       - name: Install dependencies
         id: ci-4

@@ -4,6 +4,7 @@
 //
 //   release-promote.mjs check <run-id> <source-sha> <release-branch>
 //   release-promote.mjs publish <tag> <source-sha> <run-id> <work-dir>
+import { requireQualification } from './ci-qualification.mjs';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { createReadStream } from 'node:fs';
@@ -20,9 +21,7 @@ const MIRROR_REPO = 'rollacode/codeterm-releases';
 
 // Each name prefixes a release.yml job (reusable callers add " / <job>") that must have succeeded.
 export const REQUIRED_JOBS = [
-  'prepare release', 'Fast checks / guards', 'Fast checks / clippy', 'Fast checks / ts unit', 'Fast checks / ts vitest',
-  'Rust tests / rust tests (full suite)', 'Rust tests / rust platform (Linux)', 'Rust tests / rust platform (Windows)',
-  'Rust tests / rust platform (macOS)', 'Rust tests / rust embeddings', 'Rust tests / rust test receipts',
+  'prepare release',
   'macOS arm64 / ', 'macOS x64 / ', 'Linux arm64 / ', 'Linux x64 / ', 'Windows x64 / ', 'Windows arm64 / ',
   'local dry-run manifest verification / ',
 ];
@@ -94,9 +93,11 @@ async function main([verb, ...args]) {
     const jobs = execFileSync('gh', ['api', '--paginate', '--jq', '.jobs[] | tojson', `repos/${SOURCE_REPO}/actions/runs/${runId}/jobs?per_page=100`],
       { encoding: 'utf8' }).split('\n').filter(Boolean).map(line => JSON.parse(line));
     checkQualifiedRun({ run, jobs, sourceSha, branch });
+    requireQualification(sourceSha);
     console.log(`run ${runId} qualifies ${sourceSha} on ${branch}`);
   } else if (verb === 'publish') {
     const [tag, sourceSha, runId, work] = args;
+    requireQualification(sourceSha);
     const input = path.join(work, 'input');
     await fetchAndAggregate({ tag, sourceSha, runId, inputDirectory: input, outputDirectory: path.join(work, 'output') });
     const repositories = [[SOURCE_REPO, process.env.GH_TOKEN],

@@ -39,7 +39,7 @@ test("a plugin-only change selects that plugin without host gates", () => {
 });
 
 test("channel and shared plugin tooling changes verify every plugin", () => {
-  for (const file of ["plugins/channel.json", "plugins/provider-shared/updatePrompt.ts", "scripts/release-plugin.mjs", "scripts/ci-scope.mjs", ".github/workflows/tests.yml", ".github/workflows/tests-fast.yml"]) {
+  for (const file of ["plugins/channel.json", "plugins/provider-shared/updatePrompt.ts", "scripts/release-plugin.mjs"]) {
     assert.deepEqual(classifyPaths([file], plugins), { frontend: false, rust: false, plugins });
   }
 });
@@ -60,7 +60,7 @@ test("documentation does not broaden plugin checks into host builds", () => {
 });
 
 test("unknown paths conservatively select all host checks", () => {
-  for (const file of ["unknown.txt", ".github/workflows/release.yml", "scripts/new-check.mjs", "src-other/module.ts", "tsconfig/other.json"]) {
+  for (const file of ["scripts/ci-scope.mjs", "scripts/tests/ci-scope.test.mjs", ".github/workflows/tests.yml", ".github/workflows/tests-fast.yml", ".github/workflows/cli-source-of-truth.yml", ".github/workflows/ready-for-release.yml", "unknown.txt", ".github/workflows/release.yml", "scripts/new-check.mjs", "src-other/module.ts", "tsconfig/other.json"]) {
     assert.deepEqual(classifyPaths([file], plugins), both, file);
   }
 });
@@ -91,7 +91,7 @@ function jobRuns(job, scope, { cancelled = false } = {}) {
   const expression = jobConditions.get(job);
   if (!expression) return true;
   const outputs = Object.fromEntries(["frontend", "rust", "heavy"].map(key => [key, String(key === "heavy" ? scope.heavy ?? scope.rust : scope[key])]));
-  return condition(expression, { needs: { changed: { outputs } }, cancelled });
+  return condition(expression, { inputs: { resolved_scope: JSON.stringify(outputs) }, needs: { changed: { outputs } }, cancelled });
 }
 
 test("workflow wiring skips Rust jobs for frontend diffs and preserves generated types for Rust", () => {

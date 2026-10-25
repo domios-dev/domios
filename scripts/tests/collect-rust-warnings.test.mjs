@@ -96,7 +96,7 @@ test('every active release compiler, Rust test and clippy job uploads through th
   for (const [tier, id] of [['tests-rust', 'rust-tests'], ['tests-rust', 'rust-platform'], ['tests-fast', 'clippy-linux']]) {
     assert.ok(workflow(tier).jobs[id].steps.some(s => s.uses === './.github/actions/rust-warnings'), id);
   }
-  assert.deepEqual(workflow('release').jobs['rust-warnings'].needs, ['prepare', 'quick-checks', 'tests', 'macos-arm64', 'macos-x64', 'linux-arm64', 'linux-x86_64', 'windows-x64', 'windows-arm64']);
+  assert.deepEqual(workflow('release').jobs['rust-warnings'].needs, ['prepare', 'macos-arm64', 'macos-x64', 'linux-arm64', 'linux-x86_64', 'windows-x64', 'windows-arm64']);
   assert.equal(workflow('release').jobs['rust-warnings'].if, "always() && needs.prepare.outputs.promote_run_id == ''");
   assert.equal(workflow('tests').jobs['rust-warnings'].if, "${{ always() && inputs.source_ref == '' && needs.fast.outputs.heavy != '' }}");
 });
