@@ -263,9 +263,9 @@ test("the frontend producer owns tsc and Windows keeps the focused TS2451 path o
   const commands = fast.jobs['ts-static'].steps.map(step => step.run ?? '').join('\n');
   assert.doesNotMatch(commands, /ts-typecheck|tsc/);
   for (const entry of ['ts-unused-exports', 'ts-knip-report', 'ts-api-effects', 'ts-biome']) assert.ok(commands.includes(entry));
-  assert.ok(fast.jobs['frontend-dist'].steps.some(step => step.run?.includes('ci-catalogue-command.mjs ts-typecheck')));
+  assert.ok(fast.jobs['frontend-dist'].steps.some(step => /(ci-catalogue-command|ci-step).mjs ts-typecheck/.test(step.run ?? '')));
   const windows = fast.jobs['frontend-windows'];
-  assert.ok(windows.steps.some(step => step.run?.includes('ci-catalogue-command.mjs frontend-windows-build')));
+  assert.ok(windows.steps.some(step => /(ci-catalogue-command|ci-step).mjs frontend-windows-build/.test(step.run ?? '')));
   assert.ok(windows.steps.every(step => !/frontend-build|pnpm build/.test(step.run ?? '')));
   const fixture = readFileSync(new URL('./windows-path-identity.test.mjs', import.meta.url), 'utf8');
   assert.match(fixture, /subst/);
