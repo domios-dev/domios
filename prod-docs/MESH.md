@@ -10,7 +10,7 @@
 
 ## Adding a machine
 
-Signed-in machines with Mesh enabled automatically listen on their assigned Tailscale IPv4 and IPv6 addresses and publish a health-proven endpoint to their account. No listener setting or Tailscale Serve setup is needed. Native address changes update the listener set; sign-out or disabling Mesh closes it. These listeners accept the existing authenticated peer and account-link protocols, reject local API credentials, and do not serve the browser frontend.
+When Tailscale is connected and the API is enabled, the local web UI/API listens on assigned Tailscale IPv4 and IPv6 addresses, including while the account is signed out. Native address changes update the listener set. The Mesh UI card offers QR, Open and Copy only for health-proven listeners; Open carries the instance API token in a URL fragment. Browser API access requires that token. Account mesh peer requests and handshakes remain blocked while signed out or revoked, and disabling Mesh blocks peer traffic without withdrawing the web listener. Signed-in machines publish their health-proven endpoint to the account.
 
 Windows Defender may ask to allow incoming connections for Domios on first use; macOS may show an incoming-connections prompt when its application firewall is enabled. Linux firewall rules may need to permit the Domios port on the Tailscale interface. Domios does not change firewall rules or listen on LAN addresses for this feature.
 
@@ -185,4 +185,4 @@ Inventory opens as a full-screen searchable List beside the existing Mesh networ
 | POST | `/api/mesh/disconnect-notice` | `{from, to, link_nonce, signature}` | Removes only this exact connection. |
 | POST | `/api/mesh/account-presence` | `{metadata_revision}` | Triggers one rate-limited registry refresh. |
 
-<!-- revision: 67 -->
+<!-- revision: 68 -->

@@ -16,6 +16,13 @@ pub(crate) async fn middleware(
 ) -> Response {
     if req
         .extensions()
+        .get::<codeterm_service_core::service::account_mesh::tailnet::TailnetListener>()
+        .is_some()
+    {
+        return next.run(req).await;
+    }
+    if req
+        .extensions()
         .get::<ConnectInfo<SocketAddr>>()
         .is_none_or(|peer| peer.0.ip().to_canonical().is_loopback())
     {

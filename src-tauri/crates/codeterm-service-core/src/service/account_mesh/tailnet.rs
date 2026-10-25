@@ -15,11 +15,11 @@ mod network_changes;
 mod tests;
 
 #[derive(Clone, Copy)]
-pub struct PeerListener;
+pub struct TailnetListener;
 
 #[async_trait::async_trait]
 pub(super) trait AddressChanges: Send {
-    async fn selected(&self, signed_in: bool, enabled: bool, port: u16) -> Vec<SocketAddr>;
+    async fn selected(&self, enabled: bool, port: u16) -> Vec<SocketAddr>;
     async fn changed(&mut self) -> Result<(), ()>;
 }
 
@@ -31,18 +31,15 @@ struct NativeAddresses(
 
 #[async_trait::async_trait]
 impl AddressChanges for NativeAddresses {
-    async fn selected(&self, signed_in: bool, enabled: bool, port: u16) -> Vec<SocketAddr> {
+    async fn selected(&self, enabled: bool, port: u16) -> Vec<SocketAddr> {
         let status = tokio::task::spawn_blocking(|| {
             codeterm_mesh::network_transport::active_provider().detect()
         })
         .await
         .ok();
         status.map_or_else(Vec::new, |status| {
-            let addresses = codeterm_mesh::network_transport::listener_addresses(
-                &status,
-                signed_in && enabled,
-                port,
-            );
+            let addresses =
+                codeterm_mesh::network_transport::listener_addresses(&status, enabled, port);
             let changed = self.1.lock().set_network_transport(status);
             if changed {
                 self.2.ui.emit("mesh-state-changed", serde_json::json!({}));
@@ -58,12 +55,11 @@ impl AddressChanges for NativeAddresses {
 
 #[cfg(test)]
 fn selected_addresses(
-    signed_in: bool,
     enabled: bool,
     port: u16,
     interfaces: impl IntoIterator<Item = IpAddr>,
 ) -> Vec<SocketAddr> {
-    if !signed_in || !enabled || port == 0 {
+    if !enabled || port == 0 {
         return Vec::new();
     }
     let mut addresses: Vec<_> = interfaces
@@ -76,14 +72,9 @@ fn selected_addresses(
     addresses
 }
 
-async fn mark_peer_listener(mut request: Request, next: Next) -> axum::response::Response {
-    request.extensions_mut().insert(PeerListener);
-    let mut response = next.run(request).await;
-    response.headers_mut().insert(
-        codeterm_mesh::reachability::PEER_ONLY_HEADER,
-        axum::http::HeaderValue::from_static("1"),
-    );
-    response
+async fn mark_tailnet_listener(mut request: Request, next: Next) -> axum::response::Response {
+    request.extensions_mut().insert(TailnetListener);
+    next.run(request).await
 }
 
 struct Serving {
@@ -93,20 +84,6 @@ struct Serving {
 }
 
 impl Serving {
-    async fn account_changed(
-        &mut self,
-        previous: &codeterm_mesh::account_mesh::AccountMeshState,
-        current: &codeterm_mesh::account_mesh::AccountMeshState,
-    ) {
-        if previous != current {
-            self.failed.clear();
-        }
-        if previous.account_epoch != current.account_epoch || previous.presence != current.presence
-        {
-            self.withdraw(&[]).await;
-        }
-    }
-
     fn stopped(&mut self, result: Result<SocketAddr, tokio::task::JoinError>) {
         let address = match result {
             Ok(address) => Some(address),
@@ -198,12 +175,11 @@ pub(super) async fn run(service: Arc<ServiceContext>, mesh: crate::MeshStateHand
             return;
         }
     };
-    run_with_network(service, mesh, network).await;
+    run_with_network(service, network).await;
 }
 
 pub(super) async fn run_with_network(
     service: Arc<ServiceContext>,
-    mesh: crate::MeshStateHandle,
     mut network: impl AddressChanges,
 ) {
     let Some(control) = service.try_ext::<RestApiControlState>().cloned() else {
@@ -215,8 +191,7 @@ pub(super) async fn run_with_network(
     let router = router
         .0
         .clone()
-        .layer(axum::middleware::from_fn(mark_peer_listener));
-    let mut account = mesh.lock().gate_watch();
+        .layer(axum::middleware::from_fn(mark_tailnet_listener));
     let mut config = service.events.subscribe();
     let mut rest = control.subscribe_status();
     let mut serving = Serving {
@@ -225,48 +200,33 @@ pub(super) async fn run_with_network(
         failed: BTreeSet::new(),
     };
     let mut published = Vec::new();
-    let mut last_account = mesh.lock().account_state().clone();
     loop {
-        let current_account = mesh.lock().account_state().clone();
-        let signed_in = current_account.signed_in_account().is_some();
-        if last_account != current_account {
-            serving
-                .account_changed(&last_account, &current_account)
-                .await;
-            let retained: Vec<_> = serving.sockets.keys().copied().collect();
-            if published != retained {
-                control.listeners.publish_tailnet(retained.clone());
-                published = retained;
-            }
-            last_account = current_account;
-        }
         let enabled = {
             let config = service.ext::<crate::config::ConfigState>().lock();
-            config.mesh.enabled && config.api.enabled
+            config.api.enabled
         };
         let port = control.bound_addr().map_or(0, |address| address.port());
         let listening = rest.borrow_and_update().phase == RestApiPhase::Listening;
-        let desired = network
-            .selected(signed_in, enabled && listening, port)
-            .await;
+        let desired = network.selected(enabled && listening, port).await;
         serving.withdraw(&desired).await;
         let retained: Vec<_> = serving.sockets.keys().copied().collect();
         if published != retained {
             control.listeners.publish_tailnet(retained.clone());
             published = retained;
+            service.ui.emit("mesh-state-changed", serde_json::json!({}));
         }
         serving.reconcile(&desired, &router).await;
         let ready = serving.sockets.keys().copied().collect::<Vec<_>>();
         if published != ready {
             control.listeners.publish_tailnet(ready.clone());
             published = ready;
+            service.ui.emit("mesh-state-changed", serde_json::json!({}));
         }
         tokio::select! {
             changed = network.changed() => {
                 if changed.is_err() { break; }
                 serving.failed.clear();
             },
-            changed = account.changed() => if changed.is_err() { break; },
             changed = rest.changed() => {
                 if changed.is_err() { break; }
                 serving.failed.clear();
@@ -283,6 +243,7 @@ pub(super) async fn run_with_network(
     }
     serving.withdraw(&[]).await;
     control.listeners.publish_tailnet(Vec::new());
+    service.ui.emit("mesh-state-changed", serde_json::json!({}));
 }
 
 async fn config_changed(
