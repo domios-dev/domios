@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import {reproLine} from './ci-repro.mjs';
 import { pythonInterpreter } from './ci-runner-paths.mjs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -20,4 +21,10 @@ export function preparePython({env=process.env,platform=process.platform,execute
   append(env.GITHUB_ENV,'CI_PYTHON='+interpreter+'\nVIRTUAL_ENV='+directory+'\n');
   return interpreter;
 }
-if(process.argv[1]&&import.meta.url===pathToFileURL(path.resolve(process.argv[1])).href)preparePython();
+if(process.argv[1]&&import.meta.url===pathToFileURL(path.resolve(process.argv[1])).href){
+  try{preparePython();}catch(error){
+    console.error(error.stack||error.message);
+    console.error(reproLine(process.env.CI_STEP||'python-script-tests'));
+    process.exitCode=1;
+  }
+}

@@ -30,7 +30,7 @@ export function commandTools(command, seen = new Set()) {
   const required = new Set();
   const add = tools => tools.forEach(tool => required.add(tool));
   command = command.replace(/node\s+(?:\S*\/)?scripts\/ci-runner-paths\.mjs[^\n]*/g, '');
-  const entries = [...command.matchAll(/fromJSON\(steps\.catalogue\.outputs\.commands\)\['([^']+)'\]|--entry\s+([\w-]+)|ci-catalogue-command\.mjs\s+([\w-]+)/g)];
+  const entries = [...command.matchAll(/fromJSON\(steps\.catalogue\.outputs\.commands\)\['([^']+)'\]|--entry\s+([\w-]+)|(?:ci-catalogue-command|ci-step)\.mjs\s+([\w-]+)/g)];
   for (const match of entries) {
     const id = match[1] || match[2] || match[3];
     if (seen.has('entry:' + id)) continue;
