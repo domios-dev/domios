@@ -28,7 +28,7 @@ a broad Rust or guard role. The inventory contract expands catalogue and pnpm
 entrypoints and checks all four CI workflow files, including provisioning order.
 Only nextest consumers install it on hosted runners; self-hosted consumers
 verify the image's installed nextest. Both guard jobs install
-scripts/requirements-ci.txt into their pinned Python interpreter and preflight
+scripts/requirements-ci.txt into a job-local virtual environment and preflight
 imports every required third-party test module; the Python AST inventory rejects
 new imports until their pinned dependency and module probe are declared.
 
@@ -133,3 +133,18 @@ the full and headless packages contain the same final server/CLI pair.
 Use the hosted Intel label macos-15-intel when implementing the bridge, after
 rechecking the [official runner image list](https://github.com/actions/runner-images).
 This design changes neither the runtime CLI pin nor its trust policy.
+
+For a runner-only diagnostic, dispatch the existing CI workflow with
+scope=preflight and an exact source_ref. For example, from the source checkout:
+gh workflow run tests.yml --ref release/1.15.3 -f source_ref=<sha> -f scope=preflight.
+This probes hosted Linux/Windows/macOS plus the two Linux hosts, Mac and Windows
+self-hosted classes. It installs tools only on hosted runners, compiles nothing,
+runs no suites and writes no qualification receipt. The CI result still reports
+a failed or cancelled probe. The workflow revision must be pushed before dispatch.
+
+Python setup resolves python3 on Linux/macOS or python on Windows and exports
+the exact job-local interpreter as CI_PYTHON. Both pip and Python test runners
+use that interpreter; no system pip install or python alias is required.
+Catalogue selection runs during triage even after a previous failure. Commands
+run through ci-catalogue-command.mjs, which reports a named catalogue error for
+a missing/invalid selection instead of failing workflow expression expansion.

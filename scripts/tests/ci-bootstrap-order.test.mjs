@@ -7,26 +7,27 @@ import { runInNewContext } from 'node:vm';
 import { parse } from 'yaml';
 import { runnerRequirements } from '../ci-runner-paths.mjs';
 import { condition } from './workflow-condition.mjs';
-import { runnerKinds } from './ci-runner-scenarios.mjs';
+import { runnerKinds, runnerScenarios } from './ci-runner-scenarios.mjs';
 
 const providers = { node:'actions/setup-node@',python:'actions/setup-python@',pnpm:'pnpm/action-setup@' };
 const installer = step => /^(actions\/setup-|pnpm\/action-setup@|dtolnay\/rust-toolchain@|taiki-e\/install-action@|mozilla-actions\/sccache-action@)/.test(step.uses||'');
 const pinned = step => /@[a-f0-9]{40}$/.test(step.uses||'') && !step['continue-on-error'];
-function activeProvider(step,kind){
+function activeProvider(step,kind,matrix={}){
   if(!step.if)return true;
-  if(!step.if.includes('runner.environment'))return false;
-  return condition(step.if,{runner:{environment:kind},matrix:{},vars:{},steps:{}});
+  if(!step.if.includes('runner.environment')&&!step.if.includes('matrix.'))return false;
+  return condition(step.if,{runner:{environment:kind},matrix,vars:{},steps:{}});
 }
-function orderingErrors(steps,kind='github-hosted'){
+function orderingErrors(steps,kind='github-hosted',matrix={}){
   const ready=new Set(),errors=[];
   for(const step of steps){
+    if(step.if?.includes('matrix.')&&!activeProvider(step,kind,matrix))continue;
     const provider=Object.keys(providers).find(tool=>step.uses?.startsWith(providers[tool]));
     if(provider){
-      if(provider==='pnpm' && activeProvider(step,kind) && !ready.has('node'))errors.push('pnpm installer used before Node');
-      if(pinned(step)&&activeProvider(step,kind))ready.add(provider);
+      if(provider==='pnpm' && activeProvider(step,kind,matrix) && !ready.has('node'))errors.push('pnpm installer used before Node');
+      if(pinned(step)&&activeProvider(step,kind,matrix))ready.add(provider);
       continue;
     }
-    if(step.uses?.startsWith('actions/github-script@')&&pinned(step)&&activeProvider(step,kind)){
+    if(step.uses?.startsWith('actions/github-script@')&&pinned(step)&&activeProvider(step,kind,matrix)){
       assert.match(step.with.script,/core\.addPath\(path\.dirname\(process\.execPath\)\)/);
       ready.add('node');
     }
@@ -49,8 +50,7 @@ test('every workflow provisions hosted tools or discovers installed self-hosted 
   for(const file of readdirSync(directory).filter(file=>file.endsWith('.yml'))){
     for(const [id,job]of Object.entries(parse(readFileSync(new URL(file,directory),'utf8')).jobs)){
       if(!job.steps)continue;
-      const kinds=runnerKinds(job);
-      for(const kind of kinds)assert.deepEqual(orderingErrors(job.steps,kind),[],file+'/'+id+'/'+kind);
+      for(const {kind,matrix} of runnerScenarios(job))assert.deepEqual(orderingErrors(job.steps,kind,matrix),[],file+'/'+id+'/'+kind);
     }
   }
 });

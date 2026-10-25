@@ -232,7 +232,12 @@ jobs:
           tool: cargo-nextest@0.9.148
         if: runner.environment == 'github-hosted'
       - name: Install pinned Python test dependencies
-        run: python -m pip install --disable-pip-version-check -r scripts/requirements-ci.txt
+        run: node scripts/ci-python-env.mjs
+      - name: Provision the pinned hosted Rust toolchain
+        if: runner.environment == 'github-hosted'
+        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
+        with:
+          toolchain: 1.99.1
       - name: Runner preflight
         run: node scripts/ci-runner-paths.mjs bash,cargo,gh,git,nextest,node,pnpm,python,python:yaml
       - *cancel-run-on-failure
@@ -244,6 +249,7 @@ jobs:
         run: |
           node scripts/test-catalogue.mjs select --tier pr --format json > "$RUNNER_TEMP/pr-catalogue.json"
           node -e 'const fs = require("node:fs"); const selected = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/pr-catalogue.json", "utf8")); fs.appendFileSync(process.env.GITHUB_OUTPUT, "commands=" + JSON.stringify(Object.fromEntries(selected.runners.map(entry => [entry.id, entry.runner]))) + "\n");'
+        if: "!cancelled()"
       - *cancel-run-on-failure
       - name: Installed application identity
         id: ci-5
@@ -253,7 +259,7 @@ jobs:
       - name: Plugin release contracts
         id: ci-6
         if: ${{ !cancelled() }}
-        run: ${{ fromJSON(steps.catalogue.outputs.commands)['plugin-release-contracts'] }}
+        run: node scripts/ci-catalogue-command.mjs plugin-release-contracts
       - *cancel-run-on-failure
       - name: Plugin release and scope script tests
         id: ci-7
@@ -275,7 +281,7 @@ jobs:
       - name: cargo fmt --check
         id: ci-10
         if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
-        run: ${{ fromJSON(steps.catalogue.outputs.commands)['rust-fmt'] }}
+        run: node scripts/ci-catalogue-command.mjs rust-fmt
       # Release shards run tests from an archive extracted on another machine.
       - *cancel-run-on-failure
       - name: Archive-portable Rust test paths
@@ -293,17 +299,17 @@ jobs:
       - name: Node script tests (tests/catalogue.json node-script-tests)
         id: ci-14
         if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
-        run: ${{ fromJSON(steps.catalogue.outputs.commands)['node-script-tests'] }}
+        run: node scripts/ci-catalogue-command.mjs node-script-tests
       - *cancel-run-on-failure
       - name: Python script tests (tests/catalogue.json python-script-tests)
         id: ci-15
         if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
-        run: ${{ fromJSON(steps.catalogue.outputs.commands)['python-script-tests'] }}
+        run: node scripts/ci-catalogue-command.mjs python-script-tests
       - *cancel-run-on-failure
       - name: Offline core journey contracts
         id: ci-16
         if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
-        run: ${{ fromJSON(steps.catalogue.outputs.commands)['core-journeys-offline'] }}
+        run: node scripts/ci-catalogue-command.mjs core-journeys-offline
 
       - *cancel-run-on-failure
   plugins:
@@ -348,10 +354,9 @@ jobs:
       - *select-pr-catalogue
       - id: ci-6
         env:
-          PLUGIN_COMMAND: ${{ fromJSON(steps.catalogue.outputs.commands)['plugin-check'] }}
           PLUGIN_ID: ${{ matrix.plugin.id }}
         shell: bash
-        run: ${PLUGIN_COMMAND//<plugin-id>/"$PLUGIN_ID"}
+        run: node scripts/ci-catalogue-command.mjs plugin-check --plugin-id "$PLUGIN_ID"
   clippy-linux:
     name: clippy (linux)
     needs: changed
@@ -420,6 +425,11 @@ jobs:
         uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
         env:
           SCCACHE_GHA_ENABLED: "true"
+      - name: Provision the pinned hosted Rust toolchain
+        if: runner.environment == 'github-hosted'
+        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
+        with:
+          toolchain: 1.99.1
       - name: Runner preflight
         run: node scripts/ci-runner-paths.mjs bash,cargo,curl,gh,git,node
       - *cancel-run-on-failure
@@ -532,6 +542,11 @@ jobs:
         uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
         env:
           SCCACHE_GHA_ENABLED: "true"
+      - name: Provision the pinned hosted Rust toolchain
+        if: runner.environment == 'github-hosted'
+        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
+        with:
+          toolchain: 1.99.1
       - name: Runner preflight
         run: node scripts/ci-runner-paths.mjs bash,cargo,gh,git,node
       - *cancel-run-on-failure
@@ -593,19 +608,19 @@ jobs:
       - name: TypeScript unused exports
         id: ci-6
         if: ${{ !cancelled() }}
-        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-unused-exports'] }}
+        run: node scripts/ci-catalogue-command.mjs ts-unused-exports
       - name: Repository Knip report
         id: ci-7
         if: ${{ !cancelled() }}
-        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-knip-report'] }}
+        run: node scripts/ci-catalogue-command.mjs ts-knip-report
       - name: Check API effect dependencies
         id: ci-8
         if: ${{ !cancelled() }}
-        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-api-effects'] }}
+        run: node scripts/ci-catalogue-command.mjs ts-api-effects
       - name: Biome (TS lint)
         id: ci-9
         if: ${{ !cancelled() }}
-        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-biome'] }}
+        run: node scripts/ci-catalogue-command.mjs ts-biome
   frontend-dist:
     name: frontend producer
     needs: changed
@@ -645,7 +660,7 @@ jobs:
       - *select-pr-catalogue
       - name: Build and typecheck frontend
         id: ci-6
-        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-typecheck'] }}
+        run: node scripts/ci-catalogue-command.mjs ts-typecheck
       - name: Retain hosted warning evidence
         if: always()
         continue-on-error: true
@@ -700,7 +715,7 @@ jobs:
       - *select-pr-catalogue
       - name: Check pnpm workspace path identity
         id: ci-6
-        run: ${{ fromJSON(steps.catalogue.outputs.commands)['frontend-windows-build'] }}
+        run: node scripts/ci-catalogue-command.mjs frontend-windows-build
   ts-types:
     name: ts generated types
     needs: changed
@@ -734,6 +749,11 @@ jobs:
           version: 10.32.1
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
+      - name: Provision the pinned hosted Rust toolchain
+        if: runner.environment == 'github-hosted'
+        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
+        with:
+          toolchain: 1.99.1
       - name: Runner preflight
         run: node scripts/ci-runner-paths.mjs bash,cargo,git,node,pnpm
       - name: Install dependencies
@@ -747,7 +767,7 @@ jobs:
         run: node -e "require('fs').writeFileSync('ci-rust-warnings.log', '')"
       - name: Check Rust generated TypeScript types
         id: ci-8
-        run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash -c '${{ fromJSON(steps.catalogue.outputs.commands)['ts-generated-types'] }}'
+        run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- node scripts/ci-catalogue-command.mjs ts-generated-types
       - name: Collect hosted compiler warnings
         if: always()
         continue-on-error: true
@@ -812,11 +832,11 @@ jobs:
       - *select-pr-catalogue
       - name: Run TS unit tests
         id: ci-6
-        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-unit'] }}
+        run: node scripts/ci-catalogue-command.mjs ts-unit
       - name: TS unit runner contracts
         id: ci-7
         if: ${{ !cancelled() }}
-        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-unit-runner-tests'] }}
+        run: node scripts/ci-catalogue-command.mjs ts-unit-runner-tests
   ts-vitest:
     name: ts vitest
     needs: changed
@@ -859,7 +879,7 @@ jobs:
       - *select-pr-catalogue
       - name: Run vitest-owned TS tests
         id: ci-6
-        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-vitest'] }}
+        run: node scripts/ci-catalogue-command.mjs ts-vitest
   ts-plugins:
     name: plugin bundles + tests
     needs: changed
@@ -902,8 +922,8 @@ jobs:
       - *select-pr-catalogue
       - name: Check generated plugin bundles
         id: ci-6
-        run: ${{ fromJSON(steps.catalogue.outputs.commands)['plugin-bundles'] }}
+        run: node scripts/ci-catalogue-command.mjs plugin-bundles
       - name: Run plugin tests
         id: ci-7
         if: ${{ !cancelled() }}
-        run: ${{ fromJSON(steps.catalogue.outputs.commands)['plugin-tests'] }}
+        run: node scripts/ci-catalogue-command.mjs plugin-tests

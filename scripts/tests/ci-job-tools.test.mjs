@@ -26,6 +26,7 @@ function provisionErrors(job, kind='github-hosted') {
     const prefix = tool === 'pnpm' ? 'pnpm/action-setup@' : 'actions/setup-' + tool + '@';
     if (required.includes(tool) && !pinned(prefix) && !(kind==='self-hosted' && (tool==='node' ? pinned('actions/github-script@') : discovered))) errors.push(tool + ' not provisioned before preflight');
   }
+  if(required.includes('cargo') && kind==='github-hosted' && !pinned('dtolnay/rust-toolchain@'))errors.push('pinned Rust toolchain not provisioned before preflight');
   const nextest = before.find(step => step.uses?.startsWith('taiki-e/install-action@') && step.with?.tool === 'cargo-nextest@0.9.148' && enabled(step));
   if (required.includes('nextest') && !nextest && kind==='github-hosted') errors.push('nextest not installed before preflight');
   if (!required.includes('nextest') && steps.some(step => step.with?.tool?.startsWith('cargo-nextest@'))) errors.push('unused nextest installation');
@@ -34,14 +35,14 @@ function provisionErrors(job, kind='github-hosted') {
     if (steps.some((step,index) => commandTools(step.run || '').includes('nextest') && index < installedAt)) errors.push('nextest invoked before installation');
   }
   if (required.includes('python:yaml') && !before.some(step =>
-    step.run === 'python -m pip install --disable-pip-version-check -r scripts/requirements-ci.txt' && !step.if)) errors.push('Python modules not installed before preflight');
+    step.run === 'node scripts/ci-python-env.mjs' && !step.if)) errors.push('Python modules not installed before preflight');
   return errors;
 }
 
 test('simulate every CI executable job against its command-derived tool and Python-module inventory', () => {
   let count = 0;
   for (const name of files) for (const [id,job] of Object.entries(read(name).jobs)) {
-    if (!job.steps) continue;
+    if (!job.steps || id==='runner-preflight') continue;
     const kinds=runnerKinds(job);
     for(const kind of kinds)assert.deepEqual(provisionErrors(job,kind), [], name + '/' + id+'/'+kind);
     const probes=[];
@@ -67,7 +68,7 @@ test('negative controls reject stale role, missing nextest provider, and missing
   early.steps.unshift({run:'cargo nextest run --workspace'});
   assert.ok(provisionErrors(early).some(error=>error.includes('before installation')));
   const guards=structuredClone(read('tests-pr').jobs.guards);
-  guards.steps=guards.steps.filter(step=>!step.run?.includes('pip install'));
+  guards.steps=guards.steps.filter(step=>step.run!=='node scripts/ci-python-env.mjs');
   assert.ok(provisionErrors(guards).some(error=>error.includes('Python modules')));
 });
 
