@@ -1,6 +1,35 @@
 use super::*;
 
 #[test]
+fn darwin_group_permission_error_requires_confirmed_leader_exit() {
+    for (errno, exited_group_errno, exited, accepted) in [
+        (1, Some(1), true, true),
+        (1, Some(1), false, false),
+        (1, None, true, false),
+        (13, Some(1), true, false),
+        (3, Some(1), true, false),
+    ] {
+        let result = classify_tree_kill(
+            Err(std::io::Error::from_raw_os_error(errno)),
+            exited_group_errno,
+            || exited,
+        );
+        assert_eq!(result.is_ok(), accepted);
+        if let Err(error) = result {
+            assert_eq!(error.raw_os_error(), Some(errno));
+        }
+    }
+    assert!(classify_tree_kill(Ok(()), Some(1), || panic!("signal succeeded")).is_ok());
+    let error = classify_tree_kill(
+        Err(std::io::Error::other("unknown signal failure")),
+        None,
+        || panic!("no Darwin errno"),
+    )
+    .unwrap_err();
+    assert_eq!(error.to_string(), "unknown signal failure");
+}
+
+#[test]
 fn termination_requires_observed_process_exit_but_not_console_or_reader_cleanup() {
     for resources_closed in [false, true] {
         assert!(!teardown_boundary_reached(false, resources_closed, false));

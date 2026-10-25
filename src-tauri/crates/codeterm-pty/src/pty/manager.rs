@@ -838,14 +838,23 @@ impl PtyManager {
             .ok_or_else(|| format!("PTY {} not found", pty_id))?;
         session.guarded_input.invalidate();
         let kill_error = match session.child.lock() {
-            Ok(mut child) => (if entire_tree {
-                child.kill_tree()
-            } else {
-                child.kill()
-            })
-            .err()
-            .filter(kill_failure_blocks_teardown)
-            .map(|error| error.to_string()),
+            Ok(mut child) => {
+                let result = if entire_tree {
+                    child.kill_tree()
+                } else {
+                    child.kill()
+                };
+                super::teardown::classify_tree_kill(
+                    result,
+                    entire_tree
+                        .then(super::teardown::exited_group_errno)
+                        .flatten(),
+                    || matches!(child.try_wait(), Ok(Some(_))),
+                )
+                .err()
+                .filter(kill_failure_blocks_teardown)
+                .map(|error| error.to_string())
+            }
             Err(error) => Some(format!("child mutex poisoned: {error}")),
         };
         session.write_queue.close();
@@ -860,11 +869,19 @@ impl PtyManager {
         // ConPTY handle is closed by the reaper's background thread, not here —
         // ClosePseudoConsole can block (see teardown.rs) and must not stall the caller.
         log::info!("Killed PTY {} process tree; ConPTY teardown queued", pty_id);
+        #[cfg(target_os = "macos")]
+        let child_pid = session
+            .child
+            .lock()
+            .ok()
+            .and_then(|child| child.process_id());
         Ok(PtyReaper {
             pty_id: pty_id.to_string(),
             session,
             kill_error,
             tree_killer,
+            #[cfg(target_os = "macos")]
+            child_pid,
         })
     }
 
@@ -933,7 +950,6 @@ fn detect_default_shell() -> String {
 }
 
 /// ESRCH means the tree is already gone, which is what teardown asked for.
-/// EPERM and every other errno stay real failures that must block a shutdown.
 #[cfg(unix)]
 fn kill_failure_blocks_teardown(error: &std::io::Error) -> bool {
     error.raw_os_error() != Some(libc::ESRCH)
