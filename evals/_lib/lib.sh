@@ -395,8 +395,10 @@ valid = (health.get("status") == "ok" and health.get("startup", {}).get("state")
          re.fullmatch("[a-f0-9]{40}", health.get("build_sha", "")) is not None and
          (instance.get("name") or "").strip() == name and str(instance.get("api_port", "")) == port)
 actual_vite, actual_cdp = str(instance.get("vite_port") or ""), str(instance.get("cdp_port") or "")
-if actual_vite or actual_cdp:
-    valid = valid and actual_vite == vite and actual_cdp == cdp
+if actual_vite:
+    valid = valid and actual_vite == vite
+if actual_cdp:
+    valid = valid and actual_cdp == cdp
 record = pathlib.Path(record_path)
 if not actual_vite and not actual_cdp or record.exists():
     if not record.is_file() or record.is_symlink():
