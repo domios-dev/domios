@@ -11,7 +11,7 @@ operation. Existing live rules do not change when that script is edited.
 | PR, including release PRs | Shared guards and hosted, read-only, secret-free scoped frontend/plugin/CLI contracts; no protected runner or environment |
 | Owner push to develop, rename/domios or master | Same complete qualification graph |
 | Nightly | Complete qualification of rename/domios and develop |
-| Owner CI dispatch | Guards and fast checks for source_ref; diagnostic evidence only |
+| Owner CI dispatch, scope=fast | All fast contracts against source_ref on their existing runner kinds; no Clippy, full/native Rust, embeddings or qualification |
 
 The source guards finish successfully before either test branch can acquire compilers.
 Shared guards cover sizes, provider boundary, crate layering, Tauri reach,
@@ -177,3 +177,17 @@ Frontend bundles and unsigned ARM64 handoffs are addressed by the producer's
 SHA-256, so retrying a consumer does not change which bytes it receives.
 The six public client configuration secrets remain repository-level inputs to
 the environment-less hosted ARM64 compile; signing credentials stay private.
+
+
+For a fast diagnostic before moving the release head, push the workflow revision
+to a scratch branch such as ci/try-preflight, then dispatch:
+
+gh workflow run tests.yml --ref ci/try-preflight -f source_ref=<exact-sha> -f scope=fast
+
+This runs guards, TS static/unit/Vitest, frontend/path identity, generated types,
+plugin bundles/tests and CLI manifest/parser contracts. It preserves the existing
+runner and secret boundaries. Clippy, Rust full/platform/embeddings, warning
+aggregation and qualification receipt are skipped. CI result explicitly labels
+the diagnostic scope and rejects an unexpected qualification job; this run
+cannot admit release packaging. Dispatch is supported on any branch in the
+source repository for the trusted owner.

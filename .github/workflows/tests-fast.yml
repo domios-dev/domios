@@ -11,7 +11,7 @@ on:
         default: ''
         type: string
       scope:
-        description: full for an app release (every platform), frontend for a frontend release
+        description: full for qualification, frontend for frontend checks, fast for diagnostic contracts
         required: false
         default: full
         type: string
@@ -168,6 +168,7 @@ jobs:
           CI_FULL_MATRIX: ${{ inputs.scope != 'frontend' && (inputs.source_ref != '' || github.event_name == 'push' || github.event_name == 'schedule') }}
           CI_FRONTEND_ONLY: ${{ inputs.source_ref != '' && inputs.scope == 'frontend' }}
           CI_FAST_ONLY: ${{ github.event_name == 'pull_request' }}
+          CI_FAST_DISPATCH: ${{ github.event_name == 'workflow_dispatch' && inputs.scope == 'fast' }}
         run: node scripts/ci-scope.mjs HEAD^ HEAD
 
       # Guards remain required by the reusable tier while sibling checks run in parallel.
@@ -463,7 +464,7 @@ jobs:
   cli-tests:
     name: cli tests
     needs: changed
-    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.heavy == 'true') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.heavy == 'true' || github.event_name == 'workflow_dispatch' && inputs.scope == 'fast') }}
     environment: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && 'ci' || '' }}
     runs-on: ${{ vars.CI_LINUX_RUST_COMPILE_RUNNER || fromJSON('["self-hosted","Linux","linux-build","host-ubunta"]') }}
     permissions:
@@ -538,7 +539,16 @@ jobs:
       - *cancel-run-on-failure
       - name: CLI tests
         id: ci-4
-        run: bash build.sh ci-cli-tests
+        env:
+          CI_FAST_DISPATCH: ${{ github.event_name == 'workflow_dispatch' && inputs.scope == 'fast' }}
+        run: |-
+          set -euo pipefail
+          if [ "$CI_FAST_DISPATCH" = true ]; then
+            cargo test --manifest-path cli/Cargo.toml --locked -p codeterm-cli cmd::manifest
+            cargo test --manifest-path cli/Cargo.toml --locked -p codeterm-cli plugin_subcommands_parse
+          else
+            bash build.sh ci-cli-tests
+          fi
       - *cancel-run-on-failure
       - name: Upload artifacts spooled while the private store was unreachable
         if: always()
