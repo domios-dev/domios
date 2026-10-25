@@ -40,7 +40,7 @@ await act(async () => root.render(<WebAccessPanel config={config} network={{ tai
 assert.ok(host.querySelector('img[alt="Open Domios Web on 100.64.1.2:7686"]'));
 await act(async () => button("Open").click());
 await act(async () => button("Copy link").click());
-assert.deepEqual(opened, ["http://100.64.1.2:7686/#token=opaque-secret"]);
+assert.deepEqual(opened, ["http://100.64.1.2:7686/#token=opaque-secret&relay=self"]);
 assert.deepEqual(copied, [encoded[0]]);
 assert.ok(copied[0].includes("opaque-secret"));
 assert.equal(host.querySelector<HTMLInputElement>('input[aria-label="Web address"]')?.value, "http://100.64.1.2:7686/");
