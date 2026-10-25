@@ -120,20 +120,29 @@ async fn presence_address_and_credential_matrix() {
 }
 
 #[tokio::test]
-async fn signed_out_remote_exempt_routes_and_peer_listeners_are_closed() {
+async fn signed_out_remote_routes_stay_closed_except_tailnet_web_access() {
     let fixture = ServiceFixture::new(MultiplexerState::empty());
     let state = crate::transport_tabs::fixture::app_state(&fixture);
     apply(&state, AccountPresence::SignedOut);
-    for path in ["/api/health", "/frontend/index.html", "/api/mesh/relay"] {
+    for path in [
+        "/api/health",
+        "/frontend/index.html",
+        "/api/mesh/relay",
+        "/api/config",
+    ] {
         for peer_listener in [false, true] {
             let mut req = request(path, "100.64.0.2:9000", "preview-test-token");
             if peer_listener {
                 req.extensions_mut()
-                    .insert(codeterm_service_core::service::account_mesh::tailnet::PeerListener);
+                    .insert(codeterm_service_core::service::account_mesh::tailnet::TailnetListener);
             }
             assert_eq!(
                 router(&state).oneshot(req).await.unwrap().status(),
-                StatusCode::SERVICE_UNAVAILABLE
+                if peer_listener && path != "/api/mesh/relay" {
+                    StatusCode::OK
+                } else {
+                    StatusCode::SERVICE_UNAVAILABLE
+                }
             );
         }
         assert_eq!(
@@ -316,4 +325,98 @@ async fn sign_out_cancels_pending_remote_handlers() {
             .status(),
         StatusCode::SERVICE_UNAVAILABLE
     );
+}
+
+#[tokio::test]
+async fn tailnet_bound_signed_out_web_api_requires_instance_token_and_refuses_mesh_traffic() {
+    use codeterm_service_core::startup::rest_api::{self, RestApiControl, RestApiPhase};
+    use std::sync::Arc;
+
+    let fixture = ServiceFixture::new(MultiplexerState::empty());
+    let state = crate::transport_tabs::fixture::app_state(&fixture);
+    let peer = signed_peer(&state);
+    apply(&state, AccountPresence::SignedOut);
+    let router = router(&state).layer(axum::middleware::from_fn(
+        |mut req: Request, next: axum::middleware::Next| async move {
+            req.extensions_mut()
+                .insert(codeterm_service_core::service::account_mesh::tailnet::TailnetListener);
+            next.run(req).await
+        },
+    ));
+    let control = Arc::new(RestApiControl::new());
+    let mut status = control.subscribe_status();
+    let server = rest_api::spawn(control.clone(), "127.0.0.1:0".into(), router);
+    loop {
+        if status.borrow_and_update().phase == RestApiPhase::Listening {
+            break;
+        }
+        status.changed().await.unwrap();
+    }
+    let address = control.bound_addr().unwrap();
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    for (path, token, expected) in [
+        ("/api/config", "preview-test-token", StatusCode::OK),
+        ("/api/config", "", StatusCode::UNAUTHORIZED),
+        ("/api/config", peer.as_str(), StatusCode::UNAUTHORIZED),
+        ("/frontend/index.html", "", StatusCode::OK),
+    ] {
+        assert_eq!(
+            client
+                .get(format!("http://{address}{path}"))
+                .bearer_auth(token)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            expected
+        );
+    }
+    assert_eq!(
+        client
+            .post(format!("http://{address}/api/mesh/relay"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    control.shutdown_and_wait().await.unwrap();
+    tokio::task::spawn_blocking(move || server.join().unwrap())
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn tailnet_sign_out_closes_peer_stream_but_preserves_instance_token_stream() {
+    let fixture = ServiceFixture::new(MultiplexerState::empty());
+    let state = crate::transport_tabs::fixture::app_state(&fixture);
+    let peer = signed_peer(&state);
+    for token in ["preview-test-token", peer.as_str()] {
+        apply(&state, AccountPresence::SignedIn { account_id: "account".into() });
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Result<String, std::io::Error>>();
+        let rx = std::sync::Arc::new(parking_lot::Mutex::new(Some(rx)));
+        let streaming = Router::new()
+            .route("/api/stream", get(move || {
+                let rx = rx.lock().take().unwrap();
+                async move { Body::from_stream(futures_util::stream::unfold(rx, |mut rx| async {
+                    rx.recv().await.map(|item| (item, rx))
+                })) }
+            }))
+            .layer(axum::middleware::from_fn_with_state(state.clone(), auth_middleware))
+            .layer(axum::middleware::from_fn_with_state(state.clone(), remote::middleware));
+        let mut req = request("/api/stream", "100.64.0.2:9000", token);
+        req.extensions_mut().insert(codeterm_service_core::service::account_mesh::tailnet::TailnetListener);
+        let response = streaming.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let mut stream = response.into_body().into_data_stream();
+        tx.send(Ok("before".into())).unwrap();
+        assert_eq!(stream.next().await.unwrap().unwrap(), "before");
+        apply(&state, AccountPresence::SignedOut);
+        if token == peer {
+            assert!(tokio::time::timeout(std::time::Duration::from_secs(1), stream.next()).await.unwrap().is_none());
+        } else {
+            tx.send(Ok("after".into())).unwrap();
+            assert_eq!(stream.next().await.unwrap().unwrap(), "after");
+        }
+    }
 }
