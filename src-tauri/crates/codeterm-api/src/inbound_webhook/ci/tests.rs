@@ -58,14 +58,13 @@ async fn authenticates_with_dedicated_registration_and_exact_post_route() {
         })
         .await
         .unwrap();
-    headers.insert(
-        header::AUTHORIZATION,
-        HeaderValue::from_static("Bearer wrong"),
-    );
-    assert_eq!(
-        authenticate(&store, &headers).await.err().unwrap().status,
-        StatusCode::UNAUTHORIZED
-    );
+    for token in ["Bearer wrong", "Bearer instance-api-token"] {
+        headers.insert(header::AUTHORIZATION, HeaderValue::from_static(token));
+        assert_eq!(
+            authenticate(&store, &headers).await.err().unwrap().status,
+            StatusCode::UNAUTHORIZED
+        );
+    }
     headers.insert(
         header::AUTHORIZATION,
         HeaderValue::from_static("Bearer opaque"),

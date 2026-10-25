@@ -15,6 +15,11 @@ pub(super) fn validate_relay_path(path: &str) -> Result<(), String> {
         ));
     }
     let bare = codeterm_service_core::api_support::access_policy::request_path(path);
+    if bare == "/api/mesh/relay"
+        || codeterm_service_core::api_support::access_policy::is_local_only_path(bare)
+    {
+        return Err(format!("Relay target is local-only or nested: {path}"));
+    }
     if bare.contains('\\') || bare.split('/').any(is_dot_segment) {
         return Err(format!(
             "Relay path must not contain dot segments or backslashes: {path}"
