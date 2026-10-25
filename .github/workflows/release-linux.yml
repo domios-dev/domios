@@ -235,9 +235,6 @@ jobs:
       - name: Verify independent headless assets and checksum
         run: node scripts/release-headless-assets.mjs verify "${{ inputs.tag }}" linux-x86_64 release-artifacts "${{ inputs.source_ref }}"
 
-      - name: Smoke packaged client and isolated server pair
-        run: node scripts/release-pair-smoke.mjs "$TARGET" "${{ inputs.tag }}" "${{ inputs.source_ref }}" "release-artifacts/common-stage/$TARGET" release-artifacts
-
       - name: Smoke built release bundle
         run: node scripts/release-bundle-smoke.mjs linux "src-tauri/target/${TARGET}/release/bundle" "${{ inputs.source_ref }}" x64
 

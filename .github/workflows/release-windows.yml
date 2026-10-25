@@ -366,12 +366,6 @@ jobs:
           node scripts/release-headless-assets.mjs verify "${{ inputs.tag }}" "${{ matrix.platform_key }}" release-artifacts "${{ inputs.source_ref }}"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Smoke packaged client and isolated server pair
-        shell: pwsh
-        run: |
-          node scripts/release-pair-smoke.mjs "$env:TARGET" "${{ inputs.tag }}" "${{ inputs.source_ref }}" "release-artifacts/common-stage/$env:TARGET" release-artifacts
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
       - name: Smoke built release bundle
         shell: pwsh
         run: |

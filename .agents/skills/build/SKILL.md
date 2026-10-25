@@ -138,9 +138,10 @@ pnpm install
 ./build.sh build        # production build
 ```
 
-### Release artifact pair smoke
+### Isolated CLI/server integration
 
-To verify a packaged release `domios-server` without using production paths,
+The CLI integration target `isolated_server` verifies a debug server without production paths.
+The same isolated launch contract accepts debug and release artifacts. To diagnose manually,
 create distinct existing temporary data and config directories and choose a
 private port other than 7685 or 7686:
 
@@ -148,7 +149,7 @@ private port other than 7685 or 7686:
 domios-server start --verify-isolated --data-dir <absolute-data-dir> --config-dir <absolute-config-dir> --port <private-port>
 ```
 
-This mode is release-only, binds `127.0.0.1`, and refuses relative paths and
+This mode binds `127.0.0.1`, and refuses relative paths and
 paths under the user's `.codeterm*` directories. It uses the private bootstrap
 pipe to start and stop the server; stdout contains one JSON line of the form
 `{"type":"READY","build":"<server-build-sha>","port":<bound-port>}`.
@@ -161,11 +162,28 @@ with the packaged CLI's local-only `system api-token` command while setting
 also set `CODETERM_DATA_DIR` to `<data-dir>` and `CODETERM_API_URL` to
 `http://127.0.0.1:<port>`. Add a fresh matching `CODETERM_INSTANCE` and
 `CODETERM_SOCKET_PATH` (for example `verify-smoke-<random>` and
-`codeterm-dev-verify-smoke-<random>.sock`). This forces a private HTTP fallback
-without scanning or connecting to another local server. Leave
-`CODETERM_API_PORT` unset, then run `domios identify --json` to verify
-authenticated CLI access. Do not put the token in argv, the URL, or smoke
-output.
+`domios-dev-verify-smoke-<random>.sock`). This forces a private HTTP fallback
+without scanning or connecting to another local server. Set
+`CODETERM_API_PORT=<private-port>` explicitly, then run `domios identify --json` to verify
+authenticated CLI access. Do not put the token in argv, the URL, or test output.
+
+Canonical uses the normal CLI test runners, which prepare the real server first.
+For an explicitly authorized direct lane run, load the build environment, then
+prepare both artifacts with the existing test target policy:
+
+~~~bash
+source build.sh env
+cli_target="$(node scripts/rust-test-lanes.mjs cli target)"
+server_target="$(node scripts/rust-test-lanes.mjs workspace target)"
+DOMIOS_CLI_TEST_SERVER="$(node scripts/cli-server-test.mjs "$cli_target" "$server_target")"
+export DOMIOS_CLI_TEST_SERVER CARGO_TARGET_DIR="$cli_target"
+scripts/test-capped.sh --no-default-features --manifest-path cli/Cargo.toml --test isolated_server
+~~~
+
+Assign the preparation result before exporting it: an export with command
+substitution hides a failed compiler exit. The fixture captures CLI stdout and stderr,
+checks missing-port and bad-token refusals, and closes server stdin in finally.
+A bounded cleanup failure terminates only the owned server process tree.
 
 ### Windows
 
@@ -1320,7 +1338,7 @@ Preserve domios://auth/callback, domios://billing/return and authenticated
 entitlement refresh when integrating either external service.
 
 Run `./build.sh fmt` in a fresh lane before direct pnpm checks; it prepares the checkout-local dependencies automatically. Direct pnpm commands bypass that wrapper. A failed dependency lookup selected no executable tests.
-<!-- revision: 54 -->
+<!-- revision: 55 -->
 
 ### Lane and batch scopes
 
