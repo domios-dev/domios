@@ -4,7 +4,7 @@ run-name: Release ${{ inputs.tag || github.event.workflow_run.head_branch || git
 # Exact-SHA dev qualification precedes packaging; publication verifies the same receipts again.
 on:
   workflow_run:
-    workflows: [tests]
+    workflows: [CI]
     types: [completed]
     branches:
       - 'release/**'
@@ -103,6 +103,8 @@ jobs:
         with:
           package-manager-cache: false
           node-version: '22.22.0'
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs packaging
 
       - name: Require green dev qualification for the exact release SHA
         env:
@@ -254,6 +256,8 @@ jobs:
         with:
           package-manager-cache: false
           node-version: '22.22.0'
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs receipt
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10.32.1
@@ -285,8 +289,7 @@ jobs:
     name: macOS arm64
     needs: [prepare, frontend-dist]
     if: >-
-      !cancelled() && needs.prepare.result == 'success' && needs.frontend-dist.result == 'success'
-      && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
+      !cancelled() && needs.prepare.result == 'success' && needs.frontend-dist.result == 'success' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
     uses: ./.github/workflows/release-macos-build.yml
     with:
       tag: ${{ needs.prepare.outputs.tag }}
@@ -301,8 +304,7 @@ jobs:
     name: macOS x64
     needs: [prepare, frontend-dist]
     if: >-
-      !cancelled() && needs.prepare.result == 'success' && needs.frontend-dist.result == 'success'
-      && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
+      !cancelled() && needs.prepare.result == 'success' && needs.frontend-dist.result == 'success' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
     uses: ./.github/workflows/release-macos-build.yml
     with:
       tag: ${{ needs.prepare.outputs.tag }}
@@ -317,8 +319,7 @@ jobs:
     name: Linux arm64
     needs: [prepare, frontend-dist]
     if: >-
-      !cancelled() && needs.prepare.result == 'success' && needs.frontend-dist.result == 'success'
-      && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
+      !cancelled() && needs.prepare.result == 'success' && needs.frontend-dist.result == 'success' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
     uses: ./.github/workflows/release-linux-arm64.yml
     with:
       tag: ${{ needs.prepare.outputs.tag }}
@@ -332,8 +333,7 @@ jobs:
     name: Linux x64
     needs: [prepare, frontend-dist]
     if: >-
-      !cancelled() && needs.prepare.result == 'success' && needs.frontend-dist.result == 'success'
-      && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
+      !cancelled() && needs.prepare.result == 'success' && needs.frontend-dist.result == 'success' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
     uses: ./.github/workflows/release-linux.yml
     with:
       tag: ${{ needs.prepare.outputs.tag }}
@@ -347,8 +347,7 @@ jobs:
     name: Windows x64
     needs: [prepare, frontend-dist]
     if: >-
-      !cancelled() && needs.prepare.result == 'success' && needs.frontend-dist.result == 'success'
-      && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
+      !cancelled() && needs.prepare.result == 'success' && needs.frontend-dist.result == 'success' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
     uses: ./.github/workflows/release-windows.yml
     with:
       tag: ${{ needs.prepare.outputs.tag }}
@@ -363,8 +362,7 @@ jobs:
     name: Windows arm64
     needs: [prepare, frontend-dist]
     if: >-
-      !cancelled() && needs.prepare.result == 'success' && needs.frontend-dist.result == 'success'
-      && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
+      !cancelled() && needs.prepare.result == 'success' && needs.frontend-dist.result == 'success' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
     uses: ./.github/workflows/release-windows-arm64.yml
     with:
       tag: ${{ needs.prepare.outputs.tag }}
@@ -404,6 +402,8 @@ jobs:
         with:
           package-manager-cache: false
           node-version: '22.22.0'
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs receipt
       - name: Re-verify retained evidence and publish it to the drafts
         env:
           GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
@@ -423,9 +423,7 @@ jobs:
     name: release manifest, mirror, and verification
     needs: [prepare, macos-arm64, macos-x64, linux-arm64, linux-x86_64, windows-x64, windows-arm64, promote-evidence]
     if: >-
-      !cancelled() && (needs.promote-evidence.result == 'success'
-      || (needs.macos-arm64.result == 'success' && needs.macos-x64.result == 'success' && needs.linux-arm64.result == 'success' && needs.linux-x86_64.result == 'success' && needs.windows-x64.result == 'success' && needs.windows-arm64.result == 'success'))
-      && vars.RELEASE_PUBLISH_ENABLED == 'true' && needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
+      !cancelled() && (needs.promote-evidence.result == 'success' || (needs.macos-arm64.result == 'success' && needs.macos-x64.result == 'success' && needs.linux-arm64.result == 'success' && needs.linux-x86_64.result == 'success' && needs.windows-x64.result == 'success' && needs.windows-arm64.result == 'success')) && vars.RELEASE_PUBLISH_ENABLED == 'true' && needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
     uses: ./.github/workflows/release-manifest-validate.yml
     with:
       tag: ${{ needs.prepare.outputs.tag }}
@@ -438,8 +436,7 @@ jobs:
     name: frontend release
     needs: [prepare]
     if: >-
-      !cancelled() && needs.prepare.result == 'success'
-      && vars.RELEASE_PUBLISH_ENABLED == 'true' && needs.prepare.outputs.kind == 'frontend' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.dry_run != 'true'
+      !cancelled() && needs.prepare.result == 'success' && vars.RELEASE_PUBLISH_ENABLED == 'true' && needs.prepare.outputs.kind == 'frontend' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.dry_run != 'true'
     uses: ./.github/workflows/frontend-release.yml
     with:
       tag: ${{ needs.prepare.outputs.tag }}
@@ -465,6 +462,8 @@ jobs:
           ref: ${{ needs.prepare.outputs.source_sha }}
           fetch-depth: 0
           token: ${{ secrets.GH_RELEASE_TOKEN }}
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs receipt
       - name: Merge the release PR into master
         shell: bash
         run: |

@@ -15,6 +15,19 @@ on:
         required: false
         type: string
         default: ""
+    secrets:
+      DOMIOS_FIREBASE_API_KEY:
+        required: true
+      DOMIOS_FIREBASE_PROJECT_ID:
+        required: true
+      DOMIOS_FIREBASE_APP_ID:
+        required: true
+      DOMIOS_ACCOUNT_REDEEM_URL:
+        required: true
+      DOMIOS_BILLING_FUNCTIONS_URL:
+        required: true
+      DOMIOS_AMPLITUDE_API_KEY_PROD:
+        required: true
     outputs:
       sha256:
         value: ${{ jobs.compile.outputs.sha256 }}
@@ -41,13 +54,12 @@ jobs:
       GIT_CONFIG_COUNT: "1"
       GIT_CONFIG_KEY_0: core.longpaths
       GIT_CONFIG_VALUE_0: "true"
-      DOMIOS_FIREBASE_API_KEY: ${{ vars.DOMIOS_FIREBASE_API_KEY }}
-      DOMIOS_FIREBASE_PROJECT_ID: ${{ vars.DOMIOS_FIREBASE_PROJECT_ID }}
-      DOMIOS_FIREBASE_APP_ID: ${{ vars.DOMIOS_FIREBASE_APP_ID }}
-      DOMIOS_ACCOUNT_REDEEM_URL: ${{ vars.DOMIOS_ACCOUNT_REDEEM_URL }}
-      DOMIOS_BILLING_FUNCTIONS_URL: ${{ vars.DOMIOS_BILLING_FUNCTIONS_URL }}
-      DOMIOS_AMPLITUDE_API_KEY_TEST: ${{ vars.DOMIOS_AMPLITUDE_API_KEY_TEST }}
-      DOMIOS_AMPLITUDE_API_KEY_PROD: ${{ vars.DOMIOS_AMPLITUDE_API_KEY_PROD }}
+      DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
+      DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
+      DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
+      DOMIOS_ACCOUNT_REDEEM_URL: ${{ secrets.DOMIOS_ACCOUNT_REDEEM_URL }}
+      DOMIOS_BILLING_FUNCTIONS_URL: ${{ secrets.DOMIOS_BILLING_FUNCTIONS_URL }}
+      DOMIOS_AMPLITUDE_API_KEY_PROD: ${{ secrets.DOMIOS_AMPLITUDE_API_KEY_PROD }}
     outputs:
       sha256: ${{ steps.handoff.outputs.sha256 }}
     steps:
@@ -66,6 +78,8 @@ jobs:
         with:
           version: 10.32.1
           run_install: false
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs packaging
       - name: Validate source, platform and public build configuration
         shell: bash
         run: |-
@@ -73,8 +87,8 @@ jobs:
           [[ "$TARGET" = aarch64-unknown-linux-gnu || "$TARGET" = aarch64-pc-windows-msvc ]]
           [[ "${{ inputs.source_ref }}" =~ ^[a-f0-9]{40}$ ]]
           [ "$(git rev-parse HEAD)" = "${{ inputs.source_ref }}" ]
-          for name in DOMIOS_FIREBASE_API_KEY DOMIOS_FIREBASE_PROJECT_ID DOMIOS_FIREBASE_APP_ID DOMIOS_ACCOUNT_REDEEM_URL; do
-            test -n "${!name}" || { echo "::error::Missing public repository variable $name"; exit 1; }
+          for name in DOMIOS_FIREBASE_API_KEY DOMIOS_FIREBASE_PROJECT_ID DOMIOS_FIREBASE_APP_ID DOMIOS_ACCOUNT_REDEEM_URL DOMIOS_BILLING_FUNCTIONS_URL DOMIOS_AMPLITUDE_API_KEY_PROD; do
+            test -n "${!name}" || { echo "::error::Missing public client configuration $name"; exit 1; }
           done
       - name: Install Linux bundle dependencies
         if: runner.os == 'Linux'

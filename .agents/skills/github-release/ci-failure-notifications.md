@@ -1,6 +1,6 @@
 # CI failure notifications
 
-The dev qualification caller enables `cancel_run` on pushes and scheduled fallback runs. PRs leave it false. Release reuses the resulting exact-SHA receipts and launches no duplicate test tiers. The first observed failure posts to Domios, then invokes `gh run cancel` for the current `GITHUB_RUN_ID` and repository. This cancels sibling qualification jobs in the same run; a failed qualification cannot start release packaging. It does not change signing, qualification or publication requirements.
+Normal CI uses triage mode: pushes, scheduled fallback runs and PRs leave cancellation off. The CI result aggregate reports named job failures and timeouts. Release reuses the resulting exact-SHA receipts and launches no duplicate test tiers. A failed qualification cannot start release packaging. Reusable diagnostic callers may explicitly opt into the existing first-failure notification/cancellation hook. It does not change signing, qualification or publication requirements.
 
 After deploying the receiver with owner GO, register its destination through the secret store. Pipe a UTF-8 JSON file into the command; never put its token in arguments or a committed file:
 

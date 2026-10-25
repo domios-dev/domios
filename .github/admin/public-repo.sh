@@ -42,7 +42,7 @@ jq -n '{name:"master-release-pr",target:"branch",enforcement:"active",bypass_act
     require_code_owner_review:false,require_last_push_approval:false,required_review_thread_resolution:true,
     allowed_merge_methods:["merge"]}},
     {type:"required_status_checks",parameters:{strict_required_status_checks_policy:true,
-      required_status_checks:[{context:"master PR comes from release/X.Y.Z"},{context:"gitleaks"}]}}]}' > "$scratch/master.json"
+      required_status_checks:[{context:"CI result"}]}}]}' > "$scratch/master.json"
 upsert_ruleset master-release-pr "$scratch/master.json"
 
 jq -n --argjson owner "$owner_id" '{name:"owner-code-review",target:"branch",enforcement:"active",
@@ -56,7 +56,7 @@ upsert_ruleset owner-code-review "$scratch/review.json"
 jq -n '{name:"release-required-checks",target:"branch",enforcement:"active",bypass_actors:[],
   conditions:{ref_name:{include:["refs/heads/release/**"],exclude:[]}},
   rules:[{type:"required_status_checks",parameters:{strict_required_status_checks_policy:true,
-    required_status_checks:[{context:"gitleaks"}]}}]}' > "$scratch/release.json"
+    required_status_checks:[{context:"CI result"}]}}]}' > "$scratch/release.json"
 upsert_ruleset release-required-checks "$scratch/release.json"
 
 jq -n --argjson owner "$owner_id" '{wait_timer:0,prevent_self_review:false,

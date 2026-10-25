@@ -107,7 +107,7 @@ test('every job that stores CI artifacts uploads its spool and every reader has 
       }
       for (const step of steps) {
         if (/ci-artifact\.sh get|release-dry-run-manifest\.mjs aggregate/.test(step.run ?? '')) {
-          assert.equal(step.env?.GH_TOKEN, '${{ github.token }}', `${name}/${id}/${step.name}`);
+          assert.equal(step.env?.GH_TOKEN ?? job.env?.GH_TOKEN ?? parse(text).env?.GH_TOKEN, '${{ github.token }}', `${name}/${id}/${step.name}`);
         }
       }
     }

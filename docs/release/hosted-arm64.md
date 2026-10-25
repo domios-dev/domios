@@ -44,13 +44,12 @@ this private repository. The selected standard arm64 runners have two CPUs and 8
 RAM; billable runtime and artifact storage depend on the repository's plan.
 See [GitHub's runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
 
-Set these repository **variables**, using the same public client configuration already
-embedded by the private builds: `DOMIOS_FIREBASE_API_KEY`,
-`DOMIOS_FIREBASE_PROJECT_ID`, `DOMIOS_FIREBASE_APP_ID`,
-`DOMIOS_ACCOUNT_REDEEM_URL`, `DOMIOS_BILLING_FUNCTIONS_URL`,
-`DOMIOS_AMPLITUDE_API_KEY_TEST`, `DOMIOS_AMPLITUDE_API_KEY_PROD`.
-The first four are required; the last three keep their existing optional semantics.
-Do not put service-account credentials or signing keys in these variables.
+The hosted compile call explicitly forwards only these existing repository secrets
+as public client configuration: DOMIOS_FIREBASE_API_KEY, DOMIOS_FIREBASE_PROJECT_ID,
+DOMIOS_FIREBASE_APP_ID, DOMIOS_ACCOUNT_REDEEM_URL, DOMIOS_BILLING_FUNCTIONS_URL and
+DOMIOS_AMPLITUDE_API_KEY_PROD. All six are required. No repository variables are
+needed. The allowlist contract rejects additional credentials; signing, S3/cache
+and publication tokens remain exclusive to private finalize jobs.
 Existing signing and publication secrets stay on finalize jobs. The Linux finalizer
 needs its existing `codeterm-build-linux-arm64` Docker image; no image rebuild or
 runner-label change is required.

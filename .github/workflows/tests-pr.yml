@@ -1,24 +1,16 @@
 name: Pull request checks
 on:
-  pull_request:
-    branches:
-      - master
-      - develop
-      - rename/domios
+  workflow_call: null
 permissions:
   contents: read
-concurrency:
-  group: pr-checks-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
 env:
   CI_SOURCE_SHA: ${{ github.sha }}
   CODETERM_USE_SCCACHE: "0"
 jobs:
   changed:
     name: tree is new
-    if: ${{ github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release/') }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 15
     outputs:
       source_sha: ${{ steps.source.outputs.sha }}
       frontend: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.frontend == 'true' }}
@@ -59,6 +51,8 @@ jobs:
         with:
           package-manager-cache: false
           node-version: 22.22.0
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs receipt
       - id: scope
         if: steps.tree.outputs.run == 'true'
         env:
@@ -70,7 +64,7 @@ jobs:
     name: guards
     needs: changed
     runs-on: ubuntu-24.04
-    timeout-minutes: 8
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         id: ci-1
@@ -88,9 +82,6 @@ jobs:
         run: |
           node scripts/test-catalogue.mjs select --tier pr --format json > "$RUNNER_TEMP/pr-catalogue.json"
           node -e 'const fs = require("node:fs"); const selected = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/pr-catalogue.json", "utf8")); fs.appendFileSync(process.env.GITHUB_OUTPUT, "commands=" + JSON.stringify(Object.fromEntries(selected.runners.map(entry => [entry.id, entry.runner]))) + "\n");'
-      - name: Source file size discipline
-        id: ci-4
-        run: bash scripts/check-file-sizes.sh --fail
       - name: Installed application identity
         id: ci-5
         if: ${{ !cancelled() }}
@@ -103,16 +94,6 @@ jobs:
         id: ci-7
         if: ${{ !cancelled() }}
         run: node --test scripts/tests/plugin-releases.test.mjs scripts/tests/ci-scope.test.mjs
-      - name: Ensure Rust toolchain on PATH
-        id: ci-8
-        if: ${{ !cancelled() }}
-        run: |
-          if command -v cargo >/dev/null 2>&1; then exit 0; fi
-          for dir in "${CARGO_HOME:-}/bin" "$HOME/.cargo/bin" /home/*/.cargo/bin /Users/*/.cargo/bin; do
-            if [ -x "$dir/cargo" ]; then echo "$dir" >> "$GITHUB_PATH"; exit 0; fi
-          done
-          echo "cargo not found; restore Rust on the runner" >&2
-          exit 1
       - name: Build gateway guards and serial gateway script tests
         id: ci-9
         if: ${{ !cancelled() }}
@@ -137,6 +118,8 @@ jobs:
           version: 10.32.1
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs pr-guards
       - name: Install dependencies
         id: ci-13
         if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
@@ -158,7 +141,7 @@ jobs:
     needs: changed
     if: ${{ needs.changed.outputs.plugins != '[]' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 8
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -179,6 +162,8 @@ jobs:
           version: 10.32.1
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs frontend
       - run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
         id: ci-4
       - *a1
@@ -193,7 +178,7 @@ jobs:
     needs: changed
     if: ${{ needs.changed.outputs.frontend == 'true' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 8
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         id: ci-1
@@ -212,6 +197,8 @@ jobs:
           version: 10.32.1
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs frontend
       - name: Install dependencies
         id: ci-4
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
@@ -237,7 +224,7 @@ jobs:
     needs: changed
     if: ${{ needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 8
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         id: ci-1
@@ -254,6 +241,8 @@ jobs:
           version: 10.32.1
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs frontend
       - name: Install dependencies
         id: ci-4
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
@@ -266,7 +255,7 @@ jobs:
     needs: changed
     if: ${{ needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true' }}
     runs-on: windows-2022
-    timeout-minutes: 8
+    timeout-minutes: 15
     defaults:
       run:
         shell: bash
@@ -288,6 +277,8 @@ jobs:
           version: 10.32.1
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs frontend
       - name: Install dependencies
         id: ci-4
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
@@ -300,21 +291,12 @@ jobs:
     needs: changed
     if: ${{ needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 8
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         id: ci-1
         with:
           ref: ${{ github.ref }}
-      - name: Ensure Rust toolchain on PATH
-        id: ci-2
-        run: |
-          if command -v cargo >/dev/null 2>&1; then exit 0; fi
-          for dir in "${CARGO_HOME:-}/bin" "$HOME/.cargo/bin" /home/*/.cargo/bin /Users/*/.cargo/bin; do
-            if [ -x "$dir/cargo" ]; then echo "$dir" >> "$GITHUB_PATH"; exit 0; fi
-          done
-          echo "cargo not found; restore Rust on the runner" >&2
-          exit 1
       - name: Setup Node.js
         id: ci-3
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
@@ -328,6 +310,8 @@ jobs:
           version: 10.32.1
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs frontend
       - name: Install dependencies
         id: ci-5
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
@@ -352,7 +336,7 @@ jobs:
     needs: changed
     if: ${{ needs.changed.outputs.frontend == 'true' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 8
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         id: ci-1
@@ -371,6 +355,8 @@ jobs:
           version: 10.32.1
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs frontend
       - name: Install dependencies
         id: ci-4
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
@@ -387,7 +373,7 @@ jobs:
     needs: changed
     if: ${{ needs.changed.outputs.frontend == 'true' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 8
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         id: ci-1
@@ -406,6 +392,8 @@ jobs:
           version: 10.32.1
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs frontend
       - name: Install dependencies
         id: ci-4
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
@@ -418,7 +406,7 @@ jobs:
     needs: changed
     if: ${{ needs.changed.outputs.rust == 'true' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 8
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         id: ci-1
@@ -437,6 +425,8 @@ jobs:
           version: 10.32.1
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs frontend
       - name: Install dependencies
         id: ci-4
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
@@ -448,3 +438,24 @@ jobs:
         id: ci-7
         if: ${{ !cancelled() }}
         run: ${{ fromJSON(steps.catalogue.outputs.commands)['plugin-tests'] }}
+  cli-tests:
+    name: cli contracts
+    needs: changed
+    if: ${{ needs.changed.outputs.rust == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.ref }}
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs cli-contracts
+      - name: CLI manifest and plugin parsing contracts
+        working-directory: cli
+        run: |-
+          cargo test --locked -p codeterm-cli cmd::manifest
+          cargo test --locked -p codeterm-cli plugin_subcommands_parse

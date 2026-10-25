@@ -52,83 +52,92 @@ jobs:
   rust-tests:
     name: rust tests (full suite)
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (!cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
-    environment: ci
-    runs-on: [self-hosted, Linux, rust-tests, heavy, host-blackstar]
+    environment: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER == 'ubuntu-24.04') && 'ci' || '' }}
+    runs-on: ${{ vars.CI_LINUX_RUST_FULL_RUNNER || fromJSON('["self-hosted","Linux","rust-tests","heavy","host-blackstar"]') }}
     permissions:
       contents: read
-      actions: write
+      actions: read
+      pull-requests: read
     timeout-minutes: 60
     strategy:
       matrix:
         suite: [full]
     env:
-      DOMIOS_CI_WEBHOOK_URL: ${{ secrets.DOMIOS_CI_WEBHOOK_URL }}
-      DOMIOS_CI_WEBHOOK_TOKEN: ${{ secrets.DOMIOS_CI_WEBHOOK_TOKEN }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
-      DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
-      DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
-      DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
-      DOMIOS_ACCOUNT_REDEEM_URL: ${{ secrets.DOMIOS_ACCOUNT_REDEEM_URL }}
-      DOMIOS_BILLING_FUNCTIONS_URL: ${{ secrets.DOMIOS_BILLING_FUNCTIONS_URL }}
+      DOMIOS_CI_WEBHOOK_URL: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_CI_WEBHOOK_URL || '' }}
+      DOMIOS_CI_WEBHOOK_TOKEN: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_CI_WEBHOOK_TOKEN || '' }}
+      AWS_ACCESS_KEY_ID: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER == 'ubuntu-24.04') && secrets.SCCACHE_AWS_ACCESS_KEY_ID || '' }}
+      AWS_SECRET_ACCESS_KEY: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER == 'ubuntu-24.04') && secrets.SCCACHE_AWS_SECRET_ACCESS_KEY || '' }}
+      DOMIOS_FIREBASE_API_KEY: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
+      DOMIOS_FIREBASE_PROJECT_ID: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
+      DOMIOS_FIREBASE_APP_ID: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_APP_ID || '' }}
+      DOMIOS_ACCOUNT_REDEEM_URL: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_ACCOUNT_REDEEM_URL || '' }}
+      DOMIOS_BILLING_FUNCTIONS_URL: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_BILLING_FUNCTIONS_URL || '' }}
       # Warm per-workspace targets outside the checkout; the cleanup step sweeps them by age.
       CI_TARGET_ROOT: ${{ github.workspace }}/../ci-targets/tests
       CODETERM_ALLOW_EXTERNAL_TARGET: '1'
-    steps: &rust-test-steps
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      CI_HOSTED: ${{ vars.CI_LINUX_RUST_FULL_RUNNER == 'ubuntu-24.04' }}
+      SCCACHE_GHA_ENABLED: ${{ (vars.CI_LINUX_RUST_FULL_RUNNER == 'ubuntu-24.04') && 'true' || 'false' }}
+      CODETERM_SCCACHE_VERIFY_ONLY: ${{ (vars.CI_LINUX_RUST_FULL_RUNNER == 'ubuntu-24.04') && '0' || '1' }}
+      CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
+      CI_ARTIFACT_STORAGE: ${{ (vars.CI_LINUX_RUST_FULL_RUNNER == 'ubuntu-24.04') && 'github' || '' }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         id: ci-1
         with:
           ref: ${{ inputs.source_ref || github.ref }}
           fetch-depth: 0
         env:
-          GIT_CONFIG_COUNT: '1'
+          GIT_CONFIG_COUNT: "1"
           GIT_CONFIG_KEY_0: core.longpaths
-          GIT_CONFIG_VALUE_0: 'true'
-      - &cancel-run-on-failure
-        name: Notify and cancel on first failure
-        if: failure() && inputs.cancel_run
-        continue-on-error: true
-        shell: bash
+          GIT_CONFIG_VALUE_0: "true"
+      - name: Hosted Rust dependency cache
+        if: ${{ vars.CI_LINUX_RUST_FULL_RUNNER == 'ubuntu-24.04' }}
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
+        with:
+          path: |-
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ format('cargo-{0}-{1}-{2}', runner.os, runner.arch, hashFiles('**/Cargo.lock')) }}
+          restore-keys: ${{ format('cargo-{0}-{1}-', runner.os, runner.arch) }}
+      - name: Hosted sccache
+        if: ${{ vars.CI_LINUX_RUST_FULL_RUNNER == 'ubuntu-24.04' }}
+        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
         env:
-          CI_FAILURE_STEPS: ${{ toJSON(steps) }}
-          CI_SOURCE_SHA: ${{ inputs.source_ref || github.sha }}
-        run: |
-          node "$GITHUB_WORKSPACE/scripts/ci-first-failure.mjs" || gh run cancel "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" || true
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+          SCCACHE_GHA_ENABLED: "true"
+      - name: Hosted nextest prerequisite
+        if: ${{ vars.CI_LINUX_RUST_FULL_RUNNER == 'ubuntu-24.04' }}
+        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8
+        with:
+          tool: cargo-nextest@0.9.148
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs rust
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         id: ci-2
         with:
           package-manager-cache: false
-          node-version: '22.22.0'
-      - *cancel-run-on-failure
+          node-version: 22.22.0
       - name: Prepare runner tool paths
         id: ci-3
         run: node scripts/ci-runner-paths.mjs
-      - *cancel-run-on-failure
-      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
         id: ci-4
         with:
           toolchain: 1.99.1
-      # Runners of one machine share CARGO_HOME; reinstalling concurrently truncates the binary another job reads.
-      - *cancel-run-on-failure
       - name: Reuse the pinned cargo-nextest when present
         id: nextest
         run: node scripts/ci-nextest-present.mjs 0.9.148
-      - *cancel-run-on-failure
-      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8
         id: ci-6
         if: steps.nextest.outputs.present != 'true'
         with:
           tool: cargo-nextest@0.9.148
-      - *cancel-run-on-failure
       - name: Prepare compile fixtures
         id: ci-7
         run: node scripts/ci-rust-prepare.mjs
-      - *cancel-run-on-failure
       - name: Reset compiler capture
         id: ci-8
         continue-on-error: true
         run: node -e "require('fs').writeFileSync('ci-rust-warnings.log', '')"
-      - *cancel-run-on-failure
       - id: target
         name: Rust target of this runner
         shell: bash
@@ -144,7 +153,6 @@ jobs:
           esac
           echo "triple=$triple" >> "$GITHUB_OUTPUT"
           echo "warnings=rust-warnings-tests-${{ matrix.suite }}-$RUNNER_OS-$triple" >> "$GITHUB_OUTPUT"
-      - *cancel-run-on-failure
       - name: Compile and run ${{ matrix.suite }} Rust tests (Unix)
         id: ci-10
         if: runner.os != 'Windows'
@@ -159,7 +167,6 @@ jobs:
             export CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS="${CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS:+$CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS }-C link-arg=-Wl,-no_compact_unwind"
           fi
           bash build.sh ci-tests ${{ matrix.suite }}
-      - *cancel-run-on-failure
       - name: Compile and run ${{ matrix.suite }} Rust tests (Windows)
         id: ci-11
         if: runner.os == 'Windows'
@@ -170,7 +177,6 @@ jobs:
         run: |
           & .\build.ps1 ci-tests ${{ matrix.suite }}
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - *cancel-run-on-failure
       - name: Shared compile cache statistics (Windows)
         if: always() && runner.os == 'Windows'
         shell: pwsh
@@ -218,11 +224,12 @@ jobs:
   rust-platform:
     name: rust platform (${{ matrix.os }})
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (!cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
-    environment: ci
-    runs-on: [self-hosted, '${{ matrix.os }}', '${{ matrix.label }}', "${{ matrix.os == 'Windows' && 'windows-build' || 'rust-shard' }}"]
+    environment: ${{ !(matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15') && 'ci' || '' }}
+    runs-on: ${{ matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER || fromJSON(format('["self-hosted","{0}","{1}","{2}"]', matrix.os, matrix.label, matrix.os == 'Windows' && 'windows-build' || 'rust-shard')) }}
     permissions:
       contents: read
-      actions: write
+      actions: read
+      pull-requests: read
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -236,87 +243,372 @@ jobs:
             os: Windows
             label: host-rog
     env:
-      DOMIOS_CI_WEBHOOK_URL: ${{ secrets.DOMIOS_CI_WEBHOOK_URL }}
-      DOMIOS_CI_WEBHOOK_TOKEN: ${{ secrets.DOMIOS_CI_WEBHOOK_TOKEN }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
-      DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
-      DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
-      DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
-      DOMIOS_ACCOUNT_REDEEM_URL: ${{ secrets.DOMIOS_ACCOUNT_REDEEM_URL }}
-      DOMIOS_BILLING_FUNCTIONS_URL: ${{ secrets.DOMIOS_BILLING_FUNCTIONS_URL }}
+      DOMIOS_CI_WEBHOOK_URL: ${{ !(matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15') && secrets.DOMIOS_CI_WEBHOOK_URL || '' }}
+      DOMIOS_CI_WEBHOOK_TOKEN: ${{ !(matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15') && secrets.DOMIOS_CI_WEBHOOK_TOKEN || '' }}
+      AWS_ACCESS_KEY_ID: ${{ !(matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15') && secrets.SCCACHE_AWS_ACCESS_KEY_ID || '' }}
+      AWS_SECRET_ACCESS_KEY: ${{ !(matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15') && secrets.SCCACHE_AWS_SECRET_ACCESS_KEY || '' }}
+      DOMIOS_FIREBASE_API_KEY: ${{ !(matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15') && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
+      DOMIOS_FIREBASE_PROJECT_ID: ${{ !(matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15') && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
+      DOMIOS_FIREBASE_APP_ID: ${{ !(matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15') && secrets.DOMIOS_FIREBASE_APP_ID || '' }}
+      DOMIOS_ACCOUNT_REDEEM_URL: ${{ !(matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15') && secrets.DOMIOS_ACCOUNT_REDEEM_URL || '' }}
+      DOMIOS_BILLING_FUNCTIONS_URL: ${{ !(matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15') && secrets.DOMIOS_BILLING_FUNCTIONS_URL || '' }}
       # Warm per-workspace targets outside the checkout; the cleanup step sweeps them by age.
       CI_TARGET_ROOT: ${{ github.workspace }}/../ci-targets/tests
       CODETERM_ALLOW_EXTERNAL_TARGET: '1'
-    steps: *rust-test-steps
+      CI_HOSTED: ${{ matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15' }}
+      SCCACHE_GHA_ENABLED: ${{ (matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15') && 'true' || 'false' }}
+      CODETERM_SCCACHE_VERIFY_ONLY: ${{ (matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15') && '0' || '1' }}
+      CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
+      CI_ARTIFACT_STORAGE: ${{ (matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15') && 'github' || '' }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        id: ci-1
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
+          fetch-depth: 0
+        env:
+          GIT_CONFIG_COUNT: "1"
+          GIT_CONFIG_KEY_0: core.longpaths
+          GIT_CONFIG_VALUE_0: "true"
+      - name: Hosted Rust dependency cache
+        if: ${{ matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15' }}
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
+        with:
+          path: |-
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ format('cargo-{0}-{1}-{2}', runner.os, runner.arch, hashFiles('**/Cargo.lock')) }}
+          restore-keys: ${{ format('cargo-{0}-{1}-', runner.os, runner.arch) }}
+      - name: Hosted sccache
+        if: ${{ matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15' }}
+        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
+        env:
+          SCCACHE_GHA_ENABLED: "true"
+      - name: Hosted nextest prerequisite
+        if: ${{ matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15' }}
+        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8
+        with:
+          tool: cargo-nextest@0.9.148
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs rust
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        id: ci-2
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+      - name: Prepare runner tool paths
+        id: ci-3
+        run: node scripts/ci-runner-paths.mjs
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
+        id: ci-4
+        with:
+          toolchain: 1.99.1
+      - name: Reuse the pinned cargo-nextest when present
+        id: nextest
+        run: node scripts/ci-nextest-present.mjs 0.9.148
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8
+        id: ci-6
+        if: steps.nextest.outputs.present != 'true'
+        with:
+          tool: cargo-nextest@0.9.148
+      - name: Prepare compile fixtures
+        id: ci-7
+        run: node scripts/ci-rust-prepare.mjs
+      - name: Reset compiler capture
+        id: ci-8
+        continue-on-error: true
+        run: node -e "require('fs').writeFileSync('ci-rust-warnings.log', '')"
+      - id: target
+        name: Rust target of this runner
+        shell: bash
+        run: |
+          case "$RUNNER_OS-$RUNNER_ARCH" in
+            macOS-ARM64) triple=aarch64-apple-darwin ;;
+            macOS-X64) triple=x86_64-apple-darwin ;;
+            Linux-ARM64) triple=aarch64-unknown-linux-gnu ;;
+            Linux-X64) triple=x86_64-unknown-linux-gnu ;;
+            Windows-ARM64) triple=aarch64-pc-windows-msvc ;;
+            Windows-X64) triple=x86_64-pc-windows-msvc ;;
+            *) echo "::error::unsupported runner $RUNNER_OS-$RUNNER_ARCH"; exit 1 ;;
+          esac
+          echo "triple=$triple" >> "$GITHUB_OUTPUT"
+          echo "warnings=rust-warnings-tests-${{ matrix.suite }}-$RUNNER_OS-$triple" >> "$GITHUB_OUTPUT"
+      - name: Compile and run ${{ matrix.suite }} Rust tests (Unix)
+        id: ci-10
+        if: runner.os != 'Windows'
+        env:
+          CI_RELEASE_TESTS: ${{ inputs.source_ref != '' }}
+          RUST_WARNING_LOG: ci-rust-warnings.log
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = macOS ] && [ "${{ matrix.suite }}" = platform ]; then
+            # The large platform test binaries exceed Mach-O compact-unwind offsets; release binaries keep compact unwind.
+            export CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS="${CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS:+$CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS }-C link-arg=-Wl,-no_compact_unwind"
+            export CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS="${CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS:+$CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS }-C link-arg=-Wl,-no_compact_unwind"
+          fi
+          bash build.sh ci-tests ${{ matrix.suite }}
+      - name: Compile and run ${{ matrix.suite }} Rust tests (Windows)
+        id: ci-11
+        if: runner.os == 'Windows'
+        env:
+          CI_RELEASE_TESTS: ${{ inputs.source_ref != '' }}
+          RUST_WARNING_LOG: ci-rust-warnings.log
+        shell: pwsh
+        run: |
+          & .\build.ps1 ci-tests ${{ matrix.suite }}
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Shared compile cache statistics (Windows)
+        if: always() && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & .\build.ps1 cache-stats
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Shared compile cache statistics (Unix)
+        if: always() && runner.os != 'Windows'
+        shell: bash
+        run: bash build.sh cache-stats
+      - name: Stop this job's local compile cache
+        if: always()
+        shell: bash
+        run: bash build.sh cache-release
+      - name: Store Rust test receipts
+        if: always()
+        continue-on-error: ${{ inputs.artifacts_optional }}
+        shell: bash
+        run: |
+          shopt -s nullglob
+          receipts=(ci-rust-receipts/*.json ci-rust-receipts/*.log)
+          [ "${#receipts[@]}" -gt 0 ] || { echo "no Rust test receipts to store" >&2; exit 1; }
+          for receipt in "${receipts[@]}"; do bash scripts/ci-artifact.sh put "$GITHUB_RUN_ID/rust-receipt/${receipt##*/}" "$receipt"; done
+      - uses: ./.github/actions/rust-warnings
+        if: always()
+        continue-on-error: true
+        with:
+          complete: ${{ job.status == 'success' }}
+          platform: tests-${{ matrix.suite }}-${{ runner.os }}
+          target: ${{ steps.target.outputs.triple }}
+      - name: Upload artifacts spooled while the private store was unreachable
+        if: always()
+        uses: ./.github/actions/ci-artifact-spool
+      - name: Clean compile fixtures
+        if: always()
+        run: node scripts/ci-rust-prepare.mjs cleanup
+      - name: Remove job archives and sweep old Rust targets
+        if: always()
+        continue-on-error: true
+        run: node scripts/ci-workspace-cleanup.mjs
 
   rust-embeddings:
     name: rust embeddings
     needs: rust-platform
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (!cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
-    environment: ci
-    runs-on: [self-hosted, macOS, rust-shard, host-air]
+    environment: ${{ !(vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15') && 'ci' || '' }}
+    runs-on: ${{ vars.CI_MACOS_EMBEDDINGS_RUNNER || fromJSON('["self-hosted","macOS","rust-shard","host-air"]') }}
     permissions:
       contents: read
-      actions: write
+      actions: read
+      pull-requests: read
     timeout-minutes: 45
     strategy:
       matrix:
         suite: [embeddings]
     env:
-      DOMIOS_CI_WEBHOOK_URL: ${{ secrets.DOMIOS_CI_WEBHOOK_URL }}
-      DOMIOS_CI_WEBHOOK_TOKEN: ${{ secrets.DOMIOS_CI_WEBHOOK_TOKEN }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
-      DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
-      DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
-      DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
-      DOMIOS_ACCOUNT_REDEEM_URL: ${{ secrets.DOMIOS_ACCOUNT_REDEEM_URL }}
-      DOMIOS_BILLING_FUNCTIONS_URL: ${{ secrets.DOMIOS_BILLING_FUNCTIONS_URL }}
+      DOMIOS_CI_WEBHOOK_URL: ${{ !(vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15') && secrets.DOMIOS_CI_WEBHOOK_URL || '' }}
+      DOMIOS_CI_WEBHOOK_TOKEN: ${{ !(vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15') && secrets.DOMIOS_CI_WEBHOOK_TOKEN || '' }}
+      AWS_ACCESS_KEY_ID: ${{ !(vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15') && secrets.SCCACHE_AWS_ACCESS_KEY_ID || '' }}
+      AWS_SECRET_ACCESS_KEY: ${{ !(vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15') && secrets.SCCACHE_AWS_SECRET_ACCESS_KEY || '' }}
+      DOMIOS_FIREBASE_API_KEY: ${{ !(vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15') && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
+      DOMIOS_FIREBASE_PROJECT_ID: ${{ !(vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15') && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
+      DOMIOS_FIREBASE_APP_ID: ${{ !(vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15') && secrets.DOMIOS_FIREBASE_APP_ID || '' }}
+      DOMIOS_ACCOUNT_REDEEM_URL: ${{ !(vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15') && secrets.DOMIOS_ACCOUNT_REDEEM_URL || '' }}
+      DOMIOS_BILLING_FUNCTIONS_URL: ${{ !(vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15') && secrets.DOMIOS_BILLING_FUNCTIONS_URL || '' }}
       # Warm per-workspace targets outside the checkout; the cleanup step sweeps them by age.
       CI_TARGET_ROOT: ${{ github.workspace }}/../ci-targets/tests
       CODETERM_ALLOW_EXTERNAL_TARGET: '1'
-    steps: *rust-test-steps
+      CI_HOSTED: ${{ vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15' }}
+      SCCACHE_GHA_ENABLED: ${{ (vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15') && 'true' || 'false' }}
+      CODETERM_SCCACHE_VERIFY_ONLY: ${{ (vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15') && '0' || '1' }}
+      CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
+      CI_ARTIFACT_STORAGE: ${{ (vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15') && 'github' || '' }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        id: ci-1
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
+          fetch-depth: 0
+        env:
+          GIT_CONFIG_COUNT: "1"
+          GIT_CONFIG_KEY_0: core.longpaths
+          GIT_CONFIG_VALUE_0: "true"
+      - name: Hosted Rust dependency cache
+        if: ${{ vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15' }}
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
+        with:
+          path: |-
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ format('cargo-{0}-{1}-{2}', runner.os, runner.arch, hashFiles('**/Cargo.lock')) }}
+          restore-keys: ${{ format('cargo-{0}-{1}-', runner.os, runner.arch) }}
+      - name: Hosted sccache
+        if: ${{ vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15' }}
+        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
+        env:
+          SCCACHE_GHA_ENABLED: "true"
+      - name: Hosted nextest prerequisite
+        if: ${{ vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15' }}
+        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8
+        with:
+          tool: cargo-nextest@0.9.148
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs rust
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        id: ci-2
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+      - name: Prepare runner tool paths
+        id: ci-3
+        run: node scripts/ci-runner-paths.mjs
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
+        id: ci-4
+        with:
+          toolchain: 1.99.1
+      - name: Reuse the pinned cargo-nextest when present
+        id: nextest
+        run: node scripts/ci-nextest-present.mjs 0.9.148
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8
+        id: ci-6
+        if: steps.nextest.outputs.present != 'true'
+        with:
+          tool: cargo-nextest@0.9.148
+      - name: Prepare compile fixtures
+        id: ci-7
+        run: node scripts/ci-rust-prepare.mjs
+      - name: Reset compiler capture
+        id: ci-8
+        continue-on-error: true
+        run: node -e "require('fs').writeFileSync('ci-rust-warnings.log', '')"
+      - id: target
+        name: Rust target of this runner
+        shell: bash
+        run: |
+          case "$RUNNER_OS-$RUNNER_ARCH" in
+            macOS-ARM64) triple=aarch64-apple-darwin ;;
+            macOS-X64) triple=x86_64-apple-darwin ;;
+            Linux-ARM64) triple=aarch64-unknown-linux-gnu ;;
+            Linux-X64) triple=x86_64-unknown-linux-gnu ;;
+            Windows-ARM64) triple=aarch64-pc-windows-msvc ;;
+            Windows-X64) triple=x86_64-pc-windows-msvc ;;
+            *) echo "::error::unsupported runner $RUNNER_OS-$RUNNER_ARCH"; exit 1 ;;
+          esac
+          echo "triple=$triple" >> "$GITHUB_OUTPUT"
+          echo "warnings=rust-warnings-tests-${{ matrix.suite }}-$RUNNER_OS-$triple" >> "$GITHUB_OUTPUT"
+      - name: Compile and run ${{ matrix.suite }} Rust tests (Unix)
+        id: ci-10
+        if: runner.os != 'Windows'
+        env:
+          CI_RELEASE_TESTS: ${{ inputs.source_ref != '' }}
+          RUST_WARNING_LOG: ci-rust-warnings.log
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = macOS ] && [ "${{ matrix.suite }}" = platform ]; then
+            # The large platform test binaries exceed Mach-O compact-unwind offsets; release binaries keep compact unwind.
+            export CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS="${CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS:+$CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS }-C link-arg=-Wl,-no_compact_unwind"
+            export CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS="${CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS:+$CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS }-C link-arg=-Wl,-no_compact_unwind"
+          fi
+          bash build.sh ci-tests ${{ matrix.suite }}
+      - name: Compile and run ${{ matrix.suite }} Rust tests (Windows)
+        id: ci-11
+        if: runner.os == 'Windows'
+        env:
+          CI_RELEASE_TESTS: ${{ inputs.source_ref != '' }}
+          RUST_WARNING_LOG: ci-rust-warnings.log
+        shell: pwsh
+        run: |
+          & .\build.ps1 ci-tests ${{ matrix.suite }}
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Shared compile cache statistics (Windows)
+        if: always() && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & .\build.ps1 cache-stats
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Shared compile cache statistics (Unix)
+        if: always() && runner.os != 'Windows'
+        shell: bash
+        run: bash build.sh cache-stats
+      - name: Stop this job's local compile cache
+        if: always()
+        shell: bash
+        run: bash build.sh cache-release
+      - name: Store Rust test receipts
+        if: always()
+        continue-on-error: ${{ inputs.artifacts_optional }}
+        shell: bash
+        run: |
+          shopt -s nullglob
+          receipts=(ci-rust-receipts/*.json ci-rust-receipts/*.log)
+          [ "${#receipts[@]}" -gt 0 ] || { echo "no Rust test receipts to store" >&2; exit 1; }
+          for receipt in "${receipts[@]}"; do bash scripts/ci-artifact.sh put "$GITHUB_RUN_ID/rust-receipt/${receipt##*/}" "$receipt"; done
+      - uses: ./.github/actions/rust-warnings
+        if: always()
+        continue-on-error: true
+        with:
+          complete: ${{ job.status == 'success' }}
+          platform: tests-${{ matrix.suite }}-${{ runner.os }}
+          target: ${{ steps.target.outputs.triple }}
+      - name: Upload artifacts spooled while the private store was unreachable
+        if: always()
+        uses: ./.github/actions/ci-artifact-spool
+      - name: Clean compile fixtures
+        if: always()
+        run: node scripts/ci-rust-prepare.mjs cleanup
+      - name: Remove job archives and sweep old Rust targets
+        if: always()
+        continue-on-error: true
+        run: node scripts/ci-workspace-cleanup.mjs
 
   rust-receipts:
     name: rust test receipts
     needs: [rust-tests, rust-platform, rust-embeddings]
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (always() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
-    environment: ci
-    runs-on: [self-hosted, Linux, light, host-ubunta]
+    environment: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && 'ci' || '' }}
+    runs-on: ${{ vars.CI_LINUX_LIGHT_RUNNER || fromJSON('["self-hosted","Linux","light","host-ubunta"]') }}
     permissions:
       contents: read
-      actions: write
+      actions: read
+      pull-requests: read
     timeout-minutes: 5
     env:
-      DOMIOS_CI_WEBHOOK_URL: ${{ secrets.DOMIOS_CI_WEBHOOK_URL }}
-      DOMIOS_CI_WEBHOOK_TOKEN: ${{ secrets.DOMIOS_CI_WEBHOOK_TOKEN }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
-      DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
-      DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
-      DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
-      DOMIOS_ACCOUNT_REDEEM_URL: ${{ secrets.DOMIOS_ACCOUNT_REDEEM_URL }}
-      DOMIOS_BILLING_FUNCTIONS_URL: ${{ secrets.DOMIOS_BILLING_FUNCTIONS_URL }}
+      DOMIOS_CI_WEBHOOK_URL: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_CI_WEBHOOK_URL || '' }}
+      DOMIOS_CI_WEBHOOK_TOKEN: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_CI_WEBHOOK_TOKEN || '' }}
+      AWS_ACCESS_KEY_ID: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.SCCACHE_AWS_ACCESS_KEY_ID || '' }}
+      AWS_SECRET_ACCESS_KEY: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.SCCACHE_AWS_SECRET_ACCESS_KEY || '' }}
+      DOMIOS_FIREBASE_API_KEY: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
+      DOMIOS_FIREBASE_PROJECT_ID: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
+      DOMIOS_FIREBASE_APP_ID: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_APP_ID || '' }}
+      DOMIOS_ACCOUNT_REDEEM_URL: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_ACCOUNT_REDEEM_URL || '' }}
+      DOMIOS_BILLING_FUNCTIONS_URL: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_BILLING_FUNCTIONS_URL || '' }}
+      CI_HOSTED: ${{ vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04' }}
+      CI_ARTIFACT_STORAGE: ${{ (vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && 'github' || '' }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         id: ci-1
         with:
           ref: ${{ inputs.source_ref || github.ref }}
-      - *cancel-run-on-failure
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs receipt
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         id: ci-2
         with:
           package-manager-cache: false
-          node-version: '22.22.0'
-      - *cancel-run-on-failure
+          node-version: 22.22.0
       - name: Fetch Rust test receipts
         id: ci-3
         continue-on-error: ${{ inputs.artifacts_optional }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash scripts/ci-artifact.sh get-prefix "$GITHUB_RUN_ID/rust-receipt/" ci-rust-receipts
-      - *cancel-run-on-failure
       - name: Require every Rust test job
         id: ci-4
         env:
@@ -324,10 +616,7 @@ jobs:
           PLATFORM_RESULT: ${{ needs.rust-platform.result }}
           EMBEDDINGS_RESULT: ${{ needs.rust-embeddings.result }}
         run: node -e "if (process.env.TESTS_RESULT !== 'success' || process.env.PLATFORM_RESULT !== 'success' || process.env.EMBEDDINGS_RESULT !== 'success') process.exit(1)"
-      # A dry run without artifact storage still requires every test job above; only the receipts may be absent.
-      - *cancel-run-on-failure
       - name: One passing Linux full suite, native subsets and embeddings
         id: ci-5
         continue-on-error: ${{ inputs.artifacts_optional }}
         run: node scripts/ci-rust-tests.mjs verify ci-rust-receipts
-      - *cancel-run-on-failure

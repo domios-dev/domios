@@ -30,6 +30,13 @@ env:
 jobs:
   compile:
     uses: ./.github/workflows/release-arm64-compile.yml
+    secrets:
+      DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
+      DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
+      DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
+      DOMIOS_ACCOUNT_REDEEM_URL: ${{ secrets.DOMIOS_ACCOUNT_REDEEM_URL }}
+      DOMIOS_BILLING_FUNCTIONS_URL: ${{ secrets.DOMIOS_BILLING_FUNCTIONS_URL }}
+      DOMIOS_AMPLITUDE_API_KEY_PROD: ${{ secrets.DOMIOS_AMPLITUDE_API_KEY_PROD }}
     with:
       tag: ${{ inputs.tag }}
       source_ref: ${{ inputs.source_ref }}
@@ -83,6 +90,8 @@ jobs:
         with:
           package-manager-cache: false
           node-version: 22.22.0
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs packaging
       - name: Reset compiler capture
         continue-on-error: true
         run: node -e "require('fs').writeFileSync('ci-rust-warnings.log', '')"

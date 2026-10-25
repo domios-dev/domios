@@ -146,6 +146,8 @@ jobs:
         with:
           package-manager-cache: false
           node-version: '22.22.0'
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs packaging
 
       - name: Reset compiler capture
         continue-on-error: true
@@ -201,9 +203,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         # Cargo's raw domios-server file occupies the resource directory name during compilation.
         run: >-
-          node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log --
-          pnpm tauri build --no-bundle --target "$TARGET"
-          --config '{"bundle":{"resources":[],"externalBin":[]}}'
+          node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- pnpm tauri build --no-bundle --target "$TARGET" --config '{"bundle":{"resources":[],"externalBin":[]}}'
 
       - name: Stage final pair resources and bundle without compilation
         shell: bash
@@ -258,8 +258,7 @@ jobs:
       - name: Retain private dry-run updater evidence
         if: ${{ inputs.dry_run }}
         run: >-
-          node scripts/release-dry-run-manifest.mjs capture "${{ inputs.tag }}" "${{ inputs.source_ref }}" "$GITHUB_RUN_ID"
-          linux-x86_64 "src-tauri/target/$TARGET/release/bundle" release-artifacts "$RUNNER_TEMP/dry-run-linux-x86_64"
+          node scripts/release-dry-run-manifest.mjs capture "${{ inputs.tag }}" "${{ inputs.source_ref }}" "$GITHUB_RUN_ID" linux-x86_64 "src-tauri/target/$TARGET/release/bundle" release-artifacts "$RUNNER_TEMP/dry-run-linux-x86_64"
 
       - name: Publish the Linux bundles
         if: ${{ !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release Linux x86_64 platform') && !inputs.dry_run }}

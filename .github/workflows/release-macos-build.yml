@@ -115,6 +115,8 @@ jobs:
         with:
           package-manager-cache: false
           node-version: '22.22.0'
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs packaging
 
       - name: Reset compiler capture
         continue-on-error: true
@@ -197,8 +199,7 @@ jobs:
       - name: Retain private dry-run updater evidence
         if: ${{ inputs.dry_run }}
         run: >-
-          node scripts/release-dry-run-manifest.mjs capture "${{ inputs.tag }}" "${{ inputs.source_ref }}" "$GITHUB_RUN_ID"
-          "$ASSET_SCOPE" "$ART" "$ART" "$RUNNER_TEMP/dry-run-$ASSET_SCOPE"
+          node scripts/release-dry-run-manifest.mjs capture "${{ inputs.tag }}" "${{ inputs.source_ref }}" "$GITHUB_RUN_ID" "$ASSET_SCOPE" "$ART" "$ART" "$RUNNER_TEMP/dry-run-$ASSET_SCOPE"
 
       - name: Verify and publish platform assets and updater fragment
         if: ${{ !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release macOS') && !inputs.dry_run }}
@@ -211,7 +212,6 @@ jobs:
       - name: Clean up temporary release signing material
         if: always()
         run: python3 scripts/release-signing-material.py cleanup
-
 
       - uses: ./.github/actions/rust-warnings
         if: always()

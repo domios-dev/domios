@@ -93,7 +93,7 @@ verifies the anonymous download. Every install refreshes `codeterm-core` from th
    skip packaging successfully. Prepare still verifies the exact-SHA receipt; owner workflow_dispatch
    reruns retain that gate. workflow_run uses the default branch workflow definition: this trigger
    and its reusable guards must reach the default branch before automatic packaging can activate.
-   Until then, dispatch the reviewed release branch after its exact-SHA qualification is green.
+   Until then, use scripts/dispatch-qualified-release.mjs with the exact SHA and release/X.Y.Z after qualification is green; see [CI operation](../../../docs/release/ci.md).
    Two nightly schedules qualify dev as fallback. Fast checks own
    frontend production/typechecking, static/plugin/TS suites, Clippy and the CLI suite.
    The Rust tier owns the Linux full suite, native macOS/Windows subsets and embeddings.
@@ -380,9 +380,9 @@ through the existing ci-artifact tooling rather than assuming GitHub artifact st
 
 ## Monitoring and failure recovery
 
-Dev qualification tiers notify and cancel the current run on the first observed Rust FAIL/TIMEOUT or failed workflow step, before cleanup. Activation and verification: [CI failure notifications](ci-failure-notifications.md). Runner loss and job timeout still need an external failure observer; an in-run hook cannot execute on a dead runner.
+CI normally finishes independent test jobs after failure; packaging remains blocked by exact-SHA qualification. The aggregate reports named failures and timeouts. Activation and verification: [CI failure notifications](ci-failure-notifications.md). Runner loss and job timeout still need an external failure observer; an in-run hook cannot execute on a dead runner.
 
-Read `domios docs BLUEPRINTS`. Use one named monitor per actual run ID; validate its probe once
+Read `domios docs BLUEPRINTS`. Scope monitors to the candidate commit and its CI result, then bind any run detail to that SHA; validate the probe once
 and verify blueprint show names that run's real bucket. Handle success, failure, cancellation,
 probe error and queued-too-long explicitly. Stop at terminal; never leave repeated failing probes,
 sleep/poll loops or duplicate watchers. A launch acknowledgement is not a completed build receipt.
