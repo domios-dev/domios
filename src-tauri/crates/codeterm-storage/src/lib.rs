@@ -8,6 +8,8 @@ mod migration;
 mod owner;
 mod repositories;
 mod schema;
+#[cfg(feature = "test-support")]
+pub mod test_support;
 
 pub use assets::{
     AssetAudit, AssetId, AssetRef, AssetRepository, CleanupReport, PendingCleanup, SweepReport,
