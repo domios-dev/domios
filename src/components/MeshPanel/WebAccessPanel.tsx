@@ -36,7 +36,7 @@ interface Props {
 }
 
 export function WebAccessPanel({ config, network, serve, loading, actions, onAction, onSetup, onClose, embedded = false, qrSize = 228, onExpand }: Props) {
-  const ready = webUiListenerReady(network, serve);
+  const ready = webUiListenerReady(network);
   const target = buildWebUiTarget(config, network, serve);
   const route = classifyWebUiRoute(config, network, serve);
   const view = deriveWebUiView(serve?.snapshot, loading);

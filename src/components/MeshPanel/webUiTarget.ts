@@ -2,6 +2,7 @@ import type { AppConfig } from "../../lib/types";
 import {
   buildWebAccessUrls,
   webLinkWithToken,
+  webLinkWithTokenAndRelay,
   type ServeStatus,
 } from "../../lib/webAccess";
 
@@ -53,6 +54,10 @@ export function buildWebUiTarget(
   serve: ServeStatus | null = null,
 ): WebUiTarget {
   const port = network?.api_port ?? serve?.snapshot?.api_port ?? config.api.port;
+  if (network?.web_listener) {
+    const root = `http://${network.web_listener}/`;
+    return { link: webLinkWithTokenAndRelay(root, config.api.token, null), usingFallback: true, port: Number(new URL(root).port) || port };
+  }
   const serveRoot = serveHttpsRoot(serve);
   if (serveRoot) {
     return {
@@ -62,10 +67,6 @@ export function buildWebUiTarget(
     };
   }
 
-  if (network?.web_listener) {
-    const root = `http://${network.web_listener}/`;
-    return { link: webLinkWithToken(root, config.api.token), usingFallback: true, port: Number(new URL(root).port) || port };
-  }
   const picked = buildWebAccessUrls(network, config.api.port);
   return {
     link: webLinkWithToken(picked.primary, config.api.token),
@@ -92,7 +93,7 @@ export function webRouteLabel(route: WebRouteKind): string {
   return { tailscale_https: "HTTPS · Tailscale", tailscale_ip: "HTTP · Tailscale", lan: "Local network", loopback: "This machine" }[route];
 }
 
-export function webUiListenerReady(network: NetworkInfo | null, serve: ServeStatus | null): boolean {
+export function webUiListenerReady(network: NetworkInfo | null): boolean {
   if (network?.transport && network.transport.state !== "connected") return false;
-  return Boolean(network?.web_listener || serveHttpsRoot(serve));
+  return Boolean(network?.web_listener);
 }

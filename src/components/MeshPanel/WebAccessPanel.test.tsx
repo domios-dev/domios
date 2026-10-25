@@ -40,7 +40,7 @@ await act(async () => root.render(<WebAccessPanel config={config} network={{ tai
 assert.ok(host.querySelector('img[alt="Open Domios Web on 100.64.1.2:7686"]'));
 await act(async () => button("Open").click());
 await act(async () => button("Copy link").click());
-assert.deepEqual(opened, ["http://100.64.1.2:7686/#token=opaque-secret"]);
+assert.deepEqual(opened, ["http://100.64.1.2:7686/#token=opaque-secret&relay=self"]);
 assert.deepEqual(copied, [encoded[0]]);
 assert.ok(copied[0].includes("opaque-secret"));
 assert.equal(host.querySelector<HTMLInputElement>('input[aria-label="Web address"]')?.value, "http://100.64.1.2:7686/");
@@ -51,11 +51,11 @@ assert.equal(closeCount, 1);
 assert.equal(mutations.length, 0);
 for (const state of ["ready", "setup_required", "conflict"] as const) {
   const snapshot = webUiSnapshot(state);
-  await act(async () => root.render(<WebAccessPanel config={config} network={null} serve={{installed:true,active:state==="ready",snapshot}} loading={false} actions={actions} onAction={async (action) => { mutations.push(action); }} onSetup={async () => { setupCount++; }} onClose={() => { closeCount++; }} />));
+  await act(async () => root.render(<WebAccessPanel config={config} network={state === "ready" ? { web_listener: "100.64.1.2:7686" } : null} serve={{installed:true,active:state==="ready",snapshot}} loading={false} actions={actions} onAction={async (action) => { mutations.push(action); }} onSetup={async () => { setupCount++; }} onClose={() => { closeCount++; }} />));
   if (state !== "ready") assert.equal(host.querySelector('[data-testid="web-access-status"]')?.textContent, deriveWebUiView(snapshot, false).label);
   if (state === "ready") {
     assert.equal(Array.from(host.querySelectorAll("button")).some((entry) => entry.textContent === "Disable Web UI"), false);
-    assert.equal(Array.from(host.querySelectorAll("button")).some((entry) => entry.textContent === "Set up Tailscale with AI"), false);
+    assert.ok(host.querySelector('img[alt="Open Domios Web on 100.64.1.2:7686"]'));
   } else {
     assert.equal(host.querySelector('img[alt^="Open Domios Web"]'), null);
     assert.equal(host.querySelector('input[aria-label="Web address"]'), null);
