@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import test from 'node:test';
 import { parse } from 'yaml';
@@ -273,4 +273,23 @@ test('Docker forwards credential names and captures its own server counters', ()
   const script = readFileSync(new URL('../../.codeterm/build-machine/scripts/build-linux.sh', import.meta.url), 'utf8');
   assert.match(script, /CODETERM_SCCACHE_VERIFY_ONLY=0 ct_configure_sccache/);
   assert.match(script, /trap 'ct_sccache_stats' EXIT/);
+});
+test('release builds keep bundle verification while server and CLI runtime checks belong to the test tier', () => {
+  const directory = new URL('../../.github/workflows/', import.meta.url);
+  for (const file of readdirSync(directory).filter(name => /^release.*\.yml$/.test(name))) {
+    const source = readFileSync(new URL(file, directory), 'utf8');
+    assert.doesNotMatch(source, /release-pair-smoke|Smoke packaged client and isolated server pair/, file);
+  }
+  const container = readFileSync(new URL('../../.codeterm/build-machine/scripts/build-linux.sh', import.meta.url), 'utf8');
+  assert.doesNotMatch(container, /release-pair-smoke/);
+  assert.match(container, /release-bundle-smoke\.mjs/);
+  for (const name of ['release-linux', 'release-macos-build', 'release-windows']) {
+    const steps = workflow(name).jobs.build.steps;
+    const commands = steps.map(step => step.run || '').join('\n');
+    assert.match(commands, /release-bundle-smoke\.mjs/);
+    const signature = steps.find(step => /^Verify.*signature/.test(step.name || ''));
+    assert.ok(signature, `${name}: signing verification remains required`);
+    assert.equal(signature.if, undefined, `${name}: signature check also runs in dry runs`);
+    assert.match(signature.run, /verify-updater-manifest|release-verify-windows|release-publish-platform/);
+  }
 });
