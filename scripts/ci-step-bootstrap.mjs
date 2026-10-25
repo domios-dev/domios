@@ -95,5 +95,5 @@ export function bootstrapStep(owner,{root,env,profile,execute=spawnSync,ci=false
       run('rustup',['toolchain','install',channel,'--profile','minimal','--component','clippy,rustfmt']);
     }
   }
-  checkRunnerTools(role,{env});
+  checkRunnerTools(role,{env,execute});
 }
