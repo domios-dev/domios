@@ -8,6 +8,7 @@ import { overlayExclusions } from './ci-rust-archives.mjs';
 import { classifyTarget } from './ci-classifier-cache.mjs';
 import { FULL_LANES, testTargetDir } from './rust-test-lanes.mjs';
 import { renderedCompilerErrors } from './collect-rust-warnings.mjs';
+import { prepareCliServer } from './cli-server-test.mjs';
 
 // The catalogue's release tier names every package and target, including path dependencies outside the workspace.
 const OVERLAY = JSON.parse(fs.readFileSync(new URL('../tests/catalogue.overlay.json', import.meta.url), 'utf8'));
@@ -130,13 +131,16 @@ function classify(lane, messages, config) {
   return classifyInventory(inventory, sources);
 }
 const LISTENER = 'test(/startup::rest_api::tests::/)';
+const CLI_SERVER = 'binary_id(=codeterm-cli::isolated_server)';
 const jsonCommand = (args) => JSON.parse(execFileSync('cargo-nextest', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'inherit'] }));
 
 export function executionGroups(selected) {
-  return [false, true].map((listener) => ({
+  const integration = selected.filter(test => test.binary === 'codeterm-cli::isolated_server');
+  const units = selected.filter(test => test.binary !== 'codeterm-cli::isolated_server');
+  return [...[false, true].map((listener) => ({
     listener,
-    selected: selected.filter((test) => test.name.includes('startup::rest_api::tests::') === listener),
-  })).filter((group) => group.selected.length > 0);
+    selected: units.filter((test) => test.name.includes('startup::rest_api::tests::') === listener),
+  })), { listener: false, integration: true, selected: integration }].filter((group) => group.selected.length > 0);
 }
 
 export function candidateFilter(document, selected) {
@@ -242,6 +246,11 @@ async function run(mode) {
       const targetDir = testTargetDir(lane, { env: targetEnv, mode });
       if (targetDir) process.env.CARGO_TARGET_DIR = env.CARGO_TARGET_DIR = targetDir;
       console.log(`[rust-tests] ${mode}/${lane.lane} target=${targetDir}`);
+      if (lane.lane === 'cli') {
+        env.DOMIOS_CLI_TEST_SERVER = prepareCliServer({
+          cliTarget: targetDir, serverTarget: testTargetDir(WORKSPACE, { env: targetEnv, mode }), env,
+        });
+      }
       const messages = compile(lane);
       const compiled = messages.split('\n').filter(Boolean).flatMap(line => {
         try { const message = JSON.parse(line); return message.reason === 'compiler-artifact' && !message.fresh ? [message] : []; } catch { return []; }
@@ -264,14 +273,17 @@ async function run(mode) {
         .filter(([, test]) => test['filter-match'].status === 'matches')
         .map(([name]) => ({ binary: suite['binary-id'], name })));
       // Listener lifecycle cases need a process boundary without concurrent fork holders (#620).
-      for (const { listener, selected: group } of executionGroups(selected)) {
-        const filter = `(${scope}) & ${listener ? LISTENER : `not (${LISTENER})`}`;
+      for (const { listener, integration, selected: group } of executionGroups(selected)) {
+        const unitFilter = listener ? LISTENER : `not (${LISTENER})`;
+        const category = integration ? CLI_SERVER : lane.lane === 'cli' ? `${unitFilter} & not (${CLI_SERVER})` : unitFilter;
+        const filter = `(${scope}) & (${category})`;
         fs.writeFileSync(config, tomlConfig(filter, listener));
-        const log = path.join(directory, `${mode}-${lane.lane}-${listener ? 'listener' : 'normal'}.log`);
+        const log = path.join(directory, `${mode}-${lane.lane}-${integration ? 'integration' : listener ? 'listener' : 'normal'}.log`);
         const result = await captureCommand('bash', ['scripts/test-capped.sh', '--exec', 'cargo-nextest', ...runArgs(lane, config)], log, env);
         const report = fs.readFileSync(log, 'utf8');
         requireTestSuccess(result, report, `Rust tests failed on ${receipt.runner}`);
         receipt.executed += executedCount(report);
+        if (integration) continue;
         const guard = ['scripts/check-slow-unit-tests.mjs', log, '--base', process.env.SLOW_UNIT_TESTS_BASE || 'origin/develop'];
         let aloneLog;
         if (plan.confirm) {

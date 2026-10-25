@@ -16,7 +16,7 @@ use detached::{with_stderr_detail, StderrTail};
 
 const STDERR_CLOSE_DEADLINE: std::time::Duration = std::time::Duration::from_secs(2);
 
-pub const HUMAN_START_USAGE: &str = "domios-server start --production [--resources PATH] [--json]\nDebug artifact: domios-server start --development --port PORT [--instance NAME] [--resources PATH] [--json]\nRelease artifact: domios-server start --verify-isolated --data-dir ABS_DIR --config-dir ABS_DIR --port PORT";
+pub const HUMAN_START_USAGE: &str = "domios-server start --production [--resources PATH] [--json]\nDebug artifact: domios-server start --development --port PORT [--instance NAME] [--resources PATH] [--json]\nIsolated verification: domios-server start --verify-isolated --data-dir ABS_DIR --config-dir ABS_DIR --port PORT";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HumanStartMode {

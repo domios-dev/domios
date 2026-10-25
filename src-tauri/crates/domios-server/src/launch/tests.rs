@@ -118,7 +118,7 @@ fn process_split_contract_release_isolated_verification_mode_parses_explicit_roo
                 && selected_config.as_path() == config.path()
                 && bind == expected_bind
     ));
-    assert!(human_start_options(&args, &executable, true).is_err());
+    assert!(human_start_options(&args, &executable, true).is_ok());
 
     let mut non_loopback = args.clone();
     non_loopback.extend(["--host".to_string(), "0.0.0.0".to_string()]);

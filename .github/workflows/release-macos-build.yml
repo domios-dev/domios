@@ -186,11 +186,6 @@ jobs:
       - name: Smoke built release bundle
         run: node scripts/release-bundle-smoke.mjs macos "$ART" "${{ inputs.source_ref }}"
 
-      - name: Smoke packaged client and isolated server pair
-        run: |
-          if [ "${{ matrix.arch }}" = arm64 ]; then target=aarch64-apple-darwin; else target=x86_64-apple-darwin; fi
-          node scripts/release-pair-smoke.mjs "$target" "${{ inputs.tag }}" "${{ inputs.source_ref }}" "release-artifacts/common-stage/$target" "$ART"
-
       - name: Verify updater signatures (including dry run)
         env:
           RELEASE_VERIFY_ONLY: 'true'

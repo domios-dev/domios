@@ -254,18 +254,17 @@ DMG; staple/assess the app before creating its updater archive. Unexpected helpe
 Tauri re-signing fail loudly. Native execution must validate this path; injected fixtures are only
 source-contract evidence. Standard DMG, .app.tar.gz updater and self-install remain the transports.
 
-### Packaged runtime proof
+### Runtime and bundle proof
 
-`scripts/release-pair-smoke.mjs` checks extraction, stage/manifest digests and exactly one server
-copy, then launches packaged server bytes in isolated temporary data/config roots on a private
-loopback port. It waits for READY under a deadline, verifies health/build identity, runs authenticated
-packaged CLI and requires clean shutdown. Token stays in child environment, never argv/URL/logs.
-Use the committed isolated-verification contract; do not launch against a user's production roots.
+Release build jobs retain bundle contents, digest and signing checks. Server startup,
+local API-token resolution, authenticated CLI identify and clean shutdown run in
+CLI integration target isolated_server through the Rust test tier on every native test OS.
+The nextest cli, test-one cli isolated_server and CI CLI runners prepare the debug server
+and its exact bound CLI before the capped tests. This test creates disposable data/config
+roots and uses an explicit private port; CODETERM_API_URL alone never selects that port.
 
-Cross-architecture jobs still perform every byte check. Unsupported execution writes an explicit
-`unverified_cross_arch` receipt, never PASS. macOS x64 on Apple Silicon tries Rosetta first.
-Packaged native-client attach, browser authentication and cold update/restore need their own real
-platform evidence; headless smoke alone does not prove those surfaces.
+Native-client attach, browser authentication and cold update/restore require their own
+platform evidence. A CLI integration pass does not establish those surfaces.
 
 Headless users launch from the extracted root with
 `./domios-server/domios-server start --production --json` (Windows: the .exe equivalent).
@@ -446,4 +445,4 @@ never sweep caches or delete worktrees merely because the release ended.
 Implementation entry points: [release stage](../../../scripts/release-stage.mjs),
 [macOS x64 helper](../../../scripts/release-macos-x86_64.sh).
 
-<!-- revision: 10 -->
+<!-- revision: 11 -->
