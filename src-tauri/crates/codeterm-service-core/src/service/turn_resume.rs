@@ -528,6 +528,33 @@ fn stage_after_update_prompt(
 }
 
 impl ServiceContext {
+    pub(crate) fn continue_recovered_runtime(
+        &self,
+        tab_id: &str,
+        session_id: &str,
+        crashed_epoch: &str,
+    ) {
+        let resumed_epoch = {
+            let mut mux = self.mux.write();
+            let Some(tab) = mux
+                .get_tab_mut(tab_id)
+                .filter(|tab| tab.agent_session_id.as_deref() == Some(session_id))
+            else {
+                return;
+            };
+            let Some(nonce) = tab.session_binding_nonce.clone() else {
+                return;
+            };
+            crate::multiplexer::types::request_continue(
+                &mut tab.turn_resume, session_id, crashed_epoch,
+                "The provider runtime ended while you were working. Your same session has resumed. Continue the interrupted work.".into(),
+            );
+            nonce
+        };
+        if let Step::Claimed(claim) = step_for_service(self, tab_id, &resumed_epoch) {
+            self.deliver_turn_resume(tab_id, claim, &resumed_epoch);
+        }
+    }
     /// Fold a live turn edge into the tab's durable mark. Frozen once a graceful
     /// shutdown is armed so teardown never erases the turn it interrupted.
     pub(crate) fn record_turn_resume_edge(&self, tab_id: &str) {
@@ -697,7 +724,7 @@ impl ServiceContext {
 
     /// The claim is made durable before the payload is written, so a crash
     /// after the write can never deliver a second continue for this turn.
-    fn deliver_turn_resume(&self, tab_id: &str, claim: Claim, start_epoch: &'static str) {
+    fn deliver_turn_resume(&self, tab_id: &str, claim: Claim, start_epoch: &str) {
         let delivery = deliver_claim(
             &claim,
             || {

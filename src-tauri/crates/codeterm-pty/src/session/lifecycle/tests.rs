@@ -12,6 +12,7 @@ use crate::session::store::{
 mod compaction_replay;
 mod journal_repair;
 mod permission_auto_confirm;
+mod runtime_exit;
 
 #[test]
 fn failed_resume_target_survives_compaction_without_granting_binding_authority() {

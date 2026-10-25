@@ -283,21 +283,6 @@ pub(crate) async fn submit_loaded(
     let starts = svc.runtime_turn_starts(tab, &context.binding_nonce, context.epoch);
     let before_start = starts.sequence();
     let (result, handed_off) = engine::run_submit(svc, session, process, operation).await;
-    if let Err(
-        reason @ (RuntimeFailure::PipeEof
-        | RuntimeFailure::PipeFailure { .. }
-        | RuntimeFailure::ProcessExited {
-            requested: false, ..
-        }),
-    ) = &result
-    {
-        svc.recover_dead_chatbackend(
-            tab,
-            &context.binding_nonce,
-            context.epoch,
-            &reason.to_string(),
-        );
-    }
     let result = match result {
         Err(
             reason @ (RuntimeFailure::PipeEof
