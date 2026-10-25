@@ -6,8 +6,8 @@ export const PREFLIGHT_PROFILES={
  'hosted-linux':['bash','cargo','curl','gh','git','jq','nextest','node','pnpm','python','python:yaml','tar'],
  'hosted-windows':['bash','git','node','pnpm'],
  'hosted-macos':['bash','cargo','curl','gh','git','nextest','node','python'],
- 'self-linux-ubunta':['bash','cargo','curl','gh','git','nextest','node','pnpm','python','python:yaml'],
- 'self-linux-blackstar':['bash','cargo','curl','gh','git','nextest','node','pnpm','python','python:yaml'],
+ 'self-linux-ubunta-light':['bash','curl','gh','git','node'],
+ 'self-linux-ubunta-compile':['bash','cargo','curl','gh','git','nextest','node','python'],
  'self-macos':['bash','cargo','curl','gh','git','nextest','node','python'],
  'self-windows':['bash','cargo','curl','gh','git','nextest','node','python'],
 };

@@ -48,12 +48,12 @@ env:
   CODETERM_SCCACHE_VERIFY_ONLY: '1'
 
 jobs:
-  # One stable executor retains warm final targets; light jobs use another host.
+  # All Linux compilation shares the warm linux-build executor.
   rust-tests:
     name: rust tests (full suite)
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (!cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
     environment: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER == 'ubuntu-24.04') && 'ci' || '' }}
-    runs-on: ${{ vars.CI_LINUX_RUST_FULL_RUNNER || fromJSON('["self-hosted","Linux","rust-tests","heavy","host-blackstar"]') }}
+    runs-on: ${{ vars.CI_LINUX_RUST_FULL_RUNNER || fromJSON('["self-hosted","Linux","linux-build","host-ubunta"]') }}
     permissions:
       contents: read
       actions: read

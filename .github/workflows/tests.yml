@@ -359,18 +359,6 @@ jobs:
             runner: windows-latest
           - profile: hosted-macos
             runner: macos-15
-          - profile: self-linux-ubunta
-            runner:
-              - self-hosted
-              - Linux
-              - light
-              - host-ubunta
-          - profile: self-linux-blackstar
-            runner:
-              - self-hosted
-              - Linux
-              - light
-              - host-blackstar
           - profile: self-macos
             runner:
               - self-hosted
@@ -383,6 +371,18 @@ jobs:
               - Windows
               - host-rog
               - windows-build
+          - profile: self-linux-ubunta-light
+            runner:
+              - self-hosted
+              - Linux
+              - light
+              - host-ubunta
+          - profile: self-linux-ubunta-compile
+            runner:
+              - self-hosted
+              - Linux
+              - linux-build
+              - host-ubunta
     steps:
       - name: Use the runner bundled Node
         if: runner.environment == 'self-hosted'
@@ -422,7 +422,7 @@ jobs:
         with:
           tool: cargo-nextest@0.9.148
       - name: Isolate Python test dependencies
-        if: matrix.profile == 'hosted-linux' || startsWith(matrix.profile, 'self-linux-')
+        if: matrix.profile == 'hosted-linux'
         run: node scripts/ci-python-env.mjs
       - name: Probe actual runner prerequisites
         run: node scripts/ci-preflight-profile.mjs "${{ matrix.profile }}"

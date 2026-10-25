@@ -80,7 +80,7 @@ Runner capacity switches (owner operation; defaults stay unchanged):
 | --- | --- | --- |
 | CI_LINUX_LIGHT_RUNNER | ubuntu-24.04 | Current private light labels per job |
 | CI_LINUX_RUST_COMPILE_RUNNER | ubuntu-24.04 | Ubuntu Clippy/CLI compiler |
-| CI_LINUX_RUST_FULL_RUNNER | ubuntu-24.04 | BLACKSTAR Linux full suite |
+| CI_LINUX_RUST_FULL_RUNNER | ubuntu-24.04 | Ubuntu linux-build full suite |
 | CI_MACOS_RUST_RUNNER | macos-15 | Air macOS platform tests |
 | CI_MACOS_EMBEDDINGS_RUNNER | macos-15 | Air embeddings after platform tests |
 
@@ -137,7 +137,7 @@ This design changes neither the runtime CLI pin nor its trust policy.
 For a runner-only diagnostic, dispatch the existing CI workflow with
 scope=preflight and an exact source_ref. For example, from the source checkout:
 gh workflow run tests.yml --ref release/1.15.3 -f source_ref=<sha> -f scope=preflight.
-This probes hosted Linux/Windows/macOS plus the two Linux hosts, Mac and Windows
+This probes hosted Linux/Windows/macOS plus Ubuntu light/build services, Mac and Windows
 self-hosted classes. It installs tools only on hosted runners, compiles nothing,
 runs no suites and writes no qualification receipt. The CI result still reports
 a failed or cancelled probe. The workflow revision must be pushed before dispatch.
@@ -148,3 +148,8 @@ use that interpreter; no system pip install or python alias is required.
 Catalogue selection runs during triage even after a previous failure. Commands
 run through ci-catalogue-command.mjs, which reports a named catalogue error for
 a missing/invalid selection instead of failing workflow expression expansion.
+
+Guards always run on secret-free ubuntu-24.04. The private full Rust suite,
+Clippy and CLI use the same host-ubunta linux-build executor; the Rust tier
+starts after the fast tier, preserving one compilation per host. BLACKSTAR WSL
+is retired from workflow routing. Windows remains on ROG and macOS on the Macs.
