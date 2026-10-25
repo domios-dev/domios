@@ -35,8 +35,6 @@ name: release-macos
 permissions:
   contents: write
 
-env:
-
 jobs:
   build:
     name: build (${{ matrix.target }})

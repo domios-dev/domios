@@ -230,3 +230,15 @@ test("every publication stage fails closed on failed preparation and package bui
   }
   assert.equal(condition(release.jobs['release-manifest'].if, { needs, vars: {} }), false);
 });
+
+test("shared fast failure hooks use job-local source identity without foreign step references", () => {
+  const source = fast.jobs.changed.steps.find(step => step.id === "source");
+  assert.match(source.run, /sha=\$\(git rev-parse HEAD\)/);
+  assert.match(source.run, /CI_SOURCE_SHA=\$sha.*GITHUB_ENV/);
+  for (const [id, job] of Object.entries(fast.jobs)) {
+    if (id !== "changed") assert.equal(job.env.CI_SOURCE_SHA, "${{ needs.changed.outputs.source_sha || github.sha }}", id);
+    for (const hook of job.steps.filter(step => /ci-first-failure/.test(step.run ?? ""))) {
+      assert.equal(hook.env.CI_SOURCE_SHA, "${{ env.CI_SOURCE_SHA }}", id);
+    }
+  }
+});
