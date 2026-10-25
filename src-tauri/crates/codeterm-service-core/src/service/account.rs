@@ -154,12 +154,23 @@ impl super::ServiceContext {
         &self,
         hint: codeterm_account::LoginHint,
     ) -> Result<codeterm_account::Status, String> {
+        let service = self.clone();
+        tokio::spawn(async move { service.finish_account_login(hint).await })
+            .await
+            .map_err(|_| Error::Cancelled.to_string())?
+    }
+    async fn finish_account_login(
+        &self,
+        hint: codeterm_account::LoginHint,
+    ) -> Result<codeterm_account::Status, String> {
         let status = self
             .account()
             .await?
-            .login_with_hint(&SystemBrowser, hint)
+            .login_with_hint(Arc::new(SystemBrowser), hint)
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| e.to_string());
+        self.ui.emit("account-changed", serde_json::Value::Null);
+        let status = status?;
         if let Ok(mesh) = self.account_mesh().await {
             mesh.mesh.enrollment_signed_in();
         }
