@@ -68,6 +68,18 @@ async fn product_subscription_changed_uses_authoritative_refresh_and_closed_enum
     billing
         .refresh(Some(&session), RefreshEvent::CheckoutReturned, now)
         .await;
+    *provider.value.lock() = Ok(codeterm_billing::Entitlements {
+        plan: Plan::Pro,
+        ..Default::default()
+    });
+    let unsigned = billing
+        .refresh(Some(&session), RefreshEvent::CheckoutReturned, now)
+        .await;
+    assert_eq!(unsigned.entitlements.plan, Plan::Free);
+    assert_eq!(
+        sink.events().await,
+        vec![subscription_event(Plan::Free, Status::Active)]
+    );
     *provider.value.lock() = Err("offline".into());
     billing
         .refresh(Some(&session), RefreshEvent::CheckoutReturned, now)
@@ -80,12 +92,16 @@ async fn product_subscription_changed_uses_authoritative_refresh_and_closed_enum
     let result = billing
         .refresh(Some(&session), RefreshEvent::CheckoutReturned, now)
         .await;
-    assert_eq!(result.entitlements.plan, Plan::Pro);
+    assert_eq!(result.entitlements.plan, Plan::Free);
+    assert_eq!(
+        result.access.unwrap().authority,
+        codeterm_billing::Authority::Free
+    );
     assert_eq!(
         sink.events().await,
         vec![
             subscription_event(Plan::Free, Status::Active),
-            subscription_event(Plan::Pro, Status::PastDue)
+            subscription_event(Plan::Free, Status::PastDue)
         ]
     );
 }

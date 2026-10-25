@@ -7,6 +7,7 @@ use codeterm_service_core::service::test_fixture::ServiceFixture;
 
 fn locked_and_sibling() -> (ServiceFixture, String, String) {
     let (mut mux, sibling) = MultiplexerState::new();
+    mux.set_limit_gate(codeterm_entitlements::LimitGate::dormant());
     let general = mux.list_workspaces()[0].id.clone();
     mux.set_workspace_protected(&general, true);
     let newest = ["a", "b", "c"]

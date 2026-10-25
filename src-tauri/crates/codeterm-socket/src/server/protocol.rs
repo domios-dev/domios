@@ -108,8 +108,8 @@ mod tests {
 
     #[test]
     fn version_skew_error_serializes_untranslated_over_mesh_rpc() {
-        let error =
-            version_skew_gate(2, 6, "recover --here").expect("older mesh client is refused");
+        let error = version_skew_gate(2, PROTOCOL_VERSION, "recover --here")
+            .expect("older mesh client is refused");
         let wire = serde_json::json!({ "result": null, "error": error });
         assert_eq!(wire["error"]["code"], VERSION_SKEW);
         assert_eq!(wire["error"]["data"]["type"], "version_skew");

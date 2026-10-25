@@ -447,7 +447,9 @@ impl Billing {
         result: Result<Reading>,
     ) -> Snapshot {
         let mut cache = self.cache.lock();
-        let mut product_event = None;
+        let previous = cache.snapshot.entitlements.clone();
+        let observed = cache.observed;
+        let mut refreshed = false;
         if cache.generation == generation {
             if let Ok(reading) = &result {
                 cache.checking_until = None;
@@ -529,16 +531,8 @@ impl Billing {
                     access,
                     ..
                 }) => {
-                    let changed = !cache.observed
-                        || cache.snapshot.entitlements.plan != entitlements.plan
-                        || cache.snapshot.entitlements.status != entitlements.status;
+                    refreshed = true;
                     cache.observed = true;
-                    if changed {
-                        product_event = Some(ProductEvent::SubscriptionChanged {
-                            plan: entitlements.plan,
-                            status: entitlements.status,
-                        });
-                    }
                     cache.snapshot = Snapshot {
                         entitlements,
                         stale: false,
@@ -551,10 +545,22 @@ impl Billing {
             }
         }
         let snapshot = self.recompute(&cache);
+        if refreshed {
+            cache.snapshot.entitlements.plan = snapshot.entitlements.plan;
+        }
         drop(cache);
         self.rearm.notify_one();
-        if let (Some(event), Some(observer)) = (product_event, &self.observer) {
-            observer(event);
+        if refreshed
+            && (!observed
+                || previous.plan != snapshot.entitlements.plan
+                || previous.status != snapshot.entitlements.status)
+        {
+            if let Some(observer) = &self.observer {
+                observer(ProductEvent::SubscriptionChanged {
+                    plan: snapshot.entitlements.plan,
+                    status: snapshot.entitlements.status,
+                });
+            }
         }
         snapshot
     }
