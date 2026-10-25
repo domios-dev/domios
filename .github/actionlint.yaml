@@ -1,6 +1,7 @@
 self-hosted-runner:
   labels:
     - light
+    - heavy
     - linux-ci
     - windows-ci
     - rust-shard
