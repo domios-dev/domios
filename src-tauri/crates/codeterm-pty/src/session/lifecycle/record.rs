@@ -164,6 +164,9 @@ pub enum LifecycleTransition {
         session_id: String,
     },
     RestartRequested,
+    RuntimeExited {
+        diagnostics: String,
+    },
     /// Launch target provenance only; recovery must verify existence and bind a new nonce.
     ResumeTargetRecorded {
         session_id: String,
@@ -236,6 +239,7 @@ impl LifecycleTransition {
             Self::ConversationStarted { .. } => "conversation_started",
             Self::EmptySessionReplaced { .. } => "empty_session_replaced",
             Self::RestartRequested => "restart_requested",
+            Self::RuntimeExited { .. } => "runtime_exited",
             Self::ResumeTargetRecorded { .. } => "resume_target_recorded",
             Self::RestoreAwaitingAgentRestart { .. } => "restore_awaiting_agent_restart",
             Self::RolledBack { .. } => "rolled_back",
