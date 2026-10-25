@@ -805,6 +805,10 @@ pub(super) fn create_router_with_preview_admission(
         )
         .route("/api/plugins/{id}/ui/{*path}", get(web_routes::plugin_ui))
         .route(
+            inbound_webhook::ci::PATH,
+            post(inbound_webhook::ci::receive),
+        )
+        .route(
             codeterm_service_core::service::web_access::PEBBLE_WEBHOOK_PATH,
             post(inbound_webhook::receive_pebble_webhook).layer(
                 axum::extract::DefaultBodyLimit::max(inbound_webhook::MAX_WEBHOOK_REQUEST_BYTES),
