@@ -37,7 +37,10 @@ test('release packaging belongs to push CI and merge publication checks the rele
   assert.equal(release.jobs['qualified-source'].environment,undefined);
   assert.match(release.jobs['qualified-source'].steps[0].with.script,/merge.parents.length !== 2/);
   assert.equal(tests.jobs['release-dry-run'].with.dry_run,true);
-  assert.ok(tests.jobs['release-dry-run'].needs.includes('qualification'));
+  // Packaging overlaps the Rust suites; publication promotes only a fully green run and re-checks its qualification.
+  assert.deepEqual(tests.jobs['release-dry-run'].needs,['admission','policy','fast']);
+  assert.match(release.jobs['qualified-source'].steps[0].with.script,/run\.conclusion === 'success'/);
+  assert.match(release.jobs.prepare.steps.find(step => step.name === 'Require green dev qualification for the exact release SHA').if,/github\.event_name != 'push'/);
 });
 
 test('every privileged reusable release job accepts the qualified caller with protected environment intact', () => {
