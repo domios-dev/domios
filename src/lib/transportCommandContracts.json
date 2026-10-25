@@ -98,6 +98,12 @@
         "/api/account/mesh/revoke"
       ]
     ],
+    "account_mesh_session_revoke": [
+      [
+        "POST",
+        "/api/account/mesh/session-revoke"
+      ]
+    ],
     "account_mesh_state": [
       [
         "GET",
