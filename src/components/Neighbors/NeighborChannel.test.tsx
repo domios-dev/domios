@@ -2,7 +2,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 import { NeighborChannel } from "./NeighborChannel";
-import type { NeighborRuntimeClient } from "./neighborRuntimeClient";
+import type { NeighborRuntimeClient, NeighborListenerEvent } from "./neighborRuntimeClient";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let mounted: { root: ReturnType<typeof createRoot>; host: HTMLDivElement } | null = null;
@@ -18,17 +18,20 @@ function button(label: string): HTMLButtonElement {
 }
 
 async function render(enrolled = true, locked = false) {
+  let onReception: (event: NeighborListenerEvent) => void = () => {};
   const client: NeighborRuntimeClient = {
+    subscribe: vi.fn(async handler => { onReception = handler; return () => {}; }),
+    retry: vi.fn(async () => {}),
     status: vi.fn(async () => ({ enrolled, bindings: {} })),
     enroll: vi.fn(async () => {}), rotate: vi.fn(async () => {}),
     permission: vi.fn(async () => ({ allowed: true, scope: "Public status", allow_tab_requests: false })),
     send: vi.fn(async () => ({ message_id: "a".repeat(32), status: "pending" as const })),
-    deliveryStatus: vi.fn(async () => "delivered" as const),
+    deliveryStatus: vi.fn(async () => ({ status: "delivered" as const })),
   };
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host); mounted = { root, host };
   await act(async () => root.render(<NeighborChannel owner="owner" friendship="pair" locked={locked} client={client} />));
-  return client;
+  return Object.assign(client, { emit: (event: NeighborListenerEvent) => onReception(event) });
 }
 
 it("requires a deliberate machine takeover confirmation", async () => {
@@ -66,4 +69,25 @@ it("keeps the Free channel locked", async () => {
   expect(document.body.textContent).not.toContain("Enable encrypted channel");
   expect(client.send).not.toHaveBeenCalled();
   expect(client.enroll).not.toHaveBeenCalled();
+});
+
+it("shows stream recovery state and invokes manual retry", async () => {
+  const client = await render();
+  await act(async () => client.emit({ friendship_id: "pair", status: "reconnecting" }));
+  expect(document.querySelector('[role="status"]')?.textContent).toContain("reconnecting");
+  await act(async () => client.emit({ friendship_id: "pair", status: "stopped" }));
+  expect(document.querySelector('[role="status"]')?.textContent).toContain("stopped");
+  await act(async () => button("Retry reception").click());
+  expect(client.retry).toHaveBeenCalledExactlyOnceWith("pair");
+  await act(async () => client.emit({ friendship_id: "pair", status: "receiving" }));
+  expect(document.querySelector('[role="status"]')?.textContent).toContain("receiving");
+});
+
+it("preserves a revoked-key reason when checking sender delivery", async () => {
+  localStorage.setItem("domios.neighbor-deliveries:owner:pair", JSON.stringify([{ message_id: "a".repeat(32), status: "pending" }]));
+  const client = await render();
+  vi.mocked(client.deliveryStatus).mockResolvedValue({ status: "not_delivered", reason: "key_revoked" });
+  await act(async () => button("Check delivery").click());
+  expect(document.body.textContent).toContain("Not delivered: recipient keys were revoked");
+  expect(JSON.parse(localStorage.getItem("domios.neighbor-deliveries:owner:pair")!)[0].reason).toBe("key_revoked");
 });

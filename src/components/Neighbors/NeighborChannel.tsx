@@ -19,6 +19,8 @@ export function NeighborChannel({ owner, friendship, locked, client }: {
       <Button type="button" onClick={() => setConfirmTakeover(false)}>Cancel</Button>
     </div> : <Button type="button" onClick={() => setConfirmTakeover(true)}>Enable encrypted channel</Button>)}
     {channel.status?.enrolled && <>
+      <p role="status">Reception: {channel.reception}</p>
+      {!locked && <Button type="button" disabled={channel.pending} onClick={() => { void channel.retry(); }}>Retry reception</Button>}
       <p>{channel.status.bindings[friendship] ? "Incoming messages go to your gateway agent." : "Ask your General Agent to choose a gateway agent for incoming messages."}</p>
       {!locked && (confirmRotation ? <div role="group" aria-label="Rotate Neighbor keys">
         <p>Rotate keys? Messages waiting for the previous key will become not delivered.</p>
@@ -34,7 +36,7 @@ export function NeighborChannel({ owner, friendship, locked, client }: {
         onClick={() => { const message = body; setBody(""); void channel.send(message); }}>Send encrypted message</Button>
     </>}
     <ul aria-label="Neighbor deliveries">{channel.receipts.map(item => <li key={item.message_id}>
-      <span>{item.status === "not_delivered" ? "Not delivered" : item.status === "delivered" ? "Delivered" : "Pending"}</span>
+      <span>{item.status === "not_delivered" ? (item.reason === "key_revoked" ? "Not delivered: recipient keys were revoked" : "Not delivered") : item.status === "delivered" ? "Delivered" : "Pending"}</span>
       {item.submission === "unconfirmed" && <span>Submission unconfirmed</span>}
       {item.status === "pending" && <Button type="button" disabled={channel.pending} onClick={() => { void channel.check(item.message_id); }}>Check delivery</Button>}
     </li>)}</ul>

@@ -205,3 +205,25 @@ pub enum DeliveryStatus {
     Delivered,
     NotDelivered,
 }
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DeliveryReason {
+    KeyRevoked,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct DeliveryResult {
+    pub status: DeliveryStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<DeliveryReason>,
+}
+
+impl From<DeliveryStatus> for DeliveryResult {
+    fn from(status: DeliveryStatus) -> Self {
+        Self {
+            status,
+            reason: None,
+        }
+    }
+}

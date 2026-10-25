@@ -23,6 +23,15 @@ pub(super) struct Settings {
     pub permissions: BTreeMap<String, Permission>,
 }
 
+#[async_trait]
+impl codeterm_neighbors::keys::EnrollmentState for Metadata {
+    async fn enable(&self) -> Result<()> {
+        let mut settings = self.settings().await?;
+        settings.enabled = true;
+        self.save_settings(settings).await
+    }
+}
+
 impl Metadata {
     pub fn new(root: PathBuf, uid: &str) -> Self {
         Self {

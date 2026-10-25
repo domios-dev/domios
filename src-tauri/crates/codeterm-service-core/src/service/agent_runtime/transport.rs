@@ -189,6 +189,45 @@ fn turn_input(text: &str) -> TurnInput {
     }
 }
 
+fn runtime_input(
+    classified: &crate::service::messenger::AgentInput,
+) -> Result<TurnInput, RuntimeFailure> {
+    use crate::service::messenger::{AgentInput, InputProvenance};
+    let rendered = classified.text();
+    match classified {
+        AgentInput::Launch(_) => Ok(TurnInput {
+            text: rendered.into_owned(),
+            attachments: Vec::new(),
+        }),
+        AgentInput::Framed(frame) if frame.provenance() == InputProvenance::Neighbor => {
+            Ok(TurnInput {
+                text: rendered.into_owned(),
+                attachments: Vec::new(),
+            })
+        }
+        AgentInput::Shell(_) => Err(RuntimeFailure::Refused(
+            "shell input cannot target a runtime agent".into(),
+        )),
+        _ => Ok(turn_input(&rendered)),
+    }
+}
+
+fn submit_turn(
+    thread_id: String,
+    active_turn_id: Option<String>,
+    send_id: String,
+    input: TurnInput,
+    settings: RuntimeSettings,
+) -> RuntimeOperation {
+    RuntimeOperation::SubmitTurn {
+        thread_id,
+        active_turn_id,
+        send_id,
+        input,
+        settings,
+    }
+}
+
 pub(crate) async fn submit_loaded(
     svc: &ServiceContext,
     session: &Arc<Session>,
@@ -196,20 +235,8 @@ pub(crate) async fn submit_loaded(
     send_id: &str,
     classified: crate::service::messenger::AgentInput,
 ) -> Result<(), DeliveryError> {
-    let rendered = classified.text();
-    let input = match &classified {
-        crate::service::messenger::AgentInput::Launch(_) => TurnInput {
-            text: rendered.into_owned(),
-            attachments: Vec::new(),
-        },
-        crate::service::messenger::AgentInput::Shell(_) => {
-            return Err(before_write(
-                &session.context.lock().tab_id,
-                RuntimeFailure::Refused("shell input cannot target a runtime agent".into()),
-            ))
-        }
-        _ => turn_input(&rendered),
-    };
+    let input = runtime_input(&classified)
+        .map_err(|reason| before_write(&session.context.lock().tab_id, reason))?;
     let context = session.context.lock().clone();
     let tab = context.tab_id.as_str();
     if session.compaction.lock().held(context.epoch) {
@@ -273,13 +300,13 @@ pub(crate) async fn submit_loaded(
     });
     let before_completion = session.completions.lock().sequence();
     let submitted_turn = context.active_turn_id.clone();
-    let operation = RuntimeOperation::SubmitTurn {
-        thread_id: thread.clone(),
-        active_turn_id: context.active_turn_id.clone(),
-        send_id: pending.send_id.clone(),
+    let operation = submit_turn(
+        thread.clone(),
+        context.active_turn_id.clone(),
+        pending.send_id.clone(),
         input,
-        settings: context.settings.clone(),
-    };
+        context.settings.clone(),
+    );
     let starts = svc.runtime_turn_starts(tab, &context.binding_nonce, context.epoch);
     let before_start = starts.sequence();
     let (result, handed_off) = engine::run_submit(svc, session, process, operation).await;
@@ -387,7 +414,7 @@ pub(crate) fn send_envelope(
     token: &str,
     observer: Option<crate::service::messenger::DeliveryWriteObserver>,
 ) -> Result<crate::service::messenger::Delivery, String> {
-    super::envelope_delivery::send(svc, tab, &input.to_message(), token, observer)
+    super::envelope_delivery::send(svc, tab, input, token, observer)
 }
 
 #[cfg(test)]

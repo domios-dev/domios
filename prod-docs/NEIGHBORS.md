@@ -44,10 +44,12 @@ domios account neighbors send FRIENDSHIP_ID --from-pad reply.md --kind answer --
 domios account neighbors delivery-status MESSAGE_ID
 ```
 
-The UI clears its composer when sending. `pending` means no recipient acknowledgment has been confirmed. `delivered` means the receiving installation verified, decrypted and admitted the message to its local gateway, then the server deleted the inbox ciphertext. It does not mean the agent answered. `not_delivered` covers expiry and revoked recipient keys. Check delivery explicitly; no timer polls the relay. A submission that cannot be confirmed remains pending and is never automatically resent.
+The UI clears its composer when sending. `pending` means no recipient acknowledgment has been confirmed. `delivered` means the receiving installation verified, decrypted and admitted the message to its local gateway, then the server deleted the inbox ciphertext. It does not mean the agent answered. `not_delivered` covers expiry and revoked recipient keys. A revoked recipient key retains `reason: key_revoked`, which the sender UI explains. Check delivery explicitly; no timer polls the relay. A submission that cannot be confirmed remains pending and is never automatically resent.
 
-The encrypted payload is at most 8192 bytes including its authentication tag, leaving 8176 UTF-8 bytes for text. A gateway with a smaller input limit refuses an oversized turn instead of placing plaintext in an agent pad. The receiver catches up in commit-time and document-ID order from a durable local cursor. Bad signatures, wrong identities, expired messages and decryption failures are never acknowledged.
+The encrypted payload is at most 8192 bytes including its authentication tag, leaving 8176 UTF-8 bytes for text. A gateway with a smaller input limit refuses an oversized turn instead of placing plaintext in an agent pad. The receiver catches up in commit-time and document-ID order from a durable local cursor. Bad signatures, wrong identities, expired messages and decryption failures are never acknowledged. A local key mismatch preserves the cursor for recovery. Startup reconciles both secure key slots against the server inventory and completes an interrupted rotation. Neighbor bodies remain escaped text and cannot request local attachments or change routing.
+
+A failed receive stream reconnects with fresh authentication from the durable cursor, using at most three bounded recovery attempts. Reception status shows connecting, receiving, reconnecting or stopped. Use **Retry reception** in the channel UI after it stops. The retry resumes receiving; it never resends an uncertain message.
 
 The server stores ciphertext and content-free delivery metadata. Plaintext may appear in the local gateway history, provider session transcript and local delivery stores with user-only permissions. Closing the gateway removes its local pending delivery data under the tab cleanup lifecycle. Native crash dumps remain a residual risk while sensitive data is live in process memory; Neighbor code does not log or upload payloads or private keys.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

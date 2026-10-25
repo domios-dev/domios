@@ -58,6 +58,11 @@ pub trait KeyRegistry: Send + Sync {
     async fn active_key_ids(&self) -> Result<Vec<String>>;
 }
 
+#[async_trait]
+pub trait EnrollmentState: Send + Sync {
+    async fn enable(&self) -> Result<()>;
+}
+
 pub struct InstallationKeys<'a> {
     pub store: &'a dyn KeyStore,
     pub registry: &'a dyn KeyRegistry,
@@ -65,7 +70,92 @@ pub struct InstallationKeys<'a> {
     pub uid: &'a str,
 }
 
+#[async_trait]
+pub trait RecipientKeys: Send + Sync {
+    async fn decrypt_for(
+        &self,
+        envelope: &crate::wire::Envelope,
+        peer: &str,
+    ) -> Result<Zeroizing<String>>;
+}
+
+#[async_trait]
+impl RecipientKeys for PrivateKeys {
+    async fn decrypt_for(
+        &self,
+        envelope: &crate::wire::Envelope,
+        peer: &str,
+    ) -> Result<Zeroizing<String>> {
+        if self.encryption_key_id() != envelope.enc_key_ids.recipient {
+            return Err(Error::LocalKeyUnavailable);
+        }
+        self.decrypt(envelope, peer)
+    }
+}
+
+#[async_trait]
+impl RecipientKeys for InstallationKeys<'_> {
+    async fn decrypt_for(
+        &self,
+        envelope: &crate::wire::Envelope,
+        peer: &str,
+    ) -> Result<Zeroizing<String>> {
+        let active = self.registry.active_key_ids().await?;
+        for slot in [Slot::Candidate, Slot::Current] {
+            if let Some(bytes) = self.store.load(&self.scope, slot).await? {
+                let keys = PrivateKeys::from_storage(&bytes)?;
+                if keys.encryption_key_id() == envelope.enc_key_ids.recipient {
+                    if !active.contains(&keys.verifier_key_id(self.uid)) {
+                        return Err(Error::Revoked);
+                    }
+                    return keys.decrypt(envelope, peer);
+                }
+            }
+        }
+        Err(Error::LocalKeyUnavailable)
+    }
+}
+
 impl InstallationKeys<'_> {
+    pub async fn enroll_and_enable(
+        &self,
+        confirmed: bool,
+        rng: &mut (impl RngCore + CryptoRng),
+        state: &dyn EnrollmentState,
+    ) -> Result<PrivateKeys> {
+        let keys = self.enroll(confirmed, rng).await?;
+        state.enable().await?;
+        Ok(keys)
+    }
+    pub async fn reconcile(&self) -> Result<Option<PrivateKeys>> {
+        let current = self.load().await?;
+        let candidate = self
+            .store
+            .load(&self.scope, Slot::Candidate)
+            .await?
+            .map(|bytes| PrivateKeys::from_storage(&bytes))
+            .transpose()?;
+        let active = self.registry.active_key_ids().await?;
+        if let Some(candidate) = candidate {
+            let id = candidate.verifier_key_id(self.uid);
+            if active.contains(&id) {
+                // Keep the candidate until both the local promotion and server revocation are confirmed.
+                self.store
+                    .save(&self.scope, Slot::Current, candidate.storage_bytes())
+                    .await?;
+                for other in active.iter().filter(|other| *other != &id) {
+                    self.registry.revoke(other).await?;
+                }
+                let confirmed = self.registry.active_key_ids().await?;
+                if confirmed != vec![id] {
+                    return Err(Error::Transport);
+                }
+                self.store.delete(&self.scope, Slot::Candidate).await?;
+                return Ok(Some(candidate));
+            }
+        }
+        Ok(current.filter(|keys| active.contains(&keys.verifier_key_id(self.uid))))
+    }
     pub async fn load(&self) -> Result<Option<PrivateKeys>> {
         self.store
             .load(&self.scope, Slot::Current)
@@ -129,7 +219,6 @@ impl InstallationKeys<'_> {
         replace_others: bool,
         rng: &mut (impl RngCore + CryptoRng),
     ) -> Result<PrivateKeys> {
-        let old = self.load().await?;
         let candidate = match self.store.load(&self.scope, Slot::Candidate).await? {
             Some(bytes) => PrivateKeys::from_storage(&bytes)?,
             None => {
@@ -151,28 +240,28 @@ impl InstallationKeys<'_> {
         if id != candidate.verifier_key_id(self.uid) {
             return Err(Error::InvalidKey);
         }
-        if let Some(old) = old {
-            let old_id = old.verifier_key_id(self.uid);
-            if old_id != id {
-                self.registry.revoke(&old_id).await?;
-            }
-        }
-        self.store
-            .save(&self.scope, Slot::Current, candidate.storage_bytes())
-            .await?;
-        self.store.delete(&self.scope, Slot::Candidate).await?;
-        Ok(candidate)
+        drop(candidate);
+        self.reconcile().await?.ok_or(Error::LocalKeyUnavailable)
     }
 
     pub async fn revoke(&self) -> Result<()> {
+        let mut ids = self.registry.active_key_ids().await?;
         for slot in [Slot::Candidate, Slot::Current] {
             if let Some(bytes) = self.store.load(&self.scope, slot).await? {
                 let keys = PrivateKeys::from_storage(&bytes)?;
-                self.registry
-                    .revoke(&keys.verifier_key_id(self.uid))
-                    .await?;
-                self.store.delete(&self.scope, slot).await?;
+                ids.push(keys.verifier_key_id(self.uid));
             }
+        }
+        ids.sort();
+        ids.dedup();
+        for id in ids {
+            self.registry.revoke(&id).await?;
+        }
+        if !self.registry.active_key_ids().await?.is_empty() {
+            return Err(Error::Transport);
+        }
+        for slot in [Slot::Candidate, Slot::Current] {
+            self.store.delete(&self.scope, slot).await?;
         }
         Ok(())
     }

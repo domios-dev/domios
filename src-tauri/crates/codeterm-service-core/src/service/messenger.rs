@@ -1,6 +1,8 @@
 mod input;
 mod turn_resume;
-pub use input::{AgentInput, FramedDelivery, HumanInput, HumanKeys, LaunchBootstrap};
+pub use input::{
+    AgentInput, FramedDelivery, HumanInput, HumanKeys, InputProvenance, LaunchBootstrap,
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -313,7 +315,11 @@ impl Messenger {
     pub fn routed_frame(&self, body: &str) -> codeterm_wire::domios::DomiosFrame {
         codeterm_wire::domios::DomiosFrame {
             opening_tag: self.build(),
-            body: body.to_string(),
+            body: if self.envelope.from_neighbor.is_some() {
+                input::escape_neighbor_text(body)
+            } else {
+                body.to_string()
+            },
             suffix: self
                 .reply_hint()
                 .map(|hint| format!(" <tip>{hint}</tip>"))
@@ -748,7 +754,13 @@ impl Messenger {
             svc.chatbackend_send(
                 plugin_id,
                 session_id,
-                &AgentInput::Framed(Self::restore_framed_delivery(&marked)?),
+                &AgentInput::Framed(Self::restore_framed_delivery(&marked)?.with_provenance(
+                    if envelope.from_neighbor.is_some() {
+                        InputProvenance::Neighbor
+                    } else {
+                        InputProvenance::Local
+                    },
+                )),
             )
         }) {
             if inserted {
@@ -1061,7 +1073,11 @@ fn inbound_model_context(envelope: &MessageEnvelope, body: &str) -> String {
     }
     codeterm_wire::domios::DomiosFrame {
         opening_tag: domios_opening_tag(&attrs),
-        body: body.to_string(),
+        body: if envelope.from_neighbor.is_some() {
+            input::escape_neighbor_text(body)
+        } else {
+            body.to_string()
+        },
         suffix: String::new(),
     }
     .to_message()

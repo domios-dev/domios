@@ -1,11 +1,11 @@
 mod callable;
 mod gateway;
+mod listener;
 
 use super::storage::Metadata;
 use crate::service::ServiceContext;
 use codeterm_neighbors::{
     adapter::FirebaseTransport,
-    crypto::PrivateKeys,
     keys::{InstallationKeys, KeyRegistry, KeyScope, OsKeyStore},
     permissions::Permission,
     receive::{CursorStore, NeighborTransport, Receiver},
@@ -22,6 +22,7 @@ use zeroize::Zeroizing;
 pub struct NeighborRuntimeCell {
     operations: Mutex<()>,
     listeners: parking_lot::Mutex<HashMap<String, tokio::task::JoinHandle<()>>>,
+    states: parking_lot::Mutex<HashMap<String, codeterm_neighbors::supervisor::ListenerState>>,
     bootstrapped: std::sync::atomic::AtomicBool,
 }
 
@@ -33,6 +34,9 @@ pub enum NeighborRuntimeCommand {
         takeover_confirmed: bool,
     },
     Rotate,
+    Retry {
+        friendship_id: String,
+    },
     Revoke,
     OwnKeys,
     Bind {
@@ -152,18 +156,19 @@ impl ServiceContext {
             match command {
                 NeighborRuntimeCommand::Status => {
                     let settings = metadata.settings().await?;
-                    if !settings.enabled { return Ok(json!({"enrolled":false,"verifier_key_id":null,"bindings":settings.bindings})); }
-                    let keys = lifecycle.load().await?;
+                    let keys = lifecycle.reconcile().await?;
                     let id = keys.map(|keys| keys.verifier_key_id(&transport.uid));
-                    let active = transport.active_key_ids().await?;
-                    Ok(json!({"enrolled":id.as_ref().is_some_and(|id| active.contains(id)),"verifier_key_id":id,"bindings":metadata.settings().await?.bindings}))
+                    let states = self.neighbor_cell().states.lock().clone();
+                    Ok(json!({"enrolled":id.is_some(),"verifier_key_id":id,"bindings":settings.bindings,"listeners":states}))
                 }
                 NeighborRuntimeCommand::Enroll { takeover_confirmed } => {
-                    let keys = lifecycle.enroll(takeover_confirmed, &mut rand::rngs::OsRng).await?;
-                    let mut settings = metadata.settings().await?;
-                    settings.enabled = true;
-                    metadata.save_settings(settings).await?;
+                    let keys = lifecycle.enroll_and_enable(takeover_confirmed, &mut rand::rngs::OsRng, &metadata).await?;
                     Ok(json!({"verifier_key_id":keys.verifier_key_id(&transport.uid)}))
+                }
+                NeighborRuntimeCommand::Retry { friendship_id } => {
+                    if !hex_id(&friendship_id, 64) { return Err(Error::InvalidEnvelope); }
+                    if let Some(task) = self.neighbor_cell().listeners.lock().remove(&friendship_id) { task.abort(); }
+                    Ok(json!({"status":"reconnecting"}))
                 }
                 NeighborRuntimeCommand::Rotate => {
                     self.stop_neighbor_listeners();
@@ -208,7 +213,7 @@ impl ServiceContext {
                 }
                 NeighborRuntimeCommand::DeliveryStatus { message_id } => {
                     if !hex_id(&message_id, 32) { return Err(Error::InvalidEnvelope); }
-                    Ok(json!({"status":transport.delivery_status(&message_id).await?}))
+                    Ok(json!(transport.delivery_status(&message_id).await?))
                 }
             }
         }.await;
@@ -304,8 +309,16 @@ impl ServiceContext {
     }
 
     pub(crate) fn stop_neighbor_listeners(&self) {
-        for (_, listener) in self.neighbor_cell().listeners.lock().drain() {
+        for (friendship, listener) in self.neighbor_cell().listeners.lock().drain() {
             listener.abort();
+            self.neighbor_cell().states.lock().insert(
+                friendship.clone(),
+                codeterm_neighbors::supervisor::ListenerState::Stopped,
+            );
+            self.ui.emit(
+                "neighbor-runtime-status",
+                json!({"friendship_id":friendship,"status":"stopped"}),
+            );
         }
     }
 
@@ -316,8 +329,26 @@ impl ServiceContext {
         metadata: Metadata,
     ) -> Result<(), String> {
         let settings = metadata.settings().await.map_err(|e| e.to_string())?;
-        if !settings.enabled {
+        let recovered = (InstallationKeys {
+            store: &OsKeyStore,
+            registry: transport.as_ref(),
+            scope: scope.clone(),
+            uid: &transport.uid,
+        })
+        .reconcile()
+        .await
+        .map_err(|e| e.to_string())?;
+        if recovered.is_none() {
             return Ok(());
+        }
+        drop(recovered);
+        if !settings.enabled {
+            let mut recovered_settings = settings.clone();
+            recovered_settings.enabled = true;
+            metadata
+                .save_settings(recovered_settings)
+                .await
+                .map_err(|e| e.to_string())?;
         }
         if self
             .neighbor_registry(super::NeighborCommand::List)
@@ -329,26 +360,6 @@ impl ServiceContext {
             self.stop_neighbor_listeners();
             return Ok(());
         }
-        let active = transport
-            .active_key_ids()
-            .await
-            .map_err(|e| e.to_string())?;
-        let Some(keys) = (InstallationKeys {
-            store: &OsKeyStore,
-            registry: transport.as_ref(),
-            scope: scope.clone(),
-            uid: &transport.uid,
-        })
-        .load()
-        .await
-        .map_err(|e| e.to_string())?
-        else {
-            return Ok(());
-        };
-        if !active.contains(&keys.verifier_key_id(&transport.uid)) {
-            return Ok(());
-        }
-        drop(keys);
         for (friendship, tab) in settings.bindings {
             if !hex_id(&friendship, 64) || self.validate_neighbor_gateway(&tab).is_err() {
                 continue;
@@ -365,75 +376,12 @@ impl ServiceContext {
             let metadata = metadata.clone();
             let scope = scope.clone();
             let id = friendship.clone();
-            let reported_id = id.clone();
-            let task = tokio::spawn(async move {
-                let result = service
-                    .listen_neighbor(&transport, scope, metadata, friendship, tab)
-                    .await;
-                if let Err(error) = result {
-                    service.ui.emit("neighbor-runtime-status", json!({"friendship_id":reported_id,"status":"stopped","reason":error.to_string()}));
-                }
-            });
+            let task = tokio::spawn(listener::run(
+                service, transport, scope, metadata, friendship, tab,
+            ));
             listeners.insert(id, task);
         }
         Ok(())
-    }
-
-    async fn listen_neighbor(
-        &self,
-        transport: &FirebaseTransport,
-        scope: KeyScope,
-        metadata: Metadata,
-        friendship: String,
-        tab: String,
-    ) -> codeterm_neighbors::Result<()> {
-        let lifecycle = InstallationKeys {
-            store: &OsKeyStore,
-            registry: transport,
-            scope,
-            uid: &transport.uid,
-        };
-        let cursor = metadata.load(&friendship).await?;
-        let mut listener = transport
-            .listen_from_cursor(&friendship, cursor.as_ref())
-            .await?;
-        let gateway = gateway::Gateway {
-            service: self.clone(),
-            metadata: metadata.clone(),
-            friendship: friendship.clone(),
-            tab,
-        };
-        while let Some(mut messages) = listener.next().await? {
-            let _operation = self.neighbor_cell().operations.lock().await;
-            if self
-                .neighbor_registry(super::NeighborCommand::List)
-                .await
-                .map_err(|_| Error::Transport)?
-                .get("access")
-                .and_then(Value::as_str)
-                != Some("paid")
-            {
-                return Err(Error::Locked);
-            }
-            let keys: PrivateKeys = lifecycle.load().await?.ok_or(Error::Revoked)?;
-            if !transport
-                .active_key_ids()
-                .await?
-                .contains(&keys.verifier_key_id(&transport.uid))
-            {
-                return Err(Error::Revoked);
-            }
-            let mut receiver = Receiver {
-                transport,
-                cursors: &metadata,
-                gateway: &gateway,
-                private_keys: &keys,
-                recipient_uid: &transport.uid,
-                friendship_id: &friendship,
-            };
-            receiver.catch_up(&mut messages, now()).await?;
-        }
-        Err(Error::Transport)
     }
 
     #[cfg(not(any(test, feature = "test-support")))]
@@ -471,9 +419,6 @@ impl ServiceContext {
         };
         let metadata = Metadata::new(self.account_data_root()?, &session.identity.uid);
         let mut settings = metadata.settings().await.map_err(|e| e.to_string())?;
-        if !settings.enabled {
-            return Ok(());
-        }
         let (transport, scope, _) = self.neighbor_ports().await?;
         let keys = InstallationKeys {
             store: &OsKeyStore,

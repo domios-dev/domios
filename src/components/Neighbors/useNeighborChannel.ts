@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import type { ChannelStatus, NeighborPermission, NeighborReceipt, NeighborRuntimeClient } from "./neighborRuntimeClient";
+import type { ChannelStatus, NeighborListenerState, NeighborPermission, NeighborReceipt, NeighborRuntimeClient } from "./neighborRuntimeClient";
 import { receipt } from "./neighborRuntimeClient";
 
 export function useNeighborChannel(owner: string, friendship: string, client: NeighborRuntimeClient) {
   const [status, setStatus] = useState<ChannelStatus | null>(null);
+  const [reception, setReception] = useState<NeighborListenerState>("stopped");
   const [permission, setPermission] = useState<NeighborPermission | null>(null);
   const [receipts, setReceipts] = useState<NeighborReceipt[]>([]);
   const [pending, setPending] = useState(false);
@@ -16,18 +17,31 @@ export function useNeighborChannel(owner: string, friendship: string, client: Ne
     const current = ++generation.current;
     inFlight.current = null;
     const controller = new AbortController();
-    setStatus(null); setPermission(null); setError(null);
+    setStatus(null); setPermission(null); setError(null); setReception("stopped");
     try {
       const stored: unknown = JSON.parse(localStorage.getItem(storageKey) ?? "[]");
       setReceipts(Array.isArray(stored) ? stored.slice(-20).map(receipt) : []);
     } catch { setReceipts([]); }
-    void Promise.all([client.status(controller.signal), client.permission(friendship, controller.signal)])
-      .then(([channel, policy]) => {
-        if (generation.current === current) { setStatus(channel); setPermission(policy); }
-      }).catch(() => {
-        if (generation.current === current && !controller.signal.aborted) setError("Neighbor channel unavailable. Reopen it to try again.");
-      });
-    return () => { generation.current++; controller.abort(); };
+    let unsubscribe: (() => void) | undefined;
+    let observedEvent = false;
+    void client.subscribe(event => {
+      if (generation.current === current && event.friendship_id === friendship) {
+        observedEvent = true; setReception(event.status);
+      }
+    }).then(stop => {
+      if (generation.current !== current) { stop(); return; }
+      unsubscribe = stop;
+      return Promise.all([client.status(controller.signal), client.permission(friendship, controller.signal)])
+        .then(([channel, policy]) => {
+          if (generation.current === current) {
+            setStatus(channel); setPermission(policy);
+            if (!observedEvent) setReception(channel.listeners?.[friendship] ?? "stopped");
+          }
+        });
+    }).catch(() => {
+      if (generation.current === current && !controller.signal.aborted) setError("Neighbor channel unavailable. Retry reception to try again.");
+    });
+    return () => { generation.current++; controller.abort(); unsubscribe?.(); };
   }, [client, friendship, storageKey]);
 
   function save(values: NeighborReceipt[]) {
@@ -59,7 +73,11 @@ export function useNeighborChannel(owner: string, friendship: string, client: Ne
     await run(() => client.send(friendship, body), result => save([...receipts, result]));
   }
   async function check(id: string) {
-    await run(() => client.deliveryStatus(id), status => save(receipts.map(item => item.message_id === id ? { message_id: id, status } : item)));
+    await run(() => client.deliveryStatus(id), result => save(receipts.map(item => item.message_id === id ? { message_id: id, ...result } : item)));
   }
-  return { status, permission, receipts, pending, error, enroll, rotate, send, check };
+  async function retry() {
+    setReception("connecting");
+    await run(async () => { await client.retry(friendship); return client.status(); }, setStatus);
+  }
+  return { reception, retry, status, permission, receipts, pending, error, enroll, rotate, send, check };
 }

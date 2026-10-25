@@ -1,6 +1,8 @@
-use crate::crypto::{encryption_key_id, validate_encryption_spki, verify, PrivateKeys};
+use crate::crypto::{encryption_key_id, validate_encryption_spki, verify};
+use crate::keys::RecipientKeys;
 use crate::wire::{
-    Cursor, DeliveryStatus, InboxDocument, InboxMessage, PeerKeys, SignedEnvelope, Timestamp,
+    Cursor, DeliveryResult, DeliveryStatus, InboxDocument, InboxMessage, PeerKeys, SignedEnvelope,
+    Timestamp,
 };
 use crate::{Error, Result};
 use async_trait::async_trait;
@@ -14,9 +16,9 @@ pub trait NeighborTransport: Send + Sync {
         friendship: &str,
         cursor: Option<&Cursor>,
     ) -> Result<Box<dyn InboxListener>>;
-    async fn ack(&self, sender_uid: &str, message_id: &str) -> Result<DeliveryStatus>;
+    async fn ack(&self, sender_uid: &str, message_id: &str) -> Result<DeliveryResult>;
     async fn peer_keys(&self, friendship: &str) -> Result<PeerKeys>;
-    async fn delivery_status(&self, message_id: &str) -> Result<DeliveryStatus>;
+    async fn delivery_status(&self, message_id: &str) -> Result<DeliveryResult>;
 
     fn verify<'a>(
         &self,
@@ -93,7 +95,7 @@ pub struct Receiver<'a> {
     pub transport: &'a dyn NeighborTransport,
     pub cursors: &'a dyn CursorStore,
     pub gateway: &'a dyn NeighborGateway,
-    pub private_keys: &'a PrivateKeys,
+    pub private_keys: &'a dyn RecipientKeys,
     pub recipient_uid: &'a str,
     pub friendship_id: &'a str,
 }
@@ -132,12 +134,25 @@ impl Receiver<'_> {
             }
         }
         let peers = self.transport.peer_keys(self.friendship_id).await?;
-        let plaintext = self
+        let plaintext = match self
             .transport
             .verify(&message.doc, &peers, self.recipient_uid, now)
-            .and_then(|peer| self.private_keys.decrypt(&message.doc.envelope, peer));
+        {
+            Ok(peer) => {
+                self.private_keys
+                    .decrypt_for(&message.doc.envelope, peer)
+                    .await
+            }
+            Err(reason) => Err(reason),
+        };
         let plaintext = match plaintext {
             Ok(plaintext) => plaintext,
+            Err(
+                reason @ (Error::LocalKeyUnavailable
+                | Error::SecretStore
+                | Error::Transport
+                | Error::Revoked),
+            ) => return Err(reason),
             Err(reason) => {
                 self.cursors.save(self.friendship_id, &cursor).await?;
                 return Ok(ReceiveOutcome::Rejected(reason));
@@ -154,11 +169,11 @@ impl Receiver<'_> {
                 &message.doc.envelope.message_id,
             )
             .await?;
-        if status == DeliveryStatus::Pending {
+        if status.status == DeliveryStatus::Pending {
             return Err(Error::Transport);
         }
         self.cursors.save(self.friendship_id, &cursor).await?;
-        Ok(if status == DeliveryStatus::Delivered {
+        Ok(if status.status == DeliveryStatus::Delivered {
             ReceiveOutcome::Delivered
         } else {
             ReceiveOutcome::NotDelivered

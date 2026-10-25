@@ -171,7 +171,8 @@ pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String
             .is_some_and(|token| token.starts_with("runtime-envelope:"))
         {
             crate::service::messenger::AgentInput::Framed(
-                crate::service::messenger::Messenger::restore_framed_delivery(&text)?,
+                crate::service::messenger::Messenger::restore_framed_delivery(&text)?
+                    .with_provenance(record.input_provenance),
             )
         } else {
             crate::service::messenger::AgentInput::Human(

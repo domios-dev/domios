@@ -70,6 +70,11 @@ pub struct UserSendRecord {
     pub(crate) typed_follow_up: Option<String>,
     #[serde(default)]
     pub(crate) capture_required: bool,
+    #[serde(
+        default,
+        skip_serializing_if = "crate::service::messenger::InputProvenance::is_local"
+    )]
+    pub(crate) input_provenance: crate::service::messenger::InputProvenance,
     original_digest: String,
     original_bytes: usize,
     prepared_digest: String,
@@ -371,6 +376,7 @@ impl UserSendStore {
             handoff_session: None,
             typed_follow_up,
             capture_required: runtime.capture_required,
+            input_provenance: runtime.provenance,
             original_digest: digest(original.as_bytes()),
             original_bytes: original.len(),
             prepared_digest: digest(prepared.as_bytes()),

@@ -5,6 +5,7 @@ pub mod gateway;
 pub mod keys;
 pub mod permissions;
 pub mod receive;
+pub mod supervisor;
 pub mod wire;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -15,6 +16,7 @@ pub enum Error {
     WrongPeer,
     Expired,
     Decryption,
+    LocalKeyUnavailable,
     SecretStore,
     Transport,
     CursorStore,
@@ -34,6 +36,7 @@ impl std::fmt::Display for Error {
             Self::WrongPeer => "Neighbor identity mismatch",
             Self::Expired => "Neighbor message expired",
             Self::Decryption => "Cannot decrypt Neighbor message",
+            Self::LocalKeyUnavailable => "Neighbor recipient key recovery required",
             Self::SecretStore => "Neighbor OS secret store unavailable",
             Self::Transport => "Neighbor transport unavailable",
             Self::CursorStore => "Neighbor cursor storage unavailable",

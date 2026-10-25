@@ -1,8 +1,10 @@
 mod firestore;
+#[cfg(test)]
+mod tests;
 
 use crate::keys::KeyRegistry;
 use crate::receive::{InboxListener, NeighborTransport};
-use crate::wire::{Cursor, DeliveryStatus, PeerKeys, SignedEnvelope};
+use crate::wire::{Cursor, DeliveryResult, DeliveryStatus, PeerKeys, SignedEnvelope};
 use crate::{Error, Result};
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -43,7 +45,7 @@ impl NeighborTransport for FirebaseTransport {
     ) -> Result<Box<dyn InboxListener>> {
         firestore::listen(self, friendship, cursor).await
     }
-    async fn ack(&self, sender_uid: &str, message_id: &str) -> Result<DeliveryStatus> {
+    async fn ack(&self, sender_uid: &str, message_id: &str) -> Result<DeliveryResult> {
         let result = self
             .calls
             .invoke(
@@ -51,8 +53,7 @@ impl NeighborTransport for FirebaseTransport {
                 json!({"sender_uid":sender_uid,"message_id":message_id}),
             )
             .await?;
-        serde_json::from_value(result.get("status").cloned().ok_or(Error::Transport)?)
-            .map_err(|_| Error::Transport)
+        serde_json::from_value(result).map_err(|_| Error::Transport)
     }
     async fn peer_keys(&self, friendship: &str) -> Result<PeerKeys> {
         let body = self
@@ -61,7 +62,7 @@ impl NeighborTransport for FirebaseTransport {
             .await?;
         serde_json::from_value(body).map_err(|_| Error::Transport)
     }
-    async fn delivery_status(&self, message_id: &str) -> Result<DeliveryStatus> {
+    async fn delivery_status(&self, message_id: &str) -> Result<DeliveryResult> {
         let body = self
             .calls
             .invoke(
@@ -69,8 +70,7 @@ impl NeighborTransport for FirebaseTransport {
                 json!({"sender_uid":self.uid,"message_id":message_id}),
             )
             .await?;
-        serde_json::from_value(body.get("status").cloned().ok_or(Error::Transport)?)
-            .map_err(|_| Error::Transport)
+        serde_json::from_value(body).map_err(|_| Error::Transport)
     }
 }
 

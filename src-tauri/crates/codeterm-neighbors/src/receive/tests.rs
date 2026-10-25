@@ -1,5 +1,6 @@
 use super::*;
 use crate::crypto::tests::{recipient, vector};
+use crate::crypto::PrivateKeys;
 use crate::wire::PeerKey;
 use std::sync::Mutex;
 
@@ -54,19 +55,19 @@ impl NeighborTransport for Fixture {
     ) -> Result<Box<dyn InboxListener>> {
         Err(Error::Transport)
     }
-    async fn ack(&self, _: &str, _: &str) -> Result<DeliveryStatus> {
+    async fn ack(&self, _: &str, _: &str) -> Result<DeliveryResult> {
         self.events.lock().unwrap().push("ack");
         if *self.fail_ack.lock().unwrap() {
             Err(Error::Transport)
         } else {
-            Ok(DeliveryStatus::Delivered)
+            Ok(DeliveryStatus::Delivered.into())
         }
     }
     async fn peer_keys(&self, _: &str) -> Result<PeerKeys> {
         Ok(self.peers())
     }
-    async fn delivery_status(&self, _: &str) -> Result<DeliveryStatus> {
-        Ok(DeliveryStatus::Pending)
+    async fn delivery_status(&self, _: &str) -> Result<DeliveryResult> {
+        Ok(DeliveryStatus::Pending.into())
     }
     fn verify<'a>(
         &self,
@@ -259,3 +260,5 @@ fn cursor_order_includes_nanoseconds_and_document_id() {
     };
     assert!(base < same_time && same_time < later);
 }
+
+mod recovery;
