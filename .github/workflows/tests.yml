@@ -2,7 +2,7 @@ name: tests
 
 on:
   push:
-    branches: [master, develop, rename/domios]
+    branches: [master, develop, rename/domios, 'release/**']
   schedule:
     - cron: '17 2 * * *'
     - cron: '17 3 * * *'

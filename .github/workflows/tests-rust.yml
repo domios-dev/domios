@@ -100,12 +100,6 @@ jobs:
           package-manager-cache: false
           node-version: '22.22.0'
       - *cancel-run-on-failure
-      - name: Provide Python for Windows native runtime tests
-        if: runner.os == 'Windows'
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with:
-          python-version: '3.12'
-      - *cancel-run-on-failure
       - name: Prepare runner tool paths
         id: ci-3
         run: node scripts/ci-runner-paths.mjs
