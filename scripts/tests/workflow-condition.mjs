@@ -17,7 +17,7 @@ export function evaluateCondition(expression, { needs = {}, inputs = {}, vars = 
   const variables = new Proxy(vars, { get: (target, key) => target[key] ?? '' });
   return Function('needs', 'steps', 'inputs', 'vars', 'github', 'matrix', 'runner', 'secrets', 'env',
     'startsWith', 'format', 'failure', 'cancelled', 'always', 'fromJSON', 'toJSON', 'contains', 'return (' + source + ')')(
-    needs, steps, inputs, variables, githubContext(github), matrix, runner, secrets, env,
+    new Proxy(needs, { get: (target, key) => target[key] ?? { outputs: {} } }), steps, inputs, variables, githubContext(github), matrix, runner, secrets, env,
     startsWith, format, () => failed, () => cancelled, () => true, JSON.parse, JSON.stringify, (haystack, needle) => haystack.includes(needle));
 }
 
