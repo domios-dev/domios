@@ -4,7 +4,7 @@ import { expect, it, vi } from "vitest";
 import { Sidebar } from "./Sidebar";
 import { Titlebar } from "../Titlebar/Titlebar";
 import { useSidebarViewport } from "../../hooks/useSidebarViewport";
-import type { ThemeConfig } from "../../lib/types";
+import type { AppConfig, ThemeConfig } from "../../lib/types";
 
 vi.mock("../../store/multiplexer", () => ({
   useMultiplexer: () => ({}),
@@ -31,7 +31,7 @@ function Shell() {
   const sidebar = useSidebarViewport();
   return <>
     <Titlebar theme={{} as ThemeConfig} showSidebarToggle onToggleSidebar={sidebar.toggle} />
-    {sidebar.mounted && <Sidebar onCollapse={sidebar.close} />}
+    {sidebar.mounted && <Sidebar onCollapse={sidebar.close} config={{ general_agent: { first_run_complete: true }, agent: { full_access: false }, mesh: { enabled: false } } as AppConfig} />}
   </>;
 }
 
@@ -50,6 +50,7 @@ it("keeps edge clicks open, resizes on drag, and collapses through the existing 
     await act(async () => root.render(<Shell />));
     const edge = host.querySelector<HTMLButtonElement>('[role="separator"][aria-label="Resize sidebar"]')!;
     expect(edge).not.toBeNull();
+    expect(edge.disabled).toBe(false);
     for (const pointerType of ["mouse", "touch"]) {
       for (let count = 0; count < 5; count++) {
         await pointer(edge, "pointerdown", 280, pointerType);

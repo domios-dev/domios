@@ -98,6 +98,8 @@ test("recovery snapshot keeps the detached reader's loaded row visible", async (
   try {
     await act(async () => root.render(createElement(Harness)));
     await act(async () => { await chat?.loadOlder(); });
+    assert.equal(chat?.hiddenMessageCount, 0, "the first click reveals the locally loaded page");
+    await act(async () => { await chat?.loadOlder(); });
     await act(async () => { assert.equal(chat?.prepareMessage("item-50"), true); });
     const detached = host.textContent;
     assert.ok(detached?.includes("answer-50"));
