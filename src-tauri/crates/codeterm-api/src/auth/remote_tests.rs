@@ -392,20 +392,37 @@ async fn tailnet_sign_out_closes_peer_stream_but_preserves_instance_token_stream
     let state = crate::transport_tabs::fixture::app_state(&fixture);
     let peer = signed_peer(&state);
     for token in ["preview-test-token", peer.as_str()] {
-        apply(&state, AccountPresence::SignedIn { account_id: "account".into() });
+        apply(
+            &state,
+            AccountPresence::SignedIn {
+                account_id: "account".into(),
+            },
+        );
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Result<String, std::io::Error>>();
         let rx = std::sync::Arc::new(parking_lot::Mutex::new(Some(rx)));
         let streaming = Router::new()
-            .route("/api/stream", get(move || {
-                let rx = rx.lock().take().unwrap();
-                async move { Body::from_stream(futures_util::stream::unfold(rx, |mut rx| async {
-                    rx.recv().await.map(|item| (item, rx))
-                })) }
-            }))
-            .layer(axum::middleware::from_fn_with_state(state.clone(), auth_middleware))
-            .layer(axum::middleware::from_fn_with_state(state.clone(), remote::middleware));
+            .route(
+                "/api/stream",
+                get(move || {
+                    let rx = rx.lock().take().unwrap();
+                    async move {
+                        Body::from_stream(futures_util::stream::unfold(rx, |mut rx| async {
+                            rx.recv().await.map(|item| (item, rx))
+                        }))
+                    }
+                }),
+            )
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            ))
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                remote::middleware,
+            ));
         let mut req = request("/api/stream", "100.64.0.2:9000", token);
-        req.extensions_mut().insert(codeterm_service_core::service::account_mesh::tailnet::TailnetListener);
+        req.extensions_mut()
+            .insert(codeterm_service_core::service::account_mesh::tailnet::TailnetListener);
         let response = streaming.oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         let mut stream = response.into_body().into_data_stream();
@@ -413,7 +430,12 @@ async fn tailnet_sign_out_closes_peer_stream_but_preserves_instance_token_stream
         assert_eq!(stream.next().await.unwrap().unwrap(), "before");
         apply(&state, AccountPresence::SignedOut);
         if token == peer {
-            assert!(tokio::time::timeout(std::time::Duration::from_secs(1), stream.next()).await.unwrap().is_none());
+            assert!(
+                tokio::time::timeout(std::time::Duration::from_secs(1), stream.next())
+                    .await
+                    .unwrap()
+                    .is_none()
+            );
         } else {
             tx.send(Ok("after".into())).unwrap();
             assert_eq!(stream.next().await.unwrap().unwrap(), "after");
