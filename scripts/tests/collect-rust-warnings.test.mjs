@@ -1,3 +1,4 @@
+import { condition } from './workflow-condition.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -97,8 +98,20 @@ test('every active release compiler, Rust test and clippy job uploads through th
     assert.ok(workflow(tier).jobs[id].steps.some(s => s.uses === './.github/actions/rust-warnings'), id);
   }
   assert.deepEqual(workflow('release').jobs['rust-warnings'].needs, ['prepare', 'macos-arm64', 'macos-x64', 'linux-arm64', 'linux-x86_64', 'windows-x64', 'windows-arm64']);
-  assert.equal(workflow('release').jobs['rust-warnings'].if, "always() && needs.prepare.outputs.promote_run_id == ''");
-  assert.equal(workflow('tests').jobs['rust-warnings'].if, "${{ always() && inputs.source_ref == '' && needs.fast.outputs.heavy != '' }}");
+  const report = workflow('release').jobs['rust-warnings'];
+  for (const result of ['success', 'failure', 'cancelled', 'skipped']) {
+    for (const promote_run_id of ['', '41']) {
+      assert.equal(condition(report.if, { needs: { prepare: { result, outputs: { promote_run_id } } } }),
+        result === 'success' && promote_run_id === '', result + '/' + promote_run_id);
+    }
+  }
+  const summary = workflow('tests').jobs['rust-warnings'];
+  for (const event_name of ['push', 'schedule']) {
+    for (const heavy of ['', 'true', 'false']) {
+      assert.equal(condition(summary.if, { github: { event_name }, inputs: { source_ref: '' },
+        needs: { fast: { outputs: { heavy } } } }), heavy !== '', event_name + '/' + heavy);
+    }
+  }
 });
 
 test('summary CLI persists a complete seed, preserves unbuilt targets, reports a new warning before failing', () => {
