@@ -377,7 +377,10 @@ pub(super) fn dispatch(
                             .get("intent")
                             .and_then(|v| v.as_str())
                             .map(str::to_string),
-                        execution_intent: execution_intent_field(Some(body))?,
+                        execution_intent: execution_intent_field(
+                            Some(body),
+                            Some(project.as_str()),
+                        )?,
                         competition: super::plan_competition::metadata_field(p)?,
                         depends_on: dependency_vec_field(p)?.unwrap_or_default(),
                         assigned_tab_id: assign_tab.clone(),
@@ -519,7 +522,10 @@ pub(super) fn dispatch(
                             .and_then(|x| x.get("intent"))
                             .and_then(|v| v.as_str())
                             .map(|s| s.to_string()),
-                        execution_intent: execution_intent_field(p)?,
+                        execution_intent: execution_intent_field(
+                            p,
+                            store.get(&id).map(|plan| plan.project_path).as_deref(),
+                        )?,
                         parent_task_id: p
                             .and_then(|x| x.get("parent"))
                             .and_then(|v| v.as_str())
