@@ -11,6 +11,9 @@ members = ["crates/codeterm-process-identity", "crates/codeterm-paths", "crates/
 exclude = ["pty-fork", "vendor/tauri-runtime-wry"]
 resolver = "2"
 
+[workspace.package]
+license = "AGPL-3.0-only"
+
 [workspace.lints.rust]
 warnings = "deny"
 

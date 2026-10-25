@@ -1,4 +1,5 @@
 {
+  "license": "Apache-2.0",
   "id": "codex",
   "version": "1.14.54",
   "minCodeterm": "1.15.2",
