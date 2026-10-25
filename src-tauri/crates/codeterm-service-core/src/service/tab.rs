@@ -194,7 +194,14 @@ impl ServiceContext {
         self.remote_workers.forget_orchestrator(tab_id);
         self.forget_receiver_targets_for_tab(tab_id);
         self.dispose_closed_surface_runtimes();
-        pad_result
+        let payload_result = if self.mux.read().get_tab(tab_id).is_none() {
+            self.pending_delivery_payloads
+                .user_sends
+                .purge_closed_tab(tab_id)
+        } else {
+            Ok(())
+        };
+        payload_result.and(pad_result)
     }
 
     /// True when `tab_id` is a coordinator (Orchestrator role, plan owner, or
@@ -383,7 +390,7 @@ impl ServiceContext {
         if let Some(provider_id) = provider_id {
             self.release_tab_launch_artifacts(&canonical_tab_id, &provider_id);
         }
-        self.finish_tab_close(tab_id)?;
+        self.finish_tab_close(&canonical_tab_id)?;
         self.retire_public_send_launch(&canonical_tab_id);
         self.reap_orphaned_startup_teams();
         let resolved = {

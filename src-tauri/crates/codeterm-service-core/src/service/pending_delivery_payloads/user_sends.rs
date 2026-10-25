@@ -22,6 +22,7 @@ pub(crate) mod ended_launch;
 mod handoff;
 mod ready_launch;
 mod reservations;
+pub(crate) mod retention;
 pub(crate) mod runtime_questions;
 use admission_tokens::{AdmissionTokens, TokenEntry};
 use ready_launch::ReadyLaunchLatch;
@@ -134,6 +135,7 @@ pub(crate) struct UserTab {
     admissions: Mutex<Reservations>,
     unsettled: AtomicUsize,
     pub(crate) revoked: AtomicBool,
+    purged: AtomicBool,
     pub(crate) failed: AtomicBool,
     pub(crate) running: AtomicBool,
     pub(crate) pty_drain: Mutex<()>,
@@ -226,6 +228,7 @@ impl UserSendStore {
                     admissions: Mutex::new(Reservations::default()),
                     unsettled: AtomicUsize::new(0),
                     revoked: AtomicBool::new(false),
+                    purged: AtomicBool::new(false),
                     failed: AtomicBool::new(false),
                     running: AtomicBool::new(false),
                     pty_drain: Mutex::new(()),
@@ -744,6 +747,9 @@ impl UserSendStore {
         tab: &UserTab,
         data: &'a mut Option<LoadedIndex>,
     ) -> Result<&'a mut LoadedIndex, String> {
+        if tab.purged.load(Ordering::Acquire) {
+            return Err("closed tab user payloads were purged".into());
+        }
         if data.is_none() {
             {
                 let mut initialized = self.root_initialized.lock();
