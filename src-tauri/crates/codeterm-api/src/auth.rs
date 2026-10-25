@@ -214,6 +214,9 @@ fn is_graph_event_path(method: &Method, path: &str) -> bool {
 }
 
 pub(crate) fn is_inbound_webhook_path(method: &Method, path: &str) -> bool {
+    if method == Method::POST && crate::blueprint_webhook_routes::is_ingress(path) {
+        return true;
+    }
     method == Method::POST
         && matches!(
             path,

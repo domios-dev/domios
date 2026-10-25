@@ -809,6 +809,14 @@ pub(super) fn create_router_with_preview_admission(
             post(inbound_webhook::ci::receive),
         )
         .route(
+            "/api/blueprints/{id}/webhook",
+            post(crate::blueprint_webhook_routes::receive),
+        )
+        .route(
+            "/api/blueprints/{id}/webhook/configure",
+            post(crate::blueprint_webhook_routes::configure),
+        )
+        .route(
             codeterm_service_core::service::web_access::PEBBLE_WEBHOOK_PATH,
             post(inbound_webhook::receive_pebble_webhook).layer(
                 axum::extract::DefaultBodyLimit::max(inbound_webhook::MAX_WEBHOOK_REQUEST_BYTES),
