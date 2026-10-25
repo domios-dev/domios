@@ -110,8 +110,7 @@ jobs:
           CI_FAST_ONLY: ${{ github.event_name == 'pull_request' }}
         run: node scripts/ci-scope.mjs HEAD^ HEAD
 
-  # The cheapest, most frequent failures surface first: one job, one checkout, every guard
-  # reported, and it gates every other fast check so a single light runner orders them.
+  # Guards remain required by the reusable tier while sibling checks run in parallel.
   guards:
     name: guards
     needs: changed
@@ -207,7 +206,7 @@ jobs:
 
   plugins:
     name: plugin (${{ matrix.plugin.id }})
-    needs: [changed, guards]
+    needs: changed
     if: ${{ needs.changed.outputs.plugins != '[]' }}
     runs-on: [self-hosted, linux-ci]
     permissions:
@@ -243,7 +242,7 @@ jobs:
 
   clippy-linux:
     name: clippy (linux)
-    needs: [changed, guards]
+    needs: changed
     if: ${{ needs.changed.outputs.heavy == 'true' }}
     runs-on: [self-hosted, linux-ci]
     permissions:
@@ -308,7 +307,7 @@ jobs:
   # CLI contracts (transport rows, help text, generated manifest, essence map) fail in minutes here, not in the Rust tier.
   cli-tests:
     name: cli tests
-    needs: [changed, guards]
+    needs: changed
     if: ${{ needs.changed.outputs.heavy == 'true' }}
     runs-on: [self-hosted, linux-ci]
     permissions:
@@ -349,7 +348,7 @@ jobs:
 
   ts-static:
     name: ts static checks
-    needs: [changed, guards]
+    needs: changed
     if: ${{ needs.changed.outputs.frontend == 'true' }}
     runs-on: [self-hosted, light]
     permissions:
@@ -399,7 +398,7 @@ jobs:
   # workspace symlink can give one file two identities; nothing else runs from there.
   frontend-windows:
     name: frontend (Windows, stable path)
-    needs: [changed, guards]
+    needs: changed
     if: ${{ needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true' }}
     runs-on: [self-hosted, Windows, windows-light]
     permissions:
@@ -426,6 +425,14 @@ jobs:
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
 
+      - name: Restore incremental Windows typecheck
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: node_modules/.cache/codeterm-types.tsbuildinfo
+          key: windows-frontend-types-v1-${{ runner.name }}-node22-pnpm10-${{ hashFiles('pnpm-lock.yaml', 'tsconfig*.json') }}-${{ inputs.source_ref || github.sha }}
+          restore-keys: |
+            windows-frontend-types-v1-${{ runner.name }}-node22-pnpm10-${{ hashFiles('pnpm-lock.yaml', 'tsconfig*.json') }}-
+
       - *select-pr-catalogue
       # frontend-build installs through the bundle's own ensure_deps, from the mapped path.
       - name: Build the release frontend from the stable build path
@@ -441,7 +448,7 @@ jobs:
 
   ts-types:
     name: ts generated types
-    needs: [changed, guards]
+    needs: changed
     if: ${{ needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true' }}
     runs-on: [self-hosted, light]
     permissions:
@@ -499,7 +506,7 @@ jobs:
 
   ts-unit:
     name: ts unit
-    needs: [changed, guards]
+    needs: changed
     if: ${{ needs.changed.outputs.frontend == 'true' }}
     runs-on: [self-hosted, light]
     permissions:
@@ -536,7 +543,7 @@ jobs:
 
   ts-vitest:
     name: ts vitest
-    needs: [changed, guards]
+    needs: changed
     if: ${{ needs.changed.outputs.frontend == 'true' }}
     runs-on: [self-hosted, light]
     permissions:
@@ -573,7 +580,7 @@ jobs:
 
   ts-plugins:
     name: plugin bundles + tests
-    needs: [changed, guards]
+    needs: changed
     if: ${{ needs.changed.outputs.rust == 'true' }}
     runs-on: [self-hosted, light]
     permissions:
