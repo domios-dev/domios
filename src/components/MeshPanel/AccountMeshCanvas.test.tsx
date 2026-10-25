@@ -62,15 +62,20 @@ describe("Account machines on the Mesh canvas", () => {
     expect(view.kind === "account" && view.notes.join(" ")).not.toMatch(/unavailable/i);
   });
 
-  it("projects refused enrollment with occupying machines locked and removable", () => {
+  it("projects refused enrollment with occupying machines normal, offering plans and removal", () => {
     const state = snapshot({ self: null, traffic: "plan_limit_locked", enrollment: "refused", last_refusal: { reason: "mesh.machines", limit: 2, active_count: 2 }, registry: { observed_at: NOW, rows: [macRow, lenovoRow] } });
     const view = myMachinesView({ account: "signed_in", snapshot: state, linking: new Set(), now: NOW });
     expect(view.kind === "account" && view.machineLimit).toEqual({ limit: 2, activeCount: 2 });
     const canvas = model("signed_in", state);
     expect(canvas.card).toBeNull();
     expect(canvas.nodes.map((row) => [row.name, row.locked, row.action?.kind, row.row.controls.add, row.row.controls.revoke])).toEqual([
-      ["MacBook", true, "plans", null, targetOf(macRow)], ["Lenovo", true, "plans", null, targetOf(lenovoRow)],
+      ["MacBook", false, "plans", null, targetOf(macRow)], ["Lenovo", false, "plans", null, targetOf(lenovoRow)],
     ]);
+    expect(canvas.nodes.map((row) => [row.status, row.detail])).toEqual([
+      ["Not connected", "Not connected"], ["Not connected", "Not connected"],
+    ]);
+    const paired = model("signed_in", { ...state, pairs: [pair("mesh-mac", "MacBook", { installation_id: macRow.installation_id })] }, { peers: [peer("mesh-mac", "MacBook")] });
+    expect(paired.peerFooters.get("mesh-mac")).toMatchObject({ status: "Connected", locked: false, plans: true });
     expect(model("signed_out", state).nodes).toEqual([]);
     expect(model("signed_in", snapshot()).nodes.every((row) => !row.locked)).toBe(true);
   });
@@ -198,6 +203,10 @@ describe("Mesh canvas wiring", () => {
     expect(node("MacBook")).not.toBeNull();
     expect(node("Lenovo")).not.toBeNull();
     expect(button("Connect MacBook")).toBeNull();
+    expect(button("Connect Lenovo")).toBeNull();
+    await click(button("See plans for MacBook"));
+    expect(freeLimitGate.current()).toEqual({ key: "mesh.machines", requestId: `row:${macRow.installation_id}`, limit: 2, activeCount: 2 });
+    freeLimitGate.close();
     expect(client.revokeCalls).toEqual([]);
     const textButton = (label: string) => [...paywall!.querySelectorAll<HTMLButtonElement>("button")].find((element) => element.textContent === label) ?? null;
     await click(textButton("See plans"));
