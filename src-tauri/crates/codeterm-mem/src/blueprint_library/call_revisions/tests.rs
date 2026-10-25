@@ -314,7 +314,7 @@ fn blueprint_v2_call_transitive_snapshot_drift_cannot_evade_parent_pin() {
 }
 #[test]
 fn blueprint_v2_call_immutable_revision_survives_merge_dream_and_reopen() {
-    let directory = tempfile::tempdir().unwrap();
+    let directory = crate::test_support::offline_directory();
     let (callee_id, pinned, caller_id) = {
         let mem = MemManager::open_offline(directory.path()).unwrap();
         let callee = save(&mem, callable(8));
@@ -407,7 +407,7 @@ fn catalog_caller() -> Document {
 }
 #[test]
 fn blueprint_v2_call_catalog_uses_shared_scoped_immutable_pin_store() {
-    let directory = tempfile::tempdir().unwrap();
+    let directory = crate::test_support::offline_directory();
     let frozen = {
         let mem = MemManager::open_offline(directory.path()).unwrap();
         let frozen = mem

@@ -73,7 +73,7 @@ impl MemManager {
             items: self.reembed_item_targets(conn)?.len() as u64,
             entities: self.reembed_entity_targets(conn)?.len() as u64,
             docs: if self.docs_dir.is_some() {
-                crate::docs_source::vector_section_count() as u64
+                self.docs_sections().len() as u64
             } else {
                 0
             },
@@ -216,10 +216,13 @@ impl MemManager {
             return;
         };
         let embedder = self.embedder.clone();
+        let sections = self.docs_sections().to_vec();
         let spawned = std::thread::Builder::new()
             .name("docs-vector-build".into())
             .spawn(move || {
-                if let Err(error) = crate::docs_source::reembed_vectors(&data_dir, &embedder) {
+                if let Err(error) =
+                    crate::docs_source::reembed_vectors(&data_dir, &embedder, &sections)
+                {
                     log::warn!("[docs.vectors] rebuild failed: {error}");
                 }
             });
