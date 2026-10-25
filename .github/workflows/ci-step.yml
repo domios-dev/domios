@@ -32,11 +32,11 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: ci-step-${{ inputs.runner }}-${{ inputs.recipe }}-${{ inputs.target }}-${{ inputs.filter }}
+  group: ci-step-${{ inputs.runner }}-${{ inputs.recipe }}-${{ inputs.target }}-${{ github.run_id }}
   cancel-in-progress: true
 jobs:
   step:
-    name: ${{ inputs.recipe }} ${{ inputs.target }} ${{ inputs.filter }} on ${{ inputs.runner }}
+    name: ${{ inputs.recipe }} ${{ inputs.target }} on ${{ inputs.runner }}
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' }}
     environment: ${{ inputs.runner != 'hosted-linux' && 'ci' || '' }}
     runs-on: ${{ fromJSON('{"air-macos":["self-hosted","macOS","rust-shard","host-air"],"ubunta-build":["self-hosted","Linux","linux-build","host-ubunta"],"rog-windows":["self-hosted","Windows","host-rog","windows-build"],"hosted-linux":"ubuntu-24.04"}')[inputs.runner] }}
