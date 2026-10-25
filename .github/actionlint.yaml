@@ -10,3 +10,7 @@ self-hosted-runner:
     - windows-x64-build
     - rust-tests
     - windows-light
+    - host-air
+    - host-blackstar
+    - host-rog
+    - host-ubunta

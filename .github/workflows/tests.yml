@@ -81,7 +81,6 @@ jobs:
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
-      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
@@ -91,6 +90,8 @@ jobs:
           package-manager-cache: false
           node-version: '22.22.0'
       - name: Fetch executed Rust receipts
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: bash scripts/ci-artifact.sh get-prefix "$GITHUB_RUN_ID/rust-receipt/" qualification-rust
       - name: Record green qualification for this SHA
         env:
