@@ -83,13 +83,25 @@ fn with_run_close(
 
 pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
     let run_id = lease
-        .job
-        .admission
-        .continuation
+        .event
         .as_ref()
-        .and_then(|saved| saved.get("run_id"))
-        .and_then(serde_json::Value::as_str)
-        .map(str::to_string)
+        .filter(|_| {
+            matches!(
+                lease.job.pipeline().map(|spec| &spec.trigger),
+                Some(blueprint_pipeline::Trigger::Webhook { .. })
+            )
+        })
+        .map(|event| event.event_id.clone())
+        .or_else(|| {
+            lease
+                .job
+                .admission
+                .continuation
+                .as_ref()
+                .and_then(|saved| saved.get("run_id"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        })
         .unwrap_or_else(|| uuid::Uuid::new_v4().simple().to_string());
     let stop_command = std::cell::Cell::new(false);
     with_run_close(
@@ -289,7 +301,18 @@ fn run_pipeline(
         Some(saved) => saved.prepared_input(),
         None => prepare_input(handle, lease, spec, run_id),
     };
-    let mut envelope = if let Some(kind) = input_kind.filter(|kind| *kind != MediaKind::Text) {
+    let mut envelope = if matches!(&spec.trigger, blueprint_pipeline::Trigger::Webhook { .. }) {
+        ExecutionEnvelope {
+            media: "json".into(),
+            schema_id: None,
+            value: lease
+                .event
+                .as_ref()
+                .map(|event| event.payload.clone())
+                .unwrap_or_default(),
+            text: String::new(),
+        }
+    } else if let Some(kind) = input_kind.filter(|kind| *kind != MediaKind::Text) {
         ExecutionEnvelope {
             media: kind.as_str().into(),
             schema_id: None,

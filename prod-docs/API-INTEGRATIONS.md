@@ -2,6 +2,14 @@
 
 REST endpoints for bridges, setup hooks, cron, and external integrations.
 
+#### Blueprint webhooks
+| Method | Path | Body / Query | Description |
+|--------|------|------|-------------|
+| POST | `/api/blueprints/{id}/webhook` | JSON body | Per-graph Bearer or raw-body HMAC authentication; API token is not accepted. Returns `{ok, duplicate, run_id}`. |
+| POST | `/api/blueprints/{id}/webhook/configure` | `{caller_tab_id, session_binding_nonce?, action, reveal?}` | Local authenticated caller; action is `enable`, `rotate`, `disable` or `show-url`. Only explicit reveal on enable/rotate returns the new secret. |
+
+Ingress requires `application/json`, caps reads at 1 MiB, and refuses JSON deeper than 32 or exceeding the typed 32 KiB envelope. Missing/wrong credentials return 401; unavailable graph/secret returns 404; invalid JSON/schema returns 400, media type 415, size 413, busy 409 and rate limits 429. `X-Delivery-Id` / `X-GitHub-Delivery` deduplicates for ten minutes in bounded memory. `X-Hub-Signature-256` authenticates raw bytes; optional signed `X-Webhook-Timestamp` has five-minute tolerance. See `domios docs BLUEPRINTS` for signing, limits and the threat model. Same API listener; public callers need a tunnel.
+
 #### Bridge (Telegram / External Services)
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
@@ -84,7 +92,7 @@ Returns `{"ok": true}`, or `503` when the bridge is not active.
 
 **Plugin contract.** The receiver's synchronous `webhookReceive({payload, receivedAt, audio?})` runs on a blocking thread and returns `{text, eventId?, transcript?}`, `null`, or throws. `audio` is `{mediaType, size}` metadata only; the bytes never enter the plugin. `transcript` is the sender's own transcript, which the host renders labelled (see *Audio*).
 
-**CoreApp format.** Pebble sends `multipart/form-data` with `transcription`, `recordedAt` (epoch ms), and `client`; test events add `test`, and a recording is an `audio` file part (`audio/mp4`). Send `recording + transcription` to an audio-capable receiver and the transcription only to a text-only one; configure only the Authorization header. Text parts reach the plugin as a JSON object; duplicate names and invalid UTF-8 are rejected; forms allow 16 parts and 64 KiB per text part; other file parts are skipped unsaved. Source: [Pebble webhook format](https://help.repebble.com/en/articles/15724406-index-advanced-features-mcp-webhook).
+**CoreApp format.** Pebble sends `multipart/form-data` with `transcription`, `recordedAt` (epoch ms), and `client`; test events add `test`, and a recording is an `audio` file part (`audio/mp4`). Audio receivers get recording plus transcription; text-only receivers get transcription. Text parts reach the plugin as a JSON object; duplicate names and invalid UTF-8 are rejected; forms allow 16 parts and 64 KiB per text part; other file parts are skipped unsaved.
 
 **Audio.** A receiver opts in with `capabilities.webhookReceiver.audio: true`;
 the host branches only on that normalized flag. The route authenticates from the
@@ -180,9 +188,9 @@ Recurring schedules must contain exactly five fields and have a fire time within
 
 **Hidden spawn:** cron runs no longer create visible tabs. Each run spawns a **hidden tab**; observe progress via the cron tabl / `cron_read_log`, not as a regular tab. A prompt that blocks the run reaches its creator tab when one is recorded, otherwise it notifies the user. Completed oneshot jobs are removed while their run history remains available by job ID. When done, the agent calls `domios cron complete --run-id UUID` (socket method `cron.complete`). Logs are saved to `~/.domios/crons/<job_id>/<run_id>.log` with SUMMARY and RAW OUTPUT sections.
 
-**Workspace and Team resolution:** The CLI `cron create` command resolves the workspace the same way `domios workspace current` does — the calling tab's own workspace, then a validated `$CODETERM_WORKSPACE_ID`, then the focused workspace. A live Team caller's job inherits that Team unless `--no-team` is explicit. Override placement with `--workspace ID` or the membership-checked `--team ID`. Closing a workspace deletes its cron jobs, run history, and log directories. **Updating cron jobs:** Use `PUT /api/crons/:id` (CLI: `domios cron edit ID`) to modify a cron job in-place. Do NOT delete and recreate -- that loses run history and changes the ID. **Deleting a cron job** cascades: kills all running tabs/PTYs for that job, closes their tabs, and removes the entire log directory (`~/.domios/crons/<job_id>/`).
+**Placement and lifecycle:** Cron placement resolves caller workspace, validated workspace environment, then focus; live Team callers inherit their Team unless `--no-team`. Override with `--workspace` or membership-checked `--team`. Edit via `PUT /api/crons/:id` to preserve identity/history. Deleting a job kills its active tabs and removes logs; closing its workspace deletes its jobs and history. See `domios docs CONFIG`.
 
-**CLI.** Use Domios cron, never a provider's built-in scheduler: `domios cron create <meaningful-name> --schedule S --task T [--cwd P] [--once]`, then `cron list|edit|enable|disable|trigger|cancel|history|delete ID`. Name a cron by what it does, such as `review-todos`. Every run prompt gets the `domios cron complete --run-id UUID --summary "..."` instruction appended; completing the run closes its ephemeral run tab. Successful runs notify nobody; a spawn failure, the second consecutive failed run and an auto-disable do. The sidebar cron tree shows runs and the next fire time; clicking a finished run opens its log viewer.
+**CLI:** Use `domios cron create <name> --schedule S --task T`, then `cron list|edit|enable|disable|trigger|cancel|history|delete ID`. Each run receives its completion instruction. Success is silent; spawn failures, second consecutive failures and auto-disable notify. Finished runs open their logs from the sidebar.
 
 **Tauri events:** `cron-state-changed` on any cron CRUD operation; `cron-fired` when a cron fires, payload `{cron_id, run_id, tab_id, tab_id}`.
 
@@ -208,4 +216,4 @@ Recurring schedules must contain exactly five fields and have a fire time within
 
 Service registration, health, usage, logs, and activity: `domios docs API-SERVICES`. Notifications and webhooks: `domios docs API-TABS`. Secret storage and updates: `domios docs API-STATE`.
 
-<!-- revision: 34 -->
+<!-- revision: 35 -->

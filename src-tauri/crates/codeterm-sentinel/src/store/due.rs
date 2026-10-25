@@ -97,6 +97,7 @@ pub fn plan_due(
                 matches!(
                     &pipeline.trigger,
                     codeterm_blueprint_types::blueprint_pipeline::Trigger::Event { .. }
+                        | codeterm_blueprint_types::blueprint_pipeline::Trigger::Webhook { .. }
                 )
             })
         {

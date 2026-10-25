@@ -9,7 +9,9 @@ The CLI socket needs no TCP. Unix peer credentials or Windows process-token SID 
 
 Socket/mesh envelopes require `protocol_version`; older or versionless clients get `-32002`. Wire: `API-TRANSPORT`; peer notice routes: `MESH`.
 
-Human `domios workspace list` shows authoritative topology in creation order; `domios tab inspect <id>` inspects one tab (whole-list JSON is automation-only). `workspace current --json` returns `{ "id", "source" }`; sources, in resolution order: `explicit` (`--workspace`), `caller-tab` (`$CODETERM_TAB_ID` membership), `workspace-env` (validated `$CODETERM_WORKSPACE_ID`), `focus-fallback` (active workspace). No match: exit 1, empty stdout (`--json` writes the error to stdout).
+Human `domios workspace list` shows ordered topology; `tab inspect <id>` inspects one tab. `workspace current --json` returns `{id, source}`, resolving explicit placement, caller tab, validated workspace environment, then focus. No match exits 1; JSON errors go to stdout.
+
+POST `/api/blueprints/{id}/webhook` uses a per-graph secret; POST `/api/blueprints/{id}/webhook/configure` manages its lifecycle for a local authenticated caller. Signing, limits and payload rules: `domios docs API-INTEGRATIONS` and `domios docs BLUEPRINTS`.
 
 ## REST API
 Base: `http://<host>:7685/api`.
@@ -41,7 +43,7 @@ Config readback exposes actual and configured listener state through `api_listen
 
 #### CI failure events
 
-POST `/api/ci/webhook` uses a dedicated Bearer credential from the secret-store entry `ci-webhook`, a JSON registration `{token, repo, plan}`. It accepts `{repo, run, attempt, sha, job, step, test, exit, log_url}`; `test` and `exit` may be null when unavailable. Run and attempt are positive decimal strings, SHA is 40 hex characters, and the log URL must name that repository/run/attempt on GitHub. Authenticated events route one message and notification to the registered plan's live, session-verified Orchestrator. Missing owners fail delivery; events never fall back to another tab. Duplicate repository/run/attempt/job events are suppressed by the gateway's bounded process-local cache. Requests are capped at 16 KiB and retain the API's Tailnet access restrictions.
+POST `/api/ci/webhook` uses its dedicated secret-store registration and routes authenticated failures to the registered live Orchestrator. Schema, deduplication and limits: `domios docs API-INTEGRATIONS`.
 
 #### Startup readiness
 
@@ -76,7 +78,7 @@ Local account routes refuse Mesh callers. POST `/api/account/mesh/session-revoke
 
 REST listener lifecycle and recovery: MESH, *Local REST availability*. REST chat/transcript routes parse a bounded 4 MiB tail.
 
-Saved solution show returns a bounded, credential-redacted `document` and recursive `expanded_calls: [{node, pin: {id, hash}, graph, children}]`, matching applied Blueprint graph expansion. Each node's `call.ref` identifies the authored reference. Missing, corrupt or foreign-scope pinned revisions produce `{node, pin, graph: null, children: [], unavailable: "pinned_revision_unavailable"}` without failing the response. Expansion limits are eight call levels, 64 call entries and 256 KiB of callee documents; an exceeded depth or byte budget produces `unavailable: "budget_exhausted"`. Callees use the saved solution's recorded Team/workspace, never current callee heads. Archived or foreign-workspace root IDs are refused, as are peer-origin requests.
+Saved solution show returns a credential-redacted `document` and recursive `expanded_calls: [{node, pin: {id, hash}, graph, children}]` under the saved scope and exact hashes. Missing/corrupt/foreign pins expose `pinned_revision_unavailable`; limits of eight levels, 64 calls and 256 KiB expose `budget_exhausted`. Archived/foreign roots and peer-origin requests refuse.
 
 #### Workspaces
 | Method | Path | Body | Description |
@@ -190,4 +192,4 @@ A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or `c
 
 Related: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-INTEGRATIONS`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, `TELEGRAM-SETUP`. Analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 229 -->
+<!-- revision: 230 -->

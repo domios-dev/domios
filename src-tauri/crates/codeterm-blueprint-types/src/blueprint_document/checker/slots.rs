@@ -55,6 +55,7 @@ pub(super) fn forms(node: &Node) -> Vec<(String, &ValueForm)> {
 }
 pub(super) fn trigger_forms(trigger: &Trigger) -> Vec<(String, &ValueForm)> {
     match trigger {
+        Trigger::Webhook { .. } => vec![],
         Trigger::Schedule { every } => vec![("every".into(), every)],
         Trigger::Event { kind, params } => std::iter::once(("kind".into(), kind))
             .chain(params.iter().map(|(k, v)| (format!("params.{k}"), v)))
