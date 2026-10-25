@@ -1,4 +1,6 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(feature = "embeddings")]
+use std::path::PathBuf;
 use std::sync::OnceLock;
 
 pub(crate) fn seed_schema(data_dir: &Path) {
@@ -30,6 +32,7 @@ pub(crate) fn offline_directory() -> tempfile::TempDir {
     directory
 }
 
+#[cfg(feature = "embeddings")]
 pub(crate) fn fixture_manifest_dir() -> &'static Path {
     static DIRECTORY: OnceLock<PathBuf> = OnceLock::new();
     DIRECTORY.get_or_init(|| {
