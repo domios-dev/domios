@@ -1,5 +1,4 @@
 {
-  "license": "Apache-2.0",
   "id": "browser",
   "version": "1.12.4",
   "minCodeterm": "1.15.2",

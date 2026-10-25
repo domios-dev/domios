@@ -1,5 +1,4 @@
 {
-  "license": "Apache-2.0",
   "id": "claude",
   "version": "1.14.23",
   "minCodeterm": "1.15.3",
