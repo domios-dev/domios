@@ -376,7 +376,7 @@ jobs:
     uses: ./.github/workflows/release.yml
     permissions:
       contents: write
-      actions: read
+      actions: write
       issues: write
       pull-requests: write
     with:
