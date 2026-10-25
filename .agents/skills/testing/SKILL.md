@@ -712,9 +712,11 @@ Ordinary Rust test operations disable default features to omit embeddings. Produ
 
 For each batch, Workers run `./build.sh fmt` once, then one verification pass: one multi-package `./build.sh lane-check <package>... [--tests]` call for all touched crates, changed TS/JS tests and `tsc` when TS changes, then guards once. On failure, fix all reported errors and recheck only what failed; list canonical selectors under GATES REQUESTED. The lane-check subshell selects `$CODETERM_RUST_CACHE_ROOT/lanes`, otherwise `$CARGO_HOME/codeterm-lanes` (Cargo home defaults to `~/.cargo`), and Cargo owns locking. Targets remain per worktree; canonical/gateway build directories remain separate. This check does not acquire the build gateway.
 
+Build each Rust configuration once per batch: run every focused selector of a crate in one capped invocation (one nextest filter expression), never one build per test. Do not add local builds for other feature sets, other platforms or all-target Clippy when CI covers them; request those as `ci-step` runs on warm runners (`.github/workflows/ci-step.yml`) instead of compiling them in a cold lane.
+
 Prompt templates under `src-tauri/prompts/` are embedded by codeterm-service-core. The affected-test mapper selects `./build.sh nextest codeterm-service-core 'test(/^prompts::tests::/)'`; the shell crate has no such tests, and a zero-test shell selection is a failure rather than coverage.
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->
 
 ## Independent server process oracle
 
