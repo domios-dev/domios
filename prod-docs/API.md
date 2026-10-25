@@ -11,7 +11,7 @@ Socket/mesh envelopes require `protocol_version`; older or versionless clients g
 
 Human `domios workspace list` shows ordered topology; `tab inspect <id>` inspects one tab. `workspace current --json` returns `{id, source}`, resolving explicit placement, caller tab, validated workspace environment, then focus. No match exits 1; JSON errors go to stdout.
 
-POST `/api/blueprints/{id}/webhook` uses a per-graph secret; POST `/api/blueprints/{id}/webhook/configure` manages its lifecycle for a local authenticated caller. Signing, limits and payload rules: `domios docs API-INTEGRATIONS` and `domios docs BLUEPRINTS`.
+POST `/api/blueprints/{id}/webhook` uses a per-graph secret; POST `/api/blueprints/{id}/webhook/configure` manages its lifecycle for a local authenticated caller. Signing, limits and payload rules: `domios docs BLUEPRINTS` and the integrations reference below.
 
 ## REST API
 Base: `http://<host>:7685/api`.
@@ -160,7 +160,7 @@ Restore normalizes the recorded `cwd` before matching. `GET /api/mux/state` expo
 | POST | `/api/agents/helper` | `{title, task}` | Shared spawn for UI AI helper buttons (Configure with AI, Mesh Set up with AI). The daemon resolves the General Agent provider, places the tab in the General workspace and working directory regardless of the active workspace, and starts a roleless visible launch that always carries a first turn. Other fields are refused. A missing General workspace, launch failure or undelivered first turn errors and rolls the tab back. `delivery_state` is `confirmed` only when the first turn was submitted through the PTY with submit evidence, `launched` when the provider consumed it inline at launch without that evidence. |
 | GET | `/api/remote-workers` | `?tab=<id>` | Orchestrator view of cross-mesh workers, built from inbound mesh reports. `?tab=` returns that orchestrator's workers; otherwise the full `{ tab_id: RemoteWorker[] }` map. `RemoteWorker = {peer, remote_tab, title, model, status, last_message, last_seen_ms}`. Live updates via the `remote-workers-changed` event. |
 
-Configure-with-AI, provider install, auto-confirm, Pebble webhook and plugin receivers: `domios docs API-INTEGRATIONS`.
+Configure-with-AI, provider install, auto-confirm, Pebble and Blueprint webhooks, plugin receivers: `domios docs API-INTEGRATIONS`.
 
 Plugin surface routes (`/api/surfaces/*`): `domios docs SURFACES`.
 
@@ -190,6 +190,6 @@ Batch writes (socket `plan.batch`, REST `POST /api/plans/{id}/batch`, both reach
 
 A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or `close` after its tab disappears; retirement and recovery commit atomically. Mutating dispatch into canonical or another task's lane is refused with `-32013`; competition provisions one lane per competitor. Advisory findings ride successful results in `safety_nudges` and `_hints`. See `ORCHESTRATION`.
 
-Related: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-INTEGRATIONS`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, `TELEGRAM-SETUP`. Analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
+Related: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, `TELEGRAM-SETUP`. Analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 230 -->
+<!-- revision: 231 -->
