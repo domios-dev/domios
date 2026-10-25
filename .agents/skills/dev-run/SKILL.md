@@ -305,6 +305,20 @@ It clears parent URL, token, socket and data-directory selectors after capturing
 the parent report route. Optional frontend/CDP launch overrides use
 `CODETERM_DEV_VITE_PORT` and `CODETERM_DEV_CDP_PORT`.
 
+For the canonical core-journeys release gate, launch the named instance with
+an explicit private CDP port and keep its window open. `run.sh` checks health's
+`instance.cdp_port` before creating fixtures; a headless server cannot run J2.
+Use the isolated launch recipe in `evals/core-journeys/README.md`.
+
+If `dev-prebuilt` reports `frontend artifact content mismatch` after an unchanged
+DEV build, compare the staged `dist/assets` with checkout `dist/assets`.
+DEV staging must synchronize the complete tree: an overlay retains obsolete
+hashed chunks, and the watcher's service-worker precache then changes `sw.js`.
+After updating the staging code, rebuild the selected instance with `dev --wait`
+once to stage an exact tree and record provenance. Never edit the receipt or
+exclude the service worker from validation. Focused proof:
+`node --test scripts/tests/dev-frontend-provenance.test.mjs scripts/tests/dev-provenance-roundtrip.test.mjs`.
+
 ```bash
 curl -s http://127.0.0.1:7686/api/health | jq '.status'
 # → "ok"
