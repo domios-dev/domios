@@ -837,7 +837,7 @@ impl PtyManager {
             .remove(pty_id)
             .ok_or_else(|| format!("PTY {} not found", pty_id))?;
         session.guarded_input.invalidate();
-        let kill_error = match session.child.lock() {
+        let (kill_error, exit_pending_error) = match session.child.lock() {
             Ok(mut child) => {
                 let leader_pid = child.process_id();
                 let result = if entire_tree {
@@ -845,21 +845,26 @@ impl PtyManager {
                 } else {
                     child.kill()
                 };
-                super::teardown::classify_tree_kill(
-                    result,
-                    entire_tree
-                        .then(super::teardown::exited_group_errno)
-                        .flatten(),
-                    || {
-                        matches!(child.try_wait(), Ok(Some(_)))
-                            || super::teardown::leader_exited_natively(leader_pid)
-                    },
-                )
-                .err()
-                .filter(kill_failure_blocks_teardown)
-                .map(|error| error.to_string())
+                let group_errno = entire_tree
+                    .then(super::teardown::exited_group_errno)
+                    .flatten();
+                match super::teardown::classify_tree_kill(result, group_errno, || {
+                    matches!(child.try_wait(), Ok(Some(_)))
+                        || super::teardown::leader_exited_natively(leader_pid)
+                }) {
+                    Ok(()) => (None, None),
+                    Err(error) if group_errno.is_some() && error.raw_os_error() == group_errno => {
+                        (None, Some(error.to_string()))
+                    }
+                    Err(error) => (
+                        Some(error)
+                            .filter(kill_failure_blocks_teardown)
+                            .map(|error| error.to_string()),
+                        None,
+                    ),
+                }
             }
-            Err(error) => Some(format!("child mutex poisoned: {error}")),
+            Err(error) => (Some(format!("child mutex poisoned: {error}")), None),
         };
         session.write_queue.close();
         #[cfg(not(windows))]
@@ -883,6 +888,7 @@ impl PtyManager {
             pty_id: pty_id.to_string(),
             session,
             kill_error,
+            exit_pending_error,
             tree_killer,
             #[cfg(target_os = "macos")]
             child_pid,
