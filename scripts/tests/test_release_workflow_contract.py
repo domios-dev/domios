@@ -102,14 +102,16 @@ def verifier_steps(text: str) -> list[dict[str, str]]:
 
 class SingleRunGraphTest(unittest.TestCase):
     def test_release_pushes_only_start_qualification(self):
+        # Only a master push publishes, by promoting the merged release head's qualified CI run.
         triggered = {
             path.name
             for path in WORKFLOWS.glob("release*.yml")
             if "push" in triggers(path.read_text(encoding="utf-8"))
         }
-        self.assertEqual(triggered, set())
-        self.assertEqual(triggers(read("release.yml")), {"workflow_run", "workflow_dispatch"})
-        self.assertIn("workflows: [CI]", read("release.yml"))
+        self.assertEqual(triggered, {"release.yml"})
+        self.assertEqual(triggers(read("release.yml")), {"push", "workflow_call", "workflow_dispatch"})
+        self.assertIn("  push:\n    branches: [master]\n", read("release.yml"))
+        self.assertNotIn("workflow_run", triggers(read("release.yml")))
         for name in (
             "release-macos-build.yml",
             "release-linux-arm64.yml",
