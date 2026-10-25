@@ -637,6 +637,7 @@ function object3(value) {
 function parseBackgroundWork(value) {
   const row = object3(value);
   if (!row) return [];
+  if (row.type === "summary" || row.isCompactSummary === true || row.type === "system" && ["compact_boundary", "init", "resume"].includes(String(row.subtype))) return [{ id: "", state: "session_boundary" }];
   const result = object3(row.toolUseResult);
   const events = [];
   for (const [key, state] of [["backgroundTaskId", "running"], ["agentId", result?.status === "async_launched" || result?.status === "running" ? "running" : result?.status]]) {
@@ -644,6 +645,10 @@ function parseBackgroundWork(value) {
     if (typeof id === "string" && /^[A-Za-z0-9_-]{1,256}$/.test(id) && ["running", "completed", "failed", "killed"].includes(String(state))) events.push({ id, state });
   }
   const content = object3(row.message)?.content;
+  if (row.type === "user" && result?.task_type === "local_bash" && typeof result.command === "string" && !(Array.isArray(content) && content.some((block) => object3(block)?.is_error === true))) {
+    const id = result.task_id;
+    if (typeof id === "string" && /^[A-Za-z0-9_-]{1,256}$/.test(id)) events.push({ id, state: "killed" });
+  }
   const prompt = object3(row.attachment)?.prompt;
   const texts = typeof content === "string" ? [content] : Array.isArray(content) ? content.map((block) => object3(block)?.text).filter((text2) => typeof text2 === "string") : [];
   if (typeof prompt === "string") texts.push(prompt);

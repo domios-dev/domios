@@ -1,7 +1,7 @@
 use super::{pipeline_spec, recipe_files};
 use crate::args::blueprint::BlueprintAction;
 use codeterm_blueprint_types::blueprint_document::{self, Document};
-use serde_json::{json, Value};
+use serde_json::json;
 
 pub(super) fn source(name: &str) -> Result<String, String> {
     if let Some((_, source)) = recipe_files::FILES.iter().find(|(key, _)| *key == name) {
@@ -9,7 +9,35 @@ pub(super) fn source(name: &str) -> Result<String, String> {
     }
     pipeline_spec::read_spec(std::path::Path::new(name))
 }
-pub(super) fn load_checked(name: &str, set: &[String]) -> Result<Value, String> {
+pub(super) fn local_bundle(name: &str) -> Result<blueprint_document::calls::LocalBundle, String> {
+    let raw = source(name)?;
+    blueprint_document::calls::collect_local(name, &raw)
+        .map_err(|errors| blueprint_document::checker::render(&errors, true))
+}
+
+pub(super) fn apply_request_error(name: &str, message: String) -> crate::cmd::print::CliError {
+    let diagnostics = (name != "-").then(|| source(name)).and_then(Result::ok).map(|raw| match blueprint_document::parse(name, &raw) {
+        Err(diagnostics) => diagnostics,
+        Ok(parsed) => parsed.document.template_errors().into_iter().map(|(field, message)| {
+            blueprint_document::Diagnostic::error(parsed.at(&field), &field, &message,
+                "Use bind.in for command stdin; keep run author-fixed and bind only preceding outputs")
+        }).collect(),
+    }).unwrap_or_default();
+    let rendered = blueprint_document::checker::render(&diagnostics, true);
+    crate::cmd::print::CliError {
+        message: if rendered.is_empty() {
+            message
+        } else {
+            rendered
+        },
+        code: Some(-32602),
+        data: Some(
+            json!({"diagnostics":diagnostics,"hint":"Correct the positioned field, then apply again"}),
+        ),
+    }
+}
+#[cfg(test)]
+pub(super) fn load_checked(name: &str, set: &[String]) -> Result<serde_json::Value, String> {
     let source = source(name)?;
     let checked = blueprint_document::check(name, &source, set);
     if checked.ok {
@@ -34,10 +62,37 @@ pub(super) fn load_checked(name: &str, set: &[String]) -> Result<Value, String> 
 
 pub fn handle_local(json_mode: bool, action: &BlueprintAction) -> bool {
     match action {
+        BlueprintAction::Project { action } => {
+            let value = super::project::read(action)
+                .unwrap_or_else(|error| crate::cmd::print::fail(2, error));
+            if json_mode {
+                crate::cmd::print::print_json(&value);
+            } else {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&value).unwrap_or_default()
+                );
+            }
+        }
+        BlueprintAction::Tags => {
+            let tags = codeterm_blueprint_types::blueprint_tags::vocabulary();
+            if json_mode {
+                crate::cmd::print::print_json(&json!(tags));
+            } else {
+                for tag in tags {
+                    println!("{}\t{}", tag.name, tag.description);
+                }
+            }
+        }
         BlueprintAction::Schema => {
             crate::cmd::print::print_json(&blueprint_document::schema::schema())
         }
-        BlueprintAction::New { kind, like: None } => {
+        BlueprintAction::New {
+            kind,
+            like: None,
+            intent: None,
+            ..
+        } => {
             let raw = scaffold(kind).unwrap_or_else(|error| crate::cmd::print::fail(2, error));
             if json_mode {
                 crate::cmd::print::print_json(&json!({"yaml":raw}));
@@ -45,24 +100,88 @@ pub fn handle_local(json_mode: bool, action: &BlueprintAction) -> bool {
                 print!("{raw}");
             }
         }
-        BlueprintAction::Check { source: name, set } => {
+        BlueprintAction::Check {
+            source: name,
+            set,
+            explain,
+            fix,
+            write,
+        } => {
             let raw = source(name).unwrap_or_else(|error| crate::cmd::print::fail(2, error));
-            let checked = blueprint_document::check(name, &raw, set);
-            if json_mode {
-                let value = serde_json::to_value(&checked).unwrap_or_else(|error| {
-                    crate::cmd::print::fail(
-                        2,
-                        format!("Could not serialize Blueprint diagnostics: {error}"),
+            let parsed = blueprint_document::parse(name, &raw);
+            let calls = parsed.as_ref().is_ok_and(|parsed| {
+                parsed.document.nodes().any(|node| node.call.is_some())
+                    || !parsed.document.imports.is_empty()
+            });
+            if *fix && calls {
+                crate::cmd::print::fail(2, "--fix on call documents requires host resolution and is not supported; check without --fix");
+            }
+            if calls
+                || parsed.as_ref().is_ok_and(|parsed| {
+                    parsed.document.trigger.is_none() && parsed.document.result.port.is_some()
+                })
+            {
+                return false;
+            }
+            let context = blueprint_document::checker::CheckContext::default();
+            let repair = if *fix {
+                blueprint_document::parse(name, &raw).ok().map(|parsed| {
+                    blueprint_document::checker::fix::fix_with_assignments(
+                        &parsed, &raw, &context, set,
                     )
-                });
+                })
+            } else {
+                None
+            };
+            let effective = repair
+                .as_ref()
+                .and_then(|r| r.text.as_deref())
+                .unwrap_or(&raw);
+            let mut checked =
+                blueprint_document::check_with_context(name, effective, set, &context);
+            if repair.as_ref().is_some_and(|r| !r.refusals.is_empty()) {
+                checked.ok = false;
+                checked.definition = None;
+            }
+            if *write && checked.ok {
+                if let Some(text) = repair.as_ref().and_then(|r| r.text.as_ref()) {
+                    if name == "-" || recipe_files::FILES.iter().any(|(key, _)| key == name) {
+                        crate::cmd::print::fail(2, "Write a file path to use --fix --write");
+                    }
+                    if repair.as_ref().is_some_and(|r| r.changed) {
+                        std::fs::write(name, text)
+                            .unwrap_or_else(|error| crate::cmd::print::fail(2, error.to_string()));
+                    }
+                }
+            }
+            if json_mode {
+                let mut value = serde_json::to_value(&checked)
+                    .unwrap_or_else(|error| crate::cmd::print::fail(2, error.to_string()));
+                if let Some(repair) = &repair {
+                    value["fix"] = serde_json::to_value(repair)
+                        .unwrap_or_else(|error| crate::cmd::print::fail(2, error.to_string()));
+                }
                 crate::cmd::print::print_json(&value);
             } else {
-                for d in &checked.diagnostics {
-                    println!(
-                        "{}:{}:{}: {}: {}: {}\n  fix: {}",
-                        d.file, d.line, d.column, d.severity, d.field, d.message, d.hint
-                    );
+                if let Some(repair) = &repair {
+                    for note in &repair.notes {
+                        println!("fix: {note}");
+                    }
+                    for refusal in &repair.refusals {
+                        println!("fix refused: {refusal}");
+                    }
+                    print!("{}", repair.diff);
+                    if let Some(diff) = &repair.semantic_diff {
+                        println!(
+                            "semantic diff: {}",
+                            serde_json::to_string(diff).unwrap_or_default()
+                        );
+                    }
                 }
+                print!(
+                    "{}",
+                    blueprint_document::checker::render(&checked.diagnostics, *explain)
+                );
                 if checked.ok {
                     println!("Valid Blueprint: {name}");
                 }
@@ -82,8 +201,8 @@ pub(super) fn scaffold(kind: &str) -> Result<String, String> {
         return Ok(format!("{header}{source}"));
     }
     let definition=match kind {
-        "watch"=>json!({"create":{"name":"custom-watch","note":"Explain the purpose","probe":"echo ready","question":"State?","buckets":["ready"],"every":"20s","matches":{"ready":"ready"},"routes":{"ready":"notify"},"timeout":"1h"}}),
-        "pipeline"|"command"=>json!({"spec":{"name":"custom-pipeline","note":"Explain the purpose","owner":"team","trigger":{"type":"schedule","every":"1m"},"steps":[{"name":"inspect","input":"text","kind":{"kind":"command","command":"echo ready"},"on":{"done":"stop","failed":"stop"}}],"result":{"to":"notify"}}}),
+        "watch"=>json!({"schema_version":2,"kind":"watch","name":"custom-watch","note":"Explain the purpose","steps":[{"id":"source","uses":"probe","with":{"command":{"lit":"echo ready"}},"every":{"lit":"20s"},"timeout":{"lit":"1h"}},{"id":"decide","uses":"ask","with":{"question":{"lit":"State?"}},"buckets":["ready"],"matches":{"ready":{"lit":"ready"}},"routes":{"ready":"alert"}},{"id":"alert","uses":"notify"}]}),
+        "pipeline"|"command"=>json!({"schema_version":2,"kind":"pipeline","name":"custom-pipeline","note":"Explain the purpose","owner":"team","trigger":{"type":"schedule","every":{"lit":"1m"}},"steps":[{"id":"inspect","run":{"lit":"echo ready"},"routes":{"done":"@stop","failed":"@stop"}}],"result":{"to":"notify"}}),
         _=>return Err(format!("Unknown recipe or kind {kind}; choose watch, pipeline, command, or a name from blueprint recipe")),
     };
     Ok(format!(
@@ -105,6 +224,33 @@ pub(super) fn fail_apply_error(
             .and_then(|data| serde_json::from_value::<ApplyError>(data.clone()).ok()),
         _ => None,
     };
+    if let Some(ApplyError::Validation { checks }) = &typed {
+        let raw = if name == "-" {
+            String::new()
+        } else {
+            source(name).unwrap_or_default()
+        };
+        let diagnostics =
+            checks
+                .iter()
+                .filter(|check| !check.passed)
+                .map(|check| {
+                    blueprint_document::diagnostic(name, &raw, &check.field,
+                check.reason.as_deref().unwrap_or("Validation failed"),
+                "Correct this field using blueprint schema; runtime data belongs in bind.in")
+                })
+                .collect::<Vec<_>>();
+        crate::cmd::print::exit_with_cli_error(
+            json_mode,
+            &crate::cmd::print::CliError {
+                message: blueprint_document::checker::render(&diagnostics, true),
+                code: Some(-32602),
+                data: Some(
+                    json!({"diagnostics":diagnostics,"hint":"Correct the positioned field, then apply again"}),
+                ),
+            },
+        );
+    }
     let Some(ApplyError::CreationOnly { field, message }) = typed else {
         crate::cmd::print::fail(1, failure.to_string())
     };

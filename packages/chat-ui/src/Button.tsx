@@ -1,7 +1,7 @@
 
 import React from "react";
 
-export type ButtonVariant = "primary" | "ghost" | "accent" | "danger" | "icon" | "capsule" | "capsuleAdd";
+export type ButtonVariant = "primary" | "outline" | "ghost" | "accent" | "danger" | "icon" | "capsule" | "capsuleAdd";
 export type ButtonSize = "sm" | "md" | "lg" | "compact";
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
@@ -16,6 +16,7 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 
 const VARIANT_CLASS: Record<ButtonVariant, string> = {
   primary: "ct-btn ct-btn-primary",
+  outline: "ct-btn ct-btn-outline",
   ghost: "ct-btn ct-btn-ghost",
   accent: "ct-btn ct-btn-accent",
   danger: "ct-btn ct-btn-danger",

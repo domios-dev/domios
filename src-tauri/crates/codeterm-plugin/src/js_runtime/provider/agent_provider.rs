@@ -29,6 +29,10 @@ use session_wire::WireUsageSource;
 
 #[async_trait::async_trait]
 impl AgentProvider for JsProvider {
+    fn general_agent_offer_when_absent(&self) -> bool {
+        self.manifest.general_agent_offer_when_absent
+    }
+
     fn supports_subagent_visibility(&self) -> bool {
         capabilities::supports_subagent_visibility(self)
     }
@@ -103,6 +107,10 @@ impl AgentProvider for JsProvider {
         frames: &[crate::agent_runtime::RuntimeFrame],
     ) -> Result<crate::agent_runtime::RuntimeReduction, crate::agent_runtime::RuntimeFailure> {
         self.js_runtime_reduce(ctx, state, frames).await
+    }
+
+    fn cli_login(&self) -> Option<provider::CliLoginCapability> {
+        self.manifest.cli_login.clone()
     }
 
     fn auth_status_probe(&self) -> Option<provider::AuthStatusProbe> {
@@ -642,6 +650,9 @@ impl AgentProvider for JsProvider {
         self.manifest.spawn.session_id_injection.into()
     }
 
+    fn attachment_capabilities(&self) -> crate::provider::AttachmentCapabilities {
+        self.manifest.capabilities.attachments
+    }
     fn context_attach(&self) -> Option<crate::provider::ContextAttach> {
         self.manifest.capabilities.context_attach
     }
@@ -684,7 +695,6 @@ impl AgentProvider for JsProvider {
         exclude: &[String],
         max_age: Option<Duration>,
     ) -> Option<String> {
-        // manifest.sessions.* when the plugin doesn't implement `detectSessionId`.
         let max_age_ms = max_age.map(|d| d.as_millis() as i64).unwrap_or(300_000);
         if let Some(v) = self.try_call::<Option<String>>(
             "detectSessionId",
@@ -1135,11 +1145,7 @@ impl AgentProvider for JsProvider {
     }
 
     fn model_credential_files(&self) -> Vec<PathBuf> {
-        self.manifest
-            .model_catalogue
-            .fingerprint_files(super::host_credentials::declared_files(
-                &self.manifest.credentials,
-            ))
+        capabilities::model_credential_files(self)
     }
 
     fn settings_schema(&self) -> Vec<SettingField> {
@@ -1147,10 +1153,7 @@ impl AgentProvider for JsProvider {
     }
 
     fn notifications_schema(&self) -> Vec<SettingField> {
-        self.schema_cache
-            .get_or_init(|| self.compute_schemas())
-            .1
-            .clone()
+        capabilities::notifications_schema(self)
     }
 
     fn install_bridge_rule(&self, payload: &str) -> Result<(), String> {

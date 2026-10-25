@@ -99,21 +99,8 @@ fn notify_dedupe_key_survives_restart() {
     assert!(first.claim_notification("tab-state-launch").unwrap());
     let restored = super::super::supporter::SupporterRuntime::new(dir.path().into());
     assert!(!restored.claim_notification("tab-state-launch").unwrap());
-}
-
-#[test]
-fn notify_new_launch_notifies_again() {
-    let dir = tempfile::tempdir().unwrap();
-    let runtime = super::super::supporter::SupporterRuntime::new(dir.path().into());
-    assert!(runtime
-        .claim_notification("tab-state-first-launch")
-        .unwrap());
-    assert!(runtime
-        .claim_notification("tab-state-second-launch")
-        .unwrap());
-    assert!(!runtime
-        .claim_notification("tab-state-second-launch")
-        .unwrap());
+    assert!(restored.claim_notification("tab-state-new-launch").unwrap());
+    assert!(!restored.claim_notification("tab-state-new-launch").unwrap());
 }
 
 #[test]

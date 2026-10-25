@@ -1,0 +1,24 @@
+schema_version: 1
+name: Approve on {{agent_tab}}
+note: Ask for the sanctioned answer when a known access request appears in one monitored agent tab.
+inputs:
+  agent_tab:
+    type: string
+    description: Tab id
+  access_regex:
+    type: string
+    description: Permission pattern
+watch:
+  observe: tab:{{agent_tab}}
+  question: is-an-access-request-showing
+  buckets:
+  - access
+  matches:
+    access: '{{access_regex}}'
+  until: access
+  timeout: 3h
+  handlers:
+    access:
+    - type: respond_prompt
+      parameters:
+        target: permission

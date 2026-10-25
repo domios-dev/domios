@@ -1,4 +1,4 @@
-export type ErrorAction = "choose-folder" | "retry" | "sign-in" | "check-access" | "choose-smaller-file" | "check-executable";
+export type ErrorAction = "choose-folder" | "retry" | "sign-in" | "check-access" | "choose-smaller-file" | "check-executable" | "start-new-conversation";
 export interface ErrorDescription {
   title: string;
   cause: string;
@@ -7,6 +7,11 @@ export interface ErrorDescription {
   pending?: boolean;
 }
 export interface ErrorContext { operation?: string; cwd?: string | null }
+
+export function isMissingRuntimeConversation(input: unknown): boolean {
+  const {raw, code} = unpack(input);
+  return code === "conversationMissing" || raw.startsWith("ConversationMissing:");
+}
 
 const runtimeFailures: readonly (readonly [RegExp, string, string])[] = [
   [/\bSizeLimit\b|runtime(?: hook state)? size limit/i, "The agent runtime exceeded its size limit", "The runtime could not accept more data. Review the details and start a new session if needed."],
@@ -51,7 +56,7 @@ function serialize(input: unknown): string {
   try { return JSON.stringify(input) ?? String(input); } catch { return String(input); }
 }
 
-function unpack(input: unknown): { raw: string; code: string; status: unknown } {
+function unpack(input: unknown): { raw: string; code: string; status: unknown; message: string } {
   const object = record(input);
   const raw = input == null ? "" : typeof input === "string" ? input : typeof object?.body === "string" ? object.body
     : input instanceof Error ? input.message : typeof object?.raw === "string" ? object.raw
@@ -62,7 +67,8 @@ function unpack(input: unknown): { raw: string; code: string; status: unknown } 
     try { parsed = record(JSON.parse(raw.slice(start))) ?? object; } catch { /* Transport messages may not be JSON. */ }
   }
   const detail = record(parsed?.error) ?? parsed;
-  return { raw, code: String(object?.code ?? object?.kind ?? detail?.code ?? detail?.kind ?? ""), status: detail?.status ?? object?.status };
+  return { raw, code: String(object?.code ?? object?.kind ?? detail?.code ?? detail?.kind ?? ""), status: detail?.status ?? object?.status,
+    message: typeof detail?.message === "string" ? detail.message : raw };
 }
 
 export function isPendingRuntimeDeadline(input: unknown): boolean {
@@ -75,9 +81,29 @@ export function isPendingRuntimeDeadline(input: unknown): boolean {
 }
 
 export function describeError(input: unknown, context: ErrorContext = {}): ErrorDescription {
-  const { raw, code, status } = unpack(input);
-  const result = (title: string, cause: string, actions: ErrorAction[], pending = false): ErrorDescription => ({ title, cause, actions, raw, ...(pending ? { pending: true } : {}) });
+  const { raw, code, status, message } = unpack(input);
+  const switching = context.operation === "switching the provider" || code.startsWith("provider_switch_") || /\bprovider_switch_\w+/.test(raw);
+  const details = switching ? message.slice(0, 2048) : raw;
+  const result = (title: string, cause: string, actions: ErrorAction[], pending = false): ErrorDescription => ({ title, cause, actions, raw: details, ...(pending ? { pending: true } : {}) });
   const kind = code.toLowerCase();
+  if (switching) {
+    if (kind === "provider_switch_auth_timeout" || /\bprovider_switch_auth_timeout\b/.test(raw)) {
+      return result("The provider authentication check timed out", "The target CLI did not finish its authentication check in time. Retry the switch.", ["retry"]);
+    }
+    if (kind === "provider_switch_auth_required" || /\bprovider_switch_auth_required\b/.test(raw)) {
+      return result("Sign in to the target provider", "Sign in to the target provider, then retry the switch.", ["sign-in", "retry"]);
+    }
+    if (kind === "provider_switch_auth_unknown" || /\bprovider_switch_auth_unknown\b/.test(raw)) {
+      return result("The target authentication could not be verified", "Check the target provider's sign-in status, then retry the switch.", ["retry"]);
+    }
+    if (kind === "provider_switch_unavailable" || /\bprovider_switch_unavailable\b|Provider not installed:/i.test(raw)) {
+      return result("The target provider is unavailable", "Install the target provider's CLI, then retry the switch.", ["check-executable", "retry"]);
+    }
+    return result("The provider could not be switched", "The switch could not finish. Review the details before trying again.", ["retry"]);
+  }
+  if (kind === "reorder_failed") return result("Could not save the new order", message || "Refresh the workspace and try again.", ["retry"]);
+  if (kind === "tab_rename_failed") return result("Could not rename the tab", message || "The previous name was restored. Try again.", ["retry"]);
+  if (kind === "tab_close_refused") return result(message || "The close was refused.", "The tab stays open.", []);
   const spawn = /spawn|createprocess|executable|shell/i.test(raw);
   // OS codes are interpreted only in spawn errors; e.g. ENOENT elsewhere may mean an attachment.
   const inferred = !code;
@@ -120,6 +146,8 @@ export function describeError(input: unknown, context: ErrorContext = {}): Error
     return result("The program could not be found", "The shell or agent program is unavailable. Check that it is installed and its path is correct.", ["check-executable", "retry"]);
   }
   const runtime = inferred ? runtimeFailures.find(([pattern]) => pattern.test(raw)) : undefined;
+  if (isMissingRuntimeConversation(input)) return result("The saved conversation is unavailable",
+    "The provider could not find this conversation's saved rollout. Its earlier messages cannot be resumed. Start a new conversation to continue.", ["start-new-conversation"]);
   if (runtime) return result(runtime[1], runtime[2], ["retry"]);
   if (kind === "spawn_failed" || inferred && spawn) {
     return result("The tab could not start", "Domios could not start the shell or agent. Check its program and starting folder, then try again.", ["retry"]);

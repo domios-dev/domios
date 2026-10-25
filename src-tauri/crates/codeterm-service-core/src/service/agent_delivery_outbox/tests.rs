@@ -11,6 +11,8 @@ use parking_lot::Mutex;
 use std::sync::{mpsc, Arc};
 use std::time::Duration;
 
+#[path = "tests/durable.rs"]
+mod durable;
 #[path = "tests/wake.rs"]
 mod wake;
 
@@ -41,6 +43,7 @@ fn fixture(session: Option<&str>, prelaunch: bool) -> (ServiceFixture, String) {
 
 fn payload() -> AgentDeliveryPayload {
     AgentDeliveryPayload {
+        durable_delivery: None,
         trace_id: None,
         transport: crate::service::messenger::Messenger::from(
             crate::service::messenger::MessageEnvelope::from_codeterm(),
@@ -87,13 +90,14 @@ fn assert_fixture_auth_drains_once(fixture: ServiceFixture, tab: String) {
             done_tx.send(()).unwrap();
         }),
     );
-    assert!(matches!(
-        fixture
-            .service
-            .deliver_agent_payload(&tab, payload(), "visible")
-            .unwrap(),
-        Delivery::Pending { .. }
-    ));
+    let mut receipts = fixture.service.events.subscribe();
+    let Delivery::Pending { delivery_id } = fixture
+        .service
+        .deliver_agent_payload(&tab, payload(), "visible")
+        .unwrap()
+    else {
+        panic!("pre-ready send must be queued");
+    };
     assert!(writes.lock().is_empty());
     let resumed = fixture
         .service
@@ -124,6 +128,19 @@ fn assert_fixture_auth_drains_once(fixture: ServiceFixture, tab: String) {
     authenticate(&fixture, &tab);
     done_rx.recv_timeout(Duration::from_secs(5)).unwrap();
     assert_eq!(*writes.lock(), ["opaque held payload"]);
+    let mut confirmations = Vec::new();
+    while let Ok(event) = receipts.try_recv() {
+        if let codeterm_events::SystemEvent::Generic { event_type, data } = event.event {
+            if event_type == "delivery-written" {
+                assert!(!event.public);
+                confirmations.push(data);
+            }
+        }
+    }
+    assert_eq!(
+        confirmations,
+        [serde_json::json!({"tab_id": tab, "delivery_id": delivery_id})]
+    );
     assert!(!fixture
         .service
         .pending_delivery_payloads

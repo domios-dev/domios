@@ -1,5 +1,5 @@
 [package]
-license = "PolyForm-Shield-1.0.0"
+license = "LicenseRef-Domios-1.0"
 name = "codeterm-plugin"
 version = "0.0.0"
 edition = "2021"
@@ -47,6 +47,7 @@ libc = "0.2"
 test-support = []
 
 [dev-dependencies]
+codeterm-plugins = { path = "../codeterm-plugins" }
 codeterm-paths = { path = "../codeterm-paths", features = ["isolated-data-root"] }
 axum = { version = "0.8", features = ["json"] }
 tempfile = "3"

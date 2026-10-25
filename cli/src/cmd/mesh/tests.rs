@@ -13,57 +13,77 @@ fn mesh_listener_refusal_is_an_error_response() {
 }
 
 #[test]
-fn mesh_connect_addr_parse_and_wire_body() {
+fn mesh_link_parses_one_installation_and_maps_to_the_account_route() {
     use clap::Parser;
-    for address in ["100.84.159.37:7686", "[fd7a:115c:a1e0::1]:7686"] {
-        let command = crate::Cli::try_parse_from([
-            "codeterm", "mesh", "connect", "2895951d", "--addr", address,
-        ])
+    let command = crate::Cli::try_parse_from(["codeterm", "mesh", "link", "inst-1"])
         .unwrap()
         .command;
-        let crate::Commands::Mesh {
-            action:
-                crate::mesh_cli::MeshAction::Connect {
-                    ref instance_id,
-                    ref addr,
-                },
-        } = command
-        else {
-            panic!("mesh connect must parse");
-        };
-        let body = super::connect_body(instance_id, addr.as_ref());
-        assert_eq!(body["instance_id"], "2895951d");
-        assert_eq!(body["addr"], address);
-        let (method, path, relay_body) = crate::mesh_cli::api_map::cli_command_to_api(&command);
-        assert_eq!(method, "POST");
-        assert_eq!(path, "/api/mesh/connect");
-        assert_eq!(
-            serde_json::from_str::<serde_json::Value>(&relay_body.unwrap()).unwrap(),
-            body
+    let (method, path, body) = crate::mesh_cli::api_map::cli_command_to_api(&command);
+    assert_eq!(method, "POST");
+    assert_eq!(path, "/api/mesh/link");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&body.unwrap()).unwrap(),
+        serde_json::json!({"installation_id": "inst-1"})
+    );
+    for removed in [
+        "connect",
+        "approve",
+        "reject",
+        "discover",
+        "broadcast",
+        "stop-broadcast",
+    ] {
+        assert!(
+            crate::Cli::try_parse_from(["codeterm", "mesh", removed, "x"]).is_err(),
+            "{removed}"
         );
     }
-    let command = crate::Cli::try_parse_from(["codeterm", "mesh", "connect", "peer-name"])
-        .unwrap()
-        .command;
-    let crate::Commands::Mesh {
-        action: crate::mesh_cli::MeshAction::Connect { instance_id, addr },
-    } = command
-    else {
-        panic!("mesh connect must parse");
-    };
-    assert!(addr.is_none());
+}
+
+#[test]
+fn mesh_status_exposes_publication_refusal_and_retry_deadline() {
+    let state = serde_json::json!({
+        "publication": "published",
+        "publication_failure": {"reason": "rate-limited", "retry_after_seconds": 7},
+        "retry_at": 107
+    });
+    let lines = super::account_mesh_status_lines(&state).join("\n");
+    assert!(lines.contains("published"));
+    assert!(lines.contains("rate-limited"));
+    assert!(lines.contains("107"));
+    assert!(lines.contains("waiting to retry"));
+}
+#[test]
+fn mesh_status_explains_required_reauthentication() {
+    let lines = super::account_mesh_status_lines(&serde_json::json!({
+        "enrollment": "refused",
+        "last_refusal": { "reason": "reauth_required" },
+        "retry_at": null
+    }));
+    assert_eq!(lines, ["Sign in again to add this machine to your mesh"]);
+}
+
+#[test]
+fn mesh_account_presence_is_distinct_from_offline_and_expired() {
+    use serde_json::json;
+    let mut row =
+        json!({"active":true,"presence":"signed_out","membership_expires_at":1,"endpoint":null});
     assert_eq!(
-        super::connect_body(&instance_id, None),
-        serde_json::json!({"instance_id": "peer-name"})
+        super::account_machine_status(&row, 10),
+        "Signed out (actions disabled)"
     );
-    assert!(crate::Cli::try_parse_from([
-        "codeterm",
-        "mesh",
-        "connect",
-        "peer",
-        "--addr",
-        "host:7686"
-    ])
-    .is_err());
-    assert!(crate::Cli::try_parse_from(["codeterm", "mesh", "connect", "peer", "--addr"]).is_err());
+    row["presence"] = json!("present");
+    assert_eq!(
+        super::account_machine_status(&row, 10),
+        "Membership expired"
+    );
+    row["membership_expires_at"] = json!(20);
+    assert_eq!(super::account_machine_status(&row, 10), "Offline");
+    row["endpoint"] = json!({"expires_at":20});
+    assert_eq!(super::account_machine_status(&row, 10), "Present");
+    row["active"] = json!(false);
+    assert_eq!(super::account_machine_status(&row, 10), "Removed");
+    let state = json!({"registry":{"rows":[{"display_name":"Laptop","active":true,"presence":"signed_out"}]}});
+    assert!(super::account_mesh_status_lines(&state)
+        .contains(&"  Laptop: Signed out (actions disabled)".to_owned()));
 }

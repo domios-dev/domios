@@ -1,0 +1,99 @@
+{
+  "duration_api_ms": 4378,
+  "stop_reason": "end_turn",
+  "session_id": "4c941c2f-ce29-4476-91e3-defb5a8b900e",
+  "total_cost_usd": 0.0709578,
+  "usage": {
+    "input_tokens": 2,
+    "cache_creation_input_tokens": 8530,
+    "cache_read_input_tokens": 649,
+    "output_tokens": 129,
+    "output_tokens_details": {
+      "thinking_tokens": 0
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 8530,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "global",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 129,
+        "cache_read_input_tokens": 649,
+        "cache_creation_input_tokens": 8530,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 8530
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-opus-5-5": {
+      "inputTokens": 2,
+      "outputTokens": 129,
+      "cacheReadInputTokens": 649,
+      "cacheCreationInputTokens": 8530,
+      "webSearchRequests": 0,
+      "costUSD": 0.0709578,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-opus-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 1,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "[\"Check if the local dev REST listener is up and alert me when it's down\", \"Poll the dev API health endpoint every 30 seconds and notify on failure\", \"Watch my local dev server and grab recent traces if it stops responding\", \"Monitor dev HTTP listener health, pull latest traces on outage\", \"Ping the localhost REST service regularly and send a notification with traces when unreachable\"]",
+  "ttft_ms": 4862,
+  "type": "result",
+  "duration_ms": 4907,
+  "uuid": "1895d8cc-b97b-40eb-a591-88b90c2110bf",
+  "ttft_stream_ms": 4859,
+  "time_to_request_ms": 492,
+  "first_content_frame_ms": 4860,
+  "queued_turn_count": 0,
+  "result_index": 0
+}

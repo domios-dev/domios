@@ -15,6 +15,41 @@ the `github-release` skill. Do not use `dev` output as an installer artifact.
 
 ## How we run DEV: two tabs
 
+### Windows account-mesh firewall permission
+
+DEV never installs firewall rules or requests administrator permission. Before
+using account mesh on a new DEV executable path, run this once in an elevated
+PowerShell window. Select the actual `domios-server.exe` from the build receipt
+(named instances and target triples can change its path), and the instance's API
+port (ordinary DEV is 7686):
+
+```powershell
+$devServer = 'C:\path\to\src-tauri\target\debug\domios-server.exe'
+$devPort = 7686
+New-NetFirewallRule -Name 'Domios.AccountMesh.Dev' -DisplayName 'Domios DEV mesh (Tailscale only)' -Direction Inbound -Action Allow -Enabled True -Profile Any -Program $devServer -Protocol TCP -LocalPort $devPort -RemoteAddress '100.64.0.0/10','fd7a:115c:a1e0::/48' -EdgeTraversalPolicy Block
+```
+
+Use a distinct rule name for each simultaneous DEV instance. Remove that rule
+with `Remove-NetFirewallRule -Name 'Domios.AccountMesh.Dev'` before changing its
+executable path or port, then recreate it. Never edit PROD rules to run DEV.
+
+The per-user Windows installer owns a separate rule for its installed
+`domios-server/domios-server.exe`: inbound TCP, all profiles, remote Tailscale
+ranges only, any local port so configured PROD API ports also work. Its helper
+is `installer/account-mesh-firewall.ps1` beside the installed application.
+`-Operation Check` is read-only (exit 0 ready, 2 missing/mismatched, 1 error).
+`Ensure` requests UAC only when repair is needed; exit 1223 means declined.
+Install continues after refusal. `Remove` removes only this installation's rule
+on uninstall; updater `/UPDATE` preserves it. A normal update with the correct
+rule requests no UAC. First-use recovery UI is owned separately from this helper.
+
+macOS application firewall policy applies to the signed app/server: trusted
+signed software may be allowed automatically; otherwise the first incoming
+connection asks to allow or deny access and is blocked pending an answer.
+Updates retaining the trusted signing identity normally retain access. Linux
+normally has no per-app desktop firewall dialog; configured host firewalls may
+still block the listener and need administrator-managed Tailscale access.
+
 DEV runs as two independent processes so every change updates live without losing the
 window: frontend edits hot-reload in place, server edits swap the backend while the window
 shows Reconnecting and returns, and only native client changes restart the window.
@@ -39,6 +74,32 @@ leaves the tab's kill-on-close job (Team `dev` tabs allow it), so a `domios-back
 the window. A rerun with a live window builds beside it: the window locks its executable, so a
 client link that succeeds proves the client unchanged and only the server swaps; a lock failure
 replaces the window. Hosts older than the Team DEV breakaway report that the window stays tied to the tab.
+
+The Windows interactive helper may inherit an Explorer/session job. Like the server,
+it requires readable job limits without `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, rather
+than absence of all jobs. A kill-on-close or unreadable job refuses before client
+launch. Inspect helper job limits when diagnosing this refusal; Team DEV breakaway
+policy does not change Explorer's job membership. No production restart is needed
+for a launcher-script repair.
+
+Bench helpers sourced from `evals/_lib/lib.sh` select frontend/CDP ports from the
+matching schema3 launch provenance, including explicit launch overrides. Select
+the named instance with `CODETERM_INSTANCE` and `CODETERM_API_PORT` before sourcing;
+the helper still verifies the selected instance, build SHA and ports against health
+and provenance before any authenticated request.
+
+With `dev-back`, native attachment has a 180-second failure deadline after reply validation
+to allow Vite's unbundled modules and large restored workspaces to load. Progress events
+advance the startup phases; only the native attachment acknowledgement and server readiness
+events prove readiness. If a phase expires, the command returns exit 3 with “still attaching”
+and leaves the server and window running, including when server health is already ready.
+Plain `dev` keeps its existing deadlines and cleanup behavior.
+
+After exit 3, inspect the printed prebuilt log and `client-startup.log`, confirm that
+`dev-front` is running, and let the existing window complete attachment. Server health alone
+does not prove the window attached. Do not rerun `dev-back` just to extend its wait; if the
+window cannot recover, the DEV owner may explicitly stop the selected instance with
+`./build.sh kill` and restart `dev-front` before `dev-back`.
 
 ## Firebase emulator DEV
 
@@ -244,6 +305,20 @@ It clears parent URL, token, socket and data-directory selectors after capturing
 the parent report route. Optional frontend/CDP launch overrides use
 `CODETERM_DEV_VITE_PORT` and `CODETERM_DEV_CDP_PORT`.
 
+For the canonical core-journeys release gate, launch the named instance with
+an explicit private CDP port and keep its window open. `run.sh` checks health's
+`instance.cdp_port` before creating fixtures; a headless server cannot run J2.
+Use the isolated launch recipe in `evals/core-journeys/README.md`.
+
+If `dev-prebuilt` reports `frontend artifact content mismatch` after an unchanged
+DEV build, compare the staged `dist/assets` with checkout `dist/assets`.
+DEV staging must synchronize the complete tree: an overlay retains obsolete
+hashed chunks, and the watcher's service-worker precache then changes `sw.js`.
+After updating the staging code, rebuild the selected instance with `dev --wait`
+once to stage an exact tree and record provenance. Never edit the receipt or
+exclude the service worker from validation. Focused proof:
+`node --test scripts/tests/dev-frontend-provenance.test.mjs scripts/tests/dev-provenance-roundtrip.test.mjs`.
+
 ```bash
 curl -s http://127.0.0.1:7686/api/health | jq '.status'
 # → "ok"
@@ -294,7 +369,7 @@ for `dc config set api.mesh_tailnet_host '"<tailnet-ip>"'`; never a bare CLI
 inheriting production routing. Confirm identity before changing that instance.
 Restart only that named instance through the documented launcher. Verify both
 loopback health and tailnet health, the build identity, and
-`dc config get api_listener.ready_addresses` before `dc mesh broadcast`.
+`dc config get api_listener.ready_addresses` before `dc mesh link`.
 Removing the opt-in uses JSON `null` and another scoped restart.
 
 To join two DEV consoles on different machines over the mesh (pairing,
@@ -303,13 +378,13 @@ managed-by tabs, web UI peer picker, leak and sync checks), follow
 
 A failed secondary bind starts neither listener; no wildcard or LAN fallback
 is allowed. A later secondary listener exit keeps local HTTP serving but clears
-remote readiness and stops broadcast. Recovery is an explicit scoped restart,
+remote readiness. Recovery is an explicit scoped restart,
 not a retry loop. Preserve a failed trial's state and distinguish a new trial.
 
 Troubleshooting: `mesh_listener_not_remotely_ready` means no health-proven remote
 listener can serve the announcement. A configured host is not live evidence.
-Do not widen the default bind or repeatedly connect to a stale discovered
-address; verify the named instance's live listener set first.
+Do not widen the default bind or repeatedly link to a stale endpoint;
+verify the named instance's live listener set first.
 
 - `~/.domios-dev/` — config, mem DB, sessions, logs, mesh identity
 - `~/.domios-dev/config.toml` — themes, keybindings, api section
@@ -504,7 +579,7 @@ Claude Code should auto-load this skill whenever the user mentions:
 
 Don't preemptively run `./build.sh dev` on every edit — only when the user asks or when you have a Rust/prompt change that definitely needs a live binary to verify.
 
-<!-- revision: 9 -->
+<!-- revision: 14 -->
 
 ### REST listener bind recovery
 
@@ -534,6 +609,8 @@ cannot serve as the live READY signal there. `build.ps1` still only forwards.
 
 | Symptom | Cause | Recovery |
 |---|---|---|
+| Windows named DEV rebuild fails copying over a running `domios-dev-app.exe` (`EBUSY`) | The native window is independent of the API server; stopping the listener alone leaves its executable locked. | Run `CODETERM_DEV_INSTANCE=<name> CODETERM_DEV_API_PORT=<port> ./build.sh dev --wait`. The launcher verifies the authenticated native process snapshot, server bootstrap identity, data directory, port and artifact paths, requests graceful shutdown, then terminates only pinned surviving processes and confirms exit before staging. Missing or conflicting identity evidence refuses before shutdown; inspect the selected instance rather than using a name-wide kill. `dev-back` keeps its unchanged native window through the server-only swap. |
+| `dev-prebuilt` reports `frontend artifact content mismatch` or stale provenance | The staged frontend differs from the recorded build. | Run the exact named `dev --wait` command printed by the refusal (PowerShell: set `$env:CODETERM_DEV_INSTANCE` and `$env:CODETERM_DEV_API_PORT`, then `./build.ps1 dev --wait`). Preflight preserves running DEV until a valid replacement is available; never manufacture provenance. |
 | Windows DEV aborts with `fatal runtime error: I/O error: operation failed to complete synchronously` (event 1000, `0xc0000409`) | The former launch path gave Rust stdio an overlapped pipe. A synchronous write can return `ERROR_IO_PENDING` under reader load. | Rebuild with the corrected launcher and restart DEV. Keep Windows app stdout/stderr on the .NET synchronous-pipe boundary in foreground and `--wait`. Never attach app stdio directly to libuv or PowerShell pipeline pipes. |
 
 Fixed: DEV recompiled crates from the physical `C:` checkout despite an active
@@ -802,7 +879,7 @@ its repair checks both platform layouts and wait modes, preserving the default a
 
 ### Separate DEV verification and bootstrap budgets
 
-A slow verified startup previously consumed the outer30-second budget before the client began its own bootstrap budget. The launcher now bounds preparation, bootstrap and authenticated attachment separately at30seconds each. Only the ordered attach-start and reply-validation events move the boundary; duplicates never extend a phase. No event means failure at that phase deadline, and progress never means readiness. Existing inner bootstrap/transport deadlines remain unchanged.
+A slow verified startup previously consumed the outer30-second budget before the client began its own bootstrap budget. Plain `dev` bounds preparation, bootstrap and authenticated attachment separately at30seconds each; `dev-back` uses the longer attachment deadline and retains processes on expiry as described under “How we run DEV: two tabs”. Only the ordered attach-start and reply-validation events move the boundary; duplicates never extend a phase. Progress never means readiness. Existing inner bootstrap/transport deadlines remain unchanged.
 
 Debug `[boot-operation]` records measure embedded extraction, capability registration (including binary resolution/fingerprint), integrity hashing with actual bytes, restored plans and platform initialization. Capability timing includes the registration call rather than claiming a separate binary-probe duration; compare it with the existing VM model timing. No digest or private bootstrap reply is logged.
 
@@ -810,4 +887,53 @@ Debug `[boot-operation]` records measure embedded extraction, capability registr
 
 Component manifests now require schema2 and a platform-specific client_identity. Windows/Linux require the exact lowercase SHA256 variant; macOS requires the approved Apple-anchored team/identifier designated requirement. macOS resolves only ../MacOS/domios-server from Tauri's canonical Domios.app/Contents/Resources root. The client validates its running code identity and the installed app seal; the server validates the attaching pinned client the same way. Server bytes remain SHA256-pinned on every platform. A schema1 manifest, foreign identity kind, weak requirement or wrong bundle path refuses; rebuild/restage the matching pair rather than bypassing verification. No signed macOS runtime proof is supplied by source or Windows lane compilation. Native CDP remains Windows-only.
 
-Headless schema2 manifests use client_identity kind none and the exact flat domios-server/domios-server[.exe] layout on every OS. The server verifies those bytes without creating a native-host listener; native client enrollment refuses none. macOS flat raw-client DEV staging remains unsupported: native DEV needs a signed app-shaped pair, and debug builds do not bypass the platform identity rule.
+Headless schema2 manifests use client_identity kind none and the exact flat domios-server/domios-server[.exe] layout on every OS. The server verifies those bytes without creating a native-host listener; native client enrollment refuses none. macOS flat raw-client DEV staging remains unsupported. Named isolated DEV stages the signed app pair described below; debug builds retain the platform identity rule.
+
+### Named isolated macOS DEV
+
+Use an explicit unused instance and private API/frontend/CDP ports from the assigned lane:
+
+```bash
+CODETERM_DEV_INSTANCE=macdev-fix CODETERM_DEV_API_PORT=17991 \
+CODETERM_DEV_VITE_PORT=14991 CODETERM_DEV_CDP_PORT=9491 ./build.sh dev --wait --wait-build
+```
+
+The launcher stages `<instance-target>/debug/.domios-dev-runtime/Domios.app`,
+with the native client and signed server in `Contents/MacOS` and the component
+inventory in `Contents/Resources`. Host and target-qualified Cargo outputs stay
+unchanged. Tauri resolves `../Resources` from that client; no resource override
+or fake Cargo marker is used. Canonical DEV, Windows/Linux and release paths
+retain their existing layouts.
+
+The normal local signing selector requires one Developer ID Application identity
+in the login keychain; ambiguous or unavailable identities refuse. Explicit
+`APPLE_SIGNING_IDENTITY`, `APPLE_TEAM_ID` and `RELEASE_KEYCHAIN` select an existing
+approved identity. No ad-hoc fallback or notarization is used for this local DEV
+bundle. The nested server is signed before inventory hashing, then the outer
+app is sealed without `--deep` signing. Strict nested verification tests the
+exact Apple-anchored team and `com.domios.app` requirement before provenance is
+recorded; native verification still runs at launch.
+
+Apple Silicon macOS enables the SHA crate's supported hardware backend for the
+native client and server, including release builds. Full-file validation and
+all bootstrap deadlines remain unchanged; Windows/Linux and Intel macOS keep
+their existing SHA feature selection.
+
+The production-mode frontend watcher and static server use the checkout's
+`dist/`, outside the sealed app. The app's resource snapshot stays immutable.
+Named macOS `dev-server` refuses before shutdown because replacing nested code
+would change the seal beneath a running client; use the same scoped `dev`
+command for native/server edits. `dev-prebuilt --wait` reuses an unchanged signed
+pair with the same explicit instance/port settings.
+
+Detached named macOS cleanup has a follow-up limitation: scoped `build.sh kill`
+stops the server and watchers while the surviving native client may recover a
+new server. For an owned validation run, retain the native attachment receipt,
+exact executable and process creation identity; stop only that verified client
+first. Then use `node scripts/dev-server.mjs inspect <record> <data> <private-port>
+<owned-receipt>` and `node scripts/dev-server.mjs stop <record> <data>
+<private-port> <owned-receipt>` for required cleanup and pinned server exit.
+Finally use the same explicit instance/port with `./build.sh kill` to reap its
+watcher/static processes and verify all owned processes exited. Native-client
+shutdown automation needs a separate ownership-aware fix; never use global
+process-name kills or address prod, canonical DEV or another instance.

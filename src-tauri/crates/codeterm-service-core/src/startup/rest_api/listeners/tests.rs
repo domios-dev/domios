@@ -269,7 +269,7 @@ async fn prove_and_publish_listener_pair(
     tokio::pin!(server);
     tokio::select! {
         result = &mut server => panic!("listeners exited before proof: {result:?}"),
-        result = prove_set(primary_address, Some(remote_address), HEALTH_PROOF_DEADLINE) => result.unwrap(),
+        result = prove_set(primary_address, Some(remote_address), None, HEALTH_PROOF_DEADLINE) => result.unwrap(),
     }
     assert!(control.listeners.ready().is_empty());
     let status = control
@@ -329,11 +329,56 @@ async fn mesh_tailnet_health_proof_deadline_bounds_an_incomplete_response_body()
     let deadline = tokio::time::Instant::now() + Duration::from_millis(250);
     let error = tokio::select! {
         _ = &mut stalled_response => panic!("stalled response unexpectedly completed"),
-        result = prove_health(address, deadline) => result.unwrap_err(),
+        result = prove_health(address, None, deadline) => result.unwrap_err(),
     };
     headers_rx
         .try_recv()
         .expect("the client must have received response headers");
     assert!(error.contains(&address.to_string()), "{error}");
     assert!(error.contains("failure deadline"), "{error}");
+}
+
+#[tokio::test]
+async fn non_loopback_listener_proof_authenticates_to_its_own_listener() {
+    let router = axum::Router::new().route(
+        "/api/health",
+        axum::routing::get(|headers: axum::http::HeaderMap| async move {
+            if headers
+                .get(axum::http::header::AUTHORIZATION)
+                .is_some_and(|value| value == "Bearer fixture-token")
+            {
+                axum::http::StatusCode::OK
+            } else {
+                axum::http::StatusCode::FORBIDDEN
+            }
+        }),
+    );
+    let primary = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let remote = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let primary_address = primary.local_addr().unwrap();
+    let remote_address = remote.local_addr().unwrap();
+    let open = axum::Router::new().route("/api/health", axum::routing::get(|| async { "ok" }));
+    tokio::spawn(async move { axum::serve(primary, open).await });
+    tokio::spawn(async move { axum::serve(remote, router).await });
+
+    let publication = ListenerPublication::default();
+    publication.set_proof_token(Some("fixture-token".into()));
+    let token = publication.proof_token();
+    prove_set(
+        primary_address,
+        Some(remote_address),
+        token.as_deref(),
+        HEALTH_PROOF_DEADLINE,
+    )
+    .await
+    .unwrap();
+    let refused = prove_set(
+        primary_address,
+        Some(remote_address),
+        None,
+        HEALTH_PROOF_DEADLINE,
+    )
+    .await
+    .unwrap_err();
+    assert!(refused.contains("403"), "{refused}");
 }

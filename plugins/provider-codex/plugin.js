@@ -1102,6 +1102,9 @@ function archivedResume(message) {
   const words = message.toLowerCase().split(/\s+/).map((word) => word.replace(/^[`"']+|[`"'.:;,]+$/g, ""));
   return words.some((word, index) => word === "codex" && words[index + 1] === "unarchive" || word === "session" && !!words[index + 1] && words[index + 2] === "is" && words[index + 3] === "archived");
 }
+function missingRollout(error, thread) {
+  return error.code === -32600 && error.data == null && error.message === `no rollout found for thread id ${thread}`;
+}
 var serverRequestMethods = [
   "item/commandExecution/requestApproval",
   "item/fileChange/requestApproval",
@@ -2658,14 +2661,30 @@ function runtimeClass(code, status) {
   if (code?.startsWith("http") || code?.startsWith("responseStream")) return "transport_error";
   return "provider_error";
 }
-function runtimeError(value, willRetry = false) {
+function runtimeError(value, willRetry = false, limits) {
   const error = object(value);
   const info = error.codexErrorInfo;
   const infoObject = object(info);
-  const code = typeof info === "string" ? info : Object.keys(infoObject)[0];
+  const keys = Object.keys(infoObject);
+  const code = typeof info === "string" ? info : keys.length === 1 ? keys[0] : void 0;
   const message = text2(error.additionalDetails) ?? text2(error.message) ?? "Provider request failed";
   const status = statusCode(error.status) ?? statusCode(error.statusCode) ?? statusCode(error.httpStatusCode) ?? statusCode(infoObject.httpStatusCode) ?? nestedStatus(infoObject);
-  return { message, metadata: { ...code ? { code } : {}, class: runtimeClass(code, status), retryable: willRetry } };
+  return { message, metadata: { ...code ? { code } : {}, class: runtimeClass(code, status), retryable: willRetry, ...retrySignal(code, status, limits) } };
+}
+function retrySignal(code, status, limits) {
+  if (status === 401 || status === 403) return {};
+  const rate2 = code === "rateLimitExceeded" || code === "usageLimitExceeded";
+  const transport = code === "httpConnectionFailed" || code === "responseStreamConnectionFailed" || code === "responseStreamDisconnected" || code === "responseTooManyFailedAttempts";
+  const transient = code === "serverOverloaded" || code === "flexUnavailable" || code === "internalServerError";
+  if (rate2 || (transport || transient) && status === 429) {
+    const snapshot = object(limits);
+    if (snapshot.limitId && snapshot.limitId !== "codex") return {};
+    const blocked = [snapshot.primary, snapshot.secondary].map(object).filter((window) => typeof window.usedPercent === "number" && Number.isFinite(window.usedPercent) && window.usedPercent >= 100);
+    if (!blocked.length || blocked.some((window) => typeof window.resetsAt !== "number" || !Number.isSafeInteger(window.resetsAt) || window.resetsAt <= 0 || !Number.isSafeInteger(window.resetsAt * 1e3))) return {};
+    return { retryableKind: "rate_limited_until", retryAtMs: Math.max(...blocked.map((window) => Number(window.resetsAt) * 1e3)) };
+  }
+  if (transient || transport && (status == null || status === 408 || status >= 500 && status <= 599)) return { retryableKind: "transient" };
+  return {};
 }
 
 // plugins/provider-codex/src/runtimeAbandonedTurns.ts
@@ -3034,10 +3053,12 @@ function runtimeReduce(ctx, raw, frames) {
   for (const frame of frames) {
     const params = object(frame.params);
     if (frame.kind === "notification" && frame.method === "account/login/completed") {
+      delete state.rateLimitSnapshot;
       events.push(loginCompleted(params));
       continue;
     }
     if (frame.kind === "notification" && frame.method === "account/updated") {
+      delete state.rateLimitSnapshot;
       if (ctx.threadId) events.push({ kind: "controlsConfirmed", threadId: ctx.threadId, settings: { serviceTierAvailability: {} } });
       events.push(notificationAuth(params));
       continue;
@@ -3118,8 +3139,8 @@ function runtimeReduce(ctx, raw, frames) {
         delete state.activeTurnId;
         delete state.compacting;
         const failure2 = object(object(params.turn).error);
-        if (text2(failure2.message)) {
-          const error = runtimeError(failure2);
+        if (Object.keys(failure2).length) {
+          const error = runtimeError(failure2, false, state.rateLimitSnapshot);
           events.push({ kind: "chatItem", threadId, item: stamp(state, { id: `${turnId}:error`, seq: state.seq + 1, type: "system", content: error.message, systemSubtype: "api_error", toolInput: error.metadata }, params) });
         }
         const outcome2 = turnOutcome(params.turn);
@@ -3186,7 +3207,7 @@ function runtimeReduce(ctx, raw, frames) {
         break;
       }
       case "error": {
-        const error = runtimeError(params.error, params.willRetry === true);
+        const error = runtimeError(params.error, params.willRetry === true, state.rateLimitSnapshot);
         if (turnId) events.push({ kind: "chatItem", threadId, item: stamp(state, { id: `${turnId}:error`, seq: state.seq + 1, type: "system", content: error.message, systemSubtype: params.willRetry === true ? "provider_retry" : "api_error", toolInput: error.metadata }, params) });
         break;
       }
@@ -3479,6 +3500,8 @@ function respondOperation(ctx, op, raw, reply) {
     return pagedHistoryResponse(op, state, reply);
   }
   if (reply.kind === "error") {
+    if (op.kind === "resumeThread" && state.stage === "thread/resume" && missingRollout(reply.error, op.threadId))
+      return { kind: "refused", reason: { code: "thread_not_found", message: "The provider's saved conversation rollout is unavailable." }, beforeAcceptance: true };
     if (op.kind === "control" && op.action === "serviceTiers") return { kind: "complete", result: { kind: "done" }, events: [{ kind: "controlsConfirmed", threadId: op.threadId ?? ctx.threadId, settings: { serviceTierAvailability: {} } }] };
     const smaller = object(reply.error.data).historyPageLimit;
     if (op.kind === "readHistory" && state.stage === "items" && reply.error.code === -32097 && typeof smaller === "number" && Number.isSafeInteger(smaller) && smaller >= 1 && smaller < Number(state.historyItemLimit ?? 100))

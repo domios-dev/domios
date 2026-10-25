@@ -1,0 +1,99 @@
+{
+  "duration_api_ms": 9082,
+  "stop_reason": "end_turn",
+  "session_id": "fa7c82c4-7193-459f-8060-f3857853ebce",
+  "total_cost_usd": 0.027784999999999997,
+  "usage": {
+    "input_tokens": 9,
+    "cache_creation_input_tokens": 11508,
+    "cache_read_input_tokens": 0,
+    "output_tokens": 952,
+    "output_tokens_details": {
+      "thinking_tokens": 829
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 11508,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "not_available",
+    "iterations": [
+      {
+        "input_tokens": 9,
+        "output_tokens": 952,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 11508,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 11508
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-haiku-4-5-20251001": {
+      "inputTokens": 9,
+      "outputTokens": 952,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 11508,
+      "webSearchRequests": 0,
+      "costUSD": 0.027784999999999997,
+      "contextWindow": 200000,
+      "maxOutputTokens": 32000,
+      "thinkingTokens": 829,
+      "canonicalModel": "claude-haiku-4-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 1,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "WHAT: This Blueprint monitors a GitHub pull request at regular intervals, checking all CI/CD status checks. It polls every configured interval until all checks finish or the timeout expires. Useful for workflows that depend on PR verification completion before proceeding to merge, deploy, or notify. Sends results to the owner when done. || INTENT: Wait for all GitHub checks to complete on a pull request || INTENT: Poll status checks until my PR passes all CI || INTENT: Hold my workflow until PR status checks finish || INTENT: Monitor a pull request for completed status checks",
+  "ttft_ms": 8560,
+  "type": "result",
+  "duration_ms": 9357,
+  "uuid": "acfd05ab-17d0-4e78-8bb7-240ac94d14e2",
+  "ttft_stream_ms": 878,
+  "time_to_request_ms": 239,
+  "first_content_frame_ms": 878,
+  "queued_turn_count": 0,
+  "result_index": 0
+}

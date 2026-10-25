@@ -111,6 +111,10 @@ pub fn outlives_restart(notification: &Notification) -> bool {
         && !notification.resolved
         && notification.sticky == Some(true)
         && notification.surface_offer.is_none()
+        && notification
+            .answer
+            .as_ref()
+            .is_none_or(|slot| slot.daemon_request.is_none())
 }
 
 fn stored(notification: &Notification) -> StoredNotification {
@@ -212,7 +216,7 @@ impl Persistence {
         if rendered == self.written {
             return;
         }
-        match codeterm_util::atomic_write::write_atomic(&self.path, rendered.as_bytes()) {
+        match codeterm_util::private_file::write_atomic(&self.path, rendered.as_bytes()) {
             Ok(()) => self.written = rendered,
             Err(error) => log::warn!(
                 "[notify-persist] {} could not be written: {error}",

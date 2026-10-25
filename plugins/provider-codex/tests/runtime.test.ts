@@ -461,7 +461,7 @@ check("auth refresh and account updates retain unknown state honestly",()=> {
 });
 check("retry errors remain nonterminal with classified source metadata",()=> {
   const events=hooks.runtimeReduce(ctx,null,[{kind:"notification",method:"error",params:{threadId:ctx.threadId!,turnId:"turn-a",willRetry:true,error:{message:"Retrying",codexErrorInfo:{httpConnectionFailed:{httpStatusCode:503}}}}}]).events;
-  assert.equal(events.length,1);const event=events[0];assert.ok(event.kind === "chatItem");assert.equal(event.item.systemSubtype,"provider_retry");assert.deepEqual(plain(event.item.toolInput),{code:"httpConnectionFailed",class:"server_overloaded",retryable:true});
+  assert.equal(events.length,1);const event=events[0];assert.ok(event.kind === "chatItem");assert.equal(event.item.systemSubtype,"provider_retry");assert.deepEqual(plain(event.item.toolInput),{code:"httpConnectionFailed",class:"server_overloaded",retryable:true,retryableKind:"transient"});
 });
 console.log(`runtime final hooks: ${count} checks passed`);
 check("history includes optional goal without making a failed optional probe fatal",()=> {

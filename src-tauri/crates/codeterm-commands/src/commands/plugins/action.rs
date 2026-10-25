@@ -13,6 +13,7 @@ type SnapshotRebuild = Arc<dyn Fn() -> Result<Value, String> + Send + Sync + 'st
 
 #[derive(Clone)]
 struct SnapshotFlight {
+    epoch: u64,
     done: tokio::sync::watch::Receiver<Option<Result<Value, String>>>,
     finish: tokio::sync::watch::Sender<Option<Result<Value, String>>>,
 }
@@ -31,9 +32,6 @@ const SNAPSHOT_TTL: std::time::Duration = std::time::Duration::from_secs(15);
 pub(crate) fn invalidate_plugin_snapshot() {
     if let Ok(mut c) = SNAPSHOT_CACHE.lock() {
         *c = None;
-    }
-    if let Ok(mut flight) = SNAPSHOT_FLIGHT.lock() {
-        *flight = None;
     }
     SNAPSHOT_EPOCH.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     // while the last-known diff stays visible.
@@ -65,9 +63,22 @@ pub struct PluginManagerAction {
 
 pub(crate) async fn plugin_manager_snapshot_for_service(
     svc: codeterm_service_core::service::ServiceState,
+    lifetime: impl Send + Sync + 'static,
+) -> Result<Value, String> {
+    cached_plugin_snapshot_with_lifetime(
+        Arc::new(move || build_snapshot(None, Some(svc.chatbackend_registry.as_ref()))),
+        lifetime,
+    )
+    .await
+}
+
+async fn cached_plugin_snapshot_with_lifetime(
+    rebuild: SnapshotRebuild,
+    lifetime: impl Send + Sync + 'static,
 ) -> Result<Value, String> {
     cached_plugin_snapshot(Arc::new(move || {
-        build_snapshot(None, Some(svc.chatbackend_registry.as_ref()))
+        let _lifetime = &lifetime;
+        rebuild()
     }))
     .await
 }
@@ -81,21 +92,28 @@ async fn cached_plugin_snapshot(rebuild: SnapshotRebuild) -> Result<Value, Strin
         }
     }
 
-    let mut done = match snapshot_flight_role() {
+    let (mut done, epoch) = match snapshot_flight_role() {
         SnapshotFlightRole::Leader(flight, epoch) => {
             let done = flight.done.clone();
             // Detached so a cancelled HTTP request cannot strand the shared flight and every later caller.
             tokio::spawn(finish_snapshot_flight(flight, epoch, rebuild));
-            done
+            (done, epoch)
         }
-        SnapshotFlightRole::Follower(flight) => flight.done,
+        SnapshotFlightRole::Follower(flight) => (flight.done, flight.epoch),
     };
-    loop {
-        if let Some(result) = done.borrow().as_ref().cloned() {
-            return result;
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            if let Some(result) = done.borrow().as_ref().cloned() {
+                if SNAPSHOT_EPOCH.load(std::sync::atomic::Ordering::SeqCst) != epoch {
+                    return Err("plugin_unavailable: snapshot changed during rebuild".to_string());
+                }
+                return result;
+            }
+            done.changed().await.map_err(|e| e.to_string())?;
         }
-        done.changed().await.map_err(|e| e.to_string())?;
-    }
+    })
+    .await
+    .map_err(|_| "plugin_unavailable: snapshot rebuild exceeded its deadline".to_string())?
 }
 
 async fn finish_snapshot_flight(flight: SnapshotFlight, epoch: u64, rebuild: SnapshotRebuild) {
@@ -127,7 +145,11 @@ fn snapshot_flight_role() -> SnapshotFlightRole {
             return SnapshotFlightRole::Follower(flight.clone());
         }
         let (finish, done) = tokio::sync::watch::channel(None);
-        let flight = SnapshotFlight { done, finish };
+        let flight = SnapshotFlight {
+            done,
+            finish,
+            epoch: SNAPSHOT_EPOCH.load(std::sync::atomic::Ordering::SeqCst),
+        };
         *in_progress = Some(flight.clone());
         return SnapshotFlightRole::Leader(
             flight,
@@ -137,7 +159,11 @@ fn snapshot_flight_role() -> SnapshotFlightRole {
 
     let (finish, done) = tokio::sync::watch::channel(None);
     SnapshotFlightRole::Leader(
-        SnapshotFlight { done, finish },
+        SnapshotFlight {
+            done,
+            finish,
+            epoch: SNAPSHOT_EPOCH.load(std::sync::atomic::Ordering::SeqCst),
+        },
         SNAPSHOT_EPOCH.load(std::sync::atomic::Ordering::SeqCst),
     )
 }
@@ -193,9 +219,11 @@ pub fn run_action(action: PluginManagerAction, svc: &ServiceContext) -> Result<V
                 .as_deref()
                 .is_none_or(|c| c == "codeterm-core")
         {
-            if let Err(error) = codeterm_plugins::sync_core_cached(codeterm_plugins::PluginCtx {
-                data_root: codeterm_service_core::paths::data_dir(),
-                version: codeterm_build_info::installed_version().map(str::to_string),
+            if let Err(error) = super::cli::with_install_lifecycle(|| {
+                codeterm_plugins::sync_core_cached(codeterm_plugins::PluginCtx {
+                    data_root: codeterm_service_core::paths::data_dir(),
+                    version: codeterm_build_info::installed_version().map(str::to_string),
+                })
             }) {
                 log::warn!("[plugin-update] silent core sync failed: {error}");
             }
@@ -440,358 +468,4 @@ fn plugin_action_args(action: &PluginManagerAction) -> Result<Vec<String>, Strin
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    static TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-
-    fn counted_rebuild(count: Arc<AtomicUsize>, delay: std::time::Duration) -> SnapshotRebuild {
-        Arc::new(move || {
-            let n = count.fetch_add(1, Ordering::SeqCst) + 1;
-            if !delay.is_zero() {
-                std::thread::sleep(delay);
-            }
-            Ok(json!({ "generation": n }))
-        })
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn cold_concurrent_snapshots_share_one_rebuild() {
-        let _guard = TEST_LOCK.lock().await;
-        invalidate_plugin_snapshot();
-        let count = Arc::new(AtomicUsize::new(0));
-        let rebuild = counted_rebuild(count.clone(), std::time::Duration::from_millis(75));
-        let mut handles = Vec::new();
-
-        for _ in 0..12 {
-            let rebuild = rebuild.clone();
-            handles.push(tokio::spawn(async move {
-                cached_plugin_snapshot(rebuild).await.unwrap()
-            }));
-        }
-
-        let mut results = Vec::new();
-        for handle in handles {
-            results.push(handle.await.unwrap());
-        }
-
-        assert_eq!(count.load(Ordering::SeqCst), 1);
-        assert!(results.iter().all(|v| v == &json!({ "generation": 1 })));
-        invalidate_plugin_snapshot();
-    }
-
-    #[tokio::test]
-    async fn snapshot_cache_hit_does_not_rebuild() {
-        let _guard = TEST_LOCK.lock().await;
-        invalidate_plugin_snapshot();
-        let count = Arc::new(AtomicUsize::new(0));
-        let rebuild = counted_rebuild(count.clone(), std::time::Duration::ZERO);
-
-        let first = cached_plugin_snapshot(rebuild.clone()).await.unwrap();
-        let second = cached_plugin_snapshot(rebuild).await.unwrap();
-
-        assert_eq!(first, json!({ "generation": 1 }));
-        assert_eq!(second, first);
-        assert_eq!(count.load(Ordering::SeqCst), 1);
-        invalidate_plugin_snapshot();
-    }
-
-    #[tokio::test]
-    async fn snapshot_invalidation_forces_rebuild() {
-        let _guard = TEST_LOCK.lock().await;
-        invalidate_plugin_snapshot();
-        let count = Arc::new(AtomicUsize::new(0));
-        let rebuild = counted_rebuild(count.clone(), std::time::Duration::ZERO);
-
-        let first = cached_plugin_snapshot(rebuild.clone()).await.unwrap();
-        invalidate_plugin_snapshot();
-        let second = cached_plugin_snapshot(rebuild).await.unwrap();
-
-        assert_eq!(first, json!({ "generation": 1 }));
-        assert_eq!(second, json!({ "generation": 2 }));
-        assert_eq!(count.load(Ordering::SeqCst), 2);
-        invalidate_plugin_snapshot();
-    }
-
-    #[test]
-    fn update_action_builds_json_cli_args() {
-        let action = PluginManagerAction {
-            kind: "update".into(),
-            plugin_id: Some("demo".into()),
-            channel: None,
-            url: None,
-            name: None,
-            permission: None,
-            permission_source: Default::default(),
-            allowed: false,
-            force: false,
-            remove_data: false,
-            allow_hosts: Vec::new(),
-            disallow_hosts: Vec::new(),
-        };
-        assert_eq!(
-            plugin_action_args(&action).unwrap(),
-            vec!["plugin", "update", "demo", "--json"]
-        );
-    }
-
-    #[test]
-    fn every_supported_action_refreshes_the_returned_catalog() {
-        for kind in [
-            "install",
-            "update",
-            "update-system",
-            "remove",
-            "refresh-channel",
-            "add-channel",
-            "remove-channel",
-        ] {
-            assert!(
-                action_refreshes_catalog(kind),
-                "{kind} returned stale drift"
-            );
-        }
-        assert!(!action_refreshes_catalog("unknown"));
-    }
-
-    #[test]
-    fn update_action_builds_json_cli_args_without_plugin_id() {
-        let action = PluginManagerAction {
-            kind: "update".into(),
-            plugin_id: None,
-            channel: None,
-            url: None,
-            name: None,
-            permission: None,
-            permission_source: Default::default(),
-            allowed: false,
-            force: false,
-            remove_data: false,
-            allow_hosts: Vec::new(),
-            disallow_hosts: Vec::new(),
-        };
-        assert_eq!(
-            plugin_action_args(&action).unwrap(),
-            vec!["plugin", "update", "--json"]
-        );
-    }
-
-    #[test]
-    fn settings_action_builds_shared_cli_args() {
-        let action = PluginManagerAction {
-            kind: "settings".into(),
-            plugin_id: Some("demo".into()),
-            channel: None,
-            url: None,
-            name: None,
-            permission: None,
-            permission_source: Default::default(),
-            allowed: false,
-            force: false,
-            remove_data: false,
-            allow_hosts: vec!["api.example.test".into()],
-            disallow_hosts: vec!["old.example.test:8443".into()],
-        };
-        assert_eq!(
-            plugin_action_args(&action).unwrap(),
-            vec![
-                "plugin",
-                "settings",
-                "demo",
-                "--allow-host",
-                "api.example.test",
-                "--disallow-host",
-                "old.example.test:8443",
-                "--json",
-            ]
-        );
-    }
-
-    #[test]
-    fn add_channel_requires_url() {
-        let action = PluginManagerAction {
-            kind: "add-channel".into(),
-            plugin_id: None,
-            channel: None,
-            url: None,
-            name: Some("demo".into()),
-            permission: None,
-            permission_source: Default::default(),
-            allowed: false,
-            force: false,
-            remove_data: false,
-            allow_hosts: Vec::new(),
-            disallow_hosts: Vec::new(),
-        };
-        assert!(plugin_action_args(&action).unwrap_err().contains("url"));
-    }
-
-    #[test]
-    fn remove_action_builds_json_cli_args_with_optional_force() {
-        let base = PluginManagerAction {
-            kind: "remove".into(),
-            plugin_id: Some("demo".into()),
-            channel: None,
-            url: None,
-            name: None,
-            permission: None,
-            permission_source: Default::default(),
-            allowed: false,
-            force: false,
-            remove_data: false,
-            allow_hosts: Vec::new(),
-            disallow_hosts: Vec::new(),
-        };
-        assert_eq!(
-            plugin_action_args(&base).unwrap(),
-            vec!["plugin", "remove", "demo", "--json"]
-        );
-        let forced = PluginManagerAction {
-            force: true,
-            ..base
-        };
-        assert_eq!(
-            plugin_action_args(&forced).unwrap(),
-            vec!["plugin", "remove", "demo", "--force", "--json"]
-        );
-        let remove_data = PluginManagerAction {
-            remove_data: true,
-            ..forced
-        };
-        assert_eq!(
-            plugin_action_args(&remove_data).unwrap(),
-            vec![
-                "plugin",
-                "remove",
-                "demo",
-                "--force",
-                "--remove-data",
-                "--json"
-            ]
-        );
-    }
-
-    #[test]
-    fn remove_action_requires_plugin_id() {
-        let action = PluginManagerAction {
-            kind: "remove".into(),
-            plugin_id: None,
-            channel: None,
-            url: None,
-            name: None,
-            permission: None,
-            permission_source: Default::default(),
-            allowed: false,
-            force: false,
-            remove_data: false,
-            allow_hosts: Vec::new(),
-            disallow_hosts: Vec::new(),
-        };
-        assert!(plugin_action_args(&action)
-            .unwrap_err()
-            .contains("pluginId"));
-    }
-
-    #[test]
-    fn plugin_action_activity_maps_install_remove_and_update() {
-        let install = PluginManagerAction {
-            kind: "install".into(),
-            plugin_id: Some("transcriber".into()),
-            channel: None,
-            url: None,
-            name: None,
-            permission: None,
-            permission_source: Default::default(),
-            allowed: false,
-            force: false,
-            remove_data: false,
-            allow_hosts: Vec::new(),
-            disallow_hosts: Vec::new(),
-        };
-        let install_activity = plugin_action_activity(&install).unwrap();
-        assert_eq!(install_activity.plugin_id, "transcriber");
-        assert_eq!(install_activity.kind, "install");
-        assert_eq!(install_activity.label, "Installing transcriber…");
-
-        let remove = PluginManagerAction {
-            kind: "remove".into(),
-            plugin_id: Some("transcriber".into()),
-            channel: None,
-            url: None,
-            name: None,
-            permission: None,
-            permission_source: Default::default(),
-            allowed: false,
-            force: false,
-            remove_data: false,
-            allow_hosts: Vec::new(),
-            disallow_hosts: Vec::new(),
-        };
-        let remove_activity = plugin_action_activity(&remove).unwrap();
-        assert_eq!(remove_activity.plugin_id, "transcriber");
-        assert_eq!(remove_activity.kind, "uninstall");
-        assert_eq!(remove_activity.label, "Uninstalling transcriber…");
-
-        let update_system = PluginManagerAction {
-            kind: "update-system".into(),
-            plugin_id: Some("codeterm-core".into()),
-            channel: None,
-            url: None,
-            name: None,
-            permission: None,
-            permission_source: Default::default(),
-            allowed: false,
-            force: false,
-            remove_data: false,
-            allow_hosts: Vec::new(),
-            disallow_hosts: Vec::new(),
-        };
-        let update_activity = plugin_action_activity(&update_system).unwrap();
-        assert_eq!(update_activity.plugin_id, "codeterm-core");
-        assert_eq!(update_activity.kind, "update");
-        assert_eq!(update_activity.label, "Updating codeterm-core…");
-    }
-
-    #[test]
-    fn plugin_action_activity_maps_channel_operations() {
-        let add = PluginManagerAction {
-            kind: "add-channel".into(),
-            plugin_id: None,
-            channel: None,
-            url: Some("https://example.test/channel.json".into()),
-            name: Some("demo".into()),
-            permission: None,
-            permission_source: Default::default(),
-            allowed: false,
-            force: false,
-            remove_data: false,
-            allow_hosts: Vec::new(),
-            disallow_hosts: Vec::new(),
-        };
-        let add_activity = plugin_action_activity(&add).unwrap();
-        assert_eq!(add_activity.plugin_id, "channel:demo");
-        assert_eq!(add_activity.kind, "channel");
-        assert_eq!(add_activity.label, "Adding channel demo…");
-
-        let refresh = PluginManagerAction {
-            kind: "refresh-channel".into(),
-            plugin_id: None,
-            channel: Some("demo".into()),
-            url: None,
-            name: None,
-            permission: None,
-            permission_source: Default::default(),
-            allowed: false,
-            force: false,
-            remove_data: false,
-            allow_hosts: Vec::new(),
-            disallow_hosts: Vec::new(),
-        };
-        let refresh_activity = plugin_action_activity(&refresh).unwrap();
-        assert_eq!(refresh_activity.plugin_id, "channel:demo");
-        assert_eq!(refresh_activity.kind, "channel");
-        assert_eq!(refresh_activity.label, "Refreshing demo…");
-    }
-}
+mod tests;

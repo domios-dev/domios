@@ -1,5 +1,6 @@
 {
   "args": {
+    "installationId": "installation",
     "parentTabId": "parent",
     "themeId": "theme",
     "instanceId": "peer",
@@ -61,6 +62,54 @@
     "answers": []
   },
   "commands": {
+    "account_mesh_acknowledge_limit": [
+      [
+        "POST",
+        "/api/account/mesh/limit-notice/ack"
+      ]
+    ],
+    "account_mesh_enroll": [
+      [
+        "POST",
+        "/api/account/mesh/enroll"
+      ]
+    ],
+    "account_mesh_link": [
+      [
+        "POST",
+        "/api/mesh/link"
+      ]
+    ],
+    "account_mesh_list": [
+      [
+        "POST",
+        "/api/account/mesh/list"
+      ]
+    ],
+    "account_mesh_rename_self": [
+      [
+        "POST",
+        "/api/account/mesh/rename"
+      ]
+    ],
+    "account_mesh_revoke": [
+      [
+        "POST",
+        "/api/account/mesh/revoke"
+      ]
+    ],
+    "account_mesh_session_revoke": [
+      [
+        "POST",
+        "/api/account/mesh/session-revoke"
+      ]
+    ],
+    "account_mesh_state": [
+      [
+        "GET",
+        "/api/account/mesh"
+      ]
+    ],
     "agent_runtime_child_authority": [["GET", "/api/mux/state"]],
     "mux_get_state": [
       [
@@ -593,24 +642,6 @@
         "/api/notifications/item/read"
       ]
     ],
-    "mesh_add_manual": [
-      [
-        "POST",
-        "/api/mesh/peers/add-manual"
-      ]
-    ],
-    "mesh_approve_pairing": [
-      [
-        "POST",
-        "/api/mesh/approve"
-      ]
-    ],
-    "mesh_connect": [
-      [
-        "POST",
-        "/api/mesh/connect"
-      ]
-    ],
     "mesh_disconnect": [
       [
         "POST",
@@ -683,18 +714,6 @@
         "/api/mesh/peers/peer/services"
       ]
     ],
-    "mesh_reject_pairing": [
-      [
-        "POST",
-        "/api/mesh/reject"
-      ]
-    ],
-    "mesh_scan_peers": [
-      [
-        "POST",
-        "/api/mesh/discover"
-      ]
-    ],
     "mesh_set_access": [
       [
         "POST",
@@ -705,18 +724,6 @@
       [
         "POST",
         "/api/mesh/enabled"
-      ]
-    ],
-    "mesh_start_broadcast": [
-      [
-        "POST",
-        "/api/mesh/broadcast/start"
-      ]
-    ],
-    "mesh_stop_broadcast": [
-      [
-        "POST",
-        "/api/mesh/broadcast/stop"
       ]
     ],
     "mesh_transfer_attachment": [
@@ -1023,6 +1030,24 @@
       [
         "POST",
         "/api/automation/node-files"
+      ]
+    ],
+    "blueprint_viewer_history": [
+      [
+        "GET",
+        "/api/automation/blueprints/viewer/history?workspace_id=workspace&team_id=team&id=item"
+      ]
+    ],
+    "blueprint_project_list": [
+      [
+        "GET",
+        "/api/automation/blueprints/project?workspace_id=workspace"
+      ]
+    ],
+    "blueprint_project_show": [
+      [
+        "GET",
+        "/api/automation/blueprints/project?workspace_id=workspace&path=%2Ffile"
       ]
     ],
     "blueprint_export_file": [

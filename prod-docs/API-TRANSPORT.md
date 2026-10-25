@@ -1,6 +1,7 @@
 # API transport protocols
 Output cursors, streaming and socket JSON-RPC.
 
+
 ### Output Cursor Pattern
 
 Use `offset` to poll without refetching the full buffer:
@@ -217,4 +218,4 @@ For `team.rename`, an omitted `caller_tab_id` is the trusted direct-user path on
 
 Plan writes require the live bound session of the Plan owner or Planner. They, and a Planner-authored `plan.create` from a live launch presenting its own nonce, wait on the binding event through the startup deadline without blocking the HTTP runtime. On expiry HTTP returns `503` with `{ "type": "session_binding_pending", "retryable": true }`; the socket error carries the same type and retryability in `data`. A settled launch without a registered session remains the distinct `plan_binding_session_unregistered` error on both transports. Pending status never authorizes the mutation.
 
-<!-- revision: 58 -->
+<!-- revision: 60 -->

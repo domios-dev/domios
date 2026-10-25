@@ -1,5 +1,13 @@
 use serde::{Deserialize, Serialize};
 
+pub(super) fn agent_role_label(
+    role: crate::multiplexer::types::AgentRole,
+    role_profile: Option<&str>,
+) -> &'static str {
+    codeterm_types::agent::role_kind::kind_label(Some(role), role_profile)
+        .unwrap_or_else(|| role.label())
+}
+
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum SpawnIdentityProvenance {

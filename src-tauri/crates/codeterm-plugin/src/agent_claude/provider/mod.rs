@@ -64,6 +64,18 @@ impl ClaudeProvider {
 }
 
 impl AgentProvider for ClaudeProvider {
+    fn general_agent_offer_when_absent(&self) -> bool {
+        true
+    }
+
+    fn attachment_capabilities(&self) -> crate::provider::AttachmentCapabilities {
+        crate::provider::AttachmentCapabilities {
+            file_paths: true,
+            inline_text: true,
+            image_paths: true,
+        }
+    }
+
     fn session_jsonl_path(&self, cwd: &str, session_id: &str) -> Option<std::path::PathBuf> {
         sessions::session_file_path(cwd, session_id)
     }
@@ -89,6 +101,12 @@ impl AgentProvider for ClaudeProvider {
     ) -> Vec<String> {
         model_capabilities::effort_args(model, effort)
     }
+    fn cli_login(&self) -> Option<crate::provider::CliLoginCapability> {
+        serde_json::from_str::<serde_json::Value>(MANIFEST_JSON)
+            .ok()
+            .and_then(|manifest| serde_json::from_value(manifest.get("cliLogin")?.clone()).ok())
+    }
+
     fn auth_status_probe(&self) -> Option<crate::provider::AuthStatusProbe> {
         Some(signals::probe())
     }

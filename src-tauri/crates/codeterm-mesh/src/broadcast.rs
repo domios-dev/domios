@@ -6,7 +6,7 @@ use std::sync::{
 use parking_lot::Mutex;
 
 use super::MeshState;
-use super::{discovery, transport, types};
+use super::{discovery, transport};
 
 pub async fn broadcast_sync(mesh: &MeshState) {
     let (payload, clients) = {
@@ -19,7 +19,7 @@ pub async fn broadcast_sync(mesh: &MeshState) {
                 if p.addresses.is_empty() {
                     return None;
                 }
-                let token = m.sign_request().ok()?;
+                let token = m.sign_request_for(&p.instance_id).ok()?;
                 Some((
                     p.addresses.clone(),
                     p.api_port,
@@ -37,7 +37,10 @@ pub async fn broadcast_sync(mesh: &MeshState) {
     let http = transport::shared_http_client();
     for (addresses, port, token, peer_id) in &clients {
         let result = transport::try_peer(addresses, |addr| {
-            let url = format!("http://{}:{}/api/mesh/sync", addr.ip, port);
+            let url = format!(
+                "{}/api/mesh/sync",
+                transport::peer_http_origin(&addr.ip, *port)
+            );
             let http = http.clone();
             let token = token.clone();
             let payload = payload.clone();
@@ -52,128 +55,19 @@ pub async fn broadcast_sync(mesh: &MeshState) {
                     Ok(resp) if resp.status().is_success() => transport::TryNext::Success(()),
                     Ok(resp) => {
                         let status = resp.status();
-                        let body = resp.text().await.unwrap_or_default();
-                        transport::TryNext::Stop(format!("HTTP {}: {}", status, body))
+                        transport::TryNext::Stop(format!("HTTP {}", status))
                     }
-                    Err(e) => transport::TryNext::Retry(e.to_string()),
+                    Err(_) => transport::TryNext::Retry("request failed".to_string()),
                 }
             }
         })
         .await;
         match result {
             Ok(()) => log::debug!("[mesh/broadcast] Synced to {}", peer_id),
-            Err(e) => log::warn!("[mesh/broadcast] Sync failed for {}: {}", peer_id, e),
-        }
-    }
-}
-
-pub async fn broadcast_introductions(
-    new_peer: types::PairedPeer,
-    existing_peers: Vec<types::PairedPeer>,
-    our_id: String,
-    token: String,
-) {
-    let http = transport::shared_http_client();
-    for existing in &existing_peers {
-        if !existing.addresses.is_empty() {
-            let intro = types::PeerIntroduction {
-                instance_id: new_peer.instance_id.clone(),
-                instance_name: new_peer.instance_name.clone(),
-                addresses: new_peer.addresses.clone(),
-                api_port: new_peer.api_port,
-                public_key: new_peer.public_key.clone(),
-                introduced_by: our_id.clone(),
-            };
-            let result = transport::try_peer(&existing.addresses, |addr| {
-                let url = format!(
-                    "http://{}:{}/api/mesh/introduce",
-                    addr.ip, existing.api_port
-                );
-                let http = http.clone();
-                let token = token.clone();
-                let intro = intro.clone();
-                async move {
-                    match http
-                        .post(&url)
-                        .header("Authorization", format!("Bearer {}", token))
-                        .json(&intro)
-                        .send()
-                        .await
-                    {
-                        Ok(resp) if resp.status().is_success() => transport::TryNext::Success(()),
-                        Ok(resp) => {
-                            let status = resp.status();
-                            let body = resp.text().await.unwrap_or_default();
-                            transport::TryNext::Stop(format!("HTTP {}: {}", status, body))
-                        }
-                        Err(e) => transport::TryNext::Retry(e.to_string()),
-                    }
-                }
-            })
-            .await;
-            match result {
-                Ok(()) => log::info!(
-                    "[mesh/introduce] {} → {}",
-                    new_peer.instance_name,
-                    existing.instance_name
-                ),
-                Err(e) => log::warn!(
-                    "[mesh/introduce] {} → {} failed: {}",
-                    new_peer.instance_name,
-                    existing.instance_name,
-                    e
-                ),
-            }
-        }
-        if !new_peer.addresses.is_empty() {
-            let intro = types::PeerIntroduction {
-                instance_id: existing.instance_id.clone(),
-                instance_name: existing.instance_name.clone(),
-                addresses: existing.addresses.clone(),
-                api_port: existing.api_port,
-                public_key: existing.public_key.clone(),
-                introduced_by: our_id.clone(),
-            };
-            let result = transport::try_peer(&new_peer.addresses, |addr| {
-                let url = format!(
-                    "http://{}:{}/api/mesh/introduce",
-                    addr.ip, new_peer.api_port
-                );
-                let http = http.clone();
-                let token = token.clone();
-                let intro = intro.clone();
-                async move {
-                    match http
-                        .post(&url)
-                        .header("Authorization", format!("Bearer {}", token))
-                        .json(&intro)
-                        .send()
-                        .await
-                    {
-                        Ok(resp) if resp.status().is_success() => transport::TryNext::Success(()),
-                        Ok(resp) => {
-                            let status = resp.status();
-                            let body = resp.text().await.unwrap_or_default();
-                            transport::TryNext::Stop(format!("HTTP {}: {}", status, body))
-                        }
-                        Err(e) => transport::TryNext::Retry(e.to_string()),
-                    }
-                }
-            })
-            .await;
-            match result {
-                Ok(()) => log::info!(
-                    "[mesh/introduce] {} → {}",
-                    existing.instance_name,
-                    new_peer.instance_name
-                ),
-                Err(e) => log::warn!(
-                    "[mesh/introduce] {} → {} failed: {}",
-                    existing.instance_name,
-                    new_peer.instance_name,
-                    e
-                ),
-            }
+            Err(e) => log::warn!(
+                "[mesh/broadcast] Sync failed: {}",
+                peer_request_error(peer_id, &e)
+            ),
         }
     }
 }
@@ -184,6 +78,10 @@ pub struct AnnounceReport {
     pub ok: usize,
     pub stale_peers: Vec<String>,
     pub errors: Vec<String>,
+}
+
+fn peer_request_error(peer_id: &str, _detail: &str) -> String {
+    format!("{peer_id}: request failed")
 }
 
 fn announce_gate() -> &'static tokio::sync::Mutex<()> {
@@ -204,9 +102,10 @@ fn refresh_generation() -> &'static AtomicU64 {
 pub async fn broadcast_announce(mesh: &MeshState, target: Option<&str>) -> AnnounceReport {
     let _publication_guard = announce_gate().lock().await;
     let mut report = AnnounceReport::default();
-    let (announce, clients) = {
+    let (announce, membership, clients) = {
         let m = mesh.lock();
         let announce = m.build_announce();
+        let membership = m.advertised_membership();
         let token = match m.sign_request() {
             Ok(t) => t,
             Err(e) => {
@@ -222,6 +121,7 @@ pub async fn broadcast_announce(mesh: &MeshState, target: Option<&str>) -> Annou
                     .map(|t| t == p.instance_id.as_str() || t == p.instance_name.as_str())
                     .unwrap_or(true)
             })
+            .filter(|p| m.announce_allowed(&p.instance_id))
             .filter_map(|p| {
                 if p.addresses.is_empty() {
                     return None;
@@ -235,7 +135,7 @@ pub async fn broadcast_announce(mesh: &MeshState, target: Option<&str>) -> Annou
                 ))
             })
             .collect();
-        (announce, clients)
+        (announce, membership, clients)
     };
 
     if clients.is_empty() {
@@ -247,23 +147,28 @@ pub async fn broadcast_announce(mesh: &MeshState, target: Option<&str>) -> Annou
         report.sent += 1;
         let stale_marker: Arc<Mutex<bool>> = Arc::new(Mutex::new(false));
         let result = transport::try_peer(addresses, |addr| {
-            let url = format!("http://{}:{}/api/mesh/announce", addr.ip, port);
+            let url = format!(
+                "{}/api/mesh/announce",
+                transport::peer_http_origin(&addr.ip, *port)
+            );
             let http = http.clone();
             let token = token.clone();
             let announce = announce.clone();
+            let membership = membership.clone();
             let stale_marker = stale_marker.clone();
             async move {
-                match http
+                let mut request = http
                     .post(&url)
                     .header("Authorization", format!("Bearer {}", token))
                     .header(
                         crate::version::VERSION_HEADER,
                         crate::version::local_version(),
-                    )
-                    .json(&announce)
-                    .send()
-                    .await
-                {
+                    );
+                if let Some(membership) = membership {
+                    request = request
+                        .header(crate::account_mesh::protocol::MEMBERSHIP_HEADER, membership);
+                }
+                match request.json(&announce).send().await {
                     Ok(resp) if resp.status().is_success() => transport::TryNext::Success(()),
                     Ok(resp) if resp.status().as_u16() == 404 => {
                         *stale_marker.lock() = true;
@@ -271,10 +176,9 @@ pub async fn broadcast_announce(mesh: &MeshState, target: Option<&str>) -> Annou
                     }
                     Ok(resp) => {
                         let status = resp.status();
-                        let body = resp.text().await.unwrap_or_default();
-                        transport::TryNext::Stop(format!("HTTP {}: {}", status, body))
+                        transport::TryNext::Stop(format!("HTTP {}", status))
                     }
-                    Err(e) => transport::TryNext::Retry(e.to_string()),
+                    Err(_) => transport::TryNext::Retry("request failed".to_string()),
                 }
             }
         })
@@ -284,10 +188,10 @@ pub async fn broadcast_announce(mesh: &MeshState, target: Option<&str>) -> Annou
                 report.ok += 1;
                 mesh.lock().record_announce_outcome(peer_id, true);
                 log::debug!(
-                    "[mesh/announce] sent to {} ({}) addrs={:?}",
+                    "[mesh/announce] sent to {} ({}) address_count={}",
                     peer_name,
                     peer_id,
-                    announce.addresses.iter().map(|a| &a.ip).collect::<Vec<_>>()
+                    announce.addresses.len()
                 );
             }
             Err(_e) if *stale_marker.lock() => {
@@ -300,8 +204,9 @@ pub async fn broadcast_announce(mesh: &MeshState, target: Option<&str>) -> Annou
             }
             Err(e) => {
                 mesh.lock().record_announce_outcome(peer_id, false);
-                log::warn!("[mesh/announce] {} send failed: {}", peer_id, e);
-                report.errors.push(format!("{}: {}", peer_id, e));
+                let error = peer_request_error(peer_id, &e);
+                log::warn!("[mesh/announce] send failed: {}", error);
+                report.errors.push(error);
             }
         }
     }
@@ -380,14 +285,18 @@ fn refresh_local_addresses_guarded(
     let changed = prev_ts != new_ts || prev_lan != new_lan || prev_web_ui != web_ui;
     // actually changed; the steady state is debug to keep the log readable.
     if changed {
-        log::info!(
-            "[mesh/refresh] local addrs CHANGED: tailscale {prev_ts:?} -> {new_ts:?}, lan {prev_lan:?} -> {new_lan:?}, web_ui {prev_web_ui:?} -> {web_ui:?}"
-        );
+        log::info!("[mesh/refresh] local address sets changed");
     } else {
         log::debug!(
-            "[mesh/refresh] local addrs: tailscale {new_ts:?}, lan {new_lan:?}, web_ui {web_ui:?}"
+            "[mesh/refresh] local address sets: tailscale={}, lan={}, web_ui={}",
+            new_ts.is_some(),
+            new_lan.is_some(),
+            web_ui.is_some()
         );
     }
     refresh_generation().fetch_add(1, Ordering::Release);
     changed
 }
+
+#[cfg(test)]
+mod tests;

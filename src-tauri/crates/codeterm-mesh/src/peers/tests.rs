@@ -95,8 +95,91 @@ fn corrupt_peers_file_is_held_not_emptied() {
     let peers = load_peers_at(&path);
 
     assert!(peers.is_empty());
-    assert!(save_peers_at(&path, &peers).is_err());
+    assert!(save_peers_at(&path, &peers, &LinkLedger::default()).is_err());
     assert!(!path.exists());
     let copies = peers_file(&path).corrupt_copies();
     assert_eq!(std::fs::read(&copies[0]).unwrap(), broken);
+}
+
+#[test]
+fn unreadable_peers_file_does_not_overwrite_link_ledger() {
+    let dir = TempDir::new();
+    let path = dir.0.join("peers.json");
+    let ledger_path = account_mesh_ledger_path(&path);
+    let original = LinkLedger {
+        disconnects: Default::default(),
+        owner_account: Some("account-a".into()),
+        ..LinkLedger::default()
+    };
+    std::fs::write(&ledger_path, serde_json::to_vec(&original).unwrap()).unwrap();
+    let original_bytes = std::fs::read(&ledger_path).unwrap();
+    std::fs::write(&path, b"{ unreadable").unwrap();
+    assert!(load_peers_at(&path).is_empty());
+
+    assert!(save_peers_at(&path, &HashMap::new(), &LinkLedger::default()).is_err());
+    assert_eq!(std::fs::read(&ledger_path).unwrap(), original_bytes);
+}
+
+#[test]
+fn account_mesh_ledger_survives_an_old_peers_writer() {
+    use crate::account_mesh::ledger::{LinkAdmission, LinkRecord};
+
+    let dir = TempDir::new();
+    let path = dir.0.join("peers.json");
+    let peer_id = "peer-a";
+    let payload = serde_json::json!({
+        "peers": {
+            peer_id: {
+                "instance_id": peer_id,
+                "instance_name": "old-peer",
+                "addresses": [],
+                "api_port": 7685,
+                "public_key": "peer-key",
+                "paired_at": "2026-01-01T00:00:00Z",
+                "last_seen": null,
+                "version": null,
+                "relay_protocol_version": 1
+            }
+        }
+    });
+    let (peers, _) = rehydrate_peers_payload(&payload.to_string()).unwrap();
+    let ledger = LinkLedger {
+        disconnects: Default::default(),
+        owner_account: Some("account-a".into()),
+        links: [(
+            peer_id.to_string(),
+            LinkRecord {
+                link_nonce: None,
+                admission: LinkAdmission::Adopted {
+                    account_id: "account-a".into(),
+                    installation_id: "installation-a".into(),
+                    public_key: "peer-key".into(),
+                },
+                remote_membership: None,
+            },
+        )]
+        .into_iter()
+        .collect(),
+    };
+
+    save_peers_at(&path, &peers, &ledger).unwrap();
+    let mut old_writer_payload: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    old_writer_payload
+        .as_object_mut()
+        .unwrap()
+        .remove("account_mesh");
+    std::fs::write(&path, old_writer_payload.to_string()).unwrap();
+
+    let restored = load_mesh_records_at(&path)
+        .ledger
+        .expect("the independent ledger survives a peers-only rewrite");
+    assert_eq!(restored.owner_account.as_deref(), Some("account-a"));
+    assert!(matches!(
+        restored.get(peer_id).map(|record| &record.admission),
+        Some(LinkAdmission::Adopted { account_id, .. }) if account_id == "account-a"
+    ));
+    let mut restored = restored;
+    assert!(!restored.bind_owner("account-b"));
+    assert_eq!(restored.owner_account.as_deref(), Some("account-a"));
 }

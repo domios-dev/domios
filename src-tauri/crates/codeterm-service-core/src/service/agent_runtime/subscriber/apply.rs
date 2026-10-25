@@ -115,6 +115,7 @@ pub(in crate::service::agent_runtime) async fn publish_events(
             _ => None,
         };
         let chat_item = matches!(runtime, RuntimeEvent::ItemUpdated { .. });
+        super::super::capacity_retry::observe(svc, session, &runtime, at).await?;
         apply(svc, session, epoch, at, runtime);
         run_completed |= completed_turn
             .is_some_and(|(thread, turn)| session.completions.lock().contains(&thread, &turn));
@@ -182,13 +183,16 @@ fn apply(svc: &ServiceContext, session: &Arc<Session>, epoch: u64, at: u64, even
                 engine::publish(svc, &context.tab_id, session);
             }
             if matches!(state, RuntimeAuthState::SignedOut) {
-                session.state.lock().degrade(
-                    epoch,
-                    &RuntimeFailure::Refused(detail.map_or_else(
-                        || "Sign-in required".into(),
-                        |detail| format!("Sign-in required: {detail}"),
-                    )),
-                );
+                if let Some(detail) = detail {
+                    log::debug!(
+                        "[runtime-auth] tab={} sign-in pending: {detail}",
+                        context.tab_id
+                    );
+                }
+                session
+                    .state
+                    .lock()
+                    .degrade(epoch, &RuntimeFailure::SignInRequired);
                 engine::publish(svc, &context.tab_id, session);
             }
         }
@@ -272,6 +276,14 @@ fn apply(svc: &ServiceContext, session: &Arc<Session>, epoch: u64, at: u64, even
             }
             match state {
                 RuntimeTurnState::Working => {
+                    if let Some(turn) = turn_id.as_deref() {
+                        svc.runtime_turn_starts(
+                            &context.tab_id,
+                            &context.binding_nonce,
+                            context.epoch,
+                        )
+                        .observe(turn);
+                    }
                     session
                         .state
                         .lock()
@@ -291,6 +303,7 @@ fn apply(svc: &ServiceContext, session: &Arc<Session>, epoch: u64, at: u64, even
                     .filter(|_| !matches!(state, RuntimeTurnState::Idle)),
             );
             crate::agent::state_verdict::apply_live(&svc.mux, &context.tab_id, &thread_id, live);
+            svc.record_turn_resume_edge(&context.tab_id);
             session.context.lock().active_turn_id = match state {
                 RuntimeTurnState::Idle => None,
                 _ => turn_id,

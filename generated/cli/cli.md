@@ -162,6 +162,7 @@ Sign in to the tab's runtime provider without a terminal
 - `--api-key-stdin` — Read the API key from stdin; never supply credentials in argv
 - `--cancel`
 - `--device`
+- `--show` — Read the pending sign-in without starting another flow
 - `--tab`
 
 #### `domios agent model`
@@ -185,6 +186,14 @@ List available models for a specific provider
 #### `domios agent providers`
 
 List available agent providers (claude, codex, ...) with their display names, default models, and capability flags
+
+#### `domios agent reparent`
+
+Move an unbound running worker under a live local Team Orchestrator without restarting it
+
+- `--peer` — Peer that owns the worker; --to always names an Orchestrator on this machine
+- `<tab>`
+- `--to`
 
 #### `domios agent report`
 
@@ -370,8 +379,11 @@ Create or update a YAML file or recipe by name in the caller's Team
 
 Validate a YAML file or built-in recipe without a daemon
 
+- `--explain` — Include positioned atoms and proof trees in human-readable diagnostics
+- `--fix` — Print deterministic safe repairs and the semantic diff
 - `--set`
 - `<source>`
+- `--write` — With --fix, write the repaired YAML file in place
 
 #### `domios blueprint delete`
 
@@ -407,7 +419,7 @@ Show immutable definition versions
 
 #### `domios blueprint import`
 
-Import a portable recipe into the caller's Team (stopped by default)
+Import a native v2 recipe into the caller's Team (stopped by default)
 
 - `<file>`
 - `--set`
@@ -424,10 +436,12 @@ Deliver a text body to a running text input stage
 
 #### `domios blueprint keep`
 
-Keep a generalised solution (Team Orchestrator only)
+Keep a generalised solution (Team Orchestrator only); give 3-5 --when intents
 
+- `--file` — Save a triggerless typed callable without scheduling it
 - `<id>`
-- `--when`
+- `--tag` — Choose 1-3 distinct tags from `blueprint tags`; repeat --tag for each
+- `--when` — One "when would someone want this" request; repeat 1-5 times, 3-5 phrased differently
 
 #### `domios blueprint list`
 
@@ -442,14 +456,30 @@ List bounded run journal entries, newest first
 
 #### `domios blueprint new`
 
-Print a commented YAML scaffold from a recipe or node kind
+Start from intent recall cards and a native v2 scaffold, or a named recipe
 
+- `--intent` — Recall scoped typed solutions before authoring; bodies open with blueprint show
 - `<kind>`
 - `--like` — Offer proven graphs matching this intent before authoring
+- `--limit` — Maximum recall cards (1..20)
 
 #### `domios blueprint nodes`
 
 List trigger, step, converter and event-source capabilities
+
+#### `domios blueprint project`
+
+Discover repository Blueprints without running, applying or approving them
+
+#### `domios blueprint project list`
+
+List source path, name and intent under .domios/blueprints/
+
+#### `domios blueprint project show`
+
+View a native v2 source; no execution or approval is performed
+
+- `<path>`
 
 #### `domios blueprint recipe`
 
@@ -473,9 +503,13 @@ Stop one blueprint
 
 - `<id>`
 
+#### `domios blueprint tags`
+
+List controlled saved-solution tags with descriptions
+
 #### `domios blueprint update`
 
-Replace one definition at the expected version
+Replace one native v2 YAML definition at the expected version
 
 - `--cause`
 - `--dry-run` — Validate and print the resulting graph without updating it
@@ -483,6 +517,36 @@ Replace one definition at the expected version
 - `--from-file`
 - `<id>`
 - `--note` — Replace the Blueprint note (at most 200 plain-text characters)
+
+#### `domios blueprint webhook`
+
+Manage the per-graph webhook credential; secrets appear only with --reveal
+
+#### `domios blueprint webhook disable`
+
+Remove the webhook credential
+
+- `<id>`
+
+#### `domios blueprint webhook enable`
+
+Generate and store a new webhook credential
+
+- `<id>`
+- `--reveal` — Print the newly generated secret once to stdout
+
+#### `domios blueprint webhook rotate`
+
+Replace the credential, immediately invalidating the previous secret
+
+- `<id>`
+- `--reveal` — Print the newly generated secret once to stdout
+
+#### `domios blueprint webhook show-url`
+
+Print the webhook URL without revealing a credential
+
+- `<id>`
 
 #### `domios bridge`
 
@@ -974,6 +1038,36 @@ Show the most recent dream diary entries (the structured PATTERN / CONNECTION / 
 Run dreaming consolidation via the daemon. Phases: light, deep, normalize, all (default). Replaces the v1.1.22 `mem dream --phase ...` form which is gone in v1.1.23
 
 - `--phase` — Which phase to run: light | deep | normalize | all
+
+#### `domios mem embedder`
+
+The one embedder behind all of mem: list providers, show status, switch
+
+#### `domios mem embedder key`
+
+Store an embedder API key locally from stdin, with owner-only permissions
+
+#### `domios mem embedder key set`
+
+Atomically write <data_dir>/secrets/<provider>-embedder.key. Pipe the key on stdin; terminal input and argv keys are refused
+
+- `<provider>` — Provider id from `mem embedder list`
+
+#### `domios mem embedder list`
+
+List embedder providers, their models, and whether a remote one can be activated
+
+#### `domios mem embedder status`
+
+Show the active provider, model, dimension, re-embed progress and vector-pending count
+
+#### `domios mem embedder use`
+
+Switch the embedder and re-embed every item in the background. A remote provider needs its stored key and memory.embedder.remote_opt_in
+
+- `--dimension` — Vector dimension, for models that accept one; defaults to the model's own
+- `--model` — Model id; defaults to the provider's default model
+- `<provider>` — Provider id from `mem embedder list`
 
 #### `domios mem extract-pending`
 
@@ -1561,32 +1655,17 @@ Push our current address list to paired peers without re-detecting locally. Use 
 
 - `--to` — Optional target peer (instance_id or name). Omit for all peers
 
-#### `domios mesh approve`
-
-Accept an incoming pairing request
-
-- `<request_id>` — Request ID of the pending pairing request
-
-#### `domios mesh broadcast`
-
-Start broadcasting for the configured duration
-
-#### `domios mesh connect`
-
-Initiate owner-approved pairing with a discovered peer or explicit address
-
-- `--addr` — Read the peer identity directly at this IP:port before pairing
-- `<instance_id>` — Instance ID or advertised name; --addr also accepts a hexadecimal ID prefix
-
 #### `domios mesh disconnect`
 
 Disconnect (unpair) from a paired peer
 
 - `<instance_id>` — Instance ID of the paired peer
 
-#### `domios mesh discover`
+#### `domios mesh link`
 
-Trigger mesh discovery scan (list discovered peers)
+Link a machine enrolled in this account. Both machines must be signed in, online to the registry and directly reachable; no approval on the other side
+
+- `<installation_id>` — Installation ID from the account's machine list
 
 #### `domios mesh offline`
 
@@ -1609,25 +1688,15 @@ Manually override our cached address for a paired peer. Useful when auto-detecti
 
 #### `domios mesh peers`
 
-List all peers (paired + discovered)
+List paired peers
 
 #### `domios mesh refresh`
 
 Re-detect local addresses (Tailscale + LAN) and announce them to all paired peers. Use after a network swap so peers update their cache without restarting Domios
 
-#### `domios mesh reject`
-
-Reject and block an incoming pairing request
-
-- `<request_id>` — Request ID of the pending pairing request
-
 #### `domios mesh status`
 
-Show mesh status (identity, discovery, peers)
-
-#### `domios mesh stop-broadcast`
-
-Stop broadcasting immediately
+Show mesh status (identity, peers)
 
 #### `domios mesh tabs`
 
@@ -1637,7 +1706,7 @@ List tabs on a remote mesh peer
 
 #### `domios mesh unrevoke`
 
-Explicitly lift a peer identity revocation so it can pair again
+Explicitly lift a local peer identity revocation
 
 - `<instance_id>` — Instance ID of the revoked peer
 
@@ -2906,6 +2975,7 @@ Respawn a worker from one prior attempt, inheriting its recorded execution inten
 - `--parent`
 - `<plan_id>`
 - `--provider`
+- `--reasoning-effort`
 - `--speed` — Provider-declared service tier for this launch
 - `<task_id>`
 - `--title`
@@ -3489,6 +3559,10 @@ Open a plugin surface as a tab nested under its owner
 
 OS-level integration: autostart, supervision, install hooks. Each subcommand is local-only and writes to platform-specific places (schtasks on Windows, LaunchAgents on macOS, user systemd on Linux)
 
+#### `domios system api-token`
+
+Print only the selected local instance API credential, without contacting the daemon
+
 #### `domios system autostart-status`
 
 Print whether the autostart trigger is installed and where
@@ -3502,7 +3576,7 @@ Remove the OS-level autostart trigger created by `enable-autostart`. Idempotent 
 Install an OS login trigger for the external crash-aware supervisor. The supervisor alone applies clean-exit, backoff, and loop policy; platform wrappers never restart the app independently
 
 - `--binary` — Override the path to the Domios executable. Defaults to the installed app binary for the current platform
-- `--supervisor` — Override the path to the codeterm CLI supervisor. Defaults to the currently-running CLI executable
+- `--supervisor` — Select the installed Domios CLI supervisor. Defaults to the stable installed CLI; temporary worker copies are refused
 
 #### `domios tab`
 
@@ -3622,7 +3696,7 @@ Plain shell tab, inheriting the calling tab's workspace and Team. For an AI tab 
 - `--purpose` — Utility shell purpose shown in the sidebar
 - `--shell` — Shell profile id (discover with --list-shells)
 - `--team` — Explicit Team membership cross-check. Ordinary shells already inherit the calling Tab's Team
-- `--timeout` — Agent-owned shell lifetime: positive duration (30s, 10m, 2h), or none. Requires a live creating agent (CODETERM_TAB_ID); omit for human shells
+- `--timeout` — Agent-owned per-command timeout (60m recommended), or none; dev servers take none. Requires a live creating agent (CODETERM_TAB_ID); omit for human shells
 - `--title` — Tab title
 - `--workspace` — Target workspace id. Defaults to the calling tab's own workspace, then the focused workspace for a caller with no tab identity
 
@@ -3670,7 +3744,7 @@ Replace a plain shell's process in the same tab, preserving tab identity and met
 - `--cmd` — Command to execute after the replacement shell is ready
 - `--cwd` — Working directory for the replacement shell
 - `--tab` — Tab ID to restart (default: current tab)
-- `--timeout` — Fresh shell lifetime (30s, 10m, 2h, none); defaults to the previous duration
+- `--timeout` — Per-command timeout (30s, 60m, 2h, none); defaults to the previous bound
 
 #### `domios tab search`
 
@@ -3692,7 +3766,7 @@ Interrupt the agent's current generation (NOT a clean exit). Sends the provider'
 
 #### `domios tab timeout`
 
-Reset an owned utility shell's lifetime from now, or disable it with none
+Bound current and future commands from each command start, or disable with none
 
 - `--tab`
 - `--timeout`
@@ -3805,8 +3879,9 @@ Team registry, 1:1 plan binding, and paired creation
 
 #### `domios team adopt-agent`
 
-Attach an already-running roleless agent or plain shell tab to a Team (a shell becomes a utility shell, process kept)
+Attach a running roleless agent or shell locally, or adopt an unbound remote worker with --peer
 
+- `--peer` — Peer that owns the running remote worker; the Team stays local
 - `<tab_id>` — Tab ID of the running agent or shell
 - `<team_id>` — Team ID
 

@@ -399,7 +399,7 @@ describe("chained commands inside a stream", () => {
     expect(members[0].querySelector('[data-testid="chat-tool-stream-action"]')?.textContent).toContain("codeterm spec");
     expect(treeLeads(members[0])).toEqual(["spec section update", "plan task update"]);
     expect(treeLeads(members[1])).toEqual(["plan doctor", "plan decision list", "task show"]);
-    expect(members[1].querySelector('[data-testid="chat-command-tree-more"]')?.textContent).toContain("+1 more");
+    expect(members[1].querySelector('button[aria-label="Show all 1 remaining step"]')).not.toBeNull();
     expect(members[1].querySelectorAll('[data-testid="chat-command-tree-operator"]')).toHaveLength(0);
   });
 
@@ -628,7 +628,7 @@ describe("inline member branches", () => {
     expect(failed.querySelector('[data-testid="chat-branch-output"]')?.textContent).toContain("second line");
   });
 
-  it("caps a member's branches at three with +N more", async () => {
+  it("caps a member's branches at three and offers to show all remaining steps", async () => {
     const diff = diffOf("src/many.ts", [1, 20, 40, 60, 80].map((start) => hunkOf(start, start, [`-old ${start}`, `+new ${start}`])));
     const view = await render([
       boundary("start", "turn-cap"),
@@ -640,7 +640,7 @@ describe("inline member branches", () => {
     const [member] = streamMembers(stream);
     expect(branchLines(member)).toHaveLength(3);
     const more = member.querySelector('[data-testid="chat-command-tree-more"]');
-    expect(more?.textContent).toContain("+2 more");
+    expect(more?.getAttribute("aria-label")).toBe("Show all 2 remaining steps");
     await click(more);
     expect(branchLines(member).map((line) => branchText(line, "lead"))).toEqual(["@@ -1 +1", "@@ -20 +20", "@@ -40 +40", "@@ -60 +60", "@@ -80 +80"]);
     expect(member.querySelector('[data-testid="chat-command-tree-more"]')).toBeNull();

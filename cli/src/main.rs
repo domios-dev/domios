@@ -97,8 +97,8 @@ pub use args::effort::EffortAction;
 pub use args::essence_map::EssenceMapAction;
 pub use args::inbox::InboxAction;
 pub use args::mem::{
-    MemAction, MemCalibrationAction, MemDreamAction, MemGraphAction, MemSecretAction,
-    MemSkillAction, MemWorkerAction,
+    MemAction, MemCalibrationAction, MemDreamAction, MemEmbedderAction, MemEmbedderKeyAction,
+    MemGraphAction, MemSecretAction, MemSkillAction, MemWorkerAction,
 };
 pub use args::misc::{
     BridgeAction, ConfigAction, KeepAwakeAction, NotifyAction, PasteAction, TabAction, ThemeAction,
@@ -183,6 +183,28 @@ fn main_impl() {
         return;
     }
 
+    if matches!(
+        &cli.command,
+        Commands::System {
+            action: SystemAction::ApiToken
+        }
+    ) {
+        cmd::system::handle_api_token(cli.mesh.is_some());
+        return;
+    }
+    if cli.mesh.is_some()
+        && matches!(
+            &cli.command,
+            Commands::Mem {
+                action: MemAction::Embedder {
+                    action: MemEmbedderAction::Key { .. }
+                }
+            }
+        )
+    {
+        cmd::print::fail(7, "embedder keys are local-only; run on the owning machine");
+    }
+
     if let Some(mesh_target) = cli.mesh.clone() {
         if matches!(&cli.command, Commands::ModelProvider { .. }) {
             cmd::print::fail(1, "model provider secrets and configuration are local-only");
@@ -253,6 +275,14 @@ fn main_impl() {
     let (mut client, resolved_socket) = match connection {
         Ok(connection) => connection,
         Err(e) => {
+            if matches!(
+                &cli.command,
+                Commands::Blueprint {
+                    action: args::blueprint::BlueprintAction::Check { .. }
+                }
+            ) {
+                crate::cmd::print::fail(2, format!("Call check requires host resolution: {e}"));
+            }
             crate::cmd::print::fail(1, e.to_string());
         }
     };

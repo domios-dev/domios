@@ -8,6 +8,8 @@ export interface PlanSidePanelTarget extends ReturnToRoute {
   documentsTabId?: string;
   tabView?: "documents" | "changes";
   taskId?: string;
+  /** Set when the task was opened from the plan inside the panel, so Back can pop to the plan. */
+  nestedFromPlan?: boolean;
   teamId?: string | null;
   canonicalProjectPath?: string;
 }

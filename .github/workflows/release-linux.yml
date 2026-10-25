@@ -63,25 +63,27 @@ permissions:
   actions: read
 
 env:
-  AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
-  AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
   CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
   # Builders are shared with agents; a CI job queues for the slot instead of failing busy (75).
   CODETERM_BUILD_GATEWAY_MODE: queue
-  DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
-  DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
-  DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
-  DOMIOS_ACCOUNT_REDEEM_URL: ${{ secrets.DOMIOS_ACCOUNT_REDEEM_URL }}
-  DOMIOS_BILLING_FUNCTIONS_URL: ${{ secrets.DOMIOS_BILLING_FUNCTIONS_URL }}
-  DOMIOS_AMPLITUDE_API_KEY_TEST: ${{ secrets.DOMIOS_AMPLITUDE_API_KEY_TEST }}
-  DOMIOS_AMPLITUDE_API_KEY_PROD: ${{ secrets.DOMIOS_AMPLITUDE_API_KEY_PROD }}
 
 jobs:
   build:
     name: build (x86_64-unknown-linux-gnu)
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && ((startsWith(github.ref, 'refs/heads/release/') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.path == '.github/workflows/tests.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.actor.login == 'rollacode' && github.event.workflow_run.triggering_actor.login == 'rollacode' && startsWith(github.event.workflow_run.head_branch, 'release/'))) }}
+    environment: release
     runs-on: [self-hosted, "${{ vars.RELEASE_LINUX_X64_LABEL || 'linux-build' }}"]
     timeout-minutes: 120
     env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
+      DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
+      DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
+      DOMIOS_ACCOUNT_REDEEM_URL: ${{ secrets.DOMIOS_ACCOUNT_REDEEM_URL }}
+      DOMIOS_BILLING_FUNCTIONS_URL: ${{ secrets.DOMIOS_BILLING_FUNCTIONS_URL }}
+      DOMIOS_AMPLITUDE_API_KEY_TEST: ${{ secrets.DOMIOS_AMPLITUDE_API_KEY_TEST }}
+      DOMIOS_AMPLITUDE_API_KEY_PROD: ${{ secrets.DOMIOS_AMPLITUDE_API_KEY_PROD }}
       CODETERM_SCCACHE_VERIFY_ONLY: '1'
       RUSTUP_TOOLCHAIN: 1.99.1
       RUSTC_WRAPPER: sccache
@@ -96,11 +98,42 @@ jobs:
       # service context, extract-and-run avoids the FUSE mount.
       APPIMAGE_EXTRACT_AND_RUN: '1'
     steps:
+
+      - name: Use the runner bundled Node
+        if: runner.environment == 'self-hosted'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            const path = require('node:path');
+            core.addPath(path.dirname(process.execPath));
+            core.info('Using runner Node ' + process.version);
+      - name: Setup Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+        if: runner.environment == 'github-hosted'
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12"
+        if: runner.environment == 'github-hosted'
       - name: Checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.source_ref }}
-          fetch-depth: 0
+          fetch-depth: 1
+      - name: Discover installed runner tools
+        if: runner.environment == 'self-hosted'
+        run: node scripts/ci-runner-paths.mjs --paths-only
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
+        if: runner.environment == 'github-hosted'
 
       - name: Resolve tag
         id: tag
@@ -138,22 +171,12 @@ jobs:
           rustup show
           rustc -vV
           rustup target list --installed | grep -E 'x86_64-unknown-linux-gnu' || rustup target add "$TARGET"
-
-      - name: Setup Node.js
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
-        with:
-          package-manager-cache: false
-          node-version: '22.22.0'
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs packaging
 
       - name: Reset compiler capture
         continue-on-error: true
         run: node -e "require('fs').writeFileSync('ci-rust-warnings.log', '')"
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
-        with:
-          version: 10.32.1
-          run_install: false
 
       - name: Install npm dependencies
         run: pnpm install --frozen-lockfile
@@ -176,11 +199,17 @@ jobs:
       - name: Verify shared compile cache
         run: bash build.sh cache-verify
 
+      - name: Download digest-pinned frontend bundle
+        if: ${{ inputs.frontend_sha256 != '' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: frontend-dist-${{ inputs.frontend_sha256 }}
+          path: ${{ runner.temp }}
       - name: Fetch the run's frontend bundle
         if: ${{ inputs.frontend_sha256 != '' }}
         env:
           GH_TOKEN: ${{ github.token }}
-        run: node scripts/release-frontend-dist.mjs fetch "$GITHUB_RUN_ID" "${{ inputs.frontend_sha256 }}" "$RUNNER_TEMP/frontend-dist.tar"
+        run: node scripts/release-frontend-dist.mjs fetch-run-artifact "$GITHUB_RUN_ID" "${{ inputs.frontend_sha256 }}" "$RUNNER_TEMP/frontend-dist.tar"
 
       - name: Build release bundle inputs
         id: compile
@@ -199,9 +228,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         # Cargo's raw domios-server file occupies the resource directory name during compilation.
         run: >-
-          node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log --
-          pnpm tauri build --no-bundle --target "$TARGET"
-          --config '{"bundle":{"resources":[],"externalBin":[]}}'
+          node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- pnpm tauri build --no-bundle --target "$TARGET" --config '{"bundle":{"resources":[],"externalBin":[]}}'
 
       - name: Stage final pair resources and bundle without compilation
         shell: bash
@@ -235,9 +262,6 @@ jobs:
       - name: Verify independent headless assets and checksum
         run: node scripts/release-headless-assets.mjs verify "${{ inputs.tag }}" linux-x86_64 release-artifacts "${{ inputs.source_ref }}"
 
-      - name: Smoke packaged client and isolated server pair
-        run: node scripts/release-pair-smoke.mjs "$TARGET" "${{ inputs.tag }}" "${{ inputs.source_ref }}" "release-artifacts/common-stage/$TARGET" release-artifacts
-
       - name: Smoke built release bundle
         run: node scripts/release-bundle-smoke.mjs linux "src-tauri/target/${TARGET}/release/bundle" "${{ inputs.source_ref }}" x64
 
@@ -259,8 +283,7 @@ jobs:
       - name: Retain private dry-run updater evidence
         if: ${{ inputs.dry_run }}
         run: >-
-          node scripts/release-dry-run-manifest.mjs capture "${{ inputs.tag }}" "${{ inputs.source_ref }}" "$GITHUB_RUN_ID"
-          linux-x86_64 "src-tauri/target/$TARGET/release/bundle" release-artifacts "$RUNNER_TEMP/dry-run-linux-x86_64"
+          node scripts/release-dry-run-manifest.mjs capture "${{ inputs.tag }}" "${{ inputs.source_ref }}" "$GITHUB_RUN_ID" linux-x86_64 "src-tauri/target/$TARGET/release/bundle" release-artifacts "$RUNNER_TEMP/dry-run-linux-x86_64"
 
       - name: Publish the Linux bundles
         if: ${{ !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release Linux x86_64 platform') && !inputs.dry_run }}

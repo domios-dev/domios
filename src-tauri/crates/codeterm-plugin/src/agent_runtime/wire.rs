@@ -3,6 +3,21 @@ use codeterm_types::pty::PendingPrompt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeErrorSignal {
+    pub retryable: bool,
+    pub retryable_kind: Option<RuntimeRetryableErrorKind>,
+    pub retry_at_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeRetryableErrorKind {
+    Transient,
+    RateLimitedUntil,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum RpcId {
@@ -115,6 +130,7 @@ pub enum RuntimeFailureCode {
     ProcessUnavailable,
     ProtocolError,
     ProviderRefused,
+    ThreadNotFound,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -678,6 +694,8 @@ pub struct RuntimeLoginState {
     pub url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at_ms: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }

@@ -1,4 +1,5 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
+import { RegionLoader } from "../shared/RegionLoader";
 import { nativeBridge } from "../../lib/nativeBridge";
 import { useCallback, useEffect } from "react";
 import { Bot, ChevronRight, FolderTree, Server, Eye, Timer } from "lucide-react";
@@ -42,7 +43,7 @@ export function AgentsOverview({
     <div className="flex flex-col gap-3" data-testid="settings-agents-overview">
       <SettingsCard icon={<Server size={16} />} title="Providers" description="Installed as plugins from Extensions.">
         {error && providers.length === 0 && <InlineErrorNotice error={error} operation="loading agent providers" />}
-        {loading && providers.length === 0 && <div className="text-[11px] text-[var(--ct-muted-fg)]">Loading providers…</div>}
+        {loading && providers.length === 0 && <RegionLoader label="Loading providers" className="min-h-40" />}
         <div className="ct-rows !p-0">
           {providers.map((p) => (
             <button

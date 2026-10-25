@@ -5,11 +5,13 @@ Immediate `domios send` exits 1 with its reason on stderr whenever the result is
 Cron JSON exposes `protected: true` for system jobs. System jobs refuse deletion and schedule/task edits; use `domios cron enable <id>` or `domios cron disable <id>` to control them.
 
 
-CLI identity rules, environment variables, agent integration, and desktop behavior.
-
 ## CLI
 
 Use `domios <command> --help` for the installed CLI contract. `codeterm` remains a fully working alias; both names show canonical `domios` help and usage.
+
+### Startup readiness
+
+With the socket unavailable, credentialed CLI fallback probes RPC directly. A `starting` reply waits on startup events for up to 30 seconds before repeating the identify probe and submitting the first command. Without credentials, discovery checks the selected instance's loopback health first. REST recovery refuses immediately. Errors name the phase; JSON codes `starting`/`startup_failed` preserve `data.startup`. Fallback uses the selected local secret-store credential when absent from the environment. Commands never replay.
 
 ### Remote task locations
 
@@ -21,9 +23,11 @@ domios agent spawn <provider> --location cloud --environment <environment-id> --
 
 Choose an environment explicitly; an unambiguous label is also accepted. Local remains the default. Cloud opens a one-task tab, with a branch and prompt chosen there, or `--task` supplies its first task on `master`. Local model controls, roles and Worker bindings are refused for remote tasks. Run this command on the machine that owns the provider; remote task spawning through `--mesh` is unavailable.
 
-The task tab shows the persisted result and diff and offers explicit Refresh. Restoring a tab reads its existing task identity; it never creates another task. Unconfirmed creation must be checked in the provider's task list before another task is submitted. Unsupported follow-up, cancellation and patch application are never substituted with terminal commands or another billed backend. An empty environment list asks you to connect the owning account and refresh providers.
+The task tab shows persisted results/diffs and offers Refresh. Restore uses the existing task identity without creating another task. Unconfirmed creation must be checked in the provider's task list before another task is submitted. Unsupported follow-up, cancellation and patch application are never substituted with terminal commands or another billed backend. An empty environment list asks you to connect the owning account and refresh providers.
 
-Plugin outbound hosts can be granted per plugin with `domios plugin settings <id> --allow-host <host[:port]>`; remove a user grant with `--disallow-host`. A host without a port covers that exact hostname on any port; a host:port grant is scoped to that port. Schemes, paths, credentials, wildcards, and subdomains are not accepted. The manifest's `permissions.network.allow` entries remain unchanged and combine with user grants when the plugin loads.
+Grant outbound hosts with `domios plugin settings <id> --allow-host <host[:port]>`; revoke with `--disallow-host`. Grants combine with manifest `permissions.network.allow` on plugin load. Bare hosts cover any port; host:port restricts it. Matching is exact: no schemes, paths, credentials, wildcards or subdomains.
+
+Plugin verbs accept `--from-pad PATH`, `--from-file PATH` or `--stdin` before `--` (`-` reads stdin). Text reaches `ctx.body` exactly, separate from args. Pad containment applies. The body limit is 1 MiB of UTF-8 bytes; the socket refuses larger bodies with `plugin_body_too_large`. Before `--`, these flags select the host body source. Pass plugin-owned `--from-file`/`--stdin` after `--`; args preserve the separator, e.g. `domios plugin <id> <verb> -- --from-file input.json`.
 
 ### Provider plugins and their CLIs
 
@@ -79,15 +83,17 @@ Planner mutation commands emit one JSON envelope: `{ok, kind, id, data, hints?, 
 
 ### CLI JSON Errors
 
-With `--json` every command prints exactly one JSON object on stdout for success and for failure, including argument errors; stderr stays empty. A failure is `{"ok":false,"kind":"error","id":null,"data":...,"hints":[],"error":{"code","message","hint","rpc_code"}}` and the command exits non-zero. `error.code` is one of `not_found`, `invalid_argument`, `conflict`, `rate_limited`, `refused`, `unavailable`, `internal`, or a command-specific snake_case code; a missing tab, plan, cron job, peer, or plugin is always `not_found`. `rpc_code` is the raw daemon code or null. Exit codes: `0` success, `1` failure, `2` invalid arguments, and the command-specific codes named in `SECRETS` and `MESH-BRIDGE`. Structured daemon error data stays under `data`, including `invalid_model` fields such as the provider, requested id, closest catalogue ids, and refresh command. An ambiguous bare id uses `ambiguous_model` with the provider choices and a message asking for `--agent`. Mesh relay failures keep the peer's own delivery `code` inside `error`.
+With `--json` commands print exactly one JSON object on stdout for success and for failure, including argument errors; stderr stays empty. The local-only `domios system api-token` success output is an exception: it always prints only the credential, without a newline or JSON wrapper. A failure is `{"ok":false,"kind":"error","id":null,"data":...,"hints":[],"error":{"code","message","hint","rpc_code"}}` and the command exits non-zero. `error.code` is one of `not_found`, `invalid_argument`, `conflict`, `rate_limited`, `refused`, `unavailable`, `internal`, or a command-specific snake_case code; a missing tab, plan, cron job, peer, or plugin is always `not_found`. `rpc_code` is the raw daemon code or null. Exit codes: `0` success, `1` failure, `2` invalid arguments, and the command-specific codes named in `SECRETS` and `MESH-BRIDGE`. Structured daemon error data stays under `data`, including `invalid_model` fields such as the provider, requested id, closest catalogue ids, and refresh command. An ambiguous bare id uses `ambiguous_model` with the provider choices and a message asking for `--agent`. Mesh relay failures keep the peer's own delivery `code` inside `error`.
 
 ### Sandboxed CLI transport
 
-The CLI uses the local named pipe or Unix socket first. If that transport cannot be discovered or connected, socket RPC and REST-backed CLI commands can use the authenticated `POST /api/cli/rpc` loopback endpoint. The fallback needs `CODETERM_API_TOKEN` and either `CODETERM_API_PORT` or `CODETERM_API_URL`; it always targets `http://127.0.0.1:<port>`, disables proxies and redirects, and refuses any configured URL that is not exactly an HTTP IPv4 loopback origin. Custom dev ports also need `CODETERM_INSTANCE` or an explicit socket path, so the CLI never guesses the default DEV socket for a named target. The endpoint dispatches the same RPC methods as the local socket. This includes `api.request`, used for REST-backed commands such as plan reads, tab inspection, notifications, and agent-pad access. The token must be the local API token and the TCP peer must be loopback; mesh peer credentials are refused. HTTP success wraps the daemon value in `{result: ...}`, so result objects may contain their own `error` field without being mistaken for transport failures.
+The CLI tries its local pipe/socket first, then authenticated loopback `POST /api/cli/rpc` for socket and REST-backed commands. Credentials resolve through one local secret-store boundary: `CODETERM_API_TOKEN` for a matching tab connection, otherwise the selected instance's `<data_dir>/.secrets`. An explicit DEV selection needs a configured or explicit port before its callback origin can match an inherited token; foreign selections never reuse a production token. Both startup discovery and RPC fallback refuse a callback URL differing from the resolved instance address.
+
+HTTP fallback requires exactly `http://127.0.0.1:<port>` without credentials, path, query or fragment; proxies and redirects are disabled. Named custom-port targets also need `CODETERM_INSTANCE` or an explicit socket path. It dispatches the same socket methods, including `api.request` for REST-backed commands. The credential must be the local API token and the TCP peer loopback; mesh peer tokens are refused. Success wraps data in `{result: ...}`; an inner `error` remains ordinary data.
 
 ### Mesh CLI failures
 
-`domios mesh discover`, `domios mesh broadcast`, and `domios mesh stop-broadcast` check the HTTP result before printing success. When the listener is not remotely ready, the daemon returns HTTP 409 and the CLI exits non-zero with that refusal. Run these commands again after the mesh listener is ready.
+`domios mesh link <installation-id>` checks the HTTP result before printing success. A refusal exits non-zero and carries the typed `failure.reason`; `mesh.machines` means the account's free machine slots are used.
 
 `domios tab list --mesh <peer>` exits non-zero when the peer has no online mesh route; `(no tabs)` is reserved for a successful response from an online peer. `domios tab get-text --mesh <peer>` requires a PTY-backed remote tab. If the tab has no PTY, the CLI reports that condition and suggests choosing a PTY-backed tab.
 
@@ -130,7 +136,7 @@ including over `--mesh <peer>`; an unknown provider returns a typed `not_found`
 error. `domios agent providers` lists provider summaries and returns the full
 descriptor array with `--json` in both local and mesh mode.
 
-Choose a model with `domios agent models <provider>`, which first refreshes a catalogue that requires live discovery and, when no new snapshot publishes, warns and lists the registered one. Pass the id with `domios agent spawn [provider] --model <id>`. Without a provider, a uniquely advertised bare id selects its provider; otherwise spawn uses the configured default provider. Authoritative catalogues refuse unknown ids before creating a tab and list the valid ids in the error. Free-form providers validate ids against a published live model list and pass the id through unchanged when none exists. Provider-qualified ids select their provider; an unqualified id advertised by one provider routes to it. If several advertise it, `plan task dispatch` requires `--agent` and `agent spawn` requires the positional provider. Ambiguous ids and aliases advertised by another provider are refused instead of falling through or crossing providers.
+`domios agent models <provider>` refreshes required live catalogues; if no snapshot publishes, it warns and lists the registered one. Spawn with `domios agent spawn [provider] --model <id>`; without a provider, a uniquely advertised ID selects its provider, otherwise the configured default applies. Authoritative catalogues refuse unknown IDs and list valid ones. Free-form providers validate published live IDs, passing IDs unchanged if no list exists. Qualified IDs select their provider. Ambiguous IDs require `--agent` on dispatch or the positional spawn provider; foreign aliases refuse rather than cross providers.
 
 Switch a tab's runtime service tier with `domios agent model --tab TAB --speed TIER`; use `--speed default` to clear it or `--list-speeds` to read the exact tab's session-bound, model-scoped catalogue. `GET /api/tabs/{id}/agent/service-tiers` returns available tiers and requested/confirmed selection. Unavailable tiers are refused before the existing model-control endpoint is called.
 
@@ -174,20 +180,20 @@ Overlay files add leaf kinds only; one that declares capability, claims an ancho
 
 Domios account commands and routes: `domios docs ACCOUNT`.
 
-Runtime provider sign-in is available from the Chat banner or CLI:
+Runtime provider sign-in (Chat card or CLI):
 
 ```bash
-domios agent login --tab <ID>
-domios agent login --tab <ID> --device
-domios agent login --tab <ID> --api-key-stdin
-domios agent login --tab <ID> --cancel
+domios agent login --tab ID --device
+domios agent login --tab ID --show --mesh PEER --json
+domios agent login --tab ID --cancel
 ```
 
-The API key is read only from stdin; never put it in command arguments. Browser
-sign-in uses the default system browser. Device sign-in prints the link and code.
-Mesh sign-in shows the URL and code for the user to open; API keys stay on the
-provider's own machine. Completion verifies the account and resumes the tab's
-same thread without restarting or replaying input. Only one sign-in per provider
-can be pending; Cancel releases it before a retry.
+Provider-declared flows also support default browser sign-in and local
+`--api-key-stdin` (never argv or mesh). `--show` reads without starting:
+`login.url`, `userCode`, `expiresAtMs` (Unix milliseconds). Values disappear at
+completion, cancellation or within 15 minutes; an earlier provider deadline wins.
+One flow per provider; cancel before retry. Verified completion resumes the same
+thread without replay. **Send to my phone** requests one `action_needed` push;
+saved sessions and notifications omit login values.
 
-<!-- revision: 56 -->
+<!-- revision: 64 -->

@@ -1,4 +1,5 @@
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
+import { reduceToolEvents, toolCommand } from "@codeterm/chat-core";
 import type { BackgroundProcessEntry } from "../../lib/backgroundProcesses";
 import type { ChildTranscriptAuthority } from "../../lib/childTranscript";
 import { activityLabel } from "../../../packages/plugin-sdk/src/activityLabel";
@@ -7,7 +8,7 @@ export const LONG_RUNNING_WORK_MS = 15_000;
 
 export interface ComposerBackgroundWorkItem {
   id: string;
-  kind: "agent" | "terminal";
+  kind: "agent" | "terminal" | "shell";
   name: string;
   threadId: string;
   transcriptThreadId?: string;
@@ -23,7 +24,13 @@ export interface ComposerBackgroundWorkItem {
   sourceItemId?: string;
   cwd?: string;
   osPid?: number | null;
+  /** Set when the provider gave nothing readable: the item shows as "Internal agent" with this number. */
+  ordinal?: number;
+  /** The provider's own id, kept for the tooltip and the accessible description. */
+  rawId?: string;
 }
+
+export const INTERNAL_AGENT_NAME = "Internal agent";
 
 export interface ComposerBackgroundWorkBubble {
   count: number;
@@ -82,6 +89,14 @@ export function backgroundWorkElapsed(elapsedMs: number): string {
 function agentWork(messages: readonly NormalizedChatMessage[], rootThreadId: string, nowMs: number, minDurationMs: number, authority?: ChildTranscriptAuthority): ComposerBackgroundWorkItem[] {
   const latest = new Map<string, { item: ComposerBackgroundWorkItem; order: number }>();
   messages.forEach((message, order) => {
+    if (message.timelineMarker?.kind === "context_compaction" && (!message.sourceSessionId || message.sourceSessionId === rootThreadId)) {
+      for (const previous of latest.values()) {
+        if (previous.item.status === "running" || previous.item.status === "started") {
+          previous.item = { ...previous.item, status: "unknown", elapsed: "" };
+        }
+      }
+      return;
+    }
     if (message.type !== "tool_call" || message.toolKind !== "agent" || message.toolName !== "agent_activity") return;
     const source = record(message.toolInput);
     if (!source) return;
@@ -101,12 +116,14 @@ function agentWork(messages: readonly NormalizedChatMessage[], rootThreadId: str
     const prompt = string(source.agent_description) ?? previous?.item.prompt;
     const path = string(source.agent_path);
     const current = authority?.rootThreadId === rootThreadId && source.agent_binding_nonce === authority?.bindingNonce && source.agent_runtime_epoch === authority?.epoch;
+    const readable = prompt ?? string(source.agent_type) ?? path;
     latest.set(key, {
       order,
       item: {
         id: `agent:${threadId}`,
         kind: "agent",
-        name: shortName(undefined, prompt ?? string(source.agent_type) ?? path ?? threadId),
+        name: readable ? shortName(undefined, readable) : INTERNAL_AGENT_NAME,
+        rawId: threadId,
         threadId,
         transcriptThreadId,
         startedAtMs: earliest,
@@ -158,15 +175,47 @@ export function composerBackgroundWorkItems(
     .sort((a, b) => a.startedAtMs - b.startedAtMs);
 }
 
-export function composerBackgroundWorkBubble(items: readonly ComposerBackgroundWorkItem[]): ComposerBackgroundWorkBubble | null {
-  return items.length ? { count: items.length, items: [...items] } : null;
+export function isRunningWork(item: ComposerBackgroundWorkItem): boolean {
+  return item.status === "running" || item.status === "started";
 }
 
-export function withProviderBackgroundWork(items: ComposerBackgroundWorkItem[], running: Readonly<Record<string, string>>, rootThreadId?: string): ComposerBackgroundWorkItem[] {
-  if (!rootThreadId) return items;
+/** Only live work is shown; without anything running there is no bubble at all, and stale unknown work rides along only beside live work. */
+export function composerBackgroundWorkBubble(items: readonly ComposerBackgroundWorkItem[]): ComposerBackgroundWorkBubble | null {
+  const count = items.filter(isRunningWork).length;
+  return count ? { count, items: items.filter((item) => isRunningWork(item) || item.status === "unknown") } : null;
+}
+
+function numberInternalAgents(items: ComposerBackgroundWorkItem[]): ComposerBackgroundWorkItem[] {
+  let ordinal = 0;
+  return items.map((item) => item.kind === "agent" && item.name === INTERNAL_AGENT_NAME ? { ...item, ordinal: ++ordinal } : item);
+}
+
+function providerBackgroundCommands(messages: readonly NormalizedChatMessage[], rootThreadId: string, ids: ReadonlySet<string>): Map<string, string> {
+  const results = messages.filter(message => message.sourceSessionId === rootThreadId
+    && message.toolBackgroundTaskId && ids.has(message.toolBackgroundTaskId));
+  if (!results.length) return new Map();
+  const sourceIds = new Set(results.flatMap(message => message.toolCallSourceId ? [message.toolCallSourceId] : []));
+  const toolIds = new Set(results.flatMap(message => message.toolId ? [message.toolId] : []));
+  const outcomes = new Set(results);
+  const relevant = messages.filter(message => message.sourceSessionId === rootThreadId && (outcomes.has(message)
+    || message.type === "tool_call" && message.toolKind === "command"
+      && (message.toolCallSourceId && sourceIds.has(message.toolCallSourceId) || message.toolId && toolIds.has(message.toolId))));
+  return new Map(reduceToolEvents(relevant).flatMap(item => item.kind === "tool" && item.event.kind === "command" && item.event.backgroundTaskId
+    ? [[item.event.backgroundTaskId, toolCommand(item.event).command] as const] : []));
+}
+
+export function withProviderBackgroundWork(items: ComposerBackgroundWorkItem[], running: Readonly<Record<string, string>>, rootThreadId?: string, unknown: Readonly<Record<string, string>> = {}, messages: readonly NormalizedChatMessage[] = []): ComposerBackgroundWorkItem[] {
+  if (!rootThreadId) return numberInternalAgents(items);
+  const taskIds = new Set([...Object.keys(running), ...Object.keys(unknown)]);
+  const commands = taskIds.size ? providerBackgroundCommands(messages, rootThreadId, taskIds) : new Map<string, string>();
   const known = new Set(items.flatMap(item => [item.threadId, item.processId].filter(Boolean)));
-  return [...items, ...Object.entries(running).filter(([id]) => !known.has(id)).map(([id, label]): ComposerBackgroundWorkItem => ({
-    id: `provider:${rootThreadId}:${id}`, kind: "agent", name: shortName(undefined, label || id),
-    threadId: id, startedAtMs: 0, elapsed: "", status: "running", prompt: label || undefined,
-  }))];
+  return numberInternalAgents([...items, ...[
+    ...Object.entries(running).map(([id, label]) => ({id, label: label.trim(), status: "running"})),
+    ...Object.entries(unknown).map(([id, label]) => ({id, label: label.trim(), status: "unknown"})),
+  ].filter(({id}) => !known.has(id)).map(({id, label, status}): ComposerBackgroundWorkItem => ({
+    id: `provider:${rootThreadId}:${id}`, kind: commands.has(id) ? "shell" : "agent",
+    name: commands.has(id) ? backgroundCommandName(commands.get(id)!) : label || INTERNAL_AGENT_NAME, rawId: id,
+    command: commands.get(id),
+    threadId: id, startedAtMs: 0, elapsed: "", status, prompt: label || undefined,
+  }))]);
 }

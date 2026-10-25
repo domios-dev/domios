@@ -45,6 +45,8 @@ struct Resources {
     plans: Vec<crate::plan::Plan>,
     crons: Vec<crate::cron::store::CronJob>,
     blueprints: Vec<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    discarded_v1_blueprints: Vec<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -67,13 +69,30 @@ fn saved_blueprint(
     })
 }
 
-/// Restore is all-or-nothing, so every saved blueprint must parse before any effect runs.
-fn validate_saved_blueprints(resources: &Resources) -> Result<(), String> {
+fn validate_saved_blueprints(resources: &mut Resources) -> Result<(), String> {
+    let mut native = Vec::new();
+    let mut prepared = Vec::new();
+    let mut discarded = resources.discarded_v1_blueprints.clone();
     for saved in &resources.blueprints {
         saved_blueprint(saved)?;
-        serde_json::from_value::<codeterm_sentinel::store::Sentinel>(saved.clone())
+        let job: codeterm_sentinel::store::Sentinel = serde_json::from_value(saved.clone())
             .map_err(|error| format!("Saved blueprint is unreadable: {error}"))?;
+        if job.document.as_ref().is_none_or(|document| {
+            document
+                .get("schema_version")
+                .and_then(serde_json::Value::as_u64)
+                == Some(1)
+        }) {
+            discarded.push(serde_json::json!({"id":job.id,"reason":"Native v2 required; v1 Blueprint was not restored","saved":saved}));
+            continue;
+        }
+        prepared.push(job);
+        native.push(saved.clone());
     }
+    codeterm_sentinel::store::validate(prepared)
+        .map_err(|error| format!("Saved blueprints are inadmissible: {error}"))?;
+    resources.blueprints = native;
+    resources.discarded_v1_blueprints = discarded;
     Ok(())
 }
 
@@ -162,6 +181,7 @@ impl ServiceContext {
             plans,
             crons,
             blueprints,
+            ..Default::default()
         })
         .map_err(|error| error.to_string())?;
         self.mux.read().save_closed_structure(&record)?;
@@ -237,9 +257,12 @@ impl ServiceContext {
         if record.state == StructureState::Captured {
             return Err("Close has not completed".into());
         }
-        let resources: Resources =
+        self.mux.read().admit_structure_restore(&record)?;
+        let mut resources: Resources =
             serde_json::from_value(record.resources.clone()).map_err(|error| error.to_string())?;
-        validate_saved_blueprints(&resources)?;
+        validate_saved_blueprints(&mut resources)?;
+        self.validate_restore_automation(&resources)?;
+        record.resources = serde_json::to_value(&resources).map_err(|error| error.to_string())?;
         for plan in &resources.plans {
             if self.plan_store.get(&plan.id).is_none() {
                 self.ensure_plan_project_loaded(std::path::Path::new(&plan.project_path))
@@ -316,6 +339,48 @@ impl ServiceContext {
                 })
                 .map_err(|error| error.to_string())?;
             self.emit_plan_changed(&saved.id);
+        }
+        Ok(())
+    }
+
+    fn validate_restore_automation(&self, resources: &Resources) -> Result<(), String> {
+        if !resources.crons.is_empty() {
+            let cron = self
+                .extensions
+                .try_get::<crate::CronState>()
+                .ok_or("Cron store unavailable")?;
+            let store = cron.lock();
+            for saved in &resources.crons {
+                if store.get(&saved.id).is_some_and(|current| {
+                    current.workspace_id != saved.workspace_id || current.team_id != saved.team_id
+                }) {
+                    return Err(format!(
+                        "Cron identity {} belongs to another scope",
+                        saved.id
+                    ));
+                }
+            }
+        }
+        if !resources.blueprints.is_empty() {
+            let ports = self
+                .extensions
+                .try_get::<crate::ports::sentinel::SentinelPorts>()
+                .ok_or("Blueprint store unavailable")?;
+            for saved in &resources.blueprints {
+                let saved = saved_blueprint(saved)?;
+                if ports
+                    .store
+                    .scope_of(&saved.id)
+                    .is_some_and(|(workspace, team)| {
+                        workspace != saved.workspace_id || team != saved.team_id
+                    })
+                {
+                    return Err(format!(
+                        "Blueprint identity {} belongs to another scope",
+                        saved.id
+                    ));
+                }
+            }
         }
         Ok(())
     }

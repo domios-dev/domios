@@ -23,6 +23,7 @@ async function main() {
   let snapshot: NormalizedChatMessage[] = [row];
   let start = 0;
   let end = 1;
+  let backfills = 0;
   __setListenForTest(async (name, callback) => {
     if (name === "tab-chat-msg-rpc") handler = callback as typeof handler;
     return () => {};
@@ -32,6 +33,7 @@ async function main() {
     if (command === "chat_start") return { ...authority, text: "", start_offset: start, offset: end,
       offset_kind: "items", pending: false, messages: snapshot, subscription_id: args?.subscriptionId };
     if (command === "chat_backfill") {
+      backfills++;
       assert.equal(args?.beforeOffset, 1);
       return { ...authority, text: "", start_offset: 0, end_offset: 1,
         offset_kind: "items", messages: [{ ...row, id: "older-i", content: "old", seq: 0 }] };
@@ -74,6 +76,9 @@ async function main() {
       messages: [{ ...row, id: "older-i", content: "already live", seq: 0 }] } }));
     assert.equal(rendered().length, 201);
     await act(async () => { await loadOlder?.(); });
+    assert.equal(backfills, 0, "the first click reveals locally loaded rows");
+    await act(async () => { await loadOlder?.(); });
+    assert.equal(backfills, 1, "the next click reconciles the older server page");
     assert.equal(rendered().length, 201, "backfill of an already-live item keeps one row");
     assert.deepEqual(rendered()[0], { id: "older-i", content: "already live" }, "older page cannot overwrite live content");
     console.log("RPC snapshot, completion, growth, backfill and equal-text identities passed");

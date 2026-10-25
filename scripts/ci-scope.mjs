@@ -5,14 +5,12 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 const pluginTooling = new Set([
-  "scripts/ci-scope.mjs", "scripts/check-plugin.mjs", "scripts/release-plugin.mjs",
+  "scripts/check-plugin.mjs", "scripts/release-plugin.mjs",
   "scripts/plugin-release-metadata.mjs", "scripts/sync-plugin-versions.mjs",
   "scripts/build-plugin.mjs", "scripts/build-plugin-ui.mjs", "scripts/plugin-tests.sh",
-  "scripts/tests/plugin-releases.test.mjs", "scripts/tests/ci-scope.test.mjs",
+  "scripts/tests/plugin-releases.test.mjs",
   "scripts/tests/sync-plugin-versions-min-codeterm.test.mjs",
-  ".github/workflows/plugin-release.yml", ".github/workflows/tests.yml",
-  ".github/workflows/tests-fast.yml", ".github/workflows/cli-source-of-truth.yml",
-  ".github/workflows/ready-for-release.yml",
+  ".github/workflows/plugin-release.yml",
 ]);
 
 const frontendFiles = new Set([
@@ -58,7 +56,8 @@ export function classifyPaths(files, plugins) {
 }
 
 // Pull requests run fast checks only; release workflow_call and manual dispatch own the heavy Rust and CLI matrix.
-export function scopeForRun(files, plugins, fullMatrix = false, fastOnly = false, frontendOnly = false) {
+export function scopeForRun(files, plugins, fullMatrix = false, fastOnly = false, frontendOnly = false, fastDispatch = false) {
+  if (fastDispatch) return { frontend: true, rust: true, plugins: [], heavy: false };
   if (frontendOnly) return { frontend: true, rust: false, plugins: [], heavy: false };
   const scope = fullMatrix ? { frontend: true, rust: true, plugins: [] } : classifyPaths(files, plugins);
   return { ...scope, heavy: scope.rust && (fullMatrix || !fastOnly) };
@@ -86,7 +85,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
   const frontendOnly = process.env.CI_FRONTEND_ONLY === "true";
   const files = fullMatrix || frontendOnly ? [] : changedFiles(root, base, head);
   const plugins = JSON.parse(fs.readFileSync(path.join(root, "plugins/channel.json"), "utf8")).plugins;
-  const scope = scopeForRun(files, plugins, fullMatrix, process.env.CI_FAST_ONLY === "true", frontendOnly);
+  const scope = scopeForRun(files, plugins, fullMatrix, process.env.CI_FAST_ONLY === "true", frontendOnly, process.env.CI_FAST_DISPATCH === "true");
   if (process.env.GITHUB_OUTPUT) {
     fs.appendFileSync(process.env.GITHUB_OUTPUT, `frontend=${scope.frontend}\nrust=${scope.rust}\nheavy=${scope.heavy}\nplugins=${JSON.stringify(scope.plugins)}\n`);
   }

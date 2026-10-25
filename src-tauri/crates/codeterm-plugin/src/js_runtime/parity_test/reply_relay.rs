@@ -2,7 +2,7 @@ use super::*;
 use crate::provider::{ReplyRelayEvidence, ReplyRelayTurn};
 use std::sync::Arc;
 
-struct RelayNative;
+pub(super) struct RelayNative;
 
 #[test]
 fn tool_less_class_native_js_parity_and_default() {
@@ -80,6 +80,14 @@ impl AgentProvider for RelayNative {
     ) -> Option<String> {
         Some(serde_json::to_string(params).unwrap())
     }
+    fn attachment_capabilities(&self) -> crate::provider::AttachmentCapabilities {
+        crate::provider::AttachmentCapabilities {
+            file_paths: true,
+            inline_text: true,
+            image_paths: true,
+        }
+    }
+
     fn context_attach(&self) -> Option<crate::provider::ContextAttach> {
         Some(crate::provider::ContextAttach {
             editable: true,

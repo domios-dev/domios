@@ -35,9 +35,11 @@ fn command(name: &str, input: IoType) -> Step {
         name: name.into(),
         input,
         kind: StepKind::Command {
+            timeout_ms: crate::blueprint_pipeline::COMMAND_STEP_RUNTIME_MS,
             command: "printf ready".into(),
         },
         on: BTreeMap::new(),
+        execution: None,
     }
 }
 
@@ -76,7 +78,7 @@ fn blueprint_pipeline_spec_round_trips_one_authored_chain() {
         "steps": [{
             "name": "echo",
             "input": "text",
-            "kind": {"kind": "command", "command": "printf ready"}
+            "kind": {"kind": "command", "command": "printf ready", "timeout_ms": 10000}
         }],
         "result": {"to": "owner"}
     });
@@ -166,6 +168,7 @@ fn blueprint_pipeline_converter_chain_is_capability_ordered_and_bounded() {
                     to: MediaKind::Text,
                 },
                 on: BTreeMap::new(),
+                execution: None,
             },
             command("inspect", IoType::Text),
         ],
@@ -199,6 +202,7 @@ fn blueprint_pipeline_runner_advance_table() {
             buckets: vec!["ready".into()],
         },
         on: BTreeMap::new(),
+        execution: None,
     };
     ask.on.insert("ready".into(), "stop".into());
     let state = RunnerState::start(&spec(vec![ask])).unwrap();
@@ -229,6 +233,7 @@ fn blueprint_pipeline_rejects_undeclared_buckets_and_branch_outcomes() {
             buckets: vec!["ready".into()],
         },
         on: BTreeMap::new(),
+        execution: None,
     };
     ask.on.insert("failed".into(), "stop".into());
     let errors = validate(&spec(vec![ask]), &[]).unwrap_err();
@@ -243,6 +248,7 @@ fn blueprint_pipeline_rejects_undeclared_buckets_and_branch_outcomes() {
             buckets: vec!["other".into()],
         },
         on: BTreeMap::new(),
+        execution: None,
     };
     assert!(validate(&spec(vec![invalid]), &[])
         .unwrap_err()
@@ -311,7 +317,6 @@ fn blueprint_pipeline_journal_summary_is_bounded_and_control_free() {
         ))),
         reason: None,
     };
-    entry.validate().unwrap();
     let expected = "x".repeat(199);
     assert_eq!(entry.result_summary.as_deref(), Some(expected.as_str()));
     assert_eq!(StepJournalEntry::bound_summary("a\u{1b}b"), "ab");

@@ -1,0 +1,20 @@
+schema_version: 1
+name: Outage diagnosis watch
+note: Probe a service endpoint; when it is broken, run a diagnosis command and send the findings.
+inputs:
+  status_probe:
+    type: string
+    description: Read-only command printing healthy or broken for the service
+watch:
+  probe: '{{status_probe}}'
+  question: is-the-service-healthy
+  buckets: [healthy, broken]
+  matches: {healthy: '(?m)^healthy$', broken: '(?m)^broken$'}
+  every: 1m
+  timeout: 7d
+  rearm_on_change: [broken]
+  handlers:
+    healthy: []
+    broken:
+      - {type: command, parameters: {command: echo inspect-service, label: Diagnose, timeout_ms: 3000}}
+      - {type: notify}

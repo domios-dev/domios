@@ -89,6 +89,7 @@ pub(super) fn desk_delta_snapshot(
         teams: vec![],
         workspaces: (0..workspace_count)
             .map(|index| crate::session::store::WorkspaceSnapshot {
+                created_at_ms: 0,
                 id: format!("ws-{index}"),
                 name: format!("Workspace {index}"),
                 tabs: vec![],

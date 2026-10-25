@@ -59,3 +59,21 @@ fn busy_worker_close_refusal_is_conflict() {
     assert_eq!(status, StatusCode::CONFLICT);
     assert!(message.contains("worker-tab"));
 }
+
+#[test]
+fn tab_close_refusals_keep_their_typed_status() {
+    for (error, expected) in [
+        ("Cannot close protected Tab", StatusCode::FORBIDDEN),
+        ("Tab close reservation lost", StatusCode::CONFLICT),
+        ("Tab is closing: tab-1", StatusCode::CONFLICT),
+        ("Workspace is closing: ws-1", StatusCode::CONFLICT),
+        (
+            "Tab not found in any workspace: tab-1",
+            StatusCode::NOT_FOUND,
+        ),
+    ] {
+        let (status, message) = map_close_error(error.to_string());
+        assert_eq!(status, expected, "{error}");
+        assert_eq!(message, error);
+    }
+}

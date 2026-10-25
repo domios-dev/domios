@@ -1,3 +1,5 @@
+import { TAB_LIMIT_NOUN } from "./limitCopy";
+
 export type BillingInterval = "month" | "year";
 
 export interface PlanPrice {
@@ -53,7 +55,7 @@ export const BUILTIN_PLAN_CATALOG: PlanCatalog = {
         `${FREE_LIMITS.workspaces} workspaces`,
         `${FREE_LIMITS["mem.items"]} memory items`,
         `${FREE_LIMITS.teams} Teams across all workspaces`,
-        `${FREE_LIMITS["agent.tabs"]} tabs running at once`,
+        `${FREE_LIMITS["agent.tabs"]} ${TAB_LIMIT_NOUN}`,
       ],
       prices: {},
     },
@@ -81,7 +83,8 @@ export const BUILTIN_PLAN_CATALOG: PlanCatalog = {
       tagline: "Pro, plus a direct line to the people building Domios.",
       features: ["Everything in Pro", "Sponsor role in Discord", "Priority support"],
       prices: {
-        year: { planKey: "sponsor_yearly", amount: 200, currency: "USD" },
+        month: { planKey: "sponsor_monthly", amount: 29.99, currency: "USD" },
+        year: { planKey: "sponsor_yearly", amount: 199.99, currency: "USD" },
       },
     },
   ],
@@ -173,6 +176,23 @@ export function offerPrice(offer: PlanOffer, interval: BillingInterval): OfferPr
   const billed = `Billed ${money(price.amount)} yearly`;
   const note = !preferred ? `${billed}, yearly only` : savings ? `${billed}, save ${savings}%` : billed;
   return { headline: money(Math.round((price.amount / 12) * 100) / 100), per: "/ month", note, planKey: price.planKey };
+}
+
+export type PlanCardAction = { kind: "choose"; planKey: string } | { kind: "manage" } | { kind: "none" };
+
+/** A live subscription never starts a second checkout: any other paid card or interval routes to Manage subscription. */
+export function planCardAction(catalog: PlanCatalog, offer: PlanOffer, interval: BillingInterval, subscribedPlan: string | null): PlanCardAction {
+  const planKey = offerPrice(offer, interval).planKey;
+  if (!planKey) return { kind: "none" };
+  if (!subscribedPlan) return { kind: "choose", planKey };
+  const sameOffer = offerIdForPlan(catalog, subscribedPlan) === offer.id;
+  return sameOffer && (subscribedPlan === planKey || subscribedPlan === offer.id) ? { kind: "none" } : { kind: "manage" };
+}
+
+/** The recommended offer's checkout key for the interval on screen, falling back to whichever interval it sells. */
+export function upgradePlanKey(catalog: PlanCatalog, interval: BillingInterval): string | null {
+  const prices = catalog.offers.find((offer) => offer.recommended)?.prices;
+  return (prices?.[interval] ?? prices?.year ?? prices?.month)?.planKey ?? null;
 }
 
 /** Matches a subscription plan key such as `pro_yearly` or a bare `pro` to its offer. */

@@ -25,7 +25,7 @@ pub struct CuratorMetadata {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BlueprintMetadata {
-    pub when_to_use: String,
+    pub intents: Vec<String>,
     pub successes: u64,
     pub failures: u64,
     pub uses: u64,
@@ -59,10 +59,18 @@ pub(crate) fn initialize(conn: &Connection) -> Result<(), String> {
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(|error| error.to_string())?
     };
-    for id in ids {
+    let single_intent = {
+        let mut statement = conn.prepare("SELECT item_id FROM solution_metadata WHERE json_extract(metadata_json,'$.blueprint') IS NOT NULL AND json_extract(metadata_json,'$.blueprint.intents') IS NULL").map_err(|error| error.to_string())?;
+        let rows = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|error| error.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|error| error.to_string())?
+    };
+    for id in ids.into_iter().chain(single_intent) {
         store::delete_with_reason(conn, &id, Some("obsolete solution metadata shape"))?;
     }
-    Ok(())
+    crate::blueprint_library::initialize(conn)
 }
 
 pub(crate) fn read(conn: &Connection, id: &str) -> Result<Option<SolutionMetadata>, String> {
@@ -93,7 +101,7 @@ pub(crate) fn write(
 impl SolutionMetadata {
     pub(crate) fn set_entry(&mut self, entry: &Entry) {
         self.blueprint = Some(BlueprintMetadata {
-            when_to_use: entry.when_to_use.clone(),
+            intents: entry.intents.clone(),
             successes: entry.successes,
             failures: entry.failures,
             uses: entry.uses,

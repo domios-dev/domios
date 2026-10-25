@@ -39,7 +39,7 @@
 
 ### Evidence and limits
 
-The observations above come from `~/.codeterm-dev-tabstate/logs/codeterm.log`, read-only tab lifecycle inspection, and visible terminal text. The stale-discard records for Claude/Codex remain on the build containing the merged spawn-output fix; OpenCode emitted `ready_idle` on that same build. The proxy and bad-model screens were present while their tab-state observations were discarded. This run establishes the behavior, but does not isolate why the stale checks remain provider/timing dependent.
+The observations above come from `~/.domios-dev-tabstate/logs/domios.log`, read-only tab lifecycle inspection, and visible terminal text. The stale-discard records for Claude/Codex remain on the build containing the merged spawn-output fix; OpenCode emitted `ready_idle` on that same build. The proxy and bad-model screens were present while their tab-state observations were discarded. This run establishes the behavior, but does not isolate why the stale checks remain provider/timing dependent.
 
 The temporary Team was closed, the `tabstate` instance was stopped, its action flags were reset, and the temporary provider wrappers, fixture directories, context files, and ignored capture files were removed. The `7697` health endpoint refused connections afterward; production on `7685` remained healthy.
 

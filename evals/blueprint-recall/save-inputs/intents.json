@@ -1,0 +1,778 @@
+{
+  "about": "Simulated save-time agent intents: one fresh headless session per pipeline that sees only that pipeline file; cached by document hash.",
+  "model": "opus",
+  "command": [
+    "-p",
+    "--model",
+    "opus",
+    "--effort",
+    "high",
+    "--output-format",
+    "json",
+    "--tools",
+    "",
+    "--strict-mcp-config"
+  ],
+  "prompt": "You built the Blueprint below, ran it, and it worked. Save it to your Team's library with `domios blueprint keep <id> --when ...`. The library docs say: give 3 to 5 --when intents, each a different way someone would ask for this Blueprint; each intent is searched on its own and the best match counts, so vary the wording rather than repeating one phrase.\n\nWrite those 3 to 5 intents. Each is one short request of at most 20 words, in plain words a teammate would type when they need this. Output only a JSON array of strings, nothing else.\n\nBlueprint file:\n```yaml\n{file}\n```\n",
+  "docs": {
+    "all-finished": {
+      "document_hash": "2e6f9a4412c55dcf9d39001ecb0c87ec18df6ae51567ea2ff15ded8309a359b8",
+      "intents": [
+        "Watch all tasks and notify me once everything is finished",
+        "Alert me when every job reaches a terminal state",
+        "Stay quiet while work is pending, ping when all of it is done",
+        "Wait until all agents complete, then send one notification",
+        "Poll a single status check and tell me when nothing is left running"
+      ],
+      "session": "save-inputs/sessions/all-finished.intents.json"
+    },
+    "all-finished-sem": {
+      "document_hash": "30e709aaac59684563b8c23420216a54fd18eb78fbfba2c9d5deb62adf6db111",
+      "intents": [
+        "Tell me when my whole batch of jobs has finished",
+        "Poll a status command every few minutes and notify me once everything ends",
+        "Alert me when all running work is done",
+        "Watch batch status and ping me only when it says all-ended",
+        "Notify the owner after every task in the batch completes"
+      ],
+      "session": "save-inputs/sessions/all-finished-sem.intents.json"
+    },
+    "all-finished-st": {
+      "document_hash": "bba94250701e605825c25f507134187c3249d36a6c095d664fd36ce4e1fb2341",
+      "intents": [
+        "Watch a batch of jobs and notify me once they all finish",
+        "Tell me when the whole batch is done, stay quiet until then",
+        "Poll one status command until every job completes, then alert",
+        "Ping me when all my background jobs have ended",
+        "Monitor batch progress with a single status check and report on completion"
+      ],
+      "session": "save-inputs/sessions/all-finished-st.intents.json"
+    },
+    "cron-run-watch": {
+      "document_hash": "17253cd40875756b0ccfce6c77e79ee6ba4a24545ce3e5f98428f3fd23bf93de",
+      "intents": [
+        "Tell me when my nightly backup cron finishes running",
+        "Watch a scheduled job and notify me once it's done",
+        "Alert me after the cron run completes",
+        "Wait for cron job to finish then ping me",
+        "Monitor this cron's current run until it reports finished"
+      ],
+      "session": "save-inputs/sessions/cron-run-watch.intents.json"
+    },
+    "cron-run-watch-sem": {
+      "document_hash": "5d6ae7e8ae3882c1081db3907757c3efaafc941a49a83de78af3fe5a5dbba2a2",
+      "intents": [
+        "Tell me when my scheduled cron job finishes running",
+        "Notify me once the latest cron run completes or fails",
+        "Watch a cron job and alert me when its execution is done",
+        "Poll a scheduled task until its last run has finished",
+        "Let me know when the nightly job's current run succeeds or fails"
+      ],
+      "session": "save-inputs/sessions/cron-run-watch-sem.intents.json"
+    },
+    "cron-run-watch-st": {
+      "document_hash": "081e19a8d3e17c40964eb04431dc06ad160aabeed3cc66f747cbd0f0ae10f7e4",
+      "intents": [
+        "Watch the scheduled job's current run and ping me when it finishes",
+        "Notify me once the nightly cron job completes",
+        "Let me know when this cron run is done",
+        "Follow the running scheduled task and alert me on completion",
+        "Tell me when the backup job's current execution ends"
+      ],
+      "session": "save-inputs/sessions/cron-run-watch-st.intents.json"
+    },
+    "dev-run-health": {
+      "document_hash": "123c2c4264efb896fa76bec1ca30b202f2bd255bdec3e4e21a86b9a1bbdf6848",
+      "intents": [
+        "Watch the dev REST listener and alert me if it goes down",
+        "Notify me when the local API server stops or fails, with recent traces",
+        "Monitor dev REST API health and capture recent flows on failure",
+        "Keep an eye on the dev server listener overnight and tell me if it crashes",
+        "Why did my dev API drop? Grab the last few request flows when it does"
+      ],
+      "session": "save-inputs/sessions/dev-run-health.intents.json"
+    },
+    "dev-run-health-sem": {
+      "document_hash": "31da37cca6ea14476dec92aaf56a92286967a04ae2d53af7af8101fdbecb0571",
+      "intents": [
+        "Check if the local dev REST listener is up and alert me when it's down",
+        "Poll the dev API health endpoint every 30 seconds and notify on failure",
+        "Watch my local dev server and grab recent traces if it stops responding",
+        "Monitor dev HTTP listener health, pull latest traces on outage",
+        "Ping the localhost REST service regularly and send a notification with traces when unreachable"
+      ],
+      "session": "save-inputs/sessions/dev-run-health-sem.intents.json"
+    },
+    "dev-run-health-st": {
+      "document_hash": "cb11f835a7604df22dda46e1b71411534dca9b2f058ccfd745b4841a78663105",
+      "intents": [
+        "Watch my local dev API server and grab recent request traces if it crashes",
+        "Alert me when the local REST API stops or fails",
+        "Monitor whether the dev API is still listening",
+        "Capture the last few request traces when my local server goes down",
+        "Keep an eye on the local API server overnight and notify me if it dies"
+      ],
+      "session": "save-inputs/sessions/dev-run-health-st.intents.json"
+    },
+    "dx-cert-expiry": {
+      "document_hash": "5e5d401c50a6f7f8a2e023f4fc0c44a49daa826b828c1f2a1fd7d91963636bc7",
+      "intents": [
+        "Warn me two weeks before a TLS certificate expires",
+        "Watch an SSL cert daily and alert when it's about to lapse",
+        "Check when my HTTPS certificate expires using openssl",
+        "Monitor a host's certificate expiry date and notify me before renewal is due",
+        "Remind me to renew a domain's SSL certificate before it runs out"
+      ],
+      "session": "save-inputs/sessions/dx-cert-expiry.intents.json"
+    },
+    "dx-dependency-audit": {
+      "document_hash": "a1331dba15056f13f477954927e270ac5bdd3dfaa034537ca2dd31e1e827ec93",
+      "intents": [
+        "Check our npm dependencies for high or critical vulnerabilities every week",
+        "Alert me when a Node project has severe security issues in its packages",
+        "Schedule a weekly npm audit that only notifies on serious vulnerabilities",
+        "Scan node_modules for critical CVEs and ping me if any appear",
+        "Set up recurring dependency security checks for a JavaScript project"
+      ],
+      "session": "save-inputs/sessions/dx-dependency-audit.intents.json"
+    },
+    "dx-disk-space": {
+      "document_hash": "da0ecdbe2b2f122f19fbe9fff75352fce17ea122e0b471c352a4ae531de3af3c",
+      "intents": [
+        "Alert me when the disk is running out of space",
+        "Watch root volume free space and notify if it gets low",
+        "Monitor my disk usage and warn me before it fills up",
+        "Ping me when free storage on the main drive drops too low",
+        "Keep an eye on df and tell me when space is low"
+      ],
+      "session": "save-inputs/sessions/dx-disk-space.intents.json"
+    },
+    "dx-label-sync": {
+      "document_hash": "7d9bf58b97bb84f02c32f9d0f676b6ab694908d327bb951da040f774029f22e1",
+      "intents": [
+        "Keep GitHub labels in sync with our shared label set every day",
+        "Copy issue labels from a template repo into another repository",
+        "Make this repo's labels match the canonical labels automatically",
+        "Daily job to standardize issue labels across repositories",
+        "Clone labels from one GitHub repo to another on a schedule"
+      ],
+      "session": "save-inputs/sessions/dx-label-sync.intents.json"
+    },
+    "dx-meeting-reminder": {
+      "document_hash": "f8c0549ccbd87d087988c0a7ed611cb728ba719e574b37d05d5a98e63e067345",
+      "intents": [
+        "Remind a tab every week before the planning meeting",
+        "Weekly reminder 15 minutes before sprint planning",
+        "Post a recurring meeting heads-up into a terminal tab",
+        "Schedule a fixed weekly message to one tab",
+        "Ping my tab so I don't miss planning"
+      ],
+      "session": "save-inputs/sessions/dx-meeting-reminder.intents.json"
+    },
+    "dx-nightly-backup": {
+      "document_hash": "472cc7c7e8c6717050c21c99cc8377d1aee5815f1130e133560ec82a9a925a7a",
+      "intents": [
+        "Back up the database every night",
+        "Schedule a nightly DB dump to the backup volume",
+        "Set up automatic daily database backups and tell me the archive size",
+        "Run a database dump each night and report how big it is",
+        "I need recurring Postgres or MySQL backups on a schedule"
+      ],
+      "session": "save-inputs/sessions/dx-nightly-backup.intents.json"
+    },
+    "dx-screenshot-text": {
+      "document_hash": "ef7231561edcc0c5d0ea85605e5a4dd10d31e7ab3d98fbac97569f6e8b3ab068",
+      "intents": [
+        "Pull the text out of this screenshot and save it as a note",
+        "OCR a screenshot image into a note",
+        "Turn a screenshot into searchable text notes",
+        "Read the words in this image and file them for me",
+        "Extract text from a picture and notify me with it"
+      ],
+      "session": "save-inputs/sessions/dx-screenshot-text.intents.json"
+    },
+    "dx-standup-summary": {
+      "document_hash": "742cc148e719572eb5eafe41428708f0a3fc1ccc44d74b2be23a2da4e73a3717",
+      "intents": [
+        "Write a daily standup summary from yesterday's git commits",
+        "Every morning, summarize the repo's recent commits for the team",
+        "Generate a standup update from what we committed yesterday",
+        "Automate our daily digest of git log changes for standup",
+        "What did we ship yesterday? Post a short summary to the team"
+      ],
+      "session": "save-inputs/sessions/dx-standup-summary.intents.json"
+    },
+    "dx-translate-note": {
+      "document_hash": "4f2b33bff6f6e4636fcdac58800be21e377800edfe09680597abff6f9619a428",
+      "intents": [
+        "Translate this text into English for me",
+        "I pasted a note in another language, make it English",
+        "Convert my message to plain English",
+        "Help me understand this foreign-language text by translating it",
+        "Get an English version of this pasted note"
+      ],
+      "session": "save-inputs/sessions/dx-translate-note.intents.json"
+    },
+    "echo": {
+      "document_hash": "20dfe9729d7fba58e5c38e8d55e1bb88d52a789b0c268a880a84249a22afcd74",
+      "intents": [
+        "Run an echo command every 20 seconds and send matching output back to my tab",
+        "Example blueprint that prints a message on a schedule and filters it",
+        "Simple scheduled test pipeline to check blueprints work end to end",
+        "Periodically echo a ready message and stop when output matches",
+        "Starter template showing schedule trigger, run step, and filter step"
+      ],
+      "session": "save-inputs/sessions/echo.intents.json"
+    },
+    "echo-sem": {
+      "document_hash": "a52ba5ac56d91cdc169ea0c8118911e62ef860c852fef3da708f8dc21f6427d4",
+      "intents": [
+        "Watch until echo prints my word, then notify me",
+        "Poll a command every 30 seconds and alert when the word appears",
+        "Repeatedly echo a word and notify on a regex match in output",
+        "Set up a watcher that waits for a given word in probe output",
+        "Notify me once a probe's output line matches a word exactly"
+      ],
+      "session": "save-inputs/sessions/echo-sem.intents.json"
+    },
+    "echo-st": {
+      "document_hash": "10a0cb507f4d67b1157f3f24936359b8c8c0aedb6e98fae9ddaa88dab72387de",
+      "intents": [
+        "Run a ping check every 45 seconds that prints a word and confirms the output matches",
+        "Schedule a heartbeat that echoes pong and reports the result back to my tab",
+        "Periodic sanity test: print a fixed word and verify the line matches it exactly",
+        "Set up a simple recurring echo-and-compare smoke test for the pipeline",
+        "Sample blueprint to check scheduled steps and filter matching work end to end"
+      ],
+      "session": "save-inputs/sessions/echo-st.intents.json"
+    },
+    "github": {
+      "document_hash": "78653e7cf96b9e5b2a99e2a80b6d663261c02a9e9993080f4e98f7964f1b8e77",
+      "intents": [
+        "Watch a GitHub Actions run and tell me as soon as a job fails",
+        "Monitor CI checks on my pull request and report failures early",
+        "Poll a GitHub workflow run's jobs until it finishes",
+        "Alert me when CI breaks on a GitHub repo run",
+        "Keep checking PR status checks and notify me of failing jobs"
+      ],
+      "session": "save-inputs/sessions/github.intents.json"
+    },
+    "github-org-runners": {
+      "document_hash": "618926a511211976b4e7590b5567f22126dbc2871c0b09f591f4652d878427bc",
+      "intents": [
+        "Watch our GitHub org's self-hosted runners and tell me if they go offline",
+        "How many self-hosted runners are online right now?",
+        "Alert me when CI runners with a given label become unavailable",
+        "Monitor GitHub Actions runner availability on a schedule",
+        "Check whether any runners matching a label are up for my organization"
+      ],
+      "session": "save-inputs/sessions/github-org-runners.intents.json"
+    },
+    "github-org-runners-sem": {
+      "document_hash": "8b3cb774e85451ff7e7da5f66ef1709601477a334fd054e9fe159a868115f04f",
+      "intents": [
+        "Alert me when our GitHub org's self-hosted runners go offline",
+        "Watch organization runners and notify if labelled machines drop",
+        "Monitor gh org runner status, ping when a runner comes back online or offline",
+        "Are our org's CI runners online? Keep checking and tell me when one dies",
+        "Keep an eye on GitHub Actions runners for the org and notify on outages"
+      ],
+      "session": "save-inputs/sessions/github-org-runners-sem.intents.json"
+    },
+    "github-org-runners-st": {
+      "document_hash": "ddac33347d27e076a6030fcafdb9173d7c92c1327ee82f45e9f494c0065c0823",
+      "intents": [
+        "Check if our GitHub org's self-hosted build runners are online",
+        "How many linux-build runners are connected for an organization right now?",
+        "Monitor self-hosted runner availability on a schedule and alert me",
+        "Are any of the org's tagged CI machines offline?",
+        "Periodically probe GitHub Actions runners with a given label and report status"
+      ],
+      "session": "save-inputs/sessions/github-org-runners-st.intents.json"
+    },
+    "github-pr-checks": {
+      "document_hash": "1a2aaac22ed5aeceda4cc7e0fa9739beac096f3f4c9de1842d9713223241adea",
+      "intents": [
+        "Wait until the CI checks on a GitHub pull request finish",
+        "Poll PR checks for repo and PR number until they complete",
+        "Notify me when my pull request's checks are done running",
+        "Watch GitHub PR status checks and report when they pass or fail",
+        "Keep checking a PR's CI every minute until it's done"
+      ],
+      "session": "save-inputs/sessions/github-pr-checks.intents.json"
+    },
+    "github-pr-checks-sem": {
+      "document_hash": "627435e3e413ac9fe76cf5646ca091b9271cceff295b57d5e6c96f0254f01119",
+      "intents": [
+        "Tell me when all the CI checks on my pull request have finished",
+        "Watch a PR and notify me once no checks are pending anymore",
+        "Poll gh pr checks every minute until the build is done",
+        "Ping me when GitHub Actions on this PR pass or fail",
+        "Wait for PR status checks to complete, then alert me"
+      ],
+      "session": "save-inputs/sessions/github-pr-checks-sem.intents.json"
+    },
+    "github-pr-checks-st": {
+      "document_hash": "3f18c5469cdab6712b389b441784ff3032f7a534dfce4e8d3497561e0d19b7c7",
+      "intents": [
+        "Wait until all CI checks on my pull request finish",
+        "Notify me when GitHub PR status checks are done",
+        "Poll a PR until every check completes",
+        "Block until the build and tests pass on this pull request",
+        "Watch pull request checks and tell me when they're finished"
+      ],
+      "session": "save-inputs/sessions/github-pr-checks-st.intents.json"
+    },
+    "github-pr-ci-watch": {
+      "document_hash": "bcdfb53bb655524723f501b6944290e32844c7d3252b1e7a07436ba486e19e1c",
+      "intents": [
+        "Watch my PR and tell me when all CI checks pass",
+        "Notify me if any check fails on this pull request",
+        "Keep polling a pull request until its checks go green",
+        "Alert me when PR builds finish or break",
+        "Monitor one PR's status checks and ping me on failure"
+      ],
+      "session": "save-inputs/sessions/github-pr-ci-watch.intents.json"
+    },
+    "github-pr-ci-watch-sem": {
+      "document_hash": "418e22b0490e17cc40ac752ef599c358efac28a04d5bbd7133c22c930ecebe4b",
+      "intents": [
+        "Watch a pull request's CI checks and tell me if they passed or failed",
+        "Notify me when GitHub checks on my PR finish",
+        "Poll PR status checks every minute and report pass or fail",
+        "Is CI green on this pull request? Keep checking and post the result",
+        "Monitor build results for a GitHub PR and alert the team"
+      ],
+      "session": "save-inputs/sessions/github-pr-ci-watch-sem.intents.json"
+    },
+    "github-pr-ci-watch-st": {
+      "document_hash": "b6b4b28e94ee83d7396fe148b4eeee2585b2a4f6e2e852f2ce1db17f3205efb5",
+      "intents": [
+        "Watch my pull request's CI and tell me if it breaks",
+        "Notify me when the PR checks go green",
+        "Monitor CI on a PR until it passes, alerting on failures",
+        "Keep polling build status for this pull request and ping me on red",
+        "Babysit my PR pipeline until tests pass"
+      ],
+      "session": "save-inputs/sessions/github-pr-ci-watch-st.intents.json"
+    },
+    "github-runners": {
+      "document_hash": "255be6afa61bbad9fe27036122ea8273ca3a0fe5c7186ddd28df6e8b5a6d8dc3",
+      "intents": [
+        "Watch whether our self-hosted GitHub runners are online",
+        "Alert me when repo runners with a given label go offline",
+        "How many self-hosted runners are online for this repository?",
+        "Monitor GitHub Actions runner availability on a schedule",
+        "Keep checking if CI runners are up for my repo"
+      ],
+      "session": "save-inputs/sessions/github-runners.intents.json"
+    },
+    "github-runners-sem": {
+      "document_hash": "a7984b3e14ec3b3423bd785a8f61d2dc72e78a508f3b960757ea0c6b126dcf7d",
+      "intents": [
+        "Alert me when our repo's self-hosted GitHub runners go offline",
+        "Watch the labelled CI runners for a repository and notify if they drop",
+        "Are the self-hosted runners for owner/repo still online?",
+        "Monitor GitHub Actions runner status with gh and ping me on outage",
+        "Keep an eye on build agents for this repo and tell me when one disconnects"
+      ],
+      "session": "save-inputs/sessions/github-runners-sem.intents.json"
+    },
+    "github-runners-st": {
+      "document_hash": "f1826d4b8aef9a88023efec162550e764e700d0b38e5b1de89a068f2243a38bd",
+      "intents": [
+        "Watch whether our GitHub GPU runners are online",
+        "Alert me when self-hosted build runners for a repo go offline",
+        "How many tagged CI runners are connected right now?",
+        "Monitor runner availability by label for a GitHub repository",
+        "Check periodically if build machines with a specific label are reachable"
+      ],
+      "session": "save-inputs/sessions/github-runners-st.intents.json"
+    },
+    "github-sem": {
+      "document_hash": "39a8b5d0a041bdea7282b65601bd7ed7e55dd956dc55b38f0c8690e820fb503c",
+      "intents": [
+        "Watch my GitHub Actions run and tell me when it finishes",
+        "Alert me as soon as a CI job fails",
+        "Monitor a gh workflow run until it concludes",
+        "Is my GitHub workflow still running or did it fail?",
+        "Keep checking the pipeline run and notify me on failure or completion"
+      ],
+      "session": "save-inputs/sessions/github-sem.intents.json"
+    },
+    "github-st": {
+      "document_hash": "9a99b1309ea81501685a6c4c2a8f4358f9db1c4d5b38c34e41cff817892b2173",
+      "intents": [
+        "Watch a GitHub Actions run and alert me as soon as a job fails",
+        "Monitor CI jobs for my pull request and flag broken ones early",
+        "Poll workflow run status for a repo until it finishes or fails",
+        "Notify me when any job in a GitHub workflow breaks before it completes",
+        "Keep checking a GitHub Actions run every few minutes and report failures"
+      ],
+      "session": "save-inputs/sessions/github-st.intents.json"
+    },
+    "health-triage": {
+      "document_hash": "2620e4ac6884ab8f5e84719fac4066ef1979caac3dd1d126bba6f7b52b1c4e50",
+      "intents": [
+        "Check our service health endpoint every minute and alert me if it's really down",
+        "Monitor a URL and tell transient blips apart from real outages",
+        "Escalate to the team when a health check fails with 5xx errors or high latency",
+        "Ping an API regularly and triage failures before notifying anyone",
+        "Set up uptime monitoring that ignores flaky hiccups and only flags genuine outages"
+      ],
+      "session": "save-inputs/sessions/health-triage.intents.json"
+    },
+    "health-triage-sem": {
+      "document_hash": "b9401d009772fbd099f5e86d6870ba9032af9b4dfcc21cb0ccacde143b1cbb3a",
+      "intents": [
+        "Watch our health endpoint and tell me if it's a real outage or just a blip",
+        "Monitor service health every minute and alert me only on actual outages",
+        "Is the service down or just flaky? Keep checking and escalate if unclear",
+        "Set up outage triage on a health check URL with notifications",
+        "Poll a status endpoint for a week and classify failures as transient or outage"
+      ],
+      "session": "save-inputs/sessions/health-triage-sem.intents.json"
+    },
+    "health-triage-st": {
+      "document_hash": "b7557ab2ab18ad56c4ce883e68b78933c084ee0dc55db85ec5a412f66450aff0",
+      "intents": [
+        "Poll our API status page every couple minutes and flag outages by severity",
+        "Alert me when the API goes down, rating 502s or slow responses as high",
+        "Grade API failures and ask a human whether it's a blip or real incident",
+        "Monitor an endpoint's health and escalate unclear failures to someone on call",
+        "Scheduled uptime check that classifies API errors and latency spikes before notifying"
+      ],
+      "session": "save-inputs/sessions/health-triage-st.intents.json"
+    },
+    "http-health": {
+      "document_hash": "2099971c7d95788ea810b8ec9f3550421bedeafc4efe9c8cc0a77646730b38ec",
+      "intents": [
+        "Monitor a URL and tell me when it goes down",
+        "Check if our website is up every few seconds",
+        "Uptime check for an HTTP endpoint with status code",
+        "Alert me if the API stops returning 200",
+        "Ping a health check endpoint on a schedule"
+      ],
+      "session": "save-inputs/sessions/http-health.intents.json"
+    },
+    "http-health-sem": {
+      "document_hash": "eb5d52e331c13db5e362e291a4b1347cfbf31a8c843adda2e09a0ef2159735d1",
+      "intents": [
+        "Alert me when this URL goes down",
+        "Monitor a website's HTTP status code and notify on failure",
+        "Check every 30 seconds if an endpoint is up",
+        "Watch a URL with curl without following redirects",
+        "Ping my site and tell me if it stops responding"
+      ],
+      "session": "save-inputs/sessions/http-health-sem.intents.json"
+    },
+    "http-health-st": {
+      "document_hash": "dd21aafe30baebd07b6b3e0b2e1f5ef9a1b7f4ab8da0b80ddf665147506b78d7",
+      "intents": [
+        "Check every minute whether my web endpoint is up and returning the expected status code",
+        "Monitor a URL's uptime on a schedule without following redirects",
+        "Ping this HTTP address periodically and tell me if it goes down",
+        "Set up a recurring health check for an API endpoint expecting 204",
+        "Alert me when a website stops responding or returns the wrong status"
+      ],
+      "session": "save-inputs/sessions/http-health-st.intents.json"
+    },
+    "launch-prompt-gate": {
+      "document_hash": "a4a46760207fb7ffbc45f1e473e4800e3962f25277f4193656bfad5445b255b0",
+      "intents": [
+        "Auto-answer startup prompts for a scheduled cron job's runs",
+        "Handle trust, provider, and update prompts when my cron agent launches",
+        "Keep scheduled agent runs from getting stuck on launch prompts",
+        "Watch a cron's runs and escalate unexpected prompts to me",
+        "Unattended cron launches: approve directory trust and onboarding automatically"
+      ],
+      "session": "save-inputs/sessions/launch-prompt-gate.intents.json"
+    },
+    "launch-prompt-gate-sem": {
+      "document_hash": "237040fd741b3c448ba0acaae466780d92107fba03987e81c9fe5510a70d9abe",
+      "intents": [
+        "Auto-accept the directory trust prompt on my scheduled job and alert me about anything else",
+        "Watch a cron run for pending prompts and answer folder trust automatically",
+        "My scheduled agent keeps stalling on the trust this directory question, handle it",
+        "Poll a scheduled task's prompt state, approve workspace trust, escalate unknown prompts to me",
+        "Unblock unattended scheduled runs waiting on a trust confirmation"
+      ],
+      "session": "save-inputs/sessions/launch-prompt-gate-sem.intents.json"
+    },
+    "launch-prompt-gate-st": {
+      "document_hash": "8bad761534d50b4c7db57eb132493dc9bc10de0c09e43d1a900c1fa86253238f",
+      "intents": [
+        "Auto-answer startup prompts like folder trust or updates on every scheduled cron run",
+        "Keep my cron job from stalling on directory trust, provider, or update questions",
+        "Clear known agent startup questions for each timed run and escalate unknown ones to me",
+        "Unattended scheduled job keeps getting stuck on a startup prompt, handle it automatically",
+        "Watch cron executions and respond to trust, onboarding, permission, or upgrade prompts"
+      ],
+      "session": "save-inputs/sessions/launch-prompt-gate-st.intents.json"
+    },
+    "plan-review-gate": {
+      "document_hash": "f167f67a67171752965032054046259f35cb174e96c781e8ab74df71accdf509",
+      "intents": [
+        "Check if my plan covers every section before I approve it",
+        "Review plan gaps and tell me whether it's ready or needs revision",
+        "Is this plan fully covered by tested tasks?",
+        "Gate a plan for approval readiness without auto-approving it",
+        "Find uncovered sections in a plan and recommend next step"
+      ],
+      "session": "save-inputs/sessions/plan-review-gate.intents.json"
+    },
+    "plan-review-gate-sem": {
+      "document_hash": "2a78f0b1d470f37d68eeb028364978c61bb95f6a6e2cb893d705f3afe924df68",
+      "intents": [
+        "Watch my plan and tell me when every section is covered by a task",
+        "Notify me once the plan has no gaps left",
+        "Keep checking plan coverage until it's ready for approval",
+        "Poll plan gaps every few minutes and alert when fully covered",
+        "Let me know when all plan sections have tasks assigned"
+      ],
+      "session": "save-inputs/sessions/plan-review-gate-sem.intents.json"
+    },
+    "plan-review-gate-st": {
+      "document_hash": "5dbeb3ecaf7e22f7888d5abd6f7242051184032ec3c3958d8ffcc85b6fdeecaa",
+      "intents": [
+        "Check if my plan covers every spec section before I sign off",
+        "Find spec gaps in a plan and tell me if it needs rework",
+        "Review plan readiness: are all spec parts backed by verified tasks?",
+        "Advise whether this plan is ready for human approval",
+        "Flag uncovered requirements in a plan before final review"
+      ],
+      "session": "save-inputs/sessions/plan-review-gate-st.intents.json"
+    },
+    "prompt-responder": {
+      "document_hash": "30d9f5eb13becf23ca33f47bc063d34479b2402cb85221798f594f711fd4686d",
+      "intents": [
+        "Answer the permission prompt on an agent tab when it appears",
+        "Watch a tab and safely approve its pending permission request",
+        "Auto-respond to an agent's tool permission prompt matching a pattern",
+        "Wait up to an hour for a permission dialog in a tab, then reply",
+        "Handle a blocked agent asking for permission so it can continue"
+      ],
+      "session": "save-inputs/sessions/prompt-responder.intents.json"
+    },
+    "prompt-responder-sem": {
+      "document_hash": "c45409936249a15cf4435ee6c6bbee4d5806a24426b1444a83ffc3b60c658a2b",
+      "intents": [
+        "Auto-approve permission prompts when my agent tab gets stuck waiting",
+        "Watch an agent tab and answer its permission requests safely",
+        "Keep a long-running agent unblocked by responding to permission prompts",
+        "Poll agent status and notify me when it asks for permission",
+        "Babysit an agent so it doesn't stall on approval dialogs"
+      ],
+      "session": "save-inputs/sessions/prompt-responder-sem.intents.json"
+    },
+    "prompt-responder-st": {
+      "document_hash": "3f3a466db6e74631f0ebb1c770bb43e4c7bef6486c003703c4dd895e8771a8ca",
+      "intents": [
+        "Auto-approve a known permission prompt when it shows up in an agent tab",
+        "Watch an agent tab and answer matching access requests for me",
+        "Respond to permission requests matching a pattern in one agent's terminal",
+        "Keep an eye on this tab and grant expected access prompts",
+        "Handle sanctioned approval when the agent asks for file or tool access"
+      ],
+      "session": "save-inputs/sessions/prompt-responder-st.intents.json"
+    },
+    "release-preflight": {
+      "document_hash": "abe84fe391467d9bc306b749f295a6c8a60ac27f53451933821c099bab40d561",
+      "intents": [
+        "Check if we're ready to release: essence map valid and no stale plan lanes",
+        "Run release preflight and block the release if anything is dirty",
+        "Gate a release on essence-map validation and stale lane check",
+        "Is it safe to ship? Validate the map and lanes for this plan",
+        "Pre-release check that prints a release summary or says blocked"
+      ],
+      "session": "save-inputs/sessions/release-preflight.intents.json"
+    },
+    "release-preflight-sem": {
+      "document_hash": "a591a10a77babb4b2ae5fba9b1ff34ea27bd1390305d2f85ab872e018331ccae",
+      "intents": [
+        "Watch the release gate and notify me when it's clean",
+        "Poll essence map validation and stale lanes until the release is unblocked",
+        "Tell me whenever the release is blocked or clear",
+        "Keep checking every few minutes whether we can ship yet",
+        "Alert me when stale lanes and essence map issues stop blocking the release"
+      ],
+      "session": "save-inputs/sessions/release-preflight-sem.intents.json"
+    },
+    "release-preflight-st": {
+      "document_hash": "b6cf5a430fa0bad3658579a6c450059c944a20af41ae12b672dba583ff499952",
+      "intents": [
+        "Block the release if the capability graph fails validation or stale worktrees remain",
+        "Pre-ship check: validate essence map and confirm no leftover plan lanes",
+        "Gate shipping on a clean capability graph and no old worktrees",
+        "Refuse to ship until stale worktrees are cleaned up",
+        "Run release readiness check and generate release notes if everything passes"
+      ],
+      "session": "save-inputs/sessions/release-preflight-st.intents.json"
+    },
+    "retry-until-pass": {
+      "document_hash": "34a18590579ed67ab85178ada9acd0e5b1ae6ed4a1078d1c86c9ffd3748bd03c",
+      "intents": [
+        "Watch a retrying job and notify me when it finally passes",
+        "Keep polling retry status until the result shows passed",
+        "Alert me once a flaky check succeeds after retries, give up after an hour",
+        "Monitor a bounded retry loop and ping me on success",
+        "Wait for retries to finish and tell me when the pass pattern appears"
+      ],
+      "session": "save-inputs/sessions/retry-until-pass.intents.json"
+    },
+    "retry-until-pass-sem": {
+      "document_hash": "848dfc8c80d33e406c48c01f2cff0879d5cd2e8183a1c462c61e6aad0af63c38",
+      "intents": [
+        "Poll my retry loop every minute and tell me when it passes",
+        "Notify me once the retrying job finally succeeds",
+        "Watch a retry command's status and alert when a run passed",
+        "Check retry loop status on a schedule until it reports passed",
+        "Let me know when the flaky test retry goes green"
+      ],
+      "session": "save-inputs/sessions/retry-until-pass-sem.intents.json"
+    },
+    "retry-until-pass-st": {
+      "document_hash": "ca967a6500f00f0af8cbb79722ce5d845abe10b6847b1d5cb45d4076b037db06",
+      "intents": [
+        "Watch my retry loop and tell me when an attempt finally succeeds",
+        "Notify me once a retrying job prints its success line",
+        "Keep checking a re-attempt status command until it passes, max three hours",
+        "Alert me when a flaky task stops retrying and succeeds",
+        "Follow capped retries and stop watching once the success pattern matches"
+      ],
+      "session": "save-inputs/sessions/retry-until-pass-st.intents.json"
+    },
+    "service-health": {
+      "document_hash": "fa5b7ecabacb256b701b915b35062db0a88bbe8b610cb41dbe6d3deb0c99e14b",
+      "intents": [
+        "Check every minute if our service health endpoint is up",
+        "Alert me when the service goes down and diagnose why",
+        "Monitor a URL and notify the team on outage",
+        "Run a recurring uptime check with automatic diagnosis on failure",
+        "Is the service down? Ping its health check and report"
+      ],
+      "session": "save-inputs/sessions/service-health.intents.json"
+    },
+    "service-health-sem": {
+      "document_hash": "7b04933254e6efb5f336901e30cd2f26135e7b86ab145d87f23e43be25a529cb",
+      "intents": [
+        "Watch a service and run diagnostics when it goes down",
+        "Alert me with diagnosis findings if the service health check reports broken",
+        "Monitor endpoint health every minute and investigate outages automatically",
+        "Auto-diagnose outages when a status probe says the service is broken",
+        "Keep checking if my service is healthy and notify me with findings on failure"
+      ],
+      "session": "save-inputs/sessions/service-health-sem.intents.json"
+    },
+    "service-health-st": {
+      "document_hash": "975ffe9f71674d822eba45a9c49f83fefc1c65aed1f7b29eb24da11f3f46f747",
+      "intents": [
+        "Check every few minutes if the backend is down and tell me why",
+        "Alert me when the API stops responding",
+        "Monitor backend status URL and investigate outages automatically",
+        "Ping our server on a schedule and report failures",
+        "Watch the API health endpoint and notify me with findings"
+      ],
+      "session": "save-inputs/sessions/service-health-st.intents.json"
+    },
+    "team-watch": {
+      "document_hash": "e3a151e7f3a486b685a971c2874ee811057657a70fb2af6ac1a5d6641600343a",
+      "intents": [
+        "Watch a teammate's tab and notify me when its output changes",
+        "Alert me when another member's terminal shows a specific pattern",
+        "Monitor a tab until something changes, then ping me",
+        "Let me know when the agent in that tab finishes or updates",
+        "Keep an eye on tab output and notify on matching text"
+      ],
+      "session": "save-inputs/sessions/team-watch.intents.json"
+    },
+    "team-watch-sem": {
+      "document_hash": "53e3b053e62c3c4f33facd2d2487dcdabf5fba102a604f28b00f20aba5e423e9",
+      "intents": [
+        "Watch a teammate's terminal tab and alert me when its output matches a pattern",
+        "Notify me when specific text shows up in another tab",
+        "Poll a tab every 30 seconds for changes I care about",
+        "Ping me when a coworker's build or job output changes",
+        "Monitor someone's tab text and tell me when it matches"
+      ],
+      "session": "save-inputs/sessions/team-watch-sem.intents.json"
+    },
+    "team-watch-st": {
+      "document_hash": "1e3701aa87aa054963ce524d20ebcd6561ad5c82474394666d4fb1168e367918",
+      "intents": [
+        "Watch my teammate's terminal tab and tell me when its output changes",
+        "Alert me when a colleague's tab shows something new matching a pattern",
+        "Keep an eye on another member's terminal and notify me once it moves on",
+        "Ping me when the output in a coworker's tab matches my regex",
+        "Monitor someone else's tab for a few hours and notify me when progress happens"
+      ],
+      "session": "save-inputs/sessions/team-watch-st.intents.json"
+    },
+    "voice-note-to-text": {
+      "document_hash": "92547dacace1e221ecfb39b9b636f3c077ce18f650d0dd5e349063770455e8d0",
+      "intents": [
+        "Transcribe this voice note to text",
+        "What does this audio recording say?",
+        "Convert my voice memo into a written transcript and summarize it",
+        "Turn an audio file into text and tell me when it's done",
+        "Get a transcript from a recorded voice message"
+      ],
+      "session": "save-inputs/sessions/voice-note-to-text.intents.json"
+    },
+    "voice-note-to-text-sem": {
+      "document_hash": "8418677d4142e17fe0b531fb90d314c86513c77c7f094f64da69739ba176d950",
+      "intents": [
+        "Transcribe this audio recording and tell me if it's a task or a note",
+        "Turn a voice memo into text and classify it",
+        "Convert my meeting recording to a transcript and label what it's about",
+        "Speech to text on an audio file, then sort it as task or note",
+        "What is this recording about? Transcribe and categorize it"
+      ],
+      "session": "save-inputs/sessions/voice-note-to-text-sem.intents.json"
+    },
+    "voice-note-to-text-st": {
+      "document_hash": "6d3149be79f08dc66b1f3df26f213e2e4b2e9ac418aa6ce693206981befaa13c",
+      "intents": [
+        "Transcribe my voice memo to text",
+        "Turn this audio recording into a written transcript and summarize it",
+        "What does this voice note say?",
+        "Convert a recorded memo into text and sort out its contents",
+        "Listen to this audio file and tell me what's in it"
+      ],
+      "session": "save-inputs/sessions/voice-note-to-text-st.intents.json"
+    },
+    "wait-for-build": {
+      "document_hash": "6eecc0a40ed8fd74894ae584416a6387c3b94cc57d4d08e50204b56060d11e68",
+      "intents": [
+        "Wait for the build to finish and notify me whether it passed or failed",
+        "Watch CI until the build result comes in, then ping me",
+        "Alert me when the build goes green or breaks",
+        "Poll a build status command and tell me the verdict",
+        "Let me know once the pipeline succeeds or fails, timeout after an hour"
+      ],
+      "session": "save-inputs/sessions/wait-for-build.intents.json"
+    },
+    "wait-for-build-sem": {
+      "document_hash": "76429c0710a8fd4d7d6b7ff28d80c007583a0dca36f3601f57f8738f29b8b2c5",
+      "intents": [
+        "Poll the build status every 30 seconds and notify me when it passes or fails",
+        "Watch a CI build and alert when the verdict is passed or failed",
+        "Let me know when my build finishes, whether green or broken",
+        "Keep checking a build status command until it reports a final result",
+        "Notify the team once the build result comes in"
+      ],
+      "session": "save-inputs/sessions/wait-for-build-sem.intents.json"
+    },
+    "wait-for-build-st": {
+      "document_hash": "dce5d17740979e0fb60171b0e4265a89c4e4802ca55914905eb82fdc269645be",
+      "intents": [
+        "Wait for the build to finish and tell me whether it passed or failed",
+        "Notify me when compilation is done, success or error",
+        "Watch my compile and ping me if it breaks or succeeds",
+        "Let me know once the build completes, good or bad",
+        "Monitor the build status until it ends and alert me with the result"
+      ],
+      "session": "save-inputs/sessions/wait-for-build-st.intents.json"
+    }
+  }
+}

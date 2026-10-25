@@ -2,6 +2,16 @@ use clap::Subcommand;
 
 #[derive(Subcommand)]
 pub enum BlueprintAction {
+    /// Manage the per-graph webhook credential; secrets appear only with --reveal
+    Webhook {
+        #[command(subcommand)]
+        action: BlueprintWebhookAction,
+    },
+    /// Discover repository Blueprints without running, applying or approving them
+    Project {
+        #[command(subcommand)]
+        action: BlueprintProjectAction,
+    },
     /// List built-in graph skeletons or print one ready-to-edit recipe
     Recipe { name: Option<String> },
     /// Validate a YAML file or built-in recipe without a daemon
@@ -9,8 +19,20 @@ pub enum BlueprintAction {
         source: String,
         #[arg(long = "set")]
         set: Vec<String>,
+        /// Include positioned atoms and proof trees in human-readable diagnostics
+        #[arg(long)]
+        explain: bool,
+        /// Print deterministic safe repairs and the semantic diff
+        #[arg(long)]
+        fix: bool,
+        /// With --fix, write the repaired YAML file in place
+        #[arg(long, requires = "fix")]
+        write: bool,
     },
     /// Create or update a YAML file or recipe by name in the caller's Team
+    #[command(
+        after_help = "A run value is an author-fixed shell command line, not an argv array. macOS/Linux use /bin/sh -c; Windows uses powershell.exe -NoLogo -NoProfile -NonInteractive -Command. Shell quoting and expansion apply, including $(...) in double quotes. Runtime bind.in data is delivered in the JSON stdin envelope, never interpolated into run."
+    )]
     #[command(alias = "create")]
     Apply {
         #[arg(default_value = "")]
@@ -25,20 +47,36 @@ pub enum BlueprintAction {
         #[arg(long)]
         dry_run: bool,
     },
-    /// Print a commented YAML scaffold from a recipe or node kind
+    /// Start from intent recall cards and a native v2 scaffold, or a named recipe
     New {
         #[arg(default_value = "watch")]
         kind: String,
         /// Offer proven graphs matching this intent before authoring
         #[arg(long, conflicts_with = "kind")]
         like: Option<String>,
+        /// Recall scoped typed solutions before authoring; bodies open with blueprint show
+        #[arg(long, conflicts_with_all = ["kind", "like"], value_parser = parse_blueprint_intent)]
+        intent: Option<String>,
+        /// Maximum recall cards (1..20)
+        #[arg(long, requires = "intent", default_value_t = 3, value_parser = clap::value_parser!(u16).range(1..=20))]
+        limit: u16,
     },
-    /// Keep a generalised solution (Team Orchestrator only)
+    /// Keep a generalised solution (Team Orchestrator only); give 3-5 --when intents
     Keep {
-        id: String,
-        #[arg(long, required = true)]
-        when: String,
+        #[arg(required_unless_present = "file", conflicts_with = "file")]
+        id: Option<String>,
+        /// Save a triggerless typed callable without scheduling it
+        #[arg(long, conflicts_with = "id")]
+        file: Option<std::path::PathBuf>,
+        /// One "when would someone want this" request; repeat 1-5 times, 3-5 phrased differently
+        #[arg(long, required = true, action = clap::ArgAction::Append)]
+        when: Vec<String>,
+        /// Choose 1-3 distinct tags from `blueprint tags`; repeat --tag for each
+        #[arg(long = "tag", required = true, action = clap::ArgAction::Append)]
+        tags: Vec<String>,
     },
+    /// List controlled saved-solution tags with descriptions
+    Tags,
     /// Print the authoring JSON Schema for editors and agents
     Schema,
     /// Export a portable recipe containing only the definition
@@ -47,7 +85,7 @@ pub enum BlueprintAction {
         #[arg(long)]
         out: Option<std::path::PathBuf>,
     },
-    /// Import a portable recipe into the caller's Team (stopped by default)
+    /// Import a native v2 recipe into the caller's Team (stopped by default)
     Import {
         file: std::path::PathBuf,
         #[arg(long = "set")]
@@ -88,7 +126,7 @@ pub enum BlueprintAction {
         #[arg(long, requires = "id")]
         stop: bool,
     },
-    /// Replace one definition at the expected version
+    /// Replace one native v2 YAML definition at the expected version
     Update {
         /// Replace the Blueprint note (at most 200 plain-text characters)
         #[arg(long, value_parser = parse_blueprint_note)]
@@ -120,6 +158,36 @@ pub enum BlueprintAction {
 }
 
 #[derive(Subcommand)]
+pub enum BlueprintWebhookAction {
+    /// Generate and store a new webhook credential
+    Enable {
+        id: String,
+        /// Print the newly generated secret once to stdout
+        #[arg(long)]
+        reveal: bool,
+    },
+    /// Replace the credential, immediately invalidating the previous secret
+    Rotate {
+        id: String,
+        /// Print the newly generated secret once to stdout
+        #[arg(long)]
+        reveal: bool,
+    },
+    /// Remove the webhook credential
+    Disable { id: String },
+    /// Print the webhook URL without revealing a credential
+    ShowUrl { id: String },
+}
+
+#[derive(Subcommand)]
+pub enum BlueprintProjectAction {
+    /// List source path, name and intent under .domios/blueprints/
+    List,
+    /// View a native v2 source; no execution or approval is performed
+    Show { path: String },
+}
+
+#[derive(Subcommand)]
 pub enum BlueprintEscalationAction {
     /// Release a held stage and re-evaluate its observation
     Resolve { id: String, transition_id: String },
@@ -130,5 +198,12 @@ mod tests;
 
 fn parse_blueprint_note(value: &str) -> Result<String, String> {
     codeterm_blueprint_types::automation_name::validate_note(Some(value))?;
+    Ok(value.into())
+}
+
+fn parse_blueprint_intent(value: &str) -> Result<String, String> {
+    if value.trim().is_empty() || value.len() > 4096 || value.contains('\0') {
+        return Err("Intent must contain 1..4096 UTF-8 bytes without NUL".into());
+    }
     Ok(value.into())
 }

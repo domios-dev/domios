@@ -1,0 +1,15 @@
+[package]
+name = "codeterm-mem-embedder-eval"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[[bin]]
+name = "mem-embedder-oracle"
+path = "oracle.rs"
+
+[dependencies]
+codeterm-mem = { path = "../../src-tauri/crates/codeterm-mem" }
+serde_json = "1"

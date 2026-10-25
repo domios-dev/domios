@@ -10,8 +10,8 @@
  "fixed_issuance_time": 1700000000,
  "time_model": {
   "epoch": "online",
-  "refresh_after": "issued_at + 1800",
-  "expires_at": "issued_at + 3600",
+  "refresh_after": "issued_at + 3600",
+  "expires_at": "issued_at + 86400",
   "grace_until": "expires_at",
   "effective_end": "min(expires_at, period_end) when period_end is not null, else expires_at",
   "states": "not-yet-valid: now < not_before; expired: now >= effective_end; fresh: now < refresh_after; stale: otherwise"
@@ -29,19 +29,19 @@
      "state": "fresh"
     },
     {
-     "now": 1700001799,
+     "now": 1700003599,
      "state": "fresh"
     },
     {
-     "now": 1700001800,
-     "state": "stale"
-    },
-    {
-     "now": 1700003599,
-     "state": "stale"
-    },
-    {
      "now": 1700003600,
+     "state": "stale"
+    },
+    {
+     "now": 1700086399,
+     "state": "stale"
+    },
+    {
+     "now": 1700086400,
      "state": "expired"
     }
    ]
@@ -54,15 +54,15 @@
      "state": "fresh"
     },
     {
-     "now": 1700001800,
-     "state": "stale"
-    },
-    {
-     "now": 1700003599,
-     "state": "stale"
-    },
-    {
      "now": 1700003600,
+     "state": "stale"
+    },
+    {
+     "now": 1700086399,
+     "state": "stale"
+    },
+    {
+     "now": 1700086400,
      "state": "expired"
     }
    ]
@@ -75,11 +75,11 @@
      "state": "fresh"
     },
     {
-     "now": 1700001800,
+     "now": 1700003600,
      "state": "stale"
     },
     {
-     "now": 1700003600,
+     "now": 1700086400,
      "state": "expired"
     }
    ]
@@ -88,23 +88,23 @@
    "vector": "period-ended",
    "checkpoints": [
     {
-     "now": 1700001799,
+     "now": 1700003599,
      "state": "fresh"
     },
     {
-     "now": 1700001800,
+     "now": 1700003600,
      "state": "stale"
     },
     {
-     "now": 1700002699,
+     "now": 1700043199,
      "state": "stale"
     },
     {
-     "now": 1700002700,
+     "now": 1700043200,
      "state": "expired"
     },
     {
-     "now": 1700003600,
+     "now": 1700086400,
      "state": "expired"
     }
    ]
@@ -145,7 +145,7 @@
    "id": "refresh-late",
    "base": "valid-paid",
    "set": {
-    "refresh_after": 1700001801
+    "refresh_after": 1700003601
    },
    "defect": "time"
   },
@@ -153,8 +153,8 @@
    "id": "lease-long",
    "base": "valid-paid",
    "set": {
-    "expires_at": 1700003601,
-    "grace_until": 1700003601
+    "expires_at": 1700086401,
+    "grace_until": 1700086401
    },
    "defect": "expiry"
   },
@@ -162,8 +162,8 @@
    "id": "lease-short",
    "base": "valid-admin",
    "set": {
-    "expires_at": 1700003599,
-    "grace_until": 1700003599
+    "expires_at": 1700086399,
+    "grace_until": 1700086399
    },
    "defect": "expiry"
   },
@@ -171,7 +171,7 @@
    "id": "offline-grace",
    "base": "valid-paid",
    "set": {
-    "grace_until": 1700003601
+    "grace_until": 1700086401
    },
    "defect": "grace"
   }
@@ -219,19 +219,19 @@
      "sponsor": false
     },
     "grant": {
-     "payload": "eyJhdWQiOnsiZW52IjoidGVzdCIsInByb2plY3QiOiJkZW1vLWRvbWlvcyJ9LCJhdXRob3JpdHkiOiJiaWxsaW5nIiwiY2FwYWJpbGl0aWVzIjpbXSwiZW5mb3JjZW1lbnQiOnsiZW5hYmxlZCI6ZmFsc2UsInJvbGxiYWNrIjpmYWxzZX0sImV4cGlyZXNfYXQiOjE3MDAwMDM2MDAsImdyYWNlX3VudGlsIjoxNzAwMDAzNjAwLCJpbnN0IjoiZml4dHVyZS1pbnN0YWxsYXRpb24iLCJpc3MiOiJkb21pb3MtZW50aXRsZW1lbnRzIiwiaXNzdWVkX2F0IjoxNzAwMDAwMDAwLCJsYWJlbCI6InBybyIsImxpbWl0cyI6eyJtZW0uaXRlbXMiOnsibWF4IjpudWxsLCJzY29wZSI6Imluc3RhbGxhdGlvbiJ9LCJtZXNoLm1hY2hpbmVzIjp7Im1heCI6bnVsbCwic2NvcGUiOiJhY2NvdW50In0sIndvcmtzcGFjZXMiOnsibWF4IjpudWxsLCJzY29wZSI6Imluc3RhbGxhdGlvbiJ9fSwibm90X2JlZm9yZSI6MTcwMDAwMDAwMCwicGVyaW9kX2VuZCI6MTcwMDYwNDgwMCwicGVya3MiOnsicHJpb3JpdHlfc3VwcG9ydCI6ZmFsc2UsInNwb25zb3IiOmZhbHNlfSwicG9saWN5X2Vwb2NoIjoiZml4dHVyZS1vbmxpbmUtdjEiLCJwb2xpY3lfdmVyc2lvbiI6MSwicmVmcmVzaF9hZnRlciI6MTcwMDAwMTgwMCwicmV2aXNpb24iOjEwLCJzY2hlbWFfdmVyc2lvbiI6MSwic3ViIjoiZml4dHVyZS11c2VyIn0",
-     "signature": "dd961KgX-iXpsnC21ylF0CXFZdgjW8J7kZJLlE4EOZkteBQjyIYts5qWy2Q4XbcQ8l350aPrlpB-KQya9g1XAQ",
+     "payload": "eyJhdWQiOnsiZW52IjoidGVzdCIsInByb2plY3QiOiJkZW1vLWRvbWlvcyJ9LCJhdXRob3JpdHkiOiJiaWxsaW5nIiwiY2FwYWJpbGl0aWVzIjpbXSwiZW5mb3JjZW1lbnQiOnsiZW5hYmxlZCI6ZmFsc2UsInJvbGxiYWNrIjpmYWxzZX0sImV4cGlyZXNfYXQiOjE3MDAwODY0MDAsImdyYWNlX3VudGlsIjoxNzAwMDg2NDAwLCJpbnN0IjoiZml4dHVyZS1pbnN0YWxsYXRpb24iLCJpc3MiOiJkb21pb3MtZW50aXRsZW1lbnRzIiwiaXNzdWVkX2F0IjoxNzAwMDAwMDAwLCJsYWJlbCI6InBybyIsImxpbWl0cyI6eyJtZW0uaXRlbXMiOnsibWF4IjpudWxsLCJzY29wZSI6Imluc3RhbGxhdGlvbiJ9LCJtZXNoLm1hY2hpbmVzIjp7Im1heCI6bnVsbCwic2NvcGUiOiJhY2NvdW50In0sIndvcmtzcGFjZXMiOnsibWF4IjpudWxsLCJzY29wZSI6Imluc3RhbGxhdGlvbiJ9fSwibm90X2JlZm9yZSI6MTcwMDAwMDAwMCwicGVyaW9kX2VuZCI6MTcwMDYwNDgwMCwicGVya3MiOnsicHJpb3JpdHlfc3VwcG9ydCI6ZmFsc2UsInNwb25zb3IiOmZhbHNlfSwicG9saWN5X2Vwb2NoIjoiZml4dHVyZS1vbmxpbmUtdjEiLCJwb2xpY3lfdmVyc2lvbiI6MSwicmVmcmVzaF9hZnRlciI6MTcwMDAwMzYwMCwicmV2aXNpb24iOjEwLCJzY2hlbWFfdmVyc2lvbiI6MSwic3ViIjoiZml4dHVyZS11c2VyIn0",
+     "signature": "bynIBbws4JmIlvYMvpGnLnqH9QcbhU5kRuyr_utnkeCzIxSfwjL9_A3IwVNIuBB6Hq53Uy-x5D-ap9LE_ynQCg",
      "key_id": "e5-rfc8032-test-only",
      "alg": "Ed25519"
     }
    },
    "exact_payload": {
-    "utf8": "{\"aud\":{\"env\":\"test\",\"project\":\"demo-domios\"},\"authority\":\"billing\",\"capabilities\":[],\"enforcement\":{\"enabled\":false,\"rollback\":false},\"expires_at\":1700003600,\"grace_until\":1700003600,\"inst\":\"fixture-installation\",\"iss\":\"domios-entitlements\",\"issued_at\":1700000000,\"label\":\"pro\",\"limits\":{\"mem.items\":{\"max\":null,\"scope\":\"installation\"},\"mesh.machines\":{\"max\":null,\"scope\":\"account\"},\"workspaces\":{\"max\":null,\"scope\":\"installation\"}},\"not_before\":1700000000,\"period_end\":1700604800,\"perks\":{\"priority_support\":false,\"sponsor\":false},\"policy_epoch\":\"fixture-online-v1\",\"policy_version\":1,\"refresh_after\":1700001800,\"revision\":10,\"schema_version\":1,\"sub\":\"fixture-user\"}",
-    "hex": "7b22617564223a7b22656e76223a2274657374222c2270726f6a656374223a2264656d6f2d646f6d696f73227d2c22617574686f72697479223a2262696c6c696e67222c226361706162696c6974696573223a5b5d2c22656e666f7263656d656e74223a7b22656e61626c6564223a66616c73652c22726f6c6c6261636b223a66616c73657d2c22657870697265735f6174223a313730303030333630302c2267726163655f756e74696c223a313730303030333630302c22696e7374223a22666978747572652d696e7374616c6c6174696f6e222c22697373223a22646f6d696f732d656e7469746c656d656e7473222c226973737565645f6174223a313730303030303030302c226c6162656c223a2270726f222c226c696d697473223a7b226d656d2e6974656d73223a7b226d6178223a6e756c6c2c2273636f7065223a22696e7374616c6c6174696f6e227d2c226d6573682e6d616368696e6573223a7b226d6178223a6e756c6c2c2273636f7065223a226163636f756e74227d2c22776f726b737061636573223a7b226d6178223a6e756c6c2c2273636f7065223a22696e7374616c6c6174696f6e227d7d2c226e6f745f6265666f7265223a313730303030303030302c22706572696f645f656e64223a313730303630343830302c227065726b73223a7b227072696f726974795f737570706f7274223a66616c73652c2273706f6e736f72223a66616c73657d2c22706f6c6963795f65706f6368223a22666978747572652d6f6e6c696e652d7631222c22706f6c6963795f76657273696f6e223a312c22726566726573685f6166746572223a313730303030313830302c227265766973696f6e223a31302c22736368656d615f76657273696f6e223a312c22737562223a22666978747572652d75736572227d",
-    "sha256": "3ab2a3e29af69a598698686a2bb07d1bad821ee947bd3be5b09fe552c9db9e68",
+    "utf8": "{\"aud\":{\"env\":\"test\",\"project\":\"demo-domios\"},\"authority\":\"billing\",\"capabilities\":[],\"enforcement\":{\"enabled\":false,\"rollback\":false},\"expires_at\":1700086400,\"grace_until\":1700086400,\"inst\":\"fixture-installation\",\"iss\":\"domios-entitlements\",\"issued_at\":1700000000,\"label\":\"pro\",\"limits\":{\"mem.items\":{\"max\":null,\"scope\":\"installation\"},\"mesh.machines\":{\"max\":null,\"scope\":\"account\"},\"workspaces\":{\"max\":null,\"scope\":\"installation\"}},\"not_before\":1700000000,\"period_end\":1700604800,\"perks\":{\"priority_support\":false,\"sponsor\":false},\"policy_epoch\":\"fixture-online-v1\",\"policy_version\":1,\"refresh_after\":1700003600,\"revision\":10,\"schema_version\":1,\"sub\":\"fixture-user\"}",
+    "hex": "7b22617564223a7b22656e76223a2274657374222c2270726f6a656374223a2264656d6f2d646f6d696f73227d2c22617574686f72697479223a2262696c6c696e67222c226361706162696c6974696573223a5b5d2c22656e666f7263656d656e74223a7b22656e61626c6564223a66616c73652c22726f6c6c6261636b223a66616c73657d2c22657870697265735f6174223a313730303038363430302c2267726163655f756e74696c223a313730303038363430302c22696e7374223a22666978747572652d696e7374616c6c6174696f6e222c22697373223a22646f6d696f732d656e7469746c656d656e7473222c226973737565645f6174223a313730303030303030302c226c6162656c223a2270726f222c226c696d697473223a7b226d656d2e6974656d73223a7b226d6178223a6e756c6c2c2273636f7065223a22696e7374616c6c6174696f6e227d2c226d6573682e6d616368696e6573223a7b226d6178223a6e756c6c2c2273636f7065223a226163636f756e74227d2c22776f726b737061636573223a7b226d6178223a6e756c6c2c2273636f7065223a22696e7374616c6c6174696f6e227d7d2c226e6f745f6265666f7265223a313730303030303030302c22706572696f645f656e64223a313730303630343830302c227065726b73223a7b227072696f726974795f737570706f7274223a66616c73652c2273706f6e736f72223a66616c73657d2c22706f6c6963795f65706f6368223a22666978747572652d6f6e6c696e652d7631222c22706f6c6963795f76657273696f6e223a312c22726566726573685f6166746572223a313730303030333630302c227265766973696f6e223a31302c22736368656d615f76657273696f6e223a312c22737562223a22666978747572652d75736572227d",
+    "sha256": "8fe96ad1ae9bfcfbb7178ed0f5741bfd3bbc8aa6ba1533d02a8b54337f9f1bc8",
     "byte_length": 668
    },
-   "signature_hex": "75df7ad4a817fa25e9b270b6d72945d025c565d8235bc27b91924b944e0439992d781423c8862db39a96cb64385db710f25df9d1a3eb96907e290c9af60d5701",
+   "signature_hex": "6f29c805bc2ce0998896f60cbe91a72e7a87f5071b854e6446ecabfeeb6791e0b323149fc232fdfc0dc8c15348b8107a1eae77532fb1e43f9aa7d2c4ff29d00a",
    "expected": {
     "mathematical_signature": true,
     "trusted_key": true,
@@ -284,19 +284,19 @@
      "admin_generation": 1
     },
     "grant": {
-     "payload": "eyJhdWQiOnsiZW52IjoidGVzdCIsInByb2plY3QiOiJkZW1vLWRvbWlvcyJ9LCJhdXRob3JpdHkiOiJhZG1pbiIsImNhcGFiaWxpdGllcyI6W10sImVuZm9yY2VtZW50Ijp7ImVuYWJsZWQiOmZhbHNlLCJyb2xsYmFjayI6ZmFsc2V9LCJleHBpcmVzX2F0IjoxNzAwMDAzNjAwLCJncmFjZV91bnRpbCI6MTcwMDAwMzYwMCwiaW5zdCI6ImZpeHR1cmUtaW5zdGFsbGF0aW9uIiwiaXNzIjoiZG9taW9zLWVudGl0bGVtZW50cyIsImlzc3VlZF9hdCI6MTcwMDAwMDAwMCwibGFiZWwiOiJhZG1pbiIsImxpbWl0cyI6eyJtZW0uaXRlbXMiOnsibWF4IjpudWxsLCJzY29wZSI6Imluc3RhbGxhdGlvbiJ9LCJtZXNoLm1hY2hpbmVzIjp7Im1heCI6bnVsbCwic2NvcGUiOiJhY2NvdW50In0sIndvcmtzcGFjZXMiOnsibWF4IjpudWxsLCJzY29wZSI6Imluc3RhbGxhdGlvbiJ9fSwibm90X2JlZm9yZSI6MTcwMDAwMDAwMCwicGVyaW9kX2VuZCI6bnVsbCwicGVya3MiOnsicHJpb3JpdHlfc3VwcG9ydCI6dHJ1ZSwic3BvbnNvciI6ZmFsc2V9LCJwb2xpY3lfZXBvY2giOiJmaXh0dXJlLW9ubGluZS12MSIsInBvbGljeV92ZXJzaW9uIjoxLCJyZWZyZXNoX2FmdGVyIjoxNzAwMDAxODAwLCJyZXZpc2lvbiI6MSwic2NoZW1hX3ZlcnNpb24iOjEsInN1YiI6ImZpeHR1cmUtdXNlciJ9",
-     "signature": "arH8UUptdMy5gNOzlLWuEJ1FX3qOXujeR26vvRad7y2_FhnMyfn77Sg3gP8IFaAaSJUh4HV1VGVHmopZ8pyGCQ",
+     "payload": "eyJhdWQiOnsiZW52IjoidGVzdCIsInByb2plY3QiOiJkZW1vLWRvbWlvcyJ9LCJhdXRob3JpdHkiOiJhZG1pbiIsImNhcGFiaWxpdGllcyI6W10sImVuZm9yY2VtZW50Ijp7ImVuYWJsZWQiOmZhbHNlLCJyb2xsYmFjayI6ZmFsc2V9LCJleHBpcmVzX2F0IjoxNzAwMDg2NDAwLCJncmFjZV91bnRpbCI6MTcwMDA4NjQwMCwiaW5zdCI6ImZpeHR1cmUtaW5zdGFsbGF0aW9uIiwiaXNzIjoiZG9taW9zLWVudGl0bGVtZW50cyIsImlzc3VlZF9hdCI6MTcwMDAwMDAwMCwibGFiZWwiOiJhZG1pbiIsImxpbWl0cyI6eyJtZW0uaXRlbXMiOnsibWF4IjpudWxsLCJzY29wZSI6Imluc3RhbGxhdGlvbiJ9LCJtZXNoLm1hY2hpbmVzIjp7Im1heCI6bnVsbCwic2NvcGUiOiJhY2NvdW50In0sIndvcmtzcGFjZXMiOnsibWF4IjpudWxsLCJzY29wZSI6Imluc3RhbGxhdGlvbiJ9fSwibm90X2JlZm9yZSI6MTcwMDAwMDAwMCwicGVyaW9kX2VuZCI6bnVsbCwicGVya3MiOnsicHJpb3JpdHlfc3VwcG9ydCI6dHJ1ZSwic3BvbnNvciI6ZmFsc2V9LCJwb2xpY3lfZXBvY2giOiJmaXh0dXJlLW9ubGluZS12MSIsInBvbGljeV92ZXJzaW9uIjoxLCJyZWZyZXNoX2FmdGVyIjoxNzAwMDAzNjAwLCJyZXZpc2lvbiI6MSwic2NoZW1hX3ZlcnNpb24iOjEsInN1YiI6ImZpeHR1cmUtdXNlciJ9",
+     "signature": "rrTcnGhxmnLxBEy7HL9owEYczUwA8_HTuisV3psEW7gEpHRZR6zeZ_M01gfQHD4l9LzXPeCOpi4mwwl_BFL-DA",
      "key_id": "e5-rfc8032-test-only",
      "alg": "Ed25519"
     }
    },
    "exact_payload": {
-    "utf8": "{\"aud\":{\"env\":\"test\",\"project\":\"demo-domios\"},\"authority\":\"admin\",\"capabilities\":[],\"enforcement\":{\"enabled\":false,\"rollback\":false},\"expires_at\":1700003600,\"grace_until\":1700003600,\"inst\":\"fixture-installation\",\"iss\":\"domios-entitlements\",\"issued_at\":1700000000,\"label\":\"admin\",\"limits\":{\"mem.items\":{\"max\":null,\"scope\":\"installation\"},\"mesh.machines\":{\"max\":null,\"scope\":\"account\"},\"workspaces\":{\"max\":null,\"scope\":\"installation\"}},\"not_before\":1700000000,\"period_end\":null,\"perks\":{\"priority_support\":true,\"sponsor\":false},\"policy_epoch\":\"fixture-online-v1\",\"policy_version\":1,\"refresh_after\":1700001800,\"revision\":1,\"schema_version\":1,\"sub\":\"fixture-user\"}",
-    "hex": "7b22617564223a7b22656e76223a2274657374222c2270726f6a656374223a2264656d6f2d646f6d696f73227d2c22617574686f72697479223a2261646d696e222c226361706162696c6974696573223a5b5d2c22656e666f7263656d656e74223a7b22656e61626c6564223a66616c73652c22726f6c6c6261636b223a66616c73657d2c22657870697265735f6174223a313730303030333630302c2267726163655f756e74696c223a313730303030333630302c22696e7374223a22666978747572652d696e7374616c6c6174696f6e222c22697373223a22646f6d696f732d656e7469746c656d656e7473222c226973737565645f6174223a313730303030303030302c226c6162656c223a2261646d696e222c226c696d697473223a7b226d656d2e6974656d73223a7b226d6178223a6e756c6c2c2273636f7065223a22696e7374616c6c6174696f6e227d2c226d6573682e6d616368696e6573223a7b226d6178223a6e756c6c2c2273636f7065223a226163636f756e74227d2c22776f726b737061636573223a7b226d6178223a6e756c6c2c2273636f7065223a22696e7374616c6c6174696f6e227d7d2c226e6f745f6265666f7265223a313730303030303030302c22706572696f645f656e64223a6e756c6c2c227065726b73223a7b227072696f726974795f737570706f7274223a747275652c2273706f6e736f72223a66616c73657d2c22706f6c6963795f65706f6368223a22666978747572652d6f6e6c696e652d7631222c22706f6c6963795f76657273696f6e223a312c22726566726573685f6166746572223a313730303030313830302c227265766973696f6e223a312c22736368656d615f76657273696f6e223a312c22737562223a22666978747572652d75736572227d",
-    "sha256": "f77feac259bbf4399a8118b1a9a7ccf0ed93b92fe70ef1397d6e46f16c1051c6",
+    "utf8": "{\"aud\":{\"env\":\"test\",\"project\":\"demo-domios\"},\"authority\":\"admin\",\"capabilities\":[],\"enforcement\":{\"enabled\":false,\"rollback\":false},\"expires_at\":1700086400,\"grace_until\":1700086400,\"inst\":\"fixture-installation\",\"iss\":\"domios-entitlements\",\"issued_at\":1700000000,\"label\":\"admin\",\"limits\":{\"mem.items\":{\"max\":null,\"scope\":\"installation\"},\"mesh.machines\":{\"max\":null,\"scope\":\"account\"},\"workspaces\":{\"max\":null,\"scope\":\"installation\"}},\"not_before\":1700000000,\"period_end\":null,\"perks\":{\"priority_support\":true,\"sponsor\":false},\"policy_epoch\":\"fixture-online-v1\",\"policy_version\":1,\"refresh_after\":1700003600,\"revision\":1,\"schema_version\":1,\"sub\":\"fixture-user\"}",
+    "hex": "7b22617564223a7b22656e76223a2274657374222c2270726f6a656374223a2264656d6f2d646f6d696f73227d2c22617574686f72697479223a2261646d696e222c226361706162696c6974696573223a5b5d2c22656e666f7263656d656e74223a7b22656e61626c6564223a66616c73652c22726f6c6c6261636b223a66616c73657d2c22657870697265735f6174223a313730303038363430302c2267726163655f756e74696c223a313730303038363430302c22696e7374223a22666978747572652d696e7374616c6c6174696f6e222c22697373223a22646f6d696f732d656e7469746c656d656e7473222c226973737565645f6174223a313730303030303030302c226c6162656c223a2261646d696e222c226c696d697473223a7b226d656d2e6974656d73223a7b226d6178223a6e756c6c2c2273636f7065223a22696e7374616c6c6174696f6e227d2c226d6573682e6d616368696e6573223a7b226d6178223a6e756c6c2c2273636f7065223a226163636f756e74227d2c22776f726b737061636573223a7b226d6178223a6e756c6c2c2273636f7065223a22696e7374616c6c6174696f6e227d7d2c226e6f745f6265666f7265223a313730303030303030302c22706572696f645f656e64223a6e756c6c2c227065726b73223a7b227072696f726974795f737570706f7274223a747275652c2273706f6e736f72223a66616c73657d2c22706f6c6963795f65706f6368223a22666978747572652d6f6e6c696e652d7631222c22706f6c6963795f76657273696f6e223a312c22726566726573685f6166746572223a313730303030333630302c227265766973696f6e223a312c22736368656d615f76657273696f6e223a312c22737562223a22666978747572652d75736572227d",
+    "sha256": "9ef0af24d7f8ed96ff135c514d05a2a4d7e2c3d20d35c5891f033947e1ddabaa",
     "byte_length": 660
    },
-   "signature_hex": "6ab1fc514a6d74ccb980d3b394b5ae109d455f7a8e5ee8de476eafbd169def2dbf1619ccc9f9fbed283780ff0815a01a489521e075755465479a8a59f29c8609",
+   "signature_hex": "aeb4dc9c68719a72f1044cbb1cbf68c0461ccd4c00f3f1d3ba2b15de9b045bb804a4745947acde67f334d607d01c3e25f4bcd73de08ea62e26c3097f0452fe0c",
    "expected": {
     "mathematical_signature": true,
     "trusted_key": true,
@@ -348,19 +348,19 @@
      "sponsor": false
     },
     "grant": {
-     "payload": "eyJhdWQiOnsiZW52IjoidGVzdCIsInByb2plY3QiOiJkZW1vLWRvbWlvcyJ9LCJhdXRob3JpdHkiOiJmcmVlIiwiY2FwYWJpbGl0aWVzIjpbXSwiZW5mb3JjZW1lbnQiOnsiZW5hYmxlZCI6ZmFsc2UsInJvbGxiYWNrIjpmYWxzZX0sImV4cGlyZXNfYXQiOjE3MDAwMDM2MDAsImdyYWNlX3VudGlsIjoxNzAwMDAzNjAwLCJpbnN0IjoiZml4dHVyZS1pbnN0YWxsYXRpb24iLCJpc3MiOiJkb21pb3MtZW50aXRsZW1lbnRzIiwiaXNzdWVkX2F0IjoxNzAwMDAwMDAwLCJsYWJlbCI6ImZyZWUiLCJsaW1pdHMiOnsibWVtLml0ZW1zIjp7Im1heCI6MTAwMCwic2NvcGUiOiJpbnN0YWxsYXRpb24ifSwibWVzaC5tYWNoaW5lcyI6eyJtYXgiOjIsInNjb3BlIjoiYWNjb3VudCJ9LCJ3b3Jrc3BhY2VzIjp7Im1heCI6Miwic2NvcGUiOiJpbnN0YWxsYXRpb24ifX0sIm5vdF9iZWZvcmUiOjE3MDAwMDAwMDAsInBlcmlvZF9lbmQiOm51bGwsInBlcmtzIjp7InByaW9yaXR5X3N1cHBvcnQiOmZhbHNlLCJzcG9uc29yIjpmYWxzZX0sInBvbGljeV9lcG9jaCI6ImZpeHR1cmUtb25saW5lLXYxIiwicG9saWN5X3ZlcnNpb24iOjEsInJlZnJlc2hfYWZ0ZXIiOjE3MDAwMDE4MDAsInJldmlzaW9uIjoxMSwic2NoZW1hX3ZlcnNpb24iOjEsInN1YiI6ImZpeHR1cmUtdXNlciJ9",
-     "signature": "MVtSbuWZchYxpJ66XK2DuEGrEeC1knPi-2Ubl-79dxboaaLifuOua_CMxYGwH3d_YHgZCuOU0fJyg7OhNbP-Cg",
+     "payload": "eyJhdWQiOnsiZW52IjoidGVzdCIsInByb2plY3QiOiJkZW1vLWRvbWlvcyJ9LCJhdXRob3JpdHkiOiJmcmVlIiwiY2FwYWJpbGl0aWVzIjpbXSwiZW5mb3JjZW1lbnQiOnsiZW5hYmxlZCI6ZmFsc2UsInJvbGxiYWNrIjpmYWxzZX0sImV4cGlyZXNfYXQiOjE3MDAwODY0MDAsImdyYWNlX3VudGlsIjoxNzAwMDg2NDAwLCJpbnN0IjoiZml4dHVyZS1pbnN0YWxsYXRpb24iLCJpc3MiOiJkb21pb3MtZW50aXRsZW1lbnRzIiwiaXNzdWVkX2F0IjoxNzAwMDAwMDAwLCJsYWJlbCI6ImZyZWUiLCJsaW1pdHMiOnsibWVtLml0ZW1zIjp7Im1heCI6MTAwMCwic2NvcGUiOiJpbnN0YWxsYXRpb24ifSwibWVzaC5tYWNoaW5lcyI6eyJtYXgiOjIsInNjb3BlIjoiYWNjb3VudCJ9LCJ3b3Jrc3BhY2VzIjp7Im1heCI6Miwic2NvcGUiOiJpbnN0YWxsYXRpb24ifX0sIm5vdF9iZWZvcmUiOjE3MDAwMDAwMDAsInBlcmlvZF9lbmQiOm51bGwsInBlcmtzIjp7InByaW9yaXR5X3N1cHBvcnQiOmZhbHNlLCJzcG9uc29yIjpmYWxzZX0sInBvbGljeV9lcG9jaCI6ImZpeHR1cmUtb25saW5lLXYxIiwicG9saWN5X3ZlcnNpb24iOjEsInJlZnJlc2hfYWZ0ZXIiOjE3MDAwMDM2MDAsInJldmlzaW9uIjoxMSwic2NoZW1hX3ZlcnNpb24iOjEsInN1YiI6ImZpeHR1cmUtdXNlciJ9",
+     "signature": "OdZY_AQtjt8WLpTAucvutmRGLr_vmUfbjYsb0qMY1rTXYnFJr1ycNSHhQW8rpAeFgSE1YKcJa3eVVr1ToTn2Dw",
      "key_id": "e5-rfc8032-test-only",
      "alg": "Ed25519"
     }
    },
    "exact_payload": {
-    "utf8": "{\"aud\":{\"env\":\"test\",\"project\":\"demo-domios\"},\"authority\":\"free\",\"capabilities\":[],\"enforcement\":{\"enabled\":false,\"rollback\":false},\"expires_at\":1700003600,\"grace_until\":1700003600,\"inst\":\"fixture-installation\",\"iss\":\"domios-entitlements\",\"issued_at\":1700000000,\"label\":\"free\",\"limits\":{\"mem.items\":{\"max\":1000,\"scope\":\"installation\"},\"mesh.machines\":{\"max\":2,\"scope\":\"account\"},\"workspaces\":{\"max\":2,\"scope\":\"installation\"}},\"not_before\":1700000000,\"period_end\":null,\"perks\":{\"priority_support\":false,\"sponsor\":false},\"policy_epoch\":\"fixture-online-v1\",\"policy_version\":1,\"refresh_after\":1700001800,\"revision\":11,\"schema_version\":1,\"sub\":\"fixture-user\"}",
-    "hex": "7b22617564223a7b22656e76223a2274657374222c2270726f6a656374223a2264656d6f2d646f6d696f73227d2c22617574686f72697479223a2266726565222c226361706162696c6974696573223a5b5d2c22656e666f7263656d656e74223a7b22656e61626c6564223a66616c73652c22726f6c6c6261636b223a66616c73657d2c22657870697265735f6174223a313730303030333630302c2267726163655f756e74696c223a313730303030333630302c22696e7374223a22666978747572652d696e7374616c6c6174696f6e222c22697373223a22646f6d696f732d656e7469746c656d656e7473222c226973737565645f6174223a313730303030303030302c226c6162656c223a2266726565222c226c696d697473223a7b226d656d2e6974656d73223a7b226d6178223a313030302c2273636f7065223a22696e7374616c6c6174696f6e227d2c226d6573682e6d616368696e6573223a7b226d6178223a322c2273636f7065223a226163636f756e74227d2c22776f726b737061636573223a7b226d6178223a322c2273636f7065223a22696e7374616c6c6174696f6e227d7d2c226e6f745f6265666f7265223a313730303030303030302c22706572696f645f656e64223a6e756c6c2c227065726b73223a7b227072696f726974795f737570706f7274223a66616c73652c2273706f6e736f72223a66616c73657d2c22706f6c6963795f65706f6368223a22666978747572652d6f6e6c696e652d7631222c22706f6c6963795f76657273696f6e223a312c22726566726573685f6166746572223a313730303030313830302c227265766973696f6e223a31312c22736368656d615f76657273696f6e223a312c22737562223a22666978747572652d75736572227d",
-    "sha256": "f34476535aa013b2b0e382bfef359f22ebb4031680bb6e0fc3d6b9afdccc866c",
+    "utf8": "{\"aud\":{\"env\":\"test\",\"project\":\"demo-domios\"},\"authority\":\"free\",\"capabilities\":[],\"enforcement\":{\"enabled\":false,\"rollback\":false},\"expires_at\":1700086400,\"grace_until\":1700086400,\"inst\":\"fixture-installation\",\"iss\":\"domios-entitlements\",\"issued_at\":1700000000,\"label\":\"free\",\"limits\":{\"mem.items\":{\"max\":1000,\"scope\":\"installation\"},\"mesh.machines\":{\"max\":2,\"scope\":\"account\"},\"workspaces\":{\"max\":2,\"scope\":\"installation\"}},\"not_before\":1700000000,\"period_end\":null,\"perks\":{\"priority_support\":false,\"sponsor\":false},\"policy_epoch\":\"fixture-online-v1\",\"policy_version\":1,\"refresh_after\":1700003600,\"revision\":11,\"schema_version\":1,\"sub\":\"fixture-user\"}",
+    "hex": "7b22617564223a7b22656e76223a2274657374222c2270726f6a656374223a2264656d6f2d646f6d696f73227d2c22617574686f72697479223a2266726565222c226361706162696c6974696573223a5b5d2c22656e666f7263656d656e74223a7b22656e61626c6564223a66616c73652c22726f6c6c6261636b223a66616c73657d2c22657870697265735f6174223a313730303038363430302c2267726163655f756e74696c223a313730303038363430302c22696e7374223a22666978747572652d696e7374616c6c6174696f6e222c22697373223a22646f6d696f732d656e7469746c656d656e7473222c226973737565645f6174223a313730303030303030302c226c6162656c223a2266726565222c226c696d697473223a7b226d656d2e6974656d73223a7b226d6178223a313030302c2273636f7065223a22696e7374616c6c6174696f6e227d2c226d6573682e6d616368696e6573223a7b226d6178223a322c2273636f7065223a226163636f756e74227d2c22776f726b737061636573223a7b226d6178223a322c2273636f7065223a22696e7374616c6c6174696f6e227d7d2c226e6f745f6265666f7265223a313730303030303030302c22706572696f645f656e64223a6e756c6c2c227065726b73223a7b227072696f726974795f737570706f7274223a66616c73652c2273706f6e736f72223a66616c73657d2c22706f6c6963795f65706f6368223a22666978747572652d6f6e6c696e652d7631222c22706f6c6963795f76657273696f6e223a312c22726566726573685f6166746572223a313730303030333630302c227265766973696f6e223a31312c22736368656d615f76657273696f6e223a312c22737562223a22666978747572652d75736572227d",
+    "sha256": "178fd323612ee7672071ed3954d3be38ffbcc42ea2bfd359083af5ffd6c17cbf",
     "byte_length": 654
    },
-   "signature_hex": "315b526ee599721631a49eba5cad83b841ab11e0b59273e2fb651b97eefd7716e869a2e27ee3ae6bf08cc581b01f777f6078190ae394d1f27283b3a135b3fe0a",
+   "signature_hex": "39d658fc042d8edf162e94c0b9cbeeb664462ebfef9947db8d8b1bd2a318d6b4d7627149af5c9c3521e1416f2ba4078581213560a7096b779556bd53a139f60f",
    "expected": {
     "mathematical_signature": true,
     "trusted_key": true,
@@ -385,7 +385,7 @@
     "installation_id": "fixture-installation",
     "current_policy_epoch": "fixture-online-v1",
     "policy_version": 1,
-    "now": 1700003600,
+    "now": 1700086400,
     "cached_revision": 9
    },
    "response": {
@@ -412,19 +412,19 @@
      "sponsor": false
     },
     "grant": {
-     "payload": "eyJhdWQiOnsiZW52IjoidGVzdCIsInByb2plY3QiOiJkZW1vLWRvbWlvcyJ9LCJhdXRob3JpdHkiOiJiaWxsaW5nIiwiY2FwYWJpbGl0aWVzIjpbXSwiZW5mb3JjZW1lbnQiOnsiZW5hYmxlZCI6ZmFsc2UsInJvbGxiYWNrIjpmYWxzZX0sImV4cGlyZXNfYXQiOjE3MDAwMDM2MDAsImdyYWNlX3VudGlsIjoxNzAwMDAzNjAwLCJpbnN0IjoiZml4dHVyZS1pbnN0YWxsYXRpb24iLCJpc3MiOiJkb21pb3MtZW50aXRsZW1lbnRzIiwiaXNzdWVkX2F0IjoxNzAwMDAwMDAwLCJsYWJlbCI6InBybyIsImxpbWl0cyI6eyJtZW0uaXRlbXMiOnsibWF4IjpudWxsLCJzY29wZSI6Imluc3RhbGxhdGlvbiJ9LCJtZXNoLm1hY2hpbmVzIjp7Im1heCI6bnVsbCwic2NvcGUiOiJhY2NvdW50In0sIndvcmtzcGFjZXMiOnsibWF4IjpudWxsLCJzY29wZSI6Imluc3RhbGxhdGlvbiJ9fSwibm90X2JlZm9yZSI6MTcwMDAwMDAwMCwicGVyaW9kX2VuZCI6MTcwMDYwNDgwMCwicGVya3MiOnsicHJpb3JpdHlfc3VwcG9ydCI6ZmFsc2UsInNwb25zb3IiOmZhbHNlfSwicG9saWN5X2Vwb2NoIjoiZml4dHVyZS1vbmxpbmUtdjEiLCJwb2xpY3lfdmVyc2lvbiI6MSwicmVmcmVzaF9hZnRlciI6MTcwMDAwMTgwMCwicmV2aXNpb24iOjEwLCJzY2hlbWFfdmVyc2lvbiI6MSwic3ViIjoiZml4dHVyZS11c2VyIn0",
-     "signature": "dd961KgX-iXpsnC21ylF0CXFZdgjW8J7kZJLlE4EOZkteBQjyIYts5qWy2Q4XbcQ8l350aPrlpB-KQya9g1XAQ",
+     "payload": "eyJhdWQiOnsiZW52IjoidGVzdCIsInByb2plY3QiOiJkZW1vLWRvbWlvcyJ9LCJhdXRob3JpdHkiOiJiaWxsaW5nIiwiY2FwYWJpbGl0aWVzIjpbXSwiZW5mb3JjZW1lbnQiOnsiZW5hYmxlZCI6ZmFsc2UsInJvbGxiYWNrIjpmYWxzZX0sImV4cGlyZXNfYXQiOjE3MDAwODY0MDAsImdyYWNlX3VudGlsIjoxNzAwMDg2NDAwLCJpbnN0IjoiZml4dHVyZS1pbnN0YWxsYXRpb24iLCJpc3MiOiJkb21pb3MtZW50aXRsZW1lbnRzIiwiaXNzdWVkX2F0IjoxNzAwMDAwMDAwLCJsYWJlbCI6InBybyIsImxpbWl0cyI6eyJtZW0uaXRlbXMiOnsibWF4IjpudWxsLCJzY29wZSI6Imluc3RhbGxhdGlvbiJ9LCJtZXNoLm1hY2hpbmVzIjp7Im1heCI6bnVsbCwic2NvcGUiOiJhY2NvdW50In0sIndvcmtzcGFjZXMiOnsibWF4IjpudWxsLCJzY29wZSI6Imluc3RhbGxhdGlvbiJ9fSwibm90X2JlZm9yZSI6MTcwMDAwMDAwMCwicGVyaW9kX2VuZCI6MTcwMDYwNDgwMCwicGVya3MiOnsicHJpb3JpdHlfc3VwcG9ydCI6ZmFsc2UsInNwb25zb3IiOmZhbHNlfSwicG9saWN5X2Vwb2NoIjoiZml4dHVyZS1vbmxpbmUtdjEiLCJwb2xpY3lfdmVyc2lvbiI6MSwicmVmcmVzaF9hZnRlciI6MTcwMDAwMzYwMCwicmV2aXNpb24iOjEwLCJzY2hlbWFfdmVyc2lvbiI6MSwic3ViIjoiZml4dHVyZS11c2VyIn0",
+     "signature": "bynIBbws4JmIlvYMvpGnLnqH9QcbhU5kRuyr_utnkeCzIxSfwjL9_A3IwVNIuBB6Hq53Uy-x5D-ap9LE_ynQCg",
      "key_id": "e5-rfc8032-test-only",
      "alg": "Ed25519"
     }
    },
    "exact_payload": {
-    "utf8": "{\"aud\":{\"env\":\"test\",\"project\":\"demo-domios\"},\"authority\":\"billing\",\"capabilities\":[],\"enforcement\":{\"enabled\":false,\"rollback\":false},\"expires_at\":1700003600,\"grace_until\":1700003600,\"inst\":\"fixture-installation\",\"iss\":\"domios-entitlements\",\"issued_at\":1700000000,\"label\":\"pro\",\"limits\":{\"mem.items\":{\"max\":null,\"scope\":\"installation\"},\"mesh.machines\":{\"max\":null,\"scope\":\"account\"},\"workspaces\":{\"max\":null,\"scope\":\"installation\"}},\"not_before\":1700000000,\"period_end\":1700604800,\"perks\":{\"priority_support\":false,\"sponsor\":false},\"policy_epoch\":\"fixture-online-v1\",\"policy_version\":1,\"refresh_after\":1700001800,\"revision\":10,\"schema_version\":1,\"sub\":\"fixture-user\"}",
-    "hex": "7b22617564223a7b22656e76223a2274657374222c2270726f6a656374223a2264656d6f2d646f6d696f73227d2c22617574686f72697479223a2262696c6c696e67222c226361706162696c6974696573223a5b5d2c22656e666f7263656d656e74223a7b22656e61626c6564223a66616c73652c22726f6c6c6261636b223a66616c73657d2c22657870697265735f6174223a313730303030333630302c2267726163655f756e74696c223a313730303030333630302c22696e7374223a22666978747572652d696e7374616c6c6174696f6e222c22697373223a22646f6d696f732d656e7469746c656d656e7473222c226973737565645f6174223a313730303030303030302c226c6162656c223a2270726f222c226c696d697473223a7b226d656d2e6974656d73223a7b226d6178223a6e756c6c2c2273636f7065223a22696e7374616c6c6174696f6e227d2c226d6573682e6d616368696e6573223a7b226d6178223a6e756c6c2c2273636f7065223a226163636f756e74227d2c22776f726b737061636573223a7b226d6178223a6e756c6c2c2273636f7065223a22696e7374616c6c6174696f6e227d7d2c226e6f745f6265666f7265223a313730303030303030302c22706572696f645f656e64223a313730303630343830302c227065726b73223a7b227072696f726974795f737570706f7274223a66616c73652c2273706f6e736f72223a66616c73657d2c22706f6c6963795f65706f6368223a22666978747572652d6f6e6c696e652d7631222c22706f6c6963795f76657273696f6e223a312c22726566726573685f6166746572223a313730303030313830302c227265766973696f6e223a31302c22736368656d615f76657273696f6e223a312c22737562223a22666978747572652d75736572227d",
-    "sha256": "3ab2a3e29af69a598698686a2bb07d1bad821ee947bd3be5b09fe552c9db9e68",
+    "utf8": "{\"aud\":{\"env\":\"test\",\"project\":\"demo-domios\"},\"authority\":\"billing\",\"capabilities\":[],\"enforcement\":{\"enabled\":false,\"rollback\":false},\"expires_at\":1700086400,\"grace_until\":1700086400,\"inst\":\"fixture-installation\",\"iss\":\"domios-entitlements\",\"issued_at\":1700000000,\"label\":\"pro\",\"limits\":{\"mem.items\":{\"max\":null,\"scope\":\"installation\"},\"mesh.machines\":{\"max\":null,\"scope\":\"account\"},\"workspaces\":{\"max\":null,\"scope\":\"installation\"}},\"not_before\":1700000000,\"period_end\":1700604800,\"perks\":{\"priority_support\":false,\"sponsor\":false},\"policy_epoch\":\"fixture-online-v1\",\"policy_version\":1,\"refresh_after\":1700003600,\"revision\":10,\"schema_version\":1,\"sub\":\"fixture-user\"}",
+    "hex": "7b22617564223a7b22656e76223a2274657374222c2270726f6a656374223a2264656d6f2d646f6d696f73227d2c22617574686f72697479223a2262696c6c696e67222c226361706162696c6974696573223a5b5d2c22656e666f7263656d656e74223a7b22656e61626c6564223a66616c73652c22726f6c6c6261636b223a66616c73657d2c22657870697265735f6174223a313730303038363430302c2267726163655f756e74696c223a313730303038363430302c22696e7374223a22666978747572652d696e7374616c6c6174696f6e222c22697373223a22646f6d696f732d656e7469746c656d656e7473222c226973737565645f6174223a313730303030303030302c226c6162656c223a2270726f222c226c696d697473223a7b226d656d2e6974656d73223a7b226d6178223a6e756c6c2c2273636f7065223a22696e7374616c6c6174696f6e227d2c226d6573682e6d616368696e6573223a7b226d6178223a6e756c6c2c2273636f7065223a226163636f756e74227d2c22776f726b737061636573223a7b226d6178223a6e756c6c2c2273636f7065223a22696e7374616c6c6174696f6e227d7d2c226e6f745f6265666f7265223a313730303030303030302c22706572696f645f656e64223a313730303630343830302c227065726b73223a7b227072696f726974795f737570706f7274223a66616c73652c2273706f6e736f72223a66616c73657d2c22706f6c6963795f65706f6368223a22666978747572652d6f6e6c696e652d7631222c22706f6c6963795f76657273696f6e223a312c22726566726573685f6166746572223a313730303030333630302c227265766973696f6e223a31302c22736368656d615f76657273696f6e223a312c22737562223a22666978747572652d75736572227d",
+    "sha256": "8fe96ad1ae9bfcfbb7178ed0f5741bfd3bbc8aa6ba1533d02a8b54337f9f1bc8",
     "byte_length": 668
    },
-   "signature_hex": "75df7ad4a817fa25e9b270b6d72945d025c565d8235bc27b91924b944e0439992d781423c8862db39a96cb64385db710f25df9d1a3eb96907e290c9af60d5701",
+   "signature_hex": "6f29c805bc2ce0998896f60cbe91a72e7a87f5071b854e6446ecabfeeb6791e0b323149fc232fdfc0dc8c15348b8107a1eae77532fb1e43f9aa7d2c4ff29d00a",
    "expected": {
     "mathematical_signature": true,
     "trusted_key": true,
@@ -449,7 +449,7 @@
     "installation_id": "fixture-installation",
     "current_policy_epoch": "fixture-online-v1",
     "policy_version": 1,
-    "now": 1700002700,
+    "now": 1700043200,
     "cached_revision": 9
    },
    "response": {
@@ -463,7 +463,7 @@
       "sponsor": false,
       "priority_support": false
      },
-     "period_end": 1700002700
+     "period_end": 1700043200
     },
     "billing_inventory": "verified",
     "application_access": {
@@ -476,19 +476,19 @@
      "sponsor": false
     },
     "grant": {
-     "payload": "eyJhdWQiOnsiZW52IjoidGVzdCIsInByb2plY3QiOiJkZW1vLWRvbWlvcyJ9LCJhdXRob3JpdHkiOiJiaWxsaW5nIiwiY2FwYWJpbGl0aWVzIjpbXSwiZW5mb3JjZW1lbnQiOnsiZW5hYmxlZCI6ZmFsc2UsInJvbGxiYWNrIjpmYWxzZX0sImV4cGlyZXNfYXQiOjE3MDAwMDM2MDAsImdyYWNlX3VudGlsIjoxNzAwMDAzNjAwLCJpbnN0IjoiZml4dHVyZS1pbnN0YWxsYXRpb24iLCJpc3MiOiJkb21pb3MtZW50aXRsZW1lbnRzIiwiaXNzdWVkX2F0IjoxNzAwMDAwMDAwLCJsYWJlbCI6InBybyIsImxpbWl0cyI6eyJtZW0uaXRlbXMiOnsibWF4IjpudWxsLCJzY29wZSI6Imluc3RhbGxhdGlvbiJ9LCJtZXNoLm1hY2hpbmVzIjp7Im1heCI6bnVsbCwic2NvcGUiOiJhY2NvdW50In0sIndvcmtzcGFjZXMiOnsibWF4IjpudWxsLCJzY29wZSI6Imluc3RhbGxhdGlvbiJ9fSwibm90X2JlZm9yZSI6MTcwMDAwMDAwMCwicGVyaW9kX2VuZCI6MTcwMDAwMjcwMCwicGVya3MiOnsicHJpb3JpdHlfc3VwcG9ydCI6ZmFsc2UsInNwb25zb3IiOmZhbHNlfSwicG9saWN5X2Vwb2NoIjoiZml4dHVyZS1vbmxpbmUtdjEiLCJwb2xpY3lfdmVyc2lvbiI6MSwicmVmcmVzaF9hZnRlciI6MTcwMDAwMTgwMCwicmV2aXNpb24iOjEwLCJzY2hlbWFfdmVyc2lvbiI6MSwic3ViIjoiZml4dHVyZS11c2VyIn0",
-     "signature": "_L2t3GYkj_dIUFn1cApK9LXPGWO7vjQJzVWpYaFduR_FFJ2LsZtbJQtaCZmtFl4_fH8Yyc_6tlTu57FSwhzCBg",
+     "payload": "eyJhdWQiOnsiZW52IjoidGVzdCIsInByb2plY3QiOiJkZW1vLWRvbWlvcyJ9LCJhdXRob3JpdHkiOiJiaWxsaW5nIiwiY2FwYWJpbGl0aWVzIjpbXSwiZW5mb3JjZW1lbnQiOnsiZW5hYmxlZCI6ZmFsc2UsInJvbGxiYWNrIjpmYWxzZX0sImV4cGlyZXNfYXQiOjE3MDAwODY0MDAsImdyYWNlX3VudGlsIjoxNzAwMDg2NDAwLCJpbnN0IjoiZml4dHVyZS1pbnN0YWxsYXRpb24iLCJpc3MiOiJkb21pb3MtZW50aXRsZW1lbnRzIiwiaXNzdWVkX2F0IjoxNzAwMDAwMDAwLCJsYWJlbCI6InBybyIsImxpbWl0cyI6eyJtZW0uaXRlbXMiOnsibWF4IjpudWxsLCJzY29wZSI6Imluc3RhbGxhdGlvbiJ9LCJtZXNoLm1hY2hpbmVzIjp7Im1heCI6bnVsbCwic2NvcGUiOiJhY2NvdW50In0sIndvcmtzcGFjZXMiOnsibWF4IjpudWxsLCJzY29wZSI6Imluc3RhbGxhdGlvbiJ9fSwibm90X2JlZm9yZSI6MTcwMDAwMDAwMCwicGVyaW9kX2VuZCI6MTcwMDA0MzIwMCwicGVya3MiOnsicHJpb3JpdHlfc3VwcG9ydCI6ZmFsc2UsInNwb25zb3IiOmZhbHNlfSwicG9saWN5X2Vwb2NoIjoiZml4dHVyZS1vbmxpbmUtdjEiLCJwb2xpY3lfdmVyc2lvbiI6MSwicmVmcmVzaF9hZnRlciI6MTcwMDAwMzYwMCwicmV2aXNpb24iOjEwLCJzY2hlbWFfdmVyc2lvbiI6MSwic3ViIjoiZml4dHVyZS11c2VyIn0",
+     "signature": "_JZP2ineakIYXezDqM0HpwpTEk0J0AvRunvpFeeQcbw_OjcAbmXo9cJJIVcY4bFfa4vrzxjcc8mwWMpVkk-tDA",
      "key_id": "e5-rfc8032-test-only",
      "alg": "Ed25519"
     }
    },
    "exact_payload": {
-    "utf8": "{\"aud\":{\"env\":\"test\",\"project\":\"demo-domios\"},\"authority\":\"billing\",\"capabilities\":[],\"enforcement\":{\"enabled\":false,\"rollback\":false},\"expires_at\":1700003600,\"grace_until\":1700003600,\"inst\":\"fixture-installation\",\"iss\":\"domios-entitlements\",\"issued_at\":1700000000,\"label\":\"pro\",\"limits\":{\"mem.items\":{\"max\":null,\"scope\":\"installation\"},\"mesh.machines\":{\"max\":null,\"scope\":\"account\"},\"workspaces\":{\"max\":null,\"scope\":\"installation\"}},\"not_before\":1700000000,\"period_end\":1700002700,\"perks\":{\"priority_support\":false,\"sponsor\":false},\"policy_epoch\":\"fixture-online-v1\",\"policy_version\":1,\"refresh_after\":1700001800,\"revision\":10,\"schema_version\":1,\"sub\":\"fixture-user\"}",
-    "hex": "7b22617564223a7b22656e76223a2274657374222c2270726f6a656374223a2264656d6f2d646f6d696f73227d2c22617574686f72697479223a2262696c6c696e67222c226361706162696c6974696573223a5b5d2c22656e666f7263656d656e74223a7b22656e61626c6564223a66616c73652c22726f6c6c6261636b223a66616c73657d2c22657870697265735f6174223a313730303030333630302c2267726163655f756e74696c223a313730303030333630302c22696e7374223a22666978747572652d696e7374616c6c6174696f6e222c22697373223a22646f6d696f732d656e7469746c656d656e7473222c226973737565645f6174223a313730303030303030302c226c6162656c223a2270726f222c226c696d697473223a7b226d656d2e6974656d73223a7b226d6178223a6e756c6c2c2273636f7065223a22696e7374616c6c6174696f6e227d2c226d6573682e6d616368696e6573223a7b226d6178223a6e756c6c2c2273636f7065223a226163636f756e74227d2c22776f726b737061636573223a7b226d6178223a6e756c6c2c2273636f7065223a22696e7374616c6c6174696f6e227d7d2c226e6f745f6265666f7265223a313730303030303030302c22706572696f645f656e64223a313730303030323730302c227065726b73223a7b227072696f726974795f737570706f7274223a66616c73652c2273706f6e736f72223a66616c73657d2c22706f6c6963795f65706f6368223a22666978747572652d6f6e6c696e652d7631222c22706f6c6963795f76657273696f6e223a312c22726566726573685f6166746572223a313730303030313830302c227265766973696f6e223a31302c22736368656d615f76657273696f6e223a312c22737562223a22666978747572652d75736572227d",
-    "sha256": "fdd5a6744be0146377b18fede953f7f377cc4a0838e337d2c88acf69bcb55843",
+    "utf8": "{\"aud\":{\"env\":\"test\",\"project\":\"demo-domios\"},\"authority\":\"billing\",\"capabilities\":[],\"enforcement\":{\"enabled\":false,\"rollback\":false},\"expires_at\":1700086400,\"grace_until\":1700086400,\"inst\":\"fixture-installation\",\"iss\":\"domios-entitlements\",\"issued_at\":1700000000,\"label\":\"pro\",\"limits\":{\"mem.items\":{\"max\":null,\"scope\":\"installation\"},\"mesh.machines\":{\"max\":null,\"scope\":\"account\"},\"workspaces\":{\"max\":null,\"scope\":\"installation\"}},\"not_before\":1700000000,\"period_end\":1700043200,\"perks\":{\"priority_support\":false,\"sponsor\":false},\"policy_epoch\":\"fixture-online-v1\",\"policy_version\":1,\"refresh_after\":1700003600,\"revision\":10,\"schema_version\":1,\"sub\":\"fixture-user\"}",
+    "hex": "7b22617564223a7b22656e76223a2274657374222c2270726f6a656374223a2264656d6f2d646f6d696f73227d2c22617574686f72697479223a2262696c6c696e67222c226361706162696c6974696573223a5b5d2c22656e666f7263656d656e74223a7b22656e61626c6564223a66616c73652c22726f6c6c6261636b223a66616c73657d2c22657870697265735f6174223a313730303038363430302c2267726163655f756e74696c223a313730303038363430302c22696e7374223a22666978747572652d696e7374616c6c6174696f6e222c22697373223a22646f6d696f732d656e7469746c656d656e7473222c226973737565645f6174223a313730303030303030302c226c6162656c223a2270726f222c226c696d697473223a7b226d656d2e6974656d73223a7b226d6178223a6e756c6c2c2273636f7065223a22696e7374616c6c6174696f6e227d2c226d6573682e6d616368696e6573223a7b226d6178223a6e756c6c2c2273636f7065223a226163636f756e74227d2c22776f726b737061636573223a7b226d6178223a6e756c6c2c2273636f7065223a22696e7374616c6c6174696f6e227d7d2c226e6f745f6265666f7265223a313730303030303030302c22706572696f645f656e64223a313730303034333230302c227065726b73223a7b227072696f726974795f737570706f7274223a66616c73652c2273706f6e736f72223a66616c73657d2c22706f6c6963795f65706f6368223a22666978747572652d6f6e6c696e652d7631222c22706f6c6963795f76657273696f6e223a312c22726566726573685f6166746572223a313730303030333630302c227265766973696f6e223a31302c22736368656d615f76657273696f6e223a312c22737562223a22666978747572652d75736572227d",
+    "sha256": "747607749fd79b18a965b6c0df7b0c5307092e1f04c9399caeb0258458c6ac03",
     "byte_length": 668
    },
-   "signature_hex": "fcbdaddc66248ff7485059f5700a4af4b5cf1963bbbe3409cd55a961a15db91fc5149d8bb19b5b250b5a0999ad165e3f7c7f18c9cffab654eee7b152c21cc206",
+   "signature_hex": "fc964fda29de6a42185decc3a8cd07a70a53124d09d00bd1ba7be915e79071bc3f3a37006e65e8f5c249215718e1b15f6b8bebcf18dc73c9b058ca55924fad0c",
    "expected": {
     "mathematical_signature": true,
     "trusted_key": true,
@@ -540,19 +540,19 @@
      "sponsor": false
     },
     "grant": {
-     "payload": "eyJhdWQiOnsiZW52IjoidGVzdCIsInByb2plY3QiOiJkZW1vLWRvbWlvcyJ9LCJhdXRob3JpdHkiOiJiaWxsaW5nIiwiY2FwYWJpbGl0aWVzIjpbXSwiZW5mb3JjZW1lbnQiOnsiZW5hYmxlZCI6ZmFsc2UsInJvbGxiYWNrIjpmYWxzZX0sImV4cGlyZXNfYXQiOjE3MDAwMDM2MDAsImdyYWNlX3VudGlsIjoxNzAwMDAzNjAwLCJpbnN0IjoiZml4dHVyZS1pbnN0YWxsYXRpb24iLCJpc3MiOiJkb21pb3MtZW50aXRsZW1lbnRzIiwiaXNzdWVkX2F0IjoxNzAwMDAwMDAwLCJsYWJlbCI6InBybyIsImxpbWl0cyI6eyJtZW0uaXRlbXMiOnsibWF4IjpudWxsLCJzY29wZSI6Imluc3RhbGxhdGlvbiJ9LCJtZXNoLm1hY2hpbmVzIjp7Im1heCI6bnVsbCwic2NvcGUiOiJhY2NvdW50In0sIndvcmtzcGFjZXMiOnsibWF4IjpudWxsLCJzY29wZSI6Imluc3RhbGxhdGlvbiJ9fSwibm90X2JlZm9yZSI6MTcwMDAwMDAwMCwicGVyaW9kX2VuZCI6MTcwMDYwNDgwMCwicGVya3MiOnsicHJpb3JpdHlfc3VwcG9ydCI6ZmFsc2UsInNwb25zb3IiOmZhbHNlfSwicG9saWN5X2Vwb2NoIjoiZml4dHVyZS1vbmxpbmUtdjEiLCJwb2xpY3lfdmVyc2lvbiI6MSwicmVmcmVzaF9hZnRlciI6MTcwMDAwMTgwMCwicmV2aXNpb24iOjEwLCJzY2hlbWFfdmVyc2lvbiI6MSwic3ViIjoiZml4dHVyZS11c2VyIn0",
-     "signature": "dd961KgX-iXpsnC21ylF0CXFZdgjW8J7kZJLlE4EOZkteBQjyIYts5qWy2Q4XbcQ8l350aPrlpB-KQya9g1XAQ",
+     "payload": "eyJhdWQiOnsiZW52IjoidGVzdCIsInByb2plY3QiOiJkZW1vLWRvbWlvcyJ9LCJhdXRob3JpdHkiOiJiaWxsaW5nIiwiY2FwYWJpbGl0aWVzIjpbXSwiZW5mb3JjZW1lbnQiOnsiZW5hYmxlZCI6ZmFsc2UsInJvbGxiYWNrIjpmYWxzZX0sImV4cGlyZXNfYXQiOjE3MDAwODY0MDAsImdyYWNlX3VudGlsIjoxNzAwMDg2NDAwLCJpbnN0IjoiZml4dHVyZS1pbnN0YWxsYXRpb24iLCJpc3MiOiJkb21pb3MtZW50aXRsZW1lbnRzIiwiaXNzdWVkX2F0IjoxNzAwMDAwMDAwLCJsYWJlbCI6InBybyIsImxpbWl0cyI6eyJtZW0uaXRlbXMiOnsibWF4IjpudWxsLCJzY29wZSI6Imluc3RhbGxhdGlvbiJ9LCJtZXNoLm1hY2hpbmVzIjp7Im1heCI6bnVsbCwic2NvcGUiOiJhY2NvdW50In0sIndvcmtzcGFjZXMiOnsibWF4IjpudWxsLCJzY29wZSI6Imluc3RhbGxhdGlvbiJ9fSwibm90X2JlZm9yZSI6MTcwMDAwMDAwMCwicGVyaW9kX2VuZCI6MTcwMDYwNDgwMCwicGVya3MiOnsicHJpb3JpdHlfc3VwcG9ydCI6ZmFsc2UsInNwb25zb3IiOmZhbHNlfSwicG9saWN5X2Vwb2NoIjoiZml4dHVyZS1vbmxpbmUtdjEiLCJwb2xpY3lfdmVyc2lvbiI6MSwicmVmcmVzaF9hZnRlciI6MTcwMDAwMzYwMCwicmV2aXNpb24iOjEwLCJzY2hlbWFfdmVyc2lvbiI6MSwic3ViIjoiZml4dHVyZS11c2VyIn0",
+     "signature": "bynIBbws4JmIlvYMvpGnLnqH9QcbhU5kRuyr_utnkeCzIxSfwjL9_A3IwVNIuBB6Hq53Uy-x5D-ap9LE_ynQCg",
      "key_id": "e5-rfc8032-test-only",
      "alg": "Ed25519"
     }
    },
    "exact_payload": {
-    "utf8": "{\"aud\":{\"env\":\"test\",\"project\":\"demo-domios\"},\"authority\":\"billing\",\"capabilities\":[],\"enforcement\":{\"enabled\":false,\"rollback\":false},\"expires_at\":1700003600,\"grace_until\":1700003600,\"inst\":\"fixture-installation\",\"iss\":\"domios-entitlements\",\"issued_at\":1700000000,\"label\":\"pro\",\"limits\":{\"mem.items\":{\"max\":null,\"scope\":\"installation\"},\"mesh.machines\":{\"max\":null,\"scope\":\"account\"},\"workspaces\":{\"max\":null,\"scope\":\"installation\"}},\"not_before\":1700000000,\"period_end\":1700604800,\"perks\":{\"priority_support\":false,\"sponsor\":false},\"policy_epoch\":\"fixture-online-v1\",\"policy_version\":1,\"refresh_after\":1700001800,\"revision\":10,\"schema_version\":1,\"sub\":\"fixture-user\"}",
-    "hex": "7b22617564223a7b22656e76223a2274657374222c2270726f6a656374223a2264656d6f2d646f6d696f73227d2c22617574686f72697479223a2262696c6c696e67222c226361706162696c6974696573223a5b5d2c22656e666f7263656d656e74223a7b22656e61626c6564223a66616c73652c22726f6c6c6261636b223a66616c73657d2c22657870697265735f6174223a313730303030333630302c2267726163655f756e74696c223a313730303030333630302c22696e7374223a22666978747572652d696e7374616c6c6174696f6e222c22697373223a22646f6d696f732d656e7469746c656d656e7473222c226973737565645f6174223a313730303030303030302c226c6162656c223a2270726f222c226c696d697473223a7b226d656d2e6974656d73223a7b226d6178223a6e756c6c2c2273636f7065223a22696e7374616c6c6174696f6e227d2c226d6573682e6d616368696e6573223a7b226d6178223a6e756c6c2c2273636f7065223a226163636f756e74227d2c22776f726b737061636573223a7b226d6178223a6e756c6c2c2273636f7065223a22696e7374616c6c6174696f6e227d7d2c226e6f745f6265666f7265223a313730303030303030302c22706572696f645f656e64223a313730303630343830302c227065726b73223a7b227072696f726974795f737570706f7274223a66616c73652c2273706f6e736f72223a66616c73657d2c22706f6c6963795f65706f6368223a22666978747572652d6f6e6c696e652d7631222c22706f6c6963795f76657273696f6e223a312c22726566726573685f6166746572223a313730303030313830302c227265766973696f6e223a31302c22736368656d615f76657273696f6e223a312c22737562223a22666978747572652d75736572227d",
-    "sha256": "3ab2a3e29af69a598698686a2bb07d1bad821ee947bd3be5b09fe552c9db9e68",
+    "utf8": "{\"aud\":{\"env\":\"test\",\"project\":\"demo-domios\"},\"authority\":\"billing\",\"capabilities\":[],\"enforcement\":{\"enabled\":false,\"rollback\":false},\"expires_at\":1700086400,\"grace_until\":1700086400,\"inst\":\"fixture-installation\",\"iss\":\"domios-entitlements\",\"issued_at\":1700000000,\"label\":\"pro\",\"limits\":{\"mem.items\":{\"max\":null,\"scope\":\"installation\"},\"mesh.machines\":{\"max\":null,\"scope\":\"account\"},\"workspaces\":{\"max\":null,\"scope\":\"installation\"}},\"not_before\":1700000000,\"period_end\":1700604800,\"perks\":{\"priority_support\":false,\"sponsor\":false},\"policy_epoch\":\"fixture-online-v1\",\"policy_version\":1,\"refresh_after\":1700003600,\"revision\":10,\"schema_version\":1,\"sub\":\"fixture-user\"}",
+    "hex": "7b22617564223a7b22656e76223a2274657374222c2270726f6a656374223a2264656d6f2d646f6d696f73227d2c22617574686f72697479223a2262696c6c696e67222c226361706162696c6974696573223a5b5d2c22656e666f7263656d656e74223a7b22656e61626c6564223a66616c73652c22726f6c6c6261636b223a66616c73657d2c22657870697265735f6174223a313730303038363430302c2267726163655f756e74696c223a313730303038363430302c22696e7374223a22666978747572652d696e7374616c6c6174696f6e222c22697373223a22646f6d696f732d656e7469746c656d656e7473222c226973737565645f6174223a313730303030303030302c226c6162656c223a2270726f222c226c696d697473223a7b226d656d2e6974656d73223a7b226d6178223a6e756c6c2c2273636f7065223a22696e7374616c6c6174696f6e227d2c226d6573682e6d616368696e6573223a7b226d6178223a6e756c6c2c2273636f7065223a226163636f756e74227d2c22776f726b737061636573223a7b226d6178223a6e756c6c2c2273636f7065223a22696e7374616c6c6174696f6e227d7d2c226e6f745f6265666f7265223a313730303030303030302c22706572696f645f656e64223a313730303630343830302c227065726b73223a7b227072696f726974795f737570706f7274223a66616c73652c2273706f6e736f72223a66616c73657d2c22706f6c6963795f65706f6368223a22666978747572652d6f6e6c696e652d7631222c22706f6c6963795f76657273696f6e223a312c22726566726573685f6166746572223a313730303030333630302c227265766973696f6e223a31302c22736368656d615f76657273696f6e223a312c22737562223a22666978747572652d75736572227d",
+    "sha256": "8fe96ad1ae9bfcfbb7178ed0f5741bfd3bbc8aa6ba1533d02a8b54337f9f1bc8",
     "byte_length": 668
    },
-   "signature_hex": "75df7ad4a817fa25e9b270b6d72945d025c565d8235bc27b91924b944e0439992d781423c8862db39a96cb64385db710f25df9d1a3eb96907e290c9af60d5701",
+   "signature_hex": "6f29c805bc2ce0998896f60cbe91a72e7a87f5071b854e6446ecabfeeb6791e0b323149fc232fdfc0dc8c15348b8107a1eae77532fb1e43f9aa7d2c4ff29d00a",
    "expected": {
     "mathematical_signature": true,
     "trusted_key": true,
@@ -604,19 +604,19 @@
      "sponsor": false
     },
     "grant": {
-     "payload": "eyJhdWQiOnsiZW52IjoidGVzdCIsInByb2plY3QiOiJkZW1vLWRvbWlvcyJ9LCJhdXRob3JpdHkiOiJiaWxsaW5nIiwiY2FwYWJpbGl0aWVzIjpbXSwiZW5mb3JjZW1lbnQiOnsiZW5hYmxlZCI6ZmFsc2UsInJvbGxiYWNrIjpmYWxzZX0sImV4cGlyZXNfYXQiOjE3MDAwMDM2MDAsImdyYWNlX3VudGlsIjoxNzAwMDAzNjAwLCJpbnN0IjoiZml4dHVyZS1pbnN0YWxsYXRpb24iLCJpc3MiOiJkb21pb3MtZW50aXRsZW1lbnRzIiwiaXNzdWVkX2F0IjoxNzAwMDAwMDAwLCJsYWJlbCI6InBybyIsImxpbWl0cyI6eyJtZW0uaXRlbXMiOnsibWF4IjpudWxsLCJzY29wZSI6Imluc3RhbGxhdGlvbiJ9LCJtZXNoLm1hY2hpbmVzIjp7Im1heCI6bnVsbCwic2NvcGUiOiJhY2NvdW50In0sIndvcmtzcGFjZXMiOnsibWF4IjpudWxsLCJzY29wZSI6Imluc3RhbGxhdGlvbiJ9fSwibm90X2JlZm9yZSI6MTcwMDAwMDAwMCwicGVyaW9kX2VuZCI6MTcwMDYwNDgwMCwicGVya3MiOnsicHJpb3JpdHlfc3VwcG9ydCI6ZmFsc2UsInNwb25zb3IiOmZhbHNlfSwicG9saWN5X2Vwb2NoIjoiZml4dHVyZS1vbmxpbmUtdjAiLCJwb2xpY3lfdmVyc2lvbiI6MSwicmVmcmVzaF9hZnRlciI6MTcwMDAwMTgwMCwicmV2aXNpb24iOjEwLCJzY2hlbWFfdmVyc2lvbiI6MSwic3ViIjoiZml4dHVyZS11c2VyIn0",
-     "signature": "kJ9jPikKd2e8bkx5WZANXWCqFa8xhkDoTe8k91qeXMUI-DTwQzw2qP0wlhD7oyKDCxCc6qo5lToD_xPRUho8Cw",
+     "payload": "eyJhdWQiOnsiZW52IjoidGVzdCIsInByb2plY3QiOiJkZW1vLWRvbWlvcyJ9LCJhdXRob3JpdHkiOiJiaWxsaW5nIiwiY2FwYWJpbGl0aWVzIjpbXSwiZW5mb3JjZW1lbnQiOnsiZW5hYmxlZCI6ZmFsc2UsInJvbGxiYWNrIjpmYWxzZX0sImV4cGlyZXNfYXQiOjE3MDAwODY0MDAsImdyYWNlX3VudGlsIjoxNzAwMDg2NDAwLCJpbnN0IjoiZml4dHVyZS1pbnN0YWxsYXRpb24iLCJpc3MiOiJkb21pb3MtZW50aXRsZW1lbnRzIiwiaXNzdWVkX2F0IjoxNzAwMDAwMDAwLCJsYWJlbCI6InBybyIsImxpbWl0cyI6eyJtZW0uaXRlbXMiOnsibWF4IjpudWxsLCJzY29wZSI6Imluc3RhbGxhdGlvbiJ9LCJtZXNoLm1hY2hpbmVzIjp7Im1heCI6bnVsbCwic2NvcGUiOiJhY2NvdW50In0sIndvcmtzcGFjZXMiOnsibWF4IjpudWxsLCJzY29wZSI6Imluc3RhbGxhdGlvbiJ9fSwibm90X2JlZm9yZSI6MTcwMDAwMDAwMCwicGVyaW9kX2VuZCI6MTcwMDYwNDgwMCwicGVya3MiOnsicHJpb3JpdHlfc3VwcG9ydCI6ZmFsc2UsInNwb25zb3IiOmZhbHNlfSwicG9saWN5X2Vwb2NoIjoiZml4dHVyZS1vbmxpbmUtdjAiLCJwb2xpY3lfdmVyc2lvbiI6MSwicmVmcmVzaF9hZnRlciI6MTcwMDAwMzYwMCwicmV2aXNpb24iOjEwLCJzY2hlbWFfdmVyc2lvbiI6MSwic3ViIjoiZml4dHVyZS11c2VyIn0",
+     "signature": "qfW8LwlnrgyE2Dyonc02LGOcvzy2CFAPjFgoK9MVoVIEFmb-yq4kZjT90sxvjIGvta23l0oqSKOnSD3GZJdWBQ",
      "key_id": "e5-rfc8032-test-only",
      "alg": "Ed25519"
     }
    },
    "exact_payload": {
-    "utf8": "{\"aud\":{\"env\":\"test\",\"project\":\"demo-domios\"},\"authority\":\"billing\",\"capabilities\":[],\"enforcement\":{\"enabled\":false,\"rollback\":false},\"expires_at\":1700003600,\"grace_until\":1700003600,\"inst\":\"fixture-installation\",\"iss\":\"domios-entitlements\",\"issued_at\":1700000000,\"label\":\"pro\",\"limits\":{\"mem.items\":{\"max\":null,\"scope\":\"installation\"},\"mesh.machines\":{\"max\":null,\"scope\":\"account\"},\"workspaces\":{\"max\":null,\"scope\":\"installation\"}},\"not_before\":1700000000,\"period_end\":1700604800,\"perks\":{\"priority_support\":false,\"sponsor\":false},\"policy_epoch\":\"fixture-online-v0\",\"policy_version\":1,\"refresh_after\":1700001800,\"revision\":10,\"schema_version\":1,\"sub\":\"fixture-user\"}",
-    "hex": "7b22617564223a7b22656e76223a2274657374222c2270726f6a656374223a2264656d6f2d646f6d696f73227d2c22617574686f72697479223a2262696c6c696e67222c226361706162696c6974696573223a5b5d2c22656e666f7263656d656e74223a7b22656e61626c6564223a66616c73652c22726f6c6c6261636b223a66616c73657d2c22657870697265735f6174223a313730303030333630302c2267726163655f756e74696c223a313730303030333630302c22696e7374223a22666978747572652d696e7374616c6c6174696f6e222c22697373223a22646f6d696f732d656e7469746c656d656e7473222c226973737565645f6174223a313730303030303030302c226c6162656c223a2270726f222c226c696d697473223a7b226d656d2e6974656d73223a7b226d6178223a6e756c6c2c2273636f7065223a22696e7374616c6c6174696f6e227d2c226d6573682e6d616368696e6573223a7b226d6178223a6e756c6c2c2273636f7065223a226163636f756e74227d2c22776f726b737061636573223a7b226d6178223a6e756c6c2c2273636f7065223a22696e7374616c6c6174696f6e227d7d2c226e6f745f6265666f7265223a313730303030303030302c22706572696f645f656e64223a313730303630343830302c227065726b73223a7b227072696f726974795f737570706f7274223a66616c73652c2273706f6e736f72223a66616c73657d2c22706f6c6963795f65706f6368223a22666978747572652d6f6e6c696e652d7630222c22706f6c6963795f76657273696f6e223a312c22726566726573685f6166746572223a313730303030313830302c227265766973696f6e223a31302c22736368656d615f76657273696f6e223a312c22737562223a22666978747572652d75736572227d",
-    "sha256": "f34f2f805026c25750edb2b2933239a9ecbebf2bfba4effb2b7641d26ec4c0c2",
+    "utf8": "{\"aud\":{\"env\":\"test\",\"project\":\"demo-domios\"},\"authority\":\"billing\",\"capabilities\":[],\"enforcement\":{\"enabled\":false,\"rollback\":false},\"expires_at\":1700086400,\"grace_until\":1700086400,\"inst\":\"fixture-installation\",\"iss\":\"domios-entitlements\",\"issued_at\":1700000000,\"label\":\"pro\",\"limits\":{\"mem.items\":{\"max\":null,\"scope\":\"installation\"},\"mesh.machines\":{\"max\":null,\"scope\":\"account\"},\"workspaces\":{\"max\":null,\"scope\":\"installation\"}},\"not_before\":1700000000,\"period_end\":1700604800,\"perks\":{\"priority_support\":false,\"sponsor\":false},\"policy_epoch\":\"fixture-online-v0\",\"policy_version\":1,\"refresh_after\":1700003600,\"revision\":10,\"schema_version\":1,\"sub\":\"fixture-user\"}",
+    "hex": "7b22617564223a7b22656e76223a2274657374222c2270726f6a656374223a2264656d6f2d646f6d696f73227d2c22617574686f72697479223a2262696c6c696e67222c226361706162696c6974696573223a5b5d2c22656e666f7263656d656e74223a7b22656e61626c6564223a66616c73652c22726f6c6c6261636b223a66616c73657d2c22657870697265735f6174223a313730303038363430302c2267726163655f756e74696c223a313730303038363430302c22696e7374223a22666978747572652d696e7374616c6c6174696f6e222c22697373223a22646f6d696f732d656e7469746c656d656e7473222c226973737565645f6174223a313730303030303030302c226c6162656c223a2270726f222c226c696d697473223a7b226d656d2e6974656d73223a7b226d6178223a6e756c6c2c2273636f7065223a22696e7374616c6c6174696f6e227d2c226d6573682e6d616368696e6573223a7b226d6178223a6e756c6c2c2273636f7065223a226163636f756e74227d2c22776f726b737061636573223a7b226d6178223a6e756c6c2c2273636f7065223a22696e7374616c6c6174696f6e227d7d2c226e6f745f6265666f7265223a313730303030303030302c22706572696f645f656e64223a313730303630343830302c227065726b73223a7b227072696f726974795f737570706f7274223a66616c73652c2273706f6e736f72223a66616c73657d2c22706f6c6963795f65706f6368223a22666978747572652d6f6e6c696e652d7630222c22706f6c6963795f76657273696f6e223a312c22726566726573685f6166746572223a313730303030333630302c227265766973696f6e223a31302c22736368656d615f76657273696f6e223a312c22737562223a22666978747572652d75736572227d",
+    "sha256": "4c53cc6dbca72351b173f5c7f6f3d9a5849b1ef648cf17cc79c8147bc25c7e89",
     "byte_length": 668
    },
-   "signature_hex": "909f633e290a7767bc6e4c7959900d5d60aa15af318640e84def24f75a9e5cc508f834f0433c36a8fd309610fba322830b109ceaaa39953a03ff13d1521a3c0b",
+   "signature_hex": "a9f5bc2f0967ae0c84d83ca89dcd362c639cbf3cb608500f8c58282bd315a152041666fecaae246634fdd2cc6f8c81afb5adb7974a2a48a3a7483dc664975605",
    "expected": {
     "mathematical_signature": true,
     "trusted_key": true,
@@ -668,19 +668,19 @@
      "sponsor": false
     },
     "grant": {
-     "payload": "eyJhdWQiOnsiZW52IjoidGVzdCIsInByb2plY3QiOiJkZW1vLWRvbWlvcyJ9LCJhdXRob3JpdHkiOiJiaWxsaW5nIiwiY2FwYWJpbGl0aWVzIjpbXSwiZW5mb3JjZW1lbnQiOnsiZW5hYmxlZCI6ZmFsc2UsInJvbGxiYWNrIjpmYWxzZX0sImV4cGlyZXNfYXQiOjE3MDAwMDM2MDAsImdyYWNlX3VudGlsIjoxNzAwMDAzNjAwLCJpbnN0IjoiZml4dHVyZS1pbnN0YWxsYXRpb24iLCJpc3MiOiJkb21pb3MtZW50aXRsZW1lbnRzIiwiaXNzdWVkX2F0IjoxNzAwMDAwMDAwLCJsYWJlbCI6InBybyIsImxpbWl0cyI6eyJtZW0uaXRlbXMiOnsibWF4IjpudWxsLCJzY29wZSI6Imluc3RhbGxhdGlvbiJ9LCJtZXNoLm1hY2hpbmVzIjp7Im1heCI6bnVsbCwic2NvcGUiOiJhY2NvdW50In0sIndvcmtzcGFjZXMiOnsibWF4IjpudWxsLCJzY29wZSI6Imluc3RhbGxhdGlvbiJ9fSwibm90X2JlZm9yZSI6MTcwMDAwMDAwMCwicGVyaW9kX2VuZCI6MTcwMDYwNDgwMCwicGVya3MiOnsicHJpb3JpdHlfc3VwcG9ydCI6ZmFsc2UsInNwb25zb3IiOmZhbHNlfSwicG9saWN5X2Vwb2NoIjoiZml4dHVyZS1vbmxpbmUtdjEiLCJwb2xpY3lfdmVyc2lvbiI6MSwicmVmcmVzaF9hZnRlciI6MTcwMDAwMTgwMCwicmV2aXNpb24iOjEyLCJzY2hlbWFfdmVyc2lvbiI6MSwic3ViIjoiZml4dHVyZS11c2VyIn0",
-     "signature": "dd961KgX-iXpsnC21ylF0CXFZdgjW8J7kZJLlE4EOZkteBQjyIYts5qWy2Q4XbcQ8l350aPrlpB-KQya9g1XAQ",
+     "payload": "eyJhdWQiOnsiZW52IjoidGVzdCIsInByb2plY3QiOiJkZW1vLWRvbWlvcyJ9LCJhdXRob3JpdHkiOiJiaWxsaW5nIiwiY2FwYWJpbGl0aWVzIjpbXSwiZW5mb3JjZW1lbnQiOnsiZW5hYmxlZCI6ZmFsc2UsInJvbGxiYWNrIjpmYWxzZX0sImV4cGlyZXNfYXQiOjE3MDAwODY0MDAsImdyYWNlX3VudGlsIjoxNzAwMDg2NDAwLCJpbnN0IjoiZml4dHVyZS1pbnN0YWxsYXRpb24iLCJpc3MiOiJkb21pb3MtZW50aXRsZW1lbnRzIiwiaXNzdWVkX2F0IjoxNzAwMDAwMDAwLCJsYWJlbCI6InBybyIsImxpbWl0cyI6eyJtZW0uaXRlbXMiOnsibWF4IjpudWxsLCJzY29wZSI6Imluc3RhbGxhdGlvbiJ9LCJtZXNoLm1hY2hpbmVzIjp7Im1heCI6bnVsbCwic2NvcGUiOiJhY2NvdW50In0sIndvcmtzcGFjZXMiOnsibWF4IjpudWxsLCJzY29wZSI6Imluc3RhbGxhdGlvbiJ9fSwibm90X2JlZm9yZSI6MTcwMDAwMDAwMCwicGVyaW9kX2VuZCI6MTcwMDYwNDgwMCwicGVya3MiOnsicHJpb3JpdHlfc3VwcG9ydCI6ZmFsc2UsInNwb25zb3IiOmZhbHNlfSwicG9saWN5X2Vwb2NoIjoiZml4dHVyZS1vbmxpbmUtdjEiLCJwb2xpY3lfdmVyc2lvbiI6MSwicmVmcmVzaF9hZnRlciI6MTcwMDAwMzYwMCwicmV2aXNpb24iOjEyLCJzY2hlbWFfdmVyc2lvbiI6MSwic3ViIjoiZml4dHVyZS11c2VyIn0",
+     "signature": "bynIBbws4JmIlvYMvpGnLnqH9QcbhU5kRuyr_utnkeCzIxSfwjL9_A3IwVNIuBB6Hq53Uy-x5D-ap9LE_ynQCg",
      "key_id": "e5-rfc8032-test-only",
      "alg": "Ed25519"
     }
    },
    "exact_payload": {
-    "utf8": "{\"aud\":{\"env\":\"test\",\"project\":\"demo-domios\"},\"authority\":\"billing\",\"capabilities\":[],\"enforcement\":{\"enabled\":false,\"rollback\":false},\"expires_at\":1700003600,\"grace_until\":1700003600,\"inst\":\"fixture-installation\",\"iss\":\"domios-entitlements\",\"issued_at\":1700000000,\"label\":\"pro\",\"limits\":{\"mem.items\":{\"max\":null,\"scope\":\"installation\"},\"mesh.machines\":{\"max\":null,\"scope\":\"account\"},\"workspaces\":{\"max\":null,\"scope\":\"installation\"}},\"not_before\":1700000000,\"period_end\":1700604800,\"perks\":{\"priority_support\":false,\"sponsor\":false},\"policy_epoch\":\"fixture-online-v1\",\"policy_version\":1,\"refresh_after\":1700001800,\"revision\":12,\"schema_version\":1,\"sub\":\"fixture-user\"}",
-    "hex": "7b22617564223a7b22656e76223a2274657374222c2270726f6a656374223a2264656d6f2d646f6d696f73227d2c22617574686f72697479223a2262696c6c696e67222c226361706162696c6974696573223a5b5d2c22656e666f7263656d656e74223a7b22656e61626c6564223a66616c73652c22726f6c6c6261636b223a66616c73657d2c22657870697265735f6174223a313730303030333630302c2267726163655f756e74696c223a313730303030333630302c22696e7374223a22666978747572652d696e7374616c6c6174696f6e222c22697373223a22646f6d696f732d656e7469746c656d656e7473222c226973737565645f6174223a313730303030303030302c226c6162656c223a2270726f222c226c696d697473223a7b226d656d2e6974656d73223a7b226d6178223a6e756c6c2c2273636f7065223a22696e7374616c6c6174696f6e227d2c226d6573682e6d616368696e6573223a7b226d6178223a6e756c6c2c2273636f7065223a226163636f756e74227d2c22776f726b737061636573223a7b226d6178223a6e756c6c2c2273636f7065223a22696e7374616c6c6174696f6e227d7d2c226e6f745f6265666f7265223a313730303030303030302c22706572696f645f656e64223a313730303630343830302c227065726b73223a7b227072696f726974795f737570706f7274223a66616c73652c2273706f6e736f72223a66616c73657d2c22706f6c6963795f65706f6368223a22666978747572652d6f6e6c696e652d7631222c22706f6c6963795f76657273696f6e223a312c22726566726573685f6166746572223a313730303030313830302c227265766973696f6e223a31322c22736368656d615f76657273696f6e223a312c22737562223a22666978747572652d75736572227d",
-    "sha256": "6771f4fd9b84939447ad2012e17888ec1aa89f39262f94772c366e84f3b4cc14",
+    "utf8": "{\"aud\":{\"env\":\"test\",\"project\":\"demo-domios\"},\"authority\":\"billing\",\"capabilities\":[],\"enforcement\":{\"enabled\":false,\"rollback\":false},\"expires_at\":1700086400,\"grace_until\":1700086400,\"inst\":\"fixture-installation\",\"iss\":\"domios-entitlements\",\"issued_at\":1700000000,\"label\":\"pro\",\"limits\":{\"mem.items\":{\"max\":null,\"scope\":\"installation\"},\"mesh.machines\":{\"max\":null,\"scope\":\"account\"},\"workspaces\":{\"max\":null,\"scope\":\"installation\"}},\"not_before\":1700000000,\"period_end\":1700604800,\"perks\":{\"priority_support\":false,\"sponsor\":false},\"policy_epoch\":\"fixture-online-v1\",\"policy_version\":1,\"refresh_after\":1700003600,\"revision\":12,\"schema_version\":1,\"sub\":\"fixture-user\"}",
+    "hex": "7b22617564223a7b22656e76223a2274657374222c2270726f6a656374223a2264656d6f2d646f6d696f73227d2c22617574686f72697479223a2262696c6c696e67222c226361706162696c6974696573223a5b5d2c22656e666f7263656d656e74223a7b22656e61626c6564223a66616c73652c22726f6c6c6261636b223a66616c73657d2c22657870697265735f6174223a313730303038363430302c2267726163655f756e74696c223a313730303038363430302c22696e7374223a22666978747572652d696e7374616c6c6174696f6e222c22697373223a22646f6d696f732d656e7469746c656d656e7473222c226973737565645f6174223a313730303030303030302c226c6162656c223a2270726f222c226c696d697473223a7b226d656d2e6974656d73223a7b226d6178223a6e756c6c2c2273636f7065223a22696e7374616c6c6174696f6e227d2c226d6573682e6d616368696e6573223a7b226d6178223a6e756c6c2c2273636f7065223a226163636f756e74227d2c22776f726b737061636573223a7b226d6178223a6e756c6c2c2273636f7065223a22696e7374616c6c6174696f6e227d7d2c226e6f745f6265666f7265223a313730303030303030302c22706572696f645f656e64223a313730303630343830302c227065726b73223a7b227072696f726974795f737570706f7274223a66616c73652c2273706f6e736f72223a66616c73657d2c22706f6c6963795f65706f6368223a22666978747572652d6f6e6c696e652d7631222c22706f6c6963795f76657273696f6e223a312c22726566726573685f6166746572223a313730303030333630302c227265766973696f6e223a31322c22736368656d615f76657273696f6e223a312c22737562223a22666978747572652d75736572227d",
+    "sha256": "f723dbfa02f659397bc6d4d09ec0883afa562030d06f42a1e90264eecd68f837",
     "byte_length": 668
    },
-   "signature_hex": "75df7ad4a817fa25e9b270b6d72945d025c565d8235bc27b91924b944e0439992d781423c8862db39a96cb64385db710f25df9d1a3eb96907e290c9af60d5701",
+   "signature_hex": "6f29c805bc2ce0998896f60cbe91a72e7a87f5071b854e6446ecabfeeb6791e0b323149fc232fdfc0dc8c15348b8107a1eae77532fb1e43f9aa7d2c4ff29d00a",
    "expected": {
     "mathematical_signature": false,
     "trusted_key": true,
@@ -732,19 +732,19 @@
      "sponsor": false
     },
     "grant": {
-     "payload": "eyJhdWQiOnsiZW52IjoidGVzdCIsInByb2plY3QiOiJkZW1vLWRvbWlvcyJ9LCJhdXRob3JpdHkiOiJiaWxsaW5nIiwiY2FwYWJpbGl0aWVzIjpbXSwiZW5mb3JjZW1lbnQiOnsiZW5hYmxlZCI6ZmFsc2UsInJvbGxiYWNrIjpmYWxzZX0sImV4cGlyZXNfYXQiOjE3MDAwMDM2MDAsImdyYWNlX3VudGlsIjoxNzAwMDAzNjAwLCJpbnN0IjoiZml4dHVyZS1pbnN0YWxsYXRpb24iLCJpc3MiOiJkb21pb3MtZW50aXRsZW1lbnRzIiwiaXNzdWVkX2F0IjoxNzAwMDAwMDAwLCJsYWJlbCI6InBybyIsImxpbWl0cyI6eyJtZW0uaXRlbXMiOnsibWF4IjpudWxsLCJzY29wZSI6Imluc3RhbGxhdGlvbiJ9LCJtZXNoLm1hY2hpbmVzIjp7Im1heCI6bnVsbCwic2NvcGUiOiJhY2NvdW50In0sIndvcmtzcGFjZXMiOnsibWF4IjpudWxsLCJzY29wZSI6Imluc3RhbGxhdGlvbiJ9fSwibm90X2JlZm9yZSI6MTcwMDAwMDAwMCwicGVyaW9kX2VuZCI6MTcwMDYwNDgwMCwicGVya3MiOnsicHJpb3JpdHlfc3VwcG9ydCI6ZmFsc2UsInNwb25zb3IiOmZhbHNlfSwicG9saWN5X2Vwb2NoIjoiZml4dHVyZS1vbmxpbmUtdjEiLCJwb2xpY3lfdmVyc2lvbiI6MSwicmVmcmVzaF9hZnRlciI6MTcwMDAwMTgwMCwicmV2aXNpb24iOjEwLCJzY2hlbWFfdmVyc2lvbiI6MSwic3ViIjoiZml4dHVyZS11c2VyIn0",
-     "signature": "dd961KgX-iXpsnC21ylF0CXFZdgjW8J7kZJLlE4EOZkteBQjyIYts5qWy2Q4XbcQ8l350aPrlpB-KQya9g1XAQ",
+     "payload": "eyJhdWQiOnsiZW52IjoidGVzdCIsInByb2plY3QiOiJkZW1vLWRvbWlvcyJ9LCJhdXRob3JpdHkiOiJiaWxsaW5nIiwiY2FwYWJpbGl0aWVzIjpbXSwiZW5mb3JjZW1lbnQiOnsiZW5hYmxlZCI6ZmFsc2UsInJvbGxiYWNrIjpmYWxzZX0sImV4cGlyZXNfYXQiOjE3MDAwODY0MDAsImdyYWNlX3VudGlsIjoxNzAwMDg2NDAwLCJpbnN0IjoiZml4dHVyZS1pbnN0YWxsYXRpb24iLCJpc3MiOiJkb21pb3MtZW50aXRsZW1lbnRzIiwiaXNzdWVkX2F0IjoxNzAwMDAwMDAwLCJsYWJlbCI6InBybyIsImxpbWl0cyI6eyJtZW0uaXRlbXMiOnsibWF4IjpudWxsLCJzY29wZSI6Imluc3RhbGxhdGlvbiJ9LCJtZXNoLm1hY2hpbmVzIjp7Im1heCI6bnVsbCwic2NvcGUiOiJhY2NvdW50In0sIndvcmtzcGFjZXMiOnsibWF4IjpudWxsLCJzY29wZSI6Imluc3RhbGxhdGlvbiJ9fSwibm90X2JlZm9yZSI6MTcwMDAwMDAwMCwicGVyaW9kX2VuZCI6MTcwMDYwNDgwMCwicGVya3MiOnsicHJpb3JpdHlfc3VwcG9ydCI6ZmFsc2UsInNwb25zb3IiOmZhbHNlfSwicG9saWN5X2Vwb2NoIjoiZml4dHVyZS1vbmxpbmUtdjEiLCJwb2xpY3lfdmVyc2lvbiI6MSwicmVmcmVzaF9hZnRlciI6MTcwMDAwMzYwMCwicmV2aXNpb24iOjEwLCJzY2hlbWFfdmVyc2lvbiI6MSwic3ViIjoiZml4dHVyZS11c2VyIn0",
+     "signature": "bynIBbws4JmIlvYMvpGnLnqH9QcbhU5kRuyr_utnkeCzIxSfwjL9_A3IwVNIuBB6Hq53Uy-x5D-ap9LE_ynQCg",
      "key_id": "unknown-test-key",
      "alg": "Ed25519"
     }
    },
    "exact_payload": {
-    "utf8": "{\"aud\":{\"env\":\"test\",\"project\":\"demo-domios\"},\"authority\":\"billing\",\"capabilities\":[],\"enforcement\":{\"enabled\":false,\"rollback\":false},\"expires_at\":1700003600,\"grace_until\":1700003600,\"inst\":\"fixture-installation\",\"iss\":\"domios-entitlements\",\"issued_at\":1700000000,\"label\":\"pro\",\"limits\":{\"mem.items\":{\"max\":null,\"scope\":\"installation\"},\"mesh.machines\":{\"max\":null,\"scope\":\"account\"},\"workspaces\":{\"max\":null,\"scope\":\"installation\"}},\"not_before\":1700000000,\"period_end\":1700604800,\"perks\":{\"priority_support\":false,\"sponsor\":false},\"policy_epoch\":\"fixture-online-v1\",\"policy_version\":1,\"refresh_after\":1700001800,\"revision\":10,\"schema_version\":1,\"sub\":\"fixture-user\"}",
-    "hex": "7b22617564223a7b22656e76223a2274657374222c2270726f6a656374223a2264656d6f2d646f6d696f73227d2c22617574686f72697479223a2262696c6c696e67222c226361706162696c6974696573223a5b5d2c22656e666f7263656d656e74223a7b22656e61626c6564223a66616c73652c22726f6c6c6261636b223a66616c73657d2c22657870697265735f6174223a313730303030333630302c2267726163655f756e74696c223a313730303030333630302c22696e7374223a22666978747572652d696e7374616c6c6174696f6e222c22697373223a22646f6d696f732d656e7469746c656d656e7473222c226973737565645f6174223a313730303030303030302c226c6162656c223a2270726f222c226c696d697473223a7b226d656d2e6974656d73223a7b226d6178223a6e756c6c2c2273636f7065223a22696e7374616c6c6174696f6e227d2c226d6573682e6d616368696e6573223a7b226d6178223a6e756c6c2c2273636f7065223a226163636f756e74227d2c22776f726b737061636573223a7b226d6178223a6e756c6c2c2273636f7065223a22696e7374616c6c6174696f6e227d7d2c226e6f745f6265666f7265223a313730303030303030302c22706572696f645f656e64223a313730303630343830302c227065726b73223a7b227072696f726974795f737570706f7274223a66616c73652c2273706f6e736f72223a66616c73657d2c22706f6c6963795f65706f6368223a22666978747572652d6f6e6c696e652d7631222c22706f6c6963795f76657273696f6e223a312c22726566726573685f6166746572223a313730303030313830302c227265766973696f6e223a31302c22736368656d615f76657273696f6e223a312c22737562223a22666978747572652d75736572227d",
-    "sha256": "3ab2a3e29af69a598698686a2bb07d1bad821ee947bd3be5b09fe552c9db9e68",
+    "utf8": "{\"aud\":{\"env\":\"test\",\"project\":\"demo-domios\"},\"authority\":\"billing\",\"capabilities\":[],\"enforcement\":{\"enabled\":false,\"rollback\":false},\"expires_at\":1700086400,\"grace_until\":1700086400,\"inst\":\"fixture-installation\",\"iss\":\"domios-entitlements\",\"issued_at\":1700000000,\"label\":\"pro\",\"limits\":{\"mem.items\":{\"max\":null,\"scope\":\"installation\"},\"mesh.machines\":{\"max\":null,\"scope\":\"account\"},\"workspaces\":{\"max\":null,\"scope\":\"installation\"}},\"not_before\":1700000000,\"period_end\":1700604800,\"perks\":{\"priority_support\":false,\"sponsor\":false},\"policy_epoch\":\"fixture-online-v1\",\"policy_version\":1,\"refresh_after\":1700003600,\"revision\":10,\"schema_version\":1,\"sub\":\"fixture-user\"}",
+    "hex": "7b22617564223a7b22656e76223a2274657374222c2270726f6a656374223a2264656d6f2d646f6d696f73227d2c22617574686f72697479223a2262696c6c696e67222c226361706162696c6974696573223a5b5d2c22656e666f7263656d656e74223a7b22656e61626c6564223a66616c73652c22726f6c6c6261636b223a66616c73657d2c22657870697265735f6174223a313730303038363430302c2267726163655f756e74696c223a313730303038363430302c22696e7374223a22666978747572652d696e7374616c6c6174696f6e222c22697373223a22646f6d696f732d656e7469746c656d656e7473222c226973737565645f6174223a313730303030303030302c226c6162656c223a2270726f222c226c696d697473223a7b226d656d2e6974656d73223a7b226d6178223a6e756c6c2c2273636f7065223a22696e7374616c6c6174696f6e227d2c226d6573682e6d616368696e6573223a7b226d6178223a6e756c6c2c2273636f7065223a226163636f756e74227d2c22776f726b737061636573223a7b226d6178223a6e756c6c2c2273636f7065223a22696e7374616c6c6174696f6e227d7d2c226e6f745f6265666f7265223a313730303030303030302c22706572696f645f656e64223a313730303630343830302c227065726b73223a7b227072696f726974795f737570706f7274223a66616c73652c2273706f6e736f72223a66616c73657d2c22706f6c6963795f65706f6368223a22666978747572652d6f6e6c696e652d7631222c22706f6c6963795f76657273696f6e223a312c22726566726573685f6166746572223a313730303030333630302c227265766973696f6e223a31302c22736368656d615f76657273696f6e223a312c22737562223a22666978747572652d75736572227d",
+    "sha256": "8fe96ad1ae9bfcfbb7178ed0f5741bfd3bbc8aa6ba1533d02a8b54337f9f1bc8",
     "byte_length": 668
    },
-   "signature_hex": "75df7ad4a817fa25e9b270b6d72945d025c565d8235bc27b91924b944e0439992d781423c8862db39a96cb64385db710f25df9d1a3eb96907e290c9af60d5701",
+   "signature_hex": "6f29c805bc2ce0998896f60cbe91a72e7a87f5071b854e6446ecabfeeb6791e0b323149fc232fdfc0dc8c15348b8107a1eae77532fb1e43f9aa7d2c4ff29d00a",
    "expected": {
     "mathematical_signature": true,
     "trusted_key": false,

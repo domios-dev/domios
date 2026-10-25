@@ -1,3 +1,4 @@
+import { condition as workflowCondition } from './workflow-condition.mjs';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { copyFileSync, readFileSync, writeFileSync } from 'node:fs';
@@ -16,7 +17,7 @@ const branch = 'release/9.9.9';
 const qualifiedJobs = () => [
   'prepare release', 'Fast checks / guards', 'Fast checks / clippy (linux)', 'Fast checks / ts unit', 'Fast checks / ts vitest',
   'Fast checks / rust tests (full suite)', 'Rust tests / rust tests (full suite) (full)', 'Rust tests / rust platform (Linux)',
-  'Rust tests / rust platform (Windows)', 'Rust tests / rust platform (macOS)', 'Rust tests / rust embeddings (embeddings)',
+  'Rust tests / rust platform (Windows)', 'macOS arm64 / ', 'Rust tests / rust embeddings (embeddings)',
   'Rust tests / rust test receipts', 'macOS arm64 / build (arm64, aarch64, macos-ci)', 'macOS x64 / build (x86_64, x64, macos-ci)',
   'Linux arm64 / build', 'Linux x64 / build (x86_64-unknown-linux-gnu)', 'Windows x64 / build (x86_64-pc-windows-msvc)',
   'Windows arm64 / build (aarch64-pc-windows-msvc)', 'local dry-run manifest verification / verify consolidated manifests against private CI bytes',
@@ -32,8 +33,8 @@ test('only a green release.yml dry run of the exact branch head with every gate 
     [{ ...qualifiedRun, conclusion: 'cancelled' }, qualifiedJobs(), /completed\/cancelled/],
     [{ ...qualifiedRun, path: '.github/workflows/tests.yml' }, qualifiedJobs(), /not a release\.yml run/],
     [qualifiedRun, qualifiedJobs().filter(job => !job.name.startsWith('Windows arm64')), /has no Windows arm64 job/],
-    [qualifiedRun, qualifiedJobs().map(job => job.name.startsWith('Rust tests / rust platform (macOS)') ? { ...job, conclusion: 'skipped' } : job),
-      /rust platform \(macOS\) is skipped/],
+    [qualifiedRun, qualifiedJobs().map(job => job.name.startsWith('macOS arm64 / ') ? { ...job, conclusion: 'skipped' } : job),
+      /macOS arm64 .* is skipped/],
     [qualifiedRun, qualifiedJobs().map(job => job.name.startsWith('local dry-run') ? { ...job, conclusion: 'failure' } : job), /is failure/],
   ];
   for (const [run, jobs, message] of refusals) {
@@ -103,8 +104,9 @@ test('promotion uploads the retained bytes, reads each back and refuses a change
 });
 
 test('a promotion run publishes without building, testing or a second warning report', () => {
-  const evaluate = condition => new Function('needs', 'vars', `return (${condition.replace(/^\$\{\{\s*|\s*\}\}$/g, '')
-    .replace(/!cancelled\(\)|always\(\)/g, 'true').replace(/needs\.([\w-]+)/g, "needs['$1']")});`);
+  const github = { repository_owner: 'rollacode', actor: 'rollacode', triggering_actor: 'rollacode',
+    event_name: 'workflow_dispatch', ref: 'refs/heads/release/9.9.9', event: { workflow_run: {} } };
+  const evaluate = expression => (needs, vars) => workflowCondition(expression, { needs, vars, github });
   const prepare = { result: 'success', outputs: { promote_run_id: '41', published: 'false', kind: 'app', dry_run: 'false', run_tests: 'false' } };
   assert.equal(evaluate(release.jobs['frontend-dist'].if)({ prepare }, {}), false);
   for (const id of ['macos-arm64', 'macos-x64', 'linux-arm64', 'linux-x86_64', 'windows-x64', 'windows-arm64', 'rust-warnings']) {
@@ -112,7 +114,7 @@ test('a promotion run publishes without building, testing or a second warning re
     const needs = { prepare, 'quick-checks': { result: 'skipped' }, 'frontend-dist': { result: 'success' }, 'builds-tier': { result: 'skipped' } };
     assert.equal(evaluate(release.jobs[id].if)(needs, {}), false, id);
   }
-  assert.equal(evaluate(release.jobs['quick-checks'].if)({ prepare }, {}), false);
+  assert.equal(release.jobs['quick-checks'], undefined);
   const vars = { RELEASE_PUBLISH_ENABLED: 'true' };
   assert.equal(evaluate(release.jobs['promote-evidence'].if)({ prepare }, vars), true);
   assert.equal(evaluate(release.jobs['promote-evidence'].if)({ prepare }, {}), false, 'publication stays behind the owner switch');

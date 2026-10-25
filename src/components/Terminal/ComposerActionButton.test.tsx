@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { ComposerActionButton } from "./ComposerActionButton";
 import { ComposerAttachButton } from "./ComposerAttachButton";
+import { ComposerScheduleButton } from "./ComposerScheduleButton";
 import type { ComposerVoiceHandle } from "./voice/useComposerVoice";
 
 type TestFn = () => void | Promise<void>;
@@ -79,6 +80,18 @@ async function renderAttachButton(props: { uploading?: boolean; onClick?: () => 
   return { button: host.querySelector("button") as HTMLButtonElement, root };
 }
 
+async function renderScheduleButton(onSchedule: () => void): Promise<{ button: HTMLButtonElement; root: Root }> {
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  await act(async () => {
+    root.render(
+      <ComposerScheduleButton onSchedule={onSchedule} />,
+    );
+  });
+  return { button: host.querySelector('[data-testid="composer-schedule-button"]') as HTMLButtonElement, root };
+}
+
 test("send preserves label, callback, type, and interaction class", async () => {
   let sends = 0;
   const { button } = await renderButton(voiceHandle(), { onSend: () => { sends++; } });
@@ -97,6 +110,11 @@ test("composer icon actions remain round and preserve their callbacks", async ()
 
   const { button: disabledAttach } = await renderAttachButton({ uploading: true });
   assert(disabledAttach.disabled, "uploading attach must remain disabled");
+
+  let schedules = 0;
+  const { button: schedule } = await renderScheduleButton(() => { schedules++; });
+  await act(async () => schedule.click());
+  assert(schedules === 1, "schedule callback did not fire exactly once");
 });
 
 test("send scheduling and disabled state remain unchanged", async () => {
@@ -108,6 +126,22 @@ test("send scheduling and disabled state remain unchanged", async () => {
   assert(button.disabled, "disabled send must remain disabled");
   button.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
   assert(schedules === 1, "schedule callback did not fire");
+});
+
+test("right-clicking send opens the schedule without sending", async () => {
+  let sends = 0;
+  let schedules = 0;
+  const { button } = await renderButton(voiceHandle(), {
+    onSend: () => { sends++; },
+    onSchedule: () => { schedules++; },
+  });
+  await act(async () => {
+    button.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, button: 2 }));
+    button.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true, button: 2 }));
+    button.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 }));
+  });
+  assert(sends === 0, "a secondary-button release must not send");
+  assert(schedules === 1, "right-click must open the schedule exactly once");
 });
 
 test("voice hold starts recording and exposes lock affordance", async () => {

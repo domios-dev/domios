@@ -1,12 +1,18 @@
 {
   "id": "codex",
-  "version": "1.14.49",
-  "minCodeterm": "1.14.9",
+  "version": "1.14.54",
+  "minCodeterm": "1.15.2",
   "hostApi": 2,
+  "generalAgentOfferWhenAbsent": true,
   "displayName": "Codex",
   "binaryName": "codex",
   "cliBinary": "codex",
   "capabilities": {
+    "attachments": {
+      "filePaths": true,
+      "inlineText": true,
+      "imagePaths": true
+    },
     "agentProvider": true,
     "subagentVisibility": true,
     "structuredControl": {
@@ -509,9 +515,9 @@
   ],
   "defaultReasoningEffort": "medium",
   "installer": {
-    "macos": "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
-    "linux": "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
-    "windows": "$s = Join-Path $env:TEMP 'codeterm-codex-install.ps1'; Invoke-WebRequest -Uri 'https://chatgpt.com/codex/install.ps1' -OutFile $s -UseBasicParsing; try { & $s } finally { Remove-Item $s -ErrorAction SilentlyContinue }"
+    "macos": "curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh",
+    "linux": "curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh",
+    "windows": "$s = Join-Path $env:TEMP 'codeterm-codex-install.ps1'; Invoke-WebRequest -Uri 'https://chatgpt.com/codex/install.ps1' -OutFile $s -UseBasicParsing; try { $env:CODEX_NON_INTERACTIVE = '1'; & $s } finally { Remove-Item $s -ErrorAction SilentlyContinue }"
   },
   "updater": {
     "macos": "codex update",

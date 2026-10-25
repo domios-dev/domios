@@ -137,11 +137,39 @@ impl ServiceContext {
                 actions: actions.map(adopt_caller_actions),
                 offer,
                 condition: None,
+                daemon_request: None,
             },
             sticky,
             origin,
             intent,
+            None,
         ))
+    }
+
+    pub(crate) fn create_login_notification(
+        &self,
+        tab: &str,
+        body: String,
+    ) -> Result<String, String> {
+        let intent = PushIntent {
+            level: Some(crate::notification::push::NotifyLevel::ActionNeeded),
+            event_key: Some(uuid::Uuid::new_v4().to_string()),
+        };
+        if self.resolve_push_plan(intent.clone()).targets.is_empty() {
+            return Err("No phone notification channel is available. Configure notifications or open the sign-in link.".into());
+        }
+        Ok(self
+            .create_notification_actions_reported(
+                "Provider sign-in".into(),
+                Some("Continue provider sign-in on your phone.".into()),
+                Some("info"),
+                Ask::default(),
+                Some(false),
+                NotificationOrigin::local_tab(tab.into()),
+                intent,
+                Some(body),
+            )
+            .0)
     }
 
     /// Tell every surface these records resolved: channels stop offering
@@ -156,7 +184,7 @@ impl ServiceContext {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn create_notification_actions_reported(
+    pub(super) fn create_notification_actions_reported(
         &self,
         title: String,
         body: Option<String>,
@@ -165,6 +193,7 @@ impl ServiceContext {
         sticky: Option<bool>,
         origin: NotificationOrigin,
         intent: PushIntent,
+        private_body: Option<String>,
     ) -> (String, Option<Unseen>) {
         // The declared level outlives the push policy: an install whose
         // channels resolve to nobody still has a desktop gate to satisfy.
@@ -177,6 +206,9 @@ impl ServiceContext {
             refusals,
         } = self.resolve_push_plan(intent);
         intent.event_key = event_key;
+        if ask.daemon_request.is_some() {
+            intent.level = declared;
+        }
         let surfaces = self.resolve_surface_dispatch(declared);
         // Judged before the plan is moved into the sink, off the same targets
         // the sink will use — so the report cannot disagree with the delivery.
@@ -196,7 +228,11 @@ impl ServiceContext {
             &self.notif,
             || {
                 create_notification_with_delivery(
-                    NotificationAdmission::Explicit,
+                    if ask.daemon_request.is_some() {
+                        NotificationAdmission::UserConsent
+                    } else {
+                        NotificationAdmission::Explicit
+                    },
                     &self.notif,
                     |title, body| {
                         let _ = self.shell.os_notify(title, body);
@@ -212,9 +248,17 @@ impl ServiceContext {
                         intent,
                         per_scope_limit,
                         deliver: move |envelope: PushEnvelope| {
-                            super::notification_push::deliver_plan(
-                                &targets, &refusals, self, &envelope,
-                            )
+                            if let Some(body) = private_body {
+                                deliver_private_push(envelope, body, |envelope| {
+                                    super::notification_push::deliver_plan(
+                                        &targets, &refusals, self, &envelope,
+                                    )
+                                })
+                            } else {
+                                super::notification_push::deliver_plan(
+                                    &targets, &refusals, self, &envelope,
+                                )
+                            }
                         },
                     },
                     surfaces,
@@ -230,6 +274,9 @@ impl ServiceContext {
     /// label only — the tab it answers to was captured when the question was
     /// sent, so nothing is resolved here.
     pub fn answer_notification(&self, id: &str, label: &str) -> Result<serde_json::Value, String> {
+        if let Some(result) = self.answer_mesh_link_notification(id, label) {
+            return result;
+        }
         // The guard is dropped before the event fans out: nothing downstream of
         // an emit may re-enter the store while it is still held.
         let admission = self.notif.lock().record_answer(id, label);
@@ -584,3 +631,16 @@ mod bell_choice_tests;
 
 #[cfg(test)]
 use crate::notification::push::NotifyLevel;
+
+fn deliver_private_push(
+    mut envelope: PushEnvelope,
+    body: String,
+    deliver: impl FnOnce(PushEnvelope) -> Result<(), String>,
+) -> Result<(), String> {
+    envelope.content.body = Some(body);
+    deliver(envelope).map_err(|_| "Private notification delivery failed".to_string())
+}
+
+#[cfg(test)]
+#[path = "notification/private_push_tests.rs"]
+mod private_push_tests;

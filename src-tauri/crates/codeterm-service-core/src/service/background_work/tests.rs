@@ -17,7 +17,8 @@ fn background_roster_uses_provider_agent_description() {
         }],
         ..Default::default()
     };
-    let roster = observe_background_records(&BackgroundRoster::default(), false, "own", &[record]);
+    let roster =
+        observe_background_records(&BackgroundRoster::default(), false, "own", &[record], true);
     assert_eq!(
         roster.running.get("opaque-id").map(String::as_str),
         Some("Inspect source")
@@ -48,16 +49,35 @@ fn background_record_compute_keeps_fork_and_session_filters_and_completion_dedup
     let foreign = record(Some("foreign"), BackgroundWorkState::Running);
     let unbound = record(None, BackgroundWorkState::Running);
     assert_eq!(
-        observe_background_records(&before, false, "own", &[foreign]),
+        observe_background_records(&before, false, "own", &[foreign], true),
         before
     );
     assert_eq!(
-        observe_background_records(&before, true, "own", &[unbound.clone()]),
+        observe_background_records(&before, true, "own", &[unbound.clone()], true),
         before
     );
-    let running = observe_background_records(&before, false, "own", &[unbound]);
+    let running = observe_background_records(&before, false, "own", &[unbound], true);
     assert_eq!(running.running.len(), 1);
     assert!(before.running.is_empty());
+    assert_eq!(
+        observe_background_records(
+            &running,
+            false,
+            "own",
+            &[record(Some("foreign"), BackgroundWorkState::Killed)],
+            true
+        ),
+        running
+    );
+    let stopped = observe_background_records(
+        &running,
+        false,
+        "own",
+        &[record(Some("own"), BackgroundWorkState::Killed)],
+        true,
+    );
+    assert!(stopped.running.is_empty());
+    assert!(stopped.ended.contains_key("work"));
     let completed = observe_background_records(
         &running,
         true,
@@ -66,6 +86,68 @@ fn background_record_compute_keeps_fork_and_session_filters_and_completion_dedup
             record(Some("own"), BackgroundWorkState::Completed),
             record(Some("own"), BackgroundWorkState::Running),
         ],
+        true,
     );
     assert!(completed.running.is_empty());
+}
+
+#[test]
+fn background_history_is_unknown_and_live_append_is_running() {
+    use codeterm_types::agent::background_work::BackgroundRoster;
+    let record = crate::agent::chat_types::RichMessage {
+        provider_session_id: Some("own".into()),
+        background_work: vec![BackgroundWorkObservation {
+            id: "task".into(),
+            state: BackgroundWorkState::Running,
+        }],
+        ..Default::default()
+    };
+    let historical = observe_background_records(
+        &BackgroundRoster::default(),
+        false,
+        "own",
+        &[record.clone()],
+        false,
+    );
+    assert!(historical.running.is_empty());
+    assert!(historical.unknown.contains_key("task"));
+    let live = observe_background_records(&historical, false, "own", &[record], true);
+    assert!(live.running.contains_key("task"));
+    let boundary = crate::agent::chat_types::RichMessage {
+        provider_session_id: Some("own".into()),
+        background_work: vec![BackgroundWorkObservation {
+            id: String::new(),
+            state: BackgroundWorkState::SessionBoundary,
+        }],
+        ..Default::default()
+    };
+    let invalidated = observe_background_records(&live, false, "own", &[boundary], true);
+    assert!(invalidated.running.is_empty());
+    assert!(invalidated.unknown.contains_key("task"));
+}
+
+#[test]
+fn background_historical_boundary_cannot_invalidate_newer_live_work() {
+    use codeterm_types::agent::background_work::BackgroundRoster;
+    let mut current = BackgroundRoster::default();
+    current.history_initialized = true;
+    current.observe(
+        &BackgroundWorkObservation {
+            id: "live".into(),
+            state: BackgroundWorkState::Running,
+        },
+        "",
+    );
+    let old_boundary = crate::agent::chat_types::RichMessage {
+        provider_session_id: Some("own".into()),
+        background_work: vec![BackgroundWorkObservation {
+            id: String::new(),
+            state: BackgroundWorkState::SessionBoundary,
+        }],
+        ..Default::default()
+    };
+    assert_eq!(
+        observe_background_records(&current, false, "own", &[old_boundary], false),
+        current
+    );
 }

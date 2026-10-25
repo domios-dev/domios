@@ -1,13 +1,21 @@
 {
   "id": "cursor",
-  "version": "1.4.7",
-  "minCodeterm": "1.14.6",
+  "version": "1.4.8",
+  "minCodeterm": "1.15.2",
   "hostApi": 2,
   "displayName": "Cursor",
   "binaryName": "cursor-agent",
   "cliBinary": "cursor-agent",
   "iconColor": "var(--ct-fg)",
   "entry": "plugin.js",
+  "capabilities": {
+    "agentProvider": true,
+    "attachments": {
+      "filePaths": true,
+      "inlineText": true,
+      "imagePaths": true
+    }
+  },
   "spawn": {
     "readinessStrategy": {
       "kind": "poll_shell_prompt",

@@ -15,6 +15,7 @@ fn snap(workspaces: usize) -> SessionSnapshot {
         teams: vec![],
         workspaces: (0..workspaces)
             .map(|i| WorkspaceSnapshot {
+                created_at_ms: 0,
                 task_keys: Default::default(),
                 id: format!("ws_{}", i),
                 name: format!("ws{}", i),
@@ -210,6 +211,7 @@ fn authoritative_session_binding_persists_orchestration_identity() {
 
 fn leaf(id: &str) -> SplitNodeSnapshot {
     SplitNodeSnapshot::Leaf {
+        created_at_ms: 0,
         purpose: Default::default(),
         icon: None,
         shell_profile: None,
@@ -261,6 +263,7 @@ fn desk(specs: &[(&str, &[&str])]) -> SessionSnapshot {
         workspaces: specs
             .iter()
             .map(|(ws_id, tab_ids)| WorkspaceSnapshot {
+                created_at_ms: 0,
                 task_keys: Default::default(),
                 id: (*ws_id).into(),
                 name: (*ws_id).into(),
@@ -801,4 +804,22 @@ fn storage_desk_snapshot_does_not_persist_ephemeral_active_tab() {
         workspace.active_tab_id.as_deref(),
         Some(durable_tab.as_str())
     );
+}
+
+#[test]
+fn runtime_login_values_never_enter_saved_identity() {
+    let (mut mux, tab) = crate::multiplexer::state::MultiplexerState::new();
+    mux.get_tab_mut(&tab).unwrap().agent_runtime_state = Some(
+        serde_json::json!({"state":"loginPending","epoch":9,"login":{"status":"pending","url":"https://example.invalid/opaque-path","userCode":"opaque-token"}}),
+    );
+    let saved = serde_json::to_value(mux.to_session_snapshot()).unwrap();
+    let runtime =
+        &saved["workspaces"][0]["tabs"][0]["split_tree"]["agent_identity"]["agent_runtime_state"];
+    assert_eq!(
+        runtime,
+        &serde_json::json!({"state":"loginPending","epoch":9})
+    );
+    let text = saved.to_string();
+    assert!(!text.contains("opaque-token"));
+    assert!(!text.contains("https://example.invalid/opaque-path"));
 }

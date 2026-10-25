@@ -6,7 +6,7 @@ use crate::team::storage_teardown::StorageTeardownSubmitted;
 use crate::team::TeamMutationCaller;
 use crate::test_fixture::ServiceFixture;
 use codeterm_events::SystemEvent;
-use codeterm_sentinel::store::{Create, Owner, Store};
+use codeterm_sentinel::store::{Owner, Store};
 use codeterm_service_core::cron::clock::MockClock;
 use codeterm_service_core::cron::scheduler::CronState;
 use codeterm_service_core::cron::store::{CronStorageOptions, CronStore};
@@ -100,32 +100,8 @@ fn team_storage_fixture() -> TeamStorageFixture {
     let sentinel = Arc::new(Mutex::new(sentinel_store));
     let sentinel_job = sentinel
         .lock()
-        .prepare(
-            Create {
-                note: None,
-                terminal: None,
-                session: false,
-                name: Some("Team teardown sentinel".into()),
-                probe: Some("status".into()),
-                observe: None,
-                input: None,
-                question: "Did the state change?".into(),
-                buckets: vec!["waiting".into(), "passed".into(), "failed".into()],
-                every: "20s".into(),
-                routes: Default::default(),
-                matches: [("waiting".to_string(), ".*".to_string())]
-                    .into_iter()
-                    .collect(),
-                rearm_on_change: Default::default(),
-                until: None,
-                timeout: Some("1h".into()),
-                paused: true,
-                handlers: None,
-                model_classification: false,
-                max_transitions: None,
-                max_actions: None,
-                escalation_timeout_ms: None,
-            },
+        .prepare_document(
+            super::sentinel_fixture::teardown_document("Team teardown sentinel"),
             Owner {
                 creator_tab_id: orchestrator.clone(),
                 team_id: Some(team_id.clone()),
@@ -176,6 +152,7 @@ fn desk_snapshot(team_id: &str, workspace_id: &str, tab_id: &str) -> DeskSnapsho
                 protected: false,
                 task_key_prefix: None,
                 task_key_next: 0,
+                created_at_ms: None,
             },
             sort_order: 0,
             active_tab_id: Some(tab_id.into()),

@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
+import { listen } from "../../lib/bridge";
 import { DEV_BUILD } from "../../lib/devBuild";
 import { localFetch } from "../../lib/webApi";
 import { freeLimitGate, upgradePlan } from "../billing/freeLimitGate";
-import { accountPlanModel, manageActionForPlan, type AccountPlan, type PlanModel } from "./accountPlanModel";
+import { accountPlanModel, manageActionForPlan, SubscriptionServiceUnavailable, type AccountPlan, type PlanModel } from "./accountPlanModel";
 
 async function fetchPlan(focus: boolean, signal?: AbortSignal): Promise<PlanModel> {
   const response = await localFetch(`/api/account/plan${focus ? "/refresh" : ""}`, {method:focus ? "POST" : "GET",signal});
@@ -11,7 +12,10 @@ async function fetchPlan(focus: boolean, signal?: AbortSignal): Promise<PlanMode
 }
 
 async function openPortal() {
-  const response = await localFetch("/api/account/portal",{method:"POST"});
+  let response: Response;
+  try { response = await localFetch("/api/account/portal",{method:"POST"}); }
+  catch (failure: unknown) { throw new SubscriptionServiceUnavailable(failure instanceof Error ? failure.message : String(failure)); }
+  if (response.status === 503) throw new SubscriptionServiceUnavailable(await response.text());
   if (!response.ok) throw new Error(await response.text());
 }
 
@@ -55,7 +59,12 @@ export function useAccountPlan(identityKey: string | null) {
     loading.current = refresh();
     const onFocus = () => { loading.current = refresh(true); };
     window.addEventListener("focus",onFocus);
-    return () => { controller.abort(); active.current++; window.removeEventListener("focus",onFocus); };
+    let unlisten: (() => void) | undefined;
+    void listen("entitlement-changed", () => { loading.current = refresh(); }).then((fn) => {
+      if (active.current === generation) unlisten = fn;
+      else fn();
+    });
+    return () => { controller.abort(); active.current++; window.removeEventListener("focus",onFocus); unlisten?.(); };
   }, [identityKey]);
   async function knownPlan(): Promise<PlanModel> {
     const known = plan ?? await loading.current;

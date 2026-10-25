@@ -1,0 +1,99 @@
+{
+  "duration_api_ms": 8715,
+  "stop_reason": "end_turn",
+  "session_id": "7e00c1cd-bb7c-4ba5-8ad6-ef4d75c2c0df",
+  "total_cost_usd": 0.02751,
+  "usage": {
+    "input_tokens": 9,
+    "cache_creation_input_tokens": 11433,
+    "cache_read_input_tokens": 0,
+    "output_tokens": 927,
+    "output_tokens_details": {
+      "thinking_tokens": 804
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 11433,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "not_available",
+    "iterations": [
+      {
+        "input_tokens": 9,
+        "output_tokens": 927,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 11433,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 11433
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-haiku-4-5-20251001": {
+      "inputTokens": 9,
+      "outputTokens": 927,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 11433,
+      "webSearchRequests": 0,
+      "costUSD": 0.02751,
+      "contextWindow": 200000,
+      "maxOutputTokens": 32000,
+      "thinkingTokens": 804,
+      "canonicalModel": "claude-haiku-4-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 1,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "WHAT: The Blueprint transcribes audio voice notes into text and automatically categorizes the content using AI classification. It accepts a voice file path, converts the speech to text, analyzes what the note contains, and sends a notification when processing completes. Useful for organizing voice memos or extracting structured data from spoken input. || INTENT: Turn my voice note into text and sort it by category || INTENT: Transcribe and classify a voice recording || INTENT: Convert audio memo to text with automatic classification || INTENT: Process voice notes into classified text",
+  "ttft_ms": 8050,
+  "type": "result",
+  "duration_ms": 8819,
+  "uuid": "dc8c7de4-9da8-4c6d-b342-f26e1672a36c",
+  "ttft_stream_ms": 689,
+  "time_to_request_ms": 83,
+  "first_content_frame_ms": 689,
+  "queued_turn_count": 0,
+  "result_index": 0
+}

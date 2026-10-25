@@ -1,21 +1,6 @@
 name: Release Windows platforms
 
-# Builds and signs the Windows installers (NSIS) for BOTH arches — x86_64 and
-# aarch64 — on the ROG self-hosted runner (label `windows-build`), uploads the
-# bundles and updater fragments to the releases. The caller's final job assembles
-# and verifies the channel manifests after both architecture builds succeed.
-#
-# The self-hosted ROG supplies Node 22, pnpm 10.32.1, VS2022 (x64 + ARM64), and LLVM.
-# The job installs pinned Rust and both MSVC targets without changing the runner default.
-#
-# Disable: set repo Variable RELEASE_WINDOWS_ENABLED=false in
-# Settings -> Secrets and variables -> Actions -> Variables.
-# The caller prepares draft releases before this matrix starts.
-#
-# Required secrets: TAURI_SIGNING_PRIVATE_KEY, PACKAGE_REPOS_TOKEN.
-# PACKAGE_REPOS_TOKEN must have contents:write for rollacode/codeterm-releases.
-# Optional secret:  TAURI_KEY_PASSWORD (only if the signing key is
-# encrypted — it evaluates to empty when unset).
+# Windows arm64 uses release-windows-arm64.yml and its unsigned hosted compile job.
 
 "on":
   workflow_dispatch:
@@ -31,7 +16,7 @@ name: Release Windows platforms
       arch:
         type: choice
         required: true
-        options: [x64, arm64]
+        options: [x64]
       dry_run:
         description: Direct dispatch never publishes
         type: boolean
@@ -55,7 +40,7 @@ name: Release Windows platforms
         default: false
         type: boolean
       arch:
-        description: x64 or arm64; each architecture is its own caller job and graph node
+        description: x64; arm64 uses its dedicated hosted compile workflow
         required: true
         type: string
       frontend_sha256:
@@ -69,37 +54,37 @@ permissions:
   actions: read
 
 env:
-  AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
-  AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
   CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
   # Builders are shared with agents; a CI job queues for the slot instead of failing busy (75).
   CODETERM_BUILD_GATEWAY_MODE: queue
-  DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
-  DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
-  DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
-  DOMIOS_ACCOUNT_REDEEM_URL: ${{ secrets.DOMIOS_ACCOUNT_REDEEM_URL }}
-  DOMIOS_BILLING_FUNCTIONS_URL: ${{ secrets.DOMIOS_BILLING_FUNCTIONS_URL }}
-  DOMIOS_AMPLITUDE_API_KEY_TEST: ${{ secrets.DOMIOS_AMPLITUDE_API_KEY_TEST }}
-  DOMIOS_AMPLITUDE_API_KEY_PROD: ${{ secrets.DOMIOS_AMPLITUDE_API_KEY_PROD }}
 
 jobs:
   build:
     name: build (${{ matrix.target }})
-    # x64 builds on BLACKSTAR and arm64 on ROG in parallel. If BLACKSTAR is unavailable, set the
-    # repository variable RELEASE_WINDOWS_X64_LABEL=windows-build and both build on ROG again.
+    if: ${{ inputs.arch == 'x64' && (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && ((startsWith(github.ref, 'refs/heads/release/') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.path == '.github/workflows/tests.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.actor.login == 'rollacode' && github.event.workflow_run.triggering_actor.login == 'rollacode' && startsWith(github.event.workflow_run.head_branch, 'release/'))) }}
+    environment: release
     runs-on: [self-hosted, "${{ matrix.runner_label }}"]
     strategy:
       fail-fast: false
       matrix:
         include:
-          - target: ${{ inputs.arch == 'x64' && 'x86_64-pc-windows-msvc' || 'aarch64-pc-windows-msvc' }}
-            platform_key: ${{ inputs.arch == 'x64' && 'windows-x86_64' || 'windows-aarch64' }}
-            vsarch: ${{ inputs.arch == 'x64' && 'x64' || 'x64_arm64' }}
+          - target: x86_64-pc-windows-msvc
+            platform_key: windows-x86_64
+            vsarch: x64
             sdkarch: ${{ inputs.arch }}
             label: ${{ inputs.arch }}
-            runner_label: ${{ inputs.arch == 'x64' && (vars.RELEASE_WINDOWS_X64_LABEL || 'windows-x64-build') || (vars.RELEASE_WINDOWS_ARM64_LABEL || 'windows-build') }}
+            runner_label: ${{ vars.RELEASE_WINDOWS_X64_LABEL || 'windows-x64-build' }}
     timeout-minutes: 120
     env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
+      DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
+      DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
+      DOMIOS_ACCOUNT_REDEEM_URL: ${{ secrets.DOMIOS_ACCOUNT_REDEEM_URL }}
+      DOMIOS_BILLING_FUNCTIONS_URL: ${{ secrets.DOMIOS_BILLING_FUNCTIONS_URL }}
+      DOMIOS_AMPLITUDE_API_KEY_TEST: ${{ secrets.DOMIOS_AMPLITUDE_API_KEY_TEST }}
+      DOMIOS_AMPLITUDE_API_KEY_PROD: ${{ secrets.DOMIOS_AMPLITUDE_API_KEY_PROD }}
       CODETERM_SCCACHE_VERIFY_ONLY: '1'
       RUSTUP_TOOLCHAIN: 1.99.1
       RUSTC_WRAPPER: sccache
@@ -120,11 +105,42 @@ jobs:
       GIT_CONFIG_KEY_0: core.longpaths
       GIT_CONFIG_VALUE_0: 'true'
     steps:
+
+      - name: Use the runner bundled Node
+        if: runner.environment == 'self-hosted'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            const path = require('node:path');
+            core.addPath(path.dirname(process.execPath));
+            core.info('Using runner Node ' + process.version);
+      - name: Setup Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+        if: runner.environment == 'github-hosted'
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12"
+        if: runner.environment == 'github-hosted'
       - name: Checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.source_ref }}
-          fetch-depth: 0
+          fetch-depth: 1
+      - name: Discover installed runner tools
+        if: runner.environment == 'self-hosted'
+        run: node scripts/ci-runner-paths.mjs --paths-only
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
+        if: runner.environment == 'github-hosted'
 
       # All scripted steps use pwsh, not bash: this self-hosted ROG runner has no
       # bash on PATH (unlike GitHub-hosted windows-latest), so `shell: bash` fails
@@ -176,22 +192,12 @@ jobs:
           rustup show
           rustc -vV
           rustup target list --installed | Select-String 'pc-windows-msvc'
-
-      - name: Setup Node.js
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
-        with:
-          package-manager-cache: false
-          node-version: '22.22.0'
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs packaging
 
       - name: Reset compiler capture
         continue-on-error: true
         run: node -e "require('fs').writeFileSync('ci-rust-warnings.log', '')"
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
-        with:
-          version: 10.32.1
-          run_install: false
 
       - name: Install npm dependencies
         shell: pwsh
@@ -323,13 +329,19 @@ jobs:
           & .\build.ps1 cache-verify
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Download digest-pinned frontend bundle
+        if: ${{ inputs.frontend_sha256 != '' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: frontend-dist-${{ inputs.frontend_sha256 }}
+          path: ${{ runner.temp }}
       - name: Fetch the run's frontend bundle
         if: ${{ inputs.frontend_sha256 != '' }}
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          node scripts/release-frontend-dist.mjs fetch "$env:GITHUB_RUN_ID" "${{ inputs.frontend_sha256 }}" "$env:RUNNER_TEMP/frontend-dist.tar"
+          node scripts/release-frontend-dist.mjs fetch-run-artifact "$env:GITHUB_RUN_ID" "${{ inputs.frontend_sha256 }}" "$env:RUNNER_TEMP/frontend-dist.tar"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       # A dropped upload leaves a starter asset that holds the name and makes every
@@ -364,12 +376,6 @@ jobs:
         shell: pwsh
         run: |
           node scripts/release-headless-assets.mjs verify "${{ inputs.tag }}" "${{ matrix.platform_key }}" release-artifacts "${{ inputs.source_ref }}"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Smoke packaged client and isolated server pair
-        shell: pwsh
-        run: |
-          node scripts/release-pair-smoke.mjs "$env:TARGET" "${{ inputs.tag }}" "${{ inputs.source_ref }}" "release-artifacts/common-stage/$env:TARGET" release-artifacts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Smoke built release bundle

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { Check } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 import { flushSync } from "react-dom";
 import { listen } from "../../lib/bridge";
 import { resetWebEvents } from "../../lib/webEvents";
@@ -17,6 +17,7 @@ import {
 import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { menuKeyAction } from "./menuKeyboard";
 import { RELAY_PROTOCOL_VERSION } from "../../lib/types";
+import { hasLocalInstanceName, localInstanceLabel, onMeshPeersLoaded, rememberLocalInstanceName } from "../../lib/localInstanceName";
 
 let nextPeerSwitchId = 0;
 
@@ -47,7 +48,7 @@ interface MeshPeers {
  */
 export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
   const [peers, setPeers] = useState<PairedPeer[]>([]);
-  const [localName, setLocalName] = useState("Domios");
+  const [localName, setLocalName] = useState(localInstanceLabel);
   const [open, setOpen] = useState(false);
   const [displayTarget, setDisplayTarget] = useState(relayTarget);
   const [switchingTo, setSwitchingTo] = useState<string | null>(null);
@@ -60,16 +61,24 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
     try {
       const res = await localJson<MeshPeers>("GET", "/api/mesh/peers");
       const paired = res.paired ?? [];
-      setLocalName(res.local_instance_name);
+      setLocalName(rememberLocalInstanceName(res.local_instance_name));
       setPeers(rankPeersByLastActive(paired));
     } catch {
       // Peer list is a convenience — keep the last known list on errors.
+      if (hasLocalInstanceName()) return;
+      try {
+        const health = await localJson<{ instance?: { display_name?: string } }>("GET", "/api/health");
+        setLocalName(rememberLocalInstanceName(health.instance?.display_name));
+      } catch {
+        // Neither source answered; the label stays on the generic fallback.
+      }
     }
   }, []);
 
   useEffect(() => {
     let active = true;
     let unlisten: (() => void) | undefined;
+    const stopPeersLoaded = onMeshPeersLoaded(() => void refresh());
     void refresh();
     void listen("mesh-state-changed", () => void refresh()).then((registered) => {
       if (active) {
@@ -81,6 +90,7 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
     }).catch(() => undefined);
     return () => {
       active = false;
+      stopPeersLoaded();
       unlisten?.();
     };
   }, [refresh]);
@@ -163,12 +173,12 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => (open ? closeMenu() : setOpen(true))}
-        className={`flex min-h-[44px] items-center gap-1.5 rounded text-xs text-[var(--ct-fg)] bg-[var(--ct-hover)] hover:bg-[var(--ct-active)] border border-[var(--ct-border)] sm:min-h-0 sm:h-7 ${compact ? "min-w-0 max-w-[126px] px-2" : "px-2.5"}`}
+        className={`flex min-h-[44px] items-center gap-1.5 rounded text-xs text-[var(--ct-fg)] bg-[var(--ct-hover)] hover:bg-[var(--ct-active)] border border-[var(--ct-border)] sm:min-h-0 sm:h-7 ${compact ? "min-w-0 max-w-[126px] px-2 sm:max-w-none" : "px-2.5"}`}
         title="Switch Domios host"
       >
         <span className={`w-2 h-2 shrink-0 rounded-full ${switchingTo ? "animate-pulse bg-[var(--ct-muted,#8b949e)]" : switchFailed ? "bg-[var(--ct-red,#f85149)]" : "bg-[var(--ct-green,#3fb950)]"}`} />
-        <span className="max-w-[104px] truncate sm:max-w-[120px]">{label}</span>
-        <span className="opacity-60 text-[9px]">▾</span>
+        <span className="max-w-[104px] truncate sm:max-w-none">{label}</span>
+        <ChevronDown size={12} className="shrink-0 opacity-60" aria-hidden="true" />
       </button>
       <AnchoredPopover open={open} anchor={rootRef} placement={compact ? "bottom-end" : "bottom-start"} onClose={dismissMenu}>
         <div

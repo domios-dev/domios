@@ -139,6 +139,13 @@ fn sanitize_filename(name: &str) -> String {
 }
 
 pub fn sweep_orphans(data_dir: &Path) -> Result<usize, String> {
+    sweep_orphans_except(data_dir, &std::collections::BTreeSet::new())
+}
+
+pub fn sweep_orphans_except(
+    data_dir: &Path,
+    retained: &std::collections::BTreeSet<PathBuf>,
+) -> Result<usize, String> {
     let root = data_dir.join("assets").join("blueprint-runs");
     let entries = match fs::read_dir(&root) {
         Ok(entries) => entries,
@@ -158,7 +165,7 @@ pub fn sweep_orphans(data_dir: &Path) -> Result<usize, String> {
         }
         for run in fs::read_dir(&path).map_err(|error| format!("read blueprint runs: {error}"))? {
             let run = run.map_err(|error| format!("read blueprint run: {error}"))?;
-            if run.path().is_dir() {
+            if run.path().is_dir() && !retained.contains(&run.path()) {
                 fs::remove_dir_all(run.path())
                     .map_err(|error| format!("remove orphan blueprint run: {error}"))?;
                 removed += 1;

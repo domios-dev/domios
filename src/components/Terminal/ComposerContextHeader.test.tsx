@@ -109,12 +109,14 @@ async function main() {
 
   const stashed: DelayedMessage = { ...delayed, id: "stash-1", text: "Keep this for later", state: "stashed", scheduledAtMs: 0 };
   const system: DelayedMessage = {
-    ...delayed, id: "system:heartbeat:pl:tab-a", origin: "system", text: "Plan reminder",
+    ...delayed, id: "system:heartbeat:pl:tab-a", origin: "system", text: '<codeterm-orchestrator-heartbeat plan="pl">\ncharter-frag\n</codeterm-orchestrator-heartbeat>',
+    ticks: [{ atMs: 0, outcome: "skipped", spinalVerdict: "skipped", spinalReason: "not_due" }],
     reason: "sent because tasks task_a are still in progress in plan pl", recurrence: { everyMs: 60_000 },
   };
 
   const opened: unknown[] = [];
   const edited: string[] = [];
+  const cancelled: string[] = [];
   window.addEventListener(OPEN_JOB_EVENT, (event) => opened.push((event as CustomEvent).detail));
   const host = document.createElement("div");
   document.body.appendChild(host);
@@ -126,30 +128,51 @@ async function main() {
       delayed={messages}
       heartbeats={messages.filter(message => message.origin === "system")}
       onEditDelayed={(message) => edited.push(message.id)}
-      onDeleteDelayed={() => undefined}
+      onDeleteDelayed={id => cancelled.push(id)}
       onScheduleDelayed={() => undefined}
       draftActive={draftActive}
       adapter={adapter}
     /></MuxStateStoreContext.Provider>,
   );
   await act(async () => { render("tab-a", [stashed, delayed, system]); });
-  assert.equal(host.querySelector('[data-kind="delayed"]')?.getAttribute("aria-label"), "3 delayed messages, plan heartbeat", "the heartbeat counts as a delayed message");
+  const capacityRetry: DelayedMessage = { ...delayed, id: "capacity-retry", turnRetry: { kind: "transient", attempt: 3, epoch: 1, bindingNonce: "nonce", threadId: "thread" } };
+  await act(async () => { render("tab-a", [capacityRetry]); });
+  const retryStatus = host.querySelector('[role="status"]');
+  assert.match(retryStatus?.textContent ?? "", /Retrying in 10s \(attempt 3\/10\)/);
+  const cancelRetry = Array.from(retryStatus?.querySelectorAll("button") ?? []).find(button => button.textContent === "Cancel");
+  assert.ok(cancelRetry, "scheduled capacity retry exposes Cancel without opening delayed messages");
+  await act(async () => { cancelRetry.click(); });
+  assert.deepEqual(cancelled, ["capacity-retry"]);
+  await act(async () => { render("tab-a", [{ ...capacityRetry, turnRetry: { ...capacityRetry.turnRetry!, kind: "rate_limited_until" } }]); });
+  assert.match(host.querySelector('[role="status"]')?.textContent ?? "", /Retrying at .+ when the limit resets/);
+  assert.ok(!host.querySelector('[role="status"]')?.textContent?.includes("10s"));
+  await act(async () => { render("tab-a", [stashed, delayed, system]); });
+  assert.equal(host.querySelector('[data-kind="delayed"]')?.getAttribute("aria-label"), "3 delayed messages, system reminder", "the heartbeat counts as a delayed message");
   assert.equal(host.querySelectorAll('button[title="Heartbeat"]').length, 0);
   const delayedChip = requireControl<HTMLButtonElement>('button[title="Delayed messages"]');
   assert.ok(delayedChip.querySelector("svg"), "delayed chip retains its icon");
   await act(async () => { delayedChip.click(); });
   assertScrollablePanel("Delayed messages");
-  const heartbeatRow = requireControl<HTMLButtonElement>('[aria-label="Plan heartbeat: Plan reminder"]');
-  assert.match(heartbeatRow.textContent ?? "", /Plan heartbeat.*every 1m.*next/);
+  const heartbeatRow = requireControl<HTMLButtonElement>('[aria-label^="System reminder:"]');
+  assert.match(heartbeatRow.textContent ?? "", /^System/, "the capsule is labelled System");
+  for (const text of [heartbeatRow.textContent ?? "", heartbeatRow.getAttribute("aria-label") ?? ""]) assert.ok(!text.includes("codeterm-"), "no internal marker in the capsule");
+  assert.equal(heartbeatRow.getAttribute("aria-expanded"), "false");
   assert.equal(heartbeatRow.parentElement?.querySelectorAll("button").length, 1, "heartbeat cannot be cancelled or disabled");
   assert.equal(document.querySelectorAll('[aria-label="Cancel delayed message"]').length, 2);
   await act(async () => { heartbeatRow.click(); });
-  assert.equal(document.querySelector('[role="dialog"][aria-labelledby="system-heartbeat-title"]')?.textContent?.includes("Plan reminder"), true);
+  const detail = document.querySelector('[role="dialog"][aria-labelledby="system-heartbeat-title"]');
+  assert.equal(heartbeatRow.getAttribute("aria-expanded"), "true");
+  assert.match(document.getElementById("system-heartbeat-title")?.textContent ?? "", /^System/);
+  assert.equal(detail?.querySelector('[role="region"][aria-label="Reminder text"]')?.textContent?.includes("charter-frag"), true, "details show the readable reminder text");
+  assert.equal(detail?.textContent?.includes("codeterm-"), false, "details never show the raw marker");
+  assert.match(detail?.querySelector('[data-testid="heartbeat-reason"]')?.textContent ?? "", /task_a/);
+  assert.equal(detail?.querySelector('[data-testid="heartbeat-tick"]'), null, "no execution log rows");
   await act(async () => { document.querySelector<HTMLButtonElement>('[aria-label="Close"]')!.click(); });
+  assert.equal(document.querySelector('[aria-labelledby="system-heartbeat-title"]'), null, "Close dismisses the details");
   await act(async () => { render("tab-a", [system, { ...delayed, id: "due", scheduledAtMs: 0 }, { ...delayed, id: "sending", state: "sending" }]); });
-  assert.equal(delayedChip.getAttribute("aria-label"), "1 delayed messages, plan heartbeat");
+  assert.equal(delayedChip.getAttribute("aria-label"), "1 delayed message, system reminder");
   assert.ok(delayedChip.querySelector("svg"), "heartbeat-only delayed chip retains its icon");
-  assert.equal(requireControl('[aria-label="Plan heartbeat: Plan reminder"]'), heartbeatRow, "queue transitions preserve the heartbeat row");
+  assert.equal(requireControl('[aria-label^="System reminder:"]'), heartbeatRow, "queue transitions preserve the heartbeat row");
   assert.equal(document.querySelectorAll('[aria-label="Cancel delayed message"]').length, 0);
   await act(async () => { render("tab-a", [stashed, delayed, system]); });
 
@@ -181,7 +204,7 @@ async function main() {
   assert.equal(lastDelayed?.getAttribute("data-tone"), "stashed", "stashed messages sort after scheduled ones");
   assert.ok(lastDelayed?.querySelector(".ct-ctx-bubble__stash"), "a stashed message shows the stash mark instead of a time");
   assert.equal(lastDelayed?.querySelector(".ct-ctx-bubble__meta"), null, "a stashed message shows no send time");
-  assert.ok(host.querySelector('[role="group"][aria-label="Delayed messages"] [aria-label^="Plan heartbeat:"]'), "heartbeat appears inside the delayed list");
+  assert.ok(host.querySelector('[role="group"][aria-label="Delayed messages"] [aria-label^="System reminder:"]'), "heartbeat appears inside the delayed list");
   assert.ok(host.querySelector('[aria-label^="Edit delayed message"]')?.parentElement?.querySelector(".ct-ctx-bubble__dismiss"), "a user delayed message stays cancellable");
   await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label^="Edit delayed message"]')!.click(); });
   assert.deepEqual(edited, ["later-1"], "a delayed bubble opens its editor");
@@ -224,7 +247,7 @@ async function main() {
       ); });
       const group = host.querySelector<HTMLElement>('[role="group"][aria-label="Linked to this tab"]')!;
       assert.ok(group);
-      for (const label of ["Session goal", "Plugin removed", "1 blueprints", "5 crons", "1 delayed messages"]) {
+      for (const label of ["Session goal", "Plugin removed", "1 blueprint", "5 crons", "1 delayed message"]) {
         const chip = host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
         assert.ok(chip, label);
         assert.equal(chip.closest('[role="group"]'), group);
@@ -266,7 +289,7 @@ async function main() {
       }
       assert.equal(host.querySelector('[role="dialog"][aria-label="Session goal"]'), null);
       const goalChip = host.querySelector<HTMLButtonElement>('button[aria-label="Session goal"]')!;
-      const delayedChip = host.querySelector<HTMLButtonElement>('button[aria-label="1 delayed messages"]');
+      const delayedChip = host.querySelector<HTMLButtonElement>('button[aria-label="1 delayed message"]');
       if (delayedChip) assert.equal(goalChip.parentElement, delayedChip.parentElement);
       await act(async () => { goalChip.click(); });
       assert.ok(host.querySelector('[role="dialog"][aria-label="Session goal"]'));

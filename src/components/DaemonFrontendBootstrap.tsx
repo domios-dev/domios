@@ -1,25 +1,51 @@
 import { frontendCheckpointClientId, frontendUpdateDiagnostic } from "../lib/frontendUpdate/bootstrapModel";
 import { frontendApiContract } from "../lib/frontendApiContract";
 import { frontendBootDiagnostic } from "../lib/frontendBootDiagnostic";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { DeferredLoader } from "@codeterm/chat-ui/DeferredLoader";
+import { BrandState } from "./brand/BrandState";
+import { bootstrapStatusModel } from "./bootstrapStatusModel";
 import { baseDaemonTransport, FRONTEND_BOOT_KEY, onDaemonTransport } from "../lib/daemonBootstrap";
 import { initializeBrowserFrontendUpdates } from "../lib/frontendUpdate/browser";
 import type { BootContext } from "../lib/frontendUpdate/client";
 import { getResizeClientId } from "../lib/resizeOwner";
+import { waitForServerReady, type StartupPhase } from "../lib/serverReadiness";
 
 export function DaemonFrontendBootstrap({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
+  const [startupFailed, setStartupFailed] = useState(false);
+  const [startupPhase, setStartupPhase] = useState<StartupPhase | null>(null);
+  const wasReady = useRef(false);
+  if (ready) wasReady.current = true;
   useEffect(() => {
     let generation = 0;
     let dispose: (() => void) | undefined;
     let initializing = Promise.resolve();
+    let startupWait: AbortController | undefined;
     const stop = onDaemonTransport(client => {
       const current = ++generation;
+      startupWait?.abort();
+      const controller = new AbortController();
+      startupWait = controller;
       setReady(false);
+      setStartupFailed(false);
+      setStartupPhase(null);
       initializing = initializing.then(async () => {
         if (current !== generation) return;
         dispose?.();
         dispose = undefined;
+        try {
+          await waitForServerReady(client, controller.signal, phase => {
+            if (current === generation) setStartupPhase(phase);
+          });
+        } catch (failure) {
+          if (current === generation) {
+            frontendBootDiagnostic("frontend-initialize-failed", frontendUpdateDiagnostic(failure));
+            setStartupFailed(true);
+          }
+          return;
+        }
+        if (current !== generation) return;
         let failed = false;
         const disableUpdates = (failure: unknown) => {
           frontendBootDiagnostic("frontend-initialize-failed", frontendUpdateDiagnostic(failure));
@@ -46,7 +72,12 @@ export function DaemonFrontendBootstrap({ children }: { children: ReactNode }) {
       });
     });
     baseDaemonTransport();
-    return () => { ++generation; stop(); dispose?.(); };
+    return () => { ++generation; startupWait?.abort(); stop(); dispose?.(); };
   }, []);
-  return ready ? children : null;
+  if (ready) return children;
+  const status = <BrandState model={bootstrapStatusModel(startupFailed, startupPhase)} />;
+  // The index.html cover owns the first seconds; only a reconnect after a ready app defers so a fast one never flashes.
+  return wasReady.current && !startupFailed
+    ? <DeferredLoader state="present" className="fixed inset-0">{status}</DeferredLoader>
+    : <div className="fixed inset-0">{status}</div>;
 }

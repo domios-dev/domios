@@ -180,7 +180,7 @@ impl LaunchOptions {
                 data_dir,
                 config_dir,
                 bind,
-            } if !development_artifact => validate_isolated_verification(
+            } => validate_isolated_verification(
                 data_dir,
                 config_dir,
                 *bind,

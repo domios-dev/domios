@@ -2,8 +2,27 @@ use super::*;
 
 pub(crate) struct PreparedBlueprint {
     pub(super) document: Document,
-    pub(super) when_to_use: String,
+    pub(super) team: Option<String>,
+    pub(super) intents: Vec<String>,
     pub(super) evidence: Evidence,
+    pub(super) index: index::IndexRow,
+}
+
+pub(super) fn index_row(original: &Document, intents: &[String]) -> index::IndexRow {
+    use codeterm_blueprint_types::blueprint_memory::semantic_canon::{
+        canonical_json, semantic_canon,
+    };
+    use sha2::{Digest, Sha256};
+    index::IndexRow {
+        document_hash: Sha256::digest(canonical_json(original).as_bytes())
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect(),
+        canon: semantic_canon(original, intents.first().map_or("", String::as_str)),
+        gists: semantic_canon(original, ""),
+        signature: crate::blueprint_wl::signature(original),
+        enrichment: None,
+    }
 }
 
 impl MemManager {
@@ -11,16 +30,32 @@ impl MemManager {
         &self,
         area: &str,
         document: Document,
-        when_to_use: &str,
+        intents: &[String],
         mut evidence: Evidence,
     ) -> Result<PreparedBlueprint, String> {
-        if when_to_use.trim().is_empty()
-            || when_to_use.chars().count() > 200
-            || when_to_use.chars().any(char::is_control)
+        if document.trigger.is_none()
+            && document.result.port.is_some()
+            && codeterm_blueprint_types::blueprint_document::calls::has_unsealed_code_files(
+                &document,
+            )
         {
-            return Err("When to use must contain 1..200 plain-text characters".into());
+            return Err(
+                "Callable code files must be frozen into inline source bytes before saving".into(),
+            );
         }
-        let document = model::abstract_document(document);
+        if !evidence.tags.is_empty() {
+            codeterm_blueprint_types::blueprint_tags::validate(&evidence.tags)
+                .map_err(|error| error.to_string())?;
+        }
+        let intents = model::validate_intents(intents)?;
+        let joined = intents.join("; ");
+        let when_to_use = joined.as_str();
+        let index = index_row(&document, &intents);
+        let document = if document.trigger.is_none() && document.result.port.is_some() {
+            document
+        } else {
+            model::abstract_document(document)
+        };
         if !document.template_errors().is_empty() {
             return Err("Blueprint solution fails current template validation".into());
         }
@@ -67,9 +102,11 @@ impl MemManager {
             return Err("Blueprint solution exceeds document limit".into());
         }
         Ok(PreparedBlueprint {
+            team: None,
             document,
-            when_to_use: when_to_use.into(),
+            intents,
             evidence,
+            index,
         })
     }
 }

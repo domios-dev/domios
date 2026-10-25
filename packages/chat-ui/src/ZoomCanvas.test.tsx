@@ -47,7 +47,7 @@ test("canvas wheel, pan, touch and fit controls manipulate the camera and preven
     touch("touchmove", [{ clientX: 50, clientY: 100 }, { clientX: 250, clientY: 100 }]);
   });
   assert.notEqual(layer.style.transform, fitted);
-  await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Show all"]')!.click());
+  await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Fit all"]')!.click());
   assert.equal(layer.style.transform, fitted);
   await act(async () => {
     region.dispatchEvent(new window.MouseEvent("mousedown", { button: 0, clientX: 10, clientY: 10, bubbles: true }));
@@ -70,7 +70,7 @@ test("image navigation flies to the next image and show all restores the gallery
   await act(async () => { runFrame(0); runFrame(500); });
   assert.notEqual(layer.style.transform, fitted);
   assert(document.querySelector('[aria-label="Save b"]'));
-  await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Show all"]')!.click());
+  await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Fit all"]')!.click());
   assert.equal(layer.style.transform, fitted);
   await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="View b"]')!.click());
   await act(async () => { runFrame(600); runFrame(1100); });
@@ -153,9 +153,9 @@ test("late image dimensions preserve focus, then preserve a custom camera across
     width = 1000; height = 700;
     await act(async () => resize());
     assert.equal(layer.style.transform, custom);
-    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Show all"]')!.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Fit all"]')!.click());
     assert.notEqual(layer.style.transform, custom);
-    assert.equal(document.querySelector('[aria-label="Show all"]')?.getAttribute("aria-pressed"), "true");
+    assert.equal(document.querySelector('[aria-label="Fit all"]')?.getAttribute("aria-pressed"), "true");
   } finally {
     await act(async () => root.unmount()); host.remove();
     window.HTMLElement.prototype.getBoundingClientRect = originalRect;
@@ -176,7 +176,7 @@ test("phone fullscreen opens a selected image at readable scale among 32 slots",
     await act(async () => root.render(<ImageFullscreen image={images[17]} images={images} anchorRef={{ current: host }} onClose={() => {}} />));
     await act(async () => { runFrame(0); runFrame(500); });
     assert(document.querySelector('[aria-label="Save 17"]'));
-    assert.equal(document.querySelector('[aria-label="Show all"]')?.getAttribute("aria-pressed"), "false");
+    assert.equal(document.querySelector('[aria-label="Fit all"]')?.getAttribute("aria-pressed"), "false");
     const layer = document.querySelector('[aria-label="Zoomable canvas"]')!.firstElementChild as HTMLElement;
     assert(Number(/scale\(([^)]+)\)/.exec(layer.style.transform)![1]) > 0.3);
   } finally {
@@ -226,7 +226,26 @@ test("canvas keyboard controls navigate and zoom with accessible focus", async (
     await act(async () => key("Digit0"));
     assert.equal(document.querySelector('[aria-label="Zoom level"]')!.textContent, "100%");
     await act(async () => key("Home"));
-    assert.equal(document.querySelector('[aria-label="Show all"]')!.getAttribute("aria-pressed"), "true");
+    assert.equal(document.querySelector('[aria-label="Fit all"]')!.getAttribute("aria-pressed"), "true");
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
+test("zoom keys work as soon as the image preview opens, without clicking the canvas", async () => {
+  frames.clear();
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  const images = [{ name: "a", src: "data:image/png;base64,AA" }];
+  try {
+    await act(async () => root.render(<ImageFullscreen image={images[0]} images={images} anchorRef={{ current: host }} onClose={() => {}} />));
+    const region = document.querySelector<HTMLElement>('[aria-label="Zoomable canvas"]')!;
+    assert.equal(document.activeElement, region);
+    const key = (code: string) => (document.activeElement as HTMLElement).dispatchEvent(new window.KeyboardEvent("keydown", { code, bubbles: true, cancelable: true }));
+    await act(async () => key("Digit0"));
+    assert.equal(document.querySelector('[aria-label="Zoom level"]')!.textContent, "100%");
+    await act(async () => key("Minus"));
+    assert.equal(document.querySelector('[aria-label="Zoom level"]')!.textContent, "80%");
+    await act(async () => key("Home"));
+    assert.equal(document.querySelector('[aria-label="Fit all"]')!.getAttribute("aria-pressed"), "true");
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
@@ -251,5 +270,34 @@ test("touch selection invokes its callback directly and suppresses a subsequent 
     Object.defineProperty(click, "timeStamp", { value: 1060 });
     await act(async () => target.dispatchEvent(click));
     assert.deepEqual(selections, [0]);
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
+test("image preview fit, 100% and zoom controls are the shared canvas toolbar", async () => {
+  frames.clear();
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  const images = [{ name: "a", src: "data:image/png;base64,AA" }];
+  try {
+    await act(async () => root.render(<ImageFullscreen image={images[0]} images={images} anchorRef={{ current: host }} onClose={() => {}} />));
+    const toolbar = document.querySelector('[role="toolbar"][data-testid="canvas-toolbar"]')!;
+    assert(toolbar, "zoom controls render as the shared canvas toolbar");
+    for (const name of ["Fit all", "Reset to 100%", "Zoom out", "Zoom in"]) {
+      assert(toolbar.querySelector(`button[aria-label="${name}"]`), `${name} lives in the shared toolbar`);
+    }
+    assert.equal(document.querySelectorAll('[role="toolbar"] button').length, 4, "no extra bespoke zoom buttons");
+    const click = async (name: string) => act(async () => toolbar.querySelector<HTMLButtonElement>(`button[aria-label="${name}"]`)!.click());
+    const level = () => document.querySelector('[aria-label="Zoom level"]')!.textContent;
+    await click("Reset to 100%");
+    assert.equal(level(), "100%");
+    assert.equal(toolbar.querySelector('[aria-label="Reset to 100%"]')!.getAttribute("aria-pressed"), "true");
+    await click("Zoom in");
+    assert.equal(level(), "125%");
+    await click("Zoom out");
+    assert.equal(level(), "100%");
+    await click("Zoom out");
+    assert.equal(level(), "80%");
+    await click("Fit all");
+    assert.equal(toolbar.querySelector('[aria-label="Fit all"]')!.getAttribute("aria-pressed"), "true");
   } finally { await act(async () => root.unmount()); host.remove(); }
 });

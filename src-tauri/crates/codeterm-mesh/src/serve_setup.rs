@@ -442,6 +442,12 @@ fn health_get_blocking(url: &str) -> Result<(u16, String), String> {
         .build()
         .map_err(|e| e.to_string())?;
     let resp = client.get(url).send().map_err(|e| e.to_string())?;
+    if resp
+        .headers()
+        .contains_key(crate::reachability::PEER_ONLY_HEADER)
+    {
+        return Err("peer-only listener does not serve the Web UI".into());
+    }
     let status = resp.status().as_u16();
     let body = resp.text().unwrap_or_default();
     Ok((status, body))
@@ -464,20 +470,6 @@ pub(crate) fn macos_localapi(path: &str) -> Option<serde_json::Value> {
 #[cfg(target_os = "macos")]
 pub(crate) fn macos_status_json() -> Option<serde_json::Value> {
     macos_localapi("/localapi/v0/status")
-}
-
-/// This node's Tailnet IPv4 (CGNAT 100.64/10) read passively from the LocalAPI
-/// `status` — the macOS replacement for spawning `tailscale ip -4`.
-#[cfg(target_os = "macos")]
-pub(crate) fn macos_self_tailscale_ip() -> Option<String> {
-    macos_status_json()?
-        .get("Self")?
-        .get("TailscaleIPs")?
-        .as_array()?
-        .iter()
-        .filter_map(|v| v.as_str())
-        .find(|ip| super::discovery::is_tailscale_ip(ip))
-        .map(String::from)
 }
 
 /// Fetch a LocalAPI path from a responsibility-disclaimed `/bin/sh` helper: the

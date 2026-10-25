@@ -30,6 +30,39 @@ fn selects_exact_source_only_until_own_record_exists() {
 
 struct ForkProvider;
 
+#[test]
+fn bound_session_without_materialized_transcript_reads_empty_then_its_own_rows() {
+    let root = tempfile::tempdir().unwrap();
+    let cwd = root.path().join("not-created-yet");
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.agent_type = Some("fork-fixture".into());
+    tab.agent_session_id = Some("own".into());
+    tab.cwd = Some(cwd.to_string_lossy().into_owned());
+    let fixture = ServiceFixture::new(mux);
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(ForkProvider));
+    assert_eq!(
+        super::super::tab_chat_snapshot(&fixture.service, &tab_id, 0).unwrap(),
+        (Vec::new(), 0)
+    );
+    std::fs::create_dir(&cwd).unwrap();
+    write_rows(&cwd.join("sibling.jsonl"), &[("foreign", "wrong")]);
+    assert_eq!(
+        super::super::tab_chat_snapshot(&fixture.service, &tab_id, 0).unwrap(),
+        (Vec::new(), 0)
+    );
+    write_rows(&cwd.join("own.jsonl"), &[("own-row", "own content")]);
+    let (messages, count) = super::super::tab_chat_snapshot(&fixture.service, &tab_id, 0).unwrap();
+    assert_eq!(count, 1);
+    assert_eq!(messages[0].content, "own content");
+    std::fs::remove_file(cwd.join("own.jsonl")).unwrap();
+    std::fs::create_dir(cwd.join("own.jsonl")).unwrap();
+    assert!(super::super::tab_chat_snapshot(&fixture.service, &tab_id, 0).is_err());
+}
+
 impl AgentProvider for ForkProvider {
     fn id(&self) -> &str {
         "fork-fixture"

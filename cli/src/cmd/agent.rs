@@ -331,13 +331,16 @@ fn print_report_notices(json: bool, val: &serde_json::Value) {
 
 pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) {
     let (base, _) = read_api_config();
-    let local_http = match build_local_api() {
+    let local_http = std::cell::LazyCell::new(|| match build_local_api() {
         Ok(client) => client,
         Err(error) => {
             crate::cmd::print::fail(1, format!("failed to connect to local API: {error}"));
         }
-    };
+    });
     match action {
+        AgentAction::Reparent { tab, to, peer } => {
+            super::remote_team::reparent(client, json, tab, to, peer)
+        }
         AgentAction::Usage { action } => {
             super::agent_runtime::handle_usage(&local_http, &base, json, action)
         }
@@ -345,11 +348,23 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             super::agent_runtime::handle_child_history(&local_http, &base, json, args)
         }
         AgentAction::Login {
+            show,
             tab,
             device,
             api_key_stdin,
             cancel,
-        } => agent_login::run(&local_http, &base, json, tab, device, api_key_stdin, cancel),
+        } => agent_login::run(
+            &local_http,
+            &base,
+            json,
+            tab,
+            agent_login::LoginOptions {
+                device,
+                api_key_stdin,
+                cancel,
+                show,
+            },
+        ),
         AgentAction::Turns { tab, last, after } => {
             let mut params = serde_json::json!({"tab_id":tab,"last":last,"after_offset":after});
             CallerContext::from_env().apply_trusted_session(&mut params);

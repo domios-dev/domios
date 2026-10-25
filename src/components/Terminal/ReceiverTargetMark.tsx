@@ -11,6 +11,9 @@ import {
 import { GlancePopover } from "../Extensions/GlancePopover";
 import { subscribePluginBubble, type BubbleData } from "../../lib/pluginBubbleCache";
 
+import { ensurePluginSnapshot, usePluginSnapshotStore } from "../../lib/pluginSnapshotStore";
+import { supportsPluginBubble } from "../../lib/pluginBubbleModel";
+
 export type ReceiverTargetMarkSurface = "composer" | "header";
 
 export function receiverTargetEntries(menu: PluginTabMenuState, tabId: string): PluginTabMenuEntry[] {
@@ -22,8 +25,9 @@ export function receiverTargetEntries(menu: PluginTabMenuState, tabId: string): 
   });
 }
 
-function ReceiverTargetMarkButton({ entry, tabId, surface }: {
+function ReceiverTargetMarkButton({ entry, tabId, surface, supportsBubble }: {
   entry: PluginTabMenuEntry;
+  supportsBubble: boolean;
   tabId: string;
   surface: ReceiverTargetMarkSurface;
 }) {
@@ -37,9 +41,11 @@ function ReceiverTargetMarkButton({ entry, tabId, surface }: {
   const close = useCallback(() => { setOpen(false); setPinned(false); }, []);
   const receiverName = entry.pluginId || "Unknown receiver";
   useEffect(() => {
+    setBubble(null);
+    if (!supportsBubble) return;
     const subscription = subscribePluginBubble(entry.pluginId, null, tabId, true, setBubble);
     return () => subscription.unsubscribe();
-  }, [entry.pluginId, tabId]);
+  }, [entry.pluginId, tabId, supportsBubble]);
   const show = () => setOpen(true);
   return (
     <>
@@ -90,6 +96,12 @@ export function ReceiverTargetMarks({
   tabId: string;
   surface: ReceiverTargetMarkSurface;
 }) {
+  const { snapshot } = usePluginSnapshotStore();
+  useEffect(() => {
+    const controller = new AbortController();
+    void ensurePluginSnapshot({ background: true, signal: controller.signal }).catch(() => {});
+    return () => controller.abort();
+  }, [tabId]);
   const entries = receiverTargetEntries(menu, tabId);
   if (surface !== "header" || entries.length === 0) return null;
 
@@ -104,6 +116,7 @@ export function ReceiverTargetMarks({
         <ReceiverTargetMarkButton
           key={`${entry.pluginId}-${entry.itemId}`}
           entry={entry}
+          supportsBubble={supportsPluginBubble(snapshot.plugins.find((plugin) => plugin.id === entry.pluginId))}
           tabId={tabId}
           surface={surface}
         />

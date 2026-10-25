@@ -1,0 +1,21 @@
+schema_version: 1
+name: Dev listener check
+note: Hit the dev REST listener over HTTP; when it is down, pull the latest traces and notify.
+owner: team
+inputs:
+  listener_url:
+    type: string
+    description: Local dev REST listener health URL
+pipeline:
+  trigger: {type: schedule, every: 30s}
+  steps:
+    - name: listener
+      input: text
+      uses: http
+      with: {url: '{{listener_url}}', timeout_ms: 2000}
+      on: {up: stop, down: traces, failed: traces}
+    - name: traces
+      input: text
+      run: codeterm trace recent --limit 5
+      on: {done: stop, failed: stop}
+  result: {to: notify}

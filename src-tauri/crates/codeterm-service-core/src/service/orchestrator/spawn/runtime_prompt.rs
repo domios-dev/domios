@@ -223,6 +223,13 @@ pub fn ensure_tab_runtime_prompt(
         .as_ref()
         .and_then(|config| config.get("systemPrompt"))
         .and_then(serde_json::Value::as_str);
+    let general = crate::service::general_agent::is_general_agent(&tab);
+    if general
+        && !tab.restored_from_snapshot
+        && current.is_some_and(|prompt| !prompt.trim().is_empty())
+    {
+        return Ok(());
+    }
     let manager = tab.role == Some(crate::multiplexer::types::AgentRole::Manager);
     if current.is_some_and(|prompt| prompt.contains(ROLE_AUTHORITY))
         && !manager
@@ -264,9 +271,7 @@ pub fn ensure_tab_runtime_prompt(
     prepare_runtime_identity(service, &mut params);
     // A restored thread receives its identity, never a new onboarding turn.
     params.task = None;
-    let prompt = if params.role_profile.as_deref()
-        == Some(codeterm_types::agent::role_kind::builtins::GENERAL_AGENT)
-    {
+    let prompt = if general {
         crate::service::general_agent::instructions::render_system_prompt(
             service.configuration().general_agent.capability_hints,
             tab.agent_type.as_deref().unwrap_or_default(),

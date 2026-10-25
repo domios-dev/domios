@@ -4,6 +4,7 @@ pub(crate) mod authority;
 pub mod background;
 pub(crate) mod blocking;
 mod bootstrap;
+pub(crate) mod capacity_retry;
 pub(crate) mod capture;
 pub mod children;
 mod completions;

@@ -24,6 +24,31 @@ impl ServiceContext {
             .resolve_tab_id(target)
             .ok_or_else(|| format!("Tab {target} not found"))?;
         let target = resolved.as_str();
+        if payload.durable_delivery.is_some() {
+            let claim = self.pty_ownership.acquire(target);
+            if self.capture_saved_delivery(target, &mut payload)? {
+                let owner = &self.pending_delivery_payloads.agent_deliveries;
+                let encoded = serde_json::to_string(&payload).map_err(|error| error.to_string())?;
+                let id = owner.enqueue(
+                    target,
+                    &encoded,
+                    self.agent_delivery_idempotency_key(&payload),
+                )?;
+                self.schedule_durable_expiry(target, &id, &payload);
+                let delivery = payload.durable_delivery.as_ref().unwrap();
+                self.notify_event(
+                    "agent-delivery-status",
+                    serde_json::json!({
+                        "tab_id": target, "delivery_id": id, "status": "pending",
+                        "producer": delivery.producer, "created_at_ms": delivery.created_at_ms,
+                        "bytes_written": false,
+                    }),
+                );
+                drop(claim);
+                self.schedule_agent_delivery_flush(target);
+                return Ok(Delivery::Pending { delivery_id: id });
+            }
+        }
         self.wake_frozen_tab(target)?;
         if crate::paths::is_dev_instance() && payload.trace_id.is_none() {
             let id = crate::flow_trace::tab_flow(self, target)
@@ -39,6 +64,7 @@ impl ServiceContext {
         let owner = Arc::clone(&self.pending_delivery_payloads.agent_deliveries);
         if owner.has_pending(target)? {
             let id = owner.enqueue(target, &encoded, idempotency_key)?;
+            self.schedule_durable_expiry(target, &id, &payload);
             if let Some(flow) = payload.trace_id.as_deref() {
                 crate::flow_trace::record(flow, "delivery.queued", target, "", "held", Some(&id));
             }
@@ -61,6 +87,7 @@ impl ServiceContext {
                     && self.agent_delivery_binding_matches(target, &payload) =>
             {
                 let id = owner.enqueue(target, &encoded, idempotency_key)?;
+                self.schedule_durable_expiry(target, &id, &payload);
                 if let Some(flow) = payload.trace_id.as_deref() {
                     crate::flow_trace::record(
                         flow,
@@ -122,7 +149,12 @@ impl ServiceContext {
     }
 
     pub fn schedule_restored_agent_delivery_reconciliation(&self) {
-        let tab_ids = self
+        let service = self.clone();
+        crate::async_runtime::spawn_blocking(move || service.reconcile_restored_agent_deliveries());
+    }
+
+    fn reconcile_restored_agent_deliveries(&self) {
+        let mut tab_ids = self
             .mux
             .read()
             .snapshot()
@@ -130,6 +162,16 @@ impl ServiceContext {
             .into_values()
             .map(|tab| tab.id)
             .collect::<Vec<_>>();
+        match self
+            .pending_delivery_payloads
+            .agent_deliveries
+            .persisted_tab_ids()
+        {
+            Ok(persisted) => tab_ids.extend(persisted),
+            Err(error) => log::error!("[agent-delivery] outbox discovery failed: {error}"),
+        }
+        tab_ids.sort();
+        tab_ids.dedup();
         for tab_id in tab_ids {
             let owner = Arc::clone(&self.pending_delivery_payloads.agent_deliveries);
             if !owner.start_worker(&tab_id) {
@@ -138,6 +180,9 @@ impl ServiceContext {
             let service = self.clone();
             crate::async_runtime::spawn_blocking(move || {
                 service.reconcile_retired_agent_deliveries(&tab_id, &owner);
+                if let Err(error) = service.restore_durable_expiries(&tab_id) {
+                    log::error!("[agent-delivery] expiry restore failed tab={tab_id}: {error}");
+                }
                 owner.finish_worker(&tab_id);
                 let bound_pending = owner
                     .pending_head(&tab_id)
@@ -149,7 +194,8 @@ impl ServiceContext {
                         })
                     })
                     .is_some_and(|payload| {
-                        service.agent_delivery_binding_matches(&tab_id, &payload)
+                        payload.durable_delivery.is_some()
+                            || service.agent_delivery_binding_matches(&tab_id, &payload)
                     });
                 if bound_pending {
                     service.schedule_agent_delivery_flush(&tab_id);
@@ -161,6 +207,9 @@ impl ServiceContext {
     fn flush_agent_deliveries(&self, tab_id: &str) {
         let owner = Arc::clone(&self.pending_delivery_payloads.agent_deliveries);
         self.reconcile_retired_agent_deliveries(tab_id, &owner);
+        if let Err(error) = self.expire_due_durable_deliveries(tab_id, &owner) {
+            log::error!("[agent-delivery] expiry settlement failed tab={tab_id}: {error}");
+        }
         loop {
             let generation = owner.state_generation(tab_id);
             let record = match owner.pending_head(tab_id) {
@@ -414,7 +463,31 @@ impl ServiceContext {
         payload: &AgentDeliveryPayload,
         generation: u64,
     ) -> AgentWriteResult {
+        let mut prepared = payload.clone();
+        match self.prepare_saved_delivery(tab_id, record, &mut prepared) {
+            Ok(super::durable_delivery::PreparedDelivery::Ready) => {}
+            Ok(super::durable_delivery::PreparedDelivery::Held) => {
+                return if owner.block_after_refusal(tab_id, generation) {
+                    AgentWriteResult::Refused
+                } else {
+                    AgentWriteResult::Continue
+                };
+            }
+            Ok(super::durable_delivery::PreparedDelivery::Failed(reason)) => {
+                return self
+                    .settle_durable_record(tab_id, owner, record, payload, reason, generation);
+            }
+            Err(error) => {
+                log::error!("[agent-delivery] saved binding failed tab={tab_id}: {error}");
+                owner.block_after_refusal(tab_id, generation);
+                return AgentWriteResult::Refused;
+            }
+        }
+        let payload = &prepared;
         if !self.agent_delivery_binding_matches(tab_id, payload) {
+            if payload.durable_delivery.is_some() {
+                return self.fail_durable_record(tab_id, owner, record, payload, generation);
+            }
             match owner.discard_expired(tab_id, &record.id) {
                 Ok(true) => self.expire_agent_delivery(tab_id, &record.id, payload),
                 Ok(false) => {}
@@ -435,6 +508,17 @@ impl ServiceContext {
             return AgentWriteResult::Continue;
         }
         let pty_claim = self.pty_ownership.acquire(tab_id);
+        if self.durable_delivery_expired(payload) {
+            drop(pty_claim);
+            return self.settle_durable_record(
+                tab_id,
+                owner,
+                record,
+                payload,
+                "delivery_ttl_expired",
+                generation,
+            );
+        }
         let recovery = self.retired_delivery_recovery(tab_id, payload);
         let claim = match owner.claim_with_recovery(tab_id, &record.id, recovery) {
             Ok(claim) => claim,
@@ -457,6 +541,25 @@ impl ServiceContext {
             drop(pty_claim);
             owner.block_after_refusal(tab_id, generation);
             return AgentWriteResult::Refused;
+        }
+        if self.durable_delivery_expired(payload) {
+            if let Err(error) = owner.release_zero_write(tab_id, &record.id) {
+                log::error!(
+                    "[agent-delivery] expired zero-write release failed tab={tab_id}: {error}"
+                );
+                drop(pty_claim);
+                owner.block_after_refusal(tab_id, generation);
+                return AgentWriteResult::Refused;
+            }
+            drop(pty_claim);
+            return self.settle_durable_record(
+                tab_id,
+                owner,
+                record,
+                payload,
+                "delivery_ttl_expired",
+                generation,
+            );
         }
         let result = self.send_queued_agent_payload(tab_id, payload);
         drop(pty_claim);
@@ -483,6 +586,15 @@ impl ServiceContext {
                     AgentWriteResult::Continue
                 } else {
                     if !self.agent_delivery_binding_matches(tab_id, payload) {
+                        if payload.durable_delivery.is_some() {
+                            if let Err(error) = owner.release_zero_write(tab_id, &record.id) {
+                                log::error!("[agent-delivery] zero-write release failed tab={tab_id}: {error}");
+                                owner.block_after_refusal(tab_id, generation);
+                                return AgentWriteResult::Refused;
+                            }
+                            return self
+                                .fail_durable_record(tab_id, owner, record, payload, generation);
+                        }
                         if let Err(cleanup) = owner.discard_expired(tab_id, &record.id) {
                             log::error!(
                                 "[agent-delivery] tab={} delivery={} stale record cleanup failed: {}",
@@ -579,6 +691,53 @@ impl ServiceContext {
             ),
         }
         self.record_agent_delivery_written(tab_id, Some(&record.id), payload, true, outcome);
+        self.cancel_durable_expiry(tab_id, &record.id);
+    }
+
+    fn fail_durable_record(
+        &self,
+        tab: &str,
+        owner: &super::pending_delivery_payloads::agent_deliveries::AgentDeliveryStore,
+        record: &AgentDeliveryRecord,
+        payload: &AgentDeliveryPayload,
+        generation: u64,
+    ) -> AgentWriteResult {
+        self.settle_durable_record(
+            tab,
+            owner,
+            record,
+            payload,
+            "launch_ended_before_write",
+            generation,
+        )
+    }
+
+    fn settle_durable_record(
+        &self,
+        tab: &str,
+        owner: &super::pending_delivery_payloads::agent_deliveries::AgentDeliveryStore,
+        record: &AgentDeliveryRecord,
+        payload: &AgentDeliveryPayload,
+        reason: &str,
+        generation: u64,
+    ) -> AgentWriteResult {
+        use super::durable_delivery::SettlementOutcome;
+        match self.fail_durable_delivery(tab, owner, record, payload, reason) {
+            Ok(SettlementOutcome::Settled) => AgentWriteResult::Continue,
+            Ok(SettlementOutcome::Held) => {
+                if owner.block_after_refusal(tab, generation) {
+                    AgentWriteResult::Refused
+                } else {
+                    AgentWriteResult::Continue
+                }
+            }
+            Err(error) => {
+                log::error!("[agent-delivery] terminal settlement failed tab={tab}: {error}");
+                // The failed emitter's rollback wake must not restart its own failed worker.
+                owner.block_after_refusal(tab, owner.state_generation(tab));
+                AgentWriteResult::Refused
+            }
+        }
     }
 
     fn agent_delivery_idempotency_key(&self, payload: &AgentDeliveryPayload) -> Option<String> {
@@ -650,6 +809,12 @@ impl ServiceContext {
         queued: bool,
         outcome: &str,
     ) {
+        if let Some(delivery_id) = delivery_id {
+            self.events.publish_internal(
+                "delivery-written",
+                serde_json::json!({"tab_id": tab_id, "delivery_id": delivery_id}),
+            );
+        }
         if let Some(id) = flow_id.or(delivery_id) {
             crate::flow_trace::record(id, "message.written", tab_id, "", outcome, delivery_id);
         }

@@ -1,3 +1,4 @@
+use axum::response::IntoResponse;
 use axum::{
     extract::{Path, Query, State as AxumState},
     http::{HeaderMap, StatusCode},
@@ -9,12 +10,16 @@ use crate::routes::{check_auth, resolve_tab, AppState};
 use send::wait_for_pty_link as await_pty_link;
 
 mod exec;
+mod metadata;
+use metadata::map_metadata_error;
 mod utility_timeout;
 pub use utility_timeout::set_timeout;
 mod send;
 mod stop;
 mod turn_controls;
 pub use turn_controls::turn_controls;
+#[cfg(test)]
+mod restart_tests;
 #[cfg(test)]
 mod utility_tests;
 
@@ -100,10 +105,17 @@ pub async fn list_tabs(
         codeterm_service_core::service::remote_tabs::ordinary_tab_projection(
             &state.mesh,
             state.svc.remote_workers.as_ref(),
+            state.svc.remote_teams.as_ref(),
             local,
             requested_workspace.as_deref(),
         )
-        .await,
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Remote Team membership is unavailable",
+            )
+        })?,
     )))
 }
 
@@ -153,6 +165,7 @@ mod explicit_address_scope_tests {
     #[test]
     fn explicit_address_scope_mesh_all_workspaces_matches_the_peer_workspace_list() {
         let (mut state, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
+        state.set_limit_gate(codeterm_entitlements::LimitGate::dormant());
         let second = state.create_workspace("second".into(), None);
         state.create_tab(&second.id).unwrap();
         let third = state.create_workspace("third".into(), None);
@@ -420,7 +433,7 @@ pub async fn create_shell_tab(
     });
     if utility_shell {
         resp["timeout_hint"] =
-            "hint: set --timeout 30m for tests, QA and builds; leave it unset for servers.".into();
+            "hint: set --timeout 60m per command for tests, QA and builds; leave it unset for dev servers.".into();
     }
     if let Some(ref notice) = handle.budget_notice {
         resp["budget_notice"] = serde_json::to_value(notice).unwrap_or_default();
@@ -621,19 +634,47 @@ pub async fn restart_shell_tab(
         .map_err(|(status, message)| (status, message.to_string()))?;
     let svc = state.svc.clone();
     let caller = caller_tab_header(&headers);
-    let outcome = tokio::task::spawn_blocking(move || {
-        if let Some(timeout) = body.timeout {
-            let owner = caller
-                .as_deref()
-                .ok_or("timeout requires an owning agent")?;
-            svc.set_utility_timeout(&tab_id, owner, &timeout)?;
-        }
-        svc.restart_shell_tab(&tab_id, body.cwd, body.cmd.as_deref())
+    tokio::task::spawn_blocking(move || {
+        restart_shell_request(
+            body,
+            caller.as_deref(),
+            |owner, timeout| svc.set_utility_timeout(&tab_id, owner, timeout),
+            |cwd, command| svc.restart_shell_tab(&tab_id, cwd, command),
+        )
     })
     .await
     .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
-    .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
-    Ok(Json(serde_json::to_value(outcome).unwrap_or_default()))
+}
+
+fn restart_shell_request<T: serde::Serialize>(
+    body: RestartShellTabBody,
+    caller: Option<&str>,
+    set_timeout: impl FnOnce(&str, &str) -> Result<(), String>,
+    restart: impl FnOnce(Option<String>, Option<&str>) -> Result<T, String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let command_requested = body.cmd.is_some();
+    let outcome = (|| {
+        if let Some(timeout) = body.timeout {
+            let owner = caller.ok_or("timeout requires an owning agent")?;
+            set_timeout(owner, &timeout)?;
+        }
+        restart(body.cwd, body.cmd.as_deref())
+    })()
+    .map_err(|error: String| {
+        if command_requested {
+            let error = if error.starts_with("shell_command_not_submitted:") {
+                error
+            } else {
+                format!("shell_command_not_submitted: {error}")
+            };
+            (StatusCode::CONFLICT, error)
+        } else {
+            (StatusCode::BAD_REQUEST, error)
+        }
+    })?;
+    serde_json::to_value(outcome)
+        .map(Json)
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
 }
 
 pub(crate) fn caller_tab_header(headers: &HeaderMap) -> Option<String> {
@@ -666,13 +707,17 @@ pub(crate) fn map_close_error(e: String) -> (StatusCode, String) {
         || e.starts_with(codeterm_service_core::service::AGENT_TAB_CLOSE_REFUSAL_PREFIX)
         || e.starts_with(codeterm_service_core::service::TEAM_CLOSE_REFUSAL_PREFIX)
         || e.starts_with("Cannot close protected workspace")
+        || e.starts_with("Cannot close protected Tab")
     {
         StatusCode::FORBIDDEN
     } else if e.starts_with("Workspace not found:")
+        || e.starts_with("Tab not found")
         || (e.starts_with("Team ") && e.contains(" not found"))
     {
         StatusCode::NOT_FOUND
     } else if e.starts_with("Workspace is closing:")
+        || e.starts_with("Tab close reservation lost")
+        || e.starts_with("Tab is closing:")
         || e.starts_with("Workspace close reservation lost:")
         || e.starts_with("Workspace changed while closing:")
         || e.starts_with(codeterm_service_core::service::BUSY_WORKER_CLOSE_REFUSAL_PREFIX)
@@ -694,15 +739,18 @@ pub async fn rename_tab(
     headers: HeaderMap,
     Path(raw_tab_id): Path<String>,
     Json(body): Json<RenameTabBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
+) -> Result<Json<serde_json::Value>, axum::response::Response> {
+    check_auth(&state, &headers).map_err(axum::response::IntoResponse::into_response)?;
     codeterm_service_core::service::tab::validate_tab_title(&body.title).map_err(|_| {
         (
             StatusCode::BAD_REQUEST,
             codeterm_service_core::service::tab::TAB_TITLE_ERROR,
         )
+            .into_response()
     })?;
-    let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id).await?;
+    let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id)
+        .await
+        .map_err(axum::response::IntoResponse::into_response)?;
     let result = codeterm_service_core::dispatch::dispatch_blocking(
         codeterm_service_core::dispatch::Command::TabRename {
             tab_id,
@@ -711,7 +759,7 @@ pub async fn rename_tab(
         state.svc.clone(),
     )
     .await
-    .map_err(|_| (StatusCode::NOT_FOUND, "Tab not found"))?;
+    .map_err(map_metadata_error)?;
     Ok(Json(result.into_json()))
 }
 
@@ -725,11 +773,11 @@ pub async fn describe_tab(
     headers: HeaderMap,
     Path(raw_tab_id): Path<String>,
     Json(body): Json<DescribeTabBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+) -> Result<Json<serde_json::Value>, axum::response::Response> {
+    check_auth(&state, &headers).map_err(axum::response::IntoResponse::into_response)?;
     let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id)
         .await
-        .map_err(|(s, m)| (s, m.to_string()))?;
+        .map_err(axum::response::IntoResponse::into_response)?;
     let result = codeterm_service_core::dispatch::dispatch_blocking(
         codeterm_service_core::dispatch::Command::TabDescribe {
             tab_id,
@@ -738,7 +786,7 @@ pub async fn describe_tab(
         state.svc.clone(),
     )
     .await
-    .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    .map_err(map_metadata_error)?;
     Ok(Json(result.into_json()))
 }
 
@@ -1021,7 +1069,7 @@ pub async fn stop_capture(
     let owner = state.clone();
     let (pty_id, screen) = tokio::task::spawn_blocking(move || {
         let pty_id = resolve_pty_id_with_fallback(&owner, &raw_tab_id)?;
-        let screen = owner.svc.screen_state.lock().get_screen_text(&pty_id);
+        let screen = owner.svc.screen_state.get_screen_text(&pty_id);
         Ok::<_, (StatusCode, &'static str)>((pty_id, screen))
     })
     .await
@@ -1103,3 +1151,6 @@ pub async fn list_shell_profiles(
     .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
     Ok(Json(result.into_json()))
 }
+
+#[cfg(test)]
+mod metadata_tests;

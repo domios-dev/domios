@@ -1,9 +1,12 @@
 name: plugin-release
 
 on:
-  push:
-    tags:
-      - 'plugin-*-v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing plugin tag on the reviewed release branch commit
+        type: string
+        required: true
 
 concurrency:
   group: plugin-release-${{ github.ref }}
@@ -15,25 +18,52 @@ permissions:
 jobs:
   publish:
     name: validate and publish plugin
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && startsWith(github.ref, 'refs/heads/release/') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    environment: release
     runs-on: [self-hosted, linux-build]
     steps:
-      - uses: actions/checkout@v5
+      - name: Use the runner bundled Node
+        if: runner.environment == 'self-hosted'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
         with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v5
+          script: |-
+            const path = require('node:path');
+            core.addPath(path.dirname(process.execPath));
+            core.info('Using runner Node ' + process.version);
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
           package-manager-cache: false
-          node-version: '22.22.0'
-      - uses: pnpm/action-setup@v4
+          node-version: 22.22.0
+        if: runner.environment == 'github-hosted'
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+          ref: ${{ github.sha }}
+      - name: Discover installed runner tools
+        if: runner.environment == 'self-hosted'
+        run: node scripts/ci-runner-paths.mjs --paths-only
+      - name: Fetch scoped master history
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci-git-history.mjs master
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
         with:
           version: 10.32.1
           run_install: false
-      - name: Require a verified master commit
-        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/master
+          dest: ${{ runner.tool_cache }}/setup-pnpm
+        if: runner.environment == 'github-hosted'
+      - name: Require a verified master commit and exact plugin tag
+        env:
+          PLUGIN_TAG: ${{ inputs.tag }}
+        run: |
+          [[ "$PLUGIN_TAG" =~ ^plugin-[a-z0-9-]+-v[0-9] ]]
+          git fetch --no-tags --depth=1 origin "refs/tags/$PLUGIN_TAG:refs/tags/$PLUGIN_TAG"
+          test "$(git rev-parse "$PLUGIN_TAG^{commit}")" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/master
       - name: Validate release metadata
         id: plugin
         env:
-          PLUGIN_TAG: ${{ github.ref_name }}
+          PLUGIN_TAG: ${{ inputs.tag }}
         run: |
           node scripts/release-plugin.mjs check "$PLUGIN_TAG" > plugin-release.json
           # JavaScript template substitutions must reach Node unchanged.
@@ -49,34 +79,53 @@ jobs:
       - name: Archive plugin
         env:
           PLUGIN_PATH: ${{ steps.plugin.outputs.path }}
-          PLUGIN_TAG: ${{ github.ref_name }}
+          PLUGIN_TAG: ${{ inputs.tag }}
         run: |
           node scripts/release-plugin.mjs archive "$PLUGIN_TAG" "$GITHUB_SHA" "$PLUGIN_TAG.tar.gz"
           shasum -a 256 "$PLUGIN_TAG.tar.gz" > "$PLUGIN_TAG.tar.gz.sha256"
       - name: Publish plugin release
         env:
           GH_TOKEN: ${{ github.token }}
-          PLUGIN_TAG: ${{ github.ref_name }}
+          PLUGIN_TAG: ${{ inputs.tag }}
         run: |
           gh release create "$PLUGIN_TAG" "$PLUGIN_TAG.tar.gz" "$PLUGIN_TAG.tar.gz.sha256" \
             --verify-tag --latest=false --title "$PLUGIN_TAG" \
             --notes-file plugin-release.json
-  # Every install reads codeterm-core from these public assets; the source repository stays private.
+  # Every install reads codeterm-core from these public assets.
   publish_core_channel:
     name: publish public codeterm-core channel
     needs: publish
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && startsWith(github.ref, 'refs/heads/release/') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    environment: release
     runs-on: [self-hosted, linux-build]
     concurrency:
       group: codeterm-core-channel-publication
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v5
+      - name: Use the runner bundled Node
+        if: runner.environment == 'self-hosted'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
         with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v5
+          script: |-
+            const path = require('node:path');
+            core.addPath(path.dirname(process.execPath));
+            core.info('Using runner Node ' + process.version);
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
           package-manager-cache: false
-          node-version: '22.22.0'
+          node-version: 22.22.0
+        if: runner.environment == 'github-hosted'
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+          ref: ${{ github.sha }}
+      - name: Discover installed runner tools
+        if: runner.environment == 'self-hosted'
+        run: node scripts/ci-runner-paths.mjs --paths-only
+      - name: Fetch scoped ancestry history
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci-git-history.mjs ancestry
       - name: Publish the core channel archive to the public release mirror
         env:
           GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}

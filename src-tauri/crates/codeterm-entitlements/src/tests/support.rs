@@ -97,8 +97,8 @@ pub fn paid() -> Value {
         "schema_version": 1, "iss": "domios-entitlements",
         "aud": {"project": PROJECT, "env": "test"},
         "sub": UID, "inst": INST, "revision": 10, "policy_version": 1, "policy_epoch": EPOCH,
-        "issued_at": T, "not_before": T, "refresh_after": T + 1_800,
-        "expires_at": T + 3_600, "grace_until": T + 3_600,
+        "issued_at": T, "not_before": T, "refresh_after": T + 3_600,
+        "expires_at": T + 86_400, "grace_until": T + 86_400,
         "authority": "billing", "label": "pro",
         "enforcement": {"enabled": false, "rollback": false},
         "limits": {

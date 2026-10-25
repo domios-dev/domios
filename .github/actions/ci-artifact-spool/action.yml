@@ -13,4 +13,4 @@ runs:
         name: ${{ steps.spool.outputs.name }}
         path: ${{ steps.spool.outputs.path }}
         if-no-files-found: error
-        retention-days: 7
+        retention-days: 3

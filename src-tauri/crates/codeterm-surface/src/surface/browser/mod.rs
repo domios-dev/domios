@@ -4,6 +4,7 @@ mod heuristics;
 mod inbox;
 mod input;
 mod page;
+mod redaction;
 mod resume;
 mod snip;
 mod stream;
@@ -87,6 +88,7 @@ pub struct BrowserRuntime {
     grabs: Mutex<GrabStore>,
     snips: Mutex<SnipStore>,
     inbox: Mutex<AnnotationInbox>,
+    secrets: Mutex<Vec<String>>,
 }
 
 fn cdp_error(error: codeterm_browser::CdpError) -> String {
@@ -122,6 +124,7 @@ impl BrowserRuntime {
             grabs: Mutex::new(GrabStore::default()),
             snips: Mutex::new(SnipStore::default()),
             inbox: Mutex::new(AnnotationInbox::default()),
+            secrets: Mutex::new(Vec::new()),
         }
     }
 
@@ -375,7 +378,10 @@ impl SurfaceRuntime for BrowserRuntime {
         method: &str,
         args: Value,
     ) -> Result<SurfaceCallOutcome, String> {
-        self.view_call(ctx, method, args).await
+        self.view_call(ctx, method, args)
+            .await
+            .map(|outcome| self.redact_outcome(outcome))
+            .map_err(|error| self.redact_text(&error))
     }
 
     async fn agent_verb(
@@ -384,7 +390,25 @@ impl SurfaceRuntime for BrowserRuntime {
         verb: &str,
         args: &[String],
     ) -> Result<String, String> {
-        self.run_verb(ctx, verb, args).await
+        if verb == "type-secret" {
+            let secret = args
+                .last()
+                .ok_or("Secret typing needs a target and stdin text")?;
+            if secret.is_empty() || args.len() < 2 {
+                return Err("Secret typing needs a target and nonempty stdin text".into());
+            }
+            let mut secrets = self.secrets.lock();
+            if !secrets.contains(secret) {
+                if secrets.len() >= 128 {
+                    return Err("Secret typing limit reached; reopen the Browser".into());
+                }
+                secrets.push(secret.clone());
+            }
+        }
+        self.run_verb(ctx, verb, args)
+            .await
+            .map(|result| self.redact_text(&result))
+            .map_err(|error| self.redact_text(&error))
     }
 
     async fn annotate(
@@ -392,7 +416,10 @@ impl SurfaceRuntime for BrowserRuntime {
         ctx: &SurfaceCallCtx,
         args: &[String],
     ) -> Result<SurfaceCallOutcome, String> {
-        self.run_annotate(ctx, args).await
+        self.run_annotate(ctx, args)
+            .await
+            .map(|outcome| self.redact_outcome(outcome))
+            .map_err(|error| self.redact_text(&error))
     }
 
     fn annotation_delivered(&self, id: &str) {

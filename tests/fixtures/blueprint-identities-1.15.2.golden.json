@@ -1,0 +1,178 @@
+[
+  {
+    "name": "pipeline",
+    "document": {
+      "kind": "pipeline",
+      "name": "identity-pipeline",
+      "schema_version": 2,
+      "steps": [
+        {
+          "code": {
+            "lang": "python",
+            "src": "def main(value): return value",
+            "limits": {}
+          },
+          "id": "produce",
+          "out": {
+            "type": "string"
+          },
+          "model_classification": false,
+          "paused": false,
+          "session": false
+        }
+      ],
+      "trigger": {
+        "kind": {
+          "lit": "tab_output"
+        },
+        "type": "event",
+        "params": {}
+      },
+      "result": {}
+    },
+    "hash": "add056fe96d057078d15da981c646b12da40824f12042a4f77b6988a7ceab775"
+  },
+  {
+    "name": "watch",
+    "document": {
+      "kind": "watch",
+      "name": "identity-watch",
+      "schema_version": 2,
+      "steps": [
+        {
+          "every": {
+            "lit": "20s"
+          },
+          "id": "source",
+          "paused": true,
+          "uses": "probe",
+          "with": {
+            "command": {
+              "lit": "echo ready"
+            }
+          },
+          "model_classification": false,
+          "session": false
+        },
+        {
+          "buckets": [
+            "ready"
+          ],
+          "id": "decide",
+          "matches": {
+            "ready": {
+              "lit": "ready"
+            }
+          },
+          "routes": {
+            "other": "@stop",
+            "ready": "@stop"
+          },
+          "until": "ready",
+          "uses": "ask",
+          "with": {
+            "question": {
+              "lit": "Is it ready?"
+            }
+          },
+          "model_classification": false,
+          "paused": false,
+          "session": false
+        }
+      ],
+      "result": {}
+    },
+    "hash": "92a7a533194680121a1287f7821fa7295494e2330d649dd752d68282fa033481"
+  },
+  {
+    "name": "call",
+    "document": {
+      "dependencies": {
+        "mem:identity-helper@976784c1c8e61e118b06d504e3742f779e0f8ab8be020ebc3f492e31bde991bb": {
+          "document": {
+            "kind": "pipeline",
+            "name": "identity-helper",
+            "result": {
+              "from": "emit.out",
+              "type": {
+                "type": "string"
+              }
+            },
+            "schema_version": 2,
+            "steps": [
+              {
+                "id": "emit",
+                "out": {
+                  "type": "string"
+                },
+                "run": {
+                  "lit": "echo ready"
+                },
+                "model_classification": false,
+                "paused": false,
+                "session": false
+              }
+            ]
+          },
+          "hash": "976784c1c8e61e118b06d504e3742f779e0f8ab8be020ebc3f492e31bde991bb",
+          "id": "mem:identity-helper"
+        }
+      },
+      "kind": "pipeline",
+      "name": "identity-call",
+      "schema_version": 2,
+      "steps": [
+        {
+          "call": {
+            "pin": {
+              "id": "mem:identity-helper",
+              "hash": "976784c1c8e61e118b06d504e3742f779e0f8ab8be020ebc3f492e31bde991bb"
+            },
+            "ref": "mem:identity-helper"
+          },
+          "id": "helper",
+          "model_classification": false,
+          "paused": false,
+          "session": false
+        }
+      ],
+      "trigger": {
+        "every": {
+          "lit": "20s"
+        },
+        "type": "schedule"
+      },
+      "result": {}
+    },
+    "hash": "72a8423ca968bbb1b33fb4b1aa3d25eeffaa3b8fd805f498d9059214faba72f3"
+  },
+  {
+    "name": "callable",
+    "document": {
+      "kind": "pipeline",
+      "name": "identity-helper",
+      "result": {
+        "from": "emit.out",
+        "type": {
+          "type": "string"
+        }
+      },
+      "schema_version": 2,
+      "steps": [
+        {
+          "id": "emit",
+          "out": {
+            "type": "string"
+          },
+          "run": {
+            "lit": "echo ready"
+          },
+          "model_classification": false,
+          "paused": false,
+          "session": false
+        }
+      ]
+    },
+    "hash": "976784c1c8e61e118b06d504e3742f779e0f8ab8be020ebc3f492e31bde991bb"
+  }
+]

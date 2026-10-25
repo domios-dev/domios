@@ -32,6 +32,13 @@ record() {
 }
 
 store_down() {
+  # One backend for the entire Actions run, across hosted and private runners.
+  if [ "${GITHUB_ACTIONS:-}" = true ]; then
+    case "$key" in
+      [0-9]*/rust-receipt/*|[0-9]*/rust-warnings/*|[0-9]*/rust-warnings-*/*|[0-9]*/frontend-dist/*) return 0 ;;
+    esac
+  fi
+  [ "${CI_ARTIFACT_STORAGE:-}" != github ] || return 0
   [ -n "${GITHUB_ACTIONS:-}" ] && ! CT_CI_STORE_ENDPOINT="$endpoint" ct_ci_store_reachable
 }
 
@@ -41,7 +48,7 @@ spool_put() {
   [ -f "$spool/.name" ] || printf 'ci-artifact-spool-%s-%s-%s\n' "${GITHUB_JOB:-job}" "$(date +%s)" "$$$RANDOM" > "$spool/.name"
   name=$(cat "$spool/.name")
   cp "$1" "$spool/$key"
-  echo "::warning::private store $endpoint is unreachable; $key is retained in run artifact $name"
+  echo "::warning::artifact backend selected; $key is retained in run artifact $name"
   record "$key" "run-artifact:$name/$key"
 }
 
@@ -50,13 +57,10 @@ fallback_cache() {
   local run="${key%%/*}" cache
   case "$run" in ''|*[!0-9]*) echo "ci-artifact: key $key names no run id for the run-artifact fallback" >&2; return 2 ;; esac
   cache="${RUNNER_TEMP:?RUNNER_TEMP is not set}/ci-artifact-fallback/$run"
+  if [ -d "$RUNNER_TEMP/ci-artifact-spool" ]; then mkdir -p "$cache"; fi
   if [ ! -d "$cache" ]; then
-    export GH_TOKEN="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
-    [ -n "$GH_TOKEN" ] || { echo "ci-artifact: store unreachable and no GH_TOKEN for the run-artifact fallback" >&2; return 2; }
-    rm -rf "$cache.part"
-    mkdir -p "$cache.part"
-    gh run download "$run" --repo "${GITHUB_REPOSITORY:?}" --pattern 'ci-artifact-spool-*' --dir "$cache.part" >&2
-    mv "$cache.part" "$cache"
+    echo "ci-artifact: workflow must download ci-artifact-spool artifacts for run $run before reading fallback evidence" >&2
+    return 2
   fi
   printf '%s\n' "$cache"
 }
@@ -66,14 +70,12 @@ fallback_locate() {
   local cache="$1" wanted="$2" candidate
   if [ -e "$cache/$wanted" ]; then
     printf 'run-artifact\t%s\n' "$cache/$wanted"
-    return 0
   fi
-  for candidate in "$cache"/*/"$wanted"; do
+  for candidate in "$cache"/*/"$wanted" "$RUNNER_TEMP/ci-artifact-spool/$wanted"; do
     [ -e "$candidate" ] || continue
     printf '%s\t%s\n' "$(basename "${candidate%/"$wanted"}")" "$candidate"
-    return 0
   done
-  return 1
+  return 0
 }
 
 s3() {
@@ -95,24 +97,40 @@ if store_down; then
     get)
       file=${3:?missing file}
       cache=$(fallback_cache)
-      found=$(fallback_locate "$cache" "$key") || { echo "ci-artifact: $key is in no run artifact of run ${key%%/*}" >&2; exit 1; }
-      cp "${found#*$'\t'}" "$file"
-      record "$key" "run-artifact:${found%%$'\t'*}/$key"
-      echo "ci-artifact: got $key from run artifact ${found%%$'\t'*} ($(wc -c < "$file") bytes)"
+      found_any=0
+      while IFS=$'\t' read -r artifact object; do
+        [ -n "$object" ] || continue
+        if [ "$found_any" = 1 ]; then
+          cmp -s "$object" "$file" || { echo "ci-artifact: conflicting copies of $key" >&2; exit 1; }
+        else
+          cp "$object" "$file"
+          found_any=1
+        fi
+        record "$key" "run-artifact:$artifact/$key"
+      done < <(fallback_locate "$cache" "$key")
+      [ "$found_any" = 1 ] || { echo "ci-artifact: $key is in no run artifact of run ${key%%/*}" >&2; exit 1; }
+      echo "ci-artifact: got $key from run artifacts"
       ;;
     get-prefix)
       dir=${3:?missing directory}
       mkdir -p "$dir"
       cache=$(fallback_cache)
       count=0
-      if found=$(fallback_locate "$cache" "$key"); then
-        for object in "${found#*$'\t'}"/*; do
+      while IFS=$'\t' read -r artifact directory; do
+        [ -n "$directory" ] || continue
+        for object in "$directory"/*; do
           [ -f "$object" ] || continue
-          cp "$object" "$dir/${object##*/}"
-          record "$key${object##*/}" "run-artifact:${found%%$'\t'*}/$key${object##*/}"
+          target="$dir/${object##*/}"
+          if [ -f "$target" ]; then
+            cmp -s "$object" "$target" || { echo "ci-artifact: conflicting copies of $key${object##*/}" >&2; exit 1; }
+          else
+            cp "$object" "$target"
+          fi
           count=$((count + 1))
+          record "$key${object##*/}" "run-artifact:$artifact/$key${object##*/}"
         done
-      fi
+      done < <(fallback_locate "$cache" "$key")
+      [ "$count" -gt 0 ] || { echo "ci-artifact: $key is in no run artifact" >&2; exit 1; }
       echo "ci-artifact: got $count object(s) under $key from the run artifacts into $dir"
       ;;
     rm) echo "::warning::private store $endpoint is unreachable; $key was not removed" ;;

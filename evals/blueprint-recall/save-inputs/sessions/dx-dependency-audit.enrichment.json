@@ -1,0 +1,99 @@
+{
+  "duration_api_ms": 14260,
+  "stop_reason": "end_turn",
+  "session_id": "c1a7c698-da5d-4510-a56b-cde2d48e2dfd",
+  "total_cost_usd": 0.031222,
+  "usage": {
+    "input_tokens": 9,
+    "cache_creation_input_tokens": 11524,
+    "cache_read_input_tokens": 0,
+    "output_tokens": 1633,
+    "output_tokens_details": {
+      "thinking_tokens": 1515
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 11524,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "not_available",
+    "iterations": [
+      {
+        "input_tokens": 9,
+        "output_tokens": 1633,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 11524,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 11524
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-haiku-4-5-20251001": {
+      "inputTokens": 9,
+      "outputTokens": 1633,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 11524,
+      "webSearchRequests": 0,
+      "costUSD": 0.031222,
+      "contextWindow": 200000,
+      "maxOutputTokens": 32000,
+      "thinkingTokens": 1515,
+      "canonicalModel": "claude-haiku-4-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 1,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "WHAT: Runs weekly npm audit on a specified Node.js project and sends notifications only when high or critical vulnerabilities are detected. Uses JSON output to parse severity levels and filters out low-severity findings to reduce alert noise. Automatically triggered every seven days. || INTENT: Alert me weekly if npm finds high or critical vulnerabilities || INTENT: Scan dependencies and notify only about severe security issues || INTENT: Automated security audit with conditional alerts for dangerous packages || INTENT: Set up weekly dependency checks that only alert on critical findings",
+  "ttft_ms": 13615,
+  "type": "result",
+  "duration_ms": 14379,
+  "uuid": "19c18fae-c256-49f0-8cf5-dde1c42a474a",
+  "ttft_stream_ms": 649,
+  "time_to_request_ms": 75,
+  "first_content_frame_ms": 649,
+  "queued_turn_count": 0,
+  "result_index": 0
+}

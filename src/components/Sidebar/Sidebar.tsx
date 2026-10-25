@@ -1,4 +1,6 @@
 import { createNoticePublisher } from "../../lib/notices";
+import { firstRunLocked, firstRunSelection, firstRunSidebarTabs } from "../../lib/firstRunGate";
+import { FirstRunControls } from "../AgentPicker/FirstRunControls";
 import { useTeamClose } from "./useTeamClose";
 import { isWorkspaceCwdRefusal, spawnErrorMessage } from "../../lib/spawnErrorMessage";
 import { precheckFreeLimit } from "../billing/freeLimitGate";
@@ -31,13 +33,11 @@ import {
 import { RemoteFolderPicker } from "../shared/RemoteFolderPicker";
 import { LiquidFlip } from "../shared/LiquidToggle";
 import type { MeshPresence } from "./meshPresenceHeader";
-import { flattenSidebarTabs, isSidebarTabVisible, tabsInWorkspace } from "./workspaceTabs";
+import { flattenSidebarTabs, isGeneralSectionTab, isSidebarTabVisible, tabsInWorkspace } from "./workspaceTabs";
 import { aggregateTabStatuses } from "./tabStatuses";
 import { usePlanIndexOptional, useSidebarPlansOptional } from "../Canvas/PlansProvider";
 import { renamePlan } from "../Canvas/plansApi";
 import { isWorkspaceTabActive } from "./sidebarSelection";
-import { buildSidebarCycleItems, cycleStep } from "./sidebarCycle";
-import { matchesBinding } from "../../lib/keybindings";
 import { SidebarWorkspaceDetail, type SidebarWorkspaceDetailActions, type SidebarWorkspaceDetailData } from "./SidebarWorkspaceDetail";
 import { SidebarGeneralSection } from "./SidebarGeneralSection";
 import { SidebarSkeleton } from "./SidebarSkeleton";
@@ -55,7 +55,6 @@ import type { OrchestrationGroupMember } from "./orchestrationGroupClose";
 import { hydrateProtectedExpanded, initialSidebarExpanded, partitionSidebarWorkspaces } from "./sidebarSections";
 import { NewSessionPicker } from "../Terminal/NewSessionPicker";
 import { OPEN_NEW_SESSION_EVENT, type OpenNewSessionDetail } from "../../lib/newSessionChoice";
-import { isFirstRunGeneralTab } from "../AgentPicker";
 import { RemoteTabPicker } from "./RemoteTabPicker";
 import { tabAttentionByTab } from "./tabAttention";
 import { teamCloseResourcesForId, teamCloseResourcesForWorkspace, type TeamCloseResource } from "./teamCloseResources";
@@ -129,13 +128,17 @@ export const Sidebar = memo(function Sidebar({
     reopenGroup,
     restoreOrphaned,
     setActiveTab,
-    setTabTitle,
+    renameTab,
     spawnAgentTab,
     createOrchestrationPair,
     selectTabByTab,
     upsertToast,
   } = useMultiplexer();
-  const state = useMuxSelector(selectSidebarState, sidebarStateEqual);
+  const backendState = useMuxSelector(selectSidebarState, sidebarStateEqual);
+  const firstRunActive = firstRunLocked(config?.general_agent);
+  const selectedState = firstRunSelection(firstRunActive, { ...backendState, focused_tab_id: null });
+  const visibleTabs = useMemo(() => firstRunSidebarTabs(firstRunActive, backendState.tabs), [firstRunActive, backendState.tabs]);
+  const state = { ...selectedState, tabs: visibleTabs };
   const reopenRecentlyClosed = useCallback((workspaceId: string, index: number, orphaned: boolean, tabId: string) => {
     if (orphaned) restoreOrphaned(tabId);
     else reopenClosed(workspaceId, index);
@@ -242,10 +245,6 @@ export const Sidebar = memo(function Sidebar({
     });
   }, [upsertToast, createOrchestrationPair, orchestrationModal, selectTabByTab]);
 
-  const firstRunActive = useMemo(
-    () => Object.values(state.tabs).some(isFirstRunGeneralTab),
-    [state.tabs],
-  );
 
   const handleNewSession = useCallback((workspaceId: string, workspaceCwd: string | null) => {
     if (firstRunActive) return;
@@ -622,31 +621,6 @@ export const Sidebar = memo(function Sidebar({
     if (!pending) return;
     void finishTeamClose(pending.teamId, pending.workspaceId, () => setPendingTeamClose(null));
   }, [pendingTeamClose, finishTeamClose]);
-  useEffect(() => {
-    const kb = config?.keybindings;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const forward = matchesBinding(e, kb?.next_tab ?? "Ctrl+Tab");
-      const backward = !forward && matchesBinding(e, kb?.prev_tab ?? "Ctrl+Shift+Tab");
-      if (!forward && !backward) return;
-
-      const ws = state.workspaces.find((w) => w.id === state.active_workspace_id);
-      if (!ws) return;
-
-      const items = buildSidebarCycleItems(ws.tabs, state.tabs, false);
-      if (items.length < 2) return;
-
-      const direction = forward ? 1 : -1;
-      const next = cycleStep(items, state.activeTabIds[ws.id], workspaceCanvasActive, direction);
-      if (!next || next.kind !== "tab") return;
-
-      e.preventDefault();
-      setActiveTab(ws.id, next.tabId);
-      onNavigateToTab?.();
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [config?.keybindings, state, workspaceCanvasActive, setActiveTab, onNavigateToTab]);
-
   const sortedWorkspaces = useMemo(() => sortByOrder(state.workspaces), [state.workspaces]);
   const { general: generalWorkspace, workspaces: ordinaryWorkspaces } = useMemo(
     () => partitionSidebarWorkspaces(sortedWorkspaces),
@@ -706,18 +680,20 @@ export const Sidebar = memo(function Sidebar({
     compact: isCompact,
     sidebarActionText,
     orchestrators: orchestratorTabs,
-    newSessionDisabled: firstRunActive,
+    newSessionDisabled: false,
   }), [state.tabs, state.tabStatuses, attention, state.teams, planIndex, fullPlans.plans, visibleProviders,
     providersLoading, closingTabIds, appearingTabs, closingTeamIds, state.activeTabIds, state.active_workspace_id,
-    isWorkspaceMode, workspaceCanvasActive, touchMode, uiFontScale, isCompact, sidebarActionText, orchestratorTabs, firstRunActive]);
+    isWorkspaceMode, workspaceCanvasActive, touchMode, uiFontScale, isCompact, sidebarActionText, orchestratorTabs]);
   const workspaceDetailActions = useMemo<SidebarWorkspaceDetailActions>(() => ({
     activateWorkspace: (workspaceId) => { setActiveWorkspace(workspaceId); onNavigateToTab?.(); },
     activateTab: (workspaceId, tabId) => { setActiveTab(workspaceId, tabId); onNavigateToTab?.(); },
     closeTab: animatedCloseTab,
-    renameTab: setTabTitle,
+    renameTab,
     renameWorkspace,
     closeWorkspace: requestWorkspaceClose,
-    newTerminal: (workspaceId, shell) => createTab(workspaceId, undefined, shell),
+    newTerminal: (workspaceId, shell) => {
+      void createTab(workspaceId, undefined, shell).then((created) => { if (created) onNavigateToTab?.(); });
+    },
     newSession: handleNewSession,
     newAgent: handleAgentSpawn,
     openRemoteTab: setRemotePickerWorkspaceId,
@@ -727,7 +703,7 @@ export const Sidebar = memo(function Sidebar({
     renameTeam: teamActions?.onRenameTeam,
     addTeamMember: teamActions?.onAddTeamMember,
     closeTeam: teamActions?.onCloseTeam ? requestTeamClose : undefined,
-  }), [setActiveWorkspace, onNavigateToTab, setActiveTab, animatedCloseTab, setTabTitle, renameWorkspace, requestWorkspaceClose,
+  }), [setActiveWorkspace, onNavigateToTab, setActiveTab, animatedCloseTab, renameTab, renameWorkspace, requestWorkspaceClose,
     createTab, handleNewSession, handleAgentSpawn, onOpenWorkspaceMap, onOpenWorkspaceAutomation, handleRenamePlan,
     teamActions?.onRenameTeam, teamActions?.onAddTeamMember, teamActions?.onCloseTeam, requestTeamClose]);
   const dndHandlers = useMemo(
@@ -743,7 +719,7 @@ export const Sidebar = memo(function Sidebar({
       return { workspaceId, label, tabs, activeTabId: active?.id ?? null };
     };
     const groups: CompactRailGroup[] = [];
-    if (generalWorkspace) groups.push(railGroup(generalWorkspace.id, generalWorkspace.name, generalWorkspace.tabs, (tab) => Boolean(tab.agent_type)));
+    if (generalWorkspace) groups.push(railGroup(generalWorkspace.id, generalWorkspace.name, generalWorkspace.tabs, isGeneralSectionTab));
     const selected = ordinaryWorkspaces.find((workspace) => workspace.id === selectedWorkspaceId);
     if (selected) groups.push(railGroup(selected.id, selected.name, selected.tabs, (tab) => anchorsTeam(tab)));
     return groups;
@@ -752,7 +728,7 @@ export const Sidebar = memo(function Sidebar({
   const scrollAnchor = useSidebarScrollAnchor(!isSidebarCollapsed || isPeeking);
 
   return (
-    <>
+    <FirstRunControls locked={firstRunActive}>
       <div
         className="relative overflow-visible shrink-0 h-full"
         style={{
@@ -794,7 +770,7 @@ export const Sidebar = memo(function Sidebar({
               {!isCompact && !restoring && generalWorkspace && (
                 <SidebarGeneralSection
                   workspace={generalWorkspace}
-                  expanded={expandedWorkspaces.has(generalWorkspace.id)}
+                  expanded={firstRunActive || expandedWorkspaces.has(generalWorkspace.id)}
                   onToggle={() => toggleExpanded(generalWorkspace.id)}
                   providerId={config?.general_agent.agent_provider}
                   api={config?.api}
@@ -1003,6 +979,6 @@ export const Sidebar = memo(function Sidebar({
           }}
         />
       )}
-    </>
+    </FirstRunControls>
   );
 });

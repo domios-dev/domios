@@ -35,7 +35,9 @@ pub(super) fn reconcile_subscriptions(svc: &ServiceContext, handle: &Handle) {
                     &pipeline.trigger,
                     codeterm_blueprint_types::blueprint_pipeline::Trigger::Event { .. }
                 )
-            }) && !job.machine.stopped
+            }) && job.admission.permits_steps()
+                && !crate::plan_lock::locked(&svc.locks(), job)
+                && !job.machine.stopped
                 && !job.machine.paused
                 && !job.expires_at.is_some_and(|at| now >= at)
                 && super::super::routes::owner_live(svc, job)
@@ -68,7 +70,9 @@ pub(super) fn reconcile_subscriptions(svc: &ServiceContext, handle: &Handle) {
             Some(job) if job.expires_at.is_some_and(|at| now >= at) => {
                 codeterm_blueprint_types::blueprint_pipeline::SubscriptionOwnerState::Expired
             }
-            Some(job) if job.machine.stopped || job.machine.paused => {
+            Some(job)
+                if job.machine.stopped || job.machine.paused || !job.admission.permits_steps() =>
+            {
                 codeterm_blueprint_types::blueprint_pipeline::SubscriptionOwnerState::Stopped
             }
             Some(job) if !super::super::routes::owner_live(svc, job) => {
@@ -245,26 +249,11 @@ mod tests {
             directory.path().join("events.json"),
             clock,
         )));
-        let spec = codeterm_blueprint_types::blueprint_pipeline::BlueprintSpec {
-            note: None,
-            name: "event-lease-test".into(),
-            owner: codeterm_blueprint_types::blueprint_pipeline::BlueprintOwner::Tab,
-            trigger: codeterm_blueprint_types::blueprint_pipeline::Trigger::Event {
-                kind: "fixture.message".into(),
-                params: serde_json::json!({}),
-            },
-            steps: vec![codeterm_blueprint_types::blueprint_pipeline::Step {
-                name: "match".into(),
-                input: codeterm_blueprint_types::blueprint_pipeline::IoType::Text,
-                kind: codeterm_blueprint_types::blueprint_pipeline::StepKind::Filter {
-                    pattern: "fixture".into(),
-                    bucket: None,
-                },
-                on: Default::default(),
-            }],
-            result: Default::default(),
-        };
-        let job = store.lock().prepare_pipeline(spec, owner(), false).unwrap();
+        let document = json!({"schema_version":2,"kind":"pipeline","name":"event-lease-test","owner":"tab","trigger":{"type":"event","kind":{"lit":"fixture.message"}},"steps":[{"id":"match","uses":"filter","with":{"pattern":{"lit":"fixture"}}}]});
+        let job = store
+            .lock()
+            .prepare_document(document, owner(), false)
+            .unwrap();
         super::super::storage::commit(&store, |current| current.stage_insert(job)).unwrap();
         assert!(store.lock().event_wait_only());
         let event = codeterm_plugin::graph_events::EventEnvelope {

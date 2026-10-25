@@ -130,9 +130,11 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
   for (const frame of frames) {
     const params = object(frame.params);
     if (frame.kind === "notification" && frame.method === "account/login/completed") {
+      delete state.rateLimitSnapshot;
       events.push(loginCompleted(params)); continue;
     }
     if (frame.kind === "notification" && frame.method === "account/updated") {
+      delete state.rateLimitSnapshot;
       if (ctx.threadId) events.push({kind:"controlsConfirmed",threadId:ctx.threadId,settings:{serviceTierAvailability:{}}});
       events.push(notificationAuth(params)); continue;
     }
@@ -208,8 +210,8 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
         delete state.activeTurnId;
         delete state.compacting;
         const failure = object(object(params.turn).error);
-        if (text(failure.message)) {
-          const error = runtimeError(failure);
+        if (Object.keys(failure).length) {
+          const error = runtimeError(failure,false,state.rateLimitSnapshot);
           events.push({kind:"chatItem",threadId,item:stamp(state,{id:`${turnId}:error`,seq:state.seq+1,type:"system",content:error.message,systemSubtype:"api_error",toolInput:error.metadata},params)});
         }
         const outcome = turnOutcome(params.turn);
@@ -270,7 +272,7 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
         if (row) events.push({kind:"chatItem",threadId,item:stamp(state,row,params)}); break;
       }
       case "error": {
-        const error = runtimeError(params.error,params.willRetry === true);
+        const error = runtimeError(params.error,params.willRetry === true,state.rateLimitSnapshot);
         if (turnId) events.push({kind:"chatItem",threadId,item:stamp(state,{id:`${turnId}:error`,seq:state.seq+1,type:"system",content:error.message,systemSubtype:params.willRetry === true ? "provider_retry" : "api_error",toolInput:error.metadata},params)});
         break;
       }

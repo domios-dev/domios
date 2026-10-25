@@ -1,8 +1,12 @@
 [package]
-license = "PolyForm-Shield-1.0.0"
+license = "LicenseRef-Domios-1.0"
 name = "codeterm-mem"
 version = "0.0.0"
 edition = "2021"
+
+[[example]]
+name = "blueprint_recall_eval"
+path = "../../../evals/blueprint-recall/runner/main.rs"
 
 [dependencies]
 codeterm-blueprint-types = { path = "../codeterm-blueprint-types" }
@@ -15,6 +19,7 @@ parking_lot = "0.12"
 rusqlite = { version = "0.32", features = ["bundled", "blob", "functions", "load_extension"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+serde_yaml = "0.9"
 tokio = { version = "1", features = ["sync", "rt", "time", "macros", "process"] }
 rand = "0.8"
 sha2 = "0.10"
@@ -25,6 +30,7 @@ ulid = "1"
 log = "0.4"
 regex = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
+zeroize = "1"
 sqlite-vec = { version = "0.1.9", optional = true }
 rayon = { version = "1", optional = true }
 candle-core = { version = "0.11", optional = true, default-features = false }
@@ -49,6 +55,7 @@ default = ["embeddings"]
 embeddings = ["dep:sqlite-vec", "dep:rayon", "dep:candle-core", "dep:candle-nn", "dep:candle-transformers", "dep:tokenizers", "dep:hf-hub", "dep:annembed", "dep:ndarray", "dep:hnsw_rs"]
 
 [dev-dependencies]
+codeterm-util = { path = "../codeterm-util", features = ["test-support"] }
 tempfile = "3"
 
 [lints]

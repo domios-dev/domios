@@ -615,7 +615,9 @@ impl Store {
     }
 
     pub fn action_permitted(&self, job: &Sentinel, transition: &str) -> bool {
-        self.batch_live(job, transition)
+        self.get(&job.id)
+            .is_some_and(|current| current.admission.permits_steps())
+            && self.batch_live(job, transition)
     }
 
     #[cfg(any(test, feature = "test-support"))]

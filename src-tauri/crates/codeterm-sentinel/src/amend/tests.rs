@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use super::*;
-use crate::store::{Create, Owner};
+use crate::{handlers, store::Owner};
 use codeterm_cron::clock::MockClock;
 use parking_lot::Mutex;
 
@@ -13,30 +13,8 @@ fn fixture() -> (tempfile::TempDir, Store, Sentinel) {
         MockClock::starting_at(1000),
     );
     let job = store
-        .create(
-            Create {
-                note: None,
-                terminal: None,
-                session: false,
-                name: Some("initial".into()),
-                probe: Some("status".into()),
-                observe: None,
-                input: None,
-                question: "Is it done?".into(),
-                buckets: vec!["done".into()],
-                every: "10s".into(),
-                routes: BTreeMap::new(),
-                model_classification: false,
-                matches: BTreeMap::from([("done".into(), "done".into())]),
-                rearm_on_change: Default::default(),
-                until: None,
-                timeout: None,
-                paused: false,
-                handlers: None,
-                escalation_timeout_ms: None,
-                max_transitions: None,
-                max_actions: None,
-            },
+        .create_document(
+            serde_json::json!({"schema_version":2,"kind":"watch","name":"initial","steps":[{"id":"source","uses":"probe","with":{"command":{"lit":"status"}},"every":{"lit":"10s"},"timeout":{"lit":"1h"}},{"id":"decide","uses":"ask","with":{"question":{"lit":"Is it done?"}},"buckets":["done"],"matches":{"done":{"lit":"done"}},"routes":{"done":"notice"}},{"id":"notice","uses":"notify"}]}),
             Owner {
                 creator_tab_id: "creator".into(),
                 team_id: Some("team".into()),
@@ -237,4 +215,17 @@ fn sentinel_update_keeps_bounded_immutable_json_history() {
         history.versions.last().unwrap().version,
         current.definition_version
     );
+}
+
+#[test]
+fn sentinel_update_admits_a_third_definition_version() {
+    let (_root, store, job) = fixture();
+    let store = Arc::new(Mutex::new(store));
+
+    let second = apply(&store, &job, 1, "creator", update("Second?")).expect("second version");
+    let third = apply(&store, &second, 2, "creator", update("Third?")).expect("third version");
+
+    assert_eq!(third.definition_version, 3);
+    assert_eq!(third.amendments.len(), 2);
+    assert_eq!(history(&third).versions.len(), 3);
 }

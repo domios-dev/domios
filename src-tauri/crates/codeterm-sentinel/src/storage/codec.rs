@@ -10,28 +10,17 @@ use crate::machine::{EscalateTarget, Machine, Route, SafeKind};
 use crate::source::{RunBinding, TabBinding};
 use crate::store::Sentinel;
 use codeterm_storage::{
-    AmendmentRecord, BatchFence, BucketDefinition, CaptureRecord, CommandParameters,
-    CommandResultRecord, CommandStatus as StoredCommandStatus, DefinitionProvenance,
-    DefinitionUpdate, EscalateTarget as StoredEscalateTarget, HandlerAction, HandlerDefinition,
-    HandlerResultRecord, HandlerStatus, NewTransition, ObserveKind, ObserveSource, RunRecord,
-    RuntimeOutcome, SafeKind as StoredSafeKind, SentinelCreate, SentinelId, SentinelIdentity,
-    SentinelImport, SentinelScope, StageDefinition, StageRuntime, StageSource, StoredDefinition,
-    StoredSentinel, TargetIdentity, TransitionRecord,
+    AmendmentRecord, BatchFence, BucketDefinition, CaptureRecord, CommandResultRecord,
+    CommandStatus as StoredCommandStatus, DefinitionProvenance, DefinitionUpdate,
+    EscalateTarget as StoredEscalateTarget, HandlerAction, HandlerDefinition, HandlerResultRecord,
+    HandlerStatus, NewTransition, ObserveKind, ObserveSource, RunRecord, RuntimeOutcome,
+    SafeKind as StoredSafeKind, SentinelCreate, SentinelId, SentinelIdentity, SentinelImport,
+    SentinelScope, StageDefinition, StageRuntime, StageSource, StoredDefinition, StoredSentinel,
+    TargetIdentity, TransitionRecord,
 };
 
 pub fn id(id: &str) -> Result<SentinelId, String> {
     SentinelId::new(id).map_err(|error| format!("invalid blueprint identity: {error}"))
-}
-
-fn safe_kind(kind: &SafeKind) -> StoredSafeKind {
-    match kind {
-        SafeKind::DirectoryTrust => StoredSafeKind::DirectoryTrust,
-        SafeKind::Onboarding => StoredSafeKind::Onboarding,
-        SafeKind::Update => StoredSafeKind::Update,
-        SafeKind::Permission => StoredSafeKind::Permission,
-        SafeKind::Structured => StoredSafeKind::Structured,
-        SafeKind::Other(kind) => StoredSafeKind::Other(kind.clone()),
-    }
 }
 
 fn domain_safe_kind(kind: StoredSafeKind) -> SafeKind {
@@ -46,25 +35,7 @@ fn domain_safe_kind(kind: StoredSafeKind) -> SafeKind {
 }
 
 fn action(route: &Route) -> HandlerAction {
-    match route {
-        Route::Notify => HandlerAction::Notify,
-        Route::Stop => HandlerAction::Stop,
-        Route::Send(target) => HandlerAction::Send(target.clone()),
-        Route::Cron(target) => HandlerAction::Cron(target.clone()),
-        Route::Sentinel(target) => HandlerAction::Sentinel(target.clone()),
-        Route::Command(parameters) => HandlerAction::Command(CommandParameters {
-            command: parameters.command.clone(),
-            label: parameters.label.clone(),
-            timeout_ms: parameters.timeout_ms,
-        }),
-        Route::RespondPrompt(kind) => HandlerAction::RespondPrompt(safe_kind(kind)),
-        Route::Escalate(EscalateTarget::Creator) => {
-            HandlerAction::Escalate(StoredEscalateTarget::Creator)
-        }
-        Route::Escalate(EscalateTarget::Agent(tab)) => {
-            HandlerAction::Escalate(StoredEscalateTarget::Agent(tab.clone()))
-        }
-    }
+    HandlerAction::from_route(route)
 }
 
 fn route(action: HandlerAction) -> Route {
@@ -332,13 +303,16 @@ fn domain_transition(record: TransitionRecord) -> Transition {
 
 /// Refuses any definition whose source, buckets, routes and matches would not round-trip.
 fn definition(job: &Sentinel) -> Result<StageDefinition, String> {
+    job.document
+        .as_ref()
+        .ok_or("Only native v2 Blueprint documents can be persisted")?;
     let declared: BTreeSet<&String> = job.buckets.iter().collect();
     let exact = declared.len() == job.buckets.len()
         && job.routes.len() == job.buckets.len()
         && job.routes.keys().all(|bucket| declared.contains(bucket))
         && job.matches.keys().all(|bucket| declared.contains(bucket));
     if !exact {
-        return Err("blueprint definition is not losslessly representable".into());
+        return Err("blueprint buckets, routes and matches disagree: every bucket needs exactly one route, and routes and matches may name only declared buckets. Fix the outcome lists and apply again".into());
     }
     use super::super::stage_source::StageSource as DomainSource;
     let source = match &job.source {
@@ -361,7 +335,8 @@ fn definition(job: &Sentinel) -> Result<StageDefinition, String> {
             handlers: job.routes[bucket].iter().map(handler_definition).collect(),
         })
         .collect();
-    Ok(StageDefinition {
+    let definition = StageDefinition {
+        document: job.document.clone(),
         note: job.note.clone(),
         model_classification: job.model_classification,
         session: job.session,
@@ -375,7 +350,9 @@ fn definition(job: &Sentinel) -> Result<StageDefinition, String> {
         max_actions: job.max_actions,
         buckets,
         on_other: job.on_other.iter().map(handler_definition).collect(),
-    })
+    };
+    definition.validate_native_document()?;
+    Ok(definition)
 }
 
 pub fn update_definition(
@@ -436,6 +413,7 @@ pub fn history_version(stored: StoredDefinition) -> DefinitionVersion {
         }
         .into(),
         definition: DefinitionSnapshot {
+            document: definition.document,
             model_classification: definition.model_classification,
             terminal,
             session: definition.session,
@@ -467,6 +445,7 @@ pub fn history_version(stored: StoredDefinition) -> DefinitionVersion {
 
 fn runtime(job: &Sentinel) -> StageRuntime {
     StageRuntime {
+        admission_json: Some(serde_json::json!(job.admission).to_string()),
         transition_offset: job.cleanup.transition_offset,
         action_offset: job.cleanup.action_offset,
         stopped_at: job.cleanup.stopped_at,
@@ -500,7 +479,11 @@ fn head_amendment(job: &Sentinel) -> Result<Option<AmendmentRecord>, String> {
     match job.amendments.as_slice() {
         [] if job.definition_version == 1 => Ok(None),
         [head] if head.version == job.definition_version => Ok(Some(amendment(head))),
-        _ => Err("blueprint amendment lineage is not losslessly representable".into()),
+        amendments => Err(format!(
+            "blueprint import carries {} amendments at definition version {}; import keeps only the head amendment. Delete the Blueprint and apply its current document as a new one",
+            amendments.len(),
+            job.definition_version
+        )),
     }
 }
 
@@ -541,6 +524,17 @@ pub fn create(job: &Sentinel, associate: &[String]) -> Result<SentinelCreate, St
     })
 }
 
+/// Representability of a stored stage: Storage owns the earlier lineage window, so only
+/// the head amendment must be importable.
+pub fn import_head(job: &Sentinel) -> Result<SentinelImport, String> {
+    if job.amendments.len() <= 1 {
+        return import(job);
+    }
+    let mut head = job.clone();
+    head.amendments.drain(..job.amendments.len() - 1);
+    import(&head)
+}
+
 /// Exact existing state for the immutable import path; nothing here can start work.
 pub fn import(job: &Sentinel) -> Result<SentinelImport, String> {
     Ok(SentinelImport {
@@ -556,6 +550,7 @@ pub fn import(job: &Sentinel) -> Result<SentinelImport, String> {
 
 pub fn outcome(job: &Sentinel) -> RuntimeOutcome {
     RuntimeOutcome {
+        admission_json: Some(serde_json::json!(job.admission).to_string()),
         stopped_at: job.cleanup.stopped_at,
         runs_since_transition: job.progress.runs_since_transition,
         last_probe_at: job.progress.last_probe_at,
@@ -611,6 +606,18 @@ pub fn decode(stored: &StoredSentinel) -> Sentinel {
     }
     let runtime = record.runtime;
     Sentinel {
+        admission: runtime
+            .admission_json
+            .as_ref()
+            .map(|raw| {
+                serde_json::from_str(raw).unwrap_or(crate::admission::Admission {
+                    held_reason: Some(crate::admission::HeldReason::PlanLimitLocked),
+                    baseline_pending: true,
+                    continuation: None,
+                })
+            })
+            .unwrap_or_default(),
+        document: definition.document,
         creation_options: record.identity.creation_options,
         source: super::super::stage_source::StageSource::from_parts(
             probe, observe, input, terminal, pipeline,

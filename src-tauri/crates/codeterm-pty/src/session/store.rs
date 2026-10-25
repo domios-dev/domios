@@ -32,6 +32,8 @@ pub struct WorkspaceSnapshot {
     pub provisioned_cwd: Option<String>,
     #[serde(default)]
     pub protected: bool,
+    #[serde(default)]
+    pub created_at_ms: u64,
     /// Sibling ordinal among workspaces. Legacy snapshots default to 0.
     #[serde(default)]
     pub sort_order: i32,
@@ -63,6 +65,7 @@ pub struct AgentIdentitySnapshot {
     #[serde(default)]
     pub description_origin: crate::multiplexer::types::TabDescriptionOrigin,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(serialize_with = "serialize_runtime_state")]
     pub agent_runtime_state: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_runtime_config: Option<serde_json::Value>,
@@ -142,6 +145,8 @@ pub enum SplitNodeSnapshot {
         icon: Option<String>,
         #[serde(default)]
         utility_created_at: u64,
+        #[serde(default)]
+        created_at_ms: u64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         close_restore: Option<crate::multiplexer::types::CloseRestoreTabState>,
         #[serde(default)]
@@ -957,3 +962,14 @@ pub use storage_adapter::{orphan_teams, project_snapshot, prune_orphan_teams, St
 
 #[cfg(test)]
 mod tests;
+
+fn serialize_runtime_state<S: serde::Serializer>(
+    state: &Option<serde_json::Value>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    let mut state = state.clone();
+    if let Some(serde_json::Value::Object(value)) = state.as_mut() {
+        value.remove("login");
+    }
+    state.serialize(serializer)
+}

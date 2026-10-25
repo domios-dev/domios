@@ -248,8 +248,8 @@ fn sentinel_probe_original_deadline_is_not_renewed() {
         Deadlines::at(Duration::from_secs(9), Duration::from_secs(3), admitted).unwrap();
     assert_eq!(deadlines.admitted, admitted);
     assert_eq!(deadlines.duration, Duration::from_secs(3));
-    assert_eq!(deadlines.operation, admitted + Duration::from_millis(2500));
-    assert_eq!(deadlines.hard, admitted + Duration::from_secs(3));
+    assert_eq!(deadlines.operation, admitted + Duration::from_secs(3));
+    assert_eq!(deadlines.hard, admitted + Duration::from_millis(3500));
 
     for elapsed in [
         Duration::from_millis(100),
@@ -259,21 +259,21 @@ fn sentinel_probe_original_deadline_is_not_renewed() {
         let now = admitted + elapsed;
         assert_eq!(
             deadlines.remaining_operation_at(now),
-            Duration::from_millis(2500).saturating_sub(elapsed)
+            Duration::from_secs(3).saturating_sub(elapsed)
         );
         assert_eq!(
             deadlines.remaining_hard_at(now),
-            Duration::from_secs(3).saturating_sub(elapsed)
+            Duration::from_millis(3500).saturating_sub(elapsed)
         );
         assert!(!deadlines.expired_operation_at(now));
     }
-    let operation_end = admitted + Duration::from_millis(2500);
+    let operation_end = admitted + Duration::from_secs(3);
     assert!(deadlines.expired_operation_at(operation_end));
     assert_eq!(
         deadlines.remaining_hard_at(operation_end),
         Duration::from_millis(500)
     );
-    assert_eq!(deadlines.hard, admitted + Duration::from_secs(3));
+    assert_eq!(deadlines.hard, admitted + Duration::from_millis(3500));
 
     let short =
         Deadlines::at(Duration::from_millis(100), Duration::from_secs(3), admitted).unwrap();

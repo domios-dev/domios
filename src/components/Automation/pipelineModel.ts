@@ -1,7 +1,11 @@
+import type { BlueprintProjection, BlueprintIrNode, BlueprintJournalNode } from "../../lib/blueprintApi";
 import { type BlueprintOwner, type BlueprintSnapshot } from "./types";
 
 export interface PipelineViewNode {
   key: string;
+  definition?: BlueprintIrNode;
+  journal?: BlueprintJournalNode;
+  callPath?: readonly string[];
   kind: "trigger" | "step" | "result";
   title: string;
   capability?: string;
@@ -11,6 +15,7 @@ export interface PipelineViewNode {
   summary: string;
   lastEventAtMs: number | null;
   resultSummary: string | null;
+  reason?: string | null;
   outcome: string | null;
   targetSummary: string | null;
 }
@@ -21,8 +26,12 @@ export interface PipelineViewEdge {
   label: string | null;
 }
 
-export interface PipelineView {
+export interface PipelineView extends BlueprintProjection {
+  retained?: import("./blueprint/runEvidence").RetainedRun;
+  runId?: string | null;
+  closed?: boolean;
   note?: string | null;
+  heldReason?: string | null;
   deletesAt?: number | null;
   runs?: readonly { id: string; at: number; state: string; pipeline: PipelineView }[];
   id: string;
@@ -87,6 +96,7 @@ export function pipelineModel(blueprint: BlueprintSnapshot): PipelineView {
       summary: sourceSummary(step),
       lastEventAtMs: step.ended_at_ms ?? step.started_at_ms ?? blueprint.last_event_at_ms ?? null,
       resultSummary: step.result_summary ?? step.reason ?? null,
+      reason: step.reason,
       outcome: step.outcome ?? null,
       targetSummary: null,
     })),
@@ -113,11 +123,21 @@ export function pipelineModel(blueprint: BlueprintSnapshot): PipelineView {
       id: run.id, at: run.started_at_ms, state: run.state,
       pipeline: pipelineModel({ ...blueprint, runs: undefined, run_id: run.id,
         state: run.state === "completed" ? "idle" : run.state, current_step: run.current_step,
-        last_event_at_ms: run.last_event_at_ms, steps: run.steps, result: run.result }),
+        last_event_at_ms: run.last_event_at_ms, steps: run.steps, result: run.result,
+        call_graph: run.call_graph, expanded_calls: run.expanded_calls, nested_run: run.nested_run, projection_error: run.projection_error,
+        historical_graph_available: run.historical_graph_available, graph_definition_version: run.graph_definition_version }),
     })),
+    historical_graph_available: blueprint.historical_graph_available,
+    graph_definition_version: blueprint.graph_definition_version,
+    call_graph: blueprint.call_graph,
+    expanded_calls: blueprint.expanded_calls,
+    nested_run: blueprint.nested_run,
+    projection_error: blueprint.projection_error,
+    runId: blueprint.run_id,
     id: blueprint.id,
     name: blueprint.name,
     note: blueprint.note,
+    heldReason: blueprint.held_reason,
     deletesAt: blueprint.deletes_at,
     owner: normalizedOwner(blueprint.owner),
     state: blueprint.state,

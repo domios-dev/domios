@@ -62,12 +62,11 @@ const LINE_CLASS = "flex w-full min-w-0 items-center gap-1.5 rounded px-1 text-l
 const QUIET = "var(--ct-muted-fg)";
 
 /** Compact inline branches under a call, capped with "+N more"; at most one detail opens inline. */
-export function BranchList({ branches, cap, openIndex, onBranch, onMore, renderDetail, label }: {
+export function BranchList({ branches, cap, openIndex, onBranch, renderDetail, label }: {
   branches: Branch[];
   cap?: number;
   openIndex: number | null;
   onBranch: (index: number) => void;
-  onMore?: () => void;
   renderDetail?: (index: number) => ReactNode;
   label: string;
 }) {
@@ -117,13 +116,13 @@ export function BranchList({ branches, cap, openIndex, onBranch, onMore, renderD
           <button
             type="button"
             data-testid="chat-command-tree-more"
-            aria-label={`Show ${hidden} more`}
-            onClick={() => (onMore ? onMore() : setShowAll(true))}
+            aria-label={`Show all ${hidden} remaining ${hidden === 1 ? "step" : "steps"}`}
+            onClick={() => setShowAll(true)}
             className={LINE_CLASS}
             style={{ color: QUIET }}
           >
             <span aria-hidden="true" style={branchColor}>└</span>
-            <span>{`+${hidden} more`}</span>
+            <span>{`Show all ${hidden} remaining ${hidden === 1 ? "step" : "steps"}`}</span>
           </button>
         </li>
       )}
@@ -132,16 +131,15 @@ export function BranchList({ branches, cap, openIndex, onBranch, onMore, renderD
 }
 
 /** One compact tree line per shell segment of a chained call. */
-export function CommandTree({ rows, cap, openIndex, onLine, onMore, renderDetail, label = "Commands" }: {
+export function CommandTree({ rows, cap, openIndex, onLine, renderDetail, label = "Commands" }: {
   rows: CommandRow[];
   cap?: number;
   openIndex: number | null;
   onLine: (index: number) => void;
-  onMore?: () => void;
   renderDetail?: (index: number) => ReactNode;
   label?: string;
 }) {
   const resolvePlugin = usePluginNameResolver();
   const branches = useMemo(() => rows.map((row) => segmentBranch(row, resolvePlugin)), [rows, resolvePlugin]);
-  return <BranchList branches={branches} cap={cap} openIndex={openIndex} onBranch={onLine} onMore={onMore} renderDetail={renderDetail} label={label} />;
+  return <BranchList branches={branches} cap={cap} openIndex={openIndex} onBranch={onLine} renderDetail={renderDetail} label={label} />;
 }

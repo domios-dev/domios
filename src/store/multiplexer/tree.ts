@@ -19,6 +19,11 @@ export interface ExtendedState extends MultiplexerState {
   generation: number;
   pendingCloses: string[];
   storageUnavailable?: boolean;
+  muxResyncRequired?: boolean;
+  /** Set by the first user workspace or tab selection; a later restore seed is then ignored. */
+  selectionNavigated?: boolean;
+  /** Counts restore seeds applied, so a context binding can tell a restore from a user change. */
+  selectionSeeds?: number;
 }
 
 export function reconcileBackendWorkspaceTabs(

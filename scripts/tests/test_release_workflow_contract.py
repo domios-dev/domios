@@ -101,13 +101,15 @@ def verifier_steps(text: str) -> list[dict[str, str]]:
 
 
 class SingleRunGraphTest(unittest.TestCase):
-    def test_only_the_caller_has_the_release_tag_trigger(self):
+    def test_release_pushes_only_start_qualification(self):
         triggered = {
             path.name
             for path in WORKFLOWS.glob("release*.yml")
             if "push" in triggers(path.read_text(encoding="utf-8"))
         }
-        self.assertEqual(triggered, {"release.yml"})
+        self.assertEqual(triggered, set())
+        self.assertEqual(triggers(read("release.yml")), {"workflow_run", "workflow_dispatch"})
+        self.assertIn("workflows: [CI]", read("release.yml"))
         for name in (
             "release-macos-build.yml",
             "release-linux-arm64.yml",
@@ -128,16 +130,16 @@ class SingleRunGraphTest(unittest.TestCase):
             ("linux-arm64", "release-linux-arm64.yml"),
             ("linux-x86_64", "release-linux.yml"),
             ("windows-x64", "release-windows.yml"),
-            ("windows-arm64", "release-windows.yml"),
+            ("windows-arm64", "release-windows-arm64.yml"),
         ):
             self.assertIn(f"  {job}:\n    name:", caller)
             block = caller[caller.index(f"  {job}:") :].split("\n\n", 1)[0]
-            self.assertRegex(block, r"\n    needs: \[prepare, frontend-dist, builds-tier\]\n")
+            self.assertRegex(block, r"\n    needs: \[prepare, frontend-dist\]\n")
             self.assertIn(f"uses: ./.github/workflows/{workflow}", caller)
 
         final = caller[caller.index("  release-manifest:") : caller.index("  frontend:")]
         self.assertIn(
-            "needs: [prepare, macos-arm64, macos-x64, linux-arm64, linux-x86_64, windows-x64, windows-arm64, quick-checks, tests, promote-evidence]", final
+            "needs: [prepare, macos-arm64, macos-x64, linux-arm64, linux-x86_64, windows-x64, windows-arm64, promote-evidence]", final
         )
         self.assertIn("uses: ./.github/workflows/release-manifest-validate.yml", final)
         self.assertNotIn("if: always()", final)
@@ -153,7 +155,7 @@ class SingleRunGraphTest(unittest.TestCase):
     def test_reusable_platform_jobs_can_clear_incomplete_uploads_when_retried_alone(self):
         for name, build_marker in (
             ("release-macos-build.yml", "Build signed and notarized macOS bundle"),
-            ("release-linux-arm64.yml", "Build and smoke Linux arm64 in native container"),
+            ("release-linux-arm64.yml", "Verify transferred stage and smoke Linux arm64 in native container"),
             ("release-linux.yml", "Build release bundle inputs"),
             ("release-windows.yml", "Build and sign release assets"),
         ):
@@ -179,7 +181,7 @@ class SingleRunGraphTest(unittest.TestCase):
         self.assertIn("bundles deb,appimage", linux)
         self.assertIn("name: build (${{ matrix.target }})", windows)
         self.assertIn("windows-x86_64", windows)
-        self.assertIn("windows-aarch64", windows)
+        self.assertIn("windows-aarch64", read("release-windows-arm64.yml"))
         self.assertIn("PLATFORM_KEY: ${{ matrix.platform_key }}", windows)
 
     def test_platform_packaging_and_signing_stay_on_the_owning_platform(self):
@@ -187,7 +189,7 @@ class SingleRunGraphTest(unittest.TestCase):
         linux = read("release-linux.yml")
         windows = read("release-windows.yml")
         self.assertIn("APPLE_PASSWORD", mac)
-        self.assertIn("apple-actions/import-codesign-certs", read("release-macos.yml"))
+        self.assertFalse((WORKFLOWS / "release-macos.yml").exists())
         self.assertIn("bundles deb,appimage", linux)
         self.assertIn("bundleRoot/nsis", windows)
         self.assertNotIn("bundleRoot/nsis", linux)
@@ -196,7 +198,7 @@ class SingleRunGraphTest(unittest.TestCase):
     def test_manifest_is_reconciled_once_after_platform_uploads(self):
         manifest = read("release-manifest-validate.yml")
         self.assertEqual(triggers(manifest), {"workflow_call"})
-        self.assertNotIn("workflow_run", manifest)
+        self.assertNotIn("workflow_run", triggers(manifest))
         self.assertIn("Merge and upload final channel manifests", manifest)
         self.assertIn("Mark source and public releases published", manifest)
         self.assertIn("sync-release-notes.mjs", manifest)
@@ -304,7 +306,7 @@ class SingleRunGraphTest(unittest.TestCase):
         self.assertEqual(platform_jobs, sorted(platform_jobs))
         self.assertGreater(manifest_job, max(platform_jobs))
         self.assertIn(
-            "needs: [prepare, macos-arm64, macos-x64, linux-arm64, linux-x86_64, windows-x64, windows-arm64, quick-checks, tests, promote-evidence]",
+            "needs: [prepare, macos-arm64, macos-x64, linux-arm64, linux-x86_64, windows-x64, windows-arm64, promote-evidence]",
             caller[manifest_job:],
         )
 

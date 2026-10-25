@@ -13,6 +13,21 @@ use crate::service::ServiceContext;
 mod empty_session;
 pub(super) mod restore_payload;
 
+/// What a restore materialization did under its claim.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum RestoredLaunchStart {
+    Started { binding_nonce: String },
+    NotStarted { reason: String },
+}
+
+impl RestoredLaunchStart {
+    fn not_started(reason: impl Into<String>) -> Self {
+        Self::NotStarted {
+            reason: reason.into(),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct RestoredLaunch {
     pub provider_id: String,
@@ -270,6 +285,9 @@ fn claim_restored_tab(
         tab.remember_superseded_binding_nonce();
         tab.agent_session_id = None;
     }
+    // The snapshot's binding proof belongs to an exited process; voiding it makes the relaunch
+    // reserve its own nonce before this claim is released.
+    tab.reported_session_binding_nonce = None;
     tab.restored_from_snapshot = false;
     tab.agent_booting = true;
     let mut launch = restored_launch(tab, provider_id);
@@ -489,6 +507,9 @@ impl ServiceContext {
             .read()
             .resolve_tab_id(tab_id)
             .ok_or_else(|| format!("Tab {} not found or has no PTY", tab_id))?;
+        if let Some(refusal) = self.tab_write_lock(&resolved) {
+            return Err(refusal.to_string());
+        }
         if self.tab_chat_backing(&resolved).is_some() {
             return Ok(());
         }
@@ -645,21 +666,35 @@ impl ServiceContext {
         claim: &crate::service::pty_ownership::TabPtyClaim,
     ) -> Result<(), String> {
         self.materialize_restored_agent_with_admission(claim, None)
+            .map(drop)
+    }
+
+    pub(crate) fn materialize_restored_agent_launch(
+        &self,
+        claim: &crate::service::pty_ownership::TabPtyClaim,
+    ) -> Result<RestoredLaunchStart, String> {
+        self.materialize_restored_agent_with_admission(claim, None)
     }
 
     pub(crate) fn materialize_restored_agent_with_admission(
         &self,
         claim: &crate::service::pty_ownership::TabPtyClaim,
         admission: Option<Admission>,
-    ) -> Result<(), String> {
+    ) -> Result<RestoredLaunchStart, String> {
         let tab_id = claim.tab_id();
-        if !self
-            .mux
-            .read()
-            .get_tab(tab_id)
-            .is_some_and(|tab| tab.restored_from_snapshot && !tab.agent_booting && !tab.protected)
-        {
-            return Ok(());
+        let unrestorable = self.mux.read().get_tab(tab_id).map(|tab| {
+            if tab.protected {
+                Some("recipient tab is protected")
+            } else if !tab.restored_from_snapshot || tab.agent_booting {
+                Some("recipient is no longer awaiting restore")
+            } else {
+                None
+            }
+        });
+        match unrestorable {
+            None => return Ok(RestoredLaunchStart::not_started("recipient tab is gone")),
+            Some(Some(reason)) => return Ok(RestoredLaunchStart::not_started(reason)),
+            Some(None) => {}
         }
         crate::startup::boot_timing::mark(tab_id, None, "restore_prepare_enter");
         self.recover_missing_restored_provider(tab_id)?;
@@ -685,7 +720,9 @@ impl ServiceContext {
             )
         };
         let Some(provider_id) = provider_id else {
-            return Ok(());
+            return Ok(RestoredLaunchStart::not_started(
+                "restored recipient has no provider",
+            ));
         };
         let resume_enabled = exact_session
             || crate::config::provider_config_from(&self.configuration(), &provider_id)
@@ -749,6 +786,7 @@ impl ServiceContext {
             )
         })?;
         let mut command_error = None;
+        let mut launch_nonce = None;
         self.restore_durable_user_statuses(tab_id)?;
         self.reconcile_chat_send_evidence(tab_id);
         crate::startup::boot_timing::mark(tab_id, None, "delivery_evidence_checked");
@@ -804,7 +842,7 @@ impl ServiceContext {
                     command_error = Some(reason);
                     return;
                 }
-                crate::service::orchestrator::launch_agent_in_background_with_env(
+                launch_nonce = crate::service::orchestrator::launch_agent_in_background_with_env(
                     self.clone(),
                     tab_id.to_string(),
                     launch_cmd,
@@ -832,13 +870,24 @@ impl ServiceContext {
             return Err(error);
         }
         if scheduled?.is_none() {
-            return Ok(());
+            return Ok(RestoredLaunchStart::not_started(
+                "restore authority changed before the relaunch",
+            ));
         }
         if restored_empty {
             self.emit_empty_restore_notice(tab_id);
         }
         self.emit_state_changed(MuxEmitCause::TabLifecycle);
-        Ok(())
+        Ok(match launch_nonce {
+            Some(binding_nonce) => RestoredLaunchStart::Started { binding_nonce },
+            None => RestoredLaunchStart::not_started(
+                self.mux
+                    .read()
+                    .get_tab(tab_id)
+                    .and_then(|tab| tab.boot_failure_reason.clone())
+                    .unwrap_or_else(|| "the relaunch reserved no launch binding".into()),
+            ),
+        })
     }
 
     fn refuse_restored_launch(&self, tab_id: &str, reason: &str) {

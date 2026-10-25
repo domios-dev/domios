@@ -1,29 +1,39 @@
 use super::ServiceContext;
-use codeterm_billing::{adapters, Billing, Entitlements, RefreshEvent, Snapshot};
+use codeterm_billing::{adapters, Billing, RefreshEvent, Snapshot};
 pub use codeterm_entitlements::{
-    LimitGate, LimitKey, LimitRefusal, LimitSummary, FREE_LIMIT_REACHED,
+    LimitGate, LimitKey, LimitRefusal, LimitSummary, LockedRefusal, FREE_LIMIT_REACHED,
+    PLAN_LIMIT_LOCKED,
 };
+pub use locks::ENTITLEMENT_CHANGED_EVENT;
+
+mod locks;
 use std::{sync::Arc, time::Instant};
 
 pub struct BillingCell(pub Arc<tokio::sync::OnceCell<Arc<Billing>>>);
 
 impl ServiceContext {
-    /// Capture before taking the mux lock. Dormant unless this build pins Phase B enforcement;
-    /// before billing starts it is the compiled free baseline, as Phase B grants without a verdict.
+    /// Capture before taking the mux lock. Before billing starts it is the compiled free baseline.
     pub fn limit_gate(&self) -> LimitGate {
-        if !codeterm_entitlements::enforcing(codeterm_entitlements::ACTIVATION.as_ref()) {
-            return LimitGate::dormant();
+        #[cfg(any(test, feature = "test-support"))]
+        if let Some(gate) = self.try_ext::<super::test_fixture::FixtureLimitGate>() {
+            return gate.0.clone();
         }
         self.ext::<BillingCell>().0.get().map_or_else(
-            || LimitGate::new(codeterm_entitlements::compiled_free(), true),
+            || {
+                LimitGate::new(
+                    codeterm_entitlements::compiled_free(),
+                    codeterm_entitlements::enforcing(),
+                )
+            },
             |billing| billing.limit_gate(),
         )
     }
 
     pub async fn installation_id(&self) -> Result<codeterm_account::InstallationId, String> {
-        tokio::task::spawn_blocking(|| {
+        let root = self.account_data_root()?;
+        tokio::task::spawn_blocking(move || {
             codeterm_account::Account::installation_id(
-                &codeterm_account::FileInstallationStore::new(crate::paths::data_dir()),
+                &codeterm_account::FileInstallationStore::new(root),
             )
             .map_err(|error| format!("Installation identity unavailable: {error}"))
         })
@@ -42,42 +52,16 @@ impl ServiceContext {
                     .get("provider")
                     .and_then(|v| v.as_str())
                     .unwrap_or("cloud");
+                if provider != "cloud" {
+                    return Err("Unknown or unavailable billing provider".into());
+                }
                 let installation_id = self.installation_id().await?;
-                let adapter: Arc<dyn codeterm_billing::BillingProvider> = match provider {
-                    "cloud" => adapters::cloud::Cloud::configured(
+                let adapter: Arc<dyn codeterm_billing::BillingProvider> =
+                    adapters::cloud::Cloud::configured(
                         config.get("endpoint").and_then(|v| v.as_str()),
                         installation_id.clone(),
-                    )?,
-                    "local" if cfg!(debug_assertions) => {
-                        let origin = url::Url::parse(
-                            config
-                                .get("origin")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("http://127.0.0.1:15100/"),
-                        )
-                        .map_err(|_| "Invalid local billing origin")?;
-                        if origin.scheme() != "http"
-                            || origin.host_str() != Some("127.0.0.1")
-                            || !origin.username().is_empty()
-                            || origin.password().is_some()
-                        {
-                            return Err("Local billing requires loopback HTTP".into());
-                        }
-                        Arc::new(adapters::local::Local {
-                            origin,
-                            read: Box::new(move || {
-                                let value = state.lock().billing.get("entitlements").cloned();
-                                match value {
-                                    Some(value) => serde_json::from_value(value)
-                                        .map_err(|_| "Invalid local entitlements".into()),
-                                    None => Ok(Entitlements::default()),
-                                }
-                            }),
-                        })
-                    }
-                    "fake" if cfg!(debug_assertions) => Arc::new(adapters::fake::Fake::default()),
-                    _ => return Err("Unknown or unavailable billing provider".into()),
-                };
+                        self.session_revocations(),
+                    )?;
                 let mut billing = Billing::new(adapter).with_grants(
                     &installation_id,
                     Arc::new(codeterm_billing::FileGrantStore::new(
@@ -88,12 +72,58 @@ impl ServiceContext {
                     billing =
                         billing.with_observer(super::analytics::billing_observer(worker.clone()));
                 }
-                Ok::<_, String>(Arc::new(billing))
+                let billing = Arc::new(billing);
+                if let Some(session) = self.account().await?.session().await {
+                    let primer = billing.clone();
+                    if let Err(error) =
+                        tokio::task::spawn_blocking(move || primer.prime(&session)).await
+                    {
+                        log::debug!("Grant prime task failed: {error}");
+                    }
+                }
+                self.apply_limit_gate(billing.limit_gate());
+                self.spawn_entitlement_deadlines(billing.clone());
+                Ok::<_, String>(billing)
             })
             .await?;
+        self.apply_limit_gate(billing.limit_gate());
         Ok(billing.clone())
     }
+    /// Idle daemons still refresh at `refresh_after` and lock at lease or period end; CLI,
+    /// socket and headless callers all read the mux gate this re-projects.
+    fn spawn_entitlement_deadlines(&self, billing: Arc<Billing>) {
+        let service = self.clone();
+        crate::async_runtime::spawn(async move {
+            billing
+                .drive_deadlines(|tick| {
+                    let service = service.clone();
+                    async move {
+                        if tick.refresh_due {
+                            if let Err(error) =
+                                service.refresh_billing(RefreshEvent::Deadline).await
+                            {
+                                log::debug!("Deadline refresh failed: {error}");
+                            }
+                        }
+                        service.announce_limit_gate();
+                    }
+                })
+                .await;
+        });
+    }
     pub async fn account_plan(&self) -> Result<Snapshot, String> {
+        let result = self.account_plan_inner().await;
+        if result.is_err() {
+            self.apply_limit_gate(LimitGate::new(
+                codeterm_entitlements::compiled_free(),
+                codeterm_entitlements::enforcing(),
+            ));
+        } else {
+            self.sync_limit_gate();
+        }
+        result
+    }
+    async fn account_plan_inner(&self) -> Result<Snapshot, String> {
         let session = self.account().await?.session().await;
         if session.is_none() {
             if let Some(billing) = self.ext::<crate::service::billing::BillingCell>().0.get() {
@@ -104,6 +134,18 @@ impl ServiceContext {
         snapshot_off_runtime(self.billing().await?, session).await
     }
     pub async fn refresh_billing(&self, event: RefreshEvent) -> Result<Snapshot, String> {
+        let result = self.refresh_billing_inner(event).await;
+        if result.is_err() {
+            self.apply_limit_gate(LimitGate::new(
+                codeterm_entitlements::compiled_free(),
+                codeterm_entitlements::enforcing(),
+            ));
+        } else {
+            self.sync_limit_gate();
+        }
+        result
+    }
+    async fn refresh_billing_inner(&self, event: RefreshEvent) -> Result<Snapshot, String> {
         let account = self.account().await?;
         let session = account.session().await;
         if session.is_none() {
@@ -116,6 +158,7 @@ impl ServiceContext {
         billing
             .refresh(session.as_ref(), event, Instant::now())
             .await;
+        self.unlock_account_mesh_after_plan_change();
         let current = account.session().await;
         snapshot_off_runtime(billing, current).await
     }

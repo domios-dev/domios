@@ -1,3 +1,5 @@
+mod authority;
+mod floor;
 mod gate;
 mod jcs;
 mod lifecycle;
@@ -5,7 +7,6 @@ mod limits;
 mod policy;
 mod purity;
 mod refusals;
-mod shadow;
 mod support;
 mod vectors;
 mod windows;

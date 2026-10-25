@@ -60,7 +60,7 @@ async function reconcileReadyChatMessages(tabId: string): Promise<ChatSendStatus
   ]);
   if (Array.isArray(dismissals)) for (const receipt of dismissals) if (receipt.send?.id) observeChatSendDismissal(tabId, receipt);
   reconcileDeliveryStatuses(tabId, statuses, requested);
-  const unresolved = readChatSends(tabId).filter((send) => !send.dismissed && !send.status && send.correlationId
+  const unresolved = readChatSends(tabId).filter((send) => !send.dismissed && !send.status && !send.admissionSettled && send.correlationId
     && !activeAdmissions.has(admissionKey(tabId, send.correlationId)));
   if (unresolved.length > 0) {
     for (const send of unresolved) reconcileChatSendAdmission(tabId, send.correlationId!, "unknown");
@@ -98,7 +98,7 @@ export async function sendTrackedChatMessage(
     activeAdmissions.delete(key);
     if (isProvenAdmissionRefusal(error)) failChatSendRequest(tabId, messageId);
     else {
-      recordChatSendAdmissionFailure(tabId, messageId, !(error instanceof TypeError));
+      recordChatSendAdmissionFailure(tabId, messageId, hadDaemonResponse(error));
       void reconcileTrackedChatMessages(tabId).catch(() => {});
     }
     console.warn("[chat-send] optimistic send request failed", {
@@ -110,6 +110,13 @@ export async function sendTrackedChatMessage(
   } finally {
     activeAdmissions.delete(key);
   }
+}
+
+// A deadline or abort ends the request without any daemon reply, exactly like a dropped connection.
+function hadDaemonResponse(error: unknown): boolean {
+  if (error instanceof TypeError) return false;
+  const name = typeof error === "object" && error !== null ? (error as { name?: unknown }).name : undefined;
+  return name !== "TimeoutError" && name !== "AbortError";
 }
 
 export function isProvenAdmissionRefusal(error: unknown): boolean {

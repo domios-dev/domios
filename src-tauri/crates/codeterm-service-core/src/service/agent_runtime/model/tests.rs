@@ -1,5 +1,18 @@
 use super::*;
 #[test]
+fn sign_in_required_waits_in_the_owned_epoch_and_preserves_thread_identity() {
+    let mut state = RuntimeState::unloaded(Some("opaque-thread".into()));
+    let epoch = state.begin();
+    assert!(!state.degrade(epoch + 1, &RuntimeFailure::SignInRequired));
+    assert!(state.degrade(epoch, &RuntimeFailure::SignInRequired));
+    assert_eq!(state.snapshot().state, "loginPending");
+    assert!(state.snapshot().reason.is_none());
+    assert!(!state.load(epoch, "foreign-thread"));
+    assert!(state.load(epoch, "opaque-thread"));
+    assert_eq!(state.snapshot().state, "loaded");
+    assert_eq!(state.epoch, epoch);
+}
+#[test]
 fn exit_unloads_only_the_own_epoch_and_resume_cannot_change_threads() {
     let mut state = RuntimeState::unloaded(Some("own".into()));
     let epoch = state.begin();

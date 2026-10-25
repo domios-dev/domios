@@ -624,7 +624,6 @@
           ".github/workflows/release-linux-arm64.yml",
           ".github/workflows/release-linux.yml",
           ".github/workflows/release-macos-build.yml",
-          ".github/workflows/release-macos.yml",
           ".github/workflows/release-manifest-validate.yml",
           ".github/workflows/release-windows.yml",
           ".github/workflows/release.yml",

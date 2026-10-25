@@ -170,6 +170,7 @@ impl crate::service::ServiceContext {
         self.deliver_agent_payload(
             tab_id,
             super::AgentDeliveryPayload {
+                durable_delivery: None,
                 trace_id: None,
                 transport: frame,
                 observer: None,

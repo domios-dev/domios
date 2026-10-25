@@ -44,6 +44,7 @@ Rules:
 - `snapshot [limit]` defaults to 200 lines and is capped at 2000. A truncation notice means more content remains; refs are only issued for included elements.
 - Prefer refs and role + name from the snapshot over coordinates or CSS selectors.
 - After async page changes, wait on evidence (`wait --text T`, `wait --url U`, `wait --selector S`), never on a bare timeout. A wait fails after 15 seconds.
+- For secrets, pipe the exact text to `domios plugin browser type <target> --stdin`. Browser masks the input before insertion and redacts the value from output, snapshots, events and annotations. This requires an HTML input that supports password masking. Never put secrets in arguments or print them.
 - `type` focuses the element, clears it, then inserts the text. If a custom input still ignores it, click it first and retry.
 - Use `text [limit]` to read long content; use `screenshot [file] [--full]` **only for visual claims** (layout, colour, clipping, alignment). Screenshots go to your pad; show one to the user with `@ct-image <path>`.
 - **Never report an action as done unless the page proves it.** Re-snapshot and quote the evidence: a new heading, a success message, the changed value. If an action could have sent, submitted, bought or deleted something and you could not read back the result, say the effect is unproven.

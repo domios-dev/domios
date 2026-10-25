@@ -32,7 +32,22 @@ fn saved_typed_settings_and_empty_arguments_remain_eligible_for_runtime_use() {
 }
 
 #[path = "tests/sync_send.rs"]
-mod sync_send;
+pub(super) mod sync_send;
+
+#[path = "tests/capacity_retry.rs"]
+mod capacity_retry;
+
+#[path = "tests/continuation.rs"]
+mod continuation;
+
+#[path = "tests/rejected_before_write.rs"]
+mod rejected_before_write;
+
+#[path = "tests/sign_in.rs"]
+mod sign_in;
+
+#[path = "tests/bootstrap_ownership.rs"]
+mod bootstrap_ownership;
 
 #[test]
 fn bind_commit_emits_one_ready_event_with_booting_and_session_bound() {

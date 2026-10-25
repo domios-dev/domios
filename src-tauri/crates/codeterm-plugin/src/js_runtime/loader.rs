@@ -63,7 +63,12 @@ fn scan_one(root: &Path, providers: &mut Vec<JsProvider>, report: &mut Vec<LoadO
     for entry in entries.flatten() {
         let path = entry.path();
         let Ok(ft) = entry.file_type() else { continue };
-        if !ft.is_dir() {
+        if !ft.is_dir()
+            || entry
+                .file_name()
+                .to_string_lossy()
+                .ends_with(".tmp-install")
+        {
             continue;
         }
         let manifest_path = path.join("plugin.json");

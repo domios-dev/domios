@@ -324,6 +324,7 @@ pub const ASYNC_JOB_TIMEOUT_ERROR: &str = "plugin async job exceeded its bounded
 /// mutex so cross-thread callers serialize cleanly. Cheap to clone via
 /// `Arc<PluginVm>`.
 pub struct PluginVm {
+    bundle_access: std::sync::Arc<crate::bundle_access::BundleAccess>,
     inner: Mutex<Inner>,
     // Acquire before the VM lock, never while holding a VM or mux guard.
     pub(super) catalogue_gate: Mutex<()>,
@@ -476,6 +477,7 @@ impl PluginVm {
                     .map(str::to_owned)
             });
         Ok(Self {
+            bundle_access: crate::bundle_access::BundleAccess::for_plugin(plugin_id),
             catalogue_gate: Mutex::new(()),
             methods: parking_lot::RwLock::new(methods),
             holder: Mutex::new(None),
@@ -977,6 +979,7 @@ fn exported_methods(ctx: &Context) -> Result<HashSet<String>, VmError> {
 
 struct VmEntry<'a> {
     inner: parking_lot::MutexGuard<'a, Inner>,
+    _bundle_reader: Option<parking_lot::RwLockReadGuard<'a, ()>>,
     vm: &'a PluginVm,
     method: &'a str,
     started: std::time::Instant,
@@ -985,6 +988,7 @@ struct VmEntry<'a> {
 
 impl<'a> VmEntry<'a> {
     fn acquire(vm: &'a PluginVm, method: &'a str) -> Self {
+        let bundle_reader = vm.bundle_access.read();
         let started = std::time::Instant::now();
         let previous = vm.holder.lock().clone();
         let inner = vm.inner.lock();
@@ -1002,6 +1006,7 @@ impl<'a> VmEntry<'a> {
         }
         Self {
             inner,
+            _bundle_reader: bundle_reader,
             vm,
             method,
             started,
@@ -1026,6 +1031,7 @@ impl Drop for VmEntry<'_> {
                 timing_line(&self.vm.plugin_id, self.method, self.waited, held)
             );
         } else if self.method == "sessionJsonlPath"
+            || self.method == "statusBubble"
             || self.waited > std::time::Duration::from_millis(100)
             || held > std::time::Duration::from_millis(50)
         {

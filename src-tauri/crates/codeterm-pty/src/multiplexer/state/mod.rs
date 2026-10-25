@@ -10,6 +10,8 @@ use codeterm_types::team::Team;
 
 mod alias;
 mod closed;
+mod creation_order;
+mod locks;
 pub mod names;
 mod reorder;
 mod role;
@@ -26,6 +28,7 @@ pub use closed::{
     ClosedTabView, ClosedTabsStore, GroupKind, PreparedWorkspaceClose, StructureState,
     TabCloseReservation, CLOSED_GROUP_CAP, RECENTLY_CLOSED_CAP, RECENTLY_CLOSED_VIEW_LIMIT,
 };
+pub use locks::{LimitGateChange, MuxLocks};
 pub use snapshot::SnapshotMergeReport;
 pub use status_view::{
     effective_tab_status, resolved_tab_status, snapshot_with_status_until, tab_status_label,
@@ -55,6 +58,8 @@ pub struct WorkspaceInfo {
     pub cwd_missing: bool,
     pub protected: bool,
     pub tab_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub locked: bool,
     /// Set to true when create_workspace deduped by cwd (no new ws was created).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub existing: Option<bool>,
@@ -89,6 +94,8 @@ pub struct MultiplexerState {
     pending_closed_history: Vec<closed::ClosedHistoryWrite>,
     workspace_close_reservations: HashMap<String, String>,
     tab_close_reservations: HashMap<String, (String, String)>,
+    /// Entitlement admission source for lock marks; the service swaps it when the plan changes.
+    limit_gate: codeterm_entitlements::LimitGate,
 }
 
 pub struct TeamCloseTransaction {
@@ -177,6 +184,7 @@ impl MultiplexerState {
                 pending_closed_history: Vec::new(),
                 workspace_close_reservations: self.workspace_close_reservations.clone(),
                 tab_close_reservations: self.tab_close_reservations.clone(),
+                limit_gate: self.limit_gate.clone(),
             },
         }
     }
@@ -222,6 +230,10 @@ impl MultiplexerState {
             pending_closed_history: Vec::new(),
             workspace_close_reservations: HashMap::new(),
             tab_close_reservations: HashMap::new(),
+            limit_gate: codeterm_entitlements::LimitGate::new(
+                codeterm_entitlements::compiled_free(),
+                codeterm_entitlements::enforcing(),
+            ),
         }
     }
 
@@ -285,6 +297,9 @@ impl MultiplexerState {
     }
 
     pub fn rename_team(&mut self, id: &str, name: String) -> Result<Team, String> {
+        if let Some(refusal) = self.item_write_lock(codeterm_entitlements::LimitKey::Teams, id) {
+            return Err(refusal.to_string());
+        }
         let team = self
             .teams
             .get_mut(id)
@@ -298,6 +313,9 @@ impl MultiplexerState {
         id: &str,
         lifecycle: codeterm_types::team::TeamLifecycle,
     ) -> Result<Team, String> {
+        if let Some(refusal) = self.item_write_lock(codeterm_entitlements::LimitKey::Teams, id) {
+            return Err(refusal.to_string());
+        }
         let team = self
             .teams
             .get_mut(id)
@@ -324,7 +342,10 @@ impl MultiplexerState {
         let tab_id = short_id();
         let workspace_id = short_id();
 
+        let created_at_ms = creation_order::now_ms();
         let tab = Tab {
+            locked: false,
+            created_at_ms,
             id: tab_id.clone(),
             sort_order: 0,
             pty_id: None,
@@ -426,6 +447,7 @@ impl MultiplexerState {
         };
 
         let workspace = Workspace {
+            locked: false,
             task_keys: Default::default(),
             id: workspace_id.clone(),
             name: "Main".to_string(),
@@ -435,6 +457,7 @@ impl MultiplexerState {
             cwd_missing: false,
             provisioned_cwd: None,
             protected: false,
+            created_at_ms,
             sort_order: 0,
         };
 
@@ -456,6 +479,10 @@ impl MultiplexerState {
             pending_closed_history: Vec::new(),
             workspace_close_reservations: HashMap::new(),
             tab_close_reservations: HashMap::new(),
+            limit_gate: codeterm_entitlements::LimitGate::new(
+                codeterm_entitlements::compiled_free(),
+                codeterm_entitlements::enforcing(),
+            ),
         };
 
         (state, tab_id)

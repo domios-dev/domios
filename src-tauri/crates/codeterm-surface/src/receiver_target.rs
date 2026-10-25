@@ -86,7 +86,9 @@ impl ReceiverTargetStore {
 }
 
 fn state_file(path: &Path) -> StateFile {
-    StateFile::new(path).with_validator(validate)
+    StateFile::new(path)
+        .with_private_permissions()
+        .with_validator(validate)
 }
 
 fn parse(raw: &str) -> Result<Bindings, String> {

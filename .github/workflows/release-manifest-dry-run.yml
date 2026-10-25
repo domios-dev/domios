@@ -34,19 +34,41 @@ permissions:
 jobs:
   validate:
     name: verify consolidated manifests against private CI bytes
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && ((startsWith(github.ref, 'refs/heads/release/') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.path == '.github/workflows/tests.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.actor.login == 'rollacode' && github.event.workflow_run.triggering_actor.login == 'rollacode' && startsWith(github.event.workflow_run.head_branch, 'release/'))) }}
+    environment: release
     runs-on: [self-hosted, linux-build]
     timeout-minutes: 60
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Use the runner bundled Node
+        if: runner.environment == 'self-hosted'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
         with:
-          ref: ${{ inputs.source_ref }}
+          script: |-
+            const path = require('node:path');
+            core.addPath(path.dirname(process.execPath));
+            core.info('Using runner Node ' + process.version);
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
-          node-version: '22.22.0'
+          node-version: 22.22.0
+        if: runner.environment == 'github-hosted'
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.source_ref }}
+          fetch-depth: 1
+      - name: Discover installed runner tools
+        if: runner.environment == 'self-hosted'
+        run: node scripts/ci-runner-paths.mjs --paths-only
+      - name: Fetch fallback run artifact evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.artifact_run_id }}
+          pattern: ci-artifact-spool-*
+          path: ${{ runner.temp }}/ci-artifact-fallback/${{ inputs.artifact_run_id }}
       - name: Assemble and verify local channel manifests
         env:
           TAG: ${{ inputs.tag }}

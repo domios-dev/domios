@@ -41,9 +41,14 @@ export function runtimeFailure(record) {
   return null;
 }
 
-export function readiness(record, { requireSession = false } = {}) {
+export function readiness(record, { requireSession = false, allowFirstTurn = false } = {}) {
   if (!record) return { fail: "tab absent from the tab projection" };
-  if (TERMINAL_STAGES.has(record.boot_stage)) {
+  const launch = record.provisional_launch;
+  const firstTurn = allowFirstTurn && !requireSession && record.boot_stage === "launch_binding_unconfirmed"
+    && record.agent_type && record.session_binding_nonce && launch?.binding_nonce === record.session_binding_nonce
+    && record.pty_id && launch.pty_id === record.pty_id
+    && launch.first_turn_input_ready === true && launch.first_turn_payload_written === false;
+  if (TERMINAL_STAGES.has(record.boot_stage) && !firstTurn) {
     return { fail: `${record.boot_stage}: ${record.boot_failure_reason ?? JSON.stringify(record.pending_prompt ?? null)}` };
   }
   const runtime = runtimeFailure(record);
@@ -51,6 +56,7 @@ export function readiness(record, { requireSession = false } = {}) {
   if (record.pending_prompt) return { fail: `owner prompt pending: ${JSON.stringify(record.pending_prompt).slice(0, 300)}` };
   const status = tabStatus(record);
   if (status === "exited" || status === "error") return { fail: `tab status ${status}` };
+  if (firstTurn) return { done: record };
   const staged = record.agent_type && READY_STAGES.has(record.boot_stage);
   if (staged && (record.agent_session_id || (!requireSession && record.session_binding_nonce))) return { done: record };
   return { pending: `ready: boot_stage=${record.boot_stage ?? "none"} session=${record.agent_session_id ?? "none"}` };
@@ -74,7 +80,8 @@ export function replyVerdict({ messages, baselineIds, marker, record, boundSessi
     return { fail: `session changed during probe: ${boundSession} -> ${record.agent_session_id}` };
   }
   const exact = texts.some((text) => normalizeAnswer(text) === marker || normalizeAnswer(text.split("\n").at(-1)) === marker);
-  if (exact && tabStatus(record) === "idle") return { done: { answer: marker, session: record.agent_session_id } };
+  if (exact && record?.agent_session_id && record.reported_session_binding_nonce === record.session_binding_nonce
+    && tabStatus(record) === "idle") return { done: { answer: marker, session: record.agent_session_id } };
   return { pending: exact ? "reply observed; waiting for idle" : `exact reply ${marker} (new assistant items: ${texts.length})` };
 }
 

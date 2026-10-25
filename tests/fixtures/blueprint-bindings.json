@@ -1,0 +1,92 @@
+[
+  {
+    "binding": "a.out",
+    "node": "a",
+    "selection": ""
+  },
+  {
+    "binding": "a.out.foo",
+    "node": "a",
+    "selection": "foo"
+  },
+  {
+    "binding": "a.out.foo.bar",
+    "node": "a",
+    "selection": "foo.bar"
+  },
+  {
+    "binding": "a.out.0",
+    "node": "a",
+    "selection": "0"
+  },
+  {
+    "binding": "a-b_1.out",
+    "node": "a-b_1",
+    "selection": ""
+  },
+  {
+    "binding": "a",
+    "node": null,
+    "selection": null
+  },
+  {
+    "binding": "a.outfoo",
+    "node": null,
+    "selection": null
+  },
+  {
+    "binding": "a.in",
+    "node": null,
+    "selection": null
+  },
+  {
+    "binding": ".out",
+    "node": null,
+    "selection": null
+  },
+  {
+    "binding": "a.out.",
+    "node": null,
+    "selection": null
+  },
+  {
+    "binding": "a.out..foo",
+    "node": null,
+    "selection": null
+  },
+  {
+    "binding": "a.out.foo.",
+    "node": null,
+    "selection": null
+  },
+  {
+    "binding": "a..out",
+    "node": null,
+    "selection": null
+  },
+  {
+    "binding": "a.b.out",
+    "node": null,
+    "selection": null
+  },
+  {
+    "binding": "a/out.out",
+    "node": null,
+    "selection": null
+  },
+  {
+    "binding": "next.out",
+    "node": null,
+    "selection": null
+  },
+  {
+    "binding": "stop.out",
+    "node": null,
+    "selection": null
+  },
+  {
+    "binding": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.out",
+    "node": null,
+    "selection": null
+  }
+]

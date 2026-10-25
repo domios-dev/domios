@@ -228,7 +228,7 @@ it("copies a message as it really is from the menu, once", async () => {
   expect(item("u1", "Copy as Markdown")).not.toBeNull();
   await act(async () => item("u1", "Copy")!.click());
   expect(document.execCommand).toHaveBeenCalledTimes(1);
-  expect(clipboard).toEqual([{ "text/plain": "fix image1 please", [DOMIOS_TEXT_MIME]: `fix ${IMAGE} please` }]);
+  expect(clipboard).toEqual([{ "text/plain": "fix image please", [DOMIOS_TEXT_MIME]: `fix ${IMAGE} please` }]);
   expect(item("u1", "Copied")).not.toBeNull();
 });
 

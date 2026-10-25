@@ -34,6 +34,11 @@ impl MultiplexerState {
 
     pub fn create_tab(&mut self, workspace_id: &str) -> Result<String, String> {
         self.ensure_workspace_membership_mutable(workspace_id)?;
+        if let Some(refusal) =
+            self.item_write_lock(codeterm_entitlements::LimitKey::Workspaces, workspace_id)
+        {
+            return Err(refusal.to_string());
+        }
         let workspace_idx = self
             .workspaces
             .iter()
@@ -72,6 +77,9 @@ impl MultiplexerState {
             .tabs
             .get(tab_id)
             .ok_or_else(|| format!("Tab not found: {tab_id}"))?;
+        if let Some(refusal) = self.tab_write_lock(tab_id) {
+            return Err(refusal.to_string());
+        }
         if tab.agent_type.is_some() || !matches!(tab.backing, TabBacking::Pty) {
             return Err(format!("Tab {tab_id} is not a blank picker tab"));
         }

@@ -1,0 +1,99 @@
+{
+  "duration_api_ms": 3520,
+  "stop_reason": "end_turn",
+  "session_id": "e1382180-bffc-4df3-a099-7e6db2ee103e",
+  "total_cost_usd": 0.0705258,
+  "usage": {
+    "input_tokens": 2,
+    "cache_creation_input_tokens": 8491,
+    "cache_read_input_tokens": 649,
+    "output_tokens": 123,
+    "output_tokens_details": {
+      "thinking_tokens": 0
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 8491,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "global",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 123,
+        "cache_read_input_tokens": 649,
+        "cache_creation_input_tokens": 8491,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 8491
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-opus-5-5": {
+      "inputTokens": 2,
+      "outputTokens": 123,
+      "cacheReadInputTokens": 649,
+      "cacheCreationInputTokens": 8491,
+      "webSearchRequests": 0,
+      "costUSD": 0.0705258,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-opus-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 1,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "[\"Watch my teammate's terminal tab and tell me when its output changes\", \"Alert me when a colleague's tab shows something new matching a pattern\", \"Keep an eye on another member's terminal and notify me once it moves on\", \"Ping me when the output in a coworker's tab matches my regex\", \"Monitor someone else's tab for a few hours and notify me when progress happens\"]",
+  "ttft_ms": 3579,
+  "type": "result",
+  "duration_ms": 3764,
+  "uuid": "af9a6891-254e-4936-a18d-2b3bf65781ed",
+  "ttft_stream_ms": 2478,
+  "time_to_request_ms": 97,
+  "first_content_frame_ms": 2478,
+  "queued_turn_count": 0,
+  "result_index": 0
+}

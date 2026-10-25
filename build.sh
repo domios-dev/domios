@@ -32,8 +32,19 @@ source scripts/firebase-build-config.sh
 dev_notify_capture_parent
 
 CMD="${1:-dev}"
+if [ "$CMD" = dev-back ]; then
+  export DEV_FRONT_EXTERNAL=1
+  set -- dev --wait "${@:2}"
+  CMD=dev
+fi
 source scripts/lane-rust-guard.sh
 require_canonical_rust_tests "$CMD" "${@:2}" || exit $?
+if [ "$CMD" = test-related ]; then
+  local related_shell="$BASH"
+  if command -v cygpath >/dev/null 2>&1; then related_shell="$(cygpath -w "$BASH")"; fi
+  CT_TEST_RELATED_SHELL="$related_shell" node scripts/test-related.mjs "${@:2}"
+  return $?
+fi
 CT_DEV_WAIT=0
 DEV_NOTIFY_TAB="${DEV_NOTIFY_TAB:-${BUILD_NOTIFY_TAB:-}}"
 DEV_NOTIFY_TARGET_KIND="${DEV_NOTIFY_TARGET_KIND:-none}"
@@ -221,8 +232,30 @@ ct_msvc_build_tools_base() {
   fi
 }
 
+ct_msvc_native_arm64_env() {
+  [ "${VSCMD_ARG_HOST_ARCH:-}" = arm64 ] && [ "${VSCMD_ARG_TGT_ARCH:-}" = arm64 ] && [ -n "${LIB:-}" ] || {
+    echo "ERROR: hosted arm64 requires a native arm64 Visual Studio environment" >&2; return 2;
+  }
+  local native_tools native_compiler
+  native_tools="$(cygpath -m "${VCToolsInstallDir:?Native MSVC tools directory required}")"
+  native_tools="${native_tools%/}"
+  native_compiler="$native_tools/bin/Hostarm64/arm64"
+  [ -f "$native_compiler/cl.exe" ] && [ -f "$native_compiler/lib.exe" ] || {
+    echo "ERROR: native arm64 MSVC tools are missing" >&2; return 2;
+  }
+  ct_assert_msvc_lib_arch arm64 || return
+  export CC="$native_compiler/cl.exe" CXX="$native_compiler/cl.exe"
+  export CC_aarch64_pc_windows_msvc="$CC" CXX_aarch64_pc_windows_msvc="$CXX"
+  export AR_aarch64_pc_windows_msvc="$native_compiler/lib.exe"
+  export npm_config_script_shell="$(cygpath -w "$(command -v bash)")"
+}
+
 setup_env() {
   if [[ "$OSTYPE" != darwin* ]] && [[ "$OSTYPE" != linux* ]]; then
+    if [ "$CMD" = release-arm64-compile ]; then
+      ct_msvc_native_arm64_env
+      return
+    fi
     BT_BASE="$(ct_msvc_build_tools_base \
       "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools" \
       "C:/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe")"
@@ -362,12 +395,23 @@ kill_dev() {
   node scripts/reap-dev-sidecars.mjs "$CT_DATA_DIR"
 }
 
-request_dev_clean_restart() {
-  local config="$CT_DATA_DIR/config.toml"
-  [ -f "$config" ] || return 1
+stop_dev_before_replacement() {
+  if [[ "$OSTYPE" == msys* ]] || [[ "$OSTYPE" == cygwin* ]]; then
+    node scripts/dev-rebuild-stop.mjs "$(dev_provenance_record)" "$CT_DATA_DIR" "$CT_PORT" "$CT_INSTANCE" "$(dev_app_path)" || return
+    kill_web_watch
+    kill_dev_static_server
+  else
+    kill_dev
+  fi
+}
 
-  local token
-  token=$(grep -E '^token = ' "$config" | head -1 | sed 's/.*"\(.*\)"/\1/')
+request_dev_clean_restart() {
+  local token cli="$CT_DATA_DIR/bin/codeterm"
+  [ -x "$cli" ] || cli="$cli.exe"
+  [ -x "$cli" ] || return 1
+  token=$(env -u CODETERM_API_TOKEN -u CODETERM_API_URL \
+    CODETERM_DATA_DIR="$CT_DATA_DIR" CODETERM_API_PORT="$CT_PORT" \
+    "$cli" system api-token) || return 1
   [ -n "$token" ] || return 1
 
   curl --fail --silent --show-error --max-time 3 \
@@ -396,7 +440,27 @@ run_workspace_lib_tests() {
   done
 }
 
+rust_test_package() {
+  case "$1" in
+    app|service-core) printf '%s\n' codeterm-service-core ;;
+    root|shell|codeterm) printf '%s\n' codeterm ;;
+    domios-server|codeterm-*) printf '%s\n' "$1" ;;
+    api|socket|commands|sentinel-host|billing|account|analytics|plan|pty|util|browser|types|wire|sentinel|decision|provider-signals|storage|mem|mem-store|paths|mesh|plugin|plugins|agent-detect|notification-core|repowatch|usage|blueprint-types|local-recording|cli)
+      printf 'codeterm-%s\n' "$1" ;;
+    *) echo "Unknown test scope: $1" >&2; return 2 ;;
+  esac
+}
+
+prepare_cli_server_test() {
+  local cli_target server_target
+  cli_target="${1:-$(node scripts/rust-test-lanes.mjs cli target)}" || return $?
+  server_target="${2:-$(node scripts/rust-test-lanes.mjs workspace target)}" || return $?
+  DOMIOS_CLI_TEST_SERVER="$(node scripts/cli-server-test.mjs "$cli_target" "$server_target")" || return $?
+  export DOMIOS_CLI_TEST_SERVER
+}
+
 run_nextest_scope() {
+  local CARGO_TARGET_DIR="${CARGO_TARGET_DIR-}"
   [ "$#" -le 2 ] || {
     echo "usage: ./build.sh nextest <scope> [filterset]" >&2
     return 2
@@ -405,15 +469,32 @@ run_nextest_scope() {
   local filterset="${2:-}"
   local manifest="src-tauri/Cargo.toml"
   local package=""
+  local cli_server_target=""
   local targets=(--no-default-features)
   local filter_args=()
+
+  case "$scope:$filterset" in
+    workspace:*|app:*|codeterm:*|service-core:*|codeterm-service-core:*|shell:*|*rdeps\(*)
+      prepare_dev_frontend_dist "$(pwd -P)"
+      prepare_bundle_stubs
+      ;;
+  esac
 
   case "$scope" in
     workspace)
       # One feature resolution for every crate, so shared dependencies compile once.
-      prepare_dev_frontend_dist "$(pwd -P)"
-      prepare_bundle_stubs
-      targets+=(--workspace --lib --features codeterm-sentinel/test-support)
+      local lane_args cli_args=() arg
+      lane_args="$(node scripts/rust-test-lanes.mjs workspace)" || return $?
+      targets=()
+      while IFS= read -r arg; do targets+=("$arg"); done <<< "$lane_args"
+      local workspace_target cli_target
+      workspace_target="$(node scripts/rust-test-lanes.mjs workspace target)" || return $?
+      cli_target="$(node scripts/rust-test-lanes.mjs cli target)" || return $?
+      lane_args="$(node scripts/rust-test-lanes.mjs cli)" || return $?
+      while IFS= read -r arg; do cli_args+=("$arg"); done <<< "$lane_args"
+      CARGO_TARGET_DIR="$cli_target" cargo test --manifest-path cli/Cargo.toml "${cli_args[@]}" \
+        --locked --no-run --message-format=json >/dev/null || return $?
+      export CARGO_TARGET_DIR="$workspace_target"
       ;;
     app|codeterm|service-core|codeterm-service-core)
       configure_app_test_cargo nextest
@@ -449,7 +530,16 @@ run_nextest_scope() {
     mesh|codeterm-mesh) package="codeterm-mesh"; targets+=(--lib) ;;
     plugin|codeterm-plugin) package="codeterm-plugin"; targets+=(--lib) ;;
     plugins|codeterm-plugins) package="codeterm-plugins"; targets+=(--lib) ;;
-    cli|codeterm-cli) manifest="cli/Cargo.toml"; package="codeterm-cli"; targets+=(--all-targets) ;;
+    cli|codeterm-cli)
+      cli_server_target="$(node scripts/rust-test-lanes.mjs workspace target)" || return $?
+      manifest="cli/Cargo.toml"
+      local cli_selection cli_arg
+      cli_selection="$(node scripts/rust-test-lanes.mjs cli)" || return $?
+      targets=()
+      while IFS= read -r cli_arg; do targets+=("$cli_arg"); done <<< "$cli_selection"
+      cli_selection="$(node scripts/rust-test-lanes.mjs cli target)" || return $?
+      export CARGO_TARGET_DIR="$cli_selection"
+      ;;
     pty-fork) manifest="src-tauri/pty-fork/Cargo.toml" ;;
     codeterm-*) package="$scope"; targets+=(--lib) ;;
     *)
@@ -459,8 +549,6 @@ run_nextest_scope() {
   esac
 
   if [ "$scope" = "app" ] || [ "$scope" = "codeterm" ] || [ "$scope" = "service-core" ] || [ "$scope" = "codeterm-service-core" ] || [ "$scope" = "shell" ]; then
-    prepare_dev_frontend_dist "$(pwd -P)"
-    prepare_bundle_stubs
     prepare_exceptional_worktree_target
   fi
 
@@ -484,8 +572,11 @@ run_nextest_scope() {
     filter_args=()
     confirmation_args=(--archive-file "$archive")
   else
+  if declare -F prepare_nextest_metadata >/dev/null; then
+    prepare_nextest_metadata "$timing_dir" "$manifest" "${targets[@]}" || return $?
+  else
   if cargo nextest list --manifest-path "$manifest" "${targets[@]}" \
-    --list-type binaries-only --message-format json > "$timing_dir/binaries.json"; then
+    --locked --list-type binaries-only --message-format json > "$timing_dir/binaries.json"; then
     :
   else
     run_exit=$?
@@ -499,8 +590,15 @@ run_nextest_scope() {
     rm -rf "$timing_dir"
     return "$run_exit"
   fi
+  fi
   reuse_args=(--binaries-metadata "$timing_dir/binaries.json" --cargo-metadata "$timing_dir/cargo.json")
   confirmation_args=("$timing_dir/binaries.json" "$timing_dir/cargo.json")
+  fi
+  if [ "$manifest" = cli/Cargo.toml ]; then
+    cargo nextest list "${reuse_args[@]}" "${filter_args[@]}" --message-format json > "$timing_dir/selected.json" || return $?
+    if [ "$(node scripts/cli-server-test.mjs selected "$timing_dir/selected.json")" = true ]; then
+      prepare_cli_server_test "$CARGO_TARGET_DIR" "$cli_server_target" || return $?
+    fi
   fi
   if CARGO_TEST_CMD="cargo nextest run" CARGO_TEST_BUILD_CMD="" NEXTEST_STATUS_LEVEL=pass TEST_RAW_OUTPUT=1 \
     scripts/test-capped.sh \
@@ -1307,10 +1405,20 @@ record_dev_target() {
 }
 
 dev_resource_dir() {
-  if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
+  if [[ "$OSTYPE" == darwin* ]] && [ -n "${CODETERM_DEV_INSTANCE:-}" ]; then
+    printf '%s\n' "$(tauri_debug_dir)/.domios-dev-runtime/Domios.app/Contents/Resources"
+  elif [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
     printf '%s\n' "$(tauri_debug_dir)/.domios-dev-runtime/lib/codeterm"
   else
     tauri_debug_dir
+  fi
+}
+
+dev_frontend_dir() {
+  if [[ "$OSTYPE" == darwin* ]] && [ -n "${CODETERM_DEV_INSTANCE:-}" ]; then
+    printf '%s\n' "$(pwd -P)/dist"
+  else
+    printf '%s\n' "$(dev_resource_dir)/dist"
   fi
 }
 
@@ -1323,7 +1431,9 @@ dev_built_app_path() {
 }
 
 dev_app_path() {
-  if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
+  if [[ "$OSTYPE" == darwin* ]] && [ -n "${CODETERM_DEV_INSTANCE:-}" ]; then
+    printf '%s\n' "$(tauri_debug_dir)/.domios-dev-runtime/Domios.app/Contents/MacOS/domios-dev-app"
+  elif [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
     printf '%s\n' "$(tauri_debug_dir)/.domios-dev-runtime/bin/domios-dev-app"
   else
     printf '%s\n' "$(tauri_debug_dir)/domios-dev-app.exe"
@@ -1424,7 +1534,7 @@ write_dev_provenance() {
     --build-sha "$build_sha" \
     --app "$(dev_app_path)" \
     --cli "$(dev_cli_path)" \
-    --frontend "$(dev_resource_dir)/dist" \
+    --frontend "$(dev_frontend_dir)" \
     --instance "$CT_INSTANCE" \
     --api-port "$CT_PORT" \
     --vite-port "$CT_VITE_PORT" \
@@ -1442,7 +1552,7 @@ validate_dev_provenance() {
     --record "$(dev_provenance_record)" \
     --app "$(dev_app_path)" \
     --cli "$(dev_cli_path)" \
-    --frontend "$(dev_resource_dir)/dist" \
+    --frontend "$(dev_frontend_dir)" \
     --instance "$CT_INSTANCE" \
     --api-port "$CT_PORT" \
     --vite-port "$CT_VITE_PORT" \
@@ -1450,7 +1560,17 @@ validate_dev_provenance() {
     --identifier "$CT_IDENTIFIER"
 }
 
+build_dev_server() {
+  cargo build --manifest-path src-tauri/Cargo.toml -p domios-server --bin domios-server \
+    --profile "$CT_DEV_CARGO_PROFILE" --no-default-features --features domios-server/embeddings \
+    --message-format=json-render-diagnostics > "$1"
+}
+
 reload_dev_server() {
+  if [[ "$OSTYPE" == darwin* ]] && [ -n "${CODETERM_DEV_INSTANCE:-}" ]; then
+    echo 'Named macOS DEV uses a sealed app pair; run ./build.sh dev instead.' >&2
+    return 2
+  fi
   local plan split_logs receipt build_sha started
   started="$(date +%s)"
   CT_SPLIT_DEV=1
@@ -1470,9 +1590,8 @@ reload_dev_server() {
   fi
   export CODETERM_SERVER_CLI_SHA256="$built_cli_hash"
   export CODETERM_SERVER_DEV_FRONTEND_ORIGIN="http://127.0.0.1:$CT_VITE_PORT"
-  cargo build --manifest-path src-tauri/Cargo.toml -p domios-server --bin domios-server \
-    --profile "$CT_DEV_CARGO_PROFILE" --no-default-features --features domios-server/embeddings \
-    --message-format=json-render-diagnostics > "$split_logs/server.jsonl"
+  export CODETERM_SERVER_DEV_IDENTIFIER="$CT_IDENTIFIER"
+  ct_with_firebase_build_config build_dev_server "$split_logs/server.jsonl"
   cargo tree --manifest-path src-tauri/Cargo.toml -p domios-server --no-default-features \
     --features domios-server/embeddings --edges normal,build --prefix none > "$split_logs/server-tree.txt"
   # Refuse edits made during compilation before touching the running instance.
@@ -1646,8 +1765,11 @@ if [ "${CODETERM_TEST_PRINT_BUILD_CACHE_POLICY:-}" = "1" ]; then
 fi
 
 prepare_bundle_stubs() {
-  node scripts/prepare-cli-stub.js
-  node scripts/prepare-bundle-resource-stubs.mjs prepare --target "${CARGO_BUILD_TARGET:-$(ct_host_triple)}"
+  node scripts/prepare-test-bundle.mjs "${CARGO_BUILD_TARGET:-$(ct_host_triple)}"
+}
+
+prepare_nextest_metadata() {
+  node "${CT_GATEWAY_SCRIPT_ROOT:-.}/scripts/nextest-metadata-cache.mjs" "$@"
 }
 
 prepare_dev_frontend_dist() {
@@ -2040,7 +2162,7 @@ build_dev_client() {
   grep -qE "LNK1104|failed to (link or copy|remove)|os error (5|32)|Access is denied" "$log" || return 1
   echo "Native client changed; replacing the DEV window."
   CT_DEV_RETAIN_WINDOW=0
-  kill_dev || echo "WARNING: dev cleanup failed; continuing." >&2
+  stop_dev_before_replacement || return
   TAURI_CONFIG="$(cat "$conf")" cargo build "$@"
 }
 
@@ -2080,23 +2202,24 @@ build_and_launch_dev() {
   local split_logs="$(tauri_debug_dir)/.domios-dev-build"
   export CODETERM_SERVER_CLI_SHA256="$built_cli_hash"
   export CODETERM_SERVER_DEV_FRONTEND_ORIGIN="http://127.0.0.1:$CT_VITE_PORT"
-  cargo build --manifest-path src-tauri/Cargo.toml -p domios-server --bin domios-server \
-    --profile "$CT_DEV_CARGO_PROFILE" --no-default-features --features domios-server/embeddings \
-    --message-format=json-render-diagnostics > "$split_logs/server.jsonl"
+  export CODETERM_SERVER_DEV_IDENTIFIER="$CT_IDENTIFIER"
+  ct_with_firebase_build_config build_dev_server "$split_logs/server.jsonl"
   cargo tree --manifest-path src-tauri/Cargo.toml -p domios-server --no-default-features \
     --features domios-server/embeddings --edges normal,build --prefix none > "$split_logs/server-tree.txt"
   local build_args=(--manifest-path src-tauri/Cargo.toml -p codeterm --bin codeterm
     --profile "$CT_DEV_CARGO_PROFILE" --no-default-features)
   build_dev_client "$conf" "${build_args[@]}"
   build_sha="$CODETERM_BUILD_SHA"
+  if [[ "$OSTYPE" == darwin* ]] && named_dev_isolated; then prepare_local_macos_signing 0; fi
   build_dev_frontend
   if [ "${CT_DEV_RETAIN_WINDOW:-0}" = 1 ]; then
     if dev_live_window_exe >/dev/null && cmp -s "$(dev_built_app_path)" "$(dev_app_path)"; then
       swap_dev_server_keep_window "$split_logs" "$build_sha"
       return
     fi
-    kill_dev || echo "WARNING: dev cleanup failed; continuing." >&2
+    stop_dev_before_replacement || return
   fi
+  stop_dev_before_replacement || return
   node scripts/server-artifact.mjs stage-dev "$split_logs/server.jsonl" "$split_logs/server-tree.txt" \
     "$split_logs/cli.jsonl" "$(pwd -P)" "$(dev_resource_dir)" "$(dev_built_app_path)" "$build_sha"
   write_dev_provenance "$build_sha"
@@ -2244,10 +2367,10 @@ start_web_watch() {
   set +e
   case "$OSTYPE" in
     msys*|cygwin*|win32)
-      CODETERM_FRONTEND_DEV=1 node "$vite_entry" build --watch --emptyOutDir false --outDir "$(dev_resource_dir)/dist" </dev/null >> "$log" 2>&1 &
+      CODETERM_FRONTEND_DEV=1 node "$vite_entry" build --watch --emptyOutDir false --outDir "$(dev_frontend_dir)" </dev/null >> "$log" 2>&1 &
       ;;
     *)
-      CODETERM_FRONTEND_DEV=1 nohup node "$vite_entry" build --watch --emptyOutDir false --outDir "$(dev_resource_dir)/dist" </dev/null >> "$log" 2>&1 &
+      CODETERM_FRONTEND_DEV=1 nohup node "$vite_entry" build --watch --emptyOutDir false --outDir "$(dev_frontend_dir)" </dev/null >> "$log" 2>&1 &
       ;;
   esac
   shell_pid=$!
@@ -2272,10 +2395,10 @@ start_dev_static_server() {
   set +e
   case "$OSTYPE" in
     msys*|cygwin*|win32)
-      CODETERM_DEV_STATIC_DIST="$(dev_resource_dir)/dist" node scripts/dev-static-server.mjs </dev/null >> "$log" 2>&1 &
+      CODETERM_DEV_STATIC_DIST="$(dev_frontend_dir)" node scripts/dev-static-server.mjs </dev/null >> "$log" 2>&1 &
       ;;
     *)
-      CODETERM_DEV_STATIC_DIST="$(dev_resource_dir)/dist" nohup node scripts/dev-static-server.mjs </dev/null >> "$log" 2>&1 &
+      CODETERM_DEV_STATIC_DIST="$(dev_frontend_dir)" nohup node scripts/dev-static-server.mjs </dev/null >> "$log" 2>&1 &
       ;;
   esac
   shell_pid=$!
@@ -2351,7 +2474,7 @@ dev_health_fields() {
     process.stdin.on("end", () => {
       const json=JSON.parse(input);
       const instance=json.instance ?? {};
-      process.stdout.write([json.status ?? "", json.build_sha ?? "", instance.name ?? "", instance.api_port ?? "", instance.vite_port ?? "", instance.cdp_port ?? "", instance.identifier ?? ""].join("\n"));
+      process.stdout.write([json.status ?? "", json.build_sha ?? "", instance.name ?? "", instance.api_port ?? "", instance.vite_port ?? "", instance.cdp_port ?? "", instance.identifier ?? "", json.startup?.state ?? ""].join("\n"));
     });
   '
 }
@@ -2360,7 +2483,7 @@ validate_dev_health() {
   local expected_sha="$1" expected_instance="$2" expected_port="$3" expected_vite="$4" expected_cdp="$5" expected_identifier="$6" health="$7"
   local role="${8:-combined}"
   case "$role" in combined|server) ;; *) echo "Unknown DEV health role" >&2; return 1 ;; esac
-  local status sha instance port vite cdp identifier fields
+  local status sha instance port vite cdp identifier fields startup
   fields="$(printf '%s' "$health" | dev_health_fields 2>/dev/null || true)"
   status="$(printf '%s\n' "$fields" | sed -n '1p')"
   sha="$(printf '%s\n' "$fields" | sed -n '2p')"
@@ -2369,8 +2492,13 @@ validate_dev_health() {
   vite="$(printf '%s\n' "$fields" | sed -n '5p')"
   cdp="$(printf '%s\n' "$fields" | sed -n '6p')"
   identifier="$(printf '%s\n' "$fields" | sed -n '7p')"
+  startup="$(printf '%s\n' "$fields" | sed -n '8p')"
   if [ "$status" != "ok" ]; then
     echo "Health endpoint did not report status=ok" >&2
+    return 1
+  fi
+  if [ "$startup" != "ready" ]; then
+    echo "Health endpoint did not report startup.state=ready" >&2
     return 1
   fi
   if [[ ! "$expected_sha" =~ ^[0-9a-f]{40}$ ]] || [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]] || [ "$sha" != "$expected_sha" ]; then
@@ -2406,11 +2534,10 @@ dev_notify_health_proof() {
   dev_notify_ready_after_proof "$DEV_NOTIFY_SENT_MARKER" "$tab_id" "$CT_INSTANCE" "$CT_PORT" "$sha" "$listener" "$(pwd -P)"
 }
 
-# Auto-install node deps if lockfile is newer than node_modules
 ensure_deps() {
-  if [ ! -d node_modules ] || [ pnpm-lock.yaml -nt node_modules/.modules.yaml ] 2>/dev/null; then
-    echo "Installing dependencies..."
-    CI=true pnpm install --frozen-lockfile 2>/dev/null || CI=true pnpm install
+  if [ ! -f node_modules/.modules.yaml ] || [ pnpm-lock.yaml -nt node_modules/.modules.yaml ]; then
+    echo "Preparing checkout-local JS dependencies from the shared pnpm store (pnpm install --frozen-lockfile)..."
+    CI=true pnpm install --frozen-lockfile
   fi
 }
 
@@ -2494,7 +2621,7 @@ package_platform() {
 # Arguments, when given, prefix each Tauri command (local builds add their build config).
 bundle_common_stage() {
   local target="${CARGO_BUILD_TARGET:-$(ct_host_triple)}" client_dir="${CARGO_TARGET_DIR:-src-tauri/target}"
-  local platform client=domios-app target_args=() compile_config=() run=("$@")
+  local platform client=domios-app target_args=() compile_config=() unsigned_config=() run=("$@")
   platform="$(package_platform "$target")" || return
   if [ -n "${CARGO_BUILD_TARGET:-}" ]; then
     target_args=(--target "$CARGO_BUILD_TARGET")
@@ -2506,15 +2633,19 @@ bundle_common_stage() {
     macos) compile_config=(--config '{"bundle":{"externalBin":[]}}') ;;
     linux) compile_config=(--config '{"bundle":{"resources":[],"externalBin":[]}}') ;;
   esac
-  "${run[@]}" pnpm tauri build --no-bundle "${target_args[@]}" ${CODETERM_RELEASE_FEATURES:+--features "$CODETERM_RELEASE_FEATURES"} "${compile_config[@]}"
+  if [ "${CODETERM_RELEASE_UNSIGNED:-0}" = 1 ]; then
+    [ "$platform" != macos ] || { echo "Unsigned hosted compilation excludes macOS" >&2; return 2; }
+    unsigned_config=(--config '{"bundle":{"createUpdaterArtifacts":false}}')
+  fi
+  "${run[@]}" pnpm tauri build --no-bundle "${target_args[@]}" ${CODETERM_RELEASE_FEATURES:+--features "$CODETERM_RELEASE_FEATURES"} "${compile_config[@]}" "${unsigned_config[@]}"
   node scripts/release-stage.mjs stage-full --target "$target" \
     --source-sha "$(git rev-parse HEAD)" \
     --cargo-log "release-artifacts/build-logs/$target/server.jsonl" \
     --tree-log "release-artifacts/build-logs/$target/closure.txt" \
     --client-file "$client_dir/release/$client"
   case "$platform" in
-    windows) "${run[@]}" pnpm tauri bundle --no-binary-patching "${target_args[@]}" ${CODETERM_RELEASE_FEATURES:+--features "$CODETERM_RELEASE_FEATURES"} --bundles nsis ;;
-    linux) "${run[@]}" pnpm tauri bundle --no-binary-patching "${target_args[@]}" ${CODETERM_RELEASE_FEATURES:+--features "$CODETERM_RELEASE_FEATURES"} --bundles deb,appimage ;;
+    windows) "${run[@]}" pnpm tauri bundle --no-binary-patching "${target_args[@]}" ${CODETERM_RELEASE_FEATURES:+--features "$CODETERM_RELEASE_FEATURES"} --bundles nsis "${unsigned_config[@]}" ;;
+    linux) "${run[@]}" pnpm tauri bundle --no-binary-patching "${target_args[@]}" ${CODETERM_RELEASE_FEATURES:+--features "$CODETERM_RELEASE_FEATURES"} --bundles deb,appimage "${unsigned_config[@]}" ;;
     macos) "${run[@]}" node scripts/release-macos-bundle.mjs "$target" ;;
   esac
 }
@@ -2589,7 +2720,7 @@ case "$CMD" in
 esac
 
 case "$CMD" in
-  process-probe|lane-wrapper-check|cache-wrapper-check|dev-link-measure|feature-cycle|embedding-parity|fmt-check|check|check-tests|ci-tests|ci-clippy|ci-cli-tests|release-inputs|release-bundle|release-finalize|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|cli|cli-docs|clean|test:all)
+  process-probe|lane-wrapper-check|cache-wrapper-check|dev-link-measure|feature-cycle|embedding-parity|fmt-check|check|check-tests|ci-tests|ci-clippy|ci-cli-tests|release-inputs|release-bundle|release-finalize|release-arm64-compile|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|cli|cli-docs|clean|test:all)
     enter_cargo_gateway "$CMD ${*:2}"
     ;;
   frontend-build)
@@ -2634,6 +2765,7 @@ Domios build commands
   frontend                    Production frontend typecheck + bundle
   release-inputs [--for-bundle] Build target-aware inputs; defer native compilation for bundling
   release-bundle [--fresh-target] [tauri args...]  Package in one session; optionally use the fresh release target policy
+  release-arm64-compile TAG SHA ARCHIVE  Build unsigned hosted bundles and freeze handoff in one session
   release-finalize [stage args...]  Verify/package final bytes while the stable gateway path exists
   ci-tests full|platform|embeddings  Compile and run ordinary, OS-specific, or embeddings Rust tests
   ci-clippy                   Run the clippy repo gate through the shared compile cache
@@ -2644,6 +2776,7 @@ Domios build commands
                               Run one focused Rust test
   process-probe --case server-only|arbitration|pair-journey --instance split-oracle  Build and prove isolated process ownership
   nextest <scope> [filterset]  Compile then run Rust tests through nextest
+  test-related <file>...     Print and run Rust module/crate and TS related selections
   nextest-archive [sha] [--measure selector...] Build/reuse one archive and optionally time selectors
   release-rust [runner-id...]  Run every release-tier Rust runner of tests/catalogue.json (or the named ones)
   test                        Run the application Rust unit suite
@@ -2686,6 +2819,7 @@ EOF
     ct_cache_retention gc "${2:-}"
     ;;
   fmt)
+    ensure_deps
     node scripts/format-changed.mjs "${@:2}"
     ;;
   fmt-check)
@@ -2921,10 +3055,15 @@ EOF
     ;;
   ci-cli-tests)
     prepare_bundle_stubs
-    scripts/test-capped.sh --no-default-features --manifest-path cli/Cargo.toml --all-targets --locked
+    cli_fast_args=$(node scripts/ci-cli-targets.mjs) || return $?
+    [ -n "$cli_fast_args" ] || return 1
+    cli_fast_targets=()
+    while IFS= read -r cli_fast_arg; do cli_fast_targets+=("$cli_fast_arg"); done <<< "$cli_fast_args"
+    scripts/test-capped.sh --no-default-features --manifest-path cli/Cargo.toml "${cli_fast_targets[@]}" --locked
     ;;
   ci-tests)
     case "${2:-}" in full|platform|embeddings) ;; *) echo "Usage: ./build.sh ci-tests full|platform|embeddings" >&2; exit 2 ;; esac
+    prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
     node scripts/collect-rust-warnings.mjs run --log "${RUST_WARNING_LOG:-ci-rust-warnings.log}" -- node scripts/ci-rust-tests.mjs "$2"
     ;;
@@ -2965,6 +3104,18 @@ EOF
     ;;
   release-finalize)
     node scripts/release-stage.mjs finalize "${@:2}"
+    ;;
+  release-arm64-compile)
+    case "${CARGO_BUILD_TARGET:-}" in
+      aarch64-unknown-linux-gnu|aarch64-pc-windows-msvc) ;;
+      *) echo "Hosted compilation requires an explicit arm64 target" >&2; exit 2 ;;
+    esac
+    [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}${TAURI_SIGNING_PRIVATE_KEY_PATH:-}${AWS_SECRET_ACCESS_KEY:-}" ] || { echo "Hosted compilation must be credential-free" >&2; exit 2; }
+    export CODETERM_RELEASE_COMMON_STAGE=1 CODETERM_RELEASE_UNSIGNED=1
+    ensure_deps
+    prepare_release_bundle_inputs bundle
+    bundle_common_stage
+    node scripts/release-arm64-handoff.mjs pack "$CARGO_BUILD_TARGET" "${2:?tag required}" "${3:?source SHA required}" "${4:?archive required}"
     ;;
   release-preflight)
     prepare_dev_frontend_dist "$(pwd -P)"
@@ -3057,12 +3208,17 @@ EOF
     test_scope="${2:?test-one requires domios-server, billing, account, analytics, app, shell, root, api, socket, commands, sentinel-host, frontend-bundle, plan, pty, pty-fork, util, browser, types, wire, sentinel, decision, provider-signals, storage, mem, mem-store, paths, mesh, plugin, plugins, agent-detect, notification-core, repowatch, usage, cli, or a codeterm-* package}"
     test_filter="${3:?test-one requires a test name or filter}"
     case "$test_scope" in
-      cli|codeterm-cli|frontend-bundle|codeterm-frontend-bundle|input-macos|input-windows|pty-fork) ;;
+      cli|codeterm-cli)
+        SLOW_UNIT_TESTS_MEASUREMENT="${SLOW_UNIT_TESTS_MEASUREMENT:-off}" run_nextest_scope cli "package(=codeterm-cli) & test(~$test_filter)"
+        exit $?
+        ;;
+      frontend-bundle|codeterm-frontend-bundle|input-macos|input-windows|pty-fork) ;;
       *)
         if [ "$test_filter" != build_identity_required ]; then
           # Same workspace feature resolution as every other test run, so the warm build is reused.
           [ -z "${RUST_TEST_THREADS:-}" ] || export NEXTEST_TEST_THREADS="${NEXTEST_TEST_THREADS:-$RUST_TEST_THREADS}"
-          SLOW_UNIT_TESTS_MEASUREMENT="${SLOW_UNIT_TESTS_MEASUREMENT:-off}" run_nextest_scope workspace "test(~$test_filter)"
+          test_package="$(rust_test_package "$test_scope")" || exit $?
+          SLOW_UNIT_TESTS_MEASUREMENT="${SLOW_UNIT_TESTS_MEASUREMENT:-off}" run_nextest_scope workspace "package(=$test_package) & test(~$test_filter)"
           exit $?
         fi
         ;;
@@ -3158,8 +3314,6 @@ EOF
     esac
     ;;
   nextest)
-    prepare_dev_frontend_dist "$(pwd -P)"
-    prepare_bundle_stubs
     run_nextest_scope "${@:2}"
     ;;
   nextest-archive)
@@ -3347,17 +3501,18 @@ EOF
       echo "ERROR: --seconds must be 1..3600 and --out FILE is required" >&2; exit 2;
     }
     source evals/_lib/lib.sh
+    dev_resolve
     storm_tabs="$(dev_get /api/tabs)"
     storm_tab="$(printf '%s' "$storm_tabs" | python3 -c 'import json,sys; tabs=json.load(sys.stdin); print(tabs[0]["id"] if tabs else "")')"
     [ -n "$storm_tab" ] || { echo "ERROR: DEV needs an existing tab" >&2; exit 1; }
-    storm_log="$(dev_data_dir)/logs/codeterm.log"
+    storm_log="$(dev_data_dir)/logs/domios.log"
     storm_bash="$BASH"
     if is_windows; then
       storm_bash="$(cygpath -m "$storm_bash")"
       storm_log="$(cygpath -m "$storm_log")"
       storm_out="$(cygpath -m "$storm_out")"
     fi
-    python3 - "$storm_seconds" "$storm_out" "$storm_tab" "$storm_log" "$storm_bash" <<'LOCK_STORM_PY'
+    dev_run python3 - "$storm_seconds" "$storm_out" "$storm_tab" "$storm_log" "$storm_bash" <<'LOCK_STORM_PY'
 import collections
 import concurrent.futures
 import datetime
@@ -3398,18 +3553,10 @@ def lock_histogram(lines, start, end):
 
 
 WORKER = r'''
-source evals/_lib/lib.sh
-err="$(mktemp)"
-trap 'rm -f "$err"' EXIT
 while IFS= read -r route; do
   route="${route%$'\r'}"
-  rc=0
-  CODETERM_HTTP_STATUS_LOG=1 dev_get "$route" > /dev/null 2> "$err" || rc=$?
-  status=transport_error
-  while IFS= read -r line; do
-    if [[ "$line" == "[dev-http] "* && "$line" =~ HTTP\ ([0-9]{3}) ]]; then status="${BASH_REMATCH[1]}"; fi
-  done < "$err"
-  printf '%s %s\n' "$rc" "$status"
+  curl -sS --max-time 30 -o /dev/null -w '%{time_total} %{http_code}\n' \
+    -H "Authorization: Bearer $CODETERM_API_TOKEN" "$CODETERM_API_URL$route" || true
 done
 '''
 
@@ -3420,14 +3567,13 @@ def measure(route, deadline):
                           stdout=subprocess.PIPE, text=True) as worker:
         next_tick = time.monotonic()
         while time.monotonic() < deadline:
-            before = time.monotonic()
             worker.stdin.write(route + "\n")
             worker.stdin.flush()
             response = worker.stdout.readline().split()
-            values.append((time.monotonic() - before) * 1000)
             if len(response) != 2:
                 raise RuntimeError(f"DEV helper exited for {route}")
-            statuses[response[1]] += 1
+            values.append(float(response[0]) * 1000)
+            statuses[response[1] if response[1] != "000" else "transport_error"] += 1
             next_tick += 0.250
             # Cadence generates load; it never establishes readiness or success.
             if next_tick < time.monotonic():
@@ -3451,7 +3597,7 @@ def main():
     with log.open(encoding="utf-8", errors="replace") as stream:
         holds = lock_histogram(stream, start, end)
     result = {"start_epoch": start, "end_epoch": end, "requested_seconds": seconds,
-              "cadence_ms": 250, "latency_scope": "dev_get including DEV identity checks",
+              "cadence_ms": 250, "latency_scope": "direct HTTP time_total; DEV identity checked once before sampling",
               "log_window_precision": "inclusive boundary seconds", "log_path": str(log),
               "routes": measurements, "lock_holds": holds}
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -3466,7 +3612,7 @@ def main():
         if not holds[group]:
             print("      0  (none)")
     print(f"Unmatched LOCK-HOLD lines: {holds['unmatched']}; JSON: {out}")
-    print("Latency includes dev_get checks. Log window includes both boundary seconds.")
+    print("Latency measures direct HTTP requests. Log window includes both boundary seconds.")
 
 
 if __name__ == "__main__":
@@ -3597,13 +3743,13 @@ LOCK_STORM_PY
     DEV_NOTIFY_STAGE=preflight
     if ! run_prebuilt_preflight validate_dev_provenance; then
       refuse_prebuilt "ERROR: prebuilt dev provenance is absent, stale, or unparseable; refusing before stopping dev." \
-        "Run ./build.sh dev --wait to rebuild and record valid dev provenance."
+        "Run CODETERM_DEV_INSTANCE='$CT_INSTANCE' CODETERM_DEV_API_PORT='$CT_PORT' ./build.sh dev --wait to rebuild and record valid dev provenance."
     fi
     if ! run_prebuilt_preflight preflight_dev_prebuilt_runtime; then
       refuse_prebuilt "ERROR: prebuilt dev runtime prerequisites are unavailable; refusing before stopping dev." \
         "Run ./build.sh dev --wait to restore prerequisites and record valid dev provenance."
     fi
-    kill_dev
+    stop_dev_before_replacement
     if [ -n "$DEV_NOTIFY_TAB" ]; then
       trap 'status=$?; dev_notify_exit_report "$status"; cleanup_failed_prebuilt_launch "$status"' EXIT
       trap 'dev_notify_exit_report 130; cleanup_failed_prebuilt_launch 130' INT
@@ -3624,8 +3770,18 @@ LOCK_STORM_PY
     fi
     if [ "$CT_DEV_WAIT" -eq 1 ]; then
       DEV_NOTIFY_STAGE=launch
-      run_outside_tab_job node scripts/dev-prep.mjs --launch-prebuilt \
-        --app "$(dev_app_path)" --log "$PREBUILT_LOG" --api-port "$CT_PORT" --record "$(dev_provenance_record)"
+      if run_outside_tab_job node scripts/dev-prep.mjs --launch-prebuilt \
+        --app "$(dev_app_path)" --log "$PREBUILT_LOG" --api-port "$CT_PORT" --record "$(dev_provenance_record)"; then
+        PREBUILT_STATUS=0
+      else
+        PREBUILT_STATUS=$?
+      fi
+      if [ "$PREBUILT_STATUS" -eq 3 ] && [ "${DEV_FRONT_EXTERNAL:-0}" = 1 ]; then
+        trap - EXIT INT TERM
+        echo "WARNING: DEV window is still attaching; server and window retained. Inspect $PREBUILT_LOG before recovery." >&2
+        exit 3
+      fi
+      [ "$PREBUILT_STATUS" -eq 0 ] || exit "$PREBUILT_STATUS"
       HEALTH="$(dev_health_status)"
       EXPECTED_BUILD_SHA="$CODETERM_BUILD_SHA"
       SHA="$(validate_dev_health "$EXPECTED_BUILD_SHA" "$CT_INSTANCE" "$CT_PORT" "$CT_VITE_PORT" "$CT_CDP_PORT" "$CT_IDENTIFIER" "$HEALTH" server)"
@@ -3681,11 +3837,6 @@ LOCK_STORM_PY
       fi
     fi
     ;;
-  dev-back)
-    export DEV_FRONT_EXTERNAL=1
-    # The window launches detached so restarting this tab never closes it.
-    exec "$0" dev --wait "${@:2}"
-    ;;
   dev-front)
     kill_web_watch 2>/dev/null || true
     kill_dev_static_server 2>/dev/null || true
@@ -3697,12 +3848,12 @@ LOCK_STORM_PY
   dev)
     DEV_NOTIFY_STAGE=preflight
     DEV_NOTIFY_STAGE=build
+    if named_dev_isolated; then prepare_named_dev_target; fi
     if dev_window_retainable; then
       export CT_DEV_RETAIN_WINDOW=1
     else
-      kill_dev || echo "WARNING: dev cleanup failed; continuing to build gateway acquisition." >&2
+      stop_dev_before_replacement
     fi
-    if named_dev_isolated; then prepare_named_dev_target; fi
     enter_cargo_gateway "$CMD ${*:2}"
     prepare_dev_frontend_dist
     ensure_deps
@@ -3755,8 +3906,7 @@ LOCK_STORM_PY
     ta_run "plugin"     pnpm -s test:plugins
 
     PYTHON_BIN="$(command -v python3 || command -v python)"
-    DEV_STATUS=$(dev_health_status | "$PYTHON_BIN" -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true)
-    if [ "$DEV_STATUS" = "ok" ]; then
+    if dev_health_status | node scripts/server-readiness.mjs health-ready; then
       ta_run "e2e-pytest" bash -c "cd tests/e2e && '$PYTHON_BIN' -m pip install -q -r requirements.txt 2>/dev/null && CODETERM_API_URL=http://127.0.0.1:${CT_PORT} '$PYTHON_BIN' -m pytest -m 'not llm' -q"
     else
       echo

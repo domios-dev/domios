@@ -1,0 +1,26 @@
+schema_version: 1
+name: '{{title}}'
+note: Follow a capped re-attempt loop and stop following once a success line shows up.
+inputs:
+  success_regex:
+    type: string
+    description: Passed pattern
+  title:
+    type: string
+    description: Short Blueprint name, 3 to 40 characters
+  attempt_status_command:
+    type: string
+    description: Retry status probe
+watch:
+  probe: '{{attempt_status_command}}'
+  question: did-an-attempt-succeed
+  buckets:
+  - trying
+  - succeeded
+  matches:
+    succeeded: '{{success_regex}}'
+  until: succeeded
+  timeout: 3h
+  routes:
+    trying: none
+    succeeded: notify

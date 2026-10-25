@@ -12,15 +12,17 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const bash = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" : (existsSync("/bin/bash") ? "/bin/bash" : "bash");
+const realGit = spawnSync(bash, ["-c", "command -v git"], { encoding: "utf8" }).stdout.trim();
 const helperPath = path.join(root, "scripts/dev-notify.sh");
 const qaReportPath = path.join(root, "scripts/qa-report.sh");
 const buildPath = path.join(root, "build.sh");
@@ -44,12 +46,33 @@ function shellQuote(value) {
 }
 
 const cliNames = ["codeterm", "codeterm.exe"];
+const shadowPaths = new Map();
+let shadowRoot;
+
+after(() => {
+  if (shadowRoot) rmSync(shadowRoot, { recursive: true, force: true });
+});
 
 // The live CLI reaches the owner's daemon even with every selector scrubbed, so it must not resolve at all.
-function pathWithoutInstalledCli() {
-  return (process.env.PATH ?? "")
+function pathWithoutInstalledCli(searchPath = process.env.PATH ?? "") {
+  return searchPath
     .split(path.delimiter)
-    .filter((entry) => entry && !cliNames.some((name) => existsSync(path.join(entry, name))))
+    .filter(Boolean)
+    .flatMap((entry) => {
+      if (!cliNames.some((name) => existsSync(path.join(entry, name)))) return [entry];
+      if (process.platform === "win32") return [];
+      const source = path.resolve(entry);
+      if (!shadowPaths.has(source)) {
+        shadowRoot ??= mkdtempSync(path.join(os.tmpdir(), "utility-shell-path-"));
+        const shadow = path.join(shadowRoot, String(shadowPaths.size));
+        mkdirSync(shadow);
+        for (const name of readdirSync(source)) {
+          if (!cliNames.includes(name)) symlinkSync(path.join(source, name), path.join(shadow, name));
+        }
+        shadowPaths.set(source, shadow);
+      }
+      return [shadowPaths.get(source)];
+    })
     .join(path.delimiter);
 }
 
@@ -78,7 +101,7 @@ function writeFakeCli(cliPath, recordPath) {
     "const keys = " + JSON.stringify(connectionKeys) + ";\n" +
     "const env = {};\n" +
     "for (const key of keys) env[key] = process.env[key] ?? null;\n" +
-    "const record = { executable: process.argv[1], args, bodyFile, body: bodyFile ? fs.readFileSync(bodyFile, 'utf8') : null, env };\n" +
+    "const record = { sentAt: Date.now(), executable: process.argv[1], args, bodyFile, body: bodyFile ? fs.readFileSync(bodyFile, 'utf8') : null, env };\n" +
     "fs.appendFileSync(" + JSON.stringify(recordPath) + ", JSON.stringify(record) + '\\n');\n" +
     "process.exit(Number(process.env.BUILD_NOTIFICATION_SEND_EXIT || 0));\n";
   writeFileSync(cliPath, source, { mode: 0o755 });
@@ -98,7 +121,12 @@ function makeHarness() {
   const buildSource = readFileSync(buildPath, "utf8").replaceAll("\r\n", "\n");
   const gateway = 'enter_cargo_gateway() {\n  enter_build_gateway "$@"\n  ct_configure_sccache\n}';
   assert.ok(buildSource.includes(gateway), "build fixture must stub the Cargo gateway");
-  writeFileSync(fixtureBuild, buildSource.replace(gateway, 'enter_cargo_gateway() { :; }'));
+  const authority = "source scripts/lane-rust-guard.sh";
+  const setup = "*) setup_env ;;";
+  assert.ok(buildSource.includes(authority) && buildSource.includes(setup), "build fixture must isolate host authorization and toolchain setup");
+  writeFileSync(fixtureBuild, buildSource.replace(gateway, 'enter_cargo_gateway() { :; }')
+    .replace(authority, 'require_canonical_rust_tests() { :; }')
+    .replace(setup, '*) : ;;'));
   writeFakeCli(parentCli, parentRecord);
   writeFakeCli(devCli, devRecord);
   mkdirSync(padPath, { recursive: true });
@@ -114,6 +142,43 @@ function makeHarness() {
     env: cleanEnv({ BUILD_NOTIFICATION_FIXTURE_PATH: fixtureBuild, BUILD_NOTIFICATION_PAD_PATH: padPath, PATH: parentBin + path.delimiter + pathWithoutInstalledCli() }),
   };
 }
+
+test("harness_excludes_installed_cli_and_preserves_system_utilities", () => {
+  const env = cleanEnv();
+  for (const name of cliNames) {
+    const result = runBash(["-c", `command -v ${name}`], env);
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.equal(result.stdout, "");
+  }
+  const result = runBash(["-c", "command -v dirname && command -v mkdir"], env);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.equal(result.stdout.trim().split("\n").length, 2);
+});
+
+test("harness_preserves_utilities_beside_installed_cli", { skip: process.platform === "win32" }, () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "utility-shell-shared-bin-"));
+  try {
+    for (const name of cliNames) writeFileSync(path.join(dir, name), "#!/bin/sh\nexit 99\n", { mode: 0o755 });
+    for (const name of ["dirname", "mkdir"]) {
+      const result = runBash(["-c", `command -v ${name}`], cleanEnv());
+      assert.equal(result.status, 0, result.stderr);
+      symlinkSync(result.stdout.trim(), path.join(dir, name));
+    }
+    const env = cleanEnv({ PATH: pathWithoutInstalledCli(dir + path.delimiter + dir) });
+    for (const name of cliNames) {
+      const result = runBash(["-c", `command -v ${name}`], env);
+      assert.equal(result.status, 1, result.stdout + result.stderr);
+      assert.equal(result.stdout, "");
+    }
+    const created = path.join(dir, "created");
+    const result = runBash(["-c", 'command -v dirname && command -v mkdir && mkdir "$1" && dirname "$1"', "_", created], env);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.ok(existsSync(created));
+    assert.equal(result.stdout.trim().split("\n").at(-1), dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test("harness_resolves_only_the_fake_codeterm", () => {
   const h = makeHarness();
@@ -139,7 +204,10 @@ function records(recordPath) {
 
 function runBash(args, env, cwd = root) {
   const commandArgs = args.map(arg => arg === buildPath && env.BUILD_NOTIFICATION_FIXTURE_PATH ? env.BUILD_NOTIFICATION_FIXTURE_PATH : arg);
-  return spawnSync(bash, commandArgs, { cwd, env, encoding: "utf8" });
+  const runEnv = commandArgs[0] === env.BUILD_NOTIFICATION_FIXTURE_PATH
+    ? { CODETERM_DEV_INSTANCE: "reportfixture", CODETERM_DEV_API_PORT: "17695", ...env }
+    : env;
+  return spawnSync(bash, commandArgs, { cwd, env: runEnv, encoding: "utf8" });
 }
 
 function runQa(harness, label, commands, extraEnv = {}) {
@@ -646,6 +714,14 @@ function writeFakeTool(dir, name, body) {
   const tool = path.join(dir, "parent-bin", name);
   writeFileSync(tool, "#!/usr/bin/env bash\n" + body + "\n", { mode: 0o755 });
   chmodSync(tool, 0o755);
+  if (name === "rustfmt") {
+    writeFakeTool(dir, "git", [
+      "case \"$*\" in",
+      "  'ls-files -z -- src-tauri/**.rs cli/**.rs') printf 'src-tauri/src/lib.rs\\0'; exit 0 ;;",
+      "esac",
+      "exec " + shellQuote(realGit) + " \"$@\"",
+    ].join("\n"));
+  }
 }
 
 function writeFakeCargo(dir, body) {
@@ -672,14 +748,14 @@ test("build_notify_tab_failure_names_step_first_error_and_log", () => {
   try {
     writeFakeTool(h.dir, "rustfmt", "echo 'Diff in src/foo.rs:1:'; exit 1");
     const started = Date.now();
-    const result = runBash([buildPath, "install-local", "--notify-tab", "agent-tab"], h.env);
+    const result = runBash([buildPath, "fmt-check", "--notify-tab", "agent-tab"], h.env);
     assert.equal(result.status, 1);
-    assert.ok(Date.now() - started < 30000, "format failure receipt must arrive within the failure deadline");
     const sent = records(h.parentRecord);
     assert.equal(sent.length, 1);
-    assert.match(sent[0].body, /EARLY FAILURE label=install-local step=install-local/);
+    assert.ok(sent[0].sentAt - started < 30000, "format failure receipt must arrive within the failure deadline");
+    assert.match(sent[0].body, /EARLY FAILURE label=fmt-check step=fmt-check/);
     assert.match(sent[0].body, /First failure: Diff in src\/foo\.rs/);
-    assert.match(sent[0].body, /Log: .*codeterm-build-install-local/);
+    assert.match(sent[0].body, /Log: .*codeterm-build-fmt-check/);
   } finally {
     rmSync(h.dir, { recursive: true, force: true });
   }
@@ -702,7 +778,7 @@ test("build_dev_defaults_to_the_inspected_parent_and_sends_ready_once", () => {
     const sent = records(h.parentRecord);
     assert.equal(sent.length, 1);
     assert.deepEqual(sent[0].args.slice(0, 3), ["send", "--tab", "live-owner"]);
-    assert.match(sent[0].body, /^READY instance=default api_port=7686 build=a{40}\n$/);
+    assert.match(sent[0].body, /^READY instance=reportfixture api_port=17695 build=a{40}\n$/);
   } finally {
     rmSync(h.dir, { recursive: true, force: true });
   }
@@ -726,7 +802,7 @@ test("build_dev_uses_one_self_notification_for_ready_without_a_parent", () => {
     assert.equal(sent[0].args[0], "notify");
     assert.ok(sent[0].args.includes("--from-pad"));
     assert.ok(sent[0].args.includes("--level") && sent[0].args[sent[0].args.indexOf("--level") + 1] === "verbose");
-    assert.match(sent[0].body, /^READY instance=default api_port=7686 build=a{40}\n$/);
+    assert.match(sent[0].body, /^READY instance=reportfixture api_port=17695 build=a{40}\n$/);
   } finally {
     rmSync(h.dir, { recursive: true, force: true });
   }
@@ -909,6 +985,7 @@ test("prebuilt_dev_survives_a_failed_readiness_notice_after_proving_readiness", 
     const stubs = path.join(h.dir, "prebuilt-stubs.sh");
     writeFileSync(stubs, [
       "run_prebuilt_preflight() { :; }",
+      "stop_dev_before_replacement() { echo stop >> " + shellQuote(killLog) + "; }",
       "kill_dev() { echo kill >> " + shellQuote(killLog) + "; }",
       "configure_dev_cargo() { :; }",
       "run_outside_tab_job() { :; }",
@@ -937,7 +1014,7 @@ test("prebuilt_dev_survives_a_failed_readiness_notice_after_proving_readiness", 
     assert.match(output, /Prebuilt dev ready: build [0-9a-f]{8}/);
     assert.match(output, /readiness notice to tab agent-tab failed; DEV keeps running/);
     assert.doesNotMatch(output, /prebuilt dev launch failed/);
-    assert.deepEqual(readFileSync(killLog, "utf8").trim().split("\n"), ["kill"]);
+    assert.deepEqual(readFileSync(killLog, "utf8").trim().split("\n"), ["stop"]);
     const sent = records(h.parentRecord);
     assert.equal(sent.length, 1, JSON.stringify(sent));
     assert.match(sent[0].body, /^READY instance=notifyfx api_port=7695 build=[0-9a-f]{40}\n$/);

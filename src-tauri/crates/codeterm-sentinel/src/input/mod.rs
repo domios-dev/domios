@@ -7,7 +7,7 @@ use std::time::Instant;
 use codeterm_blueprint_types::sentinel_input::InputSpec;
 
 pub use convert::convert;
-pub use materialize::{materialize, sweep_orphans};
+pub use materialize::{materialize, sweep_orphans, sweep_orphans_except};
 
 #[derive(Debug)]
 pub struct InputFiles {
@@ -19,6 +19,10 @@ pub struct Cleanup(std::sync::Mutex<Option<PathBuf>>);
 impl Cleanup {
     pub fn new(path: PathBuf) -> Self {
         Self(std::sync::Mutex::new(Some(path)))
+    }
+
+    pub fn retain(&self) {
+        let _ = self.0.lock().expect("cleanup mutex").take();
     }
 
     pub fn settle(&self) {

@@ -1,0 +1,99 @@
+{
+  "duration_api_ms": 11636,
+  "stop_reason": "end_turn",
+  "session_id": "345a2e5b-b8da-4e6a-8a62-a89e61e88c69",
+  "total_cost_usd": 0.031155,
+  "usage": {
+    "input_tokens": 9,
+    "cache_creation_input_tokens": 11488,
+    "cache_read_input_tokens": 0,
+    "output_tokens": 1634,
+    "output_tokens_details": {
+      "thinking_tokens": 1530
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 11488,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "not_available",
+    "iterations": [
+      {
+        "input_tokens": 9,
+        "output_tokens": 1634,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 11488,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 11488
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-haiku-4-5-20251001": {
+      "inputTokens": 9,
+      "outputTokens": 1634,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 11488,
+      "webSearchRequests": 0,
+      "costUSD": 0.031155,
+      "contextWindow": 200000,
+      "maxOutputTokens": 32000,
+      "thinkingTokens": 1530,
+      "canonicalModel": "claude-haiku-4-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 1,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "WHAT: Polls a team member tab every 30 seconds and sends a notification when the output changes to match a pattern you define. Perfect for watching long-running tasks without manually checking repeatedly. || INTENT: Alert me when another user terminal shows specific text || INTENT: Watch a remote tab for pattern matches every 30 seconds || INTENT: Monitor a tab and get notified on output change || INTENT: Notify me when a team member task completes",
+  "ttft_ms": 11298,
+  "type": "result",
+  "duration_ms": 11775,
+  "uuid": "4745e878-64c0-41c9-96a8-bb72f2bea264",
+  "ttft_stream_ms": 707,
+  "time_to_request_ms": 109,
+  "first_content_frame_ms": 707,
+  "queued_turn_count": 0,
+  "result_index": 0
+}

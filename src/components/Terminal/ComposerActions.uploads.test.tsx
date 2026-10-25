@@ -52,7 +52,7 @@ it("a failed voice upload retries through the voice send handler once", async ()
 });
 
 
-it("phones keep the direct file picker beside the input and no schedule button in the row", async () => {
+it("phones keep the direct file picker beside the input and scheduling inside it", async () => {
   vi.spyOn(window, "matchMedia").mockReturnValue({ matches: true, addEventListener() {}, removeEventListener() {} } as unknown as MediaQueryList);
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
@@ -65,6 +65,6 @@ it("phones keep the direct file picker beside the input and no schedule button i
     const picker = vi.spyOn(host.querySelector<HTMLInputElement>('input[type="file"]')!, "click");
     await act(async () => attach.click());
     expect(picker).toHaveBeenCalledTimes(1);
-    expect(row.querySelector('button[aria-label="Schedule send"]')).toBeNull();
+    expect(row.querySelector('button[aria-label="Schedule send"]')).not.toBeNull();
   } finally { await act(async () => root.unmount()); host.remove(); vi.restoreAllMocks(); }
 });

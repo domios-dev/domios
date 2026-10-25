@@ -184,12 +184,62 @@ test("ten tabs sharing a repository coalesce to one in-flight computation", asyn
   fx.teardown();
 });
 
+test("simultaneous activations share one fetch without a trailing refresh", async () => {
+  const fx = await setupCache();
+  const values: Array<Bubble | null> = [];
+  const subs = Array.from({ length: 221 }, (_, i) =>
+    fx.cache.subscribePluginBubble("git", "/repo", `tab-${i}`, true, value => values.push(value)),
+  );
+  subs[0].setActive(false);
+  subs[0].setActive(true);
+  assertEqual(fx.calls, 1, "all activations share the outstanding request");
+  let extraFetches = 0;
+  fx.cache.__setPluginBubbleFetcherForTest(async () => {
+    extraFetches++;
+    return null;
+  });
+  const settled = fx.cache.__waitForPluginBubbleCacheForTest();
+  fx.resolveNext({ label: "main" });
+  await settled;
+  assertEqual(extraFetches, 0, "activation alone never schedules another request");
+  assertEqual(values.length, 221, "every subscriber receives the result");
+  for (const sub of subs) sub.unsubscribe();
+  fx.teardown();
+});
+
+test("activation preserves a real invalidation queued during the shared fetch", async () => {
+  const fx = await setupCache();
+  const first = fx.cache.subscribePluginBubble("git", "/repo", "first", true, () => {});
+  const started = deferred<void>();
+  const refreshed = deferred<Bubble | null>();
+  let refreshCalls = 0;
+  fx.cache.__setPluginBubbleFetcherForTest(() => {
+    refreshCalls++;
+    started.resolve();
+    return refreshed.promise;
+  });
+  fx.cache.invalidatePluginBubblesForRepo("/repo");
+  fx.cache.invalidatePluginBubble("git", "/repo");
+  fx.cache.invalidateActivePluginBubbles();
+  const second = fx.cache.subscribePluginBubble("git", "/repo", "second", true, () => {});
+  const settled = fx.cache.__waitForPluginBubbleCacheForTest();
+  fx.resolveNext({ label: "before" });
+  await started.promise;
+  assertEqual(refreshCalls, 1, "real invalidations coalesce to one refresh");
+  refreshed.resolve({ label: "after" });
+  await settled;
+  assertEqual(refreshCalls, 1, "activation adds no further refresh");
+  first.unsubscribe();
+  second.unsubscribe();
+  fx.teardown();
+});
+
 test("a hidden->visible transition rechecks even a value another tab already fetched", async () => {
   const fx = await setupCache();
   const valuesA: Array<Bubble | null> = [];
   const subA = fx.cache.subscribePluginBubble("git", "/repo", "tab-a", true, (v) => valuesA.push(v));
   fx.resolveNext({ label: "main" });
-  await waitUntil(() => valuesA.length >= 1);
+  await fx.cache.__waitForPluginBubbleCacheForTest();
 
   const valuesB: Array<Bubble | null> = [];
   const subB = fx.cache.subscribePluginBubble("git", "/repo", "tab-b", false, (v) => valuesB.push(v));
@@ -225,6 +275,50 @@ test("contribution invalidation refreshes active repository and receiver bubbles
   assertEqual(last(repoValues)?.label,"after","repository subscriber updates");
   assertEqual(last(receiverValues)?.label,"after","receiver subscriber updates");
   repo.unsubscribe(); receiver.unsubscribe(); hidden.unsubscribe(); fx.teardown();
+});
+
+test("completion during a pending response reads fresh cache without refreshing git", async () => {
+  const fx = await setupCache();
+  const flags: boolean[] = [];
+  const first = deferred<Bubble | null>();
+  const second = deferred<Bubble | null>();
+  const secondStarted = deferred<void>();
+  fx.cache.__setPluginBubbleFetcherForTest(async (_plugin, _cwd, _tab, refresh) => {
+    flags.push(refresh);
+    if (flags.length === 1) return first.promise;
+    secondStarted.resolve();
+    return second.promise;
+  });
+  const values: Array<Bubble | null> = [];
+  const sub = fx.cache.subscribePluginBubble("fixture", "/repo", "tab", true, value => values.push(value));
+  fx.cache.refreshPluginBubble("fixture");
+  const completed = fx.cache.__waitForPluginBubbleCacheForTest();
+  first.resolve(null);
+  await secondStarted.promise;
+  second.resolve({ label: "fresh" });
+  await completed;
+  assertEqual(flags.join(","), "true,false", "completion reads cache without a refresh loop");
+  assertEqual(last(values)?.label, "fresh", "fresh result reaches subscriber");
+  sub.unsubscribe(); fx.teardown();
+});
+
+test("repository changes while hidden invalidate the next activation", async () => {
+  const fx = await setupCache();
+  const flags: boolean[] = [];
+  fx.cache.__setPluginBubbleFetcherForTest(async (_plugin, _cwd, _tab, refresh) => {
+    flags.push(refresh); return { label: "main" };
+  });
+  const sub = fx.cache.subscribePluginBubble("fixture", "/repo", "tab", true, () => {});
+  await fx.cache.__waitForPluginBubbleCacheForTest();
+  sub.setActive(false);
+  fx.cache.invalidatePluginBubblesForRepo("/repo");
+  assertEqual(flags.length, 1, "hidden repository does no background work");
+  sub.setActive(true);
+  await fx.cache.__waitForPluginBubbleCacheForTest();
+  sub.setActive(false); sub.setActive(true);
+  await fx.cache.__waitForPluginBubbleCacheForTest();
+  assertEqual(flags.join(","), "true,true,false", "event refreshes once and tab switches only read cache");
+  sub.unsubscribe(); fx.teardown();
 });
 
 async function main() {

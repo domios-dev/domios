@@ -1,3 +1,4 @@
+import { BlueprintPlanLock } from "../Automation/BlueprintPlanLock";
 import { blueprintMeta } from "../Automation/blueprintMeta";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { probeStateLabel } from "../Automation/probeProgress";
@@ -22,7 +23,8 @@ export interface JobAction {
   onClick: () => void;
 }
 
-export function JobRow({ jobKey: key, icon, name, meta, idHint, type, tone, state, actionItems, onOpen, onTriggerRef, error }: {
+export function JobRow({ jobKey: key, icon, name, meta, idHint, type, tone, state, actionItems, onOpen, onTriggerRef, error, heldReason }: {
+  heldReason?: string | null;
   jobKey: string;
   icon: ReactNode;
   name: string;
@@ -48,15 +50,15 @@ export function JobRow({ jobKey: key, icon, name, meta, idHint, type, tone, stat
           <span className="block truncate text-[length:var(--ct-font-size-sm)] font-medium">{name}</span>
           <span className="block truncate text-xs text-[var(--ct-muted-fg)]">{meta}</span>
         </span>
-        <span className="flex shrink-0 items-center gap-1.5 text-xs text-[var(--ct-muted-fg)]"><span className={`h-1.5 w-1.5 rounded-full ${stateTone(state)}`} aria-hidden="true" />{state}</span>
+        <span className="flex shrink-0 items-center gap-1.5 text-xs text-[var(--ct-muted-fg)]"><BlueprintPlanLock reason={heldReason} /><span className={`h-1.5 w-1.5 rounded-full ${stateTone(state)}`} aria-hidden="true" />{state}</span>
       </button>
-      {actionItems.length > 0 && <DropdownMenu
+      {actionItems.length > 0 ? <DropdownMenu
         menuLabel={actionsLabel}
         items={actionItems}
         onOpenChange={setMenuOpen}
         className={`relative z-[1] flex shrink-0 items-center transition-opacity ${reveal}`}
         trigger={<RowMenuButton ref={onTriggerRef} label={actionsLabel} touchMode={touchMode} />}
-      />}
+      /> : <span aria-hidden="true" className="w-7 shrink-0" />}
     </div>
     {error && <InlineErrorNotice error={error} operation="updating this job" blocking />}
   </li>;

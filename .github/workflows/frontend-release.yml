@@ -23,6 +23,7 @@ on:
         type: string
 permissions:
   contents: read
+  actions: read
 # Publications serialize and are never cancelled; a PR's dry run is superseded by its next push.
 concurrency:
   group: ${{ github.event_name == 'pull_request' && format('frontend-release-pr-{0}', github.event.pull_request.number) || 'frontend-release' }}
@@ -32,26 +33,58 @@ env:
   CODETERM_BUILD_GATEWAY_MODE: queue
 jobs:
   build:
-    runs-on: [self-hosted, Linux, light]
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && ((startsWith(github.ref, 'refs/heads/release/') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.path == '.github/workflows/tests.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.actor.login == 'rollacode' && github.event.workflow_run.triggering_actor.login == 'rollacode' && startsWith(github.event.workflow_run.head_branch, 'release/'))) }}
+    runs-on: [self-hosted, Linux, light, host-ubunta]
     timeout-minutes: 30
-    environment: ${{ (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.dry_run)) && 'frontend-dry-run' || 'frontend-signing' }}
+    environment: release
     env:
       FRONTEND_TAG: ${{ inputs.tag || github.ref_name }}
       FRONTEND_DRY_RUN: ${{ (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.dry_run)) && 'true' || 'false' }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Use the runner bundled Node
+        if: runner.environment == 'self-hosted'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
         with:
-          ref: ${{ inputs.source_sha || github.ref }}
-          fetch-depth: 0
+          script: |-
+            const path = require('node:path');
+            core.addPath(path.dirname(process.execPath));
+            core.info('Using runner Node ' + process.version);
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
-          node-version: '22.22.0'
           package-manager-cache: false
+          node-version: 22.22.0
+        if: runner.environment == 'github-hosted'
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12"
+        if: runner.environment == 'github-hosted'
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+          fetch-depth: 1
+      - name: Discover installed runner tools
+        if: runner.environment == 'self-hosted'
+        run: node scripts/ci-runner-paths.mjs --paths-only
+      - name: Fetch scoped master history
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci-git-history.mjs master
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10.32.1
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
+        if: runner.environment == 'github-hosted'
+      - name: Require exact-SHA dev qualification before frontend publication
+        if: env.FRONTEND_DRY_RUN != 'true'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            const {pathToFileURL} = require('node:url');
+            const {requireQualificationWithGithub} = await import(pathToFileURL(process.env.GITHUB_WORKSPACE + '/scripts/ci-workflow-api.mjs').href);
+            const sha = process.env.QUALIFICATION_SHA || require('node:child_process').execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+            await requireQualificationWithGithub(github, context, sha);
       - name: Resolve committed frontend version for pull request dry run
         if: github.event_name == 'pull_request'
         run: node scripts/frontend-release/release.mjs resolve-pr-tag
@@ -110,20 +143,38 @@ jobs:
         uses: ./.github/actions/ci-artifact-spool
   publish:
     needs: build
-    if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || !inputs.dry_run)
-    runs-on: [self-hosted, Linux, light]
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && ((startsWith(github.ref, 'refs/heads/release/') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.path == '.github/workflows/tests.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.actor.login == 'rollacode' && github.event.workflow_run.triggering_actor.login == 'rollacode' && startsWith(github.event.workflow_run.head_branch, 'release/'))) && (github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || !inputs.dry_run)) }}
+    runs-on: [self-hosted, Linux, light, host-ubunta]
     timeout-minutes: 30
-    environment: frontend-publication
+    environment: release
     env:
       FRONTEND_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Use the runner bundled Node
+        if: runner.environment == 'self-hosted'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
         with:
-          ref: ${{ inputs.source_sha || github.ref }}
+          script: |-
+            const path = require('node:path');
+            core.addPath(path.dirname(process.execPath));
+            core.info('Using runner Node ' + process.version);
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
-          node-version: '22.22.0'
           package-manager-cache: false
+          node-version: 22.22.0
+        if: runner.environment == 'github-hosted'
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+          fetch-depth: 1
+      - name: Discover installed runner tools
+        if: runner.environment == 'self-hosted'
+        run: node scripts/ci-runner-paths.mjs --paths-only
+      - name: Fetch fallback run artifact evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: ci-artifact-spool-*
+          path: ${{ runner.temp }}/ci-artifact-fallback/${{ github.run_id }}
       - name: Fetch the frontend release
         env:
           GH_TOKEN: ${{ github.token }}

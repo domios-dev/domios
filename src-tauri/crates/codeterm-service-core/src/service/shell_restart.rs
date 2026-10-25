@@ -5,6 +5,9 @@ use serde::Serialize;
 
 use super::ServiceContext;
 
+mod submission;
+pub use submission::ShellCommandSubmission;
+
 #[derive(Debug, Serialize)]
 pub struct ShellRestartOutcome {
     pub tab_id: String,
@@ -12,6 +15,7 @@ pub struct ShellRestartOutcome {
     pub new_pty_id: String,
     pub cwd: Option<String>,
     pub command_delivered: bool,
+    pub command_submission: Option<ShellCommandSubmission>,
 }
 
 impl ServiceContext {
@@ -42,7 +46,7 @@ impl ServiceContext {
             self.tab_chat_backing(tab_id).is_some(),
         )?;
 
-        self.renew_utility_timeout(tab_id)?;
+        self.utility_command_finished(tab_id)?;
 
         if let Some(ref old_pty_id) = old_pty_id {
             self.pty_ownership.release_pty(old_pty_id);
@@ -55,16 +59,16 @@ impl ServiceContext {
             }
             let reaper = {
                 let mut manager = self.pty.lock();
-                match manager.begin_kill(old_pty_id) {
+                match manager.begin_kill_tree(old_pty_id) {
                     Ok(reaper) => Some(reaper),
                     Err(_) if manager.get_session(old_pty_id).is_none() => None,
                     Err(error) => return Err(error),
                 }
             };
             if let Some(reaper) = reaper {
-                reaper.wait_bounded(Duration::from_secs(5))?;
+                reaper.wait_for_restart(Duration::from_secs(5))?;
             }
-            self.screen_state.lock().remove(old_pty_id);
+            self.screen_state.remove(old_pty_id);
             crate::service::stream_preview::remove(old_pty_id);
         }
 
@@ -77,15 +81,20 @@ impl ServiceContext {
         }
         self.ensure_tab_pty_for_send(tab_id)?;
         let new_pty_id = self.resolve_pty_id(tab_id)?;
-        if let Some(command) = command {
+        let command_submission = if let Some(command) = command {
             self.prepare_utility_command(tab_id, command);
-            if let Err(error) = self.send_shell_cmd(tab_id, command) {
-                if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
-                    tab.utility_command_pending = false;
+            match self.submit_restarted_shell_command(tab_id, &new_pty_id, command) {
+                Ok(submission) => Some(submission),
+                Err(error) => {
+                    if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
+                        tab.utility_command_pending = false;
+                    }
+                    return Err(error);
                 }
-                return Err(error);
             }
-        }
+        } else {
+            None
+        };
         self.emit_state_changed(MuxEmitCause::AgentRestart);
 
         Ok(ShellRestartOutcome {
@@ -93,7 +102,10 @@ impl ServiceContext {
             old_pty_id,
             new_pty_id,
             cwd: resolved_cwd,
-            command_delivered: command.is_some(),
+            command_delivered: command_submission
+                .as_ref()
+                .is_some_and(ShellCommandSubmission::submitted),
+            command_submission,
         })
     }
 }

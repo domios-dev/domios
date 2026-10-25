@@ -1,4 +1,7 @@
-import { isReadOnlyTab } from "../../lib/tabInputPolicy";
+import { isInputBlockedTab } from "../../lib/tabInputPolicy";
+import { LockedOverlay } from "../billing/LockBadge";
+import { openLockedPlans } from "../billing/freeLimitGate";
+import { useTabLock } from "../billing/useTabLock";
 import { attachFrontendTerminalViewport } from "../../lib/frontendUpdate/terminal";
 import { useTabActivity } from "../../lib/useTabActivity";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -19,8 +22,8 @@ import {
   useTauriFileDrop,
   useTouchScroll,
 } from "../../hooks/terminal";
-import { quotePathForPaste, routeClipboardToTerm } from "../../lib/clipboardPaste";
-import { registerTabPaste } from "../../lib/tabPasteRegistry";
+import { quotePathForPaste } from "../../lib/clipboardPaste";
+import { registerTabClipboard } from "../../lib/tabClipboardRegistry";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import {
   listenClientTabUiMode,
@@ -95,7 +98,8 @@ export const TerminalTab = memo(function TerminalTab({
   const tabWorkspace = useMuxSelector(workspaceSelector);
   const tabSelector = useCallback((s: Parameters<typeof selectTab>[0]) => selectTab(s, tabId), [tabId]);
   const tab = useMuxSelector(tabSelector, tabFieldsEqual);
-  const readOnly = isReadOnlyTab(tab);
+  const lock = useTabLock(tab);
+  const readOnly = isInputBlockedTab(tab, lock);
   const viewerLocalGeometry = terminalViewerLocalGeometry(tab, relayTarget()?.id ?? null);
   const agentActivity = useTabActivity(tabId);
   const managedView = managedTabPresentation(tab?.managed);
@@ -125,6 +129,8 @@ export const TerminalTab = memo(function TerminalTab({
   }, [tabId, chatCapable]);
   const [preferredUiMode, setUiMode] = useState<TabUiMode>(computeMode);
   const uiMode = wakingTranscript ? "chat" : preferredUiMode;
+  const chatActivated = useRef(false);
+  if (uiMode === "chat") chatActivated.current = true;
   const [keptFailureKey, setKeptFailureKey] = useState<string | null>(null);
   const [terminalFallbackOpen, setTerminalFallbackOpen] = useState(false);
   const [framePtyId, setFramePtyId] = useState<string | null>(null);
@@ -396,14 +402,11 @@ export const TerminalTab = memo(function TerminalTab({
     return () => window.removeEventListener("codeterm-toggle-search", handler);
   }, [tabId]);
 
-  // Register this tab in global paste registry so app-level Ctrl/Cmd+V always targets focused tab.
   // Direct function lookup avoids event-bus race conditions and remount windows.
-  useEffect(() => {
-    return registerTabPaste(tabId, () => {
-      const term = termRef.current;
-      if (term) void routeClipboardToTerm(term);
-    });
-  }, [tabId, termRef]);
+  useEffect(
+    () => registerTabClipboard(tabId, { copy: copySelection, paste: pasteFromClipboard }),
+    [tabId, copySelection, pasteFromClipboard],
+  );
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -490,6 +493,7 @@ export const TerminalTab = memo(function TerminalTab({
           <ManagedTabBar managed={tab.managed} activity={agentActivity} onStop={stopManagedGeneration} />
         </div>
       )}
+      <LockedOverlay view={lock} onActivate={() => openLockedPlans(lock)} />
       {/* Search bar */}
       {searchOpen && (
         <SearchBar
@@ -608,16 +612,14 @@ export const TerminalTab = memo(function TerminalTab({
         />
       )}
 
-      {/* Chat is conditionally mounted so the per-tab tailer thread on
-          the backend only starts when the user actually flipped into
-          chat mode — not for every tab in the workspace. */}
-      {uiMode === "chat" && (
-        <div className="absolute inset-0" style={{ zIndex: 2 }}>
+      {chatActivated.current && (
+        <div className="absolute inset-0" hidden={uiMode !== "chat"} inert={uiMode !== "chat"} style={{ zIndex: 2 }}>
           <TabSessionChat
             tabId={tabId}
             api={api}
             uiFontScale={uiFontScale}
-            isVisible={isVisible}
+            isVisible={isVisible && uiMode === "chat"}
+            sessionActive={isVisible}
             inputStatus={inputFailureLine}
             onOpenTerminalFallback={openTerminalFallback}
           />

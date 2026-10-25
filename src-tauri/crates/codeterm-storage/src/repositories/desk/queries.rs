@@ -73,7 +73,7 @@ pub(super) fn load(conn: &Connection) -> Result<DeskState, StorageError> {
         .prepare(
             "SELECT w.id, w.name, w.cwd, w.provisioned_cwd, w.protected, \
              w.task_key_prefix, w.task_key_next, d.sort_order, d.active_tab_id, \
-             d.revision, d.tab_order_revision \
+             d.revision, d.tab_order_revision, w.created_at_ms \
              FROM workspaces w JOIN desk_workspace_state d ON d.workspace_id = w.id \
              ORDER BY w.ordinal",
         )
@@ -92,6 +92,7 @@ pub(super) fn load(conn: &Connection) -> Result<DeskState, StorageError> {
                 row.get::<_, Option<String>>(8)?,
                 row.get::<_, i64>(9)?,
                 row.get::<_, i64>(10)?,
+                row.get::<_, Option<i64>>(11)?,
             ))
         })
         .map_err(|error| sqlite_error("query desk workspaces", error))?;
@@ -108,6 +109,7 @@ pub(super) fn load(conn: &Connection) -> Result<DeskState, StorageError> {
             active_tab_id,
             revision,
             tab_order_revision,
+            created_at_ms,
         ) = row.map_err(|error| sqlite_error("read desk workspace", error))?;
         let id = crate::repositories::workspaces::WorkspaceId::new(id)?;
         let record = WorkspaceRecord {
@@ -118,6 +120,9 @@ pub(super) fn load(conn: &Connection) -> Result<DeskState, StorageError> {
             protected,
             task_key_prefix,
             task_key_next: from_sql_u64("workspace task key counter", task_key_next)?,
+            created_at_ms: created_at_ms
+                .map(|ms| from_sql_u64("workspace created_at_ms", ms))
+                .transpose()?,
         };
         let revision = Revision(from_sql_u64("desk workspace revision", revision)?);
         let tab_order_revision =

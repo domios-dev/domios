@@ -31,12 +31,17 @@ impl ShellCommandStateModel {
                 self.state.activity = ShellActivity::Running;
             }
             SemanticEvent::CommandEnd { exit_code } if self.accepts_cycle(expected_nonce) => {
-                self.state.activity = ShellActivity::Idle;
-                self.state.last_exit_code = *exit_code;
-                self.authenticated = false;
+                self.command_finished(*exit_code);
             }
             _ => {}
         }
+    }
+
+    pub(crate) fn command_finished(&mut self, exit_code: Option<i32>) {
+        self.state.activity = ShellActivity::Idle;
+        self.state.last_exit_code = exit_code;
+        self.authenticated = false;
+        self.rejected = false;
     }
 
     fn accepts_cycle(&self, expected_nonce: Option<&str>) -> bool {

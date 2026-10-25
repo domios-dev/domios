@@ -203,7 +203,6 @@ fn launch(
         model: resolution.model.clone(),
         reasoning_effort: selection.reasoning_effort.clone(),
         system_prompt: Some(prompt.clone()),
-        task: bootstrap.clone(),
         resume_session_id: session_id.clone(),
         ..Default::default()
     };
@@ -218,7 +217,6 @@ fn launch(
             role_profile: params.role_profile.clone(),
             model: resolution.model.clone(),
             reasoning_effort: selection.reasoning_effort.clone(),
-            task: bootstrap,
             extra_env: env,
             resume_session_id: session_id,
             ..Default::default()
@@ -231,7 +229,16 @@ fn launch(
         selection.reasoning_effort,
         permission_bypass,
     );
+    prepare_bootstrap(svc, &tab_id, bootstrap.as_deref())?;
     svc.launch_chatbackend_runtime_existing(&tab_id, &metadata, launch_config)?;
+    if crate::service::agent_runtime::engine::for_tab(&tab_id).is_some_and(|session| {
+        matches!(
+            session.state.lock().phase,
+            crate::service::agent_runtime::model::RuntimePhase::LoginPending
+        )
+    }) {
+        return Ok(());
+    }
     let bound_session = mux
         .read()
         .get_tab(&tab_id)
@@ -244,6 +251,23 @@ fn launch(
         "general_agent_runtime_ready",
     );
     svc.emit_state_changed(MuxEmitCause::GeneralAgent);
+    Ok(())
+}
+
+fn prepare_bootstrap(
+    svc: &crate::service::ServiceContext,
+    tab_id: &str,
+    bootstrap: Option<&str>,
+) -> Result<(), String> {
+    if let Some(bootstrap) = bootstrap {
+        svc.create_pending_delivery_with_send_id(
+            tab_id,
+            crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
+            bootstrap,
+            Some(&uuid::Uuid::new_v4().to_string()),
+        )
+        .map_err(|error| error.to_string())?;
+    }
     Ok(())
 }
 

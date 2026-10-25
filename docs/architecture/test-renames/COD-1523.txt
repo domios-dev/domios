@@ -1,0 +1,28 @@
+# Dead ignored test: obsolete markdown/JSON sidecar write or merge format; current database roundtrip remains covered. Legacy import tests remain.
+service_plan::body_file_tests::section_and_task_bodies_roundtrip_through_markdown_files -> service_plan::store_db::tests::plan_round_trips_from_one_wal_database
+# Dead ignored test: obsolete markdown/JSON sidecar write or merge format; current database roundtrip remains covered. Legacy import tests remain.
+service_plan::body_file_tests::empty_markdown_sidecars_do_not_end_with_blank_lines -> service_plan::store_db::tests::plan_round_trips_from_one_wal_database
+# Dead ignored test: obsolete markdown/JSON sidecar write or merge format; current database roundtrip remains covered. Legacy import tests remain.
+service_plan::body_file_tests::milestone_and_note_bodies_roundtrip_through_markdown_files -> service_plan::store_db::tests::plan_round_trips_from_one_wal_database
+# Dead ignored test: obsolete markdown/JSON sidecar write or merge format; current database roundtrip remains covered. Legacy import tests remain.
+service_plan::body_file_tests::task_stride_log_hydrates_when_inline_milestones_are_missing -> service_plan::store_db::tests::plan_round_trips_from_one_wal_database
+# Dead ignored test: obsolete markdown/JSON sidecar write or merge format; current database roundtrip remains covered. Legacy import tests remain.
+service_plan::body_file_tests::inline_and_stride_log_milestones_dedupe_deterministically -> service_plan::store_db::tests::plan_round_trips_from_one_wal_database
+# Dead ignored test: obsolete markdown/JSON sidecar write or merge format; current database roundtrip remains covered. Legacy import tests remain.
+service_plan::body_file_tests::save_preserves_existing_sidecar_only_stride_entries -> service_plan::store_db::tests::plan_round_trips_from_one_wal_database
+# Dead ignored test: obsolete markdown/JSON sidecar write or merge format; current database roundtrip remains covered. Legacy import tests remain.
+service_plan::body_file_tests::ordinary_save_preserves_external_stride_append_after_stale_snapshot -> service_plan::store_db::tests::plan_round_trips_from_one_wal_database
+# Dead ignored test: obsolete markdown/JSON sidecar write or merge format; current database roundtrip remains covered. Legacy import tests remain.
+service_plan::body_file_tests::inline_milestone_and_canvas_markdown_migrates_to_files_on_load -> service_plan::store_db::tests::plan_round_trips_from_one_wal_database
+# Dead ignored test: obsolete markdown/JSON sidecar write or merge format; current database roundtrip remains covered. Legacy import tests remain.
+service_plan::body_file_tests::legacy_inline_only_milestones_load_then_save_to_stride_log_and_stripped_json -> service_plan::store_db::tests::plan_round_trips_from_one_wal_database
+# Dead ignored test: removed markdown migration/output contract. Current import-once database behavior retains active coverage.
+service_plan::tests::inline_body_plan_migrates_to_markdown_files_on_load -> service_plan::store_db::tests::legacy_yaml_is_imported_once_and_never_overwrites_the_database
+# Dead ignored test: removed markdown migration/output contract. Current import-once database behavior retains active coverage.
+service_plan::tests::atomic_body_write_leaves_only_final_markdown_file -> service_plan::store_db::tests::legacy_yaml_is_imported_once_and_never_overwrites_the_database
+# Subset of acknowledged in-review restoration in the persisted restart/bounce journey; add immediate status/report assertions there.
+service_plan::task_attempts::restore_binding::tests::attempt_binding_restore_accepts_an_acknowledged_in_review_attempt -> service_plan::task_attempts::restore_binding::tests::reported_attempt_restart_restoration_bounce_ack_preserves_identity_and_report
+# Merge identical real-git setup into retained lane wiring test, preserving every unique assertion.
+worker_lane::tests::lane_provenance_is_a_path_git_accepts_as_a_working_directory -> worker_lane::tests::worker_lane_verification_reads_back_branch_and_base_commit
+# Merge identical real-git setup into retained lane wiring test, preserving every unique assertion.
+worker_lane::tests::canonical_checkout_provisions_a_sibling_worker_lane -> worker_lane::tests::worker_lane_verification_reads_back_branch_and_base_commit

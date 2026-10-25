@@ -61,6 +61,8 @@ fn orphan_team_does_not_block_tab_commit_and_is_dropped_on_restart() {
     let root = tempfile::tempdir().unwrap();
     let (mut mux, anchor_tab_id) = MultiplexerState::new();
     let main_workspace_id = mux.find_workspace_for_tab(&anchor_tab_id).unwrap();
+    // The anchor is the protected General workspace, which the free workspace limit exempts.
+    mux.set_workspace_protected(&main_workspace_id, true);
     let valid_team_id = mux
         .resolve_or_mint_team_for_parent(&anchor_tab_id)
         .unwrap()

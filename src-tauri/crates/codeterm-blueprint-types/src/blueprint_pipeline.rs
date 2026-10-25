@@ -35,9 +35,21 @@ pub enum BlueprintOwner {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Trigger {
-    Schedule { every: String },
-    Event { kind: String, params: Value },
-    Input { kind: MediaKind, source: DataRef },
+    Webhook {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        schema: Option<crate::blueprint_document::Port>,
+    },
+    Schedule {
+        every: String,
+    },
+    Event {
+        kind: String,
+        params: Value,
+    },
+    Input {
+        kind: MediaKind,
+        source: DataRef,
+    },
 }
 
 impl Trigger {
@@ -45,6 +57,7 @@ impl Trigger {
         crate::blueprint_catalog::TRIGGERS;
     pub fn name(&self) -> &'static str {
         Self::DESCRIPTORS[match self {
+            Self::Webhook { .. } => 3,
             Self::Schedule { .. } => 0,
             Self::Event { .. } => 1,
             Self::Input { .. } => 2,
@@ -116,6 +129,8 @@ pub struct Step {
     pub name: String,
     pub input: IoType,
     pub kind: StepKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution: Option<crate::blueprint_execution::ExecutionContract>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub on: BTreeMap<String, String>,
 }
@@ -127,9 +142,26 @@ pub fn route_target<'a>(routes: &'a BTreeMap<String, String>, outcome: &str) -> 
         .unwrap_or(if outcome == "failed" { "stop" } else { "next" })
 }
 
+pub const COMMAND_STEP_RUNTIME_MS: u64 = 10_000;
+pub const MAX_COMMAND_STEP_RUNTIME_MS: u64 = 60_000;
+
+fn default_command_timeout_ms() -> u64 {
+    COMMAND_STEP_RUNTIME_MS
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum StepKind {
+    Call {
+        call: crate::blueprint_document::Call,
+        grants: Vec<String>,
+    },
+    Effect {
+        node: Box<crate::blueprint_document::Node>,
+    },
+    Code {
+        code: crate::blueprint_document::Code,
+    },
     Http {
         probe: crate::blueprint_http::HttpProbe,
     },
@@ -138,6 +170,8 @@ pub enum StepKind {
     },
     Command {
         command: String,
+        #[serde(default = "default_command_timeout_ms")]
+        timeout_ms: u64,
     },
     Ask {
         question: String,
@@ -165,7 +199,17 @@ impl StepKind {
     pub const DESCRIPTORS: &'static [crate::blueprint_catalog::NodeDescriptor] =
         crate::blueprint_catalog::STEPS;
     pub fn name(&self) -> &'static str {
+        if matches!(self, Self::Call { .. }) {
+            return "call";
+        }
+        if matches!(self, Self::Effect { .. }) {
+            return "effect";
+        }
+        if matches!(self, Self::Code { .. }) {
+            return "code";
+        }
         Self::DESCRIPTORS[match self {
+            Self::Code { .. } | Self::Call { .. } | Self::Effect { .. } => unreachable!(),
             Self::Command { .. } => 0,
             Self::Ask { .. } => 1,
             Self::Filter { .. } => 2,
@@ -183,6 +227,9 @@ impl StepKind {
             Self::Http { .. }
             | Self::Github { .. }
             | Self::Command { .. }
+            | Self::Call { .. }
+            | Self::Effect { .. }
+            | Self::Code { .. }
             | Self::Ask { .. }
             | Self::Filter { .. }
             | Self::Agent { .. } => IoType::Text,
@@ -204,6 +251,9 @@ impl StepKind {
             }
             Self::Github { .. }
             | Self::Command { .. }
+            | Self::Call { .. }
+            | Self::Effect { .. }
+            | Self::Code { .. }
             | Self::Convert { .. }
             | Self::Agent { .. } => Ok(["done".into(), "failed".into()].into()),
             Self::Ask { buckets, .. } => {
@@ -513,7 +563,7 @@ pub fn validate_parts(
                     error(&mut errors, field.parameters("agent"), "agent requires text, a provider and profile, and bounded task, deadline, token and turn budgets");
                 }
             }
-            StepKind::Command { command }
+            StepKind::Command { command, .. }
                 if command.trim().is_empty()
                     || command.len() > MAX_COMMAND_BYTES
                     || command.contains('\0') =>
@@ -619,7 +669,10 @@ pub fn validate_parts(
 pub fn trigger_unavailable(trigger: &Trigger) -> bool {
     !matches!(
         trigger,
-        Trigger::Schedule { .. } | Trigger::Event { .. } | Trigger::Input { .. }
+        Trigger::Schedule { .. }
+            | Trigger::Event { .. }
+            | Trigger::Input { .. }
+            | Trigger::Webhook { .. }
     )
 }
 
@@ -723,7 +776,7 @@ fn has_converter_path(from: MediaKind, to: MediaKind, converters: &[ConverterEdg
 
 fn trigger_output(trigger: &Trigger) -> IoType {
     match trigger {
-        Trigger::Schedule { .. } | Trigger::Event { .. } => IoType::Text,
+        Trigger::Schedule { .. } | Trigger::Event { .. } | Trigger::Webhook { .. } => IoType::Text,
         Trigger::Input { kind, .. } => IoType::from(*kind),
     }
 }
@@ -898,43 +951,6 @@ impl StepJournalEntry {
             .filter(|character| !character.is_control())
             .take(MAX_RESULT_SUMMARY_CHARS)
             .collect()
-    }
-
-    pub fn validate(&self) -> Result<(), String> {
-        if self.step_name.trim().is_empty()
-            || self.step_name.len() > 128
-            || self.step_name.chars().any(char::is_control)
-        {
-            return Err("step_name must be nonempty, bounded and printable".into());
-        }
-        if !matches!(
-            self.step_kind.as_str(),
-            "command" | "convert" | "ask" | "filter" | "agent"
-        ) {
-            return Err("step_kind is not declared".into());
-        }
-        if self
-            .result_summary
-            .as_ref()
-            .is_some_and(|summary| summary.chars().count() > MAX_RESULT_SUMMARY_CHARS)
-        {
-            return Err("result_summary exceeds 200 characters".into());
-        }
-        if self
-            .result_summary
-            .as_ref()
-            .is_some_and(|summary| summary.chars().any(char::is_control))
-        {
-            return Err("result_summary contains control characters".into());
-        }
-        if self
-            .started_at_ms
-            .zip(self.ended_at_ms)
-            .is_some_and(|(start, end)| end < start)
-        {
-            return Err("ended_at_ms precedes started_at_ms".into());
-        }
-        Ok(())
     }
 }
 

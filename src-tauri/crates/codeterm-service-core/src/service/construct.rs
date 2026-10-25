@@ -54,14 +54,12 @@ pub fn build_service_context(
     let plan_store = Arc::new(crate::service::plan::PlanStore::new());
     let plan_turn_counter = Arc::new(crate::service::plan::reminders::TurnCounter::new());
     plan_store.bind_turn_counter(plan_turn_counter.clone());
-    let live_pending_delivery_digests =
-        crate::service::pending_delivery_payloads::live_payload_digests(
-            &states.mux.read().snapshot(),
-        );
+    let live_pending_delivery_keys =
+        crate::service::pending_delivery_payloads::live_payload_keys(&states.mux.read().snapshot());
     let pending_delivery_payloads = Arc::new(
         crate::service::pending_delivery_payloads::PendingDeliveryPayloadStore::open(
             &crate::paths::data_dir(),
-            &live_pending_delivery_digests,
+            &live_pending_delivery_keys,
         )
         .expect("pending delivery payload store init"),
     );
@@ -300,6 +298,9 @@ pub fn build_service_context(
         agent_run_pty_map: Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
         run_watcher: Arc::new(crate::agent::run_watcher::RunWatcherRegistry::new()),
         remote_workers: Arc::new(remote_workers),
+        remote_teams: Arc::new(crate::service::remote_team::RemoteTeamStore::open(
+            crate::paths::data_dir().join("remote_teams.json"),
+        )),
         bridge_outbound: bridge_outbound_tx,
         chat_registry: crate::service::tab_chat::ChatRegistry::new(),
         secrets,
@@ -317,6 +318,8 @@ pub fn build_service_context(
     };
     assert!(service.set_ext(states.storage.clone()).is_ok());
     assert!(service.set_ext(states.session.clone()).is_ok());
+    service.restore_remote_worker_transfers();
+    service.restore_remote_team_closures();
     let service = Arc::new(service);
     assert!(service.set_ext(Arc::downgrade(&service)).is_ok());
     service

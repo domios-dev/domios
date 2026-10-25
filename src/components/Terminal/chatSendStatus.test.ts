@@ -10,6 +10,28 @@ import { MemoryChatSendRepository } from "./chatSendRepository.testSupport";
 
 beforeEach(() => __setChatSendRepositoryForTest(new MemoryChatSendRepository()));
 
+test("chat backend not-applicable admission settles across reload without Retry or resubmission", async () => {
+  const tabId = "backend-admission";
+  addChatSend(tabId, { id: "bubble", correlationId: "backend-token", content: "opaque", sentAtMs: 1 });
+  let admissions = 0;
+  __setInvokeForTest(async <T>(command: string) => {
+    if (command === "chat_send_admissions") {
+      admissions++;
+      return [{ correlationId: "backend-token", evidence: "not_applicable" }] as T;
+    }
+    assert.ok(command === "chat_send_status" || command === "chat_send_dismissals");
+    return [] as T;
+  });
+  await reconcileTrackedChatMessages(tabId);
+  assert.equal(deliveryState(readChatSends(tabId)[0]), "uncertain");
+  assert.equal(beginChatSendRetry(tabId, "bubble"), undefined);
+  forgetChatSendsInMemory();
+  await ensureChatSendTabHydrated(tabId);
+  await reconcileTrackedChatMessages(tabId);
+  assert.equal(admissions, 1);
+  assert.equal(readChatSends(tabId)[0].admissionSettled, true);
+});
+
 function heldStatus(): ChatSendStatus {
   return {
     send_id: "send-1",
@@ -158,6 +180,21 @@ test("reconnect resolves a response-less refused admission using durable absence
   assert.equal(deliveryState(readChatSends(tabId)[0]), "failed");
   assert.equal(calls.filter((command) => command === "chat_send_text").length, 1);
   assert.notEqual(beginChatSendRetry(tabId, "offline-bubble"), undefined);
+});
+
+test("a send request that hit its deadline resolves to Retry once durable absence is proven", async () => {
+  const tabId = "deadline-admission";
+  addChatSend(tabId, { id: "deadline-bubble", correlationId: "deadline-token", content: "opaque", sentAtMs: 1 });
+  __setInvokeForTest(async <T>(command: string) => {
+    if (command === "chat_send_text") throw new DOMException("opaque", "TimeoutError");
+    if (command === "chat_send_status") return [] as T;
+    if (command === "chat_send_admissions") return [{ correlationId: "deadline-token", evidence: "absent" }] as T;
+    throw new Error(command);
+  });
+  await assert.rejects(sendTrackedChatMessage(tabId, "deadline-token", "opaque"));
+  await reconcileTrackedChatMessages(tabId);
+  assert.equal(deliveryState(readChatSends(tabId)[0]), "failed");
+  assert.notEqual(beginChatSendRetry(tabId, "deadline-bubble"), undefined);
 });
 
 test("reconnect leaves an ambiguous response uncertain even when no admission is retained", async () => {

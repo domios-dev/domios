@@ -10,7 +10,7 @@ pub(super) fn project_pipeline_contract(
 ) {
     let mut journal_revisions = jobs
         .iter()
-        .filter(|job| job.pipeline().is_some())
+        .filter(|job| job.document.is_some())
         .filter_map(|job| {
             journals
                 .get(&job.id)
@@ -56,7 +56,7 @@ pub(super) fn project_pipeline_contract(
         snapshot.revision = format!("{:x}", digest.finalize());
     }
     snapshot.blueprints.clear();
-    for job in jobs.iter().filter(|job| job.is_scenario_root()) {
+    for job in jobs.iter().filter(|job| graph::is_snapshot_root(job)) {
         let Some(node) = snapshot.nodes.iter_mut().find(|node| {
             node.pointer("/identity/id").and_then(Value::as_str) == Some(job.id.as_str())
                 && node.pointer("/identity/kind").and_then(Value::as_str) == Some("blueprint")
@@ -92,7 +92,8 @@ pub(super) fn project_pipeline_contract(
             .unwrap_or_else(|| pipeline_run_view(job, spec, &[]));
         let state = if job.machine.stopped {
             "stopped"
-        } else if job.machine.paused
+        } else if !job.admission.permits_steps()
+            || job.machine.paused
             || job.machine.held.is_some()
             || matches!(
                 job.last_reason.as_deref(),
@@ -130,6 +131,29 @@ pub(super) fn project_pipeline_contract(
             "last_event_at_ms":latest["last_event_at_ms"],"trigger":trigger_view(&spec.trigger),
             "steps":latest["steps"],"result":latest["result"],"runs":runs
         });
+        if state == "held" {
+            let latest_run = latest["id"].as_str();
+            let journal_reason = entries
+                .iter()
+                .filter(|entry| {
+                    Some(entry.run_id.as_str()) == latest_run && entry.state == JournalState::Held
+                })
+                .find_map(|entry| entry.reason.as_ref())
+                .map(|reason| reason.as_str().to_string());
+            let held_reason = crate::plan_lock::held_reason(job)
+                .map(str::to_string)
+                .or_else(|| {
+                    job.machine
+                        .held
+                        .clone()
+                        .or_else(|| job.machine.paused.then(|| "paused".to_string()))
+                        .or_else(|| job.last_reason.clone())
+                        .or(journal_reason)
+                });
+            if let Some(reason) = held_reason {
+                blueprint["held_reason"] = json!(reason);
+            }
+        }
         if matches!(
             &spec.trigger,
             codeterm_blueprint_types::blueprint_pipeline::Trigger::Event { .. }
@@ -144,6 +168,7 @@ pub(super) fn project_pipeline_contract(
             });
         }
         node["state"] = json!(state);
+        node["held_reason"] = blueprint["held_reason"].clone();
         snapshot.blueprints.push(blueprint);
     }
 }
@@ -167,9 +192,9 @@ fn pipeline_run_view(
         .map(|(index, step)| {
             let entry = newest
                 .iter()
-                .find(|entry| entry.marker() == JournalMarker::Step(index as u16));
+                .find(|entry| entry.marker() == JournalMarker::Step(index as u32));
             let summary = entries.iter().find(|entry| {
-                entry.marker() == JournalMarker::Step(index as u16)
+                entry.marker() == JournalMarker::Step(index as u32)
                     && entry.result_summary.is_some()
             });
             pipeline_step_view(index, &step.name, &step.kind, entry, summary)
@@ -261,6 +286,7 @@ fn pipeline_step_view(
 fn trigger_view(trigger: &codeterm_blueprint_types::blueprint_pipeline::Trigger) -> Value {
     use codeterm_blueprint_types::blueprint_pipeline::Trigger;
     match trigger {
+        Trigger::Webhook { .. } => json!({"type":"webhook","summary":"authenticated JSON webhook"}),
         Trigger::Schedule { every } => {
             json!({"type":"schedule","summary":format!("every {every}")})
         }

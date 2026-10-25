@@ -11,7 +11,7 @@ const J4_AFTER = ["restart_observed", "restored_tab_ready", "restored_send_reply
   "fixture_orchestrator_rebind", "restored_bounce_then_report", "review_accept_done"];
 
 export const PHASE_STEPS = {
-  setup: [["SETUP", ["workspace_provisioned"]], ["J1", J1], ["J2", J2], ["J3", J3], ["J4", ["pre_restart_snapshot"]], ["EVIDENCE", ["window_screenshot setup"]]],
+  setup: [["SETUP", ["agent_access_chosen", "workspace_provisioned"]], ["J1", J1], ["J2", J2], ["J3", J3], ["J4", ["pre_restart_snapshot"]], ["EVIDENCE", ["window_screenshot setup"]]],
   verify: [["J4", J4_AFTER], ["EVIDENCE", ["window_screenshot verify"]]],
   cleanup: [["CLEAN", ["plan_deleted", "team_closed", "workspace_closed"]]],
 };

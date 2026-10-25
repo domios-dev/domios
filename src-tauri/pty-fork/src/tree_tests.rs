@@ -61,11 +61,12 @@ fn force_kill_closes_descendant_output_and_reaps_leader() {
         eof_tx.send(()).unwrap();
     });
     ready_rx.recv_timeout(Duration::from_secs(10)).unwrap();
-    child.kill_tree().unwrap();
+    let mut killer = child.clone_killer();
     let (exit_tx, exit_rx) = mpsc::channel();
     std::thread::spawn(move || {
         exit_tx.send(child.wait()).unwrap();
     });
+    killer.kill_tree().unwrap();
     assert!(exit_rx
         .recv_timeout(Duration::from_secs(10))
         .unwrap()

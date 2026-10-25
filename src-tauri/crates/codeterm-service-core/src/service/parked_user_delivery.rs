@@ -531,7 +531,7 @@ impl super::ServiceContext {
     }
 
     fn pending_user_send(&self, record: &UserSendRecord, reason: &str) -> UserDrain {
-        log::warn!(
+        log::debug!(
             "[chat-send] user owner pending tab={} send_id={} reason={reason}",
             record.authority.tab_id,
             record.send_id,
@@ -625,6 +625,7 @@ impl super::ServiceContext {
         Ok(pair)
     }
 
+    #[cfg(test)]
     pub(crate) fn park_refused_user_send(
         &self,
         tab_id: &str,

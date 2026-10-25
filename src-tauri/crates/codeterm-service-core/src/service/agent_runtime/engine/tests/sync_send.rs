@@ -5,14 +5,43 @@ use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
 use serde_json::json;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-struct Cleanup(String);
+pub(in crate::service::agent_runtime::engine) struct Cleanup(String);
 impl Drop for Cleanup {
     fn drop(&mut self) {
         test_support::stop_test(&self.0);
     }
 }
 
-fn runtime_fixture() -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
+pub(super) const RUNTIME_FIXTURE_SOURCE: &str = r#"
+module.exports = {
+  runtimePlan(ctx, op) {
+    const method = {initialize:'fixture/initialize',resumeThread:'fixture/resume',readHistory:'fixture/history',submitTurn:'fixture/submit'}[op.kind];
+    return {action:{kind:'request',call:{method,params:op}},state:null};
+  },
+  runtimeResponse(ctx, op, state, reply) {
+    if (op.kind === 'initialize') return {kind:'complete',result:{kind:'initialized'}};
+    if (op.kind === 'resumeThread') return {kind:'complete',result:{kind:'threadLoaded',threadId:op.threadId,settings:op.settings}};
+    if (op.kind === 'readHistory') return {kind:'complete',result:{kind:'historyPage',threadId:op.threadId,items:[],openItems:[],order:op.order}};
+    return {kind:'complete',result:{kind:'turnAccepted',threadId:op.threadId,sendId:op.sendId,turnId:reply.value.turnId}};
+  },
+  runtimeReduce(ctx, state, frames) { return {state:null,events:[]}; }
+};
+"#;
+
+pub(super) fn runtime_fixture() -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
+    runtime_fixture_with(RUNTIME_FIXTURE_SOURCE)
+}
+
+pub(in crate::service::agent_runtime::engine) fn runtime_fixture_with(
+    source: &str,
+) -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
+    runtime_fixture_with_notifications(source, &[])
+}
+
+pub(super) fn runtime_fixture_with_notifications(
+    source: &str,
+    notifications: &[&str],
+) -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
     const PROVIDER: &str = "sync-send-fixture";
     let (mut mux, tab_id) = MultiplexerState::new();
     let nonce = uuid::Uuid::new_v4().to_string();
@@ -37,20 +66,10 @@ fn runtime_fixture() -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanu
         "id":PROVIDER,"version":"1.0.0","displayName":"Fixture",
         "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
             "agentRuntime":{"runtime":"stdio-jsonrpc","command":{"binary":"fixture-cli","args":[]},
-                "requestMethods":{"submitTurn":["fixture/submit"]},"notificationMethods":[]}},
+                "login":{"methods":["browser","device","apiKey"]},
+                "requestMethods":{"control":["fixture/control"],"initialize":["fixture/initialize"],"openThread":["fixture/open"],"resumeThread":["fixture/resume"],"readHistory":["fixture/history"],"submitTurn":["fixture/submit"]},"notificationMethods":notifications}},
         "permissions":{"subprocess":{"allow":["fixture-cli"]}}
     }).to_string()).unwrap();
-    let source = r#"
-module.exports = {
-  runtimePlan(ctx, op) {
-    return {action:{kind:'request',call:{method:'fixture/submit',params:op}},state:null};
-  },
-  runtimeResponse(ctx, op, state, reply) {
-    return {kind:'complete',result:{kind:'turnAccepted',threadId:op.threadId,sendId:op.sendId,turnId:reply.value.turnId}};
-  },
-  runtimeReduce(ctx, state, frames) { return {state:null,events:[]}; }
-};
-"#;
     fixture
         .service
         .agent_registry
@@ -114,6 +133,7 @@ module.exports = {
         compaction: Mutex::new(Default::default()),
         abort_note: Mutex::new(None),
         history_retry: Mutex::new(None),
+        capacity_retry: Mutex::new(Default::default()),
         controls_confirmation: Mutex::new(None),
         control_changes: tokio::sync::watch::channel(()).0,
         reverted_thread: Mutex::new(None),
@@ -274,6 +294,47 @@ fn restored_and_slept_user_sends_hold_then_flush_once_in_order() {
 #[test]
 fn sync_send_from_plain_thread_writes_one_rpc_turn_and_never_replays_it() {
     assert_sync_send(false, false, false);
+}
+
+#[test]
+fn runtime_continuation_refuses_a_changed_session_or_nonce_before_write() {
+    use crate::service::messenger::Messenger;
+    let (fixture, tab_id, mut peer, _cleanup) = runtime_fixture();
+    let nonce = for_tab(&tab_id)
+        .unwrap()
+        .context
+        .lock()
+        .binding_nonce
+        .clone();
+    for (thread, nonce) in [
+        ("foreign-thread", nonce.as_str()),
+        ("own-thread", "foreign-nonce"),
+    ] {
+        let result = Messenger::deliver_turn_resume(
+            &fixture.service,
+            &tab_id,
+            None,
+            thread,
+            nonce,
+            None,
+            "opaque",
+        );
+        assert!(result.is_err());
+        assert!(!crate::service::pty_io::delivery_is_unknown(
+            &result.unwrap_err()
+        ));
+    }
+    use std::{
+        pin::Pin,
+        task::{Context, Poll, Waker},
+    };
+    use tokio::io::AsyncRead;
+    let mut bytes = [0; 1];
+    let mut buffer = tokio::io::ReadBuf::new(&mut bytes);
+    assert!(matches!(
+        Pin::new(&mut peer).poll_read(&mut Context::from_waker(Waker::noop()), &mut buffer),
+        Poll::Pending
+    ));
 }
 
 #[test]

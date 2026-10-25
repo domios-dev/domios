@@ -1,0 +1,201 @@
+{
+  "workspace_id": "workspace-captured",
+  "team_id": "team-captured",
+  "all_teams": false,
+  "revision": "6a4fda200db7525cdb8c78f12ba0e3ca8790c7210d0667185161baaf044ed340",
+  "scenarios": [
+    {
+      "id": "blueprint-captured",
+      "name": "github-run-status-check",
+      "root": {
+        "kind": "blueprint",
+        "id": "blueprint-captured",
+        "workspace_id": "workspace-captured",
+        "team_id": "team-captured",
+        "owner_tab_id": "owner-captured"
+      }
+    }
+  ],
+  "nodes": [
+    {
+      "availability": "available",
+      "blueprint_definition": {
+        "creator_tab_id": "owner-captured",
+        "definition_id": "blueprint-captured",
+        "definition_version": 1,
+        "lineage": [],
+        "source": "stored_agent_definition"
+      },
+      "cadence_ms": 1800000,
+      "conversation": {
+        "actions": 0,
+        "enabled": false,
+        "exchanges": 0,
+        "rate_limit_per_minute": 120,
+        "safety_limit": 16384
+      },
+      "deletes_at": null,
+      "detail": {
+        "creator": {
+          "name": "Dante",
+          "tab_id": "owner-captured"
+        },
+        "decisions": {
+          "adapter_used": false,
+          "history_complete": true
+        },
+        "definition": {
+          "unavailable": "pipeline_definition_not_representable_in_v1"
+        },
+        "last_probe_at": null,
+        "next_check_at_ms": null,
+        "observe_target": null,
+        "origin": "agent",
+        "probe_state": null,
+        "runs_since_transition": 0,
+        "scope": {
+          "node_id": "blueprint-captured",
+          "team_id": "team-captured",
+          "workspace_id": "workspace-captured"
+        },
+        "team": {
+          "id": "team-captured",
+          "name": null
+        },
+        "version": 1
+      },
+      "executor": null,
+      "expires_at": null,
+      "held_reason": null,
+      "hidden": false,
+      "history": [],
+      "history_truncated": false,
+      "identity": {
+        "id": "blueprint-captured",
+        "kind": "blueprint",
+        "owner_tab_id": "owner-captured",
+        "team_id": "team-captured",
+        "workspace_id": "workspace-captured"
+      },
+      "last_result": null,
+      "name": "github-run-status-check",
+      "note": "Native GitHub node checking one public CI run",
+      "outcomes": [],
+      "purpose": "",
+      "schedule": null,
+      "solution_success": false,
+      "source": {
+        "type": "pipeline"
+      },
+      "state": "idle",
+      "stop": {
+        "allowed": true,
+        "reason": null
+      },
+      "stopped_at": null
+    }
+  ],
+  "runs": [],
+  "blueprints": [
+    {
+      "call_graph": {
+        "kind": "pipeline",
+        "name": "github-run-status-check",
+        "note": "Native GitHub node checking one public CI run",
+        "owner": "team",
+        "result": {
+          "to": "notify"
+        },
+        "schema_version": 2,
+        "steps": [
+          {
+            "id": "run-status",
+            "model_classification": false,
+            "paused": false,
+            "routes": {
+              "done": "@stop",
+              "failed": "@stop"
+            },
+            "session": false,
+            "uses": "github",
+            "with": {
+              "id": {
+                "lit": 39652641013
+              },
+              "repo": {
+                "lit": "cli/cli"
+              },
+              "resource": {
+                "lit": "run"
+              }
+            }
+          }
+        ],
+        "trigger": {
+          "every": {
+            "lit": "30m"
+          },
+          "type": "schedule"
+        }
+      },
+      "current_step": null,
+      "deletes_at": null,
+      "expanded_calls": [],
+      "graph_definition_version": 1,
+      "historical_graph_available": true,
+      "id": "blueprint-captured",
+      "last_event_at_ms": 1792821487144,
+      "name": "github-run-status-check",
+      "nested_run": null,
+      "note": "Native GitHub node checking one public CI run",
+      "owner": {
+        "kind": "team",
+        "tab_id": null,
+        "team_id": "team-captured"
+      },
+      "result": {
+        "body_ref": null,
+        "reason": "system_notice_logged",
+        "state": "delivered",
+        "target": {
+          "id": null,
+          "kind": "notify"
+        }
+      },
+      "run_id": null,
+      "runs": [],
+      "state": "idle",
+      "steps": [
+        {
+          "ended_at_ms": 1792821486862,
+          "index": 0,
+          "kind": "github",
+          "name": "run-status",
+          "outcome": "done",
+          "reason": null,
+          "result_summary": "completed · success",
+          "source": {
+            "id": 39652641013,
+            "repo": "cli/cli",
+            "resource": "run"
+          },
+          "source_state": "done",
+          "started_at_ms": 1792821484690,
+          "state": "done",
+          "title": "github: run-status"
+        }
+      ],
+      "stopped_at": null,
+      "trigger": {
+        "summary": "every 30m",
+        "type": "schedule"
+      }
+    }
+  ],
+  "edges": [],
+  "truncated": false,
+  "configured_fallback": {
+    "adapter_id": "typesafe-jev",
+    "model": "jev-latest"
+  }
+}

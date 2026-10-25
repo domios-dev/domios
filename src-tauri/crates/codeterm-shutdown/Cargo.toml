@@ -1,5 +1,5 @@
 [package]
-license = "PolyForm-Shield-1.0.0"
+license = "LicenseRef-Domios-1.0"
 name = "codeterm-shutdown"
 version = "0.0.0"
 edition = "2021"

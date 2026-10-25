@@ -1,0 +1,10 @@
+## red 1: modified config.frozen.json
+refused: evals/blueprint-recall/config.frozen.json differs from its committed version
+exit=2
+restored committed config.frozen.json
+## red 2: manifest hash mismatch
+refused: sha256 c220935ea1105cbee7d4838a5ab3e45ebac087f22d9d368b0667c063057205ec of evals/blueprint-recall/queries/set_b3.jsonl does not match manifest sets.b3.sha256 "0000000000000000000000000000000000000000000000000000000000000000"
+exit=2
+## green: the single confirmation run (2026-10-22T14:05:30Z)
+confirmed b3: gate B FAIL (pooled recall@5 0.7982 vs 0.80)
+exit=0

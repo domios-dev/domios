@@ -82,6 +82,51 @@ fn detached_system_choice_requires_the_internal_answer_path() {
     );
 }
 
+#[test]
+fn daemon_request_choices_are_deliverable_without_an_agent_tab() {
+    let mut store = NotificationStore::new(10);
+    let id = store.add_ext(
+        "Connect".into(),
+        None,
+        NotificationSeverity::Info,
+        NotificationProvenance::default(),
+        crate::store::Ask {
+            daemon_request: Some("mesh-link:request".into()),
+            actions: Some(choices(&["Approve", "Decline"])),
+            ..Default::default()
+        },
+        None,
+        None,
+    );
+    assert!(!store.answer_slot(&id).unwrap().is_undeliverable());
+    assert_eq!(
+        store
+            .offered_choices_for_channel(&id)
+            .iter()
+            .map(|choice| choice.label.as_str())
+            .collect::<Vec<_>>(),
+        ["Approve", "Decline"]
+    );
+    assert_eq!(
+        store.record_answer(&id, "invented"),
+        AnswerAdmission::NotOffered
+    );
+    assert_eq!(
+        store.record_answer(&id, "Approve"),
+        AnswerAdmission::Recorded("Approve".into())
+    );
+    assert_eq!(
+        store.record_answer(&id, "Decline"),
+        AnswerAdmission::AlreadyAnswered("Approve".into())
+    );
+    assert!(store.mark_answer_delivered(&id));
+    assert_eq!(
+        store.resolve_daemon_request("mesh-link:request"),
+        [id.clone()]
+    );
+    assert!(store.notification(&id).unwrap().resolved);
+}
+
 /// An invented kind is refused where it is parsed, so it can never travel as a
 /// string that some later click handler interprets.
 #[test]
@@ -188,6 +233,26 @@ fn notify_answer_takes_exactly_one_answer_per_notification() {
             .and_then(|slot| slot.answered_via.as_deref()),
         Some("notification")
     );
+}
+
+/// Answering a question is reading it: the record leaves the unread set the
+/// moment the answer is recorded, and a refused answer leaves it unread.
+#[test]
+fn notify_answer_marks_the_question_read() {
+    let (mut store, id) = asked_from(Some("asking-tab"));
+    assert_eq!(
+        store.record_answer(&id, "Retreat"),
+        AnswerAdmission::NotOffered
+    );
+    assert_eq!(
+        store.list(true).len(),
+        1,
+        "a refused answer leaves the question unread"
+    );
+
+    store.record_answer(&id, "Rebase");
+
+    assert!(store.list(true).is_empty(), "the answered question is read");
 }
 
 /// An answer already recorded is history: closing the tab afterwards does not

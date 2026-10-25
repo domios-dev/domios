@@ -720,6 +720,7 @@ fn planner_report_harness() -> PlannerReportHarness {
         owner.role_profile = Some("orchestrator".into());
         for (tab_id, session) in [(&planner_tab, "planner"), (&foreign_tab, "foreign")] {
             let tab = mux.get_tab_mut(tab_id).unwrap();
+            tab.agent_type = Some("fixture-agent".into());
             tab.agent_session_id = Some(format!("{session}-session"));
             tab.session_binding_nonce = Some(format!("{session}-nonce"));
             tab.reported_session_binding_nonce = Some(format!("{session}-nonce"));
@@ -1022,6 +1023,7 @@ fn plan_evidence_harness() -> PlanEvidenceHarness {
         (&bound, "bound-session", "bound-nonce"),
     ] {
         let tab = mux.get_tab_mut(tab_id).unwrap();
+        tab.agent_type = Some("fixture-agent".into());
         tab.agent_session_id = Some(session.into());
         tab.session_binding_nonce = Some(nonce.into());
         tab.reported_session_binding_nonce = Some(nonce.into());

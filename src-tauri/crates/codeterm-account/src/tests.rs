@@ -107,12 +107,13 @@ async fn login_failure_deadline_returns_timeout() {
         Duration::from_secs(1),
     ));
     assert_eq!(
-        account.login(&WaitingBrowser).await.unwrap_err(),
+        account.login(Arc::new(WaitingBrowser)).await.unwrap_err(),
         Error::Timeout
     );
     assert_eq!(
         account.status().await,
         Status {
+            session_revoked: false,
             provider: "fake".into(),
             identity: None,
             pending: false,
@@ -135,7 +136,7 @@ async fn local_login_logout_deletes_refresh_token() {
     ));
     assert_eq!(
         account
-            .login(&NoBrowser)
+            .login(Arc::new(NoBrowser))
             .await
             .unwrap()
             .identity
@@ -149,23 +150,37 @@ async fn local_login_logout_deletes_refresh_token() {
     assert!(account.session().await.is_none());
 }
 #[tokio::test]
-async fn refresh_replaces_id_token() {
+async fn fresh_session_refreshes_even_when_token_is_not_expiring() {
     let store = Arc::new(Store::default());
     store
         .save("fake", &Secret::new("fake-refresh"))
         .await
         .unwrap();
+    let observer = Arc::new(Observer::default());
     let account = Account::new(
         Arc::new(adapters::fake::Fake::default()),
         store,
         Duration::from_secs(1),
-    );
+    )
+    .with_identity_observer(observer.clone());
     account.refresh().await.unwrap();
     let before = account.session().await.unwrap().id_token;
-    account.refresh().await.unwrap();
-    assert_ne!(
+    assert_eq!(
         before.expose(),
-        account.session().await.unwrap().id_token.expose()
+        account
+            .current_session()
+            .await
+            .unwrap()
+            .unwrap()
+            .id_token
+            .expose()
+    );
+    let refreshed = account.fresh_session().await.unwrap().unwrap();
+    assert_ne!(before.expose(), refreshed.id_token.expose());
+    assert_eq!(
+        observer.0.lock().await.len(),
+        1,
+        "silent refresh does not announce another sign-in"
     );
 }
 
@@ -206,9 +221,9 @@ async fn deep_link_entry_redeems_only_matching_callback_once() {
         Duration::from_secs(1),
     ));
     let status = account
-        .login(&CallbackBrowser {
+        .login(Arc::new(CallbackBrowser {
             account: account.clone(),
-        })
+        }))
         .await
         .unwrap();
     assert_eq!(status.identity.unwrap().uid, "fake-user");
@@ -235,9 +250,9 @@ async fn logout_cancels_pending_login_without_storing_credential() {
     ));
     assert_eq!(
         account
-            .login(&CancelBrowser {
+            .login(Arc::new(CancelBrowser {
                 account: account.clone()
-            })
+            }))
             .await
             .unwrap_err(),
         Error::Cancelled
@@ -287,7 +302,7 @@ async fn identity_observer_tracks_committed_sign_in_and_sign_out() {
         )
         .with_identity_observer(observer.clone()),
     );
-    let status = account.login(&NoBrowser).await.unwrap();
+    let status = account.login(Arc::new(NoBrowser)).await.unwrap();
     assert_eq!(
         *observer.0.lock().await,
         vec![status.identity.map(|value| value.uid)]

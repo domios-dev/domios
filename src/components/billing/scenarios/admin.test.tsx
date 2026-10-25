@@ -11,7 +11,7 @@ afterEach(closeScenario);
 describe("admin", () => {
   it("is unlimited regardless of billing", async () => {
     const scenario = await openScenario(PLAN_PAYLOADS.admin, { workspaces: 2, teams: 6, tabs: 35 });
-    expect(scenario.tray).toBe("Admin · free (active)");
+    expect(scenario.tray).toBe("Admin · Free · active");
     await scenario.createWorkspace("/new/third");
     await scenario.createTab();
     await scenario.createPair();

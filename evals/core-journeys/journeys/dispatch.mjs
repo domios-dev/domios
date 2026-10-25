@@ -2,33 +2,26 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { dcJson } from "../lib/env.mjs";
 import { workerBrief } from "../lib/fixtures.mjs";
+import { bindFixtureSession, promoteFixtureOrchestrator } from "../lib/setup.mjs";
 import { attemptBindingVerdict, findTask, isChatBackend, taskVerdict } from "../lib/oracle.mjs";
 import { readTab, waitReady, withEvents } from "../lib/tabs.mjs";
 import { JourneyFailure, anyOf, observe, touchesPlan, touchesTab } from "../lib/wait.mjs";
 
 const firstTab = (value) => (Array.isArray(value) ? value[0] : value?.tabs?.[0] ?? value);
 
-async function bindSession(ctx, id, session) {
-  const tab = firstTab(await dcJson(["tab", "inspect", "--tab", id]));
-  if (!tab?.session_binding_nonce) throw new JourneyFailure(`tab ${id} has no session binding nonce`);
-  const response = await ctx.api(`/api/tabs/${id}/hook/session_start`, { method: "POST",
-    body: { session_id: session, binding_nonce: tab.session_binding_nonce, source: "core-journeys" } });
-  if (response?.ok !== true) throw new JourneyFailure(`session_start not acknowledged: ${JSON.stringify(response)}`);
-}
-
 // A shell-tab Orchestrator keeps review deterministic: a live LLM Orchestrator would race the bench's verdicts.
-async function orchestratorFixture(ctx) {
+async function orchestratorFixture(ctx, provider) {
   const { workspace, run } = ctx.state;
   const created = await dcJson(["tab", "new", "--workspace", workspace.id, "--cwd", workspace.cwd,
     "--title", "cjorch", "--no-team", "--eager"]);
   const id = created?.tab_id ?? created?.id;
   if (!id) throw new JourneyFailure(`tab new returned no id: ${JSON.stringify(created)}`);
   const session = `cj-orch-${run}`;
-  ctx.state.j3 = { orchestrator: id, orchestrator_session: session };
+  ctx.state.j3 = { orchestrator: id, orchestrator_session: session, orchestrator_provider: provider };
   ctx.state.tabs.push({ id, journey: "J3", role: "fixture_orchestrator", shell: true });
   ctx.save();
-  await bindSession(ctx, id, session);
-  await dcJson(["agent", "set-orchestrator"], { asTab: id });
+  await bindFixtureSession(ctx, id, session, provider);
+  await promoteFixtureOrchestrator(id);
   const team = firstTab(await dcJson(["tab", "inspect", "--tab", id]))?.team_id;
   if (!team) throw new JourneyFailure("set-orchestrator minted no Team");
   ctx.state.j3.team = team;
@@ -41,7 +34,7 @@ async function orchestratorFixture(ctx) {
   const task = await dcJson(["plan", "task", "add", ctx.state.j3.plan, "--name", `Journey probe ${run}`,
     "--executor-role", "journey-probe", "--personality", "Probe", "--role-guidance", "Read-only release journey probe",
     "--criterion", "Worker acknowledges and reports in_review", "--test-plan", "none: read-only probe",
-    "--execution-intent", "read_only", "--body-file", body], { asTab: id });
+    "--execution-intent", "non_repository", "--body-file", body], { asTab: id });
   ctx.state.j3.task = findTask(task)?.id ?? task?.task?.id ?? task?.id;
   ctx.save();
   return ctx.state.j3;
@@ -69,7 +62,7 @@ export async function journeyThree(ctx, provider) {
   const check = (name, body) => ctx.check("J3", name, provider?.id ?? "none", body);
   const fixture = await check("fixture_orchestrator_plan", async () => {
     if (!provider) throw new JourneyFailure("no installed provider runs without a PTY (agent_runtime/chat_backend)");
-    const value = await orchestratorFixture(ctx);
+    const value = await orchestratorFixture(ctx, provider.id);
     return { summary: `plan ${value.plan} task ${value.task}`, evidence: value };
   });
   if (!fixture) return;
@@ -128,7 +121,7 @@ export async function journeyThreeAfterRestart(ctx) {
     return { summary: `attempt ${verdict.done.attempt_id}`, evidence: verdict.done };
   });
   await check("fixture_orchestrator_rebind", async () => {
-    await bindSession(ctx, j3.orchestrator, j3.orchestrator_session);
+    await bindFixtureSession(ctx, j3.orchestrator, j3.orchestrator_session, j3.orchestrator_provider);
     return "fixture Orchestrator session rebound";
   });
   if (!bound) return;

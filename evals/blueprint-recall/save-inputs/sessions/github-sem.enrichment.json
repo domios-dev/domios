@@ -1,0 +1,99 @@
+{
+  "duration_api_ms": 10255,
+  "stop_reason": "end_turn",
+  "session_id": "317486b7-e60f-415e-bb0b-623db8dda89c",
+  "total_cost_usd": 0.028124,
+  "usage": {
+    "input_tokens": 9,
+    "cache_creation_input_tokens": 11555,
+    "cache_read_input_tokens": 0,
+    "output_tokens": 1001,
+    "output_tokens_details": {
+      "thinking_tokens": 876
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 11555,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "not_available",
+    "iterations": [
+      {
+        "input_tokens": 9,
+        "output_tokens": 1001,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 11555,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 11555
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-haiku-4-5-20251001": {
+      "inputTokens": 9,
+      "outputTokens": 1001,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 11555,
+      "webSearchRequests": 0,
+      "costUSD": 0.028124,
+      "contextWindow": 200000,
+      "maxOutputTokens": 32000,
+      "thinkingTokens": 876,
+      "canonicalModel": "claude-haiku-4-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 1,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "WHAT: Monitors a GitHub Actions workflow run by checking its status every minute using gh run view. Sends an alert immediately when a job fails, then continues watching until the workflow completes up to 3 hours later, reporting the final outcome. Useful for catching workflow failures without polling manually. || INTENT: Watch GitHub Actions workflow until it completes and alert on failure || INTENT: Monitor workflow job status and notify on failure or completion || INTENT: Get alerts when GitHub Actions job fails or finishes || INTENT: Track workflow run and flag failures in real time",
+  "ttft_ms": 9360,
+  "type": "result",
+  "duration_ms": 10423,
+  "uuid": "8585b4a9-4d6a-497c-bb77-73e1088c437a",
+  "ttft_stream_ms": 703,
+  "time_to_request_ms": 123,
+  "first_content_frame_ms": 703,
+  "queued_turn_count": 0,
+  "result_index": 0
+}

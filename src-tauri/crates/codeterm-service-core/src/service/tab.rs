@@ -306,11 +306,23 @@ impl ServiceContext {
         tab_id: &str,
         reason: TabCloseReason,
     ) -> Result<(), String> {
+        self.close_tab_with_precondition(tab_id, reason, |_, _| Ok(()))
+    }
+
+    pub fn close_tab_with_precondition(
+        &self,
+        tab_id: &str,
+        reason: TabCloseReason,
+        validate: impl FnOnce(&crate::multiplexer::state::MultiplexerState, &str) -> Result<(), String>,
+    ) -> Result<(), String> {
         let (pre_focus, reservation, provider_id, canonical_tab_id, session_id) = {
             let mut mux = self.mux.write();
             let canonical_tab_id = mux
                 .resolve_tab_id(tab_id)
                 .unwrap_or_else(|| tab_id.to_string());
+            validate(&mux, &canonical_tab_id)?;
+            self.remote_teams
+                .ensure_tab_lifecycle_available(&canonical_tab_id)?;
             let tab = mux.get_tab(&canonical_tab_id);
             let provider_id = tab.and_then(|tab| tab.agent_type.clone());
             let session_id = tab.and_then(|tab| tab.agent_session_id.clone());
@@ -344,6 +356,9 @@ impl ServiceContext {
             self.forget_evicted_tab_todos(evicted);
         }
         let pty_ids = close_result?;
+        if let Err(error) = self.settle_closed_durable_deliveries(&canonical_tab_id) {
+            log::error!("[agent-delivery] closed recipient settlement failed tab={canonical_tab_id}: {error}");
+        }
         if let Some(policy) = role_policy {
             if let Err(error) = policy.tab_closed(self, &canonical_tab_id) {
                 log::error!("[tab-close] role settlement {canonical_tab_id}: {error}");
@@ -518,7 +533,8 @@ impl ServiceContext {
                 );
                 self.kill_ptys(&[orphan.to_string()]);
             },
-            |_| {
+            |selected| {
+                self.observe_shell_ready(selected, None);
                 crate::service::orchestrator::tab_relink_signal::notify_tab_relinked();
                 self.emit_state_changed(MuxEmitCause::TabLifecycle);
             },
@@ -538,7 +554,7 @@ impl ServiceContext {
                 let Ok(mapped) = mapped else {
                     return false;
                 };
-                let cwd = mapped.unwrap_or(cwd);
+                let cwd = codeterm_paths::strip_verbatim_prefix(&mapped.unwrap_or(cwd));
                 if tab.cwd.as_deref() == Some(cwd.as_str()) {
                     return false;
                 }
@@ -570,6 +586,11 @@ impl ServiceContext {
     }
 
     pub(crate) fn reconcile_authenticated_agent_input(&self, tab_id: &str) {
+        if let Err(error) = self.bind_authenticated_durable_deliveries(tab_id) {
+            log::error!(
+                "[agent-delivery] authenticated launch binding failed tab={tab_id}: {error}"
+            );
+        }
         let pty_id = self.mux.read().get_tab(tab_id).and_then(|tab| {
             tab.launch_session_authenticated()
                 .then(|| tab.pty_id.clone())
@@ -693,7 +714,6 @@ impl ServiceContext {
                 let Some(pty_id) = pty_id else { continue };
                 let screen = svc
                     .screen_state
-                    .lock()
                     .get_screen_text(&pty_id)
                     .unwrap_or_default();
                 if screen.is_empty() {
@@ -908,7 +928,6 @@ impl ServiceContext {
         };
         let screen = {
             self.screen_state
-                .lock()
                 .get_screen_text(&pty_id)
                 .unwrap_or_default()
         };

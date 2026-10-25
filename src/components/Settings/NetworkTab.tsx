@@ -1,6 +1,7 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useEffect, useState } from "react";
 import { invoke } from "../../lib/bridge";
+import { currentToken, relayTarget } from "../../lib/webApi";
 import {
   buildWebAccessUrls,
   planServeSetup,
@@ -123,8 +124,8 @@ function WebAccessSection() {
   useEffect(() => {
     void (async () => {
       try {
-        const cfg = await invoke<{ api?: { token?: string; port?: number } }>("get_config");
-        setToken(cfg.api?.token ?? null);
+        const cfg = await invoke<{ api?: { port?: number } }>("get_config");
+        setToken(relayTarget() ? null : currentToken());
         await refresh(cfg.api?.port ?? 7685);
       } catch {
         /* settings panel stays usable without this section's data */
@@ -288,8 +289,9 @@ function WebAccessSetup({
   if (plan.state === "not-installed") {
     return (
       <p data-testid="web-access-not-installed" className="text-xs text-[var(--ct-muted)] leading-snug">
-        Install Tailscale to get a clean, phone-friendly HTTPS link. Without it,
-        use one of the addresses above.
+        Install Tailscale, the free private network Domios uses to connect your
+        machines, to get a clean, phone-friendly HTTPS link. Without it, use one
+        of the addresses above.
       </p>
     );
   }

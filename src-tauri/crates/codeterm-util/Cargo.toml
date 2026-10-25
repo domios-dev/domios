@@ -1,5 +1,5 @@
 [package]
-license = "PolyForm-Shield-1.0.0"
+license = "LicenseRef-Domios-1.0"
 name = "codeterm-util"
 version = "0.0.0"
 edition = "2021"
@@ -14,16 +14,19 @@ regex = "1"
 log = "0.4"
 uuid = { version = "1", features = ["v4"] }
 vt100 = "0.16"
+socket2 = "0.6"
 tokio = { version = "1", features = ["process"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
-socket2 = "0.6"
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["processenv", "processthreadsapi", "handleapi", "tlhelp32"] }
 winreg = "0.10"
-windows-sys = { version = "0.61", features = ["Win32_System_RestartManager", "Win32_Storage_FileSystem", "Win32_Foundation", "Win32_Security", "Win32_System_Console", "Win32_System_JobObjects", "Win32_System_Threading"] }
+windows-sys = { version = "0.61", features = ["Win32_System_RestartManager", "Win32_Storage_FileSystem", "Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_SystemServices", "Win32_System_Console", "Win32_System_JobObjects", "Win32_System_Threading"] }
+
+[features]
+test-support = []
 
 [dev-dependencies]
 tempfile = "3"

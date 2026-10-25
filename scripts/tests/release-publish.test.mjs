@@ -13,21 +13,19 @@ test('a dispatch publishes or rehearses one named dry run; rehearsal is the defa
   assert.equal(inputs.run_id.required, true);
   assert.equal(inputs.tag.required, true);
   assert.equal(inputs.rehearsal.default, true);
-  assert.equal(condition(job.if, { github: { event_name: 'workflow_dispatch' }, vars: {} }), true);
+  assert.equal(condition(job.if, { github: { event_name: 'workflow_dispatch', actor: 'rollacode', triggering_actor: 'rollacode', repository: 'rollacode/codeterm', repository_owner: 'rollacode', ref: 'refs/heads/release/9.9.9' }, vars: {} }), true);
+  for (const change of [{ repository_owner: 'fork' }, { actor: 'contributor' },
+    { triggering_actor: 'contributor' }, { ref: 'refs/heads/master' }]) {
+    assert.equal(condition(job.if, { github: { event_name: 'workflow_dispatch', actor: 'rollacode',
+      triggering_actor: 'rollacode', repository_owner: 'rollacode', ref: 'refs/heads/release/9.9.9', ...change } }), false);
+  }
   assert.deepEqual(workflow.concurrency, { group: 'release-publication', 'cancel-in-progress': false });
 });
 
-test('a green release-branch dry run publishes itself only while RELEASE_AUTO_PROMOTE is on', () => {
-  assert.deepEqual(workflow.on.workflow_run, { workflows: ['Release'], types: ['completed'] });
-  const event = (conclusion, head_branch) => ({ event_name: 'workflow_run', event: { workflow_run: { conclusion, head_branch } } });
-  const on = { RELEASE_AUTO_PROMOTE: 'true' };
-  assert.equal(condition(job.if, { github: event('success', 'release/9.9.9'), vars: on }), true);
-  assert.equal(condition(job.if, { github: event('success', 'release/9.9.9'), vars: {} }), false);
-  assert.equal(condition(job.if, { github: event('failure', 'release/9.9.9'), vars: on }), false);
-  assert.equal(condition(job.if, { github: event('success', 'develop'), vars: on }), false);
-  const plan = job.steps.find(step => step.id === 'plan').run;
-  assert.match(plan, /release-promote\.mjs check/);
-  assert.match(plan, /mode=skip/);
+test('workflow completion cannot auto-publish retained bytes', () => {
+  assert.equal(workflow.on.workflow_run, undefined);
+  assert.equal(workflow.on.push, undefined);
+  assert.equal(condition(job.if, { github: { event_name: 'workflow_run', actor: 'rollacode', triggering_actor: 'rollacode', repository: 'rollacode/codeterm', repository_owner: 'rollacode', ref: 'refs/heads/release/9.9.9' } }), false);
 });
 
 test('publication runs one script with release tokens and changes nothing in a rehearsal', () => {

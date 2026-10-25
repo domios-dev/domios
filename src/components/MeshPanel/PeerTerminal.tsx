@@ -1,6 +1,7 @@
 import { PeerCapsuleSections } from "./PeerCapsuleSections";
 import type { PeerInventory } from "./peerInventoryModel";
-import { memo } from "react";
+import { memo, type ReactNode } from "react";
+import { MachineName } from "./MachineName";
 
 type AccessLevel = "full" | "read_only" | "agent_isolated";
 
@@ -16,7 +17,11 @@ interface Props {
   pairedDuration?: string;
   onClick?: () => void;
   offline?: boolean;
+  disabled?: boolean;
   onGoOnline?: () => void;
+  footer?: ReactNode;
+  onRename?: (name: string) => Promise<boolean>;
+  renameDisabledReason?: string;
 }
 
 function PeerTerminalComponent({
@@ -30,30 +35,37 @@ function PeerTerminalComponent({
   pairedDuration,
   onClick,
   offline = false,
+  disabled = false,
   onGoOnline,
+  footer,
+  onRename,
+  renameDisabledReason,
 }: Props) {
+  const dim = offline ? "opacity-55 grayscale" : "";
   return (
     <div
       role="group"
       aria-label={name}
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
       className={`relative bg-[var(--ct-bg)] rounded-md cursor-pointer transition-shadow ${
         isThisMachine
           ? offline
-            ? "border border-[var(--ct-border)] shadow-none opacity-55 grayscale"
+            ? "border border-[var(--ct-border)] shadow-none"
             : "border border-[color-mix(in_srgb,var(--ct-accent)_72%,var(--ct-border))] shadow-[var(--ct-shadow-capsule)]"
-          : `border border-[var(--ct-border)] shadow-sm ${offline ? "opacity-55 grayscale" : ""}`
+          : "border border-[var(--ct-border)] shadow-sm"
       }`}
       style={{ width: 360 }}
     >
-      <div role="button" tabIndex={0} aria-label={`Open ${name}`}
-        onKeyDown={(event) => { if (event.code === "Enter" || event.code === "Space") { event.preventDefault(); onClick?.(); } }}
-        className="flex items-center gap-2 px-3.5 py-2 rounded-t-md focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]">
-        <span className="w-3 h-3 shrink-0 rounded-full bg-[var(--ct-window-close)]" />
-        <span className="w-3 h-3 shrink-0 rounded-full bg-[var(--ct-window-minimize)]" />
-        <span className="w-3 h-3 shrink-0 rounded-full bg-[var(--ct-window-maximize)]" />
+      <div className={`flex items-center gap-2 px-3.5 py-2 rounded-t-md ${dim}`}>
+        <span role="button" tabIndex={disabled ? -1 : 0} aria-disabled={disabled} aria-label={`Open ${name}`}
+          onKeyDown={(event) => { if (event.code === "Enter" || event.code === "Space") { event.preventDefault(); if (!disabled) onClick?.(); } }}
+          className="flex items-center gap-2 rounded focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]">
+          <span className="w-3 h-3 shrink-0 rounded-full bg-[var(--ct-window-close)]" />
+          <span className="w-3 h-3 shrink-0 rounded-full bg-[var(--ct-window-minimize)]" />
+          <span className="w-3 h-3 shrink-0 rounded-full bg-[var(--ct-window-maximize)]" />
+        </span>
         <span className="ml-2 min-w-0 flex-1 text-[14px] text-[var(--ct-fg)] font-medium truncate">
-          {name}
+          <MachineName name={name} onRename={onRename} disabledReason={renameDisabledReason} />
         </span>
         <span className="ml-auto max-w-[45%] truncate text-[11px] text-[var(--ct-muted)] font-mono whitespace-nowrap">
           {ip}
@@ -76,7 +88,7 @@ function PeerTerminalComponent({
         </button>
       )}
       <div
-        className="px-3.5 py-2 text-[12px]"
+        className={`px-3.5 py-2 text-[12px] ${dim}`}
         style={{
           color: "var(--ct-muted-fg)",
         }}
@@ -94,6 +106,7 @@ function PeerTerminalComponent({
           </div>
         )}
       </div>
+      {footer}
     </div>
   );
 }

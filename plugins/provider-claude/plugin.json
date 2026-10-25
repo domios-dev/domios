@@ -1,8 +1,9 @@
 {
   "id": "claude",
-  "version": "1.14.20",
-  "minCodeterm": "1.15.1",
+  "version": "1.14.23",
+  "minCodeterm": "1.15.3",
   "hostApi": 2,
+  "generalAgentOfferWhenAbsent": true,
   "displayName": "Claude Code",
   "binaryName": "claude",
   "cliBinary": "claude",
@@ -171,6 +172,40 @@
       "description": "Maximum provider-supported reasoning depth."
     }
   ],
+  "cliLogin": {
+    "methods": [
+      {
+        "id": "subscription",
+        "label": "Subscription",
+        "args": [
+          "auth",
+          "login",
+          "--claudeai"
+        ]
+      },
+      {
+        "id": "console",
+        "label": "Console",
+        "args": [
+          "auth",
+          "login",
+          "--console"
+        ]
+      },
+      {
+        "id": "sso",
+        "label": "SSO",
+        "args": [
+          "auth",
+          "login",
+          "--sso"
+        ]
+      }
+    ],
+    "urlPattern": "(https://(?:claude\\.ai|console\\.anthropic\\.com|platform\\.claude\\.com)/oauth/authorize\\?[^\\s\\x1b\\x07]+)[\\s\\x1b\\x07]",
+    "timeoutMs": 900000,
+    "codeInput": true
+  },
   "installer": {
     "macos": "curl -fsSL https://claude.ai/install.sh | bash",
     "linux": "curl -fsSL https://claude.ai/install.sh | bash",
@@ -317,6 +352,11 @@
     }
   ],
   "capabilities": {
+    "attachments": {
+      "filePaths": true,
+      "inlineText": true,
+      "imagePaths": true
+    },
     "agentProvider": true,
     "subagentVisibility": true,
     "recordSources": {

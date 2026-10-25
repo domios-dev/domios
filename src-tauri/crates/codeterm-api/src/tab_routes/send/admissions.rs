@@ -26,8 +26,10 @@ pub async fn chat_send_admissions(
             .into_iter()
             .filter_map(|status| status.correlation_id)
             .collect::<Vec<_>>();
-        if svc.tab_chat_backing(&tab_id).is_some() {
-            return Err("durable PTY admission proof unavailable for chat backend".to_string());
+        if svc.tab_chat_backing(&tab_id).is_some()
+            && !codeterm_service_core::service::agent_runtime::requested_for_tab(&svc, &tab_id)
+        {
+            return codeterm_service_core::service::pending_delivery_payloads::user_sends::UserSendStore::non_durable_admission_evidence(&query.client_tokens, &tokens);
         }
         svc.pending_delivery_payloads.user_sends.admission_evidence(
             &tab_id,

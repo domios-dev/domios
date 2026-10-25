@@ -23,6 +23,10 @@ pub use codeterm_blueprint_types::blueprint_watch::Create;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Sentinel {
+    #[serde(default)]
+    pub admission: crate::admission::Admission,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub creation_options: Option<codeterm_blueprint_types::blueprint_watch::CreationOptions>,
     #[serde(flatten)]
@@ -123,6 +127,7 @@ pub struct Store {
     pub committed_revisions: BTreeMap<ScopeKey, String>,
     pub changes: BTreeMap<ScopeKey, String>,
     pub pending_stop_notices: Vec<StopNotice>,
+    pub quarantined: Vec<crate::storage::quarantine::Quarantined>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -175,11 +180,20 @@ impl Store {
         }
         let now = self.clock.now_ms();
         let job = self.jobs.iter().find(|job| job.id == event.pipeline_id)?;
-        let matches_kind = job.pipeline().is_some_and(|pipeline| {
-            matches!(&pipeline.trigger, codeterm_blueprint_types::blueprint_pipeline::Trigger::Event { kind, .. } if kind == &event.kind)
-        });
+        let matches_kind = job
+            .pipeline()
+            .is_some_and(|pipeline| match &pipeline.trigger {
+                codeterm_blueprint_types::blueprint_pipeline::Trigger::Event { kind, .. } => {
+                    kind == &event.kind
+                }
+                codeterm_blueprint_types::blueprint_pipeline::Trigger::Webhook { .. } => {
+                    event.kind == "webhook"
+                }
+                _ => false,
+            });
         if !matches_kind
             || job.machine.stopped
+            || !job.admission.permits_steps()
             || job.machine.paused
             || job.machine.held.is_some()
             || job.expires_at.is_some_and(|at| now >= at)
@@ -239,6 +253,15 @@ impl Store {
         if let Some(capability) = job.pending_capability() {
             return Staged::ready(Err(format!(
                 "blueprint_capability_unavailable: {capability} is not executable yet"
+            )));
+        }
+        if let Some(current) = self.quarantined.iter().find(|current| {
+            current.same_scope(&job.workspace_id, job.team_id.as_deref())
+                && (current.id == job.id || (job.name.is_some() && current.name == job.name))
+        }) {
+            return Staged::ready(Err(format!(
+                "blueprint_quarantined: delete {} before applying this name again",
+                current.id
             )));
         }
         if self.jobs.iter().any(|current| {
@@ -459,7 +482,11 @@ impl Store {
             })
             .map(|job| job.id.clone())
             .collect();
-        if !owned.iter().any(|candidate| candidate == id) {
+        let quarantined = self.quarantined.iter().any(|job| {
+            job.same_scope(workspace, team)
+                && (job.id == id || job.scenario_id.as_deref() == Some(id))
+        });
+        if !owned.iter().any(|candidate| candidate == id) && !quarantined {
             return Staged::ready(Err(format!("Blueprint scenario not found: {id}")));
         }
         for job_id in &owned {
@@ -561,7 +588,11 @@ impl Store {
         let Some(job) = self.get(id) else {
             return false;
         };
-        if job.machine.stopped || job.machine.paused || job.machine.held.is_some() {
+        if job.machine.stopped
+            || !job.admission.permits_steps()
+            || job.machine.paused
+            || job.machine.held.is_some()
+        {
             return false;
         }
         if job.pipeline().is_some_and(|pipeline| {
@@ -833,6 +864,7 @@ impl Store {
             .iter()
             .filter(|job| {
                 !job.machine.stopped
+                    && job.admission.permits_steps()
                     && job.terminal().is_none()
                     && !job.machine.paused
                     && !job.expires_at.is_some_and(|at| now >= at)
@@ -855,6 +887,9 @@ impl Store {
         self.jobs
             .iter()
             .flat_map(|job| {
+                if !job.admission.permits_steps() {
+                    return Vec::new();
+                }
                 if job.machine.stopped {
                     return super::cleanup::deletion_deadline(&self.jobs, job, &leased)
                         .into_iter()
@@ -867,6 +902,7 @@ impl Store {
                     matches!(
                         &pipeline.trigger,
                         codeterm_blueprint_types::blueprint_pipeline::Trigger::Event { .. }
+                            | codeterm_blueprint_types::blueprint_pipeline::Trigger::Webhook { .. }
                     )
                 });
                 let input_waiting = job.pipeline().is_some_and(|pipeline| {
@@ -883,6 +919,7 @@ impl Store {
                     && !self.wake_pending.contains(&job.id))
                     || event_trigger
                     || (input_waiting && !self.wake_pending.contains(&job.id))
+                    || !job.admission.permits_steps()
                     || job.machine.paused
                     || active
                     || waiting_for_run
@@ -918,6 +955,7 @@ impl Store {
                             matches!(
                                 &pipeline.trigger,
                                 codeterm_blueprint_types::blueprint_pipeline::Trigger::Event { .. }
+                        | codeterm_blueprint_types::blueprint_pipeline::Trigger::Webhook { .. }
                                     | codeterm_blueprint_types::blueprint_pipeline::Trigger::Input { .. }
                             )
                         }))
@@ -1023,6 +1061,7 @@ pub fn scope_revisions(jobs: &[Sentinel]) -> BTreeMap<ScopeKey, String> {
 }
 
 fn apply_finish(current: &mut Sentinel, job: &Sentinel, transition: Option<Transition>) {
+    current.admission = job.admission.clone();
     current.machine.last_hash = job.machine.last_hash.clone();
     current.machine.last_bucket = job.machine.last_bucket.clone();
     current.machine.stopped = job.machine.stopped;

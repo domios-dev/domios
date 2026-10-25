@@ -165,6 +165,19 @@ pub async fn answer_notification(
     Json(body): Json<AnswerNotifBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(code, message)| (code, message.to_string()))?;
+    if state
+        .svc
+        .notif
+        .lock()
+        .answer_slot(&id)
+        .is_some_and(|slot| slot.daemon_request.is_some())
+        && !crate::auth::is_local_caller(&state, &headers)
+    {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Connection approval requires the receiving machine owner".into(),
+        ));
+    }
     blocking_answer(move || {
         let started = std::time::Instant::now();
         log::debug!("[notify-answer] {id} delivery started off runtime");

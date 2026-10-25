@@ -2,7 +2,7 @@ import { SessionGoalDetails } from "./SessionGoalDetails";
 import { ComposerContextChip } from "./ComposerContextChip";
 import { RemovedChatPlugin } from "./RemovedChatPlugin";
 import { removedChatPluginId } from "./removedChatPluginError";
-import type { ChatSessionIntent } from "@codeterm/chat-core";
+import { SYSTEM_ORIGIN_LABEL, type ChatSessionIntent } from "@codeterm/chat-core";
 import { useRuntimeStatusPopover } from "./useRuntimeStatusPopover";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { memo, useEffect, useId, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
@@ -15,7 +15,7 @@ import { requestOpenJob } from "../Jobs/openJobEvent";
 import { openTabJob, useTabJobs } from "../Jobs/useTabJobs";
 import { formatClock, formatScheduledTime, type DelayedMessage } from "./delayedSend";
 import { composerDelayedModel } from "./composerDelayedModel";
-import { formatCadence } from "./systemHeartbeatProjection";
+import { presentSystemReminder } from "./systemReminderModel";
 import { SystemHeartbeatDetail } from "./SystemHeartbeatDetail";
 import { useResolvedTabActivity, useTabHasPlan } from "./useTabPlanActivity";
 import { usePhoneViewport } from "../../hooks/useSidebarViewport";
@@ -50,6 +50,17 @@ type OwnedBlueprint = ReturnType<typeof useTabJobs>["blueprints"][number];
 const KIND_ICON = { blueprints: Workflow, crons: Clock3, delayed: Timer, goal: Target, background: Activity } as const;
 const KIND_LABEL = { blueprints: "Blueprints", crons: "Crons", delayed: "Delayed messages", goal: "Session goal", background: "Background work" } as const;
 const KIND_SHORT_LABEL = { blueprints: "Blueprints", crons: "Crons", delayed: "Delayed", goal: "Goal", background: "Background" } as const;
+const KIND_NOUN: Record<Exclude<ContextKind, "goal">, [string, string]> = {
+  blueprints: ["blueprint", "blueprints"],
+  crons: ["cron", "crons"],
+  delayed: ["delayed message", "delayed messages"],
+  background: ["background work", "background work"],
+};
+
+function kindCount(kind: Exclude<ContextKind, "goal">, count: number): string {
+  const [one, many] = KIND_NOUN[kind];
+  return `${count} ${count === 1 ? one : many}`;
+}
 
 const keepComposerFocus = (event: MouseEvent) => event.preventDefault();
 
@@ -119,6 +130,8 @@ function stateTone(state: string): string {
 }
 
 function delayedWhen(message: DelayedMessage): string {
+  if (message.turnRetry?.kind === "rate_limited_until") return `Retrying at ${formatClock(message.scheduledAtMs)} when the limit resets`;
+  if (message.turnRetry) return `Retrying in 10s (attempt ${message.turnRetry.attempt}/10)`;
   if (message.state === "stashed") return "stashed";
   return message.state === "failed" ? "failed" : formatScheduledTime(message.scheduledAtMs);
 }
@@ -151,8 +164,11 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
   const descriptor = useAgentDescriptor(providerId);
   const backgroundWork = useComposerBackgroundWorkStatus();
   const backgroundBubble = composerBackgroundWorkBubble(backgroundWork.items);
-  const onlySubagents = backgroundWork.items.length > 0 && backgroundWork.items.every(item => item.kind === "agent");
+  const backgroundItems = backgroundBubble?.items ?? [];
+  const onlySubagents = backgroundItems.length > 0 && backgroundItems.every(item => item.kind === "agent");
+  const onlyShells = backgroundItems.length > 0 && backgroundItems.every(item => item.kind === "shell");
   const internalAgentLabel = `Internal agent of ${descriptor?.display_name ?? "parent harness"}`;
+  const backgroundLabel = onlyShells ? "Background shell command" : onlySubagents ? internalAgentLabel : undefined;
   const { chips, byKey, blueprints, context, refresh } = useTabJobs(tabId, workspaceId, adapter, jobActionAdapter);
   const [requested, setRequested] = useState<ContextKind | null>(null);
   const goalTriggerRef = useRef<HTMLButtonElement>(null);
@@ -203,7 +219,7 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
   const open = requested && kinds.includes(requested) ? requested : null;
 
   const hasPluginError = removedChatPluginId(pluginError ?? null) !== null;
-  if (!hasGoal && !hasPluginError && !plan && kinds.length === 0 && heartbeats.length === 0 && backgroundWork.items.length === 0) return null;
+  if (!hasGoal && !hasPluginError && !plan && kinds.length === 0 && heartbeats.length === 0) return null;
 
   const toggle = (kind: ContextKind) => {
     setRequested(open === kind ? null : kind);
@@ -264,13 +280,16 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
     crons: () => <>{[...cronChips].sort((a, b) => Number(b.state === "waiting on you") - Number(a.state === "waiting on you")).map(jobBubble)}</>,
     delayed: () => (
       <>
-        {heartbeats.map(message => (
-          <ContextBubble key={message.id} tone="heartbeat" label={`Plan heartbeat: ${message.text}`} onOpen={() => setHeartbeatId(message.id)}>
-            <HeartPulse size={13} aria-hidden="true" />
-            <span className="ct-ctx-bubble__title">Plan heartbeat</span>
-            <span className="ct-ctx-bubble__meta">{message.recurrence ? formatCadence(message.recurrence.everyMs) : "unset"} · next {formatClock(message.scheduledAtMs)}</span>
-          </ContextBubble>
-        ))}
+        {heartbeats.map(message => {
+          const reminder = presentSystemReminder(message, Date.now(), formatClock);
+          return (
+            <ContextBubble key={message.id} tone="heartbeat" label={reminder.accessibleLabel} expanded={heartbeatId === message.id} onOpen={() => setHeartbeatId(message.id)}>
+              <HeartPulse size={13} aria-hidden="true" />
+              <span className="ct-ctx-bubble__title">{reminder.label}</span>
+              <span className="ct-ctx-bubble__meta">{reminder.meta}</span>
+            </ContextBubble>
+          );
+        })}
         {delayed.map((message) => {
           return (
           <ContextBubble
@@ -294,7 +313,7 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
         </button>
       </>
     ),
-    background: () => <ComposerBackgroundWorkPanel items={backgroundBubble?.items ?? []} onStop={backgroundWork.stop} internalAgentLabel={internalAgentLabel} />,
+    background: () => <ComposerBackgroundWorkPanel items={backgroundItems} onStop={backgroundWork.stop} internalAgentLabel={internalAgentLabel} />,
   };
 
   const fallbackTitle = () => {
@@ -323,7 +342,7 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
       }}
     >
       <PillIcon size={12} aria-hidden="true" className="ct-ctx-pill__icon" data-kind={plan ? "plan" : kinds[0]} />
-      <span className="ct-ctx-pill__title">{plan?.activity?.planTitle ?? KIND_LABEL[kinds[0]] ?? (heartbeats.length > 0 ? "Heartbeat" : hasGoal ? "Session goal" : hasPluginError ? "Plugin removed" : "Subagents")}</span>
+      <span className="ct-ctx-pill__title">{plan?.activity?.planTitle ?? KIND_LABEL[kinds[0]] ?? (heartbeats.length > 0 ? SYSTEM_ORIGIN_LABEL : hasGoal ? "Session goal" : hasPluginError ? "Plugin removed" : "Subagents")}</span>
       {total > 0 && <span className="ct-ctx-pill__count">+{total}</span>}
       {total > 0 && <ChevronUp size={12} aria-hidden="true" className="ct-ctx-pill__chev" />}
       {Object.values(alerts).some(Boolean) && <span className="ct-ctx-kind__alert" aria-hidden="true" />}
@@ -356,8 +375,8 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
               kind={kind}
               open={open === kind}
               aria-pressed={open === kind}
-              aria-label={kind === "goal" ? KIND_LABEL.goal : `${counts[kind]} ${KIND_LABEL[kind].toLowerCase()}${kind === "delayed" && heartbeats.length > 0 ? ", plan heartbeat" : ""}${alerts[kind] ? ", one needs you" : ""}${kind === "background" && onlySubagents ? `, ${internalAgentLabel}` : ""}`}
-              title={kind === "background" && onlySubagents ? `${KIND_LABEL[kind]} · ${internalAgentLabel}` : KIND_LABEL[kind]}
+              aria-label={kind === "goal" ? KIND_LABEL.goal : `${kindCount(kind, counts[kind])}${kind === "delayed" && heartbeats.length > 0 ? ", system reminder" : ""}${alerts[kind] ? ", one needs you" : ""}${kind === "background" && backgroundLabel ? `, ${backgroundLabel}` : ""}`}
+              title={kind === "background" && backgroundLabel ? `${KIND_LABEL[kind]} · ${backgroundLabel}` : KIND_LABEL[kind]}
               onClick={() => toggle(kind)}
             >
               <Icon size={13} aria-hidden="true" />
@@ -378,6 +397,12 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
         {!phone && linkedChips}
       </div>
       {phone && linkedChips}
+      {delayed.filter(message => message.turnRetry).map(message => (
+        <div key={message.id} role={message.state === "failed" ? undefined : "status"}>
+          {message.state === "failed" ? <InlineErrorNotice error={message.error} operation="retrying the turn" /> : <span>{delayedWhen(message)}</span>}
+          <button type="button" onClick={() => onDeleteDelayed(message.id)}>Cancel</button>
+        </div>
+      ))}
       {heartbeat && <SystemHeartbeatDetail message={heartbeat} busy={false} onClose={() => setHeartbeatId(null)} />}
       {open && (phone ? (
         <div className="ct-ctx__reveal" data-open={unfolded || undefined}>

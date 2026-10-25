@@ -34,6 +34,19 @@ fn tag<'a>(text: &'a str, name: &str) -> Option<&'a str> {
     )
 }
 pub(super) fn parse(row: &Value) -> Vec<BackgroundWorkObservation> {
+    if row["type"] == "summary"
+        || row["isCompactSummary"] == true
+        || (row["type"] == "system"
+            && matches!(
+                row["subtype"].as_str(),
+                Some("compact_boundary" | "init" | "resume")
+            ))
+    {
+        return vec![BackgroundWorkObservation {
+            id: String::new(),
+            state: BackgroundWorkState::SessionBoundary,
+        }];
+    }
     let mut events = Vec::new();
     let result = &row["toolUseResult"];
     add(
@@ -48,6 +61,15 @@ pub(super) fn parse(row: &Value) -> Vec<BackgroundWorkObservation> {
     );
     let mut texts = Vec::new();
     let content = &row["message"]["content"];
+    if row["type"] == "user"
+        && result["task_type"] == "local_bash"
+        && result["command"].is_string()
+        && !content
+            .as_array()
+            .is_some_and(|blocks| blocks.iter().any(|block| block["is_error"] == true))
+    {
+        add(&mut events, result["task_id"].as_str(), Some("killed"));
+    }
     if let Some(text) = content.as_str() {
         texts.push(text);
     }
@@ -68,3 +90,6 @@ pub(super) fn parse(row: &Value) -> Vec<BackgroundWorkObservation> {
     }
     events
 }
+
+#[cfg(test)]
+mod tests;

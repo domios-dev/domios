@@ -3,7 +3,7 @@ use codeterm_blueprint_types::blueprint_recipe::{Recipe, SCHEMA_VERSION};
 use serde_json::json;
 
 use crate::{amend::DefinitionSnapshot, store::Store};
-use crate::{AutomationGraphExt, BlueprintPortableExt, SentinelExt};
+use crate::{AutomationGraphExt, BlueprintApplyExt, BlueprintPortableExt, SentinelExt};
 
 #[test]
 fn blueprint_import_persists_stopped_and_visible_in_scratch_team() {
@@ -40,43 +40,24 @@ fn blueprint_import_persists_stopped_and_visible_in_scratch_team() {
     let service = &instance.fixture.service;
     let original_caller = service.sentinel_caller(&original_tab, None).unwrap();
     let scratch_caller = service.sentinel_caller(&scratch_tab, None).unwrap();
+    let native = json!({"schema_version":2,"kind":"watch","name":"Portable watcher","steps":[{"id":"source","uses":"probe","with":{"command":{"lit":"printf ready"}},"timeout":{"lit":"1h"}},{"id":"decide","uses":"ask","with":{"question":{"lit":"State?"}},"buckets":["done"],"matches":{"done":{"lit":"ready"}}}]});
+    let created = service
+        .blueprint_apply(&original_caller, native, false)
+        .unwrap();
     let original = service
-        .sentinel_create(
-            &original_caller,
-            serde_json::from_value(json!({
-                "name":"Portable watcher", "probe":"printf ready", "question":"State?",
-                "buckets":["done"], "matches":{"done":"ready"}, "timeout":"1h"
-            }))
-            .unwrap(),
-        )
+        .sentinel_show(&original_caller, created["id"].as_str().unwrap())
         .unwrap();
     let recipe = service
         .blueprint_export(&original_caller, &original.id)
         .unwrap();
     assert!(service
         .blueprint_import(&scratch_caller, recipe.clone(), &[], true)
-        .unwrap_err()
-        .contains("missing recipe placeholders"));
-    let assignments = recipe
-        .placeholders
-        .iter()
-        .map(|(key, description)| {
-            let value = if key == "timeout" {
-                "1h"
-            } else if description.ends_with(".probe") {
-                original.probe().as_str()
-            } else if description.ends_with(".question") {
-                original.question.as_str()
-            } else if description.ends_with(".matches.done") {
-                original.matches["done"].as_str()
-            } else if description.ends_with(".handlers.done.0.id") {
-                original.routes["done"][0].id.as_str()
-            } else {
-                panic!("unexpected placeholder {description}")
-            };
-            format!("{key}={value}")
-        })
-        .collect::<Vec<_>>();
+        .is_err());
+    let assignments = vec![
+        "command=printf ready".into(),
+        "pattern=ready".into(),
+        "question=State?".into(),
+    ];
     let imported = service
         .blueprint_import(&scratch_caller, recipe, &assignments, true)
         .unwrap();
@@ -100,19 +81,14 @@ fn blueprint_import_persists_stopped_and_visible_in_scratch_team() {
 
     let invalid = Recipe {
         schema_version: SCHEMA_VERSION,
-        placeholders: Default::default(),
-        definition: json!({"create":{"name":"Invalid watcher", "probe":"printf ready", "question":"State?", "buckets":[]}}),
+        definition: json!({"schema_version":2,"kind":"watch","name":"Invalid watcher","steps":[{"id":"source","uses":"probe","with":{"command":{"lit":"printf ready"}},"timeout":{"lit":"1h"}},{"id":"decide","uses":"ask","with":{"question":{"lit":"State?"}},"buckets":[]}]}),
     };
     assert!(service
         .blueprint_import(&scratch_caller, invalid, &[], true)
         .is_err());
     let pipeline = Recipe {
         schema_version: SCHEMA_VERSION,
-        placeholders: Default::default(),
-        definition: json!({"spec":{
-            "name":"Portable pipeline", "owner":"team", "trigger":{"type":"schedule","every":"20s"},
-            "steps":[{"name":"run","input":"text","kind":{"kind":"command","command":"printf ready"}}], "result":{"to":"owner"}
-        }}),
+        definition: json!({"schema_version":2,"kind":"pipeline","name":"Portable pipeline","owner":"team","trigger":{"type":"schedule","every":{"lit":"20s"}},"steps":[{"id":"run","run":{"lit":"printf ready"}}],"result":{"to":"owner"}}),
     };
     let pipeline = service
         .blueprint_import(&scratch_caller, pipeline, &[], true)
@@ -139,9 +115,12 @@ fn blueprint_import_persists_stopped_and_visible_in_scratch_team() {
 
 #[test]
 fn blueprint_github_create_show_json_retains_typed_source_after_restart() {
-    use crate::BlueprintExt;
     let root = tempfile::tempdir().unwrap();
     let (mut mux, tab) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&tab).unwrap();
+    let team = codeterm_types::team::Team::new(&workspace, 1);
+    mux.upsert_team(team.clone());
+    mux.get_tab_mut(&tab).unwrap().team_id = Some(team.id);
     mux.get_tab_mut(&tab).unwrap().cwd = Some(root.path().to_string_lossy().into_owned());
     let instance = ServiceInstance::open_with_mux(root.path(), mux);
     let handle = crate::scheduler::fixture_handle_with_ui(
@@ -155,10 +134,7 @@ fn blueprint_github_create_show_json_retains_typed_source_after_restart() {
     let service = &instance.fixture.service;
     let caller = service.sentinel_caller(&tab, None).unwrap();
     let probe = json!({"repo":"cli/cli", "resource":"run", "id":39652641013u64});
-    let created = service.blueprint_pipeline_create_stopped(&caller, serde_json::from_value(json!({
-        "name":"GitHub CI watch", "trigger":{"type":"schedule","every":"60s"},
-        "steps":[{"name":"GitHub check", "input":"text", "kind":{"kind":"github", "probe":probe}}]
-    })).unwrap(), true).unwrap();
+    let created=service.blueprint_apply_with_state(&caller,json!({"schema_version":2,"kind":"pipeline","name":"GitHub CI watch","trigger":{"type":"schedule","every":{"lit":"60s"}},"steps":[{"id":"github-check","uses":"github","with":{"repo":{"lit":"cli/cli"},"resource":{"lit":"run"},"id":{"lit":39652641013u64}}}],"result":{"to":"notify"}}),false,Some(true)).unwrap();
     let id = created["id"].as_str().unwrap();
     let shown = serde_json::to_value(service.sentinel_show(&caller, id).unwrap()).unwrap();
     assert_eq!(shown["pipeline"]["steps"][0]["kind"]["kind"], "github");

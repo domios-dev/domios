@@ -5,6 +5,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { retentionPaths } from './rust-build-dir-retention.mjs';
+import { orphanLanePaths } from './orphan-lane-units.mjs';
 import { laneBuildDirectory } from './lane-build-dir.mjs';
 
 const log = (value) => console.log(`[cargo-build-gc] ${value}`);
@@ -21,12 +22,19 @@ export function worktrees(repo, runner = spawnSync) {
     .split('\0').filter((line) => line.startsWith('worktree ')).map((line) => line.slice(9));
 }
 
-export function mapCheckouts(checkouts, { runner = spawnSync, manifests } = {}) {
+export function mapCheckouts(checkouts, { runner = spawnSync, manifests, indexCheckout = checkout => checkout } = {}) {
   const mappings = [];
   for (const checkout of [...new Set(checkouts)]) {
     if (!fs.existsSync(checkout)) continue;
-    const files = manifests ? manifests(checkout) : command('git', ['ls-files', '-z', '--', '*Cargo.toml'], checkout, runner)
-      .split('\0').filter(Boolean);
+    let files;
+    try {
+      files = manifests ? manifests(checkout) : command('git', ['ls-files', '-z', '--', '*Cargo.toml'], indexCheckout(checkout), runner).split('\0').filter(Boolean);
+    } catch (error) {
+      const valid = runner('git', ['rev-parse', '--is-inside-work-tree'], { cwd: checkout, encoding: 'utf8' });
+      if (valid.status === 0) throw error;
+      log(`skipped unavailable worktree index: ${checkout}`);
+      continue;
+    }
     const roots = new Set();
     for (const relative of files.sort((a, b) => a.length - b.length)) {
       const manifest = path.join(checkout, relative);
@@ -72,7 +80,7 @@ export function trimBuildDirectories(mappings, { dryRun = false, runner = spawnS
     .map((build) => [key(build), path.resolve(build)]));
   for (const build of directories.values()) {
     if ((!HASHED_BUILD(build) && !SHARED_BUILD(build)) || !fs.existsSync(build)) continue;
-    const paths = plan(build);
+    const paths = [...new Set([...plan(build), ...(SHARED_BUILD(build) ? orphanLanePaths(build) : [])])];
     if (!paths.length) continue;
     const list = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'build-trim-')), 'paths.json');
     try {
@@ -114,7 +122,8 @@ export function collectCargoBuilds(checkout, { dryRun = false, runner = spawnSyn
   const stableMapped = fs.existsSync(stable);
   const inventory = () => [...worktrees(canonical, runner), ...worktrees(plugins, runner), ...(stableMapped ? [stable] : [])];
   let checkouts = inventory();
-  let mappings = mapCheckouts(checkouts, { runner });
+  const map = entries => mapCheckouts(entries, { runner, indexCheckout: directory => key(directory) === key(stable) ? checkout : directory });
+  let mappings = map(checkouts);
   for (const mapping of mappings) log(`live ${mapping.workspace} -> ${mapping.build}`);
   const stableBuilds = resolveStableBuilds(stableMapped, mappings, stable, record);
   const protectedBuilds = () => [...mappings, ...stableBuilds.map((build) => ({ build }))];
@@ -135,7 +144,7 @@ export function collectCargoBuilds(checkout, { dryRun = false, runner = spawnSyn
       if (JSON.stringify(current) !== JSON.stringify(checkouts)) {
         log('worktree inventory changed; remapping before the next removal');
         checkouts = current;
-        mappings = mapCheckouts(checkouts, { runner });
+        mappings = map(checkouts);
         if (protectedBuilds().some((mapping) => key(mapping.build) === key(dir))) continue;
       }
       const result = JSON.parse(command(python, [helper, root, dir, ...(dryRun ? ['--dry-run'] : [])], checkout, runner));
@@ -143,7 +152,38 @@ export function collectCargoBuilds(checkout, { dryRun = false, runner = spawnSyn
       reclaimed += result.bytes;
     }
   }
-  reclaimed += trimBuildDirectories(mappings, { dryRun, runner });
+  if (process.env.CT_CACHE_INCREMENTAL_ALLOWED === '1') {
+    const targets = new Map();
+    const add = (root, build) => targets.set(key(build), { root, build });
+    if (process.env.CODETERM_RUST_CACHE_ROOT) roots.add(path.join(process.env.CODETERM_RUST_CACHE_ROOT, 'build'));
+    for (const root of roots) {
+      if (!fs.existsSync(root)) continue;
+      for (const build of orphanCandidates(root, [])) add(root, build);
+    }
+    const lane = laneBuildDirectory();
+    add(path.dirname(lane), lane);
+    for (const repo of checkouts) {
+      for (const relative of ['target', 'target-check', 'src-tauri/target', 'cli/target']) {
+        const target = path.join(repo, relative);
+        add(path.dirname(target), target);
+      }
+    }
+    for (const { root, build } of targets.values()) {
+      if (!fs.existsSync(path.join(build, 'CACHEDIR.TAG'))) continue;
+      const result = runner(python, [helper, '--incremental', root, build, ...(dryRun ? ['--dry-run'] : [])],
+        { cwd: checkout, encoding: 'utf8' });
+      if (result.status !== 0) {
+        log(`incremental trim refused ${build}: ${result.stderr || result.error?.message}`);
+        continue;
+      }
+      const outcome = JSON.parse(result.stdout);
+      log(`${outcome.status} ${build}: ${outcome.bytes} bytes${outcome.reason ? ` (${outcome.reason})` : ''}`);
+      reclaimed += outcome.bytes;
+    }
+  } else log('incremental trim skipped: caller does not own the build gateway');
+  reclaimed += trimBuildDirectories([...roots].map(root => ({ build: path.join(path.dirname(root), 'lanes') })), {
+    dryRun, runner, plan: build => retentionPaths(build, { units: 2, incremental: Number.MAX_SAFE_INTEGER }),
+  });
   log(`${dryRun ? 'would free' : 'freed'} ${(reclaimed / 1024 ** 3).toFixed(3)} GiB (${reclaimed} bytes)`);
   return reclaimed;
 }

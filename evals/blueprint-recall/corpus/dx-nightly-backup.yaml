@@ -1,0 +1,20 @@
+schema_version: 1
+name: Nightly database backup
+note: Dump the database to the backup volume each night and report the archive size.
+owner: team
+inputs:
+  backup_command:
+    type: string
+    description: Command that writes a compressed database dump
+pipeline:
+  trigger: {type: schedule, every: 24h}
+  steps:
+    - name: dump
+      input: text
+      run: '{{backup_command}}'
+      on: {done: size, failed: stop}
+    - name: size
+      input: text
+      run: du -sh /var/backups/latest.sql.gz
+      on: {done: stop, failed: stop}
+  result: {to: notify}

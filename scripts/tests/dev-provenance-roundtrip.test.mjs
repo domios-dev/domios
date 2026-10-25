@@ -9,7 +9,7 @@ const root = path.resolve(import.meta.dirname, '../..');
 const source = fs.readFileSync(path.join(root, 'build.sh'), 'utf8').replaceAll('\r\n', '\n');
 const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
 const functions = ['dev_provenance_record', 'write_dev_provenance', 'validate_dev_provenance',
-  'tauri_debug_dir', 'dev_resource_dir', 'dev_built_app_path', 'dev_app_path', 'dev_cli_path', 'named_dev_target_dir', 'named_dev_isolated'].map(sourceFunction).join('\n');
+  'tauri_debug_dir', 'dev_resource_dir', 'dev_frontend_dir', 'dev_built_app_path', 'dev_app_path', 'dev_cli_path', 'named_dev_target_dir', 'named_dev_isolated'].map(sourceFunction).join('\n');
 
 const runtimeDebug = process.platform === 'win32' ? 'target/debug' : 'target/debug/.domios-dev-runtime';
 const resourceDebug = process.platform === 'win32' ? runtimeDebug : `${runtimeDebug}/lib/codeterm`;
@@ -21,9 +21,9 @@ function run(command, args, options = {}) {
   return result.stdout.trim();
 }
 
-function splitResources(directory) {
+function splitResources(directory, mac = false) {
   const exe = process.platform === 'win32' ? '.exe' : '';
-  for (const name of [`domios-server/domios-server${exe}`, `cli/codeterm${exe}`, 'server-component.json',
+  for (const name of [mac ? '../MacOS/domios-server' : `domios-server/domios-server${exe}`, `cli/codeterm${exe}`, 'server-component.json',
     'dist/index.html', 'skills/fixture.md', 'LICENSE', 'NOTICE', ...(process.platform === 'win32' ? ['conpty/x64/conpty.dll'] : [])]) {
     const file = path.join(directory, name);
     fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -37,7 +37,7 @@ function fixture() {
   for (const dir of ['scripts', clientDebug, 'data/bin', 'dist']) {
     fs.mkdirSync(path.join(checkout, dir), { recursive: true });
   }
-  for (const name of ['dev-prep.mjs', 'dev-reload-inputs.cjs', 'crate-layers.json', 'dev-app-process.mjs', 'dev-runtime-environment.mjs', 'windows-dev-app.ps1', 'windows-dev-app.cs', 'windows-dev-desktop.cs', 'build-identity.cjs']) {
+  for (const name of ['dev-prep.mjs', 'server-readiness.mjs', 'dev-native-layout.mjs', 'dev-reload-inputs.cjs', 'crate-layers.json', 'dev-app-process.mjs', 'dev-runtime-environment.mjs', 'windows-dev-app.ps1', 'windows-dev-app.cs', 'windows-dev-desktop.cs', 'build-identity.cjs']) {
     fs.copyFileSync(path.join(root, 'scripts', name), path.join(checkout, 'scripts', name));
   }
   const exe = process.platform === 'win32' ? '.exe' : '';
@@ -56,7 +56,7 @@ function fixture() {
 }
 
 function provenance(checkout, cwd, target, sha, operation, launchSha = '', instance = '') {
-  return spawnSync(bash, ['-c', `set -euo pipefail
+  return spawnSync(bash, ['-c', `set -eo pipefail
 ${functions}
 cd "$1"
 CT_DATA_DIR="$2/data"
@@ -66,6 +66,7 @@ CT_INSTANCE=fixture CT_PORT=7786 CT_VITE_PORT=1520 CT_CDP_PORT=9323 CT_IDENTIFIE
 if [ -n "$6" ]; then
   CT_INSTANCE="$6" CT_INSTANCE_KEY="$6"
   CT_DATA_DIR="$2/data/$6"
+  export CODETERM_DEV_INSTANCE="$6"
   CARGO_TARGET_DIR="$(named_dev_target_dir)"
 fi
 CODETERM_BUILD_SHA="$4"
@@ -81,13 +82,13 @@ test('two named instances persist and validate their own checkout artifact prove
     const exe = process.platform === 'win32' ? '.exe' : '';
     const records = [];
     for (const instance of ['meshqa', 'welcomeqa']) {
-      const app = path.join(checkout, 'src-tauri/target/dev-instances', instance, process.platform === 'win32' ? `debug/domios-dev-app${exe}` : `debug/.domios-dev-runtime/bin/domios-dev-app${exe}`);
+      const app = path.join(checkout, 'src-tauri/target/dev-instances', instance, process.platform === 'win32' ? `debug/domios-dev-app${exe}` : `debug/.domios-dev-runtime/${process.platform === 'darwin' ? 'Domios.app/Contents/MacOS' : 'bin'}/domios-dev-app${exe}`);
       const cli = path.join(checkout, 'data', instance, `bin/codeterm${exe}`);
       for (const file of [app, cli]) {
         fs.mkdirSync(path.dirname(file), { recursive: true });
         fs.writeFileSync(file, instance, { mode: 0o755 });
       }
-      splitResources(process.platform === 'win32' ? path.dirname(app) : path.resolve(path.dirname(app), '../lib/codeterm'));
+      splitResources(process.platform === 'win32' ? path.dirname(app) : path.resolve(path.dirname(app), process.platform === 'darwin' ? '../Resources' : '../lib/codeterm'), process.platform === 'darwin');
       const written = provenance(checkout, checkout, checkout, sha, 'write_dev_provenance', '', instance);
       assert.equal(written.status, 0, written.stderr);
       const checked = provenance(checkout, checkout, checkout, sha, 'validate_dev_provenance', '', instance);
@@ -248,6 +249,7 @@ test('prebuilt web watcher rebuilds dist in place instead of emptying it under t
   try {
     const result = spawnSync(bash, ['-c', `set -euo pipefail
 ${sourceFunction('start_web_watch')}
+${sourceFunction('dev_frontend_dir')}
 cd "$1"
 CT_SUFFIX="-watch-test-$$"
 kill_web_watch() { :; }
@@ -273,11 +275,34 @@ cat args.txt
 
 const preflight = source.slice(source.indexOf('  dev-prebuilt)'), source.indexOf('    if [ -n "$DEV_NOTIFY_TAB" ]; then\n      trap', source.indexOf('  dev-prebuilt)')));
 const preflightHelpers = ['run_prebuilt_preflight', 'refuse_prebuilt'].map(sourceFunction).join('\n');
+for (const externalFrontend of [0, 1]) {
+  test(`prebuilt timeout shell preserves ready server and window only in split mode=${externalFrontend}`, () => {
+    const start = source.indexOf('      if run_outside_tab_job node scripts/dev-prep.mjs --launch-prebuilt');
+    const launch = source.slice(start, source.indexOf('      HEALTH=', start));
+    const result = spawnSync(bash, ['-c', `set -euo pipefail
+${sourceFunction('cleanup_failed_prebuilt_launch')}
+DEV_FRONT_EXTERNAL=${externalFrontend} PREBUILT_LOG=fixture.log CT_PORT=17886
+kill_dev() { echo killed; }
+dev_app_path() { echo fixture-app; }
+dev_provenance_record() { echo fixture-record; }
+run_outside_tab_job() { return 3; }
+trap cleanup_failed_prebuilt_launch EXIT
+${launch}
+echo falsely-ready
+`], { encoding: 'utf8' });
+    assert.equal(result.status, 3, result.stderr);
+    assert.equal(result.stdout.trim(), externalFrontend ? '' : 'killed');
+    assert.match(result.stderr, externalFrontend ? /still attaching; server and window retained/ : /cleaning the owned dev processes/);
+  });
+}
+
 for (const refusal of ['provenance', 'runtime', 'none']) {
   test(`prebuilt restart preflight refusal=${refusal} preserves stop ordering and logs refusals`, () => {
     const result = spawnSync(bash, ['-c', `set -euo pipefail
 ${preflightHelpers}
-CT_INSTANCE= CARGO_TARGET_DIR= CT_SUFFIX="-provenance-test-$$" DEV_NOTIFY_TAB=
+CT_INSTANCE= CT_PORT=17886 CARGO_TARGET_DIR= CT_SUFFIX="-provenance-test-$$" DEV_NOTIFY_TAB=
+named_dev_isolated() { return 1; }
+stop_dev_before_replacement() { echo stopped; }
 validate_dev_provenance() { ${refusal === 'provenance' ? 'echo "[dev-prep] frontend artifact content mismatch" >&2; return 1' : 'echo provenance'}; }
 preflight_dev_prebuilt_runtime() { ${refusal === 'runtime' ? 'echo "ERROR: prebuilt dev cannot execute pnpm" >&2; return 1' : 'echo runtime'}; }
 kill_dev() { echo stopped; }

@@ -12,6 +12,11 @@ test("keeps inline feedback and unrelated fixed controls", () => {
   assert.deepEqual(floatingLiveRegions('<><button className="fixed">Back</button><p role="status">Saved</p></>'), []);
 });
 
+test("modal feedback stays inline while fixed notices inside it are rejected", () => {
+  assert.deepEqual(floatingLiveRegions('<div className="fixed"><div role="dialog" aria-modal="true"><p role="status">No results</p></div></div>'), []);
+  assert.deepEqual(floatingLiveRegions('<div role="dialog" aria-modal="true"><p className="fixed" role="status">Saved</p></div>'), [1]);
+});
+
 test("the repository has no bespoke fixed live-region notices", () => {
   assert.deepEqual(checkFloatingNotices(), []);
 });

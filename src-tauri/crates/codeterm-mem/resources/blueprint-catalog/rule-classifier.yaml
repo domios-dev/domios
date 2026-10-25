@@ -1,0 +1,70 @@
+schema_version: 2
+kind: pipeline
+name: rule-classifier
+note: Put a text into one fixed bucket by first matching keyword rule, or other; no
+  model call.
+intent: sort a message into one of a few fixed categories by keywords without asking
+  a model
+anchors: []
+inputs:
+  args:
+    $ref: Args
+    description: Typed named arguments
+types:
+  Args:
+    type: object
+    additionalProperties: false
+    required:
+    - rules
+    - text
+    properties:
+      rules:
+        type: object
+      text:
+        type: string
+  Bucketed:
+    type: object
+    additionalProperties: false
+    required:
+    - bucket
+    - matched
+    properties:
+      bucket:
+        type: string
+      matched:
+        type: string
+steps:
+- id: classify
+  does: Return the first bucket whose regex matches the text and the matching snippet,
+    else other
+  code:
+    lang: python
+    src: |
+      import re
+      def main(value):
+          for bucket, patterns in value["rules"].items():
+              for p in patterns:
+                  m = re.search(p, value["text"], re.I)
+                  if m:
+                      return {"bucket": bucket, "matched": m.group(0)[:200]}
+          return {"bucket": "other", "matched": ""}
+  in:
+    type: object
+    additionalProperties: false
+    required:
+    - rules
+    - text
+    properties:
+      rules:
+        type: object
+      text:
+        type: string
+  out:
+    $ref: Bucketed
+  routes:
+    done: next
+    failed: stop
+result:
+  type:
+    $ref: Bucketed
+  from: classify.out

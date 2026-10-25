@@ -1,0 +1,4 @@
+{
+  "screen": "\u001b]8;;https://claude.ai/oauth/authorize?client_id=fixture&state=opaque\u001b\\Sign in\u001b]8;;\u001b\\",
+  "url": "https://claude.ai/oauth/authorize?client_id=fixture&state=opaque"
+}

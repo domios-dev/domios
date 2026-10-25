@@ -12,6 +12,7 @@ import { SELECT_EXTENSION_EVENT } from "../Titlebar/extensionsTrayLogic";
 import type { Tone } from "./ViewNodeRenderer";
 import { ensurePluginSnapshot, usePluginSnapshotStore } from "../../lib/pluginSnapshotStore";
 import { subscribePluginBubble, type BubbleData, type PluginBubbleSubscription } from "../../lib/pluginBubbleCache";
+import { supportsPluginBubble } from "../../lib/pluginBubbleModel";
 import { watchRepository, type RepoWatchState } from "../../lib/repoWatch";
 
 import { usePluginTabMenu } from "../../lib/pluginTabMenu";
@@ -67,14 +68,17 @@ export function PluginBubbles({
   const plugins = useMemo(
     () =>
       (snapshotState.snapshot.plugins as SnapPlugin[])
-        .filter((p) => p.capabilities?.status_bubble)
+        .filter(supportsPluginBubble)
         .map((p) => ({ id: p.id, display_name: p.display_name, config_help: p.config_help })),
     [snapshotState.snapshot.plugins],
   );
 
   useEffect(() => {
-    void ensurePluginSnapshot({ background: snapshotState.lastSuccessfulSnapshot !== null }).catch(() => {});
-  }, [snapshotState.lastSuccessfulSnapshot]);
+    if (!isActive) return;
+    const controller = new AbortController();
+    void ensurePluginSnapshot({ background: true, signal: controller.signal }).catch(() => {});
+    return () => controller.abort();
+  }, [isActive]);
 
   const isActiveRef = useRef(isActive);
   isActiveRef.current = isActive;
@@ -99,10 +103,9 @@ export function PluginBubbles({
     for (const sub of subscriptionsRef.current) sub.setActive(isActive);
   }, [isActive]);
 
-  // Visible ⇒ exactly one watch lease; hidden or unmounted ⇒ exactly one
-  // release. An unwatched repo is never rendered as live.
+  // Keep cached repository state invalidated while its tabs remain mounted.
   useEffect(() => {
-    if (!isActive || !cwd) {
+    if (!cwd) {
       setWatch(null);
       return;
     }
@@ -111,7 +114,7 @@ export function PluginBubbles({
       lease.release();
       setWatch(null);
     };
-  }, [isActive, cwd]);
+  }, [cwd]);
 
   const visible = plugins.filter((p) => pills[p.id] && receiverMenu.receiverTargets[p.id] !== tabId);
   const watchReason = watch?.status === "unavailable" ? watch.reason : null;

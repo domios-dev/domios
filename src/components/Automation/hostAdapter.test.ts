@@ -42,6 +42,14 @@ async function main() {
     allUnsubscribe();
     console.log("✓ committed-change subscription filters exact scopes or any Team in the workspace");
 
+    let progress = 0;
+    const progressUnsubscribe = await hostAutomationAdapter.subscribe({ ...attachment, team_id: ALL_JOBS_SCOPE }, () => { progress++; });
+    for (const revision of ["journal:r1", "graph-hash-a", "journal:r2", "journal:r3"]) event({ ...attachment, revision });
+    event({ ...attachment, team_id: null, revision: "blueprint-library:6f1c:1" });
+    assert.equal(progress, 5, "every journal commit, runtime invalidation and library change re-reads the open Blueprint graph");
+    progressUnsubscribe();
+    console.log("✓ pipeline journal revisions keep an open Blueprint view live without a refresh button");
+
     await hostAutomationAdapter.stop(attachment, sentinelIdentity);
     assert.deepEqual(calls.pop(), { method: "POST", path: `/api/automation/blueprints/${sentinelIdentity.id}/stop`, body: { workspace_id: attachment.workspace_id, team_id: attachment.team_id, caller_tab_id: undefined, session_binding_nonce: undefined } });
     await hostAutomationAdapter.delete({ ...attachment, team_id: ALL_JOBS_SCOPE }, { ...sentinelIdentity, team_id: "team-b" });
@@ -86,7 +94,7 @@ async function main() {
     assert.equal(reads.length, 3);
     stopCache();
     console.log("✓ remounting tab surfaces share one event-refreshed workspace read; the Jobs view reads fresh");
-    console.log("6 hostAutomationAdapter cases passed");
+    console.log("7 hostAutomationAdapter cases passed");
   }
 }
 void main().catch((error: unknown) => { console.error(error); process.exitCode = 1; });

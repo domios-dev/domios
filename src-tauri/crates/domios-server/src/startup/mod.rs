@@ -1,5 +1,7 @@
 mod background;
+pub(crate) mod background_init;
 mod conpty_host;
+pub(crate) mod early_api;
 mod listener_policy;
 mod model_catalogue;
 mod plan_restore;
@@ -15,6 +17,6 @@ pub(crate) use model_catalogue::{forward_changes, reconcile_defaults, refresh_pr
 pub(crate) use plan_restore::restore as restore_plans;
 pub(crate) use restore_complete::notify as restore_complete;
 pub(crate) use servers::start_servers;
-pub(crate) use states::init_states;
+pub(crate) use states::{init_config, init_states};
 mod logging;
 pub use logging::setup_logging;

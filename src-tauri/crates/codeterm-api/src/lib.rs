@@ -1,3 +1,4 @@
+pub mod account_mesh_routes;
 pub mod account_routes;
 pub mod analytics_routes;
 mod attachment_upload;
@@ -5,9 +6,11 @@ pub mod auth;
 pub mod automation_graph_routes;
 pub mod blueprint_portable_routes;
 pub mod blueprint_solution_routes;
+mod blueprint_webhook_routes;
 #[cfg(debug_assertions)]
 mod cors_diagnostics;
 pub mod events;
+mod request_bound;
 #[cfg(debug_assertions)]
 mod request_census;
 pub mod routes;
@@ -56,16 +59,19 @@ pub mod output_stream;
 pub mod pasteboard_routes;
 pub(crate) mod peer_redaction;
 pub(crate) mod permission_auto_confirm_routes;
+mod plan_quota_status;
 pub mod plan_routes;
 pub mod plugin_tab_menu_routes;
 pub(crate) mod provider_cli_routes;
 pub mod pty_routes;
+pub mod remote_team_routes;
 pub mod services_routes;
 pub(crate) mod session_binding_routes;
 pub(crate) mod session_exchange;
 pub mod session_routes;
 pub(crate) mod stream_census;
 pub(crate) mod stream_diagnostics;
+pub(crate) mod stream_mux;
 pub(crate) mod surface_routes;
 pub(crate) mod tab_adopt_routes;
 pub mod tab_agent_routes;
@@ -102,3 +108,8 @@ mod process_split_contract;
 pub mod test_support;
 
 pub mod app_quit_routes;
+
+#[cfg(test)]
+mod ui_status_tests;
+
+pub mod blueprint_viewer_routes;

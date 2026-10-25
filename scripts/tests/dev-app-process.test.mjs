@@ -5,8 +5,21 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { runDevApp, windowsDevArguments, nativeLocatorRecord, prebuiltReadinessPhase } from '../dev-app-process.mjs';
 import { devRuntimeEnvironment } from '../dev-runtime-environment.mjs';
+
+for (const [flags, survives] of [[0, true], [0x1800, true], [0x2800, false]]) {
+  test(`Windows DEV helper job survival, flags=0x${flags.toString(16)}`, { skip: process.platform !== 'win32', timeout: 15_000 }, () => {
+    const result = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+      fileURLToPath(new URL('./fixtures/windows-dev-job.ps1', import.meta.url)),
+      '-Root', fileURLToPath(new URL('../../', import.meta.url)), '-Flags', String(flags)], { encoding: 'utf8', timeout: 10_000 });
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.trim(), survives ? 'True' : 'False');
+  });
+}
 
 for (const code of [0, 17]) {
   test(`DEV child stdio is regular files or synchronous pipes, output drains completely, exit=${code}`, { timeout: 10_000 }, async () => {
@@ -269,7 +282,10 @@ test('prebuilt launch partitions bounded verification bootstrap and attachment w
   const timers=[],cleared=[];
   let stopped=0;
   let now=0;
-  const launch=new Function('resolve','option','process','existsSync','statSync','spawn','node','fileURLToPath','repo','console','setTimeout','clearTimeout','terminateOwnedChild',`${definition}\nreturn launchPrebuilt;`)(path.resolve,(options,key)=>options.get(key),{env:{}},()=>true,()=>({isFile:()=>true}),()=>{
+  const readiness=Promise.withResolvers(), checking=Promise.withResolvers();
+  let complete=false;
+  let startupSignal;
+  const launch=new Function('resolve','option','process','existsSync','statSync','spawn','node','fileURLToPath','repo','console','setTimeout','clearTimeout','terminateOwnedChild','waitForReady',`${definition}\nreturn launchPrebuilt;`)(path.resolve,(options,key)=>options.get(key),{env:{}},()=>true,()=>({isFile:()=>true}),()=>{
     const child=new EventEmitter();child.pid=123;child.unref=()=>{};
     queueMicrotask(()=>{
       now=29000;
@@ -283,9 +299,47 @@ test('prebuilt launch partitions bounded verification bootstrap and attachment w
       child.emit('message',{type:'ready',signal:'validated attachment'});
     });
     return child;
-  },'node',()=>'/fixture/dev-prep.mjs','/fixture',{log(){}},(callback,ms)=>{const timer={callback,ms,expires:now+ms};timers.push(timer);return timer;},timer=>cleared.push(timer),async()=>{stopped++;});
-  await launch(new Map([['--app','/fixture/codeterm.exe'],['--log','/fixture/log'],['--api-port','7686']]));
+  },'node',()=>'/fixture/dev-prep.mjs','/fixture',{log(){}},(callback,ms)=>{const timer={callback,ms,expires:now+ms};timers.push(timer);return timer;},timer=>cleared.push(timer),async()=>{stopped++;},options=>{
+    assert.equal(options.origin,'http://127.0.0.1:7686');startupSignal=options.signal;checking.resolve();return readiness.promise;
+  });
+  const result=launch(new Map([['--app','/fixture/codeterm.exe'],['--log','/fixture/log'],['--api-port','7686']])).then(()=>{complete=true;});
+  await checking.promise;
+  assert.equal(complete,false);
+  assert.equal(cleared.length,2);
+  readiness.resolve();
+  await result;
+  assert.equal(startupSignal.aborted,true);
   assert.equal(timers.length,3);assert.ok(timers.every(timer=>timer.ms===30000));
   assert.deepEqual(timers.map(timer=>timer.expires),[30000,59000,88000]);
   assert.deepEqual(cleared,timers);assert.equal(stopped,0);
 });
+
+for (const externalFrontend of [false, true]) {
+  test(`prebuilt attachment deadline retains processes only for split DEV=${externalFrontend}`, async () => {
+    const source = fs.readFileSync(new URL('../dev-prep.mjs', import.meta.url), 'utf8').replaceAll('\r\n', '\n');
+    const definition = source.match(/^async function launchPrebuilt\(options\) \{[\s\S]*?^\}/m)[0].replaceAll('import.meta.url', JSON.stringify(import.meta.url));
+    const timers = [];
+    let stopped = 0, disconnected = 0, readinessChecks = 0;
+    const child = new EventEmitter();
+    Object.assign(child, { pid: 123, connected: true, unref() {}, disconnect() { disconnected++; this.connected = false; } });
+    const launch = new Function('resolve', 'option', 'process', 'existsSync', 'statSync', 'spawn', 'node', 'fileURLToPath', 'repo', 'console', 'setTimeout', 'clearTimeout', 'terminateOwnedChild', 'waitForReady', `${definition}\nreturn launchPrebuilt;`)(
+      path.resolve, (options, key) => options.get(key), { env: { DEV_FRONT_EXTERNAL: externalFrontend ? '1' : '0' } },
+      () => true, () => ({ isFile: () => true }), () => child, 'node', () => '/fixture/dev-prep.mjs', '/fixture', { log() {} },
+      (callback, ms) => { const timer = { callback, ms }; timers.push(timer); return timer; }, () => {},
+      async () => { stopped++; }, async () => { readinessChecks++; });
+    const result = launch(new Map([['--app', '/fixture/app'], ['--log', '/fixture/log'], ['--api-port', '17886']]));
+    child.emit('message', { type: 'phase', phase: 1 });
+    child.emit('message', { type: 'phase', phase: 2 });
+    assert.deepEqual(timers.map(timer => timer.ms), [30_000, 30_000, externalFrontend ? 180_000 : 30_000]);
+    timers.at(-1).callback();
+    await assert.rejects(result, error => {
+      assert.match(error.message, /phase=attachment/);
+      assert.equal(error.code, externalFrontend ? 'DEV_ATTACHMENT_PENDING' : undefined);
+      return true;
+    });
+    assert.equal(stopped, externalFrontend ? 0 : 1);
+    assert.equal(disconnected, externalFrontend ? 1 : 0);
+    assert.equal(readinessChecks, 0);
+    assert.deepEqual(child.eventNames(), []);
+  });
+}

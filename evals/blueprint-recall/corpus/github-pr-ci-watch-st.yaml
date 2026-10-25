@@ -1,0 +1,30 @@
+schema_version: 1
+name: '{{label}}'
+note: Keep an eye on a pull request's CI until it is green; alert me whenever something breaks.
+inputs:
+  verdict_command:
+    type: string
+    description: Read-only command printing pending, green or red for one pull request.
+  label:
+    type: string
+    description: Short Blueprint name, 3 to 40 characters
+watch:
+  probe: '{{verdict_command}}'
+  question: what-is-the-ci-verdict
+  buckets:
+  - pending
+  - green
+  - red
+  matches:
+    pending: (?m)^pending\r?$
+    green: (?m)^green\r?$
+    red: (?m)^red\r?$
+  until: green
+  rearm_on_change:
+  - red
+  every: 2m
+  timeout: 6h
+  routes:
+    pending: none
+    green: notify
+    red: notify

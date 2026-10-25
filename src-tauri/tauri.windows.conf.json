@@ -2,7 +2,13 @@
   "bundle": {
     "resources": {
       "../target/domios-package/domios-server/": "domios-server",
-      "../target/domios-package/conpty/": "conpty"
+      "../target/domios-package/conpty/": "conpty",
+      "windows/account-mesh-firewall.ps1": "installer/account-mesh-firewall.ps1"
+    },
+    "windows": {
+      "nsis": {
+        "installerHooks": "windows/installer-hooks.nsh"
+      }
     }
   }
 }

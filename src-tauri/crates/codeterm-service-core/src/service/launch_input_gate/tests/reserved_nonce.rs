@@ -17,7 +17,7 @@ fn fresh_lazy_provider_with_reserved_nonce_reaches_composer_readiness() {
     };
     assert!(attempt_owns_tab(tab, &attempt));
 
-    let mut screens = codeterm_pty::pty::screen_state::ScreenState::new();
+    let screens = codeterm_pty::pty::screen_state::ScreenState::new();
     screens.resize(&attempt.pty_id, 120, 40);
     let screen = include_str!("fixtures/boxed-idle-composer.txt")
         .lines()

@@ -39,6 +39,8 @@ pub enum RuntimeFailure {
     Deadline,
     HookFailed(String),
     Refused(String),
+    SignInRequired,
+    ConversationMissing,
     PrewriteRefused(String),
     Superseded,
 }
@@ -78,6 +80,8 @@ impl std::fmt::Display for RuntimeFailure {
             Self::Deadline => formatter.write_str("Runtime did not respond in time"),
             Self::HookFailed(reason) => write!(formatter, "Provider operation failed: {reason}"),
             Self::Refused(reason) => write!(formatter, "Provider refused: {reason}"),
+            Self::SignInRequired => formatter.write_str("Sign-in required"),
+            Self::ConversationMissing => formatter.write_str("ConversationMissing: The provider's saved conversation rollout is unavailable. Start a new conversation to continue."),
             Self::PrewriteRefused(reason) => write!(formatter, "Input was not sent: {reason}"),
             Self::Superseded => {
                 formatter.write_str("Runtime session changed; this operation was cancelled")
@@ -95,6 +99,7 @@ impl std::fmt::Display for RuntimeFailure {
 pub enum RuntimePhase {
     Unloaded { reason: Option<String> },
     Loading,
+    LoginPending,
     Ready,
     Degraded { reason: String },
 }
@@ -144,6 +149,7 @@ impl RuntimeState {
         let (state, reason) = match &self.phase {
             RuntimePhase::Unloaded { reason } => ("unloaded", reason.clone()),
             RuntimePhase::Loading => ("loading", None),
+            RuntimePhase::LoginPending => ("loginPending", None),
             RuntimePhase::Ready => ("loaded", None),
             RuntimePhase::Degraded { reason } => ("degraded", Some(reason.clone())),
         };
@@ -224,8 +230,11 @@ impl RuntimeState {
         if self.epoch != epoch {
             return false;
         }
-        self.phase = RuntimePhase::Degraded {
-            reason: reason.to_string(),
+        self.phase = match reason {
+            RuntimeFailure::SignInRequired => RuntimePhase::LoginPending,
+            _ => RuntimePhase::Degraded {
+                reason: reason.to_string(),
+            },
         };
         true
     }

@@ -22,6 +22,7 @@ impl Plan {
 pub enum CheckoutKey {
     ProMonthly,
     ProYearly,
+    SponsorMonthly,
     SponsorYearly,
 }
 impl CheckoutKey {
@@ -29,6 +30,7 @@ impl CheckoutKey {
         match value {
             "pro_monthly" => Ok(Self::ProMonthly),
             "pro_yearly" => Ok(Self::ProYearly),
+            "sponsor_monthly" => Ok(Self::SponsorMonthly),
             "sponsor_yearly" => Ok(Self::SponsorYearly),
             _ => Err("Unknown billing plan".into()),
         }
@@ -37,13 +39,14 @@ impl CheckoutKey {
         match self {
             Self::ProMonthly => "pro_monthly",
             Self::ProYearly => "pro_yearly",
+            Self::SponsorMonthly => "sponsor_monthly",
             Self::SponsorYearly => "sponsor_yearly",
         }
     }
     pub fn plan(self) -> Plan {
         match self {
             Self::ProMonthly | Self::ProYearly => Plan::Pro,
-            Self::SponsorYearly => Plan::Sponsor,
+            Self::SponsorMonthly | Self::SponsorYearly => Plan::Sponsor,
         }
     }
 }
@@ -121,17 +124,4 @@ impl Default for Entitlements {
 pub enum Capability {
     Terminal,
     PaidFeatures,
-}
-pub const CAPABILITY_PLANS: &[(Capability, &[&str])] = &[
-    (Capability::Terminal, &["free", "pro", "sponsor"]),
-    (Capability::PaidFeatures, &["pro", "sponsor"]),
-];
-pub fn entitlement_allows(entitlements: &Entitlements, capability: Capability) -> bool {
-    let paid = matches!(entitlements.status, Status::Active | Status::Trialing);
-    CAPABILITY_PLANS
-        .iter()
-        .find(|(key, _)| *key == capability)
-        .is_some_and(|(_, plans)| {
-            plans.contains(&"free") || (paid && plans.contains(&entitlements.plan.as_str()))
-        })
 }

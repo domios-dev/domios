@@ -126,6 +126,12 @@ ct_sccache_secret() (
 ct_sccache_storage() {
   local trace_enabled=0 access_key secret_key
   case "$-" in *x*) trace_enabled=1; set +x ;; esac
+  if [ "${SCCACHE_GHA_ENABLED:-false}" = true ]; then
+    unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN SCCACHE_ENDPOINT SCCACHE_BUCKET SCCACHE_REGION SCCACHE_S3_USE_SSL
+    export CT_SCCACHE_STORAGE=gha CT_SCCACHE_REASON="GitHub Actions cache"
+    [ "$trace_enabled" = 0 ] || set -x
+    return 0
+  fi
   # A machine pinned to its local disk cache never flips to S3 because credentials happen to exist.
   if [ "${CODETERM_SCCACHE_STORAGE:-}" = local ]; then
     unset SCCACHE_ENDPOINT SCCACHE_BUCKET SCCACHE_REGION SCCACHE_S3_USE_SSL
@@ -167,7 +173,9 @@ ct_sccache_disk_dir() {
 }
 
 ct_sccache_print_location() {
-  if [ "${CT_SCCACHE_STORAGE:-local}" = shared ]; then
+  if [ "${CT_SCCACHE_STORAGE:-local}" = gha ]; then
+    printf 'sccache: GitHub Actions cache\n'
+  elif [ "${CT_SCCACHE_STORAGE:-local}" = shared ]; then
     printf 'sccache: shared S3 cache at %s/%s\n' "$SCCACHE_ENDPOINT" "$SCCACHE_BUCKET"
   else
     printf 'sccache: local disk cache at %s (%s; limit %s)\n' \
@@ -282,6 +290,9 @@ ct_sccache_start_shared_if_absent() {
 }
 
 ct_sccache_storage_matches() {
+  if [ "${SCCACHE_GHA_ENABLED:-false}" = true ]; then
+    case "$1" in 'ghac,'*|'ghac '*|'GHA'*|'GitHub Actions'*) return 0 ;; *) return 1 ;; esac
+  fi
   if [ "$CT_SCCACHE_STORAGE" = shared ]; then
     case "$1" in
       "s3, name: $SCCACHE_BUCKET, prefix: "*) return 0 ;;
@@ -466,14 +477,15 @@ ct_check_provenance() {
 }
 
 ct_cache_retention() {
-  local dir bash_exe result=0
+  local dir bash_exe result=0 incremental_allowed=0
+  if ct_gateway_owned_by_caller; then incremental_allowed=1; fi
   dir="$(ct_gateway_dir)"
   bash_exe="$BASH"
   if command -v cygpath >/dev/null 2>&1; then bash_exe="$(cygpath -w "$bash_exe")"; fi
   local retention_dir="$dir/cache-retention-state"
   mkdir -p "$retention_dir" || return 74
   ct_gateway_mutex_acquire "$retention_dir" || return $?
-  CT_CACHE_RETENTION_LOCK_HELD=1 CT_CACHE_BASH="$bash_exe" \
+  CT_CACHE_RETENTION_LOCK_HELD=1 CT_CACHE_BASH="$bash_exe" CT_CACHE_INCREMENTAL_ALLOWED="$incremental_allowed" \
     node "$CT_CACHE_POLICY_SCRIPT_ROOT/scripts/cache-retention.mjs" "$1" "$dir" "${CT_REAL_WORKTREE:-$(pwd -P)}" "${2:-}" "$(ct_cache_home)" || result=$?
   ct_gateway_mutex_release "$retention_dir" || result=$?
   return "$result"

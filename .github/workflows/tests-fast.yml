@@ -1,6 +1,6 @@
 name: tests-fast
 
-# Fast tier: guards, clippy and the TypeScript checks; the first failure can cancel the calling run.
+# Normal CI finishes sibling tests; cancellation is an explicit diagnostic option.
 
 on:
   workflow_call:
@@ -11,12 +11,12 @@ on:
         default: ''
         type: string
       scope:
-        description: full for an app release (every platform), frontend for a frontend release
+        description: full for qualification, frontend for frontend checks, fast for diagnostic contracts
         required: false
         default: full
         type: string
       cancel_run:
-        description: A failed fast check cancels the calling run at once
+        description: Explicit fail-fast diagnostics; normal CI finishes every test job
         required: false
         default: false
         type: boolean
@@ -26,6 +26,12 @@ on:
         default: false
         type: boolean
     outputs:
+      source_sha:
+        description: Exact tested source
+        value: ${{ jobs.changed.outputs.source_sha }}
+      resolved_scope:
+        description: Shared scope decision for the Rust tier
+        value: ${{ toJSON(jobs.changed.outputs) }}
       heavy:
         description: The Rust build scope ran; empty when the scope gate skipped
         value: ${{ jobs.changed.outputs.heavy }}
@@ -35,17 +41,13 @@ permissions:
   pull-requests: write
 
 env:
-  AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
-  AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+  CI_CANCEL_RUN: ${{ inputs.cancel_run }}
+  CI_SOURCE_SHA: ${{ inputs.source_ref || github.sha }}
+  GH_TOKEN: ${{ github.token }}
   CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
   # Builders are shared with agents; a CI job queues for the slot instead of failing busy (75).
   CODETERM_BUILD_GATEWAY_MODE: queue
   CODETERM_SCCACHE_VERIFY_ONLY: '1'
-  DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
-  DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
-  DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
-  DOMIOS_ACCOUNT_REDEEM_URL: ${{ secrets.DOMIOS_ACCOUNT_REDEEM_URL }}
-  DOMIOS_BILLING_FUNCTIONS_URL: ${{ secrets.DOMIOS_BILLING_FUNCTIONS_URL }}
 
 jobs:
   # A push whose tree equals a parent's tree introduces nothing that parent had
@@ -59,26 +61,89 @@ jobs:
   changed:
     name: tree is new
     # A release branch's push already runs these checks on the exact SHA in release.yml.
-    if: ${{ github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release/') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' }}
     # Every job waits on this gate, so any free light runner takes it.
-    runs-on: [self-hosted, light]
+    environment: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && 'ci' || '' }}
+    runs-on: ${{ vars.CI_LINUX_LIGHT_RUNNER || fromJSON('["self-hosted","Linux","light","host-ubunta"]') }}
     permissions:
       contents: read
-      actions: write
+      actions: read
+      pull-requests: read
     timeout-minutes: 5
     outputs:
+      source_sha: ${{ steps.source.outputs.sha }}
       frontend: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.frontend == 'true' }}
       rust: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.rust == 'true' }}
       heavy: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.heavy == 'true' }}
       plugins: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.plugins || '[]' }}
+    env:
+      DOMIOS_CI_WEBHOOK_URL: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_CI_WEBHOOK_URL || '' }}
+      DOMIOS_CI_WEBHOOK_TOKEN: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_CI_WEBHOOK_TOKEN || '' }}
+      AWS_ACCESS_KEY_ID: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.SCCACHE_AWS_ACCESS_KEY_ID || '' }}
+      AWS_SECRET_ACCESS_KEY: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.SCCACHE_AWS_SECRET_ACCESS_KEY || '' }}
+      DOMIOS_FIREBASE_API_KEY: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
+      DOMIOS_FIREBASE_PROJECT_ID: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
+      DOMIOS_FIREBASE_APP_ID: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_APP_ID || '' }}
+      DOMIOS_ACCOUNT_REDEEM_URL: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_ACCOUNT_REDEEM_URL || '' }}
+      DOMIOS_BILLING_FUNCTIONS_URL: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_BILLING_FUNCTIONS_URL || '' }}
+      CI_HOSTED: ${{ vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04' }}
+      CI_ARTIFACT_STORAGE: ${{ (vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && 'github' || '' }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Use the runner bundled Node
+        if: runner.environment == 'self-hosted'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
         with:
-          ref: ${{ inputs.source_ref || github.ref }}
+          script: |-
+            const path = require('node:path');
+            core.addPath(path.dirname(process.execPath));
+            core.info('Using runner Node ' + process.version);
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        id: ci-4
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+        if: runner.environment == 'github-hosted'
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        id: ci-1
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
           fetch-depth: 2
+      - name: Discover installed runner tools
+        if: runner.environment == 'self-hosted'
+        run: node scripts/ci-runner-paths.mjs --paths-only
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs bash,git,node
+      - &cancel-run-on-failure
+        name: Notify and cancel on first failure
+        if: failure() && inputs.cancel_run
+        continue-on-error: true
+        env:
+          CI_FAILURE_STEPS: ${{ toJSON(steps) }}
+          CI_SOURCE_SHA: ${{ env.CI_SOURCE_SHA }}
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            try {
+              const {pathToFileURL} = require('node:url');
+              const api = await import(pathToFileURL(process.env.GITHUB_WORKSPACE + '/scripts/ci-workflow-api.mjs').href);
+              const {firstFailure} = await import(pathToFileURL(process.env.GITHUB_WORKSPACE + '/scripts/ci-first-failure.mjs').href);
+              const steps = JSON.parse(process.env.CI_FAILURE_STEPS || '{}');
+              const step = Object.entries(steps).find(([,value]) => value.outcome === 'failure')?.[0];
+              await firstFailure(step ? {step} : {}, {cancel: () => api.cancelWorkflow(github, context)});
+            } catch (error) {
+              core.warning('Failure details unavailable: ' + error.message);
+              await github.rest.actions.cancelWorkflowRun({...context.repo,run_id:context.runId});
+            }
+      - id: source
+        shell: bash
+        run: |
+          sha=$(git rev-parse HEAD)
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "CI_SOURCE_SHA=$sha" >> "$GITHUB_ENV"
+      - *cancel-run-on-failure
       - id: tree
         env:
-          CI_RELEASE_CALL: ${{ inputs.source_ref != '' }}
+          CI_RELEASE_CALL: ${{ inputs.source_ref != '' || github.event_name == 'push' && (github.ref_name == 'develop' || github.ref_name == 'rename/domios' || startsWith(github.ref_name, 'release/')) || github.event_name == 'schedule' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -96,39 +161,75 @@ jobs:
           done
           echo "run=true" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
-        if: steps.tree.outputs.run == 'true'
-        with:
-          package-manager-cache: false
-          node-version: '22.22.0'
-
+      - *cancel-run-on-failure
       - id: scope
         if: steps.tree.outputs.run == 'true'
         env:
-          CI_FULL_MATRIX: ${{ (inputs.source_ref != '' && inputs.scope != 'frontend') }}
+          CI_FULL_MATRIX: ${{ inputs.scope != 'frontend' && (inputs.source_ref != '' || github.event_name == 'push' || github.event_name == 'schedule') }}
           CI_FRONTEND_ONLY: ${{ inputs.source_ref != '' && inputs.scope == 'frontend' }}
           CI_FAST_ONLY: ${{ github.event_name == 'pull_request' }}
+          CI_FAST_DISPATCH: ${{ github.event_name == 'workflow_dispatch' && inputs.scope == 'fast' }}
         run: node scripts/ci-scope.mjs HEAD^ HEAD
 
-  # The cheapest, most frequent failures surface first: one job, one checkout, every guard
-  # reported, and it gates every other fast check so a single light runner orders them.
+      # Guards remain required by the reusable tier while sibling checks run in parallel.
+      - *cancel-run-on-failure
   guards:
     name: guards
     needs: changed
     # The Node and Python release contracts assume Linux paths (macOS /var is a symlink).
-    runs-on: [self-hosted, Linux, light]
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' }}
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
-      actions: write
-    timeout-minutes: 8
+      actions: read
+      pull-requests: read
+    timeout-minutes: 20
+    env:
+      CI_SOURCE_SHA: ${{ needs.changed.outputs.source_sha || github.sha }}
+      CI_HOSTED: "true"
+      CODETERM_USE_SCCACHE: "0"
+      CODETERM_SCCACHE_VERIFY_ONLY: "0"
+      CI_ARTIFACT_STORAGE: github
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          ref: ${{ inputs.source_ref || github.ref }}
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        id: ci-2
         with:
           package-manager-cache: false
-          node-version: '22.22.0'
+          node-version: 22.22.0
+        if: runner.environment == 'github-hosted'
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12"
+        if: runner.environment == 'github-hosted'
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        id: ci-1
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
+          fetch-depth: 1
+      - name: Hosted pnpm prerequisite
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
+        if: runner.environment == 'github-hosted'
+      - name: Install pinned nextest prerequisite
+        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8
+        with:
+          tool: cargo-nextest@0.9.148
+        if: runner.environment == 'github-hosted'
+      - name: Install pinned Python test dependencies
+        run: node scripts/ci-python-env.mjs
+      - name: Provision the pinned hosted Rust toolchain
+        if: runner.environment == 'github-hosted'
+        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
+        with:
+          toolchain: 1.99.1
+          components: clippy,rustfmt
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs bash,cargo,git,nextest,node,pnpm,python,python:yaml
+      - *cancel-run-on-failure
       - &select-pr-catalogue
         name: Select PR catalogue
         id: catalogue
@@ -136,150 +237,205 @@ jobs:
         run: |
           node scripts/test-catalogue.mjs select --tier pr --format json > "$RUNNER_TEMP/pr-catalogue.json"
           node -e 'const fs = require("node:fs"); const selected = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/pr-catalogue.json", "utf8")); fs.appendFileSync(process.env.GITHUB_OUTPUT, "commands=" + JSON.stringify(Object.fromEntries(selected.runners.map(entry => [entry.id, entry.runner]))) + "\n");'
-      - name: Source file size discipline
-        run: bash scripts/check-file-sizes.sh --fail
+        if: "!cancelled()"
+      - *cancel-run-on-failure
       - name: Installed application identity
+        id: ci-5
         if: ${{ !cancelled() }}
         run: node scripts/check-installed-identity.mjs
+      - *cancel-run-on-failure
       - name: Plugin release contracts
+        id: ci-6
         if: ${{ !cancelled() }}
-        run: ${{ fromJSON(steps.catalogue.outputs.commands)['plugin-release-contracts'] }}
+        run: node scripts/ci-catalogue-command.mjs plugin-release-contracts
+      - *cancel-run-on-failure
       - name: Plugin release and scope script tests
+        id: ci-7
         if: ${{ !cancelled() }}
         run: node --test scripts/tests/plugin-releases.test.mjs scripts/tests/ci-scope.test.mjs
+      # Light services can miss the runner user's rustup on PATH.
+      - *cancel-run-on-failure
       # POSIX-only fixtures that a Windows release-preflight cannot run; policy also covers release signing.
+      - *cancel-run-on-failure
       - name: Build gateway guards and serial gateway script tests
+        id: ci-9
         if: ${{ !cancelled() }}
         run: |
           bash scripts/check-build-gateway-serialization.sh
           bash scripts/check-build-gateway-policy.sh
           bash scripts/check-build-gateway-mutex-cleanup.sh
           node scripts/test-catalogue.mjs run --entry node-script-tests-serial
-      # Light services can miss the runner user's rustup on PATH.
-      - name: Ensure Rust toolchain on PATH
-        if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
-        run: |
-          if command -v cargo >/dev/null 2>&1; then exit 0; fi
-          for dir in "${CARGO_HOME:-}/bin" "$HOME/.cargo/bin" /home/*/.cargo/bin /Users/*/.cargo/bin; do
-            if [ -x "$dir/cargo" ]; then echo "$dir" >> "$GITHUB_PATH"; exit 0; fi
-          done
-          echo "cargo not found; restore Rust on the runner" >&2
-          exit 1
+      - *cancel-run-on-failure
       - name: cargo fmt --check
+        id: ci-10
         if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
-        run: ${{ fromJSON(steps.catalogue.outputs.commands)['rust-fmt'] }}
+        run: node scripts/ci-catalogue-command.mjs rust-fmt
       # Release shards run tests from an archive extracted on another machine.
+      - *cancel-run-on-failure
       - name: Archive-portable Rust test paths
+        id: ci-11
         if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
         run: node scripts/check-archive-portable-test-paths.mjs
-      - name: Setup pnpm
-        if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
-        with:
-          version: 10.32.1
-          run_install: false
-          dest: ${{ runner.tool_cache }}/setup-pnpm
+      - *cancel-run-on-failure
       - name: Install dependencies
+        id: ci-13
         if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
+      - *cancel-run-on-failure
       - name: Node script tests (tests/catalogue.json node-script-tests)
+        id: ci-14
         if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
-        run: ${{ fromJSON(steps.catalogue.outputs.commands)['node-script-tests'] }}
+        run: node scripts/ci-catalogue-command.mjs node-script-tests
+      - *cancel-run-on-failure
       - name: Python script tests (tests/catalogue.json python-script-tests)
+        id: ci-15
         if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
-        run: ${{ fromJSON(steps.catalogue.outputs.commands)['python-script-tests'] }}
+        run: node scripts/ci-catalogue-command.mjs python-script-tests
+      - *cancel-run-on-failure
       - name: Offline core journey contracts
+        id: ci-16
         if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
-        run: ${{ fromJSON(steps.catalogue.outputs.commands)['core-journeys-offline'] }}
-      # Builds already in flight stop with the first failure instead of after the slowest sibling check.
-      # Cancelling marks this job cancelled too, so the annotation is what names the failed check.
-      - &cancel-run-on-failure
-        name: Cancel the run on this fast-check failure
-        if: failure() && inputs.cancel_run
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          FAILED_CHECK: ${{ github.job }}
-        run: |
-          echo "::error title=Fast check failed::$FAILED_CHECK failed; the run is cancelled"
-          gh run cancel ${{ github.run_id }} --repo ${{ github.repository }}
+        run: node scripts/ci-catalogue-command.mjs core-journeys-offline
 
+      - *cancel-run-on-failure
   plugins:
     name: plugin (${{ matrix.plugin.id }})
-    needs: [changed, guards]
-    if: ${{ needs.changed.outputs.plugins != '[]' }}
-    runs-on: [self-hosted, linux-ci]
+    needs: changed
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.plugins != '[]') }}
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
-      actions: write
-    timeout-minutes: 8
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
         plugin: ${{ fromJSON(needs.changed.outputs.plugins) }}
+    env:
+      CI_SOURCE_SHA: ${{ needs.changed.outputs.source_sha || github.sha }}
+      CODETERM_USE_SCCACHE: "0"
+      RUSTC_WRAPPER: ""
+      CI_CANCEL_RUN: "false"
+      CODETERM_SCCACHE_VERIFY_ONLY: "0"
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          ref: ${{ inputs.source_ref || github.ref }}
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        id: ci-2
         with:
           package-manager-cache: false
-          node-version: '22.22.0'
+          node-version: 22.22.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        id: ci-1
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
+          fetch-depth: 1
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        id: ci-3
         with:
           version: 10.32.1
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs bash,git,node,pnpm
       - run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
+        id: ci-4
       - *select-pr-catalogue
-      - env:
-          PLUGIN_COMMAND: ${{ fromJSON(steps.catalogue.outputs.commands)['plugin-check'] }}
+      - id: ci-6
+        env:
           PLUGIN_ID: ${{ matrix.plugin.id }}
         shell: bash
-        run: ${PLUGIN_COMMAND//<plugin-id>/"$PLUGIN_ID"}
-      - *cancel-run-on-failure
-
-
+        run: node scripts/ci-catalogue-command.mjs plugin-check --plugin-id "$PLUGIN_ID"
   clippy-linux:
     name: clippy (linux)
-    needs: [changed, guards]
-    if: ${{ needs.changed.outputs.heavy == 'true' }}
-    runs-on: [self-hosted, linux-ci]
+    needs: changed
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.heavy == 'true') }}
+    environment: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && 'ci' || '' }}
+    runs-on: ${{ vars.CI_LINUX_RUST_COMPILE_RUNNER || fromJSON('["self-hosted","Linux","linux-build","host-ubunta"]') }}
     permissions:
       contents: read
-      actions: write
+      actions: read
+      pull-requests: read
     timeout-minutes: 30
     env:
+      CI_SOURCE_SHA: ${{ needs.changed.outputs.source_sha || github.sha }}
+      DOMIOS_CI_WEBHOOK_URL: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_CI_WEBHOOK_URL || '' }}
+      DOMIOS_CI_WEBHOOK_TOKEN: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_CI_WEBHOOK_TOKEN || '' }}
+      AWS_ACCESS_KEY_ID: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.SCCACHE_AWS_ACCESS_KEY_ID || '' }}
+      AWS_SECRET_ACCESS_KEY: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.SCCACHE_AWS_SECRET_ACCESS_KEY || '' }}
+      DOMIOS_FIREBASE_API_KEY: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
+      DOMIOS_FIREBASE_PROJECT_ID: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
+      DOMIOS_FIREBASE_APP_ID: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_APP_ID || '' }}
+      DOMIOS_ACCOUNT_REDEEM_URL: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_ACCOUNT_REDEEM_URL || '' }}
+      DOMIOS_BILLING_FUNCTIONS_URL: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_BILLING_FUNCTIONS_URL || '' }}
       # Warm per-workspace targets outside the checkout; the cleanup step sweeps them by age.
       CI_TARGET_ROOT: ${{ github.workspace }}/../ci-targets/clippy
       CODETERM_ALLOW_EXTERNAL_TARGET: '1'
+      CI_HOSTED: ${{ vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04' }}
+      SCCACHE_GHA_ENABLED: ${{ (vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && 'true' || 'false' }}
+      CODETERM_SCCACHE_VERIFY_ONLY: ${{ (vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && '0' || '1' }}
+      CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
+      CI_ARTIFACT_STORAGE: ${{ (vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && 'github' || '' }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Use the runner bundled Node
+        if: runner.environment == 'self-hosted'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
         with:
-          ref: ${{ inputs.source_ref || github.ref }}
+          script: |-
+            const path = require('node:path');
+            core.addPath(path.dirname(process.execPath));
+            core.info('Using runner Node ' + process.version);
       - name: Setup Node.js
+        id: ci-2
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
-          node-version: '22.22.0'
-      - name: Ensure Rust toolchain on PATH
-        run: |
-          if command -v cargo >/dev/null 2>&1; then exit 0; fi
-          for dir in "${CARGO_HOME:-}/bin" "$HOME/.cargo/bin" /home/*/.cargo/bin /Users/*/.cargo/bin; do
-            if [ -x "$dir/cargo" ]; then echo "$dir" >> "$GITHUB_PATH"; exit 0; fi
-          done
-          echo "cargo not found; restore Rust on the runner" >&2
-          exit 1
+          node-version: 22.22.0
+        if: runner.environment == 'github-hosted'
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        id: ci-1
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
+          fetch-depth: 1
+      - name: Discover installed runner tools
+        if: runner.environment == 'self-hosted'
+        run: node scripts/ci-runner-paths.mjs --paths-only
+      - name: Hosted Rust dependency cache
+        if: ${{ vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04' }}
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
+        with:
+          path: |-
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ format('cargo-{0}-{1}-{2}', runner.os, runner.arch, hashFiles('**/Cargo.lock')) }}
+          restore-keys: ${{ format('cargo-{0}-{1}-', runner.os, runner.arch) }}
+      - name: Hosted sccache
+        if: runner.environment == 'github-hosted' && (vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04')
+        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
+        env:
+          SCCACHE_GHA_ENABLED: "true"
+      - name: Provision the pinned hosted Rust toolchain
+        if: runner.environment == 'github-hosted'
+        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
+        with:
+          toolchain: 1.99.1
+          components: clippy,rustfmt
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs bash,cargo,curl,git,node
+      - *cancel-run-on-failure
       - name: Prepare compile stubs
+        id: ci-4
         run: |
           mkdir -p dist src-tauri/bundled-cli
           [ -n "$(ls -A src-tauri/bundled-cli)" ] || touch src-tauri/bundled-cli/codeterm
+      - *cancel-run-on-failure
       - name: Reset compiler capture
+        id: ci-5
         continue-on-error: true
         run: node -e "require('fs').writeFileSync('ci-rust-warnings.log', '')"
+      - *cancel-run-on-failure
       - name: clippy (repo gate)
+        id: ci-6
         run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash build.sh ci-clippy
+      - *cancel-run-on-failure
       - uses: ./.github/actions/rust-warnings
         if: always()
         continue-on-error: true
@@ -298,7 +454,6 @@ jobs:
         if: always()
         shell: bash
         run: bash build.sh cache-release
-      - *cancel-run-on-failure
       - &clean-job-outputs
         name: Remove job archives and sweep old Rust targets
         if: always()
@@ -308,35 +463,93 @@ jobs:
   # CLI contracts (transport rows, help text, generated manifest, essence map) fail in minutes here, not in the Rust tier.
   cli-tests:
     name: cli tests
-    needs: [changed, guards]
-    if: ${{ needs.changed.outputs.heavy == 'true' }}
-    runs-on: [self-hosted, linux-ci]
+    needs: changed
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.heavy == 'true' || github.event_name == 'workflow_dispatch' && inputs.scope == 'fast') }}
+    environment: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && 'ci' || '' }}
+    runs-on: ${{ vars.CI_LINUX_RUST_COMPILE_RUNNER || fromJSON('["self-hosted","Linux","linux-build","host-ubunta"]') }}
     permissions:
       contents: read
-      actions: write
+      actions: read
+      pull-requests: read
     timeout-minutes: 30
     env:
+      CI_SOURCE_SHA: ${{ needs.changed.outputs.source_sha || github.sha }}
+      DOMIOS_CI_WEBHOOK_URL: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_CI_WEBHOOK_URL || '' }}
+      DOMIOS_CI_WEBHOOK_TOKEN: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_CI_WEBHOOK_TOKEN || '' }}
+      AWS_ACCESS_KEY_ID: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.SCCACHE_AWS_ACCESS_KEY_ID || '' }}
+      AWS_SECRET_ACCESS_KEY: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.SCCACHE_AWS_SECRET_ACCESS_KEY || '' }}
+      DOMIOS_FIREBASE_API_KEY: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
+      DOMIOS_FIREBASE_PROJECT_ID: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
+      DOMIOS_FIREBASE_APP_ID: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_APP_ID || '' }}
+      DOMIOS_ACCOUNT_REDEEM_URL: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_ACCOUNT_REDEEM_URL || '' }}
+      DOMIOS_BILLING_FUNCTIONS_URL: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_BILLING_FUNCTIONS_URL || '' }}
       CI_TARGET_ROOT: ${{ github.workspace }}/../ci-targets/cli-tests
       CODETERM_ALLOW_EXTERNAL_TARGET: '1'
+      CI_HOSTED: ${{ vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04' }}
+      SCCACHE_GHA_ENABLED: ${{ (vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && 'true' || 'false' }}
+      CODETERM_SCCACHE_VERIFY_ONLY: ${{ (vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && '0' || '1' }}
+      CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
+      CI_ARTIFACT_STORAGE: ${{ (vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && 'github' || '' }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Use the runner bundled Node
+        if: runner.environment == 'self-hosted'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
         with:
-          ref: ${{ inputs.source_ref || github.ref }}
+          script: |-
+            const path = require('node:path');
+            core.addPath(path.dirname(process.execPath));
+            core.info('Using runner Node ' + process.version);
       - name: Setup Node.js
+        id: ci-2
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
-          node-version: '22.22.0'
-      - name: Ensure Rust toolchain on PATH
-        run: |
-          if command -v cargo >/dev/null 2>&1; then exit 0; fi
-          for dir in "${CARGO_HOME:-}/bin" "$HOME/.cargo/bin" /home/*/.cargo/bin /Users/*/.cargo/bin; do
-            if [ -x "$dir/cargo" ]; then echo "$dir" >> "$GITHUB_PATH"; exit 0; fi
-          done
-          echo "cargo not found; restore Rust on the runner" >&2
-          exit 1
+          node-version: 22.22.0
+        if: runner.environment == 'github-hosted'
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        id: ci-1
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
+          fetch-depth: 1
+      - name: Discover installed runner tools
+        if: runner.environment == 'self-hosted'
+        run: node scripts/ci-runner-paths.mjs --paths-only
+      - name: Hosted Rust dependency cache
+        if: ${{ vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04' }}
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
+        with:
+          path: |-
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ format('cargo-{0}-{1}-{2}', runner.os, runner.arch, hashFiles('**/Cargo.lock')) }}
+          restore-keys: ${{ format('cargo-{0}-{1}-', runner.os, runner.arch) }}
+      - name: Hosted sccache
+        if: runner.environment == 'github-hosted' && (vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04')
+        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
+        env:
+          SCCACHE_GHA_ENABLED: "true"
+      - name: Provision the pinned hosted Rust toolchain
+        if: runner.environment == 'github-hosted'
+        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
+        with:
+          toolchain: 1.99.1
+          components: clippy,rustfmt
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs bash,cargo,git,node
+      - *cancel-run-on-failure
       - name: CLI tests
-        run: bash build.sh ci-cli-tests
+        id: ci-4
+        env:
+          CI_FAST_DISPATCH: ${{ github.event_name == 'workflow_dispatch' && inputs.scope == 'fast' }}
+        run: |-
+          set -euo pipefail
+          if [ "$CI_FAST_DISPATCH" = true ]; then
+            cargo test --manifest-path cli/Cargo.toml --locked -p codeterm-cli cmd::manifest
+            cargo test --manifest-path cli/Cargo.toml --locked -p codeterm-cli plugin_subcommands_parse
+          else
+            bash build.sh ci-cli-tests
+          fi
+      - *cancel-run-on-failure
       - name: Upload artifacts spooled while the private store was unreachable
         if: always()
         uses: ./.github/actions/ci-artifact-spool
@@ -344,266 +557,359 @@ jobs:
         if: always()
         run: find src-tauri/bundled-cli -maxdepth 1 -type f -size 0 -delete 2>/dev/null || true
       - *release-job-cache
-      - *cancel-run-on-failure
       - *clean-job-outputs
 
   ts-static:
     name: ts static checks
-    needs: [changed, guards]
-    if: ${{ needs.changed.outputs.frontend == 'true' }}
-    runs-on: [self-hosted, light]
+    needs: changed
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.frontend == 'true') }}
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
-      actions: write
-    timeout-minutes: 8
+    timeout-minutes: 15
+    env:
+      CI_SOURCE_SHA: ${{ needs.changed.outputs.source_sha || github.sha }}
+      CODETERM_USE_SCCACHE: "0"
+      RUSTC_WRAPPER: ""
+      CI_CANCEL_RUN: "false"
+      CODETERM_SCCACHE_VERIFY_ONLY: "0"
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          ref: ${{ inputs.source_ref || github.ref }}
       - name: Setup Node.js
+        id: ci-2
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
-          node-version: '22.22.0'
-
+          node-version: 22.22.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        id: ci-1
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
+          fetch-depth: 1
       - name: Setup pnpm
+        id: ci-3
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10.32.1
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
-
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs bash,git,node,pnpm
       - name: Install dependencies
+        id: ci-4
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
       - *select-pr-catalogue
-      - name: TS strict typecheck (prod build gate)
-        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-typecheck'] }}
       - name: TypeScript unused exports
+        id: ci-6
         if: ${{ !cancelled() }}
-        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-unused-exports'] }}
+        run: node scripts/ci-catalogue-command.mjs ts-unused-exports
       - name: Repository Knip report
+        id: ci-7
         if: ${{ !cancelled() }}
-        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-knip-report'] }}
-      # An effect that reaches the API must key on primitives; a mux-rebuilt object
-      # re-runs it at broadcast rate. Five such sites shipped before this existed.
+        run: node scripts/ci-catalogue-command.mjs ts-knip-report
       - name: Check API effect dependencies
+        id: ci-8
         if: ${{ !cancelled() }}
-        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-api-effects'] }}
+        run: node scripts/ci-catalogue-command.mjs ts-api-effects
       - name: Biome (TS lint)
+        id: ci-9
         if: ${{ !cancelled() }}
-        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-biome'] }}
-      - *cancel-run-on-failure
-
-  # Windows bundles build the frontend from the gateway's subst drive, where a pnpm
-  # workspace symlink can give one file two identities; nothing else runs from there.
-  frontend-windows:
-    name: frontend (Windows, stable path)
-    needs: [changed, guards]
-    if: ${{ needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true' }}
-    runs-on: [self-hosted, Windows, windows-light]
+        run: node scripts/ci-catalogue-command.mjs ts-biome
+  frontend-dist:
+    name: frontend producer
+    needs: changed
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
-      actions: write
-    timeout-minutes: 8
+    timeout-minutes: 15
+    env:
+      CI_SOURCE_SHA: ${{ needs.changed.outputs.source_sha || github.sha }}
+      CODETERM_USE_SCCACHE: "0"
+      RUSTC_WRAPPER: ""
+      CI_CANCEL_RUN: "false"
+      CODETERM_SCCACHE_VERIFY_ONLY: "0"
+    steps:
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        id: ci-2
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        id: ci-1
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
+          fetch-depth: 1
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        id: ci-3
+        with:
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs bash,git,node,pnpm
+      - name: Install dependencies
+        id: ci-4
+        run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
+      - *select-pr-catalogue
+      - name: Build and typecheck frontend
+        id: ci-6
+        run: node scripts/ci-catalogue-command.mjs ts-typecheck
+
+  frontend-windows:
+    name: Windows path identity
+    needs: changed
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    timeout-minutes: 15
     defaults:
       run:
         shell: bash
+    env:
+      CI_SOURCE_SHA: ${{ needs.changed.outputs.source_sha || github.sha }}
+      CODETERM_USE_SCCACHE: "0"
+      RUSTC_WRAPPER: ""
+      CI_CANCEL_RUN: "false"
+      CODETERM_SCCACHE_VERIFY_ONLY: "0"
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          ref: ${{ inputs.source_ref || github.ref }}
       - name: Setup Node.js
+        id: ci-2
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
-          node-version: '22.22.0'
-
+          node-version: 22.22.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        id: ci-1
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
+          fetch-depth: 1
       - name: Setup pnpm
+        id: ci-3
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10.32.1
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
-
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs bash,git,node,pnpm
+      - name: Install dependencies
+        id: ci-4
+        run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
       - *select-pr-catalogue
-      # frontend-build installs through the bundle's own ensure_deps, from the mapped path.
-      - name: Build the release frontend from the stable build path
-        run: ${{ fromJSON(steps.catalogue.outputs.commands)['frontend-windows-build'] }}
-      - name: Store frontend warning collection
-        if: always()
-        continue-on-error: ${{ inputs.artifacts_optional }}
-        run: test ! -f ci-rust-warnings/rust-warnings-win32-frontend.json || bash scripts/ci-artifact.sh put "$GITHUB_RUN_ID/rust-warnings/rust-warnings-win32-frontend.json" ci-rust-warnings/rust-warnings-win32-frontend.json
-      - name: Upload artifacts spooled while the private store was unreachable
-        if: always()
-        uses: ./.github/actions/ci-artifact-spool
-      - *cancel-run-on-failure
-
+      - name: Check pnpm workspace path identity
+        id: ci-6
+        run: node scripts/ci-catalogue-command.mjs frontend-windows-build
   ts-types:
     name: ts generated types
-    needs: [changed, guards]
-    if: ${{ needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true' }}
-    runs-on: [self-hosted, light]
+    needs: changed
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
-      actions: write
-    timeout-minutes: 8
+    timeout-minutes: 20
+    env:
+      CI_SOURCE_SHA: ${{ needs.changed.outputs.source_sha || github.sha }}
+      CODETERM_USE_SCCACHE: "0"
+      RUSTC_WRAPPER: ""
+      CI_CANCEL_RUN: "false"
+      CODETERM_SCCACHE_VERIFY_ONLY: "0"
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          ref: ${{ inputs.source_ref || github.ref }}
-      - name: Ensure Rust toolchain on PATH
-        run: |
-          if command -v cargo >/dev/null 2>&1; then exit 0; fi
-          for dir in "${CARGO_HOME:-}/bin" "$HOME/.cargo/bin" /home/*/.cargo/bin /Users/*/.cargo/bin; do
-            if [ -x "$dir/cargo" ]; then echo "$dir" >> "$GITHUB_PATH"; exit 0; fi
-          done
-          echo "cargo not found; restore Rust on the runner" >&2
-          exit 1
       - name: Setup Node.js
+        id: ci-3
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
-          node-version: '22.22.0'
-
+          node-version: 22.22.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        id: ci-1
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
+          fetch-depth: 1
       - name: Setup pnpm
+        id: ci-4
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10.32.1
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
-
+      - name: Provision the pinned hosted Rust toolchain
+        if: runner.environment == 'github-hosted'
+        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
+        with:
+          toolchain: 1.99.1
+          components: clippy,rustfmt
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs bash,cargo,git,node,pnpm
       - name: Install dependencies
+        id: ci-5
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
       - *select-pr-catalogue
       - name: Reset compiler capture
+        id: ci-7
         continue-on-error: true
         run: node -e "require('fs').writeFileSync('ci-rust-warnings.log', '')"
       - name: Check Rust generated TypeScript types
-        run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash -c '${{ fromJSON(steps.catalogue.outputs.commands)['ts-generated-types'] }}'
-
-      - uses: ./.github/actions/rust-warnings
+        id: ci-8
+        run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- node scripts/ci-catalogue-command.mjs ts-generated-types
+      - name: Collect hosted compiler warnings
         if: always()
         continue-on-error: true
-        with:
-          complete: ${{ job.status == 'success' }}
-          platform: types-${{ runner.os }}
-          target: ${{ runner.os == 'macOS' && (runner.arch == 'ARM64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin') || runner.os == 'Windows' && 'x86_64-pc-windows-msvc' || 'x86_64-unknown-linux-gnu' }}
-      - name: Upload artifacts spooled while the private store was unreachable
-        if: always()
-        uses: ./.github/actions/ci-artifact-spool
+        run: node scripts/ci-rust-warning-artifact.mjs collect
+        env:
+          WARNING_PLATFORM: types-${{ runner.os }}
+          WARNING_TARGET: ${{ runner.os == 'macOS' && (runner.arch == 'ARM64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin') || runner.os == 'Windows' && 'x86_64-pc-windows-msvc' || 'x86_64-unknown-linux-gnu' }}
+          WARNING_COMPLETE: ${{ job.status == 'success' }}
+          WARNING_INPUT: ci-rust-warnings.log
       - *release-job-cache
-      - *cancel-run-on-failure
       - *clean-job-outputs
+      - name: Retain hosted warning evidence
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: hosted-rust-warnings-ts-types
+          path: ci-rust-warnings/*.json
+          if-no-files-found: error
+          retention-days: 3
 
   ts-unit:
     name: ts unit
-    needs: [changed, guards]
-    if: ${{ needs.changed.outputs.frontend == 'true' }}
-    runs-on: [self-hosted, light]
+    needs: changed
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.frontend == 'true') }}
+    # Air is idle until the Rust tier starts; the Ubuntu host compiles during the fast tier.
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
-      actions: write
-    timeout-minutes: 8
+    timeout-minutes: 15
+    env:
+      CI_SOURCE_SHA: ${{ needs.changed.outputs.source_sha || github.sha }}
+      CODETERM_USE_SCCACHE: "0"
+      RUSTC_WRAPPER: ""
+      CI_CANCEL_RUN: "false"
+      CODETERM_SCCACHE_VERIFY_ONLY: "0"
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          ref: ${{ inputs.source_ref || github.ref }}
       - name: Setup Node.js
+        id: ci-2
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
-          node-version: '22.22.0'
-
+          node-version: 22.22.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        id: ci-1
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
+          fetch-depth: 1
       - name: Setup pnpm
+        id: ci-3
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10.32.1
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
-
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs bash,git,node,pnpm
       - name: Install dependencies
+        id: ci-4
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
       - *select-pr-catalogue
       - name: Run TS unit tests
-        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-unit'] }}
+        id: ci-6
+        run: node scripts/ci-catalogue-command.mjs ts-unit
       - name: TS unit runner contracts
+        id: ci-7
         if: ${{ !cancelled() }}
-        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-unit-runner-tests'] }}
-      - *cancel-run-on-failure
-
+        run: node scripts/ci-catalogue-command.mjs ts-unit-runner-tests
   ts-vitest:
     name: ts vitest
-    needs: [changed, guards]
-    if: ${{ needs.changed.outputs.frontend == 'true' }}
-    runs-on: [self-hosted, light]
+    needs: changed
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.frontend == 'true') }}
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
-      actions: write
-    timeout-minutes: 8
+    timeout-minutes: 15
+    env:
+      CI_SOURCE_SHA: ${{ needs.changed.outputs.source_sha || github.sha }}
+      CODETERM_USE_SCCACHE: "0"
+      RUSTC_WRAPPER: ""
+      CI_CANCEL_RUN: "false"
+      CODETERM_SCCACHE_VERIFY_ONLY: "0"
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          ref: ${{ inputs.source_ref || github.ref }}
       - name: Setup Node.js
+        id: ci-2
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
-          node-version: '22.22.0'
-
+          node-version: 22.22.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        id: ci-1
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
+          fetch-depth: 1
       - name: Setup pnpm
+        id: ci-3
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10.32.1
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
-
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs bash,git,node,pnpm
       - name: Install dependencies
+        id: ci-4
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
       - *select-pr-catalogue
-      # run-ts-unit-tests.mjs deliberately skips the vitest-owned files, so this
-      # job is the only thing that runs them.
-      # Light runners share a 16 GiB BLACKSTAR WSL VM with a heavy runner; bound the worker fanout.
       - name: Run vitest-owned TS tests
-        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-vitest'] }}
-      - *cancel-run-on-failure
-
+        id: ci-6
+        run: node scripts/ci-catalogue-command.mjs ts-vitest
   ts-plugins:
     name: plugin bundles + tests
-    needs: [changed, guards]
-    if: ${{ needs.changed.outputs.rust == 'true' }}
-    runs-on: [self-hosted, light]
+    needs: changed
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.rust == 'true') }}
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
-      actions: write
-    timeout-minutes: 8
+    timeout-minutes: 15
+    env:
+      CI_SOURCE_SHA: ${{ needs.changed.outputs.source_sha || github.sha }}
+      CODETERM_USE_SCCACHE: "0"
+      RUSTC_WRAPPER: ""
+      CI_CANCEL_RUN: "false"
+      CODETERM_SCCACHE_VERIFY_ONLY: "0"
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          ref: ${{ inputs.source_ref || github.ref }}
       - name: Setup Node.js
+        id: ci-2
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
-          node-version: '22.22.0'
-
+          node-version: 22.22.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        id: ci-1
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
+          fetch-depth: 1
       - name: Setup pnpm
+        id: ci-3
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10.32.1
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
-
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs bash,git,node,pnpm
       - name: Install dependencies
+        id: ci-4
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
       - *select-pr-catalogue
       - name: Check generated plugin bundles
-        run: ${{ fromJSON(steps.catalogue.outputs.commands)['plugin-bundles'] }}
+        id: ci-6
+        run: node scripts/ci-catalogue-command.mjs plugin-bundles
       - name: Run plugin tests
+        id: ci-7
         if: ${{ !cancelled() }}
-        run: ${{ fromJSON(steps.catalogue.outputs.commands)['plugin-tests'] }}
-      - *cancel-run-on-failure
+        run: node scripts/ci-catalogue-command.mjs plugin-tests

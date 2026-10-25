@@ -7,6 +7,51 @@ const bash = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" 
 const source = readFileSync(new URL("../../build.sh", import.meta.url), "utf8").replaceAll("\r\n", "\n");
 const preparation = source.match(/^prepare_release_bundle_inputs\(\) \{\n[\s\S]*?^\}/m)?.[0];
 
+test('hosted native Windows arm64 preserves the initialized Visual Studio environment', () => {
+  const native = source.match(/^ct_msvc_native_arm64_env\(\) \{[\s\S]*?^\}/m)?.[0];
+  const guard = source.match(/^ct_assert_msvc_lib_arch\(\) \{[\s\S]*?^\}/m)?.[0];
+  assert.ok(native && guard);
+  const calls = execFileSync(bash, ['-s'], { encoding: 'utf8', input: `
+set -e
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+mkdir -p "$work/bin/Hostarm64/arm64"
+touch "$work/bin/Hostarm64/arm64/cl.exe" "$work/bin/Hostarm64/arm64/lib.exe"
+cygpath() { printf '%s' "$2"; }
+${guard}
+${native}
+export VCToolsInstallDir="$work/" VSCMD_ARG_HOST_ARCH=arm64 VSCMD_ARG_TGT_ARCH=arm64 LIB='C:/vc/lib/arm64;C:/sdk/um/arm64'
+ct_msvc_native_arm64_env
+test "$CC" = "$work/bin/Hostarm64/arm64/cl.exe"
+test "$AR_aarch64_pc_windows_msvc" = "$work/bin/Hostarm64/arm64/lib.exe"
+if VSCMD_ARG_HOST_ARCH=x64 ct_msvc_native_arm64_env 2>/dev/null; then exit 91; fi
+if LIB='C:/vc/lib/x64' ct_msvc_native_arm64_env 2>/dev/null; then exit 92; fi
+printf 'native tools and architecture refusals verified'
+` });
+  assert.equal(calls, 'native tools and architecture refusals verified');
+  const setup = source.match(/^setup_env\(\) \{[\s\S]*?^\}/m)?.[0];
+  assert.match(setup, /release-arm64-compile[\s\S]*?ct_msvc_native_arm64_env[\s\S]*?return/);
+});
+
+test('hosted arm64 freezes the handoff in its build session after unsigned bundle-only packaging', () => {
+  const entrypoint = source.match(/^  release-arm64-compile\)\n([\s\S]*?)^    ;;/m)?.[1];
+  assert.ok(entrypoint);
+  const calls = execFileSync(bash, ['-c', `
+set -e
+ensure_deps() { :; }
+prepare_release_bundle_inputs() { printf 'prepare <%s> <%s>\\n' "$1" "$CODETERM_RELEASE_COMMON_STAGE"; }
+bundle_common_stage() { printf 'bundle unsigned <%s>\\n' "$CODETERM_RELEASE_UNSIGNED"; }
+node() { printf 'node'; printf ' <%s>' "$@"; }
+set -- release-arm64-compile v1.2.3 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa '/tmp/archive with spaces.tar'
+${entrypoint}
+`], { encoding: 'utf8', env: { ...process.env, CARGO_BUILD_TARGET: 'aarch64-pc-windows-msvc', TAURI_SIGNING_PRIVATE_KEY: '', TAURI_SIGNING_PRIVATE_KEY_PATH: '', AWS_SECRET_ACCESS_KEY: '' } });
+  assert.equal(calls, 'prepare <bundle> <1>\nbundle unsigned <1>\nnode <scripts/release-arm64-handoff.mjs> <pack> <aarch64-pc-windows-msvc> <v1.2.3> <aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa> </tmp/archive with spaces.tar>');
+  const shared = source.match(/^bundle_common_stage\(\) \{[\s\S]*?^\}/m)?.[0];
+  assert.match(shared, /unsigned_config=\(--config '\{"bundle":\{"createUpdaterArtifacts":false\}\}'\)/);
+  assert.match(shared, /tauri build --no-bundle[^\n]*"\$\{unsigned_config\[@\]\}"/);
+  for (const bundles of ['nsis', 'deb,appimage']) assert.match(shared, new RegExp(`--bundles ${bundles} "\\$\\{unsigned_config\\[@\\]\\}"`));
+});
+
 test('shared-stage bundles preserve the final client bytes used by the component identity', () => {
   const files = [
     '../../build.sh', '../../.github/workflows/release-linux.yml',
@@ -214,5 +259,12 @@ enter_cargo_gateway ${verb}
 ${entrypoint}
 `], { encoding: 'utf8', env: { ...process.env, RUSTC_WRAPPER: '' } });
     assert.equal(result, 'fixture-wrapper', verb);
+    const failure = execFileSync(bash, ['-c', `
+enter_build_gateway() { :; }
+ct_configure_sccache() { return 42; }
+${gateway}
+if enter_cargo_gateway ${verb}; then exit 99; else printf '%s' "$?"; fi
+`], { encoding: 'utf8' });
+    assert.equal(failure, '42', verb);
   }
 });

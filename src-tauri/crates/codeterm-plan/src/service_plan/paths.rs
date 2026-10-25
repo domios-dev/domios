@@ -95,21 +95,7 @@ pub(crate) fn test_project_root(cwd: &Path) -> Option<PathBuf> {
 }
 
 fn main_worktree_root(cwd: &Path) -> Option<PathBuf> {
-    let mut cmd = Command::new("git");
-    process_util::no_window_std(&mut cmd);
-    let out = cmd
-        .current_dir(cwd)
-        .args(["rev-parse", "--path-format=absolute", "--git-common-dir"])
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let common_dir = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    if common_dir.is_empty() {
-        return None;
-    }
-    let common_dir = PathBuf::from(common_dir);
+    let (_, common_dir) = codeterm_util::git_checkout::paths(cwd).ok()?;
     if common_dir.file_name().and_then(|name| name.to_str()) != Some(".git") {
         return None;
     }

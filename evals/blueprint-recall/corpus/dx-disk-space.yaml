@@ -1,0 +1,18 @@
+schema_version: 1
+name: Disk space low
+note: Probe free disk space on the root volume and notify when it crosses the low-space line.
+inputs:
+  df_probe:
+    type: string
+    description: Read-only command printing ok or low for root volume free space
+watch:
+  probe: '{{df_probe}}'
+  question: is-disk-space-low
+  buckets: [ok, low]
+  matches: {ok: '(?m)^ok$', low: '(?m)^low$'}
+  every: 10m
+  timeout: 30d
+  rearm_on_change: [low]
+  routes:
+    ok: none
+    low: notify

@@ -1,0 +1,41 @@
+{
+  "reference_commit": "de6597ca53b1fcf6d37b4eb4585ef3410ff63780",
+  "entries": {
+    "checks-fan-in": {
+      "reference_sha256": "9c0466b388ae8449d834989f862d011bf755994833df40127267ee3527bd4159",
+      "product_sha256": "b5f22d57cc5e77f5dff62015eea7a7d53e79d3dd969aacc3c57b7033ec58061e"
+    },
+    "command-lines": {
+      "reference_sha256": "f124fdcf91175d13ca10cf443b005b4c62c98c432ee3c2aa56701b0ee62eb41b",
+      "product_sha256": "bfad2291e78465f4ab9aeb8cf325ea7cd64776f9d3fe2f3e47e8bbff3d709777"
+    },
+    "github-pr-checks": {
+      "reference_sha256": "ff8f13805c7bf3cbef72ef39772f32d2da2f81c70f8c7b76cdcea67392d9007c",
+      "product_sha256": "86f766c4f777a6d584ea3ed62344d7c1e9d78090aa1847f4b2b423e0119a4e24"
+    },
+    "github-run-jobs": {
+      "reference_sha256": "a083960e907ae69b4d6a86b566cb315a779ad572fda022806c70ea5941008c2b",
+      "product_sha256": "6229593a71f52f5b74c1405d0a3bf7fa5e4fe29b302f6e2e7864f91463899a57"
+    },
+    "github-runners": {
+      "reference_sha256": "b576266fc40e991b197dbe1b95f48f9a88583d12e140493acaa46caef6a434f6",
+      "product_sha256": "62f50b758384e328b222d5c2161d39ff9128e892b7888095eaf406c4408c01ae"
+    },
+    "latency-percentiles": {
+      "reference_sha256": "89c6fc839a6ce6a9dae0e63db4d9ad84c56275cfbfa5c84f18d92e07c1909221",
+      "product_sha256": "9be5ad3ba93d085d1f3c6f95d0a4422dccc681f2436582dd6af0b24c864c3816"
+    },
+    "log-dedupe": {
+      "reference_sha256": "a6ece8e856fd647f58fbc51f377c8aea12c984407ac86a2caa9a2a2f1b6149a6",
+      "product_sha256": "a297d6c553ae0befc9cdb9042e8806906f523d5bf34dfa0718b2993a3c87e5c7"
+    },
+    "rule-classifier": {
+      "reference_sha256": "b6863add760d1c3ccd176ed79879bb1127b6888f8c9a54d539ca9c950057c430",
+      "product_sha256": "d2cdbd291bb9236c0d9241139605db4954971360bb2e4f0a67dc29f60fc38ff0"
+    },
+    "severity-grade": {
+      "reference_sha256": "26bbf869de852afc10f46f40036698fec743ced86faa9994ff12267f152c0b7d",
+      "product_sha256": "97c2a0d82cfe5e7980bf2eaf9adc03c87547610860f59157b1e85a965891e058"
+    }
+  }
+}

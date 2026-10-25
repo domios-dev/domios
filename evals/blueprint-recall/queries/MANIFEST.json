@@ -1,0 +1,521 @@
+{
+ "about": "Sealed held-out sets for gate B (PREREG-b3.md). b3: B1's single confirmation; b4: B-emb-eval's winner confirmation; b3_ru: B1's embedder-ladder item (c). Verify a set's sha256 before its run.",
+ "prereg": {
+  "eval/retrieval_b3/PREREG-b3.md": "6a651d763a066fda27a5b4081e1f15c6e412d694",
+  "eval/retrieval_b3/stories-b3.json": "6a651d763a066fda27a5b4081e1f15c6e412d694",
+  "eval/retrieval_b3/stories-b4.json": "6a651d763a066fda27a5b4081e1f15c6e412d694",
+  "eval/retrieval_b3/filter_b3.py": "6a651d763a066fda27a5b4081e1f15c6e412d694"
+ },
+ "first_session_unix": 1792674635.706,
+ "last_session_unix": 1792674902.549,
+ "sessions_total": 110,
+ "session_cwds_new_and_empty": true,
+ "command_template": "cd \"$(mktemp -d \"$PWD/eval/runs/heldout.XXXX\")\" && /Users/kandrey/.local/bin/claude -p --model opus --effort high --output-format json --tools '' --strict-mcp-config --no-session-persistence \"<prompt>\"",
+ "prompts": {
+  "b3": "eval/retrieval/heldout/run_heldout.py PROMPT",
+  "b4": "eval/retrieval/heldout/run_heldout.py PROMPT",
+  "ru": "A user describes their situation:\n\n\"{story}\"\n\nWrite exactly one request, one sentence under 20 words, in Russian, that this user might type into an automation tool's search box to find an existing automation for this situation. Use your own words rather than repeating the situation's wording.\n\nReply with JSON only, no prose: {{\"paraphrases\": [\"<request in Russian>\"]}}"
+ },
+ "filter": "eval/retrieval_b3/filter_b3.py: E2's filter_paraphrase.accept rule with ALLOWLIST stems exempt",
+ "allowlist": {
+  "runner": [
+   "github-org-runners",
+   "github-runners"
+  ],
+  "self-hosted": [
+   "github-org-runners",
+   "github-runners"
+  ],
+  "check": [
+   "github",
+   "github-pr-checks",
+   "github-pr-ci-watch"
+  ],
+  "CI": [
+   "github"
+  ],
+  "PR": [
+   "github",
+   "github-pr-ci-watch"
+  ],
+  "pull request": [
+   "github-pr-checks"
+  ],
+  "prompt": [
+   "launch-prompt-gate",
+   "prompt-responder"
+  ],
+  "permission": [
+   "prompt-responder"
+  ],
+  "agent": [
+   "prompt-responder"
+  ],
+  "cron": [
+   "cron-run-watch"
+  ],
+  "build": [
+   "wait-for-build"
+  ],
+  "release": [
+   "release-preflight"
+  ],
+  "HTTP": [
+   "http-health"
+  ],
+  "endpoint": [
+   "http-health"
+  ],
+  "URL": [
+   "health-triage"
+  ],
+  "voice note": [
+   "voice-note-to-text"
+  ]
+ },
+ "sets": {
+  "b3": {
+   "file": "eval/retrieval_b3/queries/set_b3.jsonl",
+   "sha256": "c220935ea1105cbee7d4838a5ab3e45ebac087f22d9d368b0667c063057205ec",
+   "stories": "eval/retrieval_b3/stories-b3.json",
+   "queries": 38,
+   "sessions": 50,
+   "per_story": 2,
+   "max_attempts": 10,
+   "starved": [
+    "echo"
+   ],
+   "incomplete": [],
+   "per_original": {
+    "all-finished": {
+     "accepted": 2,
+     "sessions": 1,
+     "status": "complete"
+    },
+    "cron-run-watch": {
+     "accepted": 2,
+     "sessions": 2,
+     "status": "complete"
+    },
+    "dev-run-health": {
+     "accepted": 2,
+     "sessions": 2,
+     "status": "complete"
+    },
+    "echo": {
+     "accepted": 0,
+     "sessions": 10,
+     "status": "starved"
+    },
+    "github": {
+     "accepted": 2,
+     "sessions": 5,
+     "status": "complete"
+    },
+    "github-org-runners": {
+     "accepted": 2,
+     "sessions": 2,
+     "status": "complete"
+    },
+    "github-pr-checks": {
+     "accepted": 2,
+     "sessions": 1,
+     "status": "complete"
+    },
+    "github-pr-ci-watch": {
+     "accepted": 2,
+     "sessions": 3,
+     "status": "complete"
+    },
+    "github-runners": {
+     "accepted": 2,
+     "sessions": 2,
+     "status": "complete"
+    },
+    "health-triage": {
+     "accepted": 2,
+     "sessions": 2,
+     "status": "complete"
+    },
+    "http-health": {
+     "accepted": 2,
+     "sessions": 2,
+     "status": "complete"
+    },
+    "launch-prompt-gate": {
+     "accepted": 2,
+     "sessions": 2,
+     "status": "complete"
+    },
+    "plan-review-gate": {
+     "accepted": 2,
+     "sessions": 4,
+     "status": "complete"
+    },
+    "prompt-responder": {
+     "accepted": 2,
+     "sessions": 1,
+     "status": "complete"
+    },
+    "release-preflight": {
+     "accepted": 2,
+     "sessions": 2,
+     "status": "complete"
+    },
+    "retry-until-pass": {
+     "accepted": 2,
+     "sessions": 2,
+     "status": "complete"
+    },
+    "service-health": {
+     "accepted": 2,
+     "sessions": 1,
+     "status": "complete"
+    },
+    "team-watch": {
+     "accepted": 2,
+     "sessions": 2,
+     "status": "complete"
+    },
+    "voice-note-to-text": {
+     "accepted": 2,
+     "sessions": 2,
+     "status": "complete"
+    },
+    "wait-for-build": {
+     "accepted": 2,
+     "sessions": 2,
+     "status": "complete"
+    }
+   }
+  },
+  "b4": {
+   "file": "eval/retrieval_b3/queries/set_b4.jsonl",
+   "sha256": "3d9da7cd5d10ff345b5628a18f61151c03138893aab3dd4ab51bb6f5d2a4ec6b",
+   "stories": "eval/retrieval_b3/stories-b4.json",
+   "queries": 40,
+   "sessions": 40,
+   "per_story": 2,
+   "max_attempts": 10,
+   "starved": [],
+   "incomplete": [],
+   "per_original": {
+    "all-finished": {
+     "accepted": 2,
+     "sessions": 1,
+     "status": "complete"
+    },
+    "cron-run-watch": {
+     "accepted": 2,
+     "sessions": 2,
+     "status": "complete"
+    },
+    "dev-run-health": {
+     "accepted": 2,
+     "sessions": 3,
+     "status": "complete"
+    },
+    "echo": {
+     "accepted": 2,
+     "sessions": 3,
+     "status": "complete"
+    },
+    "github": {
+     "accepted": 2,
+     "sessions": 2,
+     "status": "complete"
+    },
+    "github-org-runners": {
+     "accepted": 2,
+     "sessions": 2,
+     "status": "complete"
+    },
+    "github-pr-checks": {
+     "accepted": 2,
+     "sessions": 1,
+     "status": "complete"
+    },
+    "github-pr-ci-watch": {
+     "accepted": 2,
+     "sessions": 3,
+     "status": "complete"
+    },
+    "github-runners": {
+     "accepted": 2,
+     "sessions": 2,
+     "status": "complete"
+    },
+    "health-triage": {
+     "accepted": 2,
+     "sessions": 1,
+     "status": "complete"
+    },
+    "http-health": {
+     "accepted": 2,
+     "sessions": 1,
+     "status": "complete"
+    },
+    "launch-prompt-gate": {
+     "accepted": 2,
+     "sessions": 2,
+     "status": "complete"
+    },
+    "plan-review-gate": {
+     "accepted": 2,
+     "sessions": 4,
+     "status": "complete"
+    },
+    "prompt-responder": {
+     "accepted": 2,
+     "sessions": 1,
+     "status": "complete"
+    },
+    "release-preflight": {
+     "accepted": 2,
+     "sessions": 2,
+     "status": "complete"
+    },
+    "retry-until-pass": {
+     "accepted": 2,
+     "sessions": 3,
+     "status": "complete"
+    },
+    "service-health": {
+     "accepted": 2,
+     "sessions": 2,
+     "status": "complete"
+    },
+    "team-watch": {
+     "accepted": 2,
+     "sessions": 2,
+     "status": "complete"
+    },
+    "voice-note-to-text": {
+     "accepted": 2,
+     "sessions": 2,
+     "status": "complete"
+    },
+    "wait-for-build": {
+     "accepted": 2,
+     "sessions": 1,
+     "status": "complete"
+    }
+   }
+  },
+  "ru": {
+   "file": "eval/retrieval_b3/queries/set_b3_ru.jsonl",
+   "sha256": "ad8937ce0f72b361a48279593d29c242a5c055830a158aa3a41b68c73fa50214",
+   "stories": "eval/retrieval_b3/stories-b3.json",
+   "queries": 20,
+   "sessions": 20,
+   "per_story": 1,
+   "max_attempts": 3,
+   "starved": [],
+   "incomplete": [],
+   "per_original": {
+    "all-finished": {
+     "accepted": 1,
+     "sessions": 1,
+     "status": "complete"
+    },
+    "cron-run-watch": {
+     "accepted": 1,
+     "sessions": 1,
+     "status": "complete"
+    },
+    "dev-run-health": {
+     "accepted": 1,
+     "sessions": 1,
+     "status": "complete"
+    },
+    "echo": {
+     "accepted": 1,
+     "sessions": 1,
+     "status": "complete"
+    },
+    "github": {
+     "accepted": 1,
+     "sessions": 1,
+     "status": "complete"
+    },
+    "github-org-runners": {
+     "accepted": 1,
+     "sessions": 1,
+     "status": "complete"
+    },
+    "github-pr-checks": {
+     "accepted": 1,
+     "sessions": 1,
+     "status": "complete"
+    },
+    "github-pr-ci-watch": {
+     "accepted": 1,
+     "sessions": 1,
+     "status": "complete"
+    },
+    "github-runners": {
+     "accepted": 1,
+     "sessions": 1,
+     "status": "complete"
+    },
+    "health-triage": {
+     "accepted": 1,
+     "sessions": 1,
+     "status": "complete"
+    },
+    "http-health": {
+     "accepted": 1,
+     "sessions": 1,
+     "status": "complete"
+    },
+    "launch-prompt-gate": {
+     "accepted": 1,
+     "sessions": 1,
+     "status": "complete"
+    },
+    "plan-review-gate": {
+     "accepted": 1,
+     "sessions": 1,
+     "status": "complete"
+    },
+    "prompt-responder": {
+     "accepted": 1,
+     "sessions": 1,
+     "status": "complete"
+    },
+    "release-preflight": {
+     "accepted": 1,
+     "sessions": 1,
+     "status": "complete"
+    },
+    "retry-until-pass": {
+     "accepted": 1,
+     "sessions": 1,
+     "status": "complete"
+    },
+    "service-health": {
+     "accepted": 1,
+     "sessions": 1,
+     "status": "complete"
+    },
+    "team-watch": {
+     "accepted": 1,
+     "sessions": 1,
+     "status": "complete"
+    },
+    "voice-note-to-text": {
+     "accepted": 1,
+     "sessions": 1,
+     "status": "complete"
+    },
+    "wait-for-build": {
+     "accepted": 1,
+     "sessions": 1,
+     "status": "complete"
+    }
+   }
+  }
+ },
+ "gold": {
+  "all-finished": [
+   "all-finished",
+   "all-finished-st",
+   "all-finished-sem"
+  ],
+  "cron-run-watch": [
+   "cron-run-watch",
+   "cron-run-watch-st",
+   "cron-run-watch-sem"
+  ],
+  "dev-run-health": [
+   "dev-run-health",
+   "dev-run-health-st",
+   "dev-run-health-sem"
+  ],
+  "echo": [
+   "echo",
+   "echo-st",
+   "echo-sem"
+  ],
+  "github": [
+   "github",
+   "github-st",
+   "github-sem"
+  ],
+  "github-org-runners": [
+   "github-org-runners",
+   "github-org-runners-st",
+   "github-org-runners-sem"
+  ],
+  "github-pr-checks": [
+   "github-pr-checks",
+   "github-pr-checks-st",
+   "github-pr-checks-sem"
+  ],
+  "github-pr-ci-watch": [
+   "github-pr-ci-watch",
+   "github-pr-ci-watch-st",
+   "github-pr-ci-watch-sem"
+  ],
+  "github-runners": [
+   "github-runners",
+   "github-runners-st",
+   "github-runners-sem"
+  ],
+  "health-triage": [
+   "health-triage",
+   "health-triage-st",
+   "health-triage-sem"
+  ],
+  "http-health": [
+   "http-health",
+   "http-health-st",
+   "http-health-sem"
+  ],
+  "launch-prompt-gate": [
+   "launch-prompt-gate",
+   "launch-prompt-gate-st",
+   "launch-prompt-gate-sem"
+  ],
+  "plan-review-gate": [
+   "plan-review-gate",
+   "plan-review-gate-st",
+   "plan-review-gate-sem"
+  ],
+  "prompt-responder": [
+   "prompt-responder",
+   "prompt-responder-st",
+   "prompt-responder-sem"
+  ],
+  "release-preflight": [
+   "release-preflight",
+   "release-preflight-st",
+   "release-preflight-sem"
+  ],
+  "retry-until-pass": [
+   "retry-until-pass",
+   "retry-until-pass-st",
+   "retry-until-pass-sem"
+  ],
+  "service-health": [
+   "service-health",
+   "service-health-st",
+   "service-health-sem"
+  ],
+  "team-watch": [
+   "team-watch",
+   "team-watch-st",
+   "team-watch-sem"
+  ],
+  "voice-note-to-text": [
+   "voice-note-to-text",
+   "voice-note-to-text-st",
+   "voice-note-to-text-sem"
+  ],
+  "wait-for-build": [
+   "wait-for-build",
+   "wait-for-build-st",
+   "wait-for-build-sem"
+  ]
+ }
+}

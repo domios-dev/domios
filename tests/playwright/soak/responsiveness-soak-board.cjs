@@ -6,6 +6,7 @@
  * monitor and plan-board busy-state coverage. Measurement lane only.
  */
 const { chromium } = require("@playwright/test");
+const { devConnection } = require("../../../evals/_lib/connection.cjs");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -17,8 +18,7 @@ const DURATION_MS = Number(process.env.SOAK_DURATION_MS || 120000);
 const DATADIR = process.env.SOAK_DATADIR || path.join(os.homedir(), ".domios-dev-soak");
 
 function readToken() {
-  const cfg = fs.readFileSync(path.join(DATADIR, "config.toml"), "utf8");
-  return cfg.match(/^token\s*=\s*"([^"]+)"/m)[1];
+  return devConnection({ dataDir: DATADIR, apiPort: Number(PORT) }).token;
 }
 
 async function main() {

@@ -1,4 +1,17 @@
 use super::*;
+
+#[test]
+fn retirement_requires_boundary_termination_and_confirmed_exit() {
+    for (terminated, exited, confirmed) in [
+        (false, false, false),
+        (false, true, false),
+        (true, false, false),
+        (true, true, true),
+    ] {
+        assert_eq!(retirement_confirmed(terminated, exited), confirmed);
+    }
+}
+
 fn args(values: &[&str]) -> Vec<String> {
     values.iter().map(|value| (*value).into()).collect()
 }

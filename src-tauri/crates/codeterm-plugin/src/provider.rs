@@ -1,3 +1,5 @@
+pub mod cli_login;
+pub use cli_login::{CliLoginCapability, CliLoginMethod};
 mod model_switch_transcript;
 pub enum LaunchSpecParams<'a> {
     Fresh(&'a AgentLaunchParams),
@@ -27,6 +29,24 @@ pub struct ContextAttach {
     pub editable: bool,
     #[serde(default)]
     pub read_only: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AttachmentCapabilities {
+    pub file_paths: bool,
+    pub inline_text: bool,
+    pub image_paths: bool,
+}
+
+impl Default for AttachmentCapabilities {
+    fn default() -> Self {
+        Self {
+            file_paths: false,
+            inline_text: true,
+            image_paths: false,
+        }
+    }
 }
 
 pub use reply_relay::{
@@ -250,10 +270,16 @@ pub use worker_lane_setting::*;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ProviderDescriptor {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub general_agent_offer_when_absent: bool,
+    #[serde(default)]
+    pub attachments: AttachmentCapabilities,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote_task: Option<crate::remote_tasks::RemoteTaskCapability>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_runtime: Option<crate::agent_runtime::AgentRuntimeCapability>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cli_login: Option<CliLoginCapability>,
     #[serde(default)]
     pub supports_session_fork: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -405,7 +431,7 @@ pub struct ProviderUpdateAvailability {
 }
 
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
-pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 23;
+pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 25;
 
 /// One provider-owned usage log to ingest for a session. `session_id` scopes a
 /// log shared by many sessions (e.g. one sqlite database); a per-session file

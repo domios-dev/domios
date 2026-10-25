@@ -92,9 +92,8 @@ console.log(`lane-check complete: ${count} assertions passed`);
 const { missingTarget } = await import('./model.mjs');
 equal(commands('automation'), [
   ['npx', 'tsc', '--noEmit'],
-  ['node', 'scripts/run-ts-unit-tests.mjs', 'src/components/Automation/nodeDetailsModel.test.ts', 'src/components/Automation/CommandResultDetails.test.tsx', 'src/components/Automation/AutomationGraphView.test.tsx'],
+  ['node', 'scripts/run-ts-unit-tests.mjs', 'src/components/Automation/AutomationGraphView.test.tsx'],
 ]);
-equal(missingTarget(commands('automation')[1], file => !file.endsWith('nodeDetailsModel.test.ts')), 'src/components/Automation/nodeDetailsModel.test.ts');
 equal(missingTarget(commands('automation')[1], file => !file.endsWith('AutomationGraphView.test.tsx')), 'src/components/Automation/AutomationGraphView.test.tsx');
 equal(missingTarget(commands('automation')[1], () => true), undefined);
 equal(decision({ active: false, claimed: ['turn-1'], lastHash: 'hash-1' }, 'turn-2', 'hash-1'), 'waiting');

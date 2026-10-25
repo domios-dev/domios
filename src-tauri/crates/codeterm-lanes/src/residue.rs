@@ -54,6 +54,13 @@ fn snapshot(canonical: &str) -> Result<RepositorySnapshot, String> {
                 .map_err(|_| "non-UTF-8 worktree path".to_string())
         })
         .collect::<Result<Vec<_>, _>>()?;
+    snapshot_with_worktrees(canonical, worktrees)
+}
+
+fn snapshot_with_worktrees(
+    canonical: &str,
+    worktrees: Vec<String>,
+) -> Result<RepositorySnapshot, String> {
     let tracked = git(canonical, &["ls-files", "-z"])?;
     let tracked = tracked
         .stdout
@@ -152,12 +159,20 @@ fn inspect(
         .worktrees
         .iter()
         .any(|name| crate::worker_lane::same_path(name, &path.to_string_lossy()));
+    let linked = safe_tree::is_link(&metadata);
+    if let Some(reason) = residue_decision(
+        is_registered,
+        crate::worker_lane::same_path(canonical, &path.to_string_lossy()),
+        linked,
+        true,
+    ) {
+        return Ok(Some(reason.into()));
+    }
     let tracked_source = snapshot
         .tracked
         .iter()
         .filter(|name| !matches!(name.to_str(), Some("README" | "README.md")))
         .any(|name| std::fs::symlink_metadata(path.join(name)).is_ok());
-    let linked = safe_tree::is_link(&metadata);
     if let Some(reason) = residue_decision(
         is_registered,
         crate::worker_lane::same_path(canonical, &path.to_string_lossy()),
@@ -171,6 +186,22 @@ fn inspect(
 }
 
 pub fn inventory(canonical: &str, tabs: &[LiveTabCwd]) -> Result<Vec<Residue>, String> {
+    inventory_using(canonical, tabs, None)
+}
+
+pub fn inventory_with_worktrees(
+    canonical: &str,
+    tabs: &[LiveTabCwd],
+    worktrees: &[String],
+) -> Result<Vec<Residue>, String> {
+    inventory_using(canonical, tabs, Some(worktrees))
+}
+
+fn inventory_using(
+    canonical: &str,
+    tabs: &[LiveTabCwd],
+    worktrees: Option<&[String]>,
+) -> Result<Vec<Residue>, String> {
     let root = worktree_root(Path::new(canonical))?;
     let root = match std::fs::canonicalize(&root) {
         Ok(root) => root,
@@ -182,7 +213,10 @@ pub fn inventory(canonical: &str, tabs: &[LiveTabCwd]) -> Result<Vec<Residue>, S
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => return Err(format!("{}: {error}", root.display())),
     };
-    let snapshot = snapshot(canonical)?;
+    let snapshot = match worktrees {
+        Some(worktrees) => snapshot_with_worktrees(canonical, worktrees.to_vec())?,
+        None => snapshot(canonical)?,
+    };
     let mut rows = Vec::new();
     for entry in directories {
         let path = entry.map_err(|error| error.to_string())?.path();

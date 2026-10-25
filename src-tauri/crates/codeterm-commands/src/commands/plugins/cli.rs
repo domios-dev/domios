@@ -19,7 +19,26 @@ pub(super) fn run_plugin_cli(args: &[impl AsRef<str>]) -> Result<Value, String> 
         data_root: codeterm_service_core::paths::data_dir(),
         version: codeterm_build_info::installed_version().map(str::to_string),
     };
-    codeterm_plugins::run(ctx, action)
+    with_install_lifecycle(|| codeterm_plugins::run(ctx, action))
+}
+
+struct DaemonInstallLifecycle;
+
+impl codeterm_plugins::InstallLifecycle for DaemonInstallLifecycle {
+    fn install(
+        &self,
+        id: &str,
+        destination: &std::path::Path,
+        operation: &mut codeterm_plugins::InstallOperation<'_>,
+    ) -> Result<(), String> {
+        codeterm_plugin::js_runtime::hot_reload::with_quiesced_install(id, destination, |reload| {
+            operation(reload)
+        })
+    }
+}
+
+pub(super) fn with_install_lifecycle<T>(operation: impl FnOnce() -> T) -> T {
+    codeterm_plugins::with_install_lifecycle(std::sync::Arc::new(DaemonInstallLifecycle), operation)
 }
 
 /// Map the daemon's `["plugin", <verb>, …, "--json"]` argument vector to a typed

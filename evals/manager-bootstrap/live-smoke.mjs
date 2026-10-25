@@ -1,23 +1,18 @@
+import { devConnection } from "../_lib/connection.mjs";
 import { mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 
-const API = "http://127.0.0.1:7686";
+const { api: API, token: devToken } = devConnection();
 const DEADLINE_MS = 90_000;
 const STARTER = readFileSync(
   resolve("src-tauri/prompts/team_bootstrap_starter.md"),
   "utf8",
 ).trim();
 
-function token() {
-  const config = readFileSync(resolve(homedir(), ".codeterm-dev/config.toml"), "utf8");
-  const match = config.match(/^token\s*=\s*"([^"]+)"/m);
-  if (!match) throw new Error("dev API token is missing");
-  return match[1];
-}
 
 const headers = {
-  Authorization: `Bearer ${token()}`,
+  Authorization: `Bearer ${devToken}`,
   "Content-Type": "application/json",
 };
 

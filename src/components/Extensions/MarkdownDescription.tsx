@@ -4,6 +4,7 @@
  * aren't fetched (a README could beacon arbitrary hosts) — rendered as a caption instead.
  */
 import Markdown from "react-markdown";
+import { MarkdownLink } from "@codeterm/chat-ui";
 import remarkGfm from "remark-gfm";
 import type { CSSProperties } from "react";
 
@@ -21,9 +22,9 @@ export function MarkdownDescription({ markdown }: { markdown: string }) {
           h3: ({ children }) => <h4 style={{ fontSize: 13.5, fontWeight: 600, margin: "12px 0 6px" }}>{children}</h4>,
           p: ({ children }) => <p style={{ margin: "0 0 10px" }}>{children}</p>,
           a: ({ href, children }) => (
-            <a href={href} target="_blank" rel="noreferrer noopener" style={{ color: "var(--ct-accent, #818cf8)" }}>
+            <MarkdownLink href={href} style={{ color: "var(--ct-accent, #818cf8)" }}>
               {children}
-            </a>
+            </MarkdownLink>
           ),
           ul: ({ children }) => <ul style={{ margin: "0 0 10px", paddingLeft: 20 }}>{children}</ul>,
           ol: ({ children }) => <ol style={{ margin: "0 0 10px", paddingLeft: 20 }}>{children}</ol>,

@@ -7,7 +7,7 @@ import { AnchoredPopover } from "./AnchoredPopover";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const window = new Window({ url: "http://localhost/anchored-popover" });
-for (const key of ["window", "document", "navigator", "HTMLElement", "Element", "Node", "KeyboardEvent", "PointerEvent", "MouseEvent"] as const) {
+for (const key of ["window", "document", "navigator", "HTMLElement", "Element", "Node", "KeyboardEvent", "PointerEvent", "MouseEvent", "MutationObserver"] as const) {
   Object.defineProperty(globalThis, key, { value: key === "window" ? window : (window as unknown as Record<string, unknown>)[key], configurable: true });
 }
 
@@ -87,4 +87,44 @@ test("an Escape the popover's content already handled is left alone", async () =
   await view.escape("field");
   assert.deepEqual(closes, []);
   await view.unmount();
+});
+
+const OPTION_HEIGHT = 40;
+const CHROME_HEIGHT = 24;
+
+function GrowingList({ count }: { count: number }) {
+  const trigger = useRef<HTMLButtonElement>(null);
+  return (
+    <>
+      <button ref={trigger} type="button">Mention</button>
+      <AnchoredPopover open anchor={trigger}>
+        <div style={{ maxHeight: "inherit" }}>
+          <div role="listbox" aria-label="Suggestions">
+            {Array.from({ length: count }, (_, index) => <div key={index} role="option" aria-selected={false}>{index}</div>)}
+          </div>
+        </div>
+      </AnchoredPopover>
+    </>
+  );
+}
+
+test("the popover grows to fit options that arrive after it was first measured", async () => {
+  const offsetHeight = Object.getOwnPropertyDescriptor(window.HTMLElement.prototype, "offsetHeight");
+  Object.defineProperty(window.HTMLElement.prototype, "offsetHeight", { configurable: true, get(this: HTMLElement) {
+    return this.hasAttribute("data-anchored-popover") ? CHROME_HEIGHT + this.querySelectorAll('[role="option"]').length * OPTION_HEIGHT : 0;
+  } });
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<GrowingList count={0} />));
+    const popover = () => document.querySelector<HTMLElement>("[data-anchored-popover]")!;
+    assert.equal(popover().style.maxHeight, `${CHROME_HEIGHT}px`);
+    await act(async () => root.render(<GrowingList count={8} />));
+    assert.equal(popover().style.maxHeight, `${CHROME_HEIGHT + 8 * OPTION_HEIGHT}px`);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    if (offsetHeight) Object.defineProperty(window.HTMLElement.prototype, "offsetHeight", offsetHeight);
+  }
 });

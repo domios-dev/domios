@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import type { ChatSend, NormalizedChatMessage, SendEcho } from "@codeterm/chat-core";
-import { applyDeliveryStatus, canDeleteChatSend, deliveryState, reconcileDeliveryStatusesModel, reconcileAdmissionEvidence, type AdmissionEvidence, type DeliveryDraft, type DeliverySend } from "./chatDeliveryModel";
+import { applyDeliveryStatus, canRetryChatSend, canDeleteChatSend, deliveryState, reconcileDeliveryStatusesModel, reconcileAdmissionEvidence, type AdmissionEvidence, type DeliveryDraft, type DeliverySend } from "./chatDeliveryModel";
 import type { ChatSendStatus } from "./chatSendStatus";
 import { uid } from "../../lib/uid";
 import {
@@ -461,8 +461,8 @@ export function reconcileDeliveryStatuses(
 export function beginChatSendRetry(tabId: string, id: string): DeliverySend | undefined {
   const current = readChatSends(tabId);
   const send = current.find((item) => item.id === id);
-  if (!send || deleting.has(deletionKey(tabId, id)) || send.dismissed || send.status?.system_send || deliveryState(send) !== "failed") return;
-  const next = { ...send, requestFailed: false, requestUncertain: false, requestHadResponse: undefined, status: undefined,
+  if (!send || deleting.has(deletionKey(tabId, id)) || !canRetryChatSend(send)) return;
+  const next = { ...send, requestFailed: false, requestUncertain: false, requestHadResponse: undefined, admissionSettled: undefined, status: undefined,
     matchedRow: undefined, correlationId: uid() };
   publish(tabId, current.map((item) => item.id === id ? next : item));
   return next;

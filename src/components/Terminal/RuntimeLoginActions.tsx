@@ -10,15 +10,18 @@ import { BusyState } from "../shared/BusyState";
 const primary = "inline-flex items-center gap-2 rounded-md bg-[var(--ct-accent)] px-3 py-1.5 text-sm font-medium text-[var(--ct-bg)] transition-opacity hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ct-border-focus)] disabled:opacity-50";
 const quiet = "inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-[var(--ct-muted-fg)] transition-colors hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ct-border-focus)] disabled:opacity-50";
 
-export function RuntimeLoginActions({ tabId, state, iconSvg, onCheck }: {
-  tabId: string; state: AgentRuntimeState; iconSvg?: string | null; onCheck?: () => void;
+export function RuntimeLoginActions({ tabId, state, iconSvg, onCheck, providerId }: {
+  providerId?: string; tabId: string; state: AgentRuntimeState; iconSvg?: string | null; onCheck?: () => void;
 }) {
   const [keyEntry, setKeyEntry] = useState(false);
+  const [code, setCode] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [copied, setCopied] = useState(false);
-  const { busy, error, operate } = useRuntimeLogin(tabId);
+  const [sentLogin, setSentLogin] = useState<string | undefined>();
+  const { busy, error, operate } = useRuntimeLogin(tabId, providerId);
   const remote = tabId.startsWith("mesh:");
-  const login = state.login;
+  const expired = state.login?.status === "pending" && state.login.expiresAtMs != null && state.login.expiresAtMs <= Date.now();
+  const login = expired ? { ...state.login, status: "failed" as const, url: undefined, userCode: undefined, error: "Sign-in expired. Cancel it and try again." } : state.login;
   const pending = login?.status === "pending";
   const provider = state.loginProviderName ?? "the provider";
   const methods = state.loginMethods ?? [];
@@ -64,9 +67,14 @@ export function RuntimeLoginActions({ tabId, state, iconSvg, onCheck }: {
             {login.url && <a href={login.url} target="_blank" rel="noopener noreferrer" aria-label="Open sign-in page"
               className={primary} onClick={openLink(login.url)}>Open sign-in page</a>}
             {!login.url && <BusyState inline label="Waiting for sign-in" className="px-1 text-sm text-[var(--ct-muted-fg)]" />}
+            {login.url && <button className={quiet} type="button" disabled={busy || sentLogin === login.loginId}
+              onClick={() => { void operate({ action: "notify" }).then(sent => { if (sent) setSentLogin(login.loginId); }); }}>{sentLogin === login.loginId ? "Notification requested" : "Send to my phone"}</button>}
             <button className={quiet} type="button" disabled={busy || !login.loginId} onClick={() => { void operate({ action: "cancel" }); }}>Cancel</button>
           </> : <>
-            {methods.includes("browser") && <button className={primary} type="button" disabled={busy}
+            {login?.loginId && login.error && <button className={quiet} type="button" disabled={busy} onClick={() => { void operate({action:"cancel"}); }}>Cancel expired sign-in</button>}
+            {state.loginChoices?.map(choice => <button key={choice.id} className={primary} type="button" disabled={busy}
+              onClick={() => { void operate({ method: "browser", account: choice.id }); }}>{choice.label}</button>)}
+            {!state.loginChoices?.length && methods.includes("browser") && <button className={primary} type="button" disabled={busy}
               onClick={() => { void operate({ method: "browser" }); }}>Continue in browser</button>}
             {methods.includes("device") && <button className={quiet} type="button" disabled={busy}
               onClick={() => { void operate({ method: "device" }); }}><Monitor size={15} aria-hidden="true" />Use a code</button>}
@@ -74,9 +82,16 @@ export function RuntimeLoginActions({ tabId, state, iconSvg, onCheck }: {
               onClick={() => setKeyEntry(true)}><KeyRound size={15} aria-hidden="true" />Use an API key</button>}
             {!remote && state.loginTerminal && <button className={quiet} type="button" disabled={busy}
               onClick={() => { void operate({ action: "terminal" }); }}><SquareTerminal size={15} aria-hidden="true" />Use a terminal</button>}
-            {onCheck && <button className={`${quiet} ml-auto`} type="button" disabled={busy} onClick={onCheck}>I already signed in</button>}
+            {onCheck && <button className={`${quiet} ml-auto`} type="button" disabled={busy} onClick={state.loginChoices?.length ? () => { void operate({ action: "check" }); } : onCheck}>I already signed in</button>}
           </>}
         </div>}
+
+        {pending && login.url && state.loginCodeInput && !remote && <form aria-label="Sign-in code" className="mt-3 flex items-center gap-2"
+          onSubmit={event => { event.preventDefault(); const value = code; setCode(""); void operate({ action: "code", code: value }); }}>
+          <input type="password" aria-label="Sign-in code" value={code} autoComplete="off" spellCheck={false}
+            onChange={event => setCode(event.target.value)} placeholder="Paste a code if your browser provides one" className="min-w-0 flex-1 rounded-md border border-[var(--ct-border)] bg-[var(--ct-bg)] px-2 py-1 text-sm" />
+          <button type="submit" className={primary} disabled={busy || !code.trim()}>Submit code</button>
+        </form>}
 
         {failure && <InlineErrorNotice error={failure} operation="signing in to the provider" blocking />}
       </div>

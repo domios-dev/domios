@@ -24,6 +24,8 @@ permissions:
 jobs:
   validate:
     name: publish and verify all platform manifests
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && ((startsWith(github.ref, 'refs/heads/release/') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.path == '.github/workflows/tests.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.actor.login == 'rollacode' && github.event.workflow_run.triggering_actor.login == 'rollacode' && startsWith(github.event.workflow_run.head_branch, 'release/'))) }}
+    environment: release
     runs-on: [self-hosted, linux-build]
     timeout-minutes: 30
     env:
@@ -31,17 +33,38 @@ jobs:
       SOURCE_REPO: ${{ github.repository }}
       MIRROR_REPO: rollacode/codeterm-releases
     steps:
-      - name: Checkout
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          ref: ${{ inputs.source_ref }}
-          fetch-depth: 0
 
+      - name: Use the runner bundled Node
+        if: runner.environment == 'self-hosted'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            const path = require('node:path');
+            core.addPath(path.dirname(process.execPath));
+            core.info('Using runner Node ' + process.version);
       - name: Setup Node.js
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
-          node-version: '22.22.0'
+          node-version: 22.22.0
+        if: runner.environment == 'github-hosted'
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12"
+        if: runner.environment == 'github-hosted'
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.source_ref }}
+          fetch-depth: 1
+      - name: Discover installed runner tools
+        if: runner.environment == 'self-hosted'
+        run: node scripts/ci-runner-paths.mjs --paths-only
+      - name: Fetch scoped publication history
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci-git-history.mjs publication
 
       - name: Resolve release tag
         id: release
@@ -65,6 +88,17 @@ jobs:
             echo "version=$version"
             echo "source_sha=$source_sha"
           } >> "$GITHUB_OUTPUT"
+
+      - name: Recheck exact-SHA dev qualification before publication
+        env:
+          QUALIFICATION_SHA: ${{ inputs.source_sha }}
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            const {pathToFileURL} = require('node:url');
+            const {requireQualificationWithGithub} = await import(pathToFileURL(process.env.GITHUB_WORKSPACE + '/scripts/ci-workflow-api.mjs').href);
+            const sha = process.env.QUALIFICATION_SHA || require('node:child_process').execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+            await requireQualificationWithGithub(github, context, sha);
 
       - name: Stamp the source release tag after all gates succeed
         env:

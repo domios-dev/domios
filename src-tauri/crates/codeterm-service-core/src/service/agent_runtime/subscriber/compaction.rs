@@ -13,6 +13,9 @@ pub(crate) struct CompactionState {
 }
 
 impl CompactionState {
+    pub(crate) fn observed(&self, epoch: u64) -> bool {
+        self.epoch == Some(epoch) && !self.completed.is_empty()
+    }
     fn claim(&mut self, epoch: u64, item: &str) -> bool {
         if self.epoch != Some(epoch) {
             self.epoch = Some(epoch);

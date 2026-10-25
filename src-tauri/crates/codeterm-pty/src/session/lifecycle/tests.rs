@@ -12,6 +12,7 @@ use crate::session::store::{
 mod compaction_replay;
 mod journal_repair;
 mod permission_auto_confirm;
+mod runtime_exit;
 
 #[test]
 fn failed_resume_target_survives_compaction_without_granting_binding_authority() {
@@ -105,6 +106,7 @@ fn identity(epoch: Option<u64>, operation: Option<&str>) -> AgentIdentitySnapsho
 
 fn leaf(tab_id: &str) -> SplitNodeSnapshot {
     SplitNodeSnapshot::Leaf {
+        created_at_ms: 0,
         purpose: Default::default(),
         icon: None,
         shell_profile: None,
@@ -251,6 +253,7 @@ fn snapshot(leaves: Vec<SplitNodeSnapshot>) -> SessionSnapshot {
         active_workspace_id: Some("ws".into()),
         teams: vec![],
         workspaces: vec![WorkspaceSnapshot {
+            created_at_ms: 0,
             task_keys: Default::default(),
             id: "ws".into(),
             name: "Main".into(),

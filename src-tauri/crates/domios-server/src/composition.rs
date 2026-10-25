@@ -11,22 +11,6 @@ pub struct ComposedService {
     pub frontend_bundles: Option<Arc<codeterm_frontend_bundle::FrontendBundles>>,
 }
 
-pub fn compose(
-    ui_factory: impl FnOnce(codeterm_events::EventBroadcasterState) -> Arc<dyn UiEvents>,
-    shell: Arc<dyn Shell>,
-    frontend_dev_url: Option<url::Url>,
-    resource_dir: Option<std::path::PathBuf>,
-) -> Result<ComposedService, String> {
-    compose_observed(
-        ui_factory,
-        shell,
-        frontend_dev_url,
-        resource_dir,
-        None,
-        None,
-    )
-}
-
 pub(crate) fn compose_observed(
     ui_factory: impl FnOnce(codeterm_events::EventBroadcasterState) -> Arc<dyn UiEvents>,
     shell: Arc<dyn Shell>,
@@ -34,14 +18,17 @@ pub(crate) fn compose_observed(
     resource_dir: Option<std::path::PathBuf>,
     worker_observer: Option<std::sync::mpsc::SyncSender<mem::supervisor::observation::WorkerSpawn>>,
     quit_port: Option<codeterm_api::app_quit_routes::AppQuitPortHandle>,
+    prepared: startup::early_api::PreparedStartup,
 ) -> Result<ComposedService, String> {
+    let api = prepared.api;
     if let Some(resources) = &resource_dir {
         startup::setup_conpty_host(resources)?;
     }
     codeterm_service_core::raise_fd_limit();
     pty::shell_integration::ensure_scripts();
 
-    let states = startup::init_states();
+    let states = startup::init_states(prepared.config, prepared.control);
+    api.complete("states");
     let ui = ui_factory(states.event_broadcaster.clone());
     codeterm_service_core::service::seed_bundled_skills();
     codeterm_service_core::service::mirror_skills_to_providers();
@@ -189,6 +176,12 @@ pub(crate) fn compose_observed(
     }
 
     {
+        if let Err(error) = codeterm_plugins::cleanup_stale_staging(codeterm_plugins::PluginCtx {
+            data_root: codeterm_service_core::paths::data_dir(),
+            version: codeterm_build_info::installed_version().map(str::to_string),
+        }) {
+            log::warn!("[plugin/bootstrap] staging cleanup failed: {error}");
+        }
         match codeterm_plugins::retire_unshipped_system_plugins(codeterm_plugins::PluginCtx {
             data_root: codeterm_service_core::paths::data_dir(),
             version: codeterm_build_info::installed_version().map(str::to_string),
@@ -329,6 +322,7 @@ pub(crate) fn compose_observed(
     agent::model_catalog::refresh_example_files();
 
     startup::refresh_providers(&agent_registry);
+    api.complete("providers");
 
     let prompt_detector = Arc::new(Mutex::new(agent::prompt::PromptDetector::new()));
     let (bridge_outbound_tx, bridge_outbound_rx) = bridge::manager::create_outbound_channel();
@@ -395,6 +389,7 @@ pub(crate) fn compose_observed(
             .ext::<Arc<mem::supervisor::Supervisor>>()
             .observe_spawns(observer);
     }
+    codeterm_service_core::mem_ops::embedder::start(&service_state);
     codeterm_service_core::ports::orchestration::install(&service_state);
     service_state
         .chat_send_ledger
@@ -453,6 +448,8 @@ pub(crate) fn compose_observed(
         }
         let _ = chatbackend_registry.start_discovery();
     }
+    let _ = codeterm_service_core::async_runtime::block_on(service_state.billing());
+    service_state.sync_limit_gate();
     codeterm_service_core::service::agent_runtime::restore_all(&service_state);
     codeterm_service_core::service::lazy_restore::initialize(
         &service_state,
@@ -476,6 +473,7 @@ pub(crate) fn compose_observed(
     codeterm_service_core::service::start_plan_reminder_scheduler(service_state.clone());
     drop(startup_step);
 
+    api.complete("service");
     let plan_started = std::time::Instant::now();
     let startup_step = startup::StartupStep::logged("restored plan loading");
     startup::restore_plans(&service_state);
@@ -484,91 +482,11 @@ pub(crate) fn compose_observed(
         "[boot-operation] restored plan loading elapsed_ms={}",
         plan_started.elapsed().as_millis()
     );
+    api.complete("plans");
 
-    let startup_step = startup::StartupStep::logged("background service initialization");
-    {
-        let store = service_state.services_store.clone();
-        let activity = codeterm_service_core::service::activity::ActivityWriter::new(store.conn());
-        codeterm_service_core::service::health::scheduler::start(
-            store,
-            activity,
-            service_state.ui.clone(),
-        );
-    }
-    {
-        let supervisor = service_state
-            .ext::<Arc<codeterm_service_core::mem::supervisor::Supervisor>>()
-            .clone();
-        codeterm_service_core::async_runtime::spawn(async move {
-            loop {
-                match supervisor
-                    .run(codeterm_service_core::mem::supervisor::WorkerKind::LibrarianOnce)
-                    .await
-                {
-                    Ok(report) => log::info!("[librarian] {}", report),
-                    Err(e) => log::warn!("[librarian] {}", e),
-                }
-                tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
-            }
-        });
-    }
+    startup::background_init::initialize(&service_state);
 
-    {
-        let mem = service_state.mem.clone();
-        codeterm_service_core::async_runtime::spawn(async move {
-            let mem_for_build = mem.clone();
-            let _ = codeterm_service_core::async_runtime::spawn_blocking(move || {
-                if mem_for_build.layout_needs_rebuild() {
-                    match mem_for_build.run_full_layout() {
-                        Ok(v) => log::info!("[graph_layout] startup build v{v}"),
-                        Err(e) => log::warn!("[graph_layout] startup build: {e}"),
-                    }
-                }
-            })
-            .await;
-            loop {
-                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                mem.layout_flush_if_due();
-            }
-        });
-    }
-    if codeterm_service_core::config::memory_config().auto_extract {
-        let svc_for_extract = service_state.clone();
-        let queued =
-            codeterm_service_core::mem_host::resume_extract_pending(svc_for_extract, usize::MAX);
-        if queued > 0 {
-            log::info!(
-                "[mem] startup: resuming extraction for {} pending item(s)",
-                queued
-            );
-        }
-    }
-
-    {
-        let log_store =
-            codeterm_service_core::logs::LogStore::open(&codeterm_service_core::paths::data_dir())
-                .expect("app_logs.db init");
-        log_store.attach_ui(service_state.ui.clone());
-        codeterm_service_core::logs::set_global(log_store.clone());
-        log_store.start_flush_loop();
-    }
-
-    {
-        let poller = codeterm_service_core::usage::UsagePoller::new(
-            (*service_state).clone(),
-            service_state.usage_store.clone(),
-            service_state
-                .ext::<codeterm_service_core::usage::TabActivity>()
-                .clone(),
-        );
-        *service_state
-            .ext::<codeterm_service_core::usage::poller::UsagePollerSlot>()
-            .0
-            .lock() = Some(poller.clone());
-        poller.spawn();
-    }
-    drop(startup_step);
-
+    api.complete("background");
     let platform_started = std::time::Instant::now();
     let startup_step = startup::StartupStep::logged("platform and server initialization");
 
@@ -668,6 +586,7 @@ pub(crate) fn compose_observed(
         "[boot-operation] platform and server initialization elapsed_ms={}",
         platform_started.elapsed().as_millis()
     );
+    api.complete("platform");
 
     Ok(ComposedService {
         states,

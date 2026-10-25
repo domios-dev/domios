@@ -25,6 +25,25 @@ __export(plugin_exports, {
   parseOf: () => parseOf
 });
 module.exports = __toCommonJS(plugin_exports);
+
+// plugins/browser/src/redaction.ts
+var CREDENTIALS = /* @__PURE__ */ new Set(["token", "access_token", "api_token", "key", "secret", "password"]);
+function redactCredentials(text) {
+  return text.replace(
+    /(^|[?#&;\s"'<>`()\[\]{}\\])([^=?#&;\s"'<>`()\[\]{}\\]+)=([^?#&;\s"'<>`()\[\]{}\\]*)/g,
+    (match, prefix, name) => {
+      let decoded;
+      try {
+        decoded = decodeURIComponent(name.replace(/\+/g, " ")).toLowerCase();
+      } catch {
+        return match;
+      }
+      return CREDENTIALS.has(decoded) ? `${prefix}${name}=REDACTED` : match;
+    }
+  );
+}
+
+// plugins/browser/src/plugin.ts
 function hostSurfaceCall() {
   return typeof host === "object" && host && host.surface ? host.surface.call : void 0;
 }
@@ -52,10 +71,14 @@ function parseOf(raw) {
 }
 function forward(ctx, call = hostSurfaceCall()) {
   if (!call) return { error: "host.surface is unavailable in this Domios build" };
-  const verb = ctx.verb || "help";
+  const secret = ctx.body;
+  const verb = secret !== void 0 && ctx.verb === "type" ? "type-secret" : ctx.verb || "help";
+  if (secret !== void 0 && ctx.verb !== "type") return { error: "Browser body input is supported only by type" };
   const parsed = parseOf(Array.isArray(ctx.args) ? ctx.args : []);
   if ("error" in parsed) return { error: parsed.error };
+  if (secret !== void 0) parsed.args.push(secret);
   const payload = parsed.of === void 0 ? parsed.args : { args: parsed.args, of: parsed.of };
+  const redact = (text) => redactCredentials(secret ? text.split(secret).join("REDACTED") : text);
   let reply;
   try {
     reply = JSON.parse(call(verb, JSON.stringify(payload)));
@@ -64,8 +87,8 @@ function forward(ctx, call = hostSurfaceCall()) {
   }
   if (reply && typeof reply === "object") {
     const { result, error } = reply;
-    if (typeof error === "string") return { error };
-    if (typeof result === "string") return { result };
+    if (typeof error === "string") return { error: redact(error) };
+    if (typeof result === "string") return { result: redact(result) };
   }
   return { error: `the browser runtime returned no answer for ${verb}` };
 }

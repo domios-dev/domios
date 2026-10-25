@@ -35,7 +35,7 @@ pub fn plan_due(
         .map(|job| job.id.clone())
         .collect();
     for job in jobs.iter_mut() {
-        if job.machine.stopped {
+        if job.machine.stopped || !job.admission.permits_steps() {
             continue;
         }
         if job.expires_at.is_some_and(|at| now >= at) {
@@ -92,12 +92,15 @@ pub fn plan_due(
         if matches!(job.observe(), Some(TabBinding::CronRun(_))) && job.run.is_none() {
             continue;
         }
-        if job.pipeline().is_some_and(|pipeline| {
-            matches!(
-                &pipeline.trigger,
-                codeterm_blueprint_types::blueprint_pipeline::Trigger::Event { .. }
-            )
-        }) {
+        if job.admission.continuation.is_none()
+            && job.pipeline().is_some_and(|pipeline| {
+                matches!(
+                    &pipeline.trigger,
+                    codeterm_blueprint_types::blueprint_pipeline::Trigger::Event { .. }
+                        | codeterm_blueprint_types::blueprint_pipeline::Trigger::Webhook { .. }
+                )
+            })
+        {
             continue;
         }
         let input_trigger = job.pipeline().is_some_and(|pipeline| {
@@ -107,7 +110,9 @@ pub fn plan_due(
             )
         });
         let text_event = job.terminal().is_some() || job.input().is_some();
-        let due_now = if text_event {
+        let due_now = if job.admission.continuation.is_some() || job.admission.baseline_pending {
+            true
+        } else if text_event {
             wake_pending.contains(&job.id)
                 || (job.input().is_some()
                     && job.next_run

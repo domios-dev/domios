@@ -35,11 +35,14 @@ pub(crate) fn start_background_tasks(
                         // Offline: skip peer polling/cleanup; peers timeout naturally.
                         continue;
                     }
-                    mesh::discovery::cleanup_stale_peers(&mesh);
-                    mesh.lock().cleanup_expired_requests();
                     let (peers, sync_payload, signed_token) = {
                         let mut m = mesh.lock();
-                        let peers: Vec<_> = m.paired_peers.values().cloned().collect();
+                        let peers: Vec<_> = m
+                            .paired_peers
+                            .values()
+                            .filter(|peer| m.traffic_open(&peer.instance_id))
+                            .cloned()
+                            .collect();
                         let token = m.sign_request().ok();
                         let payload = m.build_sync_payload();
                         (peers, payload, token)
@@ -54,13 +57,15 @@ pub(crate) fn start_background_tasks(
                             let signed_token = signed_token.clone();
                             let port = peer.api_port;
                             let ip = addr.ip.clone();
+                            let mesh = mesh.clone();
+                            let peer_id = peer.instance_id.clone();
                             async move {
                                 let client = if let Some(ref tok) = signed_token {
                                     mesh::transport::PeerClient::new_signed(&ip, port, tok)
                                 } else {
                                     mesh::transport::PeerClient::new_unauthenticated(&ip, port)
                                 };
-                                if client.ping().await {
+                                if mesh::disconnect::ping_peer(&mesh, &peer_id, &client).await {
                                     mesh::transport::TryNext::Success(client)
                                 } else {
                                     mesh::transport::TryNext::Retry("ping failed".to_string())
@@ -72,6 +77,10 @@ pub(crate) fn start_background_tasks(
                             Ok(c) => (true, Some(c)),
                             Err(_) => (false, None),
                         };
+                        if !mesh.lock().paired_peers.contains_key(&peer.instance_id) {
+                            changed = true;
+                            continue;
+                        }
                         let (online, was_online) = {
                             let mut m = mesh.lock();
                             if let Some(p) = m.paired_peers.get_mut(&peer.instance_id) {
@@ -127,15 +136,8 @@ pub(crate) fn start_background_tasks(
                             };
                             log::debug!("[mesh] Peer {} {} — syncing", peer.instance_name, reason);
                             let Some(client) = client else { continue };
-                            if let Ok(their_payload) = client.send_sync(&sync_payload).await {
+                            if client.send_sync(&sync_payload).await.is_ok() {
                                 last_sync_secs.insert(peer.instance_id.clone(), now_secs);
-                                let mut m = mesh.lock();
-                                m.apply_gossip_snapshot(
-                                    &peer.instance_id,
-                                    their_payload.generation,
-                                    &their_payload.peers,
-                                    now_secs,
-                                );
                                 changed = true;
                             }
                         }

@@ -31,7 +31,7 @@ use crate::signal_extractor::{SignalExtractor, StreamSignals};
 use codeterm_pty::attributed_screen::PickerDetection;
 
 fn render_terminal_fixture(text: &str, cols: u16, rows: u16) -> (Vec<String>, u16) {
-    let mut state = codeterm_pty::pty::screen_state::ScreenState::new();
+    let state = codeterm_pty::pty::screen_state::ScreenState::new();
     state.resize("fixture", cols, rows);
     let terminal_text = text.lines().collect::<Vec<_>>().join("\r\n");
     state.process(

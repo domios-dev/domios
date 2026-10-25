@@ -3,6 +3,9 @@ use crate::service::ServiceState;
 use std::time::Duration;
 
 pub(super) async fn deliver(svc: &ServiceState, msg: &DelayedMessage) -> Result<(), String> {
+    if msg.turn_retry.is_some() {
+        return crate::service::agent_runtime::capacity_retry::deliver(svc, msg).await;
+    }
     let ready = {
         let service = svc.clone();
         let tab_id = msg.tab_id.clone();

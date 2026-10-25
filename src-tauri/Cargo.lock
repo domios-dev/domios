@@ -1074,7 +1074,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm"
-version = "1.15.2"
+version = "1.15.3"
 dependencies = [
  "async-trait",
  "codeterm-build-info",
@@ -1120,13 +1120,18 @@ version = "0.0.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
+ "codeterm-entitlements",
+ "codeterm-util",
+ "ed25519-dalek",
  "log",
+ "parking_lot",
  "rand 0.8.5",
  "reqwest 0.12.28",
  "security-framework",
  "serde",
  "serde_json",
  "sha2",
+ "tempfile",
  "tokio",
  "url",
  "windows-sys 0.61.2",
@@ -1213,6 +1218,7 @@ dependencies = [
  "codeterm-build-info",
  "codeterm-commands",
  "codeterm-decision",
+ "codeterm-entitlements",
  "codeterm-events",
  "codeterm-frontend-bundle",
  "codeterm-frontend-shell",
@@ -1279,12 +1285,17 @@ dependencies = [
 name = "codeterm-blueprint-types"
 version = "0.0.0"
 dependencies = [
+ "libc",
  "regex",
+ "schemars 0.8.22",
  "serde",
  "serde_json",
  "serde_yaml",
+ "sha2",
+ "shell-words",
  "url",
  "uuid",
+ "windows-sys 0.61.2",
  "yaml-rust2",
 ]
 
@@ -1625,6 +1636,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "serde_yaml",
  "sha2",
  "sqlite-vec",
  "tempfile",
@@ -1633,6 +1645,7 @@ dependencies = [
  "ulid",
  "uuid",
  "windows-sys 0.61.2",
+ "zeroize",
 ]
 
 [[package]]
@@ -1651,10 +1664,10 @@ dependencies = [
 name = "codeterm-mesh"
 version = "0.0.0"
 dependencies = [
- "aes-gcm",
  "base64 0.22.1",
  "chrono",
  "codeterm-build-info",
+ "codeterm-entitlements",
  "codeterm-paths",
  "codeterm-types",
  "codeterm-util",
@@ -1663,7 +1676,6 @@ dependencies = [
  "hostname",
  "if-addrs",
  "log",
- "mdns-sd",
  "parking_lot",
  "rand 0.8.5",
  "reqwest 0.12.28",
@@ -1673,7 +1685,6 @@ dependencies = [
  "sha2",
  "tokio",
  "uuid",
- "x25519-dalek",
 ]
 
 [[package]]
@@ -1782,6 +1793,7 @@ dependencies = [
  "codeterm-decision",
  "codeterm-local-recording",
  "codeterm-paths",
+ "codeterm-plugins",
  "codeterm-provider-signals",
  "codeterm-types",
  "codeterm-usage",
@@ -1843,6 +1855,7 @@ dependencies = [
  "core-foundation",
  "libc",
  "security-framework",
+ "sha2",
  "windows-sys 0.61.2",
 ]
 
@@ -1903,6 +1916,7 @@ dependencies = [
  "arc-swap",
  "base64 0.22.1",
  "codeterm-build-info",
+ "codeterm-entitlements",
  "codeterm-paths",
  "codeterm-provider-signals",
  "codeterm-storage",
@@ -2017,7 +2031,9 @@ dependencies = [
  "codeterm-blueprint-types",
  "codeterm-cron",
  "codeterm-decision",
+ "codeterm-entitlements",
  "codeterm-events",
+ "codeterm-mem",
  "codeterm-plugin",
  "codeterm-pty",
  "codeterm-sentinel",
@@ -2027,6 +2043,8 @@ dependencies = [
  "codeterm-types",
  "codeterm-util",
  "cron",
+ "hmac",
+ "libc",
  "log",
  "parking_lot",
  "regex",
@@ -2978,6 +2996,7 @@ checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
 dependencies = [
  "block-buffer",
  "crypto-common",
+ "subtle",
 ]
 
 [[package]]
@@ -3102,6 +3121,8 @@ dependencies = [
 name = "domios-server"
 version = "0.0.0"
 dependencies = [
+ "async-stream",
+ "axum",
  "chrono",
  "codeterm-api",
  "codeterm-billing",
@@ -3110,6 +3131,7 @@ dependencies = [
  "codeterm-events",
  "codeterm-frontend-bundle",
  "codeterm-frontend-shell",
+ "codeterm-mem",
  "codeterm-orchestration",
  "codeterm-plan",
  "codeterm-plugin",
@@ -3133,6 +3155,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "tokio",
+ "tower",
  "url",
  "uuid",
  "widestring",
@@ -4336,6 +4359,15 @@ dependencies = [
  "thiserror 2.0.18",
  "ureq",
  "windows-sys 0.60.2",
+]
+
+[[package]]
+name = "hmac"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
+dependencies = [
+ "digest",
 ]
 
 [[package]]
@@ -7991,6 +8023,16 @@ dependencies = [
  "cfg-if",
  "cpufeatures",
  "digest",
+ "sha2-asm",
+]
+
+[[package]]
+name = "sha2-asm"
+version = "0.6.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b845214d6175804686b2bd482bcffe96651bb2d1200742b712003504a2dac1ab"
+dependencies = [
+ "cc",
 ]
 
 [[package]]

@@ -1,0 +1,99 @@
+{
+  "duration_api_ms": 11806,
+  "stop_reason": "end_turn",
+  "session_id": "c37eba55-0f0f-44fd-a4c8-352d5150b371",
+  "total_cost_usd": 0.030438,
+  "usage": {
+    "input_tokens": 9,
+    "cache_creation_input_tokens": 11527,
+    "cache_read_input_tokens": 0,
+    "output_tokens": 1475,
+    "output_tokens_details": {
+      "thinking_tokens": 1382
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 11527,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "not_available",
+    "iterations": [
+      {
+        "input_tokens": 9,
+        "output_tokens": 1475,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 11527,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 11527
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-haiku-4-5-20251001": {
+      "inputTokens": 9,
+      "outputTokens": 1475,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 11527,
+      "webSearchRequests": 0,
+      "costUSD": 0.030438,
+      "contextWindow": 200000,
+      "maxOutputTokens": 32000,
+      "thinkingTokens": 1382,
+      "canonicalModel": "claude-haiku-4-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 1,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "WHAT: This Blueprint monitors GitHub runner availability for a specific organization. It checks on a schedule whether tagged build machines are reachable and counts how many are currently connected. Useful for ops teams managing CI/CD infrastructure health. || INTENT: Monitor GitHub runner availability by tag || INTENT: Check how many CI runners are online || INTENT: Track build machine fleet health || INTENT: Verify runner connectivity for organization",
+  "ttft_ms": 11904,
+  "type": "result",
+  "duration_ms": 12372,
+  "uuid": "48da716b-b70c-41a2-ac67-c375ad9912eb",
+  "ttft_stream_ms": 1138,
+  "time_to_request_ms": 489,
+  "first_content_frame_ms": 1138,
+  "queued_turn_count": 0,
+  "result_index": 0
+}

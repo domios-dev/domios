@@ -1,5 +1,4 @@
 use super::support::{admin, free, paid, with, LocalSigner, T};
-use crate::activation::{access_source, AccessSource, Phase};
 use crate::payload::{Authority, TransitionReason};
 use crate::verdict::{compiled_free, TimeState};
 use serde_json::json;
@@ -12,10 +11,12 @@ fn online_windows_are_half_open() {
         let p = grant.payload();
         assert_eq!(
             (p.refresh_after, p.expires_at, p.grace_until),
-            (T + 1_800, T + 3_600, T + 3_600)
+            (T + 3_600, T + 86_400, T + 86_400)
         );
         let cases = [
-            (T - 1, TimeState::NotYetValid),
+            (T - 301, TimeState::NotYetValid),
+            (T - 300, TimeState::Fresh),
+            (T - 120, TimeState::Fresh),
             (T, TimeState::Fresh),
             (p.refresh_after - 1, TimeState::Fresh),
             (p.refresh_after, TimeState::Stale),
@@ -35,10 +36,10 @@ fn earlier_period_end_ends_paid_access_without_a_tail() {
     let early = signer.accept(&with(paid(), json!({"period_end": T + 900})), T);
     assert_eq!(early.verdict(T + 899).state, TimeState::Fresh);
     assert_eq!(early.verdict(T + 900).state, TimeState::Expired);
-    let mid = signer.accept(&with(paid(), json!({"period_end": T + 2_700})), T);
-    assert_eq!(mid.verdict(T + 2_699).state, TimeState::Stale);
-    assert_eq!(mid.verdict(T + 2_700).state, TimeState::Expired);
-    assert_eq!(mid.verdict(T + 2_700).effective(), compiled_free());
+    let mid = signer.accept(&with(paid(), json!({"period_end": T + 43_200})), T);
+    assert_eq!(mid.verdict(T + 43_199).state, TimeState::Stale);
+    assert_eq!(mid.verdict(T + 43_200).state, TimeState::Expired);
+    assert_eq!(mid.verdict(T + 43_200).effective(), compiled_free());
 }
 
 #[test]
@@ -51,7 +52,7 @@ fn effective_access_falls_back_to_compiled_free_outside_retention() {
     let retained = grant.verdict(grant.payload().expires_at - 1);
     assert_eq!(retained.effective().authority, Authority::Billing);
     assert!(retained.effective().perks.priority_support);
-    for now in [T - 1, grant.payload().expires_at] {
+    for now in [T - 301, grant.payload().expires_at] {
         let verdict = grant.verdict(now);
         assert_eq!(verdict.effective(), compiled_free());
         assert_eq!(
@@ -63,17 +64,11 @@ fn effective_access_falls_back_to_compiled_free_outside_retention() {
 }
 
 #[test]
-fn phases_choose_the_access_source() {
+fn verified_grant_is_paid_with_a_clock_two_minutes_behind() {
     let signer = LocalSigner::new();
-    let verdict = signer.accept(&paid(), T).verdict(T);
+    let grant = signer.accept(&paid(), T - 120);
     assert_eq!(
-        access_source(Phase::A, Some(&verdict)),
-        AccessSource::Envelope
+        grant.verdict(T - 120).effective().authority,
+        Authority::Billing
     );
-    assert_eq!(access_source(Phase::A, None), AccessSource::Envelope);
-    assert_eq!(
-        access_source(Phase::B, Some(&verdict)),
-        AccessSource::Verdict
-    );
-    assert_eq!(access_source(Phase::B, None), AccessSource::CompiledFree);
 }

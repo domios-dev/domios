@@ -1,15 +1,21 @@
 {
   "id": "opencode",
-  "version": "1.14.9",
-  "minCodeterm": "1.14.9",
+  "version": "1.14.13",
+  "minCodeterm": "1.15.2",
   "hostApi": 2,
   "capabilities": {
+    "attachments": {
+      "filePaths": true,
+      "inlineText": true,
+      "imagePaths": true
+    },
     "agentProvider": true,
     "modelProviderConfig": true,
     "decisionModel": {
       "tokenMode": "none"
     }
   },
+  "generalAgentOfferWhenAbsent": true,
   "displayName": "OpenCode",
   "binaryName": "opencode",
   "cliBinary": "opencode",

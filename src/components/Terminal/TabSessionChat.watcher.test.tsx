@@ -1,5 +1,6 @@
 // Run: npx tsx src/components/Terminal/TabSessionChat.watcher.test.tsx
 
+import { mock } from "node:test";
 import { act } from "react";
 import { Window } from "happy-dom";
 import { createRoot, type Root } from "react-dom/client";
@@ -101,7 +102,7 @@ function muxActions(
     deleteNotification: noop,
     clearNotifications: noop,
     dismissToast: noop,
-    setTabTitle: noop,
+    renameTab: noop,
     setAgentType: noop,
     updateTabStatus: noop,
     spawnClaudeTab: noop,
@@ -498,35 +499,40 @@ test("launch failure uses the shared failure surface without an automatic retry"
 });
 
 test("T7 awaiting-store keeps the composer identity, draft, and focus", async () => {
-  const tabId = "pending-composer-tab";
-  const state = muxStateFor({
-    [tabId]: tabBase(tabId, { agent_session_id: "bound-session" }),
-  });
-  const { host, root, commands } = await renderTabSessionChat(
-    tabId,
-    state,
-    () => ({ text: "", offset: 0, pending: true }),
-  );
-  const composer = host.querySelector('[data-testid="chat-composer"]') as HTMLTextAreaElement | null;
-  assert(composer, "empty chat keeps its composer available");
-  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
-  setter?.call(composer, "typing without reset");
-  composer.dispatchEvent(new Event("input", { bubbles: true }));
-  composer.setSelectionRange(7, 7);
-  composer.focus();
+  mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"] });
+  try {
+    const tabId = "pending-composer-tab";
+    const state = muxStateFor({
+      [tabId]: tabBase(tabId, { agent_session_id: "bound-session" }),
+    });
+    const { host, root, commands } = await renderTabSessionChat(
+      tabId,
+      state,
+      () => ({ text: "", offset: 0, pending: true }),
+    );
+    const composer = host.querySelector('[data-testid="chat-composer"]') as HTMLTextAreaElement | null;
+    assert(composer, "empty chat keeps its composer available");
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+    setter?.call(composer, "typing without reset");
+    composer.dispatchEvent(new Event("input", { bubbles: true }));
+    composer.setSelectionRange(7, 7);
+    composer.focus();
 
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 1_100)));
+    await act(async () => mock.timers.tick(1_100));
 
-  const currentComposer = host.querySelector('[data-testid="chat-composer"]') as HTMLTextAreaElement | null;
-  assert(currentComposer === composer, "pending empty chat did not remount the composer");
-  assert(currentComposer.value === "typing without reset", "typed draft survived pending chat state");
-  assert(currentComposer.selectionStart === 7, "caret position survived pending chat state");
-  assert(document.activeElement === composer, "composer focus survived pending chat state");
-  assert(commands.filter((command) => command === "chat_start").length === 1, "awaiting-store chat does not poll or remount");
-  await act(async () => root.unmount());
+    const currentComposer = host.querySelector('[data-testid="chat-composer"]') as HTMLTextAreaElement | null;
+    assert(currentComposer === composer, "pending empty chat did not remount the composer");
+    assert(currentComposer.value === "typing without reset", "typed draft survived pending chat state");
+    assert(currentComposer.selectionStart === 7, "caret position survived pending chat state");
+    assert(document.activeElement === composer, "composer focus survived pending chat state");
+    assert(commands.filter((command) => command === "chat_start").length === 1, "awaiting-store chat does not poll or remount");
+    await act(async () => root.unmount());
+  } finally {
+    mock.timers.reset();
+  }
 });
 
-test("snapshot failure stays on the chat loading row", async () => {
+test("snapshot failure shows a retryable failure instead of Connecting", async () => {
   const tabId = "failed-tab";
   const state = muxStateFor({
     [tabId]: tabBase(tabId, { agent_session_id: "bound-session" }),
@@ -534,14 +540,14 @@ test("snapshot failure stays on the chat loading row", async () => {
   const { host, root } = await renderTabSessionChat(tabId, state, () => {
     throw new Error("snapshot unavailable");
   });
-  assert(host.querySelector('[data-testid="chat-setup-state"]'), "unloaded snapshot keeps the shared door");
-  assert(!host.querySelector('[data-testid="chat-recovery-error"]'), "error state is not rendered");
-  assert(!host.querySelector('[data-testid="chat-retry"]'), "inline retry is not rendered");
+  assert(!host.querySelector('[data-testid="chat-setup-state"]'), "failed attach releases the loader");
+  assert(host.querySelector('[data-testid="chat-recovery-error"]'), "failure is visible");
+  assert(host.querySelector('[data-testid="chat-retry"]'), "Retry is available");
   assert(!host.querySelector('[data-testid="chat-empty-state"]'), "failure is not shown as empty");
   await act(async () => root.unmount());
 });
 
-test("mount failure remains loading without releasing a shared tailer", async () => {
+test("Retry attaches after a mount failure without releasing a shared tailer", async () => {
   const tabId = "reattach-tab";
   const state = muxStateFor({
     [tabId]: tabBase(tabId, { agent_session_id: "bound-session" }),
@@ -556,10 +562,15 @@ test("mount failure remains loading without releasing a shared tailer", async ()
       messages: [{ id: "history-1", type: "assistant", content: "restored history" }],
     };
   });
-  assert(host.querySelector('[data-testid="chat-setup-state"]'), "unloaded snapshot keeps the shared door");
-  assert(!host.querySelector('[data-testid="chat-retry"]'), "no inline reconnect surface remains");
+  assert(!host.querySelector('[data-testid="chat-setup-state"]'), "failed attach releases the loader");
+  const retry = host.querySelector<HTMLButtonElement>('[data-testid="chat-retry"]');
+  assert(retry, "Retry is available");
   assert(commands.filter((command) => command === "chat_stop").length === 0, "manual reconnect never releases another view lease");
   assert(commands.filter((command) => command === "chat_start").length === 1, "mount performs one attach attempt");
+  await act(async () => retry.click());
+  assert(starts === 2, "Retry requests one fresh snapshot");
+  assert(host.querySelector('[data-testid="chat-message"]')?.textContent?.includes("restored history"), "Retry renders the transcript");
+  assert(!host.querySelector('[data-testid="chat-retry"]'), "successful attachment clears failure");
   await act(async () => root.unmount());
 });
 

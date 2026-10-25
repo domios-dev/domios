@@ -324,7 +324,6 @@ pub async fn hook_permission(
                 let clean = state
                     .svc
                     .screen_state
-                    .lock()
                     .get_screen_text(&pty_id)
                     .unwrap_or_default();
                 log::debug!(
@@ -473,14 +472,10 @@ pub async fn hook_session_start(
     }
 
     let mut fallback_retry = None;
-    let claim = match bind_reported_session(
-        &state.svc.mux,
-        state.svc.agent_registry.as_ref(),
-        &tab_id,
-        &provider_id,
-        &sid,
-        report_nonce.as_deref(),
-    ) {
+    let claim = match state.svc.commit_session_binding_custody(&tab_id, || bind_reported_session(
+        &state.svc.mux, state.svc.agent_registry.as_ref(), &tab_id, &provider_id,
+        &sid, report_nonce.as_deref(),
+    )) {
         Ok(claim) => {
             let fallback_pending =
                 codeterm_service_core::service::integration_silence::has_hook_binding_fallback(
@@ -751,14 +746,16 @@ async fn complete_deferred_session_binding(
     let session = binding.session_id.clone();
     let nonce = report_nonce.clone();
     let claim = tokio::task::spawn_blocking(move || {
-        bind_reported_session(
-            &owner.svc.mux,
-            owner.svc.agent_registry.as_ref(),
-            &target,
-            &provider,
-            &session,
-            nonce.as_deref(),
-        )
+        owner.svc.commit_session_binding_custody(&target, || {
+            bind_reported_session(
+                &owner.svc.mux,
+                owner.svc.agent_registry.as_ref(),
+                &target,
+                &provider,
+                &session,
+                nonce.as_deref(),
+            )
+        })
     })
     .await;
     let Ok(claim) = claim else {

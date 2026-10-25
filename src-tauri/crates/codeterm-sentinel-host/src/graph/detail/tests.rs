@@ -9,15 +9,16 @@ use crate::{
 use std::cell::Cell;
 
 fn job() -> Sentinel {
-    serde_json::from_value(json!({
-        "id":"node", "workspace_id":"workspace", "team_id":"team", "creator_tab_id":"creator",
-        "cwd":"private-directory", "probe":"printf ready", "question":"Ready?", "buckets":["done"],
-        "routes":{"done":[{"id":"build","action":{"kind":"command","target":{
-            "command":"make check", "label":"Check", "timeout_ms":1000}},"target":null}]},
-        "matches":{"done":"^ready$"}, "interval_ms":10000, "next_run":20000,
-        "expires_at":null,"until":null,"last_reason":null,
-        "machine":{"paused":false,"stopped":false,"last_hash":null,"last_bucket":null},"agent_authored":true
-    })).unwrap()
+    let directory = tempfile::tempdir().unwrap();
+    let store = crate::store::Store::new(
+        directory.path().join("graph.json"),
+        codeterm_service_core::cron::clock::MockClock::starting_at(1000),
+    );
+    let mut job=store.prepare_document(json!({"schema_version":2,"kind":"watch","name":"detail fixture","steps":[{"id":"source","uses":"probe","with":{"command":{"lit":"printf ready"}},"every":{"lit":"10s"},"timeout":{"lit":"1h"}},{"id":"decide","uses":"ask","with":{"question":{"lit":"Ready?"}},"buckets":["done"],"matches":{"done":{"lit":"^ready$"}},"routes":{"done":"build"}},{"id":"build","uses":"command","with":{"command":{"lit":"make check"},"label":{"lit":"Check"},"timeout_ms":{"lit":1000}}}]}),crate::store::Owner{creator_tab_id:"creator".into(),team_id:Some("team".into()),workspace_id:"workspace".into(),cwd:"private-directory".into()},false).unwrap();
+    job.id = "node".into();
+    job.next_run = 20000;
+    job.agent_authored = true;
+    job
 }
 
 fn detail(job: &Sentinel, workspace: &str, team: Option<&str>) -> Value {

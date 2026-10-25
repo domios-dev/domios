@@ -1,0 +1,40 @@
+schema_version: 1
+name: PR CI reporter {{repo}}#{{id}}
+note: Read the pull request check set through the GitHub node and post a passed or failed line for it.
+owner: team
+inputs:
+  repo:
+    type: string
+    description: GitHub owner/repository
+  id:
+    type: integer
+    description: Positive pull request ID
+pipeline:
+  trigger:
+    type: schedule
+    every: 1m
+  steps:
+  - name: checks
+    input: text
+    uses: github
+    with:
+      repo: '{{repo}}'
+      resource: pr_checks
+      id: '{{id}}'
+    'on':
+      done: passed
+      failed: broken
+  - name: passed
+    input: text
+    run: echo pr-checks-passed
+    'on':
+      done: stop
+      failed: stop
+  - name: broken
+    input: text
+    run: echo pr-checks-failed
+    'on':
+      done: stop
+      failed: stop
+  result:
+    to: notify

@@ -42,15 +42,19 @@ export function GlancePopover({
   const [view, setView] = useState<GlanceView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const generation = useRef(0);
+  const snapshotRequest = useRef<AbortController | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(
     async (action?: string) => {
+      snapshotRequest.current?.abort();
+      const controller = new AbortController();
+      snapshotRequest.current = controller;
       const ownGeneration = ++generation.current;
       setView(null);
       setError(null);
       try {
-        const snapshot = await ensurePluginSnapshot();
+        const snapshot = await ensurePluginSnapshot({ signal: controller.signal });
         const v = pluginHasGlance(snapshot.plugins, pluginId)
           ? await invokePluginWithConsent<GlanceView | null>("plugin_glance", { pluginId, action, ctx: ctx ?? {} }, () => ownGeneration === generation.current)
           : null;
@@ -67,7 +71,7 @@ export function GlancePopover({
 
   useEffect(() => {
     void load();
-    return () => { generation.current++; };
+    return () => { generation.current++; snapshotRequest.current?.abort(); };
   }, [load]);
 
   // Dismiss on outside click + Escape.

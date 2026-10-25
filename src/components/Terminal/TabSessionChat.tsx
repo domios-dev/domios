@@ -1,7 +1,8 @@
 import { createNoticePublisher } from "../../lib/notices";
 import { useLatestCallback } from "../../hooks/useLatestCallback";
-import { isReadOnlyTab } from "../../lib/tabInputPolicy";
+import { isInputBlockedTab } from "../../lib/tabInputPolicy";
 import { ChatComposerSurface } from "./ChatComposerSurface";
+import { useTabLock } from "../billing/useTabLock";
 import { ChildTranscriptScope } from "./ChildTranscriptScope";
 import { chatLayoutTokens } from "./chatLayoutTokens";
 import { RuntimeQuestionCard } from "./RuntimeQuestionCard";
@@ -18,6 +19,7 @@ import { AskRow, ChatTranscriptRow, OutboundReportRow, type ChatTranscriptRowCon
 import { chatWindowRows } from "./chatWindowRowsModel";
 import { chatLiveOperationLabel, projectChatTranscriptActivity } from "./chatTranscriptActivity";
 import { LocalArtifactScope } from "@codeterm/chat-ui";
+import { chatMessageAccessibleName } from "./chatMessageAccessibleName";
 import { documentsFromTranscript } from "./chatDocuments";
 import { chatDocumentsStore } from "./chatDocumentsStore";
 import { chatChangesStore } from "./chatChangesStore";
@@ -116,6 +118,7 @@ interface Props {
   onOpenTerminalFallback?: () => void;
   uiFontScale?: number;
   isVisible?: boolean;
+  sessionActive?: boolean;
   /** Tab is backed by a plugin chatBackend (no PTY). Sends route through the
    *  tab send seam, and PTY-only affordances (terminal fallback, screen poll)
    *  are suppressed. */
@@ -142,17 +145,6 @@ function isMicrophonePermissionError(message: string): boolean {
     normalized.includes("permission denied") ||
     normalized.includes("not allowed by the user agent")
   );
-}
-
-// Runs for every row on every streamed chunk; only the head of a long message can reach the excerpt.
-const ACCESSIBLE_NAME_SCAN_CHARS = 1_000;
-
-function chatMessageAccessibleName(type: string, content: string): string {
-  const head = content.length > ACCESSIBLE_NAME_SCAN_CHARS ? content.slice(0, ACCESSIBLE_NAME_SCAN_CHARS) : content;
-  let compact = head.replace(/\s+/g, " ").trim();
-  if (compact.length <= 80 && head.length < content.length) compact = content.replace(/\s+/g, " ").trim();
-  const excerpt = compact.length > 80 ? `${compact.slice(0, 77)}…` : compact;
-  return excerpt ? `${type} message: ${excerpt}` : `${type} message`;
 }
 
 function OriginProviderAvatar({ providerId }: { providerId: string | null | undefined }) {
@@ -202,6 +194,7 @@ function TabSessionChatBody({
   onOpenTerminalFallback,
   uiFontScale,
   isVisible = true,
+  sessionActive,
   chatBackend = false,
 }: Props) {
   if (isCodeTermFrontendTestMode()) {
@@ -223,7 +216,8 @@ function TabSessionChatBody({
   const openPlanTarget = usePlanTargetNavigation();
   const tabSelector = useLatestCallback((s: Parameters<typeof selectTab>[0]) => selectTab(s, tabId), [tabId]);
   const tab = useMuxSelector(tabSelector, tabFieldsEqual);
-  const readOnly = isReadOnlyTab(tab);
+  const tabLock = useTabLock(tab);
+  const readOnly = isInputBlockedTab(tab, tabLock);
   const workspaceSelector = useLatestCallback((s: Parameters<typeof selectTab>[0]) => s.workspaces.find((workspace) => workspace.tabs.includes(tabId))?.id ?? s.tabs[tabId]?.workspace_id ?? null, [tabId]);
   const workspaceId = useMuxSelector(workspaceSelector);
   const tabTitleMap = useMuxSelector(selectTabTitleMap, tabTitleMapEqual);
@@ -278,18 +272,21 @@ function TabSessionChatBody({
     loading,
     recovering,
     error,
+    retry: retryAttachment,
     attachmentState,
     snapshotReady,
     transcriptUnavailable,
     allMessages,
     enrichedMessages,
     hiddenMessageCount,
+    olderMessageLabel,
     newerMessageCount,
     canBackfillOlder,
     backfillLoading,
     backfillNotice,
     loadOlder,
     loadHistoryGap,
+    historyGapLabel,
     showLatest,
     prepareMessage,
     setHistoryReading,
@@ -301,7 +298,7 @@ function TabSessionChatBody({
     agentSessionId,
     sessionBindingNonce: tab?.session_binding_nonce,
     onError,
-    active: isActive,
+    active: sessionActive ?? isActive,
     retainAttachment: true,
     diagnosticSink: chatProjectionMonitor.sink,
     allowUnboundAuthority: effectiveChatBackend,
@@ -352,15 +349,17 @@ function TabSessionChatBody({
   const runtimeReplacement = runtimeUnavailable ? runtimeBadge : undefined;
   const runtimeFailed = runtime.state?.state === "unloaded" || runtime.state?.state === "degraded";
   const remoteChatReconnecting = tab?.remote_channels?.chat === "reconnecting";
-  const chatChannelLoading = !runtimeFailed && (loading || recovering || (!hasTranscript && remoteChatReconnecting));
-  const chatLoading = chatChannelLoading || error != null;
-  const setupView = runtimeUnavailable && snapshotReady && bootSetupView.kind !== "launch_failed" ? { kind: "none" as const } : chatBodyView({
+  const chatChannelLoading = !tabLock.locked && attachmentState !== "failed" && !runtimeFailed && (loading || recovering || (!hasTranscript && remoteChatReconnecting));
+  const chatLoading = chatChannelLoading;
+  const setupView = runtimeUnavailable && snapshotReady && !tabLock.locked && attachmentState !== "failed" && bootSetupView.kind !== "launch_failed" ? { kind: "none" as const } : chatBodyView({
     hasTranscript,
     hasHeldWindow,
     snapshotReady,
     chatLoading,
     unavailable: transcriptUnavailable,
     bootView: bootSetupView,
+    attachmentError: attachmentState === "failed" ? error : null,
+    locked: tabLock.locked,
   });
 
   const renderedEnrichedMessages = useMemo(
@@ -849,7 +848,10 @@ function TabSessionChatBody({
     <LocalArtifactScope tabId={tabId}>
     <ChatBlockHostProvider value={chatBlockHost}>
     <PluginNameProvider resolve={resolvePluginName}>
-    <HistoryGapProvider onLoad={loadHistoryGap}>
+    <HistoryGapProvider label={historyGapLabel} onLoad={async message => {
+      prepareForHistoryPrepend();
+      await loadHistoryGap(message);
+    }}>
     <div
       ref={chatRootRef}
       className="ct-chat-shell w-full h-full flex flex-col relative"
@@ -914,7 +916,7 @@ function TabSessionChatBody({
             <button
               type="button"
               data-testid="chat-load-older"
-              aria-label="Show older messages"
+              aria-label={olderMessageLabel}
               onClick={() => {
                 prepareForHistoryPrepend();
                 void loadOlder();
@@ -929,14 +931,14 @@ function TabSessionChatBody({
             >
               {backfillLoading
                 ? <TabLoadingIndicator label="Searching older messages" compact deferred={false} />
-                : hiddenMessageCount > 0 ? `Show older (${hiddenMessageCount})` : "Show older"}
+                : olderMessageLabel}
             </button>
           </div>
         )}
         {backfillNotice === "stalled_cursor"
           ? <InlineErrorNotice error="Older history could not be read." operation="loading older messages" />
           : backfillNotice && <p role="status" className="text-center text-xs text-[var(--ct-muted-fg)]">
-            {backfillNotice === "limit" ? "No messages in this section. Show older to keep searching." : "No earlier messages."}
+            {backfillNotice === "limit" ? "History scan limit reached. Load previous to continue." : "No earlier messages."}
           </p>}
         {isActive && (reportPlacement.afterIndex.get(-1) ?? []).map(renderOutboundReport)}
         {isActive && (askPlacement.afterIndex.get(-1) ?? []).map(renderAsk)}
@@ -1009,6 +1011,8 @@ function TabSessionChatBody({
           providerIconColor={provider?.iconColor}
           providerIconHint={provider?.iconHint}
           onEscape={focusComposer}
+          onRetry={retryAttachment}
+          lock={tabLock}
         />
       <MessageSelectionBar
         count={messageSelection.count}
@@ -1034,7 +1038,7 @@ function TabSessionChatBody({
       )}
       </div>
       <ComposerBackgroundWorkProvider tabId={tabId} messages={allMessages}>
-      <ChatComposerSurface tab={tab} view={setupView} providerId={tabProvider ?? undefined} tabId={tabId}>
+      <ChatComposerSurface tab={tab} lock={tabLock} view={setupView} providerId={tabProvider ?? undefined} tabId={tabId}>
       {isWatcherTab && watcherSpec ? (
         runtimeReplacement ?? <WatcherReadOnlyBar
           watcher={watcherSpec}

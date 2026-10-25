@@ -2,6 +2,7 @@ import { configureDaemonTransport } from "./daemonBootstrap";
 import { AI_HELPER_CONTEXT, AI_HELPER_SPAWN_PATH, spawnAiHelper } from "./aiHelperSpawn";
 import { configureWithAI } from "./pluginConfigure";
 import { startWebAccessSetupHelper } from "./webAccess";
+import { startTailscaleSetup } from "../components/MeshPanel/tailscaleSetup";
 
 let passed = 0;
 let failed = 0;
@@ -49,6 +50,7 @@ configureDaemonTransport({ origin: "http://127.0.0.1:7686", token: "fixture-toke
 const api = { host: "127.0.0.1", port: 7686, token: "fixture-token" };
 const opaqueTask = "ai-helper-task-token-4d21";
 const opaquePort = 48213;
+const opaqueMachine = "machine-token-7f3a";
 
 const buttons: Array<{ label: string; run: () => Promise<unknown>; carries: string; title: string; description: string; userFacing: boolean }> = [
   {
@@ -65,6 +67,14 @@ const buttons: Array<{ label: string; run: () => Promise<unknown>; carries: stri
     carries: String(opaquePort),
     title: "WebAccess",
     description: "Set up Web Access",
+    userFacing: true,
+  },
+  {
+    label: "Mesh Set up Tailscale with General agent",
+    run: () => startTailscaleSetup(opaqueMachine, api),
+    carries: opaqueMachine,
+    title: "Tailscale",
+    description: "Set up Tailscale for Mesh",
     userFacing: true,
   },
   {

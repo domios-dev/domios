@@ -1,0 +1,7 @@
+{"toolUseResult":{"backgroundTaskId":"dropped"}}
+{"type":"system","subtype":"compact_boundary"}
+{"toolUseResult":{"backgroundTaskId":"finished"}}
+{"message":{"content":"<task-notification><task-id>finished</task-id><status>completed</status></task-notification>"}}
+{"toolUseResult":{"backgroundTaskId":"live"}}
+{"type":"user","sessionId":"opaque-own","toolUseResult":{"stdout":"","stderr":"","interrupted":false,"isImage":false,"noOutputExpected":false,"backgroundTaskId":"opaque-stopped"},"message":{"role":"user","content":[{"tool_use_id":"opaque-start","type":"tool_result","content":"opaque-a","is_error":false}]}}
+{"type":"user","sessionId":"opaque-own","toolUseResult":{"message":"opaque-b","task_id":"opaque-stopped","task_type":"local_bash","command":"opaque-c"},"message":{"role":"user","content":[{"tool_use_id":"opaque-stop","type":"tool_result","content":"opaque-d"}]}}

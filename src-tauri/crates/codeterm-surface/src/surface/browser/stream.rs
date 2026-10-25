@@ -33,12 +33,12 @@ pub async fn connect(
     let latest = runtime.host.latest_frame();
     Box::pin(async_stream::stream! {
         let current = state.borrow_and_update().clone();
-        yield SurfaceEvent::State(current);
+        yield runtime.redact_event(SurfaceEvent::State(current));
         if let Some(frame) = latest {
             yield SurfaceEvent::Frame(frame);
         }
         if let Err(error) = runtime.ensure_page().await {
-            yield SurfaceEvent::Notice(SurfaceNotice::error(format!("the browser could not start: {error}")));
+            yield runtime.redact_event(SurfaceEvent::Notice(SurfaceNotice::error(format!("the browser could not start: {error}"))));
         }
         loop {
             let next = tokio::select! {
@@ -62,7 +62,7 @@ pub async fn connect(
                 },
             };
             match next {
-                Some(event) => yield event,
+                Some(event) => yield runtime.redact_event(event),
                 None => break,
             }
         }

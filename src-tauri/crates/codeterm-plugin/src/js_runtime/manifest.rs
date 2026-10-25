@@ -97,6 +97,8 @@ pub struct PluginManifest {
     #[serde(default)]
     pub cli_binary: Option<String>,
     #[serde(default)]
+    pub general_agent_offer_when_absent: bool,
+    #[serde(default)]
     pub cli_compatibility: Option<crate::provider_compat::CompatibilityManifest>,
     #[serde(default)]
     pub worker_lane_settings: Vec<crate::provider::WorkerLaneSetting>,
@@ -145,6 +147,8 @@ pub struct PluginManifest {
     // Per-platform installer (macos/linux/windows)
     #[serde(default)]
     pub installer: std::collections::HashMap<String, String>,
+    #[serde(default)]
+    pub cli_login: Option<crate::provider::CliLoginCapability>,
 
     // Short note picker surfaces render beside the provider name.
     #[serde(default)]
@@ -232,6 +236,7 @@ fn default_entry() -> String {
 /// shipped before capabilities existed).
 fn default_capabilities() -> Capabilities {
     Capabilities {
+        attachments: Default::default(),
         remote_task: None,
         record_sources: Default::default(),
         structured_control: None,

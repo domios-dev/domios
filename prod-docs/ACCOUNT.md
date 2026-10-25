@@ -4,7 +4,7 @@ Sign in, manage a subscription, and control optional product analytics through t
 
 ## Account
 
-Provider configuration is read when the account service starts. `account.login_timeout_secs` defaults to 180 (valid range 1–600). Login opens the system browser with a random state and S256 challenge. Browser callbacks require matching state; redemption submits the verifier to the backend. The refresh credential stays in the configured secret store, and the ID token stays in memory. A saved credential is refreshed at startup.
+Provider configuration is read when the account service starts. `account.login_timeout_secs` defaults to 180 (valid range 1–600). Login opens the system browser with a random state and S256 challenge. Browser callbacks require matching state; redemption submits the verifier to the backend. Account refresh credentials and the Mesh installation credential stay in the local owner-only `<data_dir>/.secrets` file. They never use the configured secret backend or OS credential store. The ID token stays in memory. A saved credential is refreshed at startup. A one-time background migration attempts to move old credentials without prompting; slow or unavailable stores never delay startup. If the private file cannot be written, the sign-in session stays in memory only and does not survive restart.
 
 ```bash
 domios account login
@@ -25,6 +25,10 @@ domios account portal
 The round avatar and chevron immediately left of Settings open the Account menu. Signed-out users can choose Sign in, Create account, Google, Facebook or email. Sign-in and account creation share the system-browser flow; the mode changes its heading. When signed in, its initial opens identity, plan, Manage subscription and Sign out. Both account states offer Community links for Telegram and Discord; the Guide offers the same links, opened in the system browser. Settings > Account shows the same plan, status, period end, cancellation flag and stale marker. Upgrade and Manage subscription open the system browser. The client reads only the signed-in user's server record using the in-memory ID token. Signed-out users get free. A failed fetch retains the last known entitlement marked stale. Sign-in, explicit app focus (at most once per minute), and checkout return refresh the cache; browser return alone never grants access. Returning from checkout to the app bypasses the focus throttle once. Hosted completion may also open `domios://billing/return`.
 
 The cloud service supplies subscription entitlements. Without a cloud endpoint, the app returns free and subscription actions report that cloud billing is unavailable.
+
+### Locked items
+
+When free-plan limits are enforced, creating one more workspace, Team or tab past the limit is refused with `free_limit_reached`. Items that already exist beyond the limit (for example after a downgrade) are never deleted or hidden: every listing still returns them. Instead the oldest items up to the limit stay usable and the newer ones are marked locked; the General workspace never counts and never locks. Acting on a locked item is refused with the stable code `plan_limit_locked`, naming the item and the limit. Workspace, tab and Team payloads carry `locked: true` on locked items; when the entitlement changes, Domios recomputes the marks and emits `entitlement-changed` without a restart. Order is fixed by each item's creation time, so reordering never moves a lock. Upgrading unlocks everything; closing older items frees their slots. Builds that do not enforce limits lock nothing. The app shows a lock badge on locked items, treats every tab inside a locked workspace as locked, and opens the plans dialog when one is clicked; its terminal and composer take no input. Opening a locked item from the command palette or keyboard lands on a view that already shows the lock overlay and locked composer.
 
 ## Product analytics
 
@@ -81,10 +85,21 @@ Local callers only.
 |--------|------|------|-------------|
 | GET | `/api/account/status` | — | Account identity, effective provider and pending flag |
 | POST | `/api/account/login` | — | Browser sign-in; optional provider=google/facebook/email and mode=signin/signup query hints |
-| POST | `/api/account/logout` | — | Clear credentials and cached entitlements |
+| POST | `/api/account/logout` | — | Block Mesh traffic, withdraw this machine's endpoint once, then clear credentials and cached entitlements; saved pairs and the machine slot stay |
 | GET | `/api/account/plan` | — | Cached entitlement and stale marker |
-| POST | `/api/account/plan/refresh` | — | Explicit focus refresh, throttled to once per minute |
+| POST | `/api/account/plan/refresh` | — | Explicit refresh bypasses throttling, including checkout return; passive window focus uses ?focus=true, throttled to once per minute |
 | POST | `/api/account/upgrade` | `{plan, theme?}` | Open checkout in the system browser; `theme` (`light` or `dark`) sets the checkout page's theme |
 | POST | `/api/account/portal` | — | Open subscription management in the system browser |
+| GET | `/api/account/mesh` | — | Account Mesh snapshot: `binding`, `traffic`, `cleanup`, `self`, last `registry` observation, pending `limit_notice` |
+| POST | `/api/account/mesh/enroll` | — | Retry enrollment; a refusal returns `{ok:false, request_id, failure}` |
+| POST | `/api/account/mesh/list` | — | Read the account's machines online into the snapshot |
+| POST | `/api/account/mesh/rename` | `{expected_metadata_revision, display_name}` | Rename this machine |
+| POST | `/api/account/mesh/session-revoke` | `{installation_id?: string | null}` | Revoke a machine's account sessions; omitted installation selects this machine; retains the installation key and pairings |
+| POST | `/api/account/mesh/revoke` | `{target}` | Release a machine's account slot; local unpair stays `/api/mesh/peers/disconnect` |
+| POST | `/api/account/mesh/limit-notice/ack` | `{request_id}` | Mark a `mesh.machines` notice as shown |
 
-<!-- revision: 12 -->
+Mesh enrollment never fails sign-in. Only a `mesh.machines` refusal (`{reason, limit, active_count}`) opens the plans dialog; offline, rate, authentication and verification refusals do not. A machine refused that way reports `traffic: "plan_limit_locked"` in the snapshot: its Mesh edges stay blocked, its rows stay listed, and a plan change re-enrolls it live.
+
+Authenticated server refusals with `UNAUTHENTICATED` and `details: {"reason":"session_revoked"}` clear the local account session, keep its installation key, block Mesh, and open sign-in with “This machine was signed out from your account”. A real sign-in restores access. My machines and Mesh ask for confirmation naming the selected machine. Remove from mesh offers an optional “Also sign it out” checkbox; the account menu offers Sign out this machine alongside normal Sign out.
+
+<!-- revision: 17 -->

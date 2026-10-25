@@ -1,0 +1,45 @@
+schema_version: 1
+name: Actions {{kind}} {{repository}}#{{run}}
+note: Follow a workflow execution or its jobs and surface broken jobs before the whole workflow ends.
+owner: team
+inputs:
+  repository:
+    type: string
+    description: GitHub owner/repository
+  run:
+    type: integer
+    description: Positive run or pull request ID
+  kind:
+    type: string
+    default: jobs
+    description: Resource
+    enum:
+    - run
+    - jobs
+  cadence:
+    type: string
+    default: 90s
+    description: Probe interval, at least 10s
+  budget_ms:
+    type: integer
+    default: 40000
+    description: Probe timeout in milliseconds
+pipeline:
+  trigger:
+    type: schedule
+    every: '{{cadence}}'
+  steps:
+  - name: Workflow status
+    input: text
+    uses: github
+    with:
+      id: '{{run}}'
+      repo: '{{repository}}'
+      timeout_ms: '{{budget_ms}}'
+      resource: '{{kind}}'
+    'on':
+      failing: next
+      done: next
+      failed: stop
+  result:
+    to: owner

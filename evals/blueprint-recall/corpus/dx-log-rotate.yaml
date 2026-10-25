@@ -1,0 +1,16 @@
+schema_version: 1
+name: Log rotation
+note: Compress and rotate application logs weekly so the log directory stays small.
+owner: team
+inputs:
+  log_dir:
+    type: string
+    description: Application log directory
+pipeline:
+  trigger: {type: schedule, every: 168h}
+  steps:
+    - name: rotate
+      input: text
+      run: logrotate --state /tmp/logrotate.state '{{log_dir}}/logrotate.conf'
+      on: {done: stop, failed: stop}
+  result: {to: owner}

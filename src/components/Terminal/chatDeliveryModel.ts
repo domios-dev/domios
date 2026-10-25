@@ -13,7 +13,7 @@ export interface DeliveryDraft {
   capsules: CapsuleRegistry;
   reply: ComposerReply | null;
 }
-export type DeliverySend = ChatSend & { droppedUploads?: string[]; dismissed?: boolean; status?: ChatSendStatus; requestFailed?: boolean; requestUncertain?: boolean; requestHadResponse?: boolean; draft?: DeliveryDraft };
+export type DeliverySend = ChatSend & { droppedUploads?: string[]; dismissed?: boolean; status?: ChatSendStatus; requestFailed?: boolean; requestUncertain?: boolean; requestHadResponse?: boolean; admissionSettled?: boolean; draft?: DeliveryDraft };
 
 function sameMatchedRow(left: ChatSendStatus["matched_row"], right: ChatSendStatus["matched_row"]): boolean {
   if (left == null || right == null) return left === right;
@@ -74,10 +74,11 @@ export function applyDeliveryStatus(send: DeliverySend, status: ChatSendStatus):
   };
 }
 
-export type AdmissionEvidence = "present" | "absent" | "unknown";
+export type AdmissionEvidence = "present" | "absent" | "unknown" | "not_applicable";
 
 export function reconcileAdmissionEvidence(send: DeliverySend, evidence: AdmissionEvidence): DeliverySend {
   if (send.status || deliveryState(send) === "delivered" || send.requestFailed) return send;
+  if (evidence === "not_applicable") return { ...send, admissionSettled: true, requestUncertain: true };
   const failed = evidence === "absent" && send.requestHadResponse === false;
   const uncertain = !failed;
   if (send.requestFailed === failed && send.requestUncertain === uncertain) return send;
@@ -141,4 +142,10 @@ export function visibleDeliveryRows(
 ): NormalizedChatMessage[] {
   const reconciled = echoes ? sends.map((send) => ({ ...send, echo: send.echo ?? echoes.get(send.id) })) : sends;
   return rows.filter((row) => !sendForRow(reconciled, row)?.dismissed);
+}
+
+export function canRetryChatSend(send: DeliverySend): boolean {
+  if (send.dismissed || send.status?.system_send || deliveryState(send) !== "failed") return false;
+  const draft = send.draft;
+  return !draft || Boolean(draft.text.trim() || draft.attachments.length || draft.recordedVoiceAttachments.length || draft.reply);
 }

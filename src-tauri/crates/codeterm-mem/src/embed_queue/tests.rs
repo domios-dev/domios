@@ -1,6 +1,45 @@
 use super::*;
 
 #[test]
+fn live_queue_status_reports_backlog_in_flight_failures_and_unavailability() {
+    let shared = Arc::new(Shared::default());
+    let queue = EmbedQueue {
+        handle: Some(Arc::new(Handle(shared.clone()))),
+    };
+    for i in 0..410 {
+        shared
+            .state
+            .lock()
+            .schedule
+            .submit(&i.to_string(), vec!["passage".into()], QUEUE_CAPACITY);
+    }
+    assert_eq!(queue.status(false).queued, 410);
+    let unit = next_unit(&shared).unwrap();
+    let status = queue.status(false);
+    assert_eq!(
+        (status.queued, status.in_flight, status.failed),
+        (409, 1, 0)
+    );
+    let json = serde_json::to_value(status).unwrap();
+    assert_eq!(json["queued"], 409);
+    assert_eq!(json["in_flight"], 1);
+    {
+        let mut state = shared.state.lock();
+        state.schedule.finish(&unit);
+        state.busy = false;
+        state.failed = 2;
+        state.closed = true;
+    }
+    let status = queue.status(false);
+    assert_eq!(
+        (status.queued, status.in_flight, status.failed),
+        (409, 0, 2)
+    );
+    assert!(status.unavailable);
+    assert!(EmbedQueue::disabled().status(false).unavailable);
+}
+
+#[test]
 fn enqueue_when_disabled_is_noop() {
     let q = EmbedQueue::disabled();
     q.enqueue("abc", "hello world");
@@ -13,7 +52,7 @@ mod worker {
     use super::super::*;
     use crate::store::{MemKind, MemScope, NewMemItem};
     use crate::MemManager;
-    use std::sync::mpsc::{self, Receiver, Sender};
+    use std::sync::mpsc::{Receiver, Sender};
 
     const DEADLINE: Duration = Duration::from_secs(30);
 
@@ -25,20 +64,10 @@ mod worker {
     }
 
     impl Gate {
-        fn new() -> (Self, Embedder) {
-            let (started_tx, started) = mpsc::channel::<String>();
-            let (release, release_rx) = mpsc::channel::<()>();
-            let started_tx = Mutex::new(started_tx);
-            let release_rx = Mutex::new(release_rx);
-            let embedder: Embedder = Arc::new(move |text: &str| {
-                let _ = started_tx.lock().send(text.to_string());
-                release_rx
-                    .lock()
-                    .recv()
-                    .map_err(|_| "gate closed".to_string())?;
-                Ok(vec![0.25; 384])
-            });
-            (Self { started, release }, embedder)
+        fn new() -> (Self, Arc<ActiveEmbedder>) {
+            let provider = crate::embedder::testing::MockProvider::new("mock", "gate-384", 384);
+            let (started, release) = provider.gated();
+            (Self { started, release }, ActiveEmbedder::new(provider))
         }
 
         fn next_started(&self) -> String {
@@ -96,7 +125,13 @@ mod worker {
     fn graph_embedding_is_queued_without_holding_the_database_lock() {
         let dir = tempfile::tempdir().unwrap();
         let (gate, embedder) = Gate::new();
-        let mem = MemManager::open_with_embedder(dir.path(), embedder).unwrap();
+        let mem = MemManager::open_with(
+            dir.path(),
+            embedder,
+            Arc::new(crate::embedder::SystemClock),
+            None,
+        )
+        .unwrap();
         mem.graph_create_entity(&crate::Entity {
             id: "queued-person".into(),
             entity_type: "person".into(),
@@ -115,7 +150,13 @@ mod worker {
     fn embed_queue_fair_small_item_not_starved() {
         let dir = tempfile::tempdir().unwrap();
         let (gate, embedder) = Gate::new();
-        let mem = MemManager::open_with_embedder(dir.path(), embedder).unwrap();
+        let mem = MemManager::open_with(
+            dir.path(),
+            embedder,
+            Arc::new(crate::embedder::SystemClock),
+            None,
+        )
+        .unwrap();
 
         let big = mem
             .insert_raw(&note("fair big item", "placeholder body for the big item"))
@@ -146,7 +187,13 @@ mod worker {
     fn delete_cancels_pending_chunks_no_orphans() {
         let dir = tempfile::tempdir().unwrap();
         let (gate, embedder) = Gate::new();
-        let mem = MemManager::open_with_embedder(dir.path(), embedder).unwrap();
+        let mem = MemManager::open_with(
+            dir.path(),
+            embedder,
+            Arc::new(crate::embedder::SystemClock),
+            None,
+        )
+        .unwrap();
 
         let doomed = mem
             .save(note("doomed flush item", &long_body(40_000)))
@@ -168,7 +215,13 @@ mod worker {
     fn delete_outside_the_queue_still_leaves_no_orphans() {
         let dir = tempfile::tempdir().unwrap();
         let (gate, embedder) = Gate::new();
-        let mem = MemManager::open_with_embedder(dir.path(), embedder).unwrap();
+        let mem = MemManager::open_with(
+            dir.path(),
+            embedder,
+            Arc::new(crate::embedder::SystemClock),
+            None,
+        )
+        .unwrap();
 
         let raced = mem
             .save(note("raced delete item", &long_body(40_000)))
@@ -192,7 +245,13 @@ mod worker {
     fn replace_supersedes_pending_chunks_of_the_old_body() {
         let dir = tempfile::tempdir().unwrap();
         let (gate, embedder) = Gate::new();
-        let mem = MemManager::open_with_embedder(dir.path(), embedder).unwrap();
+        let mem = MemManager::open_with(
+            dir.path(),
+            embedder,
+            Arc::new(crate::embedder::SystemClock),
+            None,
+        )
+        .unwrap();
 
         let id = mem.save(note("replaced item", &long_body(40_000))).unwrap();
         gate.next_started();

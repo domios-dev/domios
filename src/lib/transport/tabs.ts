@@ -85,7 +85,7 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
         mux_reopen_closed_group: (a: Args) => clientFor(a).json("POST", `/api/closed-groups/${enc(s(a, "groupId"))}/reopen`),
         mux_rerun_restored_shell: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/rerun-restored-shell`),
         mux_restore_orphaned_tab: (a: Args) => clientFor(a).json("POST", `/api/mux/restore-orphaned`, { tab_id: s(a, "tabId") }),
-        mux_rename_tab: (a: Args) => clientFor(a).json("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs/${enc(s(a, "tabId"))}/rename`, { name: a.name }),
+        mux_rename_tab: (a: Args) => clientFor(a).json("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs/${enc(s(a, "tabId"))}/rename`, { title: a.title }),
         mux_move_tab: (a: Args) => clientFor(a).json("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs/${enc(s(a, "tabId"))}/move`, a),
         mux_reorder_tab: (a: Args) => clientFor(a).json("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs/reorder`, {
             ordered_tab_ids: a.orderedTabIds,
@@ -122,7 +122,7 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
         chat_start: (a: Args) => clientFor(a).json<ChatStartResult>("POST", `/api/tabs/${enc(s(a, "tabId"))}/chat-raw/start`, {
             subscriptionId: s(a, "subscriptionId"),
             ...(a.knownWindow != null ? { knownWindow: a.knownWindow } : {}),
-        }),
+        }, { signal: a.signal as AbortSignal | undefined }),
         chat_stop: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/chat-raw/stop`, {
             subscriptionId: s(a, "subscriptionId"),
         }),

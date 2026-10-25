@@ -1,0 +1,39 @@
+schema_version: 1
+name: Build agents {{project}}
+note: Track whether a repository's tagged build machines are reachable and how many are connected.
+owner: team
+inputs:
+  project:
+    type: string
+    description: GitHub owner/repository
+  tag:
+    type: string
+    default: gpu
+    description: Runner label to match
+  period:
+    type: string
+    default: 2m
+    description: Probe interval, at least 10s
+  wait_ms:
+    type: integer
+    default: 20000
+    description: Probe timeout in milliseconds
+pipeline:
+  trigger:
+    type: schedule
+    every: '{{period}}'
+  steps:
+  - name: Agent status
+    input: text
+    uses: github
+    with:
+      label: '{{tag}}'
+      resource: runners
+      repo: '{{project}}'
+      timeout_ms: '{{wait_ms}}'
+    'on':
+      failed: stop
+      offline: next
+      online: next
+  result:
+    to: owner

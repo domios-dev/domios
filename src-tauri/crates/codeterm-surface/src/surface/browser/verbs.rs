@@ -19,6 +19,7 @@ pub const VERBS: &[&str] = &[
     "snapshot",
     "click",
     "type",
+    "type-secret",
     "press",
     "scroll",
     "text",
@@ -249,12 +250,13 @@ impl BrowserRuntime {
                     self.shared.state().url
                 ))
             }
-            "type" => {
+            "type" | "type-secret" => {
                 let (text, locator) = usage_args(args, "type @eN|<role> <name> <text>")?
                     .split_last()
                     .ok_or("usage: type @eN|<role> <name> <text>")?;
                 let target = self.resolve(locator)?;
-                self.type_into(page, target.backend_node_id, text).await?;
+                self.type_into(page, target.backend_node_id, text, verb == "type-secret")
+                    .await?;
                 Ok(format!("typed into {}", target.label))
             }
             "press" => {
@@ -315,9 +317,10 @@ impl BrowserRuntime {
     async fn snapshot(&self, page: &PageChannel, limit: usize) -> Result<String, String> {
         let capture = self.shared.begin_snapshot(page.session_id())?;
         let _ = self.send(page, "Accessibility.enable", json!({})).await;
-        let tree = self
+        let mut tree = self
             .send(page, "Accessibility.getFullAXTree", json!({}))
             .await?;
+        self.redact_value(&mut tree);
         let snapshot = build_snapshot_scoped(&parse_full_ax_tree(&tree)?, limit, &capture);
         let text = snapshot.text.clone();
         self.shared.finish_snapshot(&capture, snapshot)?;
@@ -341,6 +344,7 @@ impl BrowserRuntime {
         page: &PageChannel,
         backend_node_id: i64,
         text: &str,
+        secret: bool,
     ) -> Result<(), String> {
         let resolved = self
             .send(
@@ -353,6 +357,16 @@ impl BrowserRuntime {
             .pointer("/object/objectId")
             .and_then(Value::as_str)
             .ok_or("the element could not be resolved")?;
+        if secret {
+            let masked = self.send(page, "Runtime.callFunctionOn", json!({
+                "objectId": object_id,
+                "functionDeclaration": "function(){ if (!(this instanceof HTMLInputElement)) return false; this.type='password'; return this.type==='password'; }",
+                "returnByValue": true,
+            })).await?;
+            if masked.pointer("/result/value").and_then(Value::as_bool) != Some(true) {
+                return Err("Secret typing requires an input that can be masked".into());
+            }
+        }
         self.send(
             page,
             "Runtime.callFunctionOn",
@@ -455,3 +469,7 @@ fn unix_ms() -> u128 {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[path = "verbs/secret_tests.rs"]
+mod secret_tests;

@@ -125,11 +125,9 @@ pub(super) fn await_shell_prompt_armed(
 
     loop {
         let (signal, bound) = {
-            let mut ss = screen_state.lock();
-            (
-                ss.arm_shell_ready_signal(pty_id),
-                ss.has_pty_generation(pty_id),
-            )
+            let ss = screen_state.pty(pty_id);
+            let mut ss = ss.lock_for_update();
+            (ss.arm_shell_ready_signal(), ss.has_pty_generation())
         };
         if !bound {
             log::debug!(
@@ -178,13 +176,11 @@ pub fn await_bare_shell_prompt(
     pty_id: &str,
     timeout: std::time::Duration,
 ) -> bool {
-    let signal = screen_state.lock().arm_bare_prompt_signal(pty_id);
+    let signal = screen_state.arm_bare_prompt_signal(pty_id);
     let short_id = &pty_id[..pty_id.len().min(8)];
     let t0 = std::time::Instant::now();
     let ready = signal.wait(timeout);
-    screen_state
-        .lock()
-        .disarm_bare_prompt_signal(pty_id, &signal);
+    screen_state.disarm_bare_prompt_signal(pty_id, &signal);
     if ready {
         log::info!(
             "[await_bare_shell_prompt] shell ready for pty {} after {}ms",
@@ -532,6 +528,7 @@ impl ServiceContext {
         claim: Option<super::submit_transaction::SubmitCycleClaim>,
         enqueued: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
     ) -> Result<(), DeliveryError> {
+        self.tab_write_lock_delivery(tab_id)?;
         self.wake_frozen_tab(tab_id)
             .map_err(|detail| DeliveryError::PtyUnavailable {
                 tab: tab_id.into(),
@@ -733,12 +730,7 @@ impl ServiceContext {
             submit,
             submit_key,
             strategy,
-            crate::service::inject_verify::VerifyOpts {
-                require_prompt_first: false,
-                verify_echo: true,
-                verify_submit: submit,
-                ..Default::default()
-            },
+            plain_input_verify_opts(submit, agent_type.is_some()),
             None,
             track_exact_session_turn,
             claim,
@@ -1111,6 +1103,19 @@ impl ServiceContext {
             self.set_and_lock_tab_agent_type(&tab_id, provider_id);
             self.emit_state_changed(MuxEmitCause::AgentIdentity);
         }
+    }
+}
+
+/// A shell produces no agent submit evidence, so its send completes once written.
+pub(in crate::service::pty_io) fn plain_input_verify_opts(
+    submit: bool,
+    agent: bool,
+) -> crate::service::inject_verify::VerifyOpts {
+    crate::service::inject_verify::VerifyOpts {
+        require_prompt_first: false,
+        verify_echo: true,
+        verify_submit: submit && agent,
+        ..Default::default()
     }
 }
 

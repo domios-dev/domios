@@ -1,0 +1,130 @@
+[
+  {
+    "document": {
+      "kind": "pipeline",
+      "name": "identity-pipeline",
+      "schema_version": 2,
+      "steps": [
+        {
+          "code": {
+            "lang": "python",
+            "src": "def main(value): return value"
+          },
+          "id": "produce",
+          "out": {
+            "type": "string"
+          }
+        }
+      ],
+      "trigger": {
+        "kind": {
+          "lit": "tab_output"
+        },
+        "type": "event"
+      }
+    },
+    "hash": "044de7987c89038127b3bd0688130f89461636ebcb3faebf3b6f891198c05756",
+    "name": "pipeline"
+  },
+  {
+    "document": {
+      "kind": "watch",
+      "name": "identity-watch",
+      "schema_version": 2,
+      "steps": [
+        {
+          "every": {
+            "lit": "20s"
+          },
+          "id": "source",
+          "paused": true,
+          "uses": "probe",
+          "with": {
+            "command": {
+              "lit": "echo ready"
+            }
+          }
+        },
+        {
+          "buckets": [
+            "ready"
+          ],
+          "id": "decide",
+          "matches": {
+            "ready": {
+              "lit": "ready"
+            }
+          },
+          "routes": {
+            "other": "@stop",
+            "ready": "@stop"
+          },
+          "until": "ready",
+          "uses": "ask",
+          "with": {
+            "question": {
+              "lit": "Is it ready?"
+            }
+          }
+        }
+      ]
+    },
+    "hash": "09cde840c6ce18b184f8fb0134b1b54354468f77f217d171eaad3643ff75a5d2",
+    "name": "watch"
+  },
+  {
+    "document": {
+      "dependencies": {
+        "mem:identity-helper@64da6d10fd10e6d4004fa70a6193a8d195a3724456f206593a1afb78ac453800": {
+          "document": {
+            "kind": "pipeline",
+            "name": "identity-helper",
+            "result": {
+              "from": "emit.out",
+              "type": {
+                "type": "string"
+              }
+            },
+            "schema_version": 2,
+            "steps": [
+              {
+                "id": "emit",
+                "out": {
+                  "type": "string"
+                },
+                "run": {
+                  "lit": "echo ready"
+                }
+              }
+            ]
+          },
+          "hash": "64da6d10fd10e6d4004fa70a6193a8d195a3724456f206593a1afb78ac453800",
+          "id": "mem:identity-helper"
+        }
+      },
+      "kind": "pipeline",
+      "name": "identity-call",
+      "schema_version": 2,
+      "steps": [
+        {
+          "call": {
+            "pin": {
+              "hash": "64da6d10fd10e6d4004fa70a6193a8d195a3724456f206593a1afb78ac453800",
+              "id": "mem:identity-helper"
+            },
+            "ref": "mem:identity-helper"
+          },
+          "id": "helper"
+        }
+      ],
+      "trigger": {
+        "every": {
+          "lit": "20s"
+        },
+        "type": "schedule"
+      }
+    },
+    "hash": "f40cf783ac3fcc3927749cbabd7842e9d2133ec578293759ecb13fde40c41199",
+    "name": "call"
+  }
+]

@@ -99,6 +99,9 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
             }
         }
         if session.context.lock().epoch == epoch {
+            let observed = exited.borrow().clone().or_else(|| ended.borrow().clone());
+            let unexpected = unexpected_exit(observed.as_ref());
+            let interrupted = session.context.lock().active_turn_id.is_some();
             let permit = session.gate.try_acquire().ok();
             let cleanup = super::background::cleanup(
                 &svc,
@@ -112,20 +115,34 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
             if session.context.lock().epoch != epoch {
                 return;
             }
-            if let Err(reason) = cleanup {
-                session.state.lock().degrade(epoch, &reason);
-                let tab = session.context.lock().tab_id.clone();
-                engine::publish(&svc, &tab, &session);
-                svc.emit_state_changed(MuxEmitCause::RuntimeSignal);
-                log::error!("[agent-runtime] tab={tab} owned process cleanup failed: {reason}");
-                return;
-            }
             let reason = exited
                 .borrow()
                 .clone()
                 .or_else(|| ended.borrow().clone())
                 .unwrap_or(RuntimeFailure::PipeEof);
             let expired = session.context.lock().clone();
+            let diagnostics = format!("epoch={epoch} thread={:?} turn={:?} after_compaction={} unexpected={unexpected} observed={observed:?} exit={reason:?} cleanup={cleanup:?}", expired.thread_id, expired.active_turn_id, session.compaction.lock().observed(epoch));
+            let journal = svc.lifecycle_journal.clone();
+            let tab = expired.tab_id.clone();
+            let _ = tokio::task::spawn_blocking(move || {
+                crate::service::tab_lifecycle::append_minted(
+                    &journal,
+                    &tab,
+                    "runtime-exit",
+                    crate::session::lifecycle::LifecycleTransition::RuntimeExited { diagnostics },
+                );
+            })
+            .await;
+            if let Err(reason) = cleanup {
+                session.state.lock().degrade(epoch, &reason);
+                engine::publish(&svc, &expired.tab_id, &session);
+                svc.emit_state_changed(MuxEmitCause::RuntimeSignal);
+                log::error!(
+                    "[agent-runtime] tab={} owned process cleanup failed: {reason}",
+                    expired.tab_id
+                );
+                return;
+            }
             super::login::forget(&session);
             session.login.lock().login = None;
             super::prompt_answers::clear(&svc, &expired);
@@ -155,7 +172,7 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
                 svc.emit_state_changed(MuxEmitCause::RuntimeSignal);
             }
             let owner = svc.clone();
-            let ending = expired;
+            let ending = expired.clone();
             let detail = format!("runtime process ended: {reason}");
             let _ = tokio::task::spawn_blocking(move || {
                 owner
@@ -163,8 +180,34 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
                     .runtime_process_exited(&owner, &ending, detail);
             })
             .await;
+            if !session.gate.is_closed()
+                && unexpected
+                && engine::for_tab(&expired.tab_id)
+                    .is_some_and(|current| Arc::ptr_eq(&current, &session))
+            {
+                svc.recover_interrupted_chatbackend(
+                    &expired.tab_id,
+                    &expired.binding_nonce,
+                    epoch,
+                    &reason.to_string(),
+                    interrupted,
+                );
+            }
         }
     });
+}
+
+fn unexpected_exit(reason: Option<&RuntimeFailure>) -> bool {
+    !matches!(
+        reason,
+        Some(
+            RuntimeFailure::Superseded
+                | RuntimeFailure::ProcessExited {
+                    requested: true,
+                    ..
+                }
+        )
+    )
 }
 
 fn publish_runtime_ended(
@@ -277,3 +320,7 @@ mod fixtures;
 #[cfg(test)]
 #[path = "subscriber/turn_lifecycle_tests.rs"]
 mod turn_lifecycle_tests;
+
+#[cfg(test)]
+#[path = "subscriber/capacity_retry_tests.rs"]
+mod capacity_retry_tests;

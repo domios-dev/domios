@@ -3,7 +3,7 @@
 # Refuse to cut a release unless every self-hosted runner label the release and its tests need is online.
 set -euo pipefail
 
-REPO="${RELEASE_REPO:-rollacode/codeterm}"
+REPO="$(node scripts/source-repository.mjs)"
 variables=$(gh api "repos/$REPO/actions/variables" --paginate --jq '.variables[] | [.name, .value] | @tsv')
 label_for() {
     local value

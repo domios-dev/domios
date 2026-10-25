@@ -1,5 +1,5 @@
 use super::support::{spec, LocalSigner};
-use crate::activation::ACTIVATION;
+use crate::activation::{PRODUCTION, TEST};
 use crate::payload::Mode;
 use crate::policy::{is_rfc8032_test_key, Policy, PolicyError, TrustedKey};
 
@@ -15,14 +15,14 @@ fn key(id: &str, spki: &str) -> TrustedKey {
 #[test]
 fn production_activation_never_trusts_the_rfc8032_key() {
     assert!(is_rfc8032_test_key(FIXTURE_SPKI));
-    if let Some(activation) = ACTIVATION {
+    for activation in [PRODUCTION, TEST] {
         assert!(activation
             .keys
             .iter()
             .all(|k| !is_rfc8032_test_key(k.spki_der_base64)));
         assert_ne!(activation.project, "demo-domios");
-        activation.policy().expect("production policy validates");
     }
+    PRODUCTION.policy().expect("production policy validates");
 }
 
 #[test]

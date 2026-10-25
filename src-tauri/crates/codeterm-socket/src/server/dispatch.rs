@@ -135,6 +135,7 @@ pub(super) fn dispatch(
                 "agent.turns",
                 "agent.children",
                 "agent.link",
+                "agent.reparent",
                 "agent.report",
                 "agent.ack",
                 "orchestration.new",
@@ -202,6 +203,7 @@ pub(super) fn dispatch(
                 "plan.task.rm",
                 "plan.lane_remove",
                 "plan.lanes_clean",
+                "plan.lanes_clean_next",
                 "plan.milestone.add",
                 "plan.milestone.update",
                 "plan.milestone.rm",
@@ -243,7 +245,6 @@ pub(super) fn dispatch(
                 "task.add",
                 "canvas.focus",
                 "canvas.filter",
-                "blueprint.create",
                 "blueprint.export",
                 "blueprint.apply",
                 "blueprint.keep",
@@ -251,19 +252,13 @@ pub(super) fn dispatch(
                 "blueprint.recall",
                 "blueprint.import",
                 "blueprint.input",
-                "blueprint.pipeline.create",
-                "blueprint.pipeline.validate",
-                "blueprint.pipeline.validate.update",
-                "blueprint.pipeline.update",
                 "blueprint.pipeline.nodes",
                 "blueprint.log",
-                "blueprint.validate.create",
                 "blueprint.list",
                 "blueprint.show",
                 "blueprint.stop",
                 "blueprint.delete",
                 "blueprint.update",
-                "blueprint.validate.update",
                 "blueprint.history",
                 "blueprint.escalation.resolve",
                 "cron.list",
@@ -306,6 +301,10 @@ pub(super) fn dispatch(
                 "mem.learn_promote",
                 "mem.sync",
                 "mem.reembed",
+                "mem.embedder.list",
+                "mem.embedder.status",
+                "mem.embedder.preview",
+                "mem.embedder.use",
                 "mem.extract_pending",
                 "mem.history",
                 "mem.taxonomy",
@@ -357,8 +356,7 @@ pub(super) fn dispatch(
         }
         "mesh.peers" => {
             let mesh = svc.ext::<codeterm_service_core::MeshStateHandle>();
-            let mut manager = mesh.lock();
-            manager.cleanup_expired_requests();
+            let manager = mesh.lock();
             return serde_json::to_value(manager.peers_response()).map_err(|error| JsonRpcError {
                 code: -32603,
                 message: error.to_string(),

@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 #[derive(Clone)]
 pub struct Environment {
+    _deny_directory: Option<std::sync::Arc<tempfile::TempDir>>,
     pub(super) variables: Vec<(OsString, OsString)>,
 }
 
@@ -13,10 +14,37 @@ impl Default for Environment {
 }
 
 impl Environment {
+    pub fn resolve_program(&self, names: &[&str]) -> Option<PathBuf> {
+        let path = self
+            .variables
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("PATH"))?;
+        for directory in std::env::split_paths(&path.1) {
+            for name in names {
+                let candidate = directory.join(name);
+                if candidate.is_file() {
+                    if let Ok(path) = candidate.canonicalize() {
+                        return Some(path);
+                    }
+                }
+            }
+        }
+        None
+    }
+
     pub fn for_command(
         inherited: impl IntoIterator<Item = (OsString, OsString)>,
         instance_cli: Option<&Path>,
         path_defaults: &[&str],
+    ) -> Self {
+        Self::for_command_on_platform(inherited, instance_cli, path_defaults, cfg!(windows))
+    }
+
+    fn for_command_on_platform(
+        inherited: impl IntoIterator<Item = (OsString, OsString)>,
+        instance_cli: Option<&Path>,
+        path_defaults: &[&str],
+        windows: bool,
     ) -> Self {
         let inherited: Vec<_> = inherited.into_iter().collect();
         let mut cli_dirs = Vec::new();
@@ -33,21 +61,84 @@ impl Environment {
                 }
             }
         }
-        let mut variables = Vec::new();
-        for (key, value) in inherited {
-            if is_instance_variable(&key) {
-                continue;
-            }
-            if key.to_string_lossy().eq_ignore_ascii_case("PATH") {
-                let path = probe_path(Some(&value), path_defaults).unwrap_or_default();
-                let paths = std::env::split_paths(&path)
-                    .filter(|path| !cli_dirs.iter().any(|cli| same_directory(path, cli)));
-                variables.push((key, std::env::join_paths(paths).unwrap_or_default()));
-            } else {
-                variables.push((key, value));
+        let inherited_path = inherited
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case("PATH"))
+            .map(|(_, value)| value.as_os_str());
+        let path = probe_path(inherited_path, path_defaults).unwrap_or_default();
+        let mut paths: Vec<PathBuf> = std::env::split_paths(&path).collect();
+        let mut variables = vec![("LANG".into(), "C.UTF-8".into())];
+        let identity: &[&str] = if windows {
+            &[
+                "USERNAME",
+                "USERPROFILE",
+                "HOMEDRIVE",
+                "HOMEPATH",
+                "TEMP",
+                "TMP",
+                "APPDATA",
+                "LOCALAPPDATA",
+            ]
+        } else {
+            &["HOME", "USER", "LOGNAME", "TMPDIR"]
+        };
+        variables.extend(
+            inherited
+                .iter()
+                .filter(|(key, value)| {
+                    !value.is_empty() && identity.iter().any(|name| key.eq_ignore_ascii_case(name))
+                })
+                .cloned(),
+        );
+        if let Some((_, root)) = inherited
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case("SystemRoot"))
+            .filter(|_| windows)
+        {
+            let root_path = PathBuf::from(root);
+            if root_path.is_absolute() {
+                let system = root_path.join("System32");
+                if !paths.iter().any(|path| same_directory(path, &system)) {
+                    paths.push(system.clone());
+                }
+                variables.push(("SystemRoot".into(), root.clone()));
+                variables.push(("COMSPEC".into(), system.join("cmd.exe").into_os_string()));
+                variables.push((
+                    "PATHEXT".into(),
+                    inherited
+                        .iter()
+                        .find(|(key, _)| key.eq_ignore_ascii_case("PATHEXT"))
+                        .filter(|(_, value)| !value.is_empty())
+                        .map(|(_, value)| value.clone())
+                        .unwrap_or_else(|| ".COM;.EXE;.BAT;.CMD".into()),
+                ));
             }
         }
-        Self { variables }
+        paths.retain(|path| {
+            is_shared_directory(path) || !cli_dirs.iter().any(|cli| same_directory(path, cli))
+        });
+        let deny_directory = if paths.iter().any(|path| holds_domios_cli(path)) {
+            match deny_directory(windows) {
+                Ok(directory) => Some(std::sync::Arc::new(directory)),
+                Err(error) => {
+                    log::warn!("[blueprint] CLI accident prevention unavailable: {error}");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        if let Some(directory) = &deny_directory {
+            paths.insert(0, directory.path().to_path_buf());
+        }
+        variables.push((
+            "PATH".into(),
+            std::env::join_paths(paths).unwrap_or_default(),
+        ));
+        Self {
+            variables,
+            _deny_directory: deny_directory,
+        }
     }
 
     #[cfg(windows)]
@@ -70,22 +161,56 @@ impl Environment {
     }
 }
 
-fn is_instance_variable(key: &OsStr) -> bool {
-    let key = key.to_string_lossy().to_ascii_uppercase();
-    key == "CODETERM"
-        || key == "DOMIOS"
-        || key.starts_with("CODETERM_")
-        || key.starts_with("DOMIOS_")
+fn is_shared_directory(path: &Path) -> bool {
+    ["/usr/bin", "/bin", "/usr/local/bin", "/opt/homebrew/bin"]
+        .iter()
+        .any(|shared| same_directory(path, Path::new(shared)))
+        || std::env::var_os("SystemRoot")
+            .is_some_and(|root| same_directory(path, &PathBuf::from(root).join("System32")))
+}
+
+fn deny_directory(windows: bool) -> std::io::Result<tempfile::TempDir> {
+    let directory = tempfile::Builder::new()
+        .prefix("blueprint-cli-deny-")
+        .tempdir()?;
+    for name in ["domios", "codeterm"] {
+        let path = directory.path().join(if windows {
+            format!("{name}.cmd")
+        } else {
+            name.into()
+        });
+        std::fs::write(
+            &path,
+            if windows {
+                "@echo off\r\necho Domios CLI is unavailable in Blueprint commands 1>&2\r\nexit /b 126\r\n"
+            } else {
+                "#!/bin/sh\necho 'Domios CLI is unavailable in Blueprint commands' >&2\nexit 126\n"
+            },
+        )?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))?;
+        }
+    }
+    Ok(directory)
+}
+
+fn holds_domios_cli(directory: &Path) -> bool {
+    ["domios", "codeterm"].iter().any(|name| {
+        ["", ".exe", ".cmd", ".bat", ".ps1"]
+            .iter()
+            .any(|extension| directory.join(format!("{name}{extension}")).is_file())
+    })
 }
 
 fn same_directory(left: &Path, right: &Path) -> bool {
-    let left: PathBuf = left.components().collect();
-    let right: PathBuf = right.components().collect();
-    if cfg!(windows) {
-        left.to_string_lossy()
-            .eq_ignore_ascii_case(&right.to_string_lossy())
-    } else {
-        left == right
+    match (left.canonicalize(), right.canonicalize()) {
+        (Ok(left), Ok(right)) => left == right,
+        _ if cfg!(windows) => left
+            .to_string_lossy()
+            .eq_ignore_ascii_case(&right.to_string_lossy()),
+        _ => left == right,
     }
 }
 
@@ -100,5 +225,7 @@ pub fn probe_path(inherited: Option<&OsStr>, defaults: &[&str]) -> Option<OsStri
     std::env::join_paths(paths).ok()
 }
 
+#[cfg(test)]
+mod command_tests;
 #[cfg(test)]
 mod tests;

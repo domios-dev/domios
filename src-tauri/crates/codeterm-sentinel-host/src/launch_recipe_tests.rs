@@ -15,7 +15,11 @@ fn recipe_matches() -> BTreeMap<String, String> {
         &["cron_name_or_id=nightly".into()],
     );
     assert!(checked.ok, "{:?}", checked.diagnostics);
-    serde_json::from_value(checked.definition.unwrap()["create"]["matches"].clone()).unwrap()
+    let document = codeterm_blueprint_types::blueprint_document::Document::from_definition(
+        &checked.definition.unwrap(),
+    )
+    .unwrap();
+    serde_json::from_value(document.lower().unwrap()["create"]["matches"].clone()).unwrap()
 }
 
 fn prompt(question: &str) -> PendingPrompt {

@@ -1,21 +1,23 @@
 # Domios API Reference
-Authenticated transports: REST, local socket JSON-RPC and `domios`.
+Transports: authenticated REST, local socket JSON-RPC and `domios`.
 
 ### One behavior across transports
 
-REST, socket and CLI share authorization, PTY cleanup, events and hierarchy validation.
+REST, socket and CLI share authorization, PTY cleanup, events and hierarchy checks.
 
-The CLI's local socket needs no TCP. Unix peer credentials or the Windows process-token SID restrict it to the daemon's OS user; the daemon owns authentication, signing, and transport.
+The CLI socket needs no TCP. Unix peer credentials or Windows process-token SID restrict it to the daemon's OS user; the daemon owns authentication, signing and transport.
 
-Every socket and mesh RPC envelope carries a `protocol_version`; an older or versionless client is refused with `-32002`. Wire shape: `domios docs API-TRANSPORT`.
+Socket/mesh envelopes require `protocol_version`; older or versionless clients get `-32002`. Wire: `API-TRANSPORT`; peer notice routes: `MESH`.
 
-Human `domios workspace list` shows authoritative topology in stable creation order; inspect one tab with `domios tab inspect <id>` (whole-list JSON is automation-only). `workspace current --json` returns `{ "id", "source" }`, `source` one of `explicit`, `caller-tab`, `workspace-env`, `focus-fallback`. Resolution is never positional: `--workspace`, `$CODETERM_TAB_ID` via workspace membership, a validated `$CODETERM_WORKSPACE_ID`, then the active workspace. With no rung, stdout stays empty and it exits 1 (`--json` puts the error on stdout).
+Human `domios workspace list` shows ordered topology; `tab inspect <id>` inspects one tab. `workspace current --json` returns `{id, source}`, resolving explicit placement, caller tab, validated workspace environment, then focus. No match exits 1; JSON errors go to stdout.
+
+POST `/api/blueprints/{id}/webhook` uses a per-graph secret; POST `/api/blueprints/{id}/webhook/configure` manages its lifecycle for a local authenticated caller. Signing, limits and payload rules: `domios docs BLUEPRINTS` and the integrations reference below.
 
 ## REST API
-Base URL: `http://<host>:7685/api`. This reference covers agent- and operator-facing routes; web-mirror and debug internals are not listed.
+Base: `http://<host>:7685/api`.
 
 ### Authentication
-Domios generates and persists a Bearer token on first load. Control endpoints require it even on loopback. The small public health/pairing allowlist is documented by the router and does not grant local control.
+The Bearer token lives in owner-only `<data_dir>/.secrets` as `domios.instance:api_token`, read once at startup and passed to tabs as `CODETERM_API_TOKEN`, never stored in `config.toml`. Local-only `domios system api-token` prints the credential and refuses `--mesh`. Control endpoints require it even on loopback; public health/pairing grants no control.
 
 Default configuration:
 ```toml
@@ -31,14 +33,25 @@ Non-loopback binds require an explicit host and non-empty token; remote requests
 ```toml
 [api]
 host = "192.0.2.10"
-token = "replace-with-a-long-local-secret"
 cors = true
 cors_allow_origins = ["https://console.example"]
 ```
 
-Authenticated config readback includes `api_listener.active`, `.configured`, and `.restart_required` (enabled state, address, CORS/origins, authentication). Exact queries include listener truth, so writes cannot masquerade as runtime rebinds. Loopback hosts canonicalize to valid socket/callback URL forms; rebind/recovery keeps the generation below. An empty CORS allowlist permits no cross-origin requests and never disables the listener; `*` and malformed origins are rejected.
+Config readback exposes actual and configured listener state through `api_listener.active`, `.configured`, `.restart_required` (enabled, address, CORS/origins, authentication); writes do not imply a runtime rebind. Loopback hosts canonicalize to valid socket/callback URLs; recovery follows the generation contract below. Empty CORS allowlists deny cross-origin requests without disabling the listener; `*` and malformed origins are rejected.
 
 ### Endpoints
+
+#### CI failure events
+
+POST `/api/ci/webhook`: `API-EVENTS`.
+
+#### Startup readiness
+
+Health `status: "ok"` proves liveness; `startup.state: "ready"` proves readiness. Only loopback health/events bypass auth. Await `ready` on `/api/startup/events` (`startup-state`). Other requests get HTTP 503 `starting`/`startup_failed` without queuing. CLI: `API-CLI`.
+
+#### Account machines
+
+Local account routes refuse Mesh callers. POST `/api/account/mesh/session-revoke` accepts `{installation_id?: string | null}`; omission selects this machine. It signs out the selected installation's account sessions and returns `{ok: true, result: {target_installation_id, revoked_at}}` or the standard typed refusal. The local installation key and saved pairings remain. The UI asks for confirmation before this action.
 
 #### Local previews
 | Method | Path | Body | Description |
@@ -51,7 +64,10 @@ Authenticated config readback includes `api_listener.active`, `.configured`, and
 |--------|------|------|-------------|
 | GET | `/api/health` | — | Health check. Returns `version`, `build` (git short hash), `name`, `platform`, `status`. |
 | POST | `/api/automation/blueprints/export` | `{workspace_id, team_id, id}` | Local host `{name, yaml}` authoring file; see BLUEPRINTS. |
+| POST | `/api/automation/blueprints/solutions/show` | `{workspace_id, id}` | Local host read-only saved solution, with the same workspace visibility as solutions/list. Accepts a bare ID or `mem:<id>`. Returns `{document, expanded_calls}`; see below. |
 | POST | `/api/automation/blueprints/import` | `{caller_tab_id, recipe, assignments}` | Local host apply by name, stopped; recipe is YAML text or the matching document object; see BLUEPRINTS. |
+| GET | `/api/automation/blueprints/project` | Query `workspace_id`, optional `path` | Local host read-only repository listing or bounded source view. No execution or approval. |
+| GET | `/api/automation/blueprints/viewer/history` | Query `workspace_id`, explicit `team_id` (empty for no Team), `id` | Retained definition versions with actual root/callee semantic diffs. |
 | GET | `/api/identify` | — | Version, platform, features |
 | POST | `/api/cli/rpc` | `{method, params?, protocol_version}` | Internal CLI fallback for authenticated loopback callers only. It dispatches the same RPC methods as the local socket; mesh peer tokens are refused. See API-CLI. |
 | GET | `/api/network` | — | Local IP, Tailscale IP, API URLs |
@@ -60,9 +76,9 @@ Authenticated config readback includes `api_listener.active`, `.configured`, and
 | POST | `/api/keepawake/stop` | — | Stop keep-awake session |
 | POST | `/api/graph/events/{subscription_id}` | `{plugin_id, event_id, payload}` | Plugin event ingress. Uses the subscription's Bearer token, accepts at most 64 KiB, and returns 202 for admission; refusal codes map to 401, 403, 404, 409, 413, 422, 429 or 503. |
 
-A desktop REST listener generation reports `listening` only once it owns the real socket and a real `GET /api/health` succeeds, its body is consumed, and the proof connection closes. A listener exit is replaced by exactly one new generation; a bind ownership failure waits for an explicit port-release or restart event, never a timer. The listener status reports `generation`, `phase`, `diagnostic`, and `message`. Diagnostic values are `listener_exited`, `bind_ownership_failed`, or `workers_blocked`; the last means the listener remains bound but the four REST runtime workers cannot answer health.
+REST listener lifecycle and recovery: MESH, *Local REST availability*. REST chat/transcript routes parse a bounded 4 MiB tail.
 
-Recovery ids and the mesh resync each recovery triggers: MESH, *Local REST availability*. REST chat/transcript routes parse a bounded 4 MiB tail.
+Saved solution show returns a credential-redacted `document` and recursive `expanded_calls: [{node, pin: {id, hash}, graph, children}]` under the saved scope and exact hashes. Missing/corrupt/foreign pins expose `pinned_revision_unavailable`; limits of eight levels, 64 calls and 256 KiB expose `budget_exhausted`. Archived/foreign roots and peer-origin requests refuse.
 
 #### Workspaces
 | Method | Path | Body | Description |
@@ -73,7 +89,7 @@ POST routes whose fields only refine a complete action (agent restart, hooks, se
 
 #### Closed History & Restore
 
-Closed tabs and workspaces are recorded in a bounded persistent ring. Each close belongs to a `single`, `cascade`, or `workspace` group identified by an opaque `group_id`. Oldest entries are evicted first.
+A bounded persistent ring records closed tabs/workspaces, evicting oldest first. Each close has an opaque `group_id` of kind `single`, `cascade`, or `workspace`.
 
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
@@ -85,10 +101,10 @@ Restore normalizes the recorded `cwd` before matching. `GET /api/mux/state` expo
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
 | GET | `/api/shells` | `?refresh=true` | Shell profiles; refresh replaces cache. |
-| GET | `/api/tabs` | `?workspace_id=<id>&agents=<bool>` or `?all_workspaces=true` | List tab summaries across local workspaces; `workspace_id` scopes to one. `focused_workspace=true` uses the caller tab identity, otherwise the focused workspace. Rows carry `workspace_id`, `workspace_name`, `scope` (`all_workspaces` \| `workspace`), `scope_workspace_id`, `scope_workspace_name`, `other_workspace_tab_count`, `agent_liveness` (`live` \| `absent` \| `unobserved`) and `agent_label`, its rendered bracket: the short model name when a provider catalogue claims the model id, else the provider name, suffixed `?` when unobserved and `!` when absent. Each row's `status` (`working` \| `question` \| `idle` \| `error` \| `exited`) is the value `GET /api/tabs/{id}/status` reports. A writer holding the state locks past 5 s yields `503`. |
+| GET | `/api/tabs` | `?workspace_id=<id>&agents=<bool>` or `?all_workspaces=true` | Summaries: `workspace_id` scopes one, `all_workspaces=true` lists all; `focused_workspace=true` uses caller identity, else focus. Rows: `workspace_id`, `workspace_name`, `scope` (`all_workspaces` \| `workspace`), `scope_workspace_id`, `scope_workspace_name`, `other_workspace_tab_count`, `agent_liveness` (`live` \| `absent` \| `unobserved`), `agent_label` (model/provider; `?` unobserved, `!` absent), `status` matching `/status` (`working` \| `question` \| `idle` \| `error` \| `exited`). Writer locks held over 5 s return `503`. |
 | POST | `/api/tabs/{id}/wake` | — | Local-owner request to wake a sleeping tab; returns `202 {accepted:true}` immediately. Backend materialization runs off the async runtime; observe tab state for readiness. Repeated requests materialize once while a wake runs. A failed wake publishes `spawn_failed` and `boot_failure_reason`; an explicit new wake request retries it. |
 | GET | `/api/tabs/inspect` | `?tab_ids=<id>,<id>` | Full tab payload for the selected tab IDs only. |
-| POST | `/api/tabs` | `{title?, description?, cwd?, workspace_id?, team_id?, creator_tab_id?, detach_from_team?, cmd?, eager?, chat_backend?, system_prompt?, preset?, model?}` | Create a tab. `title`: one word, at most 64 chars, no whitespace or control characters; prose goes in `description`. Workspace: `workspace_id`, else the one owning `creator_tab_id` (the CLI sends the caller), else the focused one. A PTY shell inherits the live creator's Team unless `detach_from_team`; explicit `team_id` is membership-checked; chat-backend tabs never inherit. `description`: one trimmed line, at most 200 chars; empty clears. `cmd` goes through `/send` with Enter appended. A `chat_backend` naming an installed `chatBackend` plugin id creates an **open agent shell** instead of a PTY: `system_prompt` overrides the resolved preset's prompt, `preset` selects one (omit → plugin `defaultPreset`), `model` picks a model; these three need `chat_backend`. |
+| POST | `/api/tabs` | `{title?, description?, cwd?, workspace_id?, team_id?, creator_tab_id?, detach_from_team?, cmd?, eager?, chat_backend?, system_prompt?, preset?, model?}` | Create tab: `title` one word, max 64 chars; `description` trimmed one line, max 200 chars, empty clears. Workspace: explicit, creator-owned, then focus. PTY shells inherit the live creator Team unless `detach_from_team`; explicit `team_id` is membership-checked; chat backends never inherit. `cmd` uses `/send` plus Enter. `chat_backend` opens an installed `chatBackend` shell instead of a PTY; only these accept `system_prompt`, `preset` (plugin `defaultPreset` default), and `model`. |
 | POST | `/api/tabs/{id}/send` | `{text?, raw?, actions?: [{type:"key", key} \| {type:"delay", ms}], batch?: [{text, delay_ms?}], source_tab?}` | The ordinary write path, also used by mesh relay and service push tokens. Plain text and every batch item submit; `actions`/`raw` are only for explicit low-level terminal input. Delivery results (`sent`, `pending`, or a structured error with `bytes_written`): API-CHAT. |
 | POST | `/api/tabs/{id}/chat-send` | *(per route)* | Chat send and transcript routes: API-CHAT |
 | POST | `/api/tabs/{id}/attachments` | `{kind: "voice"\|"file", name, size, data}` (`data` is base64, at most 25 MiB decoded) | Target-host attachment ingest for mesh sends. Refuses oversized (`413`), malformed, empty or size-mismatched (`400`) payloads, sanitizes `name`, stores bytes in this host's upload directory. Returns `{path, kind, size, reference}`: `path` is host-local; for `voice`, `reference` is the voice marker transcribed here. Peers reach it through the signed relay with `/send` access. |
@@ -99,6 +115,8 @@ Restore normalizes the recorded `cwd` before matching. `GET /api/mux/state` expo
 | GET | `/api/tabs/{id}/output` | `?offset=N&strip_ansi=true` | Get output buffer (cursor-based) |
 | GET | `/api/tabs/{id}/text` | `?formatted=false` | Visible terminal text (VT100-parsed, incl. alternate buffer), backend-served so hidden tabs work. Response: `{"text", "formatted", "tab_id"}`; `?formatted=true` keeps raw ANSI including cursor position and visibility. |
 | GET | `/api/tabs/{id}/usage` | — | Latest usage/cost counters for this tab |
+| GET | `/api/tabs/{id}/agent/runtime/login` | — | Read the exact runtime's pending URL, user code and `expiresAtMs`; authenticated local callers and permitted paired peers only; `Cache-Control: no-store` |
+| POST | `/api/tabs/{id}/agent/runtime/login` | `{method:"device"}` or `{action:"notify"}` or `{action:"cancel"}` | Start a declared login flow, request one phone notification or cancel it. API-key entry stays local. |
 | GET | `/api/tabs/{id}/agent/runtime/usage` | — | Exact-tab limits, account and reset credits |
 | POST | `/api/tabs/{id}/agent/runtime/reset-credits` | `{action:"read"}` or `{action:"redeem", idempotencyKey, confirmed:true, creditId?}` | Read support, or redeem one reset credit (UUID v4 key + confirmation; `creditId` omitted = provider picks); returns outcome and before/after counts |
 | GET | `/api/tabs/{id}/output/stream` | — | SSE real-time output stream |
@@ -111,16 +129,16 @@ Restore normalizes the recorded `cwd` before matching. `GET /api/mux/state` expo
 | POST | `/api/tabs/{id}/resize` | `{cols, rows}` | Resize terminal |
 | GET | `/api/tabs/{id}/chat` | *(per route)* | Chat send and transcript routes: API-CHAT |
 | GET | `/api/tabs/{id}/agent/runtime/children/{thread}/history` | `rootThreadId`, `bindingNonce`, `epoch`, optional `cursor` | Read one recorded subagent's history under the current parent binding. Returns `child` metadata, `items`, `nextCursor` and echoed binding fields. Foreign, unrecorded and stale children are refused; this grants no send or rebind authority and creates no tab. |
-| * | `/api/tabs/{id}/session/...` | *(per route)* | Tab session binding: read the daemon's binding fact, or rebind a running tab to an existing provider session without restarting it — both in API-TABS |
-| POST | `/api/tabs/{id}/repair` | `{provider? \| session_id? \| from_evidence? \| from_journal?}` | Repair a live PTY tab's provider/session identity without restart. Modes are mutually exclusive; empty body means `from_evidence`. Caller proof comes from `X-CodeTerm-Tab-Id` and `X-CodeTerm-Binding-Nonce`, plus `X-CodeTerm-Session-Id` when the launch already knew it; the proven caller must be the target tab or the registered owner of the target's bound plan task. Provider writes require a nonce-verified session record and go through the journaled identity boundary. Response shape, journal mode, and refusals: see API-REPAIR. |
+| * | `/api/tabs/{id}/session/...` | *(per route)* | Read binding state or rebind an existing provider session without restart: API-TABS. |
+| POST | `/api/tabs/{id}/repair` | `{provider? \| session_id? \| from_evidence? \| from_journal?}` | Repair a live PTY provider/session without restart; self or bound Plan-owner authority. Modes, caller headers, response and refusals: API-REPAIR. |
 | POST | `/api/tabs/{id}/adopt-agent` | See API-ADOPT | Adopt a live PTY; see API-ADOPT. |
 | * | `/api/tabs/{id}/delayed-messages`, `/api/delayed-messages/{id}` | *(per route)* | List, queue, edit, delete, and send-now for delayed Chat UI messages — all in API-CHAT |
 | POST | `/api/tabs/{id}/hook/{permission,session_state,stop,session_start}` | *(per-hook, see below)* | Agent lifecycle hooks for one tab. Payloads, modes, nonce rejection and responses live in API-TABS |
 | POST | `/api/tabs/{id}/agent/switch-provider` | `{provider, model?, reasoning_effort?, force?}` | Daemon-owned in-place handoff (also General/self); 202 + operation id; see PROVIDER-SWITCH |
 | GET | `/api/tabs/{id}/agent/switch-provider/{operation}` | `?wait=true` optional | Read pending/running/completed/failed operation and outcome. |
 | GET | `/api/tabs/{id}/agent/provider-history` | `?file=PATH` | Read this tab's archived previous provider transcript. |
-| POST | `/api/tabs/{id}/agent/restart` | `{force?: bool, grace_secs?: u64, provider?: string, handoff_history?: bool}` | Restart a live agent, fresh-launch a known provider from a confirmed unbound shell, or resume an exited provider's verified owned session. An optional PTY provider change can hand off bounded redacted history. See [Agent Restart](API-AGENTS.md#agent-restart-post-apitabsidagentrestart). |
-| POST | `/api/tabs/{id}/agent/model` | `{model: string, reasoning_effort?: string, runtime_mode?: string}` | Switch through declared `model_switch`; `next_turn` records per-thread controls without restarting; advertised Live routes are tab-bound, otherwise idle RestartResume reports the mode used. Never changes the provider's global default. See [Agent Model Switch](#agent-model-switch-post-apitabsidagentmodel). |
+| POST | `/api/tabs/{id}/agent/restart` | `{force?: bool, grace_secs?: u64, provider?: string, handoff_history?: bool}` | Restart/resume the owned agent session; guarded fresh launch or optional PTY provider handoff. Full contract: API-AGENTS. |
+| POST | `/api/tabs/{id}/agent/model` | `{model: string, reasoning_effort?: string, runtime_mode?: string}` | Capability-selected model control: `next_turn` stages without restart, Live is tab-bound, otherwise idle RestartResume. Preserves provider defaults. Details: API-AGENTS. |
 | GET | `/api/tabs/{id}/agent/service-tiers` | none | Reads the exact tab's session-bound model tier catalogue and requested/confirmed service tier selections. Returns typed `no_runtime`, `no_tiers`, or `not_found` refusals. |
 
 #### Agent Hierarchy
@@ -138,11 +156,11 @@ Restore normalizes the recorded `cwd` before matching. `GET /api/mux/state` expo
 | GET | `/api/agents/providers` | — | Versioned provider catalog (changes emit catalogue events to selectors): `id`, `display_name`, models, reasoning efforts/defaults (per-model values override the provider list, API-AGENTS), settings, and `kind`: `agent` (PTY) or `shell` (chat backend, also exposing presets and Chat UI support). `availability` is `available`, `unavailable`, or `unknown`; PTY lookup uses `binary_name`; backends use optional `cli_binary`. Spawn refuses `unavailable` before creating a tab; `unknown` warns. Debug builds add `stub_replay`, true when a launch of that provider is replaced by the `CODETERM_STUB_AGENT_CMD` replayer; release builds omit it. |
 | POST | `/api/agents/providers/refresh` | `{provider_id}` | Explicitly refreshes a provider's model catalogue before a listing: a catalogue that requires live discovery re-probes; any other catalogue gets the reader-gated re-probe (TTL window, or a changed credential/config/provider binary). Returns `{provider_id, discovery_required, refreshed, reason}`; `reason` names why a probe published nothing and is null after a refresh. |
 | GET | `/api/providers` | — | Authenticated provider list alias for selectors |
-| POST | `/api/agents/spawn` | `{agent?, agent_name?, title?, description?, cwd?, role?, role_profile?, parent_tab_id?, plan_id? (alias `plan`), can_spawn?, task?, task_id?, plan_task? (alias `plan-task`), execution_intent?, authorized_gates?, args?, workspace_id?, model?, reasoning_effort? (alias `reasoning-effort`), system_prompt? (alias `system`), preset?, charter?, tick_interval_secs?, nudge_cooldown_secs?, max_actions_per_tick?, audience?, report_to?, origin_peer?, team_id?, creator_tab_id?}` | One-call agent spawn contracts: API-SPAWN; roled Team members use `POST /api/teams/{team_id}/members` (API-TEAMS). |
+| POST | `/api/agents/spawn` | *(per route: API-SPAWN)* | One-call agent spawn; roled Team members use `POST /api/teams/{team_id}/members` (API-TEAMS). |
 | POST | `/api/agents/helper` | `{title, task}` | Shared spawn for UI AI helper buttons (Configure with AI, Mesh Set up with AI). The daemon resolves the General Agent provider, places the tab in the General workspace and working directory regardless of the active workspace, and starts a roleless visible launch that always carries a first turn. Other fields are refused. A missing General workspace, launch failure or undelivered first turn errors and rolls the tab back. `delivery_state` is `confirmed` only when the first turn was submitted through the PTY with submit evidence, `launched` when the provider consumed it inline at launch without that evidence. |
 | GET | `/api/remote-workers` | `?tab=<id>` | Orchestrator view of cross-mesh workers, built from inbound mesh reports. `?tab=` returns that orchestrator's workers; otherwise the full `{ tab_id: RemoteWorker[] }` map. `RemoteWorker = {peer, remote_tab, title, model, status, last_message, last_seen_ms}`. Live updates via the `remote-workers-changed` event. |
 
-Configure-with-AI, provider install, auto-confirm, the Pebble webhook and plugin receiver targets: `domios docs API-INTEGRATIONS`.
+Configure-with-AI, provider install, auto-confirm, Pebble and Blueprint webhooks, plugin receivers: `domios docs API-INTEGRATIONS`.
 
 Plugin surface routes (`/api/surfaces/*`): `domios docs SURFACES`.
 
@@ -170,8 +188,8 @@ Task-mutating calls (socket `plan.task.*`, REST `/api/plans/{id}/tasks/{tid}*`) 
 
 Batch writes (socket `plan.batch`, REST `POST /api/plans/{id}/batch`, both reached by `domios plan record`) cross the same boundary: an op naming a task another tab holds is refused unless the caller is that holder or the plan owner. Callers name themselves with `caller_tab_id`; an unidentified caller cannot claim a hold. The refusal carries `STALE TASK BINDING` (socket `-32003`, REST `403`) with `type: "stale_task_binding"` plus `attempted_by_tab`, `plan_id` and `task_id`, and nothing is written. A bearer token proves a client is permitted, never that it holds the task.
 
-A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or `close` after its tab disappears; retirement and recovery commit atomically. Mutating dispatch into canonical or another task's lane is refused with `-32013`; competition provisions one lane per competitor. Advisory findings ride successful results in `safety_nudges` and `_hints`. See `domios docs ORCHESTRATION`.
+A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or `close` after its tab disappears; retirement and recovery commit atomically. Mutating dispatch into canonical or another task's lane is refused with `-32013`; competition provisions one lane per competitor. Advisory findings ride successful results in `safety_nudges` and `_hints`. See `ORCHESTRATION`.
 
-Related docs: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-INTEGRATIONS`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, and `TELEGRAM-SETUP`. Local analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
+Related: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, `TELEGRAM-SETUP`. Analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 213 -->
+<!-- revision: 231 -->

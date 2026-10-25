@@ -54,7 +54,8 @@ async function main(): Promise<void> {
   setupHookDom();
   const bridge = await import("../../lib/bridge");
   const { useChatSession } = await import("./useChatSession");
-  const { CHAT_WINDOW_SIZE } = await import("./chatWindow");
+  const { CHAT_PAGE_SIZE, CHAT_READING_SIZE } = await import("./chatPagingModel");
+  const { clearTranscriptWindows } = await import("./transcriptStore");
 
   const state = {
     snapshot: [] as NormalizedChatMessage[],
@@ -116,13 +117,13 @@ async function main(): Promise<void> {
   }
 
   // Large session: bounded snapshot tail + a positive start_offset cursor.
-  state.snapshot = Array.from({ length: 30 }, (_, i) => msg(`s-${i}`, `snap-${i}`, 20_000 + i, i));
+  state.snapshot = Array.from({ length: CHAT_PAGE_SIZE }, (_, i) => msg(`s-${i}`, `snap-${i}`, 20_000 + i, i));
   state.startOffset = 5000;
   state.endOffset = 8000;
   state.pages.set(5000, {
     start_offset: 3000,
     end_offset: 5000,
-    messages: Array.from({ length: 20 }, (_, i) => msg(`p1-${i}`, `page1-${i}`, i === 19 ? 20_000 : 10_000 + i, i)),
+    messages: Array.from({ length: CHAT_PAGE_SIZE }, (_, i) => msg(`p1-${i}`, `page1-${i}`, i === CHAT_PAGE_SIZE - 1 ? 20_000 : 10_000 + i, i)),
     source_session_id: "sid-1",
   });
   // Page 2: reaches the start of the file.
@@ -155,7 +156,7 @@ async function main(): Promise<void> {
   {
     const contents = v().allMessages.map((m) => m.content);
     assert(contents[0] === "page1-0", `older page sorts first (got ${contents[0]})`);
-    const boundary = contents.indexOf("page1-19");
+    const boundary = contents.indexOf(`page1-${CHAT_PAGE_SIZE - 1}`);
     const snapFirst = contents.indexOf("snap-0");
     assert(boundary >= 0 && snapFirst >= 0 && boundary < snapFirst,
       "the page's byte range keeps its rows before the snapshot despite an equal timestamp");
@@ -198,6 +199,7 @@ async function main(): Promise<void> {
 
   await act(async () => root.unmount());
   host.remove();
+  clearTranscriptWindows();
 
   // --- detached history is one bounded reading window; show-latest returns to the tail ---
   {
@@ -216,15 +218,15 @@ async function main(): Promise<void> {
     await flush();
 
     const loadedMessageCount = v().allMessages.length;
-    assert(v().enrichedCount <= CHAT_WINDOW_SIZE, `DOM window stays bounded (${v().enrichedCount})`);
-    assert(v().hiddenOlder === loadedMessageCount - CHAT_WINDOW_SIZE, "older loaded items beyond the window are hidden, not rendered");
+    assert(v().enrichedCount === CHAT_PAGE_SIZE, `initial DOM window holds one page (${v().enrichedCount})`);
+    assert(v().hiddenOlder === loadedMessageCount - CHAT_PAGE_SIZE, "older loaded items beyond the window are hidden, not rendered");
 
     await act(async () => {
       void v().loadOlder();
     });
     await flush();
     assert((state.backfillCalls.length as number) === 0, "local hidden items slide without a backfill request");
-    assert(v().enrichedCount <= CHAT_WINDOW_SIZE, "detached reading mounts one bounded window");
+    assert(v().enrichedCount === 2 * CHAT_PAGE_SIZE && v().enrichedCount <= CHAT_READING_SIZE, "detached reading reveals one more bounded page");
     assert(v().enrichedCount < loadedMessageCount, "detached reading never mounts rows outside its window");
     assert(v().allMessages.length === loadedMessageCount, "sliding never drops data, only DOM");
 
@@ -232,8 +234,8 @@ async function main(): Promise<void> {
       v().showLatest();
     });
     await flush();
-    assert(v().enrichedCount === CHAT_WINDOW_SIZE, "show-latest collapses to the bounded tail");
-    assert(v().hiddenOlder === loadedMessageCount - CHAT_WINDOW_SIZE, "tail window hides older items again");
+    assert(v().enrichedCount === CHAT_PAGE_SIZE, "show-latest collapses to the bounded tail");
+    assert(v().hiddenOlder === loadedMessageCount - CHAT_PAGE_SIZE, "tail window hides older items again");
 
     await act(async () => root2.unmount());
     host2.remove();

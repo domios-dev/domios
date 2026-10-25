@@ -1,0 +1,37 @@
+schema_version: 1
+name: Checks for {{repository}} {{number}}
+note: Hold until every status check on a given pull request has finished.
+owner: team
+inputs:
+  repository:
+    type: string
+    description: GitHub owner/repository
+  number:
+    type: integer
+    description: Positive run or pull request ID
+  poll:
+    type: string
+    default: 2m
+    description: Probe interval, at least 10s
+  limit_ms:
+    type: integer
+    default: 45000
+    description: Probe timeout in milliseconds
+pipeline:
+  trigger:
+    type: schedule
+    every: '{{poll}}'
+  steps:
+  - name: Read checks
+    input: text
+    uses: github
+    with:
+      id: '{{number}}'
+      resource: pr_checks
+      repo: '{{repository}}'
+      timeout_ms: '{{limit_ms}}'
+    'on':
+      failed: stop
+      done: next
+  result:
+    to: owner

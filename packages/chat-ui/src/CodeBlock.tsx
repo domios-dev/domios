@@ -83,6 +83,7 @@ function isToolTraceLanguage(language: string): boolean {
 
 type CodeContentProps = {
   fullSize: boolean;
+  reading?: boolean;
   maxHeight: string;
   displayedText: string;
   language: string;
@@ -100,6 +101,7 @@ type CodeContentProps = {
 
 const CodeBlockContent = React.memo(function CodeBlockContent({
   fullSize,
+  reading = false,
   maxHeight,
   displayedText,
   language,
@@ -139,8 +141,8 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
   }
   return (
     <BoundedMessageContent collapsedHeight={maxHeight} unbounded={fullSize}
-      className={`${SYNTAX_HIGHLIGHT_ROOT_CLASS} min-w-0 w-full max-w-full select-text ${fullSize ? "h-full overflow-hidden" : ""}`}
-      style={{ maxHeight: fullSize ? "100%" : maxHeight }}
+      className={`${SYNTAX_HIGHLIGHT_ROOT_CLASS} min-w-0 w-full max-w-full select-text ${fullSize && !reading ? "h-full overflow-hidden" : ""}`}
+      style={{ maxHeight: reading ? "none" : fullSize ? "100%" : maxHeight }}
     >
       {suppressMermaidErrorOutput ? null : shouldDisplayMermaid ? (
         <div className="px-2 py-1.5" style={{ color: "var(--ct-fg)" }} dangerouslySetInnerHTML={{ __html: mermaidSvg ?? "" }} />
@@ -160,10 +162,10 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
             customStyle={{
               margin: 0,
               borderRadius: 0,
-              padding: "0.75rem",
-              fontSize: "0.75rem",
-              lineHeight: "1.4",
-              background: fullSize ? "var(--ct-bg)" : "var(--ct-bg)",
+              padding: reading ? "0" : "0.75rem",
+              fontSize: reading ? "0.8125rem" : "0.75rem",
+              lineHeight: reading ? "1.65" : "1.4",
+              background: reading ? "transparent" : "var(--ct-bg)",
               width: wrapLines ? "100%" : "max-content",
               minWidth: "100%",
               maxWidth: wrapLines ? "100%" : "none",
@@ -196,6 +198,7 @@ export function CodeBlock({
   collapseAfterLines = 20,
   wrapLines = false,
   showLineNumbers = false,
+  fullscreenAside,
 }: {
   text: string;
   language?: string;
@@ -204,6 +207,8 @@ export function CodeBlock({
   collapseAfterLines?: number;
   wrapLines?: boolean;
   showLineNumbers?: boolean;
+  /** Describes the code beside the fullscreen reading view (outline, ports, limits); shown when there is room. */
+  fullscreenAside?: React.ReactNode;
 }) {
   const language = languageFromInfoString(infoString);
   const normalizedText = useMemo(() => text.replace(/\r/g, ""), [text]);
@@ -502,10 +507,15 @@ export function CodeBlock({
               </button>
             </div>
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-              {mermaidMode && shouldDisplayMermaid ? <MermaidCanvas svg={mermaidSvg!} /> : <CodeBlockContent
+              {mermaidMode && shouldDisplayMermaid ? <MermaidCanvas svg={mermaidSvg!} /> : <div className="ct-code-reader" data-testid="code-reader">
+                {fullscreenAside && <aside className="ct-code-reader__aside" aria-label="About this code">{fullscreenAside}</aside>}
+                <div className="ct-code-reader__stage">
+                  <div className="ct-code-reader__sheet">
+                    <CodeBlockContent
                 wrapLines={wrapLines}
-                showLineNumbers={showLineNumbers}
+                showLineNumbers
                 fullSize
+                reading
                 maxHeight={maxHeight}
                 displayedText={displayedText}
                 language={language}
@@ -516,7 +526,10 @@ export function CodeBlock({
                 shouldDisplayMermaid={shouldDisplayMermaid}
                 showMermaidFallback={showMermaidFallback}
                 suppressMermaidErrorOutput={suppressMermaidErrorOutput}
-              />}
+                    />
+                  </div>
+                </div>
+              </div>}
             </div>
         </FullscreenOverlay>
       )}

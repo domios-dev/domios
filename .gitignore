@@ -18,6 +18,17 @@ src-tauri/bundled-cli/
 src-tauri/bundled-embed/
 *.local.sh
 .env
+.env.*
+!.env.example
+*.pem
+!/scripts/frontend-release/fixtures/frontend-test.pem
+*.p12
+*.pfx
+*.key
+*.jks
+*.keystore
+service-account*.json
+*-firebase-adminsdk-*.json
 NUL
 src-tauri/.fastembed_cache/
 src-tauri/bundled-embed-libs/

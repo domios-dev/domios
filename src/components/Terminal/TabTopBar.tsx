@@ -15,6 +15,7 @@ import { UsageBubble } from "../Usage/UsageBubble";
 import { PluginBubbles } from "../Extensions/PluginBubbles";
 import type { ModelGroup, Tab } from "../../lib/types";
 import { TAB_BAR_CONTROL_H } from "./tabBarConstants";
+import { TabLockMark } from "./TabLockMark";
 import { WatcherStatusBadge } from "./WatcherStatusBadge";
 import { TabActionsMenu } from "./TabActionsMenu";
 import { matchesBinding } from "../../lib/keybindings";
@@ -75,8 +76,11 @@ function TabRenameField({ title, onDone }: { title: string; onDone: (title: stri
         onDone(trimmed && trimmed !== title ? trimmed : null);
       }}
       onKeyDown={(event) => {
+        if (event.key !== "Enter" && event.key !== "Escape") return;
+        event.preventDefault();
+        event.stopPropagation();
         if (event.key === "Enter") event.currentTarget.blur();
-        else if (event.key === "Escape") onDone(null);
+        else onDone(null);
       }}
       className="min-w-0 rounded border border-[var(--ct-border)] bg-[var(--ct-bg)] px-1.5 text-[12px] text-[var(--ct-fg)] outline-none"
       style={{ height: TAB_BAR_CONTROL_H }}
@@ -113,7 +117,7 @@ export function TabTopBar({
   const menuTab = tabMenu?.tab ?? null;
   const { openProviderSwitch, providerSwitchDialog } = useProviderSwitchDialog(menuTab);
   const onRename = tabMenu?.onRename;
-  const canReconnect = menuTab ? tabSessionActionView(menuTab).canReconnect : false;
+  const canReconnect = menuTab ? tabSessionActionView(menuTab).canReconnect && !tabMenu?.context.lock?.locked && !menuTab.locked : false;
   const pluginTabMenu = usePluginTabMenu();
   const telegramThread = useTelegramThreadMenu(tabId, menuTab !== null && !menuTab.remote_peer_id);
 
@@ -284,6 +288,7 @@ export function TabTopBar({
             chatPty={showSwitch}
           />
         )}
+        <TabLockMark tab={menuTab} />
       </div>
       <div className="ml-auto flex min-w-0 flex-1 items-start justify-end gap-1 sm:gap-1.5">
       <div
@@ -300,8 +305,8 @@ export function TabTopBar({
             className="ct-bar-pill inline-flex shrink-0 items-center justify-center gap-0.5 px-2 text-xs"
             style={{ height: TAB_BAR_CONTROL_H }}
             aria-expanded={bubblesOpen}
-            aria-label={bubblesOpen ? "Show fewer" : `Show ${hiddenBubbles} more`}
-            title={bubblesOpen ? "Show fewer" : `Show ${hiddenBubbles} more`}
+            aria-label={bubblesOpen ? "Show fewer" : `Show all ${hiddenBubbles} hidden details`}
+            title={bubblesOpen ? "Show fewer" : `Show all ${hiddenBubbles} hidden details`}
             onClick={() => setBubblesOpen((open) => !open)}
           >
             {bubblesOpen ? <ChevronDown size={14} aria-hidden style={{ transform: "rotate(180deg)" }} /> : <>+{hiddenBubbles}<ChevronDown size={12} aria-hidden /></>}
