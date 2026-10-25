@@ -15,6 +15,9 @@ fn temp_root() -> tempfile::TempDir {
 }
 
 fn open(root: &Path) -> Storage {
+    if !Storage::database_path(root).exists() {
+        codeterm_storage::test_support::seed_empty_root(root);
+    }
     Storage::open(root, StorageConfig::default()).expect("open storage")
 }
 
@@ -177,7 +180,7 @@ fn storage_contract_config_bounds_are_explicit() {
             "{refused:?}"
         );
     }
-    close(open(root.path()));
+    close(Storage::open(root.path(), StorageConfig::default()).expect("initialize fresh storage"));
 }
 
 #[test]
@@ -445,6 +448,7 @@ fn storage_contract_database_full_rolls_back_batch() {
 #[test]
 fn storage_contract_held_writer_serves_committed_reads_and_bounds_admission() {
     let root = temp_root();
+    codeterm_storage::test_support::seed_empty_root(root.path());
     let storage = Storage::open(root.path(), config(|c| c.mailbox_commands = 4)).expect("open");
     create(&storage, &["a"]);
     let committed = storage.revision();
@@ -499,6 +503,7 @@ fn storage_contract_held_writer_serves_committed_reads_and_bounds_admission() {
 #[test]
 fn storage_contract_mailbox_byte_bound_refuses_without_discard() {
     let root = temp_root();
+    codeterm_storage::test_support::seed_empty_root(root.path());
     let bounded = config(|c| {
         c.mailbox_bytes = 64 * 1024;
         c.max_asset_bytes = 48 * 1024;
@@ -864,8 +869,10 @@ fn storage_contract_owner_threads_refuse_reentrant_calls() {
 async fn storage_contract_completion_resolves_on_async_runtime() {
     let root = temp_root();
     let path = root.path().to_path_buf();
-    let opened =
-        tokio::task::spawn_blocking(move || Storage::open(&path, StorageConfig::default()));
+    let opened = tokio::task::spawn_blocking(move || {
+        codeterm_storage::test_support::seed_empty_root(&path);
+        Storage::open(&path, StorageConfig::default())
+    });
     let storage = opened.await.expect("open task").expect("open storage");
     let committed = insert(&storage, "async")
         .await

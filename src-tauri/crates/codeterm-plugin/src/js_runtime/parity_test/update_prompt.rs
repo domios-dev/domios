@@ -23,6 +23,7 @@ fn parity_update_prompt_safe_choice() {
         (vec![("1", "Update later"), ("2", "Update now")], None),
     ];
     let native = crate::agent_claude::provider::ClaudeProvider::new();
+    let providers = ["claude", "codex", "opencode"].map(|id| (id, load_js(id)));
     for (options, expected) in fixtures {
         let prompt = crate::prompt::build_prompt(
             "fixture-question".into(),
@@ -35,9 +36,9 @@ fn parity_update_prompt_safe_choice() {
             native.update_prompt_safe_choice(&prompt).as_deref(),
             expected
         );
-        for id in ["claude", "codex", "opencode"] {
+        for (id, provider) in &providers {
             assert_eq!(
-                load_js(id).update_prompt_safe_choice(&prompt),
+                provider.update_prompt_safe_choice(&prompt),
                 native.update_prompt_safe_choice(&prompt),
                 "{id}"
             );
@@ -79,6 +80,7 @@ fn parity_update_prompt_availability() {
         ("header 1.2.3 -> 2.3.4\nother 3.4.5 -> 4.5.6", None),
         ("opaque frame", None),
     ];
+    let providers = ["claude", "codex", "opencode"].map(|id| (id, load_js(id)));
     for (screen, expected) in fixtures {
         let version = native.update_prompt_availability(screen);
         assert_eq!(
@@ -87,8 +89,8 @@ fn parity_update_prompt_availability() {
                 .map(|v| (v.current_version.as_str(), v.latest_version.as_str())),
             expected
         );
-        for id in ["claude", "codex", "opencode"] {
-            let actual = load_js(id).update_prompt_availability(screen);
+        for (id, provider) in &providers {
+            let actual = provider.update_prompt_availability(screen);
             assert_eq!(
                 serde_json::to_value(actual).unwrap(),
                 serde_json::to_value(&version).unwrap(),

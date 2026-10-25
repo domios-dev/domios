@@ -44,6 +44,7 @@ impl Drop for TempRoot {
 
 fn storage() -> (TempRoot, Storage) {
     let root = TempRoot::new();
+    crate::test_support::seed_empty_root(root.path());
     let storage = Storage::open(root.path(), StorageConfig::default()).unwrap();
     (root, storage)
 }
