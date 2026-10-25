@@ -32,13 +32,16 @@ on:
       - "evals/**"
       - ".github/workflows/docs-source-of-truth.yml"
 
+permissions:
+  contents: read
+
 concurrency:
   group: docs-source-of-truth-${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref }}
   cancel-in-progress: true
 
 jobs:
   source-of-truth:
-    runs-on: [self-hosted, Linux, light, host-ubunta]
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
         with:

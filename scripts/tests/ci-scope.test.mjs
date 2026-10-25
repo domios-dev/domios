@@ -83,15 +83,15 @@ test("a pull request keeps fast checks but leaves the heavy Rust and CLI matrix 
   assert.deepEqual(scopeForRun(["src/App.tsx"], plugins, false, true), { ...frontendOnly, heavy: false });
 });
 
-const workflow = ["tests-fast", "tests-rust"].map(name => readFileSync(new URL(`../../.github/workflows/${name}.yml`, import.meta.url), "utf8")).join("\n");
+const workflow = ["tests-fast", "tests-rust"].map(name => readFileSync(new URL(`../../.github/workflows/${name}.yml`, import.meta.url), "utf8").replaceAll("\r\n", "\n")).join("\n");
 const jobConditions = new Map([...workflow.matchAll(/^  ([\w-]+):\n(?:(?!^  [\w-]+:)[\s\S])*?^    if: \$\{\{ (.+) \}\}/gm)].map((match) => [match[1], match[2]]));
 
-function jobRuns(job, scope, { cancelled = false } = {}) {
+function jobRuns(job, scope, { cancelled = false, event_name = "push" } = {}) {
   assert.match(workflow, new RegExp(`^  ${job}:$`, "m"), `Missing job ${job}`);
   const expression = jobConditions.get(job);
   if (!expression) return true;
   const outputs = Object.fromEntries(["frontend", "rust", "heavy"].map(key => [key, String(key === "heavy" ? scope.heavy ?? scope.rust : scope[key])]));
-  return condition(expression, { inputs: { resolved_scope: JSON.stringify(outputs) }, needs: { changed: { outputs } }, cancelled });
+  return condition(expression, { github: { repository: "rollacode/codeterm", actor: "rollacode", event_name, ref: "refs/heads/develop" }, inputs: { resolved_scope: JSON.stringify(outputs) }, needs: { changed: { outputs } }, cancelled });
 }
 
 test("workflow wiring skips Rust jobs for frontend diffs and preserves generated types for Rust", () => {
@@ -104,16 +104,10 @@ test("workflow wiring skips Rust jobs for frontend diffs and preserves generated
   }
 });
 
-test("workflow wiring runs only fast checks on pull requests", () => {
-  const pullRequest = scopeForRun(["src-tauri/src/lib.rs", "src/App.tsx"], plugins, false, true);
-  for (const job of ["rust-tests", "rust-platform", "clippy-linux"]) {
-    assert.equal(jobRuns(job, pullRequest), false, job);
+test("workflow wiring rejects all self-hosted checks on pull requests", () => {
+  for (const job of ["changed", "rust-tests", "rust-platform", "clippy-linux", "guards", "ts-plugins", "ts-static", "ts-unit", "ts-vitest", "ts-types"]) {
+    assert.equal(jobRuns(job, both, { event_name: "pull_request" }), false, job);
   }
-  for (const job of ["guards", "ts-plugins", "ts-static", "ts-unit", "ts-vitest", "ts-types"]) {
-    assert.equal(jobRuns(job, pullRequest), true, job);
-  }
-  assert.match(workflow, /^          CI_FAST_ONLY: \$\{\{ github\.event_name == 'pull_request' \}\}$/m);
-  assert.match(workflow, /^      heavy: \$\{\{ steps\.tree\.outputs\.run == 'true' && steps\.scope\.outputs\.heavy == 'true' \}\}$/m);
 });
 
 test("the release kind is an app release only when Rust changed since the last release", () => {

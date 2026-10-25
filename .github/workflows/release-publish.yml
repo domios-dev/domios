@@ -1,9 +1,7 @@
 name: Release publication
 
 # Publishes the retained bytes of a green release.yml dry run; nothing is rebuilt or re-signed.
-# The publication tooling comes from the default branch, so fixing it never invalidates a qualified run.
-# A dispatch is the owner's release command; with RELEASE_AUTO_PROMOTE=true every green dry run of a
-# release/X.Y.Z branch publishes itself. rehearsal performs every read and check and changes nothing.
+# Dispatch from the reviewed release branch; rehearsal changes nothing.
 "on":
   workflow_dispatch:
     inputs:
@@ -19,9 +17,6 @@ name: Release publication
         description: Check and stage everything without publishing
         type: boolean
         default: true
-  workflow_run:
-    workflows: [Release]
-    types: [completed]
 
 permissions:
   contents: write
@@ -33,11 +28,9 @@ concurrency:
 
 jobs:
   publish:
-    name: publish ${{ inputs.tag || github.event.workflow_run.head_branch }}
-    if: >-
-      github.event_name == 'workflow_dispatch'
-      || (vars.RELEASE_AUTO_PROMOTE == 'true' && github.event.workflow_run.conclusion == 'success'
-          && startsWith(github.event.workflow_run.head_branch, 'release/'))
+    name: publish ${{ inputs.tag }}
+    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && startsWith(github.ref, 'refs/heads/release/') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    environment: release
     runs-on: [self-hosted, linux-build]
     timeout-minutes: 60
     env:
@@ -60,19 +53,9 @@ jobs:
           INPUT_RUN: ${{ inputs.run_id }}
           INPUT_TAG: ${{ inputs.tag }}
           INPUT_REHEARSAL: ${{ inputs.rehearsal }}
-          TRIGGER_RUN: ${{ github.event.workflow_run.id }}
-          TRIGGER_BRANCH: ${{ github.event.workflow_run.head_branch }}
         run: |
           set -euo pipefail
-          if [ "$EVENT" = workflow_dispatch ]; then
-            run="$INPUT_RUN"; tag="$INPUT_TAG"; mode=$([ "$INPUT_REHEARSAL" = true ] && echo rehearsal || echo publish)
-          else
-            run="$TRIGGER_RUN"; tag="v${TRIGGER_BRANCH#release/}"; mode=publish
-            # Only a qualified dry run publishes itself; promotions and publication runs lack its manifest job.
-            if ! node scripts/release-promote.mjs check "$run" "${{ github.event.workflow_run.head_sha }}" "$TRIGGER_BRANCH"; then
-              echo "::notice::run $run is not a qualified dry run; nothing to publish"; mode=skip
-            fi
-          fi
+          run="$INPUT_RUN"; tag="$INPUT_TAG"; mode=$([ "$INPUT_REHEARSAL" = true ] && echo rehearsal || echo publish)
           printf 'run=%s\ntag=%s\nmode=%s\n' "$run" "$tag" "$mode" >> "$GITHUB_OUTPUT"
       - name: Publish the retained bytes
         if: steps.plan.outputs.mode != 'skip'
