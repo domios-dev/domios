@@ -80,27 +80,17 @@ verifies the anonymous download. Every install refreshes `codeterm-core` from th
    `npm run check:versions` and `node scripts/check-release-locks.mjs`. Commit the complete bump;
    plugin versions remain independent. Run `build.sh release-preflight` per the gates skill on
    that committed head and `git diff --check`.
-   Before every push of `release/X.Y.Z` (the first one and each one carrying a fix or merge), the
-   Orchestrator mirrors the CI fast tier on that exact candidate in canonical, so a CI round never
-   stops on a one-minute defect. Rust jobs go through
-   the gateway one after another; the frontend and guards run in parallel in a second utility tab:
-   - Rust: `./build.sh fmt-check`, `./build.sh ci-clippy`, `./build.sh nextest cli 'all()'` (every
-     CLI target, generated manifest, essence map), and `./build.sh ci-tests full` with `RUNNER_OS`
-     set to the host OS (the whole workspace, one build).
-   - Frontend: `pnpm exec tsc --noEmit`, `pnpm check:api-effects`, `npm run test:unit` (all TS unit
-     files) and `pnpm exec vitest run` (all files). Never only the files that failed before.
-   - Guards: `bash scripts/check-file-sizes.sh --fail`, `node scripts/check-provider-boundary.mjs`,
-     `node scripts/check-installed-identity.mjs`, `node scripts/test-catalogue.mjs validate`,
-     `node scripts/check-plugin-bundles.mjs` (a changed plugin UI source needs its rebuilt bundle).
-   While iterating on a fix, `pnpm exec vitest related <files>` and the matching Rust filterset give
-   a quick signal, but the push to the release branch still waits for the whole list above: the warm
-   build keeps that rerun cheap.
-   Before every push to `release/X.Y.Z`, including each merge or fix, the release manager runs the
-   checks a CI round would otherwise find one at a time: `./build.sh fmt-check`,
-   `./build.sh nextest cli --wait-build` (every CLI target: transport rows, help text, generated
-   manifest, essence map), `node scripts/test-catalogue.mjs run --entry python-script-tests` (POSIX)
-   and `node --test` over the changed `scripts/**/*.test.mjs`. The owner authorizes these for the
-   release manager; a refused gate goes to the Orchestrator as the exact command to grant.
+   Commit the version bump on dev and wait for `tests.yml` to qualify that exact SHA before
+   cutting the release branch. Pushes to `rename/domios`, `develop` and `master` run the full
+   regression; two nightly schedules qualify the dev branches as fallback. Fast checks own
+   frontend production/typechecking, static/plugin/TS suites, Clippy and the CLI suite.
+   The Rust tier owns the Linux full suite, native macOS/Windows subsets and embeddings.
+   `scripts/ci-qualification.mjs check <40-hex-sha>` verifies a green trusted tests run,
+   its current attempt, every required job and the executed Rust receipts. Missing, expired,
+   skipped or foreign evidence refuses release preparation and publication. Qualification
+   artifacts expire after seven days; qualify the exact SHA again if needed. Equal trees
+   or ancestor receipts never qualify another SHA. Local focused fixes do not replace CI
+   evidence; do not rerun identical suites in the release graph.
 4. Verify runner availability with `bash scripts/check-release-runners.sh` and credential
    preflight through `release-credentials.yml`. Confirm the intended version is unpublished.
    With publication GO, push `release/X.Y.Z` and open its PR to master. Do not manually create
@@ -116,7 +106,7 @@ any dispatch. `mirror=false` alone is not a dry run. For the full graph use:
 
 ```bash
 gh workflow run release.yml --repo rollacode/codeterm --ref <reviewed-ref> \
-  -f tag=<version-tag> -f dry_run=true -f mirror=false -f dry_run_tests=true
+  -f tag=<version-tag> -f dry_run=true -f mirror=false
 ```
 
 Until repository variable `RELEASE_PUBLISH_ENABLED` is `true`, a `release/X.Y.Z` push runs as a
@@ -125,7 +115,7 @@ it never cancels another version's run; its branch must carry version X.Y.Z.
 
 Verify the remote ref resolves to the reviewed SHA before dispatch. Capture the returned/new run
 ID and its workflow/source identity. Do not identify a run merely as the latest result in a list.
-`dry_run_tests=false` is an explicitly limited packaging diagnostic: skipped tests remain unverified.
+Dry runs also require the exact-SHA dev qualification receipt; there is no test bypass.
 Dry runs skip release creation/public uploads/publication, public served-byte verification and promotion;
 they cannot prove write permissions or CDN behavior.
 
@@ -137,12 +127,11 @@ evidence; no public release, tag, channel asset or issue-closure boundary is cre
 dispatch inputs pin the producing run ID, tag and source SHA for a follow-up within retention.
 An older run that did not retain those inputs cannot be retroactively called validated.
 
-Builds run on builder machines and start as soon as the frontend bundle exists. Rust tests run on
-test machines and open through `tests-tier` (`scripts/release-tier-gate.mjs`) once every fast check is
-claimed by a runner or finished, so a free test runner never takes a test before a fast check. A fast
-check still unclaimed after 45 minutes opens the tests anyway with a `tier order fallback` warning, a
-run-summary line and the receipt `<run-id>/release-tiers/fast-checks.json`; a red fast check still
-cancels the run.
+Builds start after exact-SHA qualification and the frontend bundle. There are no tier
+polling jobs. The full suite stays on the designated heavy BLACKSTAR WSL runner;
+Windows native tests use ROG, macOS and embeddings use Air sequentially. Ubuntu's
+native build runner owns Clippy, fast CLI and generated types. Light checks request
+`host-ubunta` and cannot occupy the WSL Rust runner. Targets remain per workspace.
 
 Publish a wholly green dry run with `release-publish.yml`, never by rebuilding. Its tooling comes from
 the default branch, so fixing publication never invalidates a qualified run:
@@ -176,13 +165,12 @@ Direct platform dispatch cannot mutate release assets. Its guard distinguishes t
 name from a manually dispatched release.yml caller: reusable workflows inherit the caller's event.
 Do not disable publication for a legitimate release caller merely because its event is workflow_dispatch.
 
-The full graph separates fast guards/checks (`tests-fast.yml`) from full Rust and platform-specific
-tests (`tests-rust.yml`); release.yml calls each tier directly. Tiers open on claim, not on completion:
-the Rust tier starts once every fast check holds a runner, and the six builds start once every Rust
-test job does (`release-tier-gate.mjs`, 45-minute visible fallback). Required
-Rust receipts include nonzero executed counts for the full suite and each OS subset. A failed,
-cancelled or skipped required gate cannot publish. Diagnose cancellation from run/job evidence
-and workflow conditions; never call cancelled jobs passes or assume who cancelled them.
+`tests-fast.yml` resolves scope once and passes it to `tests-rust.yml`. Required Rust
+receipts include one nonempty Linux full suite, macOS and Windows subsets, and embeddings.
+The fast CLI suite omits `isolated_server`; full Linux runs only that real CLI/server pair,
+and native subsets retain their own cfg-gated tests. Frontend production owns TypeScript;
+Windows has a focused pnpm symlink/subst identity regression with a TS2451 negative control.
+Signing, notarization, bundle smoke, updater signatures and served-byte checks remain release gates.
 
 ## One build, two distributions
 

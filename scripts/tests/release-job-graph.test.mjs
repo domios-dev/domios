@@ -11,7 +11,7 @@ const linuxArm64 = workflow('release-linux-arm64');
 test('dry-run consolidated manifests depend on all six builds and use only private CI transport', () => {
   const caller = release.jobs['dry-run-manifest'];
   assert.equal(caller.if, "${{ needs.prepare.outputs.dry_run == 'true' }}");
-  for (const job of ['macos-arm64', 'macos-x64', 'linux-arm64', 'linux-x86_64', 'windows-x64', 'windows-arm64', 'quick-checks', 'tests']) {
+  for (const job of ['macos-arm64', 'macos-x64', 'linux-arm64', 'linux-x86_64', 'windows-x64', 'windows-arm64']) {
     assert.ok(caller.needs.includes(job));
   }
   const local = workflow('release-manifest-dry-run');
@@ -69,7 +69,7 @@ test('macOS and Linux arm64 have separate jobs, routing variables and manifest d
   assert.ok(release.jobs['release-manifest'].needs.includes('macos-arm64'));
   assert.ok(release.jobs['release-manifest'].needs.includes('macos-x64'));
   assert.ok(release.jobs['release-manifest'].needs.includes('linux-arm64'));
-  assert.ok(release.jobs['release-manifest'].needs.includes('tests'));
+  assert.ok(release.jobs.prepare.steps.some(step => /ci-qualification/.test(step.run ?? '')));
   assert.ok(macos.jobs.build['runs-on'].some(label => label.includes('matrix.runner_label')));
   assert.match(linuxArm64.jobs.build['runs-on'][1], /RELEASE_LINUX_ARM64_LABEL.*codeterm-builder/);
   assert.equal(macos.jobs.build.strategy['fail-fast'], false);
@@ -101,7 +101,7 @@ test('direct platform dispatch is scoped and cannot mutate release assets', () =
       }
     }
   }
-  assert.equal(workflow('tests').jobs.rust.if, "github.event_name == 'push'", 'a manual tests dispatch runs the fast tier only');
+  assert.equal(workflow('tests').jobs.rust.if, "github.event_name == 'push' || github.event_name == 'schedule'", 'a manual tests dispatch runs the fast tier only');
 });
 test('every platform checks its own built bundle before any upload, with independent Windows retries', () => {
   for (const name of ['release-macos-build', 'release-linux-arm64', 'release-linux', 'release-windows']) {
@@ -124,23 +124,18 @@ const format = (template, ...values) => template.replace(/\{(\d+)\}/g, (_, i) =>
 test('a release-branch push stays a dry run of its own branch until publication is enabled', () => {
   const env = release.jobs.prepare.steps.find(step => step.id === 'release').env;
   const dryRun = expression(env.DRY_RUN);
-  const runTests = expression(env.RUN_TESTS);
   const group = expression(release.concurrency.group);
   const push = { event_name: 'push', ref_name: 'release/1.15.0' };
   const dispatch = { event_name: 'workflow_dispatch', ref_name: 'release/1.15.0' };
   const off = {};
   const on = { RELEASE_PUBLISH_ENABLED: 'true' };
   assert.equal(dryRun(push, {}, off, format), 'true');
-  assert.equal(runTests(push, {}, off, format), 'true');
   assert.equal(group(push, {}, off, format), 'release-dry-run-release/1.15.0');
   assert.equal(dryRun(push, {}, on, format), 'false');
   assert.equal(group(push, {}, on, format), 'release-publication');
   const dry = { dry_run: true, tag: 'v1.15.0', dry_run_tests: false };
   assert.equal(dryRun(dispatch, dry, on, format), 'true');
-  assert.equal(runTests(dispatch, dry, on, format), 'false');
-  assert.equal(runTests(dispatch, { ...dry, dry_run_tests: true }, on, format), 'true');
   assert.equal(group(dispatch, dry, on, format), 'release-dry-run-v1.15.0');
-  assert.equal(runTests(dispatch, { dry_run: false, tag: 'v1.15.0' }, on, format), 'true');
   for (const [id, job] of Object.entries(release.jobs)) assert.doesNotMatch(job.if || '', /inputs\.dry_run_tests/, id);
 });
 test('production publications serialize and verify draft bytes before becoming public', () => {
@@ -202,15 +197,12 @@ test('Mac jobs provision secret material before building and always clean up', (
   assert.match(read('scripts/release-macos-x86_64.sh'), /CODETERM_RELEASE_COMMON_STAGE=1/);
 });
 
-test('builds wait for the builds tier; tests wait only for the tests tier', () => {
+test('packaging starts after preparation and frontend, with no tier polling or repeated suites', () => {
   for (const build of ['macos-arm64', 'macos-x64', 'linux-arm64', 'linux-x86_64', 'windows-x64', 'windows-arm64']) {
-    assert.deepEqual(release.jobs[build].needs, ['prepare', 'frontend-dist', 'builds-tier']);
+    assert.deepEqual(release.jobs[build].needs, ['prepare', 'frontend-dist']);
   }
-  assert.deepEqual(release.jobs.tests.needs, ['prepare', 'tests-tier']);
-  assert.deepEqual(release.jobs['builds-tier'].needs, ['prepare', 'tests-tier']);
+  for (const id of ['tests-tier', 'builds-tier', 'quick-checks', 'tests']) assert.equal(release.jobs[id], undefined);
   assert.equal(release.jobs['frontend-dist'].needs, 'prepare');
-  assert.equal(release.jobs.tests.uses, './.github/workflows/tests-rust.yml');
-  assert.ok(release.jobs['release-manifest'].needs.includes('quick-checks'));
 });
 
 

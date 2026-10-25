@@ -39,7 +39,7 @@ test("a plugin-only change selects that plugin without host gates", () => {
 });
 
 test("channel and shared plugin tooling changes verify every plugin", () => {
-  for (const file of ["plugins/channel.json", "plugins/provider-shared/updatePrompt.ts", "scripts/release-plugin.mjs", "scripts/ci-scope.mjs", ".github/workflows/tests.yml", ".github/workflows/tests-fast.yml"]) {
+  for (const file of ["plugins/channel.json", "plugins/provider-shared/updatePrompt.ts", "scripts/release-plugin.mjs"]) {
     assert.deepEqual(classifyPaths([file], plugins), { frontend: false, rust: false, plugins });
   }
 });
@@ -60,7 +60,7 @@ test("documentation does not broaden plugin checks into host builds", () => {
 });
 
 test("unknown paths conservatively select all host checks", () => {
-  for (const file of ["unknown.txt", ".github/workflows/release.yml", "scripts/new-check.mjs", "src-other/module.ts", "tsconfig/other.json"]) {
+  for (const file of ["scripts/ci-scope.mjs", "scripts/tests/ci-scope.test.mjs", ".github/workflows/tests.yml", ".github/workflows/tests-fast.yml", ".github/workflows/cli-source-of-truth.yml", ".github/workflows/ready-for-release.yml", "unknown.txt", ".github/workflows/release.yml", "scripts/new-check.mjs", "src-other/module.ts", "tsconfig/other.json"]) {
     assert.deepEqual(classifyPaths([file], plugins), both, file);
   }
 });
