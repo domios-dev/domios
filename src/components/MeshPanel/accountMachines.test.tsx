@@ -37,6 +37,16 @@ const byKey = (rows: MachineRowView[], key: string) => {
 const noControls = (row: MachineRowView) => !row.controls.add && !row.controls.revoke && !row.controls.unpairInstanceId;
 
 describe("My machines projection", () => {
+  it("keeps admitted peers normal when only local enrollment hits the plan limit", () => {
+    const result = accountView(view("signed_in", snapshot({
+      traffic: "plan_limit_locked", enrollment: "refused",
+      last_refusal: { reason: "mesh.machines", limit: 2, active_count: 2 },
+    })));
+    expect(result.machineLimit).toEqual({ limit: 2, activeCount: 2 });
+    expect(result.self?.planLimited).toBe(true);
+    expect(result.machines.map(row => row.status)).toEqual(["unlinked", "unlinked"]);
+    expect(result.machines.every(row => row.controls.add?.reason !== null)).toBe(true);
+  });
   it("waits for account and registry observations before projecting", () => {
     expect(view("pending", snapshot()).kind).toBe("loading");
     expect(view("signed_in", null).kind).toBe("loading");
@@ -45,7 +55,7 @@ describe("My machines projection", () => {
 
   it("identifies this installation and lists other account machines by installation id", () => {
     const result = accountView(view("signed_in", snapshot()));
-    expect(result.self).toEqual({ name: "Studio PC", installationId: selfRow.installation_id, metadataRevision: 2, displayName: "Studio PC" });
+    expect(result.self).toEqual({ name: "Studio PC", installationId: selfRow.installation_id, metadataRevision: 2, displayName: "Studio PC", planLimited: false });
     expect(result.machines.map((row) => row.key)).toEqual([macRow.installation_id, lenovoRow.installation_id]);
     const mac = byKey(result.machines, macRow.installation_id);
     expect(mac.status).toBe("unlinked");
@@ -148,10 +158,11 @@ describe("My machines projection", () => {
     expect(result.notes.some((note) => note.includes("cleanup is pending"))).toBe(true);
   });
 
-  it("a plan-locked machine keeps its pairings listed as over the limit", () => {
+  it("a plan-locked machine keeps saved pair identities without marking them over limit", () => {
     const locked = snapshot({ traffic: "plan_limit_locked", pairs: [pair("mesh-old", "Old", { admission: "legacy" })] });
     const result = accountView(view("signed_in", locked));
-    expect(result.saved.map((row) => [row.key, row.status, row.detail])).toEqual([["pair:mesh-old", "over_limit", PLAN_LOCKED_COPY]]);
+    expect(result.saved.map((row) => [row.key, row.status, row.controls.unpairInstanceId])).toEqual([["pair:mesh-old", "legacy", "mesh-old"]]);
+    expect(result.self?.planLimited).toBe(true);
     expect(failureMessage({ reason: "plan_limit_locked" })).toBe(PLAN_LOCKED_COPY);
   });
 

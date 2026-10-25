@@ -111,7 +111,7 @@ export function useComposerBackgroundWork(tabId: string, supported: boolean, sub
   }, [acceptSnapshot, identity, tabId]);
 
   const terminals = sameAuthority(loaded.identity, identity) ? loaded.processes : [];
-  const computed = withProviderBackgroundWork(composerBackgroundWorkItems(messages, terminals, Date.now(), { subagentsVisible, rootThreadId: parentThreadId, authority: identity ?? undefined }), providerWork, parentThreadId, unknownWork);
+  const computed = withProviderBackgroundWork(composerBackgroundWorkItems(messages, terminals, Date.now(), { subagentsVisible, rootThreadId: parentThreadId, authority: identity ?? undefined }), providerWork, parentThreadId, unknownWork, messages);
   // The composer header consumes this through context; unchanged work must keep its identity across transcript renders.
   const itemsRef = useRef(computed);
   if (!sameJson(itemsRef.current, computed)) itemsRef.current = computed;
