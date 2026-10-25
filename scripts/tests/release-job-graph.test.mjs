@@ -314,3 +314,16 @@ test('light jobs cannot claim the physical Rust suite host and Linux compilation
     }
   }
 });
+
+test('a dispatched release builds the frontend and evidence although the workflow_run admission job is skipped', () => {
+  const github = { repository_owner: 'domios-dev', actor: 'rollacode', triggering_actor: 'rollacode', event_name: 'workflow_dispatch', ref: 'refs/heads/release/1.15.3' };
+  const cases = {
+    'frontend-dist': { outputs: { published: 'false', kind: 'app', promote_run_id: '' }, vars: {} },
+    'promote-evidence': { outputs: { published: 'false', kind: 'app', promote_run_id: '42', dry_run: 'false' }, vars: { RELEASE_PUBLISH_ENABLED: 'true' } },
+  };
+  for (const [job, { outputs, vars }] of Object.entries(cases)) {
+    const expression = release.jobs[job].if;
+    assert.equal(condition(expression, { github, vars, needs: { 'qualified-source': { result: 'skipped' }, prepare: { result: 'success', outputs } } }), true, job);
+    assert.equal(condition(expression, { github, vars, needs: { prepare: { result: 'failure', outputs } } }), false, job + ' after failed prepare');
+  }
+});
