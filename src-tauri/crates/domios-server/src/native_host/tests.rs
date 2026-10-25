@@ -634,6 +634,8 @@ async fn released_dispatched_view_call_stays_uncertain_and_fences_late_reply() {
 
 #[test]
 fn health_cdp_port_follows_authenticated_view_diagnostics_and_attachment_lifetime() {
+    use std::sync::atomic::Ordering;
+
     use codeterm_types::native_host::{
         NativeWebviewDiagnosticsReport, NativeWebviewDiagnosticsStatus,
     };
