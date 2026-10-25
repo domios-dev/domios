@@ -119,12 +119,10 @@ impl AccountCredentials {
         {
             return false;
         }
-        let Ok(Some(token)) = source.load(name).await else {
-            return false;
-        };
+        let read = source.load(name).await;
         let owned = name.to_owned();
         let persisted = self
-            .blocking(move |local| local.finish_migration(&owned, &token))
+            .blocking(move |local| local.complete_migration(&owned, read))
             .await
             .unwrap_or(false);
         if persisted {
@@ -168,6 +166,17 @@ struct LegacyStores {
     native: Arc<dyn LegacySource>,
 }
 struct NativeLegacy(String);
+
+fn combine_legacy_reads(
+    native: codeterm_account::Result<Option<Secret>>,
+    fallback: codeterm_account::Result<Option<Secret>>,
+) -> codeterm_account::Result<Option<Secret>> {
+    match (native, fallback) {
+        (Ok(Some(token)), _) | (_, Ok(Some(token))) => Ok(Some(token)),
+        (Ok(None), Ok(None)) => Ok(None),
+        (Err(error), _) | (_, Err(error)) => Err(error),
+    }
+}
 #[async_trait]
 impl LegacySource for NativeLegacy {
     async fn load(&self, name: &str) -> codeterm_account::Result<Option<Secret>> {
@@ -181,9 +190,13 @@ impl LegacySource for NativeLegacy {
 impl LegacySource for LegacyStores {
     async fn load(&self, name: &str) -> codeterm_account::Result<Option<Secret>> {
         let native = self.native.load(name);
-        if let Ok(Ok(Some(secret))) = tokio::time::timeout(Duration::from_secs(2), native).await {
-            return Ok(Some(secret));
-        }
+        let native = tokio::time::timeout(Duration::from_secs(2), native)
+            .await
+            .unwrap_or(Err(Error::Timeout));
+        let native = match native {
+            Ok(Some(secret)) => return Ok(Some(secret)),
+            other => other,
+        };
         let read = async {
             let store = self.store.read().await.clone();
             if !store.allows_account_credentials() {
@@ -195,9 +208,10 @@ impl LegacySource for LegacyStores {
                 Err(_) => Err(Error::Credentials),
             }
         };
-        tokio::time::timeout(Duration::from_secs(5), read)
+        let fallback = tokio::time::timeout(Duration::from_secs(5), read)
             .await
-            .map_err(|_| Error::Timeout)?
+            .unwrap_or(Err(Error::Timeout));
+        combine_legacy_reads(native, fallback)
     }
     async fn delete(&self, name: &str) {
         let native = self.native.delete(name);

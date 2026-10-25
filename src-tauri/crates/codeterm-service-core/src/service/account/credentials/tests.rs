@@ -232,8 +232,38 @@ async fn native_migration_timeout_is_bounded() {
         native: Arc::new(Slow),
     };
     let start = tokio::time::Instant::now();
-    assert!(legacy.load("absent").await.unwrap().is_none());
+    assert!(matches!(legacy.load("absent").await, Err(Error::Timeout)));
     assert_eq!(start.elapsed(), Duration::from_secs(2));
+}
+
+#[test]
+fn legacy_read_combination_preserves_errors_until_a_token_is_found() {
+    assert!(matches!(
+        combine_legacy_reads(Err(Error::Credentials), Ok(None)),
+        Err(Error::Credentials)
+    ));
+    assert!(matches!(
+        combine_legacy_reads(Err(Error::Timeout), Ok(None)),
+        Err(Error::Timeout)
+    ));
+    assert!(matches!(
+        combine_legacy_reads(Ok(None), Err(Error::Credentials)),
+        Err(Error::Credentials)
+    ));
+    assert!(combine_legacy_reads(Ok(None), Ok(None)).unwrap().is_none());
+    for (native, fallback) in [
+        (Err(Error::Credentials), Ok(Some(Secret::new("found")))),
+        (Ok(None), Ok(Some(Secret::new("found")))),
+        (Ok(Some(Secret::new("found"))), Err(Error::Credentials)),
+    ] {
+        assert_eq!(
+            combine_legacy_reads(native, fallback)
+                .unwrap()
+                .unwrap()
+                .expose(),
+            "found"
+        );
+    }
 }
 
 struct SignalledLegacy(tokio::sync::Notify);
