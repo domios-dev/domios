@@ -36,9 +36,9 @@ fn tailnet_exemptions_are_only_existing_peer_handshakes_and_liveness() {
 }
 
 #[tokio::test]
-async fn tailnet_router_rejects_local_tokens_and_preserves_peer_access_policy() {
+async fn tailnet_router_accepts_instance_tokens_and_preserves_peer_access_policy() {
     use axum::{body::Body, http::Request, routing::get, Router};
-    use codeterm_service_core::service::account_mesh::tailnet::PeerListener;
+    use codeterm_service_core::service::account_mesh::tailnet::TailnetListener;
     use codeterm_service_core::{
         mesh::account_mesh::{AccountMeshState, AccountPresence},
         mesh::types::PairedPeer,
@@ -104,10 +104,10 @@ async fn tailnet_router_rejects_local_tokens_and_preserves_peer_access_policy() 
             .header("authorization", format!("Bearer {token}"))
             .body(Body::empty())
             .unwrap();
-        req.extensions_mut().insert(PeerListener);
+        req.extensions_mut().insert(TailnetListener);
         req
     };
-    for token in ["", "forged", "preview-test-token"] {
+    for token in ["", "forged"] {
         assert_eq!(
             router
                 .clone()
@@ -153,7 +153,7 @@ async fn tailnet_router_rejects_local_tokens_and_preserves_peer_access_policy() 
             .await
             .unwrap()
             .status(),
-        StatusCode::NOT_FOUND
+        StatusCode::OK
     );
     assert_eq!(
         router
@@ -164,17 +164,60 @@ async fn tailnet_router_rejects_local_tokens_and_preserves_peer_access_policy() 
             .status(),
         StatusCode::OK
     );
+    for presence in [AccountPresence::NeverSignedIn, AccountPresence::SignedOut] {
+        state.mesh.lock().apply_account_state(AccountMeshState {
+            presence,
+            ..Default::default()
+        });
+        for (token, expected) in [
+            ("preview-test-token", StatusCode::OK),
+            ("", StatusCode::UNAUTHORIZED),
+            (signed.as_str(), StatusCode::UNAUTHORIZED),
+        ] {
+            assert_eq!(
+                router
+                    .clone()
+                    .oneshot(request("GET", "/api/config", token))
+                    .await
+                    .unwrap()
+                    .status(),
+                expected
+            );
+        }
+        assert_eq!(
+            router
+                .clone()
+                .oneshot(request("GET", "/api/health", ""))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+    }
+
     state.mesh.lock().apply_account_state(AccountMeshState {
-        presence: AccountPresence::SignedOut,
+        presence: AccountPresence::SignedIn {
+            account_id: "account".into(),
+        },
         ..Default::default()
     });
+    state.mesh.lock().unpair("paired").unwrap();
     assert_eq!(
         router
-            .oneshot(request("GET", "/api/health", ""))
+            .clone()
+            .oneshot(request("GET", "/api/config", &signed))
             .await
             .unwrap()
             .status(),
-        StatusCode::SERVICE_UNAVAILABLE
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        router
+            .oneshot(request("GET", "/api/config", "preview-test-token"))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
     );
 }
 

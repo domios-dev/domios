@@ -465,14 +465,13 @@ fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
     }
     let path = req.uri().path().to_string();
     let method = req.method().clone();
-    let peer_listener = req
+    let tailnet_listener = req
         .extensions()
-        .get::<codeterm_service_core::service::account_mesh::tailnet::PeerListener>()
+        .get::<codeterm_service_core::service::account_mesh::tailnet::TailnetListener>()
         .is_some();
-    if peer_listener && !path.starts_with("/api/") {
-        return StatusCode::NOT_FOUND.into_response().into();
-    }
-    if peer_listener
+    if tailnet_listener
+        && path != "/api/health"
+        && tailnet_exempt(&method, &path)
         && (state
             .mesh
             .lock()
@@ -488,7 +487,9 @@ fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
         .extensions()
         .get::<ConnectInfo<SocketAddr>>()
         .map(|ConnectInfo(address)| *address);
-    if !remote_network_allowed(state.config.lock().mesh.enabled, remote_address) {
+    if !tailnet_listener
+        && !remote_network_allowed(state.config.lock().mesh.enabled, remote_address)
+    {
         log::warn!(
             "[auth] Rejecting remote {} {} — mesh disabled",
             method,
@@ -520,8 +521,8 @@ fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
         }
     }
 
-    if if peer_listener {
-        tailnet_exempt(&method, &path)
+    if if tailnet_listener {
+        !path.starts_with("/api/") || tailnet_exempt(&method, &path)
     } else {
         bearer_exempt(&method, &path)
     } {
@@ -536,14 +537,18 @@ fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
         .to_string();
 
     let caller = identify_caller(&state, &auth);
-    if peer_listener
-        && matches!(
-            &caller,
-            Ok(CallerIdentity::Local | CallerIdentity::ServicePush { .. })
-        )
+    if tailnet_listener
+        && state
+            .mesh
+            .lock()
+            .account_state()
+            .signed_in_account()
+            .is_none()
+        && !matches!(caller, Ok(CallerIdentity::Local))
     {
         return StatusCode::UNAUTHORIZED.into_response().into();
     }
+
     if let Ok(identity) = &caller {
         req.extensions_mut().insert(identity.clone());
     }

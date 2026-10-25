@@ -6,8 +6,8 @@ struct LoopbackAlias;
 
 #[async_trait]
 impl tailnet::AddressChanges for LoopbackAlias {
-    async fn selected(&self, signed_in: bool, enabled: bool, port: u16) -> Vec<SocketAddr> {
-        if signed_in && enabled && port != 0 {
+    async fn selected(&self, enabled: bool, port: u16) -> Vec<SocketAddr> {
+        if enabled && port != 0 {
             vec![(Ipv4Addr::new(127, 0, 0, 2), port).into()]
         } else {
             Vec::new()
@@ -33,7 +33,7 @@ async fn wait_for_ready(
 }
 
 #[tokio::test]
-async fn tailnet_production_lifecycle_sign_out_releases_socket_while_child_lives() {
+async fn tailnet_production_lifecycle_binds_signed_out_and_preserves_socket_on_sign_out() {
     tokio::time::timeout(Duration::from_secs(30), lifecycle())
         .await
         .expect("production listener lifecycle deadline");
@@ -51,6 +51,7 @@ async fn lifecycle() {
         )),
     );
     account.load().await;
+    account.sign_out(async {}).await.1.unwrap();
     let identity = codeterm_account::Identity {
         uid: "listener-owner".into(),
         email: None,
@@ -58,7 +59,6 @@ async fn lifecycle() {
         provider: "test".into(),
         photo_url: None,
     };
-    account.identity_changed(Some(&identity)).await;
     {
         let mut config = service.ext::<crate::config::ConfigState>().lock();
         config.mesh.enabled = true;
@@ -96,11 +96,7 @@ async fn lifecycle() {
         Ipv4Addr::new(127, 0, 0, 2).into(),
         control.bound_addr().unwrap().port(),
     );
-    let task = tokio::spawn(tailnet::run_with_network(
-        service.clone(),
-        mesh,
-        LoopbackAlias,
-    ));
+    let task = tokio::spawn(tailnet::run_with_network(service.clone(), LoopbackAlias));
     wait_for_ready(&mut ready, remote, true).await;
     #[cfg(windows)]
     let child = tokio::task::spawn_blocking(
@@ -108,15 +104,15 @@ async fn lifecycle() {
     )
     .await
     .unwrap();
+    account.identity_changed(Some(&identity)).await;
     account.sign_out(async {}).await.1.unwrap();
-    wait_for_ready(&mut ready, remote, false).await;
-    let rebound = codeterm_util::tcp_listener::bind(remote)
-        .expect("sign-out must close the real production listener even while children live");
+    assert!(
+        codeterm_util::tcp_listener::bind(remote).is_err(),
+        "sign-out preserves the web listener"
+    );
     #[cfg(windows)]
     assert!(child.is_alive());
-    drop(rebound);
     account.identity_changed(Some(&identity)).await;
-    wait_for_ready(&mut ready, remote, true).await;
     let response = reqwest::Client::builder()
         .no_proxy()
         .build()
@@ -128,7 +124,18 @@ async fn lifecycle() {
         .unwrap();
     assert_eq!(response.text().await.unwrap(), "production listener");
     account.sign_out(async {}).await.1.unwrap();
+    service
+        .ext::<crate::config::ConfigState>()
+        .lock()
+        .api
+        .enabled = false;
+    service
+        .events
+        .publish_generic("config-changed", serde_json::Value::Null);
     wait_for_ready(&mut ready, remote, false).await;
+    let rebound =
+        codeterm_util::tcp_listener::bind(remote).expect("API disable releases the listener");
+    drop(rebound);
     task.abort();
     let _ = task.await;
     control.shutdown_and_wait().await.unwrap();
