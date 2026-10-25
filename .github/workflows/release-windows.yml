@@ -167,6 +167,8 @@ jobs:
         with:
           package-manager-cache: false
           node-version: '22.22.0'
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs packaging
 
       - name: Reset compiler capture
         continue-on-error: true

@@ -109,7 +109,7 @@ class SingleRunGraphTest(unittest.TestCase):
         }
         self.assertEqual(triggered, set())
         self.assertEqual(triggers(read("release.yml")), {"workflow_run", "workflow_dispatch"})
-        self.assertIn("workflows: [tests]", read("release.yml"))
+        self.assertIn("workflows: [CI]", read("release.yml"))
         for name in (
             "release-macos-build.yml",
             "release-linux-arm64.yml",

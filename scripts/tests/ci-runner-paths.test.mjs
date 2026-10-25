@@ -43,3 +43,30 @@ test('Windows Store aliases and directories without an interpreter are not Pytho
   const env = { PATH: `D:\\Git\\bin;${store}`, LOCALAPPDATA: 'D:\\Profile\\AppData\\Local' };
   assert.deepEqual(runnerToolPaths('win32', env, has('D:\\Git\\bin\\bash.exe', `${store}\\python.exe`), () => ['Python399']), ['D:\\Git\\bin']);
 });
+import { checkRunnerTools, RUNNER_ROLES, runnerPathContent } from '../ci-runner-paths.mjs';
+
+test('role preflight checks every required tool and reports all missing prerequisites before compilation', () => {
+  for (const role of Object.keys(RUNNER_ROLES)) {
+    const commands = [];
+    checkRunnerTools(role, { platform: 'linux', execute: (command, args, options) => {
+      commands.push(command);
+      assert.ok(options.timeout <= 2000);
+      assert.deepEqual(args, ['--version']);
+      return { status: 0 };
+    } });
+    assert.equal(commands.length, RUNNER_ROLES[role].length);
+    assert.throws(() => checkRunnerTools(role, { execute: () => ({ status: 1 }) }),
+      error => RUNNER_ROLES[role].every(tool => error.message.includes(tool)) && error.message.includes('build-machine/SKILL.md'));
+  }
+});
+
+test('preflight rejects missing Python even when its path directory was discovered', () => {
+  assert.throws(() => checkRunnerTools('rust', { platform: 'win32', execute: command =>
+    ({ status: command === 'python' ? 9009 : 0 }) }), /python/);
+  assert.throws(() => checkRunnerTools('unknown'), /Unknown runner role/);
+});
+
+test('GitHub job-local path entries are separate physical lines', () => {
+  assert.equal(runnerPathContent(['C:/Program Files/Git/bin', 'C:/Python']), 'C:/Program Files/Git/bin\nC:/Python\n');
+  assert.equal(runnerPathContent([]), '');
+});

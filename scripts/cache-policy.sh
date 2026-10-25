@@ -126,6 +126,12 @@ ct_sccache_secret() (
 ct_sccache_storage() {
   local trace_enabled=0 access_key secret_key
   case "$-" in *x*) trace_enabled=1; set +x ;; esac
+  if [ "${SCCACHE_GHA_ENABLED:-false}" = true ]; then
+    unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN SCCACHE_ENDPOINT SCCACHE_BUCKET SCCACHE_REGION SCCACHE_S3_USE_SSL
+    export CT_SCCACHE_STORAGE=gha CT_SCCACHE_REASON="GitHub Actions cache"
+    [ "$trace_enabled" = 0 ] || set -x
+    return 0
+  fi
   # A machine pinned to its local disk cache never flips to S3 because credentials happen to exist.
   if [ "${CODETERM_SCCACHE_STORAGE:-}" = local ]; then
     unset SCCACHE_ENDPOINT SCCACHE_BUCKET SCCACHE_REGION SCCACHE_S3_USE_SSL
@@ -167,7 +173,9 @@ ct_sccache_disk_dir() {
 }
 
 ct_sccache_print_location() {
-  if [ "${CT_SCCACHE_STORAGE:-local}" = shared ]; then
+  if [ "${CT_SCCACHE_STORAGE:-local}" = gha ]; then
+    printf 'sccache: GitHub Actions cache\n'
+  elif [ "${CT_SCCACHE_STORAGE:-local}" = shared ]; then
     printf 'sccache: shared S3 cache at %s/%s\n' "$SCCACHE_ENDPOINT" "$SCCACHE_BUCKET"
   else
     printf 'sccache: local disk cache at %s (%s; limit %s)\n' \
@@ -282,6 +290,9 @@ ct_sccache_start_shared_if_absent() {
 }
 
 ct_sccache_storage_matches() {
+  if [ "${SCCACHE_GHA_ENABLED:-false}" = true ]; then
+    case "$1" in 'ghac,'*|'ghac '*|'GHA'*|'GitHub Actions'*) return 0 ;; *) return 1 ;; esac
+  fi
   if [ "$CT_SCCACHE_STORAGE" = shared ]; then
     case "$1" in
       "s3, name: $SCCACHE_BUCKET, prefix: "*) return 0 ;;

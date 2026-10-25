@@ -32,7 +32,7 @@ When you add/rename/remove a command or flag:
    parse noise. Additive changes (new methods, new optional fields) do not
    bump it.
 
-CI (`.github/workflows/cli-source-of-truth.yml`) runs all of the above.
+CI runs these contracts in its existing fast CLI suite and hosted PR CLI job; shared guards check embedded doc references and essence digests before compilation.
 
 For `plan task split`, audit both the in-progress Orchestrator workflow and the
 Worker report boundary: only the Orchestrator dispatches children; Workers may

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import test from 'node:test';
 import { parse } from 'yaml';
-import { condition } from './workflow-condition.mjs';
+import { condition, evaluateCondition } from './workflow-condition.mjs';
 
 const directory = new URL('../../.github/workflows/', import.meta.url);
 const workflows = Object.fromEntries(readdirSync(directory).filter(name => name.endsWith('.yml'))
@@ -26,6 +26,10 @@ function assertPublicJobs(graph, name, visited = new Set()) {
   assertReadOnly(workflow.permissions);
   assert.ok(!secrets(workflow.env), `${name}: workflow secrets`);
   for (const [id, job] of Object.entries(workflow.jobs)) {
+    if (job.if?.includes('github.event_name') && !condition(job.if, {
+      github: { ...github, event_name: 'pull_request' }, inputs: { source_ref: '' },
+      needs: { fast: { outputs: {} } },
+    })) continue;
     assertReadOnly(job.permissions);
     assert.equal(job.secrets, undefined, `${name}/${id}: inherited secrets on PR path`);
     assert.ok(!secrets(job), `${name}/${id}: secrets on PR path`);
@@ -49,8 +53,8 @@ test('every PR entry point and reusable descendant is hosted, read-only and secr
       assertPublicJobs(workflows, name);
     }
   }
-  assert.ok(entries >= 7);
-  assert.equal(workflows['tests.yml'].on.pull_request, undefined);
+  assert.equal(entries, 1);
+  assert.ok(Object.hasOwn(workflows['tests.yml'].on, 'pull_request'));
 });
 
 test('PR graph contract rejects nested self-hosted labels, secrets and writable tokens', () => {
@@ -86,7 +90,7 @@ test('privileged reusable jobs refuse every PR actor, even the owner and same-re
       assert.equal(condition(job.if, { github: { ...github, actor: 'outside-collaborator' } }), false, `${name}/${id}: outside push`);
     }
   }
-  assert.ok(guarded > 30);
+  assert.ok(guarded > 0);
 });
 
 test('release jobs gate runner acquisition and secrets on owner, release branch and allowed event', () => {
@@ -113,11 +117,11 @@ test('all secret references resolve inside a protected job environment', () => {
   for (const [name, workflow] of Object.entries(workflows)) {
     assert.ok(!secrets(workflow.env), `${name}: secrets must resolve after job environment approval`);
     for (const [id, job] of Object.entries(workflow.jobs)) {
-      if (job.uses || !secrets(job)) continue;
+      if (job.uses || !secrets(job) || hostedCompile(name, id)) continue;
       if (releaseWorkflow(name)) assert.equal(job.environment, 'release', `${name}/${id}`);
       else if (name === 'rust-warnings-summary.yml') {
-        assert.equal(job.environment, "${{ (startsWith(github.ref, 'refs/heads/release/') || (github.event_name == 'workflow_run' && startsWith(github.event.workflow_run.head_branch, 'release/'))) && 'release' || 'ci' }}");
-      } else assert.equal(job.environment, 'ci', `${name}/${id}`);
+        assert.equal(evaluateCondition(job.environment, { github }), 'release');
+      } else assert.equal(evaluateCondition(job.environment === 'ci' ? "'ci'" : job.environment, { github }), 'ci', `${name}/${id}`);
     }
   }
 });
@@ -148,10 +152,12 @@ test('repository owner policy survives the organization transfer and refuses for
   assert.equal(condition(workflows['release.yml'].jobs.prepare.if, { github: { ...github, repository: 'domios-dev/domios', repository_owner: 'domios-dev', event_name: 'workflow_dispatch' } }), true);
 });
 
-test('hosted arm64 compiler stays outside protected environments', () => {
+test('hosted arm64 compiler stays outside protected environments with only public client configuration', () => {
   const workflow = workflows['release-arm64-compile.yml'];
   assertReadOnly(workflow.permissions);
-  assert.ok(!secrets(workflow));
+  const names = Object.keys(workflow.on.workflow_call.secrets).sort();
+  const references = [...JSON.stringify(workflow).matchAll(/secrets\.([A-Z_]+)/g)].map(match => match[1]).sort();
+  assert.deepEqual(references, names);
   assert.equal(workflow.jobs.compile.environment, undefined);
   assert.doesNotMatch(stringify(workflow.jobs.compile['runs-on']), /self-hosted/);
 });

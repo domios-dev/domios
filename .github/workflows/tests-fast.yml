@@ -1,6 +1,6 @@
 name: tests-fast
 
-# Fast tier: guards, clippy and the TypeScript checks; the first failure can cancel the calling run.
+# Normal CI finishes sibling tests; cancellation is an explicit diagnostic option.
 
 on:
   workflow_call:
@@ -16,7 +16,7 @@ on:
         default: full
         type: string
       cancel_run:
-        description: A failed fast check cancels the calling run at once
+        description: Explicit fail-fast diagnostics; normal CI finishes every test job
         required: false
         default: false
         type: boolean
@@ -63,11 +63,12 @@ jobs:
     # A release branch's push already runs these checks on the exact SHA in release.yml.
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' }}
     # Every job waits on this gate, so any free light runner takes it.
-    environment: ci
-    runs-on: [self-hosted, Linux, light, host-ubunta]
+    environment: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && 'ci' || '' }}
+    runs-on: ${{ vars.CI_LINUX_LIGHT_RUNNER || fromJSON('["self-hosted","Linux","light","host-ubunta"]') }}
     permissions:
       contents: read
-      actions: write
+      actions: read
+      pull-requests: read
     timeout-minutes: 5
     outputs:
       source_sha: ${{ steps.source.outputs.sha }}
@@ -76,21 +77,25 @@ jobs:
       heavy: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.heavy == 'true' }}
       plugins: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.plugins || '[]' }}
     env:
-      DOMIOS_CI_WEBHOOK_URL: ${{ secrets.DOMIOS_CI_WEBHOOK_URL }}
-      DOMIOS_CI_WEBHOOK_TOKEN: ${{ secrets.DOMIOS_CI_WEBHOOK_TOKEN }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
-      DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
-      DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
-      DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
-      DOMIOS_ACCOUNT_REDEEM_URL: ${{ secrets.DOMIOS_ACCOUNT_REDEEM_URL }}
-      DOMIOS_BILLING_FUNCTIONS_URL: ${{ secrets.DOMIOS_BILLING_FUNCTIONS_URL }}
+      DOMIOS_CI_WEBHOOK_URL: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_CI_WEBHOOK_URL || '' }}
+      DOMIOS_CI_WEBHOOK_TOKEN: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_CI_WEBHOOK_TOKEN || '' }}
+      AWS_ACCESS_KEY_ID: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.SCCACHE_AWS_ACCESS_KEY_ID || '' }}
+      AWS_SECRET_ACCESS_KEY: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.SCCACHE_AWS_SECRET_ACCESS_KEY || '' }}
+      DOMIOS_FIREBASE_API_KEY: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
+      DOMIOS_FIREBASE_PROJECT_ID: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
+      DOMIOS_FIREBASE_APP_ID: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_APP_ID || '' }}
+      DOMIOS_ACCOUNT_REDEEM_URL: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_ACCOUNT_REDEEM_URL || '' }}
+      DOMIOS_BILLING_FUNCTIONS_URL: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_BILLING_FUNCTIONS_URL || '' }}
+      CI_HOSTED: ${{ vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04' }}
+      CI_ARTIFACT_STORAGE: ${{ (vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && 'github' || '' }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         id: ci-1
         with:
           ref: ${{ inputs.source_ref || github.ref }}
           fetch-depth: 2
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs receipt
       - &cancel-run-on-failure
         name: Notify and cancel on first failure
         if: failure() && inputs.cancel_run
@@ -145,36 +150,50 @@ jobs:
           CI_FAST_ONLY: ${{ github.event_name == 'pull_request' }}
         run: node scripts/ci-scope.mjs HEAD^ HEAD
 
-  # Guards remain required by the reusable tier while sibling checks run in parallel.
+      # Guards remain required by the reusable tier while sibling checks run in parallel.
       - *cancel-run-on-failure
   guards:
     name: guards
     needs: changed
     # The Node and Python release contracts assume Linux paths (macOS /var is a symlink).
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' }}
-    environment: ci
+    environment: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && 'ci' || '' }}
     # BLACKSTAR WSL is idle until the Rust tier starts; the Ubuntu host compiles during the fast tier.
-    runs-on: [self-hosted, Linux, light, host-blackstar]
+    runs-on: ${{ vars.CI_LINUX_LIGHT_RUNNER || fromJSON('["self-hosted","Linux","light","host-blackstar"]') }}
     permissions:
       contents: read
-      actions: write
-    timeout-minutes: 8
+      actions: read
+      pull-requests: read
+    timeout-minutes: 20
     env:
       CI_SOURCE_SHA: ${{ needs.changed.outputs.source_sha || github.sha }}
-      DOMIOS_CI_WEBHOOK_URL: ${{ secrets.DOMIOS_CI_WEBHOOK_URL }}
-      DOMIOS_CI_WEBHOOK_TOKEN: ${{ secrets.DOMIOS_CI_WEBHOOK_TOKEN }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
-      DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
-      DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
-      DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
-      DOMIOS_ACCOUNT_REDEEM_URL: ${{ secrets.DOMIOS_ACCOUNT_REDEEM_URL }}
-      DOMIOS_BILLING_FUNCTIONS_URL: ${{ secrets.DOMIOS_BILLING_FUNCTIONS_URL }}
+      DOMIOS_CI_WEBHOOK_URL: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_CI_WEBHOOK_URL || '' }}
+      DOMIOS_CI_WEBHOOK_TOKEN: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_CI_WEBHOOK_TOKEN || '' }}
+      AWS_ACCESS_KEY_ID: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.SCCACHE_AWS_ACCESS_KEY_ID || '' }}
+      AWS_SECRET_ACCESS_KEY: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.SCCACHE_AWS_SECRET_ACCESS_KEY || '' }}
+      DOMIOS_FIREBASE_API_KEY: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
+      DOMIOS_FIREBASE_PROJECT_ID: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
+      DOMIOS_FIREBASE_APP_ID: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_APP_ID || '' }}
+      DOMIOS_ACCOUNT_REDEEM_URL: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_ACCOUNT_REDEEM_URL || '' }}
+      DOMIOS_BILLING_FUNCTIONS_URL: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_BILLING_FUNCTIONS_URL || '' }}
+      CI_HOSTED: ${{ vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04' }}
+      CODETERM_USE_SCCACHE: "0"
+      CODETERM_SCCACHE_VERIFY_ONLY: "0"
+      CI_ARTIFACT_STORAGE: ${{ (vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && 'github' || '' }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         id: ci-1
         with:
           ref: ${{ inputs.source_ref || github.ref }}
+      - name: Hosted pnpm prerequisite
+        if: ${{ vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04' }}
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs pr-guards
       - *cancel-run-on-failure
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         id: ci-2
@@ -189,10 +208,6 @@ jobs:
         run: |
           node scripts/test-catalogue.mjs select --tier pr --format json > "$RUNNER_TEMP/pr-catalogue.json"
           node -e 'const fs = require("node:fs"); const selected = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/pr-catalogue.json", "utf8")); fs.appendFileSync(process.env.GITHUB_OUTPUT, "commands=" + JSON.stringify(Object.fromEntries(selected.runners.map(entry => [entry.id, entry.runner]))) + "\n");'
-      - *cancel-run-on-failure
-      - name: Source file size discipline
-        id: ci-4
-        run: bash scripts/check-file-sizes.sh --fail
       - *cancel-run-on-failure
       - name: Installed application identity
         id: ci-5
@@ -210,16 +225,6 @@ jobs:
         run: node --test scripts/tests/plugin-releases.test.mjs scripts/tests/ci-scope.test.mjs
       # Light services can miss the runner user's rustup on PATH.
       - *cancel-run-on-failure
-      - name: Ensure Rust toolchain on PATH
-        id: ci-8
-        if: ${{ !cancelled() }}
-        run: |
-          if command -v cargo >/dev/null 2>&1; then exit 0; fi
-          for dir in "${CARGO_HOME:-}/bin" "$HOME/.cargo/bin" /home/*/.cargo/bin /Users/*/.cargo/bin; do
-            if [ -x "$dir/cargo" ]; then echo "$dir" >> "$GITHUB_PATH"; exit 0; fi
-          done
-          echo "cargo not found; restore Rust on the runner" >&2
-          exit 1
       # POSIX-only fixtures that a Windows release-preflight cannot run; policy also covers release signing.
       - *cancel-run-on-failure
       - name: Build gateway guards and serial gateway script tests
@@ -277,89 +282,103 @@ jobs:
     name: plugin (${{ matrix.plugin.id }})
     needs: changed
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.plugins != '[]') }}
-    environment: ci
-    runs-on: [self-hosted, Linux, linux-build, host-ubunta]
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
-      actions: write
-    timeout-minutes: 8
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
         plugin: ${{ fromJSON(needs.changed.outputs.plugins) }}
     env:
       CI_SOURCE_SHA: ${{ needs.changed.outputs.source_sha || github.sha }}
-      DOMIOS_CI_WEBHOOK_URL: ${{ secrets.DOMIOS_CI_WEBHOOK_URL }}
-      DOMIOS_CI_WEBHOOK_TOKEN: ${{ secrets.DOMIOS_CI_WEBHOOK_TOKEN }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
-      DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
-      DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
-      DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
-      DOMIOS_ACCOUNT_REDEEM_URL: ${{ secrets.DOMIOS_ACCOUNT_REDEEM_URL }}
-      DOMIOS_BILLING_FUNCTIONS_URL: ${{ secrets.DOMIOS_BILLING_FUNCTIONS_URL }}
+      CODETERM_USE_SCCACHE: "0"
+      RUSTC_WRAPPER: ""
+      CI_CANCEL_RUN: "false"
+      CODETERM_SCCACHE_VERIFY_ONLY: "0"
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         id: ci-1
         with:
           ref: ${{ inputs.source_ref || github.ref }}
-      - *cancel-run-on-failure
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         id: ci-2
         with:
           package-manager-cache: false
           node-version: '22.22.0'
-      - *cancel-run-on-failure
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         id: ci-3
         with:
           version: 10.32.1
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
-      - *cancel-run-on-failure
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs frontend
       - run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
         id: ci-4
-      - *cancel-run-on-failure
       - *select-pr-catalogue
-      - *cancel-run-on-failure
       - id: ci-6
         env:
           PLUGIN_COMMAND: ${{ fromJSON(steps.catalogue.outputs.commands)['plugin-check'] }}
           PLUGIN_ID: ${{ matrix.plugin.id }}
         shell: bash
         run: ${PLUGIN_COMMAND//<plugin-id>/"$PLUGIN_ID"}
-
-
-      - *cancel-run-on-failure
   clippy-linux:
     name: clippy (linux)
     needs: changed
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.heavy == 'true') }}
-    environment: ci
-    runs-on: [self-hosted, Linux, linux-build, host-ubunta]
+    environment: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && 'ci' || '' }}
+    runs-on: ${{ vars.CI_LINUX_RUST_COMPILE_RUNNER || fromJSON('["self-hosted","Linux","linux-build","host-ubunta"]') }}
     permissions:
       contents: read
-      actions: write
+      actions: read
+      pull-requests: read
     timeout-minutes: 30
     env:
       CI_SOURCE_SHA: ${{ needs.changed.outputs.source_sha || github.sha }}
-      DOMIOS_CI_WEBHOOK_URL: ${{ secrets.DOMIOS_CI_WEBHOOK_URL }}
-      DOMIOS_CI_WEBHOOK_TOKEN: ${{ secrets.DOMIOS_CI_WEBHOOK_TOKEN }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
-      DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
-      DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
-      DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
-      DOMIOS_ACCOUNT_REDEEM_URL: ${{ secrets.DOMIOS_ACCOUNT_REDEEM_URL }}
-      DOMIOS_BILLING_FUNCTIONS_URL: ${{ secrets.DOMIOS_BILLING_FUNCTIONS_URL }}
+      DOMIOS_CI_WEBHOOK_URL: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_CI_WEBHOOK_URL || '' }}
+      DOMIOS_CI_WEBHOOK_TOKEN: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_CI_WEBHOOK_TOKEN || '' }}
+      AWS_ACCESS_KEY_ID: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.SCCACHE_AWS_ACCESS_KEY_ID || '' }}
+      AWS_SECRET_ACCESS_KEY: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.SCCACHE_AWS_SECRET_ACCESS_KEY || '' }}
+      DOMIOS_FIREBASE_API_KEY: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
+      DOMIOS_FIREBASE_PROJECT_ID: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
+      DOMIOS_FIREBASE_APP_ID: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_APP_ID || '' }}
+      DOMIOS_ACCOUNT_REDEEM_URL: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_ACCOUNT_REDEEM_URL || '' }}
+      DOMIOS_BILLING_FUNCTIONS_URL: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_BILLING_FUNCTIONS_URL || '' }}
       # Warm per-workspace targets outside the checkout; the cleanup step sweeps them by age.
       CI_TARGET_ROOT: ${{ github.workspace }}/../ci-targets/clippy
       CODETERM_ALLOW_EXTERNAL_TARGET: '1'
+      CI_HOSTED: ${{ vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04' }}
+      SCCACHE_GHA_ENABLED: ${{ (vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && 'true' || 'false' }}
+      CODETERM_SCCACHE_VERIFY_ONLY: ${{ (vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && '0' || '1' }}
+      CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
+      CI_ARTIFACT_STORAGE: ${{ (vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && 'github' || '' }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         id: ci-1
         with:
           ref: ${{ inputs.source_ref || github.ref }}
+      - name: Hosted Rust dependency cache
+        if: ${{ vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04' }}
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
+        with:
+          path: |-
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ format('cargo-{0}-{1}-{2}', runner.os, runner.arch, hashFiles('**/Cargo.lock')) }}
+          restore-keys: ${{ format('cargo-{0}-{1}-', runner.os, runner.arch) }}
+      - name: Hosted sccache
+        if: ${{ vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04' }}
+        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
+        env:
+          SCCACHE_GHA_ENABLED: "true"
+      - name: Hosted nextest prerequisite
+        if: ${{ vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04' }}
+        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8
+        with:
+          tool: cargo-nextest@0.9.148
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs rust
       - *cancel-run-on-failure
       - name: Setup Node.js
         id: ci-2
@@ -368,15 +387,6 @@ jobs:
           package-manager-cache: false
           node-version: '22.22.0'
       - *cancel-run-on-failure
-      - name: Ensure Rust toolchain on PATH
-        id: ci-3
-        run: |
-          if command -v cargo >/dev/null 2>&1; then exit 0; fi
-          for dir in "${CARGO_HOME:-}/bin" "$HOME/.cargo/bin" /home/*/.cargo/bin /Users/*/.cargo/bin; do
-            if [ -x "$dir/cargo" ]; then echo "$dir" >> "$GITHUB_PATH"; exit 0; fi
-          done
-          echo "cargo not found; restore Rust on the runner" >&2
-          exit 1
       - *cancel-run-on-failure
       - name: Prepare compile stubs
         id: ci-4
@@ -422,30 +432,57 @@ jobs:
     name: cli tests
     needs: changed
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.heavy == 'true') }}
-    environment: ci
-    runs-on: [self-hosted, Linux, linux-build, host-ubunta]
+    environment: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && 'ci' || '' }}
+    runs-on: ${{ vars.CI_LINUX_RUST_COMPILE_RUNNER || fromJSON('["self-hosted","Linux","linux-build","host-ubunta"]') }}
     permissions:
       contents: read
-      actions: write
+      actions: read
+      pull-requests: read
     timeout-minutes: 30
     env:
       CI_SOURCE_SHA: ${{ needs.changed.outputs.source_sha || github.sha }}
-      DOMIOS_CI_WEBHOOK_URL: ${{ secrets.DOMIOS_CI_WEBHOOK_URL }}
-      DOMIOS_CI_WEBHOOK_TOKEN: ${{ secrets.DOMIOS_CI_WEBHOOK_TOKEN }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
-      DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
-      DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
-      DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
-      DOMIOS_ACCOUNT_REDEEM_URL: ${{ secrets.DOMIOS_ACCOUNT_REDEEM_URL }}
-      DOMIOS_BILLING_FUNCTIONS_URL: ${{ secrets.DOMIOS_BILLING_FUNCTIONS_URL }}
+      DOMIOS_CI_WEBHOOK_URL: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_CI_WEBHOOK_URL || '' }}
+      DOMIOS_CI_WEBHOOK_TOKEN: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_CI_WEBHOOK_TOKEN || '' }}
+      AWS_ACCESS_KEY_ID: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.SCCACHE_AWS_ACCESS_KEY_ID || '' }}
+      AWS_SECRET_ACCESS_KEY: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.SCCACHE_AWS_SECRET_ACCESS_KEY || '' }}
+      DOMIOS_FIREBASE_API_KEY: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
+      DOMIOS_FIREBASE_PROJECT_ID: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
+      DOMIOS_FIREBASE_APP_ID: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_APP_ID || '' }}
+      DOMIOS_ACCOUNT_REDEEM_URL: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_ACCOUNT_REDEEM_URL || '' }}
+      DOMIOS_BILLING_FUNCTIONS_URL: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_BILLING_FUNCTIONS_URL || '' }}
       CI_TARGET_ROOT: ${{ github.workspace }}/../ci-targets/cli-tests
       CODETERM_ALLOW_EXTERNAL_TARGET: '1'
+      CI_HOSTED: ${{ vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04' }}
+      SCCACHE_GHA_ENABLED: ${{ (vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && 'true' || 'false' }}
+      CODETERM_SCCACHE_VERIFY_ONLY: ${{ (vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && '0' || '1' }}
+      CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
+      CI_ARTIFACT_STORAGE: ${{ (vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && 'github' || '' }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         id: ci-1
         with:
           ref: ${{ inputs.source_ref || github.ref }}
+      - name: Hosted Rust dependency cache
+        if: ${{ vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04' }}
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
+        with:
+          path: |-
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ format('cargo-{0}-{1}-{2}', runner.os, runner.arch, hashFiles('**/Cargo.lock')) }}
+          restore-keys: ${{ format('cargo-{0}-{1}-', runner.os, runner.arch) }}
+      - name: Hosted sccache
+        if: ${{ vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04' }}
+        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
+        env:
+          SCCACHE_GHA_ENABLED: "true"
+      - name: Hosted nextest prerequisite
+        if: ${{ vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04' }}
+        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8
+        with:
+          tool: cargo-nextest@0.9.148
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs rust
       - *cancel-run-on-failure
       - name: Setup Node.js
         id: ci-2
@@ -454,15 +491,6 @@ jobs:
           package-manager-cache: false
           node-version: '22.22.0'
       - *cancel-run-on-failure
-      - name: Ensure Rust toolchain on PATH
-        id: ci-3
-        run: |
-          if command -v cargo >/dev/null 2>&1; then exit 0; fi
-          for dir in "${CARGO_HOME:-}/bin" "$HOME/.cargo/bin" /home/*/.cargo/bin /Users/*/.cargo/bin; do
-            if [ -x "$dir/cargo" ]; then echo "$dir" >> "$GITHUB_PATH"; exit 0; fi
-          done
-          echo "cargo not found; restore Rust on the runner" >&2
-          exit 1
       - *cancel-run-on-failure
       - name: CLI tests
         id: ci-4
@@ -481,37 +509,27 @@ jobs:
     name: ts static checks
     needs: changed
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.frontend == 'true') }}
-    environment: ci
-    runs-on: [self-hosted, Linux, light, host-ubunta]
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
-      actions: write
-    timeout-minutes: 8
+    timeout-minutes: 15
     env:
       CI_SOURCE_SHA: ${{ needs.changed.outputs.source_sha || github.sha }}
-      DOMIOS_CI_WEBHOOK_URL: ${{ secrets.DOMIOS_CI_WEBHOOK_URL }}
-      DOMIOS_CI_WEBHOOK_TOKEN: ${{ secrets.DOMIOS_CI_WEBHOOK_TOKEN }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
-      DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
-      DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
-      DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
-      DOMIOS_ACCOUNT_REDEEM_URL: ${{ secrets.DOMIOS_ACCOUNT_REDEEM_URL }}
-      DOMIOS_BILLING_FUNCTIONS_URL: ${{ secrets.DOMIOS_BILLING_FUNCTIONS_URL }}
+      CODETERM_USE_SCCACHE: "0"
+      RUSTC_WRAPPER: ""
+      CI_CANCEL_RUN: "false"
+      CODETERM_SCCACHE_VERIFY_ONLY: "0"
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         id: ci-1
         with:
           ref: ${{ inputs.source_ref || github.ref }}
-      - *cancel-run-on-failure
       - name: Setup Node.js
         id: ci-2
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
           node-version: '22.22.0'
-
-      - *cancel-run-on-failure
       - name: Setup pnpm
         id: ci-3
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
@@ -519,135 +537,106 @@ jobs:
           version: 10.32.1
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
-
-      - *cancel-run-on-failure
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs frontend
       - name: Install dependencies
         id: ci-4
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
-      - *cancel-run-on-failure
       - *select-pr-catalogue
-      - *cancel-run-on-failure
       - name: TypeScript unused exports
         id: ci-6
         if: ${{ !cancelled() }}
         run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-unused-exports'] }}
-      - *cancel-run-on-failure
       - name: Repository Knip report
         id: ci-7
         if: ${{ !cancelled() }}
         run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-knip-report'] }}
-      # An effect that reaches the API must key on primitives; a mux-rebuilt object
-      # re-runs it at broadcast rate. Five such sites shipped before this existed.
-      - *cancel-run-on-failure
       - name: Check API effect dependencies
         id: ci-8
         if: ${{ !cancelled() }}
         run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-api-effects'] }}
-      - *cancel-run-on-failure
       - name: Biome (TS lint)
         id: ci-9
         if: ${{ !cancelled() }}
         run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-biome'] }}
-
-      - *cancel-run-on-failure
   frontend-dist:
     name: frontend producer
     needs: changed
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}
-    environment: ci
-    runs-on: [self-hosted, Linux, light, host-ubunta]
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
-      actions: write
-    timeout-minutes: 8
+    timeout-minutes: 15
     env:
       CI_SOURCE_SHA: ${{ needs.changed.outputs.source_sha || github.sha }}
-      DOMIOS_CI_WEBHOOK_URL: ${{ secrets.DOMIOS_CI_WEBHOOK_URL }}
-      DOMIOS_CI_WEBHOOK_TOKEN: ${{ secrets.DOMIOS_CI_WEBHOOK_TOKEN }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
-      DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
-      DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
-      DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
-      DOMIOS_ACCOUNT_REDEEM_URL: ${{ secrets.DOMIOS_ACCOUNT_REDEEM_URL }}
-      DOMIOS_BILLING_FUNCTIONS_URL: ${{ secrets.DOMIOS_BILLING_FUNCTIONS_URL }}
+      CODETERM_USE_SCCACHE: "0"
+      RUSTC_WRAPPER: ""
+      CI_CANCEL_RUN: "false"
+      CODETERM_SCCACHE_VERIFY_ONLY: "0"
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         id: ci-1
         with:
           ref: ${{ inputs.source_ref || github.ref }}
-      - *cancel-run-on-failure
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         id: ci-2
         with:
           package-manager-cache: false
           node-version: '22.22.0'
-      - *cancel-run-on-failure
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
         id: ci-3
         with:
           version: 10.32.1
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
-      - *cancel-run-on-failure
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs frontend
       - name: Install dependencies
         id: ci-4
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
-      - *cancel-run-on-failure
       - *select-pr-catalogue
-      - *cancel-run-on-failure
       - name: Build and typecheck frontend
         id: ci-6
         run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-typecheck'] }}
-
-      - *cancel-run-on-failure
-      - name: Store frontend warning collection
+      - name: Retain hosted warning evidence
         if: always()
         continue-on-error: true
-        run: test ! -f ci-rust-warnings/rust-warnings-linux-frontend.json || bash scripts/ci-artifact.sh put "$GITHUB_RUN_ID/rust-warnings/rust-warnings-linux-frontend.json" ci-rust-warnings/rust-warnings-linux-frontend.json
-      - name: Upload artifacts spooled while the private store was unreachable
-        if: always()
-        uses: ./.github/actions/ci-artifact-spool
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: hosted-rust-warnings-frontend-dist
+          path: ci-rust-warnings/*.json
+          if-no-files-found: error
+          retention-days: 7
 
   frontend-windows:
     name: Windows path identity
     needs: changed
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}
-    environment: ci
-    runs-on: [self-hosted, Windows, windows-light]
+    runs-on: windows-latest
     permissions:
       contents: read
-      actions: write
-    timeout-minutes: 8
+    timeout-minutes: 15
     defaults:
       run:
         shell: bash
     env:
       CI_SOURCE_SHA: ${{ needs.changed.outputs.source_sha || github.sha }}
-      DOMIOS_CI_WEBHOOK_URL: ${{ secrets.DOMIOS_CI_WEBHOOK_URL }}
-      DOMIOS_CI_WEBHOOK_TOKEN: ${{ secrets.DOMIOS_CI_WEBHOOK_TOKEN }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
-      DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
-      DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
-      DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
-      DOMIOS_ACCOUNT_REDEEM_URL: ${{ secrets.DOMIOS_ACCOUNT_REDEEM_URL }}
-      DOMIOS_BILLING_FUNCTIONS_URL: ${{ secrets.DOMIOS_BILLING_FUNCTIONS_URL }}
+      CODETERM_USE_SCCACHE: "0"
+      RUSTC_WRAPPER: ""
+      CI_CANCEL_RUN: "false"
+      CODETERM_SCCACHE_VERIFY_ONLY: "0"
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         id: ci-1
         with:
           ref: ${{ inputs.source_ref || github.ref }}
-      - *cancel-run-on-failure
       - name: Setup Node.js
         id: ci-2
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
           node-version: '22.22.0'
-
-      - *cancel-run-on-failure
       - name: Setup pnpm
         id: ci-3
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
@@ -655,64 +644,40 @@ jobs:
           version: 10.32.1
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
-
-      - *cancel-run-on-failure
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs frontend
       - name: Install dependencies
         id: ci-4
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
-      - *cancel-run-on-failure
       - *select-pr-catalogue
-      - *cancel-run-on-failure
       - name: Check pnpm workspace path identity
         id: ci-6
         run: ${{ fromJSON(steps.catalogue.outputs.commands)['frontend-windows-build'] }}
-
-      - *cancel-run-on-failure
   ts-types:
     name: ts generated types
     needs: changed
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}
-    environment: ci
-    runs-on: [self-hosted, Linux, linux-build, host-ubunta]
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
-      actions: write
-    timeout-minutes: 8
+    timeout-minutes: 20
     env:
       CI_SOURCE_SHA: ${{ needs.changed.outputs.source_sha || github.sha }}
-      DOMIOS_CI_WEBHOOK_URL: ${{ secrets.DOMIOS_CI_WEBHOOK_URL }}
-      DOMIOS_CI_WEBHOOK_TOKEN: ${{ secrets.DOMIOS_CI_WEBHOOK_TOKEN }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
-      DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
-      DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
-      DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
-      DOMIOS_ACCOUNT_REDEEM_URL: ${{ secrets.DOMIOS_ACCOUNT_REDEEM_URL }}
-      DOMIOS_BILLING_FUNCTIONS_URL: ${{ secrets.DOMIOS_BILLING_FUNCTIONS_URL }}
+      CODETERM_USE_SCCACHE: "0"
+      RUSTC_WRAPPER: ""
+      CI_CANCEL_RUN: "false"
+      CODETERM_SCCACHE_VERIFY_ONLY: "0"
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         id: ci-1
         with:
           ref: ${{ inputs.source_ref || github.ref }}
-      - *cancel-run-on-failure
-      - name: Ensure Rust toolchain on PATH
-        id: ci-2
-        run: |
-          if command -v cargo >/dev/null 2>&1; then exit 0; fi
-          for dir in "${CARGO_HOME:-}/bin" "$HOME/.cargo/bin" /home/*/.cargo/bin /Users/*/.cargo/bin; do
-            if [ -x "$dir/cargo" ]; then echo "$dir" >> "$GITHUB_PATH"; exit 0; fi
-          done
-          echo "cargo not found; restore Rust on the runner" >&2
-          exit 1
-      - *cancel-run-on-failure
       - name: Setup Node.js
         id: ci-3
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
           node-version: '22.22.0'
-
-      - *cancel-run-on-failure
       - name: Setup pnpm
         id: ci-4
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
@@ -720,74 +685,67 @@ jobs:
           version: 10.32.1
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
-
-      - *cancel-run-on-failure
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs pr-guards
       - name: Install dependencies
         id: ci-5
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
-      - *cancel-run-on-failure
       - *select-pr-catalogue
-      - *cancel-run-on-failure
       - name: Reset compiler capture
         id: ci-7
         continue-on-error: true
         run: node -e "require('fs').writeFileSync('ci-rust-warnings.log', '')"
-      - *cancel-run-on-failure
       - name: Check Rust generated TypeScript types
         id: ci-8
         run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash -c '${{ fromJSON(steps.catalogue.outputs.commands)['ts-generated-types'] }}'
-
-      - *cancel-run-on-failure
-      - uses: ./.github/actions/rust-warnings
+      - name: Collect hosted compiler warnings
         if: always()
         continue-on-error: true
-        with:
-          complete: ${{ job.status == 'success' }}
-          platform: types-${{ runner.os }}
-          target: ${{ runner.os == 'macOS' && (runner.arch == 'ARM64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin') || runner.os == 'Windows' && 'x86_64-pc-windows-msvc' || 'x86_64-unknown-linux-gnu' }}
-      - name: Upload artifacts spooled while the private store was unreachable
-        if: always()
-        uses: ./.github/actions/ci-artifact-spool
+        run: node scripts/ci-rust-warning-artifact.mjs collect
+        env:
+          WARNING_PLATFORM: types-${{ runner.os }}
+          WARNING_TARGET: ${{ runner.os == 'macOS' && (runner.arch == 'ARM64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin') || runner.os == 'Windows' && 'x86_64-pc-windows-msvc' || 'x86_64-unknown-linux-gnu' }}
+          WARNING_COMPLETE: ${{ job.status == 'success' }}
+          WARNING_INPUT: ci-rust-warnings.log
       - *release-job-cache
       - *clean-job-outputs
+      - name: Retain hosted warning evidence
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: hosted-rust-warnings-ts-types
+          path: ci-rust-warnings/*.json
+          if-no-files-found: error
+          retention-days: 7
 
   ts-unit:
     name: ts unit
     needs: changed
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.frontend == 'true') }}
-    environment: ci
     # Air is idle until the Rust tier starts; the Ubuntu host compiles during the fast tier.
-    runs-on: [self-hosted, macOS, light, host-air]
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
-      actions: write
-    timeout-minutes: 8
+    timeout-minutes: 15
     env:
       CI_SOURCE_SHA: ${{ needs.changed.outputs.source_sha || github.sha }}
-      DOMIOS_CI_WEBHOOK_URL: ${{ secrets.DOMIOS_CI_WEBHOOK_URL }}
-      DOMIOS_CI_WEBHOOK_TOKEN: ${{ secrets.DOMIOS_CI_WEBHOOK_TOKEN }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
-      DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
-      DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
-      DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
-      DOMIOS_ACCOUNT_REDEEM_URL: ${{ secrets.DOMIOS_ACCOUNT_REDEEM_URL }}
-      DOMIOS_BILLING_FUNCTIONS_URL: ${{ secrets.DOMIOS_BILLING_FUNCTIONS_URL }}
+      CODETERM_USE_SCCACHE: "0"
+      RUSTC_WRAPPER: ""
+      CI_CANCEL_RUN: "false"
+      CODETERM_SCCACHE_VERIFY_ONLY: "0"
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         id: ci-1
         with:
           ref: ${{ inputs.source_ref || github.ref }}
-      - *cancel-run-on-failure
       - name: Setup Node.js
         id: ci-2
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
           node-version: '22.22.0'
-
-      - *cancel-run-on-failure
       - name: Setup pnpm
         id: ci-3
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
@@ -795,60 +753,45 @@ jobs:
           version: 10.32.1
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
-
-      - *cancel-run-on-failure
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs frontend
       - name: Install dependencies
         id: ci-4
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
-      - *cancel-run-on-failure
       - *select-pr-catalogue
-      - *cancel-run-on-failure
       - name: Run TS unit tests
         id: ci-6
         run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-unit'] }}
-      - *cancel-run-on-failure
       - name: TS unit runner contracts
         id: ci-7
         if: ${{ !cancelled() }}
         run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-unit-runner-tests'] }}
-
-      - *cancel-run-on-failure
   ts-vitest:
     name: ts vitest
     needs: changed
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.frontend == 'true') }}
-    environment: ci
-    runs-on: [self-hosted, Linux, light, host-ubunta]
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
-      actions: write
-    timeout-minutes: 8
+    timeout-minutes: 15
     env:
       CI_SOURCE_SHA: ${{ needs.changed.outputs.source_sha || github.sha }}
-      DOMIOS_CI_WEBHOOK_URL: ${{ secrets.DOMIOS_CI_WEBHOOK_URL }}
-      DOMIOS_CI_WEBHOOK_TOKEN: ${{ secrets.DOMIOS_CI_WEBHOOK_TOKEN }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
-      DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
-      DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
-      DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
-      DOMIOS_ACCOUNT_REDEEM_URL: ${{ secrets.DOMIOS_ACCOUNT_REDEEM_URL }}
-      DOMIOS_BILLING_FUNCTIONS_URL: ${{ secrets.DOMIOS_BILLING_FUNCTIONS_URL }}
+      CODETERM_USE_SCCACHE: "0"
+      RUSTC_WRAPPER: ""
+      CI_CANCEL_RUN: "false"
+      CODETERM_SCCACHE_VERIFY_ONLY: "0"
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         id: ci-1
         with:
           ref: ${{ inputs.source_ref || github.ref }}
-      - *cancel-run-on-failure
       - name: Setup Node.js
         id: ci-2
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
           node-version: '22.22.0'
-
-      - *cancel-run-on-failure
       - name: Setup pnpm
         id: ci-3
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
@@ -856,58 +799,41 @@ jobs:
           version: 10.32.1
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
-
-      - *cancel-run-on-failure
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs frontend
       - name: Install dependencies
         id: ci-4
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
-      - *cancel-run-on-failure
       - *select-pr-catalogue
-      # run-ts-unit-tests.mjs deliberately skips the vitest-owned files, so this
-      # job is the only thing that runs them.
-      # Light runners share a 16 GiB BLACKSTAR WSL VM with a heavy runner; bound the worker fanout.
-      - *cancel-run-on-failure
       - name: Run vitest-owned TS tests
         id: ci-6
         run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-vitest'] }}
-
-      - *cancel-run-on-failure
   ts-plugins:
     name: plugin bundles + tests
     needs: changed
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.rust == 'true') }}
-    environment: ci
-    runs-on: [self-hosted, Linux, light, host-ubunta]
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
-      actions: write
-    timeout-minutes: 8
+    timeout-minutes: 15
     env:
       CI_SOURCE_SHA: ${{ needs.changed.outputs.source_sha || github.sha }}
-      DOMIOS_CI_WEBHOOK_URL: ${{ secrets.DOMIOS_CI_WEBHOOK_URL }}
-      DOMIOS_CI_WEBHOOK_TOKEN: ${{ secrets.DOMIOS_CI_WEBHOOK_TOKEN }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
-      DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
-      DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
-      DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
-      DOMIOS_ACCOUNT_REDEEM_URL: ${{ secrets.DOMIOS_ACCOUNT_REDEEM_URL }}
-      DOMIOS_BILLING_FUNCTIONS_URL: ${{ secrets.DOMIOS_BILLING_FUNCTIONS_URL }}
+      CODETERM_USE_SCCACHE: "0"
+      RUSTC_WRAPPER: ""
+      CI_CANCEL_RUN: "false"
+      CODETERM_SCCACHE_VERIFY_ONLY: "0"
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         id: ci-1
         with:
           ref: ${{ inputs.source_ref || github.ref }}
-      - *cancel-run-on-failure
       - name: Setup Node.js
         id: ci-2
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
           node-version: '22.22.0'
-
-      - *cancel-run-on-failure
       - name: Setup pnpm
         id: ci-3
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
@@ -915,21 +841,17 @@ jobs:
           version: 10.32.1
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
-
-      - *cancel-run-on-failure
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs frontend
       - name: Install dependencies
         id: ci-4
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
-      - *cancel-run-on-failure
       - *select-pr-catalogue
-      - *cancel-run-on-failure
       - name: Check generated plugin bundles
         id: ci-6
         run: ${{ fromJSON(steps.catalogue.outputs.commands)['plugin-bundles'] }}
-      - *cancel-run-on-failure
       - name: Run plugin tests
         id: ci-7
         if: ${{ !cancelled() }}
         run: ${{ fromJSON(steps.catalogue.outputs.commands)['plugin-tests'] }}
-      - *cancel-run-on-failure

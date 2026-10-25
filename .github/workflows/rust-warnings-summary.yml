@@ -23,11 +23,11 @@ jobs:
   report:
     permissions:
       contents: read
-      actions: write
-      pull-requests: write
+      actions: read
+      pull-requests: read
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' }}
-    environment: ${{ (startsWith(github.ref, 'refs/heads/release/') || (github.event_name == 'workflow_run' && startsWith(github.event.workflow_run.head_branch, 'release/'))) && 'release' || 'ci' }}
-    runs-on: [self-hosted, Linux, light, host-ubunta]
+    environment: ${{ !(github.workflow == 'CI' && vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && ((startsWith(github.ref, 'refs/heads/release/') || (github.event_name == 'workflow_run' && startsWith(github.event.workflow_run.head_branch, 'release/'))) && 'release' || 'ci') || '' }}
+    runs-on: ${{ github.workflow == 'CI' && vars.CI_LINUX_LIGHT_RUNNER || fromJSON('["self-hosted","Linux","light","host-ubunta"]') }}
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -38,13 +38,22 @@ jobs:
         with:
           package-manager-cache: false
           node-version: '22.22.0'
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs receipt
       - name: Fetch warning collections
         continue-on-error: true
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ !(github.workflow == 'CI' && vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.SCCACHE_AWS_ACCESS_KEY_ID || '' }}
+          AWS_SECRET_ACCESS_KEY: ${{ !(github.workflow == 'CI' && vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.SCCACHE_AWS_SECRET_ACCESS_KEY || '' }}
           GH_TOKEN: ${{ github.token }}
         run: bash scripts/ci-artifact.sh get-prefix "$GITHUB_RUN_ID/rust-warnings/" ci-rust-warnings
+      - name: Fetch hosted warning evidence
+        if: ${{ github.workflow == 'CI' && inputs.artifacts != '[]' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: hosted-rust-warnings-*
+          merge-multiple: true
+          path: ci-rust-warnings
       - name: Merge warnings and enforce ratchet
         env:
           WARNING_ARTIFACTS: ${{ inputs.artifacts }}
@@ -54,8 +63,8 @@ jobs:
         if: always()
         continue-on-error: true
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ !(github.workflow == 'CI' && vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.SCCACHE_AWS_ACCESS_KEY_ID || '' }}
+          AWS_SECRET_ACCESS_KEY: ${{ !(github.workflow == 'CI' && vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.SCCACHE_AWS_SECRET_ACCESS_KEY || '' }}
           WARNING_REPORT_NAME: ${{ inputs.report_name }}
         run: |
           for file in rust-warnings-report/*; do
@@ -72,3 +81,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           WARNING_SOURCE_SHA: ${{ inputs.source_ref }}
         run: node scripts/rust-warnings-comment.mjs rust-warnings-report/rust-warnings-report.md
+    env:
+      CI_HOSTED: ${{ github.workflow == 'CI' && vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04' }}
+      CI_ARTIFACT_STORAGE: ${{ (github.workflow == 'CI' && vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && 'github' || '' }}

@@ -32,6 +32,7 @@ record() {
 }
 
 store_down() {
+  [ "${CI_ARTIFACT_STORAGE:-}" != github ] || return 0
   [ -n "${GITHUB_ACTIONS:-}" ] && ! CT_CI_STORE_ENDPOINT="$endpoint" ct_ci_store_reachable
 }
 

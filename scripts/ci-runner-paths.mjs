@@ -1,5 +1,5 @@
-// Caller: CI tests-rust.yml; scripts tests/ci-runner-paths.test.mjs; skill build-machine
 import fs from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -46,6 +46,45 @@ export function runnerToolPaths(platform, env, hasFile, children = () => []) {
   return [...new Set(directories)];
 }
 
+export const RUNNER_ROLES = {
+  policy: ['node', 'git', 'bash', 'python', 'gh', 'jq', 'curl', 'tar'],
+  receipt: ['node', 'git', 'bash', 'gh', 'curl', 'tar'],
+  frontend: ['node', 'git', 'bash', 'pnpm'],
+  'cli-contracts': ['node', 'git', 'bash', 'cargo'],
+  rust: ['node', 'git', 'bash', 'python', 'cargo', 'nextest', 'gh'],
+  'pr-guards': ['node', 'git', 'bash', 'python', 'cargo', 'pnpm'],
+  packaging: ['node', 'git', 'bash', 'python', 'cargo', 'gh', 'pnpm'],
+  all: ['node', 'git', 'bash', 'python', 'cargo', 'nextest', 'gh', 'pnpm'],
+};
+const tools = {
+  node: ['node', '--version'], git: ['git', '--version'], bash: ['bash', '--version'],
+  cargo: ['cargo', '--version'], nextest: ['cargo-nextest', '--version'],
+  gh: ['gh', '--version'], pnpm: ['pnpm', '--version'], jq: ['jq', '--version'],
+  curl: ['curl', '--version'], tar: ['tar', '--version'],
+};
+
+export function checkRunnerTools(role, { platform = process.platform, env = process.env,
+  execute = (command, args, options) => spawnSync(command, args, options) } = {}) {
+  if (!RUNNER_ROLES[role]) throw new Error('Unknown runner role: ' + role);
+  const missing = [];
+  for (const tool of RUNNER_ROLES[role]) {
+    const [command, ...args] = tool === 'python'
+      ? [platform === 'win32' ? 'python' : 'python3', '--version'] : tools[tool];
+    const probeEnv = tool === 'cargo' && env.RUNNER_ENVIRONMENT === 'github-hosted' ? { ...env, RUSTUP_TOOLCHAIN: 'stable' } : env;
+    const result = execute(command, args, { env: probeEnv, encoding: 'utf8', timeout: 2000,
+      windowsHide: true, shell: platform === 'win32' && tool === 'pnpm' });
+    if (result.error || result.status !== 0) missing.push(tool);
+  }
+  if (missing.length) throw new Error('Runner preflight (' + role + ') missing or broken: ' +
+    missing.join(', ') + '. Install/restore tools using .agents/skills/build-machine/SKILL.md; ' +
+    'nextest: cargo install cargo-nextest --locked; Python: https://www.python.org/downloads/; ' +
+    'Git Bash: https://gitforwindows.org/; Node/pnpm: https://nodejs.org/ and corepack enable; gh: https://cli.github.com/');
+}
+
+export function runnerPathContent(directories) {
+  return directories.map(directory => directory + '\n').join('');
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   if (!process.env.GITHUB_PATH) throw new Error('GITHUB_PATH is required for job-local tool setup');
   const hasFile = (file) => {
@@ -56,9 +95,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
     catch { return []; }
   };
   const directories = runnerToolPaths(process.platform, process.env, hasFile, children);
-  fs.appendFileSync(process.env.GITHUB_PATH, directories.map((directory) => `${directory}\n`).join(''));
-  if (process.platform === 'win32' && !directories.some(directory => hasFile(path.join(directory, 'python.exe')))) {
-    throw new Error('Python is required by Windows native runtime tests; install an interpreter before qualification');
-  }
-  for (const directory of directories) console.log(`Job-local tool directory: ${directory}`);
+  const home = process.env.HOME || process.env.USERPROFILE;
+  const extras = [process.env.PNPM_HOME, home && path.join(home, '.local', 'bin'),
+    ...(process.platform === 'darwin' ? ['/opt/homebrew/bin', '/usr/local/bin'] : [])].filter(Boolean);
+  directories.push(...extras.filter(directory => fs.existsSync(directory)));
+  fs.appendFileSync(process.env.GITHUB_PATH, runnerPathContent(directories));
+  const env = { ...process.env, PATH: [...directories, process.env.PATH].join(path.delimiter) };
+  checkRunnerTools(process.argv[2] || 'rust', { env });
+  for (const directory of directories) console.log('Job-local tool directory: ' + directory);
 }

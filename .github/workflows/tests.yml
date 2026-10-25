@@ -1,11 +1,14 @@
-name: tests
-
+name: CI
 on:
   push:
-    branches: [master, develop, rename/domios, 'release/**']
+    branches:
+      - master
+      - develop
+      - rename/domios
+      - release/**
   schedule:
-    - cron: '17 2 * * *'
-    - cron: '17 3 * * *'
+    - cron: 17 2 * * *
+    - cron: 17 3 * * *
   workflow_dispatch:
     inputs:
       source_ref:
@@ -15,39 +18,239 @@ on:
       scope:
         type: choice
         default: full
-        options: [full, frontend]
-
+        options:
+          - full
+          - frontend
+  pull_request:
+    types:
+      - opened
+      - edited
+      - synchronize
+      - reopened
+      - ready_for_review
 permissions:
   contents: read
-  pull-requests: write
-
 concurrency:
   group: ${{ inputs.source_ref != '' && format('tests-dispatch-{0}', github.run_id) || format('tests-{0}', github.event_name == 'schedule' && format('refs/heads/{0}', github.event.schedule == '17 2 * * *' && 'rename/domios' || 'develop') || github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref) }}
   cancel-in-progress: true
-
 jobs:
+  policy:
+    name: Repository guards
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.event_name == 'schedule' && (github.event.schedule == '17 2 * * *' && 'rename/domios' || 'develop') || inputs.source_ref || github.ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs policy
+      - name: Embedded docs and generated contract preflight
+        if: ${{ !cancelled() }}
+        run: node scripts/check-ci-docs.mjs
+      - name: Select guard change set
+        id: change
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        shell: bash
+        run: |-
+          set -euo pipefail
+          head=$(git rev-parse HEAD)
+          if [ "$EVENT_NAME" = pull_request ]; then
+            base=$(git merge-base "$PR_BASE_SHA" "$PR_HEAD_SHA")
+          elif git cat-file -e "$PUSH_BEFORE^{commit}" 2>/dev/null; then
+            base="$PUSH_BEFORE"
+          else
+            base=$(git rev-parse HEAD^)
+          fi
+          git diff --name-only --diff-filter=ACMR "$base" "$head" > "$RUNNER_TEMP/ci-changed.txt"
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+      - name: Run file-size discipline check
+        run: bash scripts/check-file-sizes.sh --fail
+        if: ${{ !cancelled() }}
+      - name: Test provider boundary guard
+        run: node --test scripts/tests/check-provider-boundary.test.mjs
+        if: ${{ !cancelled() }}
+      - name: Test tauri reach guard
+        run: node --test scripts/tests/check-tauri-reach.test.mjs
+        if: ${{ !cancelled() }}
+      - name: Test crate layering guard
+        run: node --test scripts/tests/crate-layering.test.mjs
+        if: ${{ !cancelled() }}
+      - name: Check crate layering and the thin native client
+        run: bash scripts/check-crate-layering.sh
+        if: ${{ !cancelled() }}
+      - name: Check tauri reach against target baseline
+        env:
+          TAURI_REACH_BASE: ${{ steps.change.outputs.base }}
+        run: bash scripts/check-tauri-reach.sh
+        if: ${{ !cancelled() }}
+      - name: Check provider boundary against target baseline
+        env:
+          PROVIDER_BOUNDARY_BASE: ${{ steps.change.outputs.base }}
+          RELEASE_TO_MASTER: ${{ github.base_ref == 'master' && startsWith(github.head_ref, 'release/') }}
+        run: |
+          # A release PR carries develop's already-guarded allowlist; master predates it.
+          if [ "$RELEASE_TO_MASTER" = true ]; then
+            git fetch --no-tags origin develop
+            PROVIDER_BOUNDARY_BASE="$(git rev-parse FETCH_HEAD)"
+          fi
+          PROVIDER_BOUNDARY_BASE="$PROVIDER_BOUNDARY_BASE" node scripts/check-provider-boundary.mjs
+        if: ${{ !cancelled() }}
+      - name: Run comment-length discipline check on the change set
+        run: bash scripts/check-comment-length.sh --fail --changed "$RUNNER_TEMP/ci-changed.txt"
+        if: ${{ !cancelled() }}
+      - name: Check API docs
+        run: bash scripts/check-api-docs.sh
+        if: ${{ !cancelled() }}
+      - name: Check prompt docs
+        run: bash scripts/check-prompts-doc.sh
+        if: ${{ !cancelled() }}
+      - name: Check eval list
+        run: bash scripts/check-evals-list.sh
+        if: ${{ !cancelled() }}
+      - name: Warn on docs changes without revision bump
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha }}"
+          changed="$(git diff --name-only "$base"...HEAD -- 'essences/*.md' 'prod-docs/*.md' || true)"
+          [ -n "$changed" ] || exit 0
+          missing=0
+          while IFS= read -r file; do
+            [ -n "$file" ] || continue
+            if ! git diff "$base"...HEAD -- "$file" | grep -Eq '<!-- revision: [0-9]+ -->'; then
+              echo "::warning file=$file::docs file changed without a revision-tag bump"
+              missing=1
+            fi
+          done <<< "$changed"
+          exit "$missing"
+      - name: Scan new commits and working tree
+        env:
+          SCAN_BASE: ${{ steps.change.outputs.base }}
+        run: bash scripts/secret-scan.sh "$SCAN_BASE"
+        if: ${{ !cancelled() }}
+      - name: Require a release branch
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          SOURCE_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$HEAD_REPO" == "$SOURCE_REPO" && "$PR_AUTHOR" == rollacode ]]
+          if [[ ! "$HEAD_REF" =~ ^release/[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::master accepts only release/X.Y.Z; open this pull request against develop (head was '$HEAD_REF')"
+            exit 1
+          fi
+          echo "release branch $HEAD_REF"
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && github.base_ref == 'master' }}
+      - name: Parse and verify public issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number || 0 }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_BASE_REF: ${{ github.base_ref }}
+          CHANGE_BASE: ${{ steps.change.outputs.base }}
+        run: |
+          printf '%s' "$PR_BODY" > "$RUNNER_TEMP/pr-body.md"
+          jq -n --argjson number "$PR_NUMBER" \
+            --arg url "$PR_URL" \
+            --arg base_ref "$PR_BASE_REF" \
+            --rawfile body "$RUNNER_TEMP/pr-body.md" \
+            'if $number == 0 then [] else [{number: $number, url: $url, body: $body, base_ref: $base_ref}] end' \
+            > "$RUNNER_TEMP/release-prs.json"
+          printf '[]' > "$RUNNER_TEMP/release-commits.json"
+          for sha in $(git rev-list "$CHANGE_BASE..HEAD"); do
+            git show -s --format=%B "$sha" > "$RUNNER_TEMP/commit-body.txt"
+            jq --arg sha "$sha" \
+              --arg url "https://github.com/${GITHUB_REPOSITORY}/commit/$sha" \
+              --rawfile body "$RUNNER_TEMP/commit-body.txt" \
+              '. + [{sha: $sha, url: $url, body: $body}]' \
+              "$RUNNER_TEMP/release-commits.json" > "$RUNNER_TEMP/release-commits.next.json"
+            mv "$RUNNER_TEMP/release-commits.next.json" "$RUNNER_TEMP/release-commits.json"
+          done
+          python3 scripts/release_issue_contract.py resolve \
+            --commits-file "$RUNNER_TEMP/release-commits.json" \
+            --prs-file "$RUNNER_TEMP/release-prs.json" \
+            > "$RUNNER_TEMP/resolved-public-issues.json"
+          jq -r '.issues[].reference' "$RUNNER_TEMP/resolved-public-issues.json" \
+            > "$RUNNER_TEMP/public-issues.txt"
+          jq -r '.repository_issues[].reference' "$RUNNER_TEMP/resolved-public-issues.json" \
+            > "$RUNNER_TEMP/repository-issues.txt"
+
+          {
+            echo "## Public issue contract"
+            if [ -s "$RUNNER_TEMP/public-issues.txt" ]; then
+              while IFS= read -r reference; do
+                number="${reference##*#}"
+                gh issue view "$number" \
+                  --repo rollacode/codeterm-releases \
+                  --json number,state,title >/dev/null
+                echo "- $reference"
+              done < "$RUNNER_TEMP/public-issues.txt"
+            else
+              echo "No public issues declared."
+            fi
+
+            echo
+            echo "## Source repository issue contract"
+            if [ -s "$RUNNER_TEMP/repository-issues.txt" ]; then
+              while IFS= read -r reference; do
+                number="${reference##*#}"
+                gh issue view "$number" \
+                  --repo rollacode/codeterm \
+                  --json number,state,title >/dev/null
+                echo "- $reference"
+              done < "$RUNNER_TEMP/repository-issues.txt"
+            else
+              echo "No source repository issues declared."
+            fi
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+        if: ${{ !cancelled() }}
+  pr:
+    name: Pull request checks
+    if: ${{ github.event_name == 'pull_request' }}
+    uses: ./.github/workflows/tests-pr.yml
+    permissions:
+      contents: read
   fast:
     name: Fast checks
     uses: ./.github/workflows/tests-fast.yml
     with:
       source_ref: ${{ github.event_name == 'schedule' && (github.event.schedule == '17 2 * * *' && 'rename/domios' || 'develop') || inputs.source_ref }}
       scope: ${{ inputs.scope || 'full' }}
-      cancel_run: ${{ github.event_name != 'pull_request' }}
+      cancel_run: false
     permissions:
       contents: read
       actions: write
       pull-requests: write
     secrets: inherit
-
-  # Pull requests never reach the heavy scope, and a manual dispatch checks the fast tier only.
+    if: ${{ github.event_name != 'pull_request' }}
   rust:
     name: Rust tests
     needs: fast
-    if: github.event_name == 'push' || github.event_name == 'schedule'
+    if: ${{ !cancelled() && (github.event_name == 'push' || github.event_name == 'schedule') && needs.fast.outputs.resolved_scope != '' }}
     uses: ./.github/workflows/tests-rust.yml
     with:
       source_ref: ${{ needs.fast.outputs.source_sha }}
-      cancel_run: true
+      cancel_run: false
       resolved_scope: ${{ needs.fast.outputs.resolved_scope }}
       scope: full
     permissions:
@@ -55,32 +258,37 @@ jobs:
       actions: write
       pull-requests: write
     secrets: inherit
-
   rust-warnings:
     permissions:
       contents: read
       actions: write
       pull-requests: write
-    needs: [fast, rust]
-    # A skipped scope gate has nothing to summarise; release calls summarise once in release.yml.
-    if: ${{ always() && inputs.source_ref == '' && needs.fast.outputs.heavy != '' }}
+    needs:
+      - fast
+      - rust
+    if: ${{ always() && github.event_name != 'pull_request' && inputs.source_ref == '' && needs.fast.outputs.heavy != '' }}
     uses: ./.github/workflows/rust-warnings-summary.yml
     secrets: inherit
     with:
       source_ref: ${{ needs.fast.outputs.source_sha || github.ref }}
       report_name: rust-warnings-tests-all-report
       artifacts: ${{ needs.fast.outputs.heavy == 'true' && format('["{0}","rust-warnings-tests-platform-macOS-aarch64-apple-darwin","rust-warnings-tests-platform-Windows-x86_64-pc-windows-msvc","rust-warnings-clippy-Linux-x86_64-unknown-linux-gnu","rust-warnings-linux-frontend"]', needs.rust.outputs.warnings) || '[]' }}
-
   qualification:
     name: qualification receipt
-    needs: [fast, rust, rust-warnings]
-    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (!cancelled() && (github.event_name == 'push' || github.event_name == 'schedule') && needs.fast.outputs.heavy == 'true') }}
-    environment: ci
-    runs-on: [self-hosted, Linux, light, host-ubunta]
+    needs:
+      - fast
+      - rust
+      - rust-warnings
+      - policy
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (!cancelled() && needs.fast.result == 'success' && needs.rust.result == 'success' && needs.rust-warnings.result == 'success' && needs.policy.result == 'success' && (github.event_name == 'push' || github.event_name == 'schedule') && needs.fast.outputs.heavy == 'true') }}
+    environment: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && 'ci' || '' }}
+    runs-on: ${{ vars.CI_LINUX_LIGHT_RUNNER || fromJSON('["self-hosted","Linux","light","host-ubunta"]') }}
     timeout-minutes: 5
     env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      AWS_ACCESS_KEY_ID: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.SCCACHE_AWS_ACCESS_KEY_ID || '' }}
+      AWS_SECRET_ACCESS_KEY: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.SCCACHE_AWS_SECRET_ACCESS_KEY || '' }}
+      CI_HOSTED: ${{ vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04' }}
+      CI_ARTIFACT_STORAGE: ${{ (vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && 'github' || '' }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
@@ -88,7 +296,9 @@ jobs:
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
           package-manager-cache: false
-          node-version: '22.22.0'
+          node-version: 22.22.0
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs receipt
       - name: Fetch executed Rust receipts
         env:
           GH_TOKEN: ${{ github.token }}
@@ -104,3 +314,33 @@ jobs:
           path: qualification.json
           if-no-files-found: error
           retention-days: 7
+  result:
+    name: CI result
+    if: ${{ always() }}
+    needs:
+      - policy
+      - pr
+      - fast
+      - rust
+      - rust-warnings
+      - qualification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ needs.fast.outputs.source_sha || github.sha }}
+      - name: Read named job failures and timeouts
+        if: ${{ contains(toJSON(needs), 'failure') || contains(toJSON(needs), 'cancelled') }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: 'gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs?per_page=100" --jq ".jobs[] | select(.conclusion != null and .conclusion != \"success\" and .conclusion != \"skipped\") | \"\(.name): \(.conclusion)\"" > ci-job-failures.txt'
+      - name: Require the complete event graph
+        env:
+          CI_EVENT: ${{ github.event_name }}
+          CI_NEEDS: ${{ toJSON(needs) }}
+        run: node scripts/ci-result.mjs

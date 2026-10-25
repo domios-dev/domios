@@ -329,11 +329,11 @@ class ReleaseIssueContractTest(unittest.TestCase):
         self.assertNotIn('commits/$sha/pulls', resolve)
 
     def test_pr_validation_includes_commit_metadata(self):
-        workflow = (ROOT / ".github" / "workflows" / "ready-for-release.yml").read_text(encoding="utf-8")
+        workflow = (ROOT / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8")
         self.assertIn("git rev-list", workflow)
         self.assertIn('--commits-file "$RUNNER_TEMP/release-commits.json"', workflow)
         self.assertIn('--prs-file "$RUNNER_TEMP/release-prs.json"', workflow)
-        self.assertIn("--arg base_ref '${{ github.event.pull_request.base.ref }}'", workflow)
+        self.assertIn('--arg base_ref "$PR_BASE_REF"', workflow)
         self.assertIn(".repository_issues[].reference", workflow)
         self.assertIn("--repo rollacode/codeterm", workflow)
 
