@@ -47,6 +47,7 @@ const DOCS: &[EmbeddedDoc] = embedded_docs![
     "API-LIFECYCLE",
     "SPINAL-CORD",
     "BLUEPRINTS",
+    "BLUEPRINT-AUTHORING",
     "BLUEPRINT-RECIPES",
     "CONFIG",
     "ACCOUNT",
