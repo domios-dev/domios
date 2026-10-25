@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -9,6 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "release_issue_contract.py"
 FIXTURES = ROOT / "scripts" / "fixtures" / "release-issue-contract"
+HISTORICAL_SOURCE = json.loads((ROOT / "scripts/source-repository-aliases.json").read_text())[0]
 
 
 class ReleaseIssueContractTest(unittest.TestCase):
@@ -16,6 +18,7 @@ class ReleaseIssueContractTest(unittest.TestCase):
         return subprocess.run(
             [sys.executable, str(SCRIPT), *args],
             cwd=ROOT,
+            env={**os.environ, "GITHUB_REPOSITORY": HISTORICAL_SOURCE},
             text=True,
             capture_output=True,
             timeout=10,
@@ -335,7 +338,7 @@ class ReleaseIssueContractTest(unittest.TestCase):
         self.assertIn('--prs-file "$RUNNER_TEMP/release-prs.json"', workflow)
         self.assertIn('--arg base_ref "$PR_BASE_REF"', workflow)
         self.assertIn(".repository_issues[].reference", workflow)
-        self.assertIn("--repo rollacode/codeterm", workflow)
+        self.assertIn('--repo "$GITHUB_REPOSITORY"', workflow)
 
 
 
@@ -350,6 +353,7 @@ class Release1108ClosureContractTest(unittest.TestCase):
         return subprocess.run(
             [sys.executable, str(SCRIPT), *args],
             cwd=ROOT,
+            env={**os.environ, "GITHUB_REPOSITORY": HISTORICAL_SOURCE},
             text=True,
             capture_output=True,
             timeout=10,
@@ -437,6 +441,7 @@ class CommitClosureAuditTest(unittest.TestCase):
         return subprocess.run(
             [sys.executable, str(SCRIPT), *args],
             cwd=ROOT,
+            env={**os.environ, "GITHUB_REPOSITORY": HISTORICAL_SOURCE},
             text=True,
             capture_output=True,
             timeout=10,
@@ -487,6 +492,7 @@ class ClosureBoundaryAuthorityTest(unittest.TestCase):
         return subprocess.run(
             [sys.executable, str(SCRIPT), *args],
             cwd=ROOT,
+            env={**os.environ, "GITHUB_REPOSITORY": HISTORICAL_SOURCE},
             text=True,
             capture_output=True,
             timeout=10,

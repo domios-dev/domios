@@ -39,4 +39,4 @@ DMG="src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/Domios_$(jq -r .ver
 
 echo
 echo "Done. DMG: $DMG"
-echo "Upload with: gh release upload v<ver> \"$DMG\" --clobber --repo rollacode/codeterm"
+echo "Upload with: gh release upload v<ver> \"$DMG\" --clobber --repo $(node scripts/source-repository.mjs)"

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sourceRepository } from './source-repository.mjs';
 // Caller: CI release.yml (prepare, promote-evidence); skill github-release
 // Promotes a qualified release.yml dry run: its retained bytes become the release, nothing is rebuilt.
 //
@@ -16,7 +17,7 @@ import { headlessAssetNames } from './headless-release-package.mjs';
 import { publishHeadlessAssets } from './release-headless-assets.mjs';
 import { fetchAndAggregate, PLATFORMS } from './release-dry-run-manifest.mjs';
 
-const SOURCE_REPO = 'rollacode/codeterm';
+const SOURCE_REPO = sourceRepository();
 const MIRROR_REPO = 'rollacode/codeterm-releases';
 
 // Each name prefixes a release.yml job (reusable callers add " / <job>") that must have succeeded.
