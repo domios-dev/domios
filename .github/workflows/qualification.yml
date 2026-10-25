@@ -63,10 +63,15 @@ jobs:
       JEV_EVENT_SHA: ${{ github.sha }}
       JEV_QA_PY: ${{ inputs.interpreter_path }}
     steps:
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+          fetch-depth: 1
       - name: Validate reviewed source and interpreter selection
         shell: bash
         run: |
@@ -175,6 +180,14 @@ jobs:
       JEV_WORKFLOW_SHA: ${{ github.workflow_sha }}
       JEV_EVENT_SHA: ${{ github.sha }}
     steps:
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12"
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         env:
           GIT_CONFIG_COUNT: '1'
@@ -183,6 +196,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+          fetch-depth: 1
       - name: Validate reviewed inventory source
         shell: pwsh
         run: |
@@ -601,6 +615,10 @@ jobs:
       JEV_EVENT_SHA: ${{ github.sha }}
       JEV_QA_PY: ${{ inputs.interpreter_path }}
     steps:
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         env:
           GIT_CONFIG_COUNT: '1'
@@ -609,6 +627,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+          fetch-depth: 1
       - name: Validate reviewed source and interpreter selection
         shell: pwsh
         run: |
@@ -771,6 +790,14 @@ jobs:
       CARGO_TERM_COLOR: never
       TEST_CAP_SECS: '600'
     steps:
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12"
       - name: Set bounded task cache session deadline
         shell: pwsh
         run: |
@@ -783,8 +810,14 @@ jobs:
           GIT_CONFIG_VALUE_0: 'true'
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 0
+          fetch-depth: 1
           persist-credentials: false
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
       - name: Run fixed task boundary and retain raw outcomes
         id: task_boundary
         shell: pwsh
@@ -1112,14 +1145,25 @@ jobs:
       TEST_CAP_SECS: '600'
       CARGO_TERM_COLOR: never
     steps:
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12"
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+          fetch-depth: 1
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
         with:
-          package-manager-cache: false
-          node-version: '22.22.0'
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
       - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
         with:
           toolchain: 1.99.1
@@ -1190,11 +1234,26 @@ jobs:
       TEST_CAP_SECS: '600'
       CARGO_TERM_COLOR: never
     steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12"
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 0
+          fetch-depth: 1
           persist-credentials: false
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
       - name: Create fresh qualification receipt directory
         id: task_boundary
         shell: bash
@@ -1208,11 +1267,6 @@ jobs:
           mkdir -- "$receipt_dir"
           printf '%s\n' '{"schema":"sentinel-linux-fixed-v1","outcome":"unqualified","errors":["qualification_step_not_completed"]}' > "$receipt_dir/receipt.json"
           printf '%s\n' 'fresh_receipt_directory=true' >> "$GITHUB_OUTPUT"
-      - name: Setup Node.js
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
-        with:
-          package-manager-cache: false
-          node-version: '22.22.0'
       - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
         with:
           toolchain: 1.99.1
@@ -1609,11 +1663,30 @@ jobs:
       CARGO_TERM_COLOR: never
       RUST_TEST_THREADS: '1'
     steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12"
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 0
+          fetch-depth: 1
           persist-credentials: false
+      - name: Fetch scoped ancestry history
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci-git-history.mjs ancestry
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
       - name: Create fresh qualification receipt directory
         id: task_boundary
         shell: bash
@@ -1627,11 +1700,6 @@ jobs:
           mkdir -- "$receipt_dir"
           printf '%s\n' '{"schema":"storage-foundation-linux-v1","outcome":"unqualified","errors":["qualification_step_not_completed"]}' > "$receipt_dir/receipt.json"
           printf '%s\n' 'fresh_receipt_directory=true' >> "$GITHUB_OUTPUT"
-      - name: Setup Node.js
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
-        with:
-          package-manager-cache: false
-          node-version: '22.22.0'
       - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
         with:
           toolchain: 1.99.1
@@ -2148,11 +2216,30 @@ jobs:
       CARGO_TERM_COLOR: never
       RUST_TEST_THREADS: '1'
     steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12"
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 0
+          fetch-depth: 1
           persist-credentials: false
+      - name: Fetch scoped ancestry history
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci-git-history.mjs ancestry
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
       - name: Create fresh qualification receipt directory
         id: task_boundary
         shell: bash
@@ -2166,11 +2253,6 @@ jobs:
           mkdir -- "$receipt_dir"
           printf '%s\n' '{"schema":"storage-domains-linux-v1","outcome":"unqualified","errors":["qualification_step_not_completed"]}' > "$receipt_dir/receipt.json"
           printf '%s\n' 'fresh_receipt_directory=true' >> "$GITHUB_OUTPUT"
-      - name: Setup Node.js
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
-        with:
-          package-manager-cache: false
-          node-version: '22.22.0'
       - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
         with:
           toolchain: 1.99.1
@@ -3120,6 +3202,10 @@ jobs:
       EVENT_SOURCE_SHA: ${{ github.sha }}
       MAINTENANCE_OPERATION: ${{ inputs.maintenance_operation }}
     steps:
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         env:
           GIT_CONFIG_COUNT: '1'
@@ -3127,7 +3213,7 @@ jobs:
           GIT_CONFIG_VALUE_0: 'true'
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 0
+          fetch-depth: 1
           persist-credentials: false
       - name: Compile source and run pure contract controls
         if: ${{ inputs.maintenance_operation == 'contract-only' }}

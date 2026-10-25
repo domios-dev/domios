@@ -52,6 +52,10 @@ jobs:
     outputs:
       source_sha: ${{ steps.source.outputs.source_sha }}
     steps:
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
       - name: Admit only the exact qualified branch head
         id: source
         env:
@@ -90,19 +94,33 @@ jobs:
       branch: ${{ steps.release.outputs.branch }}
       kind: ${{ steps.release.outputs.kind }}
     steps:
-      - name: Checkout release source
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          ref: ${{ needs.qualified-source.outputs.source_sha || inputs.tag || github.sha }}
-          fetch-depth: 0
-          # History without blobs: unshallowing a workspace a shallow job left behind took minutes.
-          filter: blob:none
 
       - name: Setup Node.js
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
-          node-version: '22.22.0'
+          node-version: 22.22.0
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12"
+      - name: Checkout release source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ needs.qualified-source.outputs.source_sha || inputs.tag || github.sha }}
+          fetch-depth: 1
+          # History without blobs: unshallowing a workspace a shallow job left behind took minutes.
+          filter: blob:none
+      - name: Fetch scoped release history
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci-git-history.mjs release
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
       - name: Runner preflight
         run: node scripts/ci-runner-paths.mjs packaging
 
@@ -249,20 +267,21 @@ jobs:
     outputs:
       sha256: ${{ steps.bundle.outputs.sha256 }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          ref: ${{ needs.prepare.outputs.source_sha }}
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
-          node-version: '22.22.0'
-      - name: Runner preflight
-        run: node scripts/ci-runner-paths.mjs receipt
+          node-version: 22.22.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          fetch-depth: 1
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10.32.1
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs receipt
       - name: Frozen dependencies
         run: pnpm install --frozen-lockfile
       - name: Build, store and digest the frontend bundle
@@ -395,13 +414,14 @@ jobs:
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          ref: ${{ needs.prepare.outputs.source_sha }}
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
-          node-version: '22.22.0'
+          node-version: 22.22.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          fetch-depth: 1
       - name: Runner preflight
         run: node scripts/ci-runner-paths.mjs receipt
       - name: Re-verify retained evidence and publish it to the drafts
@@ -457,18 +477,26 @@ jobs:
       TAG: ${{ needs.prepare.outputs.tag }}
       SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
     steps:
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.prepare.outputs.source_sha }}
-          fetch-depth: 0
+          fetch-depth: 1
           token: ${{ secrets.GH_RELEASE_TOKEN }}
+      - name: Fetch scoped promote history
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci-git-history.mjs promote
       - name: Runner preflight
         run: node scripts/ci-runner-paths.mjs receipt
       - name: Merge the release PR into master
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin master
+          git fetch --no-tags origin refs/heads/master:refs/remotes/origin/master
           if ! git merge-base --is-ancestor "$SOURCE_SHA" origin/master; then
             pr=$(gh pr list --repo "$REPO" --head "$BRANCH" --base master --state open --json number --jq '.[0].number // empty')
             if [ -z "$pr" ]; then
@@ -479,7 +507,7 @@ jobs:
             test "$head" = "$SOURCE_SHA"
             gh pr merge "$pr" --repo "$REPO" --merge --match-head-commit "$SOURCE_SHA"
           fi
-          git fetch origin master
+          git fetch --no-tags origin refs/heads/master:refs/remotes/origin/master
           git merge-base --is-ancestor "$SOURCE_SHA" origin/master
           # An app release already carries vX.Y.Z from the manifest job; a frontend release is tagged here.
           if ! git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null; then
@@ -492,9 +520,9 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin master
+          git fetch --no-tags origin refs/heads/master:refs/remotes/origin/master
           if git ls-remote --exit-code --heads origin develop >/dev/null; then
-            git fetch origin develop
+            git fetch --no-tags origin refs/heads/develop:refs/remotes/origin/develop
             git checkout -B develop origin/develop
             git merge --no-ff origin/master -m "Merge master after $TAG into develop"
           else

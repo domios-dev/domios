@@ -27,10 +27,15 @@ jobs:
     runs-on: [self-hosted, codeterm-builder]
     timeout-minutes: 30
     steps:
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
       - name: Checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          fetch-depth: 0
+          fetch-depth: 1
+          ref: ${{ github.sha }}
 
       - name: Ensure Docker is running
         run: |
@@ -43,5 +48,5 @@ jobs:
         run: |
           TAG="v$VERSION"
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          git fetch origin "refs/tags/$TAG:refs/tags/$TAG"
+          git fetch --no-tags --depth=1 origin "refs/tags/$TAG:refs/tags/$TAG"
           .codeterm/build-machine/scripts/precheck.sh "$TAG"

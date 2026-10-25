@@ -74,10 +74,10 @@ test('a successful bundle with a new warning fails the shared ratchet and saves 
     assert.equal(await buildFrontend({ root, platform: 'linux', run }), 1);
     assert.equal(calls, 2);
     const workflow = parseYaml(fs.readFileSync(new URL('../../.github/workflows/tests-fast.yml', import.meta.url), 'utf8'));
-    const upload = workflow.jobs['frontend-dist'].steps.find(step => /ci-artifact\.sh put \S*rust-warnings-linux-frontend\.json/.test(step.run ?? ''));
+    const upload = workflow.jobs['frontend-dist'].steps.find(step => step.uses?.startsWith('actions/upload-artifact@') && step.with?.name === 'hosted-rust-warnings-frontend-dist');
     assert.equal(upload.if, 'always()');
-    assert.ok(upload.run.startsWith('test ! -f ci-rust-warnings/rust-warnings-linux-frontend.json || '));
-    const document = JSON.parse(fs.readFileSync(path.join(root, upload.run.trim().split(/\s+/).at(-1))));
+    assert.equal(upload.with.path, 'ci-rust-warnings/*.json');
+    const document = JSON.parse(fs.readFileSync(path.join(root, 'ci-rust-warnings/rust-warnings-linux-frontend.json')));
     assert.equal(document.complete, true);
     assert.equal(document.decision.added.length, 1);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }

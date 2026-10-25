@@ -30,14 +30,18 @@ jobs:
     runs-on: ${{ github.workflow == 'CI' && vars.CI_LINUX_LIGHT_RUNNER || fromJSON('["self-hosted","Linux","light","host-ubunta"]') }}
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          ref: ${{ inputs.source_ref }}
-          fetch-depth: 0
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
-          node-version: '22.22.0'
+          node-version: 22.22.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.source_ref }}
+          fetch-depth: 1
+      - name: Fetch exact warning fork point
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci-warning-base.mjs
       - name: Runner preflight
         run: node scripts/ci-runner-paths.mjs receipt
       - name: Fetch warning collections
