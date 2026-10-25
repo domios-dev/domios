@@ -8,9 +8,10 @@ fn fixture() -> (
     String,
     String,
 ) {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = crate::test_support::offline_directory();
     let mem = MemManager::open_offline(dir.path()).unwrap();
-    let body = "raw-fixture-only\n".repeat(9000);
+    let fragment = "raw-fixture-only\n";
+    let body = fragment.repeat(crate::store::INLINE_BODY_LIMIT / fragment.len() + 1);
     let name = blob_name(body.as_bytes());
     let id = mem
         .save(item("flush:0123abcd pre-compact", body.clone()))
@@ -241,9 +242,11 @@ fn precompact_purge_refuses_recreated_history_and_overlarge_bodies() {
         .unwrap_err()
         .contains("recreated"));
     assert_eq!(history_count(&mem), 1);
+    let mem = MemManager::open_in_memory().unwrap();
     mem.with_conn(|c| {
         c.execute(
-            "UPDATE mem_item_history SET new_body=zeroblob(?1) WHERE item_id=?2",
+            "INSERT INTO mem_item_history(item_id,changed_at,changed_by,change_type,new_title,new_kind,new_body)
+             VALUES(?2,'now','fixture','create','flush:0123abcd pre-compact','conversation',zeroblob(?1))",
             params![MAX_BODY_BYTES + 1, ID],
         )
         .unwrap()
@@ -252,6 +255,7 @@ fn precompact_purge_refuses_recreated_history_and_overlarge_bodies() {
         .purge_precompact(ID, true, true, false)
         .unwrap_err()
         .contains("bounded body"));
+    assert_eq!(history_count(&mem), 1);
 }
 
 #[cfg(unix)]
