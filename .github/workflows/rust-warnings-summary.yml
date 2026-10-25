@@ -26,7 +26,7 @@ jobs:
       actions: write
       pull-requests: write
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' }}
-    environment: ${{ startsWith(github.ref, 'refs/heads/release/') && 'release' || 'ci' }}
+    environment: ${{ (startsWith(github.ref, 'refs/heads/release/') || (github.event_name == 'workflow_run' && startsWith(github.event.workflow_run.head_branch, 'release/'))) && 'release' || 'ci' }}
     runs-on: [self-hosted, Linux, light, host-ubunta]
     timeout-minutes: 5
     steps:

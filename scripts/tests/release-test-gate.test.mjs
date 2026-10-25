@@ -18,6 +18,72 @@ const rust = workflow("tests-rust");
 const builds = ["macos-arm64", "macos-x64", "linux-arm64", "linux-x86_64", "windows-x64", "windows-arm64"];
 const dependencies = job => [job.needs].flat();
 
+const qualifiedSha = 'a'.repeat(40);
+const qualifiedGithub = {
+  repository: 'rollacode/codeterm', repository_owner: 'rollacode', actor: 'rollacode', triggering_actor: 'rollacode',
+  event_name: 'workflow_run', ref: 'refs/heads/master',
+  event: { workflow_run: {
+    conclusion: 'success', event: 'push', path: '.github/workflows/tests.yml', head_branch: 'release/9.9.9', head_sha: qualifiedSha,
+    head_repository: { full_name: 'rollacode/codeterm' }, actor: { login: 'rollacode' }, triggering_actor: { login: 'rollacode' },
+  } },
+};
+
+test('packaging admits only green trusted release push qualification, with owner reruns retained', () => {
+  assert.equal(release.on.push, undefined);
+  assert.deepEqual(release.on.workflow_run, { workflows: ['tests'], types: ['completed'], branches: ['release/**'] });
+  const admission = release.jobs['qualified-source'];
+  assert.equal(admission['runs-on'], 'ubuntu-24.04');
+  assert.deepEqual(admission.permissions, { contents: 'read' });
+  assert.equal(admission.environment, undefined);
+  assert.equal(condition(admission.if, { github: qualifiedGithub }), true);
+  const run = qualifiedGithub.event.workflow_run;
+  for (const change of [
+    { conclusion: 'failure' }, { conclusion: 'cancelled' }, { conclusion: null },
+    { event: 'pull_request' }, { event: 'workflow_dispatch' }, { event: 'schedule' },
+    { path: '.github/workflows/unrelated.yml' }, { head_branch: 'develop' },
+    { head_repository: { full_name: 'fork/codeterm' } },
+    { actor: { login: 'contributor' } }, { triggering_actor: { login: 'contributor' } },
+  ]) {
+    const github = { ...qualifiedGithub, event: { workflow_run: { ...run, ...change } } };
+    assert.equal(condition(admission.if, { github }), false, JSON.stringify(change));
+  }
+  const needs = { 'qualified-source': { result: 'success', outputs: { source_sha: qualifiedSha } } };
+  assert.equal(condition(release.jobs.prepare.if, { github: qualifiedGithub, needs }), true);
+  assert.equal(condition(release.jobs.prepare.if, { github: qualifiedGithub, needs: { 'qualified-source': { outputs: { source_sha: '' } } } }), false);
+  assert.equal(condition(release.jobs.prepare.if, { github: { ...qualifiedGithub, event_name: 'push', ref: 'refs/heads/release/9.9.9' }, needs }), false);
+  assert.equal(condition(release.jobs.prepare.if, { github: { ...qualifiedGithub, event_name: 'workflow_dispatch', ref: 'refs/heads/release/9.9.9' } }), true);
+  assert.equal(release.jobs.prepare.steps[0].with.ref, '${{ needs.qualified-source.outputs.source_sha || inputs.tag || github.sha }}');
+  assert.equal(condition(release.jobs['rust-warnings'].if, { needs: { prepare: { result: 'skipped', outputs: {} } } }), false);
+  assert.equal(condition(release.concurrency['cancel-in-progress'], { github: qualifiedGithub }), false, 'unadmitted completions cannot cancel packaging');
+});
+
+test('admission compares the exact live head and skips superseded or deleted branches without a red check', t => {
+  const directory = mkdtempSync(join(tmpdir(), 'release-admission-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const step = release.jobs['qualified-source'].steps[0];
+  for (const [label, head, expected] of [['same', qualifiedSha, true], ['foreign', 'b'.repeat(40), false], ['deleted', '', false]]) {
+    const output = join(directory, label);
+    const script = 'gh() { printf "%s" "$MOCK_HEAD"; [ -n "$MOCK_HEAD" ]; }\n' + step.run;
+    execFileSync(bash, ['-euo', 'pipefail', '-c', script], { env: { ...process.env,
+      QUALIFIED_SHA: qualifiedSha, QUALIFIED_BRANCH: 'release/9.9.9', GITHUB_REPOSITORY: 'rollacode/codeterm', GITHUB_OUTPUT: output, MOCK_HEAD: head,
+    } });
+    let actual = '';
+    try { actual = readFileSync(output, 'utf8'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    assert.equal(actual, expected ? `source_sha=${qualifiedSha}\n` : '', label);
+  }
+});
+
+test('every privileged reusable release job accepts the qualified caller with protected environment intact', () => {
+  for (const name of ['release-linux', 'release-linux-arm64', 'release-windows', 'release-windows-arm64', 'release-macos-build', 'release-manifest-validate', 'release-manifest-dry-run', 'frontend-release']) {
+    for (const [id, job] of Object.entries(workflow(name).jobs)) {
+      if (job.uses) continue;
+      assert.equal(job.environment, 'release', `${name}/${id}`);
+      assert.equal(condition(job.if, { github: qualifiedGithub, inputs: { arch: 'x64' } }), true, `${name}/${id}`);
+      assert.equal(condition(job.if, { github: { ...qualifiedGithub, actor: 'contributor' }, inputs: { arch: 'x64' } }), false, `${name}/${id}`);
+    }
+  }
+});
+
 test("release pushes qualify even when their merge tree equals a parent", t => {
   const source = fast.jobs.changed.steps.find(step => step.id === "tree");
   const directory = mkdtempSync(join(tmpdir(), "release-tree-"));
@@ -89,9 +155,9 @@ test("both qualification tiers notify and cancel immediately before cleanup", ()
   assert.equal(tests.jobs.rust.with.cancel_run, true);
 });
 
-test("a push to release/X.Y.Z by the owner account is the release, and a published version never rebuilds", () => {
-  assert.deepEqual(release.on.push, { branches: ["release/**"] });
-  assert.equal(release.on.push.tags, undefined);
+test("qualified release branches retain owner admission and a published version never rebuilds", () => {
+  assert.deepEqual(release.on.workflow_run.branches, ["release/**"]);
+  assert.equal(release.on.push, undefined);
   assert.match(release.jobs.prepare.if, /github.actor == 'rollacode'/);
   const resolve = release.jobs.prepare.steps.find(step => step.id === "release").run;
   assert.match(resolve, /release\/\*\) version="\$\{REQUESTED_REF#release\/\}"/);

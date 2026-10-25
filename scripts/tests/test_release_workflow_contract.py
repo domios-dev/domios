@@ -101,13 +101,15 @@ def verifier_steps(text: str) -> list[dict[str, str]]:
 
 
 class SingleRunGraphTest(unittest.TestCase):
-    def test_only_the_caller_has_the_release_tag_trigger(self):
+    def test_release_pushes_only_start_qualification(self):
         triggered = {
             path.name
             for path in WORKFLOWS.glob("release*.yml")
             if "push" in triggers(path.read_text(encoding="utf-8"))
         }
-        self.assertEqual(triggered, {"release.yml"})
+        self.assertEqual(triggered, set())
+        self.assertEqual(triggers(read("release.yml")), {"workflow_run", "workflow_dispatch"})
+        self.assertIn("workflows: [tests]", read("release.yml"))
         for name in (
             "release-macos-build.yml",
             "release-linux-arm64.yml",
@@ -196,7 +198,7 @@ class SingleRunGraphTest(unittest.TestCase):
     def test_manifest_is_reconciled_once_after_platform_uploads(self):
         manifest = read("release-manifest-validate.yml")
         self.assertEqual(triggers(manifest), {"workflow_call"})
-        self.assertNotIn("workflow_run", manifest)
+        self.assertNotIn("workflow_run", triggers(manifest))
         self.assertIn("Merge and upload final channel manifests", manifest)
         self.assertIn("Mark source and public releases published", manifest)
         self.assertIn("sync-release-notes.mjs", manifest)
