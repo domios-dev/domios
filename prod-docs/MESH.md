@@ -43,7 +43,7 @@ A signed-in machine the account server refused a slot under the plan's machine l
 
 ## Local REST availability
 
-The local REST supervisor, not the mesh liveness detector, owns listener recovery. Listener/server exit produces a failed lifecycle event and exactly one newer generation; that replacement is advertised healthy only after socket ownership and a successful real `/api/health` response. Bind ownership failure and a still-bound listener with all four REST workers blocked have distinct diagnostics, so worker starvation does not cause listener-generation churn.
+The local REST supervisor owns listener recovery. A desktop REST generation reports `listening` after owning the socket, consuming a successful `GET /api/health` body and closing that connection. Exit emits a failed lifecycle event and creates exactly one replacement generation; bind ownership failure awaits an explicit port-release or restart event, never a timer. Status: `generation`, `phase`, `diagnostic`, `message`. Diagnostics: `listener_exited`, `bind_ownership_failed`, `workers_blocked` (bound listener whose four REST runtime workers cannot answer health); worker starvation never churns generations.
 
 Replacement readiness is queued to the liveness owner with a monotonic recovery transition id, which restores local HTTP health, emits the existing `mesh-state-changed` resync signal, and broadcasts the refreshed announce exactly once. Distinct worker-stall recoveries within one listener generation receive distinct ids; a duplicate observation cannot claim another resync. Relay delivery keeps its existing at-most-once and structured-error behavior across the outage.
 
@@ -185,4 +185,4 @@ Inventory opens as a full-screen searchable List beside the existing Mesh networ
 | POST | `/api/mesh/disconnect-notice` | `{from, to, link_nonce, signature}` | Removes only this exact connection. |
 | POST | `/api/mesh/account-presence` | `{metadata_revision}` | Triggers one rate-limited registry refresh. |
 
-<!-- revision: 66 -->
+<!-- revision: 67 -->

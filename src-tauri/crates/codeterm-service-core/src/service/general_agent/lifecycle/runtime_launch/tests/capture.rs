@@ -16,11 +16,34 @@ fn general_runtime_captures_thread_instructions_and_bootstrap_first_turn() {
 fn capture_launch(version: &str, bootstrap: Option<&str>) {
     const PROVIDER: &str = "opaque-runtime-provider";
     const INSTRUCTIONS: &str = "fragment-a19\nopaque-role-δ";
-    let plugins =
-        crate::test_support::fixture_manifest_dir().join("../../../plugins/provider-codex");
-    let mut manifest: PluginManifest =
-        serde_json::from_str(&std::fs::read_to_string(plugins.join("plugin.json")).unwrap())
-            .unwrap();
+    let plugins_root = crate::test_support::fixture_manifest_dir().join("../../../plugins");
+    let mut runtimes = Vec::new();
+    for entry in std::fs::read_dir(plugins_root).unwrap() {
+        let directory = entry.unwrap().path();
+        let path = directory.join("plugin.json");
+        if !path.is_file() {
+            continue;
+        }
+        let manifest: PluginManifest =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        if manifest.general_agent_offer_when_absent
+            && manifest.capabilities.chat_backend.enabled()
+            && manifest.capabilities.agent_runtime.is_some()
+        {
+            runtimes.push((directory, manifest));
+        }
+    }
+    assert_eq!(runtimes.len(), 1);
+    let (plugins, mut manifest) = runtimes.pop().unwrap();
+    let wire: Value = serde_json::from_str(
+        &std::fs::read_to_string(plugins.join("tests/fixtures/app-server-0.157.1.json")).unwrap(),
+    )
+    .unwrap();
+    let mut initialize = wire["initialize"]["result"].clone();
+    assert!(initialize.is_object());
+    initialize["userAgent"] = json!(format!("opaque/{version}"));
+    initialize["platformFamily"] = json!(std::env::consts::FAMILY);
+    initialize["platformOs"] = json!(std::env::consts::OS);
     manifest.id = PROVIDER.into();
     let vm = PluginVm::from_source(
         PROVIDER,
@@ -66,7 +89,6 @@ fn capture_launch(version: &str, bootstrap: Option<&str>) {
         .unwrap()
         .agent_session_id = None;
     let version = version.to_owned();
-    let fixture_home = fixture.temp.path().to_string_lossy().into_owned();
     let expected_bootstrap = bootstrap.map(str::to_owned);
     let capture = crate::async_runtime::spawn(async move {
         let mut peer = BufReader::new(peer);
@@ -86,10 +108,7 @@ fn capture_launch(version: &str, bootstrap: Option<&str>) {
                 continue;
             }
             let result = match method {
-                "initialize" => json!({
-                    "userAgent":format!("opaque/{version}"),"codexHome":fixture_home,
-                    "platformFamily":std::env::consts::FAMILY,"platformOs":std::env::consts::OS,
-                }),
+                "initialize" => initialize.clone(),
                 "account/read" => json!({"account":{"type":"apiKey"},"requiresOpenaiAuth":false}),
                 "thread/start" => json!({
                     "thread":{
