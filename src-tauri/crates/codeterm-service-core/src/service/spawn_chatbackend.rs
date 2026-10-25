@@ -135,12 +135,67 @@ fn runtime_initial_payload(
     ))
 }
 
+/// The provider runtime start of a staged chatBackend tab, which a dispatch may run off its RPC thread.
+pub(crate) struct ChatBackendRuntimeLaunch {
+    svc: ServiceContext,
+    plugin_id: String,
+    tab_id: String,
+    workspace_id: String,
+    config: serde_json::Value,
+    history_meta: serde_json::Value,
+    runtime_fork: Option<super::spawn::RuntimeForkLaunch>,
+    emit_state_change: bool,
+}
+
+impl ChatBackendRuntimeLaunch {
+    pub(crate) fn can_defer(&self) -> bool {
+        self.runtime_fork.is_none()
+    }
+
+    pub(crate) fn run(self) -> Result<(), String> {
+        let svc = self.svc;
+        if let Err(error) = svc.chatbackend_launch_with_runtime_fork(
+            self.plugin_id,
+            self.tab_id.clone(),
+            self.config,
+            self.history_meta,
+            self.runtime_fork.clone(),
+        ) {
+            if self.runtime_fork.is_some()
+                || !super::agent_runtime::requested_for_tab(&svc, &self.tab_id)
+            {
+                svc.rollback_provisional_tab(&self.workspace_id, &self.tab_id);
+                let _ = svc.revoke_agent_pad(&self.tab_id);
+            }
+            if self.emit_state_change {
+                svc.emit_state_changed(MuxEmitCause::TabLifecycle);
+            }
+            return Err(error);
+        }
+        svc.record_kpi_tab_created(
+            &self.tab_id,
+            crate::agent::kpi_ledger::TabCreatedKind::Agent,
+        );
+        Ok(())
+    }
+}
+
 impl ServiceContext {
     pub(crate) fn spawn_chatbackend_impl_with_state_change(
         &self,
         spec: SpawnTabSpec,
         emit_state_change: bool,
     ) -> Result<TabHandle, String> {
+        let (handle, launch) = self.stage_chatbackend_spawn(spec, emit_state_change)?;
+        launch.run()?;
+        Ok(handle)
+    }
+
+    pub(crate) fn stage_chatbackend_spawn(
+        &self,
+        spec: SpawnTabSpec,
+        emit_state_change: bool,
+    ) -> Result<(TabHandle, ChatBackendRuntimeLaunch), String> {
         let taskless_authorized_gates = spec
             .chatbackend_launch
             .as_ref()
@@ -349,35 +404,30 @@ impl ServiceContext {
                 }
             }
         }
-        if let Err(error) = self.chatbackend_launch_with_runtime_fork(
-            plugin_id,
-            tab_id.clone(),
-            config,
-            history_meta,
-            runtime_fork.clone(),
-        ) {
-            if runtime_fork.is_some() || !super::agent_runtime::requested_for_tab(self, &tab_id) {
-                self.rollback_provisional_tab(&ws_id, &tab_id);
-                let _ = self.revoke_agent_pad(&tab_id);
-            }
-            if emit_state_change {
-                self.emit_state_changed(MuxEmitCause::TabLifecycle);
-            }
-            return Err(error);
-        }
-
-        self.record_kpi_tab_created(&tab_id, crate::agent::kpi_ledger::TabCreatedKind::Agent);
         let budget_notice = self.workspace_tab_budget_notice(&ws_id);
-        Ok(TabHandle {
-            tab_id,
+        let handle = TabHandle {
+            tab_id: tab_id.clone(),
             pty_id: None,
-            workspace_id: ws_id,
+            workspace_id: ws_id.clone(),
             description: spec.description,
             worker_id: launch.and_then(|launch| launch.agent.worker_id.clone()),
             warning: None,
             model_fallback: None,
             budget_notice,
-        })
+        };
+        Ok((
+            handle,
+            ChatBackendRuntimeLaunch {
+                svc: self.clone(),
+                plugin_id,
+                tab_id,
+                workspace_id: ws_id,
+                config,
+                history_meta,
+                runtime_fork,
+                emit_state_change,
+            },
+        ))
     }
 
     fn assign_chatbackend_spawn_role(
