@@ -7,6 +7,26 @@ use axum::{
 use crate::routes::{check_auth, AppState};
 use codeterm_service_core::ports::socket::REMOTE_TASK_DISPATCH_FEATURE;
 
+#[derive(Clone)]
+pub struct NativeDiagnosticsPort(pub std::sync::Arc<dyn Fn() -> Option<u16> + Send + Sync>);
+
+impl NativeDiagnosticsPort {
+    pub fn cdp_port(&self) -> String {
+        self.for_build(cfg!(debug_assertions))
+    }
+
+    fn for_build(&self, development: bool) -> String {
+        if development {
+            (self.0)()
+                .filter(|port| *port >= 1024)
+                .map(|port| port.to_string())
+                .unwrap_or_default()
+        } else {
+            String::new()
+        }
+    }
+}
+
 const IDENTIFY_FEATURES: &[&str] = &[
     "multiplexer",
     "agent-detection",
@@ -61,7 +81,7 @@ pub async fn health(AxumState(state): AxumState<AppState>) -> Json<serde_json::V
                         "display_name": local_display_name(&state),
                         "api_port": std::env::var("CODETERM_API_PORT").unwrap_or_default(),
                         "vite_port": std::env::var("CODETERM_VITE_PORT").unwrap_or_default(),
-                        "cdp_port": std::env::var("CODETERM_CDP_PORT").unwrap_or_default(),
+                        "cdp_port": state.svc.host_extension::<NativeDiagnosticsPort>().map(|port| port.cdp_port()).unwrap_or_default(),
                         "identifier": std::env::var("CODETERM_DEV_IDENTIFIER").unwrap_or_default(),
                     }),
                 );

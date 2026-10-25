@@ -143,8 +143,17 @@ pub fn run(
     note(&mut audit, "crash")?;
     codeterm_service_core::crash::record_startup();
     note(&mut audit, "config-credential-hook-state")?;
-    let prepared = crate::startup::early_api::PreparedStartup::new(frontend_dev_url.as_ref())
-        .map_err(io::Error::other)?;
+    let native_events: NativeEventPort = Arc::new(parking_lot::RwLock::new(None));
+    let diagnostics_native = native_events.clone();
+    let diagnostics_port =
+        codeterm_api::health_routes::NativeDiagnosticsPort(Arc::new(move || {
+            diagnostics_native.read().as_ref()?.cdp_port()
+        }));
+    let prepared = crate::startup::early_api::PreparedStartup::new(
+        frontend_dev_url.as_ref(),
+        diagnostics_port.clone(),
+    )
+    .map_err(io::Error::other)?;
     let address = runtime
         .block_on(prepared.listening())
         .map_err(io::Error::other)?;
@@ -152,7 +161,6 @@ pub fn run(
         "[boot-operation] API listener health-proven since_process_entry_ms={}",
         boot_started.elapsed().as_millis()
     );
-    let native_events: NativeEventPort = Arc::new(parking_lot::RwLock::new(None));
     let (exact_quit, mut headless_quit) = crate::exact_quit::ExactQuitCoordinator::new();
     let ready = ServerReady {
         protocol: BOOTSTRAP_PROTOCOL,
@@ -272,6 +280,10 @@ pub fn run(
                 )),
                 prepared,
             )?;
+            running
+                .service
+                .register_host_extension(Arc::new(diagnostics_port))
+                .map_err(|_| "native diagnostics port already registered".to_string())?;
             running
                 .service
                 .register_host_extension(Arc::new(
