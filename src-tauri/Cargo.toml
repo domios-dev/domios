@@ -1,5 +1,5 @@
 [package]
-license = "LicenseRef-Domios-1.0"
+license = "AGPL-3.0-only"
 name = "codeterm"
 version = "1.15.3"
 edition = "2021"
@@ -10,6 +10,9 @@ members = ["crates/codeterm-process-identity", "crates/codeterm-paths", "crates/
     "crates/codeterm-provider-ops", "crates/codeterm-recall", "crates/codeterm-supporter", "crates/codeterm-socket", "crates/codeterm-commands", "crates/codeterm-sentinel-host", "crates/codeterm-orchestration", "crates/codeterm-build-info", "crates/codeterm-prompts", "crates/codeterm-agent-model", "crates/codeterm-entitlements", "crates/codeterm-update", "crates/codeterm-client-shell", "crates/codeterm-frontend-shell", "tools/codeterm-devtools"]
 exclude = ["pty-fork", "vendor/tauri-runtime-wry"]
 resolver = "2"
+
+[workspace.package]
+license = "AGPL-3.0-only"
 
 [workspace.lints.rust]
 warnings = "deny"

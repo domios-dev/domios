@@ -1,5 +1,5 @@
 [package]
-license = "LicenseRef-Domios-1.0"
+license = "AGPL-3.0-only"
 name = "codeterm-input-macos"
 version = "0.0.0"
 edition = "2021"

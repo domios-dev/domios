@@ -4,13 +4,11 @@ Version 1.0 of the Terms of Service (`terms-1.0`) and Privacy Policy (`privacy-1
 
 ## Review
 
-1. Outside lawyer review of the Domios License, Terms of Service and Privacy Policy under Georgian law and for EU/EEA and UK consumers, including the liability cap and "as is" clause given the individual entrepreneur's unlimited personal liability.
+1. Outside lawyer review of AGPL-3.0-only, Terms of Service and Privacy Policy under Georgian law and for EU/EEA and UK consumers, including the liability cap and "as is" clause given the individual entrepreneur's unlimited personal liability.
 
 ## License
 
-2. Enforceability of Part 2 controlling over Part 1, and its interaction with the Shield Violations cure period.
 3. Contributor inbound rights: CLA or DCO.
-4. Whether `packages/plugin-sdk`, `packages/chat-engine` and the in-repo `plugins/` stay on plain PolyForm Shield 1.0.0.
 5. Whether "authorized reseller" should name Paddle, and whether public mirrors such as `codeterm-releases` follow the change.
 6. Whether the repository was public while it carried the MIT License (from 25 March 2026 to 16 October 2026). If so, state in NOTICE that revisions published before 16 October 2026 under the MIT License remain available under that license. Those revisions include early entitlement code.
 

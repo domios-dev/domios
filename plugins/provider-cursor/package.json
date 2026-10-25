@@ -1,5 +1,5 @@
 {
-  "license": "PolyForm-Shield-1.0.0",
+  "license": "Apache-2.0",
   "name": "@codeterm/provider-cursor",
   "version": "1.4.8",
   "private": true,
