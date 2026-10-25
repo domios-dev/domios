@@ -62,7 +62,7 @@ fn switch_recreates_the_index_at_the_new_dimension_and_reembeds_items_entities_a
 
     let plan = fx.mem.reembed_plan().unwrap();
     assert_eq!((plan.items, plan.entities), (3, 2));
-    assert_eq!(plan.docs, crate::docs_source::vector_section_count() as u64);
+    assert_eq!(plan.docs, 3);
     assert!(plan.docs > 0);
 
     let wide = MockProvider::new("mock-remote", "wide-1536", 1536);
@@ -110,6 +110,27 @@ fn switch_recreates_the_index_at_the_new_dimension_and_reembeds_items_entities_a
         })
         .unwrap();
     assert_eq!(hits[0].item.id, ids[1]);
+}
+
+#[test]
+fn reembed_plan_counts_real_docs_without_embedding() {
+    let provider = l12_mock();
+    let dir = tempfile::tempdir().unwrap();
+    let mem = crate::MemManager::open_with(
+        dir.path(),
+        crate::embedder::ActiveEmbedder::new(provider.clone()),
+        StepClock::new(),
+        Some(dir.path().to_path_buf()),
+    )
+    .unwrap();
+    let plan = mem.reembed_plan().unwrap();
+    assert_eq!(
+        plan.docs,
+        crate::docs_source::corpus_sections().len() as u64
+    );
+    assert!(plan.docs > 3);
+    assert_eq!((plan.items, plan.entities, plan.blueprints), (0, 0, 0));
+    assert_eq!(provider.calls.load(std::sync::atomic::Ordering::SeqCst), 0);
 }
 
 #[test]
