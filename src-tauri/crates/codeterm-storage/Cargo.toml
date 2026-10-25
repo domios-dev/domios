@@ -6,7 +6,7 @@ edition = "2021"
 
 [features]
 # Writer hold gates, fault injection and layout probes for contract tests only.
-test-support = []
+test-support = ["dep:tempfile"]
 
 [dependencies]
 codeterm-paths = { path = "../codeterm-paths" }
@@ -15,6 +15,7 @@ codeterm-blueprint-types = { path = "../codeterm-blueprint-types" }
 rusqlite = { version = "0.32", features = ["bundled", "backup"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tempfile = { version = "3", optional = true }
 
 # Windows publication (no-replace, write-through move) and reparse-point inspection.
 [target.'cfg(windows)'.dependencies]
