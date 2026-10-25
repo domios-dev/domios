@@ -1,5 +1,7 @@
 #[path = "support/codeterm_bin.rs"]
 mod codeterm_bin;
+#[path = "support/test_support.rs"]
+mod test_support;
 
 #[cfg(any(unix, windows))]
 #[test]
@@ -8,10 +10,7 @@ fn isolated_server_api_token_identify_and_shutdown() {
         .filter(|path| !path.is_empty())
         .expect("Run through build.sh test-one cli isolated_server to prepare the real server");
     let output = std::process::Command::new("node")
-        .arg(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/tests/support/isolated_server.mjs"
-        ))
+        .arg(test_support::fixture_manifest_dir().join("tests/support/isolated_server.mjs"))
         .arg(server)
         .arg(codeterm_bin::codeterm_bin())
         .output()

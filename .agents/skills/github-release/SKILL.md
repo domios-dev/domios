@@ -318,20 +318,21 @@ Windows updater signatures are not Authenticode: no Authenticode signing is curr
 
 ### Runner map
 
-Workflows select runners by label, never by name. Each runner carries `host-<machine>`, which no
-job routes on; `./build.sh runner-pause` keeps it and never lends it.
+Workflows select runners by label, never by name. Heavy lanes combine a role with `host-<machine>` to retain warm per-runner targets.
+`./build.sh runner-pause` keeps host labels and never lends them; a pinned lane stays unavailable
+until its own host is restored.
 
 | Runner (planned name) | Machine, OS/arch | Routing labels | Role |
 |---|---|---|---|
 | `codeterm-builder-2` (`eight-macos-arm64`) | eight, macOS arm64 | `codeterm-builder`, `heavy`, `light`, `host-eight` | builds: macOS arm64, Linux arm64 Docker; quick checks |
 | `ainyiva-macos-x64` | ainyiva-bot, macOS x64 (Intel) | `macos-x64-build`, `host-ainyiva` | build: macOS x64, native (`RELEASE_MACOS_X64_LABEL=macos-x64-build`); also the private store host |
-| `air-macos` (`air-macos-arm64`) | air, macOS arm64 | `macos-ci`, `rust-shard`, `light`, `host-air` | tests: macOS Rust platform; quick checks |
-| `ROG-windows-build` (`rog-windows-x64`) | ROG, Windows x64 | `windows-build`, `windows-x64-build`, `medium`, `host-rog` | builds: Windows x64 and arm64 NSIS |
-| `BLACKSTAR-windows-x64` (`blackstar-windows-x64`) | BLACKSTAR, Windows x64 | `windows-ci`, `rust-shard`, `heavy`, `host-blackstar` | tests: Windows Rust platform and Windows test jobs |
-| `ubunta-linux-build` (`ubunta-linux-x64`) | ubunta, Linux x64 | `linux-build`, `host-ubunta` | builds: release prepare, frontend bundle, Linux x64, dry-run manifest, publication |
-| `BLACKSTAR-wsl-ci` (`blackstar-wsl-x64`) | BLACKSTAR, WSL2 Linux x64 | `linux-ci`, `rust-tests`, `heavy`, `light`, `host-blackstar` | tests: Rust full suite, embeddings, Linux platform, clippy |
-| `BLACKSTAR-wsl-light-1/2` (`blackstar-wsl-x64-light-1/2`) | BLACKSTAR, WSL2 Linux x64 | `linux-ci`, `rust-tests`, `light`, `host-blackstar` | tests: second and third Linux Rust test runners; quick checks |
-| `ubunta-light-1/2` (`ubunta-linux-x64-light-1/2`) | ubunta, Linux x64 | `light`, `host-ubunta` | quick checks and tier gates |
+| `air-macos` (`air-macos-arm64`) | air, macOS arm64 | `macos-ci`, `rust-shard`, `light`, `host-air` | tests: macOS Rust platform, then embeddings |
+| `ROG-windows-build` (`rog-windows-x64`) | ROG, Windows x64 | `windows-build`, `windows-x64-build`, `medium`, `host-rog` | builds: Windows x64 and arm64 NSIS; tests: native Windows |
+| `BLACKSTAR-windows-x64` (`blackstar-windows-x64`) | BLACKSTAR, Windows x64 | `windows-ci`, `rust-shard`, `heavy`, `host-blackstar` | no product CI compile lane |
+| `ubunta-linux-build` (`ubunta-linux-x64`) | ubunta, Linux x64 | `linux-build`, `host-ubunta` | builds: release prepare, frontend bundle, Linux x64, dry-run manifest, publication; tests: Clippy, fast CLI, generated types |
+| `BLACKSTAR-wsl-ci` (`blackstar-wsl-x64`) | BLACKSTAR, WSL2 Linux x64 | `linux-ci`, `rust-tests`, `heavy`, `light`, `host-blackstar` | tests: Linux Rust full suite only |
+| `BLACKSTAR-wsl-light-1/2` (`blackstar-wsl-x64-light-1/2`) | BLACKSTAR, WSL2 Linux x64 | `linux-ci`, `rust-tests`, `light`, `host-blackstar` | reserved; not eligible for the pinned full suite or light CI jobs |
+| `ubunta-light-1/2` (`ubunta-linux-x64-light-1/2`) | ubunta, Linux x64 | `light`, `host-ubunta` | quick checks and qualification receipt handling |
 | `green-windows-ci` (`green-windows-x64`) | green, Windows x64 | `windows-light`, `host-green` | Windows frontend quick check |
 
 The BLACKSTAR WSL runners (distro `BLACKSTAR-CI`, user `ci`) share one toolchain: rustup with the
@@ -340,9 +341,10 @@ sccache in `~/.local/bin` on one Unix-socket server. `~/start-runner.sh` and
 `~/start-light-runner.sh <n>` export that PATH and cache environment before `run.sh`, so a light
 runner takes Linux test jobs without further setup.
 
-Release builds and Rust tests never share a machine: build labels live only on builders and test
-labels only on test machines. Pausing a test machine (`./build.sh runner-pause <machine>`) lends its
-unique test labels to an online runner of the same OS, the one documented exception.
+ROG and Ubuntu serialize qualification compilation on their existing single build runners.
+Release packaging begins after exact-SHA qualification. BLACKSTAR WSL remains dedicated to the
+full suite; Air owns macOS and embeddings. All light jobs request `host-ubunta`, so a runner
+carrying both `light` and `rust-tests` cannot take them. No live labels need to be changed.
 
 Planned names follow `<machine>-<os>-<arch>[-role]`; renames re-register one machine at a time between
 runs, passing the current labels plus `host-<machine>`. Before dispatching on a new or changed macOS
@@ -358,6 +360,8 @@ increase baseline allowances or treat missing/cancelled reports as clean. Retrie
 through the existing ci-artifact tooling rather than assuming GitHub artifact storage.
 
 ## Monitoring and failure recovery
+
+Dev qualification tiers notify and cancel the current run on the first observed Rust FAIL/TIMEOUT or failed workflow step, before cleanup. Activation and verification: [CI failure notifications](ci-failure-notifications.md). Runner loss and job timeout still need an external failure observer; an in-run hook cannot execute on a dead runner.
 
 Read `domios docs BLUEPRINTS`. Use one named monitor per actual run ID; validate its probe once
 and verify blueprint show names that run's real bucket. Handle success, failure, cancellation,
@@ -433,4 +437,4 @@ never sweep caches or delete worktrees merely because the release ended.
 Implementation entry points: [release stage](../../../scripts/release-stage.mjs),
 [macOS x64 helper](../../../scripts/release-macos-x86_64.sh).
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->

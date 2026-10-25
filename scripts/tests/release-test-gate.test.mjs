@@ -47,29 +47,32 @@ const app = { result: "success", outputs: { kind: "app", published: "false", dry
 const frontend = { "frontend-dist": { result: "success" } };
 const results = ["success", "failure", "cancelled", "skipped"];
 
-test("each fast check cancels the calling run on its own failure; nothing else cancels it", () => {
-  const cancelsRun = /actions\/runs\/[^\s"]*\/cancel|gh run cancel/;
-  for (const name of ["tests", "tests-fast", "tests-rust", "release", "rust-warnings-summary"]) {
-    for (const [id, job] of Object.entries(workflow(name).jobs)) {
-      const cancels = (job.steps || []).filter(step => cancelsRun.test(step.run ?? ""));
-      if (name !== "tests-fast" || !fastJobs.includes(id)) {
-        assert.deepEqual(cancels, [], `${name}/${id}`);
-        continue;
-      }
-      assert.equal(cancels.length, 1, id);
-      assert.equal(cancels[0].if, "failure() && inputs.cancel_run", id);
-      assert.match(cancels[0].run, /^gh run cancel \$\{\{ github\.run_id \}\}/m, id);
-      const announce = cancels[0].run.indexOf("::error title=Fast check failed::$FAILED_CHECK");
-      assert.ok(announce >= 0 && announce < cancels[0].run.indexOf("gh run cancel"), `${id}: names the failed check before cancelling`);
-      assert.equal(cancels[0].env.FAILED_CHECK, "${{ github.job }}", id);
+test("both qualification tiers notify and cancel immediately before cleanup", () => {
+  for (const tier of [fast, rust]) {
+    assert.equal(tier.on.workflow_call.inputs.cancel_run.default, false);
+    assert.equal(tier.env.CI_CANCEL_RUN, "${{ inputs.cancel_run }}");
+    assert.equal(tier.env.DOMIOS_CI_WEBHOOK_URL, "${{ secrets.DOMIOS_CI_WEBHOOK_URL }}");
+    assert.equal(tier.env.DOMIOS_CI_WEBHOOK_TOKEN, "${{ secrets.DOMIOS_CI_WEBHOOK_TOKEN }}");
+    for (const [id, job] of Object.entries(tier.jobs)) {
+      const hooks = job.steps.filter(step => /ci-first-failure/.test(step.run ?? ""));
+      assert.ok(hooks.length > 0, id);
       assert.equal(job.permissions.actions, "write", id);
-      const after = job.steps.slice(job.steps.indexOf(cancels[0]) + 1);
-      assert.ok(after.every(step => step.if === "always()"), `${id}: only cleanup follows the cancel`);
+      for (const hook of hooks) {
+        assert.equal(hook.if, "failure() && inputs.cancel_run", id);
+        assert.equal(hook["continue-on-error"], true, id);
+        assert.match(hook.run, /gh run cancel "\$GITHUB_RUN_ID" --repo "\$GITHUB_REPOSITORY"/);
+        assert.ok(hook.run.indexOf("ci-first-failure") < hook.run.indexOf("gh run cancel"));
+        assert.equal(hook.env.CI_FAILURE_STEPS, "${{ toJSON(steps) }}");
+      }
+      for (let index = 0; index < job.steps.length; index++) {
+        const step = job.steps[index];
+        if (hooks.includes(step) || step.if?.startsWith("always()")) continue;
+        assert.ok(hooks.includes(job.steps[index + 1]), `${id}/${step.name || step.id}: immediate hook`);
+      }
     }
   }
-  assert.equal(fast.on.workflow_call.inputs.cancel_run.default, false, "pull requests and pushes never cancel themselves");
-  assert.equal(tests.jobs.fast.with.cancel_run, undefined);
-  assert.equal(rust.on.workflow_call.inputs.cancel_run, undefined);
+  assert.equal(tests.jobs.fast.with.cancel_run, "${{ github.event_name != 'pull_request' }}");
+  assert.equal(tests.jobs.rust.with.cancel_run, true);
 });
 
 test("a push to release/X.Y.Z by the owner account is the release, and a published version never rebuilds", () => {
@@ -155,7 +158,7 @@ test("dev pushes and nightly fallback qualify every exact SHA, and release reuse
   assert.equal(tests.jobs.rust.if, "github.event_name == 'push' || github.event_name == 'schedule'");
   assert.equal(tests.jobs.rust.with.resolved_scope, '${{ needs.fast.outputs.resolved_scope }}');
   assert.equal(tests.jobs.rust.with.source_ref, '${{ needs.fast.outputs.source_sha }}');
-  assert.ok(!rust.jobs.changed.steps.some(step => /ci-scope/.test(step.run ?? '')));
+  assert.equal(rust.jobs.changed, undefined, 'the Rust tier reuses the caller scope without a second job');
   assert.equal(rust.on.workflow_call.inputs.resolved_scope.required, true);
   const source = fast.jobs.changed.steps.find(step => step.id === 'tree');
   assert.match(source.env.CI_RELEASE_CALL, /develop/);
@@ -183,7 +186,7 @@ test("stable physical-host compile owners never share mutable targets or occupy 
   const rows = rust.jobs['rust-platform'].strategy.matrix.include;
   assert.deepEqual(rows.map(row => row.os), ['macOS', 'Windows']);
   assert.deepEqual(rows.map(row => row.label), ['host-air', 'host-rog']);
-  assert.equal(rust.jobs['rust-platform'].needs, 'changed', 'native platforms use independent physical hosts');
+  assert.equal(rust.jobs['rust-platform'].needs, undefined, 'native platforms use independent physical hosts');
   assert.deepEqual(rust.jobs['rust-embeddings']['runs-on'], ['self-hosted', 'macOS', 'rust-shard', 'host-air']);
   assert.ok(rust.jobs['rust-embeddings'].needs.includes('rust-platform'), 'embeddings reuse Air after native tests');
   for (const [id, job] of Object.entries(fast.jobs)) {

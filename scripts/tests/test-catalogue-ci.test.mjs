@@ -215,7 +215,7 @@ test("every selected PR entry has an executing PR workflow owner", () => {
 
 test("fast checks run alongside required guards and retain failure cancellation", () => {
   const fast = workflows["tests-fast.yml"];
-  const cancel = fast.jobs.guards.steps.find(step => step.name === "Cancel the run on this fast-check failure");
+  const cancel = fast.jobs.guards.steps.find(step => step.name === "Notify and cancel on first failure");
   assert.equal(cancel.if, "failure() && inputs.cancel_run");
   assert.match(cancel.run, /gh run cancel/);
   assert.equal(fast.jobs.guards["continue-on-error"], undefined);

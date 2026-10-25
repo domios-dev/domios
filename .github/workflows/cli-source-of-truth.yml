@@ -25,7 +25,7 @@ concurrency:
 
 jobs:
   cli-doctor:
-    runs-on: [self-hosted, linux-ci]
+    runs-on: [self-hosted, Linux, linux-build, host-ubunta]
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -53,7 +53,7 @@ jobs:
         run: cargo test -p codeterm-cli plugin_subcommands_parse
 
   chat-card-tests:
-    runs-on: [self-hosted, linux-ci]
+    runs-on: [self-hosted, Linux, light, host-ubunta]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5

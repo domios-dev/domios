@@ -3028,8 +3028,10 @@ EOF
     ;;
   ci-cli-tests)
     prepare_bundle_stubs
-    mapfile -t cli_fast_targets < <(node scripts/ci-cli-targets.mjs)
-    [ "${#cli_fast_targets[@]}" -gt 0 ] || return 1
+    cli_fast_args=$(node scripts/ci-cli-targets.mjs) || return $?
+    [ -n "$cli_fast_args" ] || return 1
+    cli_fast_targets=()
+    while IFS= read -r cli_fast_arg; do cli_fast_targets+=("$cli_fast_arg"); done <<< "$cli_fast_args"
     scripts/test-capped.sh --no-default-features --manifest-path cli/Cargo.toml "${cli_fast_targets[@]}" --locked
     ;;
   ci-tests)

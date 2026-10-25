@@ -1,9 +1,9 @@
 # Domios local build machine
 
-Each push to `release/X.Y.Z` starts one `release.yml` run. Fast checks run first and gate both the
-Rust tests and four platform callers: macOS, Linux arm64, Linux x86_64, Windows. macOS and Windows each have
-independent architecture matrix jobs with `fail-fast: false`. The final manifest needs every
-platform caller and both test stages, verifies downloaded draft artifact signatures, then publishes.
+Each owner push to `release/X.Y.Z` starts one `release.yml` run. Preparation requires
+green exact-SHA dev qualification; packaging then starts after the frontend bundle.
+The final manifest requires all platform results, verifies draft signatures and served bytes,
+and publishes. Signing and package verification stay in the native platform workflows.
 
 ## Build farm
 
@@ -13,12 +13,15 @@ platform caller and both test stages, verifies downloaded draft artifact signatu
 | **`macos-x64-build`** | ainyiva-bot (`ainyiva-macos-x64`, macOS Intel) | `release.yml` → `release-macos-build.yml` | macOS `x64`, native (Developer ID + notarized); selected by `RELEASE_MACOS_X64_LABEL` |
 | **`ROG-windows-build`** (`windows-build`) | ROG, Windows (x86_64) | `release.yml` → `release-windows.yml` | Windows `x64`+`arm64` NSIS, signed on the runner |
 | **`linux-build`** | ubunta, Ubuntu 24.04 (x86_64) | `release.yml` → `release-linux.yml` | `x86_64` Linux `.deb`+`.AppImage`, native; also plugin publication and release preparation |
-| **`linux-ci`**, **`rust-tests`** | BLACKSTAR-wsl-ci (WSL2 Ubuntu 24.04 on BLACKSTAR) | `tests.yml` Linux jobs, full suite, embeddings and the PR lint workflows | test machine only; never on a builder (lent to ubunta only while BLACKSTAR is paused) |
-| **`windows-ci`** | BLACKSTAR-windows-x64 | `tests.yml` Windows lib and CLI jobs | test machine only; ROG keeps `windows-build` and `windows-x64-build` for both Windows builds (lent to ROG only while BLACKSTAR is paused) |
+| **`linux-ci`**, **`rust-tests`** | BLACKSTAR-wsl-ci (WSL2 Ubuntu 24.04 on BLACKSTAR) | `tests.yml` full Linux suite | pinned by `heavy` and `host-blackstar`; light siblings cannot claim it |
+| **`windows-ci`** | BLACKSTAR-windows-x64 | no product compile lane | native Windows tests use the single ROG runner to keep BLACKSTAR dedicated to the full suite |
 
 The full runner map (names, planned names, `host-<machine>` labels, jobs) lives in the github-release skill.
 
-Strength tiers (runner labels, independent of the release owners above): `heavy` = eight (`codeterm-builder-2`), BLACKSTAR-wsl-ci, BLACKSTAR-windows-x64; `medium` = ROG; `light` = ubunta, plus every heavy runner that can also take quick checks (eight, BLACKSTAR-wsl-ci). Platform-independent quick checks such as `guards` (file sizes, fmt, contracts) ask for `light` and run on any free one; release Rust tests wait for the fast gate like the builds; standalone test runs keep the guards prerequisite.
+Role labels combine with host labels: light jobs request `host-ubunta`; Linux compilation
+outside the full suite requests `linux-build` and `host-ubunta`. Native Windows uses
+`windows-build` and `host-rog`. Existing single-runner capacity serializes each host's
+compilation without sharing final targets or changing live runner labels.
 
 ### Pausing a machine (owner is working on it)
 
@@ -26,28 +29,24 @@ Strength tiers (runner labels, independent of the release owners above): `heavy`
 
 ### Observed release/test runner overlap
 
-Release builds and Rust tests no longer overlap: every machine is either a builder or a test machine
-(runner map in the github-release skill). The only overlap is a paused test machine's labels lent to
-a same-OS builder by `./build.sh runner-pause`.
+Qualification can use a builder host's single runner; packaging waits for green qualification
+of the exact release SHA. BLACKSTAR WSL remains the full-suite host and takes no other compile lane.
 
 | Runner | Test labels | Release labels |
 |---|---|---|
 | codeterm-builder-2 (eight, macOS ARM64) | none | `codeterm-builder` (macOS arm64, Linux arm64 Docker) |
 | ainyiva-macos-x64 (macOS X64) | none | `macos-x64-build` |
-| ROG-windows-build (Windows X64) | none | `windows-build`, `windows-x64-build` |
-| ubunta-linux-build (Linux X64) | none | `linux-build` |
+| ROG-windows-build (Windows X64) | native Windows subset | `windows-build`, `windows-x64-build` |
+| ubunta-linux-build (Linux X64) | Clippy, fast CLI, generated types | `linux-build` |
 | air-macos (macOS ARM64) | `rust-shard` (macOS platform subset), `macos-ci` | none |
 | BLACKSTAR-windows-x64 (Windows X64) | `windows-ci`, `rust-shard` | none |
 | BLACKSTAR-wsl-ci (Linux X64) | `linux-ci`, `rust-tests` | none |
 | BLACKSTAR-wsl-light-1 / -2, ubunta-light-1 / -2 (Linux X64) | `light` | none |
 | green-windows-ci (Windows X64) | `windows-light` | none |
 
-All nine runners were online when inventoried. Matching is capability/label based,
-so any idle qualified runner takes a job; no runner name is pinned in the workflows.
-
-When the fast gate is green, the Rust tests and all four artifact callers queue
-together and run in parallel. A failed test never cancels the run: builds finish,
-the run is red, and publication still needs both test stages green.
+Compile lanes use stable host/role label conjunctions for warm workspace targets.
+Dev qualification finishes before release packaging, which consumes exact-SHA receipts.
+The first qualification failure notifies its owner and cancels sibling jobs.
 
 Rust tests compile and run in place; nothing ships a nextest archive between
 runners (an archive download alone took ~12 minutes at ~0.4 MB/s, against a full

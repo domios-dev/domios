@@ -39,6 +39,10 @@ Config readback exposes actual and configured listener state through `api_listen
 
 ### Endpoints
 
+#### CI failure events
+
+POST `/api/ci/webhook` uses a dedicated Bearer credential from the secret-store entry `ci-webhook`, a JSON registration `{token, repo, plan}`. It accepts `{repo, run, attempt, sha, job, step, test, exit, log_url}`; `test` and `exit` may be null when unavailable. Run and attempt are positive decimal strings, SHA is 40 hex characters, and the log URL must name that repository/run/attempt on GitHub. Authenticated events route one message and notification to the registered plan's live, session-verified Orchestrator. Missing owners fail delivery; events never fall back to another tab. Duplicate repository/run/attempt/job events are suppressed by the gateway's bounded process-local cache. Requests are capped at 16 KiB and retain the API's Tailnet access restrictions.
+
 #### Startup readiness
 
 Health `status: "ok"` proves liveness; `startup.state: "ready"` proves readiness. Only loopback health/events bypass auth. Await `ready` on `/api/startup/events` (`startup-state`). Other requests get HTTP 503 `starting`/`startup_failed` without queuing. CLI: `API-CLI`.
@@ -186,4 +190,4 @@ A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or `c
 
 Related: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-INTEGRATIONS`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, `TELEGRAM-SETUP`. Analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 228 -->
+<!-- revision: 229 -->

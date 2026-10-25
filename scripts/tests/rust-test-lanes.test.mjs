@@ -110,7 +110,7 @@ run_nextest_scope cli 'test(~opaque)'
 test('test-one qualifies the requested package, including aliases, before workspace execution', t => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'focused-package-'));
   t.after(() => fs.rmSync(temp, { recursive: true, force: true }));
-  const source = fs.readFileSync('build.sh', 'utf8');
+  const source = fs.readFileSync('build.sh', 'utf8').replaceAll('\r\n', '\n');
   const helper = source.match(/^rust_test_package\(\) \{[\s\S]*?^\}/m)[0];
   const start = source.indexOf('\n  test-one)\n') + '\n  test-one)\n'.length;
   const first = source.indexOf('    case "$test_scope" in', start);
@@ -140,7 +140,7 @@ for (const fails of [false, true]) test(`CLI target selection restores caller st
   const log = path.join(temp, 'targets');
   const script = `${source}
 SLOW_UNIT_TESTS_MEASUREMENT=off
-cargo() { if [ "$1 $2" = 'nextest list' ] && [[ "$*" != *--binaries-metadata* ]]; then printf '%s\\n' "$CARGO_TARGET_DIR" >> "$SELECTION_LOG"; fi; printf '{}\\n'; return ${fails ? 42 : 0}; }
+cargo() { if [[ "$1 $2" = 'nextest list' && "$*" == *'--list-type binaries-only'* ]]; then printf '%s\\n' "$CARGO_TARGET_DIR" >> "$SELECTION_LOG"; fi; printf '{"rust-suites":{}}\\n'; return ${fails ? 42 : 0}; }
 scripts/test-capped.sh() { printf 'Summary [0.001s] 1 tests run: 1 passed\\n'; }
 export CARGO_TARGET_DIR="$FIXTURE_TARGET"
 run_nextest_scope cli || [ "$?" = 42 ]

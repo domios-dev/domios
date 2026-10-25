@@ -91,7 +91,7 @@ function jobRuns(job, scope, { cancelled = false } = {}) {
   const expression = jobConditions.get(job);
   if (!expression) return true;
   const outputs = Object.fromEntries(["frontend", "rust", "heavy"].map(key => [key, String(key === "heavy" ? scope.heavy ?? scope.rust : scope[key])]));
-  return condition(expression, { needs: { changed: { outputs } }, cancelled });
+  return condition(expression, { inputs: { resolved_scope: JSON.stringify(outputs) }, needs: { changed: { outputs } }, cancelled });
 }
 
 test("workflow wiring skips Rust jobs for frontend diffs and preserves generated types for Rust", () => {
