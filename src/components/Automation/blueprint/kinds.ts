@@ -23,6 +23,7 @@ export const blueprintTriggers = {
   event: { catalogType: "event", icon: Radio },
   manual: { catalogType: "input", icon: Hand },
   activated: { catalogType: "activated", icon: Workflow },
+  webhook: { catalogType: "webhook", icon: Globe },
 } as const;
 
 export const blueprintSources = {
@@ -78,5 +79,6 @@ export function triggerIcon(type: unknown): NodeIcon {
   if (type === "schedule") return blueprintTriggers.schedule.icon;
   if (type === "event") return blueprintTriggers.event.icon;
   if (type === "input") return blueprintTriggers.manual.icon;
+  if (type === "webhook") return blueprintTriggers.webhook.icon;
   return Zap;
 }
