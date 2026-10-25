@@ -38,7 +38,7 @@ each failed run. An untested proposal must not become an established recipe.
 
 ## Public repository policy
 
-Follow [the public repository handoff](../../../docs/release/public-repo.md) before enabling public Actions. Only owner pushes/dispatches from reviewed release branches may acquire release runners and secrets, behind the `release` environment approval. Dev qualification uses the branch-restricted `ci` environment without reviewers. PR checks run hosted and secret-free; repository-level runners must be removed or replaced with workflow-restricted organization runners before public Actions is enabled.
+Follow [the public repository handoff](../../../docs/release/public-repo.md) before enabling public Actions. Only owner release/X.Y.Z pushes, admitted master merge publication and reviewed release dispatches may acquire release runners and secrets, behind the `release` environment approval. Dev qualification uses the branch-restricted `ci` environment without reviewers. All PR checks run hosted and secret-free; repository-level runners must be removed or replaced with workflow-restricted organization runners before public Actions is enabled.
 
 ## Choose the release kind
 
@@ -67,8 +67,8 @@ verifies the anonymous download. Every install refreshes `codeterm-core` from th
 | Branch | Purpose |
 |---|---|
 | `develop` | Integration through reviewed real merges. |
-| `release/X.Y.Z` | One version; owner pushes qualify; green qualification starts packaging. |
-| `master` | Released code, promoted by the successful release workflow. |
+| `release/X.Y.Z` | One version; its push owns full CI and retained signed dry-run packaging. |
+| `master` | Admin merges the green release PR here to publish its retained artifacts. |
 | `ci/*` | Reviewed non-publishing candidate refs for diagnostics. |
 
 1. Record the candidate, included lanes, fixed/deferred issues and evidence in
@@ -86,30 +86,40 @@ verifies the anonymous download. Every install refreshes `codeterm-core` from th
    that committed head and `git diff --check`.
    Keep the release branch separate from moving `develop`. Commit release fixes on that line,
    then real-merge the release into `develop`; never pull unrelated dev work into the release.
-   Pushes to `release/X.Y.Z` qualify their exact SHA through `tests.yml`, as do dev/master pushes.
-   The successful push qualification triggers release.yml through workflow_run; failed qualification
-   never starts packaging. Admission checks the trusted tests.yml event, repository, owner actors
-   and exact current release head before any release runner or secret is acquired. Superseded heads
-   skip packaging successfully. Prepare still verifies the exact-SHA receipt; owner workflow_dispatch
-   reruns retain that gate. workflow_run uses the default branch workflow definition: this trigger
-   and its reusable guards must reach the default branch before automatic packaging can activate.
-   Until then, use scripts/dispatch-qualified-release.mjs with the exact SHA and release/X.Y.Z after qualification is green; see [CI operation](../../../docs/release/ci.md).
+   Push release/X.Y.Z and open its PR into master. The push's single tests.yml
+   run checks out its exact SHA for full CI, records qualification, then calls
+   release.yml with dry_run=true to build and sign every platform and retain bytes.
+   New branch pushes cancel the previous run through per-ref concurrency. All PR
+   runs remain hosted and secret-free; they never duplicate full CI or packaging.
+   Develop skips a SHA already owned by a release push run with a clear notice.
+   With publication GO, an admin merges the green PR using a real merge commit.
+   The master push discovers that merged release PR, verifies both merge parents,
+   and publishes the exact head's retained green push run through promote_run_id.
+   Qualification and packaging must belong to that same run. No master merge
+   commit is built. Protected release environments and the publication switch
+   remain required. Runner groups must refuse refs/pull/* workflow refs; workflow
+   if gates alone do not constrain a fork's rewritten workflow. The isolated
+   fork-pr-guard.yml target workflow closes fork release heads and fork PRs into
+   master/release branches using hosted API calls only, without checkout. Signing keys
+   remain out of unsigned compile jobs.
+   After publication, synchronize develop through an admin-owned merge PR; workflows
+   never push master/develop with GITHUB_TOKEN.
    Two nightly schedules qualify dev as fallback. Fast checks own
    frontend production/typechecking, static/plugin/TS suites, Clippy and the CLI suite.
    The Rust tier owns the Linux full suite, native macOS/Windows subsets and embeddings.
    `scripts/ci-qualification.mjs check <40-hex-sha>` verifies a green trusted tests run,
    its current attempt, every required job and the executed Rust receipts. Missing, expired,
    skipped or foreign evidence refuses release preparation and publication. Qualification
-   artifacts expire after seven days; qualify the exact SHA again if needed. Equal trees
+   artifacts expire after three days; qualify the exact SHA again if needed. Equal trees
    or ancestor receipts never qualify another SHA. Local focused fixes do not replace CI
    evidence; do not rerun identical suites in the release graph.
 4. Verify runner availability with `bash scripts/check-release-runners.sh` and credential
    preflight through `release-credentials.yml`. Confirm the intended version is unpublished.
-   With publication GO, push `release/X.Y.Z` and open its PR to master. Do not manually create
+   Push `release/X.Y.Z` and open its PR to master for CI and dry-run packaging. Do not manually create
    `vX.Y.Z`; release.yml owns tag creation and promotion.
 5. The final manifest job requires all builds and test gates, publishes and verifies served
-   bytes. Promotion merges the release PR to master, merges master back to develop and retains
-   the protected release branch. A later correction takes a new version.
+   bytes after the admin merge starts promotion. Synchronize develop through an admin merge PR.
+   A later correction takes a new version.
 
 ## Dry runs and narrow diagnostics
 
@@ -121,13 +131,14 @@ gh workflow run release.yml --repo rollacode/codeterm --ref <reviewed-ref> \
   -f tag=<version-tag> -f dry_run=true -f mirror=false
 ```
 
-Until repository variable `RELEASE_PUBLISH_ENABLED` is `true`, a green qualification of a `release/X.Y.Z` push runs as a
-full dry run of that branch (tests included, no drafts or uploads) in its own concurrency group, so
-it never cancels another version's run; its branch must carry version X.Y.Z.
+The release branch push always packages with dry_run=true regardless of the publication switch.
+The master merge push selects its retained green release push run; RELEASE_PUBLISH_ENABLED must be true for
+publication, and the protected release environment remains required.
 
 Verify the remote ref resolves to the reviewed SHA before dispatch. Capture the returned/new run
 ID and its workflow/source identity. Do not identify a run merely as the latest result in a list.
-Dry runs also require the exact-SHA dev qualification receipt; there is no test bypass.
+Dispatched dry runs require the exact-SHA qualification receipt. In the release push run,
+packaging depends directly on the successful qualification job in that same run.
 Dry runs skip release creation/public uploads/publication, public served-byte verification and promotion;
 they cannot prove write permissions or CDN behavior.
 
@@ -456,4 +467,4 @@ never sweep caches or delete worktrees merely because the release ended.
 Implementation entry points: [release stage](../../../scripts/release-stage.mjs),
 [macOS x64 helper](../../../scripts/release-macos-x86_64.sh).
 
-<!-- revision: 12 -->
+<!-- revision: 13 -->
