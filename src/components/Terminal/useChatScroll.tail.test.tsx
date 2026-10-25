@@ -252,7 +252,6 @@ describe("chat tail follow", () => {
     expect(Math.abs(realGap())).toBeLessThan(1);
   });
 
-  // 120 laid-out rows over 31 wheel steps outlast the 5 s default on a loaded CI runner.
   it("moves a reader exactly with the wheel across rows that render nothing", async () => {
     rows = Array.from({ length: 120 }, (_, index) => ({ msg: { id: `m${index}`, sourceMessageId: `s${index}` },
       height: index >= 60 && index < 65 ? 0 : 120 }));
@@ -270,7 +269,7 @@ describe("chat tail follow", () => {
       await step(200);
       expect(rowElement(row.dataset.messageId!)!.offsetTop - scroller().scrollTop).toBeCloseTo(before - 200, 0);
     }
-  }, 20_000);
+  });
 
   it("keeps following after a pinch-zoom wheel that scrolls nothing", async () => {
     await render();
