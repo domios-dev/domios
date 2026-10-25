@@ -1,6 +1,50 @@
 use super::*;
 
 #[test]
+fn local_only_paths_are_denied_at_every_peer_access_level() {
+    for path in [
+        "/api/secrets/opaque/value",
+        "/api/mesh/debug/sign",
+        "/api/supporter/token",
+        "/api/analytics/usage",
+        "/api/agents/reparent",
+        "/api/teams/team/adopt-remote",
+        "/api/account/status",
+        "/api/account/logout",
+        "/api/cli/rpc",
+        "/api/model-providers",
+        "/api/mesh/link",
+        "/api/mesh/disconnect",
+        "/api/mesh/unrevoke",
+        "/api/mesh/peers/disconnect/peer",
+        "/api/blueprints/graph/webhook/configure",
+    ] {
+        for suffix in ["", "?source=peer", "#fragment"] {
+            let target = format!("{path}{suffix}");
+            assert!(is_local_only_path(&target), "{target}");
+            for access in [
+                AccessLevel::Full,
+                AccessLevel::ReadOnly,
+                AccessLevel::AgentIsolated,
+                AccessLevel::Custom(vec![Permission::Admin]),
+            ] {
+                for method in [Method::GET, Method::POST, Method::DELETE] {
+                    assert!(!peer_access_allowed(
+                        &access,
+                        "peer",
+                        &method,
+                        &target,
+                        |_| panic!("local-only paths do not resolve tab ownership"),
+                    ));
+                }
+            }
+        }
+    }
+    assert!(!is_local_only_path("/api/tabs/owned/text"));
+    assert!(!is_local_only_path("/api/supporter/status"));
+}
+
+#[test]
 fn local_preview_routes_follow_read_permissions_and_isolated_tab_ownership() {
     for suffix in ["read", "check"] {
         let path = format!("/api/tabs/owned/preview/{suffix}");
