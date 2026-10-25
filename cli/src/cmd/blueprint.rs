@@ -11,6 +11,7 @@ mod pipeline_spec;
 mod project;
 mod recipe_files;
 mod recipes;
+mod webhook;
 pub use authoring::handle_local;
 
 pub fn handle_recipe(json_mode: bool, name: Option<&str>) {
@@ -284,6 +285,10 @@ fn input_ref_summary(value: &Value) -> String {
 }
 
 pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: BlueprintAction) {
+    if let BlueprintAction::Webhook { action } = &action {
+        webhook::handle(json_mode, action);
+        return;
+    }
     let keeping = matches!(&action, BlueprintAction::Keep { .. });
     if let BlueprintAction::Keep { tags, .. } = &action {
         if let Err(failure) = codeterm_blueprint_types::blueprint_tags::validate(tags) {
@@ -536,6 +541,7 @@ fn request(
 ) -> Result<(&'static str, Value), String> {
     let mut params = json!({ "caller_tab_id": caller, "session_binding_nonce": nonce });
     let method = match action {
+        BlueprintAction::Webhook { .. } => return Err("Webhook commands use the local API".into()),
         BlueprintAction::Export { id, .. } => {
             params["id"] = json!(id);
             "blueprint.export"

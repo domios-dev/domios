@@ -59,6 +59,12 @@ pub(super) fn document(doc: &Document) -> Errors {
     if serde_json::to_vec(doc).map_or(true, |bytes| bytes.len() > MAX_RECIPE_BYTES) {
         errors.push((String::new(), "Blueprint document exceeds 256 KiB".into()));
     }
+    if let Some(Trigger::Webhook {
+        schema: Some(schema),
+    }) = &doc.trigger
+    {
+        port(schema, "trigger.schema", &doc.types, 0, &mut errors);
+    }
     ports(&doc.inputs, "inputs", &doc.types, &mut errors);
     ports(&doc.types, "types", &doc.types, &mut errors);
     nodes(

@@ -9,7 +9,9 @@ The CLI socket needs no TCP. Unix peer credentials or Windows process-token SID 
 
 Socket/mesh envelopes require `protocol_version`; older or versionless clients get `-32002`. Wire: `API-TRANSPORT`; peer notice routes: `MESH`.
 
-Human `domios workspace list` shows authoritative topology in creation order; `domios tab inspect <id>` inspects one tab (whole-list JSON is automation-only). `workspace current --json` returns `{ "id", "source" }`; sources, in resolution order: `explicit` (`--workspace`), `caller-tab` (`$CODETERM_TAB_ID` membership), `workspace-env` (validated `$CODETERM_WORKSPACE_ID`), `focus-fallback` (active workspace). No match: exit 1, empty stdout (`--json` writes the error to stdout).
+Human `domios workspace list` shows ordered topology; `tab inspect <id>` inspects one tab. `workspace current --json` returns `{id, source}`, resolving explicit placement, caller tab, validated workspace environment, then focus. No match exits 1; JSON errors go to stdout.
+
+POST `/api/blueprints/{id}/webhook` uses a per-graph secret; POST `/api/blueprints/{id}/webhook/configure` manages its lifecycle for a local authenticated caller. Signing, limits and payload rules: `domios docs API-INTEGRATIONS` and `domios docs BLUEPRINTS`.
 
 ## REST API
 Base: `http://<host>:7685/api`.
@@ -76,7 +78,7 @@ Local account routes refuse Mesh callers. POST `/api/account/mesh/session-revoke
 
 REST listener lifecycle and recovery: MESH, *Local REST availability*. REST chat/transcript routes parse a bounded 4 MiB tail.
 
-Saved solution show returns a bounded, credential-redacted `document` and recursive `expanded_calls: [{node, pin: {id, hash}, graph, children}]`, matching applied Blueprint graph expansion. Each node's `call.ref` identifies the authored reference. Missing, corrupt or foreign-scope pinned revisions produce `{node, pin, graph: null, children: [], unavailable: "pinned_revision_unavailable"}` without failing the response. Expansion limits are eight call levels, 64 call entries and 256 KiB of callee documents; an exceeded depth or byte budget produces `unavailable: "budget_exhausted"`. Callees use the saved solution's recorded Team/workspace, never current callee heads. Archived or foreign-workspace root IDs are refused, as are peer-origin requests.
+Saved solution show returns a credential-redacted `document` and recursive `expanded_calls: [{node, pin: {id, hash}, graph, children}]` under the saved scope and exact hashes. Missing/corrupt/foreign pins expose `pinned_revision_unavailable`; limits of eight levels, 64 calls and 256 KiB expose `budget_exhausted`. Archived/foreign roots and peer-origin requests refuse.
 
 #### Workspaces
 | Method | Path | Body | Description |

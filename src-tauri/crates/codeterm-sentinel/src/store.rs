@@ -180,9 +180,17 @@ impl Store {
         }
         let now = self.clock.now_ms();
         let job = self.jobs.iter().find(|job| job.id == event.pipeline_id)?;
-        let matches_kind = job.pipeline().is_some_and(|pipeline| {
-            matches!(&pipeline.trigger, codeterm_blueprint_types::blueprint_pipeline::Trigger::Event { kind, .. } if kind == &event.kind)
-        });
+        let matches_kind = job
+            .pipeline()
+            .is_some_and(|pipeline| match &pipeline.trigger {
+                codeterm_blueprint_types::blueprint_pipeline::Trigger::Event { kind, .. } => {
+                    kind == &event.kind
+                }
+                codeterm_blueprint_types::blueprint_pipeline::Trigger::Webhook { .. } => {
+                    event.kind == "webhook"
+                }
+                _ => false,
+            });
         if !matches_kind
             || job.machine.stopped
             || !job.admission.permits_steps()
@@ -894,6 +902,7 @@ impl Store {
                     matches!(
                         &pipeline.trigger,
                         codeterm_blueprint_types::blueprint_pipeline::Trigger::Event { .. }
+                            | codeterm_blueprint_types::blueprint_pipeline::Trigger::Webhook { .. }
                     )
                 });
                 let input_waiting = job.pipeline().is_some_and(|pipeline| {
@@ -946,6 +955,7 @@ impl Store {
                             matches!(
                                 &pipeline.trigger,
                                 codeterm_blueprint_types::blueprint_pipeline::Trigger::Event { .. }
+                        | codeterm_blueprint_types::blueprint_pipeline::Trigger::Webhook { .. }
                                     | codeterm_blueprint_types::blueprint_pipeline::Trigger::Input { .. }
                             )
                         }))

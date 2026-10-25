@@ -46,6 +46,7 @@ fn blueprint_description(
     if let Some(trigger) = &document.trigger {
         sources.insert(
             match trigger {
+                Trigger::Webhook { .. } => "webhook",
                 Trigger::Schedule { .. } => "schedule",
                 Trigger::Event { .. } => "event",
                 Trigger::Input { .. } => "input",

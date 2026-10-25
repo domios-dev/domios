@@ -377,6 +377,7 @@ impl Document {
         }
         if let Some(trigger) = &mut bound.trigger {
             match trigger {
+                Trigger::Webhook { .. } => {}
                 Trigger::Schedule { every } => {
                     resolve_form(every, &values, "trigger.every", &mut errors)
                 }

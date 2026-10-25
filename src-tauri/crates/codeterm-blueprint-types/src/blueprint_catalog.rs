@@ -47,6 +47,13 @@ pub const TRIGGERS: &[NodeDescriptor] = &[
         title: "Trigger: on input data",
         metadata: r#"{"params_schema":{"kind":"text|file|audio|video|image","source":"text|file|url"}}"#,
     },
+    NodeDescriptor {
+        role: "trigger",
+        kind: "trigger",
+        name: "webhook",
+        title: "Trigger: authenticated JSON webhook",
+        metadata: r#"{"params_schema":{"schema":"optional payload port schema"}}"#,
+    },
 ];
 pub const STEPS: &[NodeDescriptor] = &[
     NodeDescriptor {
