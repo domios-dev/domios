@@ -21,11 +21,26 @@ enum MigrationDecision {
     Skip,
     Claim,
 }
-fn migration_decision(present: bool, attempted: bool) -> MigrationDecision {
-    if present || attempted {
+fn migration_decision(present: bool, completed: bool) -> MigrationDecision {
+    if present || completed {
         MigrationDecision::Skip
     } else {
         MigrationDecision::Claim
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum MigrationCompletion {
+    Persist,
+    MarkAbsent,
+    Retry,
+}
+
+fn migration_completion(read: &Result<Option<Secret>>) -> MigrationCompletion {
+    match read {
+        Ok(Some(_)) => MigrationCompletion::Persist,
+        Ok(None) => MigrationCompletion::MarkAbsent,
+        Err(_) => MigrationCompletion::Retry,
     }
 }
 
@@ -81,17 +96,39 @@ impl ProtectedCredentials {
             .file
             .has(&migration_key(name))
             .map_err(|_| Error::Credentials)?;
-        if migration_decision(present, attempted) == MigrationDecision::Skip {
+        if migration_decision(present, attempted || state.migrating.contains(name))
+            == MigrationDecision::Skip
+        {
             return Ok(false);
         }
         if !self.file.is_available() {
             return Ok(false);
         }
-        self.file
-            .set(&migration_key(name), "attempted")
-            .map_err(|_| Error::Credentials)?;
         state.migrating.insert(name.to_owned());
         Ok(true)
+    }
+    pub fn complete_migration(&self, name: &str, read: Result<Option<Secret>>) -> Result<bool> {
+        match migration_completion(&read) {
+            MigrationCompletion::Persist => {
+                if let Ok(Some(token)) = read {
+                    return self.finish_migration(name, &token);
+                }
+                Ok(false)
+            }
+            MigrationCompletion::MarkAbsent => {
+                let mut state = self.state.lock();
+                if state.migrating.remove(name) {
+                    self.file
+                        .set(&migration_key(name), "attempted")
+                        .map_err(|_| Error::Credentials)?;
+                }
+                Ok(false)
+            }
+            MigrationCompletion::Retry => {
+                self.state.lock().migrating.remove(name);
+                Ok(false)
+            }
+        }
     }
     pub fn finish_migration(&self, name: &str, token: &Secret) -> Result<bool> {
         let mut state = self.state.lock();

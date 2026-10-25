@@ -1,6 +1,91 @@
 use super::*;
 use codeterm_util::persisted_state::incidents_for;
 
+#[test]
+fn permission_tightening_failure_is_only_a_warning_with_the_path() {
+    let path = Path::new("isolated/config.toml");
+    assert!(permission_warning(path, Ok(())).is_none());
+    for kind in [
+        std::io::ErrorKind::PermissionDenied,
+        std::io::ErrorKind::InvalidInput,
+    ] {
+        let warning = permission_warning(path, Err(std::io::Error::from(kind))).unwrap();
+        assert!(warning.contains(&path.display().to_string()));
+        assert!(warning.contains("continuing"));
+    }
+}
+
+#[test]
+fn credential_failure_requires_recoverable_authority_to_continue() {
+    for token in [None, Some(""), Some(" ")] {
+        assert_eq!(
+            credential_failure(token, "unreadable .secrets".into()),
+            Err("unreadable .secrets".into())
+        );
+    }
+    assert!(credential_failure(Some("retained"), "write failed".into()).is_ok());
+}
+
+#[test]
+fn unreadable_or_corrupt_secrets_return_a_startup_error_without_replacement() {
+    for existing_config in [false, true] {
+        for directory in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let path = root.path().join("config.toml");
+            if existing_config {
+                std::fs::write(&path, "[theme]\nname = 'nord'\n").unwrap();
+            }
+            let secrets = root.path().join(".secrets");
+            if directory {
+                std::fs::create_dir(&secrets).unwrap();
+            } else {
+                std::fs::write(&secrets, "corrupt secrets").unwrap();
+            }
+            let cache = Mutex::new(None);
+            let error = load_config_cached_at(&path, root.path(), &cache).unwrap_err();
+            assert!(error.contains(&secrets.display().to_string()));
+            assert!(cache.lock().is_none());
+            if directory {
+                assert!(secrets.is_dir());
+            } else {
+                assert_eq!(std::fs::read_to_string(secrets).unwrap(), "corrupt secrets");
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn symlinked_config_and_secrets_load_the_existing_token() {
+    use std::os::unix::fs::symlink;
+    let root = tempfile::tempdir().unwrap();
+    let target = tempfile::tempdir().unwrap();
+    let token = codeterm_util::instance_token::initialize_at(target.path(), None, true).unwrap();
+    let target_config = target.path().join("settings.toml");
+    std::fs::write(
+        &target_config,
+        "[theme]\nname = 'nord'\n[kpi]\ndefault_applied = true\n",
+    )
+    .unwrap();
+    let path = root.path().join("config.toml");
+    symlink(&target_config, &path).unwrap();
+    symlink(target.path().join(".secrets"), root.path().join(".secrets")).unwrap();
+    let config = load_config_cached_at(&path, root.path(), &Mutex::new(None)).unwrap();
+    assert_eq!(config.api.token, token);
+    assert_eq!(config.theme.name, "nord");
+}
+
+#[test]
+fn non_regular_config_does_not_panic_or_replace_existing_authority() {
+    let root = tempfile::tempdir().unwrap();
+    let token = codeterm_util::instance_token::initialize_at(root.path(), None, true).unwrap();
+    let path = root.path().join("config.toml");
+    std::fs::create_dir(&path).unwrap();
+    let config = load_config_cached_at(&path, root.path(), &Mutex::new(None)).unwrap();
+    assert_eq!(config.api.token, token);
+    assert!(path.is_dir());
+}
+
 const GARBAGE: &str = "\nthis is = = not toml [[[\n";
 
 const VALID: &str = r#"
@@ -324,7 +409,7 @@ fn credentials_use_data_root_when_config_is_separate() {
     let config = tempfile::tempdir().unwrap();
     let path = config.path().join("config.toml");
     std::fs::write(&path, VALID).unwrap();
-    let loaded = load_config_cached_at(&path, data.path(), &Mutex::new(None));
+    let loaded = load_config_cached_at(&path, data.path(), &Mutex::new(None)).unwrap();
     assert_rotated(data.path(), &loaded);
     assert!(data.path().join(".secrets").is_file());
     assert!(!config.path().join(".secrets").exists());

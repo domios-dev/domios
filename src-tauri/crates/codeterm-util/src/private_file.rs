@@ -95,8 +95,11 @@ pub fn create_dir_all(path: &Path) -> io::Result<()> {
 }
 
 pub fn restrict_if_present(path: &Path) -> io::Result<()> {
-    match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.is_file() => restrict(path),
+    match fs::metadata(path) {
+        Ok(metadata) if metadata.is_file() => {
+            let target = fs::canonicalize(path)?;
+            restrict(&target)
+        }
         Ok(_) => Err(io::Error::other("sensitive state must be a regular file")),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error),
