@@ -27,6 +27,7 @@ pub async fn network_info(AxumState(state): AxumState<AppState>) -> Json<serde_j
 
     Json(serde_json::json!({
         "transport": transport,
+        "web_listener": state.mesh.lock().ready_tailnet_endpoint().map(|(ip, port)| std::net::SocketAddr::new(ip, port).to_string()),
         "local_ip": local_ip,
         "tailscale_ip": tailscale_ip,
         "tailscale_dns": tailscale_dns,

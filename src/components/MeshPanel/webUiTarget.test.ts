@@ -2,7 +2,7 @@
 
 import type { AppConfig } from "../../lib/types";
 import type { ServeReconcileSnapshot, ServeStatus } from "../../lib/webAccess";
-import { buildWebUiTarget, classifyWebUiRoute, displayedWebUrl, shouldShowWebSetupHelper, webRouteLabel, type NetworkInfo } from "./webUiTarget";
+import { buildWebUiTarget, classifyWebUiRoute, displayedWebUrl, shouldShowWebSetupHelper, webRouteLabel, webUiListenerReady, type NetworkInfo } from "./webUiTarget";
 
 let passed = 0;
 let failed = 0;
@@ -87,6 +87,12 @@ assert("LAN access retains setup helper", shouldShowWebSetupHelper("lan", true),
 assert("route summary names HTTPS and Tailscale", webRouteLabel("tailscale_https"), "HTTPS · Tailscale");
 assert("route summary distinguishes local network", webRouteLabel("lan"), "Local network");
 
+
+assert("detected IP alone is not a ready listener", webUiListenerReady(network, null), false);
+assert("bound signed-out listener is ready without Serve", webUiListenerReady({ ...network, web_listener: "100.64.1.2:7698" }, null), true);
+assert("unhealthy Serve is not ready", webUiListenerReady(network, serve({ snapshot: { ...readySnapshot(), state: "unhealthy" } })), false);
+assert("ready listener supplies its actual port", buildWebUiTarget(config, { ...network, web_listener: "100.64.1.2:7698" }).link, "http://100.64.1.2:7698/#token=secret");
+assert("ready IPv6 listener supports token access", buildWebUiTarget(config, { web_listener: "[fd7a:115c:a1e0::1]:7698" }).link, "http://[fd7a:115c:a1e0::1]:7698/#token=secret");
 console.log("buildWebUiTarget:");
 
 const ready = buildWebUiTarget(config, network, serve());
@@ -103,11 +109,11 @@ const cachedServe = buildWebUiTarget(config, network, serve({
   active: true,
 }));
 assert(
-  "active serve https_url wins when snapshot is not ready",
+  "unproven serve status falls back",
   cachedServe.link,
-  "https://rollacode-bot.tail0e459c.ts.net/#token=secret",
+  "http://100.110.3.12:7685/#token=secret",
 );
-assert("active serve https_url is not fallback", cachedServe.usingFallback, false);
+assert("unproven serve status is fallback", cachedServe.usingFallback, true);
 
 const unhealthyServe = buildWebUiTarget(config, network, serve({
   snapshot: { ...readySnapshot(), state: "unhealthy", url: null },

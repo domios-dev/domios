@@ -321,6 +321,7 @@ impl ServiceContext {
                 log::error!("[account-mesh] no Mesh state; Mesh traffic stays blocked");
                 return;
             };
+            crate::async_runtime::spawn(tailnet::run(service.clone(), mesh.clone()));
             let account_mesh = match service.account_mesh().await {
                 Ok(account_mesh) => account_mesh,
                 Err(error) => {
@@ -336,7 +337,6 @@ impl ServiceContext {
                 }
             };
             mesh.lock().bind_account_authority(account_mesh.authority());
-            crate::async_runtime::spawn(tailnet::run(service.clone(), mesh.clone()));
             crate::async_runtime::spawn(push_account_mesh_listener(service.clone(), mesh.clone()));
             let mut states = account_mesh.mesh_states();
             loop {
