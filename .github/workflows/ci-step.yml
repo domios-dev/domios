@@ -71,6 +71,17 @@ jobs:
         with:
           package-manager-cache: false
           node-version: 22.22.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ inputs.source_ref }}
+          fetch-depth: 1
+        env:
+          GIT_CONFIG_COUNT: "1"
+          GIT_CONFIG_KEY_0: core.longpaths
+          GIT_CONFIG_VALUE_0: "true"
+      - name: Discover installed runner tools
+        if: runner.environment == 'self-hosted'
+        run: node scripts/ci-runner-paths.mjs --paths-only
       - name: Validate the requested step
         shell: bash
         run: |
@@ -83,17 +94,6 @@ jobs:
             ci-suite) case "$STEP_TARGET" in full|platform|embeddings) ;; *) echo "::error::ci-suite target is full, platform or embeddings"; exit 2 ;; esac ;;
             node-test) [[ "$STEP_TARGET" == scripts/tests/*.test.mjs ]] || { echo "::error::node-test target is a scripts/tests/*.test.mjs file"; exit 2; } ;;
           esac
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-        with:
-          ref: ${{ inputs.source_ref }}
-          fetch-depth: 1
-        env:
-          GIT_CONFIG_COUNT: "1"
-          GIT_CONFIG_KEY_0: core.longpaths
-          GIT_CONFIG_VALUE_0: "true"
-      - name: Discover installed runner tools
-        if: runner.environment == 'self-hosted'
-        run: node scripts/ci-runner-paths.mjs --paths-only
       - name: Hosted Rust toolchain
         if: runner.environment == 'github-hosted' && inputs.recipe != 'node-test'
         uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
