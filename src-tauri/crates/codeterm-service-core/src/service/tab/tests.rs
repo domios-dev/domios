@@ -217,11 +217,10 @@ fn release_remote_ownership_refuses_other_tabs_and_persists_the_release() {
         .ownership
         .is_some());
 
-    let storage = crate::storage::Storage::open(
-        fixture.temp.path().join("ownership-release-storage"),
-        crate::storage::StorageConfig::default(),
-    )
-    .unwrap();
+    let root = fixture.temp.path().join("ownership-release-storage");
+    crate::storage::test_support::seed_empty_root(&root);
+    let storage =
+        crate::storage::Storage::open(root, crate::storage::StorageConfig::default()).unwrap();
     let adapter = crate::session::store::StorageDeskAdapter::from_storage(storage.clone());
     let snapshot = fixture.service.mux.read().to_session_snapshot();
     adapter

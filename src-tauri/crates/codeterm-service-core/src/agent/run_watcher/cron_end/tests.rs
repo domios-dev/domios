@@ -201,6 +201,7 @@ fn oneshot_end_without_report_target_keeps_history() {
 fn storage_cron_consumer_run_end_commits_through_storage() {
     let opened = std::sync::OnceLock::new();
     let run = oneshot_run_in(Some(REPORT_TAB), |fixture| {
+        crate::storage::test_support::seed_empty_root(&fixture.temp.path().join("instance"));
         let storage = crate::storage::Storage::open(
             fixture.temp.path().join("instance"),
             crate::storage::StorageConfig::default(),

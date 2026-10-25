@@ -205,9 +205,21 @@ impl MemManager {
 
     pub fn open_in_memory() -> Result<Arc<Self>, String> {
         embeddings::ensure_extension_registered();
+        #[cfg(feature = "test-support")]
+        let conn = test_support::memory_connection()?;
+        #[cfg(not(feature = "test-support"))]
+        let conn = Self::empty_memory_connection()?;
+        Self::with_memory_connection(conn)
+    }
+
+    fn empty_memory_connection() -> Result<Connection, String> {
         let conn = Connection::open_in_memory().map_err(|e| format!("open :memory:: {}", e))?;
         store::init_schema(&conn).map_err(|e| format!("init schema: {}", e))?;
         solution_metadata::initialize(&conn)?;
+        Ok(conn)
+    }
+
+    fn with_memory_connection(conn: Connection) -> Result<Arc<Self>, String> {
         let tmp = std::env::temp_dir().join(format!("mem-test-{}", ulid::Ulid::new()));
         std::fs::create_dir_all(tmp.join("blobs")).ok();
         let layout = graph_layout::LayoutState::load(&tmp);
@@ -499,5 +511,5 @@ mod startup_backfill_tests {
     }
 }
 
-#[cfg(test)]
-mod test_support;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;

@@ -170,6 +170,7 @@ impl Fixture {
         let temp = tempfile::tempdir().expect("temp root");
         fs::create_dir_all(temp.path().join("copy")).expect("source copy");
         fs::create_dir_all(temp.path().join("instance")).expect("instance root");
+        codeterm_storage::test_support::seed_empty_root(&temp.path().join("instance"));
         Fixture { temp }
     }
 
