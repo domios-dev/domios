@@ -66,9 +66,12 @@ test('macOS signing and notarization cannot use the non-signing hosted runner sw
 
 test('Linux routing excludes BLACKSTAR and all private compilation uses the same Ubuntu executor',()=>{
   const directory=new URL('../../.github/workflows/',import.meta.url);
-  for(const file of readdirSync(directory).filter(file=>file.endsWith('.yml'))){
+  for(const file of readdirSync(directory).filter(file=>file.endsWith('.yml')&&file!=='ci-step.yml')){
     assert.ok(!readFileSync(new URL(file,directory),'utf8').includes('host-blackstar'),file);
   }
+  const step=readFileSync(new URL('ci-step.yml',directory),'utf8');
+  assert.match(step,/"blackstar-windows":\["self-hosted","Windows","windows-ci","host-blackstar"\]/);
+  assert.equal(step.match(/host-blackstar/g).length,1);
   const fast=workflow('tests-fast'),rust=workflow('tests-rust'),ci=workflow('tests');
   const guards=fast.jobs.guards;
   assert.equal(guards['runs-on'],'ubuntu-24.04');
