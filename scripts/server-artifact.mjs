@@ -4,6 +4,7 @@ import { readFileSync, realpathSync, writeFileSync, mkdirSync, copyFileSync, cpS
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { stagedDevPaths } from './dev-native-layout.mjs';
+import { syncBuildDirectory } from './build-artifacts.cjs';
 import { macDevSigning, signMacDevServer, sealMacDevBundle } from './dev-macos-bundle.mjs';
 import { createRequire } from 'node:module';
 const { bundledCliName } = createRequire(import.meta.url)('./bundle-cli.js');
@@ -171,7 +172,8 @@ export async function stageDevResources({ cargoLog, treeLog, cliLog, repo, resou
   const { createManifest } = await import('./package-server-component-manifest.mjs');
   const manifestFile = await createManifest({ cwd: repo, serverFile: stagedServer, clientFile,
     clientIdentity: signing?.clientIdentity, serverBuild: build, serverExecutable: serverRelative, apiVersion: constant('API_VERSION'), bootstrapProtocol: constant('BOOTSTRAP_PROTOCOL') });
-  for (const name of [...(serverOnly ? [] : ['dist']), 'skills', 'LICENSE', 'NOTICE']) copyResource(path.join(repo, name), path.join(root, name));
+  if (!serverOnly) syncBuildDirectory(path.join(repo, 'dist'), path.join(root, 'dist'));
+  for (const name of ['skills', 'LICENSE', 'NOTICE']) copyResource(path.join(repo, name), path.join(root, name));
   publishDevExecutable(stagedServer, path.join(root, serverRelative));
   const sourceManifest = path.join(repo, 'target/domios-package/server-component.json');
   const temporary = path.join(root, 'server-component.json.partial');

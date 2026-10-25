@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { client, dcJson, target } from "./lib/env.mjs";
 import { runId } from "./lib/fixtures.mjs";
+import { chooseAgentAccess } from "./lib/setup.mjs";
 import { planFromEnv, renderPlan } from "./lib/plan.mjs";
 import { captureScreenshot } from "./lib/screenshots.mjs";
 import { REQUIRED_PROVIDERS } from "./lib/oracle.mjs";
@@ -67,6 +68,11 @@ async function provisionWorkspace(ctx) {
 async function setup(ctx) {
   ctx.state.run ??= runId();
   Object.assign(ctx.state, { tabs: ctx.state.tabs ?? [], teams: ctx.state.teams ?? [], plans: ctx.state.plans ?? [] });
+  const access = await ctx.check("SETUP", "agent_access_chosen", ctx.state.run, async () => {
+    const evidence = await chooseAgentAccess(ctx.api);
+    return { summary: `full_access=${evidence.full_access}`, evidence };
+  });
+  if (!access) return;
   if (!(await provisionWorkspace(ctx))) return;
   const selected = await providers(ctx);
   const pty = preferred(selected.run, false), runtime = preferred(selected.run, true);
