@@ -91,7 +91,7 @@ function jobRuns(job, scope, { cancelled = false, event_name = "push" } = {}) {
   const expression = jobConditions.get(job);
   if (!expression) return true;
   const outputs = Object.fromEntries(["frontend", "rust", "heavy"].map(key => [key, String(key === "heavy" ? scope.heavy ?? scope.rust : scope[key])]));
-  return condition(expression, { github: { repository: "rollacode/codeterm", actor: "rollacode", event_name, ref: "refs/heads/develop" }, inputs: { resolved_scope: JSON.stringify(outputs) }, needs: { changed: { outputs } }, cancelled });
+  return condition(expression, { github: { repository: "rollacode/codeterm", repository_owner: "rollacode", actor: "rollacode", event_name, ref: "refs/heads/develop" }, inputs: { resolved_scope: JSON.stringify(outputs) }, needs: { changed: { outputs } }, cancelled });
 }
 
 test("workflow wiring skips Rust jobs for frontend diffs and preserves generated types for Rust", () => {
