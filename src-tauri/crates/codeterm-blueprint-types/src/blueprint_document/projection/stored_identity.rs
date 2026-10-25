@@ -14,6 +14,7 @@ pub fn matches_identity(document: &Document, recorded: &str) -> Result<bool, Str
             restore_node_defaults(&mut node["node"]);
         }
     }
+    prior.sort_all_objects();
     Ok(format!("{:x}", Sha256::digest(prior.to_string().as_bytes())) == recorded)
 }
 
