@@ -24,12 +24,18 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
+        Self::with_paused(false)
+    }
+
+    fn with_paused(paused: bool) -> Self {
         let root = tempfile::tempdir().unwrap();
         let (mut mux, creator) = MultiplexerState::new();
         let workspace = mux.find_workspace_for_tab(&creator).unwrap();
         mux.get_tab_mut(&creator).unwrap().agent_type = Some("fixture-agent".into());
         mux.get_tab_mut(&creator).unwrap().cwd = Some(root.path().to_string_lossy().into_owned());
         let fixture = ServiceFixture::new(mux);
+        *fixture.service.secrets.try_write().unwrap() =
+            Arc::new(codeterm_service_core::secrets::mock::MockStore::new());
         let storage = Storage::open(&root.path().join("store"), StorageConfig::default()).unwrap();
         let store = Store::with_storage(
             &storage,
@@ -46,7 +52,7 @@ impl Fixture {
         let document = json!({"schema_version":2,"kind":"pipeline","name":"Webhook fixture","owner":"tab",
             "trigger":{"type":"webhook","schema":{"type":"object"}},
             "steps":[{"id":"capture","run":{"lit":command},"in":{"type":"object"}}],"result":{"to":"notify"}});
-        let job = store
+        let mut job = store
             .prepare_document(
                 document,
                 Owner {
@@ -58,6 +64,7 @@ impl Fixture {
                 true,
             )
             .unwrap();
+        job.machine.paused = paused;
         let handle = fixture_handle_with_ui(store, fixture.service.ui.clone());
         let id = job.id.clone();
         codeterm_sentinel_host::storage::commit(&handle.store, |store| store.stage_insert(job))
@@ -197,8 +204,21 @@ async fn webhook_post_persists_one_run_and_keeps_shell_metacharacters_as_data() 
             .unwrap();
     assert_eq!(captured["value"], payload);
     assert!(!marker.exists());
+    use codeterm_blueprint_types::blueprint_journal::JournalState;
+    for state in [JournalState::Running, JournalState::Done] {
+        assert_eq!(
+            rows.iter()
+                .filter(|row| row.step_name == "capture" && row.state == state)
+                .count(),
+            1
+        );
+    }
     assert_eq!(
-        rows.iter().filter(|row| row.step_name == "capture").count(),
+        rows.iter()
+            .filter(|row| row.step_name == "$run"
+                && row.outcome
+                    == Some(codeterm_blueprint_types::blueprint_journal::JournalOutcome::Done))
+            .count(),
         1
     );
     assert!(rows
@@ -255,25 +275,32 @@ async fn webhook_lifecycle_limits_and_inactive_graphs_refuse_without_secret_disc
         .await;
     assert_eq!(disabled, missing);
     assert_eq!(disabled.0, StatusCode::NOT_FOUND);
-    let (_, enabled) = fixture.configure("enable", true).await;
-    let mut job = fixture
-        .handle
-        .store
-        .lock()
-        .get(&fixture.id)
-        .unwrap()
-        .clone();
-    job.machine.paused = true;
-    codeterm_sentinel_host::storage::commit(&fixture.handle.store, |store| {
-        store.stage_finish(&job)
-    })
-    .unwrap();
+    assert_eq!(fixture.configure("enable", true).await.0, StatusCode::OK);
+    let paused = Fixture::with_paused(true);
+    let (status, enabled) = paused.configure("enable", true).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        paused
+            .handle
+            .store
+            .lock()
+            .get(&paused.id)
+            .unwrap()
+            .machine
+            .paused
+    );
     assert_eq!(
-        fixture
-            .post(&path, enabled["secret"].as_str(), "{}", None)
+        paused
+            .post(
+                &format!("/api/blueprints/{}/webhook", paused.id),
+                enabled["secret"].as_str(),
+                "{}",
+                None,
+            )
             .await,
         missing
     );
+    paused.close();
     let hooks = blueprint_webhook::service(&fixture.fixture.service).unwrap();
     let now = chrono::Utc::now().timestamp_millis() as u64;
     for _ in 0..120 {
