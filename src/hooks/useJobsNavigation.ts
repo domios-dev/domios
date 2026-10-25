@@ -15,16 +15,15 @@ function jobsFilter(value: unknown): JobsFilter | undefined {
   return workspaceId !== undefined && teamId !== undefined ? { workspaceId, teamId } : undefined;
 }
 
-export function useJobsFilterNavigation(initial: JobsFilter, restore: boolean, ready: boolean, workspaces: readonly { id: string }[], teams: readonly { id: string }[]) {
+export function useJobsFilterNavigation(initial: JobsFilter, restore: boolean, ready: boolean, workspaces: readonly { id: string }[]) {
   const [filter, setFilter] = useViewerNavigation<JobsFilter>(`jobs-filter:${JSON.stringify(initial)}`, initial, jobsFilter, restore);
   useEffect(() => {
     if (!ready) return;
     setFilter((current) => {
       const workspaceId = parentWhenMissing(current.workspaceId, true, (id) => workspaces.some((workspace) => workspace.id === id));
-      const teamId = parentWhenMissing(current.teamId, true, (id) => teams.some((team) => team.id === id));
-      return workspaceId === current.workspaceId && teamId === current.teamId ? current : { workspaceId, teamId };
+      return workspaceId === current.workspaceId ? current : { ...current, workspaceId };
     });
-  }, [ready, workspaces, teams, setFilter]);
+  }, [ready, workspaces, setFilter]);
   return [filter, setFilter] as const;
 }
 

@@ -242,6 +242,13 @@ test("an owner prompt remains visible in history and exposes cancel while active
 test("injected automation entry opens authoritative graph and returns to ordinary cron controls", async () => {
   const calls: string[] = [];
   const transport = new FixtureTransport();
+  const participant = transport.graph.nodes[0];
+  transport.graph = { ...transport.graph, blueprints: [{
+    id: participant.identity.id,
+    name: participant.name,
+    owner: { kind: "team", tab_id: participant.identity.owner_tab_id, team_id: participant.identity.team_id },
+    state: "stopped", run_id: null, current_step: null, last_event_at_ms: null,
+  }] };
   const { host, root } = await render(CRON_ID, adapter({}, calls), calls, "Success", { adapter: transport, attachment });
   try {
     const entry = Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === "Automation graph");

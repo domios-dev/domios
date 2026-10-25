@@ -58,7 +58,7 @@ it("releases failed starts and only permits explicit or lifecycle retries", asyn
     expect(canRetryChatStart("failed", cause)).toBe(false);
   }
   for (const cause of ["retry", "authority_changed", "history_settled", "resync:epoch_changed",
-    "tab_activated", "window_activated", "resync:connected", "listener_owned"]) {
+    "tab_activated", "window_activated", "resync:reconnected", "listener_owned"]) {
     expect(canRetryChatStart("failed", cause)).toBe(true);
   }
   expect(await run("tab", "retry", async () => "ready")).toBe("ready");
