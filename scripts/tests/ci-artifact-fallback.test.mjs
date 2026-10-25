@@ -16,16 +16,9 @@ const slash = value => value.replaceAll('\\', '/');
 function harness() {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'ci-artifact-fallback-'));
   const bin = path.join(dir, 'bin');
-  const artifacts = path.join(dir, 'run-artifacts');
+  const artifacts = path.join(dir, 'runner-temp', 'ci-artifact-fallback', '41');
   mkdirSync(bin);
-  mkdirSync(artifacts);
-  // A stand-in for `gh run download <run> --repo R --pattern P --dir D` that serves the run's artifacts.
-  writeFileSync(path.join(bin, 'gh'), `#!/usr/bin/env bash
-printf '%s\\n' "$*" >> "${slash(dir)}/gh-calls"
-[ -n "$GH_TOKEN" ] || exit 4
-while [ $# -gt 0 ]; do [ "$1" = --dir ] && dest="$2"; shift; done
-cp -R "${slash(artifacts)}"/. "$dest"/
-`, { mode: 0o755 });
+  mkdirSync(artifacts, { recursive: true });
   const env = {
     ...process.env, PATH: `${slash(bin)}${path.delimiter === ';' ? ':' : path.delimiter}${process.env.PATH}`,
     GITHUB_ACTIONS: 'true', GITHUB_JOB: 'build', GITHUB_REPOSITORY: 'owner/repo',
@@ -46,7 +39,7 @@ test('an unreachable store spools a put as a run artifact and records where it l
     assert.equal(put.status, 0, put.stderr);
     const name = readFileSync(path.join(h.dir, 'runner-temp', 'ci-artifact-spool', '.name'), 'utf8').trim();
     assert.match(name, /^ci-artifact-spool-build-/);
-    assert.match(put.stdout, new RegExp(`::warning::private store http://127.0.0.1:9 is unreachable; 41/release-dry-run/linux-x86_64/receipt.json is retained in run artifact ${name}`));
+    assert.match(put.stdout, new RegExp(`::warning::artifact backend selected; 41/release-dry-run/linux-x86_64/receipt.json is retained in run artifact ${name}`));
     assert.equal(readFileSync(path.join(h.dir, 'runner-temp', 'ci-artifact-spool', '41', 'release-dry-run', 'linux-x86_64', 'receipt.json'), 'utf8'), '{"ok":true}');
     assert.equal(readFileSync(path.join(h.dir, 'sources.tsv'), 'utf8'),
       `41/release-dry-run/linux-x86_64/receipt.json\trun-artifact:${name}/41/release-dry-run/linux-x86_64/receipt.json\n`);
@@ -69,8 +62,6 @@ test('an unreachable store reads keys and prefixes back from the key run\'s spoo
     const single = h.run(['get', '41/rust-receipt/b.log', slash(path.join(h.dir, 'single.log'))]);
     assert.equal(single.status, 0, single.stderr);
     assert.equal(readFileSync(path.join(h.dir, 'single.log'), 'utf8'), 'B');
-    assert.equal(readFileSync(path.join(h.dir, 'gh-calls'), 'utf8').trim().split('\n').length, 1, 'one download per job');
-    assert.match(readFileSync(path.join(h.dir, 'gh-calls'), 'utf8'), /^run download 41 --repo owner\/repo --pattern ci-artifact-spool-\* --dir /);
     assert.match(readFileSync(path.join(h.dir, 'sources.tsv'), 'utf8'), /^41\/rust-receipt\/a\.json\trun-artifact:ci-artifact-spool-build-1\/41\/rust-receipt\/a\.json$/m);
     const missing = h.run(['get', '41/rust-receipt/none.json', slash(path.join(h.dir, 'none'))]);
     assert.notEqual(missing.status, 0);
@@ -78,12 +69,12 @@ test('an unreachable store reads keys and prefixes back from the key run\'s spoo
   } finally { rmSync(h.dir, { recursive: true, force: true }); }
 });
 
-test('the run-artifact fallback refuses without a token or a run id instead of reporting success', () => {
+test('the run-artifact fallback refuses without evidence or a run id instead of reporting success', () => {
   const h = harness();
   try {
     const noToken = h.run(['get-prefix', '41/rust-receipt/', slash(path.join(h.dir, 'out'))], { GH_TOKEN: '', GITHUB_TOKEN: '' });
     assert.notEqual(noToken.status, 0);
-    assert.match(noToken.stderr, /no GH_TOKEN for the run-artifact fallback/);
+    assert.match(noToken.stderr, /must download|is in no run artifact/);
     const noRun = h.run(['get', 'shared/key', slash(path.join(h.dir, 'x'))]);
     assert.notEqual(noRun.status, 0);
     assert.match(noRun.stderr, /names no run id/);
@@ -91,7 +82,7 @@ test('the run-artifact fallback refuses without a token or a run id instead of r
   } finally { rmSync(h.dir, { recursive: true, force: true }); }
 });
 
-test('every job that stores CI artifacts uploads its spool and every reader has a token', () => {
+test('every job that stores CI artifacts uploads its spool and every reader prefetches fallback artifacts', () => {
   const workflows = ['release-macos-build', 'release-linux', 'release-linux-arm64', 'release-windows', 'tests',
     'rust-warnings-summary', 'release-manifest-dry-run'];
   for (const name of workflows) {
@@ -108,7 +99,7 @@ test('every job that stores CI artifacts uploads its spool and every reader has 
       }
       for (const step of steps) {
         if (/ci-artifact\.sh get|release-dry-run-manifest\.mjs aggregate/.test(step.run ?? '')) {
-          assert.equal(evaluateCondition(step.env?.GH_TOKEN ?? job.env?.GH_TOKEN ?? parse(text).env?.GH_TOKEN, { github: { token: 'read-token' } }), 'read-token', `${name}/${id}/${step.name}`);
+          assert.ok(steps.some(candidate => candidate.uses?.startsWith('actions/download-artifact@') && candidate.with?.pattern === 'ci-artifact-spool-*'), name+'/'+id+'/'+step.name);
         }
       }
     }

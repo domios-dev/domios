@@ -78,9 +78,13 @@ jobs:
         if: runner.environment == 'github-hosted'
       - name: Require exact-SHA dev qualification before frontend publication
         if: env.FRONTEND_DRY_RUN != 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: node scripts/ci-qualification.mjs check "$(git rev-parse HEAD)"
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            const {pathToFileURL} = require('node:url');
+            const {requireQualificationWithGithub} = await import(pathToFileURL(process.env.GITHUB_WORKSPACE + '/scripts/ci-workflow-api.mjs').href);
+            const sha = process.env.QUALIFICATION_SHA || require('node:child_process').execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+            await requireQualificationWithGithub(github, context, sha);
       - name: Resolve committed frontend version for pull request dry run
         if: github.event_name == 'pull_request'
         run: node scripts/frontend-release/release.mjs resolve-pr-tag
@@ -166,6 +170,11 @@ jobs:
       - name: Discover installed runner tools
         if: runner.environment == 'self-hosted'
         run: node scripts/ci-runner-paths.mjs --paths-only
+      - name: Fetch fallback run artifact evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: ci-artifact-spool-*
+          path: ${{ runner.temp }}/ci-artifact-fallback/${{ github.run_id }}
       - name: Fetch the frontend release
         env:
           GH_TOKEN: ${{ github.token }}

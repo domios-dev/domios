@@ -153,3 +153,27 @@ Guards always run on secret-free ubuntu-24.04. The private full Rust suite,
 Clippy and CLI use the same host-ubunta linux-build executor; the Rust tier
 starts after the fast tier, preserving one compilation per host. BLACKSTAR WSL
 is retired from workflow routing. Windows remains on ROG and macOS on the Macs.
+
+## Hosted switch prerequisites
+
+The 1.15.3 defaults retain private Rust compilation and signing. Before enabling
+additional hosted compile capacity in 1.15.4:
+
+- Install Linux GUI development dependencies (WebKitGTK 4.1, GTK, appindicator,
+  OpenSSL, librsvg, xdo and bundle utilities) before workspace compilation.
+- Derive hosted mode from runner capability, rather than matching one label;
+  validate the selected OS and architecture, secret suppression and cache backend.
+- Replace release self-hosted label arrays with a complete hosted bootstrap design.
+  Signing and notarization stay on private runners.
+- Supply explicit public fixture client configuration for secret-free test builds,
+  skip local secret lookup in CI and distinguish that coverage from configured releases.
+
+Small CI evidence (Rust receipts/warnings and frontend bundles) uses GitHub
+artifacts on every Actions runner, including private Rust producers. Large release
+bundles and signed evidence retain the private-store/publication path. Spools and
+CI JSON expire after three days; frontend and unsigned ARM64 transfers after one day.
+Readers merge every spool and reject differing copies of one key.
+Frontend bundles and unsigned ARM64 handoffs are addressed by the producer's
+SHA-256, so retrying a consumer does not change which bytes it receives.
+The six public client configuration secrets remain repository-level inputs to
+the environment-less hosted ARM64 compile; signing credentials stay private.

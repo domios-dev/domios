@@ -61,7 +61,7 @@ test('role preflight checks every required tool and reports all missing prerequi
 });
 
 test('preflight rejects missing Python even when its path directory was discovered', () => {
-  assert.throws(() => checkRunnerTools('rust', { platform: 'win32', execute: command =>
+  assert.throws(() => checkRunnerTools('rust', { platform: 'win32', env: {}, execute: command =>
     ({ status: command === 'python' ? 9009 : 0 }) }), /python/);
   assert.throws(() => checkRunnerTools('unknown'), /Unknown runner role/);
 });

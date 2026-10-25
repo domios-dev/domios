@@ -71,7 +71,7 @@ test('macOS and Linux arm64 have separate jobs, routing variables and manifest d
   assert.ok(release.jobs['release-manifest'].needs.includes('macos-arm64'));
   assert.ok(release.jobs['release-manifest'].needs.includes('macos-x64'));
   assert.ok(release.jobs['release-manifest'].needs.includes('linux-arm64'));
-  assert.ok(release.jobs.prepare.steps.some(step => /ci-qualification/.test(step.run ?? '')));
+  assert.ok(release.jobs.prepare.steps.some(step => /requireQualificationWithGithub\(github, context, sha\)/.test(step.with?.script ?? '')));
   assert.ok(macos.jobs.build['runs-on'].some(label => label.includes('matrix.runner_label')));
   assert.match(linuxArm64.jobs.build['runs-on'][1], /RELEASE_LINUX_ARM64_LABEL.*codeterm-builder/);
   assert.equal(macos.jobs.build.strategy['fail-fast'], false);

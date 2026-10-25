@@ -44,7 +44,7 @@ export async function install(archive, expected, distDirectory, run = tar) {
   if (!existsSync(path.join(distDirectory, 'index.html'))) throw new Error('installed frontend bundle has no index.html');
 }
 
-export async function publish(distDirectory, archive, runId, { put = store, run = tar } = {}) {
+export async function publish(distDirectory, archive, runId, { put = process.env.GITHUB_ACTIONS === 'true' ? () => {} : store, run = tar } = {}) {
   const digest = await pack(distDirectory, archive, run);
   put('put', key(runId), archive, { bytes: (await stat(archive)).size });
   return digest;
@@ -57,15 +57,11 @@ export async function fetchArchive(runId, expected, archive, { get = store, env 
   if (env.GITHUB_ENV) await appendFile(env.GITHUB_ENV, `CODETERM_FRONTEND_ARCHIVE=${archive}\nCODETERM_FRONTEND_SHA256=${expected}\n`);
 }
 
-export async function fetchRunArtifact(runId, expected, archive, { env = process.env,
-  download = args => execFileSync('gh', args, { stdio: 'inherit', timeout: 120000 }) } = {}) {
-  if (!/^[1-9]\d*$/.test(runId ?? '') || !/^[1-9]\d*$/.test(env.GITHUB_RUN_ATTEMPT ?? '') || path.basename(archive) !== 'frontend-dist.tar') {
+export async function fetchRunArtifact(runId, expected, archive, { env = process.env } = {}) {
+  if (!/^[1-9]\d*$/.test(runId ?? '') || path.basename(archive) !== 'frontend-dist.tar') {
     throw new Error('invalid frontend run artifact identity');
   }
-  await mkdir(path.dirname(archive), { recursive: true });
-  await rm(archive, { force: true });
-  download(['run', 'download', runId, '--repo', env.GITHUB_REPOSITORY,
-    '--name', `frontend-dist-${env.GITHUB_RUN_ATTEMPT}`, '--dir', path.dirname(archive)]);
+  // The workflow downloads the digest-addressed artifact with the pinned artifact action.
   await fetchArchive(runId, expected, archive, { get: () => {}, env });
 }
 

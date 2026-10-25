@@ -14,7 +14,7 @@ function provisionErrors(job, kind='github-hosted') {
   const errors = [];
   const steps = job.steps;
   const preflight = steps.findIndex(step => step.name === 'Runner preflight');
-  if (preflight < 0) return ['missing preflight'];
+  if (preflight < 0) return JSON.stringify(jobTools(job)) === '["node"]' ? [] : ['missing preflight'];
   const required = jobTools(job);
   const declared = runnerRequirements(steps[preflight].run.split(/\s+/).at(-1));
   if (JSON.stringify(required) !== JSON.stringify(declared)) errors.push('declared tools differ from command consumers');
@@ -46,7 +46,7 @@ test('simulate every CI executable job against its command-derived tool and Pyth
     const kinds=runnerKinds(job);
     for(const kind of kinds)assert.deepEqual(provisionErrors(job,kind), [], name + '/' + id+'/'+kind);
     const probes=[];
-    checkRunnerTools(job.steps.find(step => step.name==='Runner preflight').run.split(/\s+/).at(-1), {
+    checkRunnerTools(job.steps.find(step => step.name==='Runner preflight')?.run.split(/\s+/).at(-1) || jobTools(job).join(','), {
       platform:'linux', execute:(command,args)=>{probes.push({command,args});return {status:0};},
     });
     assert.equal(probes.length,jobTools(job).length,name+'/'+id);

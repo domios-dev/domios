@@ -46,12 +46,18 @@ export function runnerToolPaths(platform, env, hasFile, children = () => []) {
   return [...new Set(directories)];
 }
 
+export function bashInterpreter(platform = process.platform, env = process.env, hasFile = fs.existsSync) {
+  if (platform !== 'win32') return 'bash';
+  const directories = runnerToolPaths(platform, env, hasFile);
+  return path.win32.join(directories[0], 'bash.exe');
+}
+
 export const RUNNER_ROLES = {
-  policy: ['node', 'git', 'bash', 'python', 'gh', 'jq', 'curl', 'tar'],
-  receipt: ['node', 'git', 'bash', 'gh', 'curl', 'tar'],
+  policy: ['node', 'git', 'bash', 'python', 'jq', 'curl', 'tar'],
+  receipt: ['node', 'git', 'bash', 'curl', 'tar'],
   frontend: ['node', 'git', 'bash', 'pnpm'],
   'cli-contracts': ['node', 'git', 'bash', 'cargo'],
-  rust: ['node', 'git', 'bash', 'python', 'cargo', 'nextest', 'gh'],
+  rust: ['node', 'git', 'bash', 'python', 'cargo', 'nextest'],
   'pr-guards': ['node', 'git', 'bash', 'python', 'cargo', 'pnpm', 'nextest'],
   packaging: ['node', 'git', 'bash', 'python', 'cargo', 'gh', 'pnpm'],
   all: ['node', 'git', 'bash', 'python', 'cargo', 'nextest', 'gh', 'pnpm'],
@@ -91,6 +97,7 @@ export function checkRunnerTools(role, { platform = process.platform, env = proc
   execute = (command, args, options) => spawnSync(command, args, options) } = {}) {
   const required = runnerRequirements(role);
   const missing = [];
+  const diagnostics = [];
   for (const tool of required) {
     const python = env.CI_PYTHON || (platform === 'win32' ? 'python' : 'python3');
     const [command, ...args] = tool.startsWith('python:')
@@ -99,13 +106,19 @@ export function checkRunnerTools(role, { platform = process.platform, env = proc
     const probeEnv = env;
     const result = execute(command, args, { env: probeEnv, encoding: 'utf8', timeout: 2000,
       windowsHide: true, shell: platform === 'win32' && tool === 'pnpm' });
-    if (result.error || result.status !== 0) missing.push(tool);
+    if (result.error || result.status !== 0) {
+      missing.push(tool);
+      const status = result.error?.code || result.signal || ('exit ' + result.status);
+      diagnostics.push(tool + ': ' + command + ' ' + args.join(' ') + ' (' + status + ')' +
+        (result.stderr ? '\n' + String(result.stderr).trim() : '') +
+        (result.stdout ? '\nstdout: ' + String(result.stdout).trim() : ''));
+    }
   }
   if (missing.length) throw new Error('Runner preflight (' + role + ') missing or broken: ' +
     missing.join(', ') + '. Install/restore tools using .agents/skills/build-machine/SKILL.md; ' +
     'nextest: cargo install cargo-nextest --locked; Python: https://www.python.org/downloads/; ' +
     'Git Bash: https://gitforwindows.org/; Node/pnpm: https://nodejs.org/ and corepack enable; gh: https://cli.github.com/; ' +
-    'Python modules: python -m pip install -r scripts/requirements-ci.txt');
+    'Python modules: python -m pip install -r scripts/requirements-ci.txt.\n' + diagnostics.join('\n'));
 }
 
 export function runnerPathContent(directories) {

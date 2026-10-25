@@ -338,7 +338,7 @@ class ReleaseIssueContractTest(unittest.TestCase):
         self.assertIn('--prs-file "$RUNNER_TEMP/release-prs.json"', workflow)
         self.assertIn('--arg base_ref "$PR_BASE_REF"', workflow)
         self.assertIn(".repository_issues[].reference", workflow)
-        self.assertIn('--repo "$GITHUB_REPOSITORY"', workflow)
+        self.assertIn('verifyIssueReferences(github, selection)', workflow)
 
 
 

@@ -57,6 +57,7 @@ jobs:
           PLUGIN_TAG: ${{ inputs.tag }}
         run: |
           [[ "$PLUGIN_TAG" =~ ^plugin-[a-z0-9-]+-v[0-9] ]]
+          git fetch --no-tags --depth=1 origin "refs/tags/$PLUGIN_TAG:refs/tags/$PLUGIN_TAG"
           test "$(git rev-parse "$PLUGIN_TAG^{commit}")" = "$GITHUB_SHA"
           git merge-base --is-ancestor "$GITHUB_SHA" origin/master
       - name: Validate release metadata

@@ -12,8 +12,8 @@ const entryTools = {
 };
 const scriptTools = {
   'ci-python-env.mjs': ['python'],
-  'ci-artifact.sh': ['node', 'bash', 'curl', 'gh'],
-  'ci-qualification.mjs': ['gh'],
+  'ci-artifact.sh': ['node', 'bash', 'curl'],
+  'ci-qualification.mjs': [],
   'ci-git-history.mjs': ['git'],
   'secret-scan.sh': ['curl', 'tar'],
   'export-chat-types.mjs': ['cargo'],
@@ -59,7 +59,9 @@ export function commandTools(command, seen = new Set()) {
   return [...required].sort();
 }
 export function jobTools(job) {
-  const tools = new Set(['node', 'git', 'bash']);
+  const commands = (job.steps || []).map(step => step.run || '').filter(command => command && !command.includes('ci-runner-paths.mjs'));
+  const aggregate = commands.length && commands.every(command => command === 'node scripts/ci-result.mjs');
+  const tools = new Set(aggregate ? ['node'] : ['node', 'git', 'bash']);
   for (const step of job.steps || []) {
     for (const tool of commandTools(step.run || '')) tools.add(tool);
     for (const value of Object.values(step.env || {})) {

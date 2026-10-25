@@ -50,7 +50,8 @@ export function reproduceLaneMetadata({ isolate = true } = {}) {
         utimesSync(path.join(lane, 'src-tauri', relative), new Date('2000-01-01'), new Date('2000-01-01'));
       }
     }
-    const env = { ...process.env, CODETERM_RUST_CACHE_ROOT: path.join(root, 'cache'), CARGO_INCREMENTAL: '0', CARGO_NET_OFFLINE: 'true', RUSTC_WRAPPER: '', RUSTC_WORKSPACE_WRAPPER: '' };
+    const env = { ...process.env, CODETERM_RUST_CACHE_ROOT: path.join(root, 'cache'), CARGO_HOME: path.join(root, 'cargo-home'), CARGO_TERM_COLOR: 'never', CARGO_TERM_QUIET: 'false', CARGO_INCREMENTAL: '0', CARGO_NET_OFFLINE: 'true', RUSTC_WRAPPER: '', RUSTC_WORKSPACE_WRAPPER: '' };
+    mkdirSync(env.CARGO_HOME);
     delete env.CARGO_TARGET_DIR;
     delete env.CARGO_BUILD_TARGET_DIR;
     const runs = [];

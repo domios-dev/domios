@@ -16,8 +16,8 @@ test('warning collector forwards spaced paths as single arguments without a cust
 });
 
 test('private upload invokes the real Git Bash executable directly on Windows', () => {
-  const windows = warningArtifactCommand('store', env, 'win32');
-  assert.equal(windows.program, 'C:/Program Files/Git/bin/bash.exe');
+  const windows = warningArtifactCommand('store', env, 'win32', () => 'D:/alternate git/bin/bash.exe');
+  assert.equal(windows.program, 'D:/alternate git/bin/bash.exe');
   assert.equal(windows.args[2], `12345/rust-warnings/${env.WARNING_FILE}`);
   assert.equal(windows.args[3], `ci-rust-warnings/${env.WARNING_FILE}`);
   assert.equal(warningArtifactCommand('store', env, 'linux').program, 'bash');

@@ -112,17 +112,28 @@ jobs:
         if: runner.environment == 'self-hosted'
         run: node scripts/ci-runner-paths.mjs --paths-only
       - name: Runner preflight
-        run: node scripts/ci-runner-paths.mjs bash,gh,git,node
+        run: node scripts/ci-runner-paths.mjs bash,git,node
       - &cancel-run-on-failure
         name: Notify and cancel on first failure
         if: failure() && inputs.cancel_run
         continue-on-error: true
-        shell: bash
         env:
           CI_FAILURE_STEPS: ${{ toJSON(steps) }}
           CI_SOURCE_SHA: ${{ env.CI_SOURCE_SHA }}
-        run: |
-          node "$GITHUB_WORKSPACE/scripts/ci-first-failure.mjs" || gh run cancel "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" || true
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            try {
+              const {pathToFileURL} = require('node:url');
+              const api = await import(pathToFileURL(process.env.GITHUB_WORKSPACE + '/scripts/ci-workflow-api.mjs').href);
+              const {firstFailure} = await import(pathToFileURL(process.env.GITHUB_WORKSPACE + '/scripts/ci-first-failure.mjs').href);
+              const steps = JSON.parse(process.env.CI_FAILURE_STEPS || '{}');
+              const step = Object.entries(steps).find(([,value]) => value.outcome === 'failure')?.[0];
+              await firstFailure(step ? {step} : {}, {cancel: () => api.cancelWorkflow(github, context)});
+            } catch (error) {
+              core.warning('Failure details unavailable: ' + error.message);
+              await github.rest.actions.cancelWorkflowRun({...context.repo,run_id:context.runId});
+            }
       - id: source
         shell: bash
         run: |
@@ -149,8 +160,6 @@ jobs:
             fi
           done
           echo "run=true" >> "$GITHUB_OUTPUT"
-
-      - *cancel-run-on-failure
 
       - *cancel-run-on-failure
       - id: scope
@@ -216,9 +225,9 @@ jobs:
         uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
         with:
           toolchain: 1.99.1
+          components: clippy,rustfmt
       - name: Runner preflight
-        run: node scripts/ci-runner-paths.mjs bash,cargo,gh,git,nextest,node,pnpm,python,python:yaml
-      - *cancel-run-on-failure
+        run: node scripts/ci-runner-paths.mjs bash,cargo,git,nextest,node,pnpm,python,python:yaml
       - *cancel-run-on-failure
       - &select-pr-catalogue
         name: Select PR catalogue
@@ -266,7 +275,6 @@ jobs:
         id: ci-11
         if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
         run: node scripts/check-archive-portable-test-paths.mjs
-      - *cancel-run-on-failure
       - *cancel-run-on-failure
       - name: Install dependencies
         id: ci-13
@@ -408,10 +416,9 @@ jobs:
         uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
         with:
           toolchain: 1.99.1
+          components: clippy,rustfmt
       - name: Runner preflight
-        run: node scripts/ci-runner-paths.mjs bash,cargo,curl,gh,git,node
-      - *cancel-run-on-failure
-      - *cancel-run-on-failure
+        run: node scripts/ci-runner-paths.mjs bash,cargo,curl,git,node
       - *cancel-run-on-failure
       - name: Prepare compile stubs
         id: ci-4
@@ -525,10 +532,9 @@ jobs:
         uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
         with:
           toolchain: 1.99.1
+          components: clippy,rustfmt
       - name: Runner preflight
-        run: node scripts/ci-runner-paths.mjs bash,cargo,gh,git,node
-      - *cancel-run-on-failure
-      - *cancel-run-on-failure
+        run: node scripts/ci-runner-paths.mjs bash,cargo,git,node
       - *cancel-run-on-failure
       - name: CLI tests
         id: ci-4
@@ -639,15 +645,6 @@ jobs:
       - name: Build and typecheck frontend
         id: ci-6
         run: node scripts/ci-catalogue-command.mjs ts-typecheck
-      - name: Retain hosted warning evidence
-        if: always()
-        continue-on-error: true
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: hosted-rust-warnings-frontend-dist
-          path: ci-rust-warnings/*.json
-          if-no-files-found: error
-          retention-days: 7
 
   frontend-windows:
     name: Windows path identity
@@ -732,6 +729,7 @@ jobs:
         uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
         with:
           toolchain: 1.99.1
+          components: clippy,rustfmt
       - name: Runner preflight
         run: node scripts/ci-runner-paths.mjs bash,cargo,git,node,pnpm
       - name: Install dependencies
@@ -765,7 +763,7 @@ jobs:
           name: hosted-rust-warnings-ts-types
           path: ci-rust-warnings/*.json
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 3
 
   ts-unit:
     name: ts unit
