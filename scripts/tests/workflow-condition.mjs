@@ -2,5 +2,5 @@ export function condition(expression, { needs = {}, inputs = {}, vars = {}, gith
   const source = expression.replace(/^\$\{\{ | \}\}$/g, "")
     .replaceAll(/(needs|steps)\.([\w-]+)/g, (_, scope, id) => `${scope}[${JSON.stringify(id)}]`);
   const startsWith = (value, prefix) => String(value ?? "").toLowerCase().startsWith(String(prefix).toLowerCase());
-  return Boolean(Function("needs", "steps", "inputs", "vars", "github", "startsWith", "failure", "cancelled", "always", `return (${source})`)(needs, steps, inputs, vars, github, startsWith, () => failed, () => cancelled, () => true));
+  return Boolean(Function("needs", "steps", "inputs", "vars", "github", "startsWith", "failure", "cancelled", "always", "fromJSON", `return (${source})`)(needs, steps, inputs, vars, github, startsWith, () => failed, () => cancelled, () => true, JSON.parse));
 }

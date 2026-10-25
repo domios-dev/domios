@@ -20,6 +20,10 @@ on:
         required: false
         default: false
         type: boolean
+      resolved_scope:
+        description: Scope resolved once by the fast tier
+        required: true
+        type: string
       artifacts_optional:
         description: Dry runs keep going when artifact storage refuses an upload
         required: false
@@ -53,88 +57,11 @@ env:
   DOMIOS_BILLING_FUNCTIONS_URL: ${{ secrets.DOMIOS_BILLING_FUNCTIONS_URL }}
 
 jobs:
-  # A push whose tree equals a parent's tree introduces nothing that parent had
-  # not already carried through its own pull request, so the matrix would retest
-  # an identical tree. Concurrency cannot see that: the merge is a new commit.
-  # A real three-way merge matches no parent and still runs.
-  #
-  # Push only. A pull_request checks out refs/pull/N/merge, whose parents are the
-  # base tip and the PR head; with an unmoved base its tree equals the head tree,
-  # and skipping there would skip the one run that has never happened.
-  changed:
-    name: tree is new
-    # A release branch's push already runs these checks on the exact SHA in release.yml.
-    if: ${{ github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release/') }}
-    # Every job waits on this gate, so any free light runner takes it.
-    runs-on: [self-hosted, light]
-    permissions:
-      contents: read
-      actions: write
-    timeout-minutes: 5
-    outputs:
-      frontend: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.frontend == 'true' }}
-      rust: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.rust == 'true' }}
-      heavy: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.heavy == 'true' }}
-      plugins: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.plugins || '[]' }}
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        id: ci-1
-        with:
-          ref: ${{ inputs.source_ref || github.ref }}
-          fetch-depth: 2
-      - &cancel-run-on-failure
-        name: Notify and cancel on first failure
-        if: failure() && inputs.cancel_run
-        continue-on-error: true
-        shell: bash
-        env:
-          CI_FAILURE_STEPS: ${{ toJSON(steps) }}
-        run: |
-          node "$GITHUB_WORKSPACE/scripts/ci-first-failure.mjs" || gh run cancel "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" || true
-      - id: tree
-        env:
-          CI_RELEASE_CALL: ${{ inputs.source_ref != '' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ "$CI_RELEASE_CALL" = true ] || [ "${{ github.event_name }}" != push ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          tree=$(git rev-parse 'HEAD^{tree}')
-          for parent in $(git rev-parse 'HEAD^@'); do
-            if [ "$(git rev-parse "$parent^{tree}")" = "$tree" ]; then
-              echo "HEAD tree $tree already carried by parent $parent"
-              echo "run=false" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-          done
-          echo "run=true" >> "$GITHUB_OUTPUT"
-      - *cancel-run-on-failure
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
-        id: ci-3
-        if: steps.tree.outputs.run == 'true'
-        with:
-          package-manager-cache: false
-          node-version: '22.22.0'
-      - *cancel-run-on-failure
-      - id: scope
-        if: steps.tree.outputs.run == 'true'
-        env:
-          CI_FULL_MATRIX: ${{ (inputs.source_ref != '' && inputs.scope != 'frontend') }}
-          CI_FRONTEND_ONLY: ${{ inputs.source_ref != '' && inputs.scope == 'frontend' }}
-          CI_FAST_ONLY: ${{ github.event_name == 'pull_request' }}
-        run: node scripts/ci-scope.mjs HEAD^ HEAD
-
-
-  # The whole suite compiles and runs once, in place, on any free runner in the
-  # rust-tests pool: shipping a nextest archive between runners cost more than the tests.
-      - *cancel-run-on-failure
+  # One stable executor retains warm final targets; light jobs use another host.
   rust-tests:
     name: rust tests (full suite)
-    needs: changed
-    if: ${{ !cancelled() && needs.changed.outputs.heavy == 'true' }}
-    runs-on: [self-hosted, rust-tests]
+    if: ${{ !cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true' }}
+    runs-on: [self-hosted, Linux, rust-tests, heavy, host-blackstar]
     permissions:
       contents: read
       actions: write
@@ -156,7 +83,16 @@ jobs:
           GIT_CONFIG_COUNT: '1'
           GIT_CONFIG_KEY_0: core.longpaths
           GIT_CONFIG_VALUE_0: 'true'
-      - *cancel-run-on-failure
+      - &cancel-run-on-failure
+        name: Notify and cancel on first failure
+        if: failure() && inputs.cancel_run
+        continue-on-error: true
+        shell: bash
+        env:
+          CI_FAILURE_STEPS: ${{ toJSON(steps) }}
+          CI_SOURCE_SHA: ${{ needs.changed.outputs.source_sha || steps.source.outputs.sha || inputs.source_ref || github.sha }}
+        run: |
+          node "$GITHUB_WORKSPACE/scripts/ci-first-failure.mjs" || gh run cancel "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" || true
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         id: ci-2
         with:
@@ -280,9 +216,8 @@ jobs:
   # Each OS compiles and runs only its cfg-gated tests and the native input crates.
   rust-platform:
     name: rust platform (${{ matrix.os }})
-    needs: changed
-    if: ${{ !cancelled() && needs.changed.outputs.heavy == 'true' }}
-    runs-on: [self-hosted, '${{ matrix.os }}', '${{ matrix.label }}']
+    if: ${{ !cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true' }}
+    runs-on: [self-hosted, '${{ matrix.os }}', '${{ matrix.label }}', "${{ matrix.os == 'Windows' && 'windows-build' || 'rust-shard' }}"]
     permissions:
       contents: read
       actions: write
@@ -293,14 +228,11 @@ jobs:
       matrix:
         include:
           - suite: platform
-            os: Linux
-            label: linux-ci
-          - suite: platform
             os: macOS
-            label: rust-shard
+            label: host-air
           - suite: platform
             os: Windows
-            label: windows-ci
+            label: host-rog
     env:
       # Warm per-workspace targets outside the checkout; the cleanup step sweeps them by age.
       CI_TARGET_ROOT: ${{ github.workspace }}/../ci-targets/tests
@@ -309,9 +241,9 @@ jobs:
 
   rust-embeddings:
     name: rust embeddings
-    needs: changed
-    if: ${{ !cancelled() && needs.changed.outputs.heavy == 'true' }}
-    runs-on: [self-hosted, rust-tests]
+    needs: rust-platform
+    if: ${{ !cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true' }}
+    runs-on: [self-hosted, macOS, rust-shard, host-air]
     permissions:
       contents: read
       actions: write
@@ -327,9 +259,9 @@ jobs:
 
   rust-receipts:
     name: rust test receipts
-    needs: [changed, rust-tests, rust-platform, rust-embeddings]
-    if: ${{ always() && needs.changed.outputs.heavy == 'true' }}
-    runs-on: [self-hosted, light]
+    needs: [rust-tests, rust-platform, rust-embeddings]
+    if: ${{ always() && fromJSON(inputs.resolved_scope).heavy == 'true' }}
+    runs-on: [self-hosted, Linux, light, host-ubunta]
     permissions:
       contents: read
       actions: write
@@ -362,7 +294,7 @@ jobs:
         run: node -e "if (process.env.TESTS_RESULT !== 'success' || process.env.PLATFORM_RESULT !== 'success' || process.env.EMBEDDINGS_RESULT !== 'success') process.exit(1)"
       # A dry run without artifact storage still requires every test job above; only the receipts may be absent.
       - *cancel-run-on-failure
-      - name: One passing full suite and one passing platform subset per OS
+      - name: One passing Linux full suite, native subsets and embeddings
         id: ci-5
         continue-on-error: ${{ inputs.artifacts_optional }}
         run: node scripts/ci-rust-tests.mjs verify ci-rust-receipts

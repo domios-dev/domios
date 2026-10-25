@@ -23,6 +23,7 @@ on:
         type: string
 permissions:
   contents: read
+  actions: read
 # Publications serialize and are never cancelled; a PR's dry run is superseded by its next push.
 concurrency:
   group: ${{ github.event_name == 'pull_request' && format('frontend-release-pr-{0}', github.event.pull_request.number) || 'frontend-release' }}
@@ -32,7 +33,7 @@ env:
   CODETERM_BUILD_GATEWAY_MODE: queue
 jobs:
   build:
-    runs-on: [self-hosted, Linux, light]
+    runs-on: [self-hosted, Linux, light, host-ubunta]
     timeout-minutes: 30
     environment: ${{ (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.dry_run)) && 'frontend-dry-run' || 'frontend-signing' }}
     env:
@@ -52,6 +53,11 @@ jobs:
           version: 10.32.1
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
+      - name: Require exact-SHA dev qualification before frontend publication
+        if: env.FRONTEND_DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci-qualification.mjs check "$(git rev-parse HEAD)"
       - name: Resolve committed frontend version for pull request dry run
         if: github.event_name == 'pull_request'
         run: node scripts/frontend-release/release.mjs resolve-pr-tag
@@ -111,7 +117,7 @@ jobs:
   publish:
     needs: build
     if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || !inputs.dry_run)
-    runs-on: [self-hosted, Linux, light]
+    runs-on: [self-hosted, Linux, light, host-ubunta]
     timeout-minutes: 30
     environment: frontend-publication
     env:

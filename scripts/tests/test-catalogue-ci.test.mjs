@@ -63,7 +63,7 @@ export function prReachability(workflow, files, plugins, results = {}) {
     "cancel-release": { outcome: "skipped" },
   };
   const outputs = Object.fromEntries(Object.entries(gate.outputs).map(([key, expression]) => [key,
-    key === "plugins" ? steps.scope.outputs.plugins : String(prCondition(expression, { steps }))]));
+    key === "source_sha" ? "a".repeat(40) : key === "plugins" ? steps.scope.outputs.plugins : String(prCondition(expression, { steps }))]));
   const needs = Object.fromEntries(Object.keys(workflow.jobs).map(id => [id, { result: "skipped", outputs: {} }]));
   const reached = [];
   const pending = new Set(Object.keys(workflow.jobs));
@@ -102,7 +102,7 @@ export function workflowErrors(workflow, catalogue, overlay, plugins, exceptions
   const selected = selectRunners(catalogue, overlay, { tier: "pr" }).runners;
   const entries = new Map(catalogue.runners.map(entry => [entry.id, entry]));
   const selectedIds = new Set(selected.map(entry => entry.id));
-  if (Object.hasOwn(workflow.on ?? {}, "schedule") && !catalogue.runners.some(entry => entry.tier === "scheduled")) errors.add("schedule trigger has no scheduled catalogue tier");
+  if (Object.hasOwn(workflow.on ?? {}, "schedule") && !catalogue.runners.some(entry => entry.id === "qualification-receipt" && entry.ci?.includes("tests.yml:qualification"))) errors.add("schedule trigger has no qualification receipt owner");
   for (const item of exceptions) {
     if (item.job.includes(" → ")) continue;
     const job = workflow.jobs[item.job];
@@ -234,22 +234,17 @@ test("fast checks run alongside required guards and retain failure cancellation"
   assert.equal(workflows["tests.yml"].jobs.fast.uses, "./.github/workflows/tests-fast.yml");
   assert.equal(workflows["tests.yml"].jobs.fast["continue-on-error"], undefined);
   assert.equal(workflows["tests.yml"].jobs.rust.needs, "fast");
-  assert.ok(workflows["release.yml"].jobs["release-manifest"].needs.includes("quick-checks"));
+  assert.ok(workflows["release.yml"].jobs.prepare.steps.some(step => /ci-qualification/.test(step.run ?? "")));
 });
 
-test("Windows keeps the stable-path production build and restores only incremental typecheck state", () => {
+test("Windows retains focused stable-path TS2451 coverage; the frontend producer owns the full build", () => {
   const job = workflows["tests-fast.yml"].jobs["frontend-windows"];
-  const cache = job.steps.find(step => step.name === "Restore incremental Windows typecheck");
-  assert.match(cache.uses, /^actions\/cache@[a-f0-9]{40}$/);
-  assert.equal(cache.with.path, "node_modules/.cache/codeterm-types.tsbuildinfo");
-  assert.match(cache.with.key, /runner.name/);
-  assert.match(cache.with.key, /hashFiles\('pnpm-lock.yaml', 'tsconfig\*\.json'\)/);
-  assert.ok(cache.with.key.endsWith("${{ inputs.source_ref || github.sha }}"));
-  assert.equal(cache.with["restore-keys"].trim(), cache.with.key.slice(0, -"${{ inputs.source_ref || github.sha }}".length));
-  const build = job.steps.find(step => step.run === commandRef("frontend-windows-build"));
-  assert.ok(job.steps.indexOf(cache) < job.steps.indexOf(build));
-  assert.equal(catalogue.runners.find(entry => entry.id === "frontend-windows-build").runner, "bash build.sh frontend-build");
+  assert.ok(job.steps.some(step => step.run === commandRef("frontend-windows-build")));
+  assert.equal(catalogue.runners.find(entry => entry.id === "frontend-windows-build").runner, "node --test scripts/tests/windows-path-identity.test.mjs");
+  assert.equal(catalogue.runners.find(entry => entry.id === "ts-typecheck").runner, "pnpm build");
+  assert.deepEqual(catalogue.runners.find(entry => entry.id === "ts-typecheck").ci, ["tests-fast.yml:frontend-dist"]);
 });
+
 
 test("heavy Rust jobs are not PR-reachable, including a Rust change", t => {
   const reached = prReachability(workflow, ["cli/src/main.rs"], plugins);
@@ -294,7 +289,9 @@ test("red demos: missing and excessive PR timeouts are rejected", t => {
 test("red demo: a schedule trigger requires a declared scheduled tier", t => {
   const copy = structuredClone(workflow);
   copy.on.schedule = [{ cron: "0 0 * * *" }];
-  const errors = check(copy);
+  const noScheduled = structuredClone(catalogue);
+  noScheduled.runners = noScheduled.runners.filter(entry => entry.id !== "qualification-receipt");
+  const errors = check(copy, noScheduled);
   assert.ok(errors.some(error => error.includes("schedule trigger")));
   t.diagnostic(`RED ${errors[0]}`);
 });

@@ -1,19 +1,12 @@
 name: tests
 
-# Full test rig on the self-hosted build farm (free, warm incremental caches).
-# The farm machines sit idle between releases — this puts them to work on every
-# heavy run: shared Rust lib+CLI shards on macOS, native cfg tests per OS.
-# The checks live in two tiers that release.yml calls directly: tests-fast.yml and tests-rust.yml.
-
 on:
   pull_request:
   push:
-    branches: [master]
-    paths-ignore:
-      - '.codeterm/**'
-      - '.agents/skills/**'
-      - 'essences/**'
-      - 'evals/**'
+    branches: [master, develop, rename/domios]
+  schedule:
+    - cron: '17 2 * * *'
+    - cron: '17 3 * * *'
   workflow_dispatch:
     inputs:
       source_ref:
@@ -25,20 +18,12 @@ on:
         default: full
         options: [full, frontend]
 
-# A branch is tested through its pull request, never through its own pushes:
-# release/feat/lane pushes duplicated the matrix the PR already ran, and the
-# single self-hosted Linux runner they contend for is the one a release needs.
-# master stays because a real three-way merge produces a tree neither side tested.
-#
-# One group per pull request and per pushed ref: a new push to a PR, or a newer
-# master commit, cancels the run it supersedes instead of queueing behind it on
-# the shared runners. A manual dispatch tests one exact SHA and supersedes nothing.
 permissions:
   contents: read
   pull-requests: write
 
 concurrency:
-  group: ${{ inputs.source_ref != '' && format('tests-dispatch-{0}', github.run_id) || format('tests-{0}', github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref) }}
+  group: ${{ inputs.source_ref != '' && format('tests-dispatch-{0}', github.run_id) || format('tests-{0}', github.event_name == 'schedule' && format('refs/heads/{0}', github.event.schedule == '17 2 * * *' && 'rename/domios' || 'develop') || github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref) }}
   cancel-in-progress: true
 
 jobs:
@@ -46,8 +31,9 @@ jobs:
     name: Fast checks
     uses: ./.github/workflows/tests-fast.yml
     with:
-      source_ref: ${{ inputs.source_ref }}
+      source_ref: ${{ github.event_name == 'schedule' && (github.event.schedule == '17 2 * * *' && 'rename/domios' || 'develop') || inputs.source_ref }}
       scope: ${{ inputs.scope || 'full' }}
+      cancel_run: ${{ github.event_name != 'pull_request' }}
     permissions:
       contents: read
       actions: write
@@ -58,10 +44,12 @@ jobs:
   rust:
     name: Rust tests
     needs: fast
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || github.event_name == 'schedule'
     uses: ./.github/workflows/tests-rust.yml
     with:
-      source_ref: ''
+      source_ref: ${{ needs.fast.outputs.source_sha }}
+      cancel_run: true
+      resolved_scope: ${{ needs.fast.outputs.resolved_scope }}
       scope: full
     permissions:
       contents: read
@@ -80,6 +68,38 @@ jobs:
     uses: ./.github/workflows/rust-warnings-summary.yml
     secrets: inherit
     with:
-      source_ref: ${{ github.ref }}
+      source_ref: ${{ needs.fast.outputs.source_sha || github.ref }}
       report_name: rust-warnings-tests-all-report
-      artifacts: ${{ needs.fast.outputs.heavy == 'true' && format('["{0}","rust-warnings-tests-platform-macOS-aarch64-apple-darwin","rust-warnings-tests-platform-Linux-x86_64-unknown-linux-gnu","rust-warnings-tests-platform-Windows-x86_64-pc-windows-msvc","rust-warnings-clippy-Linux-x86_64-unknown-linux-gnu"]', needs.rust.outputs.warnings) || '[]' }}
+      artifacts: ${{ needs.fast.outputs.heavy == 'true' && format('["{0}","rust-warnings-tests-platform-macOS-aarch64-apple-darwin","rust-warnings-tests-platform-Windows-x86_64-pc-windows-msvc","rust-warnings-clippy-Linux-x86_64-unknown-linux-gnu","rust-warnings-linux-frontend"]', needs.rust.outputs.warnings) || '[]' }}
+
+  qualification:
+    name: qualification receipt
+    needs: [fast, rust, rust-warnings]
+    if: ${{ !cancelled() && (github.event_name == 'push' || github.event_name == 'schedule') && needs.fast.outputs.heavy == 'true' }}
+    runs-on: [self-hosted, Linux, light, host-ubunta]
+    timeout-minutes: 5
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ needs.fast.outputs.source_sha }}
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          package-manager-cache: false
+          node-version: '22.22.0'
+      - name: Fetch executed Rust receipts
+        run: bash scripts/ci-artifact.sh get-prefix "$GITHUB_RUN_ID/rust-receipt/" qualification-rust
+      - name: Record green qualification for this SHA
+        env:
+          SOURCE_SHA: ${{ needs.fast.outputs.source_sha }}
+          QUALIFICATION_RESULTS: '{"fast":"${{ needs.fast.result }}","rust":"${{ needs.rust.result }}","warnings":"${{ needs.rust-warnings.result }}"}'
+        run: node scripts/ci-qualification.mjs record "$SOURCE_SHA" qualification-rust
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: qualification-${{ needs.fast.outputs.source_sha }}
+          path: qualification.json
+          if-no-files-found: error
+          retention-days: 7

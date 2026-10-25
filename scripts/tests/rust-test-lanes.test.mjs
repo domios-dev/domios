@@ -17,7 +17,8 @@ function runShell(script, directory, env) {
 test('nextest shell selection and full CI use the catalogue lane definitions', () => {
   const { runners } = loadReleaseRust();
   assert.equal(MODES.full[0], FULL_LANES[0]);
-  assert.equal(MODES.full[1], FULL_LANES[1]);
+  assert.deepEqual(MODES.full[1].targets, ['--no-default-features', '--test', 'isolated_server']);
+  assert.equal(MODES.platform[1], FULL_LANES[1]);
   for (const lane of FULL_LANES) {
     const args = execFileSync(process.execPath, ['scripts/rust-test-lanes.mjs', lane.lane], { encoding: 'utf8' }).trim().split('\n');
     assert.deepEqual(args, lane.targets);
