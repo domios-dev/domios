@@ -35,9 +35,21 @@ pub enum BlueprintOwner {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Trigger {
-    Schedule { every: String },
-    Event { kind: String, params: Value },
-    Input { kind: MediaKind, source: DataRef },
+    Webhook {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        schema: Option<crate::blueprint_document::Port>,
+    },
+    Schedule {
+        every: String,
+    },
+    Event {
+        kind: String,
+        params: Value,
+    },
+    Input {
+        kind: MediaKind,
+        source: DataRef,
+    },
 }
 
 impl Trigger {
@@ -45,6 +57,7 @@ impl Trigger {
         crate::blueprint_catalog::TRIGGERS;
     pub fn name(&self) -> &'static str {
         Self::DESCRIPTORS[match self {
+            Self::Webhook { .. } => 3,
             Self::Schedule { .. } => 0,
             Self::Event { .. } => 1,
             Self::Input { .. } => 2,
@@ -656,7 +669,10 @@ pub fn validate_parts(
 pub fn trigger_unavailable(trigger: &Trigger) -> bool {
     !matches!(
         trigger,
-        Trigger::Schedule { .. } | Trigger::Event { .. } | Trigger::Input { .. }
+        Trigger::Schedule { .. }
+            | Trigger::Event { .. }
+            | Trigger::Input { .. }
+            | Trigger::Webhook { .. }
     )
 }
 
@@ -760,7 +776,7 @@ fn has_converter_path(from: MediaKind, to: MediaKind, converters: &[ConverterEdg
 
 fn trigger_output(trigger: &Trigger) -> IoType {
     match trigger {
-        Trigger::Schedule { .. } | Trigger::Event { .. } => IoType::Text,
+        Trigger::Schedule { .. } | Trigger::Event { .. } | Trigger::Webhook { .. } => IoType::Text,
         Trigger::Input { kind, .. } => IoType::from(*kind),
     }
 }

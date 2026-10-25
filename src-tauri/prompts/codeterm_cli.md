@@ -56,7 +56,7 @@ Each command's `--help` has the flags; the Docs column has the depth.
 | Plans, specs, tasks | `plan --help`, `spec --help`, `task --help`; `plan lanes <plan> --clean` previews merged lanes and unregistered build residue, `--confirm` executes, `--fetch` refreshes refs; dirty lanes stay protected | `docs PLAN-EDITING` |
 | Delayed or repeated message to a tab | `send --delay` / `--at` / `--every`, `delayed --help` | — |
 | Scheduled jobs (fresh agent per run) | `cron create --help`; a short meaningful name is required | `docs CONFIG` |
-| Watch CI, builds, files, agents and act | `blueprint new --intent`, typed call when a card fits, else author/check/apply; `blueprint keep` returns the saved ID and any `evicted_ids`, which the CLI also prints | `docs BLUEPRINTS` |
+| Watch CI, builds, files, agents or receive webhooks and act | `blueprint new --intent`, typed call when a card fits, else author/check/apply; per-graph webhook credentials: `blueprint webhook`; `blueprint keep` returns the saved ID and any `evicted_ids`, which the CLI also prints | `docs BLUEPRINTS` |
 | Telegram | `bridge send --to ID --service telegram "..."`; long answers continue with `--append` | `docs TELEGRAM-SETUP` |
 | Remote machines | Mesh block below | `docs MESH` |
 | Memory, skills | Memory block below | `docs MEMORY` |

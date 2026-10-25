@@ -1,6 +1,5 @@
 # Blueprints
 
-Core node kinds use bare names; plugin kinds use dotted names such as `comfyui.generate`. New kinds put configuration under `with`; only cross-cutting blocks such as `retry`, `each` and `timeout` belong at the top level.
 Named binds accept only json/text producers; media ports in named binds are not supported yet.
 
 Recall saved solutions before authoring, then reuse a matching graph or start from a built-in. Native Blueprint files use `schema_version: 2` and one typed graph. Older formats are refused; stored v1 graphs and saved v1 Blueprint solutions are deleted without conversion. Other memory and workspaces are retained.
@@ -27,7 +26,7 @@ domios blueprint project show .domios/blueprints/health.yaml --json
 
 Discovery reports the source path, name and intent. Names must exactly match file stems; linked or escaping paths, duplicate stems across extensions and files larger than 64 KiB refuse. This surface only reads: listing, viewing and repository changes never run, apply or approve a Blueprint. Repository execution requires its separate trust approval.
 
-The Jobs view offers the same repository list and source viewer. Canvases show typed nodes, ports and forward routes; select a call node for its retained id/hash, inputs, result and body, or a run for its own journal and nested stop evidence (Stop selected run stops the current run). Trigger and Result take their state from the `$run` and `$result` journal rows, and expanded callee nodes carry the callee path. Held nodes and Blueprints show their recorded reason: pause, an uncertain claim/effect/result after a restart, or the journal reason. A Blueprint whose owning workspace, Team or tab is plan-locked is held with `plan_limit_locked`: it observes and runs nothing, and apply, edit and run-now are refused; delete and export remain. Unlock resumes the saved cursor; watches take a fresh baseline and fire only on a later change. Semantic diff compares retained definition versions; parameter fields show CLI `--set` assignments without submitting them.
+The Jobs view shares repository discovery and typed read-only canvases. A call exposes its pinned id/hash, inputs, result and body; a selected run shows its own journal, nested stops and callee paths. Trigger/Result follow `$run`/`$result` evidence. Held nodes show their recorded reason. Plan-locked owners hold with `plan_limit_locked`: apply/edit/run refuse; delete/export remain; unlock resumes the cursor, while watches baseline before later changes. Semantic diff compares retained versions; parameter fields expose `--set` without submission.
 
 ## Native v2 documents
 
@@ -88,6 +87,25 @@ Watcher probes also default to 10 seconds on every platform. Each watcher runs c
 A schedule trigger has `every: {lit: 20s}`. Input triggers have a media `kind` and a `source` literal containing `text`, an absolute `file` path or an HTTP(S) `url`; a string source denotes text.
 
 A `text` trigger delivers a **string**: `{text: "7"}` reaches the first node as the string `"7"`, never the integer 7. The text is parsed as JSON only when the first node's `in` schema rejects a string and the parsed value satisfies that schema (`in: {type: integer}` with `"7"` delivers 7; `in: {type: object, ...}` with `{"n":7}` delivers the object). With no `in` schema the node receives the string. To pass structured data, declare the object schema on the first node's `in` or parse the string in code. A mismatch stops the node with `contract_violation`; its journal summary and `show` name the expected schema and the received media and value (clipped), for example `node stopped: contract_violation: input expected {"type":"integer"} got text "seven"`. Event triggers name an installed capability kind and explicit parameters. Runtime availability is checked at apply.
+
+## Webhook triggers and threat model
+
+Use `trigger: {type: webhook, schema: {type: object}}` with optional `schema`. POST delivers parsed JSON; `"7"` stays a string. Caps: HTTP 1 MiB, depth 32, typed stdin 32 KiB. Invalid/oversized inputs refuse before execution.
+
+```bash
+domios blueprint webhook enable <id> --reveal
+domios blueprint webhook show-url <id>
+domios blueprint webhook rotate <id> --reveal
+domios blueprint webhook disable <id>
+```
+
+Enable generates a secret-store credential; enabling twice refuses. Rotate immediately invalidates the old secret; disable removes it. Enable/rotate reveal the new secret once to stdout only with `--reveal`.
+
+POST `application/json` to `/api/blueprints/<id>/webhook` with `Authorization: Bearer <secret>` or `X-Hub-Signature-256: sha256=<hex HMAC-SHA256>` over the raw body using that secret. The daemon token is refused. Optional `X-Webhook-Timestamp` is Unix seconds: sign `<timestamp>.<raw body>` instead; tolerance is five minutes. Raw GitHub signatures have no timestamp protection.
+
+`X-Delivery-Id` or `X-GitHub-Delivery` deduplicates for ten minutes and returns the original run ID. IDs are 1–128 printable ASCII bytes; retention caps at 256 per graph/4096 globally. Counters reset on restart. Delivery headers are unsigned; timestamps bound replay. Limits: 30 admissions/graph/minute, 120 attempts globally/minute, eight active graph runs; busy admission returns 409.
+
+Payloads never choose executable text or paths: commands receive JSON stdin, code typed values. Author code retains OS permissions and must never splice data into shell source. Auth uses constant-time comparison; secrets stay out of URLs/logs/errors/run records. Runs retain an auth audit row and use the existing executor. Inactive/missing hooks return 404. Hooks share API loopback/Tailnet listeners; public callers need a TLS tunnel without credential logging.
 
 ## Code nodes
 
@@ -165,7 +183,7 @@ domios blueprint log <id>
 
 The editor schema and parser share one serde model; offline check and live apply/import/update share one checker. Diagnostics carry stable rule/atom IDs, file/line/column/field, severity, message, hint, premises and proof trees. Dependent findings fold under the root error. `--explain` lists causal premises under `CAUSED BY` and other premises under `GIVEN`; unpositioned live errors name the field. JSON preserves structure. Invalid files exit 2; unsupported constructs refuse explicitly. `apply --dry-run` also checks live Team scope and capabilities.
 
-`--fix` previews text and semantic changes only after the candidate passes checking and runtime lowering with the supplied `--set` bindings. `--fix --write` writes only that admissible candidate. Repairs can declare unambiguous missing inputs, normalize literal durations below 10s with a timing warning, and route watch `other` outcomes to creator escalation. Pipeline escalation repairs, unresolved inputs, ambiguous types and executable/authority repairs refuse without changing the file. R13 compares documents against saved solutions and live Blueprints in the caller's Team. Name, note, intent and anchors are ignored. An `exact` twin has otherwise identical content, or matches a saved solution's generalized body; a `structural_twin` has the same abstracted WL shape and identical code bodies, commands, parameters, trigger source and input defaults. Graphs that differ in code or literals are distinct and never refused; vector comparisons without candidate embeddings are explicitly unavailable.
+`--fix` previews only candidates passing checking/lowering with supplied `--set`; `--write` writes them. Repairs declare unambiguous inputs, warn when normalizing sub-10s timing, or route watch `other` to creator escalation. Ambiguous, unresolved, executable/authority and pipeline-escalation repairs refuse unchanged. R13 compares scoped saved/live graphs, ignoring descriptive metadata. Exact/generalized twins match content; structural twins share WL shape and all code, parameters, sources and defaults. Different code/literals remain distinct; missing embeddings report unavailable comparisons.
 
 An exact name identifies a graph in its Team/workspace. Built-in names stay stable when bindings change; apply retargets that name. Use an explicit `name` input when distinct identities are required. Applying unchanged running definitions returns `unchanged`; applying a stopped graph reactivates the same ID. Watch lifetime and initial pause settings cannot change through apply. A watch and pipeline cannot replace one another under the same name.
 
@@ -201,14 +219,14 @@ domios blueprint keep --file increment.yaml --when "Increment a typed counter" -
 domios blueprint show mem:<solution-id> --json
 ```
 
-Keep retains typed inputs and returns a stable `mem:` ID/hash for `call.ref` and structural `lit`/`input`/`bind` arguments. Imports resolve relative to each author file; absolute paths, traversal, symlinks and junctions refuse with `contract_violation`. The CLI sends bytes; the host resolves scoped nested calls. Save/apply/import/update freeze the transitive closure; export preserves pins. Archived heads refuse new pins, existing pins never rebind, and missing pinned bytes refuse execution. Edits, merges, archives and eviction expose reasons and semantic changes. `keep --file` saves callables; `apply` schedules graphs. `show` exposes pinned bodies, bounded nested results, stops and call stacks; unavailable historical definitions are explicit. Host call checks share apply admission, preserve input signatures and schedule nothing. `check --fix` refuses calls.
+Keep returns typed inputs and a stable `mem:` ID/hash for `call.ref`. Relative imports freeze a scoped transitive closure; escaping or linked paths refuse. Export preserves pins; archived heads refuse new pins, existing pins never rebind, and missing bytes refuse execution. `show` exposes pinned bodies, bounded nested results and stops; unavailable history is explicit. Call checks share apply admission and preserve signatures without scheduling. `keep --file` saves callables; `apply` schedules graphs; `check --fix` refuses calls.
 
 Callable `other` handlers are refused at check time; move failure handling to the caller. Inside callees, notify/send/cron/escalate use caller scope and the shared executor claim. Blueprint activation, stop and prompt-response effects require scheduler custody and are refused at check time inside calls; put those effects in the caller.
 
 The simulation harness is internal and has no CLI verb. It records bounded delivery provenance in memory with zero delivery and no real run journal. Process, code, agent, HTTP and conversion nodes refuse before launch; pure filters and calls share the normal budget and port checks.
 
-Restored PTY results retain the exact saved provider/session in a durable outbox for its first authenticated launch, with a fixed 24-hour TTL. Held results keep their run ID/timestamp; live bodies stay unchanged. Closed recipients, changed provider/session, failed launch or expiry create an idempotent delivery-ID failure receipt in the producer's AgentPad, a status event and, for live producers, a failure notification. Terminal causes survive crashes. Interrupted settlement re-emits status by delivery ID; edited receipts are preserved without blocking other results. Possibly written results stay uncertain and never replay. Restored chat backends use the existing reopen path and report reopen failures; this durable hold does not yet cover them.
+Restored PTY results wait in a durable outbox for the exact saved provider/session's authenticated launch, with a fixed 24-hour TTL and original run ID/timestamp. Closed/changed/failed/expired recipients produce an idempotent delivery-ID failure receipt and status event; live producers also receive a failure notification. Interrupted settlement re-emits status; edited receipts remain. Uncertain writes never replay. Chat backends retain the existing reopen path and report failures, but lack this durable hold.
 
 R10 and environment scrubbing prevent accidents, not hostile code. R10 joins split literals and refuses whole words `domios`/`codeterm`, tokens prefixed `DOMIOS_`/`CODETERM_` with `ambient_authority`; domios-cli capabilities also refuse. Obfuscation can pass. Children scrub instance credentials/private CLI paths and shadow CLI names with private PATH-first deny stubs, retaining shared paths such as `/usr/bin`. HOME/APPDATA and absolute executables remain available under user authority. Unavailable R13 comparisons never claim PASS.
 
-<!-- revision: 76 -->
+<!-- revision: 77 -->

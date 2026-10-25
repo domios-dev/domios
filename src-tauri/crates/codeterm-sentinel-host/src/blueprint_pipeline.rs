@@ -400,6 +400,7 @@ fn team_result_recipient(
 
 fn chain_summary(spec: &BlueprintSpec) -> String {
     let trigger = match &spec.trigger {
+        Trigger::Webhook { .. } => "webhook".into(),
         Trigger::Schedule { every } => format!("schedule:{every}"),
         Trigger::Event { kind, .. } => format!("event:{kind}"),
         Trigger::Input { kind, .. } => format!("input:{}", kind.as_str()),

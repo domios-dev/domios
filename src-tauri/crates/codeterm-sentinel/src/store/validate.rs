@@ -188,7 +188,8 @@ impl Store {
             codeterm_blueprint_types::blueprint_pipeline::Trigger::Schedule { every } => {
                 every.clone()
             }
-            codeterm_blueprint_types::blueprint_pipeline::Trigger::Event { .. }
+            codeterm_blueprint_types::blueprint_pipeline::Trigger::Webhook { .. }
+            | codeterm_blueprint_types::blueprint_pipeline::Trigger::Event { .. }
             | codeterm_blueprint_types::blueprint_pipeline::Trigger::Input { .. } => "20s".into(),
         };
         let create = Create {

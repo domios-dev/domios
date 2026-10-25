@@ -97,7 +97,7 @@ pub fn structure(document: &Document) -> Value {
         .enumerate()
         .map(|(i, n)| (n.id.as_str(), i))
         .collect::<BTreeMap<_, _>>();
-    json!({"kind": document.kind, "trigger":document.trigger.as_ref().map(|t|match t {crate::blueprint_document::Trigger::Schedule{..}=>"schedule",crate::blueprint_document::Trigger::Event{..}=>"event",crate::blueprint_document::Trigger::Input{..}=>"input"}),
+    json!({"kind": document.kind, "trigger":document.trigger.as_ref().map(|t|match t {crate::blueprint_document::Trigger::Webhook{..}=>"webhook",crate::blueprint_document::Trigger::Schedule{..}=>"schedule",crate::blueprint_document::Trigger::Event{..}=>"event",crate::blueprint_document::Trigger::Input{..}=>"input"}),
         "nodes":document.nodes().map(|n|json!({"kind":n.kind(),"in":n.input,"out":n.output,"caps":n.caps,"buckets":n.buckets,"bind":n.bind,"call":n.call,"routes":n.routes.iter().map(|(outcome,target)|(outcome, ids.get(target.as_str()).map_or_else(||json!(target),|i|json!(i)))).collect::<BTreeMap<_,_>>()})).collect::<Vec<_>>()})
 }
 

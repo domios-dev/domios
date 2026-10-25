@@ -2,6 +2,11 @@ use clap::Subcommand;
 
 #[derive(Subcommand)]
 pub enum BlueprintAction {
+    /// Manage the per-graph webhook credential; secrets appear only with --reveal
+    Webhook {
+        #[command(subcommand)]
+        action: BlueprintWebhookAction,
+    },
     /// Discover repository Blueprints without running, applying or approving them
     Project {
         #[command(subcommand)]
@@ -150,6 +155,28 @@ pub enum BlueprintAction {
         #[command(subcommand)]
         action: BlueprintEscalationAction,
     },
+}
+
+#[derive(Subcommand)]
+pub enum BlueprintWebhookAction {
+    /// Generate and store a new webhook credential
+    Enable {
+        id: String,
+        /// Print the newly generated secret once to stdout
+        #[arg(long)]
+        reveal: bool,
+    },
+    /// Replace the credential, immediately invalidating the previous secret
+    Rotate {
+        id: String,
+        /// Print the newly generated secret once to stdout
+        #[arg(long)]
+        reveal: bool,
+    },
+    /// Remove the webhook credential
+    Disable { id: String },
+    /// Print the webhook URL without revealing a credential
+    ShowUrl { id: String },
 }
 
 #[derive(Subcommand)]

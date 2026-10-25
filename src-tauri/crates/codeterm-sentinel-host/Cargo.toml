@@ -33,6 +33,7 @@ log = { version = "0.4", features = ["release_max_level_info"] }
 parking_lot = "0.12"
 chrono = { version = "0.4", features = ["serde"] }
 sha2 = "0.10"
+hmac = "0.12"
 regex = "1"
 cron = "0.13"
 rusqlite = { version = "0.32", features = ["bundled", "blob", "functions", "load_extension"] }
