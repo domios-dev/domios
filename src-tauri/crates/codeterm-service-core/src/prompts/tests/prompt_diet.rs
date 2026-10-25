@@ -31,9 +31,10 @@ const CHARTER_TASK_TOKEN: &str = "task_opaque_6f3b2";
 /// rather than trimming another author's contract blind; the next addition pays
 /// the same cost of re-measuring deliberately.
 // Re-measured at 21_687 for the owner-approved Planner lifecycle, owner-feedback and revert-and-bounce rules.
-const ORCHESTRATOR_CONTRACT_MAX_BYTES: usize = 21_700;
+// Both roles raised 270 bytes for the owner-requested lightest-placement rule.
+const ORCHESTRATOR_CONTRACT_MAX_BYTES: usize = 21_970;
 // Planner re-measured at 21_207 for its owner-approved lifecycle and owner-evidence rules.
-const PLANNER_CONTRACT_MAX_BYTES: usize = 21_220;
+const PLANNER_CONTRACT_MAX_BYTES: usize = 21_490;
 // Worker suffix and launch overhead re-measured at 4_667 and 8_105 for the
 // provider-native subagent rule (9d4ae23d1).
 const WORKER_SUFFIX_MAX_BYTES: usize = 5_000;
@@ -43,9 +44,9 @@ const PRIMER_MAX_BYTES: usize = 2_600;
 const PROVIDER_RULES_MAX_BYTES: usize = 9_700;
 const WORKER_CHARTER_MAX_BYTES: usize = 1_450;
 // Owner-raised headroom for the Curator, checklist proposal and Blueprint authoring lines.
-const ORCHESTRATOR_LAUNCH_MAX_BYTES: usize = 26_600;
+const ORCHESTRATOR_LAUNCH_MAX_BYTES: usize = 26_870;
 // Owner-raised headroom alongside the shared Blueprint authoring line.
-const PLANNER_LAUNCH_MAX_BYTES: usize = 26_150;
+const PLANNER_LAUNCH_MAX_BYTES: usize = 26_420;
 const WORKER_LAUNCH_OVERHEAD_MAX_BYTES: usize = 9_000;
 
 fn lf_len(text: &str) -> usize {
