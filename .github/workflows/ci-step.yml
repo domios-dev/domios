@@ -115,7 +115,7 @@ jobs:
         if: runner.environment == 'github-hosted' && inputs.recipe != 'node-test'
         uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
       - name: Hosted pnpm prerequisite
-        if: runner.environment == 'github-hosted' && inputs.recipe == 'node-test'
+        if: runner.environment == 'github-hosted'
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
         with:
           version: 10.32.1
