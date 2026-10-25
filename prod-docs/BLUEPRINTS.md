@@ -173,7 +173,7 @@ Export generalizes sensitive commands, source data and local targets into descri
 
 ## Recall before authoring
 
-`domios docs BLUEPRINT-AUTHORING` covers authoring. `blueprint new --intent` returns the exact-intent scaffold and three compact scoped recall cards (`--limit`: 1..20). JSON includes `scaffold`, `yaml`, `cards`, `recall` and `unavailable`. Cards expose stable `mem:`/`catalog:` IDs, hashes, provenance, scores, WHY, port schemas and node counts, never executable bodies; open one with `blueprint show <card-id>`. Ranked recall uses current intent vectors, descriptions and enrichment for saved solutions and compatible built-ins after Team/workspace scoping. Missing vectors report degraded/pending status without lexical fallback; incompatible catalogue contracts report unavailable.
+`blueprint new --intent` returns the exact-intent scaffold and three compact scoped recall cards (`--limit`: 1..20). JSON includes `scaffold`, `yaml`, `cards`, `recall` and `unavailable`. Cards expose stable `mem:`/`catalog:` IDs, hashes, provenance, scores, WHY, port schemas and node counts, never executable bodies; open one with `blueprint show <card-id>`. Ranked recall uses current intent vectors, descriptions and enrichment for saved solutions and compatible built-ins after Team/workspace scoping. Missing vectors report degraded/pending status without lexical fallback; incompatible catalogue contracts report unavailable.
 
 Reuse a fitting card by a typed `call`; require the complete purpose and port contract to fit. Scores alone do not prove fit; author from scratch when none fits. Call checking returns the sealed native definition, including its `{id, hash}` pins and immutable dependencies; save that returned definition before apply. Missing revisions refuse and retained pins never silently rebind.
 
@@ -211,4 +211,4 @@ Restored PTY results retain the exact saved provider/session in a durable outbox
 
 R10 and environment scrubbing prevent accidents, not hostile code. R10 joins split literals and refuses whole words `domios`/`codeterm`, tokens prefixed `DOMIOS_`/`CODETERM_` with `ambient_authority`; domios-cli capabilities also refuse. Obfuscation can pass. Children scrub instance credentials/private CLI paths and shadow CLI names with private PATH-first deny stubs, retaining shared paths such as `/usr/bin`. HOME/APPDATA and absolute executables remain available under user authority. Unavailable R13 comparisons never claim PASS.
 
-<!-- revision: 75 -->
+<!-- revision: 76 -->

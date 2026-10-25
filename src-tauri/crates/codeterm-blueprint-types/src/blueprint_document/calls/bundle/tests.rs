@@ -205,6 +205,7 @@ fn blueprint_v2_call_review_host_persists_safe_dependency_labels() {
     }
 }
 
+#[cfg(windows)]
 fn collect_code_file(
     dir: &std::path::Path,
     relative: &str,
