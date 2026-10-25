@@ -123,12 +123,12 @@ test('every platform checks its own built bundle before any upload, with indepen
 const expression = text => new Function('github', 'inputs', 'vars', 'format',
   `return (${text.replace(/^\$\{\{\s*|\s*\}\}$/g, '')});`);
 const format = (template, ...values) => template.replace(/\{(\d+)\}/g, (_, i) => values[i]);
-test('a release-branch push stays a dry run of its own branch until publication is enabled', () => {
+test('a qualified release head stays a dry run of its own branch until publication is enabled', () => {
   const env = release.jobs.prepare.steps.find(step => step.id === 'release').env;
   const dryRun = expression(env.DRY_RUN);
   const group = expression(release.concurrency.group);
-  const push = { event_name: 'push', ref_name: 'release/1.15.0' };
-  const dispatch = { event_name: 'workflow_dispatch', ref_name: 'release/1.15.0' };
+  const push = { event_name: 'workflow_run', ref_name: 'master', event: { workflow_run: { head_branch: 'release/1.15.0' } } };
+  const dispatch = { event_name: 'workflow_dispatch', ref_name: 'release/1.15.0', event: { workflow_run: {} } };
   const off = {};
   const on = { RELEASE_PUBLISH_ENABLED: 'true' };
   assert.equal(dryRun(push, {}, off, format), 'true');
@@ -141,7 +141,7 @@ test('a release-branch push stays a dry run of its own branch until publication 
   for (const [id, job] of Object.entries(release.jobs)) assert.doesNotMatch(job.if || '', /inputs\.dry_run_tests/, id);
 });
 test('production publications serialize and verify draft bytes before becoming public', () => {
-  assert.equal(release.concurrency['cancel-in-progress'], "${{ inputs.dry_run == true || vars.RELEASE_PUBLISH_ENABLED != 'true' }}");
+  assert.equal(release.concurrency['cancel-in-progress'], "${{ github.event_name != 'workflow_run' && (inputs.dry_run == true || vars.RELEASE_PUBLISH_ENABLED != 'true') }}");
   assert.match(release.concurrency.group, /release-publication/);
   const steps = workflow('release-manifest-validate').jobs.validate.steps;
   const verify = steps.findIndex(step => step.name === 'Verify draft artifact signatures before publication');

@@ -1,9 +1,11 @@
 name: Release
-run-name: Release ${{ inputs.tag || github.ref_name }}
+run-name: Release ${{ inputs.tag || github.event.workflow_run.head_branch || github.ref_name }}
 
 # Exact-SHA dev qualification precedes packaging; publication verifies the same receipts again.
 on:
-  push:
+  workflow_run:
+    workflows: [tests]
+    types: [completed]
     branches:
       - 'release/**'
   workflow_dispatch:
@@ -34,15 +36,46 @@ permissions:
   issues: write
   pull-requests: write
 
-# Until publication is enabled a push is a dry run of its own branch and a newer push supersedes it; publishing runs queue.
+# Qualified release heads run dry until publication is enabled; publishing runs queue.
 concurrency:
-  group: ${{ inputs.dry_run == true && format('release-dry-run-{0}', inputs.tag || github.ref_name) || (vars.RELEASE_PUBLISH_ENABLED == 'true' && 'release-publication' || format('release-dry-run-{0}', github.ref_name)) }}
-  cancel-in-progress: ${{ inputs.dry_run == true || vars.RELEASE_PUBLISH_ENABLED != 'true' }}
+  group: ${{ inputs.dry_run == true && format('release-dry-run-{0}', inputs.tag || github.event.workflow_run.head_branch || github.ref_name) || (vars.RELEASE_PUBLISH_ENABLED == 'true' && 'release-publication' || format('release-dry-run-{0}', github.event.workflow_run.head_branch || github.ref_name)) }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_run' && (inputs.dry_run == true || vars.RELEASE_PUBLISH_ENABLED != 'true') }}
 
 jobs:
+  qualified-source:
+    name: admit qualified release head
+    permissions:
+      contents: read
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.path == '.github/workflows/tests.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.actor.login == 'rollacode' && github.event.workflow_run.triggering_actor.login == 'rollacode' && startsWith(github.event.workflow_run.head_branch, 'release/') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      source_sha: ${{ steps.source.outputs.source_sha }}
+    steps:
+      - name: Admit only the exact qualified branch head
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          QUALIFIED_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          QUALIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$QUALIFIED_SHA" =~ ^[a-f0-9]{40}$ ]] || exit 1
+          if ! head=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$QUALIFIED_BRANCH" --jq .object.sha); then
+            echo "::notice::Release branch is unavailable; no packaging requested"
+            exit 0
+          fi
+          if [ "$head" != "$QUALIFIED_SHA" ]; then
+            echo "::notice::Qualification is for a superseded head; no packaging requested"
+            exit 0
+          fi
+          echo "source_sha=$QUALIFIED_SHA" >> "$GITHUB_OUTPUT"
+
   prepare:
     name: prepare release
-    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && startsWith(github.ref, 'refs/heads/release/') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    needs: qualified-source
+    if: ${{ always() && (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && ((startsWith(github.ref, 'refs/heads/release/') && (github.event_name == 'workflow_dispatch')) || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.path == '.github/workflows/tests.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.actor.login == 'rollacode' && github.event.workflow_run.triggering_actor.login == 'rollacode' && startsWith(github.event.workflow_run.head_branch, 'release/'))) && (github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && needs.qualified-source.outputs.source_sha != '')) }}
     environment: release
     runs-on: [self-hosted, linux-build]
     timeout-minutes: 30
@@ -60,7 +93,7 @@ jobs:
       - name: Checkout release source
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ github.event_name == 'push' && github.sha || inputs.tag || github.sha }}
+          ref: ${{ needs.qualified-source.outputs.source_sha || inputs.tag || github.sha }}
           fetch-depth: 0
           # History without blobs: unshallowing a workspace a shallow job left behind took minutes.
           filter: blob:none
@@ -80,9 +113,9 @@ jobs:
       - name: Resolve release version
         id: release
         env:
-          REQUESTED_REF: ${{ inputs.tag || github.ref_name }}
+          REQUESTED_REF: ${{ inputs.tag || github.event.workflow_run.head_branch || github.ref_name }}
           MIRROR_INPUT: ${{ inputs.mirror }}
-          DRY_RUN: ${{ (inputs.dry_run || (github.event_name == 'push' && vars.RELEASE_PUBLISH_ENABLED != 'true')) && 'true' || 'false' }}
+          DRY_RUN: ${{ (inputs.dry_run || (github.event_name == 'workflow_run' && vars.RELEASE_PUBLISH_ENABLED != 'true')) && 'true' || 'false' }}
           PROMOTE_RUN_ID: ${{ inputs.promote_run_id }}
           EVENT_NAME: ${{ github.event_name }}
           GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
@@ -104,7 +137,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           if [ "$DRY_RUN" = true ]; then
             version=$(node -p "require('./package.json').version")
-            if [ "$EVENT_NAME" = push ] && [ "$REQUESTED_REF" != "release/$version" ]; then
+            if [ "$EVENT_NAME" = workflow_run ] && [ "$REQUESTED_REF" != "release/$version" ]; then
               echo "::error::$REQUESTED_REF carries version $version; set the branch version"
               exit 1
             fi
@@ -204,7 +237,7 @@ jobs:
   frontend-dist:
     name: frontend bundle
     needs: prepare
-    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && startsWith(github.ref, 'refs/heads/release/') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == '') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && ((startsWith(github.ref, 'refs/heads/release/') && (github.event_name == 'workflow_dispatch')) || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.path == '.github/workflows/tests.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.actor.login == 'rollacode' && github.event.workflow_run.triggering_actor.login == 'rollacode' && startsWith(github.event.workflow_run.head_branch, 'release/'))) && (needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == '') }}
     environment: release
     runs-on: [self-hosted, linux-build]
     timeout-minutes: 20
@@ -356,7 +389,7 @@ jobs:
   promote-evidence:
     name: promote qualified dry-run evidence
     needs: prepare
-    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && startsWith(github.ref, 'refs/heads/release/') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (needs.prepare.outputs.promote_run_id != '' && vars.RELEASE_PUBLISH_ENABLED == 'true'       && needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && ((startsWith(github.ref, 'refs/heads/release/') && (github.event_name == 'workflow_dispatch')) || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.path == '.github/workflows/tests.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.actor.login == 'rollacode' && github.event.workflow_run.triggering_actor.login == 'rollacode' && startsWith(github.event.workflow_run.head_branch, 'release/'))) && (needs.prepare.outputs.promote_run_id != '' && vars.RELEASE_PUBLISH_ENABLED == 'true'       && needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app') }}
     environment: release
     runs-on: [self-hosted, linux-build]
     timeout-minutes: 120
@@ -416,7 +449,7 @@ jobs:
   promote:
     name: merge the release into master and develop
     needs: [prepare, release-manifest, frontend]
-    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && startsWith(github.ref, 'refs/heads/release/') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (always() && needs.prepare.outputs.branch != '' && needs.prepare.outputs.published != 'true'       && (needs.release-manifest.result == 'success' || needs.frontend.result == 'success')) }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && ((startsWith(github.ref, 'refs/heads/release/') && (github.event_name == 'workflow_dispatch')) || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.path == '.github/workflows/tests.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.actor.login == 'rollacode' && github.event.workflow_run.triggering_actor.login == 'rollacode' && startsWith(github.event.workflow_run.head_branch, 'release/'))) && (always() && needs.prepare.outputs.branch != '' && needs.prepare.outputs.published != 'true'       && (needs.release-manifest.result == 'success' || needs.frontend.result == 'success')) }}
     environment: release
     runs-on: [self-hosted, Linux, light, host-ubunta]
     timeout-minutes: 30
@@ -476,7 +509,7 @@ jobs:
       actions: write
       pull-requests: write
     needs: [prepare, macos-arm64, macos-x64, linux-arm64, linux-x86_64, windows-x64, windows-arm64]
-    if: always() && needs.prepare.outputs.promote_run_id == ''
+    if: always() && needs.prepare.result == 'success' && needs.prepare.outputs.promote_run_id == ''
     uses: ./.github/workflows/rust-warnings-summary.yml
     secrets: inherit
     with:
