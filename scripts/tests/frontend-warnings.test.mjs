@@ -71,12 +71,12 @@ test('a successful bundle with a new warning fails the shared ratchet and saves 
     fs.writeFileSync(path.join(root, 'scripts/frontend-warnings-baseline.json'), JSON.stringify(makeBaseline([], [])));
     let calls = 0;
     const run = async (_program, _args, log) => { if (++calls === 2) fs.appendFileSync(log, 'Warning: fixture\n'); return 0; };
-    assert.equal(await buildFrontend({ root, platform: 'win32', run }), 1);
+    assert.equal(await buildFrontend({ root, platform: 'linux', run }), 1);
     assert.equal(calls, 2);
     const workflow = parseYaml(fs.readFileSync(new URL('../../.github/workflows/tests-fast.yml', import.meta.url), 'utf8'));
-    const upload = workflow.jobs['frontend-windows'].steps.find(step => /ci-artifact\.sh put \S*rust-warnings-win32-frontend\.json/.test(step.run ?? ''));
+    const upload = workflow.jobs['frontend-dist'].steps.find(step => /ci-artifact\.sh put \S*rust-warnings-linux-frontend\.json/.test(step.run ?? ''));
     assert.equal(upload.if, 'always()');
-    assert.ok(upload.run.startsWith('test ! -f ci-rust-warnings/rust-warnings-win32-frontend.json || '));
+    assert.ok(upload.run.startsWith('test ! -f ci-rust-warnings/rust-warnings-linux-frontend.json || '));
     const document = JSON.parse(fs.readFileSync(path.join(root, upload.run.trim().split(/\s+/).at(-1))));
     assert.equal(document.complete, true);
     assert.equal(document.decision.added.length, 1);

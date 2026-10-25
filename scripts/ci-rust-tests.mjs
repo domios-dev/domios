@@ -11,6 +11,7 @@ import { classifyTarget } from './ci-classifier-cache.mjs';
 import { FULL_LANES, testTargetDir } from './rust-test-lanes.mjs';
 import { renderedCompilerErrors } from './collect-rust-warnings.mjs';
 import { prepareCliServer } from './cli-server-test.mjs';
+import { failureDetector, failureEvent, firstFailure } from './ci-first-failure.mjs';
 
 // The catalogue's release tier names every package and target, including path dependencies outside the workspace.
 const OVERLAY = JSON.parse(fs.readFileSync(new URL('../tests/catalogue.overlay.json', import.meta.url), 'utf8'));
@@ -171,18 +172,33 @@ export function executedCount(report) {
   return [...text.matchAll(/^\s*Summary\s+\[[^\]]+\]\s+(\d+)\s+tests? run/gm)].reduce((sum, match) => sum + Number(match[1]), 0);
 }
 
-export async function captureCommand(command, args, logPath, env = process.env, echo = true) {
+export async function captureCommand(command, args, logPath, env = process.env, echo = true, onFailure = detail => firstFailure(detail, { env })) {
   const fd = fs.openSync(logPath, 'w');
+  let failure;
+  const seen = new Set();
+  const detect = () => failureDetector(detail => {
+    failure ??= Promise.resolve().then(() => onFailure(detail)).catch(() => {});
+  }, failureEvent(env), seen);
+  const detectors = [];
   try {
     return await new Promise((resolve) => {
       const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'], env });
       let error;
       child.on('error', (cause) => { error = cause; });
-      for (const stream of [child.stdout, child.stderr]) stream.on('data', (chunk) => {
-        fs.writeSync(fd, chunk);
-        if (echo) process.stdout.write(chunk);
+      for (const stream of [child.stdout, child.stderr]) {
+        const detector = detect();
+        detectors.push(detector);
+        stream.on('data', (chunk) => {
+          fs.writeSync(fd, chunk);
+          if (echo) process.stdout.write(chunk);
+          detector.write(chunk);
+        });
+      }
+      child.on('close', async (status, signal) => {
+        for (const detector of detectors) detector.end();
+        await failure;
+        resolve({ status, signal, error });
       });
-      child.on('close', (status, signal) => resolve({ status, signal, error }));
     });
   } finally {
     fs.closeSync(fd);

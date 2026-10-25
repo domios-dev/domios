@@ -285,3 +285,15 @@ test('release builds keep bundle verification while server and CLI runtime check
     assert.match(signature.run, /verify-updater-manifest|release-verify-windows|release-publish-platform/);
   }
 });
+
+test('light jobs cannot claim the physical Rust suite host and Linux compilation uses one stable owner', () => {
+  for (const file of readdirSync(new URL('../../.github/workflows/', import.meta.url)).filter(name => name.endsWith('.yml'))) {
+    const definition = workflow(file.slice(0, -4));
+    for (const [id, job] of Object.entries(definition.jobs)) {
+      const labels = job['runs-on'];
+      if (!Array.isArray(labels)) continue;
+      if (labels.includes('light')) assert.ok(labels.includes('host-ubunta'), `${file}/${id}`);
+      assert.ok(!labels.includes('linux-ci'), `${file}/${id}: unpinned compile pool`);
+    }
+  }
+});

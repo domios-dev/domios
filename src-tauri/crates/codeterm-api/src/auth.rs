@@ -215,7 +215,11 @@ fn is_graph_event_path(method: &Method, path: &str) -> bool {
 
 pub(crate) fn is_inbound_webhook_path(method: &Method, path: &str) -> bool {
     method == Method::POST
-        && path == codeterm_service_core::service::web_access::PEBBLE_WEBHOOK_PATH
+        && matches!(
+            path,
+            codeterm_service_core::service::web_access::PEBBLE_WEBHOOK_PATH
+                | crate::inbound_webhook::ci::PATH
+        )
 }
 
 fn identify_caller(state: &AppState, auth_header: &str) -> Result<CallerIdentity, ()> {
