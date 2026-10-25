@@ -1,6 +1,6 @@
 # Legal
 
-- [ADDITIONAL-TERMS.md](ADDITIONAL-TERMS.md): plan-enforcement terms, Part 2 of the Domios License in [`../LICENSE`](../LICENSE)
+- [LICENSE](../LICENSE): GNU Affero General Public License version 3 only (AGPL-3.0-only)
 - [TERMS.md](TERMS.md): Terms of Service
 - [PRIVACY.md](PRIVACY.md): Privacy Policy
 - [PLACEMENT.md](PLACEMENT.md): where these documents appear in the product
