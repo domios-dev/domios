@@ -676,14 +676,23 @@ impl AccountMesh {
             rows,
             cursor,
         };
-        self.with(|inner| {
+        let keys_changed = self.with(|inner| {
             if inner.is_current(signed.epoch) || signed.epoch == 0 {
+                let changed = inner.observe_registry_keys(&observation.rows);
+                let revoked = inner.record.revoked_installations.clone();
                 inner.update(&self.watch, |state| {
+                    state.revoked_installations = revoked;
                     state.registry = Some(observation.clone());
                     state.registry_failure = None;
                 });
+                return changed;
             }
+            false
         });
+        if keys_changed {
+            self.persist().await;
+            self.push().await;
+        }
         Ok(observation)
     }
 
@@ -802,6 +811,14 @@ impl AccountMesh {
         };
         let own = revoked.target_installation_id == self.installation();
         self.with(|inner| {
+            inner
+                .record
+                .revoked_generations
+                .entry(revoked.target_installation_id.clone())
+                .and_modify(|generation| {
+                    *generation = (*generation).max(revoked.target_key_generation)
+                })
+                .or_insert(revoked.target_key_generation);
             inner
                 .record
                 .revoked_installations
@@ -963,7 +980,7 @@ impl AccountMesh {
             .with(|inner| inner.state.signed_in_account().map(str::to_owned))
             .ok_or(MembershipRefusal::Subject)?;
         let grant = parse_membership_token(token)?;
-        verify_membership(
+        let verified = verify_membership(
             &grant,
             trust,
             &MembershipExpectation {
@@ -971,7 +988,23 @@ impl AccountMesh {
                 ..MembershipExpectation::default()
             },
             now,
-        )
+        )?;
+        let accepted = self.with(|inner| {
+            !inner
+                .record
+                .revoked_installations
+                .contains(&verified.installation_id)
+                && inner
+                    .record
+                    .peer_keys
+                    .get(&verified.installation_id)
+                    .is_none_or(|known| {
+                        verified.key_generation > known.generation
+                            || (verified.key_generation == known.generation
+                                && verified.key_id == known.key_id)
+                    })
+        });
+        accepted.then_some(verified).ok_or(MembershipRefusal::Key)
     }
 
     pub fn verify_peer_link_permit(

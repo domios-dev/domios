@@ -526,3 +526,4 @@ fn account_mesh_unpair_removes_provenance_for_good() {
 
 mod approval;
 mod disconnect;
+mod rotation;

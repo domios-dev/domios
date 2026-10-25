@@ -170,6 +170,8 @@ pub struct Script {
     pub permit: Option<RegistryRefusal>,
     pub gate: Option<Arc<Notify>>,
     pub peer_unpublished: bool,
+    pub peer_key: Option<(String, u64)>,
+    pub peer_active: Option<bool>,
     pub peer_presence: RegistryPresence,
     pub peer_name: Option<String>,
     pub peer_metadata_revision: u64,
@@ -311,6 +313,13 @@ impl FakeRegistry {
         own.presence = account.map_or(RegistryPresence::Present, |account| account.presence);
         own.endpoint = account.and_then(|a| a.endpoint.clone());
         let mut peer = row(PEER, 0, Some("Laptop"));
+        if let Some(active) = self.script.lock().unwrap().peer_active {
+            peer.active = active;
+        }
+        if let Some((key_id, generation)) = self.script.lock().unwrap().peer_key.clone() {
+            peer.key_id = key_id;
+            peer.key_generation = generation;
+        }
         if let Some(name) = self.script.lock().unwrap().peer_name.clone() {
             peer.display_name = Some(name);
         }

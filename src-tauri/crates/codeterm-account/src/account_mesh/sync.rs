@@ -74,11 +74,14 @@ impl AccountMesh {
             inner.published_endpoint = endpoint;
             inner.published_until = expires_at;
             inner.record.published = result.publication != PublicationState::None;
+            inner.observe_registry_keys(&result.registry.rows);
+            let revoked = inner.record.revoked_installations.clone();
             let cleanup_confirmed = cleanup_confirmed && inner.record.cleanup_pending;
             if cleanup_confirmed {
                 inner.record.cleanup_pending = false;
             }
             inner.update(&self.watch, |state| {
+                state.revoked_installations = revoked;
                 if cleanup_confirmed {
                     state.cleanup = Cleanup::Confirmed;
                 }
