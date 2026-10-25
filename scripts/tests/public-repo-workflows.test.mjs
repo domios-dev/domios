@@ -47,7 +47,7 @@ function assertPublicJobs(graph, name, visited = new Set()) {
 test('every PR entry point and reusable descendant is hosted, read-only and secret-free', () => {
   let entries = 0;
   for (const [name, workflow] of Object.entries(workflows)) {
-    assert.equal(workflow.on.pull_request_target, undefined, name);
+    if (name !== 'fork-pr-guard.yml') assert.equal(workflow.on.pull_request_target, undefined, name);
     if ('pull_request' in workflow.on) {
       entries++;
       assertPublicJobs(workflows, name);
@@ -96,14 +96,14 @@ test('privileged reusable jobs refuse every PR actor, even the owner and same-re
 test('release jobs gate runner acquisition and secrets on owner, release branch and allowed event', () => {
   for (const [name, workflow] of Object.entries(workflows).filter(([name]) => releaseWorkflow(name))) {
     for (const trigger of Object.keys(workflow.on)) assert.ok(['push', 'workflow_dispatch', 'workflow_call', 'workflow_run'].includes(trigger), `${name}/${trigger}`);
-    if (workflow.on.push) assert.deepEqual(workflow.on.push, { branches: ['release/**'] });
+    if (workflow.on.push) assert.deepEqual(workflow.on.push, { branches: [name === 'release.yml' ? 'master' : 'release/**'] });
     for (const [id, job] of Object.entries(workflow.jobs)) {
       if (job.uses || hostedCompile(name, id)) continue;
       assert.equal(job.environment, 'release', `${name}/${id}`);
       for (const invalid of [
         { actor: 'outside-collaborator' }, { triggering_actor: 'outside-collaborator' }, { repository: 'fork/codeterm', repository_owner: 'fork' },
         { event_name: 'workflow_run' }, { event_name: 'schedule' },
-        { ref: 'refs/heads/master' }, { ref: 'refs/tags/v9.9.9' },
+        ...(name === 'release-manifest-validate.yml' ? [] : [{ ref: 'refs/heads/master' }]), { ref: 'refs/tags/v9.9.9' },
       ]) assert.equal(condition(job.if, { github: { ...github, ...invalid } }), false, `${name}/${id}/${stringify(invalid)}`);
     }
   }
@@ -162,4 +162,36 @@ test('hosted arm64 compiler stays outside protected environments with only publi
   assert.deepEqual(references, names);
   assert.equal(workflow.jobs.compile.environment, undefined);
   assert.doesNotMatch(stringify(workflow.jobs.compile['runs-on']), /self-hosted/);
+});
+
+
+test('fork release guard is the only tightly confined pull_request_target workflow',async()=>{
+  const guard=workflows['fork-pr-guard.yml'];
+  assert.deepEqual(Object.keys(guard.on),['pull_request_target']);
+  assert.deepEqual(guard.on.pull_request_target.types,['opened','reopened','synchronize','edited']);
+  assert.deepEqual(guard.permissions,{'pull-requests':'write'});
+  assert.deepEqual(Object.keys(guard.jobs),['close']);
+  const job=guard.jobs.close;
+  assert.equal(job['runs-on'],'ubuntu-24.04');
+  assert.deepEqual(job.permissions,{'pull-requests':'write'});
+  assert.equal(job.environment,undefined);
+  assert.equal(job.secrets,undefined);
+  assert.equal(job.if,'github.event.pull_request.head.repo.full_name != github.repository');
+  assert.equal(job.steps.length,1);
+  assert.match(job.steps[0].uses,/^actions\/github-script@[a-f0-9]{40}$/);
+  assert.doesNotMatch(JSON.stringify(guard),/secrets\.|checkout|self-hosted|\"run\":/);
+  const execute=new (Object.getPrototypeOf(async function(){}).constructor)('github','context',job.steps[0].with.script);
+  for(const [head,base,repo,closed]of [
+    ['release/x','develop','fork/domios',true],['topic/x','master','fork/domios',true],
+    ['topic/x','release/1.15.3','fork/domios',true],['topic/x','develop','fork/domios',false],
+    ['release/1.15.3','master','domios-dev/domios',false],
+  ]){
+    const pr={number:3,head:{ref:head,repo:{full_name:repo}},base:{ref:base}};
+    const calls=[];
+    if(condition(job.if,{github:{repository:'domios-dev/domios',event:{pull_request:pr}}}))
+      await execute({rest:{pulls:{update:async row=>calls.push(row)},issues:{createComment:async row=>calls.push(row)}}},
+        {repo:{owner:'domios-dev',repo:'domios'},payload:{pull_request:pr}});
+    assert.equal(calls.length,closed?2:0,head+'/'+base+'/'+repo);
+    if(closed){assert.equal(calls[0].state,'closed');assert.doesNotMatch(calls[1].body,/\n/);}
+  }
 });
