@@ -88,11 +88,12 @@ assert("route summary names HTTPS and Tailscale", webRouteLabel("tailscale_https
 assert("route summary distinguishes local network", webRouteLabel("lan"), "Local network");
 
 
-assert("detected IP alone is not a ready listener", webUiListenerReady(network, null), false);
-assert("bound signed-out listener is ready without Serve", webUiListenerReady({ ...network, web_listener: "100.64.1.2:7698" }, null), true);
-assert("unhealthy Serve is not ready", webUiListenerReady(network, serve({ snapshot: { ...readySnapshot(), state: "unhealthy" } })), false);
-assert("ready listener supplies its actual port", buildWebUiTarget(config, { ...network, web_listener: "100.64.1.2:7698" }).link, "http://100.64.1.2:7698/#token=secret");
-assert("ready IPv6 listener supports token access", buildWebUiTarget(config, { web_listener: "[fd7a:115c:a1e0::1]:7698" }).link, "http://[fd7a:115c:a1e0::1]:7698/#token=secret");
+assert("bound listener wins over a cached Serve URL", buildWebUiTarget(config, { ...network, web_listener: "100.64.1.2:7698" }, serve()).link, "http://100.64.1.2:7698/#token=secret&relay=self");
+assert("detected IP alone is not a ready listener", webUiListenerReady(network), false);
+assert("bound signed-out listener is ready without Serve", webUiListenerReady({ ...network, web_listener: "100.64.1.2:7698" }), true);
+assert("unhealthy Serve is not ready", webUiListenerReady(network), false);
+assert("ready listener supplies its actual port", buildWebUiTarget(config, { ...network, web_listener: "100.64.1.2:7698" }).link, "http://100.64.1.2:7698/#token=secret&relay=self");
+assert("ready IPv6 listener supports token access", buildWebUiTarget(config, { web_listener: "[fd7a:115c:a1e0::1]:7698" }).link, "http://[fd7a:115c:a1e0::1]:7698/#token=secret&relay=self");
 console.log("buildWebUiTarget:");
 
 const ready = buildWebUiTarget(config, network, serve());

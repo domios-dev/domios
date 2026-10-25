@@ -21,11 +21,11 @@ it("Web card exposes host-named QR, wires Open/Copy to its single link and Tails
   try {
     await act(async () => root.render(<MeshCanvas thisMachine={{ name: "Local", ip: "127.0.0.1" }} peers={[]}
       onPeerClick={() => {}} recentPushes={[]} width={390} height={700}
-      webCard={(qrSize) => <WebAccessPanel embedded qrSize={qrSize} config={config} network={{ local_ip: "192.168.1.2" }}
+      webCard={(qrSize) => <WebAccessPanel embedded qrSize={qrSize} config={config} network={{ web_listener: "100.64.1.2:7686" }}
         serve={null} loading={false} actions={actions} onAction={async () => {}} onClose={() => {}} onSetup={async () => { setup++; }} />} />));
     const card = host.querySelector('[role="region"][aria-label="Mesh UI"]');
     expect(card).not.toBeNull();
-    expect(card!.querySelector('img[alt="Open Domios Web on 192.168.1.2:7686"]')).not.toBeNull();
+    expect(card!.querySelector('img[alt="Open Domios Web on 100.64.1.2:7686"]')).not.toBeNull();
     expect(host.querySelector('[role="dialog"]')).toBeNull();
     const button = (name: string) => {
       const result = Array.from(card!.querySelectorAll("button")).find((element) => element.textContent === name);
@@ -35,7 +35,7 @@ it("Web card exposes host-named QR, wires Open/Copy to its single link and Tails
     await act(async () => button("Open").click());
     await act(async () => button("Copy link").click());
     await act(async () => button("Set up Tailscale with AI").click());
-    expect(opened).toEqual(["http://192.168.1.2:7686/#token=secret"]);
+    expect(opened).toEqual(["http://100.64.1.2:7686/#token=secret&relay=self"]);
     expect(copied).toEqual(opened);
     expect(encoded).toEqual(opened);
     expect(setup).toBe(1);
