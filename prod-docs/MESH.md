@@ -157,17 +157,13 @@ Before a relayed CLI operation, the caller reads the peer's authenticated `/api/
 
 Recurring delayed-message create and edit operations require `delayed_recurrence` in the target's advertised identify `features`. The origin refuses when the feature is missing or no feature list is advertised, naming the peer and its reported version and directing the user to update the peer or send a one-shot. One-shot delays remain available to older peers.
 
-## Bridge migration
-
-Moving a Telegram bridge between peers (CLI, orchestration steps, secret locality, flags, exit codes): see `domios docs MESH-BRIDGE`.
+Bridge migration between peers: `MESH-BRIDGE`.
 
 ## Mesh-disabled gate (503)
 
 When `config.mesh.enabled = false`, the auth middleware short-circuits every `/api/mesh/*` path (other than `/api/mesh/ping`) with `503 Mesh networking is disabled`. The same 503 also fires for any caller authenticated via the mesh signed-token path — so other peers attempting to relay into us also get rejected, not just the local UI. The local instance Bearer credential keeps working for non-mesh routes regardless.
 
 **Disabling mid-session** (PATCH `/api/config mesh.enabled=false`) additionally marks every paired peer `online = false` and emits `mesh-state-changed` so the UI updates immediately. Re-enabling restores the routes; peer state picks back up on the next ping tick. Mesh off rejects remote access, though outbound health pings to paired peers may continue.
-
-Peer reachability updates automatically and emits `mesh-state-changed`.
 
 ## Related documents
 
@@ -185,4 +181,4 @@ Inventory opens as a full-screen searchable List beside the existing Mesh networ
 | POST | `/api/mesh/disconnect-notice` | `{from, to, link_nonce, signature}` | Removes only this exact connection. |
 | POST | `/api/mesh/account-presence` | `{metadata_revision}` | Triggers one rate-limited registry refresh. |
 
-<!-- revision: 68 -->
+<!-- revision: 69 -->

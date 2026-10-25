@@ -30,4 +30,8 @@ Authenticated `GET /api/debug/events/stats` includes `streams` alongside the mux
 
 `live` counts open response streams, including bodies that have not yet been polled. Completion, client disconnect, cancellation and panic unwind release the count. `opened` and `closed` are monotonic within the daemon process and reset on restart. A snapshot reads atomic counters independently; concurrent opens/closes can briefly make `opened - closed` differ from `live`. After stream owners finish, `live` returns to the baseline and opened/closed deltas balance. Finite JSON and asset responses are outside the SSE census.
 
-<!-- revision: 8 -->
+### CI failure events
+
+POST `/api/ci/webhook` uses a dedicated Bearer credential from the secret-store entry `ci-webhook`, a JSON registration `{token, repo, plan}`. It accepts `{repo, run, attempt, sha, job, step, test, exit, log_url}`; `test` and `exit` may be null when unavailable. Run and attempt are positive decimal strings, SHA is 40 hex characters, and the log URL must name that repository/run/attempt on GitHub. Authenticated events route one message and notification to the registered plan's live, session-verified Orchestrator. Missing owners fail delivery; events never fall back to another tab. Duplicate repository/run/attempt/job events are suppressed by the gateway's bounded process-local cache. Requests are capped at 16 KiB and retain the API's Tailnet access restrictions.
+
+<!-- revision: 9 -->
