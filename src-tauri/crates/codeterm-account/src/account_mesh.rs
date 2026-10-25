@@ -8,6 +8,7 @@ mod membership;
 mod notice;
 mod operations;
 mod ports;
+mod registry_keys;
 mod registry_presence;
 mod rejoin;
 mod retry;
