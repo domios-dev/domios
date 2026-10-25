@@ -27,7 +27,7 @@ vi.mock("../../lib/bridge", async (original) => ({
   ...await original<typeof import("../../lib/bridge")>(),
   invoke: async (command: string) => command === "get_serve_status"
     ? { installed: true, active: true, snapshot: webUiSnapshot("ready") }
-    : { api_port: 7686, local_ip: "192.168.1.2" },
+    : { api_port: 7686, local_ip: "192.168.1.2", web_listener: "100.64.1.2:7686" },
   listen: async () => () => {},
 }));
 vi.mock("qrcode", () => ({ default: { toDataURL: async () => "data:image/png;base64,fixture" } }));
@@ -165,7 +165,7 @@ it("shows the access card directly in the graph without a duplicate details dial
     expect(host.querySelector('[role="alert"]')).toBeNull();
     expect(host.querySelector('[role="dialog"]')).toBeNull();
     expect(host.querySelector('[data-testid="web-access-status"]')).toBeNull();
-    expect(host.querySelector('[role="region"][aria-label="Mesh UI"]')?.textContent).toContain('host.tail.ts.net');
+    expect(host.querySelector('[role="region"][aria-label="Mesh UI"]')?.textContent).toContain('100.64.1.2:7686');
     const expand = host.querySelector<HTMLButtonElement>('button[aria-label="Expand Mesh UI"]');
     expect(expand).not.toBeNull();
     await act(async () => expand!.click());

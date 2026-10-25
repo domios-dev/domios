@@ -58,7 +58,10 @@ fn router(state: &AppState) -> Router {
         .route("/api/config", get(|| async { "allowed" }))
         .route("/api/health", get(|| async { "healthy" }))
         .route("/frontend/index.html", get(|| async { "frontend" }))
-        .route("/api/mesh/relay", get(|| async { "custom" }))
+        .route(
+            "/api/mesh/relay",
+            axum::routing::post(|| async { "custom" }),
+        )
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
@@ -124,14 +127,15 @@ async fn signed_out_remote_routes_stay_closed_except_tailnet_web_access() {
     let fixture = ServiceFixture::new(MultiplexerState::empty());
     let state = crate::transport_tabs::fixture::app_state(&fixture);
     apply(&state, AccountPresence::SignedOut);
-    for path in [
-        "/api/health",
-        "/frontend/index.html",
-        "/api/mesh/relay",
-        "/api/config",
+    for (path, method) in [
+        ("/api/health", Method::GET),
+        ("/frontend/index.html", Method::GET),
+        ("/api/mesh/relay", Method::POST),
+        ("/api/config", Method::GET),
     ] {
         for peer_listener in [false, true] {
             let mut req = request(path, "100.64.0.2:9000", "preview-test-token");
+            *req.method_mut() = method.clone();
             if peer_listener {
                 req.extensions_mut()
                     .insert(codeterm_service_core::service::account_mesh::tailnet::TailnetListener);
@@ -145,12 +149,10 @@ async fn signed_out_remote_routes_stay_closed_except_tailnet_web_access() {
                 }
             );
         }
+        let mut local = request(path, "127.0.0.1:9000", "preview-test-token");
+        *local.method_mut() = method;
         assert_eq!(
-            router(&state)
-                .oneshot(request(path, "127.0.0.1:9000", "preview-test-token"))
-                .await
-                .unwrap()
-                .status(),
+            router(&state).oneshot(local).await.unwrap().status(),
             StatusCode::OK
         );
     }

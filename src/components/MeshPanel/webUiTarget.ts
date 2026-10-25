@@ -2,6 +2,7 @@ import type { AppConfig } from "../../lib/types";
 import {
   buildWebAccessUrls,
   webLinkWithToken,
+  webLinkWithTokenAndRelay,
   type ServeStatus,
 } from "../../lib/webAccess";
 
@@ -55,7 +56,7 @@ export function buildWebUiTarget(
   const port = network?.api_port ?? serve?.snapshot?.api_port ?? config.api.port;
   if (network?.web_listener) {
     const root = `http://${network.web_listener}/`;
-    return { link: webLinkWithToken(root, config.api.token), usingFallback: true, port: Number(new URL(root).port) || port };
+    return { link: webLinkWithTokenAndRelay(root, config.api.token, null), usingFallback: true, port: Number(new URL(root).port) || port };
   }
   const serveRoot = serveHttpsRoot(serve);
   if (serveRoot) {
