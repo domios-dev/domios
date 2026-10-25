@@ -25,6 +25,8 @@ jobs:
       contents: read
       actions: write
       pull-requests: write
+    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' }}
+    environment: ${{ startsWith(github.ref, 'refs/heads/release/') && 'release' || 'ci' }}
     runs-on: [self-hosted, Linux, light, host-ubunta]
     timeout-minutes: 5
     steps:

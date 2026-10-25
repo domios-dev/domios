@@ -42,7 +42,8 @@ concurrency:
 jobs:
   prepare:
     name: prepare release
-    if: github.event_name != 'push' || github.actor == 'rollacode'
+    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && startsWith(github.ref, 'refs/heads/release/') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    environment: release
     runs-on: [self-hosted, linux-build]
     timeout-minutes: 30
     outputs:
@@ -203,8 +204,8 @@ jobs:
   frontend-dist:
     name: frontend bundle
     needs: prepare
-    if: >-
-      needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
+    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && startsWith(github.ref, 'refs/heads/release/') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == '') }}
+    environment: release
     runs-on: [self-hosted, linux-build]
     timeout-minutes: 20
     env:
@@ -349,9 +350,8 @@ jobs:
   promote-evidence:
     name: promote qualified dry-run evidence
     needs: prepare
-    if: >-
-      needs.prepare.outputs.promote_run_id != '' && vars.RELEASE_PUBLISH_ENABLED == 'true'
-      && needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
+    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && startsWith(github.ref, 'refs/heads/release/') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (needs.prepare.outputs.promote_run_id != '' && vars.RELEASE_PUBLISH_ENABLED == 'true'       && needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app') }}
+    environment: release
     runs-on: [self-hosted, linux-build]
     timeout-minutes: 120
     env:
@@ -410,9 +410,8 @@ jobs:
   promote:
     name: merge the release into master and develop
     needs: [prepare, release-manifest, frontend]
-    if: >-
-      always() && needs.prepare.outputs.branch != '' && needs.prepare.outputs.published != 'true'
-      && (needs.release-manifest.result == 'success' || needs.frontend.result == 'success')
+    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && startsWith(github.ref, 'refs/heads/release/') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (always() && needs.prepare.outputs.branch != '' && needs.prepare.outputs.published != 'true'       && (needs.release-manifest.result == 'success' || needs.frontend.result == 'success')) }}
+    environment: release
     runs-on: [self-hosted, Linux, light, host-ubunta]
     timeout-minutes: 30
     env:
@@ -464,7 +463,6 @@ jobs:
             git checkout -B develop origin/master
           fi
           git push origin develop
-          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then git push origin --delete "$BRANCH"; fi
 
   rust-warnings:
     permissions:

@@ -33,9 +33,10 @@ env:
   CODETERM_BUILD_GATEWAY_MODE: queue
 jobs:
   build:
+    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && startsWith(github.ref, 'refs/heads/release/') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
     runs-on: [self-hosted, Linux, light, host-ubunta]
     timeout-minutes: 30
-    environment: ${{ (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.dry_run)) && 'frontend-dry-run' || 'frontend-signing' }}
+    environment: release
     env:
       FRONTEND_TAG: ${{ inputs.tag || github.ref_name }}
       FRONTEND_DRY_RUN: ${{ (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.dry_run)) && 'true' || 'false' }}
@@ -116,10 +117,10 @@ jobs:
         uses: ./.github/actions/ci-artifact-spool
   publish:
     needs: build
-    if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || !inputs.dry_run)
+    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && startsWith(github.ref, 'refs/heads/release/') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || !inputs.dry_run)) }}
     runs-on: [self-hosted, Linux, light, host-ubunta]
     timeout-minutes: 30
-    environment: frontend-publication
+    environment: release
     env:
       FRONTEND_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
