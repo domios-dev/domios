@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { verifyReceipts } from './ci-rust-receipts.mjs';
+import { verifyReceipts, readReceipts } from './ci-rust-receipts.mjs';
 
 export const QUALIFICATION_JOBS = [
   'Repository guards', 'CI result', 'Fast checks / guards', 'Fast checks / clippy', 'Fast checks / cli tests',
@@ -61,7 +61,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
     const receipt = requireQualification(sha);
     console.log(`Qualified ${sha} in tests run ${receipt.run_id}, attempt ${receipt.run_attempt}`);
   } else if (verb === 'record') {
-    const rust = fs.readdirSync(directory).filter(name => name.endsWith('.json')).map(name => JSON.parse(fs.readFileSync(path.join(directory, name), 'utf8')));
+    const rust = readReceipts(directory);
     verifyReceipts(rust);
     if (rust.some(row => row.sha !== sha)) throw new Error('Foreign Rust source');
     const results = JSON.parse(process.env.QUALIFICATION_RESULTS);
