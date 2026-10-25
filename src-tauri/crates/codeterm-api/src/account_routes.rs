@@ -225,6 +225,25 @@ pub async fn neighbors(
         .map_err(unavailable)
 }
 
+pub async fn neighbor_runtime(
+    State(state): State<AppState>,
+    caller: Option<Extension<CallerIdentity>>,
+    headers: axum::http::HeaderMap,
+    Json(command): Json<codeterm_service_core::service::neighbors::NeighborRuntimeCommand>,
+) -> Result<Json<serde_json::Value>, Error> {
+    admit(caller.as_ref())?;
+    let tab = crate::tab_routes::caller_tab_header(&headers);
+    let nonce = headers
+        .get("x-codeterm-binding-nonce")
+        .and_then(|value| value.to_str().ok());
+    state
+        .svc
+        .neighbor_runtime(command, tab.as_deref(), nonce)
+        .await
+        .map(Json)
+        .map_err(unavailable)
+}
+
 pub async fn billing_operation(
     State(state): State<AppState>,
     caller: Option<Extension<CallerIdentity>>,

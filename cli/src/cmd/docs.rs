@@ -56,6 +56,11 @@ pub(crate) const DOCS: &[EmbeddedDoc] = &[
         "../../../prod-docs/ACCOUNT.md"
     ),
     doc!(
+        "NEIGHBORS",
+        "Encrypted Neighbor channels, installation keys, gateway permissions and delivery status",
+        "../../../prod-docs/NEIGHBORS.md"
+    ),
+    doc!(
         "NOTIFICATIONS",
         "Notification levels, per-level surfaces, sound, and push channels",
         "../../../prod-docs/NOTIFICATIONS.md"

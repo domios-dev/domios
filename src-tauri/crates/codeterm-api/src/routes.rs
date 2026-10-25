@@ -600,6 +600,10 @@ pub(super) fn create_router_with_preview_admission(
             post(super::account_routes::neighbors),
         )
         .route(
+            "/api/account/neighbors/runtime",
+            post(super::account_routes::neighbor_runtime),
+        )
+        .route(
             "/api/account/billing",
             post(super::account_routes::billing_operation),
         )

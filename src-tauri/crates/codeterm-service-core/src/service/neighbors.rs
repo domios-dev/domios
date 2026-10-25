@@ -3,6 +3,10 @@ use codeterm_account::account_mesh::callable::{CallableFailure, CallableTranspor
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+mod runtime;
+mod storage;
+pub use runtime::{NeighborRuntimeCell, NeighborRuntimeCommand};
+
 #[derive(Debug, Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum NeighborCommand {

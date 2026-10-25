@@ -46,3 +46,30 @@ fn server_locked_and_count_refusals_have_upgrade_paths() {
         );
     }
 }
+
+#[test]
+fn only_the_authenticated_general_session_can_author_permissions() {
+    use super::runtime::authoring_allowed;
+    assert!(authoring_allowed(true, true, Some("own"), Some("own")));
+    assert!(!authoring_allowed(false, true, Some("own"), Some("own")));
+    assert!(!authoring_allowed(true, false, Some("own"), Some("own")));
+    assert!(!authoring_allowed(true, true, Some("own"), Some("other")));
+    assert!(!authoring_allowed(true, true, None, None));
+}
+
+#[test]
+fn neighbor_frames_preserve_provenance_without_a_local_reply_route() {
+    use crate::service::messenger::{MessageEnvelope, Messenger};
+    let envelope = MessageEnvelope {
+        from_neighbor: Some("opaque-friendship".into()),
+        from_label: "opaque-peer".into(),
+        ..Default::default()
+    };
+    let frame = Messenger::from(envelope).routed_frame("opaque-body");
+    let message = codeterm_wire::domios::parse_message(&frame.to_message()).unwrap();
+    assert_eq!(message.attr("from"), Some("neighbor"));
+    assert_eq!(message.attr("friendship"), Some("opaque-friendship"));
+    assert_eq!(message.body, "opaque-body");
+    assert!(frame.suffix.is_empty());
+    assert!(message.attr("mesh").is_none());
+}

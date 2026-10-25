@@ -1,4 +1,5 @@
 [
+  "src/components/Neighbors/NeighborChannel.test.tsx",
   "src/components/Neighbors/NeighborsSection.test.tsx",
   "src/components/Neighbors/neighborModel.test.ts",
   "src/components/billing/desktopBilling.test.ts",

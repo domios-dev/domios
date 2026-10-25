@@ -6,12 +6,15 @@ import { SidebarDisclosure } from "../Sidebar/SidebarDisclosure";
 import { neighborName, validNeighborLimit, type Neighbor } from "./neighborModel";
 import { useNeighbors } from "./useNeighbors";
 import type { NeighborClient } from "./neighborClient";
+import { NeighborChannel } from "./NeighborChannel";
+import { neighborRuntimeClient, type NeighborRuntimeClient } from "./neighborRuntimeClient";
 
 const openPlans = () => window.dispatchEvent(new CustomEvent("codeterm:open-panel", { detail: { panel: "settings:plans" } }));
 
-export function NeighborDetails({ neighbor, locked, pending, onClose, onLimit, onRemove, onOpenGeneral }: {
+export function NeighborDetails({ neighbor, locked, pending, onClose, onLimit, onRemove, onOpenGeneral, owner, runtimeClient }: {
   neighbor: Neighbor; locked: boolean; pending: boolean; onClose: () => void;
   onLimit: (limit: number) => Promise<boolean>; onRemove: () => Promise<boolean>; onOpenGeneral: () => void;
+  owner?: string; runtimeClient?: NeighborRuntimeClient;
 }) {
   const title = useId();
   const [limit, setLimit] = useState(neighbor.inbound_per_hour);
@@ -27,6 +30,7 @@ export function NeighborDetails({ neighbor, locked, pending, onClose, onLimit, o
     <p>Connected since {new Date(neighbor.since * 1000).toLocaleDateString()}.</p>
     <p>Ask your General Agent to review permissions before sharing any information with this Neighbor.</p>
     <Button type="button" onClick={() => { onClose(); onOpenGeneral(); }}>Open General Agent</Button>
+    {owner && runtimeClient && <NeighborChannel owner={owner} friendship={neighbor.friendship_id} locked={locked} client={runtimeClient} />}
     <label>Incoming requests per hour
       <input type="number" min={1} max={200} step={1} value={limit} onChange={event => setLimit(event.currentTarget.valueAsNumber)} />
     </label>
@@ -41,8 +45,9 @@ export function NeighborDetails({ neighbor, locked, pending, onClose, onLimit, o
   </FormDialog>;
 }
 
-export function NeighborsInventory({ identity, onOpenGeneral, client }: {
+export function NeighborsInventory({ identity, onOpenGeneral, client, runtimeClient }: {
   identity: string | null; onOpenGeneral: () => void; client?: NeighborClient;
+  runtimeClient?: NeighborRuntimeClient;
 }) {
   const neighbors = useNeighbors(identity, client);
   const [expanded, setExpanded] = useState(false);
@@ -72,6 +77,7 @@ export function NeighborsInventory({ identity, onOpenGeneral, client }: {
           <Button type="button" onClick={() => setSelectedId(friend.friendship_id)}>{neighborName(friend)}</Button>
         </li>)}</ul>
         {selected && <NeighborDetails key={selected.friendship_id} neighbor={selected} locked={!paid} pending={neighbors.pending}
+          owner={identity ?? undefined} runtimeClient={runtimeClient}
           onClose={() => setSelectedId(null)} onOpenGeneral={onOpenGeneral}
           onLimit={per_hour => neighbors.apply({ operation: "set_limit", friendship_id: selected.friendship_id, per_hour })}
           onRemove={() => neighbors.apply({ operation: "remove", friendship_id: selected.friendship_id })} />}
@@ -95,5 +101,5 @@ export function NeighborsInventory({ identity, onOpenGeneral, client }: {
 export function NeighborsSection({ onOpenGeneral }: { onOpenGeneral: () => void }) {
   const { model } = useAccount();
   const identity = model.kind === "signed_in" ? model.identity.uid : null;
-  return <NeighborsInventory key={identity} identity={identity} onOpenGeneral={onOpenGeneral} />;
+  return <NeighborsInventory key={identity} identity={identity} onOpenGeneral={onOpenGeneral} runtimeClient={neighborRuntimeClient} />;
 }

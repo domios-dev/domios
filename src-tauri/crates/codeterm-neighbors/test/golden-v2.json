@@ -1,0 +1,32 @@
+{
+  "seed": "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+  "spki": "MCowBQYDK2VwAyEA11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=",
+  "publicKey": "MCowBQYDK2VwAyEA11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=",
+  "senderSeed": "77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a",
+  "recipientSeed": "5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb",
+  "senderSpki": "MCowBQYDK2VuAyEAhSDwCYkwp1R0i33ctD73Wg2/Og0mOBr066SpjqqbTmo=",
+  "recipientSpki": "MCowBQYDK2VuAyEA3p7bfXt9wbTTW2HC7OQ1Nz+DQ8hbeGdNrfx+FG+IK08=",
+  "sharedKey": "917f2d9d15daa0fd54bf18fa7aff65eefea99489513c8e410093a9d06139c77a",
+  "body": "EcoIQ video design: stopped after the storyboard handoff.",
+  "envelope": {
+    "schema": "domios.friend-envelope.v2",
+    "friendship_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "message_id": "0123456789abcdef0123456789abcdef",
+    "sender_uid": "qaSenderUid000000000000001",
+    "recipient_uid": "qaRecipientUid00000000002",
+    "kind": "answer",
+    "in_reply_to": "fedcba9876543210fedcba9876543210",
+    "ciphertext": "29MWaW0961KyOROF5LprLQlR483ZUxpFY_acZR_ZHLflXno7J6YI2G7zy32c1wMBX1oWQ-9R1iQai3IJs_1_OCYLTi0IS9LYoA",
+    "nonce": "AAECAwQFBgcICQoL",
+    "enc_key_ids": {
+      "sender": "ek_03c7335c50b921eee5d192b8bc51b96f",
+      "recipient": "ek_d49f736d647c0250b45aa4dc8fcba015"
+    },
+    "scope_sha256": "74469e6ffdf7b4ab0a97ef7ab4375a0dbeef8b2bc6a9d47ce4c8ddbb1170edca",
+    "verdict": "pass",
+    "verifier_key_id": "vk_test_1",
+    "issued_at": 1792900000
+  },
+  "sha256": "a006346d3b9be26d6b0f20084c4d4b697ae8049a6891079b125f06a31ddb8d5c",
+  "signature": "zit1mCZhYwbUPkOqQn7AsolGNxecO9c37tk2ztkSB3g2KKqUCQ2ktSoPa8Wpiqztl9pk_u5PjZSg_sOGrpkMAA"
+}
