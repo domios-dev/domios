@@ -1,4 +1,6 @@
 import fs from 'node:fs';
+import {inferRunnerProfile,runnerProfile} from './ci-runner-profile.mjs';
+import {reproLine} from './ci-repro.mjs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -75,7 +77,9 @@ export function pythonInterpreter(platform, env, hasFile = file => {
   if (env.CI_PYTHON) return env.CI_PYTHON;
   const paths = platform === 'win32' ? path.win32 : path.posix;
   const directories = (env.PATH || '').split(platform === 'win32' ? ';' : ':');
-  for (const name of platform === 'win32' ? ['python.exe'] : ['python3', 'python']) {
+  const preferred=env.CI_RUNNER_PROFILE?runnerProfile(env.CI_RUNNER_PROFILE).python:null;
+  const names=platform==='win32'?['python.exe']:preferred?[preferred,...['python3','python'].filter(name=>name!==preferred)]:['python3','python'];
+  for (const name of names) {
     for (const directory of directories.filter(Boolean)) {
       const candidate = paths.join(directory, name);
       if (hasFile(candidate)) return candidate;
@@ -126,6 +130,7 @@ export function runnerPathContent(directories) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  try {
   if (!process.env.GITHUB_PATH) throw new Error('GITHUB_PATH is required for job-local tool setup');
   const hasFile = (file) => {
     try { return fs.statSync(file).isFile(); } catch { return false; }
@@ -147,4 +152,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
   }
   if (process.argv[2] !== '--paths-only') checkRunnerTools(process.argv[2] || 'rust', { env });
   for (const directory of directories) console.log('Job-local tool directory: ' + directory);
+  } catch(error) {
+    console.error(error.stack||error.message);
+    console.error(reproLine(process.env.CI_STEP||'node-script-tests',{profile:inferRunnerProfile()}));
+    process.exitCode=1;
+  }
+
 }
