@@ -55,7 +55,7 @@ test('the executor uses the selected CI command, preserves failure and prints re
    execute:(program,args,options)=>{
     calls.push({program,args,options});
     if(program==='git'&&args[0]==='rev-parse')return{status:0,stdout:sha};
-    if(program==='bash'&&args[0]==='-c'){assert.equal(args[1],entry.runner);assert.equal(options.timeout,3000);return{status:37};}
+    if(path.basename(program).replace(/.exe$/i,'')==='bash'&&args[0]==='-c'){assert.equal(args[1],entry.runner);assert.equal(options.timeout,3000);return{status:37};}
     return{status:0,stdout:''};
    },
   });
