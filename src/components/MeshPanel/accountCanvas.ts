@@ -105,7 +105,7 @@ export function accountCanvas({ view, peers, loadFailed, listFailed, failures }:
       ? { instanceId: row.controls.unpairInstanceId, confirm: row.target === null }
       : null;
     if (row.pairInstanceId && peerIds.has(row.pairInstanceId)) {
-      peerFooters.set(row.pairInstanceId, { key: row.key, row, status: label, tone, locked, plans: locked, disconnect, callout });
+      peerFooters.set(row.pairInstanceId, { key: row.key, row, status: label, tone, locked, plans: locked || !!row.controls.plans, disconnect, callout });
       continue;
     }
     if (row.status === "revoked" && !row.pairInstanceId) continue;
@@ -134,7 +134,7 @@ export function accountCanvas({ view, peers, loadFailed, listFailed, failures }:
 
 function machineAction(row: MachineRowView): MachineAction {
   if (row.status === "approval_requested" && row.linkRequest?.notification_id) return { kind: "approve", notificationId: row.linkRequest.notification_id };
-  if (row.status === "over_limit") return { kind: "plans" };
+  if (row.status === "over_limit" || row.controls.plans) return { kind: "plans" };
   const add = row.controls.add;
   if (!add || !row.target) return null;
   const connecting = row.status === "linking";

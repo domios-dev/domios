@@ -373,7 +373,8 @@ describe("My machines over the plan's machine limit", () => {
     expect(lockBadges(saved)).toBe(0);
     expect(lockBadges(account("MacBook"))).toBe(0);
     expect(account("MacBook")?.dataset.status).toBe("unlinked");
-    expect(button("Connect MacBook")?.disabled).toBe(true);
+    expect(button("Connect MacBook")).toBeNull();
+    expect(button("See plans for MacBook")).not.toBeNull();
     expect(lockBadges(host.querySelector(hasSelf ? '[aria-label="This machine: Studio PC"]' : '[aria-label="This machine plan limit"]'))).toBe(1);
     await click(button("See plans for this machine"));
     expect(freeLimitGate.current()?.key).toBe("mesh.machines");

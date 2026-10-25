@@ -339,7 +339,7 @@ function MachineRow({ row, busy, confirm, register, onDecision, onAdd, onPlans, 
                 {linking ? <><BusySpinner size={12} /> Connecting…</> : ["declined", "link_expired", "link_failed"].includes(row.status) ? "Try again" : "Connect"}
               </button>
             )}
-            {row.status === "over_limit" && (
+            {(row.status === "over_limit" || row.controls.plans) && (
               <button type="button" ref={register(`${row.key}:plans`)} onClick={onPlans} aria-label={`See plans for ${row.name}`} className={`${UI_BUTTON.accent} ${UI_BUTTON.compact}`}>
                 See plans
               </button>
