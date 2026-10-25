@@ -69,6 +69,16 @@ fn bearer_exempt(method: &Method, path: &str) -> bool {
     !path.starts_with("/api/") || PUBLIC_PATHS.contains(&path) || is_custom_auth(method, path)
 }
 
+fn listener_bearer_exempt(method: &Method, path: &str, tailnet_listener: bool) -> bool {
+    if tailnet_listener {
+        !path.starts_with("/api/")
+            || tailnet_exempt(method, path)
+            || is_inbound_webhook_path(method, path)
+    } else {
+        bearer_exempt(method, path)
+    }
+}
+
 fn tailnet_exempt(method: &Method, path: &str) -> bool {
     (method == Method::GET && matches!(path, "/api/health" | "/api/mesh/ping"))
         || (method == Method::POST
@@ -528,11 +538,7 @@ fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
         }
     }
 
-    if if tailnet_listener {
-        !path.starts_with("/api/") || tailnet_exempt(&method, &path)
-    } else {
-        bearer_exempt(&method, &path)
-    } {
+    if listener_bearer_exempt(&method, &path, tailnet_listener) {
         return AuthOutcome::Allowed(req, false);
     }
 

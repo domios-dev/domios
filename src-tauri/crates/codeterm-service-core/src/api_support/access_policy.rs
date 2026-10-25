@@ -25,11 +25,6 @@ pub fn peer_access_allowed(
     tab_owner: impl FnOnce(&str) -> Option<String>,
 ) -> bool {
     let path = request_path(path);
-    if path == "/api/agents/reparent"
-        || (path.starts_with("/api/teams/") && path.ends_with("/adopt-remote"))
-    {
-        return false;
-    }
     if !check_access(access, method, path) {
         return false;
     }
@@ -51,13 +46,30 @@ pub fn is_preview_read(method: &Method, path: &str) -> bool {
     !tab.is_empty() && matches!(suffix, "preview/read" | "preview/check")
 }
 
-pub fn check_access(access: &AccessLevel, method: &Method, path: &str) -> bool {
+pub fn is_local_only_path(path: &str) -> bool {
     let path = request_path(path);
-    if path.starts_with("/api/analytics/")
+    path.starts_with("/api/analytics/")
         || path.starts_with("/api/secrets/")
+        || path.starts_with("/api/account/")
         || path == "/api/mesh/debug/sign"
         || path == SUPPORTER_TOKEN_PATH
-    {
+        || path == "/api/agents/reparent"
+        || matches!(
+            path,
+            "/api/cli/rpc"
+                | "/api/model-providers"
+                | "/api/mesh/link"
+                | "/api/mesh/disconnect"
+                | "/api/mesh/unrevoke"
+        )
+        || path.starts_with("/api/mesh/peers/disconnect/")
+        || (path.starts_with("/api/blueprints/") && path.ends_with("/webhook/configure"))
+        || (path.starts_with("/api/teams/") && path.ends_with("/adopt-remote"))
+}
+
+pub fn check_access(access: &AccessLevel, method: &Method, path: &str) -> bool {
+    let path = request_path(path);
+    if is_local_only_path(path) {
         return false;
     }
     if *method == Method::POST && path == "/api/mesh/announce" {
