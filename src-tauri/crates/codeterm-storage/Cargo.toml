@@ -23,3 +23,6 @@ windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+tempfile = "3"

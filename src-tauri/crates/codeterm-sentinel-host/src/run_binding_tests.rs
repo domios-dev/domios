@@ -16,7 +16,10 @@ fn for_backends(mut run: impl FnMut(&Arc<Mutex<Store>>, &Arc<MockClock>)) {
     for typed in [false, true] {
         let root = tempfile::tempdir().unwrap();
         let clock = MockClock::starting_at(1_000);
-        let storage = typed.then(|| Storage::open(root.path(), StorageConfig::default()).unwrap());
+        let storage = typed.then(|| {
+            codeterm_storage::test_support::seed_empty_root(root.path());
+            Storage::open(root.path(), StorageConfig::default()).unwrap()
+        });
         let store = Arc::new(Mutex::new(match storage.as_ref() {
             Some(storage) => Store::with_storage(storage, clock.clone()),
             None => Store::new(root.path().join("sentinels.json"), clock.clone()),

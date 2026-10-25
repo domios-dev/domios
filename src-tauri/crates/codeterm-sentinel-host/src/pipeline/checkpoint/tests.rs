@@ -18,6 +18,7 @@ fn plan_lock_checkpoint_resumes_next_step_with_the_same_run_without_replay() {
         .write()
         .set_limit_gate(codeterm_entitlements::LimitGate::dormant());
     let clock = MockClock::starting_at(1000);
+    codeterm_storage::test_support::seed_empty_root(&temp.path().join("storage"));
     let storage =
         codeterm_storage::Storage::open(&temp.path().join("storage"), Default::default()).unwrap();
     let store = Store::with_storage(&storage, clock.clone());

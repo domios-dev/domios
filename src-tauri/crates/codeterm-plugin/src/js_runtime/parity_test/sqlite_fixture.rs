@@ -36,7 +36,9 @@ fn opencode_declared_sqlite_version_resumes_exact_session_with_history() {
         let dir = tempfile::tempdir().unwrap();
         let db = dir.path().join(STORE_FILE);
         let conn = rusqlite::Connection::open(&db).unwrap();
-        conn.execute_batch(fixture).unwrap();
+        let transaction = conn.unchecked_transaction().unwrap();
+        transaction.execute_batch(fixture).unwrap();
+        transaction.commit().unwrap();
         drop(conn);
         let _env = EnvGuard::new(&[(STORE_ENV, db.to_str().unwrap())]);
         let provider =
@@ -127,13 +129,16 @@ fn structured_chat_normalizes_system_frame_from_user_record() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join(STORE_FILE);
     let conn = rusqlite::Connection::open(&db).unwrap();
-    conn.execute_batch(BASE_SCHEMA).unwrap();
+    let transaction = conn.unchecked_transaction().unwrap();
+    transaction.execute_batch(BASE_SCHEMA).unwrap();
     let part = serde_json::json!({ "type": "text", "text": fixture["raw"] });
-    conn.execute(
-        "UPDATE part SET data = ?1 WHERE message_id = 'msg_fixture_user'",
-        [part.to_string()],
-    )
-    .unwrap();
+    transaction
+        .execute(
+            "UPDATE part SET data = ?1 WHERE message_id = 'msg_fixture_user'",
+            [part.to_string()],
+        )
+        .unwrap();
+    transaction.commit().unwrap();
     drop(conn);
     let _env = EnvGuard::new(&[(STORE_ENV, db.to_str().unwrap())]);
     let provider = load_sqlite_fixture_js(PROVIDER_ID);
