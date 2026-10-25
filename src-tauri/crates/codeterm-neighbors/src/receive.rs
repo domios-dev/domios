@@ -33,7 +33,12 @@ pub trait NeighborTransport: Send + Sync {
 
 #[async_trait]
 pub trait InboxListener: Send {
-    async fn next(&mut self) -> Result<Option<Vec<InboxMessage>>>;
+    async fn next(&mut self) -> Result<Option<InboxEvent>>;
+}
+
+pub enum InboxEvent {
+    Ready,
+    Messages(Vec<InboxMessage>),
 }
 
 #[async_trait]

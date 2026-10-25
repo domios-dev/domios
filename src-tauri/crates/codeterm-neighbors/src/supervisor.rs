@@ -1,4 +1,4 @@
-use crate::receive::NeighborTransport;
+use crate::receive::{InboxEvent, NeighborTransport};
 use crate::wire::{Cursor, InboxMessage};
 use crate::{Error, Result};
 use async_trait::async_trait;
@@ -48,9 +48,11 @@ pub async fn supervise(
             let mut listener = transport
                 .listen_from_cursor(friendship, cursor.as_ref())
                 .await?;
-            while let Some(mut messages) = listener.next().await? {
-                session.receive(&mut messages).await?;
-                events.state(ListenerState::Receiving);
+            while let Some(event) = listener.next().await? {
+                match event {
+                    InboxEvent::Ready => events.state(ListenerState::Receiving),
+                    InboxEvent::Messages(mut messages) => session.receive(&mut messages).await?,
+                }
             }
             Err(Error::Transport)
         }

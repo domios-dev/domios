@@ -92,6 +92,21 @@ async fn rotation_crash(window: usize) {
         .save(&scope, Slot::Candidate, candidate.storage_bytes())
         .await
         .unwrap();
+    if window == 3 {
+        vault
+            .save(&scope, Slot::Current, candidate.storage_bytes())
+            .await
+            .unwrap();
+        for slot in [Slot::Current, Slot::Candidate] {
+            let bytes = vault.load(&scope, slot).await.unwrap().unwrap();
+            assert_eq!(
+                PrivateKeys::from_storage(&bytes)
+                    .unwrap()
+                    .encryption_key_id(),
+                candidate.encryption_key_id()
+            );
+        }
+    }
     let mut active = vec![candidate.verifier_key_id(uid)];
     if window != 1 {
         active.push(old.verifier_key_id(uid));
@@ -140,6 +155,15 @@ async fn rotation_crash(window: usize) {
         registry.active_key_ids().await.unwrap(),
         [candidate.verifier_key_id(uid)]
     );
+    if window == 3 {
+        assert_eq!(
+            *registry.receipt.lock().unwrap(),
+            DeliveryResult {
+                status: DeliveryStatus::NotDelivered,
+                reason: Some(DeliveryReason::KeyRevoked),
+            }
+        );
+    }
     let mut receiver = Receiver {
         transport: &fixture,
         cursors: &fixture,
@@ -182,6 +206,11 @@ async fn crash_after_old_revoke_recovers_to_gateway_and_ack() {
 #[tokio::test]
 async fn crash_before_current_persistence_recovers_to_gateway_and_ack() {
     rotation_crash(2).await;
+}
+
+#[tokio::test]
+async fn crash_after_current_copy_before_old_revoke_finishes_rotation_and_ack() {
+    rotation_crash(3).await;
 }
 
 struct FailedSettings;
@@ -252,10 +281,10 @@ async fn signout_inventory_uncertainty_keeps_both_secret_slots() {
     assert_eq!(vault.slots.lock().unwrap().len(), 2);
 }
 
-struct Stream(VecDeque<Result<Option<Vec<InboxMessage>>>>);
+struct Stream(VecDeque<Result<Option<InboxEvent>>>);
 #[async_trait]
 impl InboxListener for Stream {
-    async fn next(&mut self) -> Result<Option<Vec<InboxMessage>>> {
+    async fn next(&mut self) -> Result<Option<InboxEvent>> {
         self.0.pop_front().unwrap_or(Err(Error::Transport))
     }
 }
@@ -264,6 +293,7 @@ struct Reconnect {
     keys: PrivateKeys,
     opens: Mutex<Vec<Option<Cursor>>>,
     states: Mutex<Vec<ListenerState>>,
+    empty_current: bool,
 }
 #[async_trait]
 impl NeighborTransport for Reconnect {
@@ -276,8 +306,13 @@ impl NeighborTransport for Reconnect {
         cursor: Option<&Cursor>,
     ) -> Result<Box<dyn InboxListener>> {
         self.opens.lock().unwrap().push(cursor.cloned());
+        if self.empty_current {
+            return Ok(Box::new(Stream(VecDeque::from([Ok(Some(
+                InboxEvent::Ready,
+            ))]))));
+        }
         Ok(Box::new(Stream(VecDeque::from([
-            Ok(Some(vec![message()])),
+            Ok(Some(InboxEvent::Messages(vec![message()]))),
             Err(Error::Transport),
         ]))))
     }
@@ -330,6 +365,7 @@ async fn stream_error_reopens_from_durable_cursor_and_admits_exactly_once() {
         keys: recipient(),
         opens: Mutex::new(vec![]),
         states: Mutex::new(vec![]),
+        empty_current: false,
     };
     assert_eq!(
         supervise(
@@ -368,4 +404,34 @@ async fn stream_error_reopens_from_durable_cursor_and_admits_exactly_once() {
         fixture.states.lock().unwrap().last(),
         Some(&ListenerState::Stopped)
     );
+}
+
+#[tokio::test]
+async fn empty_inbox_current_marks_receiving_without_admission_or_ack() {
+    let fixture = Reconnect {
+        fixture: Fixture::new(),
+        keys: recipient(),
+        opens: Mutex::new(vec![]),
+        states: Mutex::new(vec![]),
+        empty_current: true,
+    };
+    assert_eq!(
+        supervise(
+            &fixture,
+            &message().doc.envelope.friendship_id,
+            &fixture,
+            &fixture
+        )
+        .await,
+        Err(Error::Transport)
+    );
+    assert!(fixture
+        .states
+        .lock()
+        .unwrap()
+        .windows(2)
+        .any(|states| states == [ListenerState::Connecting, ListenerState::Receiving]));
+    assert_eq!(*fixture.fixture.writes.lock().unwrap(), 0);
+    assert!(fixture.fixture.events.lock().unwrap().is_empty());
+    assert!(fixture.fixture.cursor.lock().unwrap().is_none());
 }

@@ -1,5 +1,5 @@
 use super::FirebaseTransport;
-use crate::receive::InboxListener;
+use crate::receive::{InboxEvent, InboxListener};
 use crate::wire::{hex_id, Cursor, InboxDocument, InboxMessage, Timestamp};
 use crate::{Error, Result};
 use async_trait::async_trait;
@@ -51,6 +51,7 @@ pub(super) async fn listen(
         stream: None,
         requests: None,
         buffered: HashMap::new(),
+        pending: None,
     }))
 }
 
@@ -65,6 +66,7 @@ struct Listener {
     stream: Option<tonic::Streaming<fs::ListenResponse>>,
     requests: Option<tokio::sync::mpsc::Sender<fs::ListenRequest>>,
     buffered: HashMap<String, InboxMessage>,
+    pending: Option<Vec<InboxMessage>>,
 }
 
 impl Listener {
@@ -157,7 +159,10 @@ impl Listener {
 
 #[async_trait]
 impl InboxListener for Listener {
-    async fn next(&mut self) -> Result<Option<Vec<InboxMessage>>> {
+    async fn next(&mut self) -> Result<Option<InboxEvent>> {
+        if let Some(messages) = self.pending.take() {
+            return Ok(Some(InboxEvent::Messages(messages)));
+        }
         if self.catch_up {
             let request = self.request(fs::RunQueryRequest {
                 parent: self.parent.clone(),
@@ -183,7 +188,7 @@ impl InboxListener for Listener {
             }
             self.catch_up = messages.len() == PAGE_SIZE as usize;
             if !messages.is_empty() {
-                return Ok(Some(self.sorted(messages)));
+                return Ok(Some(InboxEvent::Messages(self.sorted(messages))));
             }
         }
         if self.stream.is_none() {
@@ -245,24 +250,21 @@ impl InboxListener for Listener {
                         .remove(change.document.rsplit('/').next().ok_or(Error::Transport)?);
                 }
                 Some(ResponseType::TargetChange(change)) => {
-                    use fs::target_change::TargetChangeType;
-                    match TargetChangeType::try_from(change.target_change_type)
-                        .map_err(|_| Error::Transport)?
-                    {
-                        TargetChangeType::Remove | TargetChangeType::Reset => {
-                            return Err(Error::Transport)
+                    let checkpoint = target_checkpoint(&change)?;
+                    let messages = if checkpoint.flush {
+                        let messages = self.buffered.drain().map(|(_, message)| message).collect();
+                        self.sorted(messages)
+                    } else {
+                        Vec::new()
+                    };
+                    if checkpoint.ready {
+                        if !messages.is_empty() {
+                            self.pending = Some(messages);
                         }
-                        TargetChangeType::NoChange | TargetChangeType::Current
-                            if change.read_time.is_some() =>
-                        {
-                            let messages =
-                                self.buffered.drain().map(|(_, message)| message).collect();
-                            let messages = self.sorted(messages);
-                            if !messages.is_empty() {
-                                return Ok(Some(messages));
-                            }
-                        }
-                        _ => {}
+                        return Ok(Some(InboxEvent::Ready));
+                    }
+                    if !messages.is_empty() {
+                        return Ok(Some(InboxEvent::Messages(messages)));
                     }
                 }
                 Some(ResponseType::Filter(_)) => return Err(Error::Transport),
@@ -271,6 +273,33 @@ impl InboxListener for Listener {
         }
     }
 }
+
+struct TargetCheckpoint {
+    ready: bool,
+    flush: bool,
+}
+
+fn target_checkpoint(change: &fs::TargetChange) -> Result<TargetCheckpoint> {
+    use fs::target_change::TargetChangeType;
+    if change.cause.is_some() {
+        return Err(Error::Transport);
+    }
+    let kind =
+        TargetChangeType::try_from(change.target_change_type).map_err(|_| Error::Transport)?;
+    if matches!(kind, TargetChangeType::Remove | TargetChangeType::Reset) {
+        return Err(Error::Transport);
+    }
+    let own_target = change.target_ids.is_empty() || change.target_ids.contains(&1);
+    Ok(TargetCheckpoint {
+        ready: own_target && kind == TargetChangeType::Current,
+        flush: own_target
+            && change.read_time.is_some()
+            && matches!(kind, TargetChangeType::Current | TargetChangeType::NoChange),
+    })
+}
+
+#[cfg(test)]
+mod tests;
 
 fn value(value_type: fs::value::ValueType) -> fs::Value {
     fs::Value {

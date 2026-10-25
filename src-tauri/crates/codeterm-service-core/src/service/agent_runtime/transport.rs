@@ -189,7 +189,7 @@ fn turn_input(text: &str) -> TurnInput {
     }
 }
 
-fn runtime_input(
+pub(super) fn runtime_input(
     classified: &crate::service::messenger::AgentInput,
 ) -> Result<TurnInput, RuntimeFailure> {
     use crate::service::messenger::{AgentInput, InputProvenance};
@@ -212,7 +212,7 @@ fn runtime_input(
     }
 }
 
-fn submit_turn(
+pub(super) fn submit_turn(
     thread_id: String,
     active_turn_id: Option<String>,
     send_id: String,
