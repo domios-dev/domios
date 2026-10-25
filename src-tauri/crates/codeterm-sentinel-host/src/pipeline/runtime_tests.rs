@@ -12,6 +12,7 @@ fn fixture(document: Value, root: &Path) -> (ServiceFixture, Storage, Handle, Le
     let workspace = mux.find_workspace_for_tab(&creator).unwrap();
     mux.get_tab_mut(&creator).unwrap().agent_type = Some("test-agent".into());
     let fixture = ServiceFixture::new(mux);
+    codeterm_storage::test_support::seed_empty_root(&root.join("storage"));
     let storage = Storage::open(&root.join("storage"), StorageConfig::default()).unwrap();
     let store = Store::with_storage(&storage, MockClock::starting_at(1000));
     let job = store

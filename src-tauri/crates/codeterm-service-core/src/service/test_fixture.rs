@@ -9,6 +9,8 @@ use crate::lock_hold::{TimedMutex, TimedRwLock};
 use crate::multiplexer::state::MultiplexerState;
 use crate::service::plan::PlanStore;
 
+mod schema;
+
 pub(crate) struct FixtureLimitGate(pub super::billing::LimitGate);
 
 impl ServiceFixture {
@@ -283,11 +285,11 @@ impl ServiceFixture {
     }
 
     pub fn install_seeded_storage_desk(&self) -> crate::storage::Storage {
-        let storage = crate::storage::Storage::open(
-            &self.temp.path().join("runtime-desk"),
-            crate::storage::StorageConfig::default(),
-        )
-        .expect("open fixture storage desk");
+        let root = self.temp.path().join("runtime-desk");
+        crate::storage::test_support::seed_empty_root(&root);
+        let storage =
+            crate::storage::Storage::open(&root, crate::storage::StorageConfig::default())
+                .expect("open fixture storage desk");
         let snapshot = self.service.mux.read().to_session_snapshot();
         let adapter = crate::session::store::StorageDeskAdapter::from_storage(storage.clone());
         adapter
@@ -376,6 +378,7 @@ impl ServiceFixture {
     ) -> Self {
         let persistent = data_dir.is_some();
         let data_dir = data_dir.unwrap_or_else(|| temp.path().to_path_buf());
+        schema::seed(&data_dir);
         if persistent {
             if let Ok(store) = crate::multiplexer::state::ClosedTabsStore::open(&data_dir) {
                 mux.attach_closed_store(store);
@@ -394,6 +397,10 @@ impl ServiceFixture {
         let plan_turn_counter = Arc::new(crate::service::plan::reminders::TurnCounter::new());
         plan_store.bind_turn_counter(plan_turn_counter.clone());
         let mem = if persistent {
+            let root = data_dir.join("mem");
+            if !root.join("knowledge.db").exists() {
+                codeterm_mem::test_support::seed_schema(&root);
+            }
             crate::mem::MemManager::open_offline(&data_dir.join("mem")).unwrap()
         } else {
             crate::mem::MemManager::open_in_memory().unwrap()

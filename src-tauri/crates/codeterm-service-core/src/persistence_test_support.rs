@@ -17,6 +17,9 @@ pub struct ServiceInstance {
 
 impl ServiceInstance {
     pub fn open_with_mux(root: &Path, mux: MultiplexerState) -> Self {
+        if !root.join("storage").exists() {
+            crate::storage::test_support::seed_empty_root(root);
+        }
         let authority = crate::startup::open_instance_storage_at(root);
         let storage = authority
             .require_ready()

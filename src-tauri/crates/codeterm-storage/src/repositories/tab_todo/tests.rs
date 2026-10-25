@@ -17,6 +17,7 @@ impl TempRoot {
         ));
         let _ = std::fs::remove_dir_all(&path);
         std::fs::create_dir_all(&path).unwrap();
+        crate::test_support::seed_empty_root(&path);
         TempRoot(path)
     }
 

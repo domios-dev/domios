@@ -406,6 +406,7 @@ fn directory_trust_prompt_response_reads_wrapped_codex_trust_frames() {
         return;
     }
     use crate::provider::DirectoryTrustPromptResponse;
+    let provider = codex();
     let dir = workspace_plugins_root()
         .join("provider-codex")
         .join("tests")
@@ -433,7 +434,7 @@ fn directory_trust_prompt_response_reads_wrapped_codex_trust_frames() {
             other => panic!("unknown directory-trust expectation {other}"),
         };
         assert_eq!(
-            codex().directory_trust_prompt_response(&screen),
+            provider.directory_trust_prompt_response(&screen),
             want,
             "{file}"
         );
@@ -567,6 +568,7 @@ fn codex_folder_trust_prompt_parses_as_numbered_choices() {
     if require_plugins().is_none() {
         return;
     }
+    let provider = codex();
     let screen = std::fs::read_to_string(
         workspace_plugins_root()
             .join("provider-codex")
@@ -576,7 +578,7 @@ fn codex_folder_trust_prompt_parses_as_numbered_choices() {
             .join("trust-structured-question.txt"),
     )
     .expect("folder-trust fixture");
-    let prompt = codex()
+    let prompt = provider
         .parse_directory_trust_prompt(&screen)
         .expect("active folder trust prompt");
 
@@ -590,7 +592,7 @@ fn codex_folder_trust_prompt_parses_as_numbered_choices() {
         vec!["1", "2"]
     );
     assert_eq!(
-        codex().build_prompt_response(0, &screen),
+        provider.build_prompt_response(0, &screen),
         vec![b"\x1b[A".to_vec(), b"\r".to_vec()]
     );
 
@@ -603,8 +605,8 @@ fn codex_folder_trust_prompt_parses_as_numbered_choices() {
             .join("approval-paragraph.txt"),
     )
     .expect("ordinary approval fixture");
-    assert!(codex().parse_prompt(&answer).is_some());
-    assert!(codex().parse_directory_trust_prompt(&answer).is_none());
+    assert!(provider.parse_prompt(&answer).is_some());
+    assert!(provider.parse_directory_trust_prompt(&answer).is_none());
 
     let fixtures = workspace_plugins_root()
         .join("provider-codex")
@@ -620,7 +622,7 @@ fn codex_folder_trust_prompt_parses_as_numbered_choices() {
         let expected = case["expect"].as_str().expect("fixture expectation") != "none";
         let screen = std::fs::read_to_string(fixtures.join(file)).expect("fixture frame");
         assert_eq!(
-            codex().parse_directory_trust_prompt(&screen).is_some(),
+            provider.parse_directory_trust_prompt(&screen).is_some(),
             expected,
             "{file}"
         );

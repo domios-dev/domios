@@ -5,6 +5,7 @@ mod test_support;
 mod state_calibration;
 
 #[test]
+#[ignore = "Full state-corpus calibration benchmark; run deliberately with --test state_calibration -- --ignored"]
 fn state_calibration_bench() {
     let root = state_calibration::state_dumps_root();
     assert!(
