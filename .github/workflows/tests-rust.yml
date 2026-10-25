@@ -173,8 +173,8 @@ jobs:
           RUST_WARNING_LOG: ci-rust-warnings.log
         shell: bash
         run: |
-          if [ "$RUNNER_OS" = macOS ] && [ "${{ matrix.suite }}" = platform ]; then
-            # The large platform test binaries exceed Mach-O compact-unwind offsets; release binaries keep compact unwind.
+          if [ "$RUNNER_OS" = macOS ]; then
+            # The large native test binaries exceed Mach-O compact-unwind offsets; release binaries keep compact unwind.
             export CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS="${CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS:+$CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS }-C link-arg=-Wl,-no_compact_unwind"
             export CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS="${CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS:+$CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS }-C link-arg=-Wl,-no_compact_unwind"
           fi
@@ -208,10 +208,7 @@ jobs:
         continue-on-error: ${{ inputs.artifacts_optional }}
         shell: bash
         run: |
-          shopt -s nullglob
-          receipts=(ci-rust-receipts/*.json ci-rust-receipts/*.log)
-          [ "${#receipts[@]}" -gt 0 ] || { echo "no Rust test receipts to store" >&2; exit 1; }
-          for receipt in "${receipts[@]}"; do bash scripts/ci-artifact.sh put "$GITHUB_RUN_ID/rust-receipt/${receipt##*/}" "$receipt"; done
+          node scripts/ci-rust-receipt-artifact.mjs
       - uses: ./.github/actions/rust-warnings
         if: always()
         continue-on-error: true
@@ -365,8 +362,8 @@ jobs:
           RUST_WARNING_LOG: ci-rust-warnings.log
         shell: bash
         run: |
-          if [ "$RUNNER_OS" = macOS ] && [ "${{ matrix.suite }}" = platform ]; then
-            # The large platform test binaries exceed Mach-O compact-unwind offsets; release binaries keep compact unwind.
+          if [ "$RUNNER_OS" = macOS ]; then
+            # The large native test binaries exceed Mach-O compact-unwind offsets; release binaries keep compact unwind.
             export CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS="${CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS:+$CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS }-C link-arg=-Wl,-no_compact_unwind"
             export CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS="${CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS:+$CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS }-C link-arg=-Wl,-no_compact_unwind"
           fi
@@ -400,10 +397,7 @@ jobs:
         continue-on-error: ${{ inputs.artifacts_optional }}
         shell: bash
         run: |
-          shopt -s nullglob
-          receipts=(ci-rust-receipts/*.json ci-rust-receipts/*.log)
-          [ "${#receipts[@]}" -gt 0 ] || { echo "no Rust test receipts to store" >&2; exit 1; }
-          for receipt in "${receipts[@]}"; do bash scripts/ci-artifact.sh put "$GITHUB_RUN_ID/rust-receipt/${receipt##*/}" "$receipt"; done
+          node scripts/ci-rust-receipt-artifact.mjs
       - uses: ./.github/actions/rust-warnings
         if: always()
         continue-on-error: true
@@ -547,8 +541,8 @@ jobs:
           RUST_WARNING_LOG: ci-rust-warnings.log
         shell: bash
         run: |
-          if [ "$RUNNER_OS" = macOS ] && [ "${{ matrix.suite }}" = platform ]; then
-            # The large platform test binaries exceed Mach-O compact-unwind offsets; release binaries keep compact unwind.
+          if [ "$RUNNER_OS" = macOS ]; then
+            # The large native test binaries exceed Mach-O compact-unwind offsets; release binaries keep compact unwind.
             export CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS="${CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS:+$CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS }-C link-arg=-Wl,-no_compact_unwind"
             export CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS="${CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS:+$CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS }-C link-arg=-Wl,-no_compact_unwind"
           fi
@@ -582,10 +576,7 @@ jobs:
         continue-on-error: ${{ inputs.artifacts_optional }}
         shell: bash
         run: |
-          shopt -s nullglob
-          receipts=(ci-rust-receipts/*.json ci-rust-receipts/*.log)
-          [ "${#receipts[@]}" -gt 0 ] || { echo "no Rust test receipts to store" >&2; exit 1; }
-          for receipt in "${receipts[@]}"; do bash scripts/ci-artifact.sh put "$GITHUB_RUN_ID/rust-receipt/${receipt##*/}" "$receipt"; done
+          node scripts/ci-rust-receipt-artifact.mjs
       - uses: ./.github/actions/rust-warnings
         if: always()
         continue-on-error: true

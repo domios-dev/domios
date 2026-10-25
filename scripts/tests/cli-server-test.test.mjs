@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
@@ -34,7 +34,7 @@ test('CLI integration preparation binds the exact CLI bytes into the debug serve
     });
     assert.equal(calls.length, 2);
     assert.equal(calls[0].env.CARGO_TARGET_DIR, cliTarget);
-    assert.equal(calls[1].env.CARGO_TARGET_DIR, serverTarget);
+    assert.equal(calls[1].env.CARGO_TARGET_DIR, path.join(serverTarget, 'test-preparation', 'server-build'));
     assert.equal(calls[1].env.CODETERM_SERVER_CLI_SHA256,
       createHash('sha256').update(readFileSync(cli)).digest('hex'));
     assert.ok(calls[1].args.includes('--no-default-features'));
@@ -56,4 +56,27 @@ test('CLI integration preparation refuses missing targets, failed builds and mis
   assert.throws(() => prepareCliServer({ ...options, execute() {
     return JSON.stringify({ reason: 'build-finished', success: true });
   } }), /Missing CLI integration artifact/);
+});
+
+
+test('the Tauri resource directory cannot squat on the isolated server binary path', () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'cli-server-collision-'));
+  try {
+    const serverTarget = path.join(root, 'workspace');
+    const resource = path.join(serverTarget, 'debug', 'domios-server');
+    mkdirSync(resource, { recursive: true });
+    writeFileSync(path.join(resource, 'legitimate-resource'), 'keep');
+    const executable = prepareCliServer({ cliTarget: path.join(root, 'cli'), serverTarget, env: {},
+      execute(_command, args, options) {
+        const binary = args[args.indexOf('--bin') + 1];
+        const artifact = path.join(options.env.CARGO_TARGET_DIR, 'debug', binary);
+        mkdirSync(path.dirname(artifact), { recursive: true });
+        writeFileSync(artifact, binary);
+        return JSON.stringify({ reason: 'compiler-artifact', target: { name: binary }, executable: artifact }) + '\\n' +
+          JSON.stringify({ reason: 'build-finished', success: true });
+      },
+    });
+    assert.ok(statSync(executable).isFile());
+    assert.equal(readFileSync(path.join(resource, 'legitimate-resource'), 'utf8'), 'keep');
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });

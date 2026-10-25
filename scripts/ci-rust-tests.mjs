@@ -1,5 +1,5 @@
 // Caller: build.sh ci-tests; scripts tests/ci-rust-tests.test.mjs
-import { verifyReceipts } from './ci-rust-receipts.mjs';
+import { verifyReceipts, readReceipts } from './ci-rust-receipts.mjs';
 export { verifyReceipts } from './ci-rust-receipts.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -239,7 +239,7 @@ async function run(mode) {
   const os = process.env.RUNNER_OS || { win32: 'Windows', darwin: 'macOS', linux: 'Linux' }[process.platform];
   const plan = timingPlan({ release: process.env.CI_RELEASE_TESTS === 'true', os });
   const start = performance.now();
-  const receipt = { mode, os, arch: process.env.RUNNER_ARCH, runner: process.env.RUNNER_NAME, sha: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), executed: 0, exit: 1, seconds: 0 };
+  const receipt = { mode, os, run_attempt: Number(process.env.GITHUB_RUN_ATTEMPT || 1), producer: process.env.GITHUB_JOB, arch: process.env.RUNNER_ARCH, runner: process.env.RUNNER_NAME, sha: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), executed: 0, exit: 1, seconds: 0 };
   const directory = path.resolve('ci-rust-receipts');
   fs.mkdirSync(directory, { recursive: true });
   const targetEnv = { ...env };
@@ -331,7 +331,7 @@ async function run(mode) {
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   if (process.argv[2] === 'verify') {
     const dir = process.argv[3];
-    const receipts = fs.readdirSync(dir).filter((f) => f.endsWith('.json')).map((f) => JSON.parse(fs.readFileSync(path.join(dir, f))));
+    const receipts = readReceipts(dir);
     const table = verifyReceipts(receipts);
     console.log(table);
     if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n${table}\n`);
