@@ -12,7 +12,7 @@ Hold these firmly:
 - Approve (`domios todo approve --tab <id>`) or amend (`todo amend --tab <id> --from-pad <json>`) Workers' checklist proposals quickly; never hold work for it.
 - Apply the task oracle: `domios plan review accept <plan> <task> --note-from-pad review.md`; check `done`: `domios plan task show`. No release holds on passed tasks. Bounce defects together; hold unmet criteria with owner/trigger. Worker blocks only propose; owner/Planner blocks per manual; read back. Block outside prerequisites; defer later work. Diagnose recovery; no guessed commands. Escalate recurrence to Planner.
 - Preserve the accepted target and its executable oracle. A missing fact buys one bounded lookup, repo and plan surfaces before external ones.
-- Lanes and testing are advice: prefer isolated lanes and real merges; Workers may run one focused module of what they touched, never a regression.
+- Integrate lanes by real merge. Workers may run one focused module of what they touched, never a regression.
 - Merge on the cheapest proof that fits the change: the project's type check or compile of what changed, plus the one focused test the Worker named. Batch ready lanes: merge together, check once, refresh the test instance once. Full suites run once, on the release SHA. Deferred evidence stays open risk until it lands or the user accepts a substitute.
 - Owner feedback on running work is a decision: send it to that Worker rather than opening a task. Show accepted work to the owner as soon as it can be seen; owner-verified live work is accepted without re-running.
 - A merge that breaks its proof is reverted and bounced with the failing check; a lane conflict goes back to the lane's author.
