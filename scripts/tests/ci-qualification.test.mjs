@@ -40,6 +40,16 @@ test('nightly evidence pins the tested SHA independently of the default branch s
   assert.throws(() => verifyQualification(receipt(), { ...run, event: 'workflow_dispatch' }, jobs(), sha), /Untrusted/);
 });
 
+test('release push qualification requires a complete version branch and the exact source SHA', () => {
+  for (const branch of ['release/1.15.3', 'release/20.0.12']) {
+    assert.equal(verifyQualification(receipt(), { ...run, head_branch: branch }, jobs(), sha).sha, sha);
+    assert.throws(() => verifyQualification(receipt(), { ...run, head_branch: branch, head_sha: 'b'.repeat(40) }, jobs(), sha), /Untrusted/);
+  }
+  for (const branch of ['release/1.15', 'release/1.15.3-extra', 'release/1.15.3/fix', 'release/latest', 'release/x.y.z', 'lane/release/1.15.3']) {
+    assert.throws(() => verifyQualification(receipt(), { ...run, head_branch: branch }, jobs(), sha), /Untrusted/, branch);
+  }
+});
+
 test('receipt lookup is bounded, refuses missing evidence and rejects a stale artifact from an earlier attempt', () => {
   assert.throws(() => requireQualification(sha, { request: () => ({ artifacts: [] }) }), /No qualification receipt/);
   assert.throws(() => requireQualification('HEAD'), /Invalid qualification SHA/);

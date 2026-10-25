@@ -17,7 +17,8 @@ export const QUALIFICATION_JOBS = [
 export function verifyQualification(receipt, run, jobs, sha) {
   if (!/^[a-f0-9]{40}$/.test(sha)) throw new Error('Invalid qualification SHA');
   if (run.path !== '.github/workflows/tests.yml' || run.status !== 'completed' || run.conclusion !== 'success') throw new Error('Qualification run is not green tests.yml');
-  if (!(run.event === 'push' && ['develop', 'rename/domios', 'master'].includes(run.head_branch) && run.head_sha === sha || run.event === 'schedule')) throw new Error('Untrusted qualification source');
+  const trustedBranch = ['develop', 'rename/domios', 'master'].includes(run.head_branch) || /^release\/\d+\.\d+\.\d+$/.test(run.head_branch);
+  if (!(run.event === 'push' && trustedBranch && run.head_sha === sha || run.event === 'schedule')) throw new Error('Untrusted qualification source');
   if (receipt.version !== 1 || receipt.sha !== sha || String(receipt.run_id) !== String(run.id) || receipt.run_attempt !== run.run_attempt) throw new Error('Foreign or stale qualification receipt');
   for (const stage of ['fast', 'rust', 'warnings']) if (receipt.results?.[stage] !== 'success') throw new Error(`Missing green ${stage} receipt`);
   for (const prefix of QUALIFICATION_JOBS) {
