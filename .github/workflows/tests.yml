@@ -1,7 +1,6 @@
 name: tests
 
 on:
-  pull_request:
   push:
     branches: [master, develop, rename/domios]
   schedule:
@@ -75,7 +74,8 @@ jobs:
   qualification:
     name: qualification receipt
     needs: [fast, rust, rust-warnings]
-    if: ${{ !cancelled() && (github.event_name == 'push' || github.event_name == 'schedule') && needs.fast.outputs.heavy == 'true' }}
+    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (!cancelled() && (github.event_name == 'push' || github.event_name == 'schedule') && needs.fast.outputs.heavy == 'true') }}
+    environment: ci
     runs-on: [self-hosted, Linux, light, host-ubunta]
     timeout-minutes: 5
     env:

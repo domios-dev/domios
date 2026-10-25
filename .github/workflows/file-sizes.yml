@@ -33,13 +33,16 @@ on:
       - '.codeterm/build-machine/**'
       - '.github/workflows/release*.yml'
 
+permissions:
+  contents: read
+
 concurrency:
   group: file-sizes-${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref }}
   cancel-in-progress: true
 
 jobs:
   check:
-    runs-on: [self-hosted, Linux, light, host-ubunta]
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
         with:
