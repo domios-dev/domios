@@ -57,6 +57,7 @@ jobs:
       STEP_RECIPE: ${{ inputs.recipe }}
       STEP_TARGET: ${{ inputs.target }}
       STEP_FILTER: ${{ inputs.filter }}
+      CI_RELEASE_TESTS: 'true'
     steps:
       - name: Use the runner bundled Node
         if: runner.environment == 'self-hosted'
