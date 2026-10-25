@@ -1,3 +1,4 @@
+import { condition as workflowCondition } from './workflow-condition.mjs';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { copyFileSync, readFileSync, writeFileSync } from 'node:fs';
@@ -103,8 +104,9 @@ test('promotion uploads the retained bytes, reads each back and refuses a change
 });
 
 test('a promotion run publishes without building, testing or a second warning report', () => {
-  const evaluate = condition => new Function('needs', 'vars', `return (${condition.replace(/^\$\{\{\s*|\s*\}\}$/g, '')
-    .replace(/!cancelled\(\)|always\(\)/g, 'true').replace(/needs\.([\w-]+)/g, "needs['$1']")});`);
+  const github = { repository_owner: 'rollacode', actor: 'rollacode', triggering_actor: 'rollacode',
+    event_name: 'workflow_dispatch', ref: 'refs/heads/release/9.9.9', event: { workflow_run: {} } };
+  const evaluate = expression => (needs, vars) => workflowCondition(expression, { needs, vars, github });
   const prepare = { result: 'success', outputs: { promote_run_id: '41', published: 'false', kind: 'app', dry_run: 'false', run_tests: 'false' } };
   assert.equal(evaluate(release.jobs['frontend-dist'].if)({ prepare }, {}), false);
   for (const id of ['macos-arm64', 'macos-x64', 'linux-arm64', 'linux-x86_64', 'windows-x64', 'windows-arm64', 'rust-warnings']) {
