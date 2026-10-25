@@ -162,8 +162,14 @@ export function MachineManagement({ machines }: { machines: MachinesController }
         {refresh}
       </div>
       {view.self && (
-        <SelfRow self={view.self} onRename={machines.renameSelf} />
+        <SelfRow self={view.self} onRename={machines.renameSelf} onPlans={() => machines.openPlans(view.self!.installationId)} />
       )}
+      {view.machineLimit && !view.self && <div role="group" aria-label="This machine plan limit" className="ct-card ct-card--quiet p-3 flex items-center gap-2">
+        <span className="font-medium">This machine</span>
+        <LockBadge view={meshMachineLockedView({ status: "over_limit" })} />
+        <SettingsPill tone="amber">Over limit</SettingsPill>
+        <button type="button" aria-label="See plans for this machine" onClick={() => machines.openPlans("self")} className={`${UI_BUTTON.accent} ${UI_BUTTON.compact}`}>See plans</button>
+      </div>}
       {rowList("Your account's machines", view.machines, listFailure ? "Your account's machines could not be listed." : "No other machines in your account yet. Sign in to Domios with this account on another machine.")}
       {view.saved.length > 0 && (
         <>
@@ -191,9 +197,10 @@ function Notes({ notes }: { notes: string[] }) {
   return <div className="flex flex-col gap-1">{notes.map((note) => <p key={note} className={UI_TEXT.metaMuted}>{note}</p>)}</div>;
 }
 
-function SelfRow({ self, onRename }: {
+function SelfRow({ self, onRename, onPlans }: {
   self: SelfRowView;
   onRename: (name: string) => Promise<boolean>;
+  onPlans: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -236,6 +243,10 @@ function SelfRow({ self, onRename }: {
           <span className="w-2 h-2 rounded-full bg-[var(--ct-green)] flex-shrink-0" aria-hidden="true" />
           <span className="font-medium text-[var(--ct-fg)] truncate">{self.name}</span>
           <SettingsPill tone="accent">This machine</SettingsPill>
+          {self.planLimited && <>
+            <LockBadge view={meshMachineLockedView({ status: "over_limit" })} />
+            <SettingsPill tone="amber">Over limit</SettingsPill>
+          </>}
         </div>
         {!editing && (
           <button
@@ -248,6 +259,10 @@ function SelfRow({ self, onRename }: {
           </button>
         )}
       </div>
+      {self.planLimited && <div className="flex items-center justify-between gap-2">
+        <span className={UI_TEXT.metaMuted}>This machine is outside your plan's machine limit.</span>
+        <button type="button" aria-label="See plans for this machine" onClick={onPlans} className={`${UI_BUTTON.accent} ${UI_BUTTON.compact}`}>See plans</button>
+      </div>}
       {editing && (
         <form className="flex items-center gap-2" onSubmit={(event) => { event.preventDefault(); void save(); }}>
           <input

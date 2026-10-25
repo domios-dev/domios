@@ -61,6 +61,35 @@ function harness(messages: readonly NormalizedChatMessage[], onInspect: (threadI
   return { host, root, render };
 }
 
+it("labels a provider background shell by command kind and opens its command details", async () => {
+  configureOrchestrationTransport(orchestrationTestClient(async <T,>() => [] as T));
+  setAgentDescriptors([{ id: "codex", display_name: "Fixture Harness" }] as ProviderDescriptor[]);
+  const command: NormalizedChatMessage = {
+    id: "shell-call", type: "tool_call", content: "", sourceSessionId: "root",
+    toolKind: "command", toolInput: { command: "node fixture.mjs" }, toolId: "call", toolCallSourceId: "source",
+  };
+  const result: NormalizedChatMessage = {
+    id: "shell-result", type: "tool_result", content: "", sourceSessionId: "root",
+    toolId: "call", toolCallSourceId: "source", toolPairing: "exact", toolBackgroundTaskId: "opaque-shell",
+  };
+  const view = harness([command, result], vi.fn(), { running: { "opaque-shell": "" } });
+  try {
+    await act(async () => view.render());
+    const chip = view.host.querySelector<HTMLButtonElement>('button[aria-label="1 background work, Background shell command"]');
+    expect(chip).not.toBeNull();
+    expect(chip?.title).toContain("Background shell command");
+    await act(async () => chip!.click());
+    const details = view.host.querySelector<HTMLButtonElement>('button[aria-label="Details for fixture.mjs"]');
+    expect(details?.getAttribute("aria-description")).toContain("Background shell command");
+    await act(async () => details!.click());
+    expect(view.host.querySelector("code")?.textContent).toBe("node fixture.mjs");
+    expect(view.host.querySelector('button[aria-label="Stop fixture.mjs"]')).toBeNull();
+    expect(view.host.querySelector('[aria-label="Subagents"]')).toBeNull();
+  } finally {
+    await act(async () => view.root.unmount());
+  }
+});
+
 it("opens the shared background panel and stops a terminal once", async () => {
   const process = { threadId: "root", processId: "process-1", itemId: "terminal-item", command: "node build.mjs", cwd: "C:/work", osPid: 42 };
   const terminalMessage: NormalizedChatMessage = {

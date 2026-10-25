@@ -169,7 +169,7 @@ fn compose_launch_instructions(
                 task: Some(task),
                 startup_message: None,
                 starter_prompt: if first_turn {
-                    StarterPrompt::AssignedTask
+                    StarterPrompt::GeneralBootstrap
                 } else {
                     StarterPrompt::NoStarter
                 },

@@ -4,6 +4,20 @@ import { backgroundCommandName, backgroundOwnsTool, backgroundWorkElapsed, compo
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 
 const now = Date.parse("2026-10-17T12:00:00.000Z");
+test("provider background commands keep their task kind and own-session identity", () => {
+  const messages: NormalizedChatMessage[] = [{
+    id: "shell-result", type: "tool_call", content: "", sourceSessionId: "own-session",
+    toolKind: "command", toolInput: { command: "node fixture.mjs" }, toolId: "call", toolCallSourceId: "source",
+  }, {
+    id: "shell-outcome", type: "tool_result", content: "", sourceSessionId: "own-session",
+    toolId: "call", toolCallSourceId: "source", toolPairing: "exact", toolBackgroundTaskId: "shell",
+  }];
+  const items = withProviderBackgroundWork([], { shell: "", child: "Inspect" }, "own-session", {}, messages);
+  assert.deepEqual(items.map(item => [item.kind, item.name]), [["shell", "fixture.mjs"], ["agent", "Inspect"]]);
+  assert.equal(items[0].command, "node fixture.mjs");
+  assert.equal(items[0].processId, undefined);
+  assert.equal(withProviderBackgroundWork([], { shell: "" }, "foreign-session", {}, messages)[0].kind, "agent");
+});
 test("PTY background roster remains visible without runtime agent_activity rows and drains on completion", () => {
   const items = withProviderBackgroundWork([], { child: "Inspect source" }, "own-session");
   assert.equal(composerBackgroundWorkBubble(items)?.count, 1);

@@ -358,16 +358,24 @@ describe("My machines over the plan's machine limit", () => {
     expect(lockBadges(account("Mac"))).toBe(0);
   });
 
-  it("keeps a locked machine's legacy pairing listed with a plans control", async () => {
+  it.each([true, false])("shows the plan limit only on this machine and keeps admitted peers and pairings normal (self identity: %s)", async (hasSelf) => {
     const client = new FakeAccountMeshClient(snapshot({
       traffic: "plan_limit_locked",
+      enrollment: "refused",
+      last_refusal: { reason: "mesh.machines", limit: 2, active_count: 2 },
+      self: hasSelf ? snapshot().self : null,
+      registry: { observed_at: NOW, rows: [macRow, lenovoRow] },
       pairs: [pair("peer-legacy", "Old box", { admission: "legacy" })],
     }));
     await mount(client, "signed_in");
     const saved = row("Saved pairings", "Old box");
-    expect(saved?.dataset.status).toBe("over_limit");
-    expect(lockBadges(saved)).toBe(1);
-    await click(button("See plans for Old box"));
+    expect(saved?.dataset.status).toBe("legacy");
+    expect(lockBadges(saved)).toBe(0);
+    expect(lockBadges(account("MacBook"))).toBe(0);
+    expect(account("MacBook")?.dataset.status).toBe("unlinked");
+    expect(button("Connect MacBook")?.disabled).toBe(true);
+    expect(lockBadges(host.querySelector(hasSelf ? '[aria-label="This machine: Studio PC"]' : '[aria-label="This machine plan limit"]'))).toBe(1);
+    await click(button("See plans for this machine"));
     expect(freeLimitGate.current()?.key).toBe("mesh.machines");
     expect(row("Saved pairings", "Old box")).not.toBeNull();
   });

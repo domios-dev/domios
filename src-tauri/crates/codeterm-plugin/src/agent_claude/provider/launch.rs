@@ -17,6 +17,7 @@ pub(super) fn starter_prompt_text(prompt: crate::provider::StarterPrompt) -> Opt
         crate::provider::StarterPrompt::AssignedTask => Some(ASSIGNED_TASK_START_PROMPT),
         crate::provider::StarterPrompt::IdleWakeup => Some(IDLE_WAKEUP_START_PROMPT),
         crate::provider::StarterPrompt::TeamBootstrap
+        | crate::provider::StarterPrompt::GeneralBootstrap
         | crate::provider::StarterPrompt::StartupHandshake => unreachable!(),
     }
 }
