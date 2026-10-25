@@ -51,7 +51,7 @@ const ownsPrJob = (workflow, owner) => {
   return workflow.jobFiles?.[id] === file;
 };
 
-export function prReachability(workflow, files, plugins) {
+export function prReachability(workflow, files, plugins, results = {}) {
   const gate = workflow.jobs.changed;
   const scopeStep = gate.steps.find(step => step.id === "scope");
   const scope = scopeForRun(files, plugins,
@@ -78,7 +78,7 @@ export function prReachability(workflow, files, plugins) {
       const explicitStatus = /(?:always|cancelled|failure|success)\(\)/.test(job.if ?? "");
       if (!explicitStatus && dependencies.some(dependency => needs[dependency]?.result !== "success")) continue;
       if (!prCondition(job.if, { needs, steps })) continue;
-      needs[id] = { result: "success", outputs: id === "changed" ? outputs : {} };
+      needs[id] = { result: results[id] ?? "success", outputs: id === "changed" ? outputs : {} };
       reached.push(id);
     }
     if (!progress) throw new Error(`Unresolved workflow dependencies: ${[...pending]}`);
@@ -211,6 +211,44 @@ test("PR commands equal the catalogue projection for each ci-scope change class"
 
 test("every selected PR entry has an executing PR workflow owner", () => {
   assert.deepEqual(ownershipErrors(catalogue, overlay, workflows, read("build.sh"), plugins), []);
+});
+
+test("fast checks run alongside required guards and retain failure cancellation", () => {
+  const fast = workflows["tests-fast.yml"];
+  const cancel = fast.jobs.guards.steps.find(step => step.name === "Cancel the run on this fast-check failure");
+  assert.equal(cancel.if, "failure() && inputs.cancel_run");
+  assert.match(cancel.run, /gh run cancel/);
+  assert.equal(fast.jobs.guards["continue-on-error"], undefined);
+  assert.equal(fast.jobs.guards.if, undefined);
+  for (const [id, job] of Object.entries(fast.jobs)) {
+    if (id === "changed") continue;
+    assert.deepEqual([job.needs].flat(), ["changed"], id);
+    assert.equal(job["continue-on-error"], undefined, id);
+    assert.ok(job.steps.some(step => step.run === cancel.run && step.if === cancel.if), id);
+  }
+  const reached = prReachability(workflow, ["src/app.ts"], plugins, { guards: "failure" });
+  assert.equal(reached.needs.guards.result, "failure");
+  for (const id of ["ts-static", "ts-unit", "ts-vitest", "frontend-windows", "ts-types"]) {
+    assert.ok(reached.jobs.includes(id), id);
+  }
+  assert.equal(workflows["tests.yml"].jobs.fast.uses, "./.github/workflows/tests-fast.yml");
+  assert.equal(workflows["tests.yml"].jobs.fast["continue-on-error"], undefined);
+  assert.equal(workflows["tests.yml"].jobs.rust.needs, "fast");
+  assert.ok(workflows["release.yml"].jobs["release-manifest"].needs.includes("quick-checks"));
+});
+
+test("Windows keeps the stable-path production build and restores only incremental typecheck state", () => {
+  const job = workflows["tests-fast.yml"].jobs["frontend-windows"];
+  const cache = job.steps.find(step => step.name === "Restore incremental Windows typecheck");
+  assert.match(cache.uses, /^actions\/cache@[a-f0-9]{40}$/);
+  assert.equal(cache.with.path, "node_modules/.cache/codeterm-types.tsbuildinfo");
+  assert.match(cache.with.key, /runner.name/);
+  assert.match(cache.with.key, /hashFiles\('pnpm-lock.yaml', 'tsconfig\*\.json'\)/);
+  assert.ok(cache.with.key.endsWith("${{ inputs.source_ref || github.sha }}"));
+  assert.equal(cache.with["restore-keys"].trim(), cache.with.key.slice(0, -"${{ inputs.source_ref || github.sha }}".length));
+  const build = job.steps.find(step => step.run === commandRef("frontend-windows-build"));
+  assert.ok(job.steps.indexOf(cache) < job.steps.indexOf(build));
+  assert.equal(catalogue.runners.find(entry => entry.id === "frontend-windows-build").runner, "bash build.sh frontend-build");
 });
 
 test("heavy Rust jobs are not PR-reachable, including a Rust change", t => {
