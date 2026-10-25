@@ -323,6 +323,7 @@ mod tab_count_tests {
     #[test]
     fn tab_count_is_scoped_to_one_workspace() {
         let (mut state, _root) = MultiplexerState::new();
+        state.set_limit_gate(codeterm_entitlements::LimitGate::dormant());
         let small = state.create_workspace("small".into(), None).id;
         let crowded = state.create_workspace("crowded".into(), None).id;
 

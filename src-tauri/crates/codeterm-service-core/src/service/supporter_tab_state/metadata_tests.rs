@@ -130,6 +130,10 @@ fn tab_state_chat_backend_reads_transcript_by_capability() {
         .service
         .chatbackend_registry
         .register("tab-state-chat-fixture", Arc::new(TranscriptBackend));
+    fixture
+        .service
+        .chatbackend_open_session("tab-state-chat-fixture", &tab_id, serde_json::json!({}))
+        .expect("live fixture session");
     let screen = fixture
         .service
         .tab_transport(&tab_id)

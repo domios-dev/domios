@@ -9,6 +9,15 @@ use crate::lock_hold::{TimedMutex, TimedRwLock};
 use crate::multiplexer::state::MultiplexerState;
 use crate::service::plan::PlanStore;
 
+pub(crate) struct FixtureLimitGate(pub super::billing::LimitGate);
+
+impl ServiceFixture {
+    pub fn set_limit_gate(&self, gate: super::billing::LimitGate) {
+        self.service.mux.write().set_limit_gate(gate.clone());
+        assert!(self.service.set_ext(FixtureLimitGate(gate)).is_ok());
+    }
+}
+
 pub fn install_test_runtime() {
     let _ = crate::async_runtime::handle();
 }
@@ -418,6 +427,7 @@ impl ServiceFixture {
         ));
         let mut extensions = crate::service::extensions::ExtensionsBuilder::default();
         extensions.insert_service_slots();
+        extensions.insert_late::<FixtureLimitGate>();
         extensions.insert(config);
         extensions.insert(crate::service::account::AccountDataRoot(data_dir.clone()));
         let (private_key, public_key) = crate::mesh::crown::generate_peer_keypair();

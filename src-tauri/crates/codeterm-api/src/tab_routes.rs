@@ -165,6 +165,7 @@ mod explicit_address_scope_tests {
     #[test]
     fn explicit_address_scope_mesh_all_workspaces_matches_the_peer_workspace_list() {
         let (mut state, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
+        state.set_limit_gate(codeterm_entitlements::LimitGate::dormant());
         let second = state.create_workspace("second".into(), None);
         state.create_tab(&second.id).unwrap();
         let third = state.create_workspace("third".into(), None);

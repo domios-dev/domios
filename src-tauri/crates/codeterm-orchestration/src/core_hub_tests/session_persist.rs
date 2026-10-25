@@ -17,6 +17,7 @@ fn service_created_tab_is_committed_and_restores_from_a_fresh_storage_owner() {
         .expect("initial Tab")
         .agent_type = Some("codex".into());
     let fixture = crate::test_fixture::ServiceFixture::new(mux);
+    fixture.set_limit_gate(codeterm_service_core::service::billing::LimitGate::dormant());
     let root = fixture.temp.path().join("desk-reopen");
     let storage = Storage::open(&root, StorageConfig::default()).expect("Storage owner");
     let adapter =

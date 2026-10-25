@@ -285,7 +285,7 @@ fn parse_session_delta_handles_polymorphic_content() {
     }
     let j = load_js("claude");
 
-    // Mixed JSONL: summary (drop), user text (1 block), assistant with text + thinking + tool_use (3 blocks), user tool_result (1 block), and a malformed line (drop).
+    // Summary resets background work; malformed input contributes no entry.
     let jsonl = concat!(
         r#"{"type":"summary","x":1}"#,
         "\n",
@@ -307,14 +307,25 @@ fn parse_session_delta_handles_polymorphic_content() {
         jsonl.len() as u64,
         "should consume the entire file (last line ends in \\n)"
     );
-    assert_eq!(delta.messages.len(), 3, "3 user/assistant entries");
+    assert_eq!(
+        delta.messages.len(),
+        4,
+        "boundary plus three content entries"
+    );
+    let boundary = &delta.messages[0];
+    assert_eq!(boundary.role, "system");
+    assert!(boundary.blocks.is_empty());
+    assert_eq!(
+        serde_json::to_value(&boundary.background_work).unwrap(),
+        serde_json::json!([{"id":"","state":"session_boundary"}])
+    );
 
-    let m0 = &delta.messages[0];
+    let m0 = &delta.messages[1];
     assert_eq!(m0.role, "user");
     assert_eq!(m0.blocks.len(), 1);
     assert_eq!(m0.blocks[0].kind, "text");
 
-    let m1 = &delta.messages[1];
+    let m1 = &delta.messages[2];
     assert_eq!(m1.role, "assistant");
     assert_eq!(m1.blocks.len(), 3);
     let kinds: Vec<&str> = m1.blocks.iter().map(|b| b.kind.as_str()).collect();
@@ -324,7 +335,7 @@ fn parse_session_delta_handles_polymorphic_content() {
         Some("Bash"),
     );
 
-    let m2 = &delta.messages[2];
+    let m2 = &delta.messages[3];
     assert_eq!(m2.blocks[0].kind, "tool_result");
     assert_eq!(
         m2.blocks[0]

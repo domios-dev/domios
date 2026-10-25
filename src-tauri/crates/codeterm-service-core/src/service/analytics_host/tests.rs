@@ -53,6 +53,11 @@ fn token_row(
 fn scene() -> Scene {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let mut fixture = ServiceFixture::new(mux);
+    fixture
+        .service
+        .mux
+        .write()
+        .set_limit_gate(codeterm_entitlements::LimitGate::dormant());
     let ledger = Arc::new(KpiLedger::open_at(&fixture.temp.path().join("kpi.db")).unwrap());
     fixture.service.kpi = KpiRecorder::with_ledger(ledger.clone());
     let (alpha, beta) = {

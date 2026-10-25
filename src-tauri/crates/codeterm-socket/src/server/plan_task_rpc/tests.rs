@@ -865,6 +865,11 @@ fn concurrent_dispatch_of_the_same_task_is_refused_while_one_is_in_flight() {
 }
 
 fn spawn_rebound_tab(fixture: &ServiceFixture, live_session_id: &str) -> String {
+    fixture
+        .service
+        .mux
+        .write()
+        .set_limit_gate(codeterm_service_core::service::billing::LimitGate::dormant());
     let workspace = fixture
         .service
         .mux

@@ -1150,3 +1150,6 @@ mod floor_tests;
 mod plan_payload;
 #[path = "startup_tests.rs"]
 mod startup;
+
+#[path = "observer_tests.rs"]
+mod observer;
