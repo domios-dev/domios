@@ -115,7 +115,7 @@ jobs:
       - name: Plugin release contracts
         id: ci-6
         if: ${{ !cancelled() }}
-        run: node scripts/ci-catalogue-command.mjs plugin-release-contracts
+        run: node scripts/ci-step.mjs plugin-release-contracts --ci
       - name: Plugin release and scope script tests
         id: ci-7
         if: ${{ !cancelled() }}
@@ -127,11 +127,11 @@ jobs:
           bash scripts/check-build-gateway-serialization.sh
           bash scripts/check-build-gateway-policy.sh
           bash scripts/check-build-gateway-mutex-cleanup.sh
-          node scripts/test-catalogue.mjs run --entry node-script-tests-serial
+          node scripts/ci-step.mjs node-script-tests-serial --ci
       - name: cargo fmt --check
         id: ci-10
         if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
-        run: node scripts/ci-catalogue-command.mjs rust-fmt
+        run: node scripts/ci-step.mjs rust-fmt --ci
       - name: Archive-portable Rust test paths
         id: ci-11
         if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
@@ -143,15 +143,15 @@ jobs:
       - name: Node script tests (tests/catalogue.json node-script-tests)
         id: ci-14
         if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
-        run: node scripts/ci-catalogue-command.mjs node-script-tests
+        run: node scripts/ci-step.mjs node-script-tests --ci
       - name: Python script tests (tests/catalogue.json python-script-tests)
         id: ci-15
         if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
-        run: node scripts/ci-catalogue-command.mjs python-script-tests
+        run: node scripts/ci-step.mjs python-script-tests --ci
       - name: Offline core journey contracts
         id: ci-16
         if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
-        run: node scripts/ci-catalogue-command.mjs core-journeys-offline
+        run: node scripts/ci-step.mjs core-journeys-offline --ci
   plugins:
     name: plugin (${{ matrix.plugin.id }})
     needs: changed
@@ -188,7 +188,7 @@ jobs:
         env:
           PLUGIN_ID: ${{ matrix.plugin.id }}
         shell: bash
-        run: node scripts/ci-catalogue-command.mjs plugin-check --plugin-id "$PLUGIN_ID"
+        run: node scripts/ci-step.mjs plugin-check --ci --plugin-id "$PLUGIN_ID"
   ts-static:
     name: ts static checks
     needs: changed
@@ -223,19 +223,19 @@ jobs:
       - name: TypeScript unused exports
         id: ci-6
         if: ${{ !cancelled() }}
-        run: node scripts/ci-catalogue-command.mjs ts-unused-exports
+        run: node scripts/ci-step.mjs ts-unused-exports --ci
       - name: Repository Knip report
         id: ci-7
         if: ${{ !cancelled() }}
-        run: node scripts/ci-catalogue-command.mjs ts-knip-report
+        run: node scripts/ci-step.mjs ts-knip-report --ci
       - name: Check API effect dependencies
         id: ci-8
         if: ${{ !cancelled() }}
-        run: node scripts/ci-catalogue-command.mjs ts-api-effects
+        run: node scripts/ci-step.mjs ts-api-effects --ci
       - name: Biome (TS lint)
         id: ci-9
         if: ${{ !cancelled() }}
-        run: node scripts/ci-catalogue-command.mjs ts-biome
+        run: node scripts/ci-step.mjs ts-biome --ci
   frontend-dist:
     name: frontend producer
     needs: changed
@@ -267,7 +267,7 @@ jobs:
       - *a1
       - name: Build and typecheck frontend
         id: ci-6
-        run: node scripts/ci-catalogue-command.mjs ts-typecheck
+        run: node scripts/ci-step.mjs ts-typecheck --ci
   frontend-windows:
     name: Windows path identity
     needs: changed
@@ -304,7 +304,7 @@ jobs:
       - *a1
       - name: Check pnpm workspace path identity
         id: ci-6
-        run: node scripts/ci-catalogue-command.mjs frontend-windows-build
+        run: node scripts/ci-step.mjs frontend-windows-build --ci
   ts-types:
     name: ts generated types
     needs: changed
@@ -348,7 +348,7 @@ jobs:
         run: node -e "require('fs').writeFileSync('ci-rust-warnings.log', '')"
       - name: Check Rust generated TypeScript types
         id: ci-8
-        run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- node scripts/ci-catalogue-command.mjs ts-generated-types
+        run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- node scripts/ci-step.mjs ts-generated-types --ci
       - name: Stop this job's local compile cache
         if: always()
         shell: bash
@@ -390,11 +390,11 @@ jobs:
       - *a1
       - name: Run TS unit tests
         id: ci-6
-        run: node scripts/ci-catalogue-command.mjs ts-unit
+        run: node scripts/ci-step.mjs ts-unit --ci
       - name: TS unit runner contracts
         id: ci-7
         if: ${{ !cancelled() }}
-        run: node scripts/ci-catalogue-command.mjs ts-unit-runner-tests
+        run: node scripts/ci-step.mjs ts-unit-runner-tests --ci
   ts-vitest:
     name: ts vitest
     needs: changed
@@ -428,7 +428,7 @@ jobs:
       - *a1
       - name: Run vitest-owned TS tests
         id: ci-6
-        run: node scripts/ci-catalogue-command.mjs ts-vitest
+        run: node scripts/ci-step.mjs ts-vitest --ci
   ts-plugins:
     name: plugin bundles + tests
     needs: changed
@@ -462,11 +462,11 @@ jobs:
       - *a1
       - name: Check generated plugin bundles
         id: ci-6
-        run: node scripts/ci-catalogue-command.mjs plugin-bundles
+        run: node scripts/ci-step.mjs plugin-bundles --ci
       - name: Run plugin tests
         id: ci-7
         if: ${{ !cancelled() }}
-        run: node scripts/ci-catalogue-command.mjs plugin-tests
+        run: node scripts/ci-step.mjs plugin-tests --ci
   cli-tests:
     name: cli contracts
     needs: changed
