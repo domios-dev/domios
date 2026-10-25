@@ -103,6 +103,8 @@ pub struct PtyReaper {
     pub(super) pty_id: String,
     pub(super) session: Arc<PtySession>,
     pub(super) kill_error: Option<String>,
+    /// Darwin refuses to signal a group whose leader is still exiting; the kill stands once that exit is observed.
+    pub(super) exit_pending_error: Option<String>,
     pub(super) tree_killer: Box<dyn portable_pty::ChildKiller + Send + Sync>,
     #[cfg(target_os = "macos")]
     pub(super) child_pid: Option<u32>,
@@ -188,9 +190,21 @@ impl PtyReaper {
         &self.pty_id
     }
 
+    fn kill_failure(&self) -> Option<String> {
+        if let Some(error) = &self.kill_error {
+            return Some(error.clone());
+        }
+        let error = self.exit_pending_error.as_ref()?;
+        self.session
+            .teardown
+            .wait_for_boundary(Some(Instant::now() + ESCALATED_EXIT_TIMEOUT), false)
+            .err()
+            .map(|_| error.clone())
+    }
+
     pub fn wait_for_restart(mut self, grace: std::time::Duration) -> Result<(), String> {
         self.observe_exit();
-        if let Some(error) = self.kill_error.as_ref() {
+        if let Some(error) = self.kill_failure() {
             return Err(format!(
                 "pty_tree_termination_failed: PTY {}: {error}",
                 self.pty_id
@@ -249,7 +263,7 @@ impl PtyReaper {
         require_cleanup: bool,
     ) -> Result<(), String> {
         self.observe_exit();
-        if let Some(error) = self.kill_error.as_ref() {
+        if let Some(error) = self.kill_failure() {
             return Err(format!(
                 "PTY {} process-tree termination failed: {error}",
                 self.pty_id
