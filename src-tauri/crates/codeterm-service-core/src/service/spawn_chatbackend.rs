@@ -181,6 +181,7 @@ impl ChatBackendRuntimeLaunch {
 }
 
 impl ServiceContext {
+    #[cfg(test)]
     pub(crate) fn spawn_chatbackend_impl_with_state_change(
         &self,
         spec: SpawnTabSpec,
