@@ -2698,7 +2698,7 @@
     {
       "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/codex.rs",
       "token": "codex",
-      "count": 53,
+      "count": 49,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
     },
