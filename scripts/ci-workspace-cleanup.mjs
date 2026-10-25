@@ -31,8 +31,8 @@ export function sweepRustTargets(workspace, run = spawnSync, root = process.env.
   ];
   for (const { project, target } of candidates) {
     const dir = path.resolve(workspace, project);
-    const env = target ? { ...process.env, CARGO_TARGET_DIR: target } : process.env;
-    const result = run('cargo', ['sweep', '--time', SWEEP_DAYS, dir], { stdio: 'inherit', env });
+    const commandEnv = target ? { ...env, CARGO_TARGET_DIR: target } : env;
+    const result = run('cargo', ['sweep', '--time', SWEEP_DAYS, dir], { stdio: 'inherit', env: commandEnv });
     if (result.error || result.status !== 0) {
       console.log(`cargo-sweep unavailable or failed for ${project}; target kept`);
       continue;

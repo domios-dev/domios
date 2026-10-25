@@ -21,6 +21,7 @@ on:
         options:
           - full
           - frontend
+          - fast
           - preflight
   pull_request:
     types:
@@ -243,7 +244,7 @@ jobs:
   rust:
     name: Rust tests
     needs: fast
-    if: ${{ !cancelled() && (github.event_name == 'push' || github.event_name == 'schedule') && needs.fast.outputs.resolved_scope != '' }}
+    if: ${{ !cancelled() && inputs.scope != 'fast' && (github.event_name == 'push' || github.event_name == 'schedule') && needs.fast.outputs.resolved_scope != '' }}
     uses: ./.github/workflows/tests-rust.yml
     with:
       source_ref: ${{ needs.fast.outputs.source_sha }}
@@ -263,7 +264,7 @@ jobs:
     needs:
       - fast
       - rust
-    if: ${{ always() && github.event_name != 'pull_request' && inputs.source_ref == '' && needs.fast.outputs.heavy != '' }}
+    if: ${{ always() && inputs.scope != 'fast' && github.event_name != 'pull_request' && inputs.source_ref == '' && needs.fast.outputs.heavy != '' }}
     uses: ./.github/workflows/rust-warnings-summary.yml
     secrets: inherit
     with:
@@ -277,7 +278,7 @@ jobs:
       - rust
       - rust-warnings
       - policy
-    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (!cancelled() && needs.fast.result == 'success' && needs.rust.result == 'success' && needs.rust-warnings.result == 'success' && needs.policy.result == 'success' && (github.event_name == 'push' || github.event_name == 'schedule') && needs.fast.outputs.heavy == 'true') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (inputs.scope != 'fast' && !cancelled() && needs.fast.result == 'success' && needs.rust.result == 'success' && needs.rust-warnings.result == 'success' && needs.policy.result == 'success' && (github.event_name == 'push' || github.event_name == 'schedule') && needs.fast.outputs.heavy == 'true') }}
     environment: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && 'ci' || '' }}
     runs-on: ${{ vars.CI_LINUX_LIGHT_RUNNER || fromJSON('["self-hosted","Linux","light","host-ubunta"]') }}
     timeout-minutes: 5
