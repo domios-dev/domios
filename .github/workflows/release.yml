@@ -341,6 +341,7 @@ jobs:
       && needs.prepare.outputs.run_tests == 'true' && needs.prepare.outputs.published != 'true'
     uses: ./.github/workflows/tests-rust.yml
     with:
+      cancel_run: true
       source_ref: ${{ needs.prepare.outputs.source_sha }}
       scope: ${{ needs.prepare.outputs.kind == 'app' && 'full' || 'frontend' }}
       artifacts_optional: ${{ needs.prepare.outputs.dry_run == 'true' }}

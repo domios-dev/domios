@@ -26,6 +26,7 @@ use codeterm_service_core::service::messenger::MessageEnvelope;
 use codeterm_service_core::service::web_access::PEBBLE_WEBHOOK_SECRET;
 
 mod audio;
+pub(crate) mod ci;
 mod payload;
 
 pub(crate) const MAX_WEBHOOK_BODY_BYTES: usize = 1024 * 1024;
