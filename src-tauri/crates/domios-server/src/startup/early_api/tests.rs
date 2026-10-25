@@ -231,3 +231,33 @@ async fn ready_health_delegates_authentication_to_the_active_router() {
 }
 
 mod stalled_memory;
+
+#[tokio::test]
+async fn early_health_reads_live_native_diagnostics_and_clears_detached_port() {
+    use std::sync::atomic::AtomicU16;
+    let mut api = EarlyApi::new(None);
+    let port = Arc::new(AtomicU16::new(0));
+    let attached = port.clone();
+    api.diagnostics_port =
+        codeterm_api::health_routes::NativeDiagnosticsPort(Arc::new(move || {
+            match attached.load(Ordering::Acquire) {
+                0 => None,
+                port => Some(port),
+            }
+        }));
+    let router = api.router();
+    for current in [0, 9398, 0] {
+        port.store(current, Ordering::Release);
+        let response = router
+            .clone()
+            .oneshot(request(Method::GET, "/api/health"))
+            .await
+            .unwrap();
+        let expected = if current != 0 && cfg!(debug_assertions) {
+            "9398"
+        } else {
+            ""
+        };
+        assert_eq!(json(response).await["instance"]["cdp_port"], expected);
+    }
+}

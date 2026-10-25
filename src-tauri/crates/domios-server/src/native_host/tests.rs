@@ -631,3 +631,51 @@ async fn released_dispatched_view_call_stays_uncertain_and_fences_late_reply() {
     });
     assert!(!session.state.lock().pending.contains_key(&request_id));
 }
+
+#[test]
+fn health_cdp_port_follows_authenticated_view_diagnostics_and_attachment_lifetime() {
+    use codeterm_types::native_host::{
+        NativeWebviewDiagnosticsReport, NativeWebviewDiagnosticsStatus,
+    };
+    let directory = tempfile::tempdir().unwrap();
+    let (manifest, ready) = server_fixture(
+        directory.path().join("server-fixture.bin"),
+        b"server fixture image",
+    );
+    let endpoint = NativeHostEndpoint::<String, String> {
+        active: Arc::new(RwLock::new(None)),
+        active_generation: Arc::new(AtomicU64::new(9)),
+        next_request_id: Arc::new(AtomicU64::new(1)),
+        next_event_id: Arc::new(AtomicU64::new(1)),
+        ready,
+        manifest,
+    };
+    assert_eq!(endpoint.cdp_port(), None);
+    let view = NativeViewBinding::observed("http://127.0.0.1:7686".into()).unwrap();
+    let client = session(Some(view.clone()));
+    *endpoint.active.write() = Some(client.clone());
+    assert_eq!(endpoint.cdp_port(), None);
+    let report = NativeWebviewDiagnosticsReport {
+        connection: client.connection.clone(),
+        view_session: view.session_id,
+        status: NativeWebviewDiagnosticsStatus::Active {
+            port: 9398,
+            view_generation: 1,
+        },
+    };
+    let mut stale = report.clone();
+    stale.connection.generation += 1;
+    client.accept_diagnostics_status(stale);
+    assert_eq!(endpoint.cdp_port(), None);
+    client.accept_diagnostics_status(report.clone());
+    assert_eq!(endpoint.cdp_port(), Some(9398));
+    client.release_view(view.session_id);
+    assert_eq!(endpoint.cdp_port(), None);
+    client.bind_view(view);
+    client.accept_diagnostics_status(report);
+    assert_eq!(endpoint.cdp_port(), Some(9398));
+    client.retire(NativeHostUncertainty::DisconnectedAfterDispatch);
+    assert_eq!(endpoint.cdp_port(), None);
+    endpoint.active.write().take();
+    assert_eq!(endpoint.cdp_port(), None);
+}

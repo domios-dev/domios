@@ -302,6 +302,15 @@ where
             .map(|session| session.connection.clone())
     }
 
+    pub fn cdp_port(&self) -> Option<u16> {
+        match self.webview_diagnostics_snapshot()?.status {
+            codeterm_types::native_host::NativeWebviewDiagnosticsStatus::Active {
+                port, ..
+            } => Some(port),
+            _ => None,
+        }
+    }
+
     pub fn webview_diagnostics_snapshot(&self) -> Option<NativeWebviewDiagnosticsSnapshot> {
         let session = self
             .active
