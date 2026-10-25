@@ -3028,8 +3028,9 @@ EOF
     ;;
   ci-cli-tests)
     prepare_bundle_stubs
-    prepare_cli_server_test
-    scripts/test-capped.sh --no-default-features --manifest-path cli/Cargo.toml --all-targets --locked
+    mapfile -t cli_fast_targets < <(node scripts/ci-cli-targets.mjs)
+    [ "${#cli_fast_targets[@]}" -gt 0 ] || return 1
+    scripts/test-capped.sh --no-default-features --manifest-path cli/Cargo.toml "${cli_fast_targets[@]}" --locked
     ;;
   ci-tests)
     case "${2:-}" in full|platform|embeddings) ;; *) echo "Usage: ./build.sh ci-tests full|platform|embeddings" >&2; exit 2 ;; esac

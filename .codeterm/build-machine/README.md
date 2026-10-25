@@ -53,26 +53,17 @@ Rust tests compile and run in place; nothing ships a nextest archive between
 runners (an archive download alone took ~12 minutes at ~0.4 MB/s, against a full
 app suite of ~2 minutes after an 8-9 minute compile from the shared S3 cache).
 
-- `rust-tests` runs the whole suite (app workspace libraries and the CLI) once, on
-  any free runner carrying the `rust-tests` label. The pool is eight (macOS ARM64),
-  ROG (Windows X64) and ubunta (Linux X64); green lacks MSVC and BLACKSTAR is paused.
-- `rust-platform` runs on macOS (`rust-shard`: eight, air-macos), Linux (`linux-ci`)
-  and Windows (`windows-ci`) in parallel. Each runs only the cfg(target_os)-gated
-  tests for its OS plus the native input crates (`codeterm-input-macos`,
-  `codeterm-input-windows`).
-- `rust test receipts` requires exactly one passing full-suite receipt and one
-  passing platform receipt per OS, each with a non-zero executed test count.
+- The Linux full suite uses `[rust-tests, heavy, host-blackstar]`, selecting the stable
+  WSL executor, never its light siblings. No other product compile job uses that host.
+- Native Windows tests use `[Windows, windows-build, host-rog]`; native macOS uses
+  `[macOS, rust-shard, host-air]`. Air runs embeddings after platform tests, with its
+  own feature target. Linux cfg tests already execute in the Linux full suite.
+- Ubuntu's `[linux-build, host-ubunta]` runner serializes Clippy, fast CLI and generated
+  types. Light checks use `[Linux, light, host-ubunta]`, disjoint from the WSL runner.
+- Keep final targets under each runner's workspace-specific `CI_TARGET_ROOT`; never
+  share mutable targets between runner workspaces. Release reuses exact-SHA dev
+  qualification instead of rerunning test tiers while packaging.
 
-Coverage trade-off: the full suite exercises only the pool runner's OS. Tests gated
-to another OS run only in that OS's platform subset, which the nightly run on
-develop repeats daily with the same graph.
-
-Registration: add `rust-tests` to the pool runners without replacing their labels:
-`gh api --method POST repos/rollacode/codeterm/actions/runners/<runner-id>/labels -f 'labels[]=rust-tests'`.
-Keep `rust-shard` on the macOS runners (the platform job's macOS label) and the OS labels everywhere.
-
-The classifier in `scripts/ci-test-classifier` follows Rust source modules and
-inherited cfg gates, including platform cfg attributes inside test bodies.
 `ci-rust-tests.mjs platform` joins it with nextest's compiled inventory; unknown
 tests and reasonless ignores fail explicitly and every source-authored ignore is
 named with its reason in the log. Listener groups stay serial for their native

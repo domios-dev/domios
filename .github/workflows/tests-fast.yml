@@ -26,6 +26,12 @@ on:
         default: false
         type: boolean
     outputs:
+      source_sha:
+        description: Exact tested source
+        value: ${{ jobs.changed.outputs.source_sha }}
+      resolved_scope:
+        description: Shared scope decision for the Rust tier
+        value: ${{ toJSON(jobs.changed.outputs) }}
       heavy:
         description: The Rust build scope ran; empty when the scope gate skipped
         value: ${{ jobs.changed.outputs.heavy }}
@@ -61,12 +67,13 @@ jobs:
     # A release branch's push already runs these checks on the exact SHA in release.yml.
     if: ${{ github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release/') }}
     # Every job waits on this gate, so any free light runner takes it.
-    runs-on: [self-hosted, light]
+    runs-on: [self-hosted, Linux, light, host-ubunta]
     permissions:
       contents: read
       actions: write
     timeout-minutes: 5
     outputs:
+      source_sha: ${{ steps.source.outputs.sha }}
       frontend: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.frontend == 'true' }}
       rust: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.rust == 'true' }}
       heavy: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.heavy == 'true' }}
@@ -76,9 +83,12 @@ jobs:
         with:
           ref: ${{ inputs.source_ref || github.ref }}
           fetch-depth: 2
+      - id: source
+        shell: bash
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - id: tree
         env:
-          CI_RELEASE_CALL: ${{ inputs.source_ref != '' }}
+          CI_RELEASE_CALL: ${{ inputs.source_ref != '' || github.event_name == 'push' && (github.ref_name == 'develop' || github.ref_name == 'rename/domios') || github.event_name == 'schedule' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -105,7 +115,7 @@ jobs:
       - id: scope
         if: steps.tree.outputs.run == 'true'
         env:
-          CI_FULL_MATRIX: ${{ (inputs.source_ref != '' && inputs.scope != 'frontend') }}
+          CI_FULL_MATRIX: ${{ inputs.scope != 'frontend' && (inputs.source_ref != '' || github.event_name == 'push' || github.event_name == 'schedule') }}
           CI_FRONTEND_ONLY: ${{ inputs.source_ref != '' && inputs.scope == 'frontend' }}
           CI_FAST_ONLY: ${{ github.event_name == 'pull_request' }}
         run: node scripts/ci-scope.mjs HEAD^ HEAD
@@ -115,7 +125,7 @@ jobs:
     name: guards
     needs: changed
     # The Node and Python release contracts assume Linux paths (macOS /var is a symlink).
-    runs-on: [self-hosted, Linux, light]
+    runs-on: [self-hosted, Linux, light, host-ubunta]
     permissions:
       contents: read
       actions: write
@@ -208,7 +218,7 @@ jobs:
     name: plugin (${{ matrix.plugin.id }})
     needs: changed
     if: ${{ needs.changed.outputs.plugins != '[]' }}
-    runs-on: [self-hosted, linux-ci]
+    runs-on: [self-hosted, Linux, linux-build, host-ubunta]
     permissions:
       contents: read
       actions: write
@@ -244,7 +254,7 @@ jobs:
     name: clippy (linux)
     needs: changed
     if: ${{ needs.changed.outputs.heavy == 'true' }}
-    runs-on: [self-hosted, linux-ci]
+    runs-on: [self-hosted, Linux, linux-build, host-ubunta]
     permissions:
       contents: read
       actions: write
@@ -309,7 +319,7 @@ jobs:
     name: cli tests
     needs: changed
     if: ${{ needs.changed.outputs.heavy == 'true' }}
-    runs-on: [self-hosted, linux-ci]
+    runs-on: [self-hosted, Linux, linux-build, host-ubunta]
     permissions:
       contents: read
       actions: write
@@ -350,7 +360,7 @@ jobs:
     name: ts static checks
     needs: changed
     if: ${{ needs.changed.outputs.frontend == 'true' }}
-    runs-on: [self-hosted, light]
+    runs-on: [self-hosted, Linux, light, host-ubunta]
     permissions:
       contents: read
       actions: write
@@ -376,8 +386,6 @@ jobs:
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
       - *select-pr-catalogue
-      - name: TS strict typecheck (prod build gate)
-        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-typecheck'] }}
       - name: TypeScript unused exports
         if: ${{ !cancelled() }}
         run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-unused-exports'] }}
@@ -394,10 +402,37 @@ jobs:
         run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-biome'] }}
       - *cancel-run-on-failure
 
-  # Windows bundles build the frontend from the gateway's subst drive, where a pnpm
-  # workspace symlink can give one file two identities; nothing else runs from there.
+  frontend-dist:
+    name: frontend producer
+    needs: changed
+    if: ${{ needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true' }}
+    runs-on: [self-hosted, Linux, light, host-ubunta]
+    permissions:
+      contents: read
+      actions: write
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          package-manager-cache: false
+          node-version: '22.22.0'
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
+      - *select-pr-catalogue
+      - name: Build and typecheck frontend
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-typecheck'] }}
+      - *cancel-run-on-failure
+
   frontend-windows:
-    name: frontend (Windows, stable path)
+    name: Windows path identity
     needs: changed
     if: ${{ needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true' }}
     runs-on: [self-hosted, Windows, windows-light]
@@ -425,32 +460,18 @@ jobs:
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
 
-      - name: Restore incremental Windows typecheck
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: node_modules/.cache/codeterm-types.tsbuildinfo
-          key: windows-frontend-types-v1-${{ runner.name }}-node22-pnpm10-${{ hashFiles('pnpm-lock.yaml', 'tsconfig*.json') }}-${{ inputs.source_ref || github.sha }}
-          restore-keys: |
-            windows-frontend-types-v1-${{ runner.name }}-node22-pnpm10-${{ hashFiles('pnpm-lock.yaml', 'tsconfig*.json') }}-
-
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
       - *select-pr-catalogue
-      # frontend-build installs through the bundle's own ensure_deps, from the mapped path.
-      - name: Build the release frontend from the stable build path
+      - name: Check pnpm workspace path identity
         run: ${{ fromJSON(steps.catalogue.outputs.commands)['frontend-windows-build'] }}
-      - name: Store frontend warning collection
-        if: always()
-        continue-on-error: ${{ inputs.artifacts_optional }}
-        run: test ! -f ci-rust-warnings/rust-warnings-win32-frontend.json || bash scripts/ci-artifact.sh put "$GITHUB_RUN_ID/rust-warnings/rust-warnings-win32-frontend.json" ci-rust-warnings/rust-warnings-win32-frontend.json
-      - name: Upload artifacts spooled while the private store was unreachable
-        if: always()
-        uses: ./.github/actions/ci-artifact-spool
       - *cancel-run-on-failure
 
   ts-types:
     name: ts generated types
     needs: changed
     if: ${{ needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true' }}
-    runs-on: [self-hosted, light]
+    runs-on: [self-hosted, Linux, linux-build, host-ubunta]
     permissions:
       contents: read
       actions: write
@@ -508,7 +529,7 @@ jobs:
     name: ts unit
     needs: changed
     if: ${{ needs.changed.outputs.frontend == 'true' }}
-    runs-on: [self-hosted, light]
+    runs-on: [self-hosted, Linux, light, host-ubunta]
     permissions:
       contents: read
       actions: write
@@ -545,7 +566,7 @@ jobs:
     name: ts vitest
     needs: changed
     if: ${{ needs.changed.outputs.frontend == 'true' }}
-    runs-on: [self-hosted, light]
+    runs-on: [self-hosted, Linux, light, host-ubunta]
     permissions:
       contents: read
       actions: write
@@ -582,7 +603,7 @@ jobs:
     name: plugin bundles + tests
     needs: changed
     if: ${{ needs.changed.outputs.rust == 'true' }}
-    runs-on: [self-hosted, light]
+    runs-on: [self-hosted, Linux, light, host-ubunta]
     permissions:
       contents: read
       actions: write

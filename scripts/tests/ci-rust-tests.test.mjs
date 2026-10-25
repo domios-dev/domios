@@ -9,8 +9,8 @@ import {
   platformLane, requireTestSuccess, runArgs, timingAuditArgs, timingPlan, verifyReceipts, withOverlayExclusions,
 } from '../ci-rust-tests.mjs';
 
-const receipt = (overrides = {}) => ({ mode: 'full', runner: 'eight', os: 'Windows', arch: 'X64', sha: 'abc', executed: 6709, exit: 0, seconds: 128, ...overrides });
-const complete = () => [receipt(), receipt({ mode: 'embeddings' }), ...['macOS', 'Linux', 'Windows'].map((os) => receipt({ mode: 'platform', os, runner: os, executed: 40 }))];
+const receipt = (overrides = {}) => ({ mode: 'full', runner: 'eight', os: 'Linux', arch: 'X64', sha: 'abc', executed: 6709, exit: 0, seconds: 128, ...overrides });
+const complete = () => [receipt(), receipt({ mode: 'embeddings' }), ...['macOS', 'Windows'].map((os) => receipt({ mode: 'platform', os, runner: os, executed: 40 }))];
 
 test('the real CLI/server integration executes once outside the unit timing groups', () => {
   const integration = { binary: 'codeterm-cli::isolated_server', name: 'isolated_server_api_token_identify_and_shutdown' };
@@ -40,9 +40,10 @@ test('failed compilation prints rendered errors and preserves the original failu
 });
 
 test('one full suite and one platform subset per OS, each passing with executed tests', () => {
-  assert.match(verifyReceipts(complete()), /\| full \| eight \| Windows \| X64 \| 6709 \| 128\.0 s \|/);
+  assert.match(verifyReceipts(complete()), /\| full \| eight \| Linux \| X64 \| 6709 \| 128\.0 s \|/);
   for (const [name, mutate, message] of [
     ['missing full', (r) => r.shift(), /exactly one full/],
+    ['wrong full OS', (r) => { r[0].os = 'Windows'; }, /must cover Linux/],
     ['missing embeddings', (r) => r.splice(1, 1), /exactly one embeddings/],
     ['duplicate full', (r) => r.push(receipt()), /exactly one full/],
     ['missing OS', (r) => r.pop(), /one Windows platform/],

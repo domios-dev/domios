@@ -1,8 +1,7 @@
 name: Release
 run-name: Release ${{ inputs.tag || github.ref_name }}
 
-# Fast checks gate the Rust tests and every build, which then run in parallel; a test failure blocks
-# publication but never cancels builds. Only owner pushes start releases.
+# Exact-SHA dev qualification precedes packaging; publication verifies the same receipts again.
 on:
   push:
     branches:
@@ -13,11 +12,6 @@ on:
         description: 'Release branch release/X.Y.Z (or vX.Y.Z) to build; with dry_run, any branch'
         required: true
         type: string
-      dry_run_tests:
-        description: Run the full test matrix during a dry run
-        required: false
-        default: true
-        type: boolean
       mirror:
         description: 'Publish to the public mirror'
         required: false
@@ -57,7 +51,6 @@ jobs:
       source_sha: ${{ steps.release.outputs.source_sha }}
       mirror: ${{ steps.release.outputs.mirror }}
       dry_run: ${{ steps.release.outputs.dry_run }}
-      run_tests: ${{ steps.release.outputs.run_tests }}
       promote_run_id: ${{ steps.release.outputs.promote_run_id }}
       published: ${{ steps.release.outputs.published }}
       branch: ${{ steps.release.outputs.branch }}
@@ -77,13 +70,18 @@ jobs:
           package-manager-cache: false
           node-version: '22.22.0'
 
+      - name: Require green dev qualification for the exact release SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: node scripts/ci-qualification.mjs check "$(git rev-parse HEAD)"
+
       - name: Resolve release version
         id: release
         env:
           REQUESTED_REF: ${{ inputs.tag || github.ref_name }}
           MIRROR_INPUT: ${{ inputs.mirror }}
           DRY_RUN: ${{ (inputs.dry_run || (github.event_name == 'push' && vars.RELEASE_PUBLISH_ENABLED != 'true')) && 'true' || 'false' }}
-          RUN_TESTS: ${{ (github.event_name == 'push' || !inputs.dry_run || inputs.dry_run_tests) && 'true' || 'false' }}
           PROMOTE_RUN_ID: ${{ inputs.promote_run_id }}
           EVENT_NAME: ${{ github.event_name }}
           GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
@@ -96,13 +94,11 @@ jobs:
           # A promotion publishes a qualified dry run's retained bytes; its own run builds and tests nothing.
           if [ -n "${PROMOTE_RUN_ID:-}" ]; then
             [ "$DRY_RUN" != true ] || { echo "::error::promote_run_id publishes; it cannot be a dry run"; exit 1; }
-            RUN_TESTS=false
           fi
           {
             echo "source_sha=$sha"
             echo "source_ref=$sha"
             echo "published=false"
-            echo "run_tests=$RUN_TESTS"
             echo "promote_run_id=${PROMOTE_RUN_ID:-}"
           } >> "$GITHUB_OUTPUT"
           if [ "$DRY_RUN" = true ]; then
@@ -244,118 +240,11 @@ jobs:
         if: always()
         uses: ./.github/actions/ci-artifact-spool
 
-  # Builds run on builder machines and start at once. Tests run on test machines and open once every fast
-  # check is claimed by a runner or finished, so a free test runner never takes a test before a fast check.
-  # The first failed fast check cancels the run.
-  quick-checks:
-    name: Fast checks
-    needs: prepare
-    if: needs.prepare.outputs.run_tests == 'true' && needs.prepare.outputs.published != 'true'
-    uses: ./.github/workflows/tests-fast.yml
-    with:
-      source_ref: ${{ needs.prepare.outputs.source_sha }}
-      scope: ${{ needs.prepare.outputs.kind == 'app' && 'full' || 'frontend' }}
-      cancel_run: true
-      artifacts_optional: ${{ needs.prepare.outputs.dry_run == 'true' }}
-    permissions:
-      contents: read
-      actions: write
-      pull-requests: write
-    secrets: inherit
-
-  # The full suite shares ubunta and WSL-ci with clippy, so it never starts ahead of the fast checks.
-  tests-tier:
-    name: tests tier opens
-    needs: prepare
-    if: needs.prepare.outputs.run_tests == 'true' && needs.prepare.outputs.published != 'true'
-    runs-on: [self-hosted, Linux, light]
-    timeout-minutes: 50
-    permissions:
-      contents: read
-      actions: read
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          ref: ${{ needs.prepare.outputs.source_sha }}
-          sparse-checkout: |
-            scripts
-            .github
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
-        with:
-          package-manager-cache: false
-          node-version: '22.22.0'
-      - name: Wait until every job of the tier above is claimed or finished
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: node scripts/release-tier-gate.mjs "$TIER_PREFIX" "$TIER_ANCHOR" 45
-      - name: Upload artifacts spooled while the private store was unreachable
-        if: always()
-        uses: ./.github/actions/ci-artifact-spool
-    env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
-      TIER_PREFIX: 'Fast checks / '
-      TIER_ANCHOR: Fast checks / guards
-
-  # Builds take the runners left once every Rust test job is claimed; they never wait for test results.
-  builds-tier:
-    name: builds tier opens
-    needs: [prepare, tests-tier]
-    if: >-
-      !cancelled() && needs.prepare.result == 'success' && needs.tests-tier.result == 'success'
-      && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
-    runs-on: [self-hosted, Linux, light]
-    timeout-minutes: 50
-    permissions:
-      contents: read
-      actions: read
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          ref: ${{ needs.prepare.outputs.source_sha }}
-          sparse-checkout: |
-            scripts
-            .github
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
-        with:
-          package-manager-cache: false
-          node-version: '22.22.0'
-      - name: Wait until every job of the tier above is claimed or finished
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: node scripts/release-tier-gate.mjs "$TIER_PREFIX" "$TIER_ANCHOR" 45
-      - name: Upload artifacts spooled while the private store was unreachable
-        if: always()
-        uses: ./.github/actions/ci-artifact-spool
-    env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
-      TIER_PREFIX: 'Rust tests / '
-      TIER_ANCHOR: Rust tests / tree is new
-
-  tests:
-    name: Rust tests
-    needs: [prepare, tests-tier]
-    if: >-
-      !cancelled() && needs.prepare.result == 'success' && needs.tests-tier.result == 'success'
-      && needs.prepare.outputs.run_tests == 'true' && needs.prepare.outputs.published != 'true'
-    uses: ./.github/workflows/tests-rust.yml
-    with:
-      source_ref: ${{ needs.prepare.outputs.source_sha }}
-      scope: ${{ needs.prepare.outputs.kind == 'app' && 'full' || 'frontend' }}
-      artifacts_optional: ${{ needs.prepare.outputs.dry_run == 'true' }}
-    permissions:
-      contents: read
-      actions: write
-      pull-requests: write
-    secrets: inherit
-
   macos-arm64:
     name: macOS arm64
-    needs: [prepare, frontend-dist, builds-tier]
+    needs: [prepare, frontend-dist]
     if: >-
       !cancelled() && needs.prepare.result == 'success' && needs.frontend-dist.result == 'success'
-      && (needs.builds-tier.result == 'success' || needs.builds-tier.result == 'skipped' && needs.prepare.outputs.run_tests != 'true')
       && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
     uses: ./.github/workflows/release-macos-build.yml
     with:
@@ -369,10 +258,9 @@ jobs:
 
   macos-x64:
     name: macOS x64
-    needs: [prepare, frontend-dist, builds-tier]
+    needs: [prepare, frontend-dist]
     if: >-
       !cancelled() && needs.prepare.result == 'success' && needs.frontend-dist.result == 'success'
-      && (needs.builds-tier.result == 'success' || needs.builds-tier.result == 'skipped' && needs.prepare.outputs.run_tests != 'true')
       && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
     uses: ./.github/workflows/release-macos-build.yml
     with:
@@ -386,10 +274,9 @@ jobs:
 
   linux-arm64:
     name: Linux arm64
-    needs: [prepare, frontend-dist, builds-tier]
+    needs: [prepare, frontend-dist]
     if: >-
       !cancelled() && needs.prepare.result == 'success' && needs.frontend-dist.result == 'success'
-      && (needs.builds-tier.result == 'success' || needs.builds-tier.result == 'skipped' && needs.prepare.outputs.run_tests != 'true')
       && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
     uses: ./.github/workflows/release-linux-arm64.yml
     with:
@@ -402,10 +289,9 @@ jobs:
 
   linux-x86_64:
     name: Linux x64
-    needs: [prepare, frontend-dist, builds-tier]
+    needs: [prepare, frontend-dist]
     if: >-
       !cancelled() && needs.prepare.result == 'success' && needs.frontend-dist.result == 'success'
-      && (needs.builds-tier.result == 'success' || needs.builds-tier.result == 'skipped' && needs.prepare.outputs.run_tests != 'true')
       && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
     uses: ./.github/workflows/release-linux.yml
     with:
@@ -418,10 +304,9 @@ jobs:
 
   windows-x64:
     name: Windows x64
-    needs: [prepare, frontend-dist, builds-tier]
+    needs: [prepare, frontend-dist]
     if: >-
       !cancelled() && needs.prepare.result == 'success' && needs.frontend-dist.result == 'success'
-      && (needs.builds-tier.result == 'success' || needs.builds-tier.result == 'skipped' && needs.prepare.outputs.run_tests != 'true')
       && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
     uses: ./.github/workflows/release-windows.yml
     with:
@@ -435,10 +320,9 @@ jobs:
 
   windows-arm64:
     name: Windows arm64
-    needs: [prepare, frontend-dist, builds-tier]
+    needs: [prepare, frontend-dist]
     if: >-
       !cancelled() && needs.prepare.result == 'success' && needs.frontend-dist.result == 'success'
-      && (needs.builds-tier.result == 'success' || needs.builds-tier.result == 'skipped' && needs.prepare.outputs.run_tests != 'true')
       && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
     uses: ./.github/workflows/release-windows.yml
     with:
@@ -452,7 +336,7 @@ jobs:
 
   dry-run-manifest:
     name: local dry-run manifest verification
-    needs: [prepare, macos-arm64, macos-x64, linux-arm64, linux-x86_64, windows-x64, windows-arm64, quick-checks, tests]
+    needs: [prepare, macos-arm64, macos-x64, linux-arm64, linux-x86_64, windows-x64, windows-arm64]
     if: ${{ needs.prepare.outputs.dry_run == 'true' }}
     uses: ./.github/workflows/release-manifest-dry-run.yml
     with:
@@ -498,11 +382,10 @@ jobs:
 
   release-manifest:
     name: release manifest, mirror, and verification
-    needs: [prepare, macos-arm64, macos-x64, linux-arm64, linux-x86_64, windows-x64, windows-arm64, quick-checks, tests, promote-evidence]
+    needs: [prepare, macos-arm64, macos-x64, linux-arm64, linux-x86_64, windows-x64, windows-arm64, promote-evidence]
     if: >-
       !cancelled() && (needs.promote-evidence.result == 'success'
-      || (needs.macos-arm64.result == 'success' && needs.macos-x64.result == 'success' && needs.linux-arm64.result == 'success' && needs.linux-x86_64.result == 'success' && needs.windows-x64.result == 'success' && needs.windows-arm64.result == 'success' && needs.tests.result == 'success'
-      && needs.quick-checks.result == 'success'))
+      || (needs.macos-arm64.result == 'success' && needs.macos-x64.result == 'success' && needs.linux-arm64.result == 'success' && needs.linux-x86_64.result == 'success' && needs.windows-x64.result == 'success' && needs.windows-arm64.result == 'success'))
       && vars.RELEASE_PUBLISH_ENABLED == 'true' && needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
     uses: ./.github/workflows/release-manifest-validate.yml
     with:
@@ -514,9 +397,9 @@ jobs:
 
   frontend:
     name: frontend release
-    needs: [prepare, quick-checks, tests]
+    needs: [prepare]
     if: >-
-      !cancelled() && needs.tests.result == 'success' && needs.quick-checks.result == 'success'
+      !cancelled() && needs.prepare.result == 'success'
       && vars.RELEASE_PUBLISH_ENABLED == 'true' && needs.prepare.outputs.kind == 'frontend' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.dry_run != 'true'
     uses: ./.github/workflows/frontend-release.yml
     with:
@@ -588,7 +471,7 @@ jobs:
       contents: read
       actions: write
       pull-requests: write
-    needs: [prepare, quick-checks, tests, macos-arm64, macos-x64, linux-arm64, linux-x86_64, windows-x64, windows-arm64]
+    needs: [prepare, macos-arm64, macos-x64, linux-arm64, linux-x86_64, windows-x64, windows-arm64]
     if: always() && needs.prepare.outputs.promote_run_id == ''
     uses: ./.github/workflows/rust-warnings-summary.yml
     secrets: inherit
@@ -596,4 +479,4 @@ jobs:
       source_ref: ${{ needs.prepare.outputs.source_sha || github.sha }}
       report_name: rust-warnings-release-report
       comment: true
-      artifacts: '["rust-warnings-release-macOS-aarch64-apple-darwin","rust-warnings-release-macOS-x86_64-apple-darwin","rust-warnings-release-Linux-aarch64-unknown-linux-gnu","rust-warnings-release-Linux-x86_64-unknown-linux-gnu","rust-warnings-release-Windows-x86_64-pc-windows-msvc","rust-warnings-release-Windows-aarch64-pc-windows-msvc","rust-warnings-tests-platform-macOS-aarch64-apple-darwin","rust-warnings-tests-platform-Linux-x86_64-unknown-linux-gnu","rust-warnings-tests-platform-Windows-x86_64-pc-windows-msvc","rust-warnings-clippy-Linux-x86_64-unknown-linux-gnu"]'
+      artifacts: '["rust-warnings-release-macOS-aarch64-apple-darwin","rust-warnings-release-macOS-x86_64-apple-darwin","rust-warnings-release-Linux-aarch64-unknown-linux-gnu","rust-warnings-release-Linux-x86_64-unknown-linux-gnu","rust-warnings-release-Windows-x86_64-pc-windows-msvc","rust-warnings-release-Windows-aarch64-pc-windows-msvc"]'

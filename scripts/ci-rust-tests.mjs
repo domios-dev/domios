@@ -1,4 +1,6 @@
 // Caller: build.sh ci-tests; scripts tests/ci-rust-tests.test.mjs
+import { verifyReceipts } from './ci-rust-receipts.mjs';
+export { verifyReceipts } from './ci-rust-receipts.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
@@ -12,11 +14,12 @@ import { prepareCliServer } from './cli-server-test.mjs';
 
 // The catalogue's release tier names every package and target, including path dependencies outside the workspace.
 const OVERLAY = JSON.parse(fs.readFileSync(new URL('../tests/catalogue.overlay.json', import.meta.url), 'utf8'));
-const [WORKSPACE, CLI] = FULL_LANES;
+const [WORKSPACE, ALL_CLI] = FULL_LANES;
+const CLI = { ...ALL_CLI, targets: ['--no-default-features', '--test', 'isolated_server'] };
 const INPUT = { lane: 'input', manifest: 'src-tauri/Cargo.toml', targets: ['--no-default-features', '--lib', '-p', 'codeterm-input-macos', '-p', 'codeterm-input-windows'], whole: true };
 const EMBEDDINGS = { lane: 'embeddings', manifest: 'src-tauri/Cargo.toml', targets: ['--no-default-features', '--features', 'codeterm-service-core/embeddings,codeterm-mem/embeddings', '-p', 'codeterm-service-core', '-p', 'codeterm-mem', '--lib'] };
 // The full suite runs once on one runner; each OS runs only its cfg-gated tests and the native input crates.
-export const MODES = { full: [WORKSPACE, CLI], platform: [WORKSPACE, CLI, INPUT], embeddings: [EMBEDDINGS] };
+export const MODES = { full: [WORKSPACE, CLI], platform: [WORKSPACE, ALL_CLI, INPUT], embeddings: [EMBEDDINGS] };
 const CI_PLATFORM = { Linux: 'linux', macOS: 'macos', Windows: 'windows' };
 
 // The catalogue overlay's stale and platform-red binary markers apply to CI exactly as to release-rust.
@@ -209,20 +212,6 @@ export function requireTestSuccess(result, report, label, { warn = console.log, 
   }
 }
 
-export function verifyReceipts(receipts) {
-  if (receipts.filter((r) => r.mode === 'full').length !== 1) throw new Error('Expected exactly one full-suite receipt');
-  if (receipts.filter((r) => r.mode === 'embeddings').length !== 1) throw new Error('Expected exactly one embeddings receipt');
-  for (const os of ['macOS', 'Linux', 'Windows']) {
-    if (receipts.filter((r) => r.mode === 'platform' && r.os === os).length !== 1) throw new Error(`Expected one ${os} platform receipt`);
-  }
-  if (new Set(receipts.map((r) => r.sha)).size !== 1) throw new Error('Mixed source SHAs');
-  for (const receipt of receipts) {
-    if (receipt.exit !== 0) throw new Error(`Failed Rust ${receipt.mode} tests on ${receipt.runner}`);
-    if (!(receipt.executed > 0)) throw new Error(`No executed ${receipt.mode} tests on ${receipt.runner}`);
-  }
-  return '| Suite | Runner | OS | Arch | Executed | Duration |\n| --- | --- | --- | --- | ---: | ---: |\n' +
-    receipts.map((r) => `| ${r.mode} | ${r.runner} | ${r.os} | ${r.arch} | ${r.executed} | ${r.seconds.toFixed(1)} s |`).join('\n');
-}
 
 const tomlConfig = (filter, listener) => `[profile.default]\ndefault-filter = ${JSON.stringify(filter)}\nretries = 0\nfail-fast = false\n${listener ? 'test-threads = 1\n' : ''}slow-timeout = { period = "60s", terminate-after = 5 }\n`;
 

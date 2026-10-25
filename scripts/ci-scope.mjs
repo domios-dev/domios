@@ -5,14 +5,12 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 const pluginTooling = new Set([
-  "scripts/ci-scope.mjs", "scripts/check-plugin.mjs", "scripts/release-plugin.mjs",
+  "scripts/check-plugin.mjs", "scripts/release-plugin.mjs",
   "scripts/plugin-release-metadata.mjs", "scripts/sync-plugin-versions.mjs",
   "scripts/build-plugin.mjs", "scripts/build-plugin-ui.mjs", "scripts/plugin-tests.sh",
-  "scripts/tests/plugin-releases.test.mjs", "scripts/tests/ci-scope.test.mjs",
+  "scripts/tests/plugin-releases.test.mjs",
   "scripts/tests/sync-plugin-versions-min-codeterm.test.mjs",
-  ".github/workflows/plugin-release.yml", ".github/workflows/tests.yml",
-  ".github/workflows/tests-fast.yml", ".github/workflows/cli-source-of-truth.yml",
-  ".github/workflows/ready-for-release.yml",
+  ".github/workflows/plugin-release.yml",
 ]);
 
 const frontendFiles = new Set([

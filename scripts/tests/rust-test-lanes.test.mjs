@@ -17,7 +17,8 @@ function runShell(script, directory, env) {
 test('nextest shell selection and full CI use the catalogue lane definitions', () => {
   const { runners } = loadReleaseRust();
   assert.equal(MODES.full[0], FULL_LANES[0]);
-  assert.equal(MODES.full[1], FULL_LANES[1]);
+  assert.deepEqual(MODES.full[1].targets, ['--no-default-features', '--test', 'isolated_server']);
+  assert.equal(MODES.platform[1], FULL_LANES[1]);
   for (const lane of FULL_LANES) {
     const args = execFileSync(process.execPath, ['scripts/rust-test-lanes.mjs', lane.lane], { encoding: 'utf8' }).trim().split('\n');
     assert.deepEqual(args, lane.targets);
@@ -139,7 +140,7 @@ for (const fails of [false, true]) test(`CLI target selection restores caller st
   const log = path.join(temp, 'targets');
   const script = `${source}
 SLOW_UNIT_TESTS_MEASUREMENT=off
-cargo() { if [ "$1 $2" = 'nextest list' ]; then printf '%s\\n' "$CARGO_TARGET_DIR" >> "$SELECTION_LOG"; fi; printf '{}\\n'; return ${fails ? 42 : 0}; }
+cargo() { if [ "$1 $2" = 'nextest list' ] && [[ "$*" != *--binaries-metadata* ]]; then printf '%s\\n' "$CARGO_TARGET_DIR" >> "$SELECTION_LOG"; fi; printf '{}\\n'; return ${fails ? 42 : 0}; }
 scripts/test-capped.sh() { printf 'Summary [0.001s] 1 tests run: 1 passed\\n'; }
 export CARGO_TARGET_DIR="$FIXTURE_TARGET"
 run_nextest_scope cli || [ "$?" = 42 ]
