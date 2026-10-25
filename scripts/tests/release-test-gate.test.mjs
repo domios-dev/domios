@@ -147,29 +147,34 @@ test("fast checks start in parallel with required guards, and the tier workflows
   }
 });
 
-test("each fast check cancels the calling run on its own failure; nothing else cancels it", () => {
-  const cancelsRun = /actions\/runs\/[^\s"]*\/cancel|gh run cancel/;
-  for (const name of ["tests", "tests-fast", "tests-rust", "release", "rust-warnings-summary"]) {
-    for (const [id, job] of Object.entries(workflow(name).jobs)) {
-      const cancels = (job.steps || []).filter(step => cancelsRun.test(step.run ?? ""));
-      if (name !== "tests-fast" || !fastJobs.includes(id)) {
-        assert.deepEqual(cancels, [], `${name}/${id}`);
-        continue;
-      }
-      assert.equal(cancels.length, 1, id);
-      assert.equal(cancels[0].if, "failure() && inputs.cancel_run", id);
-      assert.match(cancels[0].run, /^gh run cancel \$\{\{ github\.run_id \}\}/m, id);
-      const announce = cancels[0].run.indexOf("::error title=Fast check failed::$FAILED_CHECK");
-      assert.ok(announce >= 0 && announce < cancels[0].run.indexOf("gh run cancel"), `${id}: names the failed check before cancelling`);
-      assert.equal(cancels[0].env.FAILED_CHECK, "${{ github.job }}", id);
+test("both test tiers cancel the current release run before cleanup", () => {
+  for (const tier of [fast, rust]) {
+    assert.equal(tier.on.workflow_call.inputs.cancel_run.default, false);
+    assert.equal(tier.env.CI_CANCEL_RUN, "${{ inputs.cancel_run }}");
+    assert.equal(tier.env.DOMIOS_CI_WEBHOOK_URL, "${{ secrets.DOMIOS_CI_WEBHOOK_URL }}");
+    assert.equal(tier.env.DOMIOS_CI_WEBHOOK_TOKEN, "${{ secrets.DOMIOS_CI_WEBHOOK_TOKEN }}");
+    for (const [id, job] of Object.entries(tier.jobs)) {
+      const hooks = job.steps.filter(step => /ci-first-failure/.test(step.run ?? ""));
+      assert.ok(hooks.length > 0, id);
       assert.equal(job.permissions.actions, "write", id);
-      const after = job.steps.slice(job.steps.indexOf(cancels[0]) + 1);
-      assert.ok(after.every(step => step.if === "always()"), `${id}: only cleanup follows the cancel`);
+      for (const hook of hooks) {
+        assert.equal(hook.if, "failure() && inputs.cancel_run", id);
+        assert.equal(hook["continue-on-error"], true, id);
+        assert.match(hook.run, /gh run cancel "\$GITHUB_RUN_ID" --repo "\$GITHUB_REPOSITORY"/);
+        assert.ok(hook.run.indexOf("ci-first-failure") < hook.run.indexOf("gh run cancel"));
+        assert.equal(hook.env.CI_FAILURE_STEPS, "${{ toJSON(steps) }}");
+      }
+      for (let index = 0; index < job.steps.length; index++) {
+        const step = job.steps[index];
+        if (hooks.includes(step) || step.if?.startsWith("always()")) continue;
+        assert.ok(hooks.includes(job.steps[index + 1]), `${id}/${step.name || step.id}: immediate hook`);
+      }
     }
   }
-  assert.equal(fast.on.workflow_call.inputs.cancel_run.default, false, "pull requests and pushes never cancel themselves");
+  assert.equal(release.jobs["quick-checks"].with.cancel_run, true);
+  assert.equal(release.jobs.tests.with.cancel_run, true);
   assert.equal(tests.jobs.fast.with.cancel_run, undefined);
-  assert.equal(rust.on.workflow_call.inputs.cancel_run, undefined);
+  assert.equal(tests.jobs.rust.with.cancel_run, undefined);
 });
 
 test("only a dry run tolerates refused artifact uploads, and every Rust test job stays required", () => {
@@ -240,7 +245,7 @@ test("release calls pass the release SHA and force scope through both skip gates
   assert.equal(tests.on.workflow_call, undefined, "release.yml calls the tiers directly");
   assert.equal(tests.on.schedule, undefined, "no nightly trigger without a scheduled catalogue tier");
   assert.deepEqual(Object.keys(fast.on.workflow_call.inputs), ["source_ref", "scope", "cancel_run", "artifacts_optional"]);
-  assert.deepEqual(Object.keys(rust.on.workflow_call.inputs), ["source_ref", "scope", "artifacts_optional"]);
+  assert.deepEqual(Object.keys(rust.on.workflow_call.inputs), ["source_ref", "scope", "cancel_run", "artifacts_optional"]);
   for (const id of ["quick-checks", "tests"]) assert.equal(release.jobs[id].with.source_ref, "${{ needs.prepare.outputs.source_sha }}", id);
   for (const tier of [fast, rust]) {
     assert.equal(tier.on.workflow_call.inputs.source_ref.type, "string");

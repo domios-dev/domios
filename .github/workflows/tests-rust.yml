@@ -15,6 +15,11 @@ on:
         required: false
         default: full
         type: string
+      cancel_run:
+        description: A failed test cancels the calling run at once
+        required: false
+        default: false
+        type: boolean
       artifacts_optional:
         description: Dry runs keep going when artifact storage refuses an upload
         required: false
@@ -30,6 +35,11 @@ permissions:
   pull-requests: write
 
 env:
+  CI_CANCEL_RUN: ${{ inputs.cancel_run }}
+  CI_SOURCE_SHA: ${{ inputs.source_ref || github.sha }}
+  GH_TOKEN: ${{ github.token }}
+  DOMIOS_CI_WEBHOOK_URL: ${{ secrets.DOMIOS_CI_WEBHOOK_URL }}
+  DOMIOS_CI_WEBHOOK_TOKEN: ${{ secrets.DOMIOS_CI_WEBHOOK_TOKEN }}
   AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
   CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
@@ -68,9 +78,19 @@ jobs:
       plugins: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.plugins || '[]' }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        id: ci-1
         with:
           ref: ${{ inputs.source_ref || github.ref }}
           fetch-depth: 2
+      - &cancel-run-on-failure
+        name: Notify and cancel on first failure
+        if: failure() && inputs.cancel_run
+        continue-on-error: true
+        shell: bash
+        env:
+          CI_FAILURE_STEPS: ${{ toJSON(steps) }}
+        run: |
+          node "$GITHUB_WORKSPACE/scripts/ci-first-failure.mjs" || gh run cancel "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" || true
       - id: tree
         env:
           CI_RELEASE_CALL: ${{ inputs.source_ref != '' }}
@@ -90,13 +110,14 @@ jobs:
             fi
           done
           echo "run=true" >> "$GITHUB_OUTPUT"
-
+      - *cancel-run-on-failure
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        id: ci-3
         if: steps.tree.outputs.run == 'true'
         with:
           package-manager-cache: false
           node-version: '22.22.0'
-
+      - *cancel-run-on-failure
       - id: scope
         if: steps.tree.outputs.run == 'true'
         env:
@@ -108,6 +129,7 @@ jobs:
 
   # The whole suite compiles and runs once, in place, on any free runner in the
   # rust-tests pool: shipping a nextest archive between runners cost more than the tests.
+      - *cancel-run-on-failure
   rust-tests:
     name: rust tests (full suite)
     needs: changed
@@ -126,6 +148,7 @@ jobs:
       CODETERM_ALLOW_EXTERNAL_TARGET: '1'
     steps: &rust-test-steps
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        id: ci-1
         with:
           ref: ${{ inputs.source_ref || github.ref }}
           fetch-depth: 0
@@ -133,28 +156,42 @@ jobs:
           GIT_CONFIG_COUNT: '1'
           GIT_CONFIG_KEY_0: core.longpaths
           GIT_CONFIG_VALUE_0: 'true'
+      - *cancel-run-on-failure
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        id: ci-2
         with:
           package-manager-cache: false
           node-version: '22.22.0'
+      - *cancel-run-on-failure
       - name: Prepare runner tool paths
+        id: ci-3
         run: node scripts/ci-runner-paths.mjs
+      - *cancel-run-on-failure
       - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+        id: ci-4
         with:
           toolchain: 1.99.1
       # Runners of one machine share CARGO_HOME; reinstalling concurrently truncates the binary another job reads.
+      - *cancel-run-on-failure
       - name: Reuse the pinned cargo-nextest when present
         id: nextest
         run: node scripts/ci-nextest-present.mjs 0.9.148
+      - *cancel-run-on-failure
       - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2
+        id: ci-6
         if: steps.nextest.outputs.present != 'true'
         with:
           tool: cargo-nextest@0.9.148
+      - *cancel-run-on-failure
       - name: Prepare compile fixtures
+        id: ci-7
         run: node scripts/ci-rust-prepare.mjs
+      - *cancel-run-on-failure
       - name: Reset compiler capture
+        id: ci-8
         continue-on-error: true
         run: node -e "require('fs').writeFileSync('ci-rust-warnings.log', '')"
+      - *cancel-run-on-failure
       - id: target
         name: Rust target of this runner
         shell: bash
@@ -170,7 +207,9 @@ jobs:
           esac
           echo "triple=$triple" >> "$GITHUB_OUTPUT"
           echo "warnings=rust-warnings-tests-${{ matrix.suite }}-$RUNNER_OS-$triple" >> "$GITHUB_OUTPUT"
+      - *cancel-run-on-failure
       - name: Compile and run ${{ matrix.suite }} Rust tests (Unix)
+        id: ci-10
         if: runner.os != 'Windows'
         env:
           CI_RELEASE_TESTS: ${{ inputs.source_ref != '' }}
@@ -183,7 +222,9 @@ jobs:
             export CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS="${CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS:+$CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS }-C link-arg=-Wl,-no_compact_unwind"
           fi
           bash build.sh ci-tests ${{ matrix.suite }}
+      - *cancel-run-on-failure
       - name: Compile and run ${{ matrix.suite }} Rust tests (Windows)
+        id: ci-11
         if: runner.os == 'Windows'
         env:
           CI_RELEASE_TESTS: ${{ inputs.source_ref != '' }}
@@ -192,6 +233,7 @@ jobs:
         run: |
           & .\build.ps1 ci-tests ${{ matrix.suite }}
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - *cancel-run-on-failure
       - name: Shared compile cache statistics (Windows)
         if: always() && runner.os == 'Windows'
         shell: pwsh
@@ -294,24 +336,34 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        id: ci-1
         with:
           ref: ${{ inputs.source_ref || github.ref }}
+      - *cancel-run-on-failure
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        id: ci-2
         with:
           package-manager-cache: false
           node-version: '22.22.0'
+      - *cancel-run-on-failure
       - name: Fetch Rust test receipts
+        id: ci-3
         continue-on-error: ${{ inputs.artifacts_optional }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash scripts/ci-artifact.sh get-prefix "$GITHUB_RUN_ID/rust-receipt/" ci-rust-receipts
+      - *cancel-run-on-failure
       - name: Require every Rust test job
+        id: ci-4
         env:
           TESTS_RESULT: ${{ needs.rust-tests.result }}
           PLATFORM_RESULT: ${{ needs.rust-platform.result }}
           EMBEDDINGS_RESULT: ${{ needs.rust-embeddings.result }}
         run: node -e "if (process.env.TESTS_RESULT !== 'success' || process.env.PLATFORM_RESULT !== 'success' || process.env.EMBEDDINGS_RESULT !== 'success') process.exit(1)"
       # A dry run without artifact storage still requires every test job above; only the receipts may be absent.
+      - *cancel-run-on-failure
       - name: One passing full suite and one passing platform subset per OS
+        id: ci-5
         continue-on-error: ${{ inputs.artifacts_optional }}
         run: node scripts/ci-rust-tests.mjs verify ci-rust-receipts
+      - *cancel-run-on-failure

@@ -371,6 +371,8 @@ through the existing ci-artifact tooling rather than assuming GitHub artifact st
 
 ## Monitoring and failure recovery
 
+Release test tiers notify and cancel the current run on the first observed Rust FAIL/TIMEOUT or failed workflow step, before cleanup. Activation and verification: [CI failure notifications](ci-failure-notifications.md). Runner loss and job timeout still need an external failure observer; an in-run hook cannot execute on a dead runner.
+
 Read `domios docs BLUEPRINTS`. Use one named monitor per actual run ID; validate its probe once
 and verify blueprint show names that run's real bucket. Handle success, failure, cancellation,
 probe error and queued-too-long explicitly. Stop at terminal; never leave repeated failing probes,
@@ -445,4 +447,4 @@ never sweep caches or delete worktrees merely because the release ended.
 Implementation entry points: [release stage](../../../scripts/release-stage.mjs),
 [macOS x64 helper](../../../scripts/release-macos-x86_64.sh).
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->
