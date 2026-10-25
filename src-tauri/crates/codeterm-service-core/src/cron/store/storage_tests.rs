@@ -62,6 +62,7 @@ fn hydrate(storage: &Storage, temp: &tempfile::TempDir, clock: &Arc<MockClock>) 
 
 fn fixture_with(config: StorageConfig) -> Fixture {
     let temp = tempfile::tempdir().expect("temp root");
+    crate::storage::test_support::seed_empty_root(&instance(&temp));
     let storage = Storage::open(instance(&temp), config).expect("open storage");
     let clock = MockClock::starting_at(START_MS);
     let store = hydrate(&storage, &temp, &clock);

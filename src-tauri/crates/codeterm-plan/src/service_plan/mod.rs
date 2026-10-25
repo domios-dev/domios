@@ -223,7 +223,9 @@ impl PlanStore {
     pub fn new_for_test(root: &Path) -> Self {
         paths::mark_test_project_root(root);
         search_index::init_search_port(std::sync::Arc::new(test_support::TestSearchPort));
-        Self::open(root.join(".domios").join("plans.db")).expect("open test PlanStore database")
+        let path = root.join(".domios").join("plans.db");
+        test_support::seed_plan_database(&path);
+        Self::open(path).expect("open test PlanStore database")
     }
 
     pub fn open(database_path: PathBuf) -> Result<Self, PlanError> {

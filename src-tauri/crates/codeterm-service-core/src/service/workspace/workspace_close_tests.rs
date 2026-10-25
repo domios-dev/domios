@@ -571,11 +571,10 @@ fn chatbackend_launch_failure_rolls_back_and_persists_the_reduced_desk() {
 
     let (mux, seed_tab) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
-    let storage = crate::storage::Storage::open(
-        fixture.temp.path().join("chatbackend-rollback-storage"),
-        crate::storage::StorageConfig::default(),
-    )
-    .unwrap();
+    let root = fixture.temp.path().join("chatbackend-rollback-storage");
+    crate::storage::test_support::seed_empty_root(&root);
+    let storage =
+        crate::storage::Storage::open(root, crate::storage::StorageConfig::default()).unwrap();
     let adapter = StorageDeskAdapter::from_storage(storage.clone());
     let mut stale_mux =
         MultiplexerState::from_session_snapshot(&fixture.service.mux.read().to_session_snapshot());
