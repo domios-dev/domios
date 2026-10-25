@@ -71,6 +71,10 @@ case "$EVAL_LIB_DEV_API_PORT" in
 esac
 [ -n "$EVAL_LIB_RESOLVED_INSTANCE" ] || { echo "FAIL resolved target has no instance name" >&2; exit 7; }
 
+if [ "$MODE" != cleanup ]; then
+  dev_run node "$HERE/prerequisites.mjs" || exit 7
+fi
+
 mkdir -p "$OUT" && OUT="$(cd "$OUT" && pwd)"
 STARTED=$SECONDS
 
