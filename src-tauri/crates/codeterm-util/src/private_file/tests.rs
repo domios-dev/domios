@@ -1,5 +1,27 @@
 use super::*;
 
+#[cfg(unix)]
+#[test]
+fn restrict_if_present_follows_symlinks_to_regular_files() {
+    use std::os::unix::fs::{symlink, PermissionsExt};
+    let root = tempfile::tempdir().unwrap();
+    let target = root.path().join("target");
+    let link = root.path().join("link");
+    fs::write(&target, "private").unwrap();
+    fs::set_permissions(&target, fs::Permissions::from_mode(0o644)).unwrap();
+    symlink(&target, &link).unwrap();
+    restrict_if_present(&link).unwrap();
+    assert!(owner_only(&target).unwrap());
+    assert!(fs::symlink_metadata(link).unwrap().file_type().is_symlink());
+}
+
+#[test]
+fn restrict_if_present_rejects_directories_and_accepts_missing_files() {
+    let root = tempfile::tempdir().unwrap();
+    assert!(restrict_if_present(root.path()).is_err());
+    assert!(restrict_if_present(&root.path().join("missing")).is_ok());
+}
+
 #[test]
 fn atomic_state_files_and_replacements_are_owner_only() {
     let dir = tempfile::tempdir().unwrap();

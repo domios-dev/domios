@@ -6,6 +6,13 @@ const SERVICE: &str = "domios.instance";
 const ACCOUNT: &str = "api_token";
 
 pub fn read_at(data_root: &Path) -> Result<Option<String>, String> {
+    let path = data_root.join(".secrets");
+    if std::fs::metadata(&path).is_ok_and(|metadata| !metadata.is_file()) {
+        return Err(format!(
+            "Instance credential path {} must resolve to a regular file",
+            path.display()
+        ));
+    }
     match store(data_root)?.get(ACCOUNT) {
         Ok(token) if !token.trim().is_empty() => Ok(Some(token)),
         Ok(_) => Err("Instance API credential is empty".into()),
