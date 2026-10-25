@@ -1,6 +1,33 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { bindFixtureSession, chooseAgentAccess, requireCdp } from "./setup.mjs";
+import { bindFixtureSession, chooseAgentAccess, completeFirstRun, promoteFixtureOrchestrator, requireCdp } from "./setup.mjs";
+
+test("General first run uses product completion and verifies persisted navigation unlock", async () => {
+  let config = { agent: { full_access: false }, general_agent: { first_run_complete: false } };
+  let completed = 0;
+  const api = async (route, options) => {
+    if (options) {
+      assert.equal(route, "/api/agents/general/complete-first-run");
+      assert.deepEqual(options, { method: "POST", body: { provider_id: "fixture", full_access: false } });
+      completed++;
+      config.general_agent = { first_run_complete: true, agent_provider: "fixture" };
+      return { ok: true };
+    }
+    assert.equal(route, "/api/config");
+    return config;
+  };
+  assert.deepEqual(await completeFirstRun(api, "fixture"), { provider: "fixture", first_run_complete: true });
+  await completeFirstRun(api, "other");
+  assert.equal(completed, 1);
+  await assert.rejects(completeFirstRun(async () => ({ agent: { full_access: true } }), "fixture"), /not persisted/);
+});
+
+test("fixture promotion explicitly targets its own tab even with a scrubbed caller environment", async () => {
+  await promoteFixtureOrchestrator("owned", async (args, options) => {
+    assert.deepEqual(args, ["agent", "set-orchestrator", "--tab", "owned"]);
+    assert.deepEqual(options, { asTab: "owned" });
+  });
+});
 
 test("fresh setup persists the real agent access choice and reads it back", async () => {
   let config = { agent: {} };

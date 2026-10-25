@@ -103,7 +103,17 @@ pub(super) fn messages(
         return super::session_chat_snapshot(svc, provider_id, cwd, session_id, since);
     };
     let tails = &svc.chat_registry.tail_cache;
-    let messages = match history_source(svc, tab_id, provider_id, cwd, session_id, &path) {
+    let source = history_source(svc, tab_id, provider_id, cwd, session_id, &path);
+    if matches!(source, HistorySource::Own) {
+        match std::fs::metadata(&path) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok((Vec::new(), 0));
+            }
+            Err(error) => return Err(format!("{}: {error}", path.display())),
+            Ok(_) => {}
+        }
+    }
+    let messages = match source {
         HistorySource::Own => {
             tails
                 .jsonl_tail(

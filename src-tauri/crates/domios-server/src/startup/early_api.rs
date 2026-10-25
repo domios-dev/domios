@@ -41,6 +41,7 @@ pub(crate) struct EarlyApi {
     started: Instant,
     token: Option<String>,
     diagnostics_port: codeterm_api::health_routes::NativeDiagnosticsPort,
+    frontend_identity: codeterm_api::health_routes::NativeFrontendIdentity,
 }
 
 pub(crate) struct PreparedStartup {
@@ -53,12 +54,14 @@ impl PreparedStartup {
     pub fn new(
         frontend: Option<&url::Url>,
         diagnostics_port: codeterm_api::health_routes::NativeDiagnosticsPort,
+        frontend_identity: codeterm_api::health_routes::NativeFrontendIdentity,
     ) -> Result<Self, String> {
         let config = super::init_config();
         let control = Arc::new(RestApiControl::new());
         let api_config = config.lock().api.clone();
         let mut api = EarlyApi::new(api_config.token.clone());
         api.diagnostics_port = diagnostics_port;
+        api.frontend_identity = frontend_identity;
         codeterm_service_core::config::validate_api_trust_boundary(&api_config)?;
         let remote = codeterm_service_core::startup::rest_api_additional_bind(
             &api_config,
@@ -149,6 +152,10 @@ impl EarlyApi {
             started: Instant::now(),
             token,
             diagnostics_port: codeterm_api::health_routes::NativeDiagnosticsPort(Arc::new(|| None)),
+            frontend_identity: codeterm_api::health_routes::NativeFrontendIdentity {
+                port: Arc::new(|| None),
+                identifier: String::new(),
+            },
         }
     }
 
@@ -262,9 +269,9 @@ async fn route(State(api): State<EarlyApi>, request: Request) -> Response {
             "instance": {
                 "name": std::env::var("CODETERM_INSTANCE").unwrap_or_default(),
                 "api_port": std::env::var("CODETERM_API_PORT").unwrap_or_default(),
-                "vite_port": std::env::var("CODETERM_VITE_PORT").unwrap_or_default(),
+                "vite_port": api.frontend_identity.vite_port(),
                 "cdp_port": api.diagnostics_port.cdp_port(),
-                "identifier": std::env::var("CODETERM_DEV_IDENTIFIER").unwrap_or_default(),
+                "identifier": api.frontend_identity.identifier(),
             }
         })).into_response();
     }

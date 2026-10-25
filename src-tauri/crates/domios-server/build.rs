@@ -54,6 +54,12 @@ fn main() {
         "Invalid development frontend origin"
     );
     println!("cargo:rustc-env=SERVER_DEV_FRONTEND_ORIGIN={frontend}");
+    println!("cargo:rerun-if-env-changed=CODETERM_SERVER_DEV_IDENTIFIER");
+    let identifier = std::env::var("CODETERM_SERVER_DEV_IDENTIFIER").unwrap_or_default();
+    assert!(identifier
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || b".-".contains(&byte)));
+    println!("cargo:rustc-env=SERVER_DEV_IDENTIFIER={identifier}");
     println!("cargo:rerun-if-env-changed=CODETERM_SERVER_CLI_SHA256");
     let worker = std::env::var("CODETERM_SERVER_CLI_SHA256").unwrap_or_default();
     assert!(
