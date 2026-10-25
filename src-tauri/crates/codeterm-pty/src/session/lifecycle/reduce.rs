@@ -154,6 +154,7 @@ impl CheckpointReducer {
                     LifecycleTransition::AgentTypeWrite { .. }
                     | LifecycleTransition::PermissionAutoConfirm { .. }
                     | LifecycleTransition::RemoteOwnershipReleased { .. }
+                    | LifecycleTransition::RuntimeExited { .. }
                     | LifecycleTransition::ResumeTargetRecorded { .. }
                     | LifecycleTransition::RestoreAwaitingAgentRestart { .. } => {}
                     _ => {
@@ -327,6 +328,7 @@ fn apply(
         | LifecycleTransition::ConversationStarted { .. }
         | LifecycleTransition::EmptySessionReplaced { .. }
         | LifecycleTransition::RestartRequested
+        | LifecycleTransition::RuntimeExited { .. }
         | LifecycleTransition::ResumeTargetRecorded { .. }
         | LifecycleTransition::RestoreAwaitingAgentRestart { .. }
         | LifecycleTransition::PermissionAutoConfirm { .. }

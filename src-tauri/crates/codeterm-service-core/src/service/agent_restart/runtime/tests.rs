@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 mod provider_switch;
 mod rebind;
+mod recovery;
 mod sign_in;
 
 #[test]
@@ -50,6 +51,8 @@ struct RuntimeFixture {
     fixture: ServiceFixture,
     tab: String,
     requests: Arc<parking_lot::Mutex<Vec<Value>>>,
+    request_events: tokio::sync::watch::Receiver<usize>,
+    exits: Arc<parking_lot::Mutex<Vec<tokio::sync::oneshot::Sender<()>>>>,
     _process_ports: agent_runtime::process::test_ports::Registration,
     _storage: crate::storage::Storage,
 }
@@ -93,17 +96,29 @@ impl RuntimeFixture {
         let storage = fixture.install_seeded_storage_desk();
         let requests = Arc::new(parking_lot::Mutex::new(Vec::new()));
         let captured = requests.clone();
+        let (request_changed, request_events) = tokio::sync::watch::channel(0);
+        let exits = Arc::new(parking_lot::Mutex::new(Vec::new()));
+        let server_exits = exits.clone();
         let process_ports = agent_runtime::process::test_ports::register(&tab, move || {
             crate::async_runtime::block_on(async {
                 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
                 let (process, peer) = agent_runtime::process::test_ports::connected();
                 let (peer_reader, mut peer_writer) = tokio::io::split(peer);
                 let captured = captured.clone();
+                let request_changed = request_changed.clone();
+                let (exit, mut exiting) = tokio::sync::oneshot::channel();
+                server_exits.lock().push(exit);
                 crate::async_runtime::spawn(async move {
                     let mut lines = BufReader::new(peer_reader).lines();
-                    while let Some(line) = lines.next_line().await.unwrap() {
+                    loop {
+                        let line = tokio::select! {
+                            _ = &mut exiting => break,
+                            line = lines.next_line() => line.unwrap(),
+                        };
+                        let Some(line) = line else { break };
                         let frame: Value = serde_json::from_str(&line).unwrap();
                         captured.lock().push(frame.clone());
+                        request_changed.send_modify(|count| *count += 1);
                         let reply = json!({"id":frame["id"],"result":{"params":frame["params"]}});
                         if peer_writer
                             .write_all(format!("{reply}\n").as_bytes())
@@ -155,6 +170,8 @@ impl RuntimeFixture {
             fixture,
             tab,
             requests,
+            request_events,
+            exits,
             _process_ports: process_ports,
             _storage: storage,
         }

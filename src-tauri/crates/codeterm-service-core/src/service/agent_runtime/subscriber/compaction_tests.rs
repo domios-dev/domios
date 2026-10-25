@@ -1,6 +1,16 @@
 use super::*;
 use serde_json::json;
 
+#[test]
+fn crash_diagnostic_compaction_evidence_is_scoped_to_its_epoch() {
+    let mut state = CompactionState::default();
+    assert!(!state.observed(1));
+    assert!(state.claim(1, "opaque-item"));
+    state.finish(1, false);
+    assert!(state.observed(1));
+    assert!(!state.observed(2));
+}
+
 fn restore_value(instructions: Option<&str>) -> Value {
     crate::service::agent_runtime::owned_context::restore_value(
         &json!({"systemPrompt":instructions}),
