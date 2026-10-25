@@ -190,7 +190,8 @@ test("stable physical-host compile owners never share mutable targets or occupy 
   assert.deepEqual(rust.jobs['rust-embeddings']['runs-on'], ['self-hosted', 'macOS', 'rust-shard', 'host-air']);
   assert.ok(rust.jobs['rust-embeddings'].needs.includes('rust-platform'), 'embeddings reuse Air after native tests');
   for (const [id, job] of Object.entries(fast.jobs)) {
-    assert.ok(job['runs-on'].includes('host-ubunta') || id === 'frontend-windows', id);
+    const idleRustHost = (id === 'ts-unit' && job['runs-on'].includes('host-air')) || (id === 'guards' && job['runs-on'].includes('host-blackstar'));
+    assert.ok(job['runs-on'].includes('host-ubunta') || id === 'frontend-windows' || idleRustHost, id);
     assert.ok(!job['runs-on'].includes('rust-tests'), id);
   }
   for (const id of ['clippy-linux', 'cli-tests', 'ts-types']) {

@@ -146,7 +146,8 @@ jobs:
     name: guards
     needs: changed
     # The Node and Python release contracts assume Linux paths (macOS /var is a symlink).
-    runs-on: [self-hosted, Linux, light, host-ubunta]
+    # BLACKSTAR WSL is idle until the Rust tier starts; the Ubuntu host compiles during the fast tier.
+    runs-on: [self-hosted, Linux, light, host-blackstar]
     permissions:
       contents: read
       actions: write
@@ -655,7 +656,8 @@ jobs:
     name: ts unit
     needs: changed
     if: ${{ needs.changed.outputs.frontend == 'true' }}
-    runs-on: [self-hosted, Linux, light, host-ubunta]
+    # Air is idle until the Rust tier starts; the Ubuntu host compiles during the fast tier.
+    runs-on: [self-hosted, macOS, light, host-air]
     permissions:
       contents: read
       actions: write
