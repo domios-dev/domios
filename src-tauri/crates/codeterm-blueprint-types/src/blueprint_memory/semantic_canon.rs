@@ -72,6 +72,7 @@ impl Gists<'_> {
     fn trigger(&self) -> Option<String> {
         use crate::blueprint_document::Trigger;
         match self.document.trigger.as_ref() {
+            Some(Trigger::Webhook { .. }) => Some("webhook JSON input".into()),
             Some(Trigger::Schedule { every }) => Some(format!(
                 "schedule every {}",
                 self.value(&serde_json::to_value(every).ok()?, duration)

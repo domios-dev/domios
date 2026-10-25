@@ -1,21 +1,6 @@
 name: Release Windows platforms
 
-# Builds and signs the Windows installers (NSIS) for BOTH arches — x86_64 and
-# aarch64 — on the ROG self-hosted runner (label `windows-build`), uploads the
-# bundles and updater fragments to the releases. The caller's final job assembles
-# and verifies the channel manifests after both architecture builds succeed.
-#
-# The self-hosted ROG supplies Node 22, pnpm 10.32.1, VS2022 (x64 + ARM64), and LLVM.
-# The job installs pinned Rust and both MSVC targets without changing the runner default.
-#
-# Disable: set repo Variable RELEASE_WINDOWS_ENABLED=false in
-# Settings -> Secrets and variables -> Actions -> Variables.
-# The caller prepares draft releases before this matrix starts.
-#
-# Required secrets: TAURI_SIGNING_PRIVATE_KEY, PACKAGE_REPOS_TOKEN.
-# PACKAGE_REPOS_TOKEN must have contents:write for rollacode/codeterm-releases.
-# Optional secret:  TAURI_KEY_PASSWORD (only if the signing key is
-# encrypted — it evaluates to empty when unset).
+# Windows arm64 uses release-windows-arm64.yml and its unsigned hosted compile job.
 
 "on":
   workflow_dispatch:
@@ -31,7 +16,7 @@ name: Release Windows platforms
       arch:
         type: choice
         required: true
-        options: [x64, arm64]
+        options: [x64]
       dry_run:
         description: Direct dispatch never publishes
         type: boolean
@@ -55,7 +40,7 @@ name: Release Windows platforms
         default: false
         type: boolean
       arch:
-        description: x64 or arm64; each architecture is its own caller job and graph node
+        description: x64; arm64 uses its dedicated hosted compile workflow
         required: true
         type: string
       frontend_sha256:
@@ -69,37 +54,37 @@ permissions:
   actions: read
 
 env:
-  AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
-  AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
   CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
   # Builders are shared with agents; a CI job queues for the slot instead of failing busy (75).
   CODETERM_BUILD_GATEWAY_MODE: queue
-  DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
-  DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
-  DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
-  DOMIOS_ACCOUNT_REDEEM_URL: ${{ secrets.DOMIOS_ACCOUNT_REDEEM_URL }}
-  DOMIOS_BILLING_FUNCTIONS_URL: ${{ secrets.DOMIOS_BILLING_FUNCTIONS_URL }}
-  DOMIOS_AMPLITUDE_API_KEY_TEST: ${{ secrets.DOMIOS_AMPLITUDE_API_KEY_TEST }}
-  DOMIOS_AMPLITUDE_API_KEY_PROD: ${{ secrets.DOMIOS_AMPLITUDE_API_KEY_PROD }}
 
 jobs:
   build:
     name: build (${{ matrix.target }})
-    # x64 builds on BLACKSTAR and arm64 on ROG in parallel. If BLACKSTAR is unavailable, set the
-    # repository variable RELEASE_WINDOWS_X64_LABEL=windows-build and both build on ROG again.
+    if: ${{ inputs.arch == 'x64' && (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && startsWith(github.ref, 'refs/heads/release/') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    environment: release
     runs-on: [self-hosted, "${{ matrix.runner_label }}"]
     strategy:
       fail-fast: false
       matrix:
         include:
-          - target: ${{ inputs.arch == 'x64' && 'x86_64-pc-windows-msvc' || 'aarch64-pc-windows-msvc' }}
-            platform_key: ${{ inputs.arch == 'x64' && 'windows-x86_64' || 'windows-aarch64' }}
-            vsarch: ${{ inputs.arch == 'x64' && 'x64' || 'x64_arm64' }}
+          - target: x86_64-pc-windows-msvc
+            platform_key: windows-x86_64
+            vsarch: x64
             sdkarch: ${{ inputs.arch }}
             label: ${{ inputs.arch }}
-            runner_label: ${{ inputs.arch == 'x64' && (vars.RELEASE_WINDOWS_X64_LABEL || 'windows-x64-build') || (vars.RELEASE_WINDOWS_ARM64_LABEL || 'windows-build') }}
+            runner_label: ${{ vars.RELEASE_WINDOWS_X64_LABEL || 'windows-x64-build' }}
     timeout-minutes: 120
     env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
+      DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
+      DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
+      DOMIOS_ACCOUNT_REDEEM_URL: ${{ secrets.DOMIOS_ACCOUNT_REDEEM_URL }}
+      DOMIOS_BILLING_FUNCTIONS_URL: ${{ secrets.DOMIOS_BILLING_FUNCTIONS_URL }}
+      DOMIOS_AMPLITUDE_API_KEY_TEST: ${{ secrets.DOMIOS_AMPLITUDE_API_KEY_TEST }}
+      DOMIOS_AMPLITUDE_API_KEY_PROD: ${{ secrets.DOMIOS_AMPLITUDE_API_KEY_PROD }}
       CODETERM_SCCACHE_VERIFY_ONLY: '1'
       RUSTUP_TOOLCHAIN: 1.99.1
       RUSTC_WRAPPER: sccache

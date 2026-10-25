@@ -2153,6 +2153,106 @@
             }
           ],
           "subcommands": []
+        },
+        {
+          "name": "webhook",
+          "about": "Manage the per-graph webhook credential; secrets appear only with --reveal",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "disable",
+              "about": "Remove the webhook credential",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "enable",
+              "about": "Generate and store a new webhook credential",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "reveal",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "REVEAL",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Print the newly generated secret once to stdout",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "rotate",
+              "about": "Replace the credential, immediately invalidating the previous secret",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "reveal",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "REVEAL",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Print the newly generated secret once to stdout",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "show-url",
+              "about": "Print the webhook URL without revealing a credential",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
         }
       ]
     },

@@ -1,5 +1,50 @@
 use super::engine::{atom, no, rule, yes, Atom, Database};
 use super::*;
+
+#[test]
+fn webhook_trigger_checks_and_lowers_optional_payload_schema() {
+    let raw = r#"schema_version: 2
+kind: pipeline
+name: Hook
+trigger: {type: webhook, schema: {type: object, required: [n], properties: {n: {type: integer}}}}
+steps:
+  - id: receive
+    run: {lit: 'echo fixed'}
+"#;
+    let checked = super::super::check("hook.yaml", raw, &[]);
+    assert!(checked.ok, "{:?}", checked.diagnostics);
+    let doc = super::super::Document::from_definition(&checked.definition.unwrap()).unwrap();
+    let lowered = doc.lower().unwrap();
+    assert_eq!(lowered["spec"]["trigger"]["type"], "webhook");
+    assert_eq!(lowered["spec"]["trigger"]["schema"]["type"], "object");
+    assert!(
+        !super::super::check(
+            "hook.yaml",
+            &raw.replace("type: integer", "type: executable"),
+            &[]
+        )
+        .ok
+    );
+    assert!(
+        !super::super::check(
+            "hook.yaml",
+            &raw.replace("type: webhook,", "type: webhook, secret: unsafe,"),
+            &[]
+        )
+        .ok
+    );
+    assert!(
+        super::super::check(
+            "hook.yaml",
+            &raw.replace(
+                ", schema: {type: object, required: [n], properties: {n: {type: integer}}}",
+                ""
+            ),
+            &[]
+        )
+        .ok
+    );
+}
 use crate::blueprint_document::{self, ValueForm};
 use serde_json::{json, Value};
 

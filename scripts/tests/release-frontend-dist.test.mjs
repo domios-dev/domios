@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { parse } from 'yaml';
-import { fetchArchive, install, publish, sha256 } from '../release-frontend-dist.mjs';
+import { fetchArchive, fetchRunArtifact, install, publish, sha256 } from '../release-frontend-dist.mjs';
 
 const workflow = name => parse(readFileSync(new URL(`../../.github/workflows/${name}.yml`, import.meta.url), 'utf8'));
 
@@ -55,6 +55,25 @@ test('a fetched bundle is verified before later steps are told to use it', async
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test('hosted frontend transport reads the producing run artifact and refuses changed bytes', async () => {
+  const { root, dist } = await fixture();
+  try {
+    const source = path.join(root, 'source.tar');
+    const digest = await publish(dist, source, '41', { put: () => {} });
+    const fetched = path.join(root, 'hosted', 'frontend-dist.tar');
+    const env = { GITHUB_ENV: path.join(root, 'github-env'), GITHUB_REPOSITORY: 'owner/repo', GITHUB_RUN_ATTEMPT: '2' };
+    const download = args => {
+      assert.deepEqual(args, ['run', 'download', '41', '--repo', 'owner/repo', '--name', 'frontend-dist-2', '--dir', path.dirname(fetched)]);
+      copyFileSync(source, fetched);
+    };
+    await fetchRunArtifact('41', digest, fetched, { download, env });
+    assert.equal(await sha256(fetched), digest);
+    await rm(env.GITHUB_ENV);
+    await assert.rejects(fetchRunArtifact('41', 'f'.repeat(64), fetched, { download, env }), /differs from the run/);
+    await assert.rejects(readFile(env.GITHUB_ENV), /ENOENT/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test('every platform build waits for the single bundle and installs it by digest', () => {
   const release = workflow('release');
   for (const id of ['macos-arm64', 'macos-x64', 'linux-arm64', 'linux-x86_64', 'windows-x64', 'windows-arm64']) {
@@ -62,10 +81,10 @@ test('every platform build waits for the single bundle and installs it by digest
     assert.match(release.jobs[id].if, /needs\.frontend-dist\.result == 'success'/, id);
     assert.equal(release.jobs[id].with.frontend_sha256, '${{ needs.frontend-dist.outputs.sha256 }}', id);
   }
-  for (const name of ['release-macos-build', 'release-linux', 'release-linux-arm64', 'release-windows']) {
-    const steps = workflow(name).jobs.build.steps;
+  for (const name of ['release-macos-build', 'release-linux', 'release-arm64-compile', 'release-windows']) {
+    const steps = workflow(name).jobs[name === 'release-arm64-compile' ? 'compile' : 'build'].steps;
     const fetch = steps.findIndex(step => /release-frontend-dist\.mjs fetch/.test(step.run ?? ''));
-    const compile = steps.findIndex(step => /mac-bundle|release-(?:inputs|bundle)|native container/.test(`${step.run ?? ''} ${step.name ?? ''}`));
+    const compile = steps.findIndex(step => /mac-bundle|release-(?:inputs|bundle|arm64-compile)|native container/.test(`${step.run ?? ''} ${step.name ?? ''}`));
     assert.ok(fetch >= 0 && fetch < compile, name);
     assert.equal(steps[fetch].if, "${{ inputs.frontend_sha256 != '' }}", name);
   }

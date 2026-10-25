@@ -33,6 +33,15 @@
       }
     },
     {
+      "role": "trigger",
+      "kind": "trigger",
+      "type": "webhook",
+      "title": "Trigger: authenticated JSON webhook",
+      "params_schema": {
+        "schema": "optional payload port schema"
+      }
+    },
+    {
       "role": "step",
       "kind": "step",
       "type": "command",

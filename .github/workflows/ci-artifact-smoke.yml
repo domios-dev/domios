@@ -2,11 +2,6 @@ name: ci-artifact smoke
 
 # Proves CI artifacts round-trip through the shared MinIO bucket on every runner OS.
 on:
-  push:
-    branches: [lane/ci-minio-artifacts]
-    paths:
-      - 'scripts/ci-artifact.sh'
-      - '.github/workflows/ci-artifact-smoke.yml'
   workflow_dispatch:
 
 permissions:
@@ -25,6 +20,8 @@ jobs:
             label: light
           - os: Windows
             label: windows-light
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' }}
+    environment: ci
     runs-on: [self-hosted, '${{ matrix.os }}', '${{ matrix.label }}']
     timeout-minutes: 5
     env:

@@ -36,6 +36,10 @@ each failed run. An untested proposal must not become an established recipe.
 - Keep PROD 7685 untouched. Native builds, suites and installs follow the assigned machine and
   checkout ownership. Do not stop another owner's process or replace installed files manually.
 
+## Public repository policy
+
+Follow [the public repository handoff](../../../docs/release/public-repo.md) before enabling public Actions. Only owner pushes/dispatches from reviewed release branches may acquire release runners and secrets, behind the `release` environment approval. Dev qualification uses the branch-restricted `ci` environment without reviewers. PR checks run hosted and secret-free; repository-level runners must be removed or replaced with workflow-restricted organization runners before public Actions is enabled.
+
 ## Choose the release kind
 
 | Kind | Procedure |
@@ -53,7 +57,7 @@ For a plugin release, run `node scripts/release-plugin.mjs bump <id> <version>`,
 `--min-codeterm` only when a new host capability is required. Verify `release-plugin.mjs check`
 and `check-plugin.mjs <id>`, merge the checked PR, then with publication GO tag the verified master
 commit `plugin-<id>-v<version>`. Verify the installed version through `domios plugin update-system`.
-The tag's `publish_core_channel` job runs `scripts/publish-core-channel.mjs`, which uploads the whole
+Dispatch `plugin-release.yml` from a reviewed release branch with `tag=plugin-<id>-v<version>`; tag pushes do not publish. The dispatch's `publish_core_channel` job runs `scripts/publish-core-channel.mjs`, which uploads the whole
 `plugins/` tree as `codeterm-core.tar.gz` (+ `.sha256`, `.source-commit`) to the public
 `rollacode/codeterm-releases` release `codeterm-core-latest`, skips an older master commit, and
 verifies the anonymous download. Every install refreshes `codeterm-core` from there.
@@ -98,8 +102,8 @@ verifies the anonymous download. Every install refreshes `codeterm-core` from th
    With publication GO, push `release/X.Y.Z` and open its PR to master. Do not manually create
    `vX.Y.Z`; release.yml owns tag creation and promotion.
 5. The final manifest job requires all builds and test gates, publishes and verifies served
-   bytes. Promotion merges the release PR to master, merges master back to develop and deletes
-   the release branch. A later correction takes a new version.
+   bytes. Promotion merges the release PR to master, merges master back to develop and retains
+   the protected release branch. A later correction takes a new version.
 
 ## Dry runs and narrow diagnostics
 
@@ -136,10 +140,10 @@ native build runner owns Clippy, fast CLI and generated types. Light checks requ
 `host-ubunta` and cannot occupy the WSL Rust runner. Targets remain per workspace.
 
 Publish a wholly green dry run with `release-publish.yml`, never by rebuilding. Its tooling comes from
-the default branch, so fixing publication never invalidates a qualified run:
+the reviewed release branch; publication reuses the qualified bytes:
 
 ```bash
-gh workflow run release-publish.yml --repo rollacode/codeterm --ref master \
+gh workflow run release-publish.yml --repo rollacode/codeterm --ref release/X.Y.Z \
   -f run_id=<dry-run run id> -f tag=vX.Y.Z -f rehearsal=true   # then rehearsal=false with publication GO
 ```
 
@@ -148,9 +152,7 @@ on `release/X.Y.Z` whose platform, test and manifest jobs all succeeded. A rehea
 tokens' write access, downloads and re-validates every retained byte and signature, and changes
 nothing. Publication creates both drafts, uploads the retained bytes (fragments only to the source
 draft) with read-back against each receipt, merges and verifies `domios-latest.json`/`domios-latest-deb.json`,
-tags `vX.Y.Z` on the run's SHA, publishes both releases and verifies the served manifests. With
-repository variable `RELEASE_AUTO_PROMOTE=true`, every green dry run of a release branch publishes
-itself through the same workflow; otherwise the run waits for this command. Issue closure and the
+tags `vX.Y.Z` on the run's SHA, publishes both releases and verifies the served manifests. Automatic `workflow_run` publication is disabled; the owner dispatches this workflow and approves the release environment. Issue closure and the
 merge to master stay separate steps.
 
 The store endpoint is defined once in `scripts/ci-store.sh`. When a CI job finds it unreachable,
@@ -160,7 +162,7 @@ it as a run artifact; `get`/`get-prefix` read `<run-id>/...` keys back from that
 compile with a job-local sccache that `build.sh cache-release` stops at job end. A reachable store
 that refuses a request, and any digest or signature mismatch, still fail.
 
-For one platform, direct-dispatch `release-linux.yml`, `release-windows.yml` or
+For one platform, direct-dispatch `release-linux.yml`, `release-windows.yml`, `release-windows-arm64.yml` or
 `release-macos-build.yml` with explicit `source_ref`, tag, selected architecture, `dry_run=true`
 and `mirror=false`, using that workflow's declared inputs. A `tests.yml` dispatch runs the fast tier only.
 Direct platform dispatch cannot mutate release assets. Its guard distinguishes the direct workflow
@@ -175,6 +177,13 @@ Windows has a focused pnpm symlink/subst identity regression with a TS2451 negat
 Signing, notarization, bundle smoke, updater signatures and served-byte checks remain release gates.
 
 ## One build, two distributions
+
+Linux and Windows arm64 compile unsigned on hosted native runners, then transfer a
+digest-pinned stage and bundles to private finalize jobs for signing, bundle smoke,
+headless validation and the existing private/public receipts. Hosted jobs receive
+public client configuration through repository variables and no signing/cache secrets.
+See [hosted arm64 setup and measurement](../../../docs/release/hosted-arm64.md) before
+the first run; the initial policy deliberately measures cold compilation without Tailnet.
 
 A release run builds the platform-independent frontend once in its `frontend-dist` job; each
 platform job fetches that archive, checks its SHA-256 and installs it as `dist` through
@@ -309,7 +318,7 @@ publication complete. Never upload a Domios payload into a legacy manifest.
 
 ## Credentials, caches and runners
 
-Use repository secrets and `scripts/release-signing-material.py`. macOS jobs import the approved
+Use protected environment secrets and `scripts/release-signing-material.py`. macOS jobs import the approved
 certificate and pinned Apple intermediates into a unique RUNNER_TEMP keychain, validate team/identity
 and notary credentials, and clean up only their own keychain/files in always(). No persistent login
 keychain changes or copied private keys are a release prerequisite. Updater keys use temporary
@@ -317,7 +326,7 @@ restricted files; Tauri needs `TAURI_SIGNING_PRIVATE_KEY` pointing to the prepar
 Off-CI recovery copies live in Bitwarden, read with `domios mem secret get --name <slug>` and
 never printed: `codeterm-tauri-minisign-private-key` (updater signing, empty password; its public
 key is `tauri.conf.json` `plugins.updater.pubkey`) and `codeterm-apple-notary-env`. The Developer ID
-certificate is backed up only as the `APPLE_CERTIFICATE`/`APPLE_CERTIFICATE_PASSWORD` repo secrets.
+certificate is provisioned as the `APPLE_CERTIFICATE`/`APPLE_CERTIFICATE_PASSWORD` release environment secrets.
 Windows updater signatures are not Authenticode: no Authenticode signing is currently configured.
 
 ### Runner map

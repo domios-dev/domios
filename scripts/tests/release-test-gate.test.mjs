@@ -65,9 +65,9 @@ test("both qualification tiers notify and cancel immediately before cleanup", ()
   for (const tier of [fast, rust]) {
     assert.equal(tier.on.workflow_call.inputs.cancel_run.default, false);
     assert.equal(tier.env.CI_CANCEL_RUN, "${{ inputs.cancel_run }}");
-    assert.equal(tier.env.DOMIOS_CI_WEBHOOK_URL, "${{ secrets.DOMIOS_CI_WEBHOOK_URL }}");
-    assert.equal(tier.env.DOMIOS_CI_WEBHOOK_TOKEN, "${{ secrets.DOMIOS_CI_WEBHOOK_TOKEN }}");
     for (const [id, job] of Object.entries(tier.jobs)) {
+      assert.equal(job.env.DOMIOS_CI_WEBHOOK_URL, "${{ secrets.DOMIOS_CI_WEBHOOK_URL }}");
+      assert.equal(job.env.DOMIOS_CI_WEBHOOK_TOKEN, "${{ secrets.DOMIOS_CI_WEBHOOK_TOKEN }}");
       const hooks = job.steps.filter(step => /ci-first-failure/.test(step.run ?? ""));
       assert.ok(hooks.length > 0, id);
       assert.equal(job.permissions.actions, "write", id);
@@ -92,7 +92,7 @@ test("both qualification tiers notify and cancel immediately before cleanup", ()
 test("a push to release/X.Y.Z by the owner account is the release, and a published version never rebuilds", () => {
   assert.deepEqual(release.on.push, { branches: ["release/**"] });
   assert.equal(release.on.push.tags, undefined);
-  assert.equal(release.jobs.prepare.if, "github.event_name != 'push' || github.actor == 'rollacode'");
+  assert.match(release.jobs.prepare.if, /github.actor == 'rollacode'/);
   const resolve = release.jobs.prepare.steps.find(step => step.id === "release").run;
   assert.match(resolve, /release\/\*\) version="\$\{REQUESTED_REF#release\/\}"/);
   assert.match(resolve, /committed=\$\(node -p "require\('\.\/package\.json'\)\.version"\)/);
@@ -103,7 +103,7 @@ test("a push to release/X.Y.Z by the owner account is the release, and a publish
 test("only a successful publication merges the release into master and back into develop", () => {
   const promote = release.jobs.promote;
   assert.deepEqual(new Set(dependencies(promote)), new Set(["prepare", "release-manifest", "frontend"]));
-  assert.match(promote.if, /^always\(\) && needs\.prepare\.outputs\.branch != '' && needs\.prepare\.outputs\.published != 'true'/);
+  assert.match(promote.if, /always\(\) && needs\.prepare\.outputs\.branch != '' && needs\.prepare\.outputs\.published != 'true'/);
   assert.match(promote.if, /needs\.release-manifest\.result == 'success' \|\| needs\.frontend\.result == 'success'/);
   const scripts = promote.steps.map(step => step.run ?? "").join("\n");
   assert.match(scripts, /gh pr merge "\$pr" --repo "\$REPO" --merge/);
@@ -116,7 +116,7 @@ test("master accepts pull requests only from release branches", () => {
   assert.deepEqual(guard.on.pull_request.branches, ["master"]);
   const script = guard.jobs.source.steps[0].run;
   for (const [head, ok] of [["release/1.14.4", true], ["release/1.15.0", true], ["develop", false], ["lane/pl-x-task-y", false], ["release/next", false]]) {
-    const run = () => execFileSync(bash, ["-euo", "pipefail", "-c", script], { env: { ...process.env, HEAD_REF: head }, stdio: "pipe" });
+    const run = () => execFileSync(bash, ["-euo", "pipefail", "-c", script], { env: { ...process.env, HEAD_REF: head, HEAD_REPO: "rollacode/codeterm", PR_AUTHOR: "rollacode" }, stdio: "pipe" });
     if (ok) run(); else assert.throws(run, undefined, head);
   }
 });
@@ -124,7 +124,7 @@ test("master accepts pull requests only from release branches", () => {
 test("platform builders do not push release tags before the test gate", () => {
   for (const name of ["release-macos-build", "release-linux-arm64", "release-linux", "release-windows"]) {
     for (const job of Object.values(workflow(name).jobs)) {
-      for (const step of job.steps) assert.doesNotMatch(step.run || "", /git push/);
+      for (const step of job.steps ?? []) assert.doesNotMatch(step.run || "", /git push/);
     }
   }
   const publisher = workflow("release-manifest-validate");
@@ -243,4 +243,16 @@ test("every publication stage fails closed on failed preparation and package bui
     assert.equal(condition(release.jobs[id].if, { needs: { prepare: { ...prepare, result: 'failure' }, 'frontend-dist': { result: 'success' } } }), false);
   }
   assert.equal(condition(release.jobs['release-manifest'].if, { needs, vars: {} }), false);
+});
+
+test("shared fast failure hooks use job-local source identity without foreign step references", () => {
+  const source = fast.jobs.changed.steps.find(step => step.id === "source");
+  assert.match(source.run, /sha=\$\(git rev-parse HEAD\)/);
+  assert.match(source.run, /CI_SOURCE_SHA=\$sha.*GITHUB_ENV/);
+  for (const [id, job] of Object.entries(fast.jobs)) {
+    if (id !== "changed") assert.equal(job.env.CI_SOURCE_SHA, "${{ needs.changed.outputs.source_sha || github.sha }}", id);
+    for (const hook of job.steps.filter(step => /ci-first-failure/.test(step.run ?? ""))) {
+      assert.equal(hook.env.CI_SOURCE_SHA, "${{ env.CI_SOURCE_SHA }}", id);
+    }
+  }
 });

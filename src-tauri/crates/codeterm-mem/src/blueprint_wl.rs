@@ -137,6 +137,7 @@ impl Graph {
                 codeterm_blueprint_types::blueprint_document::Trigger::Schedule { .. } => {
                     "schedule"
                 }
+                codeterm_blueprint_types::blueprint_document::Trigger::Webhook { .. } => "webhook",
                 codeterm_blueprint_types::blueprint_document::Trigger::Event { .. } => "event",
                 codeterm_blueprint_types::blueprint_document::Trigger::Input { .. } => "input",
             }

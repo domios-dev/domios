@@ -35,19 +35,10 @@ name: release-macos
 permissions:
   contents: write
 
-env:
-  DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
-  DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
-  DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
-  DOMIOS_ACCOUNT_REDEEM_URL: ${{ secrets.DOMIOS_ACCOUNT_REDEEM_URL }}
-  DOMIOS_BILLING_FUNCTIONS_URL: ${{ secrets.DOMIOS_BILLING_FUNCTIONS_URL }}
-  DOMIOS_AMPLITUDE_API_KEY_TEST: ${{ secrets.DOMIOS_AMPLITUDE_API_KEY_TEST }}
-  DOMIOS_AMPLITUDE_API_KEY_PROD: ${{ secrets.DOMIOS_AMPLITUDE_API_KEY_PROD }}
-
 jobs:
   build:
     name: build (${{ matrix.target }})
-    if: ${{ vars.RELEASE_MACOS_ENABLED != 'false' }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && startsWith(github.ref, 'refs/heads/release/') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (vars.RELEASE_MACOS_ENABLED != 'false') }}
     strategy:
       fail-fast: false
       matrix:
@@ -56,7 +47,16 @@ jobs:
             target: x86_64-apple-darwin
           - os: macos-14
             target: aarch64-apple-darwin
+    environment: release
     runs-on: ${{ matrix.os }}
+    env:
+      DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
+      DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
+      DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
+      DOMIOS_ACCOUNT_REDEEM_URL: ${{ secrets.DOMIOS_ACCOUNT_REDEEM_URL }}
+      DOMIOS_BILLING_FUNCTIONS_URL: ${{ secrets.DOMIOS_BILLING_FUNCTIONS_URL }}
+      DOMIOS_AMPLITUDE_API_KEY_TEST: ${{ secrets.DOMIOS_AMPLITUDE_API_KEY_TEST }}
+      DOMIOS_AMPLITUDE_API_KEY_PROD: ${{ secrets.DOMIOS_AMPLITUDE_API_KEY_PROD }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
