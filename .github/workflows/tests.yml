@@ -21,6 +21,7 @@ on:
         options:
           - full
           - frontend
+          - preflight
   pull_request:
     types:
       - opened
@@ -235,6 +236,7 @@ jobs:
             fi
           } | tee -a "$GITHUB_STEP_SUMMARY"
         if: ${{ !cancelled() }}
+    if: inputs.scope != 'preflight'
   pr:
     name: Pull request checks
     if: ${{ github.event_name == 'pull_request' }}
@@ -254,7 +256,7 @@ jobs:
       actions: write
       pull-requests: write
     secrets: inherit
-    if: ${{ github.event_name != 'pull_request' }}
+    if: ${{ github.event_name != 'pull_request' && inputs.scope != 'preflight' }}
     needs: policy
   rust:
     name: Rust tests
@@ -340,6 +342,90 @@ jobs:
           path: qualification.json
           if-no-files-found: error
           retention-days: 7
+  runner-preflight:
+    name: Runner preflight (${{ matrix.profile }})
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.scope == 'preflight' && (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' }}
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: hosted-linux
+            runner: ubuntu-24.04
+          - profile: hosted-windows
+            runner: windows-latest
+          - profile: hosted-macos
+            runner: macos-15
+          - profile: self-linux-ubunta
+            runner:
+              - self-hosted
+              - Linux
+              - light
+              - host-ubunta
+          - profile: self-linux-blackstar
+            runner:
+              - self-hosted
+              - Linux
+              - light
+              - host-blackstar
+          - profile: self-macos
+            runner:
+              - self-hosted
+              - macOS
+              - rust-shard
+              - host-air
+          - profile: self-windows
+            runner:
+              - self-hosted
+              - Windows
+              - host-rog
+              - windows-build
+    steps:
+      - name: Use the runner bundled Node
+        if: runner.environment == 'self-hosted'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            const path = require('node:path');
+            core.addPath(path.dirname(process.execPath));
+            core.info('Using runner Node ' + process.version);
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        if: runner.environment == 'github-hosted'
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        if: runner.environment == 'github-hosted' && matrix.profile != 'hosted-windows'
+        with:
+          python-version: "3.12"
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ inputs.source_ref }}
+          fetch-depth: 1
+      - name: Discover installed runner tools
+        run: node scripts/ci-runner-paths.mjs --paths-only
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        if: runner.environment == 'github-hosted' && matrix.profile != 'hosted-macos'
+        with:
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
+        if: runner.environment == 'github-hosted' && matrix.profile != 'hosted-windows'
+        with:
+          toolchain: 1.99.1
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8
+        if: runner.environment == 'github-hosted' && matrix.profile != 'hosted-windows'
+        with:
+          tool: cargo-nextest@0.9.148
+      - name: Isolate Python test dependencies
+        if: matrix.profile == 'hosted-linux' || startsWith(matrix.profile, 'self-linux-')
+        run: node scripts/ci-python-env.mjs
+      - name: Probe actual runner prerequisites
+        run: node scripts/ci-preflight-profile.mjs "${{ matrix.profile }}"
   result:
     name: CI result
     if: ${{ always() }}
@@ -350,6 +436,7 @@ jobs:
       - rust
       - rust-warnings
       - qualification
+      - runner-preflight
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     permissions:
@@ -376,4 +463,5 @@ jobs:
         env:
           CI_EVENT: ${{ github.event_name }}
           CI_NEEDS: ${{ toJSON(needs) }}
+          CI_SCOPE: ${{ inputs.scope }}
         run: node scripts/ci-result.mjs

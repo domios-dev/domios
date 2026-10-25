@@ -63,6 +63,21 @@ const tools = {
   curl: ['curl', '--version'], tar: ['tar', '--version'],
 };
 
+export function pythonInterpreter(platform, env, hasFile = file => {
+  try { return fs.statSync(file).isFile(); } catch { return false; }
+}) {
+  if (env.CI_PYTHON) return env.CI_PYTHON;
+  const paths = platform === 'win32' ? path.win32 : path.posix;
+  const directories = (env.PATH || '').split(platform === 'win32' ? ';' : ':');
+  for (const name of platform === 'win32' ? ['python.exe'] : ['python3', 'python']) {
+    for (const directory of directories.filter(Boolean)) {
+      const candidate = paths.join(directory, name);
+      if (hasFile(candidate)) return candidate;
+    }
+  }
+  throw new Error('Python interpreter unavailable: restore Python and its venv module using .agents/skills/build-machine/SKILL.md');
+}
+
 export function runnerRequirements(role) {
   if (RUNNER_ROLES[role]) return RUNNER_ROLES[role];
   const names = role.split(',');
@@ -77,11 +92,11 @@ export function checkRunnerTools(role, { platform = process.platform, env = proc
   const required = runnerRequirements(role);
   const missing = [];
   for (const tool of required) {
-    const python = platform === 'win32' ? 'python' : 'python3';
+    const python = env.CI_PYTHON || (platform === 'win32' ? 'python' : 'python3');
     const [command, ...args] = tool.startsWith('python:')
       ? [python, '-c', 'import ' + tool.slice(7)]
       : tool === 'python' ? [python, '--version'] : tools[tool];
-    const probeEnv = tool === 'cargo' && env.RUNNER_ENVIRONMENT === 'github-hosted' ? { ...env, RUSTUP_TOOLCHAIN: 'stable' } : env;
+    const probeEnv = env;
     const result = execute(command, args, { env: probeEnv, encoding: 'utf8', timeout: 2000,
       windowsHide: true, shell: platform === 'win32' && tool === 'pnpm' });
     if (result.error || result.status !== 0) missing.push(tool);
@@ -113,6 +128,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
   directories.push(...extras.filter(directory => fs.existsSync(directory)));
   fs.appendFileSync(process.env.GITHUB_PATH, runnerPathContent(directories));
   const env = { ...process.env, PATH: [...directories, process.env.PATH].join(path.delimiter) };
+  if (process.env.GITHUB_ENV && !env.CI_PYTHON) {
+    try { fs.appendFileSync(process.env.GITHUB_ENV, 'CI_PYTHON=' + pythonInterpreter(process.platform, env) + '\n'); }
+    catch { /* Python is optional for jobs whose declared tools exclude it. */ }
+  }
   if (process.argv[2] !== '--paths-only') checkRunnerTools(process.argv[2] || 'rust', { env });
   for (const directory of directories) console.log('Job-local tool directory: ' + directory);
 }

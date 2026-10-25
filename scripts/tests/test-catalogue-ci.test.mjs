@@ -43,7 +43,7 @@ function ownerErrors(cat, graph = workflows) {
       const job = graph[file]?.jobs[id];
       if (!job) return false;
       const commands = JSON.stringify(job.steps).replaceAll('\\n', ' ').replaceAll(' --locked', '');
-      if (commands.includes("['" + entry.id + "']")) return true;
+      if (commands.includes("ci-catalogue-command.mjs " + entry.id) || commands.includes("[\'" + entry.id + "\']")) return true;
       return entry.runner.split(' && ').every(command => commands.includes(command.replace(' --locked', '')));
     });
     if (!owned) errors.push(entry.id + ': no executing PR owner');

@@ -457,7 +457,7 @@ ok = unittest.TextTestRunner(verbosity=1).run(suite).wasSuccessful()
 sys.exit(0 if ok and not empty else 1)
 `;
 
-const resolvePython = () => (spawnSync("python3", ["-c", ""], { stdio: "ignore" }).status === 0 ? "python3" : "python");
+const resolvePython = () => process.env.CI_PYTHON || (spawnSync("python3", ["-c", ""], { stdio: "ignore" }).status === 0 ? "python3" : "python");
 
 // Each command is an argv; the caller spawns them in order and fails when any fails.
 export function runCommands(runner, files, overlay, { platform = PLATFORM, python = "python3", node = process.execPath } = {}) {
