@@ -102,14 +102,20 @@ impl Account {
         }
         Ok(Completion { sender, request })
     }
-    pub async fn login(self: &Arc<Self>, browser: &dyn Browser) -> Result<Status> {
+    pub async fn login(self: &Arc<Self>, browser: Arc<dyn Browser>) -> Result<Status> {
         self.login_with_hint(browser, LoginHint::default()).await
     }
     pub async fn login_with_hint(
         self: &Arc<Self>,
-        browser: &dyn Browser,
+        browser: Arc<dyn Browser>,
         hint: LoginHint,
     ) -> Result<Status> {
+        let account = self.clone();
+        tokio::spawn(async move { account.run_login(browser.as_ref(), hint).await })
+            .await
+            .map_err(|_| Error::Cancelled)?
+    }
+    async fn run_login(self: &Arc<Self>, browser: &dyn Browser, hint: LoginHint) -> Result<Status> {
         log::info!(target: "codeterm_account::sign_in", "sign_in attempt outcome=started stage={} error_kind=none", SignInStage::Preparation.name());
         let _operation = match self.operation.try_lock() {
             Ok(operation) => operation,
