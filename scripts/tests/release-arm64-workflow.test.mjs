@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { parse } from 'yaml';
-import { loadNativeMsvcEnvironment } from '../release-arm64-compile.mjs';
+import { loadNativeMsvcEnvironment, nativeMsvcLinker } from '../release-arm64-compile.mjs';
 
 const workflow = name => parse(readFileSync(new URL(`../../.github/workflows/${name}.yml`, import.meta.url), 'utf8'));
 const hosted = workflow('release-arm64-compile');
@@ -76,4 +76,12 @@ test('arm64 graph requires hosted handoff then local signing, verification and e
     assert.ok(final.steps.some(step => step.name === 'Retain hosted handoff and final stage proof'));
   }
   assert.match(workflow('release-windows').jobs.build.if, /inputs.arch == 'x64'/);
+});
+
+test('hosted Windows arm64 links with the absolute MSVC linker, never a PATH lookup', () => {
+  const tools = 'C:/VS/VC/Tools/MSVC/14.50';
+  const expected = path.join(tools, 'bin', 'HostARM64', 'arm64', 'link.exe');
+  assert.equal(nativeMsvcLinker({ VCToolsInstallDir: tools }, candidate => candidate === expected), expected);
+  assert.throws(() => nativeMsvcLinker({ VCToolsInstallDir: tools }, () => false), /linker missing/);
+  assert.throws(() => nativeMsvcLinker({}, () => true), /linker missing/);
 });
