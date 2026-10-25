@@ -5,6 +5,9 @@ use parking_lot::{Condvar, Mutex};
 
 use super::manager::PtySession;
 
+/// Bounds the wait after an escalated kill so a missed exit cannot hang a restart request.
+const ESCALATED_EXIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 #[derive(Default)]
 struct PtyTeardownState {
     child_exited: bool,
@@ -219,7 +222,11 @@ impl PtyReaper {
                 })
                 .map_err(|error| error.to_string())
             },
-            || self.session.teardown.wait_for_boundary(None, false),
+            || {
+                self.session
+                    .teardown
+                    .wait_for_boundary(Some(Instant::now() + ESCALATED_EXIT_TIMEOUT), false)
+            },
         )
         .map_err(|error| format!("pty_tree_termination_failed: PTY {}: {error}", self.pty_id))
     }
