@@ -4,7 +4,36 @@ use std::sync::OnceLock;
 
 use super::ports::{PlanIndexHit, PlanIndexQuery, PlanSearchPort};
 
+#[cfg(test)]
+mod tests;
+
 static TEST_DATA_DIR: OnceLock<tempfile::TempDir> = OnceLock::new();
+
+pub(super) fn seed_plan_database(path: &Path) {
+    use std::io::Write;
+
+    if path.exists() {
+        return;
+    }
+    static SCHEMA: OnceLock<Vec<u8>> = OnceLock::new();
+    let schema = SCHEMA.get_or_init(|| {
+        let template = tempfile::tempdir().expect("plan schema template directory");
+        let path = template.path().join("plans.db");
+        drop(
+            super::store_db::PlanDatabase::open(path.clone()).expect("create plan schema template"),
+        );
+        std::fs::read(path).expect("read closed plan schema template")
+    });
+    let parent = path.parent().expect("plan fixture directory");
+    std::fs::create_dir_all(parent).expect("create plan fixture directory");
+    let mut copy = tempfile::NamedTempFile::new_in(parent).expect("plan schema copy");
+    copy.write_all(schema).expect("write plan schema copy");
+    match copy.persist_noclobber(path) {
+        Ok(_) => {}
+        Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(error) => panic!("publish plan schema copy: {error}"),
+    }
+}
 
 pub fn test_data_dir() -> PathBuf {
     TEST_DATA_DIR
