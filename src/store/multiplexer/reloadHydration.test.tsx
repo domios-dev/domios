@@ -1,12 +1,19 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MultiplexerState, Tab, Workspace } from "../../lib/types";
 import type { ExtendedState } from "./tree";
+import * as bridge from "../../lib/bridge";
+import * as store from "./index";
+import { partitionSidebarWorkspaces } from "../../components/Sidebar/sidebarSections";
+import { tabsInWorkspace } from "../../components/Sidebar/workspaceTabs";
+import { sortByOrder } from "../../components/Sidebar/sortable";
+import { isGeneralAgent } from "../../lib/roleKind";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-// Desktop webview: IS_WEB is derived from this marker when the bridge loads.
-(window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
+vi.hoisted(() => {
+  (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
+});
 
 const SNAPSHOT_BUSY = "state snapshot unavailable while tab state is initializing or changing";
 const GENERAL_ID = "bfb90821";
@@ -14,25 +21,8 @@ const MAIN_ID = "46137477";
 const ORDINARY_ID = "ws-ordinary";
 const ORDINARY_TAB_ID = "tab-ordinary";
 
-type Bridge = typeof import("../../lib/bridge");
 type Store = typeof import("./index");
 type Handler = (event: { payload: unknown }) => void;
-
-let bridge: Bridge;
-let store: Store;
-let partitionSidebarWorkspaces: typeof import("../../components/Sidebar/sidebarSections").partitionSidebarWorkspaces;
-let tabsInWorkspace: typeof import("../../components/Sidebar/workspaceTabs").tabsInWorkspace;
-let sortByOrder: typeof import("../../components/Sidebar/sortable").sortByOrder;
-let isGeneralAgent: typeof import("../../lib/roleKind").isGeneralAgent;
-
-beforeAll(async () => {
-  ({ isGeneralAgent } = await import("../../lib/roleKind"));
-  bridge = await import("../../lib/bridge");
-  store = await import("./index");
-  ({ partitionSidebarWorkspaces } = await import("../../components/Sidebar/sidebarSections"));
-  ({ tabsInWorkspace } = await import("../../components/Sidebar/workspaceTabs"));
-  ({ sortByOrder } = await import("../../components/Sidebar/sortable"));
-});
 
 interface Deferred<T> {
   promise: Promise<T>;

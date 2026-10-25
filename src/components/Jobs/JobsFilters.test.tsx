@@ -136,7 +136,10 @@ async function main() {
     } finally { await view.close(); }
   });
 
-  await runCases("Jobs filter", tests, cleanup);
+  await runCases("Jobs filter", tests.map(([name, run]) => [name, async () => {
+    win.sessionStorage.clear();
+    await run();
+  }]), cleanup);
 }
 
 void main().catch((error) => { console.error(error); process.exitCode = 1; });
