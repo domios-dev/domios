@@ -56,7 +56,10 @@ pub fn canonical(doc: &Document) -> CanonicalIr {
 }
 pub fn json(doc: &Document) -> Result<String, String> {
     serde_json::to_value(canonical(doc))
-        .map(|v| v.to_string())
+        .map(|mut value| {
+            value.sort_all_objects();
+            value.to_string()
+        })
         .map_err(|e| e.to_string())
 }
 pub fn identity(doc: &Document) -> Result<String, String> {

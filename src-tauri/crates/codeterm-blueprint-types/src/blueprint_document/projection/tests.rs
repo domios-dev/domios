@@ -1,6 +1,43 @@
 use super::*;
 
 #[test]
+fn blueprint_document_identity_ignores_nested_object_insertion_order() {
+    let insertion: Value =
+        serde_json::from_str(r#"{"z":[{"z":2,"a":1}],"a":{"z":4,"a":3}}"#).unwrap();
+    let mut sorted = insertion.clone();
+    sorted.sort_all_objects();
+
+    let mut document: Document = serde_json::from_value(json!({
+        "schema_version": 2,
+        "kind": "pipeline",
+        "name": "object-order",
+        "steps": [{"id": "emit", "run": {"lit": "echo ready"}}]
+    }))
+    .unwrap();
+    document.steps[0]
+        .params
+        .insert("payload".into(), ValueForm::literal(insertion));
+    let mut reordered = document.clone();
+    reordered.steps[0]
+        .params
+        .insert("payload".into(), ValueForm::literal(sorted));
+    assert_eq!(json(&document).unwrap(), json(&reordered).unwrap());
+    assert_eq!(identity(&document).unwrap(), identity(&reordered).unwrap());
+    let projected: Value = serde_json::from_str(&json(&document).unwrap()).unwrap();
+    assert_eq!(
+        projected["document"]["steps"][0]["with"]["payload"]["lit"].to_string(),
+        r#"{"a":{"a":3,"z":4},"z":[{"a":1,"z":2}]}"#
+    );
+
+    let mut changed = document.clone();
+    changed.steps[0].params.insert(
+        "payload".into(),
+        ValueForm::literal(json!({"z": [{"z": 1, "a": 2}], "a": {"z": 4, "a": 3}})),
+    );
+    assert_ne!(identity(&document).unwrap(), identity(&changed).unwrap());
+}
+
+#[test]
 fn blueprint_document_identity_golden() {
     let path = crate::test_support::fixture_manifest_dir()
         .join("../../../tests/fixtures/blueprint-identities.golden.json");
