@@ -100,6 +100,8 @@ pub struct MemManager {
     pub(crate) embedder: Arc<embedder::ActiveEmbedder>,
     pub(crate) reembed: embedder::switch::ReembedTracker,
     pub(crate) docs_dir: Option<PathBuf>,
+    #[cfg(test)]
+    pub(crate) docs_sections: std::sync::OnceLock<Vec<docs_source::DocSection>>,
     pub(crate) heavy_ops_permits: Arc<Semaphore>,
     pub(crate) layout: graph_layout::LayoutState,
     pub(crate) extraction: Arc<ExtractionAuthority>,
@@ -188,6 +190,8 @@ impl MemManager {
             embedder,
             reembed: embedder::switch::ReembedTracker::new(clock),
             docs_dir,
+            #[cfg(test)]
+            docs_sections: Default::default(),
             heavy_ops_permits,
             layout,
             extraction: Arc::new(ExtractionAuthority::new()),
@@ -230,6 +234,8 @@ impl MemManager {
             embedder,
             reembed: embedder::switch::ReembedTracker::new(Arc::new(embedder::SystemClock)),
             docs_dir: None,
+            #[cfg(test)]
+            docs_sections: Default::default(),
             heavy_ops_permits: Arc::new(Semaphore::new(HEAVY_OPS_PERMITS)),
             layout,
             extraction: Arc::new(ExtractionAuthority::new()),
@@ -271,6 +277,17 @@ impl MemManager {
         let _ = embeddings::init_extension(&conn);
 
         let layout = graph_layout::LayoutState::load(data_dir);
+        #[cfg(test)]
+        let embedder = {
+            let model = embedder::local::default_model();
+            embedder::ActiveEmbedder::new(embedder::testing::MockProvider::new(
+                embedder::local::ID,
+                model.model,
+                model.dimension,
+            ))
+        };
+        #[cfg(not(test))]
+        let embedder = embedder::ActiveEmbedder::global();
         Ok(Arc::new(Self {
             blueprint: Default::default(),
             conn: Mutex::new(conn),
@@ -278,9 +295,11 @@ impl MemManager {
             blobs_dir,
             skill_dir: data_dir.join("skills"),
             embed_queue: embed_queue::EmbedQueue::disabled(),
-            embedder: embedder::ActiveEmbedder::global(),
+            embedder,
             reembed: embedder::switch::ReembedTracker::new(Arc::new(embedder::SystemClock)),
             docs_dir: None,
+            #[cfg(test)]
+            docs_sections: Default::default(),
             heavy_ops_permits: Arc::new(Semaphore::new(HEAVY_OPS_PERMITS)),
             layout,
             extraction: Arc::new(ExtractionAuthority::new()),

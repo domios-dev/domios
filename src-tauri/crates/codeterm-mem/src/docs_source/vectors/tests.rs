@@ -217,12 +217,19 @@ fn recall_reembed_docs_build_pins_provider_across_switch() {
     let active = ActiveEmbedder::new(old.clone());
     let (started, release) = old.gated();
     let building = active.clone();
-    let thread = std::thread::spawn(move || prepare(dir.path(), &building, || {}).unwrap());
+    let sections = crate::docs_source::fixture_sections();
+    let count = sections.len();
+    let thread =
+        std::thread::spawn(move || prepare(dir.path(), &building, &sections, || {}).unwrap());
     started.recv_timeout(DEADLINE).unwrap();
-    active.replace(MockProvider::new("new", "new", 16));
+    let new = MockProvider::new("new", "new", 16);
+    active.replace(new.clone());
     old.ungate();
     release.send(()).unwrap();
     let prepared = thread.join().unwrap();
+    assert_eq!(prepared.vectors.vectors.len(), count);
+    assert_eq!(old.calls.load(std::sync::atomic::Ordering::SeqCst), count);
+    assert_eq!(new.calls.load(std::sync::atomic::Ordering::SeqCst), 0);
     assert_eq!(prepared.embedder.identity(), old.identity());
     assert!(prepared
         .vectors

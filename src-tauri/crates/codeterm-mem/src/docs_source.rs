@@ -7,7 +7,7 @@ pub(crate) use vectors::embed_section;
 pub(crate) mod work;
 
 #[derive(Debug, Clone, PartialEq)]
-struct DocSection {
+pub(crate) struct DocSection {
     doc_name: &'static str,
     section_title: String,
     anchor: String,
@@ -194,7 +194,7 @@ impl Index {
     }
 }
 
-fn corpus_sections() -> &'static [DocSection] {
+pub(crate) fn corpus_sections() -> &'static [DocSection] {
     static SECTIONS: OnceLock<Vec<DocSection>> = OnceLock::new();
     SECTIONS.get_or_init(|| {
         DOCS.iter()
@@ -235,15 +235,22 @@ pub(crate) fn start_background_build(data_dir: &std::path::Path) {
     vectors::start_background_build(data_dir);
 }
 
-pub(crate) fn vector_section_count() -> usize {
-    corpus_sections().len()
+impl crate::MemManager {
+    pub(crate) fn docs_sections(&self) -> &[DocSection] {
+        #[cfg(test)]
+        if let Some(sections) = self.docs_sections.get() {
+            return sections;
+        }
+        corpus_sections()
+    }
 }
 
 pub(crate) fn reembed_vectors(
     data_dir: &std::path::Path,
     embedder: &std::sync::Arc<crate::embedder::ActiveEmbedder>,
+    sections: &[DocSection],
 ) -> Result<usize, String> {
-    vectors::reembed(data_dir, embedder)
+    vectors::reembed(data_dir, embedder, sections)
 }
 
 pub(crate) use vectors::PreparedDocs;
@@ -251,9 +258,18 @@ pub(crate) use vectors::PreparedDocs;
 pub(crate) fn prepare_reembed(
     data_dir: &std::path::Path,
     embedder: &crate::embedder::ActiveEmbedder,
+    sections: &[DocSection],
     progress: impl Fn(),
 ) -> Result<PreparedDocs, String> {
-    vectors::prepare(data_dir, embedder, progress)
+    vectors::prepare(data_dir, embedder, sections, progress)
+}
+
+#[cfg(test)]
+pub(crate) fn fixture_sections() -> Vec<DocSection> {
+    chunks_for_document(
+        "FIXTURE",
+        "# Guide\n## Search\nRecall stored notes.\n## Providers\nSwitch embedding models.\n## Persistence\nReopen the saved database.",
+    )
 }
 
 pub(crate) fn publish_reembed(
