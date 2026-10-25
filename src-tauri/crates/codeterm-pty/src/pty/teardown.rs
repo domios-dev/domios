@@ -122,6 +122,19 @@ pub(super) fn classify_tree_kill(
     }
 }
 
+/// The exit watcher may already have reaped the leader, so `try_wait` alone cannot prove exit.
+pub(super) fn leader_exited_natively(pid: Option<u32>) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        native_leader_exited(pid)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = pid;
+        false
+    }
+}
+
 pub(super) fn exited_group_errno() -> Option<i32> {
     #[cfg(target_os = "macos")]
     {
