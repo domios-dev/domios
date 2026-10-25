@@ -3,6 +3,9 @@ import { TAB_LIMIT_NOUN } from "./limitCopy";
 export type BillingInterval = "month" | "year";
 
 export interface PlanPrice {
+  priceId?: string;
+  trialDays?: number;
+  trialEligible?: boolean;
   /** The provider's checkout key for this price, e.g. a Paddle price id or `pro_yearly`. */
   planKey: string;
   amount: number;
@@ -20,6 +23,7 @@ export interface PlanOffer {
 
 export interface PlanCatalog {
   offers: PlanOffer[];
+  changesAvailable?: boolean;
 }
 
 /** Where offers and prices come from: the built-in table now, the billing provider later. */
@@ -38,7 +42,7 @@ export interface OfferPrice {
 export const FREE_LIMITS = {
   "mesh.machines": 2,
   workspaces: 2,
-  "mem.items": 1000,
+  "mem.items": 500,
   teams: 6,
   "agent.tabs": 35,
 } as const;
@@ -62,29 +66,39 @@ export const BUILTIN_PLAN_CATALOG: PlanCatalog = {
     {
       id: "pro",
       name: "Pro",
-      tagline: "No limits on machines or workspaces.",
+      tagline: "More room for your agents and Neighbors.",
       features: [
-        "Unlimited machines in your mesh",
-        "Unlimited workspaces",
-        "Unlimited memory items",
-        "Unlimited Teams across all workspaces",
-        "Unlimited concurrent tabs",
-        "Everything in Free",
+        "5 machines in your mesh",
+        "7 workspaces",
+        "1500 memory items",
+        "10 Teams across all workspaces",
+        "70 tabs running at once",
+        "5 Neighbors",
       ],
       prices: {
-        month: { planKey: "pro_monthly", amount: 5, currency: "USD" },
-        year: { planKey: "pro_yearly", amount: 33.6, currency: "USD" },
+        month: { planKey: "pro_monthly", amount: 9.99, currency: "USD" },
+        year: { planKey: "pro_yearly", amount: 72, currency: "USD" },
       },
       recommended: true,
     },
     {
+      id: "max",
+      name: "Max",
+      tagline: "Space for larger projects and Teams.",
+      features: ["12 machines in your mesh", "20 workspaces", "5000 memory items", "Unlimited Teams across all workspaces", "Unlimited concurrent tabs", "20 Neighbors"],
+      prices: {
+        month: { planKey: "max_monthly", amount: 24.99, currency: "USD" },
+        year: { planKey: "max_yearly", amount: 180, currency: "USD" },
+      },
+    },
+    {
       id: "sponsor",
       name: "Sponsor",
-      tagline: "Pro, plus a direct line to the people building Domios.",
-      features: ["Everything in Pro", "Sponsor role in Discord", "Priority support"],
+      tagline: "Support the people building Domios.",
+      features: ["Unlimited machines in your mesh", "Unlimited workspaces", "Unlimited memory items", "Unlimited Teams across all workspaces", "Unlimited concurrent tabs", "Unlimited Neighbors", "Sponsor role in Discord", "Priority support"],
       prices: {
-        month: { planKey: "sponsor_monthly", amount: 29.99, currency: "USD" },
-        year: { planKey: "sponsor_yearly", amount: 199.99, currency: "USD" },
+        month: { planKey: "sponsor_monthly", amount: 75, currency: "USD" },
+        year: { planKey: "sponsor_yearly", amount: 900, currency: "USD" },
       },
     },
   ],

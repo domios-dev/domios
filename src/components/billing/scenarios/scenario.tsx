@@ -22,8 +22,8 @@ export const PLAN_PAYLOADS = {
 } satisfies Record<string, AccountPlan>;
 
 export const LINES = {
-  workspaces: "The free version includes 2 workspaces.",
-  teams: "The free version includes 6 Teams across all workspaces.",
+  workspaces: "Your plan includes 2 workspaces.",
+  teams: "Your plan includes 6 Teams across all workspaces.",
   tabs: limitHeadline("agent.tabs"),
 };
 

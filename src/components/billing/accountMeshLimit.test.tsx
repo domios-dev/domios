@@ -16,7 +16,7 @@ import { MachineLimitPaywall } from "../MeshPanel/MachineLimitPaywall";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const MESH = "The free version includes 2 machines in your mesh.";
+const MESH = "Your plan includes 2 machines in your mesh.";
 const machineLimit = (activeCount = 2, limit = 2) => ({ reason: "mesh.machines", limit, active_count: activeCount });
 
 let root: Root | null = null;
@@ -101,7 +101,7 @@ describe("automatic enroll after sign-in or restore", () => {
   it("a refusal delivered after mount opens it with the server's own maximum", async () => {
     await mountModal();
     await deliver(requestId(), machineLimit(5, 5));
-    expect(headline()).toBe("The free version includes 5 machines in your mesh.");
+    expect(headline()).toBe("Your plan includes 5 machines in your mesh.");
   });
 
   it("the same request replayed by a refresh or remount never reopens or overrides dismissal", async () => {

@@ -278,7 +278,9 @@ fn signed_free_downgrade_replaces_cached_paid() {
     assert_eq!(free.facets.revision, Some(RevisionOrder::Higher));
     assert_eq!(free.verdict.authority, Authority::Free);
     assert!(!free.verdict.enforcement.rollback);
-    assert_eq!(free.verdict.effective(), compiled_free());
+    let mut policy_one_free = compiled_free();
+    policy_one_free.limits.mem_items.max = Some(1000);
+    assert_eq!(free.verdict.effective(), policy_one_free);
     let stale = run("valid-paid", Some(&free.grant)).unwrap_err();
     assert_eq!(stale.refusal, Refusal::Revision);
     assert_eq!(stale.facets.revision, Some(RevisionOrder::Lower));

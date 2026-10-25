@@ -185,11 +185,24 @@ impl Cloud {
 
 /// Only reasons the app acts on cross the boundary; any other refusal stays opaque.
 fn refusal_message(body: &serde_json::Value) -> String {
+    if body
+        .pointer("/error/message")
+        .and_then(|message| message.as_str())
+        == Some("Test billing is limited to Domios staff")
+    {
+        return "test_billing_restricted: Test billing is limited to Domios staff".into();
+    }
     match body
         .pointer("/error/details/reason")
         .and_then(|reason| reason.as_str())
     {
         Some(crate::ALREADY_SUBSCRIBED) => crate::ALREADY_SUBSCRIBED.into(),
+        Some("renewal_window") => "renewal_window: Changes are unavailable immediately before renewal. Try after renewal.".into(),
+        Some("interval_change_unavailable") => "interval_change_unavailable: Choose a price with your current billing interval.".into(),
+        Some("change_pending") => "change_pending: Another plan change is pending. Check its status before changing again.".into(),
+        Some("confirmation_pending") => "confirmation_pending: Your change is awaiting confirmation. Do not submit it again.".into(),
+        Some("subscription_unavailable") => "subscription_unavailable: Plan changes are unavailable for this subscription.".into(),
+        Some("same_tier") => "same_tier: You already subscribe to this tier.".into(),
         _ => "Billing request refused".into(),
     }
 }
@@ -201,6 +214,14 @@ fn dev_issuer(url: &url::Url) -> bool {
 
 #[async_trait]
 impl BillingProvider for Cloud {
+    async fn plan_operation(
+        &self,
+        session: &Session,
+        operation: PlanOperation,
+    ) -> Result<serde_json::Value> {
+        let (name, data) = operation.callable();
+        self.call(session, name, data).await
+    }
     async fn entitlements(&self, session: &Session) -> Result<Reading> {
         let data = serde_json::json!({"installation_id":self.installation_id});
         self.call::<ApplicationEnvelope>(session, "getEntitlements", data)

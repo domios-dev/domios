@@ -1,5 +1,60 @@
 use super::*;
 
+#[test]
+fn plan_change_refusals_preserve_only_known_server_reasons() {
+    for reason in [
+        "renewal_window",
+        "interval_change_unavailable",
+        "change_pending",
+        "confirmation_pending",
+        "subscription_unavailable",
+        "same_tier",
+    ] {
+        let error = serde_json::json!({"error":{"details":{"reason":reason}}});
+        assert!(refusal_message(&error).starts_with(reason));
+    }
+    assert_eq!(
+        refusal_message(
+            &serde_json::json!({"error":{"message":"Test billing is limited to Domios staff"}})
+        ),
+        "test_billing_restricted: Test billing is limited to Domios staff"
+    );
+    assert_eq!(
+        refusal_message(
+            &serde_json::json!({"error":{"message":"arbitrary provider text","details":{"reason":"unknown"}}})
+        ),
+        "Billing request refused"
+    );
+}
+
+#[test]
+fn plan_operations_pin_callable_names_and_reject_injected_fields() {
+    for (input, name, data) in [
+        (
+            serde_json::json!({"operation":"catalog"}),
+            "getAppCatalog",
+            serde_json::json!({}),
+        ),
+        (
+            serde_json::json!({"operation":"subscription"}),
+            "getSubscriptionPlan",
+            serde_json::json!({}),
+        ),
+        (
+            serde_json::json!({"operation":"change","price_id":"pri_fixture"}),
+            "changeSubscriptionPlan",
+            serde_json::json!({"price_id":"pri_fixture"}),
+        ),
+    ] {
+        let operation: PlanOperation = serde_json::from_value(input).unwrap();
+        assert_eq!(operation.callable(), (name, data));
+    }
+    assert!(serde_json::from_value::<PlanOperation>(
+        serde_json::json!({"operation":"catalog","uid":"foreign"})
+    )
+    .is_err());
+}
+
 fn id() -> codeterm_account::InstallationId {
     codeterm_account::InstallationId::parse("fixture-installation".into()).unwrap()
 }

@@ -210,6 +210,34 @@ pub async fn portal(
         .map_err(unavailable)?;
     Ok(Json(serde_json::json!({"opened": true})))
 }
+
+pub async fn neighbors(
+    State(state): State<AppState>,
+    caller: Option<Extension<CallerIdentity>>,
+    Json(command): Json<codeterm_service_core::service::neighbors::NeighborCommand>,
+) -> Result<Json<serde_json::Value>, Error> {
+    admit(caller.as_ref())?;
+    state
+        .svc
+        .neighbor_registry(command)
+        .await
+        .map(Json)
+        .map_err(unavailable)
+}
+
+pub async fn billing_operation(
+    State(state): State<AppState>,
+    caller: Option<Extension<CallerIdentity>>,
+    Json(operation): Json<codeterm_billing::PlanOperation>,
+) -> Result<Json<serde_json::Value>, Error> {
+    admit(caller.as_ref())?;
+    state
+        .svc
+        .billing_plan_operation(operation)
+        .await
+        .map(Json)
+        .map_err(unavailable)
+}
 #[derive(Default, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PlanRefresh {

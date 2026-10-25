@@ -5,14 +5,6 @@ import { afterEach, expect, it, vi } from "vitest";
 import { siteLinks } from "../../../shared/siteLinks";
 import { PlanCards } from "./PlanCards";
 import { FREE_LIMITS } from "./planCatalog";
-import vectorPacket from "../../../src-tauri/crates/codeterm-entitlements/vectors/grant-vectors.json";
-
-type SignedVector = { exact_payload?: { utf8: string } };
-type SignedLimits = Record<string, { max: number | null }>;
-const signedFreeLimits = (vectorPacket as unknown as { vectors: SignedVector[] }).vectors
-  .flatMap((vector) => vector.exact_payload ? [JSON.parse(vector.exact_payload.utf8) as { authority: string; limits: SignedLimits }] : [])
-  .filter((payload) => payload.authority === "free")
-  .flatMap((payload) => Object.entries(payload.limits));
 
 const bridge = vi.hoisted(() => ({ openUrl: vi.fn(async () => undefined) }));
 const analytics = vi.hoisted(() => ({ localJson: vi.fn(async () => ({ consent: "off" })) }));
@@ -60,32 +52,30 @@ it("does not send a plan view without consent", async () => {
   expect(analytics.localJson.mock.calls).toEqual([["GET", "/api/analytics/status"]]);
 });
 
-it("lists the five Free limits and the unlimited Pro equivalents", async () => {
+it("lists the current tier allowances", async () => {
   const host = await renderPlanCards();
 
   expect(featuresOf(host, "Free")).toEqual([
     "2 machines in your mesh",
     "2 workspaces",
-    "1000 memory items",
+    "500 memory items",
     "6 Teams across all workspaces",
     "35 tabs running at once",
   ]);
   expect(featuresOf(host, "Pro")).toEqual([
-    "Unlimited machines in your mesh",
-    "Unlimited workspaces",
-    "Unlimited memory items",
-    "Unlimited Teams across all workspaces",
-    "Unlimited concurrent tabs",
-    "Everything in Free",
+    "5 machines in your mesh",
+    "7 workspaces",
+    "1500 memory items",
+    "10 Teams across all workspaces",
+    "70 tabs running at once",
+    "5 Neighbors",
   ]);
-  expect(featuresOf(host, "Sponsor")).toEqual(["Everything in Pro", "Sponsor role in Discord", "Priority support"]);
+  expect(featuresOf(host, "Max")).toContain("20 Neighbors");
+  expect(featuresOf(host, "Sponsor")).toContain("Unlimited Neighbors");
 });
 
-it("shows every limit of the signed free baseline with its compiled value", () => {
-  expect(signedFreeLimits.length).toBeGreaterThan(0);
-  for (const [key, limit] of signedFreeLimits) {
-    expect({ key, max: FREE_LIMITS[key as keyof typeof FREE_LIMITS] }).toEqual({ key, max: limit.max });
-  }
+it("shows the policy two Free baseline", () => {
+  expect(FREE_LIMITS).toEqual({ "mesh.machines": 2, workspaces: 2, "mem.items": 500, teams: 6, "agent.tabs": 35 });
 });
 
 it("renders Enterprise separately below the priced plan row with only contact content", async () => {
@@ -94,7 +84,7 @@ it("renders Enterprise separately below the priced plan row with only contact co
   const enterprise = host.querySelector('section[aria-label="Enterprise plan"]');
 
   expect(planRow).not.toBeNull();
-  expect(Array.from(planRow!.querySelectorAll("h3"), (heading) => heading.textContent)).toEqual(["Free", "Pro", "Sponsor"]);
+  expect(Array.from(planRow!.querySelectorAll("h3"), (heading) => heading.textContent)).toEqual(["Free", "Pro", "Max", "Sponsor"]);
   expect(enterprise).not.toBeNull();
   expect(planRow!.compareDocumentPosition(enterprise!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(enterprise!.querySelector("h3")?.textContent).toBe("Enterprise");
@@ -135,12 +125,12 @@ it("a paid subscription never starts a checkout; other paid cards and intervals 
   const buttons = () => Array.from(host.querySelectorAll("button"), (button) => button.textContent?.trim());
   expect(buttons().filter((label) => label?.startsWith("Choose"))).toEqual([]);
   const sponsor = host.querySelector('section[aria-label="Sponsor plan"]')!;
-  expect(sponsor.textContent).toContain("To switch plans, cancel in Manage subscription and choose a new plan after it ends, or contact us.");
+  expect(sponsor.textContent).toContain("Manage billing and cancellation in your subscription portal.");
   await act(async () => host.querySelector<HTMLElement>('[aria-label="Billed yearly"]')!.click());
   const manage = Array.from(host.querySelectorAll("button")).filter((button) => button.textContent?.trim() === "Manage subscription");
-  expect(manage).toHaveLength(2);
+  expect(manage).toHaveLength(3);
   for (const button of manage) await act(async () => button.click());
-  expect(onManage).toHaveBeenCalledTimes(2);
+  expect(onManage).toHaveBeenCalledTimes(3);
   expect(onChoose).not.toHaveBeenCalled();
 });
 

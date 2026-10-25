@@ -6,9 +6,9 @@ import type { FreeLimits } from "./freeLimitModel";
 
 const FREE: FreeLimits = { enforcing: true, max: { workspaces: 2, teams: 6, "agent.tabs": 35 } };
 const DORMANT: FreeLimits = { ...FREE, enforcing: false };
-const WORKSPACES = "The free version includes 2 workspaces.";
-const TEAMS = "The free version includes 6 Teams across all workspaces.";
-const TABS = "The free version allows 35 tabs running at once.";
+const WORKSPACES = "Your plan includes 2 workspaces.";
+const TEAMS = "Your plan includes 6 Teams across all workspaces.";
+const TABS = "Your plan allows 35 tabs running at once.";
 
 const atLimits = () => seedState({ workspaces: 2, teams: 6, tabs: 35 });
 

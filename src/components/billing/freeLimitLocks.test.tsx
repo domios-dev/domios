@@ -24,9 +24,9 @@ import { useTabLock } from "./useTabLock";
 
 const FREE: FreeLimits = { enforcing: true, max: { workspaces: 2, teams: 6, "agent.tabs": 35 } };
 const PAID_LIMITS = { enforcing: true, workspaces: null, teams: null, "agent.tabs": null };
-const WORKSPACES = "The free version includes 2 workspaces.";
-const TEAMS = "The free version includes 6 Teams across all workspaces.";
-const TABS = "The free version allows 35 tabs running at once.";
+const WORKSPACES = "Your plan includes 2 workspaces.";
+const TEAMS = "Your plan includes 6 Teams across all workspaces.";
+const TABS = "Your plan allows 35 tabs running at once.";
 
 afterEach(async () => {
   writes.writeTerminalInput.mockClear();
@@ -77,7 +77,7 @@ describe("locked items stay listed with a lock affordance", () => {
     const rename = document.querySelector<HTMLButtonElement>("[data-testid=tab-menu-rename]");
     expect(rename).not.toBeNull();
     expect(rename?.disabled).toBe(true);
-    expect(rename?.title).toBe("Tab locked by the free plan");
+    expect(rename?.title).toBe("Tab locked by your plan");
     const close = document.querySelector<HTMLButtonElement>("[data-testid=tab-menu-close]");
     expect(close).not.toBeNull();
     expect(close?.disabled).toBe(false);
@@ -89,9 +89,9 @@ describe("locked items stay listed with a lock affordance", () => {
     await mountRows(state);
     expect(lockMarks().map(nameOf)).toEqual(["Locked: free plan limit", "Locked: free plan limit", "Locked: free plan limit"]);
     expect(lockMarks().map((mark) => mark.getAttribute("title")).sort()).toEqual([
-      "Tab locked by the free plan. Upgrade to unlock.",
-      "Team locked by the free plan. Upgrade to unlock.",
-      "Workspace locked by the free plan. Upgrade to unlock.",
+      "Tab locked by your plan. Upgrade to unlock.",
+      "Team locked by your plan. Upgrade to unlock.",
+      "Workspace locked by your plan. Upgrade to unlock.",
     ]);
     expect(document.querySelectorAll("[data-testid=workspace-item]")).toHaveLength(3);
     expect(document.querySelectorAll("[data-testid=team-unit]")).toHaveLength(2);
