@@ -2,7 +2,7 @@
 
 > Internal spec only; this change builds no UI. Do not publish this file on the public legal routes.
 
-Canonical sources: `LICENSE`, `legal/ADDITIONAL-TERMS.md`, `legal/TERMS.md`, `legal/PRIVACY.md` in `rollacode/codeterm`. Each published document carries a stable version id and an effective date. The current ids are `terms-1.0` (Terms of Service) and `privacy-1.0` (Privacy Policy). Public pages on the website: `https://domios.dev/terms`, `https://domios.dev/privacy`, `https://domios.dev/license`.
+Canonical sources: `LICENSE`, `legal/TERMS.md`, `legal/PRIVACY.md` in `rollacode/codeterm`. Each published document carries a stable version id and an effective date. The current ids are `terms-1.0` (Terms of Service) and `privacy-1.0` (Privacy Policy). Public pages on the website: `https://domios.dev/terms`, `https://domios.dev/privacy`, `https://domios.dev/license`.
 
 ## 1. Sign-in and account creation
 
@@ -12,7 +12,7 @@ Canonical sources: `LICENSE`, `legal/ADDITIONAL-TERMS.md`, `legal/TERMS.md`, `le
 
 ## 2. Download
 
-- Website download control in the private `rollacode/codeterm-web` repo: `src/download/DownloadActions.tsx` and `src/download/DownloadControl.tsx`. One line under the button: "Free to download. Use is subject to the [Domios License] and [Terms]."
+- Website download control in the private `rollacode/codeterm-web` repo: `src/download/DownloadActions.tsx` and `src/download/DownloadControl.tsx`. One line under the button: "Free to download. Use is subject to the [AGPL-3.0-only license] and [Terms]."
 - Installer: no click-through. The bundled `LICENSE` (`licenseFile` in `src-tauri/tauri.conf.json`) already appears in installers that show a license page. First launch: no extra modal.
 
 ## 3. Checkout and upgrade
@@ -34,4 +34,4 @@ Canonical sources: `LICENSE`, `legal/ADDITIONAL-TERMS.md`, `legal/TERMS.md`, `le
 
 ## 6. Repository
 
-- `legal/` holds the documents, `LICENSE` holds the full Domios License, and `NOTICE` and `README.md` link to them.
+- `legal/` holds the documents, `LICENSE` holds the full GNU AGPL v3 text, and `NOTICE` and `README.md` link to them.

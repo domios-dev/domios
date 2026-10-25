@@ -1,5 +1,5 @@
 {
-  "license": "PolyForm-Shield-1.0.0",
+  "license": "Apache-2.0",
   "name": "@codeterm/plugin-browser",
   "version": "1.12.4",
   "private": true,

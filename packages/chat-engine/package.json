@@ -3,7 +3,7 @@
   "version": "1.15.3",
   "type": "module",
   "description": "Pure context-engine helpers for chatBackend plugins (chat window policy + machine assembly).",
-  "license": "PolyForm-Shield-1.0.0",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/rollacode/codeterm.git",

@@ -30,7 +30,7 @@
   },
   "bundle": {
     "active": true,
-    "license": "PolyForm-Shield-1.0.0",
+    "license": "AGPL-3.0-only",
     "licenseFile": "../LICENSE",
     "copyright": "Copyright (c) 2025 Andrey Kovalev",
     "createUpdaterArtifacts": true,

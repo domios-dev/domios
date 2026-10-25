@@ -1,5 +1,5 @@
 {
-  "license": "LicenseRef-Domios-1.0",
+  "license": "AGPL-3.0-only",
   "name": "@codeterm/chat-ui",
   "version": "1.15.3",
   "private": true,

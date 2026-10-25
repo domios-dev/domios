@@ -1,5 +1,5 @@
 {
-  "license": "PolyForm-Shield-1.0.0",
+  "license": "Apache-2.0",
   "name": "@codeterm/chat-preprocessor",
   "version": "1.4.6",
   "private": true,

@@ -3,7 +3,7 @@
   "version": "1.15.3",
   "type": "module",
   "description": "Type-only SDK for authoring CodeTerm plugin logic (host API + capability contracts) in TypeScript.",
-  "license": "PolyForm-Shield-1.0.0",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/rollacode/codeterm.git",

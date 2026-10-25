@@ -1,8 +1,12 @@
 Copyright Individual Entrepreneur Andrey Kovalev (ინდივიდუალური მეწარმე ანდრეი კოვალევ), Georgian identification number 302218142
 Contact: g.andry90@gmail.com
 
-16 October 2026
+Domios is licensed under the GNU Affero General Public License version 3 only
+(SPDX: AGPL-3.0-only); see LICENSE.
 
-From the revision that adds this paragraph onward, this software is licensed under the Domios License 1.0 (SPDX: LicenseRef-Domios-1.0), which is the PolyForm Shield License 1.0.0 with the Domios Additional Terms 1.0 on plan enforcement; see LICENSE. Earlier revisions remain available under the license they were published under.
+packages/plugin-sdk, packages/chat-engine and the plugins under plugins/ are
+licensed under Apache-2.0; see their respective LICENSE files.
+Third-party components retain their own licenses.
+Earlier revisions remain available under the licenses they were published under.
 
 Terms of Service and Privacy Policy: see the legal/ directory.

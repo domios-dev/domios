@@ -2,7 +2,7 @@
 
 Version 1.0 (`terms-1.0`). Effective: 23 October 2026.
 
-These terms govern your use of Domios accounts, paid plans, and the online services that support Domios (the "Services"). The Domios software itself is licensed to you under the Domios License (see Section 4). By creating an account, signing in, or buying a plan, you agree to these terms; the sign-in page tells you so and links to them.
+These terms govern your use of Domios accounts, paid plans, and the online services that support Domios (the "Services"). The Domios software itself is licensed to you under AGPL-3.0-only (see Section 4). By creating an account, signing in, or buying a plan, you agree to these terms; the sign-in page tells you so and links to them.
 
 ## 1. Who we are
 
@@ -30,18 +30,15 @@ If your plan ends or changes and you have more workspaces, Teams, tabs or Mesh m
 
 ## 4. Software license
 
-The Domios source code is source-available under the Domios License 1.0, which is the PolyForm Shield License 1.0.0 plus the Domios Additional Terms on plan enforcement. The license governs what you may do with the code; these terms govern accounts, plans and Services. Nothing in these terms reduces the rights the license gives you.
+The Domios source code is free and open source software under the GNU Affero General Public License version 3 only (AGPL-3.0-only; see ../LICENSE). The license governs what you may do with the code; these terms govern accounts, plans and Services. Nothing in these terms reduces the rights the license gives you.
 
-## 5. Acceptable use
+## 5. Acceptable use of the Services
 
-You must not:
+When using the Services, you must not:
 
-1. disable, remove, bypass or circumvent entitlement verification, plan limits or locks, or use any build of Domios to obtain paid functionality without a valid subscription;
-2. forge, alter, replay or share entitlements, verdicts or account credentials, or let people outside your subscription use them;
-3. distribute builds, patches, tools or instructions designed to do either of the above;
-4. probe, overload or interfere with our servers or other users' machines, or access them without authorization;
-5. use the Services to break the law, infringe others' rights, or distribute malware;
-6. use Domios to provide a product that competes with Domios, as the license defines it.
+1. forge, alter, replay or share entitlements, verdicts or account credentials to obtain unauthorized access to the Services, or let people outside your subscription use them;
+2. probe, overload or interfere with our servers or other users' machines, or access them without authorization;
+3. use the Services to break the law, infringe others' rights, or distribute malware.
 
 ## 6. Payments, renewals, cancellation and refunds
 
