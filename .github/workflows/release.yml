@@ -236,6 +236,13 @@ jobs:
           [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
           echo "sha256=$digest" >> "$GITHUB_OUTPUT"
           echo "Frontend bundle sha256 $digest" >> "$GITHUB_STEP_SUMMARY"
+      - name: Retain frontend bytes for hosted arm64 compilation
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: frontend-dist-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/frontend-dist.tar
+          if-no-files-found: error
+          retention-days: 7
       - name: Upload artifacts spooled while the private store was unreachable
         if: always()
         uses: ./.github/actions/ci-artifact-spool
@@ -324,14 +331,13 @@ jobs:
     if: >-
       !cancelled() && needs.prepare.result == 'success' && needs.frontend-dist.result == 'success'
       && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
-    uses: ./.github/workflows/release-windows.yml
+    uses: ./.github/workflows/release-windows-arm64.yml
     with:
       tag: ${{ needs.prepare.outputs.tag }}
       source_ref: ${{ needs.prepare.outputs.source_ref }}
       mirror: ${{ needs.prepare.outputs.mirror == 'true' }}
       dry_run: ${{ needs.prepare.outputs.dry_run == 'true' }}
       frontend_sha256: ${{ needs.frontend-dist.outputs.sha256 }}
-      arch: arm64
     secrets: inherit
 
   dry-run-manifest:

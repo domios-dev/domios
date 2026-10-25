@@ -158,7 +158,7 @@ it as a run artifact; `get`/`get-prefix` read `<run-id>/...` keys back from that
 compile with a job-local sccache that `build.sh cache-release` stops at job end. A reachable store
 that refuses a request, and any digest or signature mismatch, still fail.
 
-For one platform, direct-dispatch `release-linux.yml`, `release-windows.yml` or
+For one platform, direct-dispatch `release-linux.yml`, `release-windows.yml`, `release-windows-arm64.yml` or
 `release-macos-build.yml` with explicit `source_ref`, tag, selected architecture, `dry_run=true`
 and `mirror=false`, using that workflow's declared inputs. A `tests.yml` dispatch runs the fast tier only.
 Direct platform dispatch cannot mutate release assets. Its guard distinguishes the direct workflow
@@ -173,6 +173,13 @@ Windows has a focused pnpm symlink/subst identity regression with a TS2451 negat
 Signing, notarization, bundle smoke, updater signatures and served-byte checks remain release gates.
 
 ## One build, two distributions
+
+Linux and Windows arm64 compile unsigned on hosted native runners, then transfer a
+digest-pinned stage and bundles to private finalize jobs for signing, bundle smoke,
+headless validation and the existing private/public receipts. Hosted jobs receive
+public client configuration through repository variables and no signing/cache secrets.
+See [hosted arm64 setup and measurement](../../../docs/release/hosted-arm64.md) before
+the first run; the initial policy deliberately measures cold compilation without Tailnet.
 
 A release run builds the platform-independent frontend once in its `frontend-dist` job; each
 platform job fetches that archive, checks its SHA-256 and installs it as `dist` through

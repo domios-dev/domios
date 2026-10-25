@@ -1,5 +1,4 @@
 name: Release Linux arm64
-
 on:
   workflow_call:
     inputs:
@@ -19,36 +18,34 @@ on:
       frontend_sha256:
         description: Digest of the run's single frontend bundle; empty builds the frontend here
         required: false
-        default: ''
+        default: ""
         type: string
-
 permissions:
   contents: read
   actions: read
-
-env:
-  AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
-  AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
-  CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
-  DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
-  DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
-  DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
-  DOMIOS_ACCOUNT_REDEEM_URL: ${{ secrets.DOMIOS_ACCOUNT_REDEEM_URL }}
-  DOMIOS_BILLING_FUNCTIONS_URL: ${{ secrets.DOMIOS_BILLING_FUNCTIONS_URL }}
-  DOMIOS_AMPLITUDE_API_KEY_TEST: ${{ secrets.DOMIOS_AMPLITUDE_API_KEY_TEST }}
-  DOMIOS_AMPLITUDE_API_KEY_PROD: ${{ secrets.DOMIOS_AMPLITUDE_API_KEY_PROD }}
-
 jobs:
+  compile:
+    uses: ./.github/workflows/release-arm64-compile.yml
+    with:
+      tag: ${{ inputs.tag }}
+      source_ref: ${{ inputs.source_ref }}
+      target: aarch64-unknown-linux-gnu
+      frontend_sha256: ${{ inputs.frontend_sha256 }}
   build:
-    name: build
-    runs-on: [self-hosted, "${{ vars.RELEASE_LINUX_ARM64_LABEL || 'codeterm-builder' }}"]
+    name: finalize
+    runs-on:
+      - self-hosted
+      - ${{ vars.RELEASE_LINUX_ARM64_LABEL || 'codeterm-builder' }}
     timeout-minutes: 120
     env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
       GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
       APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
-      CODETERM_SCCACHE_VERIFY_ONLY: '1'
+      CODETERM_SCCACHE_VERIFY_ONLY: "1"
       ASSET_SCOPE: linux-aarch64
       ART: ${{ github.workspace }}/release-artifacts/linux-arm64
     steps:
@@ -63,29 +60,24 @@ jobs:
           fi
           echo "ver=$RAW"   >> "$GITHUB_OUTPUT"
           echo "tag=v$RAW"  >> "$GITHUB_OUTPUT"
-
       - name: Checkout repo (full history + tags)
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           ref: ${{ inputs.source_ref }}
           fetch-depth: 0
-
       - name: Setup Node.js
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
           package-manager-cache: false
-          node-version: '22.22.0'
-
+          node-version: 22.22.0
       - name: Reset compiler capture
         continue-on-error: true
         run: node -e "require('fs').writeFileSync('ci-rust-warnings.log', '')"
-
       - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
         with:
           version: 10.32.1
           run_install: false
-
       - name: Clear incomplete release uploads for retry
         if: ${{ !inputs.dry_run }}
         env:
@@ -99,44 +91,26 @@ jobs:
           if [ "$PUBLISH_MIRROR" = true ]; then
             GH_TOKEN="$MIRROR_TOKEN" node scripts/release-clear-wedged-assets.mjs rollacode/codeterm-releases "$TAG" "$ASSET_SCOPE"
           fi
-
-      - name: Verify native Docker builder
-        run: bash scripts/check-linux-arm64-builder.sh
-
-      - name: Fetch the run's frontend bundle
-        if: ${{ inputs.frontend_sha256 != '' }}
+      - name: Download digest-pinned unsigned handoff
         env:
           GH_TOKEN: ${{ github.token }}
-        run: node scripts/release-frontend-dist.mjs fetch "$GITHUB_RUN_ID" "${{ inputs.frontend_sha256 }}" "$RUNNER_TEMP/frontend-dist.tar"
-
-      - name: Build and smoke Linux arm64 in native container
-        run: |
-          rm -rf "$ART"
-          mkdir -p "$ART"
-          git bundle create "$ART/source.bundle" HEAD
-          container_archive=
-          if [ -n "${CODETERM_FRONTEND_ARCHIVE:-}" ]; then
-            cp "$CODETERM_FRONTEND_ARCHIVE" "$ART/frontend-dist.tar"
-            container_archive=/work/frontend-dist.tar
-          fi
-          source scripts/cache-policy.sh
-          ct_sccache_storage
-          test "$CT_SCCACHE_STORAGE" = shared
+        run: gh run download "${GITHUB_RUN_ID}" --repo "${GITHUB_REPOSITORY}" --name "unsigned-aarch64-unknown-linux-gnu-${GITHUB_RUN_ATTEMPT}" --dir "${RUNNER_TEMP}/hosted-arm64"
+      - name: Verify transferred stage and smoke Linux arm64 in native container
+        run: |-
+          set -euo pipefail
+          cp "$RUNNER_TEMP/hosted-arm64/arm64-handoff.tar" arm64-handoff.tar
           node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- docker run --rm --pull=never --platform linux/arm64 \
-            -v "$ART:/work" -v "$PWD/.codeterm/build-machine/scripts/build-linux.sh:/build-linux.sh:ro" \
-            -e DOMIOS_FIREBASE_API_KEY -e DOMIOS_FIREBASE_PROJECT_ID -e DOMIOS_FIREBASE_APP_ID \
-            -e DOMIOS_ACCOUNT_REDEEM_URL -e DOMIOS_BILLING_FUNCTIONS_URL \
-            -e DOMIOS_AMPLITUDE_API_KEY_TEST -e DOMIOS_AMPLITUDE_API_KEY_PROD \
-            -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e CODETERM_SCCACHE_CREDENTIAL_SOURCE=runner \
-            -e CODETERM_SCCACHE_VERIFY_ONLY=1 -e CARGO_INCREMENTAL=0 -e CARGO_BUILD_JOBS="$(getconf _NPROCESSORS_ONLN)" \
-            -e CARGO_TARGET_DIR=/src/src-tauri/target \
-            -e RELEASE_TAG="${{ inputs.tag }}" \
-            -e CODETERM_FRONTEND_ARCHIVE="$container_archive" -e CODETERM_FRONTEND_SHA256 \
-            codeterm-build-linux-arm64 bash /build-linux.sh source deb,appimage
-
+            -v "$PWD:/src" -w /src -e GITHUB_RUN_ID -e GITHUB_RUN_ATTEMPT \
+            codeterm-build-linux-arm64 bash -euo pipefail -c '
+              node scripts/release-arm64-handoff.mjs unpack aarch64-unknown-linux-gnu "${{ inputs.tag }}" "${{ inputs.source_ref }}" arm64-handoff.tar "${{ needs.compile.outputs.sha256 }}"
+              node scripts/release-bundle-smoke.mjs linux src-tauri/target/aarch64-unknown-linux-gnu/release/bundle "${{ inputs.source_ref }}" arm64
+            '
+          mkdir -p "$ART/out"
+          cp src-tauri/target/aarch64-unknown-linux-gnu/release/bundle/deb/*.deb "$ART/out/"
+          cp src-tauri/target/aarch64-unknown-linux-gnu/release/bundle/appimage/*.AppImage "$ART/out/"
+          cp release-artifacts/domios-headless-* "$ART/out/"
       - name: Frozen signer dependencies
         run: pnpm install --frozen-lockfile
-
       - name: Import temporary release signing material
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -146,25 +120,21 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: python3 scripts/release-signing-material.py macos
-
       - name: Sign Linux updater bundles
         run: |
           for bundle in "$ART"/out/*.AppImage "$ART"/out/*.deb; do
-            env -u TAURI_SIGNING_PRIVATE_KEY pnpm tauri signer sign "$bundle"
+            env -u TAURI_SIGNING_PRIVATE_KEY pnpm tauri signer sign --app-version "${{ steps.ver.outputs.ver }}" "$bundle"
           done
 
+          node scripts/release-arm64-handoff.mjs verify aarch64-unknown-linux-gnu "${{ inputs.tag }}" "${{ inputs.source_ref }}" "$ART/out"
       - name: Verify updater signatures (including dry run)
         env:
-          RELEASE_VERIFY_ONLY: 'true'
+          RELEASE_VERIFY_ONLY: "true"
           SOURCE_SHA: ${{ inputs.source_ref }}
         run: node scripts/release-publish-platform.mjs "${{ inputs.tag }}" "$ASSET_SCOPE" "$ART/out"
-
       - name: Retain private dry-run updater evidence
         if: ${{ inputs.dry_run }}
-        run: >-
-          node scripts/release-dry-run-manifest.mjs capture "${{ inputs.tag }}" "${{ inputs.source_ref }}" "$GITHUB_RUN_ID"
-          "$ASSET_SCOPE" "$ART/out" "$ART/out" "$RUNNER_TEMP/dry-run-$ASSET_SCOPE"
-
+        run: node scripts/release-dry-run-manifest.mjs capture "${{ inputs.tag }}" "${{ inputs.source_ref }}" "$GITHUB_RUN_ID" "$ASSET_SCOPE" "$ART/out" "$ART/out" "$RUNNER_TEMP/dry-run-$ASSET_SCOPE"
       - name: Verify and publish platform assets and updater fragment
         if: ${{ !inputs.dry_run }}
         env:
@@ -172,11 +142,9 @@ jobs:
           PUBLISH_PUBLIC_MIRROR: ${{ inputs.mirror }}
           MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
         run: node scripts/release-publish-platform.mjs "${{ inputs.tag }}" "$ASSET_SCOPE" "$ART/out"
-
       - name: Clean up temporary release signing material
         if: always()
         run: python3 scripts/release-signing-material.py cleanup
-
       - uses: ./.github/actions/rust-warnings
         if: always()
         continue-on-error: true
@@ -187,7 +155,17 @@ jobs:
       - name: Upload artifacts spooled while the private store was unreachable
         if: always()
         uses: ./.github/actions/ci-artifact-spool
+      - name: Retain hosted handoff and final stage proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: finalized-handoff-aarch64-unknown-linux-gnu-${{ github.run_attempt }}
+          path: |-
+            release-artifacts/hosted-handoff-aarch64-unknown-linux-gnu.json
+            release-artifacts/common-stage/aarch64-unknown-linux-gnu/headless-stage.json
+          if-no-files-found: error
+          retention-days: 7
       - name: Remove this job's Rust targets and archives
         if: always()
         continue-on-error: true
         run: node scripts/ci-workspace-cleanup.mjs
+    needs: compile
