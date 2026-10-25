@@ -3,7 +3,7 @@ name: tests
 on:
   pull_request:
   push:
-    branches: [master, develop, rename/domios]
+    branches: [master, develop, rename/domios, 'release/**']
   schedule:
     - cron: '17 2 * * *'
     - cron: '17 3 * * *'
