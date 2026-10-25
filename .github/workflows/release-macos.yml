@@ -40,7 +40,7 @@ env:
 jobs:
   build:
     name: build (${{ matrix.target }})
-    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && startsWith(github.ref, 'refs/heads/release/') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (vars.RELEASE_MACOS_ENABLED != 'false') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && startsWith(github.ref, 'refs/heads/release/') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (vars.RELEASE_MACOS_ENABLED != 'false') }}
     strategy:
       fail-fast: false
       matrix:

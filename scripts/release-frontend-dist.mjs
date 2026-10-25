@@ -57,11 +57,24 @@ export async function fetchArchive(runId, expected, archive, { get = store, env 
   if (env.GITHUB_ENV) await appendFile(env.GITHUB_ENV, `CODETERM_FRONTEND_ARCHIVE=${archive}\nCODETERM_FRONTEND_SHA256=${expected}\n`);
 }
 
+export async function fetchRunArtifact(runId, expected, archive, { env = process.env,
+  download = args => execFileSync('gh', args, { stdio: 'inherit', timeout: 120000 }) } = {}) {
+  if (!/^[1-9]\d*$/.test(runId ?? '') || !/^[1-9]\d*$/.test(env.GITHUB_RUN_ATTEMPT ?? '') || path.basename(archive) !== 'frontend-dist.tar') {
+    throw new Error('invalid frontend run artifact identity');
+  }
+  await mkdir(path.dirname(archive), { recursive: true });
+  await rm(archive, { force: true });
+  download(['run', 'download', runId, '--repo', env.GITHUB_REPOSITORY,
+    '--name', `frontend-dist-${env.GITHUB_RUN_ATTEMPT}`, '--dir', path.dirname(archive)]);
+  await fetchArchive(runId, expected, archive, { get: () => {}, env });
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [verb, ...args] = process.argv.slice(2);
   try {
     if (verb === 'publish') console.log(await publish(args[0], args[1], args[2]));
     else if (verb === 'fetch') await fetchArchive(args[0], args[1], args[2]);
+    else if (verb === 'fetch-run-artifact') await fetchRunArtifact(args[0], args[1], args[2]);
     else if (verb === 'install') await install(args[0], args[1], args[2]);
     else throw new Error('unknown frontend bundle operation');
   } catch (error) { console.error('frontend bundle refused: ' + error.message); process.exitCode = 1; }

@@ -61,7 +61,7 @@ jobs:
   changed:
     name: tree is new
     # A release branch's push already runs these checks on the exact SHA in release.yml.
-    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' }}
     # Every job waits on this gate, so any free light runner takes it.
     environment: ci
     runs-on: [self-hosted, Linux, light, host-ubunta]
@@ -148,7 +148,7 @@ jobs:
     name: guards
     needs: changed
     # The Node and Python release contracts assume Linux paths (macOS /var is a symlink).
-    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' }}
     environment: ci
     # BLACKSTAR WSL is idle until the Rust tier starts; the Ubuntu host compiles during the fast tier.
     runs-on: [self-hosted, Linux, light, host-blackstar]
@@ -272,7 +272,7 @@ jobs:
   plugins:
     name: plugin (${{ matrix.plugin.id }})
     needs: changed
-    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.plugins != '[]') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.plugins != '[]') }}
     environment: ci
     runs-on: [self-hosted, Linux, linux-build, host-ubunta]
     permissions:
@@ -329,7 +329,7 @@ jobs:
   clippy-linux:
     name: clippy (linux)
     needs: changed
-    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.heavy == 'true') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.heavy == 'true') }}
     environment: ci
     runs-on: [self-hosted, Linux, linux-build, host-ubunta]
     permissions:
@@ -415,7 +415,7 @@ jobs:
   cli-tests:
     name: cli tests
     needs: changed
-    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.heavy == 'true') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.heavy == 'true') }}
     environment: ci
     runs-on: [self-hosted, Linux, linux-build, host-ubunta]
     permissions:
@@ -473,7 +473,7 @@ jobs:
   ts-static:
     name: ts static checks
     needs: changed
-    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.frontend == 'true') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.frontend == 'true') }}
     environment: ci
     runs-on: [self-hosted, Linux, light, host-ubunta]
     permissions:
@@ -546,7 +546,7 @@ jobs:
   frontend-dist:
     name: frontend producer
     needs: changed
-    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}
     environment: ci
     runs-on: [self-hosted, Linux, light, host-ubunta]
     permissions:
@@ -604,7 +604,7 @@ jobs:
   frontend-windows:
     name: Windows path identity
     needs: changed
-    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}
     environment: ci
     runs-on: [self-hosted, Windows, windows-light]
     permissions:
@@ -661,7 +661,7 @@ jobs:
   ts-types:
     name: ts generated types
     needs: changed
-    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}
     environment: ci
     runs-on: [self-hosted, Linux, linux-build, host-ubunta]
     permissions:
@@ -744,7 +744,7 @@ jobs:
   ts-unit:
     name: ts unit
     needs: changed
-    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.frontend == 'true') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.frontend == 'true') }}
     environment: ci
     # Air is idle until the Rust tier starts; the Ubuntu host compiles during the fast tier.
     runs-on: [self-hosted, macOS, light, host-air]
@@ -805,7 +805,7 @@ jobs:
   ts-vitest:
     name: ts vitest
     needs: changed
-    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.frontend == 'true') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.frontend == 'true') }}
     environment: ci
     runs-on: [self-hosted, Linux, light, host-ubunta]
     permissions:
@@ -863,7 +863,7 @@ jobs:
   ts-plugins:
     name: plugin bundles + tests
     needs: changed
-    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.rust == 'true') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.rust == 'true') }}
     environment: ci
     runs-on: [self-hosted, Linux, light, host-ubunta]
     permissions:

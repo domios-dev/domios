@@ -23,7 +23,7 @@ env:
 
 jobs:
   precheck:
-    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' }}
     runs-on: [self-hosted, codeterm-builder]
     timeout-minutes: 30
     steps:
