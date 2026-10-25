@@ -28,6 +28,8 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 2
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs bash,git,node
       - id: source
         shell: bash
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
@@ -50,8 +52,6 @@ jobs:
             fi
           done
           echo "run=true" >> "$GITHUB_OUTPUT"
-      - name: Runner preflight
-        run: node scripts/ci-runner-paths.mjs receipt
       - id: scope
         if: steps.tree.outputs.run == 'true'
         env:
@@ -86,6 +86,14 @@ jobs:
           version: 10.32.1
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
+      - name: Install pinned nextest prerequisite
+        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8
+        with:
+          tool: cargo-nextest@0.9.148
+      - name: Install pinned Python test dependencies
+        run: python -m pip install --disable-pip-version-check -r scripts/requirements-ci.txt
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs bash,cargo,git,nextest,node,pnpm,python,python:yaml
       - &a1
         name: Select PR catalogue
         id: catalogue
@@ -121,12 +129,6 @@ jobs:
         id: ci-11
         if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
         run: node scripts/check-archive-portable-test-paths.mjs
-      - name: Install pinned nextest for archive contracts
-        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8
-        with:
-          tool: cargo-nextest@0.9.148
-      - name: Runner preflight
-        run: node scripts/ci-runner-paths.mjs pr-guards
       - name: Install dependencies
         id: ci-13
         if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
@@ -171,7 +173,7 @@ jobs:
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
       - name: Runner preflight
-        run: node scripts/ci-runner-paths.mjs frontend
+        run: node scripts/ci-runner-paths.mjs bash,git,node,pnpm
       - run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
         id: ci-4
       - *a1
@@ -207,7 +209,7 @@ jobs:
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
       - name: Runner preflight
-        run: node scripts/ci-runner-paths.mjs frontend
+        run: node scripts/ci-runner-paths.mjs bash,git,node,pnpm
       - name: Install dependencies
         id: ci-4
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
@@ -252,7 +254,7 @@ jobs:
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
       - name: Runner preflight
-        run: node scripts/ci-runner-paths.mjs frontend
+        run: node scripts/ci-runner-paths.mjs bash,git,node,pnpm
       - name: Install dependencies
         id: ci-4
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
@@ -289,7 +291,7 @@ jobs:
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
       - name: Runner preflight
-        run: node scripts/ci-runner-paths.mjs frontend
+        run: node scripts/ci-runner-paths.mjs bash,git,node,pnpm
       - name: Install dependencies
         id: ci-4
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
@@ -310,10 +312,6 @@ jobs:
         with:
           package-manager-cache: false
           node-version: 22.22.0
-      - name: Setup Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
-        with:
-          python-version: "3.12"
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         id: ci-1
         with:
@@ -327,7 +325,7 @@ jobs:
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
       - name: Runner preflight
-        run: node scripts/ci-runner-paths.mjs frontend
+        run: node scripts/ci-runner-paths.mjs bash,cargo,git,node,pnpm
       - name: Install dependencies
         id: ci-5
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
@@ -373,7 +371,7 @@ jobs:
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
       - name: Runner preflight
-        run: node scripts/ci-runner-paths.mjs frontend
+        run: node scripts/ci-runner-paths.mjs bash,git,node,pnpm
       - name: Install dependencies
         id: ci-4
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
@@ -411,7 +409,7 @@ jobs:
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
       - name: Runner preflight
-        run: node scripts/ci-runner-paths.mjs frontend
+        run: node scripts/ci-runner-paths.mjs bash,git,node,pnpm
       - name: Install dependencies
         id: ci-4
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
@@ -445,7 +443,7 @@ jobs:
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
       - name: Runner preflight
-        run: node scripts/ci-runner-paths.mjs frontend
+        run: node scripts/ci-runner-paths.mjs bash,git,node,pnpm
       - name: Install dependencies
         id: ci-4
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
@@ -473,7 +471,7 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 1
       - name: Runner preflight
-        run: node scripts/ci-runner-paths.mjs cli-contracts
+        run: node scripts/ci-runner-paths.mjs bash,cargo,git,node
       - name: CLI manifest and plugin parsing contracts
         working-directory: cli
         run: |-

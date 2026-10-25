@@ -39,15 +39,27 @@ jobs:
       GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
       MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
     steps:
+      - name: Use the runner bundled Node
+        if: runner.environment == 'self-hosted'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            const path = require('node:path');
+            core.addPath(path.dirname(process.execPath));
+            core.info('Using runner Node ' + process.version);
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
           node-version: 22.22.0
+        if: runner.environment == 'github-hosted'
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           token: ${{ secrets.GH_RELEASE_TOKEN }}
           fetch-depth: 1
           ref: ${{ github.sha }}
+      - name: Discover installed runner tools
+        if: runner.environment == 'self-hosted'
+        run: node scripts/ci-runner-paths.mjs --paths-only
       - name: Resolve the run, tag and mode
         id: plan
         env:

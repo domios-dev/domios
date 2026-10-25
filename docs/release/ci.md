@@ -18,9 +18,19 @@ Shared guards cover sizes, provider boundary, crate layering, Tauri reach,
 changed-file comments, API/prompt/eval documentation, secret scanning, issue
 metadata and master accepting only owner release/X.Y.Z PRs. Each runner checks
 its tools through ci-runner-paths before dependency work or compilation.
-Every executable job starts with pinned Node setup. Required Python/pnpm setup
-also precedes preflight and script use; self-hosted images provide the remaining
-role tools. Failure names the missing tools and install procedure.
+Hosted jobs use pinned Node/Python/pnpm setup before preflight and script use.
+Self-hosted jobs use the pinned github-script action's bundled Node runtime,
+then discover already-installed tools through ci-runner-paths. Installer actions
+run only on GitHub-hosted runners; self-hosted images provide their role tools. Failure names the missing tools and install procedure.
+
+CI jobs declare their exact executable/module list in preflight instead of sharing
+a broad Rust or guard role. The inventory contract expands catalogue and pnpm
+entrypoints and checks all four CI workflow files, including provisioning order.
+Only nextest consumers install it on hosted runners; self-hosted consumers
+verify the image's installed nextest. Both guard jobs install
+scripts/requirements-ci.txt into their pinned Python interpreter and preflight
+imports every required third-party test module; the Python AST inventory rejects
+new imports until their pinned dependency and module probe are declared.
 
 All checkouts select an explicit source at depth one (depth two only for
 parent-tree comparisons). Jobs that need ancestry fetch only the exact source

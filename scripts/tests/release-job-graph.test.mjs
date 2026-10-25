@@ -243,14 +243,14 @@ test('Windows Rust tests invoke the owning build forwarder without a bash shell'
 
 test('native Rust tests discover installed tools before runtime execution', () => {
   const steps = workflow('tests-rust').jobs['rust-platform'].steps;
-  const setup = steps.findIndex(step => step.run === 'node scripts/ci-runner-paths.mjs');
+  const setup = steps.findIndex(step => step.run === 'node scripts/ci-runner-paths.mjs --paths-only');
   const tests = steps.findIndex(step => step.name?.startsWith('Compile and run') && step.if === "runner.os == 'Windows'");
   assert.ok(setup >= 0 && setup < tests);
-  assert.equal(steps[setup].if, undefined);
+  assert.equal(steps[setup].if, "runner.environment == 'self-hosted'");
   for (const action of ['actions/setup-node@', 'actions/setup-python@']) {
     const provider = steps.findIndex(step => step.uses?.startsWith(action));
     assert.ok(provider >= 0 && provider < setup, action + ' supplies the path repair prerequisite');
-    assert.equal(steps[provider].if, undefined);
+    assert.equal(steps[provider].if, "runner.environment == 'github-hosted'");
   }
 });
 

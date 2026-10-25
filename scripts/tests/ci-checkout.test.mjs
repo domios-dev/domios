@@ -78,9 +78,9 @@ test('PR and trusted guards install pinned nextest before checking the archive c
   for(const file of ['tests-pr.yml','tests-fast.yml']){
     const steps=read(file).jobs.guards.steps;
     const install=steps.findIndex(s=>s.uses?.startsWith('taiki-e/install-action@')&&s.with?.tool==='cargo-nextest@0.9.148');
-    const preflight=steps.findIndex(s=>s.run==='node scripts/ci-runner-paths.mjs pr-guards');
+    const preflight=steps.findIndex(s=>s.name==='Runner preflight');
     assert.ok(install>=0&&install<preflight,file);
     assert.match(steps[install].uses,/@[a-f0-9]{40}$/);
-    assert.equal(steps[install].if,undefined);
+    assert.ok(!steps[install].if || steps[install].if.includes("runner.environment == 'github-hosted'"));
   }
 });
