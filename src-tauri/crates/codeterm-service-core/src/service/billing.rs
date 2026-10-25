@@ -14,6 +14,10 @@ pub struct BillingCell(pub Arc<tokio::sync::OnceCell<Arc<Billing>>>);
 impl ServiceContext {
     /// Capture before taking the mux lock. Before billing starts it is the compiled free baseline.
     pub fn limit_gate(&self) -> LimitGate {
+        #[cfg(any(test, feature = "test-support"))]
+        if let Some(gate) = self.try_ext::<super::test_fixture::FixtureLimitGate>() {
+            return gate.0.clone();
+        }
         self.ext::<BillingCell>().0.get().map_or_else(
             || {
                 LimitGate::new(

@@ -107,3 +107,17 @@ impl SentinelCleanup for FixtureSentinels {
         Ok(())
     }
 }
+
+pub(super) fn teardown_document(name: &str) -> serde_json::Value {
+    serde_json::json!({
+        "schema_version": 2,
+        "kind": "watch",
+        "name": name,
+        "steps": [
+            {"id": "source", "uses": "probe", "paused": true, "with": {"command": {"lit": "status"}},
+             "every": {"lit": "20s"}, "timeout": {"lit": "1h"}},
+            {"id": "decide", "uses": "ask", "with": {"question": {"lit": "Did the state change?"}},
+             "buckets": ["waiting", "passed", "failed"], "matches": {"waiting": {"lit": ".*"}}}
+        ]
+    })
+}

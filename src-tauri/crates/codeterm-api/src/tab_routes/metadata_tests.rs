@@ -6,6 +6,7 @@ use codeterm_service_core::service::test_fixture::ServiceFixture;
 #[tokio::test]
 async fn locked_metadata_routes_preserve_typed_forbidden() {
     let (mut mux, _) = MultiplexerState::new();
+    mux.set_limit_gate(codeterm_entitlements::LimitGate::dormant());
     let workspace = ["one", "two", "three"]
         .map(|name| mux.create_workspace(name.into(), None).id)
         .last()

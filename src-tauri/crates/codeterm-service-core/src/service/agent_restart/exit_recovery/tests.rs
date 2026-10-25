@@ -540,6 +540,7 @@ fn exited_tab(
     provider: &str,
     session_id: &str,
 ) -> String {
+    state.set_limit_gate(codeterm_entitlements::LimitGate::dormant());
     let workspace = state.create_workspace("exit-recovery".into(), None).id;
     let tab_id = state.create_tab(&workspace).unwrap();
     let tab = state.get_tab_mut(&tab_id).unwrap();

@@ -67,6 +67,11 @@ fn ledger_on(fixture: &mut ServiceFixture) -> std::sync::Arc<KpiLedger> {
 }
 
 fn agent_tab(fixture: &ServiceFixture, agent: &str, session_id: &str) -> String {
+    fixture
+        .service
+        .mux
+        .write()
+        .set_limit_gate(codeterm_entitlements::LimitGate::dormant());
     let workspace = fixture
         .service
         .mux
