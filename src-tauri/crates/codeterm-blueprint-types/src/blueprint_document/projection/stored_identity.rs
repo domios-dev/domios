@@ -6,16 +6,32 @@ pub fn matches_identity(document: &Document, recorded: &str) -> Result<bool, Str
     if identity(document)? == recorded {
         return Ok(true);
     }
+    let ir = canonical(document);
+    // macOS builds enabled serde_json preserve_order, so their pins hashed fields in declaration order.
+    let declaration_order = serde_json::to_string(&ir).map_err(|error| error.to_string())?;
+    if format!("{:x}", Sha256::digest(declaration_order.as_bytes())) == recorded {
+        return Ok(true);
+    }
+    let current = serde_json::to_value(ir).map_err(|error| error.to_string())?;
     // Stored 1.15.2 pins include defaults omitted by fresh canonical identities.
-    let mut prior = serde_json::to_value(canonical(document)).map_err(|error| error.to_string())?;
+    let mut prior = current.clone();
     restore_document_defaults(&mut prior["document"]);
     if let Some(nodes) = prior["nodes"].as_array_mut() {
         for node in nodes {
             restore_node_defaults(&mut node["node"]);
         }
     }
-    prior.sort_all_objects();
-    Ok(format!("{:x}", Sha256::digest(prior.to_string().as_bytes())) == recorded)
+    // macOS builds hashed keys in insertion order (serde_json preserve_order); others sorted them.
+    Ok([current, prior].into_iter().any(|mut value| {
+        digest(&value) == recorded || {
+            value.sort_all_objects();
+            digest(&value) == recorded
+        }
+    }))
+}
+
+fn digest(value: &Value) -> String {
+    format!("{:x}", Sha256::digest(value.to_string().as_bytes()))
 }
 
 fn restore_document_defaults(document: &mut Value) {

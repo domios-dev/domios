@@ -34,6 +34,20 @@ fn blueprint_stored_identity_1152_golden_checks_content_under_both_layouts() {
     }
 }
 
+#[test]
+fn blueprint_stored_identity_accepts_macos_declaration_order_pins() {
+    for fixture in fixtures() {
+        let document: Document = serde_json::from_value(fixture["document"].clone()).unwrap();
+        let declaration_order = serde_json::to_string(&canonical(&document)).unwrap();
+        let recorded = format!("{:x}", Sha256::digest(declaration_order.as_bytes()));
+        assert_ne!(identity(&document).unwrap(), recorded);
+        assert!(matches_identity(&document, &recorded).unwrap());
+        let mut changed = document;
+        changed.note = Some("changed bytes".into());
+        assert!(!matches_identity(&changed, &recorded).unwrap());
+    }
+}
+
 struct Recorded(calls::FrozenCallee);
 impl calls::MemoryResolver for Recorded {
     fn head(&self, _: &str) -> Result<Document, String> {
