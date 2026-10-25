@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -17,6 +17,20 @@ const fast = workflow("tests-fast");
 const rust = workflow("tests-rust");
 const builds = ["macos-arm64", "macos-x64", "linux-arm64", "linux-x86_64", "windows-x64", "windows-arm64"];
 const dependencies = job => [job.needs].flat();
+
+test("release pushes qualify even when their merge tree equals a parent", t => {
+  const source = fast.jobs.changed.steps.find(step => step.id === "tree");
+  const directory = mkdtempSync(join(tmpdir(), "release-tree-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  for (const [branch, expected] of [["release/1.15.3", true], ["lane/opaque", false]]) {
+    const full = condition(source.env.CI_RELEASE_CALL, { inputs: { source_ref: "" }, github: { event_name: "push", ref_name: branch } });
+    assert.equal(full, expected, branch);
+    const output = join(directory, expected ? "release" : "lane");
+    const script = "git() { if [ \"$*\" = 'rev-parse HEAD^@' ]; then echo parent; else echo same-tree; fi; }\n" + source.run.replaceAll("${{ github.event_name }}", "push");
+    execFileSync(bash, ["-euo", "pipefail", "-c", script], { env: { ...process.env, CI_RELEASE_CALL: String(full), GITHUB_OUTPUT: output } });
+    assert.equal(readFileSync(output, "utf8"), `run=${expected}\n`, branch);
+  }
+});
 
 const fastJobs = ["guards", "plugins", "clippy-linux", "cli-tests", "ts-static", "frontend-windows", "frontend-dist", "ts-types", "ts-unit", "ts-vitest", "ts-plugins"];
 const longJobs = ["rust-tests", "rust-platform", "rust-embeddings", "rust-receipts"];
@@ -150,7 +164,7 @@ test("guards prepare Rust before cargo-dependent serial script tests in every sc
 });
 
 test("dev pushes and nightly fallback qualify every exact SHA, and release reuses the evidence", () => {
-  assert.deepEqual(tests.on.push.branches, ['master', 'develop', 'rename/domios']);
+  assert.deepEqual(tests.on.push.branches, ['master', 'develop', 'rename/domios', 'release/**']);
   assert.equal(tests.on.push['paths-ignore'], undefined);
   assert.equal(tests.on.schedule.length, 2);
   assert.match(tests.concurrency.group, /github.ref/);
