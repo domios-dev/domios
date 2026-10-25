@@ -28,6 +28,7 @@ export type MachineStatus =
   | "other_account";
 
 export interface MachineControls {
+  plans?: boolean;
   /** Present when Add is shown; `reason` disables it. */
   add: { reason: string | null } | null;
   revoke: MeshTarget | null;
@@ -116,9 +117,7 @@ export function myMachinesView({ account, snapshot, listFailure = null, linking,
   const known = new Set(registry.map((row) => row.installation_id));
   const saved = pairs
     .filter((pair) => !pair.installation_id || !known.has(pair.installation_id))
-    .map((pair) => blocked ? blockedRow(pair, "Mesh is blocked until your account finishes resuming") : locked
-      ? { ...savedPairRow(pair), detail: "Mesh is blocked on this machine", controls: { ...NO_CONTROLS, unpairInstanceId: pair.instance_id } }
-      : savedPairRow(pair));
+    .map((pair) => blocked ? blockedRow(pair, "Mesh is blocked until your account finishes resuming") : savedPairRow(pair));
   return {
     kind: "account",
     machineLimit,
@@ -127,7 +126,7 @@ export function myMachinesView({ account, snapshot, listFailure = null, linking,
     reauthRequired: snapshot.last_refusal?.reason === "reauth_required",
     self: selfRow(snapshot),
     machines: registryRows(snapshot, pairs, linking, now, !blocked && !locked).map((row) => machineLimit && row.status !== "revoked"
-      ? { ...row, controls: { ...row.controls, revoke: row.target } } : row),
+      ? { ...row, controls: { ...row.controls, plans: true, add: null, revoke: row.target } } : row),
     saved,
     notes: [...notes, ...registryNotes(snapshot, listFailure)],
   };

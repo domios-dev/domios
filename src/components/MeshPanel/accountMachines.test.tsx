@@ -45,7 +45,9 @@ describe("My machines projection", () => {
     expect(result.machineLimit).toEqual({ limit: 2, activeCount: 2 });
     expect(result.self?.planLimited).toBe(true);
     expect(result.machines.map(row => row.status)).toEqual(["unlinked", "unlinked"]);
-    expect(result.machines.every(row => row.controls.add?.reason !== null)).toBe(true);
+    expect(result.machines.map(row => [row.controls.add, row.controls.plans, row.controls.revoke])).toEqual([
+      [null, true, targetOf(macRow)], [null, true, targetOf(lenovoRow)],
+    ]);
   });
   it("waits for account and registry observations before projecting", () => {
     expect(view("pending", snapshot()).kind).toBe("loading");
