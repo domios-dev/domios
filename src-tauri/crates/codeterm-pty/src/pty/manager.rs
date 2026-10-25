@@ -839,6 +839,7 @@ impl PtyManager {
         session.guarded_input.invalidate();
         let kill_error = match session.child.lock() {
             Ok(mut child) => {
+                let leader_pid = child.process_id();
                 let result = if entire_tree {
                     child.kill_tree()
                 } else {
@@ -849,7 +850,10 @@ impl PtyManager {
                     entire_tree
                         .then(super::teardown::exited_group_errno)
                         .flatten(),
-                    || matches!(child.try_wait(), Ok(Some(_))),
+                    || {
+                        matches!(child.try_wait(), Ok(Some(_)))
+                            || super::teardown::leader_exited_natively(leader_pid)
+                    },
                 )
                 .err()
                 .filter(kill_failure_blocks_teardown)
