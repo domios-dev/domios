@@ -16,8 +16,10 @@ import { loadBundledPlugins } from "./lib/plugins/loader";
 import { installToolOutputCardHarness } from "./components/AgentRun/ToolOutputCard.browserHarness";
 import { installAgentStateIndicatorHarness } from "./components/Terminal/AgentStateIndicator.browserHarness";
 import {
+  configureMarkdownLinkOpener,
   installInboundReportCardHarness,
 } from "@codeterm/chat-ui";
+import { nativeBridge } from "./lib/nativeBridge";
 import { configureLocalPreviews } from "./lib/configureLocalPreviews";
 import { installScrollActivity } from "./lib/scrollActivity";
 import { installCodeTermTestChatHandle, isCodeTermFrontendTestMode } from "./components/Terminal/useChatSession";
@@ -55,6 +57,7 @@ installAgentStateIndicatorHarness();
 installInboundReportCardHarness(isCodeTermFrontendTestMode());
 installCodeTermTestChatHandle();
 configureLocalPreviews();
+configureMarkdownLinkOpener((url) => nativeBridge.openUrl(url));
 installScrollActivity();
 
 if (!missionControlPrototype && !isGalleryRoute && !snakePrototype) {
