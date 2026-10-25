@@ -348,8 +348,8 @@ jobs:
     name: clippy (linux)
     needs: changed
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.heavy == 'true') }}
-    environment: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && 'ci' || '' }}
-    runs-on: ${{ vars.CI_LINUX_RUST_COMPILE_RUNNER || fromJSON('["self-hosted","Linux","linux-build","host-ubunta"]') }}
+    environment: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private') && 'ci' || '' }}
+    runs-on: ${{ vars.CI_LINUX_RUST_COMPILE_RUNNER == 'private' && fromJSON('["self-hosted","Linux","linux-build","host-ubunta"]') || 'ubuntu-24.04' }}
     permissions:
       contents: read
       actions: read
@@ -357,23 +357,23 @@ jobs:
     timeout-minutes: 30
     env:
       CI_SOURCE_SHA: ${{ needs.changed.outputs.source_sha || github.sha }}
-      DOMIOS_CI_WEBHOOK_URL: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_CI_WEBHOOK_URL || '' }}
-      DOMIOS_CI_WEBHOOK_TOKEN: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_CI_WEBHOOK_TOKEN || '' }}
-      AWS_ACCESS_KEY_ID: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.SCCACHE_AWS_ACCESS_KEY_ID || '' }}
-      AWS_SECRET_ACCESS_KEY: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.SCCACHE_AWS_SECRET_ACCESS_KEY || '' }}
-      DOMIOS_FIREBASE_API_KEY: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
-      DOMIOS_FIREBASE_PROJECT_ID: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
-      DOMIOS_FIREBASE_APP_ID: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_APP_ID || '' }}
-      DOMIOS_ACCOUNT_REDEEM_URL: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_ACCOUNT_REDEEM_URL || '' }}
-      DOMIOS_BILLING_FUNCTIONS_URL: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_BILLING_FUNCTIONS_URL || '' }}
+      DOMIOS_CI_WEBHOOK_URL: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private') && secrets.DOMIOS_CI_WEBHOOK_URL || '' }}
+      DOMIOS_CI_WEBHOOK_TOKEN: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private') && secrets.DOMIOS_CI_WEBHOOK_TOKEN || '' }}
+      AWS_ACCESS_KEY_ID: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private') && secrets.SCCACHE_AWS_ACCESS_KEY_ID || '' }}
+      AWS_SECRET_ACCESS_KEY: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private') && secrets.SCCACHE_AWS_SECRET_ACCESS_KEY || '' }}
+      DOMIOS_FIREBASE_API_KEY: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private') && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
+      DOMIOS_FIREBASE_PROJECT_ID: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private') && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
+      DOMIOS_FIREBASE_APP_ID: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private') && secrets.DOMIOS_FIREBASE_APP_ID || '' }}
+      DOMIOS_ACCOUNT_REDEEM_URL: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private') && secrets.DOMIOS_ACCOUNT_REDEEM_URL || '' }}
+      DOMIOS_BILLING_FUNCTIONS_URL: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private') && secrets.DOMIOS_BILLING_FUNCTIONS_URL || '' }}
       # Warm per-workspace targets outside the checkout; the cleanup step sweeps them by age.
       CI_TARGET_ROOT: ${{ github.workspace }}/../ci-targets/clippy
       CODETERM_ALLOW_EXTERNAL_TARGET: '1'
-      CI_HOSTED: ${{ vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04' }}
-      SCCACHE_GHA_ENABLED: ${{ (vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && 'true' || 'false' }}
-      CODETERM_SCCACHE_VERIFY_ONLY: ${{ (vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && '0' || '1' }}
+      CI_HOSTED: ${{ vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private' }}
+      SCCACHE_GHA_ENABLED: ${{ (vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private') && 'true' || 'false' }}
+      CODETERM_SCCACHE_VERIFY_ONLY: ${{ (vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private') && '0' || '1' }}
       CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
-      CI_ARTIFACT_STORAGE: ${{ (vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && 'github' || '' }}
+      CI_ARTIFACT_STORAGE: ${{ (vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private') && 'github' || '' }}
     steps:
       - name: Use the runner bundled Node
         if: runner.environment == 'self-hosted'
@@ -398,8 +398,16 @@ jobs:
       - name: Discover installed runner tools
         if: runner.environment == 'self-hosted'
         run: node scripts/ci-runner-paths.mjs --paths-only
+      - name: Hosted Linux build prerequisites
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
+        shell: bash
+        run: |-
+          # The workspace test build needs more disk than a hosted image leaves free.
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo apt-get update -qq
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libgtk-3-dev pkg-config xdg-utils patchelf
       - name: Hosted Rust dependency cache
-        if: ${{ vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04' }}
+        if: ${{ vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private' }}
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
         with:
           path: |-
@@ -408,7 +416,7 @@ jobs:
           key: ${{ format('cargo-{0}-{1}-{2}', runner.os, runner.arch, hashFiles('**/Cargo.lock')) }}
           restore-keys: ${{ format('cargo-{0}-{1}-', runner.os, runner.arch) }}
       - name: Hosted sccache
-        if: runner.environment == 'github-hosted' && (vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04')
+        if: runner.environment == 'github-hosted' && (vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private')
         uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
         env:
           SCCACHE_GHA_ENABLED: "true"
@@ -465,8 +473,8 @@ jobs:
     name: cli tests
     needs: changed
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.heavy == 'true' || github.event_name == 'workflow_dispatch' && inputs.scope == 'fast') }}
-    environment: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && 'ci' || '' }}
-    runs-on: ${{ vars.CI_LINUX_RUST_COMPILE_RUNNER || fromJSON('["self-hosted","Linux","linux-build","host-ubunta"]') }}
+    environment: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private') && 'ci' || '' }}
+    runs-on: ${{ vars.CI_LINUX_RUST_COMPILE_RUNNER == 'private' && fromJSON('["self-hosted","Linux","linux-build","host-ubunta"]') || 'ubuntu-24.04' }}
     permissions:
       contents: read
       actions: read
@@ -474,22 +482,22 @@ jobs:
     timeout-minutes: 30
     env:
       CI_SOURCE_SHA: ${{ needs.changed.outputs.source_sha || github.sha }}
-      DOMIOS_CI_WEBHOOK_URL: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_CI_WEBHOOK_URL || '' }}
-      DOMIOS_CI_WEBHOOK_TOKEN: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_CI_WEBHOOK_TOKEN || '' }}
-      AWS_ACCESS_KEY_ID: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.SCCACHE_AWS_ACCESS_KEY_ID || '' }}
-      AWS_SECRET_ACCESS_KEY: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.SCCACHE_AWS_SECRET_ACCESS_KEY || '' }}
-      DOMIOS_FIREBASE_API_KEY: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
-      DOMIOS_FIREBASE_PROJECT_ID: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
-      DOMIOS_FIREBASE_APP_ID: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_APP_ID || '' }}
-      DOMIOS_ACCOUNT_REDEEM_URL: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_ACCOUNT_REDEEM_URL || '' }}
-      DOMIOS_BILLING_FUNCTIONS_URL: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_BILLING_FUNCTIONS_URL || '' }}
+      DOMIOS_CI_WEBHOOK_URL: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private') && secrets.DOMIOS_CI_WEBHOOK_URL || '' }}
+      DOMIOS_CI_WEBHOOK_TOKEN: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private') && secrets.DOMIOS_CI_WEBHOOK_TOKEN || '' }}
+      AWS_ACCESS_KEY_ID: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private') && secrets.SCCACHE_AWS_ACCESS_KEY_ID || '' }}
+      AWS_SECRET_ACCESS_KEY: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private') && secrets.SCCACHE_AWS_SECRET_ACCESS_KEY || '' }}
+      DOMIOS_FIREBASE_API_KEY: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private') && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
+      DOMIOS_FIREBASE_PROJECT_ID: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private') && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
+      DOMIOS_FIREBASE_APP_ID: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private') && secrets.DOMIOS_FIREBASE_APP_ID || '' }}
+      DOMIOS_ACCOUNT_REDEEM_URL: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private') && secrets.DOMIOS_ACCOUNT_REDEEM_URL || '' }}
+      DOMIOS_BILLING_FUNCTIONS_URL: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private') && secrets.DOMIOS_BILLING_FUNCTIONS_URL || '' }}
       CI_TARGET_ROOT: ${{ github.workspace }}/../ci-targets/cli-tests
       CODETERM_ALLOW_EXTERNAL_TARGET: '1'
-      CI_HOSTED: ${{ vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04' }}
-      SCCACHE_GHA_ENABLED: ${{ (vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && 'true' || 'false' }}
-      CODETERM_SCCACHE_VERIFY_ONLY: ${{ (vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && '0' || '1' }}
+      CI_HOSTED: ${{ vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private' }}
+      SCCACHE_GHA_ENABLED: ${{ (vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private') && 'true' || 'false' }}
+      CODETERM_SCCACHE_VERIFY_ONLY: ${{ (vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private') && '0' || '1' }}
       CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
-      CI_ARTIFACT_STORAGE: ${{ (vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04') && 'github' || '' }}
+      CI_ARTIFACT_STORAGE: ${{ (vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private') && 'github' || '' }}
     steps:
       - name: Use the runner bundled Node
         if: runner.environment == 'self-hosted'
@@ -514,8 +522,16 @@ jobs:
       - name: Discover installed runner tools
         if: runner.environment == 'self-hosted'
         run: node scripts/ci-runner-paths.mjs --paths-only
+      - name: Hosted Linux build prerequisites
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
+        shell: bash
+        run: |-
+          # The workspace test build needs more disk than a hosted image leaves free.
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo apt-get update -qq
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libgtk-3-dev pkg-config xdg-utils patchelf
       - name: Hosted Rust dependency cache
-        if: ${{ vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04' }}
+        if: ${{ vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private' }}
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
         with:
           path: |-
@@ -524,7 +540,7 @@ jobs:
           key: ${{ format('cargo-{0}-{1}-{2}', runner.os, runner.arch, hashFiles('**/Cargo.lock')) }}
           restore-keys: ${{ format('cargo-{0}-{1}-', runner.os, runner.arch) }}
       - name: Hosted sccache
-        if: runner.environment == 'github-hosted' && (vars.CI_LINUX_RUST_COMPILE_RUNNER == 'ubuntu-24.04')
+        if: runner.environment == 'github-hosted' && (vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private')
         uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
         env:
           SCCACHE_GHA_ENABLED: "true"

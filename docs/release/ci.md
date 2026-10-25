@@ -74,13 +74,13 @@ with every Rust oracle. PR merge-ref checks describe that merge SHA; identify
 the qualification push by head_sha. Never borrow green evidence from a parent,
 equal tree, different attempt or different commit.
 
-Runner capacity switches (owner operation; defaults stay unchanged):
+Runner capacity switches (owner operation):
 
-| Repository variable | Hosted value | Default role |
+| Repository variable | Value | Effect |
 | --- | --- | --- |
 | CI_LINUX_LIGHT_RUNNER | ubuntu-24.04 | Current private light labels per job |
-| CI_LINUX_RUST_COMPILE_RUNNER | ubuntu-24.04 | Ubuntu Clippy/CLI compiler |
-| CI_LINUX_RUST_FULL_RUNNER | ubuntu-24.04 | Ubuntu linux-build full suite |
+| CI_LINUX_RUST_COMPILE_RUNNER | unset or `private` | Clippy and CLI tests on hosted ubuntu-24.04 by default; `private` routes them to the ubunta linux-build runner |
+| CI_LINUX_RUST_FULL_RUNNER | unset or `private` | Full Rust suite on hosted ubuntu-24.04 by default; `private` routes it to the ubunta linux-build runner |
 | CI_MACOS_RUST_RUNNER | macos-15 | Air macOS platform tests |
 | CI_MACOS_EMBEDDINGS_RUNNER | macos-15 | Air embeddings after platform tests |
 
@@ -156,8 +156,8 @@ is retired from workflow routing. Windows remains on ROG and macOS on the Macs.
 
 ## Hosted switch prerequisites
 
-The 1.15.3 defaults retain private Rust compilation and signing. Before enabling
-additional hosted compile capacity in 1.15.4:
+Linux compilation is hosted by default; signing stays private. Before moving more
+work to hosted runners:
 
 - Install Linux GUI development dependencies (WebKitGTK 4.1, GTK, appindicator,
   OpenSSL, librsvg, xdo and bundle utilities) before workspace compilation.
