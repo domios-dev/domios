@@ -319,11 +319,18 @@ async function replaceStage(temporary, final) {
 }
 
 export async function produceCommonStage({ repo = root, target, tag, version, sourceSha, cargoLog, treeLog, bundle, outputDirectory }) {
-  const metadata = metadataFor(target);
+  metadataFor(target);
   if (tag !== `v${version}` || !SHA_PATTERN.test(sourceSha ?? '')) fail('stage tag/version/source identity is invalid');
   if (run('git', ['rev-parse', 'HEAD'], repo).trim() !== sourceSha) fail('stage source SHA differs from checkout HEAD');
   const cliHash = await releaseCliDigest({ repo, target });
   const server = await verifyServerBuild({ repo, target, sourceSha, cargoLog, treeLog, expectedCliSha256: cliHash });
+  return produceVerifiedCommonStage({ repo, target, tag, version, sourceSha, bundle, outputDirectory, server, cliHash });
+}
+
+export async function produceVerifiedCommonStage({ repo = root, target, tag, version, sourceSha, bundle, outputDirectory, server, cliHash }) {
+  const metadata = metadataFor(target);
+  if (tag !== `v${version}` || !SHA_PATTERN.test(sourceSha ?? '') || !HASH_PATTERN.test(cliHash ?? '')) fail('invalid verified stage identity');
+  if (run('git', ['rev-parse', 'HEAD'], repo).trim() !== sourceSha) fail('verified stage source SHA differs from checkout HEAD');
   const outputRoot = path.resolve(outputDirectory ?? path.join(repo, 'release-artifacts'));
   const commonRoot = path.join(repo, 'release-artifacts', 'common-stage');
   const final = path.join(commonRoot, target);
