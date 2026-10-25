@@ -70,9 +70,7 @@ Local account routes refuse Mesh callers. POST `/api/account/mesh/session-revoke
 | POST | `/api/keepawake/stop` | — | Stop keep-awake session |
 | POST | `/api/graph/events/{subscription_id}` | `{plugin_id, event_id, payload}` | Plugin event ingress. Uses the subscription's Bearer token, accepts at most 64 KiB, and returns 202 for admission; refusal codes map to 401, 403, 404, 409, 413, 422, 429 or 503. |
 
-A desktop REST generation reports `listening` after owning the socket, consuming a successful `GET /api/health` body and closing that proof connection. Exit creates exactly one replacement generation; bind ownership failure awaits an explicit port-release or restart event, never a timer. Status fields: `generation`, `phase`, `diagnostic`, `message`. Diagnostics: `listener_exited`, `bind_ownership_failed`, `workers_blocked` (bound listener whose four REST runtime workers cannot answer health).
-
-Recovery ids and the mesh resync each recovery triggers: MESH, *Local REST availability*. REST chat/transcript routes parse a bounded 4 MiB tail.
+REST listener lifecycle and recovery: MESH, *Local REST availability*. REST chat/transcript routes parse a bounded 4 MiB tail.
 
 Saved solution show returns a bounded, credential-redacted `document` and recursive `expanded_calls: [{node, pin: {id, hash}, graph, children}]`, matching applied Blueprint graph expansion. Each node's `call.ref` identifies the authored reference. Missing, corrupt or foreign-scope pinned revisions produce `{node, pin, graph: null, children: [], unavailable: "pinned_revision_unavailable"}` without failing the response. Expansion limits are eight call levels, 64 call entries and 256 KiB of callee documents; an exceeded depth or byte budget produces `unavailable: "budget_exhausted"`. Callees use the saved solution's recorded Team/workspace, never current callee heads. Archived or foreign-workspace root IDs are refused, as are peer-origin requests.
 
@@ -188,4 +186,4 @@ A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or `c
 
 Related: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-INTEGRATIONS`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, `TELEGRAM-SETUP`. Analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 227 -->
+<!-- revision: 228 -->
