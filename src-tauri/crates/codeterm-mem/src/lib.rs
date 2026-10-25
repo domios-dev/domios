@@ -499,5 +499,5 @@ mod startup_backfill_tests {
     }
 }
 
-#[cfg(all(test, feature = "embeddings"))]
+#[cfg(test)]
 mod test_support;
