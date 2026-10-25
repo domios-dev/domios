@@ -15,7 +15,7 @@ fn isolated_options(data_dir: PathBuf, config_dir: PathBuf, bind: SocketAddr) ->
 }
 
 #[test]
-fn server_bootstrap_isolated_verification_is_release_only() {
+fn server_bootstrap_isolated_verification_accepts_both_artifact_profiles() {
     let data = tempfile::tempdir().unwrap();
     let config = tempfile::tempdir().unwrap();
     let options = isolated_options(
@@ -25,7 +25,7 @@ fn server_bootstrap_isolated_verification_is_release_only() {
     );
 
     assert!(options.validate(false).is_ok());
-    assert!(options.validate(true).is_err());
+    assert!(options.validate(true).is_ok());
 }
 
 #[test]

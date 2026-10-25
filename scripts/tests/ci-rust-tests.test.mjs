@@ -12,6 +12,16 @@ import {
 const receipt = (overrides = {}) => ({ mode: 'full', runner: 'eight', os: 'Windows', arch: 'X64', sha: 'abc', executed: 6709, exit: 0, seconds: 128, ...overrides });
 const complete = () => [receipt(), receipt({ mode: 'embeddings' }), ...['macOS', 'Linux', 'Windows'].map((os) => receipt({ mode: 'platform', os, runner: os, executed: 40 }))];
 
+test('the real CLI/server integration executes once outside the unit timing groups', () => {
+  const integration = { binary: 'codeterm-cli::isolated_server', name: 'isolated_server_api_token_identify_and_shutdown' };
+  const normal = { binary: 'codeterm-cli', name: 'opaque_unit' };
+  const groups = executionGroups([integration, normal]);
+  assert.deepEqual(groups, [
+    { listener: false, selected: [normal] },
+    { listener: false, integration: true, selected: [integration] },
+  ]);
+});
+
 test('failed compilation prints rendered errors and preserves the original failure', () => {
   const stdout = readFileSync(new URL('../../tests/fixtures/rust-warnings/compile-errors.jsonl', import.meta.url), 'utf8');
   const failure = Object.assign(new Error('compile failed'), { stdout: Buffer.from(stdout), status: 101 });
