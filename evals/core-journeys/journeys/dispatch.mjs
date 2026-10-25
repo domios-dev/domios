@@ -2,7 +2,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { dcJson } from "../lib/env.mjs";
 import { workerBrief } from "../lib/fixtures.mjs";
-import { bindFixtureSession } from "../lib/setup.mjs";
+import { bindFixtureSession, promoteFixtureOrchestrator } from "../lib/setup.mjs";
 import { attemptBindingVerdict, findTask, isChatBackend, taskVerdict } from "../lib/oracle.mjs";
 import { readTab, waitReady, withEvents } from "../lib/tabs.mjs";
 import { JourneyFailure, anyOf, observe, touchesPlan, touchesTab } from "../lib/wait.mjs";
@@ -21,7 +21,7 @@ async function orchestratorFixture(ctx, provider) {
   ctx.state.tabs.push({ id, journey: "J3", role: "fixture_orchestrator", shell: true });
   ctx.save();
   await bindFixtureSession(ctx, id, session, provider);
-  await dcJson(["agent", "set-orchestrator"], { asTab: id });
+  await promoteFixtureOrchestrator(id);
   const team = firstTab(await dcJson(["tab", "inspect", "--tab", id]))?.team_id;
   if (!team) throw new JourneyFailure("set-orchestrator minted no Team");
   ctx.state.j3.team = team;

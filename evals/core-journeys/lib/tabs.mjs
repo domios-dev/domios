@@ -23,11 +23,11 @@ export async function withEvents(ctx, deadlineMs, body) {
   try { return await body(events, signal); } finally { events.close(); }
 }
 
-export function waitReady(ctx, id, { requireSession = false, deadlineMs = ctx.deadlines.ready } = {}) {
+export function waitReady(ctx, id, { requireSession = false, allowFirstTurn = false, deadlineMs = ctx.deadlines.ready } = {}) {
   return withEvents(ctx, deadlineMs, (events, signal) => observe({
     events, filter: touchesTab(id), label: `tab ${id} ready`,
     read: () => readTab(ctx.api, id, signal),
-    judge: (record) => readiness(record, { requireSession }),
+    judge: (record) => readiness(record, { requireSession, allowFirstTurn }),
   }));
 }
 
@@ -46,7 +46,7 @@ export function probeReply(ctx, id, marker, prompt, { deadlineMs = ctx.deadlines
   return withEvents(ctx, deadlineMs, async (events, signal) => {
     const ready = await observe({
       events, filter: touchesTab(id), label: `tab ${id} input ready`,
-      read: () => readTab(ctx.api, id, signal), judge: (record) => readiness(record),
+      read: () => readTab(ctx.api, id, signal), judge: (record) => readiness(record, { allowFirstTurn: true }),
     });
     const baselineIds = new Set((await chat(ctx, id, signal)).map((message) => message.id));
     await sendText(id, prompt ?? `Reply with exactly ${marker} and nothing else. Do not run tools.`);
@@ -75,7 +75,7 @@ export function stopLongTurn(ctx, id, { deadlineMs = ctx.deadlines.reply } = {})
         return verdict.fail ? verdict : { pending: `working (status=${record?.status})` };
       },
     });
-    const response = await dcJson(["tab", "stop", "--tab", id]);
+    const response = await ctx.api(`/api/tabs/${id}/stop`, { method: "POST", signal });
     return observe({
       events, filter: touchesTab(id), label: `tab ${id} idle after stop`,
       read: () => readTab(ctx.api, id, signal), judge: (record) => stopVerdict(response, record),

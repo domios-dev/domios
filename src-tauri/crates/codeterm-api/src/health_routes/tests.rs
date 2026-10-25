@@ -72,6 +72,14 @@ async fn health_reads_live_native_diagnostics_and_clears_detached_port() {
     );
     let port = Arc::new(AtomicU16::new(9398));
     let attached = port.clone();
+    let frontend = port.clone();
+    assert!(state
+        .svc
+        .register_host_extension(Arc::new(super::NativeFrontendIdentity {
+            port: Arc::new(move || (frontend.load(Ordering::Acquire) != 0).then_some(14998)),
+            identifier: "com.domios.dev.fixture".into(),
+        }))
+        .is_ok());
     assert!(state
         .svc
         .register_host_extension(Arc::new(super::NativeDiagnosticsPort(Arc::new(
@@ -88,8 +96,30 @@ async fn health_reads_live_native_diagnostics_and_clears_detached_port() {
         if cfg!(debug_assertions) { "9398" } else { "" }
     );
     port.store(0, Ordering::Release);
+    let body = super::health(axum::extract::State(state.clone())).await.0;
+    assert_eq!(body["instance"]["vite_port"], "");
+    assert_eq!(
+        body["instance"]["identifier"],
+        if cfg!(debug_assertions) {
+            "com.domios.dev.fixture"
+        } else {
+            ""
+        }
+    );
     assert_eq!(
         super::health(axum::extract::State(state)).await.0["instance"]["cdp_port"],
         ""
+    );
+}
+
+#[test]
+fn frontend_identity_reads_the_current_attachment_instead_of_server_environment() {
+    let identity = super::NativeFrontendIdentity {
+        port: std::sync::Arc::new(|| Some(14998)),
+        identifier: "com.domios.dev.fixture".into(),
+    };
+    assert_eq!(
+        identity.vite_port(),
+        if cfg!(debug_assertions) { "14998" } else { "" }
     );
 }
