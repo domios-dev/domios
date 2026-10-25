@@ -20,7 +20,7 @@ jobs:
             label: light
           - os: Windows
             label: windows-light
-    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' }}
     environment: ci
     runs-on: [self-hosted, '${{ matrix.os }}', '${{ matrix.label }}']
     timeout-minutes: 5
