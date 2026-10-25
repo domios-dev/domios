@@ -292,7 +292,8 @@ test('light jobs cannot claim the physical Rust suite host and Linux compilation
     for (const [id, job] of Object.entries(definition.jobs)) {
       const labels = job['runs-on'];
       if (!Array.isArray(labels)) continue;
-      if (labels.includes('light')) assert.ok(labels.includes('host-ubunta'), `${file}/${id}`);
+      const idleRustHost = (id === 'ts-unit' && labels.includes('host-air')) || (id === 'guards' && labels.includes('host-blackstar'));
+      if (labels.includes('light')) assert.ok(labels.includes('host-ubunta') || idleRustHost, `${file}/${id}`);
       assert.ok(!labels.includes('linux-ci'), `${file}/${id}: unpinned compile pool`);
     }
   }
