@@ -240,14 +240,13 @@ test('Windows Rust tests invoke the owning build forwarder without a bash shell'
   assert.equal(unixArchive.if, "runner.os != 'Windows'");
 });
 
-test('Windows native Rust tests provision Python before runtime discovery', () => {
+test('native Rust tests discover installed tools before runtime execution', () => {
   const steps = workflow('tests-rust').jobs['rust-platform'].steps;
-  const setup = steps.findIndex(step => step.uses?.startsWith('actions/setup-python@'));
+  const setup = steps.findIndex(step => step.run === 'node scripts/ci-runner-paths.mjs');
   const tests = steps.findIndex(step => step.name?.startsWith('Compile and run') && step.if === "runner.os == 'Windows'");
   assert.ok(setup >= 0 && setup < tests);
-  assert.equal(steps[setup].if, "runner.os == 'Windows'");
-  assert.match(steps[setup].uses, /@[0-9a-f]{40}$/);
-  assert.equal(steps[setup].with['python-version'], '3.12');
+  assert.equal(steps[setup].if, undefined);
+  assert.ok(!steps.some(step => step.uses?.startsWith('actions/setup-python@')));
 });
 
 test('compact unwind workaround belongs only to macOS platform tests, preserving release link flags', () => {

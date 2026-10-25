@@ -84,9 +84,11 @@ verifies the anonymous download. Every install refreshes `codeterm-core` from th
    `npm run check:versions` and `node scripts/check-release-locks.mjs`. Commit the complete bump;
    plugin versions remain independent. Run `build.sh release-preflight` per the gates skill on
    that committed head and `git diff --check`.
-   Commit the version bump on dev and wait for `tests.yml` to qualify that exact SHA before
-   cutting the release branch. Pushes to `rename/domios`, `develop` and `master` run the full
-   regression; two nightly schedules qualify the dev branches as fallback. Fast checks own
+   Keep the release branch separate from moving `develop`. Commit release fixes on that line,
+   then real-merge the release into `develop`; never pull unrelated dev work into the release.
+   Pushes to `release/X.Y.Z` qualify their exact SHA through `tests.yml`, as do dev/master pushes.
+   If release prepare runs before its qualification receipt exists, rerun it only after that
+   qualification is green. Two nightly schedules qualify dev as fallback. Fast checks own
    frontend production/typechecking, static/plugin/TS suites, Clippy and the CLI suite.
    The Rust tier owns the Linux full suite, native macOS/Windows subsets and embeddings.
    `scripts/ci-qualification.mjs check <40-hex-sha>` verifies a green trusted tests run,
@@ -256,6 +258,8 @@ source-contract evidence. Standard DMG, .app.tar.gz updater and self-install rem
 Release build jobs retain bundle contents, digest and signing checks. Server startup,
 local API-token resolution, authenticated CLI identify and clean shutdown run in
 CLI integration target isolated_server through the Rust test tier on every native test OS.
+Windows jobs discover installed Python through the job-local tool-path helper; the service
+PATH may differ from an interactive shell. Do not change machine execution policy to install it.
 The nextest cli, test-one cli isolated_server and CI CLI runners prepare the debug server
 and its exact bound CLI before the capped tests. This test creates disposable data/config
 roots and uses an explicit private port; CODETERM_API_URL alone never selects that port.

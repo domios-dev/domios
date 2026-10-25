@@ -24,3 +24,22 @@ test('Unix runners recover their own Rust path without looking for Windows Bash'
 test('job-local path protocol rejects embedded line breaks', () => {
   assert.throws(() => runnerToolPaths('linux', { HOME: '/home/runner\nextra' }, () => true), /line break/);
 });
+
+test('Windows service PATH discovers a user-installed Python without a fixed version', () => {
+  const root = 'D:\\Profile\\AppData\\Local\\Programs\\Python';
+  const python = `${root}\\Python314`;
+  const env = { PATH: 'D:\\Git\\bin', LOCALAPPDATA: 'D:\\Profile\\AppData\\Local' };
+  const files = has('D:\\Git\\bin\\bash.exe', `${python}\\python.exe`);
+  assert.deepEqual(runnerToolPaths('win32', env, files, directory => directory === root ? ['Python311', 'Python314', 'unrelated'] : []), ['D:\\Git\\bin', python]);
+});
+
+test('Windows Python discovery preserves a real interpreter already on PATH', () => {
+  assert.deepEqual(runnerToolPaths('win32', { PATH: 'D:\\Git\\bin;D:\\Python' },
+    has('D:\\Git\\bin\\bash.exe', 'D:\\Python\\python.exe')), ['D:\\Git\\bin', 'D:\\Python']);
+});
+
+test('Windows Store aliases and directories without an interpreter are not Python runtimes', () => {
+  const store = 'D:\\Profile\\AppData\\Local\\Microsoft\\WindowsApps';
+  const env = { PATH: `D:\\Git\\bin;${store}`, LOCALAPPDATA: 'D:\\Profile\\AppData\\Local' };
+  assert.deepEqual(runnerToolPaths('win32', env, has('D:\\Git\\bin\\bash.exe', `${store}\\python.exe`), () => ['Python399']), ['D:\\Git\\bin']);
+});

@@ -81,13 +81,29 @@ function copyResource(source, destination) {
   } else throw new Error(`Resource is not a regular file or directory: ${source}`);
 }
 
-export function publishDevExecutable(source, destination, { platform = process.platform, rename = renameSync } = {}) {
+function pruneRetiredExecutables(destination, justRetired, remove) {
+  const directory = path.dirname(destination);
+  const prefix = `${path.basename(destination)}.`;
+  try {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.startsWith(prefix) || !entry.name.endsWith('.retired')) continue;
+      const file = path.join(directory, entry.name);
+      if (file === justRetired) continue;
+      try { remove(file); } catch { /* Windows retains images held by a running process. */ }
+    }
+  } catch { /* Retention must not fail a successful publication. */ }
+}
+
+export function publishDevExecutable(source, destination, { platform = process.platform, rename = renameSync, remove = rmSync } = {}) {
   const bytes = readFileSync(regular(source));
   let existing = false;
   try {
     regular(destination);
     existing = true;
-    if (readFileSync(destination).equals(bytes)) return;
+    if (readFileSync(destination).equals(bytes)) {
+      if (platform === 'win32') pruneRetiredExecutables(destination, undefined, remove);
+      return;
+    }
   } catch (error) { if (error.code !== 'ENOENT') throw error; }
   ensureDirectory(path.dirname(destination));
   const candidate = `${destination}.${randomUUID()}.pending`;
@@ -108,6 +124,7 @@ export function publishDevExecutable(source, destination, { platform = process.p
       }
       throw error;
     }
+    if (platform === 'win32') pruneRetiredExecutables(destination, rotated ? retired : undefined, remove);
   } finally { rmSync(candidate, { force: true }); }
 }
 
