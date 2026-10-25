@@ -1,0 +1,50 @@
+{
+  "task": "task_qufb8j",
+  "decision": "PASS",
+  "audit_pass": true,
+  "default": "short+bind",
+  "accepted_poc_sha": "de6597ca53b1fcf6d37b4eb4585ef3410ff63780",
+  "prereg_sha": "2e0bd388f2cec06ed84f6b2260c9f119d221a1e0",
+  "source_path": "eval/nodes_bind/short.md",
+  "source_bytes": 815,
+  "source_sha256": "bf77023a394f71dfce8bc1bbc0ec5b47c5b8f04002e7714905a71c3fa6d708a9",
+  "product_path": "prod-docs/BLUEPRINT-AUTHORING.md",
+  "product_sha256": "7c678e895fd0eeabe5a1f5282b23a60a12409aa6345c920f8efc259723606ac5",
+  "product_revalidation": "Orchestrator waiver: revision 4 adds corrective facts only (code limits, R10, literal arrays, R13 twins, result.type, text trigger string); the bind/call/check/apply protocol is unchanged. Revisions 5-7 add the per-platform shell semantics of run, the rearm_on_change shape the required 1-3 controlled tags on keep, and (revision 8) one named multi-input bind example with the data-dominance rule; the bind/call/check/apply authoring protocol is unchanged. Live blueprint-v2-intent rerun is deferred to Chair on the integration SHA.",
+  "evidence_paths": [
+    "eval/nodes_bind/RESULTS.md",
+    "eval/nodes_bind/VALIDATION.md",
+    "eval/nodes_bind/results/summary.json"
+  ],
+  "historical_e1_guide": {
+    "path": "eval/authoring/docs/v2.md",
+    "sha256": "dc526b03d57bd3b49155861ae40e75cd39fad2545e65317dd397f3ebb07f2d8b",
+    "status": "historical full guide; retained evidence, not an unconditional current default"
+  },
+  "rule": {
+    "haiku_short_correct": 12,
+    "haiku_full_correct": 11,
+    "codex_short_correct": 12,
+    "codex_full_correct": 12,
+    "haiku_run_median_savings_percent": [
+      29.22,
+      22.05,
+      30.98
+    ],
+    "codex_run_median_savings_percent": [
+      26.49,
+      26.66,
+      26.59
+    ]
+  },
+  "accepted_summary_sha256": "0ac120c424c41b21fd87c5b171806610c0fabb2491b445bb96ed5654cdbe8911",
+  "accepted_clauses": {
+    "haiku_correct": true,
+    "codex_correct": true,
+    "each_model_run_median_saving_at_least_20pct": true
+  },
+  "product_adaptations": [
+    "Product CLI recall/call/check/apply protocol",
+    "owner-input-18-no-os-sandbox.md: ordinary child processes, credential-free environment, execution budgets and folder trust (1.15.4)"
+  ]
+}

@@ -1,6 +1,5 @@
 //! Mem CRUD operations: save, get, update, delete.
 
-#[cfg(feature = "embeddings")]
 use super::reindex::compose_item_embed_text;
 use super::store::MemItem;
 use super::{store, MemManager, NewMemItem};
@@ -55,7 +54,6 @@ impl MemManager {
         let id = store::insert_seeded(&conn, &item, &self.blobs_dir, fingerprint)?;
         drop(conn);
 
-        #[cfg(feature = "embeddings")]
         {
             let body_text = if let Some(ref src) = item.source {
                 if let Some(path) = src.strip_prefix("file:") {
@@ -151,7 +149,6 @@ impl MemManager {
             self.embed_queue.cancel(&id);
         }
 
-        #[cfg(feature = "embeddings")]
         {
             let body_text = if let Some(ref src) = item.source {
                 if let Some(path) = src.strip_prefix("file:") {
@@ -184,7 +181,6 @@ impl MemManager {
 
     fn enqueue_embedding(&self, id: &str, item: &NewMemItem) {
         self.embed_queue.cancel(id);
-        #[cfg(feature = "embeddings")]
         if super::body_is_embeddable(&item.body) {
             let embed_text = compose_item_embed_text(
                 &format!("{:?}", item.kind).to_lowercase(),
@@ -197,8 +193,6 @@ impl MemManager {
             );
             self.embed_queue.enqueue(id.to_string(), embed_text);
         }
-        #[cfg(not(feature = "embeddings"))]
-        let _ = (id, item);
     }
 
     pub fn get(&self, id: &str) -> Result<Option<MemItem>, String> {
@@ -243,11 +237,18 @@ impl MemManager {
         let removed_ids = {
             let conn = self.conn.lock();
             let mut removed = Vec::new();
+            let mut areas = Vec::new();
             for matching_id in matching_ids {
+                let area = store::get(&conn, &matching_id, &self.blobs_dir)?
+                    .filter(|item| item.source.as_deref() == Some(crate::blueprint_library::SOURCE))
+                    .and_then(|item| item.area);
                 if store::delete(&conn, &matching_id)? {
                     removed.push(matching_id);
+                    areas.extend(area);
                 }
             }
+            drop(conn);
+            self.notify_blueprint_library_changed(areas);
             removed
         };
 
@@ -276,17 +277,25 @@ impl MemManager {
         };
         let mut deleted = Vec::new();
         let mut skill_sources = Vec::new();
+        let mut library_changed = false;
         for id in &ids {
+            let blueprint = store::get(&conn, id, &self.blobs_dir)?.is_some_and(|item| {
+                item.source.as_deref() == Some(crate::blueprint_library::SOURCE)
+            });
             self.embed_queue.cancel(id);
             let skill_source =
                 codeterm_mem_store::skill_folders::folder_skill_source_path(&conn, id)
                     .map_err(|e| format!("read folder skill source: {e}"))?;
             if store::delete(&conn, id)? {
                 deleted.push(id.clone());
+                library_changed |= blueprint;
                 skill_sources.push((id.clone(), skill_source));
             }
         }
         drop(conn);
+        if library_changed {
+            self.notify_blueprint_library_changed([area.to_owned()]);
+        }
         for (id, source) in skill_sources {
             remove_folder_skill(source.as_deref(), &self.skill_dir, &id);
         }
@@ -362,7 +371,6 @@ impl MemManager {
     /// directly, such as a merge or restore committed in one transaction.
     pub fn refresh_embedding(&self, id: &str) {
         self.embed_queue.cancel(id);
-        #[cfg(feature = "embeddings")]
         {
             let conn = self.conn.lock();
             if let Ok(Some(item)) = store::get(&conn, id, &self.blobs_dir) {

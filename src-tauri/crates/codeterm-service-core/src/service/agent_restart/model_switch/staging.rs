@@ -780,7 +780,7 @@ struct StagedFrames {
 
 impl StagedFrames {
     fn new(svc: &ServiceContext, pty_id: &str) -> Self {
-        let signal = svc.screen_state.lock().subscribe_screen_changes(pty_id);
+        let signal = svc.screen_state.subscribe_screen_changes(pty_id);
         Self {
             svc: svc.clone(),
             pty_id: pty_id.into(),
@@ -793,7 +793,6 @@ impl Drop for StagedFrames {
     fn drop(&mut self) {
         self.svc
             .screen_state
-            .lock()
             .unsubscribe_screen_changes(&self.pty_id, &self.signal);
     }
 }

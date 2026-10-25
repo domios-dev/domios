@@ -427,3 +427,13 @@ function runtimeConformance(runtime:AgentRuntime, context:RuntimeContext) {
   void [action,event,hostEvent,descriptor,invalid];
 }
 void runtimeConformance;
+
+function commandBodyConformance(ctx: AgentCommandCtx) {
+  const body: string | undefined = ctx.body;
+  const omitted: AgentCommandCtx = { sessionId: "s", verb: "send", args: [] };
+  const supplied: AgentCommandCtx = { ...omitted, body: "--message\r\nλ😀\n" };
+  // @ts-expect-error Command bodies are text.
+  const invalid: AgentCommandCtx = { ...omitted, body: 1 };
+  void [body, supplied, invalid];
+}
+void commandBodyConformance;

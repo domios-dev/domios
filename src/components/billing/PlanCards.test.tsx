@@ -115,6 +115,35 @@ it("opens the Discord link from siteLinks through the external URL opener", asyn
   expect(bridge.openUrl).toHaveBeenCalledExactlyOnceWith(siteLinks.discord);
 });
 
+it("puts the yearly switch and the purchase terms under the plans, yearly on by default", async () => {
+  const host = await renderPlanCards();
+  const plans = host.querySelector('[aria-label="Subscription plans"]')!;
+  const toggle = host.querySelector<HTMLElement>('[aria-label="Billed yearly"]')!;
+  const footer = Array.from(host.querySelectorAll("p")).find((line) => line.textContent?.includes("Renews automatically, cancel anytime"))!;
+  expect(plans.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(plans.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(toggle.getAttribute("aria-checked")).toBe("true");
+  expect(Array.from(footer.querySelectorAll("a"), (link) => link.textContent)).toEqual(["14-day money-back guarantee", "Terms", "Privacy"]);
+  for (const link of Array.from(footer.querySelectorAll("a"))) await act(async () => link.click());
+  expect(bridge.openUrl.mock.calls).toEqual([[`${siteLinks.terms}#refunds`], [siteLinks.terms], [siteLinks.privacy]]);
+});
+
+it("a paid subscription never starts a checkout; other paid cards and intervals offer Manage subscription", async () => {
+  const onChoose = vi.fn();
+  const onManage = vi.fn();
+  const host = await renderWith(<PlanCards onChoose={onChoose} onManage={onManage} currentPlan="pro_yearly" subscribedPlan="pro_yearly" />);
+  const buttons = () => Array.from(host.querySelectorAll("button"), (button) => button.textContent?.trim());
+  expect(buttons().filter((label) => label?.startsWith("Choose"))).toEqual([]);
+  const sponsor = host.querySelector('section[aria-label="Sponsor plan"]')!;
+  expect(sponsor.textContent).toContain("To switch plans, cancel in Manage subscription and choose a new plan after it ends, or contact us.");
+  await act(async () => host.querySelector<HTMLElement>('[aria-label="Billed yearly"]')!.click());
+  const manage = Array.from(host.querySelectorAll("button")).filter((button) => button.textContent?.trim() === "Manage subscription");
+  expect(manage).toHaveLength(2);
+  for (const button of manage) await act(async () => button.click());
+  expect(onManage).toHaveBeenCalledTimes(2);
+  expect(onChoose).not.toHaveBeenCalled();
+});
+
 async function renderWith(element: React.ReactElement) {
   const host = mounted?.host ?? document.createElement("div");
   if (!mounted) {
@@ -209,4 +238,77 @@ it("records an explicit subscription plans request after mounting", async () => 
     ["GET", "/api/analytics/status"],
     ["POST", "/api/analytics/event", { event_type: "plan_viewed", event_properties: {} }],
   ]);
+});
+
+it("draws changing Pro greeting and re-entry frames for one second, with a visible reduced-motion field", async () => {
+  let now = 100;
+  let nextFrame = 0;
+  const frames = new Map<number, FrameRequestCallback>();
+  vi.spyOn(performance, "now").mockImplementation(() => now);
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+    frames.set(++nextFrame, callback);
+    return nextFrame;
+  });
+  vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
+  const dots: number[][] = [];
+  let dot: number[] = [];
+  const context = {
+    globalAlpha: 1,
+    setTransform() {},
+    clearRect() { dots.length = 0; },
+    beginPath() {},
+    arc(x: number, y: number, radius: number) { dot = [x, y, radius]; },
+    fill() { dots.push([...dot, Math.round(this.globalAlpha * 255)]); },
+  };
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(context as unknown as CanvasRenderingContext2D);
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+    x: 0, y: 0, left: 0, top: 0, right: 256, bottom: 176, width: 256, height: 176, toJSON() {},
+  });
+  const preference = vi.fn(() => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
+  vi.stubGlobal("matchMedia", preference);
+  const sample = (elapsed: number, frameTimestamp = elapsed) => {
+    now = elapsed;
+    const pending = [...frames.values()];
+    frames.clear();
+    for (const callback of pending) callback(frameTimestamp);
+    return structuredClone(dots);
+  };
+  const peakAlpha = (frame: number[][]) => Math.max(...frame.map(dot => dot[3]));
+  try {
+    const pro = card(await renderPlanCards(), "Pro");
+    const greeting = [sample(110, 95), sample(350), sample(600), sample(900)];
+    expect(new Set(greeting.map(frame => JSON.stringify(frame))).size).toBe(4);
+    expect(greeting.every(frame => peakAlpha(frame) > 25)).toBe(true);
+    const rest = sample(1100);
+    expect(frames.size).toBe(0);
+    expect(peakAlpha(rest)).toBeGreaterThanOrEqual(30);
+    expect(peakAlpha(rest)).toBeLessThan(50);
+    for (const releasedAt of [1200, 2400]) {
+      now = releasedAt;
+      await act(async () => {
+        pro.dispatchEvent(new PointerEvent("pointerout", { bubbles: true }));
+        pro.dispatchEvent(new PointerEvent("pointerover", { bubbles: true }));
+      });
+      const first = sample(releasedAt + 10, releasedAt - 5);
+      const middle = sample(releasedAt + 500);
+      const late = sample(releasedAt + 800);
+      expect(first).not.toEqual(rest);
+      expect(middle).not.toEqual(first);
+      expect(late).not.toEqual(middle);
+      expect(sample(releasedAt + 1000)).toEqual(rest);
+      expect(frames.size).toBe(0);
+    }
+    await act(async () => mounted?.root.unmount());
+    mounted?.host.remove();
+    mounted = null;
+    preference.mockReturnValue({ matches: true, addEventListener() {}, removeEventListener() {} });
+    const reducedPro = card(await renderPlanCards(), "Pro");
+    const staticFrame = structuredClone(dots);
+    await act(async () => { reducedPro.dispatchEvent(new PointerEvent("pointerover", { bubbles: true })); });
+    expect(dots).toEqual(staticFrame);
+    expect(peakAlpha(staticFrame)).toBeGreaterThanOrEqual(30);
+    expect(frames.size).toBe(0);
+  } finally {
+    vi.restoreAllMocks();
+  }
 });

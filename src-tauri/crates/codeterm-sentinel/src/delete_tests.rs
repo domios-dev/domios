@@ -2,14 +2,14 @@ use super::*;
 use serde_json::json;
 
 fn job(id: &str, scenario: &str, creator: &str, team: Option<&str>, stopped: bool) -> Sentinel {
-    let mut job: Sentinel = serde_json::from_value(json!({
-        "id": id, "workspace_id": "workspace", "team_id": team, "creator_tab_id": creator,
-        "cwd": "/tmp", "probe": "status", "question": "Ready?", "buckets": ["ready"],
-        "routes": {"ready": []}, "matches": {}, "interval_ms": 10000, "next_run": 0, "expires_at": null,
-        "until": null, "last_reason": null,
-        "machine": {"paused": false, "stopped": stopped, "last_hash": null, "last_bucket": null}
-    }))
-    .unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::new(
+        root.path().join("fixture.json"),
+        codeterm_cron::clock::MockClock::starting_at(0),
+    );
+    let mut job=store.prepare_document(json!({"schema_version":2,"kind":"watch","name":format!("delete {id}"),"steps":[{"id":"source","uses":"probe","with":{"command":{"lit":"status"}},"every":{"lit":"10s"},"timeout":{"lit":"1h"}},{"id":"decide","uses":"ask","with":{"question":{"lit":"Ready?"}},"buckets":["ready"],"matches":{"ready":{"lit":"ready"}}}]}),crate::store::Owner{creator_tab_id:creator.into(),team_id:team.map(str::to_owned),workspace_id:"workspace".into(),cwd:"/tmp".into()},false).unwrap();
+    job.id = id.into();
+    job.machine.stopped = stopped;
     job.scenario_id = Some(scenario.into());
     job
 }

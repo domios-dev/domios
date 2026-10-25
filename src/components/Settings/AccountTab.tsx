@@ -5,7 +5,7 @@ import { CreditCard, UserRound } from "lucide-react";
 import { Button } from "../shared/Button";
 import { PlanCards } from "../billing/PlanCards";
 import { usePlanCatalog } from "../billing/planCatalogContext";
-import { displayedPlan } from "../billing/purchaseIntent";
+import { displayedPlan, subscribedPlan } from "../billing/purchaseIntent";
 import { usePurchaseIntent } from "../billing/usePurchaseIntent";
 import { ACCOUNT_ENTRY_OPTIONS, SIGN_IN_PROVIDER_OPTIONS } from "./accountSignInOptions";
 import { CopyRow, SettingsCard, SettingsPage, SettingsPill } from "./shared";
@@ -15,20 +15,16 @@ import { SettingsCardAnchor } from "./SettingsCardAnchor";
 import type { SettingsCardAnchorId } from "./sections";
 import { useMultiplexer } from "../../store/multiplexer";
 import { billingFailureToast } from "./accountFailureToast";
-import type { LoginHint } from "./accountModel";
+import { SESSION_REVOKED_MESSAGE, accountInitials, type LoginHint } from "./accountModel";
 
 const MUTED = "m-0 text-xs text-[var(--ct-muted-fg)]";
-
-function initialsOf(name: string): string {
-  const parts = name.replace(/@.*/, "").split(/[\s._-]+/).filter(Boolean);
-  return (parts.length > 1 ? parts[0][0] + parts[1][0] : name.slice(0, 2)).toUpperCase();
-}
 
 export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) {
   const { model, signIn, signOut } = useAccount();
   const billing = useAccountPlan(model.kind === "signed_in" ? model.identity.uid : null);
   const catalog = usePlanCatalog();
   const [plansRequest, setPlansRequest] = useState(0);
+  const [refusedAsSubscribed, setRefusedAsSubscribed] = useState(false);
   const { upsertToast } = useMultiplexer();
   const notify = createNoticePublisher({ upsertToast });
   const retryHint = useRef<LoginHint | undefined>(undefined);
@@ -39,6 +35,7 @@ export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) 
     catalog,
     notify,
     retrySignIn: () => { void signIn(retryHint.current); },
+    onAlreadySubscribed: () => setRefusedAsSubscribed(true),
   });
   const revealPlans = () => setPlansRequest((count) => count + 1);
   const manageSubscription = async () => {
@@ -57,7 +54,7 @@ export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) 
         return <div className="flex flex-col gap-3">
           <div className="flex items-center gap-3">
             <span aria-hidden className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[color-mix(in_srgb,var(--ct-accent)_18%,transparent)] text-sm font-semibold text-[var(--ct-accent)]">
-              {initialsOf(name)}
+              {accountInitials(name)}
             </span>
             <div className="flex min-w-0 flex-1 flex-col">
               <span className="truncate text-sm font-medium text-[var(--ct-fg)]">{name}</span>
@@ -69,6 +66,7 @@ export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) 
           <CopyRow label="Account ID" value={model.identity.uid} />
         </div>;
       })() : <div className="flex flex-col items-start gap-3 text-xs">
+        {model.kind === "signed_out" && model.sessionRevoked && <p role="status" className={MUTED}>{SESSION_REVOKED_MESSAGE}</p>}
         {model.kind === "pending"
           ? <p role="status" className={MUTED}>Finish signing in in your browser.</p>
           : <p className={MUTED}>Sign in to keep your plan and settings with your account.</p>}
@@ -102,6 +100,7 @@ export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) 
         <div className="w-full">
           <SettingsCardAnchor id="subscription-plans" focused={focusCard === "subscription-plans"} focusRequest={plansRequest}>
             <PlanCards viewRequested={focusCard === "subscription-plans" || plansRequest > 0} catalog={catalog} currentPlan={displayedPlan(billing.plan)}
+              subscribedPlan={subscribedPlan(billing.plan, refusedAsSubscribed)} onManage={() => void manageSubscription()} manageBusy={billing.pending}
               canPurchase={!billing.pending && !purchase.busy && !(signedIn && billing.planLoad === "loading")}
               onChoose={purchase.choose} intent={purchase.intent} onCancel={purchase.cancel}
               signedInAs={signedIn ? model.identity.email ?? model.identity.display_name : null} />

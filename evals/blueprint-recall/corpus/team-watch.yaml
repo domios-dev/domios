@@ -1,0 +1,23 @@
+# Check and apply this file with codeterm blueprint.
+schema_version: 1
+name: Watch tab {{tab_id}}
+note: Observe one Team member's tab and notify when the watched state changes.
+inputs:
+  changed_pattern:
+    type: string
+    description: Changed pattern
+  tab_id:
+    type: string
+    description: Tab id
+watch:
+  observe: tab:{{tab_id}}
+  question: classify-member-state
+  buckets:
+  - waiting
+  - changed
+  matches:
+    changed: '{{changed_pattern}}'
+  timeout: 1h
+  routes:
+    waiting: none
+    changed: notify

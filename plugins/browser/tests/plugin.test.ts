@@ -3,9 +3,35 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import plugin, { forward, parseOf } from "../src/plugin";
+import { redactCredentials } from "../src/redaction";
+import redactionCases from "./redaction-cases.json";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const manifest = JSON.parse(readFileSync(join(root, "plugin.json"), "utf8"));
+
+describe("Browser stdin typing", () => {
+  it("delivers the separate body without echoing it in successes or failures", () => {
+    const secret = "opaque-body-λ\"\n";
+    for (const field of ["result", "error"] as const) {
+      const call = vi.fn((_verb: string, payload: string) => {
+        expect(JSON.parse(payload)).toEqual(["textbox", "Password", secret]);
+        return JSON.stringify({ [field]: `field value: ${secret}` });
+      });
+      expect(forward({ sessionId: "stdin", verb: "type", args: ["textbox", "Password"], body: secret }, call))
+        .toEqual({ [field]: "field value: REDACTED" });
+      expect(call.mock.calls[0][0]).toBe("type-secret");
+    }
+  });
+
+  it("keeps owner routing and rejects bodies on unrelated verbs", () => {
+    const call = vi.fn(() => JSON.stringify({ result: "typed" }));
+    forward({ sessionId: "stdin", verb: "type", args: ["@e3", "--of", "QA"], body: "opaque-body" }, call);
+    expect(call).toHaveBeenCalledWith("type-secret", JSON.stringify({ args: ["@e3", "opaque-body"], of: "QA" }));
+    call.mockClear();
+    expect(forward({ sessionId: "stdin", verb: "goto", args: [], body: "opaque-body" }, call)).toHaveProperty("error");
+    expect(call).not.toHaveBeenCalled();
+  });
+});
 
 describe("browser plugin onAgentCommand", () => {
   it("forwards the verb and its args to the caller's own surface as a JSON array", () => {
@@ -59,5 +85,22 @@ describe("browser plugin onAgentCommand", () => {
     expect(manifest.permissions).toEqual({ agentCommands: true, surfaces: true });
     expect(manifest.agentKeywords.length).toBeLessThanOrEqual(10);
     expect(readFileSync(join(root, manifest.agentGuide), "utf8").length).toBeLessThan(16 * 1024);
+  });
+});
+
+
+describe("Browser credential redaction", () => {
+  it.each(redactionCases)("redacts $input", ({ input, expected }) => {
+    expect(redactCredentials(input)).toBe(expected);
+    expect(redactCredentials(expected)).toBe(expected);
+  });
+
+  it.each(["snapshot", "goto", "status", "text", "wait", "inbox", "open", "back", "forward", "reload", "click"])("redacts %s successes and failures without changing navigation input", (verb) => {
+    const url = "https://example.test/#token=opaque";
+    for (const field of ["result", "error"] as const) {
+      const call = vi.fn(() => JSON.stringify({ [field]: url }));
+      expect(forward({ sessionId: "s", verb, args: [url] }, call)).toEqual({ [field]: "https://example.test/#token=REDACTED" });
+      expect(call).toHaveBeenCalledWith(verb, JSON.stringify([url]));
+    }
   });
 });

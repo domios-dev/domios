@@ -44,15 +44,30 @@ export function labelChars(label: string): string {
   return label.replace(/ /g, "\u00A0");
 }
 
+// A generated ordinal ("image2") is typed as invisible word joiners after its kind so the token stays unique without showing a number.
+const ORDINAL_MARK = "\u2060";
+const GENERATED_LABEL = /^(image|video|text|quote)(\d+)(?=\s\u00B7|$)/;
+const MARKED_KIND = /^(image|video|text|quote)(\u2060+)/;
+
+export function typedLabel(label: string): string {
+  const generated = GENERATED_LABEL.exec(label);
+  return generated ? `${generated[1]}${ORDINAL_MARK.repeat(Number(generated[2]))}${label.slice(generated[0].length)}` : label;
+}
+
+function labelOfToken(typed: string): string {
+  const marked = MARKED_KIND.exec(typed);
+  return marked ? `${marked[1]}${marked[2].length}${typed.slice(marked[0].length)}` : typed;
+}
+
 export function capsuleToken(label: string): string {
-  return `${CAPSULE_LEAD}${labelChars(label)}${CAPSULE_TRAIL}`;
+  return `${CAPSULE_LEAD}${labelChars(typedLabel(label))}${CAPSULE_TRAIL}`;
 }
 
 export function capsuleSpans(text: string): CapsuleSpan[] {
   return [...text.matchAll(TOKEN)].map((match) => ({
     start: match.index ?? 0,
     end: (match.index ?? 0) + match[0].length,
-    label: match[1].replace(/\u00A0/g, " "),
+    label: labelOfToken(match[1].replace(/\u00A0/g, " ")),
   }));
 }
 
@@ -119,14 +134,21 @@ function samePath(a: string, b: string): boolean {
   return a.replace(/\\/g, "/") === b.replace(/\\/g, "/");
 }
 
-/** Registers a capsule for a path; the same path in one draft keeps its label. */
-export function addCapsule(registry: CapsuleRegistry, request: CapsuleRequest): { registry: CapsuleRegistry; capsule: ComposerCapsule } {
-  const existing = Object.values(registry).find((capsule) => capsule.uploadId === undefined && capsule.kind === request.kind && samePath(capsule.path, request.path));
+/** Capsules whose tokens are still in the draft; a removed capsule frees its label and number. */
+function liveCapsules(registry: CapsuleRegistry, draft: string | undefined): CapsuleRegistry {
+  if (draft === undefined) return registry;
+  return Object.fromEntries(capsulesInDraft(draft, registry).map((capsule) => [capsule.label, capsule]));
+}
+
+/** Registers a capsule for a path; the same path in one draft keeps its label. Pass the draft so removed capsules stop holding numbers. */
+export function addCapsule(registry: CapsuleRegistry, request: CapsuleRequest, draft?: string): { registry: CapsuleRegistry; capsule: ComposerCapsule } {
+  const taken = liveCapsules(registry, draft);
+  const existing = Object.values(taken).find((capsule) => capsule.uploadId === undefined && capsule.kind === request.kind && samePath(capsule.path, request.path));
   if (existing) return { registry, capsule: existing };
   const preferred = request.label ? cleanLabel(request.label) : "";
-  const label = preferred && !registry[preferred]
+  const label = preferred && !taken[preferred]
     ? preferred
-    : uniqueLabel(registry, preferred && !NUMBERED_KINDS.has(request.kind) ? preferred : generatedLabel(registry, request));
+    : uniqueLabel(taken, preferred && !NUMBERED_KINDS.has(request.kind) ? preferred : generatedLabel(taken, request));
   const capsule: ComposerCapsule = { label, kind: request.kind, path: request.path };
   return { registry: { ...registry, [label]: capsule }, capsule };
 }
@@ -135,13 +157,17 @@ export function addCapsule(registry: CapsuleRegistry, request: CapsuleRequest): 
 export function capsulesForPaths(
   registry: CapsuleRegistry,
   items: ReadonlyArray<{ path: string; kind?: AttachmentKind; label?: string; detail?: string }>,
+  draft?: string,
 ): { registry: CapsuleRegistry; text: string } {
   let next = registry;
+  let working = draft;
   const tokens: string[] = [];
   for (const item of items) {
-    const added = addCapsule(next, { kind: item.kind ?? attachmentKindForPath(item.path), path: item.path, label: item.label, detail: item.detail });
+    const added = addCapsule(next, { kind: item.kind ?? attachmentKindForPath(item.path), path: item.path, label: item.label, detail: item.detail }, working);
     next = added.registry;
-    tokens.push(capsuleToken(added.capsule.label));
+    const token = capsuleToken(added.capsule.label);
+    tokens.push(token);
+    if (working !== undefined) working = `${working} ${token}`;
   }
   return { registry: next, text: tokens.join(" ") };
 }

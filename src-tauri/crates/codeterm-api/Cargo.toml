@@ -71,6 +71,8 @@ codeterm-service-core = { path = "../codeterm-service-core", default-features = 
 codeterm-orchestration = { path = "../codeterm-orchestration", features = ["test-support"] }
 codeterm-sentinel-host = { path = "../codeterm-sentinel-host", features = ["test-support"] }
 mockito = "1"
+codeterm-entitlements = { path = "../codeterm-entitlements" }
+codeterm-mesh = { path = "../codeterm-mesh", features = ["test-support"] }
 
 [features]
 test-support = ["codeterm-service-core/test-support"]

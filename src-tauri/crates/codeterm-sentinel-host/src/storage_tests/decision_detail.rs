@@ -11,7 +11,7 @@ fn accepted_decision_survives_late_handler_completion_and_store_reload() {
         Some("team"),
         false,
         json!({"done":[
-            {"id":"effect","type":"notify","parameters":{}}
+            {"id":"effect","uses":"notify","with":codeterm_sentinel::test_support::literal_params(json!({}))}
         ]}),
     );
     let lease = due(&store).remove(0);

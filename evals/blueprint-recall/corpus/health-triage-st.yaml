@@ -1,0 +1,26 @@
+schema_version: 1
+name: api-incident-grader
+note: Hit an API status page; rate any failure; hand unclear cases to a person.
+owner: team
+inputs:
+  endpoint: {type: string, description: API status page}
+pipeline:
+  trigger: {type: schedule, every: 2m}
+  steps:
+    - name: check
+      input: text
+      uses: http
+      with: {url: '{{endpoint}}'}
+      on: {failed: grade, down: grade, up: stop}
+    - name: grade
+      input: text
+      run: >-
+        python3 -c 'import json, sys; c = json.load(sys.stdin);
+        print("high" if c["status"] >= 502 or c["latency_ms"] > 5000 else "low", "http", c["status"])'
+      on: {failed: stop, done: next}
+    - name: decide
+      input: text
+      uses: ask
+      with: {question: 'Is this a short blip or a real incident?', buckets: [blip, incident]}
+      on: {blip: stop, incident: next}
+  result: {to: notify}

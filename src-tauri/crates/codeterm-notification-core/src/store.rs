@@ -124,6 +124,7 @@ impl PushAdmission {
 /// choice set and the offer that rides on it cannot be stored apart.
 #[derive(Debug, Clone, Default)]
 pub struct Ask {
+    pub daemon_request: Option<String>,
     pub actions: Option<Vec<NotificationAction>>,
     pub offer: Option<SurfaceOffer>,
     /// The standing tab condition this asks about, if any.
@@ -146,6 +147,7 @@ impl Ask {
     pub fn offering(actions: Option<Vec<NotificationAction>>) -> Self {
         Self {
             actions,
+            daemon_request: None,
             offer: None,
             condition: None,
         }
@@ -154,6 +156,7 @@ impl Ask {
     pub fn about(condition: TabCondition, actions: Option<Vec<NotificationAction>>) -> Self {
         Self {
             actions,
+            daemon_request: None,
             offer: None,
             condition: Some(condition),
         }
@@ -270,6 +273,7 @@ impl NotificationStore {
         level: Option<NotifyLevel>,
     ) -> String {
         let Ask {
+            daemon_request,
             actions,
             offer,
             condition,
@@ -282,7 +286,11 @@ impl NotificationStore {
 
         // Send-time capture: the asking tab is read from the provenance this
         // record is being created with, never resolved when an answer is tapped.
-        let answer = answer::slot_for(actions.as_deref(), provenance.tab_id.as_deref());
+        let answer =
+            answer::slot_for(actions.as_deref(), provenance.tab_id.as_deref()).map(|mut slot| {
+                slot.daemon_request = daemon_request;
+                slot
+            });
         let notification = Notification {
             id: id.clone(),
             tab_id: provenance.tab_id,
@@ -922,6 +930,24 @@ impl NotificationStore {
         let admission = answer::record(&mut self.notifications, id, label);
         self.sync_persisted();
         admission
+    }
+
+    pub fn resolve_daemon_request(&mut self, request: &str) -> Vec<String> {
+        let ids: Vec<String> = self
+            .notifications
+            .iter()
+            .filter(|record| {
+                record
+                    .answer
+                    .as_ref()
+                    .and_then(|slot| slot.daemon_request.as_deref())
+                    == Some(request)
+            })
+            .map(|record| record.id.clone())
+            .collect();
+        let resolved = ids.into_iter().filter(|id| self.resolve_id(id)).collect();
+        self.close_push_scope(&format!("consent:{request}"));
+        resolved
     }
 
     pub fn record_detached_answer(&mut self, id: &str, label: &str) -> AnswerAdmission {

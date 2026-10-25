@@ -1,7 +1,7 @@
 import { updateNotificationAnswer, type AnswerUpdate } from "../../lib/notificationAnswer";
 import { admitBellNotification } from "../../lib/notificationAdmission";
 import { applyShellState, type ShellCommandState } from "../../lib/shellCommandState";
-import { reconcilePageSelection, type PageSelection } from "./pageSelection";
+import { reconcilePageSelection, seededSelection, type PageSelection } from "./pageSelection";
 import { TitleLevel } from "../../lib/types";
 import type {
   MultiplexerState,
@@ -19,12 +19,14 @@ import {
 } from "./tree";
 import type { RemoteTransportAvailability, RemoteTransportChannel } from "../../lib/remoteTabTransportState";
 import { shareSnapshotState } from "./structuralShare";
+import { applyStatusDelta, type MuxStatusDelta } from "./statusDelta";
 
 export type Action =
+  | { type: "APPLY_STATUS_DELTA"; delta: MuxStatusDelta }
   | { type: "UPDATE_SHELL_STATE"; tabId: string; ptyId: string; state: ShellCommandState }
-  | { type: "SET_STATE"; state: MultiplexerState; pageOwnedSelection?: boolean; initialSelection?: PageSelection }
+  | { type: "SET_STATE"; state: MultiplexerState; force?: boolean; pageOwnedSelection?: boolean; initialSelection?: PageSelection }
   | { type: "ADD_WORKSPACE"; workspace: Workspace; tab: Tab }
-  | { type: "SET_ACTIVE_WORKSPACE"; id: string }
+  | { type: "SET_ACTIVE_WORKSPACE"; id: string; source: "user" | "program" }
   | { type: "CLOSE_WORKSPACE"; id: string }
   | { type: "RENAME_WORKSPACE"; id: string; name: string }
   | { type: "MOVE_TAB"; tabId: string; fromWorkspaceId: string; toWorkspaceId: string }
@@ -33,7 +35,7 @@ export type Action =
   | { type: "REORDER_WORKSPACES"; orderedWorkspaceIds: string[] }
   | { type: "ADD_TAB"; workspaceId: string; tab: Tab }
   | { type: "CLOSE_TAB"; workspaceId: string; tabId: string; removedTabIds: string[] }
-  | { type: "SET_ACTIVE_TAB"; workspaceId: string; tabId: string }
+  | { type: "SET_ACTIVE_TAB"; workspaceId: string; tabId: string; source: "user" | "program" }
   | { type: "SET_FOCUSED_TAB"; tabId: string }
   | { type: "SET_TAB_PTY"; tabId: string; ptyId: string }
   | { type: "ADD_NOTIFICATION"; notification: Notification }
@@ -49,6 +51,7 @@ export type Action =
   | { type: "CLEAR_NOTIFICATIONS" }
   | { type: "DISMISS_TOAST"; id: string }
   | { type: "SET_TAB_TITLE"; tabId: string; title: string; level?: TitleLevel }
+  | { type: "REVERT_TAB_TITLE"; tabId: string; attempted: string; title: string; level?: TitleLevel }
   | { type: "SET_AGENT_TYPE"; tabId: string; agentType: string | null }
   | { type: "UPDATE_TAB_STATUS"; tabId: string; status: TabStatus }
   | { type: "UPDATE_BOOT_STAGE"; tabId: string; stage: BootStage; reason?: string | null; agent_booting?: boolean; session_bound?: boolean; provisional_launch?: Tab["provisional_launch"]; launchGeneration?: TabBootStageEvent["launch_generation"] }
@@ -128,6 +131,8 @@ function addPendingCloses(current: string[], tabIds: string[]): string[] {
 
 export function reducer(state: ExtendedState, action: Action): ExtendedState {
   switch (action.type) {
+    case "APPLY_STATUS_DELTA":
+      return applyStatusDelta(state, action.delta);
     case "UPDATE_REMOTE_CHANNEL": {
       const tab = state.tabs[action.tabId];
       if (!tab?.remote_peer_id || tab.remote_channels?.[action.channel] === action.availability) return state;
@@ -162,6 +167,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         generation: -1,
         pendingCloses: [],
         storageUnavailable: false,
+        muxResyncRequired: false,
       };
 
     case "STORAGE_UNAVAILABLE":
@@ -169,7 +175,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
 
     case "SET_STATE": {
       const incomingGen = action.state.generation;
-      if (typeof incomingGen === "number" && incomingGen <= state.generation) {
+      if (!action.force && typeof incomingGen === "number" && incomingGen <= state.generation) {
         return state;
       }
       // This snapshot is accepted. Apply optimistic-close tombstones now, so a
@@ -246,7 +252,8 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
           : state.focused_tab_id && attached.tabs[state.focused_tab_id]
             ? state.focused_tab_id
             : null;
-      const selection = action.initialSelection ?? reconcilePageSelection(state, {
+      const seed = seededSelection(state.selectionNavigated === true, action.initialSelection);
+      const selection = seed ?? reconcilePageSelection(state, {
         focused_tab_id,
         active_workspace_id: action.state.active_workspace_id,
         activeTabIds,
@@ -258,6 +265,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         tabs: attached.tabs,
         teams: action.state.teams ?? [],
         ...selection,
+        ...(seed ? { selectionSeeds: (state.selectionSeeds ?? 0) + 1 } : {}),
         // Prefer the authoritative recently closed list when it is present.
         recently_closed: action.state.recently_closed ?? state.recently_closed,
         closed_structures: action.state.closed_structures ?? [],
@@ -271,6 +279,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
           typeof incomingGen === "number" ? incomingGen : state.generation,
         pendingCloses: stillPending,
         storageUnavailable: false,
+        muxResyncRequired: false,
       });
     }
 
@@ -284,7 +293,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
     }
 
     case "SET_ACTIVE_WORKSPACE":
-      return { ...state, active_workspace_id: action.id };
+      return { ...state, active_workspace_id: action.id, selectionNavigated: state.selectionNavigated || action.source === "user" };
 
     case "CLOSE_WORKSPACE": {
       const ws = state.workspaces.find((w) => w.id === action.id);
@@ -464,6 +473,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
       return {
         ...state,
         activeTabIds: { ...state.activeTabIds, [action.workspaceId]: action.tabId },
+        selectionNavigated: state.selectionNavigated || action.source === "user",
       };
 
     case "REMOVE_PENDING_CLOSE": {
@@ -515,6 +525,19 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
             title_level: newLevel,
             title_pending_local: true,
           },
+        },
+      };
+    }
+
+    // A newer title since the refused rename wins; only the attempted one is rolled back.
+    case "REVERT_TAB_TITLE": {
+      const tab = state.tabs[action.tabId];
+      if (!tab || tab.title !== action.attempted) return state;
+      return {
+        ...state,
+        tabs: {
+          ...state.tabs,
+          [action.tabId]: { ...tab, title: action.title, title_level: action.level, title_pending_local: false },
         },
       };
     }

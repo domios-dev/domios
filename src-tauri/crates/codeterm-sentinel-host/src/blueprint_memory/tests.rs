@@ -26,23 +26,28 @@ fn worker_keep_is_refused_and_saved_recipe_applies_only_in_its_project() {
     crate::manage_fixture_ports(service, &handle);
     let caller = service.sentinel_caller(&tab, None).unwrap();
     assert!(service
-        .blueprint_keep(&caller, "missing", "Watch CI failures")
+        .blueprint_keep(
+            &caller,
+            "missing",
+            &["Watch CI failures".into()],
+            &["ci".into()]
+        )
         .unwrap_err()
         .contains("Orchestrator"));
-    let document=Document::from_definition(&json!({"create":{"name":"Concrete watch","note":"Watch CI","probe":"echo private-instance","question":"Ready?","buckets":["done"],"every":"20s","matches":{"done":"ready"},"routes":{"done":"notify"},"until":"done","timeout":"1h"}})).unwrap();
+    let document=Document::from_definition(&json!({"schema_version":2,"kind":"watch","name":"Concrete watch","note":"Watch CI","steps":[{"id":"source","uses":"probe","with":{"command":{"lit":"echo private-instance"}},"every":{"lit":"20s"},"timeout":{"lit":"1h"}},{"id":"decide","uses":"ask","with":{"question":{"lit":"Ready?"}},"buckets":["done"],"matches":{"done":{"lit":"ready"}},"until":"done","routes":{"done":"notice"}},{"id":"notice","uses":"notify"}]})).unwrap();
     let id = service
         .mem
         .save_blueprint(
             &area(&workspace),
             document,
-            "Watch CI readiness",
+            &["Watch CI readiness".into()],
             Evidence {
                 kept: true,
                 ..Evidence::default()
             },
         )
         .unwrap()
-        .unwrap();
+        .id;
     assert!(service
         .blueprint_apply_recipe(&caller, &id, &[], None, false)
         .is_err());
@@ -67,7 +72,8 @@ fn worker_keep_is_refused_and_saved_recipe_applies_only_in_its_project() {
             &workspace,
             caller.team.as_deref(),
             &job.id,
-            "Watch readiness"
+            "Watch readiness",
+            &["ci".into(), "monitoring".into()],
         )
         .unwrap_err()
         .contains("successful"));
@@ -89,9 +95,11 @@ fn worker_keep_is_refused_and_saved_recipe_applies_only_in_its_project() {
             caller.team.as_deref(),
             &job.id,
             "Watch readiness",
+            &["ci".into(), "monitoring".into()],
         )
         .unwrap();
     assert_eq!(saved["status"], "saved");
+    assert_eq!(saved["tags"], json!(["ci", "monitoring"]));
     let saved_id = saved["id"].as_str().unwrap();
     assert!(service
         .mem
@@ -102,7 +110,11 @@ fn worker_keep_is_refused_and_saved_recipe_applies_only_in_its_project() {
         .as_array()
         .unwrap()
         .iter()
-        .any(|entry| entry["id"] == saved_id));
+        .any(|entry| entry["id"] == saved_id && entry["tags"] == json!(["ci", "monitoring"])));
+    assert_eq!(
+        service.mem.blueprint_tags(saved_id).unwrap(),
+        vec!["ci", "monitoring"]
+    );
     service
         .blueprint_archive_solution_host(&workspace, saved_id)
         .unwrap();
@@ -111,4 +123,55 @@ fn worker_keep_is_refused_and_saved_recipe_applies_only_in_its_project() {
         .blueprint_recipe(&area(&workspace), saved_id)
         .is_err());
     close(instance);
+}
+
+#[test]
+fn blueprint_library_commits_push_workspace_graph_events() {
+    let (mux, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
+    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    subscribe_changes(&fixture.service);
+    let document = Document::from_definition(&json!({"schema_version":2,"kind":"pipeline","name":"saved-filter","owner":"tab","trigger":{"type":"schedule","every":{"lit":"20s"}},"steps":[{"id":"match","uses":"filter","with":{"pattern":{"lit":"ready"}}}]})).unwrap();
+    let saved = fixture
+        .service
+        .mem
+        .save_blueprint(
+            "blueprints:workspace",
+            document,
+            &["Filter ready messages".into()],
+            Evidence {
+                kept: true,
+                successes: 1,
+                ..Evidence::default()
+            },
+        )
+        .unwrap();
+    fixture
+        .service
+        .mem
+        .list_blueprint_solutions("blueprints:workspace")
+        .unwrap();
+    fixture
+        .service
+        .mem
+        .archive_blueprint_solution("blueprints:workspace", &saved.id)
+        .unwrap();
+    let events = fixture.ui.0.lock();
+    let events: Vec<_> = events
+        .iter()
+        .filter(|(event, _)| event == "automation-graph-changed")
+        .collect();
+    assert_eq!(events.len(), 2);
+    for (_, payload) in &events {
+        assert_eq!(payload["workspace_id"], "workspace");
+        assert!(payload["team_id"].is_null());
+        assert!(payload["revision"]
+            .as_str()
+            .unwrap()
+            .starts_with("blueprint-library:"));
+    }
+    let first = events[0].1["revision"].as_str().unwrap();
+    let second = events[1].1["revision"].as_str().unwrap();
+    assert_ne!(first, second);
+    assert!(first.ends_with(":1"));
+    assert!(second.ends_with(":2"));
 }

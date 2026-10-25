@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { removeJobOutputs, sweepRustTargets } from '../ci-workspace-cleanup.mjs';
 
+const selfHosted = { RUNNER_ENVIRONMENT: 'self-hosted', CI: 'true' };
+
 function workspace() {
   const root = mkdtempSync(join(tmpdir(), 'domios-ci-cleanup-'));
   const ws = join(root, 'ws');
@@ -27,10 +29,10 @@ test('sweeps each existing Rust target by age and keeps a target when cargo-swee
   const { root, ws } = workspace();
   try {
     const calls = [];
-    const swept = sweepRustTargets(ws, (command, args) => { calls.push([command, ...args]); return { status: 0 }; }, undefined);
+    const swept = sweepRustTargets(ws, (command, args) => { calls.push([command, ...args]); return { status: 0 }; }, null, selfHosted);
     assert.deepEqual(swept, ['src-tauri', 'cli']);
     assert.deepEqual(calls.map(call => call.slice(0, 4)), [['cargo', 'sweep', '--time', '7'], ['cargo', 'sweep', '--time', '7']]);
-    assert.deepEqual(sweepRustTargets(ws, () => ({ error: new Error('missing') }), undefined), []);
+    assert.deepEqual(sweepRustTargets(ws, () => ({ error: new Error('missing') }), null, selfHosted), []);
     assert.ok(existsSync(join(ws, 'src-tauri/target/debug')));
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
@@ -74,7 +76,32 @@ test('sweeps warm targets kept outside the checkout with their own CARGO_TARGET_
     for (const dir of ['src-tauri', 'cli', 'orphan']) mkdirSync(join(external, dir), { recursive: true });
     rmSync(join(ws, 'src-tauri/target'), { recursive: true }); rmSync(join(ws, 'cli/target'), { recursive: true });
     const seen = [];
-    sweepRustTargets(ws, (command, args, options) => { seen.push([args.at(-1), options.env.CARGO_TARGET_DIR]); return { status: 0 }; }, external);
+    sweepRustTargets(ws, (command, args, options) => { seen.push([args.at(-1), options.env.CARGO_TARGET_DIR]); return { status: 0 }; }, external, selfHosted);
     assert.deepEqual(seen.sort(), [[join(ws, 'cli'), join(external, 'cli')], [join(ws, 'src-tauri'), join(external, 'src-tauri')]]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+
+test('hosted cleanup keeps real Rust targets and never invokes the sweeper', () => {
+  const { root, ws } = workspace();
+  try {
+    assert.deepEqual(sweepRustTargets(ws, () => {
+      assert.fail('disposable hosted targets must not invoke cargo sweep');
+    }, null, { RUNNER_ENVIRONMENT: 'github-hosted', CI: 'true' }), []);
+    for (const kept of ['src-tauri/target/debug', 'cli/target']) assert.ok(existsSync(join(ws, kept)), kept);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('self-hosted sweep passes the injected environment to the child process', () => {
+  const { root, ws } = workspace();
+  try {
+    const calls = [];
+    const env = { ...selfHosted, OPAQUE_FIXTURE: 'own-environment' };
+    sweepRustTargets(ws, (_command, _args, options) => {
+      calls.push(options.env);
+      return { status: 0 };
+    }, null, env);
+    assert.equal(calls.length, 2);
+    for (const child of calls) assert.deepEqual(child, env);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

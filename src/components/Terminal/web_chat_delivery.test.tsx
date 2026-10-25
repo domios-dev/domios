@@ -4,7 +4,7 @@ import { Window } from "happy-dom";
 import { afterEach, expect, finish, it, vi } from "../../test/standaloneTest";
 
 interface StreamHarness {
-  controllers: Map<string, ReadableStreamDefaultController<Uint8Array>>;
+  controllers: Map<string, (frame: unknown) => void>;
   requests: string[];
 }
 
@@ -21,12 +21,28 @@ let useChatSession: typeof import("./useChatSession")["useChatSession"];
 
 function installStream(): StreamHarness {
   const requests: string[] = [];
-  const controllers = new Map<string, ReadableStreamDefaultController<Uint8Array>>();
-  vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
-    requests.push(String(input));
+  const controllers = new Map<string, (frame: unknown) => void>();
+  const encode = (frame: unknown) => new TextEncoder().encode(`data: ${JSON.stringify(frame)}\n\n`);
+  let mux: ReadableStreamDefaultController<Uint8Array> | undefined;
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input));
+    if (url.pathname.startsWith("/api/stream-mux/")) {
+      if (init?.method === "POST") {
+        const opened = JSON.parse(String(init.body)) as { channel: string; path: string };
+        const channelUrl = new URL(opened.path, url).href;
+        const owner = mux!;
+        requests.push(channelUrl);
+        controllers.set(channelUrl, (frame) => owner.enqueue(encode({ channel: opened.channel, data: frame })));
+      }
+      return Response.json({ ok: true });
+    }
     return new Response(new ReadableStream<Uint8Array>({
       start(next) {
-        controllers.set(String(input), next);
+        if (url.pathname === "/api/stream-mux") mux = next;
+        else {
+          requests.push(String(input));
+          controllers.set(String(input), (frame) => next.enqueue(encode(frame)));
+        }
       },
     }));
   });
@@ -51,9 +67,9 @@ function emitChat(
       messages: [{ id: `${eventTabId}-message`, type: "assistant", content, timestamp: "1" }],
     },
   };
-  const controller = stream.controllers.get(streamUrl);
-  expect(controller !== undefined).toBe(true);
-  controller!.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(frame)}\n\n`));
+  const deliver = stream.controllers.get(streamUrl);
+  expect(deliver !== undefined).toBe(true);
+  deliver!(frame);
 }
 
 async function mountChat(tabId: string): Promise<MountedChat> {

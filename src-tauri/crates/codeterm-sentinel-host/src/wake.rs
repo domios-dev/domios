@@ -24,7 +24,10 @@ pub fn subscribe(svc: &ServiceState, handle: Handle) -> crate::event_subscriptio
                 if super::run_binding::queue_fired_event(&svc, &handle, &payload.to_string()) {
                     handle.notify();
                 }
-            } else if matches!(name, "cron-run-finished" | "mux-state-changed") {
+            } else if matches!(
+                name,
+                "cron-run-finished" | "mux-state-changed" | "entitlement-changed"
+            ) {
                 handle.notify();
             }
             crate::service_adapter::graph::invalidate(name, &handle.store, svc.ui.as_ref());
@@ -50,10 +53,7 @@ fn event_tab_id(payload: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        source::TabBinding,
-        store::{Create, Owner, Store},
-    };
+    use crate::store::{Owner, Store};
     use codeterm_service_core::cron::clock::{Clock, MockClock};
     use std::collections::{BTreeMap, BTreeSet};
     use std::sync::Arc;
@@ -68,30 +68,7 @@ mod tests {
         let clock = codeterm_service_core::cron::clock::MockClock::starting_at(1_000);
         let mut store = Store::new(dir.path().join("sentinels.json"), clock.clone());
         let job = store
-            .create(
-                Create {
-                    note: None,
-                    terminal: None,
-                    session: false,
-                    name: Some("agent-state-watch".into()),
-                    probe: None,
-                    observe: Some(TabBinding::Tab("bound-agent".into())),
-                    input: None,
-                    question: "state?".into(),
-                    buckets: vec!["waiting".into()],
-                    every: "20s".into(),
-                    routes: BTreeMap::new(),
-                    model_classification: false,
-                    matches: BTreeMap::from([("waiting".into(), ".*".into())]),
-                    rearm_on_change: BTreeSet::new(),
-                    until: None,
-                    timeout: None,
-                    paused: false,
-                    handlers: None,
-                    escalation_timeout_ms: None,
-                    max_transitions: None,
-                    max_actions: None,
-                },
+            .create_document(codeterm_sentinel::test_support::watch(serde_json::to_value::<Option<String>>(Some("agent-state-watch".into())).unwrap(),serde_json::json!({"uses":"observe","with":serde_json::json!({"kind":{"lit":"tab"},"id":{"lit":serde_json::to_value::<String>("bound-agent".into()).unwrap()}}),"every":serde_json::json!({"lit":serde_json::to_value::<String>("20s".into()).unwrap()}),"paused":false,"session":false}),serde_json::json!({"with":serde_json::json!({"question":{"lit":serde_json::to_value::<String>("state?".into()).unwrap()}}),"buckets":serde_json::to_value::<Vec<String>>(vec!["waiting".into()]).unwrap(),"matches":codeterm_sentinel::test_support::literal_params(serde_json::to_value::<std::collections::BTreeMap<String,String>>(BTreeMap::from([("waiting".into(), ".*".into())])).unwrap()),"until":serde_json::to_value::<Option<String>>(None).unwrap(),"rearm_on_change":serde_json::to_value::<std::collections::BTreeSet<String>>(BTreeSet::new()).unwrap(),"escalation_timeout_ms":serde_json::to_value::<Option<u64>>(None).unwrap(),"model_classification":false}),serde_json::Value::Null,serde_json::to_value::<Option<String>>(None).unwrap()),
                 Owner {
                     creator_tab_id: "creator".into(),
                     team_id: Some("team".into()),
@@ -281,14 +258,9 @@ mod tests {
             fixture.temp.path().join("watchers.json"),
             MockClock::starting_at(1_000),
         );
-        let params: Create = serde_json::from_value(serde_json::json!({
-            "name":"cron-run-watch",
-            "observe":{"kind":"cron_run","id":cron_id}, "question":"state", "buckets":["waiting"],
-            "matches":{"waiting":".*"}
-        }))
-        .unwrap();
+        let params = serde_json::json!({"schema_version":2,"kind":"watch","name":"cron-run-watch","steps":[{"id":"source","uses":"observe","with":{"kind":{"lit":"cron_run"},"id":{"lit":cron_id}},"timeout":{"lit":"1h"}},{"id":"decide","uses":"ask","with":{"question":{"lit":"state"}},"buckets":["waiting"],"matches":{"waiting":{"lit":".*"}},"routes":{"waiting":"notice"}},{"id":"notice","uses":"notify"}]});
         let own = store
-            .create(
+            .create_document(
                 params.clone(),
                 Owner {
                     creator_tab_id: "creator".into(),
@@ -300,7 +272,7 @@ mod tests {
             )
             .unwrap();
         store
-            .create(
+            .create_document(
                 params,
                 Owner {
                     creator_tab_id: "foreign".into(),

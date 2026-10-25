@@ -1,5 +1,6 @@
 mod journal;
-pub use journal::{BlueprintJournalEntry, BlueprintJournalWrite};
+mod native;
+pub use journal::{BlueprintJournalEntry, BlueprintJournalWrite, NestedClaimParent};
 mod source;
 mod transition;
 pub use source::{ObserveKind, ObserveSource, SourceKind, StageSource};
@@ -125,6 +126,7 @@ pub struct BucketDefinition {
 /// Authored configuration of one stage; runtime state never lives here.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StageDefinition {
+    pub document: Option<serde_json::Value>,
     pub note: Option<String>,
     pub model_classification: bool,
     pub session: bool,
@@ -188,6 +190,7 @@ pub struct RunRecord {
 /// definition version and from the Storage commit revision.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StageRuntime {
+    pub admission_json: Option<String>,
     pub transition_offset: usize,
     pub action_offset: usize,
     pub stopped_at: Option<u64>,
@@ -335,6 +338,7 @@ pub struct BatchFence {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeOutcome {
+    pub admission_json: Option<String>,
     pub stopped_at: Option<u64>,
     pub runs_since_transition: u64,
     pub last_probe_at: Option<u64>,
@@ -582,6 +586,8 @@ impl StageDefinition {
     }
 
     pub(super) fn validate(&self) -> Result<(), StorageError> {
+        self.validate_native_document()
+            .map_err(|error| StorageError::invalid("blueprint document", error))?;
         if let Some(terminal) = self.terminal() {
             terminal
                 .validate()
@@ -799,6 +805,7 @@ impl StageRuntime {
             + optional_len(&self.last_bucket)
             + optional_len(&self.last_reason)
             + optional_len(&self.probe_state)
+            + optional_len(&self.admission_json)
             + optional_len(&self.held)
             + self
                 .run
@@ -892,6 +899,7 @@ impl RuntimeOutcome {
             + optional_len(&self.last_bucket)
             + optional_len(&self.last_reason)
             + optional_len(&self.probe_state)
+            + optional_len(&self.admission_json)
             + optional_len(&self.held)
     }
 }

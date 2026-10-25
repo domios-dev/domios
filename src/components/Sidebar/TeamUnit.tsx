@@ -15,6 +15,9 @@ import { ActivityDots } from "../shared/ActivityDots";
 import { KebabGlyph } from "../shared/RowMenuButton";
 import { PLAN_STATUS_COLORS, SegmentedDonut } from "../shared/SegmentedDonut";
 import { TeamStatusTally } from "./TeamStatusTally";
+import { LockBadge } from "../billing/LockBadge";
+import { openLockedPlans } from "../billing/freeLimitGate";
+import { lockedDimClass, lockedView } from "../billing/freeLimitModel";
 import type { PlanStatusCounts } from "../shared/PlanStatusBreakdown";
 import { loadTeamDisclosureState, persistTeamDisclosureState } from "./teamDisclosureState";
 import { refusalText } from "../../lib/refusalText";
@@ -208,11 +211,12 @@ function TeamMenu({
     if (!onAddMember || addingMemberRef.current) return;
     addingMemberRef.current = true;
     setAddingMember(true);
+    // The spawn can outlast the menu by a long way; a failure still reaches the user as a toast.
+    setOpen(false);
+    setProviderRole(null);
+    setSelectedProviderId(null);
     try {
       await onAddMember(role, providerId, model);
-      setOpen(false);
-      setProviderRole(null);
-      setSelectedProviderId(null);
     } catch (error) {
       const description = describeError(error, { operation: "adding a Team member" });
       actions && createNoticePublisher(actions)({ kind: "toast", id: `team-member-add-failure-${teamId}`,
@@ -388,7 +392,7 @@ function TeamMenu({
                     setSelectedProviderId(provider.id);
                   }}
                 >
-                  <span className="ct-menu-row__icon"><ProviderGlyph iconSvg={provider.icon_svg} iconColor={provider.icon_color} iconHint={provider.icon_hint} title={provider.display_name} /></span>
+                  <span className="ct-menu-row__icon" aria-hidden="true"><ProviderGlyph iconSvg={provider.icon_svg} iconColor={provider.icon_color} iconHint={provider.icon_hint} title={provider.display_name} /></span>
                   {provider.display_name}
                 </button>
               ))}
@@ -435,6 +439,7 @@ export interface TeamUnitProps {
   terminalCount?: number;
   crons?: ReactNode;
   cronCount?: number;
+  jobsUnavailable?: boolean;
   providers: ProviderDescriptor[];
   providersLoading?: boolean;
   onRenameTeam?: (teamId: string, name: string) => void | Promise<void>;
@@ -470,15 +475,20 @@ export function TeamUnit({
   terminalCount = 0,
   crons,
   cronCount = 0,
+  jobsUnavailable = false,
   providers,
   providersLoading,
   onRenameTeam,
   addableRoles,
-  onOpenEffort,
+  onOpenEffort: openEffort,
   onAddMember,
   onCloseTeam,
   closing = false,
 }: TeamUnitProps) {
+  const lock = lockedView("teams", team);
+  const onOpenEffort = (target: TeamEffortTarget) => {
+    if (!openLockedPlans(lock)) openEffort(target);
+  };
   const initialDisclosure = useMemo(() => loadTeamDisclosureState(team.id), [team.id]);
   const [expanded, setExpanded] = useState(initialDisclosure.expanded);
   const [managersExpanded, setManagersExpanded] = useState(initialDisclosure.managersExpanded);
@@ -597,7 +607,8 @@ export function TeamUnit({
         />
       ) : (
         <span className="sidebar-team-title-row">
-          <span data-testid="team-name" className="sidebar-team-name">{displayTitle}</span>
+          <span data-testid="team-name" className={`sidebar-team-name ${lockedDimClass(lock)}`.trim()}>{displayTitle}</span>
+          <LockBadge view={lock} />
           {team.remote_peer_name && (
             <span data-testid="team-remote-peer" className="sidebar-team-remote-peer text-[10px] text-[var(--ct-muted-fg)]">
               @{team.remote_peer_name}
@@ -769,7 +780,7 @@ export function TeamUnit({
               )}
             </div>
           )}
-          {cronCount > 0 && (
+          {(cronCount > 0 || jobsUnavailable) && (
             <div
               role="group"
               aria-label={`${displayTitle} jobs`}

@@ -14,9 +14,8 @@ import type { Plan } from "../Canvas/types";
 import { resolveTabTabActivity } from "../Canvas/tabTabActivity";
 import { openTeamPlanCanvas } from "../Canvas/workspacePlanEntry";
 import { SortableContext, SortableRow, verticalListSortingStrategy, TAB_PREFIX, TEAM_PREFIX } from "./sortable";
-import { buildSidebarDragModel, unitsInOrder, withSiblingOrder, workspaceTabOrder } from "./sidebarDragModel";
+import { buildSidebarDragModel, localWorkspaceTabIds, unitsInOrder, withSiblingOrder, workspaceTabOrder } from "./sidebarDragModel";
 import { isWorkspaceTabActive } from "./sidebarSelection";
-import { persistTabRename } from "./SidebarPlanPeerPair";
 import { CursorTooltip } from "../shared/CursorTooltip";
 import { TabItem } from "./TabItem";
 import { remoteTeamIdentity } from "./remoteOwnership";
@@ -209,10 +208,7 @@ export function SidebarWorkspaceTabs({
   // Memoized rows compare handlers by identity; these always reach the current props.
   const activateRowTab = useLatestCallback(onActivateTab, []);
   const closeRowTab = useLatestCallback(onCloseTab, []);
-  const renameRowTab = useLatestCallback((tabId: string, title: string) => {
-    onRenameTab(tabId, title);
-    persistTabRename(ws.id, tabId, title);
-  }, []);
+  const renameRowTab = useLatestCallback(onRenameTab, []);
   const sharedRow = {
     workspaceId: ws.id,
     activeTabId: wsActiveTabId,
@@ -256,7 +252,7 @@ export function SidebarWorkspaceTabs({
 
   const renderedTeamIds = new Set<string>();
   const rows: ReactNode[] = [];
-  const workspaceTabIds = allSortedTabs.map((tab) => tab.id);
+  const workspaceTabIds = localWorkspaceTabIds(allSortedTabs);
   const unitItems = dragModel.units.map((unit) => `${unit.kind === "team" ? TEAM_PREFIX : TAB_PREFIX}${unit.key}`);
   const reorderUnits = useLatestCallback((orderedKeys: string[]) => ({
     workspaceId: ws.id,
@@ -505,10 +501,7 @@ export function SidebarCollapsedActiveTab({
       hasAgent={Boolean(activeTab.agent_type)}
       status={tabStatuses[activeTab.id] ?? null}
       attention={tabAttentionByTab[activeTab.id] ?? null}
-      onRename={(title) => {
-        onRenameTab(activeTab.id, title);
-        persistTabRename(ws.id, activeTab.id, title);
-      }}
+      onRename={(title) => onRenameTab(activeTab.id, title)}
       orchestrators={orchestrators}
       touchMode={touchMode}
       uiFontScale={uiFontScale}

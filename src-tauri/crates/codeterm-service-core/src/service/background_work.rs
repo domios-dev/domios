@@ -56,6 +56,17 @@ pub fn apply(
     nonce: &str,
     records: &[crate::agent::chat_types::RichMessage],
 ) {
+    apply_observed(svc, tab_id, session, nonce, records, false);
+}
+
+pub(crate) fn apply_observed(
+    svc: &ServiceContext,
+    tab_id: &str,
+    session: &str,
+    nonce: &str,
+    records: &[crate::agent::chat_types::RichMessage],
+    live: bool,
+) {
     let provider = svc
         .mux
         .read()
@@ -87,7 +98,8 @@ pub fn apply(
                 tab.fork_source_session_id.clone(),
             )
         };
-        let mut next = observe_background_records(&before, fork_source.is_some(), session, records);
+        let mut next =
+            observe_background_records(&before, fork_source.is_some(), session, records, live);
         let changed = next != before;
         let committed = {
             let mut mux = svc.mux.write();
@@ -120,6 +132,7 @@ fn observe_background_records(
     forked: bool,
     session: &str,
     records: &[crate::agent::chat_types::RichMessage],
+    live: bool,
 ) -> codeterm_types::agent::background_work::BackgroundRoster {
     let mut roster = previous.clone();
     for record in records {
@@ -147,13 +160,19 @@ fn observe_background_records(
                 roster.observe(
                     &BackgroundWorkObservation {
                         id: id.into(),
-                        state: BackgroundWorkState::Running,
+                        state: BackgroundWorkState::Unknown,
                     },
                     label,
                 );
             }
         }
         for observation in &record.background_work {
+            if !live
+                && previous.history_initialized
+                && observation.state == BackgroundWorkState::SessionBoundary
+            {
+                continue;
+            }
             let label = record
                 .blocks
                 .iter()
@@ -171,7 +190,11 @@ fn observe_background_records(
                         })
                 })
                 .unwrap_or("");
-            roster.observe(observation, label);
+            let mut observation = observation.clone();
+            if !live && observation.state == BackgroundWorkState::Running {
+                observation.state = BackgroundWorkState::Unknown;
+            }
+            roster.observe(&observation, label);
         }
     }
     roster

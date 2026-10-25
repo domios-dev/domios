@@ -13,6 +13,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashMap;
 
 struct Header {
+    admission_json: Option<String>,
     creation_options: Option<String>,
     stopped_at: Option<i64>,
     transition_offset: usize,
@@ -50,7 +51,7 @@ fn header(conn: &Connection, id: &str) -> Result<Option<Header>, StorageError> {
         "SELECT s.ordinal, s.creator_tab_id, s.workspace_id, s.team_id, s.cwd, \
          s.agent_authored, s.scenario_id, s.revision, h.version, r.generation, r.next_run, \
          r.expires_at, r.paused, r.stopped, r.last_hash, r.last_bucket, r.last_reason, \
-         r.held, r.run_id, r.run_tab_id, r.run_bound_at, r.run_transitions, r.causal_run_json, r.runs_since_transition, r.last_probe_at, r.probe_state, r.stopped_at, r.transition_offset, r.action_offset, s.creation_options \
+         r.held, r.run_id, r.run_tab_id, r.run_bound_at, r.run_transitions, r.causal_run_json, r.runs_since_transition, r.last_probe_at, r.probe_state, r.stopped_at, r.transition_offset, r.action_offset, s.creation_options, r.admission_json \
          FROM blueprints s LEFT JOIN blueprint_heads h ON h.blueprint_id = s.id \
          LEFT JOIN blueprint_runtime r ON r.blueprint_id = s.id WHERE s.id = ?1",
     )
@@ -58,6 +59,7 @@ fn header(conn: &Connection, id: &str) -> Result<Option<Header>, StorageError> {
         statement
             .query_row([id], |row| {
                 Ok(Header {
+                    admission_json: row.get(30)?,
                     ordinal: row.get(0)?,
                     creator_tab_id: row.get(1)?,
                     workspace_id: row.get(2)?,
@@ -115,6 +117,7 @@ pub(super) fn load_one(
         _ => return Err(corrupt("partial run binding")),
     };
     let runtime = StageRuntime {
+        admission_json: header.admission_json,
         transition_offset: header.transition_offset,
         action_offset: header.action_offset,
         stopped_at: header

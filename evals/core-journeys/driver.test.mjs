@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { main, parseArgs, preferred } from "./driver.mjs";
 import { assertIsolated, target } from "./lib/env.mjs";
 import { PHASE_STEPS, buildPlan, planFromEnv, renderPlan } from "./lib/plan.mjs";
-import { parseRestartArgs } from "./restart.mjs";
+import { parseRestartArgs, restartEnvironment } from "./restart.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const runSh = join(here, "run.sh");
@@ -38,6 +38,22 @@ test("parseRestartArgs requires an output directory and refuses unknown flags", 
   assert.deepEqual(parseRestartArgs(["--out", "/tmp/r"]), {out: resolve("/tmp/r")});
   assert.throws(() => parseRestartArgs([]), /--out/);
   assert.throws(() => parseRestartArgs(["--out", "/tmp/r", "--unknown", "value"]), /unknown restart flag/);
+});
+
+test("restart retains the selected window ports and scrubs inherited connection and authority", () => {
+  const identity = { cli: { instance: "CODETERM_INSTANCE" },
+    request: { instance: "CODETERM_INSTANCE", port: "CODETERM_API_PORT" },
+    development: { instance: "CODETERM_DEV_INSTANCE", port: "CODETERM_DEV_API_PORT" } };
+  const dev = { instance: "curated", port: 7697 };
+  const launch = { name: "curated", api_port: "7697", vite_port: "14997", cdp_port: "9397" };
+  const env = restartEnvironment(identity, dev, launch, { CODETERM_API_PORT: "7685",
+    CODETERM_API_TOKEN: "foreign", CODETERM_SESSION_ID: "foreign", CODETERM_TAB_ID: "foreign",
+    CODETERM_DEV_CDP_PORT: "9223", PATH: "retained" });
+  assert.deepEqual(env, { PATH: "retained", CODETERM_INSTANCE: "curated", CODETERM_API_PORT: "7697",
+    CODETERM_DEV_INSTANCE: "curated", CODETERM_DEV_API_PORT: "7697",
+    CODETERM_DEV_VITE_PORT: "14997", CODETERM_DEV_CDP_PORT: "9397" });
+  assert.throws(() => restartEnvironment(identity, dev, { ...launch, name: "foreign" }), /differs/);
+  assert.throws(() => restartEnvironment(identity, dev, { ...launch, cdp_port: "" }), /original DEV/);
 });
 
 const connection = (extra) => ({ CORE_JOURNEY_DATA_DIR: "/tmp/dev", CORE_JOURNEY_API_TOKEN: "t", ...extra });

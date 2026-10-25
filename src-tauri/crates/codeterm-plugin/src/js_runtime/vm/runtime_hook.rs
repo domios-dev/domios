@@ -2,6 +2,10 @@ use super::timing;
 use super::*;
 use crate::agent_runtime::{RuntimeFailure, RuntimeFailureCode, MAX_RUNTIME_VALUE_BYTES};
 
+const RUNTIME_MEMORY_LIMIT: usize = 64 * 1024 * 1024;
+// QuickJS re-arms cycle GC at 1.5x the live heap; above the limit it never fires again.
+const RUNTIME_GC_THRESHOLD: usize = RUNTIME_MEMORY_LIMIT / 2;
+
 const INVOKE: &str = r#"
 (function () {
   const method = globalThis.__ct_runtime_method__;
@@ -47,6 +51,7 @@ fn call_runtime_hook_with_clock<R: serde::de::DeserializeOwned>(
     now: HookClock,
 ) -> Result<R, RuntimeFailure> {
     let mut timing = timing::HookTiming::new(method);
+    let _bundle_reader = vm.bundle_access.read();
     crate::agent_runtime::validate_runtime_size(&args, MAX_RUNTIME_VALUE_BYTES)?;
     let args_json =
         serde_json::to_string(args).map_err(|e| failure(RuntimeFailureCode::InvalidSchema, e))?;
@@ -88,18 +93,29 @@ fn call_runtime_hook_with_clock<R: serde::de::DeserializeOwned>(
     inner
         ._rt
         .set_interrupt_handler(Some(Box::new(move || interrupt_now() >= deadline)));
+    let mut context_unusable = false;
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         inner._ctx.with(|ctx| -> Result<String, RuntimeFailure> {
             let globals = ctx.globals();
+            let mut setup = |e: rquickjs::CaughtError<'_>| {
+                context_unusable = true;
+                failure(
+                    RuntimeFailureCode::HookFailed,
+                    format!("{method} setup: {e:?}"),
+                )
+            };
             globals
                 .set("__ct_runtime_method__", method)
-                .map_err(|e| failure(RuntimeFailureCode::HookFailed, e))?;
+                .catch(&ctx)
+                .map_err(&mut setup)?;
             globals
                 .set("__ct_runtime_args__", args_json)
-                .map_err(|e| failure(RuntimeFailureCode::HookFailed, e))?;
+                .catch(&ctx)
+                .map_err(&mut setup)?;
             globals
                 .set("__ct_runtime_limit__", MAX_RUNTIME_VALUE_BYTES as u32)
-                .map_err(|e| failure(RuntimeFailureCode::HookFailed, e))?;
+                .catch(&ctx)
+                .map_err(&mut setup)?;
             let result = eval_source::<String, _>(&ctx, INVOKE)
                 .catch(&ctx)
                 .map_err(|e| {
@@ -121,6 +137,20 @@ fn call_runtime_hook_with_clock<R: serde::de::DeserializeOwned>(
         })
     }));
     inner._rt.set_interrupt_handler(None);
+    inner._rt.set_gc_threshold(RUNTIME_GC_THRESHOLD);
+    if context_unusable {
+        let usage = inner._rt.memory_usage();
+        if let Ok(Err(error)) = &outcome {
+            log::warn!(
+                "[runtime-hook] plugin={} method={method} context reset: {} heap={}/{}",
+                vm.plugin_id(),
+                error.message,
+                usage.malloc_size,
+                usage.malloc_limit
+            );
+        }
+        *runtime_inner = None;
+    }
     if now() >= deadline {
         return Err(failure(
             RuntimeFailureCode::Deadline,
@@ -156,7 +186,7 @@ fn create_runtime_context(
     let manifest_json = source.manifest_json.clone();
     drop(source);
     let rt = Runtime::new().map_err(|e| failure(RuntimeFailureCode::HookFailed, e))?;
-    rt.set_memory_limit(64 * 1024 * 1024);
+    rt.set_memory_limit(RUNTIME_MEMORY_LIMIT);
     rt.set_max_stack_size(1024 * 1024);
     rt.set_interrupt_handler(Some(Box::new(move || now() >= deadline)));
     let ctx = Context::full(&rt).map_err(|e| failure(RuntimeFailureCode::HookFailed, e))?;

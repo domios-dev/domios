@@ -11,10 +11,7 @@ fn embeddable_requires_real_body() {
 #[test]
 fn blueprint_embedding_starts_with_intent_and_describes_structure() {
     let document = codeterm_blueprint_types::blueprint_document::Document::from_definition(
-        &serde_json::json!({"spec": {"name":"fixture", "owner":"team",
-        "trigger":{"type":"schedule","every":"1m"},
-        "steps":[{"name":"Echo", "input":"text", "kind":{"kind":"command", "command":"echo private"}}],
-        "result":{"to":"notify"}}})
+        &serde_json::json!({"schema_version":2,"kind":"pipeline","name":"fixture","owner":"team","trigger":{"type":"schedule","every":{"lit":"1m"}},"steps":[{"id":"echo","run":{"lit":"echo private"}}],"result":{"to":"notify"}})
     ).unwrap();
     let document = codeterm_blueprint_types::blueprint_memory::abstract_document(document);
     let text = blueprint_description(&document, "Detect stalled deployments");
@@ -41,17 +38,15 @@ fn blueprint_embedding_starts_with_intent_and_describes_structure() {
 #[cfg(feature = "embeddings")]
 #[test]
 fn reindex_existing_blueprint_uses_saved_intent_in_canonical_description() {
-    crate::embeddings::ensure_extension_registered();
     let mem = crate::MemManager::open_in_memory().unwrap();
     let document = codeterm_blueprint_types::blueprint_document::Document::from_definition(
-        &serde_json::json!({"create":{"name":"watch-ci", "probe":"echo ready", "question":"Ready?",
-        "buckets":["done"], "routes":{"done":"notify"}, "every":"1m", "until":"done", "timeout":"1h"}})
+        &serde_json::json!({"schema_version":2,"kind":"watch","name":"watch-ci","steps":[{"id":"source","uses":"probe","with":{"command":{"lit":"echo ready"}},"every":{"lit":"1m"},"timeout":{"lit":"1h"}},{"id":"decide","uses":"ask","with":{"question":{"lit":"Ready?"}},"buckets":["done"],"until":"done","routes":{"done":"notice"}},{"id":"notice","uses":"notify"}]})
     ).unwrap();
     let id = mem
         .save_blueprint(
             "project",
             document,
-            "Detect frozen releases",
+            &["Detect frozen releases".into()],
             codeterm_blueprint_types::blueprint_memory::Evidence {
                 kept: true,
                 successes: 1,
@@ -59,7 +54,7 @@ fn reindex_existing_blueprint_uses_saved_intent_in_canonical_description() {
             },
         )
         .unwrap()
-        .unwrap();
+        .id;
     let conn = mem.conn.lock();
     crate::embeddings::init_extension(&conn).unwrap();
     let accesses = |conn: &rusqlite::Connection| {
@@ -76,7 +71,7 @@ fn reindex_existing_blueprint_uses_saved_intent_in_canonical_description() {
     let (_, text) = missing.iter().find(|(saved, _)| saved == &id).unwrap();
     assert_eq!(
         text,
-        "Detect frozen releases\nNode kinds: command\nSources: probe\nSinks: notify"
+        "Detect frozen releases\nNode kinds: ask, notify, probe\nSources: probe\nSinks: notify"
     );
     assert!(!text.contains("schema_version"));
     assert!(!text.contains("echo ready"));

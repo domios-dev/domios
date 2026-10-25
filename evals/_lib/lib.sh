@@ -144,12 +144,35 @@ dev_shell_path() {
   fi
 }
 
-config_token() {
-  grep -E '^token = ' "$1" | head -1 | sed 's/.*"\(.*\)"/\1/'
+dev_provenance_ports() {
+  python3 -c '
+import json, pathlib, re, sys
+record, name, api = sys.argv[1:]
+try:
+    path = pathlib.Path(record)
+    if not path.is_file() or path.is_symlink():
+        raise ValueError("provenance must be a regular file")
+    receipt = json.loads(path.read_text())
+    selected = receipt["instance"]
+    if (receipt.get("schema") != 3 or
+        re.fullmatch("[a-f0-9]{40}", receipt.get("buildSha", "")) is None or
+        selected.get("name") != name or str(selected.get("apiPort")) != api):
+        raise ValueError("provenance selects another build or instance")
+    ports = [str(selected[key]) for key in ("vitePort", "cdpPort")]
+    if any(re.fullmatch("[1-9][0-9]*", port) is None or not 1 <= int(port) <= 65535
+           or int(port) == 7685 for port in ports):
+        raise ValueError("provenance has invalid frontend or diagnostics ports")
+    if len(set(ports + [api])) != 3:
+        raise ValueError("provenance ports overlap")
+    print("\t".join(ports))
+except (OSError, ValueError, KeyError, TypeError) as error:
+    print("ERROR [dev-resolution]: invalid launch provenance: " + str(error), file=sys.stderr)
+    sys.exit(7)
+' "$1" "$2" "$3"
 }
 
 dev_resolve_identity() {
-  local cli output parsed data_dir expected_data_dir expected_socket expected_instance expected_port
+  local cli output parsed data_dir expected_data_dir expected_socket expected_instance expected_port record ports
   if [ -n "$EVAL_LIB_REQUESTED_INSTANCE" ] &&
      { [ "$EVAL_LIB_REQUESTED_API_PORT" = 7685 ] || [ "$EVAL_LIB_REQUESTED_API_PORT" = 7686 ]; }; then
     dev_resolution_error '<conflicting target selectors>' "$(dev_requested_data_dir)"
@@ -228,6 +251,11 @@ print("\t".join(values))
   fi
   EVAL_LIB_DEV_VITE_PORT="$(dev_vite_port_from_instance "$EVAL_LIB_RESOLVED_INSTANCE")"
   EVAL_LIB_DEV_CDP_PORT="$(dev_cdp_port_from_instance "$EVAL_LIB_RESOLVED_INSTANCE")"
+  record="$EVAL_LIB_RESOLVED_DATA_DIR/dev-build-provenance.json"
+  if [ -e "$record" ] || [ -L "$record" ]; then
+    ports="$(dev_provenance_ports "$record" "$EVAL_LIB_RESOLVED_INSTANCE" "$EVAL_LIB_DEV_API_PORT")" || return 7
+    IFS=$'\t' read -r EVAL_LIB_DEV_VITE_PORT EVAL_LIB_DEV_CDP_PORT <<<"$ports"
+  fi
   EVAL_LIB_TARGET_DATA_DIR="$EVAL_LIB_RESOLVED_DATA_DIR"
   EVAL_LIB_TARGET_API_PORT="$EVAL_LIB_DEV_API_PORT"
   EVAL_LIB_TARGET_VITE_PORT="$EVAL_LIB_DEV_VITE_PORT"
@@ -246,14 +274,12 @@ dev_data_dir() {
 # The data dir comes from resolution, never from an inherited variable: a
 # parent naming prod's dir would otherwise hand back prod's token.
 dev_token() {
-  local cfg data_dir
+  local data_dir cli
   data_dir="$(dev_data_dir)" || return 7
-  cfg="$data_dir/config.toml"
-  if [ ! -f "$cfg" ]; then
-    dev_resolution_error "$cfg" "$data_dir"
-    return 7
-  fi
-  config_token "$cfg"
+  cli="$(dev_bootstrap_cli)" || return 7
+  env -u CODETERM_API_TOKEN -u CODETERM_API_URL \
+    CODETERM_DATA_DIR="$data_dir" CODETERM_API_PORT="$EVAL_LIB_DEV_API_PORT" \
+    "$cli" system api-token || { dev_resolution_error "$data_dir/.secrets" "$data_dir"; return 7; }
 }
 
 # Socket path differs across OS. Windows uses a named pipe; Unix uses
@@ -365,12 +391,14 @@ import json, pathlib, re, sys
 health = json.load(sys.stdin)
 name, port, vite, cdp, record_path = sys.argv[1:]
 instance = health.get("instance", {})
-valid = (health.get("status") == "ok" and
+valid = (health.get("status") == "ok" and health.get("startup", {}).get("state") == "ready" and
          re.fullmatch("[a-f0-9]{40}", health.get("build_sha", "")) is not None and
          (instance.get("name") or "").strip() == name and str(instance.get("api_port", "")) == port)
 actual_vite, actual_cdp = str(instance.get("vite_port") or ""), str(instance.get("cdp_port") or "")
-if actual_vite or actual_cdp:
-    valid = valid and actual_vite == vite and actual_cdp == cdp
+if actual_vite:
+    valid = valid and actual_vite == vite
+if actual_cdp:
+    valid = valid and actual_cdp == cdp
 record = pathlib.Path(record_path)
 if not actual_vite and not actual_cdp or record.exists():
     if not record.is_file() or record.is_symlink():
@@ -534,28 +562,37 @@ dev_kill_hard() {
   sleep 2
 }
 
-# Polls /api/health until dev responds. Default timeout 120s.
 dev_wait_ready() {
-  local timeout="${1:-120}" elapsed=0
-  while [ "$elapsed" -lt "$timeout" ]; do
-    if curl -s --max-time 1 "$(dev_api_url)/api/health" > /dev/null 2>&1; then
-      return 0
+  local deadline=$((SECONDS + ${1:-120})) result
+  if [ -n "${EVAL_LIB_STARTUP_FD:-}" ]; then
+    if ! IFS= read -r -t "${1:-120}" -u "$EVAL_LIB_STARTUP_FD" result; then
+      exec 9<&-
+      unset EVAL_LIB_STARTUP_FD
+      echo "ERROR: dev launcher did not acknowledge readiness before its deadline" >&2
+      return 1
     fi
-    sleep 3
-    elapsed=$((elapsed + 3))
-  done
-  echo "ERROR: dev not ready after ${timeout}s" >&2
-  return 1
+    exec 9<&-
+    unset EVAL_LIB_STARTUP_FD
+    [ "$result" = 0 ] || { echo "ERROR: dev launcher failed (exit=$result)" >&2; return 1; }
+  fi
+  [ "$SECONDS" -lt "$deadline" ] || return 1
+  dev_run node "$EVAL_LIB_REPO_ROOT/scripts/server-readiness.mjs" wait "$(dev_api_url)" "$((deadline - SECONDS))"
 }
 
 # Start dev in the background. Caller is responsible for waiting.
 dev_start_bg() {
-  (
+  if { : <&9; } 2>/dev/null; then
+    echo "ERROR: dev startup acknowledgement descriptor is already in use" >&2
+    return 1
+  fi
+  local log_dir; log_dir="$(dev_data_dir)/logs" || return 7
+  mkdir -p "$log_dir"
+  EVAL_LIB_STARTUP_FD=9
+  exec 9< <(
     cd "$EVAL_LIB_REPO_ROOT" || exit 1
-    local log_dir; log_dir="$(dev_data_dir)/logs" || exit 7
-    mkdir -p "$log_dir"
-    dev_run "${BASH:-bash}" build.sh dev > "$log_dir/codeterm-stdout.log" 2> "$log_dir/codeterm-stderr.log" < /dev/null &
-    disown "$!" 2>/dev/null || true
+    local result=0
+    dev_run "${BASH:-bash}" build.sh dev --wait > "$log_dir/codeterm-stdout.log" 2> "$log_dir/codeterm-stderr.log" < /dev/null || result=$?
+    printf '%s\n' "$result"
   )
 }
 

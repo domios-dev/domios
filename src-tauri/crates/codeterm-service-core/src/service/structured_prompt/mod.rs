@@ -66,7 +66,8 @@ static SUBSCRIBED: LazyLock<TimedMutex<HashMap<String, Subscriber>>> =
 /// binding `127.0.0.1:0`, reading the assigned port, then releasing it so the
 /// agent can bind it. A small TOCTOU window, acceptable for a local dev server.
 pub fn allocate_server() -> Option<crate::agent::provider::StructuredPromptServer> {
-    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).ok()?;
+    let listener =
+        codeterm_util::tcp_listener::bind((std::net::Ipv4Addr::LOCALHOST, 0).into()).ok()?;
     let port = listener.local_addr().ok()?.port();
     drop(listener);
     Some(crate::agent::provider::StructuredPromptServer {

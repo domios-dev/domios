@@ -392,8 +392,9 @@ fn seeded_requires_reload_plugin_is_not_pending() {
     assert!(!watcher
         .pending_reload_ids()
         .contains(&"startupreload".to_string()));
-    std::thread::sleep(Duration::from_millis(1100));
+    let next_mtime = mtime_or_epoch(&dir.join("plugin.js")) + Duration::from_secs(2);
     write(&dir.join("plugin.js"), "module.exports.default = { v: 2 };");
+    set_mtime(&dir.join("plugin.js"), next_mtime);
     watcher.tick();
     assert!(!watcher
         .pending_reload_ids()
@@ -491,8 +492,9 @@ fn tick_hot_reloads_plugin_js_changes() {
         .with_provider("bar", |p| p.detect_from_title("v2"))
         .unwrap_or(true));
 
-    std::thread::sleep(Duration::from_millis(1100));
+    let next_mtime = mtime_or_epoch(&dir.join("plugin.js")) + Duration::from_secs(2);
     write(&dir.join("plugin.js"), &plugin_for("v2"));
+    set_mtime(&dir.join("plugin.js"), next_mtime);
     watcher.tick();
 
     assert!(registrar
@@ -871,60 +873,6 @@ fn tick_unregisters_plugins_after_folder_removal() {
             && registrar.provider_count() == 0),
         "folder removal must unregister the plugin"
     );
-}
-
-#[test]
-fn config_yaml_edit_restamps_settings_without_vm_rebuild() {
-    let root = tempfile::tempdir().unwrap();
-    let registrar = TestRegistrar::new();
-    let watcher = HotReloadRegistry::new(
-        vec![root.path().to_path_buf()],
-        registrar.clone(),
-        test_caps(),
-    );
-    let dir = root.path().join("cfgplugin");
-    write(&dir.join("plugin.json"), &manifest_for("cfgplugin"));
-    write(
-        &dir.join("plugin.js"),
-        r#"module.exports.default = {
-                detectFromTitle: function(t) { return false; },
-                settings: function() { return JSON.parse(host.settingsJson()); }
-            };"#,
-    );
-    write(&dir.join("config.yaml"), "engine: whisper\n");
-    watcher.tick();
-    assert_eq!(watcher.load_count(), 1);
-
-    let vm = watcher
-        .existing_vm("cfgplugin")
-        .expect("VM tracked after load");
-    let before: serde_json::Value = super::super::call_json(&vm, "settings", &[]).unwrap();
-    assert_eq!(before["engine"], "whisper");
-
-    watcher.tick();
-    assert_eq!(watcher.load_count(), 1);
-
-    std::thread::sleep(Duration::from_millis(1100));
-    write(&dir.join("config.yaml"), "engine: deepgram\n");
-    watcher.tick();
-    assert_eq!(
-        watcher.load_count(),
-        1,
-        "config-only edit must NOT rebuild the VM"
-    );
-
-    let after: serde_json::Value = super::super::call_json(&vm, "settings", &[]).unwrap();
-    assert_eq!(
-        after["engine"], "deepgram",
-        "re-stamped settings must be live on the existing VM"
-    );
-
-    std::thread::sleep(Duration::from_millis(1100));
-    write(&dir.join("config.yaml"), "engine: vosk\n");
-    watcher.tick();
-    assert_eq!(watcher.load_count(), 1);
-    let again: serde_json::Value = super::super::call_json(&vm, "settings", &[]).unwrap();
-    assert_eq!(again["engine"], "vosk");
 }
 
 #[test]

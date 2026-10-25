@@ -50,7 +50,9 @@ pub(crate) fn oldest_capacity_candidate(
 fn terminal_graph(jobs: &[Sentinel], root: &Sentinel, leased: &BTreeSet<String>) -> bool {
     jobs.iter()
         .filter(|job| job.id == root.id || job.scenario_id.as_deref() == Some(&root.id))
-        .all(|job| job.machine.stopped && !leased.contains(&job.id))
+        .all(|job| {
+            job.admission.permits_steps() && job.machine.stopped && !leased.contains(&job.id)
+        })
 }
 
 pub fn remove_terminal(store: &Arc<Mutex<Store>>) -> Result<(), String> {
@@ -182,10 +184,9 @@ pub fn deletion_deadline(
                 && (job.id == root.id || job.scenario_id.as_deref() == Some(&root.id))
         })
         .collect::<Vec<_>>();
-    if members
-        .iter()
-        .any(|job| !job.machine.stopped || leased.contains(&job.id))
-    {
+    if members.iter().any(|job| {
+        !job.admission.permits_steps() || !job.machine.stopped || leased.contains(&job.id)
+    }) {
         return None;
     }
     members

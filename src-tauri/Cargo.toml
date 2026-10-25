@@ -1,7 +1,7 @@
 [package]
 license = "AGPL-3.0-only"
 name = "codeterm"
-version = "1.15.2"
+version = "1.15.3"
 edition = "2021"
 default-run = "codeterm"
 
@@ -48,6 +48,9 @@ png = "0.17"
 dirs = "6"
 url = "2"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+
+[target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
+sha2 = { version = "0.10", features = ["asm"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 codeterm-crash = { path = "crates/codeterm-crash" }

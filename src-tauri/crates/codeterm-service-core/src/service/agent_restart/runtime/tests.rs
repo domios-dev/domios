@@ -6,7 +6,10 @@ use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
 use serde_json::{json, Value};
 use std::sync::Arc;
 
+mod provider_switch;
 mod rebind;
+mod recovery;
+mod sign_in;
 
 #[test]
 fn restart_routing_requires_runtime_capability_and_chat_backing() {
@@ -28,8 +31,9 @@ module.exports = {
     return {action:{kind:'request',call:{method:op.kind,params:op}},state:null};
   },
   runtimeResponse(ctx, op, state, reply) {
-    if (op.kind === 'resumeThread' && op.instructions.includes('opaque refused identity'))
-      return {kind:'refused',reason:{code:'provider_refused',message:'fixture load refused'}};
+    if ((op.kind === 'resumeThread' && op.instructions.includes('opaque refused identity')) ||
+        (op.kind === 'openThread' && op.settings.model === 'refused-model'))
+      return {kind:'refused',reason:{code:'provider_refused',message:'fixture load refused'},beforeAcceptance:true};
     let result = {kind:'done'};
     if (op.kind === 'initialize') result = {kind:'initialized',binaryVersion:'fixture-runtime'};
     if (op.kind === 'resumeThread' || op.kind === 'openThread')
@@ -47,6 +51,8 @@ struct RuntimeFixture {
     fixture: ServiceFixture,
     tab: String,
     requests: Arc<parking_lot::Mutex<Vec<Value>>>,
+    request_events: tokio::sync::watch::Receiver<usize>,
+    exits: Arc<parking_lot::Mutex<Vec<tokio::sync::oneshot::Sender<()>>>>,
     _process_ports: agent_runtime::process::test_ports::Registration,
     _storage: crate::storage::Storage,
 }
@@ -64,6 +70,9 @@ impl Drop for RuntimeFixture {
 }
 impl RuntimeFixture {
     fn new() -> Self {
+        Self::with_source(SOURCE)
+    }
+    fn with_source(source: &str) -> Self {
         let (mut mux, tab) = MultiplexerState::new();
         let target = mux.get_tab_mut(&tab).unwrap();
         target.agent_type = Some(PROVIDER.into());
@@ -87,17 +96,29 @@ impl RuntimeFixture {
         let storage = fixture.install_seeded_storage_desk();
         let requests = Arc::new(parking_lot::Mutex::new(Vec::new()));
         let captured = requests.clone();
+        let (request_changed, request_events) = tokio::sync::watch::channel(0);
+        let exits = Arc::new(parking_lot::Mutex::new(Vec::new()));
+        let server_exits = exits.clone();
         let process_ports = agent_runtime::process::test_ports::register(&tab, move || {
             crate::async_runtime::block_on(async {
                 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
                 let (process, peer) = agent_runtime::process::test_ports::connected();
                 let (peer_reader, mut peer_writer) = tokio::io::split(peer);
                 let captured = captured.clone();
+                let request_changed = request_changed.clone();
+                let (exit, mut exiting) = tokio::sync::oneshot::channel();
+                server_exits.lock().push(exit);
                 crate::async_runtime::spawn(async move {
                     let mut lines = BufReader::new(peer_reader).lines();
-                    while let Some(line) = lines.next_line().await.unwrap() {
+                    loop {
+                        let line = tokio::select! {
+                            _ = &mut exiting => break,
+                            line = lines.next_line() => line.unwrap(),
+                        };
+                        let Some(line) = line else { break };
                         let frame: Value = serde_json::from_str(&line).unwrap();
                         captured.lock().push(frame.clone());
+                        request_changed.send_modify(|count| *count += 1);
                         let reply = json!({"id":frame["id"],"result":{"params":frame["params"]}});
                         if peer_writer
                             .write_all(format!("{reply}\n").as_bytes())
@@ -117,14 +138,18 @@ impl RuntimeFixture {
             "resumeThread",
             "readHistory",
             "submitTurn",
+            "control",
         ]
         .into_iter()
         .map(|kind| (kind.to_string(), json!([kind])))
         .collect::<serde_json::Map<String, Value>>();
         let manifest = PluginManifest::from_json_str(&json!({
-            "id":PROVIDER,"version":"1.0.0","displayName":"Fixture",
+            "id":PROVIDER,"version":"1.0.0","displayName":"Fixture","binaryName":"node",
             "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
-                "agentRuntime":{"runtime":"stdio-jsonrpc","command":{"binary":"node","args":[]},"requestMethods":methods,"notificationMethods":[]}},
+                "agentRuntime":{"runtime":"stdio-jsonrpc","command":{"binary":"node","args":[]},"requestMethods":methods,"notificationMethods":[],"login":{"methods":["browser"]}}},
+            "spawn":{"readinessStrategy":{"kind":"poll_shell_prompt","timeoutSecs":1},
+                "taskDelivery":"inline_flag","systemPromptDelivery":{"kind":"cli_flag","flag":"--opaque-system"},
+                "verifySubmit":{"kind":"none"}},
             "permissions":{"subprocess":{"allow":["node"]}}
         }).to_string()).unwrap();
         fixture
@@ -132,7 +157,7 @@ impl RuntimeFixture {
             .agent_registry
             .register_provider(Box::new(JsProvider::new(
                 manifest,
-                Arc::new(PluginVm::from_source(PROVIDER, SOURCE.into()).unwrap()),
+                Arc::new(PluginVm::from_source(PROVIDER, source.into()).unwrap()),
             )));
         agent_runtime::transport::launch(
             &fixture.service,
@@ -145,6 +170,8 @@ impl RuntimeFixture {
             fixture,
             tab,
             requests,
+            request_events,
+            exits,
             _process_ports: process_ports,
             _storage: storage,
         }
@@ -664,4 +691,72 @@ fn provider_update_version_mismatch_recovers_once_then_reports_failure() {
         tab.agent_runtime_state.as_ref().unwrap()["binaryVersion"],
         "fixture-runtime"
     );
+}
+
+#[test]
+fn locked_tab_refuses_restart_switch_runtime_and_shared_launch_before_side_effects() {
+    let (mut mux, _) = MultiplexerState::new();
+    let workspace = mux.list_workspaces()[0].id.clone();
+    let mut access = codeterm_entitlements::compiled_free();
+    access.limits.agent_tabs.max = Some(0);
+    mux.set_limit_gate(crate::service::billing::LimitGate::new(access, true));
+    let tab = mux.create_tab(&workspace).unwrap();
+    let fixture = ServiceFixture::new(mux);
+    let svc = &fixture.service;
+    for result in [
+        svc.agent_restart_observed_with_options(&tab, RestartOptions::default()),
+        svc.restart_runtime_agent(&tab, true, false),
+    ] {
+        assert!(
+            matches!(result, Err(RestartAttemptError::Request(AgentRestartError::BadRequest(ref message))) if message.starts_with("plan_limit_locked: "))
+        );
+    }
+    assert!(svc
+        .switch_provider_in_place(&tab, "opaque-provider", None, None, true)
+        .err()
+        .unwrap()
+        .starts_with("plan_limit_locked: "));
+    assert!(svc
+        .accept_provider_switch(
+            &tab,
+            super::super::provider_switch::ProviderSwitchRequest {
+                provider: "opaque-provider".into(),
+                model: None,
+                reasoning_effort: None,
+                force: true,
+            },
+            None,
+            None,
+        )
+        .err()
+        .unwrap()
+        .starts_with("plan_limit_locked: "));
+    let (tx, mut rx) = tokio::sync::oneshot::channel();
+    assert!(crate::service::launch_agent_in_background_with_env(
+        svc.clone(),
+        tab.clone(),
+        String::from("must-not-run"),
+        String::from("opaque-provider"),
+        crate::service::AgentLaunchOrigin::RestoredSnapshot,
+        false,
+        None,
+        None,
+        None,
+        Default::default(),
+        None,
+        Some(tx),
+        None,
+    )
+    .is_none());
+    assert!(rx
+        .try_recv()
+        .unwrap()
+        .unwrap_err()
+        .starts_with("plan_limit_locked: "));
+    assert!(svc.mux.read().get_tab(&tab).unwrap().pty_id.is_none());
+    assert!(svc
+        .ext::<super::super::RestartTracker>()
+        .lock()
+        .in_progress
+        .is_empty());
 }

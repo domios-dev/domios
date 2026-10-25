@@ -70,6 +70,16 @@ pub fn validate_tab_scope(
     tab_id: &str,
 ) -> Result<Tab, String> {
     let tab = mux.get_tab(tab_id).ok_or("observation tab not found")?;
+    validate_tab_scope_metadata(tab, mux.find_workspace_for_tab(tab_id).as_deref(), job)?;
+    Ok(tab.clone())
+}
+
+pub fn validate_tab_scope_metadata(
+    tab: &Tab,
+    workspace: Option<&str>,
+    job: &Sentinel,
+) -> Result<(), String> {
+    let tab_id = tab.id.as_str();
     let exact_cron_run = matches!(job.observe(), Some(TabBinding::CronRun(_)))
         && job.run.as_ref().is_some_and(|run| run.tab_id == tab_id)
         && tab.audience == codeterm_pty::multiplexer::types::TabAudience::UserOwnedAutomation;
@@ -77,11 +87,11 @@ pub fn validate_tab_scope(
         job.team_id.is_none() && job.creator_tab_id == tab_id && tab.team_id.is_some();
     if (tab.agent_type.is_none() && job.terminal().is_none())
         || (tab.team_id != job.team_id && !exact_cron_run && !creator_joined_team)
-        || mux.find_workspace_for_tab(tab_id).as_deref() != Some(job.workspace_id.as_str())
+        || workspace != Some(job.workspace_id.as_str())
     {
         return Err("observation tab must be in the creator's Team and workspace (shells require terminal options)".into());
     }
-    Ok(tab.clone())
+    Ok(())
 }
 
 pub fn validate_pending_cron_run_scope(

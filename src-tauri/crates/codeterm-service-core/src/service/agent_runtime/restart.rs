@@ -17,6 +17,7 @@ pub(crate) async fn restart(
         .await
         .and_then(|session| session.ok_or(RuntimeFailure::Superseded));
     if let Err(reason) = &result {
+        svc.clear_runtime_restart_binding(tab);
         let nonce = svc
             .mux
             .read()
@@ -36,7 +37,9 @@ pub(crate) async fn restart_idle(
     provider: &str,
     nonce: &str,
 ) -> Result<Option<Arc<Session>>, RuntimeFailure> {
-    restart_inner(svc, tab, provider, nonce, false, true).await
+    restart_inner(svc, tab, provider, nonce, false, true)
+        .await
+        .inspect_err(|_| svc.clear_runtime_restart_binding(tab))
 }
 
 async fn restart_inner(
@@ -177,7 +180,9 @@ async fn restart_inner(
     .await;
     drop(_permit);
     let loaded = match result {
-        Ok(()) => engine::ensure(svc, tab).await?,
+        Ok(()) => engine::ensure(svc, tab)
+            .await
+            .or_else(|error| engine::login_pending_session(svc, tab, error))?,
         Err(reason) => return Err(reason),
     };
     if fresh && old_thread.is_some() && loaded.context.lock().thread_id == old_thread {

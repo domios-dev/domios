@@ -39,6 +39,7 @@ fn team_members() -> (MultiplexerState, String, String, String, String) {
 }
 
 mod process_split_contract;
+mod remote_members;
 
 #[test]
 fn team_manager_permission_allows_orchestrator_and_planner() {
@@ -1187,3 +1188,5 @@ mod close_lifecycle;
 pub(crate) mod sentinel_fixture;
 mod storage_cutover_team_teardown;
 mod team_teardown_off_runtime;
+
+mod limit_locks;

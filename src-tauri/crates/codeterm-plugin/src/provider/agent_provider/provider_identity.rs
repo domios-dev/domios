@@ -1,5 +1,9 @@
 macro_rules! agent_provider_identity {
     () => {
+        fn general_agent_offer_when_absent(&self) -> bool {
+            false
+        }
+
         fn structured_control(&self) -> Option<StructuredControl> {
             None
         }

@@ -248,6 +248,8 @@ pub fn answer_actions(labels: &[String]) -> Result<Vec<CallerAction>, String> {
 /// question is sent; nothing here is resolved when an answer is tapped.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AnswerSlot {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub daemon_request: Option<String>,
     /// The asking tab, recorded at send time. Cleared when that tab closes.
     pub asked_from_tab: Option<String>,
     /// The one chosen label. Set once and never overwritten.
@@ -264,6 +266,7 @@ pub struct AnswerSlot {
 impl AnswerSlot {
     pub fn asked_from(tab_id: Option<&str>) -> Self {
         Self {
+            daemon_request: None,
             asked_from_tab: tab_id.map(str::to_string),
             answered: None,
             answered_via: None,
@@ -274,7 +277,7 @@ impl AnswerSlot {
     /// Unanswered, with no tab left to carry an answer: the card says so
     /// instead of offering buttons that would do nothing.
     pub fn is_undeliverable(&self) -> bool {
-        self.answered.is_none() && self.asked_from_tab.is_none()
+        self.answered.is_none() && self.asked_from_tab.is_none() && self.daemon_request.is_none()
     }
 
     /// An answer stands that never reached the tab that asked.

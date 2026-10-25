@@ -40,6 +40,11 @@ pub fn restrict_directory_permissions(path: &std::path::Path) -> io::Result<()> 
     windows::restrict_dir(path)
 }
 
+#[cfg(windows)]
+pub(crate) fn owner_only(path: &std::path::Path) -> io::Result<bool> {
+    windows::mode_ok(path)
+}
+
 impl TokenStore {
     pub fn new(base_dir: PathBuf) -> Self {
         Self { base_dir }

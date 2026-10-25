@@ -161,7 +161,7 @@ describe("side panel presence", () => {
     await mountPanelWithOpener();
     await openTask(FIRST);
     const panel = sidePanel() as HTMLElement;
-    await act(async () => (panel.querySelector('[data-testid="plan-side-panel-back"]') as HTMLButtonElement).click());
+    await act(async () => (panel.querySelector('[data-testid="plan-side-panel-close"]') as HTMLButtonElement).click());
     expect(panel.getAttribute("data-state")).toBe("closing");
 
     await fireAnimation(panel, "ct-plan-side-panel-out", "animationcancel");
@@ -176,7 +176,7 @@ describe("side panel presence", () => {
     const panel = sidePanel() as HTMLElement;
     expect(panel.getAttribute("data-state")).toBe("open");
 
-    await act(async () => (panel.querySelector('[data-testid="plan-side-panel-back"]') as HTMLButtonElement).click());
+    await act(async () => (panel.querySelector('[data-testid="plan-side-panel-close"]') as HTMLButtonElement).click());
     expect(sidePanel()).toBeNull();
     expect(document.activeElement).toBe(opener);
   });

@@ -26,3 +26,12 @@ export function spawnErrorMessage(error: unknown): string {
 export function isWorkspaceCwdRefusal(error: unknown): boolean {
   return record(record(errorBody(error))?.error)?.code === "workspace_cwd_missing";
 }
+
+
+export function isPlanLockedRefusal(error: unknown): boolean {
+  const parsed = errorBody(error);
+  const detail = record(record(parsed)?.error);
+  if (detail?.code === "plan_limit_locked") return true;
+  const message = typeof error === "string" ? error : record(error)?.message;
+  return typeof message === "string" && message.startsWith("plan_limit_locked: ");
+}

@@ -13,7 +13,17 @@ as success. It spends real provider tokens.
 Canonical checkout only, in one Team-bound QA utility shell, under the
 Orchestrator's serialized QA authority. The run needs a named isolated instance
 with its own port, already running the exact build under test, with its window
-open because J2 drives the dialog. `run.sh` refuses an unset
+open with a CDP port because J2 drives the dialog. Launch it from the canonical
+Team DEV utility shell using the dev-run skill, with explicit isolated ports:
+
+```bash
+CODETERM_DEV_INSTANCE=curated CODETERM_DEV_API_PORT=7697 \
+CODETERM_DEV_VITE_PORT=14997 CODETERM_DEV_CDP_PORT=9397 ./build.sh dev --wait --wait-build
+```
+
+`run.sh` fails before any journey or restart if `/api/health` has no valid
+`instance.cdp_port`. A window without native CDP cannot run these UI journeys.
+It refuses an unset
 `CODETERM_INSTANCE` and ports 7685 and 7686 before it contacts anything.
 
 ```bash
@@ -24,11 +34,18 @@ node evals/core-journeys/lib/evidence-contract.mjs <run-dir>
 
 `all` runs `setup`, a bench-owned DEV restart (`./build.sh kill`, then
 `./build.sh dev-prebuilt --wait --wait-build` on the same instance; never port
-7685), `verify`, then `cleanup`, and exits nonzero if any check failed. Evidence
+7685), retaining its original frontend and CDP ports, `verify`, then `cleanup`,
+and exits nonzero if any check failed. Evidence
 is `results.json`, `results.md`, `restart.json` and `screenshots/{setup,verify}.png`
 under `target-check/evals/core-journeys/<stamp>/`; the last line prints the wall time.
 The budget is about 15 minutes; journeys run in parallel where they do not
 share the window. A run over budget is reported with its per-journey times.
+
+On a fresh instance, setup chooses full agent access through the normal
+`PATCH /api/config` key `agent.full_access` and reads the choice back before
+any spawn. An existing explicit choice is preserved. This is the same persisted
+setting as Settings > Agents > Full access for agents; the bench needs unattended
+provider execution on its disposable instance.
 
 Operator restart instead of the bench-owned one:
 
@@ -77,7 +94,10 @@ malformed. Exit 3: evidence complete but a check failed. It requires:
 | J4 | The listener PID and kernel start time changed. Every agent tab recorded before the restart reaches ready with the same session, backing and `task_binding.attempt_id`; the restored Worker's attempt id is the task's current attempt; J1 tabs and the J2 Manager answer a new exact marker on their restored session. |
 
 A deterministic shell-tab Orchestrator owns J3's review verdicts because a live
-Orchestrator would race the bench on the Worker's reports.
+Orchestrator would race the bench on the Worker's reports. Its SessionStart hook
+names the selected installed provider explicitly and carries this tab's launch
+nonce, as a provider hook does. The fixture reads back the provider, session and
+acknowledged nonce before creating its plan, and repeats that proof after restart.
 
 ## Today's BLACKSTAR regressions
 
@@ -107,8 +127,8 @@ argument parsing. They are not live proof.
 
 | Symptom | Cause | Recovery |
 |---|---|---|
-| `DEV exposes no cdp_port` or `no page target` | The DEV window is closed or has no CDP endpoint | Open the DEV window (dev-run skill) and rerun; J2's UI legs cannot pass without it. |
+| `FAIL prerequisite` naming `cdp_port`, or `no page target` | The DEV window is closed or has no CDP endpoint | Launch the named DEV with `CODETERM_DEV_CDP_PORT` as above (dev-run skill); confirm health publishes it and keep the window open. |
 | `deadline: Start a session dialog opened` | First-run onboarding is active, so the picker ignores the open event | Finish first run on that instance, then rerun. |
 | `restart_not_observed` | `build.sh dev-prebuilt` refused stale provenance or the same listener survived | Run `./build.sh dev --wait` once to record provenance, then rerun `all`. |
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

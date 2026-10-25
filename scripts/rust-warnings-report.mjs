@@ -12,7 +12,7 @@ const frontendBaseline = fs.existsSync(frontendFile) ? JSON.parse(fs.readFileSyn
 try {
   const git = args => execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   // The fork point, not develop's head: a release cut before develop moved its baseline must not read as a reset.
-  const forkPoint = git(['merge-base', 'HEAD', 'origin/develop']).trim();
+  const forkPoint = process.env.WARNING_BASE_SHA || git(['merge-base', 'HEAD', 'origin/develop']).trim();
   const previous = JSON.parse(git(['show', `${forkPoint}:scripts/rust-warnings-baseline.json`]));
   assertBaselineShrinks(baseline, previous);
 } catch (error) {
@@ -21,7 +21,7 @@ try {
 if (frontendBaseline) {
   try {
     const git = args => execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-    const forkPoint = git(['merge-base', 'HEAD', 'origin/develop']).trim();
+    const forkPoint = process.env.WARNING_BASE_SHA || git(['merge-base', 'HEAD', 'origin/develop']).trim();
     assertBaselineShrinks(frontendBaseline, JSON.parse(git(['show', `${forkPoint}:${frontendFile}`])));
   } catch (error) {
     if (!error.status) throw error;

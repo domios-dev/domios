@@ -1,3 +1,4 @@
+pub mod admission;
 pub mod agent_stage;
 pub mod amend;
 pub mod classification_policy;
@@ -23,8 +24,13 @@ pub mod stage_source;
 pub mod storage;
 pub mod store;
 pub mod terminal;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;
 
 #[cfg(test)]
 mod command_native_tests;
 #[cfg(test)]
 mod handlers_tests;
+
+pub mod code_source;
+pub mod seal_code;

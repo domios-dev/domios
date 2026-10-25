@@ -65,6 +65,20 @@ const textNode = (element: Element, fragment: string) => [...element.childNodes]
 const capsules = (host: HTMLElement) => [...host.querySelectorAll<HTMLButtonElement>('[data-testid="chat-inline-attachment"]')];
 
 describe("inline attachment capsules in the user bubble", () => {
+  it("names an uploaded image by the user filename through fullscreen without changing its path", async () => {
+    const path = "/tmp/df9d0d2065b54cf28612788a0bbf750f-joy-chip.png";
+    const loader = vi.fn(async (_path: string) => ({ data: PNG, media_type: "image/png" }));
+    configureLocalArtifactLoader(loader);
+    const host = await render(formatAttachmentMarker(path, "image", "image1"));
+    const [button] = capsules(host);
+    expect(button.getAttribute("aria-label")).toBe("Open image joy-chip.png");
+    expect(button.querySelector('[aria-label="Image: joy-chip.png"]')).not.toBeNull();
+    expect(button.getAttribute("data-attachment-path")).toBe(path);
+    expect(loader.mock.calls[0]?.[0]).toBe(path);
+    await act(async () => button.click());
+    expect(document.querySelector('[role="dialog"][aria-label="Image joy-chip.png"]')).not.toBeNull();
+  });
+
   it.each(["file", "image", "video"] as const)("names a %s attachment visibly and accessibly", async (kind) => {
     const name = kind === "file" ? "report.pdf" : kind === "image" ? "holiday.png" : "recording.mp4";
     const path = `/tmp/${name}`;
@@ -75,16 +89,29 @@ describe("inline attachment capsules in the user bubble", () => {
     expect(button.title).toBe(path);
   });
 
+  it.each([["image", "image1", "image"], ["video", "video2", "video"], ["quote", "quote3 · a line", "quote · a line"]] as const)("never shows the generated number of a %s capsule", async (kind, label, shown) => {
+    const host = await render(formatAttachmentMarker("/tmp/a.bin", kind, label));
+    const [button] = capsules(host);
+    expect(button.textContent).toBe(shown);
+    expect(button.getAttribute("data-attachment-label")).toBe(label);
+  });
+
+  it.each([["image", "Open image", "png"], ["video", "Play video", "mp4"]] as const)("names a generated %s capsule by its file, never by its number", async (kind, verb, ext) => {
+    const host = await render(formatAttachmentMarker(`/tmp/codeterm-chat/holiday.${ext}`, kind, `${kind}1`));
+    const [button] = capsules(host);
+    expect(button.getAttribute("aria-label")).toBe(`${verb} holiday.${ext}`);
+  });
+
   it("renders each capsule where it was typed, with the surrounding text in order", async () => {
     const host = await render(
       `compare ${formatAttachmentMarker(NOTES, "text", "text1")} with ${formatAttachmentMarker(NOTES, "text", "text1 · 312 lines")} please`,
     );
-    expect(host.textContent).toBe("compare text1 with text1 · 312 lines please");
+    expect(host.textContent).toBe("compare text with text · 312 lines please");
     expect(host.textContent).not.toContain("<domios");
     expect(host.textContent).not.toContain(SHOT);
     expect(capsules(host).map((button) => button.getAttribute("aria-label"))).toEqual([
-      "Preview pasted text text1",
-      "Preview pasted text text1 · 312 lines",
+      "Preview pasted text c3-pasted-text-3.txt",
+      "Preview pasted text c3-pasted-text-3.txt",
     ]);
   });
 
@@ -117,7 +144,7 @@ describe("inline attachment capsules in the user bubble", () => {
     select(textNode(text, "compare"), 2, textNode(text, "please"), 5);
     const { written, prevented } = await copy(text);
     expect(prevented).toBe(true);
-    expect(written["text/plain"]).toBe("mpare text1 with text1 · 312 lines plea");
+    expect(written["text/plain"]).toBe("mpare text with text · 312 lines plea");
     expect(written[DOMIOS_TEXT_MIME]).toBe(`mpare ${context} with ${notes} plea`);
   });
 
@@ -125,11 +152,11 @@ describe("inline attachment capsules in the user bubble", () => {
     const context = formatAttachmentMarker(NOTES, "text", "text1");
     const host = await render(`see ${context} now`);
     const [capsule] = capsules(host);
-    const label = [...capsule.querySelectorAll("span")].flatMap((span) => [...span.childNodes]).find((node) => node.nodeValue === "text1")!;
+    const label = [...capsule.querySelectorAll("span")].flatMap((span) => [...span.childNodes]).find((node) => node.nodeValue === "text")!;
     const text = inlineText(host);
     select(label, 3, textNode(text, "now"), 4);
     const { written } = await copy(text);
-    expect(written["text/plain"]).toBe("text1 now");
+    expect(written["text/plain"]).toBe("text now");
     expect(written[DOMIOS_TEXT_MIME]).toBe(`${context} now`);
   });
 

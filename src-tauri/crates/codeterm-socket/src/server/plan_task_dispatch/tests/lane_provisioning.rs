@@ -26,6 +26,8 @@ use super::super::{
     plan_dispatch_lane_placement, resolve_dispatch_lane, DispatchEvidence, DispatchLanePlacement,
 };
 
+mod project_base;
+
 struct Fixture {
     root: tempfile::TempDir,
     store: PlanStore,

@@ -1,11 +1,13 @@
 import { describeError, isPendingRuntimeDeadline } from "./describeError";
 export interface AgentRuntimeState {
   auth?: "signedIn"|"signedOut"|"unknown";
+  loginCodeInput?: boolean;
+  loginChoices?: { id: string; label: string }[];
   loginMethods?: ("browser"|"device"|"apiKey")[];
   loginProviderName?: string;
   loginTerminal?: boolean;
-  login?: {status:"pending"|"completed"|"failed"|"canceled";loginId?:string;method?:string;url?:string;userCode?:string;error?:string}|null;
-  state: "loading" | "loaded" | "unloaded" | "degraded";
+  login?: {status:"pending"|"completed"|"failed"|"canceled";loginId?:string;method?:string;url?:string;userCode?:string; expiresAtMs?:number|null;error?:string}|null;
+  state: "loading" | "loginPending" | "loaded" | "unloaded" | "degraded";
   epoch: number;
   reason?: string | null;
   active_turn_started_at_ms?: number | null;
@@ -53,7 +55,7 @@ export function runtimeStateFromSnapshot(
 ): AgentRuntimeState | null {
   if (!next) return null;
   if (current && next.epoch < current.epoch) return current;
-  if (next.state === "loaded") {
+  if (next.state === "loaded" || next.state === "loginPending") {
     const loaded = { ...next };
     delete loaded.reason;
     return loaded;
@@ -84,6 +86,8 @@ export function runtimeRetryFailed(current: AgentRuntimeState | null, reason: st
 }
 
 export function runtimeStatusPresentation(state: AgentRuntimeState | null, startupOwned = false) {
+  if (state?.state === "loginPending") return { severity: "action_needed" as const,
+    label: "Sign-in required", reason: "Sign in to continue.", details: null, canRetry: true };
   if (runtimeResponseDeadlinePending(state)) {
     if (startupOwned) return null;
     return { severity: "transient" as const, label: "Agent runtime is taking longer than usual",

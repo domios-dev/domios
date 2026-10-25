@@ -1,0 +1,1581 @@
+{
+ "about": "E2 gold labels (SPEC \u00a77). Recall gold for a query about original O is families[O] = {O, O-st, O-sem}; for a set (c) draft query the draft file itself is excluded from the candidates. Pairs feed G4; a pair touching a dev original is dev-only.",
+ "generator": "eval/retrieval/build_gold.py",
+ "seed": 20261022,
+ "docs": {
+  "all-finished": {
+   "role": "original",
+   "family": "all-finished",
+   "source": "pack \u00a7E built-in",
+   "shape": "W-probe-2",
+   "domain": "wait",
+   "file": "all-finished.yaml"
+  },
+  "all-finished-st": {
+   "role": "structural_twin",
+   "family": "all-finished",
+   "shape": "W-probe-2",
+   "domain": "wait",
+   "file": "all-finished-st.yaml"
+  },
+  "all-finished-sem": {
+   "role": "semantic_twin",
+   "family": "all-finished",
+   "domain": "wait",
+   "file": "all-finished-sem.yaml"
+  },
+  "cron-run-watch": {
+   "role": "original",
+   "family": "cron-run-watch",
+   "source": "pack \u00a7E built-in",
+   "shape": "W-observe-2",
+   "domain": "wait",
+   "file": "cron-run-watch.yaml"
+  },
+  "cron-run-watch-st": {
+   "role": "structural_twin",
+   "family": "cron-run-watch",
+   "shape": "W-observe-2",
+   "domain": "wait",
+   "file": "cron-run-watch-st.yaml"
+  },
+  "cron-run-watch-sem": {
+   "role": "semantic_twin",
+   "family": "cron-run-watch",
+   "domain": "wait",
+   "file": "cron-run-watch-sem.yaml"
+  },
+  "echo": {
+   "role": "original",
+   "family": "echo",
+   "source": "pack \u00a7E built-in",
+   "shape": "P-cmd-filter",
+   "domain": "echo",
+   "file": "echo.yaml"
+  },
+  "echo-st": {
+   "role": "structural_twin",
+   "family": "echo",
+   "shape": "P-cmd-filter",
+   "domain": "echo",
+   "file": "echo-st.yaml"
+  },
+  "echo-sem": {
+   "role": "semantic_twin",
+   "family": "echo",
+   "domain": "echo",
+   "file": "echo-sem.yaml"
+  },
+  "github-org-runners": {
+   "role": "original",
+   "family": "github-org-runners",
+   "source": "pack \u00a7E built-in",
+   "shape": "P-github-runners",
+   "domain": "github",
+   "file": "github-org-runners.yaml"
+  },
+  "github-org-runners-st": {
+   "role": "structural_twin",
+   "family": "github-org-runners",
+   "shape": "P-github-runners",
+   "domain": "github",
+   "file": "github-org-runners-st.yaml"
+  },
+  "github-org-runners-sem": {
+   "role": "semantic_twin",
+   "family": "github-org-runners",
+   "domain": "github",
+   "file": "github-org-runners-sem.yaml"
+  },
+  "github-pr-checks": {
+   "role": "original",
+   "family": "github-pr-checks",
+   "source": "pack \u00a7E built-in",
+   "shape": "P-github-prchecks",
+   "domain": "github",
+   "file": "github-pr-checks.yaml"
+  },
+  "github-pr-checks-st": {
+   "role": "structural_twin",
+   "family": "github-pr-checks",
+   "shape": "P-github-prchecks",
+   "domain": "github",
+   "file": "github-pr-checks-st.yaml"
+  },
+  "github-pr-checks-sem": {
+   "role": "semantic_twin",
+   "family": "github-pr-checks",
+   "domain": "github",
+   "file": "github-pr-checks-sem.yaml"
+  },
+  "github-pr-ci-watch": {
+   "role": "original",
+   "family": "github-pr-ci-watch",
+   "source": "pack \u00a7E built-in",
+   "shape": "W-probe-3",
+   "domain": "github",
+   "file": "github-pr-ci-watch.yaml"
+  },
+  "github-pr-ci-watch-st": {
+   "role": "structural_twin",
+   "family": "github-pr-ci-watch",
+   "shape": "W-probe-3",
+   "domain": "github",
+   "file": "github-pr-ci-watch-st.yaml"
+  },
+  "github-pr-ci-watch-sem": {
+   "role": "semantic_twin",
+   "family": "github-pr-ci-watch",
+   "domain": "github",
+   "file": "github-pr-ci-watch-sem.yaml"
+  },
+  "github-runners": {
+   "role": "original",
+   "family": "github-runners",
+   "source": "pack \u00a7E built-in",
+   "shape": "P-github-runners",
+   "domain": "github",
+   "file": "github-runners.yaml"
+  },
+  "github-runners-st": {
+   "role": "structural_twin",
+   "family": "github-runners",
+   "shape": "P-github-runners",
+   "domain": "github",
+   "file": "github-runners-st.yaml"
+  },
+  "github-runners-sem": {
+   "role": "semantic_twin",
+   "family": "github-runners",
+   "domain": "github",
+   "file": "github-runners-sem.yaml"
+  },
+  "github": {
+   "role": "original",
+   "family": "github",
+   "source": "pack \u00a7E built-in",
+   "shape": "P-github-run",
+   "domain": "github",
+   "file": "github.yaml"
+  },
+  "github-st": {
+   "role": "structural_twin",
+   "family": "github",
+   "shape": "P-github-run",
+   "domain": "github",
+   "file": "github-st.yaml"
+  },
+  "github-sem": {
+   "role": "semantic_twin",
+   "family": "github",
+   "domain": "github",
+   "file": "github-sem.yaml"
+  },
+  "http-health": {
+   "role": "original",
+   "family": "http-health",
+   "source": "pack \u00a7E built-in",
+   "shape": "P-http",
+   "domain": "health",
+   "file": "http-health.yaml"
+  },
+  "http-health-st": {
+   "role": "structural_twin",
+   "family": "http-health",
+   "shape": "P-http",
+   "domain": "health",
+   "file": "http-health-st.yaml"
+  },
+  "http-health-sem": {
+   "role": "semantic_twin",
+   "family": "http-health",
+   "domain": "health",
+   "file": "http-health-sem.yaml"
+  },
+  "launch-prompt-gate": {
+   "role": "original",
+   "family": "launch-prompt-gate",
+   "source": "pack \u00a7E built-in",
+   "shape": "W-observe-4-respond",
+   "domain": "tabs",
+   "file": "launch-prompt-gate.yaml"
+  },
+  "launch-prompt-gate-st": {
+   "role": "structural_twin",
+   "family": "launch-prompt-gate",
+   "shape": "W-observe-4-respond",
+   "domain": "tabs",
+   "file": "launch-prompt-gate-st.yaml"
+  },
+  "launch-prompt-gate-sem": {
+   "role": "semantic_twin",
+   "family": "launch-prompt-gate",
+   "domain": "tabs",
+   "file": "launch-prompt-gate-sem.yaml"
+  },
+  "prompt-responder": {
+   "role": "original",
+   "family": "prompt-responder",
+   "source": "pack \u00a7E built-in",
+   "shape": "W-observe-1-respond",
+   "domain": "tabs",
+   "file": "prompt-responder.yaml"
+  },
+  "prompt-responder-st": {
+   "role": "structural_twin",
+   "family": "prompt-responder",
+   "shape": "W-observe-1-respond",
+   "domain": "tabs",
+   "file": "prompt-responder-st.yaml"
+  },
+  "prompt-responder-sem": {
+   "role": "semantic_twin",
+   "family": "prompt-responder",
+   "domain": "tabs",
+   "file": "prompt-responder-sem.yaml"
+  },
+  "retry-until-pass": {
+   "role": "original",
+   "family": "retry-until-pass",
+   "source": "pack \u00a7E built-in",
+   "shape": "W-probe-2",
+   "domain": "wait",
+   "file": "retry-until-pass.yaml"
+  },
+  "retry-until-pass-st": {
+   "role": "structural_twin",
+   "family": "retry-until-pass",
+   "shape": "W-probe-2",
+   "domain": "wait",
+   "file": "retry-until-pass-st.yaml"
+  },
+  "retry-until-pass-sem": {
+   "role": "semantic_twin",
+   "family": "retry-until-pass",
+   "domain": "wait",
+   "file": "retry-until-pass-sem.yaml"
+  },
+  "team-watch": {
+   "role": "original",
+   "family": "team-watch",
+   "source": "pack \u00a7E built-in",
+   "shape": "W-observe-2",
+   "domain": "tabs",
+   "file": "team-watch.yaml"
+  },
+  "team-watch-st": {
+   "role": "structural_twin",
+   "family": "team-watch",
+   "shape": "W-observe-2",
+   "domain": "tabs",
+   "file": "team-watch-st.yaml"
+  },
+  "team-watch-sem": {
+   "role": "semantic_twin",
+   "family": "team-watch",
+   "domain": "tabs",
+   "file": "team-watch-sem.yaml"
+  },
+  "voice-note-to-text": {
+   "role": "original",
+   "family": "voice-note-to-text",
+   "source": "pack \u00a7E built-in",
+   "shape": "W-input-1",
+   "domain": "media",
+   "file": "voice-note-to-text.yaml"
+  },
+  "voice-note-to-text-st": {
+   "role": "structural_twin",
+   "family": "voice-note-to-text",
+   "shape": "W-input-1",
+   "domain": "media",
+   "file": "voice-note-to-text-st.yaml"
+  },
+  "voice-note-to-text-sem": {
+   "role": "semantic_twin",
+   "family": "voice-note-to-text",
+   "domain": "media",
+   "file": "voice-note-to-text-sem.yaml"
+  },
+  "wait-for-build": {
+   "role": "original",
+   "family": "wait-for-build",
+   "source": "pack \u00a7E built-in",
+   "shape": "W-probe-3",
+   "domain": "wait",
+   "file": "wait-for-build.yaml"
+  },
+  "wait-for-build-st": {
+   "role": "structural_twin",
+   "family": "wait-for-build",
+   "shape": "W-probe-3",
+   "domain": "wait",
+   "file": "wait-for-build-st.yaml"
+  },
+  "wait-for-build-sem": {
+   "role": "semantic_twin",
+   "family": "wait-for-build",
+   "domain": "wait",
+   "file": "wait-for-build-sem.yaml"
+  },
+  "service-health": {
+   "role": "original",
+   "family": "service-health",
+   "source": "pack \u00a7E BLUEPRINTS.md 'One file'",
+   "shape": "P-http-cmd",
+   "domain": "health",
+   "file": "service-health.yaml"
+  },
+  "service-health-st": {
+   "role": "structural_twin",
+   "family": "service-health",
+   "shape": "P-http-cmd",
+   "domain": "health",
+   "file": "service-health-st.yaml"
+  },
+  "service-health-sem": {
+   "role": "semantic_twin",
+   "family": "service-health",
+   "domain": "health",
+   "file": "service-health-sem.yaml"
+  },
+  "health-triage": {
+   "role": "original",
+   "family": "health-triage",
+   "source": "SPEC \u00a72 IR example",
+   "shape": "P-http-code-ask",
+   "domain": "health",
+   "file": "health-triage.v2.yaml"
+  },
+  "health-triage-st": {
+   "role": "structural_twin",
+   "family": "health-triage",
+   "shape": "P-http-code-ask",
+   "domain": "health",
+   "file": "health-triage-st.v2.yaml"
+  },
+  "health-triage-sem": {
+   "role": "semantic_twin",
+   "family": "health-triage",
+   "domain": "health",
+   "file": "health-triage-sem.yaml"
+  },
+  "release-preflight": {
+   "role": "original",
+   "family": "release-preflight",
+   "source": "council round1 ide.md",
+   "shape": "P-cmd-cmd-filter-cmd-cmd",
+   "domain": "gates",
+   "file": "release-preflight.yaml"
+  },
+  "release-preflight-st": {
+   "role": "structural_twin",
+   "family": "release-preflight",
+   "shape": "P-cmd-cmd-filter-cmd-cmd",
+   "domain": "gates",
+   "file": "release-preflight-st.yaml"
+  },
+  "release-preflight-sem": {
+   "role": "semantic_twin",
+   "family": "release-preflight",
+   "domain": "gates",
+   "file": "release-preflight-sem.yaml"
+  },
+  "plan-review-gate": {
+   "role": "original",
+   "family": "plan-review-gate",
+   "source": "council round1 ide.md",
+   "shape": "P-cmd-filter-ask-cmd",
+   "domain": "gates",
+   "file": "plan-review-gate.yaml"
+  },
+  "plan-review-gate-st": {
+   "role": "structural_twin",
+   "family": "plan-review-gate",
+   "shape": "P-cmd-filter-ask-cmd",
+   "domain": "gates",
+   "file": "plan-review-gate-st.yaml"
+  },
+  "plan-review-gate-sem": {
+   "role": "semantic_twin",
+   "family": "plan-review-gate",
+   "domain": "gates",
+   "file": "plan-review-gate-sem.yaml"
+  },
+  "dev-run-health": {
+   "role": "original",
+   "family": "dev-run-health",
+   "source": "council round1 ide.md",
+   "shape": "W-probe-2-handlers",
+   "domain": "health",
+   "file": "dev-run-health.yaml"
+  },
+  "dev-run-health-st": {
+   "role": "structural_twin",
+   "family": "dev-run-health",
+   "shape": "W-probe-2-handlers",
+   "domain": "health",
+   "file": "dev-run-health-st.yaml"
+  },
+  "dev-run-health-sem": {
+   "role": "semantic_twin",
+   "family": "dev-run-health",
+   "domain": "health",
+   "file": "dev-run-health-sem.yaml"
+  },
+  "dx-nightly-backup": {
+   "role": "distractor",
+   "family": null,
+   "shape": "P-cmd-cmd",
+   "domain": "dx-nightly-backup",
+   "file": "dx-nightly-backup.yaml"
+  },
+  "dx-disk-space": {
+   "role": "distractor",
+   "family": null,
+   "shape": "W-probe-2",
+   "domain": "dx-disk-space",
+   "file": "dx-disk-space.yaml"
+  },
+  "dx-log-rotate": {
+   "role": "distractor",
+   "family": null,
+   "shape": "P-cmd-owner",
+   "domain": "dx-log-rotate",
+   "file": "dx-log-rotate.yaml"
+  },
+  "dx-standup-summary": {
+   "role": "distractor",
+   "family": null,
+   "shape": "P-cmd-agent",
+   "domain": "dx-standup-summary",
+   "file": "dx-standup-summary.yaml"
+  },
+  "dx-translate-note": {
+   "role": "distractor",
+   "family": null,
+   "shape": "P-input-agent",
+   "domain": "dx-translate-note",
+   "file": "dx-translate-note.yaml"
+  },
+  "dx-dependency-audit": {
+   "role": "distractor",
+   "family": null,
+   "shape": "P-cmd-filter-cmd",
+   "domain": "dx-dependency-audit",
+   "file": "dx-dependency-audit.yaml"
+  },
+  "dx-cert-expiry": {
+   "role": "distractor",
+   "family": null,
+   "shape": "W-probe-2",
+   "domain": "dx-cert-expiry",
+   "file": "dx-cert-expiry.yaml"
+  },
+  "dx-label-sync": {
+   "role": "distractor",
+   "family": null,
+   "shape": "P-cmd-owner",
+   "domain": "dx-label-sync",
+   "file": "dx-label-sync.yaml"
+  },
+  "dx-meeting-reminder": {
+   "role": "distractor",
+   "family": null,
+   "shape": "P-cmd-tab",
+   "domain": "dx-meeting-reminder",
+   "file": "dx-meeting-reminder.yaml"
+  },
+  "dx-screenshot-text": {
+   "role": "distractor",
+   "family": null,
+   "shape": "W-input-1",
+   "domain": "dx-screenshot-text",
+   "file": "dx-screenshot-text.yaml"
+  }
+ },
+ "families": {
+  "all-finished": [
+   "all-finished",
+   "all-finished-st",
+   "all-finished-sem"
+  ],
+  "cron-run-watch": [
+   "cron-run-watch",
+   "cron-run-watch-st",
+   "cron-run-watch-sem"
+  ],
+  "dev-run-health": [
+   "dev-run-health",
+   "dev-run-health-st",
+   "dev-run-health-sem"
+  ],
+  "echo": [
+   "echo",
+   "echo-st",
+   "echo-sem"
+  ],
+  "github": [
+   "github",
+   "github-st",
+   "github-sem"
+  ],
+  "github-org-runners": [
+   "github-org-runners",
+   "github-org-runners-st",
+   "github-org-runners-sem"
+  ],
+  "github-pr-checks": [
+   "github-pr-checks",
+   "github-pr-checks-st",
+   "github-pr-checks-sem"
+  ],
+  "github-pr-ci-watch": [
+   "github-pr-ci-watch",
+   "github-pr-ci-watch-st",
+   "github-pr-ci-watch-sem"
+  ],
+  "github-runners": [
+   "github-runners",
+   "github-runners-st",
+   "github-runners-sem"
+  ],
+  "health-triage": [
+   "health-triage",
+   "health-triage-st",
+   "health-triage-sem"
+  ],
+  "http-health": [
+   "http-health",
+   "http-health-st",
+   "http-health-sem"
+  ],
+  "launch-prompt-gate": [
+   "launch-prompt-gate",
+   "launch-prompt-gate-st",
+   "launch-prompt-gate-sem"
+  ],
+  "plan-review-gate": [
+   "plan-review-gate",
+   "plan-review-gate-st",
+   "plan-review-gate-sem"
+  ],
+  "prompt-responder": [
+   "prompt-responder",
+   "prompt-responder-st",
+   "prompt-responder-sem"
+  ],
+  "release-preflight": [
+   "release-preflight",
+   "release-preflight-st",
+   "release-preflight-sem"
+  ],
+  "retry-until-pass": [
+   "retry-until-pass",
+   "retry-until-pass-st",
+   "retry-until-pass-sem"
+  ],
+  "service-health": [
+   "service-health",
+   "service-health-st",
+   "service-health-sem"
+  ],
+  "team-watch": [
+   "team-watch",
+   "team-watch-st",
+   "team-watch-sem"
+  ],
+  "voice-note-to-text": [
+   "voice-note-to-text",
+   "voice-note-to-text-st",
+   "voice-note-to-text-sem"
+  ],
+  "wait-for-build": [
+   "wait-for-build",
+   "wait-for-build-st",
+   "wait-for-build-sem"
+  ]
+ },
+ "pairs": [
+  {
+   "a": "all-finished",
+   "b": "all-finished-st",
+   "label": "structural twin",
+   "split": "dev",
+   "why": "renamed, reordered, values changed"
+  },
+  {
+   "a": "all-finished",
+   "b": "all-finished-sem",
+   "label": "semantic twin",
+   "split": "dev",
+   "why": "same intent, different shape"
+  },
+  {
+   "a": "all-finished-st",
+   "b": "all-finished-sem",
+   "label": "semantic twin",
+   "split": "dev",
+   "why": "same intent, different shape"
+  },
+  {
+   "a": "all-finished",
+   "b": "dx-log-rotate",
+   "label": "distinct",
+   "split": "dev",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "all-finished",
+   "b": "dx-dependency-audit",
+   "label": "distinct",
+   "split": "dev",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "all-finished",
+   "b": "dx-label-sync",
+   "label": "distinct",
+   "split": "dev",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "cron-run-watch",
+   "b": "cron-run-watch-st",
+   "label": "structural twin",
+   "split": "dev",
+   "why": "renamed, reordered, values changed"
+  },
+  {
+   "a": "cron-run-watch",
+   "b": "cron-run-watch-sem",
+   "label": "semantic twin",
+   "split": "dev",
+   "why": "same intent, different shape"
+  },
+  {
+   "a": "cron-run-watch-st",
+   "b": "cron-run-watch-sem",
+   "label": "semantic twin",
+   "split": "dev",
+   "why": "same intent, different shape"
+  },
+  {
+   "a": "cron-run-watch",
+   "b": "dx-label-sync",
+   "label": "distinct",
+   "split": "dev",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "cron-run-watch",
+   "b": "dx-log-rotate",
+   "label": "distinct",
+   "split": "dev",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "cron-run-watch",
+   "b": "dx-dependency-audit",
+   "label": "distinct",
+   "split": "dev",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "echo",
+   "b": "echo-st",
+   "label": "structural twin",
+   "split": "dev",
+   "why": "renamed, reordered, values changed"
+  },
+  {
+   "a": "echo",
+   "b": "echo-sem",
+   "label": "semantic twin",
+   "split": "dev",
+   "why": "same intent, different shape"
+  },
+  {
+   "a": "echo-st",
+   "b": "echo-sem",
+   "label": "semantic twin",
+   "split": "dev",
+   "why": "same intent, different shape"
+  },
+  {
+   "a": "echo",
+   "b": "dx-label-sync",
+   "label": "distinct",
+   "split": "dev",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "echo",
+   "b": "dx-disk-space",
+   "label": "distinct",
+   "split": "dev",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "echo",
+   "b": "dx-dependency-audit",
+   "label": "distinct",
+   "split": "dev",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "github-org-runners",
+   "b": "github-org-runners-st",
+   "label": "structural twin",
+   "split": "dev",
+   "why": "renamed, reordered, values changed"
+  },
+  {
+   "a": "github-org-runners",
+   "b": "github-org-runners-sem",
+   "label": "semantic twin",
+   "split": "dev",
+   "why": "same intent, different shape"
+  },
+  {
+   "a": "github-org-runners-st",
+   "b": "github-org-runners-sem",
+   "label": "semantic twin",
+   "split": "dev",
+   "why": "same intent, different shape"
+  },
+  {
+   "a": "github-org-runners",
+   "b": "dx-label-sync",
+   "label": "distinct",
+   "split": "dev",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "github-org-runners",
+   "b": "dx-screenshot-text",
+   "label": "distinct",
+   "split": "dev",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "github-org-runners",
+   "b": "dx-cert-expiry",
+   "label": "distinct",
+   "split": "dev",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "health-triage",
+   "b": "health-triage-st",
+   "label": "structural twin",
+   "split": "dev",
+   "why": "renamed, reordered, values changed"
+  },
+  {
+   "a": "health-triage",
+   "b": "health-triage-sem",
+   "label": "semantic twin",
+   "split": "dev",
+   "why": "same intent, different shape"
+  },
+  {
+   "a": "health-triage-st",
+   "b": "health-triage-sem",
+   "label": "semantic twin",
+   "split": "dev",
+   "why": "same intent, different shape"
+  },
+  {
+   "a": "health-triage",
+   "b": "dx-translate-note",
+   "label": "distinct",
+   "split": "dev",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "health-triage",
+   "b": "dx-dependency-audit",
+   "label": "distinct",
+   "split": "dev",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "health-triage",
+   "b": "dx-meeting-reminder",
+   "label": "distinct",
+   "split": "dev",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "launch-prompt-gate",
+   "b": "launch-prompt-gate-st",
+   "label": "structural twin",
+   "split": "dev",
+   "why": "renamed, reordered, values changed"
+  },
+  {
+   "a": "launch-prompt-gate",
+   "b": "launch-prompt-gate-sem",
+   "label": "semantic twin",
+   "split": "dev",
+   "why": "same intent, different shape"
+  },
+  {
+   "a": "launch-prompt-gate-st",
+   "b": "launch-prompt-gate-sem",
+   "label": "semantic twin",
+   "split": "dev",
+   "why": "same intent, different shape"
+  },
+  {
+   "a": "launch-prompt-gate",
+   "b": "dx-disk-space",
+   "label": "distinct",
+   "split": "dev",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "launch-prompt-gate",
+   "b": "dx-meeting-reminder",
+   "label": "distinct",
+   "split": "dev",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "launch-prompt-gate",
+   "b": "dx-screenshot-text",
+   "label": "distinct",
+   "split": "dev",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "plan-review-gate",
+   "b": "plan-review-gate-st",
+   "label": "structural twin",
+   "split": "dev",
+   "why": "renamed, reordered, values changed"
+  },
+  {
+   "a": "plan-review-gate",
+   "b": "plan-review-gate-sem",
+   "label": "semantic twin",
+   "split": "dev",
+   "why": "same intent, different shape"
+  },
+  {
+   "a": "plan-review-gate-st",
+   "b": "plan-review-gate-sem",
+   "label": "semantic twin",
+   "split": "dev",
+   "why": "same intent, different shape"
+  },
+  {
+   "a": "plan-review-gate",
+   "b": "dx-cert-expiry",
+   "label": "distinct",
+   "split": "dev",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "plan-review-gate",
+   "b": "dx-translate-note",
+   "label": "distinct",
+   "split": "dev",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "plan-review-gate",
+   "b": "dx-disk-space",
+   "label": "distinct",
+   "split": "dev",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "prompt-responder",
+   "b": "prompt-responder-st",
+   "label": "structural twin",
+   "split": "dev",
+   "why": "renamed, reordered, values changed"
+  },
+  {
+   "a": "prompt-responder",
+   "b": "prompt-responder-sem",
+   "label": "semantic twin",
+   "split": "dev",
+   "why": "same intent, different shape"
+  },
+  {
+   "a": "prompt-responder-st",
+   "b": "prompt-responder-sem",
+   "label": "semantic twin",
+   "split": "dev",
+   "why": "same intent, different shape"
+  },
+  {
+   "a": "prompt-responder",
+   "b": "dx-disk-space",
+   "label": "distinct",
+   "split": "dev",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "prompt-responder",
+   "b": "dx-screenshot-text",
+   "label": "distinct",
+   "split": "dev",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "prompt-responder",
+   "b": "dx-dependency-audit",
+   "label": "distinct",
+   "split": "dev",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "release-preflight",
+   "b": "release-preflight-st",
+   "label": "structural twin",
+   "split": "dev",
+   "why": "renamed, reordered, values changed"
+  },
+  {
+   "a": "release-preflight",
+   "b": "release-preflight-sem",
+   "label": "semantic twin",
+   "split": "dev",
+   "why": "same intent, different shape"
+  },
+  {
+   "a": "release-preflight-st",
+   "b": "release-preflight-sem",
+   "label": "semantic twin",
+   "split": "dev",
+   "why": "same intent, different shape"
+  },
+  {
+   "a": "release-preflight",
+   "b": "dx-dependency-audit",
+   "label": "distinct",
+   "split": "dev",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "release-preflight",
+   "b": "dx-label-sync",
+   "label": "distinct",
+   "split": "dev",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "release-preflight",
+   "b": "dx-meeting-reminder",
+   "label": "distinct",
+   "split": "dev",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "voice-note-to-text",
+   "b": "voice-note-to-text-st",
+   "label": "structural twin",
+   "split": "dev",
+   "why": "renamed, reordered, values changed"
+  },
+  {
+   "a": "voice-note-to-text",
+   "b": "voice-note-to-text-sem",
+   "label": "semantic twin",
+   "split": "dev",
+   "why": "same intent, different shape"
+  },
+  {
+   "a": "voice-note-to-text-st",
+   "b": "voice-note-to-text-sem",
+   "label": "semantic twin",
+   "split": "dev",
+   "why": "same intent, different shape"
+  },
+  {
+   "a": "voice-note-to-text",
+   "b": "dx-dependency-audit",
+   "label": "distinct",
+   "split": "dev",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "voice-note-to-text",
+   "b": "dx-disk-space",
+   "label": "distinct",
+   "split": "dev",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "voice-note-to-text",
+   "b": "dx-label-sync",
+   "label": "distinct",
+   "split": "dev",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "all-finished",
+   "b": "release-preflight",
+   "label": "distinct",
+   "split": "dev",
+   "why": "different domain group and shape class"
+  },
+  {
+   "a": "cron-run-watch",
+   "b": "github-org-runners",
+   "label": "distinct",
+   "split": "dev",
+   "why": "different domain group and shape class"
+  },
+  {
+   "a": "echo",
+   "b": "prompt-responder",
+   "label": "distinct",
+   "split": "dev",
+   "why": "different domain group and shape class"
+  },
+  {
+   "a": "github-org-runners",
+   "b": "voice-note-to-text",
+   "label": "distinct",
+   "split": "dev",
+   "why": "different domain group and shape class"
+  },
+  {
+   "a": "health-triage",
+   "b": "all-finished",
+   "label": "distinct",
+   "split": "dev",
+   "why": "different domain group and shape class"
+  },
+  {
+   "a": "launch-prompt-gate",
+   "b": "echo",
+   "label": "distinct",
+   "split": "dev",
+   "why": "different domain group and shape class"
+  },
+  {
+   "a": "plan-review-gate",
+   "b": "prompt-responder",
+   "label": "distinct",
+   "split": "dev",
+   "why": "different domain group and shape class"
+  },
+  {
+   "a": "prompt-responder",
+   "b": "release-preflight",
+   "label": "distinct",
+   "split": "dev",
+   "why": "different domain group and shape class"
+  },
+  {
+   "a": "release-preflight",
+   "b": "echo",
+   "label": "distinct",
+   "split": "dev",
+   "why": "different domain group and shape class"
+  },
+  {
+   "a": "voice-note-to-text",
+   "b": "all-finished",
+   "label": "distinct",
+   "split": "dev",
+   "why": "different domain group and shape class"
+  },
+  {
+   "a": "dev-run-health",
+   "b": "dev-run-health-st",
+   "label": "structural twin",
+   "split": "test",
+   "why": "renamed, reordered, values changed"
+  },
+  {
+   "a": "dev-run-health",
+   "b": "dev-run-health-sem",
+   "label": "semantic twin",
+   "split": "test",
+   "why": "same intent, different shape"
+  },
+  {
+   "a": "dev-run-health-st",
+   "b": "dev-run-health-sem",
+   "label": "semantic twin",
+   "split": "test",
+   "why": "same intent, different shape"
+  },
+  {
+   "a": "dev-run-health",
+   "b": "dx-dependency-audit",
+   "label": "distinct",
+   "split": "test",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "dev-run-health",
+   "b": "dx-meeting-reminder",
+   "label": "distinct",
+   "split": "test",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "dev-run-health",
+   "b": "dx-translate-note",
+   "label": "distinct",
+   "split": "test",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "github",
+   "b": "github-st",
+   "label": "structural twin",
+   "split": "test",
+   "why": "renamed, reordered, values changed"
+  },
+  {
+   "a": "github",
+   "b": "github-sem",
+   "label": "semantic twin",
+   "split": "test",
+   "why": "same intent, different shape"
+  },
+  {
+   "a": "github-st",
+   "b": "github-sem",
+   "label": "semantic twin",
+   "split": "test",
+   "why": "same intent, different shape"
+  },
+  {
+   "a": "github",
+   "b": "dx-log-rotate",
+   "label": "distinct",
+   "split": "test",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "github",
+   "b": "dx-standup-summary",
+   "label": "distinct",
+   "split": "test",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "github",
+   "b": "dx-label-sync",
+   "label": "distinct",
+   "split": "test",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "github-pr-checks",
+   "b": "github-pr-checks-st",
+   "label": "structural twin",
+   "split": "test",
+   "why": "renamed, reordered, values changed"
+  },
+  {
+   "a": "github-pr-checks",
+   "b": "github-pr-checks-sem",
+   "label": "semantic twin",
+   "split": "test",
+   "why": "same intent, different shape"
+  },
+  {
+   "a": "github-pr-checks-st",
+   "b": "github-pr-checks-sem",
+   "label": "semantic twin",
+   "split": "test",
+   "why": "same intent, different shape"
+  },
+  {
+   "a": "github-pr-checks",
+   "b": "dx-cert-expiry",
+   "label": "distinct",
+   "split": "test",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "github-pr-checks",
+   "b": "dx-dependency-audit",
+   "label": "distinct",
+   "split": "test",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "github-pr-checks",
+   "b": "dx-standup-summary",
+   "label": "distinct",
+   "split": "test",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "github-pr-ci-watch",
+   "b": "github-pr-ci-watch-st",
+   "label": "structural twin",
+   "split": "test",
+   "why": "renamed, reordered, values changed"
+  },
+  {
+   "a": "github-pr-ci-watch",
+   "b": "github-pr-ci-watch-sem",
+   "label": "semantic twin",
+   "split": "test",
+   "why": "same intent, different shape"
+  },
+  {
+   "a": "github-pr-ci-watch-st",
+   "b": "github-pr-ci-watch-sem",
+   "label": "semantic twin",
+   "split": "test",
+   "why": "same intent, different shape"
+  },
+  {
+   "a": "github-pr-ci-watch",
+   "b": "dx-nightly-backup",
+   "label": "distinct",
+   "split": "test",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "github-pr-ci-watch",
+   "b": "dx-label-sync",
+   "label": "distinct",
+   "split": "test",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "github-pr-ci-watch",
+   "b": "dx-screenshot-text",
+   "label": "distinct",
+   "split": "test",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "github-runners",
+   "b": "github-runners-st",
+   "label": "structural twin",
+   "split": "test",
+   "why": "renamed, reordered, values changed"
+  },
+  {
+   "a": "github-runners",
+   "b": "github-runners-sem",
+   "label": "semantic twin",
+   "split": "test",
+   "why": "same intent, different shape"
+  },
+  {
+   "a": "github-runners-st",
+   "b": "github-runners-sem",
+   "label": "semantic twin",
+   "split": "test",
+   "why": "same intent, different shape"
+  },
+  {
+   "a": "github-runners",
+   "b": "dx-screenshot-text",
+   "label": "distinct",
+   "split": "test",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "github-runners",
+   "b": "dx-dependency-audit",
+   "label": "distinct",
+   "split": "test",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "github-runners",
+   "b": "dx-cert-expiry",
+   "label": "distinct",
+   "split": "test",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "http-health",
+   "b": "http-health-st",
+   "label": "structural twin",
+   "split": "test",
+   "why": "renamed, reordered, values changed"
+  },
+  {
+   "a": "http-health",
+   "b": "http-health-sem",
+   "label": "semantic twin",
+   "split": "test",
+   "why": "same intent, different shape"
+  },
+  {
+   "a": "http-health-st",
+   "b": "http-health-sem",
+   "label": "semantic twin",
+   "split": "test",
+   "why": "same intent, different shape"
+  },
+  {
+   "a": "http-health",
+   "b": "dx-meeting-reminder",
+   "label": "distinct",
+   "split": "test",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "http-health",
+   "b": "dx-cert-expiry",
+   "label": "distinct",
+   "split": "test",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "http-health",
+   "b": "dx-nightly-backup",
+   "label": "distinct",
+   "split": "test",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "retry-until-pass",
+   "b": "retry-until-pass-st",
+   "label": "structural twin",
+   "split": "test",
+   "why": "renamed, reordered, values changed"
+  },
+  {
+   "a": "retry-until-pass",
+   "b": "retry-until-pass-sem",
+   "label": "semantic twin",
+   "split": "test",
+   "why": "same intent, different shape"
+  },
+  {
+   "a": "retry-until-pass-st",
+   "b": "retry-until-pass-sem",
+   "label": "semantic twin",
+   "split": "test",
+   "why": "same intent, different shape"
+  },
+  {
+   "a": "retry-until-pass",
+   "b": "dx-dependency-audit",
+   "label": "distinct",
+   "split": "test",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "retry-until-pass",
+   "b": "dx-screenshot-text",
+   "label": "distinct",
+   "split": "test",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "retry-until-pass",
+   "b": "dx-meeting-reminder",
+   "label": "distinct",
+   "split": "test",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "service-health",
+   "b": "service-health-st",
+   "label": "structural twin",
+   "split": "test",
+   "why": "renamed, reordered, values changed"
+  },
+  {
+   "a": "service-health",
+   "b": "service-health-sem",
+   "label": "semantic twin",
+   "split": "test",
+   "why": "same intent, different shape"
+  },
+  {
+   "a": "service-health-st",
+   "b": "service-health-sem",
+   "label": "semantic twin",
+   "split": "test",
+   "why": "same intent, different shape"
+  },
+  {
+   "a": "service-health",
+   "b": "dx-cert-expiry",
+   "label": "distinct",
+   "split": "test",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "service-health",
+   "b": "dx-label-sync",
+   "label": "distinct",
+   "split": "test",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "service-health",
+   "b": "dx-translate-note",
+   "label": "distinct",
+   "split": "test",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "team-watch",
+   "b": "team-watch-st",
+   "label": "structural twin",
+   "split": "test",
+   "why": "renamed, reordered, values changed"
+  },
+  {
+   "a": "team-watch",
+   "b": "team-watch-sem",
+   "label": "semantic twin",
+   "split": "test",
+   "why": "same intent, different shape"
+  },
+  {
+   "a": "team-watch-st",
+   "b": "team-watch-sem",
+   "label": "semantic twin",
+   "split": "test",
+   "why": "same intent, different shape"
+  },
+  {
+   "a": "team-watch",
+   "b": "dx-disk-space",
+   "label": "distinct",
+   "split": "test",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "team-watch",
+   "b": "dx-log-rotate",
+   "label": "distinct",
+   "split": "test",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "team-watch",
+   "b": "dx-meeting-reminder",
+   "label": "distinct",
+   "split": "test",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "wait-for-build",
+   "b": "wait-for-build-st",
+   "label": "structural twin",
+   "split": "test",
+   "why": "renamed, reordered, values changed"
+  },
+  {
+   "a": "wait-for-build",
+   "b": "wait-for-build-sem",
+   "label": "semantic twin",
+   "split": "test",
+   "why": "same intent, different shape"
+  },
+  {
+   "a": "wait-for-build-st",
+   "b": "wait-for-build-sem",
+   "label": "semantic twin",
+   "split": "test",
+   "why": "same intent, different shape"
+  },
+  {
+   "a": "wait-for-build",
+   "b": "dx-cert-expiry",
+   "label": "distinct",
+   "split": "test",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "wait-for-build",
+   "b": "dx-log-rotate",
+   "label": "distinct",
+   "split": "test",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "wait-for-build",
+   "b": "dx-screenshot-text",
+   "label": "distinct",
+   "split": "test",
+   "why": "different job and shape class"
+  },
+  {
+   "a": "dev-run-health",
+   "b": "github",
+   "label": "distinct",
+   "split": "test",
+   "why": "different domain group and shape class"
+  },
+  {
+   "a": "github",
+   "b": "http-health",
+   "label": "distinct",
+   "split": "test",
+   "why": "different domain group and shape class"
+  },
+  {
+   "a": "github-pr-checks",
+   "b": "dev-run-health",
+   "label": "distinct",
+   "split": "test",
+   "why": "different domain group and shape class"
+  },
+  {
+   "a": "github-pr-ci-watch",
+   "b": "retry-until-pass",
+   "label": "distinct",
+   "split": "test",
+   "why": "different domain group and shape class"
+  },
+  {
+   "a": "github-runners",
+   "b": "team-watch",
+   "label": "distinct",
+   "split": "test",
+   "why": "different domain group and shape class"
+  },
+  {
+   "a": "http-health",
+   "b": "team-watch",
+   "label": "distinct",
+   "split": "test",
+   "why": "different domain group and shape class"
+  },
+  {
+   "a": "retry-until-pass",
+   "b": "dev-run-health",
+   "label": "distinct",
+   "split": "test",
+   "why": "different domain group and shape class"
+  },
+  {
+   "a": "service-health",
+   "b": "github",
+   "label": "distinct",
+   "split": "test",
+   "why": "different domain group and shape class"
+  },
+  {
+   "a": "team-watch",
+   "b": "service-health",
+   "label": "distinct",
+   "split": "test",
+   "why": "different domain group and shape class"
+  },
+  {
+   "a": "wait-for-build",
+   "b": "http-health",
+   "label": "distinct",
+   "split": "test",
+   "why": "different domain group and shape class"
+  }
+ ]
+}

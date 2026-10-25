@@ -1,338 +1,180 @@
 use super::*;
-
-const PIPELINE: &str = r#"schema_version: 1
-name: Endpoint health
-note: Alert on outages
-owner: team
-inputs:
-  url: {type: string, default: 'https://example.com/health'}
-  status: {type: integer, default: 204}
-pipeline:
-  trigger: {type: schedule, every: 1m}
-  steps:
-    - name: health
-      input: text
-      uses: http
-      with: {url: '{{ url }}', expected_status: '{{status}}', timeout_ms: 3000}
-      on: {up: stop, down: diagnose, failed: diagnose}
-    - name: diagnose
-      input: text
-      run: echo diagnose
-      on: {done: stop, failed: stop}
-  result: {to: notify}
-"#;
-
+use serde_json::json;
+const ECHO: &str = include_str!("../../../../../resources/blueprints/echo.yaml");
 #[test]
-fn yaml_spec_yaml_round_trip_preserves_nodes_routes_and_native_inputs() {
-    let checked = check("health.yaml", PIPELINE, &[]);
+fn command_stdin_bind_is_data_but_run_bind_is_positioned_validation() {
+    let raw = "schema_version: 2\nkind: pipeline\nname: command-stdin\ntrigger: {type: schedule, every: {lit: 20s}}\nsteps:\n- id: prior\n  run: {lit: echo ready}\n  out: {type: string}\n- id: consume\n  run: {lit: echo fixed}\n  in: {type: string}\n  bind: {in: prior.out}\nresult: {to: notify}\n";
+    let checked = check("stdin.yaml", raw, &[]);
     assert!(checked.ok, "{:?}", checked.diagnostics);
-    let definition = checked.definition.unwrap();
+    let runtime = parse("stdin.yaml", raw).unwrap().document.lower().unwrap();
     assert_eq!(
-        definition.pointer("/spec/steps/0/kind/probe/expected_status"),
-        Some(&json!("204"))
+        runtime["spec"]["steps"][1]["execution"]["input_binding"],
+        "prior.out"
     );
-    let spec: crate::blueprint_pipeline::BlueprintSpec =
-        serde_json::from_value(definition["spec"].clone()).unwrap();
-    assert_eq!(spec.steps[1].name, "diagnose");
-    let document = Document::from_definition(&definition).unwrap();
-    let raw = document.yaml().unwrap();
-    assert!(raw.contains("uses: http"));
-    assert!(raw.contains("run: echo diagnose"));
-    assert!(!raw.contains("definition:"));
-    assert_eq!(check("export.yaml", &raw, &[]).definition, Some(definition));
-}
-
-#[test]
-fn multiple_errors_have_exact_source_positions_and_hints() {
-    let source = PIPELINE
-        .replace("every: 1m", "every: tomorrow")
-        .replace("down: diagnose", "down: missing")
-        .replace("uses: http", "uses: htp");
-    let checked = check("bad.yaml", &source, &[]);
+    let invalid = raw.replace("run: {lit: echo fixed}", "run: {bind: prior.out}");
+    let checked = check("stdin.yaml", &invalid, &[]);
     assert!(!checked.ok);
-    let unknown = checked
-        .diagnostics
-        .iter()
-        .find(|d| d.field == "pipeline.steps[0].uses")
-        .unwrap();
-    assert_eq!((unknown.line, unknown.column), (13, 7));
-    assert!(unknown.message.contains("htp"));
-    assert!(checked
-        .diagnostics
-        .iter()
-        .any(|d| d.field == "pipeline.trigger.every"));
-    assert!(checked
-        .diagnostics
-        .iter()
-        .all(|d| d.line > 0 && d.column > 0 && !d.hint.is_empty()));
+    assert!(checked.diagnostics.iter().any(|d| d.field == "steps[1].run"
+        && d.file == "stdin.yaml"
+        && d.line == 10
+        && !d.hint.is_empty()));
 }
-
 #[test]
-fn bad_routes_and_unreachable_stages_are_errors() {
-    let source = PIPELINE.replace(
-        "down: diagnose, failed: diagnose",
-        "down: nowhere, failed: stop",
+fn native_v2_roundtrip_identity_and_positions() {
+    let raw="schema_version: 2\nkind: pipeline\nname: typed-example\nintent: grade a probe\nanchors: [health]\ntrigger: {type: schedule, every: {lit: 20s}}\ntypes: {Count: {type: integer}}\nsteps:\n- id: measure\n  code: {lang: python, src: 'def main(p): return 1', caps: [], limits: {wall_ms: 1000}}\n  out: {$ref: Count}\n  routes: {done: child}\n- id: child\n  call: {ref: helper, with: {count: {bind: measure.out}}}\n  in: {$ref: Count}\n  bind: {in: measure.out}\nother:\n- id: alert\n  uses: notify\n  with: {text: {bind: child.out}}\nblueprints:\n  helper:\n    inputs: {count: {type: integer}}\n    steps: [{id: return-count, run: {lit: 'echo 1'}}]\n    result: {type: {type: integer}, from: return-count.out}\n";
+    let parsed = parse("typed.yaml", raw).unwrap();
+    assert_eq!(parsed.at("steps[0].code").line, 10);
+    assert!(
+        parsed.document.template_errors().is_empty(),
+        "{:?}",
+        parsed.document.template_errors()
     );
-    let checked = check("bad-route.yaml", &source, &[]);
-    assert!(checked
-        .diagnostics
-        .iter()
-        .any(|d| d.message.contains("does not exist")));
-    assert!(checked
-        .diagnostics
-        .iter()
-        .any(|d| d.message == "Unreachable stage"));
-}
-
-#[test]
-fn input_type_defaults_enums_and_all_missing_bindings_are_checked() {
-    let source = PIPELINE.replace("default: 204", "default: nope").replace(
-        "default: 'https://example.com/health'",
-        "enum: ['https://example.com/health']",
-    );
-    let checked = check("inputs.yaml", &source, &[]);
-    assert!(!checked.ok);
-    assert!(checked
-        .diagnostics
-        .iter()
-        .any(|d| d.field == "inputs.status.default"));
-    assert!(checked
-        .diagnostics
-        .iter()
-        .any(|d| d.field == "inputs.url" && d.message.contains("Missing")));
-    assert!(!check("inputs.yaml", PIPELINE, &["other=value".into()]).ok);
-}
-
-#[test]
-fn literals_in_commands_are_opaque_and_declared_inputs_allow_spaces() {
-    let source = PIPELINE.replace(
-        "run: echo diagnose",
-        r#"run: "docker ps --format '{{.Status}}' --filter '{{ url }}'""#,
-    );
-    let checked = check("literal.yaml", &source, &[]);
-    assert!(checked.ok, "{:?}", checked.diagnostics);
+    let yaml = parsed.document.yaml().unwrap();
+    let reparsed = parse("formatted.yaml", &yaml).unwrap();
+    assert_eq!(parsed.document, reparsed.document);
     assert_eq!(
-        checked.definition.unwrap()["spec"]["steps"][1]["kind"]["command"],
-        "docker ps --format '{{.Status}}' --filter 'https://example.com/health'"
+        projection::identity(&parsed.document),
+        projection::identity(&reparsed.document)
     );
+    assert!(parsed.document.bind(&[]).is_ok());
+    assert!(parsed
+        .document
+        .lower()
+        .unwrap_err()
+        .iter()
+        .any(|(_, m)| m.contains("call execution")));
 }
-
 #[test]
-fn duplicate_keys_report_the_duplicate_location_in_block_and_flow_yaml() {
-    for (source, line, column) in [
-        ("schema_version: 1\nname: A\nname: B\nwatch: {}\n", 3, 1),
-        ("{schema_version: 1, name: A, name: B, watch: {}}", 1, 30),
+fn v1_and_wire_objects_are_refused() {
+    for raw in [
+        "schema_version: 1\nname: old\nwatch: {}",
+        r#"{"create":{"name":"old"}}"#,
+        r#"{"spec":{"name":"old"}}"#,
     ] {
-        let checked = check("duplicate.yaml", source, &[]);
-        let duplicate = checked
-            .diagnostics
-            .iter()
-            .find(|d| d.message == "Duplicate mapping key")
-            .unwrap();
-        assert_eq!((duplicate.line, duplicate.column), (line, column));
+        assert!(!check("old.yaml", raw, &[]).ok);
+        assert!(Document::from_definition(&serde_yaml::from_str::<Value>(raw).unwrap()).is_err());
     }
 }
-
 #[test]
-fn every_rejected_document_has_an_error_and_syntax_has_positions() {
-    for source in [
-        "[]",
-        "null",
-        "name: [",
-        "schema_version: nope",
-        "schema_version: 1\nname: A\nwatc: {}",
-        "schema_version: 1\nname: A\nwatch: {}\npipeline: {}",
-    ] {
-        let checked = check("invalid.yaml", source, &[]);
-        assert!(!checked.ok);
-        assert!(
-            checked.diagnostics.iter().any(|d| d.severity == "error"),
-            "{source}"
-        );
-    }
-}
-
-#[test]
-fn watch_validation_uses_shared_admission_and_round_trips() {
-    let source="schema_version: 1\nname: Build result\nwatch:\n  probe: echo done\n  question: State?\n  buckets: [done]\n  matches: {done: done}\n  every: 20s\n  timeout: 1h\n  handlers:\n    done: [{type: notify}]\n";
-    let checked = check("watch.yaml", source, &[]);
-    assert!(checked.ok, "{:?}", checked.diagnostics);
-    assert!(checked
-        .diagnostics
-        .iter()
-        .any(|d| d.severity == "warning" && d.field == "note"));
-    let definition = checked.definition.unwrap();
-    assert!(!definition["create"]["handlers"]["done"][0]["id"]
+fn serde_schema_and_value_forms_have_one_contract() {
+    let schema = schema::schema();
+    assert_eq!(schema["properties"]["schema_version"]["minimum"], 2.0);
+    assert_eq!(schema["properties"]["schema_version"]["maximum"], 2.0);
+    assert!(schema["properties"].get("watch").is_none());
+    let bind = &schema["definitions"]["Node"]["properties"]["bind"];
+    assert_eq!(bind["additionalProperties"]["type"], "string");
+    assert!(bind["description"]
         .as_str()
         .unwrap()
-        .is_empty());
-    let create: crate::blueprint_watch::Create =
-        serde_json::from_value(definition["create"].clone()).unwrap();
-    assert!(create.admission_errors().is_empty());
-    let document = Document::from_definition(&definition).unwrap();
+        .contains("named ports"));
+    assert!(serde_yaml::from_str::<ValueForm>("input: a\nlit: b").is_err());
+    assert!(serde_yaml::from_str::<ValueForm>("echo '{{message}}'").is_err());
+}
+#[test]
+fn semantic_projections_pin_routes_ports_caps_and_calls() {
+    let doc = parse("echo", ECHO).unwrap().document;
+    let facts = projection::facts(&doc);
     assert_eq!(
-        check("export.yaml", &document.yaml().unwrap(), &[]).definition,
-        Some(definition)
+        serde_json::to_value(&facts).unwrap(),
+        json!([
+            {"predicate":"node","arguments":["echo","filter",1]},
+            {"predicate":"route","arguments":["echo","matched","@stop"]},
+            {"predicate":"param","arguments":["echo","bucket",{"lit":"matched"}]},
+            {"predicate":"param","arguments":["echo","pattern",{"lit":"(?s).*"}]}
+        ])
     );
-    for bad in [
-        source.replace("every: 20s", "every: 1s"),
-        source.replace("timeout: 1h", "timeout: tomorrow"),
-        source.replace("type: notify", "type: send"),
-        source.replace("name: Build result", "name: Build result\nowner: team"),
-    ] {
-        assert!(!check("bad.yaml", &bad, &[]).ok, "{bad}");
-    }
-}
-
-#[test]
-fn warnings_do_not_fail_and_native_object_inputs_round_trip() {
-    let source=PIPELINE.replace("note: Alert on outages\n","").replace("  status: {type: integer, default: 204}","  status: {type: integer, default: 204}\n  params: {type: object, default: {resource: demo}} ").replace("trigger: {type: schedule, every: 1m}","trigger: {type: event, kind: custom_event, params: '{{params}}'}");
-    let checked = check("warnings.yaml", &source, &[]);
-    assert!(checked.ok, "{:?}", checked.diagnostics);
-    assert!(checked.diagnostics.iter().any(|d| d.field == "note"));
-    assert_eq!(
-        checked.definition.unwrap()["spec"]["trigger"]["params"],
-        json!({"resource":"demo"})
-    );
-}
-use crate::blueprint_watch::{duration_ms, Create, Route};
-
-#[test]
-fn watch_route_and_duration_grammar_is_shared_with_admission() {
-    for route in [
-        "notify",
-        "stop",
-        "send:agent_1",
-        "cron:nightly",
-        "blueprint:blueprint_123",
-        "escalate:creator",
-        "escalate:agent:agent_1",
-        "respond_prompt:permission",
-    ] {
-        assert!(Route::parse(route).is_ok(), "{route}")
-    }
-    for route in [
-        "none",
-        "blueprint:wrong",
-        "send:",
-        "send:foreign/target",
-        "escalate:agent:a/b",
-    ] {
-        assert!(Route::parse(route).is_err(), "{route}")
-    }
-    assert_eq!(duration_ms("1h30m").unwrap(), 5400000);
-    for duration in ["", "0s", "1s2", "tomorrow", "99999999999999999999d"] {
-        assert!(duration_ms(duration).is_err(), "{duration}")
-    }
-}
-
-#[test]
-fn watch_all_invalid_parameters_are_reported_before_runtime_admission() {
-    let mut create:Create=serde_json::from_value(json!({"name":"Watch","probe":"echo done","question":"State?","buckets":["done"],"every":"1s","timeout":"tomorrow","until":"missing","rearm_on_change":["unknown"],"handlers":{"done":[{"type":"command","parameters":{"command":"echo"}},{"type":"send","parameters":{}}]}})).unwrap();
-    create.normalize_handlers();
-    let errors = create.admission_errors();
-    for field in [
-        "every",
-        "timeout",
-        "until",
-        "rearm_on_change",
-        "handlers.done[0].parameters",
-        "handlers.done[1].parameters",
-    ] {
-        assert!(
-            errors.iter().any(|(key, _)| key == field),
-            "{field}: {errors:?}"
-        )
+    for field in ["routes", "in", "caps", "call"] {
+        let mut value = serde_json::to_value(&doc).unwrap();
+        value["steps"][0][field] = match field {
+            "routes" => json!({"matched":"@next"}),
+            "in" => json!({"type":"integer"}),
+            "caps" => json!(["net:example.test"]),
+            _ => json!({"ref":"helper","with":{}}),
+        };
+        let changed: Document = serde_json::from_value(value).unwrap();
+        assert_ne!(projection::facts(&doc), projection::facts(&changed));
+        assert!(projection::diff(&doc, &changed).changed["echo"].contains(&field.into()));
     }
 }
 #[test]
-fn undeclared_simple_inputs_warn_but_command_templates_remain_opaque() {
-    let source = PIPELINE.replace(
-        "run: echo diagnose",
-        r#"run: "echo '{{typo}}' '{{.Status}}' '{{range .}}'""#,
-    );
-    let checked = check("literal.yaml", &source, &[]);
-    assert!(checked.ok, "{:?}", checked.diagnostics);
-    let warnings = checked
+fn duplicate_keys_and_bind_in_executable_slot_have_source_diagnostics() {
+    let raw = ECHO.replace("id: echo", "id: echo\n  id: duplicate");
+    assert!(parse("duplicate.yaml", &raw)
+        .unwrap_err()
+        .iter()
+        .any(|d| d.field == "steps[0].id" && d.line > 1));
+    let raw = ECHO
+        .replace("uses: filter", "run: {bind: echo.out}")
+        .replace("id: echo", "id: command");
+    let checked = check("bad.yaml", &raw, &[]);
+    assert!(!checked.ok);
+    assert!(checked
         .diagnostics
         .iter()
-        .filter(|d| d.message.starts_with("Undeclared input"))
-        .collect::<Vec<_>>();
-    assert_eq!(warnings.len(), 1);
-    assert!(warnings[0].message.contains("typo"));
+        .any(|d| d.field == "steps[0].run" && d.line > 1));
 }
-
 #[test]
-fn separator_only_derived_names_have_a_readable_prefix() {
-    let raw = PIPELINE.replace("name: Endpoint health", "name: '{{url}}'");
-    let checked = check(
-        "separators.yaml",
-        &raw,
-        &[format!("url={}", "-".repeat(80))],
-    );
-    // Bind independently: the HTTP probe intentionally receives an invalid URL here.
-    let document: Document = serde_yaml::from_str(&raw).unwrap();
-    let definition = document.bind(&[format!("url={}", "-".repeat(80))]).unwrap();
-    let name = definition["spec"]["name"].as_str().unwrap();
-    assert!(name.starts_with("blueprint-"));
-    assert_eq!(name.len(), 16);
-    assert!(!checked.ok);
-}
-
-#[test]
-fn implicit_failed_route_stops_and_explicit_next_makes_a_stage_reachable() {
-    let source = r#"schema_version: 1
-name: Routes agree
-pipeline:
-  trigger: {type: schedule, every: 20s}
-  steps:
-  - {name: first, input: text, run: echo first, on: {done: stop}}
-  - {name: second, input: text, run: echo second}
-"#;
-    let checked = check("routes.yaml", source, &[]);
-    assert!(checked.diagnostics.iter().any(
-        |error| error.field == "pipeline.steps[1].name" && error.message == "Unreachable stage"
-    ));
-    assert!(
-        check(
-            "routes.yaml",
-            &source.replace("done: stop", "done: stop, failed: next"),
-            &[]
-        )
-        .ok
-    );
-}
-
-#[test]
-fn malformed_nodes_are_not_replaced_and_semantic_paths_stay_in_the_document() {
-    let source = PIPELINE
-        .replace("every: 1m", "every: 0s")
-        .replace("run: echo diagnose", "run: ''");
-    let checked = check("paths.yaml", &source, &[]);
-    for field in ["pipeline.trigger.every", "pipeline.steps[1].run"] {
+fn blueprint_v2_runtime_bundled_recipes_bind_and_lower_without_cli_authority() {
+    let root = crate::test_support::fixture_manifest_dir().join("../../../resources/blueprints");
+    let voice_path = std::env::temp_dir().join("blueprint-v2-voice.wav");
+    let mut count = 0;
+    for file in std::fs::read_dir(root).unwrap() {
+        let path = file.unwrap().path();
+        if path.extension().and_then(|s| s.to_str()) != Some("yaml") {
+            continue;
+        }
+        count += 1;
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert!(!raw.contains("domios-cli"));
+        let doc = parse(path.to_str().unwrap(), &raw).unwrap().document;
+        let assignments = doc
+            .inputs
+            .iter()
+            .filter(|(_, p)| p.default.is_none())
+            .map(|(key, p)| {
+                let value = match key.as_str() {
+                    "name" => "example-watch",
+                    "repo" => "owner/repo",
+                    "org" => "example",
+                    "url" => "https://example.test/health",
+                    "id" => "42",
+                    "tab_id" => "tab-example",
+                    "cron_name_or_id" => "cron-example",
+                    "path_to_voice_note" => voice_path.to_str().unwrap(),
+                    _ if key.contains("probe") => "echo ready",
+                    _ => "ready",
+                };
+                format!("{key}={}", if p.kind == "integer" { "42" } else { value })
+            })
+            .collect::<Vec<_>>();
+        let checked = check(path.to_str().unwrap(), &raw, &assignments);
+        assert!(checked.ok, "{}: {:?}", path.display(), checked.diagnostics);
+        let bound = Document::from_definition(&checked.definition.unwrap()).unwrap();
         assert!(
-            checked.diagnostics.iter().any(|error| error.field == field),
-            "{field}: {:?}",
-            checked.diagnostics
+            bound.lower().is_ok(),
+            "{}: {:?}",
+            path.display(),
+            bound.lower()
         );
     }
-    let malformed = check(
-        "parts.yaml",
-        &PIPELINE
-            .replace("every: 1m", "every: [invalid]")
-            .replace("run: echo diagnose", "run: {}"),
-        &[],
+    assert_eq!(count, 15);
+}
+
+#[test]
+fn typed_binding_keeps_schema_properties_and_literal_executable_text_opaque() {
+    let raw="schema_version: 2\nkind: pipeline\nname: typed-binding\ninputs: {count: {$ref: Count}}\ntypes: {Count: {type: integer}, Payload: {type: object, properties: {input: {type: string}}}}\ntrigger: {type: schedule, every: {lit: 20s}}\nsteps: [{id: emit, run: {lit: \"echo '{{count}}'\"}, with: {count: {input: count}}}]\n";
+    let doc = parse("opaque.yaml", raw).unwrap().document;
+    assert!(doc.bind(&["count=\"wrong\"".into()]).is_err());
+    let bound = doc.bind(&["count=3".into()]).unwrap();
+    assert_eq!(bound["steps"][0]["run"]["lit"], "echo '{{count}}'");
+    assert_eq!(bound["steps"][0]["with"]["count"]["lit"], 3);
+    assert_eq!(
+        bound["types"]["Payload"]["properties"]["input"]["type"],
+        "string"
     );
-    assert!(malformed
-        .diagnostics
-        .iter()
-        .any(|error| error.field == "pipeline.trigger"));
-    assert!(malformed
-        .diagnostics
-        .iter()
-        .any(|error| error.field == "pipeline.steps[1]"));
-    assert!(!malformed
-        .diagnostics
-        .iter()
-        .any(|error| error.message.contains("previous result")));
+    assert!(parse("opaque.yaml", raw)
+        .unwrap()
+        .ir()
+        .locations
+        .contains_key("steps[0].run"));
 }

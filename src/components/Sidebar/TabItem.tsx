@@ -39,6 +39,10 @@ import { tabRowText } from "./tabRowModel";
 import { sameRowTab } from "./tabRowEquality";
 import { useLiveRowTab } from "./useLiveRowTab";
 import { ChecklistToggleButton, type ChecklistToggle } from "./AgentChecklist";
+import { LockBadge } from "../billing/LockBadge";
+import { openLockedPlans } from "../billing/freeLimitGate";
+import { useTabLock } from "../billing/useTabLock";
+import { lockedDimClass } from "../billing/freeLimitModel";
 
 interface TabItemProps {
   tab: Tab;
@@ -240,6 +244,10 @@ function TabItemInner({
   checklistToggle = null,
 }: TabItemProps) {
   const tab = useLiveRowTab(rowTab);
+  const lock = useTabLock(tab);
+  const activate = () => {
+    if (!openLockedPlans(lock)) onClick();
+  };
   const attachment = variant === "attachment";
   // Unified identity for agent (agent_type) AND chatBackend shell (backing.plugin_id)
   // tabs — drives the icon, tooltip, and (for shells) the model badge.
@@ -323,6 +331,7 @@ function TabItemInner({
   const menuEntries = useMemo(() => buildTabMenu({
     tab,
     surface: "sidebar",
+    lock,
     status: tabState.status,
     descriptor,
     descriptors: listAgentDescriptors(),
@@ -332,7 +341,7 @@ function TabItemInner({
     canClose,
     pluginTabMenu,
     telegramThread: telegramThread.state,
-  }), [activity, canClose, descriptor, orchestrators, pluginTabMenu, tabState.status, tab, telegramThread.state]);
+  }), [activity, canClose, descriptor, lock, orchestrators, pluginTabMenu, tabState.status, tab, telegramThread.state]);
 
   const runMenuAction = (action: TabMenuAction) => {
     performTabMenuAction(tab.id, action, {
@@ -402,9 +411,12 @@ function TabItemInner({
               if (trimmed && trimmed !== canonicalTitle && _onRename) _onRename(trimmed);
             }}
             onKeyDown={(e) => {
+              if (e.key !== "Enter" && e.key !== "Escape") return;
+              e.preventDefault();
+              e.stopPropagation();
               if (e.key === "Enter") {
                 (e.target as HTMLInputElement).blur();
-              } else if (e.key === "Escape") {
+              } else {
                 setEditName(canonicalTitle);
                 setEditing(false);
               }
@@ -422,13 +434,16 @@ function TabItemInner({
       )}
       {!editing && <button
         type="button"
+        data-first-run-allowed={isFirstRunGeneralTab(tab) || undefined}
+        data-first-run-home={isFirstRunGeneralTab(tab) || undefined}
+        aria-disabled={isFirstRunGeneralTab(tab) ? false : undefined}
         aria-label={`${isGeneralAgent ? accessibleTitle : `Open tab ${accessibleTitle}`}${managedBy ? `, ${managedBy}` : ""}${restoreFailure.showFailureBadge ? ", launch failed" : ""}`}
         aria-current={isActive ? "page" : undefined}
-        onClick={onClick}
+        onClick={activate}
         className={`sidebar-tab-activation flex flex-1 items-center min-w-0 relative z-[1] border-0 bg-transparent p-0 text-left text-inherit font-inherit cursor-pointer ${touchMode ? "gap-2.5" : "gap-2"}`}
       >
       <div className={`sidebar-tab-body flex-1 min-w-0 ${touchMode ? "gap-x-2.5" : "gap-x-2"}`}>
-        <span data-testid="tab-tab-icon" className="sidebar-tab-body__icon relative leading-none">
+        <span data-testid="tab-tab-icon" className={`sidebar-tab-body__icon relative leading-none ${lockedDimClass(lock)}`}>
           {provider ? (
             <ProviderGlyph
               iconSvg={provider.iconSvg}
@@ -453,7 +468,7 @@ function TabItemInner({
         <span className="sidebar-tab-body__title flex min-w-0 items-center gap-1.5">
           <span
             data-testid="tab-title"
-            className={`${touchMode && !attachment ? tabTouchText : tabText} block truncate min-w-0 ${attachment && !isActive ? "text-[var(--ct-muted-fg)]" : "text-[var(--ct-fg)]"} ${isActive ? "font-medium" : ""}`}
+            className={`${touchMode && !attachment ? tabTouchText : tabText} block truncate min-w-0 ${attachment && !isActive ? "text-[var(--ct-muted-fg)]" : "text-[var(--ct-fg)]"} ${isActive ? "font-medium" : ""} ${lockedDimClass(lock)}`}
             onDoubleClick={(e) => {
               if (tab?.protected) return; // Main is unrenameable
               e.stopPropagation();
@@ -469,6 +484,7 @@ function TabItemInner({
           {shellRunning && <TabWorkingActivity activity={tabState} label={`${displayTitle} working`} />}
         </span>
         <span className={`sidebar-tab-body__trailing ${touchMode ? "gap-2.5" : "gap-2"}`}>
+          <LockBadge view={lock} />
           {tab?.connected_services?.includes("telegram") && (
             <span
               role="img"

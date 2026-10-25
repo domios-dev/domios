@@ -11,9 +11,9 @@ bare `domios` call or exit status would go.
 
 Open build shells with `--purpose build` and foreground servers with `--purpose dev`. Purpose is retained when restarting the shell. The sidebar command state reports shell marks only; use the readiness and QA receipts below to establish the operation outcome.
 
-Set `--timeout 10m` for tests, QA and builds; leave servers unset. Reset or extend the same shell with `domios tab timeout --tab <ID> --timeout 20m`; `--timeout none` disables it. An idle expiry closes quietly; running or unknown activity produces one owner status and terminates with the shell. Ordinary shell commands add no message; long build verbs send their one result receipt.
+Set `--timeout 60m` for tests, QA and builds; leave dev servers unset. Each command-start mark starts a fresh deadline, and a finish mark cancels it. Change the bound for current and future commands with `domios tab timeout --tab <ID> --timeout 60m`; `none` disables both. The current command keeps its original start. On expiry the owned process tree stops through shell restart, the tab stays open, and one owner status names the command, command elapsed and deadline. Idle shells have no deadline; existing owner/Team cleanup still applies.
 
-Shell restart renews the previous lifetime. Pass `domios tab restart --tab <ID> --timeout 20m` to override it, or `--timeout none` to disable it. `domios tab inspect --tab <ID>` shows `utility_deadline.started_ms` and `deadline_ms` in epoch milliseconds; their difference is the requested lifetime. Timeout notices distinguish shell lifetime from the latest command elapsed time.
+Shell restart retains the bound. Pass `domios tab restart --tab <ID> --timeout 60m` to override it, or `--timeout none` to disable it. `domios tab inspect --tab <ID>` shows `utility_deadline.duration_ms` and nullable `started_ms`, `deadline_ms` (epoch milliseconds). Only shell command marks establish command start.
 
 With `QA_NOTIFY_TAB`, QA streams each step to its log and sends one early
 failure receipt on the first Cargo compile error, nextest/Vitest failure,
@@ -185,7 +185,7 @@ line. It uses one bounded deadline and cleans up its stream reader when ready,
 failed, or stopped. Use this event wait instead of adding sleep or polling
 loops.
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->
 
 DEV app stdout/stderr use .NET Framework synchronous pipes on Windows and regular
 files on Unix, through `scripts/dev-app-process.mjs`. The reader forwards log chunks

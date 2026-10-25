@@ -1,8 +1,6 @@
 use super::*;
 use crate::store::{Owner, Store};
-use codeterm_blueprint_types::blueprint_pipeline::{
-    BlueprintOwner, BlueprintResult, BlueprintSpec, IoType, ResultTarget, Step, StepKind, Trigger,
-};
+use codeterm_blueprint_types::blueprint_pipeline::StepKind;
 use codeterm_service_core::cron::clock::MockClock;
 use std::collections::BTreeMap;
 
@@ -33,6 +31,7 @@ fn project_snapshot(
         edges: Vec::new(),
         truncated: false,
         configured_fallback: Value::Null,
+        quarantined: Vec::new(),
         runs: vec![],
         blueprints: vec![],
     };
@@ -53,26 +52,8 @@ fn blueprint_pipeline_team_owner_defaults_result_target_to_team() {
         directory.path().join("blueprints.json"),
         MockClock::starting_at(1000),
     );
-    let spec = BlueprintSpec {
-        note: None,
-        name: "team pipeline".into(),
-        owner: BlueprintOwner::Team,
-        trigger: Trigger::Schedule {
-            every: "20s".into(),
-        },
-        steps: vec![Step {
-            name: "emit".into(),
-            input: IoType::Text,
-            kind: StepKind::Command {
-                command: "printf ready".into(),
-            },
-            on: Default::default(),
-        }],
-        result: BlueprintResult {
-            to: ResultTarget::Owner,
-        },
-    };
-    let job = store.prepare_pipeline(spec.clone(), owner(), true).unwrap();
+    let document = json!({"schema_version":2,"kind":"pipeline","name":"team pipeline","owner":"team","trigger":{"type":"schedule","every":{"lit":"20s"}},"steps":[{"id":"emit","run":{"lit":"printf ready"}}],"result":{"to":"owner"}});
+    let job = store.prepare_document(document, owner(), true).unwrap();
 
     let node = project(&job);
     assert_eq!(node["owner"]["kind"], "team");
@@ -89,30 +70,16 @@ fn blueprint_pipeline_read_model_revision_tracks_journal_rows() {
         directory.path().join("blueprints.json"),
         MockClock::starting_at(1000),
     );
-    let spec = BlueprintSpec {
-        note: None,
-        name: "revision pipeline".into(),
-        owner: BlueprintOwner::Tab,
-        trigger: Trigger::Schedule {
-            every: "20s".into(),
-        },
-        steps: vec![Step {
-            name: "emit".into(),
-            input: IoType::Text,
-            kind: StepKind::Command {
-                command: "echo ready".into(),
-            },
-            on: Default::default(),
-        }],
-        result: BlueprintResult {
-            to: ResultTarget::Owner,
-        },
-    };
-    let job = store.prepare_pipeline(spec, owner(), true).unwrap();
+    let document = json!({"schema_version":2,"kind":"pipeline","name":"revision pipeline","owner":"tab","trigger":{"type":"schedule","every":{"lit":"20s"}},"steps":[{"id":"emit","run":{"lit":"echo ready"}}],"result":{"to":"owner"}});
+    let job = store.prepare_document(document, owner(), true).unwrap();
     let before = project_snapshot(&job, &BTreeMap::new()).revision;
     let journals = BTreeMap::from([(
         job.id.clone(),
         vec![BlueprintJournalEntry {
+            evidence: Default::default(),
+            parent_step_index: None,
+            definition_version: None,
+            call_stack: Vec::new(),
             entry_id: 17,
             run_id: "run_revision".into(),
             step_index: 0,
@@ -138,27 +105,13 @@ fn blueprint_delivery_read_model_projects_reason_and_body_reference() {
         directory.path().join("blueprints.json"),
         MockClock::starting_at(1000),
     );
-    let spec = BlueprintSpec {
-        note: None,
-        name: "result delivery".into(),
-        owner: BlueprintOwner::Tab,
-        trigger: Trigger::Schedule {
-            every: "20s".into(),
-        },
-        steps: vec![Step {
-            name: "emit".into(),
-            input: IoType::Text,
-            kind: StepKind::Command {
-                command: "echo ready".into(),
-            },
-            on: Default::default(),
-        }],
-        result: BlueprintResult {
-            to: ResultTarget::Owner,
-        },
-    };
-    let job = store.prepare_pipeline(spec, owner(), true).unwrap();
+    let document = json!({"schema_version":2,"kind":"pipeline","name":"result delivery","owner":"tab","trigger":{"type":"schedule","every":{"lit":"20s"}},"steps":[{"id":"emit","run":{"lit":"echo ready"}}],"result":{"to":"owner"}});
+    let job = store.prepare_document(document, owner(), true).unwrap();
     let journal = BlueprintJournalEntry {
+        evidence: Default::default(),
+        parent_step_index: None,
+        definition_version: None,
+        call_stack: Vec::new(),
         entry_id: 17,
         run_id: "run_result".into(),
         step_index: -1,
@@ -181,43 +134,20 @@ fn blueprint_delivery_read_model_projects_reason_and_body_reference() {
 }
 
 fn contract_job() -> Sentinel {
+    contract_job_with_steps(
+        json!([{"id":"emit","run":{"lit":"echo ready"}},{"id":"match","uses":"filter","with":{"pattern":{"lit":"ready"}}}]),
+    )
+}
+
+fn contract_job_with_steps(steps: Value) -> Sentinel {
     let directory = tempfile::tempdir().unwrap();
     let store = Store::new(
         directory.path().join("blueprints.json"),
         MockClock::starting_at(1000),
     );
     let mut job = store
-        .prepare_pipeline(
-            BlueprintSpec {
-                note: None,
-                name: "Echo pipeline".into(),
-                owner: BlueprintOwner::Tab,
-                trigger: Trigger::Schedule {
-                    every: "20s".into(),
-                },
-                steps: vec![
-                    Step {
-                        name: "emit".into(),
-                        input: IoType::Text,
-                        kind: StepKind::Command {
-                            command: "echo ready".into(),
-                        },
-                        on: BTreeMap::new(),
-                    },
-                    Step {
-                        name: "match".into(),
-                        input: IoType::Text,
-                        kind: StepKind::Filter {
-                            pattern: "ready".into(),
-                            bucket: None,
-                        },
-                        on: BTreeMap::new(),
-                    },
-                ],
-                result: BlueprintResult {
-                    to: ResultTarget::Notify,
-                },
-            },
+        .prepare_document(
+            json!({"schema_version":2,"kind":"pipeline","name":"Echo pipeline","owner":"tab","trigger":{"type":"schedule","every":{"lit":"20s"}},"steps":steps,"result":{"to":"notify"}}),
             owner(),
             false,
         )
@@ -235,6 +165,10 @@ fn row(
     outcome: Option<&str>,
 ) -> BlueprintJournalEntry {
     BlueprintJournalEntry {
+        evidence: Default::default(),
+        parent_step_index: None,
+        definition_version: None,
+        call_stack: Vec::new(),
         entry_id: id,
         run_id: "run-echo".into(),
         step_index: step,
@@ -330,6 +264,43 @@ fn pipeline_contract_golden_json() {
         rendered,
     )
     .unwrap();
+}
+
+#[test]
+fn pipeline_fanin_contract_golden_json() {
+    let job = contract_job_with_steps(json!([
+        {"id":"first","run":{"lit":"echo linen"},"out":{"type":"string"}},
+        {"id":"second","run":{"lit":"echo silk"},"out":{"type":"string"}},
+        {"id":"join","code":{"lang":"python","src":"def main(value): return value['a'] + value['b']"},"bind":{"a":"first.out","b":"second.out"},"out":{"type":"string"}}
+    ]));
+    let mut snapshot = project_snapshot(&job, &BTreeMap::new());
+    let definitions = BTreeMap::from([(
+        job.id.clone(),
+        BTreeMap::from([(job.definition_version, job.document.clone().unwrap())]),
+    )]);
+    super::super::retained::project(
+        &mut snapshot,
+        std::slice::from_ref(&job),
+        &BTreeMap::new(),
+        &definitions,
+    )
+    .unwrap();
+    let value = snapshot.blueprints.remove(0);
+    assert_eq!(
+        value["call_graph"]["steps"][2]["bind"],
+        json!({"a":"first.out","b":"second.out"})
+    );
+    let path = codeterm_service_core::test_support::fixture_manifest_dir()
+        .join("../../../tests/fixtures/blueprint-fanin.golden.json");
+    if std::env::var_os("UPDATE_BLUEPRINT_GOLDEN").is_some() {
+        std::fs::write(
+            &path,
+            format!("{}\n", serde_json::to_string_pretty(&value).unwrap()),
+        )
+        .unwrap();
+    }
+    let expected: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    assert_eq!(value, expected);
 }
 
 #[test]
@@ -432,4 +403,31 @@ fn source_cards_project_retained_observation_states_and_sanitized_http_scope() {
             assert_eq!(view["source"]["url"], "https://example.com/health");
         }
     }
+}
+
+#[test]
+fn held_pipeline_projects_why_it_is_held() {
+    let job = contract_job();
+    let mut held_row = row(8, 0, "emit", "held", None);
+    held_row.reason = Some("uncertain_pipeline_claim".into());
+    let rows = vec![
+        row(1, -1, "$run", "running", None),
+        row(2, 0, "emit", "running", None),
+        held_row,
+        row(9, -1, "$run", "held", None),
+    ];
+    let snapshot = project_snapshot(&job, &BTreeMap::from([(job.id.clone(), rows)]));
+    assert_eq!(snapshot.blueprints[0]["state"], "held");
+    assert_eq!(
+        snapshot.blueprints[0]["held_reason"],
+        "uncertain_pipeline_claim"
+    );
+
+    let mut paused = contract_job();
+    paused.machine.paused = true;
+    let snapshot = project_snapshot(&paused, &BTreeMap::new());
+    assert_eq!(snapshot.blueprints[0]["held_reason"], "paused");
+
+    let idle = project_snapshot(&contract_job(), &BTreeMap::new());
+    assert!(idle.blueprints[0].get("held_reason").is_none());
 }

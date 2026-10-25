@@ -19,8 +19,10 @@ import { developmentBuildLabel } from "./buildIdentity";
 import { DevBuildDot } from "./DevBuildDot";
 import "./Titlebar.css";
 import { WebPeerPicker } from "../WebPeerPicker/WebPeerPicker";
+import { FirstRunControls } from "../AgentPicker/FirstRunControls";
 
 interface TitlebarProps {
+  locked?: boolean;
   api?: ApiConfig;
   onToggleSidebar?: () => void;
   showSidebarToggle?: boolean;
@@ -47,6 +49,7 @@ interface TitlebarProps {
 }
 
 export function Titlebar({
+  locked = false,
   onToggleSidebar,
   showSidebarToggle = false,
   theme: _theme,
@@ -77,6 +80,7 @@ export function Titlebar({
   const buildLabel = developmentBuildLabel(__CODETERM_DEV__, __APP_VERSION__);
 
   return (
+    <FirstRunControls locked={locked}>
     <div
       data-testid="titlebar"
       className={`ct-titlebar flex min-w-0 items-center select-none shrink-0 ${IS_WEB ? "relative z-50 max-sm:min-h-[calc(44px+var(--ct-safe-top,0px))]" : ""}`}
@@ -120,7 +124,7 @@ export function Titlebar({
         {buildLabel && <DevBuildDot label={buildLabel} version={__APP_VERSION__} />}
       </div>
 
-      <div className="ml-auto flex shrink-0 items-center gap-0.5 pr-1 sm:gap-1 sm:pr-1.5">
+      <div className="ml-auto flex shrink-0 items-center gap-0.5 pr-2 sm:gap-1 sm:pr-1.5">
         <div className="relative flex items-center">
           {onDismissToast && <NotificationToastContainer toasts={toasts} onDismiss={onDismissToast} onMarkRead={onMarkNotificationRead} onNavigate={onNavigateToast} />}
           {showBell && onMarkNotificationRead && onMarkAllNotificationsRead && onDeleteNotification && onClearNotifications && onNavigateToast && (
@@ -144,7 +148,7 @@ export function Titlebar({
         {onOpenSettings && (
           <>
             <span className={UI_TRAY_DIVIDER} aria-hidden />
-            <SettingsMenu onOpenSection={onOpenSettings} afterGear={<AccountTray onOpenPlans={() => onOpenSettings("plans")} />} />
+            <SettingsMenu onOpenSection={onOpenSettings} afterGear={<span data-first-run-allowed="true" style={{ display: "contents" }}><AccountTray locked={locked} onOpenPlans={() => { if (!locked) onOpenSettings("plans"); }} /></span>} />
           </>
         )}
       </div>
@@ -158,6 +162,7 @@ export function Titlebar({
         />
       )}
     </div>
+    </FirstRunControls>
   );
 }
 

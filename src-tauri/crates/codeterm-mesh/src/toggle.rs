@@ -16,12 +16,8 @@ pub fn apply_mesh_enabled<F>(
 }
 
 fn resume_mesh(mesh: &MeshState) {
-    if let Err(e) = discovery::start_listeners(mesh.clone()) {
-        log::error!("[mesh] resume listeners failed: {}", e);
-    }
     discovery::detect_tailscale(mesh);
     discovery::detect_local_ip(mesh);
-    discovery::send_immediate_beacon(mesh);
 }
 
 fn apply_mesh_enabled_with<R, F>(
@@ -35,17 +31,15 @@ fn apply_mesh_enabled_with<R, F>(
     F: FnOnce(MeshState),
 {
     if enabled {
-        log::info!("[mesh] enabled — resuming announce/advertise");
+        log::info!("[mesh] enabled — resuming announce to paired peers");
         resume(mesh);
         schedule_announce(mesh.clone());
     } else {
         log::info!("[mesh] disabled — going offline, marking peers offline");
-        discovery::stop_broadcast(mesh);
         let mut m = mesh.lock();
         for peer in m.paired_peers.values_mut() {
             peer.online = false;
         }
-        m.discovered_peers.clear();
     }
 
     sink.emit_mesh_state_changed();

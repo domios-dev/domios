@@ -13,8 +13,9 @@ pub use view::view_call;
 
 pub async fn plugin_manager_snapshot_for_service(
     svc: codeterm_service_core::service::ServiceState,
+    lifetime: impl Send + Sync + 'static,
 ) -> Result<serde_json::Value, String> {
-    action::plugin_manager_snapshot_for_service(svc).await
+    action::plugin_manager_snapshot_for_service(svc, lifetime).await
 }
 
 pub fn invalidate_plugin_snapshot() {

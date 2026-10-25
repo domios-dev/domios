@@ -1,11 +1,14 @@
 use super::{short_id, MultiplexerState, PreparedWorkspaceClose, WorkspaceInfo};
 use crate::multiplexer::types::Workspace;
+use codeterm_entitlements::LimitKey;
 
 impl MultiplexerState {
     pub fn create_workspace(&mut self, name: String, cwd: Option<String>) -> WorkspaceInfo {
+        let cwd = cwd.map(|path| codeterm_paths::strip_verbatim_prefix(&path));
         let workspace_id = short_id();
 
         let workspace = Workspace {
+            locked: false,
             task_keys: Default::default(),
             id: workspace_id.clone(),
             name: name.clone(),
@@ -15,12 +18,14 @@ impl MultiplexerState {
             cwd_missing: false,
             provisioned_cwd: None,
             protected: false,
+            created_at_ms: self.next_created_at_ms(),
             sort_order: self.next_workspace_sort_order(),
         };
 
         self.workspaces.push(workspace);
 
         WorkspaceInfo {
+            locked: false,
             id: workspace_id.clone(),
             name,
             tab_count: 0,
@@ -81,6 +86,7 @@ impl MultiplexerState {
         let ws = self.find_workspace_by_cwd(query)?;
         let tab_ids = ws.tabs.clone();
         Some(WorkspaceInfo {
+            locked: false,
             id: ws.id.clone(),
             name: ws.name.clone(),
             tab_count: ws.tabs.len(),
@@ -174,6 +180,9 @@ impl MultiplexerState {
     }
 
     pub fn rename_workspace(&mut self, id: &str, name: &str) -> Result<(), String> {
+        if let Some(refusal) = self.item_write_lock(LimitKey::Workspaces, id) {
+            return Err(refusal.to_string());
+        }
         let ws = self
             .workspaces
             .iter_mut()
@@ -284,6 +293,7 @@ impl MultiplexerState {
     }
 
     pub fn list_workspaces(&self) -> Vec<WorkspaceInfo> {
+        let locks = self.locks();
         self.workspaces
             .iter()
             .map(|w| {
@@ -297,6 +307,7 @@ impl MultiplexerState {
                     cwd_missing: w.cwd_missing,
                     protected: w.protected,
                     tab_ids,
+                    locked: locks.workspaces.contains(&w.id),
                     existing: None,
                     provisioned: w.provisioned_cwd.is_some(),
                 }
@@ -312,6 +323,7 @@ mod tab_count_tests {
     #[test]
     fn tab_count_is_scoped_to_one_workspace() {
         let (mut state, _root) = MultiplexerState::new();
+        state.set_limit_gate(codeterm_entitlements::LimitGate::dormant());
         let small = state.create_workspace("small".into(), None).id;
         let crowded = state.create_workspace("crowded".into(), None).id;
 

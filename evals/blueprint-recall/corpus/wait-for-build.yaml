@@ -1,0 +1,33 @@
+# Check and apply this file with codeterm blueprint.
+schema_version: 1
+name: '{{name}}'
+note: Wait for a build verdict and notify on either terminal result.
+inputs:
+  name:
+    type: string
+    description: Short Blueprint name, 3 to 40 characters
+  failed_pattern:
+    type: string
+    description: Failed pattern
+  passed_pattern:
+    type: string
+    description: Passed pattern
+  read_only_build_probe:
+    type: string
+    description: Read only build probe
+watch:
+  probe: '{{read_only_build_probe}}'
+  question: classify-build-result
+  buckets:
+  - waiting
+  - passed
+  - failed
+  matches:
+    passed: '{{passed_pattern}}'
+    failed: '{{failed_pattern}}'
+  until: passed
+  timeout: 1h
+  routes:
+    waiting: none
+    passed: notify
+    failed: notify

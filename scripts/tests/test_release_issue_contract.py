@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -9,6 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "release_issue_contract.py"
 FIXTURES = ROOT / "scripts" / "fixtures" / "release-issue-contract"
+HISTORICAL_SOURCE = json.loads((ROOT / "scripts/source-repository-aliases.json").read_text())[0]
 
 
 class ReleaseIssueContractTest(unittest.TestCase):
@@ -16,6 +18,7 @@ class ReleaseIssueContractTest(unittest.TestCase):
         return subprocess.run(
             [sys.executable, str(SCRIPT), *args],
             cwd=ROOT,
+            env={**os.environ, "GITHUB_REPOSITORY": HISTORICAL_SOURCE},
             text=True,
             capture_output=True,
             timeout=10,
@@ -183,6 +186,16 @@ class ReleaseIssueContractTest(unittest.TestCase):
                 ["rollacode/codeterm#652"],
             )
 
+            mid_line = resolve(
+                "release: parser\n\nA merge subject on master declares "
+                "(Repository-Issue: rollacode/codeterm#652). The closing\nparenthesis was accepted."
+            )
+            self.assertEqual(mid_line.returncode, 0, mid_line.stderr)
+            self.assertEqual(
+                [issue["reference"] for issue in json.loads(mid_line.stdout)["repository_issues"]],
+                ["rollacode/codeterm#652"],
+            )
+
             rejected = resolve("merge: lane (Repository-Issue: codeterm#518)")
             self.assertEqual(rejected.returncode, 2)
             self.assertIn("malformed Repository-Issue metadata", rejected.stderr)
@@ -319,13 +332,13 @@ class ReleaseIssueContractTest(unittest.TestCase):
         self.assertNotIn('commits/$sha/pulls', resolve)
 
     def test_pr_validation_includes_commit_metadata(self):
-        workflow = (ROOT / ".github" / "workflows" / "ready-for-release.yml").read_text(encoding="utf-8")
+        workflow = (ROOT / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8")
         self.assertIn("git rev-list", workflow)
         self.assertIn('--commits-file "$RUNNER_TEMP/release-commits.json"', workflow)
         self.assertIn('--prs-file "$RUNNER_TEMP/release-prs.json"', workflow)
-        self.assertIn("--arg base_ref '${{ github.event.pull_request.base.ref }}'", workflow)
+        self.assertIn('--arg base_ref "$PR_BASE_REF"', workflow)
         self.assertIn(".repository_issues[].reference", workflow)
-        self.assertIn("--repo rollacode/codeterm", workflow)
+        self.assertIn('verifyIssueReferences(github, selection)', workflow)
 
 
 
@@ -340,6 +353,7 @@ class Release1108ClosureContractTest(unittest.TestCase):
         return subprocess.run(
             [sys.executable, str(SCRIPT), *args],
             cwd=ROOT,
+            env={**os.environ, "GITHUB_REPOSITORY": HISTORICAL_SOURCE},
             text=True,
             capture_output=True,
             timeout=10,
@@ -427,6 +441,7 @@ class CommitClosureAuditTest(unittest.TestCase):
         return subprocess.run(
             [sys.executable, str(SCRIPT), *args],
             cwd=ROOT,
+            env={**os.environ, "GITHUB_REPOSITORY": HISTORICAL_SOURCE},
             text=True,
             capture_output=True,
             timeout=10,
@@ -477,6 +492,7 @@ class ClosureBoundaryAuthorityTest(unittest.TestCase):
         return subprocess.run(
             [sys.executable, str(SCRIPT), *args],
             cwd=ROOT,
+            env={**os.environ, "GITHUB_REPOSITORY": HISTORICAL_SOURCE},
             text=True,
             capture_output=True,
             timeout=10,

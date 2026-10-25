@@ -1,7 +1,7 @@
 [package]
 license = "AGPL-3.0-only"
 name = "codeterm-cli"
-version = "1.15.2"
+version = "1.15.3"
 edition = "2021"
 
 [[bin]]
@@ -32,6 +32,7 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 sqlite-vec = "0.1.9"
 chrono = "0.4"
 sha2 = "0.10"
+zeroize = "1"
 # Transliteration for `tab find` — lets users search "далтон" → "Dalton"
 # without minding the input language.
 deunicode = "1"
@@ -41,6 +42,7 @@ codeterm-plugins = { path = "../src-tauri/crates/codeterm-plugins" }
 # `plugin validate` — the CLI never grows its own manifest interpretation.
 codeterm-plugin = { path = "../src-tauri/crates/codeterm-plugin" }
 codeterm-build-info = { path = "../src-tauri/crates/codeterm-build-info" }
+codeterm-util = { path = "../src-tauri/crates/codeterm-util" }
 codeterm-paths = { path = "../src-tauri/crates/codeterm-paths" }
 codeterm-process-identity = { path = "../src-tauri/crates/codeterm-process-identity" }
 # The notification level set is defined once in the daemon-shared crate; the CLI

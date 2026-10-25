@@ -1,0 +1,13 @@
+schema_version: 1
+name: plan-review-gate
+note: Check plan coverage and recommend; the human runs plan approve.
+inputs:
+  plan: {type: string, description: Plan id}
+pipeline:
+  trigger: {type: input, kind: text, source: {text: go}}
+  steps:
+    - {name: gaps, input: text, run: "codeterm plan gaps '{{plan}}' --json", on: {failed: revise}}
+    - {name: covered, input: text, uses: filter, with: {pattern: '"gaps": \[\]', bucket: full}, on: {full: next, done: next, failed: revise}}
+    - {name: verdict, input: text, uses: ask, with: {question: 'Is every section covered by a tested task?', buckets: [ready, revise]}, on: {ready: stop, revise: next, other: revise}}
+    - {name: revise, input: text, run: echo plan-needs-revision, on: {done: stop, failed: stop}}
+  result: {to: notify}

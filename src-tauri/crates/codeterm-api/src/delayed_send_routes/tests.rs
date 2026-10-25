@@ -34,6 +34,7 @@ fn delayed_create_edit_and_list_contracts_carry_recurrence() {
 
     let listed = DelayedMessageView {
         message: DelayedMessage {
+            turn_retry: None,
             id: "dmsg-1".into(),
             tab_id: "tab-1".into(),
             workspace_id: None,

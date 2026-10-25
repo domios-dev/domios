@@ -33,6 +33,11 @@ export function archivedResume(message: string): boolean {
     || (word === "session" && !!words[index+1] && words[index+2] === "is" && words[index+3] === "archived"));
 }
 
+export function missingRollout(error: {code: number; message: string; data?: unknown}, thread: string): boolean {
+  return error.code === -32600 && error.data == null
+    && error.message === `no rollout found for thread id ${thread}`;
+}
+
 export const notificationMethods = [
   "account/updated", "account/login/completed", "thread/started", "thread/status/changed", "thread/settings/updated", "thread/tokenUsage/updated",
   "thread/compacted", "thread/goal/updated", "thread/goal/cleared", "thread/reverted", "model/rerouted", "turn/diff/updated", "account/rateLimits/updated", "turn/started", "turn/completed", "turn/plan/updated",

@@ -2,6 +2,8 @@ use std::net::{IpAddr, SocketAddr};
 
 use crate::types::{PeerAddress, WebUiAnnouncement, WebUiEndpoint};
 
+pub const PEER_ONLY_HEADER: &str = "x-domios-peer-only";
+
 pub fn advertised_addresses(
     listeners: &[SocketAddr],
     candidates: &[PeerAddress],

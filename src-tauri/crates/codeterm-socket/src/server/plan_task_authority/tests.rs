@@ -201,6 +201,11 @@ fn authority_fixture() -> AuthorityFixture {
 }
 
 fn live_tab(fixture: &ServiceFixture, session_id: &str, nonce: &str) -> String {
+    fixture
+        .service
+        .mux
+        .write()
+        .set_limit_gate(codeterm_service_core::service::billing::LimitGate::dormant());
     let workspace = fixture
         .service
         .mux

@@ -1,0 +1,99 @@
+{
+  "duration_api_ms": 14179,
+  "stop_reason": "end_turn",
+  "session_id": "b378ab33-5162-4076-b6b9-b83466447613",
+  "total_cost_usd": 0.031312,
+  "usage": {
+    "input_tokens": 9,
+    "cache_creation_input_tokens": 11444,
+    "cache_read_input_tokens": 0,
+    "output_tokens": 1683,
+    "output_tokens_details": {
+      "thinking_tokens": 1553
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 11444,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "not_available",
+    "iterations": [
+      {
+        "input_tokens": 9,
+        "output_tokens": 1683,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 11444,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 11444
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-haiku-4-5-20251001": {
+      "inputTokens": 9,
+      "outputTokens": 1683,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 11444,
+      "webSearchRequests": 0,
+      "costUSD": 0.031312,
+      "contextWindow": 200000,
+      "maxOutputTokens": 32000,
+      "thinkingTokens": 1553,
+      "canonicalModel": "claude-haiku-4-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 1,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "WHAT: This Blueprint monitors a retry process by periodically probing its status and checking if the result matches a success pattern. It watches continuously until the retry succeeds or a one-hour timeout expires, then sends a notification. Useful for tracking asynchronous operations like deployments or job completions. || INTENT: Monitor a deployment until it completes successfully with a one-hour timeout || INTENT: Watch a background jobs status and alert me when it finishes || INTENT: Continuously check for a success pattern in a retry operation || INTENT: Poll a status endpoint until completion and send notification",
+  "ttft_ms": 13446,
+  "type": "result",
+  "duration_ms": 14269,
+  "uuid": "4dc95795-8ead-4660-8b66-2712e0a0bb14",
+  "ttft_stream_ms": 728,
+  "time_to_request_ms": 60,
+  "first_content_frame_ms": 728,
+  "queued_turn_count": 0,
+  "result_index": 0
+}

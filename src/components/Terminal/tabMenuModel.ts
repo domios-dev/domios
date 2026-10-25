@@ -1,4 +1,6 @@
+import { lockedView, type LockedView } from "../billing/freeLimitModel";
 import { isReadOnlyTab } from "../../lib/tabInputPolicy";
+import { isProviderSelectable, providerAvailabilityLabel } from "../../lib/providerAvailability";
 import { isGeneralAgent } from "../../lib/roleKind";
 import { pluginTabMenuEntries, type PluginTabMenuEntry, type PluginTabMenuState } from "../../lib/pluginTabMenu";
 import { canMakeOrchestrator } from "../../lib/orchestratorOnboard";
@@ -39,7 +41,7 @@ export const TAB_MENU_LABELS = {
   replaceOrchestratorHint: "Starts a new Team owner without resuming this session.",
   providerHint: "Continues through a handoff on the target provider. Full history is not transferred.",
   plugins: "Plugins",
-  closeSession: "Close Session",
+  closeSession: "Close session",
   closeTab: "Close Tab",
 } as const;
 
@@ -111,6 +113,8 @@ export interface TabMenuCheckEntry extends TabMenuEntryBase {
   label: string;
   icon: TabMenuIcon;
   checked: boolean;
+  disabled?: boolean;
+  title?: string;
   description?: string;
   keepOpen?: boolean;
   action: TabMenuAction;
@@ -135,6 +139,7 @@ export interface TabMenuSubmenuEntry extends TabMenuEntryBase {
 export type TabMenuEntry = TabMenuHeaderEntry | TabMenuLeafEntry | TabMenuSubmenuEntry;
 
 export interface TabMenuContext {
+  lock?: LockedView;
   status: TabStatus | null;
   descriptor: ProviderDescriptor | null | undefined;
   descriptors: ProviderDescriptor[];
@@ -192,8 +197,10 @@ function providerSubmenu({ tab, descriptors, status }: TabMenuInput): TabMenuSub
       testId: `tab-menu-provider-${provider.id}`,
       label: provider.display_name,
       icon: null,
+      disabled: !isProviderSelectable(provider),
+      hint: !isProviderSelectable(provider) ? providerAvailabilityLabel(provider) : undefined,
       selected: provider.id === view.currentProviderId,
-      action: provider.id === view.currentProviderId ? null : { type: "switchProvider", providerId: provider.id },
+      action: provider.id === view.currentProviderId || !isProviderSelectable(provider) ? null : { type: "switchProvider", providerId: provider.id },
     })),
   };
 }
@@ -382,5 +389,14 @@ export function buildTabMenu(input: TabMenuInput): TabMenuEntry[] {
       action: { type: "close" },
     });
   }
-  return entries;
+  const lock = input.lock ?? lockedView("agent.tabs", tab);
+  if (!lock.locked) return entries;
+  return entries.map((entry): TabMenuEntry => {
+    if (entry.kind === "header" || entry.kind === "separator" || entry.id === "close") return entry;
+    if (entry.kind === "submenu") {
+      return { ...entry, disabled: true, title: lock.label, entries: entry.entries.map(child =>
+        child.kind === "separator" ? child : { ...child, disabled: true, title: lock.label }) };
+    }
+    return { ...entry, disabled: true, title: lock.label };
+  });
 }

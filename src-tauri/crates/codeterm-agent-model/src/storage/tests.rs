@@ -55,6 +55,7 @@ fn record(text: &str) -> WorkspaceRecord {
         protected: text == "a",
         task_key_prefix: Some(text.to_ascii_uppercase()),
         task_key_next: 7,
+        created_at_ms: None,
         ..WorkspaceRecord::new(id(text), format!("Workspace {text}"))
     }
 }

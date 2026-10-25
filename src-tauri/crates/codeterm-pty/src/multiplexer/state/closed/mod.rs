@@ -487,6 +487,14 @@ impl MultiplexerState {
         workspace_id: &str,
         record: &ClosedTab,
     ) -> Result<String, String> {
+        if let Some(refusal) =
+            self.item_write_lock(codeterm_entitlements::LimitKey::Workspaces, workspace_id)
+        {
+            return Err(refusal.to_string());
+        }
+        self.limit_gate
+            .admit(codeterm_entitlements::LimitKey::AgentTabs, self.tabs.len())
+            .map_err(|error| error.to_string())?;
         let tab_id = self.create_tab(workspace_id)?;
         if let Some(tab) = self.tabs.get_mut(&tab_id) {
             tab.backing = record.backing.clone();
@@ -548,6 +556,7 @@ impl MultiplexerState {
         let res = transaction
             .state_mut()
             .materialize_closed_tab(workspace_id, &record)?;
+        self.admit_restored_items(transaction.state_mut())?;
         self.closed_store.delete_tab_row(row_id)?;
         transaction.commit(self, &[]);
         Ok(res)
@@ -555,13 +564,23 @@ impl MultiplexerState {
 
     /// Resolve the workspace a restore lands in: reuse a live workspace at the same
     /// cwd rather than spawning a duplicate, else create one from the stored name + cwd.
-    fn restore_target_workspace(&mut self, name: String, cwd: Option<String>) -> String {
+    fn restore_target_workspace(
+        &mut self,
+        name: String,
+        cwd: Option<String>,
+    ) -> Result<String, String> {
         if let Some(path) = cwd.as_deref() {
             if let Some(ws) = self.find_workspace_by_cwd(path) {
-                return ws.id.clone();
+                return Ok(ws.id.clone());
             }
         }
-        self.create_workspace(name, cwd).id
+        self.limit_gate
+            .admit(
+                codeterm_entitlements::LimitKey::Workspaces,
+                self.workspaces.iter().filter(|w| !w.protected).count(),
+            )
+            .map_err(|error| error.to_string())?;
+        Ok(self.create_workspace(name, cwd).id)
     }
 
     /// Reopen a tab whose original workspace was deleted, into a live or recreated
@@ -574,8 +593,9 @@ impl MultiplexerState {
         let mut transaction = self.begin_team_close_transaction();
         let staged = transaction.state_mut();
         let workspace_id =
-            staged.restore_target_workspace(record.workspace_name.clone(), record.cwd.clone());
+            staged.restore_target_workspace(record.workspace_name.clone(), record.cwd.clone())?;
         let new_tab_id = staged.materialize_closed_tab(&workspace_id, &record)?;
+        self.admit_restored_items(staged)?;
         self.closed_store.delete_tab_row(row_id)?;
         transaction.commit(self, &[]);
         Ok((workspace_id, new_tab_id))
@@ -604,7 +624,7 @@ impl MultiplexerState {
             GroupKind::Workspace => staged.restore_target_workspace(
                 group.workspace_name.clone(),
                 group.workspace_cwd.clone(),
-            ),
+            )?,
             _ => {
                 if staged.workspaces.iter().any(|w| w.id == group.workspace_id) {
                     group.workspace_id.clone()
@@ -614,7 +634,7 @@ impl MultiplexerState {
                         .workspace_cwd
                         .clone()
                         .or_else(|| tabs.iter().find_map(|p| p.cwd.clone()));
-                    staged.restore_target_workspace(group.workspace_name.clone(), cwd)
+                    staged.restore_target_workspace(group.workspace_name.clone(), cwd)?
                 }
             }
         };
@@ -630,6 +650,7 @@ impl MultiplexerState {
             }
         }
         let tab_id = restored_ids[plan.active_index].clone();
+        self.admit_restored_items(staged)?;
         self.closed_store.delete_group(group_id)?;
         transaction.commit(self, &[]);
         Ok((workspace_id, tab_id))

@@ -30,6 +30,8 @@ struct Stream {
     _uncertain_fd: Option<RawFd>,
 }
 
+use super::executable::Executable;
+
 pub fn run(
     command: &str,
     cwd: &Path,
@@ -40,8 +42,12 @@ pub fn run(
     cancellation_required: bool,
     environment: &Environment,
     stdin: Option<std::fs::File>,
+    executable: Option<Executable<'_>>,
 ) -> Result<Output, ProbeFailure> {
     let mut process = UnixRun::new(deadlines, reservation, owner);
+    process.output_limit = executable
+        .as_ref()
+        .and_then(|executable| executable.output_bytes);
     if cancellation_required {
         match Events::new(cancellation) {
             Ok(events) => {
@@ -80,9 +86,31 @@ pub fn run(
         }));
         return process.finish_failure();
     }
-    let mut child_command = Command::new("/bin/sh");
+    let mut child_command = if let Some(executable) = executable {
+        let mut child = Command::new(executable.program);
+        child.args(executable.args);
+        #[cfg(target_os = "linux")]
+        if let Some(memory_bytes) = executable.memory_bytes {
+            unsafe {
+                child.pre_exec(move || {
+                    let limit = libc::rlimit {
+                        rlim_cur: memory_bytes as libc::rlim_t,
+                        rlim_max: memory_bytes as libc::rlim_t,
+                    };
+                    if libc::setrlimit(libc::RLIMIT_AS, &limit) != 0 {
+                        return Err(io::Error::last_os_error());
+                    }
+                    Ok(())
+                });
+            }
+        }
+        child
+    } else {
+        let mut child = Command::new("/bin/sh");
+        child.args(["-c", command]);
+        child
+    };
     child_command
-        .args(["-c", command])
         .current_dir(cwd)
         .stdin(stdin.map(Stdio::from).unwrap_or_else(Stdio::null))
         .stdout(Stdio::piped())
@@ -99,14 +127,23 @@ pub fn run(
         process.set_failure("probe_cancelled");
         return process.finish_failure();
     }
-    match child_command.spawn() {
-        Ok(child) => process.adopt_child(child),
+    match process
+        .deadlines
+        .spawn_with(|| child_command.spawn(), Instant::now)
+    {
+        Ok(child) => {
+            #[cfg(any(test, feature = "test-support"))]
+            cancellation.spawned(child.id());
+            process.adopt_child(child);
+        }
         Err(error) => {
             process.failure = Some(ProbeFailure::new("probe_spawn_failed"));
             process.add_cleanup_error(error.to_string());
             return process.finish_failure();
         }
     }
+    #[cfg(any(test, feature = "test-support"))]
+    cancellation.record_deadlines(process.deadlines);
     process.adopt_streams();
     if let (Some(events), Some(child)) = (&mut process.events, &mut process.child) {
         if let Err(error) = events.observe_parent(child) {
@@ -149,6 +186,7 @@ struct UnixRun {
     group_registered: bool,
     group_retired: bool,
     group_unconfirmed: bool,
+    output_limit: Option<u64>,
     stdout: Stream,
     stderr: Stream,
     status: Option<ExitStatus>,
@@ -176,6 +214,7 @@ impl UnixRun {
             group_registered: false,
             group_retired: false,
             group_unconfirmed: false,
+            output_limit: None,
             stdout: Stream::default(),
             stderr: Stream::default(),
             status: None,
@@ -447,6 +486,16 @@ impl UnixRun {
                 self.stream_mut(stdout)
                     .data
                     .append(&buffer[..read as usize]);
+                if self.output_limit.is_some_and(|limit| {
+                    self.stdout
+                        .data
+                        .total_bytes
+                        .saturating_add(self.stderr.data.total_bytes)
+                        > limit
+                }) {
+                    self.set_failure("budget_exhausted");
+                    return Ok(true);
+                }
                 drained += read as usize;
                 changed = true;
                 continue;
@@ -715,6 +764,12 @@ impl UnixRun {
         failure.exit_code = self.status.and_then(|status| status.code());
         failure.stdout = (self.child_id != 0).then(|| self.stdout.data.metadata());
         failure.stderr = (self.child_id != 0).then(|| self.stderr.data.metadata());
+        #[cfg(any(test, feature = "test-support"))]
+        {
+            failure.stderr_tail = super::test_receipt::stderr_tail(&String::from_utf8_lossy(
+                &self.stderr.data.prefix,
+            ));
+        }
         if !self.has_open_resources() {
             if let Err(error) = self.close_event_resources() {
                 failure.cleanup_error(error);

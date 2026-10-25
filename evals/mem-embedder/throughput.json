@@ -1,0 +1,52 @@
+{
+  "command": [
+    "evals/mem-embedder/throughput.py",
+    "--binary",
+    "../blu-14-emb-scratch/src-tauri/target/release/examples/mem_embedder_oracle",
+    "--out",
+    "evals/mem-embedder/throughput.json"
+  ],
+  "binary_sha256": "f4bf7d45289e168ed22ea4b9196b4149303f2119a714cdfc8a9fb33eb81d6849",
+  "warmup_per_model": 1,
+  "repeats": 3,
+  "corpus": [
+    "Find the release checklist for a failed deployment",
+    "\u041a\u0430\u043a\u0438\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044f \u043d\u0443\u0436\u043d\u044b \u043f\u0440\u0438 \u043e\u0442\u043a\u0430\u0437\u0435 \u0440\u0435\u0437\u0435\u0440\u0432\u043d\u043e\u0433\u043e \u043a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u044f?",
+    "GitHub runners, permissions, and scheduled notifications",
+    " Mixed  CASE\n and whitespace ",
+    "Caf\u00e9 na\u00efve Stra\u00dfe \u6771\u4eac \ud83e\udd80",
+    "",
+    "a",
+    "How can I recover my terminal session?"
+  ],
+  "results": [
+    {
+      "label": "l12",
+      "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+      "samples": 24,
+      "warm_embeds_per_second": 117.3603446652277,
+      "elapsed_seconds": 0.2044983769301325
+    },
+    {
+      "label": "multilingual-e5-small",
+      "model": "intfloat/multilingual-e5-small",
+      "samples": 24,
+      "warm_embeds_per_second": 109.98661237199015,
+      "elapsed_seconds": 0.21820837538689375
+    },
+    {
+      "label": "bge-small-en-v1.5",
+      "model": "BAAI/bge-small-en-v1.5",
+      "samples": 24,
+      "warm_embeds_per_second": 106.01881271873566,
+      "elapsed_seconds": 0.22637491766363382
+    },
+    {
+      "label": "e5-small-v2",
+      "model": "intfloat/e5-small-v2",
+      "samples": 24,
+      "warm_embeds_per_second": 105.62805038056146,
+      "elapsed_seconds": 0.22721237316727638
+    }
+  ]
+}

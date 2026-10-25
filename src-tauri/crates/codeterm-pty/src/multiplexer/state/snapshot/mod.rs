@@ -70,18 +70,28 @@ impl MultiplexerState {
             .generation
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
             .wrapping_add(1);
+        let locks = self.locks();
         let mut tabs = self.tabs.clone();
         for tab in tabs.values_mut() {
+            tab.locked = locks.agent_tabs.contains(&tab.id);
             if let Some(managed) = &mut tab.managed {
                 if !self.tabs.contains_key(&managed.manager_tab_id) {
                     managed.manager_closed = true;
                 }
             }
         }
+        let mut workspaces = self.live_workspace_tabs();
+        for workspace in &mut workspaces {
+            workspace.locked = locks.workspaces.contains(&workspace.id);
+        }
+        let mut teams = self.list_teams();
+        for team in &mut teams {
+            team.locked = locks.teams.contains(&team.id);
+        }
         MultiplexerSnapshot {
-            workspaces: self.live_workspace_tabs(),
+            workspaces,
             tabs,
-            teams: self.list_teams(),
+            teams,
             active_workspace_id: self.active_workspace_id.clone(),
             focused_tab_id: self.focused_tab_id.clone(),
             generation,
@@ -126,11 +136,17 @@ impl MultiplexerState {
             })
             .collect();
         for (tab_id, status) in &snap.tab_statuses {
-            if let Some(tab) = snap
-                .tabs
-                .get_mut(tab_id)
-                .filter(|tab| tab.agent_type.is_some())
+            let Some(tab) = snap.tabs.get_mut(tab_id) else {
+                continue;
+            };
+            if tab.is_utility_shell()
+                && *status == codeterm_types::pty::TabStatus::Idle
+                && tab.shell_command_state.activity
+                    == crate::multiplexer::types::ShellActivity::Running
             {
+                tab.shell_command_state.activity = crate::multiplexer::types::ShellActivity::Idle;
+            }
+            if tab.agent_type.is_some() {
                 tab.agent_state = tab.provider_signals.access_state().or_else(|| {
                     Some(super::status_view::agent_state_for_status(
                         tab.agent_state.as_ref(),
@@ -161,6 +177,7 @@ impl MultiplexerState {
                 icon: tab.and_then(|p| p.icon.clone()),
                 shell_profile: tab.and_then(|p| p.shell_profile.clone()),
                 utility_created_at: tab.map(|p| p.utility_created_at).unwrap_or_default(),
+                created_at_ms: tab.map(|p| p.created_at_ms).unwrap_or_default(),
                 close_restore: tab.and_then(|p| {
                     p.close_restore.clone().map(|mut state| {
                         state.paired_planner_tab_id = p.pending_paired_planner_tab_id.clone();
@@ -270,6 +287,7 @@ impl MultiplexerState {
                     cwd: normalized_snapshot_cwd(ws.cwd.as_deref()),
                     provisioned_cwd: normalized_snapshot_cwd(ws.provisioned_cwd.as_deref()),
                     protected: ws.protected,
+                    created_at_ms: ws.created_at_ms,
                     sort_order: ws.sort_order,
                     tabs,
                 }
@@ -307,6 +325,7 @@ impl MultiplexerState {
         let mut tabs = HashMap::new();
         let workspaces: Vec<Workspace> = snapshot.workspaces.iter().map(|ws| {
             Workspace {
+                locked: false,
                 task_keys: ws.task_keys.clone(),
                 id: ws.id.clone(),
                 name: ws.name.clone(),
@@ -334,11 +353,12 @@ impl MultiplexerState {
                 cwd_missing: false,
                 provisioned_cwd: normalized_snapshot_cwd(ws.provisioned_cwd.as_deref()),
                 protected: ws.protected,
+                created_at_ms: ws.created_at_ms,
                 sort_order: ws.sort_order,
             }
         }).collect();
 
-        MultiplexerState {
+        let mut state = MultiplexerState {
             workspaces,
             tabs,
             active_workspace_id: snapshot.active_workspace_id.clone(),
@@ -354,7 +374,13 @@ impl MultiplexerState {
             pending_closed_history: Vec::new(),
             workspace_close_reservations: HashMap::new(),
             tab_close_reservations: HashMap::new(),
-        }
+            limit_gate: codeterm_entitlements::LimitGate::new(
+                codeterm_entitlements::compiled_free(),
+                codeterm_entitlements::enforcing(),
+            ),
+        };
+        state.backfill_creation_order();
+        state
     }
 
     /// Additive desk recovery from a saved snapshot: recreate workspaces/tabs
@@ -431,6 +457,7 @@ impl MultiplexerState {
                         .filter(|active| added_tab_ids.contains(active))
                         .or_else(|| added_tab_ids.first().cloned());
                     self.workspaces.push(Workspace {
+                        locked: false,
                         task_keys: ws_snap.task_keys.clone(),
                         id: ws_snap.id.clone(),
                         name: ws_snap.name.clone(),
@@ -443,6 +470,7 @@ impl MultiplexerState {
                         ),
                         // Restored authority is never inferred from a file.
                         protected: false,
+                        created_at_ms: ws_snap.created_at_ms,
                         sort_order: ws_snap.sort_order,
                     });
                     report.workspaces_added += 1;
@@ -464,6 +492,7 @@ impl MultiplexerState {
                 }
             }
         }
+        self.backfill_creation_order();
         report
     }
 }
@@ -517,6 +546,7 @@ fn install_leaf(
         purpose,
         icon,
         utility_created_at,
+        created_at_ms,
         close_restore,
         shell_profile,
         tab_id,
@@ -627,6 +657,7 @@ fn install_leaf(
     tabs.insert(
         tab_id.clone(),
         Tab {
+            locked: false,
             id: tab_id.clone(),
             sort_order: 0,
             pty_id: None,
@@ -636,6 +667,7 @@ fn install_leaf(
             icon: icon.clone(),
             shell_profile: shell_profile.clone(),
             utility_created_at: *utility_created_at,
+            created_at_ms: *created_at_ms,
             close_restore: close_restore.clone(),
             utility_command_pending: false,
             shell_command_state: Default::default(),

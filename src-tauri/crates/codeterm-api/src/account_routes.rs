@@ -6,14 +6,14 @@ use axum::{
 };
 use codeterm_account::Status;
 type Error = (StatusCode, String);
-fn admit(caller: Option<&Extension<CallerIdentity>>) -> Result<(), Error> {
+pub(crate) fn admit(caller: Option<&Extension<CallerIdentity>>) -> Result<(), Error> {
     if matches!(caller.map(|c| &c.0), Some(CallerIdentity::Local)) {
         Ok(())
     } else {
         Err((StatusCode::FORBIDDEN, "Account access is local-only".into()))
     }
 }
-fn unavailable(message: String) -> Error {
+pub(crate) fn unavailable(message: String) -> Error {
     (StatusCode::SERVICE_UNAVAILABLE, message)
 }
 pub async fn status(
@@ -31,6 +31,38 @@ pub async fn status(
             .await,
     ))
 }
+pub(crate) fn debug_login_router() -> axum::Router<AppState> {
+    let router = axum::Router::new();
+    #[cfg(debug_assertions)]
+    let router = router.route(
+        "/api/account/login/pending",
+        axum::routing::get(pending_login),
+    );
+    router
+}
+
+#[cfg(debug_assertions)]
+pub async fn pending_login(
+    State(state): State<AppState>,
+    caller: Option<Extension<CallerIdentity>>,
+) -> Result<(axum::http::HeaderMap, Json<serde_json::Value>), Error> {
+    admit(caller.as_ref())?;
+    let url = state
+        .svc
+        .account()
+        .await
+        .map_err(unavailable)?
+        .pending_login_url()
+        .await
+        .ok_or((StatusCode::NOT_FOUND, "No pending account login".into()))?;
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("no-store"),
+    );
+    Ok((headers, Json(serde_json::json!({"url": url.as_str()}))))
+}
+
 pub async fn login(
     State(state): State<AppState>,
     Query(hint): Query<codeterm_account::LoginHint>,
@@ -107,14 +139,13 @@ pub async fn logout(
     caller: Option<Extension<CallerIdentity>>,
 ) -> Result<Json<Status>, Error> {
     admit(caller.as_ref())?;
-    let account = state.svc.account().await.map_err(unavailable)?;
-    let result = account.logout().await;
+    let result = state.svc.account_logout().await;
     if let Ok(billing) = state.svc.billing().await {
         tokio::task::spawn_blocking(move || billing.snapshot(None))
             .await
             .map_err(|error| unavailable(error.to_string()))?;
     }
-    Ok(Json(result.map_err(|e| unavailable(e.to_string()))?))
+    Ok(Json(result.map_err(unavailable)?))
 }
 /// The plan snapshot plus the limits a client pre-checks creation against.
 #[derive(serde::Serialize)]
@@ -161,7 +192,10 @@ pub async fn upgrade(
         .svc
         .billing_open(Some(&input.plan), input.checkout_theme())
         .await
-        .map_err(unavailable)?;
+        .map_err(|message| match message.as_str() {
+            codeterm_billing::ALREADY_SUBSCRIBED => (StatusCode::CONFLICT, message),
+            _ => unavailable(message),
+        })?;
     Ok(Json(serde_json::json!({"opened": true})))
 }
 pub async fn portal(
@@ -176,14 +210,32 @@ pub async fn portal(
         .map_err(unavailable)?;
     Ok(Json(serde_json::json!({"opened": true})))
 }
+#[derive(Default, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlanRefresh {
+    #[serde(default)]
+    focus: bool,
+}
+
+impl PlanRefresh {
+    fn event(&self) -> codeterm_billing::RefreshEvent {
+        if self.focus {
+            codeterm_billing::RefreshEvent::Focus
+        } else {
+            codeterm_billing::RefreshEvent::Explicit
+        }
+    }
+}
+
 pub async fn refresh_plan(
     State(state): State<AppState>,
+    Query(input): Query<PlanRefresh>,
     caller: Option<Extension<CallerIdentity>>,
 ) -> Result<Json<PlanView>, Error> {
     admit(caller.as_ref())?;
     let snapshot = state
         .svc
-        .refresh_billing(codeterm_billing::RefreshEvent::Focus)
+        .refresh_billing(input.event())
         .await
         .map_err(unavailable)?;
     Ok(plan_view(&state, snapshot))

@@ -123,9 +123,9 @@ to that plan's live Orchestrator in the same local workspace. Preserve plan,
 task, attempt, lane, session and nonce. The destination cannot pull it.
 Mismatched plan owner, binding, session or isolated lane refuses without state
 changes; recover or replace stale/ambiguous work through the existing task route.
-`team adopt-agent` is only for unbound roleless tabs.
+Local `team adopt-agent` is for unbound roleless tabs. For unbound remote Workers, the current parent or owner may run `domios team adopt-agent <team> <worker> --peer <peer>` on the destination Team's machine. `domios agent reparent <worker> --to <local-orchestrator> [--peer <peer>]` also preserves the running session. The origin verifies caller and destination; only Full-access paired peers participate, and a destination cannot pull a Worker. Remote task-bound Workers refuse both operations: their Plan must retain ownership. Repeating an uncertain remote transfer recovers its durable operation and receipt.
 Only hierarchy and report placement move. Shell parent/Team environment values
 remain launch provenance, never current membership proof; resolve reports from
 live hierarchy and plan ownership. `CODETERM_TAB_ID` stays unchanged.
 
-<!-- revision: 21 -->
+<!-- revision: 22 -->

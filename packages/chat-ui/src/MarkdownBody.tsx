@@ -4,9 +4,10 @@ import { boundedMessageLayout, expandedMessageHeight } from "./boundedMessageMod
 import { BoundedMessageContent } from "./BoundedMessageContent";
 import React, { useMemo, useContext, useRef, useState } from "react";
 import type { SlashCommand, EditPair } from "@codeterm/chat-core";
-import { localArtifactTextParts, parseMarker } from "@codeterm/chat-core";
+import { attachmentPathName, localArtifactTextParts, parseMarker } from "@codeterm/chat-core";
 import { File, Image, Info, Mic, Play, Settings } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import { MarkdownLink } from "./MarkdownLink";
 import remarkGfm from "remark-gfm";
 import { remarkCachedParse } from "./markdownParse";
 import { remarkBareDomains, remarkCodeMetadata } from "./remarkBareDomains";
@@ -328,7 +329,7 @@ export function RichMarkdown({
           return <img className="my-1 inline-block max-w-full rounded" loading="lazy" {...props} />;
         },
         a: ({ node: _node, ...props }) => (
-          <a
+          <MarkdownLink
             target="_blank"
             rel="noopener noreferrer"
             className="underline decoration-[color-mix(in_srgb,var(--ct-accent)_40%,transparent)] underline-offset-2 hover:decoration-[var(--ct-accent)]"
@@ -655,12 +656,7 @@ export function FileIcon({ className = "" }: { className?: string }) {
   return <File className={className} size={12} strokeWidth={2} />;
 }
 
-/** Extract filename from path. */
-export function fileName(path: string): string {
-  // `/`-only split returned the entire C:\…\file.webm path (clipped the bubble).
-  const parts = path.split(/[/\\]/).filter(Boolean);
-  return parts[parts.length - 1] || path;
-}
+export const fileName = attachmentPathName;
 
 /**
  * Render user message content, replacing file attachment markers with badges.

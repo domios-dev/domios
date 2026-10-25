@@ -9,6 +9,8 @@ use codeterm_blueprint_types::blueprint_journal::{
 };
 use rusqlite::{params, OptionalExtension};
 
+mod claims;
+
 const RETAIN_RUNS: i64 = 32;
 
 fn commit(outcome: MutationOutcome) -> SentinelCommit {
@@ -35,8 +37,8 @@ fn append(
 ) -> Result<(), StorageError> {
     cx.write(
         "INSERT INTO blueprint_step_journal \
-         (blueprint_id, run_id, step_index, step_name, state, outcome, started_at_ms, ended_at_ms, result_summary, reason, body_ref) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+         (blueprint_id, run_id, step_index, step_name, state, outcome, started_at_ms, ended_at_ms, result_summary, reason, body_ref,call_stack_json,claim_parent_index,definition_version,evidence_json) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,(SELECT call_stack_json FROM blueprint_step_journal WHERE blueprint_id=?1 AND run_id=?2 AND step_index=?3 ORDER BY entry_id DESC LIMIT 1),(SELECT claim_parent_index FROM blueprint_step_journal WHERE blueprint_id=?1 AND run_id=?2 AND step_index=?3 ORDER BY entry_id DESC LIMIT 1),(SELECT definition_version FROM blueprint_step_journal WHERE blueprint_id=?1 AND run_id=?2 AND definition_version IS NOT NULL ORDER BY entry_id LIMIT 1),(SELECT evidence_json FROM blueprint_step_journal WHERE blueprint_id=?1 AND run_id=?2 AND step_index=?3 ORDER BY entry_id DESC LIMIT 1))",
         params![
             id,
             run_id,
@@ -71,6 +73,10 @@ fn refused_claim(
     reason: &str,
     now: u64,
 ) -> Result<SentinelCommit, StorageError> {
+    let same_run_active: bool = cx.conn.query_row("SELECT EXISTS(SELECT 1 FROM blueprint_step_journal WHERE blueprint_id=?1 AND run_id=?2 AND state='running')",params![id,run_id],|r|r.get(0)).map_err(|e|sqlite_error("preserve uncertain call parent",e))?;
+    if same_run_active {
+        return Ok(commit(MutationOutcome::Fenced(Fence::Claimed)));
+    }
     let outcome = if reason == "claim_fenced" {
         "skipped"
     } else {
@@ -100,7 +106,23 @@ pub(super) fn write(
 ) -> Result<SentinelCommit, StorageError> {
     write.validate()?;
     match write {
+        BlueprintJournalWrite::CallMetadata {
+            run_id,
+            marker,
+            call_stack,
+        } => {
+            let raw = serde_json::to_string(&call_stack)
+                .map_err(|e| StorageError::invalid("call metadata", e.to_string()))?;
+            let count=cx.write("UPDATE blueprint_step_journal SET call_stack_json=?4 WHERE blueprint_id=?1 AND run_id=?2 AND step_index=?3 AND state='running' AND call_stack_json IS NULL AND NOT EXISTS(SELECT 1 FROM blueprint_step_journal AS resolved WHERE resolved.blueprint_id=?1 AND resolved.run_id=?2 AND resolved.step_index=?3 AND resolved.state!='running')",params![id,run_id,marker.index(),raw])?;
+            Ok(commit(if count == 1 {
+                MutationOutcome::Applied
+            } else {
+                MutationOutcome::Fenced(Fence::NotClaimed)
+            }))
+        }
         BlueprintJournalWrite::Claim {
+            definition_version,
+            parent,
             run_id,
             marker,
             step_name,
@@ -129,24 +151,7 @@ pub(super) fn write(
                     started_at_ms,
                 );
             }
-            let running: Option<String> = cx
-                .conn
-                .query_row(
-                    "SELECT claim.run_id FROM blueprint_step_journal AS claim \
-                     WHERE claim.blueprint_id = ?1 AND claim.state = 'running' \
-                     AND NOT EXISTS (SELECT 1 FROM blueprint_step_journal AS resolved \
-                       WHERE resolved.blueprint_id = claim.blueprint_id \
-                       AND resolved.run_id = claim.run_id \
-                       AND (resolved.step_index = claim.step_index OR (resolved.step_index = -1 AND resolved.step_name = '$run')) \
-                       AND resolved.entry_id > claim.entry_id \
-                       AND resolved.state IN ('done', 'failed', 'skipped', 'held')) \
-                     ORDER BY claim.entry_id DESC LIMIT 1",
-                    [id],
-                    |row| row.get(0),
-                )
-                .optional()
-                .map_err(|error| sqlite_error("inspect blueprint step claim", error))?;
-            if running.is_some() {
+            if !claims::admissible(cx.conn, id, &run_id, generation, marker, parent.as_ref())? {
                 return refused_claim(
                     cx,
                     id,
@@ -204,9 +209,11 @@ pub(super) fn write(
                 None,
                 None,
             )?;
+            cx.write("UPDATE blueprint_step_journal SET claim_generation=?4,claim_parent_index=?5,definition_version=?6 WHERE blueprint_id=?1 AND run_id=?2 AND step_index=?3 AND state='running'",params![id,run_id,step_index,to_sql_u64("claim generation",generation)?,parent.map(|p|p.marker.index()),definition_version.map(|v|to_sql_u64("journal definition version",v)).transpose()?])?;
             Ok(commit(MutationOutcome::Applied))
         }
         BlueprintJournalWrite::Finish {
+            evidence,
             run_id,
             marker,
             state,
@@ -253,6 +260,12 @@ pub(super) fn write(
                 reason.as_deref(),
                 body_ref.as_deref(),
             )?;
+            if let Some(evidence) = evidence {
+                let raw = serde_json::to_string(&evidence).map_err(|error| {
+                    StorageError::invalid("journal evidence", error.to_string())
+                })?;
+                cx.write("UPDATE blueprint_step_journal SET evidence_json=?2 WHERE entry_id=(SELECT MAX(entry_id) FROM blueprint_step_journal WHERE blueprint_id=?1)", params![id, raw])?;
+            }
             Ok(commit(MutationOutcome::Applied))
         }
         BlueprintJournalWrite::Decision {
@@ -304,7 +317,9 @@ pub(super) fn write(
                 reason.as_deref(),
                 None,
             )?;
-            if state == JournalState::Held || reason == Some(JournalReason::JournalWriteFailed) {
+            if (state == JournalState::Held && reason.as_deref() != Some("plan_limit_locked"))
+                || reason == Some(JournalReason::JournalWriteFailed)
+            {
                 let reason = reason.as_deref().unwrap_or("journal_write_failed");
                 cx.write("UPDATE blueprint_runtime SET held = ?2, last_reason = ?2 WHERE blueprint_id = ?1", params![id, reason])?;
             }
@@ -322,7 +337,7 @@ pub(super) fn log(
         .conn
         .prepare_cached(
             "SELECT entry_id, run_id, step_index, step_name, state, outcome, started_at_ms, \
-             ended_at_ms, result_summary, reason, body_ref FROM blueprint_step_journal \
+             ended_at_ms, result_summary, reason, body_ref,call_stack_json,claim_parent_index,definition_version,evidence_json FROM blueprint_step_journal \
              WHERE blueprint_id = ?1 AND run_id IN \
              (SELECT run_id FROM blueprint_step_journal WHERE blueprint_id = ?1 \
               GROUP BY run_id ORDER BY MAX(entry_id) DESC LIMIT ?2) ORDER BY entry_id DESC",
@@ -342,6 +357,10 @@ pub(super) fn log(
                 row.get::<_, Option<String>>(8)?,
                 row.get::<_, Option<String>>(9)?,
                 row.get::<_, Option<String>>(10)?,
+                row.get::<_, Option<String>>(11)?,
+                row.get::<_, Option<i64>>(12)?,
+                row.get::<_, Option<i64>>(13)?,
+                row.get::<_, Option<String>>(14)?,
             ))
         })
         .map_err(|error| sqlite_error("query blueprint journal", error))?;
@@ -359,10 +378,20 @@ pub(super) fn log(
             result_summary,
             reason,
             body_ref,
+            call_stack_json,
+            parent_step_index,
+            definition_version,
+            evidence_json,
         ) = row.map_err(|error| sqlite_error("read blueprint journal row", error))?;
         JournalMarker::from_columns(step_index, &step_name)
             .map_err(|error| StorageError::invalid("journal marker", error))?;
         entries.push(BlueprintJournalEntry {
+            evidence: evidence_json
+                .as_deref()
+                .map(serde_json::from_str)
+                .transpose()
+                .map_err(|error| StorageError::invalid("journal evidence", error.to_string()))?
+                .unwrap_or_default(),
             entry_id,
             run_id,
             step_index,
@@ -377,6 +406,16 @@ pub(super) fn log(
             result_summary,
             reason: reason.map(JournalReason::from),
             body_ref,
+            parent_step_index,
+            definition_version: definition_version
+                .map(|v| from_sql_u64("journal definition version", v))
+                .transpose()?,
+            call_stack: call_stack_json
+                .as_deref()
+                .map(serde_json::from_str)
+                .transpose()
+                .map_err(|e| StorageError::invalid("call metadata", e.to_string()))?
+                .unwrap_or_default(),
         });
     }
     Ok(entries)

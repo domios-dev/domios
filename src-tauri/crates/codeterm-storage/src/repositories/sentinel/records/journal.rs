@@ -1,5 +1,6 @@
 use super::{identifier, integer, text};
 use crate::error::StorageError;
+use codeterm_blueprint_types::blueprint_document::calls::CallFrame;
 use codeterm_blueprint_types::blueprint_journal::{
     JournalMarker, JournalOutcome, JournalReason, JournalState,
 };
@@ -7,6 +8,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlueprintJournalEntry {
+    #[serde(default, flatten)]
+    pub evidence: serde_json::Map<String, serde_json::Value>,
     pub entry_id: i64,
     pub run_id: String,
     pub step_index: i64,
@@ -18,6 +21,12 @@ pub struct BlueprintJournalEntry {
     pub result_summary: Option<String>,
     pub reason: Option<JournalReason>,
     pub body_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub call_stack: Vec<CallFrame>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_step_index: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub definition_version: Option<u64>,
 }
 
 impl BlueprintJournalEntry {
@@ -26,7 +35,7 @@ impl BlueprintJournalEntry {
             .expect("journal reads validate marker columns")
     }
 
-    pub fn derive_run(entries: &[&Self]) -> (Option<JournalState>, Option<u16>) {
+    pub fn derive_run(entries: &[&Self]) -> (Option<JournalState>, Option<u32>) {
         let mut newest = std::collections::BTreeMap::new();
         for entry in entries {
             let marker = entry.marker();
@@ -51,8 +60,21 @@ impl BlueprintJournalEntry {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct NestedClaimParent {
+    pub marker: JournalMarker,
+    pub frame: CallFrame,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum BlueprintJournalWrite {
+    CallMetadata {
+        run_id: String,
+        marker: JournalMarker,
+        call_stack: Vec<CallFrame>,
+    },
     Claim {
+        definition_version: Option<u64>,
+        parent: Option<NestedClaimParent>,
         run_id: String,
         marker: JournalMarker,
         step_name: String,
@@ -60,6 +82,7 @@ pub enum BlueprintJournalWrite {
         started_at_ms: u64,
     },
     Finish {
+        evidence: Option<serde_json::Map<String, serde_json::Value>>,
         run_id: String,
         marker: JournalMarker,
         state: JournalState,
@@ -90,14 +113,37 @@ pub enum BlueprintJournalWrite {
 impl BlueprintJournalWrite {
     pub(in crate::repositories::sentinel) fn validate(&self) -> Result<(), StorageError> {
         let (run_id, marker, step_name, outcome, summary, reason) = match self {
+            Self::CallMetadata {
+                run_id,
+                marker,
+                call_stack,
+            } => {
+                if call_stack.len() > 8
+                    || call_stack.iter().any(|f| {
+                        f.node.is_empty()
+                            || f.node.len() > 128
+                            || f.id.is_empty()
+                            || f.id.len() > 4096
+                            || f.hash.len() != 64
+                            || !f.hash.bytes().all(|b| b.is_ascii_hexdigit())
+                    })
+                {
+                    return Err(StorageError::invalid("call stack", "invalid bounded frame"));
+                }
+                (run_id.as_str(), *marker, None, None, None, None)
+            }
             Self::Claim {
                 run_id,
                 marker,
                 step_name,
                 generation,
+                definition_version,
                 ..
             } => {
                 integer("journal generation", *generation)?;
+                if let Some(version) = definition_version {
+                    integer("journal definition version", *version)?;
+                }
                 (
                     run_id.as_str(),
                     *marker,
@@ -116,10 +162,10 @@ impl BlueprintJournalWrite {
                 reason,
                 ..
             } => {
-                if !matches!(state, JournalState::Done | JournalState::Failed) {
+                if matches!(state, JournalState::Running) {
                     return Err(StorageError::invalid(
                         "journal state",
-                        "must be done or failed",
+                        "a finish must resolve the step",
                     ));
                 }
                 (
@@ -174,10 +220,23 @@ impl BlueprintJournalWrite {
         {
             text("journal body reference", reference)?;
         }
-        identifier("journal run id", run_id)?;
-        if matches!(marker, JournalMarker::Step(index) if index >= 64) {
-            return Err(StorageError::invalid("journal step index", "out of bounds"));
+        if let Self::Finish {
+            evidence: Some(evidence),
+            ..
+        } = self
+        {
+            if serde_json::to_vec(evidence)
+                .map_err(|error| StorageError::invalid("journal evidence", error.to_string()))?
+                .len()
+                > codeterm_blueprint_types::blueprint_journal::MAX_JOURNAL_EVIDENCE_BYTES
+            {
+                return Err(StorageError::invalid(
+                    "journal evidence",
+                    "exceeds row byte bound",
+                ));
+            }
         }
+        identifier("journal run id", run_id)?;
         if let Some(step_name) = step_name {
             identifier("journal step name", step_name)?;
             if marker.name(step_name) != step_name {

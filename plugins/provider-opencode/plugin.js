@@ -375,6 +375,10 @@ function fileDiffFromEdit(edit) {
   };
 }
 
+// packages/chat-core/src/systemReminderText.ts
+var MARKER_TOKEN = /<\/?codeterm-[a-z][a-z-]*(?:\s+[a-z_]+="[^"]*")*\s*>/;
+var STRAY_MARKER = new RegExp(MARKER_TOKEN.source, "g");
+
 // packages/chat-core/src/domios.ts
 var DOMIOS_PASTED_MARKER = "pasted by Domios";
 var PASTED_MARKER_TAIL = `
@@ -1290,6 +1294,16 @@ function scanSessionDirectory(db, sessionId) {
     return null;
   }
 }
+function scanSessionModel(db, sessionId) {
+  const rows = host.fs.sqliteQuery(
+    db,
+    "SELECT id, model FROM session WHERE id = ?1 AND octet_length(model) <= ?2 LIMIT 1",
+    [sessionId, MESSAGE_ROLE_MAX_BYTES]
+  );
+  const session = rows.find((row) => row.id === sessionId);
+  const model = session?.model ? safeJson(session.model) : null;
+  return sessionModelIdentity({ role: "assistant", providerID: model?.providerID, modelID: model?.id });
+}
 function sessionModelIdentity(value) {
   if (!value || typeof value !== "object") return null;
   const message = value;
@@ -1999,7 +2013,7 @@ var plugin = {
       db,
       "SELECT data FROM message WHERE session_id = ?1 AND octet_length(data) <= ?2 ORDER BY time_created DESC LIMIT 20",
       [sessionId, ASSISTANT_MESSAGE_MAX_BYTES]
-    );
+    ) ?? scanSessionModel(db, sessionId);
   },
   structuredToolFileDiffs(part) {
     if (!part || typeof part !== "object" || part.state?.status !== "completed") return null;

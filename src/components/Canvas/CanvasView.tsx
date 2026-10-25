@@ -7,7 +7,7 @@ import type { ApiConfig, Tab, Team, Workspace } from "../../lib/types";
 import { useMultiplexer, useMuxState } from "../../store/multiplexer";
 import { resolveCanvasFocusNodeIds, type CanvasFocusPayload } from "./canvasFocusPayload";
 import { CanvasEmptyActions } from "./CanvasEmptyActions";
-import { CanvasToolbar } from "./CanvasToolbar";
+import { CanvasToolbar } from "@codeterm/chat-ui";
 import { CanvasMinimap } from "./CanvasMinimap";
 import { CanvasTagLegend } from "./CanvasTagLegend";
 import {

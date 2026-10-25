@@ -729,3 +729,30 @@ async fn live_restored_reuse_transfers_its_claim_and_completes_on_materializatio
         .unwrap();
     assert_eq!(next_claim.tab_id(), "restored-reuse");
 }
+
+#[tokio::test]
+async fn locked_restored_tab_spawn_refuses_before_process_or_launch_claim() {
+    let (mut mux, tab) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&tab).unwrap();
+    for _ in 0..35 {
+        mux.create_tab(&workspace).unwrap();
+    }
+    let tab = mux.locks().agent_tabs.iter().next().unwrap().to_owned();
+    mux.get_tab_mut(&tab).unwrap().restored_from_snapshot = true;
+    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    let svc = std::sync::Arc::new(fixture.service.clone());
+    let result = super::spawn_pty_core(
+        &svc,
+        Some("must-not-run".into()),
+        None,
+        80,
+        24,
+        Some("refused-pty".into()),
+        Some(tab.clone()),
+    )
+    .await;
+    assert!(result.unwrap_err().starts_with("plan_limit_locked: "));
+    assert!(svc.pty.lock().get_session("refused-pty").is_none());
+    assert!(svc.pty_ownership.launch_claim(&tab).is_none());
+    assert!(svc.mux.read().get_tab(&tab).unwrap().pty_id.is_none());
+}

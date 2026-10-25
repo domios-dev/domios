@@ -105,6 +105,7 @@ impl InterruptTarget {
 }
 
 pub(super) fn interrupt(svc: &ServiceContext, tab: &str) -> Result<bool, String> {
+    super::super::capacity_retry::cancel(svc, tab)?;
     crate::async_runtime::block_on(async {
         let session = engine::ensure(svc, tab).await?;
         let permit = session

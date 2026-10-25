@@ -1,0 +1,24 @@
+# Check and apply this file with codeterm blueprint.
+schema_version: 1
+name: '{{name}}'
+note: Convert a voice note to text and classify the transcript.
+inputs:
+  name:
+    type: string
+    description: Short Blueprint name, 3 to 40 characters
+  path_to_voice_note:
+    type: string
+    description: Path to voice note
+watch:
+  input:
+    kind: audio
+    data:
+      file: '{{path_to_voice_note}}'
+    convert_to: text
+  question: what-does-the-voice-note-say
+  buckets:
+  - done
+  timeout: 1h
+  model_classification: true
+  routes:
+    done: notify

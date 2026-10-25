@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 // Caller: build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe/dev-prebuilt; scripts tests/release-input-reuse.test.mjs
+import { devResourceRoot, devServerPath } from "./dev-native-layout.mjs";
 import crypto from "node:crypto";
 import { StringDecoder } from "node:string_decoder";
 import { runDevApp, nativeLocatorRecord, prebuiltReadinessPhase } from "./dev-app-process.mjs";
 import { devRuntimeEnvironment } from "./dev-runtime-environment.mjs";
+import { waitForReady } from "./server-readiness.mjs";
 import {
   accessSync,
   constants,
@@ -56,8 +58,13 @@ const inputPathspecs = [
   "scripts/dev-prep.mjs",
   "scripts/dev-reload-inputs.cjs",
   "scripts/dev-server.mjs",
+  "scripts/dev-rebuild-stop.mjs",
+  "scripts/windows-dev-rebuild-stop.ps1",
+  "scripts/windows-dev-rebuild-process.cs",
   "scripts/dev-server-bootstrap.ps1",
   "scripts/server-artifact.mjs",
+  "scripts/dev-macos-bundle.mjs",
+  "scripts/dev-native-layout.mjs",
   "scripts/package-server-component-manifest.mjs",
   "scripts/dev-app-process.mjs",
   "scripts/dev-runtime-environment.mjs",
@@ -75,10 +82,6 @@ const inputPathspecs = [
   "scripts/build-gateway.sh",
   "scripts/release-signing.sh",
 ];
-
-function devResourceRoot(app) {
-  return isWin ? dirname(app) : resolve(dirname(app), "../lib/codeterm");
-}
 
 function run(cmd, args, opts = {}) {
   const res = spawnSync(cmd, args, {
@@ -261,7 +264,7 @@ function artifactPaths(options) {
     app: option(options, "--app"),
     cli: option(options, "--cli"),
     frontend: option(options, "--frontend"),
-    server: join(devResourceRoot(option(options, "--app")), "domios-server", isWin ? "domios-server.exe" : "domios-server"),
+    server: devServerPath(option(options, "--app")),
     inventory: join(devResourceRoot(option(options, "--app")), "server-component.json"),
     resources: devResourceRoot(option(options, "--app")),
   };
@@ -551,6 +554,7 @@ async function launchPrebuilt(options) {
   const log = resolve(option(options, "--log"));
   const apiPort = option(options, "--api-port");
   const fixtureDeadline = process.env.CODETERM_TEST_PREBUILT_READY_DEADLINE_MS;
+  const externalFrontend = process.env.DEV_FRONT_EXTERNAL === "1";
   const deadlineMs = fixtureDeadline === undefined ? 30_000 : Number(fixtureDeadline);
   if (!Number.isInteger(deadlineMs) || deadlineMs < 1 || deadlineMs > 30_000) {
     throw new Error("invalid prebuilt readiness failure deadline");
@@ -559,6 +563,8 @@ async function launchPrebuilt(options) {
   let child;
   let deadline;
   let phase=0;
+  let checkingReadiness = false;
+  const startupWait = new AbortController();
   try {
     await new Promise((resolveReady, rejectReady) => {
       const fail = (error) => rejectReady(error instanceof Error ? error : new Error(String(error)));
@@ -574,7 +580,11 @@ async function launchPrebuilt(options) {
         },
       );
       child.on("message", (message) => {
-        if (message?.type === "ready") resolveReady(message.signal);
+        if (message?.type === "ready" && !checkingReadiness) {
+          checkingReadiness = true;
+          void waitForReady({ origin: `http://127.0.0.1:${apiPort}`, signal: startupWait.signal })
+            .then(() => resolveReady(message.signal), fail);
+        }
         else if (message?.type === "failed") fail(new Error(message.error));
         else if (message?.type === "phase" && Number.isInteger(message.phase) && message.phase === phase+1 && message.phase <= 2) {
           phase=message.phase;
@@ -589,14 +599,22 @@ async function launchPrebuilt(options) {
       child.unref();
       console.log(`[dev-prebuilt] launched pid ${child.pid}, log ${log}`);
       function armDeadline() {
-        deadline = setTimeout(() => fail(new Error(`prebuilt app did not report readiness within ${deadlineMs}ms (phase=${['preparation','bootstrap','attachment'][phase]})`)), deadlineMs);
+        const phaseDeadlineMs = externalFrontend && phase === 2 && fixtureDeadline === undefined ? 180_000 : deadlineMs;
+        deadline = setTimeout(() => {
+          const error = new Error(`prebuilt app did not report readiness within ${phaseDeadlineMs}ms (phase=${['preparation','bootstrap','attachment'][phase]})`);
+          if (externalFrontend) error.code = "DEV_ATTACHMENT_PENDING";
+          fail(error);
+        }, phaseDeadlineMs);
       }
       armDeadline();
     }).then((signal) => console.log(`[dev-prebuilt] readiness signal: ${signal}`));
   } catch (error) {
-    await terminateOwnedChild(child);
+    if (error.code === "DEV_ATTACHMENT_PENDING") {
+      if (child?.connected) child.disconnect();
+    } else await terminateOwnedChild(child);
     throw error;
   } finally {
+    startupWait.abort();
     if (deadline) clearTimeout(deadline);
     if (child) child.removeAllListeners();
   }
@@ -623,5 +641,5 @@ try {
   else runRegularPrep();
 } catch (error) {
   console.error(`[dev-prep] ${error.message}`);
-  process.exit(1);
+  process.exit(error.code === "DEV_ATTACHMENT_PENDING" ? 3 : 1);
 }

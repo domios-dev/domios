@@ -106,6 +106,7 @@
   "edges": [],
   "nodes": [
     {
+      "held_reason": null,
       "identity": {
         "id": "blueprint-echo",
         "kind": "blueprint",

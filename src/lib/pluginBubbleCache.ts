@@ -16,10 +16,10 @@ export interface PluginBubbleSubscription {
   unsubscribe: () => void;
 }
 
-type Fetcher = (pluginId: string, cwd: string | null, tabId: string) => Promise<BubbleData | null>;
+type Fetcher = (pluginId: string, cwd: string | null, tabId: string, refresh: boolean, signal: AbortSignal) => Promise<BubbleData | null>;
 
-function defaultFetcher(pluginId: string, cwd: string | null, tabId: string): Promise<BubbleData | null> {
-  return invoke<BubbleData | null>("plugin_bubble", { pluginId, ctx: { cwd, tabId } });
+function defaultFetcher(pluginId: string, cwd: string | null, tabId: string, refresh: boolean, signal: AbortSignal): Promise<BubbleData | null> {
+  return invoke<BubbleData | null>("plugin_bubble", { pluginId, ctx: { cwd, tabId, refresh }, signal });
 }
 
 let fetcher: Fetcher = defaultFetcher;
@@ -40,8 +40,10 @@ interface Entry {
   pluginId: string;
   key: string | null;
   value: BubbleData | null | undefined;
-  inFlight: boolean;
+  inFlight: Promise<void> | null;
+  controller: AbortController | null;
   pendingRefresh: boolean;
+  pendingInvalidation: boolean;
   subscribers: Map<string, Subscriber>;
 }
 
@@ -73,6 +75,7 @@ function rekeyEntry(byKey: Map<string | null, Entry>, from: string, to: string):
     byKey.set(to, source);
     return;
   }
+  cancelRequest(source);
   const moved = [...source.subscribers.entries()];
   source.subscribers.clear();
   for (const [id, sub] of moved) {
@@ -91,14 +94,22 @@ function getOrCreateEntry(pluginId: string, key: string | null): Entry {
   }
   let entry = byKey.get(key);
   if (!entry) {
-    entry = { pluginId, key, value: undefined, inFlight: false, pendingRefresh: false, subscribers: new Map() };
+    entry = { pluginId, key, value: undefined, inFlight: null, controller: null, pendingRefresh: false, pendingInvalidation: false, subscribers: new Map() };
     byKey.set(key, entry);
   }
   return entry;
 }
 
+function cancelRequest(entry: Entry): void {
+  entry.controller?.abort();
+  entry.controller = null;
+  entry.inFlight = null;
+  entry.pendingRefresh = false;
+}
+
 function deleteEntryIfEmpty(entry: Entry): void {
   if (entry.subscribers.size > 0) return;
+  cancelRequest(entry);
   const byKey = cache.get(entry.pluginId);
   if (byKey?.get(entry.key) === entry) byKey.delete(entry.key);
   if (byKey && byKey.size === 0) cache.delete(entry.pluginId);
@@ -120,24 +131,36 @@ function pickTabId(entry: Entry): string {
   return "";
 }
 
-function computeNow(entry: Entry): void {
+function computeNow(entry: Entry, invalidated = false, updated = false): Promise<void> {
   if (entry.inFlight) {
-    entry.pendingRefresh = true;
-    return;
+    entry.pendingRefresh ||= invalidated || updated;
+    entry.pendingInvalidation ||= invalidated;
+    return entry.inFlight;
   }
-  entry.inFlight = true;
-  fetcher(entry.pluginId, entry.key, pickTabId(entry))
+  invalidated ||= entry.pendingInvalidation || entry.value === undefined;
+  entry.pendingInvalidation = false;
+  const controller = new AbortController();
+  entry.controller = controller;
+  entry.inFlight = fetcher(entry.pluginId, entry.key, pickTabId(entry), invalidated, controller.signal)
     .then((value) => {
+      if (entry.controller !== controller) return;
       entry.value = value;
       notify(entry);
     })
     .catch(() => {})
     .finally(() => {
-      entry.inFlight = false;
+      if (entry.controller !== controller) return;
+      entry.controller = null;
+      entry.inFlight = null;
       const shouldRefresh = entry.pendingRefresh && activeCount(entry) > 0;
+      const pendingInvalidation = entry.pendingInvalidation;
       entry.pendingRefresh = false;
-      if (shouldRefresh) computeNow(entry);
+      if (shouldRefresh) {
+        entry.pendingInvalidation = false;
+        return computeNow(entry, pendingInvalidation);
+      }
     });
+  return entry.inFlight;
 }
 
 /** Subscribe once per (plugin, repo, tab) identity; call the returned
@@ -160,7 +183,8 @@ export function subscribePluginBubble(
     if (!sub) return;
     const wasActive = sub.active;
     sub.active = nextActive;
-    if (nextActive && !wasActive) computeNow(holder.entry);
+    if (nextActive && !wasActive) void computeNow(holder.entry);
+    if (!nextActive && activeCount(holder.entry) === 0) cancelRequest(holder.entry);
   };
   setActive(active);
 
@@ -168,6 +192,7 @@ export function subscribePluginBubble(
     setActive,
     unsubscribe: () => {
       holder.entry.subscribers.delete(subscriberId);
+      if (activeCount(holder.entry) === 0) cancelRequest(holder.entry);
       deleteEntryIfEmpty(holder.entry);
     },
   };
@@ -178,8 +203,9 @@ export function subscribePluginBubble(
 export function invalidatePluginBubble(pluginId: string, cwd: string | null | undefined): void {
   if (cwd === undefined) return;
   const entry = cache.get(pluginId)?.get(keyFor(cwd));
-  if (!entry || activeCount(entry) === 0) return;
-  computeNow(entry);
+  if (!entry) return;
+  entry.pendingInvalidation = true;
+  if (activeCount(entry) > 0) void computeNow(entry, true);
 }
 
 /** The single action a repository-changed event takes: one computation per
@@ -187,20 +213,34 @@ export function invalidatePluginBubble(pluginId: string, cwd: string | null | un
 export function invalidatePluginBubblesForRepo(identity: string): void {
   for (const byKey of cache.values()) {
     const entry = byKey.get(identity);
-    if (entry && activeCount(entry) > 0) computeNow(entry);
+    if (entry) {
+      entry.pendingInvalidation = true;
+      if (activeCount(entry) > 0) void computeNow(entry, true);
+    }
+  }
+}
+
+export function refreshPluginBubble(pluginId: string): void {
+  for (const entry of cache.get(pluginId)?.values() ?? []) {
+    if (activeCount(entry) > 0) void computeNow(entry, false, true);
   }
 }
 
 export function invalidateActivePluginBubbles(): void {
   for (const byKey of cache.values()) {
     for (const entry of byKey.values()) {
-      if (activeCount(entry) > 0) computeNow(entry);
+      if (activeCount(entry) > 0) void computeNow(entry, true);
     }
   }
 }
 
 export function __resetPluginBubbleCacheForTest(): void {
+  for (const byKey of cache.values()) for (const entry of byKey.values()) cancelRequest(entry);
   cache.clear();
   canonical.clear();
   fetcher = defaultFetcher;
+}
+
+export async function __waitForPluginBubbleCacheForTest(): Promise<void> {
+  await Promise.all([...cache.values()].flatMap(byKey => [...byKey.values()].map(entry => entry.inFlight)));
 }

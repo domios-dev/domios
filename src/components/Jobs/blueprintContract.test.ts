@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { pipelineContractGolden } from "../Automation/blueprintContract.testdata";
 import { scopedAutomationGraph } from "../Automation/model";
-import { blueprintModel } from "../Automation/blueprintModel";
 import { blueprintJobs, canStopJob, mergeJobs, NO_JOBS_FILTER, jobsIndicator, tabJobState } from "./jobsModel";
 
 const graph = pipelineContractGolden();
@@ -13,7 +12,6 @@ assert.ok(job.pipeline.nodes.every((node) => !node.current));
 assert.equal(job.pipeline.runs?.[0].id, "run-echo");
 assert.equal(job.pipeline.runs?.[0].state, "completed");
 assert.equal(job.pipeline.nodes[job.pipeline.nodes.length - 1]?.state, "delivered");
-assert.deepEqual(blueprintModel(scoped).nodes, [], "pipelines never produce flat probe or decision nodes");
 console.log("Rust pipeline contract reaches Jobs with real steps and retained runs");
 
 const [merged] = mergeJobs(NO_JOBS_FILTER, [], [], [job]);

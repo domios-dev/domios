@@ -5,10 +5,8 @@ use super::{
 };
 
 impl MemManager {
-    /// Hybrid recall: RRF fusion of FTS5 + vector ANN results.
-    /// Always runs both backends and merges via Reciprocal Rank Fusion
-    /// for maximum recall quality (typo-tolerant + keyword-precise).
-    /// Falls back to FTS5-only when embeddings feature is off.
+    /// Hybrid recall: RRF fusion of FTS5 + vector results; FTS-only while the
+    /// embedder is unavailable or the index belongs to another model.
     pub fn recall(&self, q: &SearchQuery) -> Result<Vec<SearchHit>, String> {
         self.recall_with_config(q, &search::SearchConfig::default())
     }
@@ -19,116 +17,123 @@ impl MemManager {
         q: &SearchQuery,
         cfg: &search::SearchConfig,
     ) -> Result<Vec<SearchHit>, String> {
-        let embedding = search::query_embedding(&q.query);
-        let conn = self.conn.lock();
-        search::hybrid_rrf_with_embedding(&conn, q, &self.blobs_dir, cfg, embedding.as_deref())
+        let (embedding, conn) = self.query_under_conn(&q.query);
+        search::hybrid_rrf_with_embedding(&conn, q, &self.blobs_dir, cfg, embedding.as_ref())
     }
 
     pub fn vector_recall(&self, query: &str, k: usize) -> Result<Vec<(String, f64)>, String> {
-        #[cfg(feature = "embeddings")]
-        {
-            let vector = embeddings::query_embed(query)?;
-            embeddings::recall_vector(&self.conn.lock(), &vector, k)
-        }
-        #[cfg(not(feature = "embeddings"))]
-        {
-            embeddings::recall(&self.conn.lock(), query, k)
-        }
+        let (vector, conn) = self.query_under_conn(query);
+        let vector = vector.ok_or_else(|| "query embedding unavailable".to_string())?;
+        embeddings::recall_vector(&conn, &vector, k)
     }
 
+    /// Embed outside the connection lock; a publication swaps the model under
+    /// that lock, so one re-embed with the newly published model suffices.
+    fn query_under_conn(
+        &self,
+        text: &str,
+    ) -> (
+        Option<crate::embedder::StampedVector>,
+        parking_lot::MutexGuard<'_, rusqlite::Connection>,
+    ) {
+        let embedding = self.embedder.query(text);
+        let conn = self.conn.lock();
+        if embedding
+            .as_ref()
+            .is_none_or(|vector| vector.identity == self.embedder.identity())
+        {
+            return (embedding, conn);
+        }
+        drop(conn);
+        let embedding = self.embedder.query(text);
+        (embedding, self.conn.lock())
+    }
+
+    /// Embed outside the connection lock, then store under it.
     pub fn index_embedding(&self, id: &str, body: &str) -> Result<(), String> {
-        #[cfg(feature = "embeddings")]
-        {
-            embeddings::clear_vectors(&self.conn.lock(), id);
-            for (i, chunk) in embeddings::chunk_text(body).iter().enumerate() {
-                let vector = embeddings::embed(chunk)?;
-                if !embeddings::insert_vector_if_item_live(&self.conn.lock(), id, i, &vector)? {
-                    break;
-                }
-            }
-            Ok(())
-        }
-        #[cfg(not(feature = "embeddings"))]
-        {
-            embeddings::index(&self.conn.lock(), id, body)
-        }
+        let vectors = self.embedder.passages(&embeddings::chunk_text(body));
+        embeddings::store_vectors(&self.conn.lock(), id, vectors)
     }
 
-    /// Bulk re-embed mem_items and/or graph entities. Used after embedder
-    /// model swap, or to backfill entities that pre-date the auto-embed-on-
-    /// create wiring (everything before v1.1.23 if the bug fix landed there).
+    pub(crate) fn reembed_item_targets(
+        &self,
+        conn: &rusqlite::Connection,
+    ) -> Result<Vec<(String, String)>, String> {
+        let _read = UntouchedRead::begin(conn)?;
+        let mut statement = conn
+            .prepare("SELECT id FROM mem_items WHERE kind != 'archived'")
+            .map_err(|error| error.to_string())?;
+        let ids = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|error| error.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| error.to_string())?;
+        let mut targets = Vec::new();
+        for id in ids {
+            let Some(item) = store::get(conn, &id, &self.blobs_dir)? else {
+                continue;
+            };
+            if !super::body_is_embeddable(&item.body) {
+                continue;
+            }
+            let text = super::reindex::compose_item_embed_text(
+                &item.kind,
+                &item.title,
+                item.area.as_deref(),
+                &item.tags,
+                &item.body,
+                item.source.as_deref(),
+                item.summary.as_deref(),
+            );
+            targets.push((item.id, text));
+        }
+        Ok(targets)
+    }
+
+    pub(crate) fn reembed_entity_targets(
+        &self,
+        conn: &rusqlite::Connection,
+    ) -> Result<Vec<(String, String)>, String> {
+        let mut stmt = conn
+            .prepare("SELECT id, entity_type, properties_json FROM entities")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(|e| e.to_string())?;
+        let mut targets = Vec::new();
+        for row in rows {
+            let (id, entity_type, props_json) = row.map_err(|e| e.to_string())?;
+            let text = embeddings::embeddable_text_for_entity(&id, &entity_type, &props_json);
+            targets.push((id, text));
+        }
+        Ok(targets)
+    }
+
+    /// Bulk re-embed mem_items and/or graph entities with the active embedder.
     pub fn reembed_bulk(&self, do_items: bool, do_entities: bool) -> Result<ReembedReport, String> {
         let mut report = ReembedReport::default();
-
         if do_items {
-            let items = {
-                let conn = self.conn.lock();
-                let _read = UntouchedRead::begin(&conn)?;
-                let mut statement = conn
-                    .prepare("SELECT id FROM mem_items WHERE kind != 'archived'")
-                    .map_err(|error| error.to_string())?;
-                let ids = statement
-                    .query_map([], |row| row.get::<_, String>(0))
-                    .map_err(|error| error.to_string())?
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(|error| error.to_string())?;
-                ids.into_iter()
-                    .map(|id| store::get(&conn, &id, &self.blobs_dir))
-                    .collect::<Result<Vec<_>, _>>()?
-            };
-            for item in items.into_iter().flatten() {
-                if !super::body_is_embeddable(&item.body) {
-                    continue;
-                }
-                #[cfg(feature = "embeddings")]
-                let text = super::reindex::compose_item_embed_text(
-                    &item.kind,
-                    &item.title,
-                    item.area.as_deref(),
-                    &item.tags,
-                    &item.body,
-                    item.source.as_deref(),
-                    item.summary.as_deref(),
-                );
-                #[cfg(not(feature = "embeddings"))]
-                let text = item.body;
-                match self.index_embedding(&item.id, &text) {
-                    Ok(_) => report.items += 1,
-                    Err(error) => report.errors.push(format!("item {}: {}", item.id, error)),
-                }
-            }
-        }
-
-        if do_entities {
-            let rows: Vec<(String, String, String)> = {
-                let conn = self.conn.lock();
-                let mut stmt = conn
-                    .prepare("SELECT id, entity_type, properties_json FROM entities")
-                    .map_err(|e| e.to_string())?;
-                let mapped = stmt
-                    .query_map([], |r| {
-                        Ok((
-                            r.get::<_, String>(0)?,
-                            r.get::<_, String>(1)?,
-                            r.get::<_, String>(2)?,
-                        ))
-                    })
-                    .map_err(|e| e.to_string())?;
-                let mut out = Vec::new();
-                for row in mapped {
-                    out.push(row.map_err(|e| e.to_string())?);
-                }
-                out
-            };
-            for (id, entity_type, props_json) in rows {
-                let text = embeddings::embeddable_text_for_entity(&id, &entity_type, &props_json);
+            for (id, text) in self.reembed_item_targets(&self.conn.lock())? {
                 match self.index_embedding(&id, &text) {
-                    Ok(_) => report.entities += 1,
-                    Err(e) => report.errors.push(format!("entity {}: {}", id, e)),
+                    Ok(()) => report.items += 1,
+                    Err(error) => report.errors.push(format!("item {id}: {error}")),
                 }
             }
         }
-
+        if do_entities {
+            for (id, text) in self.reembed_entity_targets(&self.conn.lock())? {
+                match self.index_embedding(&id, &text) {
+                    Ok(()) => report.entities += 1,
+                    Err(error) => report.errors.push(format!("entity {id}: {error}")),
+                }
+            }
+        }
         Ok(report)
     }
 
@@ -151,10 +156,9 @@ impl MemManager {
         q: &SearchQuery,
         cfg: &search::SearchConfig,
     ) -> Result<Vec<SearchHit>, String> {
-        let embedding = search::query_embedding(&q.query);
-        let conn = self.conn.lock();
+        let (embedding, conn) = self.query_under_conn(&q.query);
         let _read = UntouchedRead::begin(&conn)?;
-        search::hybrid_rrf_with_embedding(&conn, q, &self.blobs_dir, cfg, embedding.as_deref())
+        search::hybrid_rrf_with_embedding(&conn, q, &self.blobs_dir, cfg, embedding.as_ref())
     }
 
     /// `search_with_rerank` that records no access for its overfetched candidates.

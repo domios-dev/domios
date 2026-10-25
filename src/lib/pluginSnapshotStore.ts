@@ -1,3 +1,4 @@
+import { createConsumerFlight } from "./consumerFlight";
 import { installConsentRequests } from "./pluginConsentModel";
 import { requestPluginConsent } from "./pluginConsentStore";
 import { useSyncExternalStore } from "react";
@@ -30,7 +31,7 @@ let snapshotState: PluginSnapshotStoreState = {
   lastLoadedAt: 0,
 };
 
-let inFlight: Promise<PluginSnapshot> | null = null;
+const flights = createConsumerFlight<PluginSnapshot>();
 let snapshotEpoch = 0;
 const listeners = new Set<Listener>();
 
@@ -59,13 +60,14 @@ function isFresh(now: number) {
 async function fetchSnapshot({
   force = false,
   background = false,
+  signal,
 }: {
   force?: boolean;
   background?: boolean;
+  signal?: AbortSignal;
 } = {}): Promise<PluginSnapshot> {
   const now = Date.now();
   if (!force && isFresh(now)) return snapshotState.snapshot;
-  if (inFlight) return inFlight;
 
   const epoch = snapshotEpoch;
   const hasCachedRows = snapshotState.lastSuccessfulSnapshot !== null;
@@ -75,9 +77,9 @@ async function fetchSnapshot({
     error: background ? snapshotState.error : null,
   });
 
-  inFlight = invoke<PluginSnapshot>("plugin_manager_snapshot")
+  return flights.run("snapshot", (requestSignal) => invoke<PluginSnapshot>("plugin_manager_snapshot", { signal: requestSignal })
     .then((snapshot) => {
-      if (epoch !== snapshotEpoch) return snapshotState.snapshot;
+      if (epoch !== snapshotEpoch || requestSignal.aborted) return snapshotState.snapshot;
       const normalized = normalizeSnapshot(snapshot);
       setSnapshotState({
         snapshot: normalized,
@@ -91,7 +93,7 @@ async function fetchSnapshot({
       return normalized;
     })
     .catch((error: unknown) => {
-      if (epoch !== snapshotEpoch) return snapshotState.snapshot;
+      if (epoch !== snapshotEpoch || requestSignal.aborted) return snapshotState.snapshot;
       if (DEV_BUILD) console.debug("Background plugin catalogue refresh failed", error);
       setSnapshotState({
         snapshot: snapshotState.lastSuccessfulSnapshot ?? EMPTY_SNAPSHOT,
@@ -103,10 +105,8 @@ async function fetchSnapshot({
       throw error;
     })
     .finally(() => {
-      if (epoch === snapshotEpoch) inFlight = null;
-    });
-
-  return inFlight;
+      if (epoch === snapshotEpoch) setSnapshotState({ loading: false, refreshing: false });
+    }), signal);
 }
 
 export function subscribePluginSnapshotStore(listener: Listener): () => void {
@@ -124,14 +124,14 @@ export function usePluginSnapshotStore(): PluginSnapshotStoreState {
   return useSyncExternalStore(subscribePluginSnapshotStore, getPluginSnapshotState);
 }
 
-export function ensurePluginSnapshot(options?: { force?: boolean; background?: boolean }) {
+export function ensurePluginSnapshot(options?: { force?: boolean; background?: boolean; signal?: AbortSignal }) {
   return fetchSnapshot(options);
 }
 
 export async function runPluginSnapshotAction(action: Record<string, unknown>): Promise<PluginSnapshot> {
   const next = normalizeSnapshot(await invoke<PluginSnapshot>("plugin_manager_action", { action }));
   snapshotEpoch += 1;
-  inFlight = null;
+  flights.cancel();
   setSnapshotState({
     snapshot: next,
     lastSuccessfulSnapshot: next,
@@ -158,7 +158,7 @@ export function invalidatePluginSnapshotStore() {
 
 export function __resetPluginSnapshotStoreForTest() {
   snapshotEpoch += 1;
-  inFlight = null;
+  flights.cancel();
   snapshotState = {
     snapshot: EMPTY_SNAPSHOT,
     lastSuccessfulSnapshot: null,

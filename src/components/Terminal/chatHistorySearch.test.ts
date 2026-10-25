@@ -66,3 +66,14 @@ test("the default byte bound consumes at most two one-MiB windows", async () => 
   assert.deepEqual(budgets, [1_048_576, 1_048_576]);
   assert.deepEqual(result, { kind: "stop", reason: "limit" });
 });
+
+
+test("raw rows do not stop a scan until the rendered conversation page is filled", async () => {
+  const requests: number[] = [];
+  const result = await searchOlderChatHistory(300, async cursor => {
+    requests.push(cursor);
+    return { cursor: cursor - 100, consumedBytes: 100, rows: 150 };
+  }, 1000, page => page.cursor <= 100);
+  assert.deepEqual(requests, [300, 200]);
+  assert.equal(result.kind, "reveal");
+});

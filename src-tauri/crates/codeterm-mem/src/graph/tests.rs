@@ -648,6 +648,55 @@ fn insert_relation_persists_reason() {
 }
 
 #[test]
+fn read_projections_preserve_relation_reason() {
+    for reason in [Some("Evidence: Kai's review — confirmed"), None] {
+        for include_invalidated in [false, true] {
+            let conn = fresh();
+            pair_entities(&conn);
+            let relation = Relation {
+                reason: reason.map(String::from),
+                properties: serde_json::json!({"source": "review"}),
+                confidence: 0.75,
+                valid_to: include_invalidated.then(|| "2026-02-01T00:00:00Z".into()),
+                ..active_rel()
+            };
+            insert_relation(&conn, &relation).unwrap();
+
+            let projections = [
+                (
+                    "related",
+                    related(&conn, "e_b", Some("knows"), None, include_invalidated).unwrap(),
+                ),
+                (
+                    "timeline",
+                    timeline(&conn, "e_b", include_invalidated).unwrap(),
+                ),
+                (
+                    "traverse",
+                    traverse(&conn, "e_b", 1, 100, None, include_invalidated)
+                        .unwrap()
+                        .edges,
+                ),
+                (
+                    "path",
+                    shortest_path(&conn, "e_b", "e_a", 1, include_invalidated)
+                        .unwrap()
+                        .unwrap(),
+                ),
+            ];
+            let expected = serde_json::to_value(vec![relation]).unwrap();
+            for (projection, relations) in projections {
+                assert_eq!(
+                    serde_json::to_value(relations).unwrap(),
+                    expected,
+                    "{projection}, reason={reason:?}, include_invalidated={include_invalidated}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn insert_relation_null_reason() {
     let conn = fresh();
     pair_entities(&conn);

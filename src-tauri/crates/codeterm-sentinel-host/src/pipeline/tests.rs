@@ -2,14 +2,11 @@ use super::effect_after_claim;
 use super::*;
 use crate::routes::pipeline_result_owner;
 use crate::store::{Owner, Store};
-use codeterm_blueprint_types::blueprint_pipeline::{
-    BlueprintOwner, BlueprintResult, BlueprintSpec, IoType, ResultTarget, Step, StepKind, Trigger,
-};
+use codeterm_blueprint_types::blueprint_pipeline::{BlueprintOwner, BlueprintSpec, ResultTarget};
 use codeterm_service_core::cron::clock::MockClock;
 use codeterm_service_core::multiplexer::{state::MultiplexerState, types::AgentRole};
 use codeterm_service_core::service::test_fixture::ServiceFixture;
 use std::cell::RefCell;
-use std::collections::BTreeMap;
 
 #[test]
 fn blueprint_pipeline_probe_capacity_preserves_terminal_reason() {
@@ -59,33 +56,31 @@ fn blueprint_pipeline_refused_claim_skips_the_effect() {
     assert_eq!(events.into_inner(), ["claim"]);
 }
 
-fn result_spec(owner: BlueprintOwner, target: ResultTarget) -> BlueprintSpec {
-    BlueprintSpec {
-        note: None,
-        name: "result-delivery-test".into(),
-        owner,
-        trigger: Trigger::Schedule {
-            every: "20s".into(),
-        },
-        steps: vec![Step {
-            name: "emit".into(),
-            input: IoType::Text,
-            kind: StepKind::Command {
-                command: "echo result".into(),
-            },
-            on: BTreeMap::new(),
-        }],
-        result: BlueprintResult { to: target },
-    }
+fn result_document(owner: BlueprintOwner, target: ResultTarget) -> serde_json::Value {
+    serde_json::json!({"schema_version":2,"kind":"pipeline","name":"result-delivery-test","owner":owner,"trigger":{"type":"schedule","every":{"lit":"20s"}},"steps":[{"id":"emit","run":{"lit":"echo result"}}],"result":{"to":target}})
 }
 
-fn result_job(spec: BlueprintSpec, owner: Owner) -> crate::store::Sentinel {
+fn result_spec(owner: BlueprintOwner, target: ResultTarget) -> BlueprintSpec {
+    let runtime = codeterm_blueprint_types::blueprint_document::Document::from_definition(
+        &result_document(owner, target),
+    )
+    .unwrap()
+    .lower()
+    .unwrap();
+    serde_json::from_value(runtime["spec"].clone()).unwrap()
+}
+
+fn result_job(
+    owner_kind: BlueprintOwner,
+    target: ResultTarget,
+    owner: Owner,
+) -> crate::store::Sentinel {
     let directory = tempfile::tempdir().unwrap();
     Store::new(
         directory.path().join("blueprints.json"),
         MockClock::starting_at(1000),
     )
-    .prepare_pipeline(spec, owner, true)
+    .prepare_document(result_document(owner_kind, target), owner, true)
     .unwrap()
 }
 
@@ -143,7 +138,7 @@ fn blueprint_delivery_result_targets_persist_before_delivery_without_resend() {
     let mut attempted_targets = Vec::new();
 
     for (spec, job_owner, expected_target, output, pending) in cases {
-        let job = result_job(spec.clone(), job_owner);
+        let job = result_job(spec.owner, spec.result.to.clone(), job_owner);
         let routes = result_routes(&fixture.service, &job, &spec).unwrap();
         assert_eq!(routes, [Route::Send(expected_target.into())]);
         let body_owner = pipeline_result_owner(&fixture.service, &job, &spec);
@@ -169,23 +164,14 @@ fn blueprint_delivery_result_targets_persist_before_delivery_without_resend() {
                 assert!(packet.contains(path.to_str().unwrap()));
                 attempted_targets.push(target.to_string());
                 if pending {
-                    Ok(
-                        codeterm_service_core::service::messenger::Delivery::Pending {
-                            delivery_id: "parked-result".into(),
-                        },
-                    )
+                    Err("result_delivery_deadline".into())
                 } else {
-                    Ok(codeterm_service_core::service::messenger::Delivery::Pty {
-                        text: packet.into(),
-                    })
+                    Ok(())
                 }
             },
         );
         assert_eq!(result.body_ref.as_deref(), Some(body_ref.as_str()));
-        assert_eq!(
-            result.state,
-            if pending { "unconfirmed" } else { "delivered" }
-        );
+        assert_eq!(result.state, if pending { "failed" } else { "delivered" });
         assert_eq!(attempted_targets.len(), attempts_before + 1);
     }
 
@@ -195,7 +181,7 @@ fn blueprint_delivery_result_targets_persist_before_delivery_without_resend() {
     );
 
     let notify_spec = result_spec(BlueprintOwner::Tab, ResultTarget::Notify);
-    let notify_job = result_job(notify_spec.clone(), owner);
+    let notify_job = result_job(notify_spec.owner, notify_spec.result.to.clone(), owner);
     assert_eq!(
         result_routes(&fixture.service, &notify_job, &notify_spec).unwrap(),
         [Route::Notify]
@@ -245,7 +231,7 @@ fn blueprint_delivery_unresolvable_named_target_fails_at_fire_with_reason() {
         workspace_id: workspace,
         cwd: ".".into(),
     };
-    let job = result_job(spec.clone(), owner);
+    let job = result_job(spec.owner, spec.result.to.clone(), owner);
     let verdict = Verdict {
         bucket: "done".into(),
         confidence: 1.0,
@@ -326,7 +312,8 @@ fn github_probe_budget_tolerates_slow_queries_and_respects_graph_expiry() {
     let runtime =
         Duration::from_millis(codeterm_blueprint_types::blueprint_github::PROBE_RUNTIME_MS);
     let full = probe::process::Deadlines::at(Duration::from_secs(120), runtime, now).unwrap();
-    assert_eq!(full.hard.duration_since(now), Duration::from_secs(60));
+    assert_eq!(full.operation.duration_since(now), Duration::from_secs(60));
+    assert_eq!(full.hard.duration_since(now), Duration::from_millis(60_500));
     assert!(full.operation.duration_since(now) > Duration::from_secs(10));
     let expiring = probe::process::Deadlines::at(Duration::from_secs(5), runtime, now).unwrap();
     assert_eq!(expiring.hard.duration_since(now), Duration::from_secs(5));
@@ -358,41 +345,16 @@ fn unhandled_command_failure_stops_but_recovered_failure_keeps_running() {
 }
 
 #[test]
-fn every_shipped_recipe_command_runs_in_the_runtime_probe_shell() {
-    fn commands(value: &serde_json::Value, output: &mut Vec<String>) {
-        match value {
-            serde_json::Value::Object(fields) => {
-                for (key, value) in fields {
-                    if matches!(key.as_str(), "run" | "probe") {
-                        if let Some(command) = value.as_str() {
-                            let tokens =
-                                codeterm_blueprint_types::blueprint_placeholder::tokens(command);
-                            // Required probe inputs are commands authored by the caller.
-                            if tokens.len() == 1 && tokens[0].span == (0..command.len()) {
-                                continue;
-                            }
-                            let mut bound = command.to_owned();
-                            for token in tokens.iter().rev() {
-                                bound.replace_range(token.span.clone(), "ready");
-                            }
-                            output.push(bound);
-                        }
-                    }
-                    commands(value, output);
-                }
-            }
-            serde_json::Value::Array(values) => {
-                for value in values {
-                    commands(value, output);
-                }
-            }
-            _ => {}
-        }
-    }
+fn native_recipe_probe_bindings_run_in_the_runtime_probe_shell() {
+    use codeterm_blueprint_types::blueprint_document::{self, Document, NodeKind};
     let root = codeterm_service_core::test_support::fixture_manifest_dir()
         .join("../../../resources/blueprints");
     let directory = tempfile::tempdir().unwrap();
     let owner = std::sync::Arc::new(probe::owner::ProbeResourceOwner::new());
+    #[cfg(windows)]
+    let command = "[Console]::Out.Write('ready')";
+    #[cfg(unix)]
+    let command = "printf ready";
     let mut executed = 0;
     for entry in std::fs::read_dir(root).unwrap() {
         let path = entry.unwrap().path();
@@ -400,23 +362,45 @@ fn every_shipped_recipe_command_runs_in_the_runtime_probe_shell() {
             continue;
         }
         let raw = std::fs::read_to_string(&path).unwrap();
-        let value: serde_json::Value = serde_yaml::from_str(&raw).unwrap();
-        let mut shipped = Vec::new();
-        commands(&value, &mut shipped);
-        for command in shipped {
-            let output = probe::run(&command, directory.path(), Duration::from_secs(20), &owner)
-                .unwrap_or_else(|failure| panic!("{}: {command}: {failure:?}", path.display()));
-            assert!(
-                output.success,
-                "{}: {command}: {}",
-                path.display(),
-                output.text
-            );
-            executed += 1;
+        let document = blueprint_document::parse(path.to_str().unwrap(), &raw)
+            .unwrap()
+            .document;
+        if !document
+            .nodes()
+            .any(|node| node.uses == Some(NodeKind::Probe))
+        {
+            continue;
         }
+        let assignments = document
+            .inputs
+            .keys()
+            .map(|key| {
+                format!(
+                    "{key}={}",
+                    if key.contains("probe") {
+                        command
+                    } else if key == "name" {
+                        "shell-fixture"
+                    } else {
+                        "ready"
+                    }
+                )
+            })
+            .collect::<Vec<_>>();
+        let definition = document.bind(&assignments).unwrap();
+        let runtime = Document::from_definition(&definition)
+            .unwrap()
+            .lower()
+            .unwrap();
+        let command = runtime["create"]["probe"].as_str().unwrap();
+        let output =
+            probe::run(command, directory.path(), Duration::from_secs(20), &owner).unwrap();
+        assert!(output.success, "{}: {}", path.display(), output.text);
+        assert_eq!(output.stdout_text(), "ready");
+        executed += 1;
     }
-    assert!(
-        executed > 0,
-        "recipe command discovery must exercise the probe shell"
+    assert_eq!(
+        executed, 4,
+        "all four native watch probe recipes use explicit bindings"
     );
 }

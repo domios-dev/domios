@@ -530,6 +530,19 @@ pub(super) fn mem_to_api(action: &MemAction) -> (String, String, Option<String>)
             format!("/api/mem/reembed?scope={}", enc(scope)),
             None,
         ),
+        MemAction::Embedder { action } => {
+            use crate::MemEmbedderAction;
+            match action {
+                MemEmbedderAction::Key { .. } => unsupported("embedder keys are local-only; run on the owning machine"),
+                MemEmbedderAction::List => ("GET".into(), "/api/mem/embedder/providers".into(), None),
+                MemEmbedderAction::Status => ("GET".into(), "/api/mem/embedder".into(), None),
+                MemEmbedderAction::Use { provider, model, dimension } => (
+                    "POST".into(),
+                    "/api/mem/embedder/use".into(),
+                    Some(json!({ "provider": provider, "model": model, "dimension": dimension }).to_string()),
+                ),
+            }
+        }
         MemAction::Calibration { action } => {
             use crate::MemCalibrationAction;
             match action {
@@ -927,7 +940,10 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
                 Some(body.to_string()),
             )
         }
-        crate::AgentAction::Login { tab, device, api_key_stdin: false, cancel } => (
+        crate::AgentAction::Login { tab, show: true, api_key_stdin: false, .. } => (
+            "GET".into(), format!("/api/tabs/{}/agent/runtime/login", urlencoding::encode(tab)), None,
+        ),
+        crate::AgentAction::Login { tab, device, api_key_stdin: false, cancel, show: false } => (
             "POST".into(), format!("/api/tabs/{}/agent/runtime/login", urlencoding::encode(tab)),
             Some(if *cancel {serde_json::json!({"action":"cancel"})} else {serde_json::json!({"method":if *device {"device"} else {"browser"}})}.to_string()),
         ),
@@ -972,6 +988,7 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
         ),
         crate::AgentAction::SwitchProvider { .. } => unsupported("agent switch-provider --mesh requires a non-empty explicit --tab <ID> from the target peer"),
         crate::AgentAction::Link { .. } => unsupported_agent_action("link"),
+        crate::AgentAction::Reparent { .. } => unsupported("agent reparent runs on the local origin; use --peer instead of --mesh"),
         crate::AgentAction::Unlink { .. } => unsupported_agent_action("unlink"),
         crate::AgentAction::AllowSpawn { .. } => unsupported_agent_action("allow-spawn"),
         crate::AgentAction::Report(_) => unsupported_agent_action("report"),

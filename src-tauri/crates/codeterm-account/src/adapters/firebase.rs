@@ -1,6 +1,9 @@
 use crate::*;
 use serde_json::{json, Value};
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::Arc,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 pub enum Body {
     Json(Value),
@@ -102,7 +105,7 @@ impl Transport for HttpTransport {
                     app_check_header_present,
                     auth_header_present,
                 );
-                return Err(Error::Provider);
+                return Err(Error::Transport);
             }
         };
         let body = serde_json::from_slice::<Value>(&bytes).ok();
@@ -119,9 +122,29 @@ impl Transport for HttpTransport {
             auth_header_present,
         );
         if !successful {
-            return Err(Error::Provider);
+            return Err(classify_http_error(status_code, body.as_ref()));
         }
         body.ok_or(Error::Provider)
+    }
+}
+
+fn classify_http_error(status: u16, body: Option<&Value>) -> Error {
+    let credential_rejections = [
+        "INVALID_REFRESH_TOKEN",
+        "TOKEN_EXPIRED",
+        "USER_DISABLED",
+        "USER_NOT_FOUND",
+    ];
+    if status == 400
+        && body
+            .and_then(|body| body.get("error"))
+            .and_then(|error| error.get("message").or(Some(error)))
+            .and_then(Value::as_str)
+            .is_some_and(|code| credential_rejections.contains(&code))
+    {
+        Error::Credentials
+    } else {
+        Error::Transport
     }
 }
 
@@ -177,12 +200,18 @@ fn safe_backend_error_code(body: Option<&Value>) -> &str {
         .unwrap_or("unrecognized")
 }
 pub struct Firebase {
+    installation_id: InstallationId,
     config: Config,
     transport: Arc<dyn Transport>,
 }
 impl Firebase {
-    pub fn new(config: Config, transport: Arc<dyn Transport>) -> Self {
+    pub fn new(
+        config: Config,
+        transport: Arc<dyn Transport>,
+        installation_id: InstallationId,
+    ) -> Self {
         Self {
+            installation_id,
             config: crate::firebase_endpoints::account_config(config),
             transport,
         }
@@ -206,7 +235,12 @@ impl Firebase {
             .append_pair("key", &self.config.api_key);
         Ok(url.into())
     }
-    async fn session(&self, id_token: Secret, refresh_token: Secret) -> Result<Tokens> {
+    async fn session(
+        &self,
+        id_token: Secret,
+        refresh_token: Secret,
+        expires_at: u64,
+    ) -> Result<Tokens> {
         let profile = self
             .transport
             .post(
@@ -227,12 +261,40 @@ impl Firebase {
             email: optional("email"),
             display_name: optional("displayName"),
             provider: self.id().into(),
+            photo_url: photo_url(user),
         };
         Ok(Tokens {
-            session: Session { identity, id_token },
+            session: Session {
+                login_generation: 0,
+                identity,
+                id_token,
+                expires_at: Some(expires_at),
+            },
             refresh_token,
         })
     }
+}
+fn token_expiry(response: &Value, key: &str) -> Result<u64> {
+    let seconds = required(response, key)?
+        .parse::<u64>()
+        .map_err(|_| Error::Provider)?;
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| Error::Provider)?
+        .as_secs()
+        .checked_add(seconds)
+        .ok_or(Error::Provider)
+}
+fn photo_url(user: &Value) -> Option<String> {
+    let linked = user
+        .get("providerUserInfo")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten();
+    std::iter::once(user)
+        .chain(linked)
+        .filter_map(|entry| entry.get("photoUrl").and_then(Value::as_str))
+        .find_map(accepted_photo_url)
 }
 fn required(value: &Value, key: &str) -> Result<String> {
     value
@@ -257,7 +319,7 @@ impl IdentityProvider for Firebase {
             .transport
             .post(
                 &self.config.redeem_url,
-                Body::Json(json!({ "code": request.code.expose(), "code_verifier": request.verifier.expose(), "state": request.state, "redirect_uri": request.redirect })),
+                Body::Json(json!({ "code": request.code.expose(), "code_verifier": request.verifier.expose(), "state": request.state, "redirect_uri": request.redirect, "installation_id": self.installation_id })),
                 Some(RequestDiagnostic::BackendRedeem),
             )
             .await?;
@@ -272,9 +334,11 @@ impl IdentityProvider for Firebase {
                 Some(RequestDiagnostic::FirebaseCustomTokenExchange),
             )
             .await?;
+        let expires_at = token_expiry(&response, "expiresIn")?;
         self.session(
             Secret::new(required(&response, "idToken")?),
             Secret::new(required(&response, "refreshToken")?),
+            expires_at,
         )
         .await
     }
@@ -290,9 +354,11 @@ impl IdentityProvider for Firebase {
                 None,
             )
             .await?;
+        let expires_at = token_expiry(&response, "expires_in")?;
         self.session(
             Secret::new(required(&response, "id_token")?),
             Secret::new(required(&response, "refresh_token")?),
+            expires_at,
         )
         .await
     }

@@ -1,3 +1,4 @@
+use super::types::agent_role_label;
 use crate::multiplexer::types::TabCloseReason;
 use crate::service::{boot_stage::BootStage, ServiceContext};
 pub(crate) fn skip_local_worker_role(
@@ -43,6 +44,7 @@ mod public_send;
 #[path = "launch/reader_readiness.rs"]
 mod reader_readiness;
 mod resume_binding;
+pub(crate) use resume_binding::deferred_launch_nonce;
 mod startup_readiness;
 #[cfg(any(test, feature = "test-support"))]
 #[path = "launch/test_support.rs"]
@@ -292,7 +294,13 @@ pub fn launch_agent_in_background_with_env(
     task_identity: Option<crate::service::startup_lease::StartupTaskIdentity>,
     ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
     resume_session_id: Option<String>,
-) {
+) -> Option<String> {
+    if let Some(refusal) = svc.tab_write_lock(&tab_id) {
+        if let Some(tx) = ready_tx {
+            let _ = tx.send(Err(refusal.to_string()));
+        }
+        return None;
+    }
     let prepared_command = launch_cmd.into();
     let launch_cmd = prepared_command.shell_command;
     let direct_spec = prepared_command.direct;
@@ -300,7 +308,7 @@ pub fn launch_agent_in_background_with_env(
         if let Some(tx) = ready_tx {
             let _ = tx.send(Err(reason));
         }
-        return;
+        return None;
     }
     let registry = svc.agent_registry.clone();
     let launch_started = std::time::Instant::now();
@@ -348,13 +356,8 @@ pub fn launch_agent_in_background_with_env(
     let structured_startup_text = startup_turn_text.clone();
     let public_send_key = public_send::arm(&svc, &tab_id, &agent_cmd, startup_turn_text);
     // thread spawns: callers get the tab id immediately and may send right away.
-    let authenticated = svc
-        .mux
-        .read()
-        .get_tab(&tab_id)
-        .is_some_and(|tab| tab.launch_session_authenticated());
-    let reserved_nonce = (!authenticated)
-        .then(|| generation::reserve_binding_nonce(&svc, &tab_id, resume_session_id.as_deref()));
+    let reserved_nonce = reserve_launch_binding_nonce(&svc, &tab_id, resume_session_id.as_deref());
+    let launch_nonce = reserved_nonce.clone();
     mark_tab_agent_launch_started(&svc.mux, &tab_id);
     crate::service::boot_wait::notify_boot_changed();
     let mut launch = LaunchGeneration::begin(&tab_id, "pending".into());
@@ -366,9 +369,15 @@ pub fn launch_agent_in_background_with_env(
         if !launch.emit(&svc, BootStage::PtyStarting) {
             return;
         }
-        let preparation = direct_spec
-            .is_none()
-            .then(|| preparation::start(&svc, &tab_id, &agent_cmd, launch_cmd.clone()));
+        let preparation = direct_spec.is_none().then(|| {
+            preparation::start(
+                &svc,
+                &tab_id,
+                &agent_cmd,
+                launch_cmd.clone(),
+                reserved_nonce.clone(),
+            )
+        });
         let set_booting = |launch: &LaunchGeneration, value: bool| {
             if !value
                 && crate::service::codex_rpc::lifecycle::for_tab(&tab_id).is_some_and(|sidecar| {
@@ -585,7 +594,6 @@ pub fn launch_agent_in_background_with_env(
         };
         let screen = svc
             .screen_state
-            .lock()
             .get_screen_text(&pty_id)
             .unwrap_or_default();
         let provider_tui_visible = registry
@@ -1160,6 +1168,22 @@ pub fn launch_agent_in_background_with_env(
             let _ = tx.send(Ok(()));
         }
     });
+    launch_nonce
+}
+
+/// An unauthenticated launch reserves its nonce on the caller's thread, so a send admitted
+/// right after scheduling pins this launch rather than the one it replaces.
+pub(crate) fn reserve_launch_binding_nonce(
+    svc: &ServiceContext,
+    tab_id: &str,
+    resume_session_id: Option<&str>,
+) -> Option<String> {
+    let authenticated = svc
+        .mux
+        .read()
+        .get_tab(tab_id)
+        .is_some_and(|tab| tab.launch_session_authenticated());
+    (!authenticated).then(|| generation::reserve_binding_nonce(svc, tab_id, resume_session_id))
 }
 
 pub fn mark_tab_agent_launch_started(mux: &crate::multiplexer::commands::MuxState, tab_id: &str) {
@@ -1168,12 +1192,4 @@ pub fn mark_tab_agent_launch_started(mux: &crate::multiplexer::commands::MuxStat
         tab.agent_booting = true;
         tab.restorable_launch.failed_provider = None;
     }
-}
-
-fn agent_role_label(
-    role: crate::multiplexer::types::AgentRole,
-    role_profile: Option<&str>,
-) -> &'static str {
-    codeterm_types::agent::role_kind::kind_label(Some(role), role_profile)
-        .unwrap_or_else(|| role.label())
 }

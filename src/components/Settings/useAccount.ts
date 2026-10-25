@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { DEV_BUILD } from "../../lib/devBuild";
 import { localFetch } from "../../lib/webApi";
+import { listen } from "../../lib/bridge";
+import { onResync } from "../../lib/resync";
 import { accountFailure, accountModel, accountLoginPath, type LoginHint, type AccountModel, type AccountStatus, type SignInFailure } from "./accountModel";
 
 export function signInFailureToastMessage(failure: SignInFailure): string {
@@ -41,10 +43,18 @@ export function useAccount() {
       });
     };
     refresh();
+    let unlisten: (() => void) | undefined;
+    void listen("account-changed", refresh).then((stop) => {
+      if (controller.signal.aborted) stop();
+      else unlisten = stop;
+    }).catch(() => undefined);
+    const stopResync = onResync(refresh);
     window.addEventListener("focus", refresh);
     window.addEventListener("domios:account-changed", refresh);
     return () => {
       controller.abort(); active.current++;
+      unlisten?.();
+      stopResync();
       window.removeEventListener("focus", refresh);
       window.removeEventListener("domios:account-changed", refresh);
     };

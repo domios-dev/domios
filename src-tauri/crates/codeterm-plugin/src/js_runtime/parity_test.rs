@@ -10,8 +10,12 @@
 //! are intentionally not covered here — the native provider remains
 //! authoritative for them.
 
+#[path = "parity_test/attachment_capabilities.rs"]
+mod attachment_capabilities;
 #[path = "parity_test/execution_sandbox.rs"]
 mod execution_sandbox;
+#[path = "parity_test/general_offer.rs"]
+mod general_offer;
 #[path = "parity_test/host_exec.rs"]
 mod host_exec;
 #[path = "parity_test/inline_fixture.rs"]

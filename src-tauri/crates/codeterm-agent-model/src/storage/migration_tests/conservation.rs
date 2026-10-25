@@ -30,27 +30,16 @@ fn fields(list: &[CronRunField]) -> String {
         .join(",")
 }
 
-fn unconfirmed(transitions: &[TransitionRecord]) -> usize {
-    transitions
-        .iter()
-        .flat_map(|transition| &transition.handlers)
-        .filter(|result| result.status == HandlerStatus::Unconfirmed)
-        .count()
-}
-
 /// Durable evidence of any action the import could have caused.
 #[derive(Debug, Default, PartialEq, Eq)]
 struct EffectLedger {
     cron_runs_started: usize,
     cron_schedules_moved: usize,
-    sentinel_transitions_added: usize,
-    sentinel_leases_moved: usize,
-    sentinel_claims_settled: usize,
     files_outside_storage: usize,
 }
 
 #[test]
-fn storage_migration_one_transaction_conserves_cron_and_sentinel_exactly() {
+fn storage_migration_one_transaction_conserves_cron_and_discards_old_blueprints() {
     let f = Fixture::seeded();
     let storage = f.open();
     let before = storage.metrics().committed_operations;
@@ -112,21 +101,7 @@ fn storage_migration_one_transaction_conserves_cron_and_sentinel_exactly() {
         "an unlisted last run stays outside history"
     );
 
-    let records = decoded_sentinels();
-    let inventory = sentinel_inventory(&storage);
-    assert_eq!(inventory.len(), records.len());
-    for (stored, original) in inventory.iter().zip(&records) {
-        let record = &stored.record;
-        assert_eq!(record.identity, original.identity);
-        assert_eq!(record.scenario_id, original.scenario_id);
-        assert_eq!(
-            (record.definition.version, record.definition.provenance),
-            (1, DefinitionProvenance::Imported)
-        );
-        assert_eq!(record.definition.definition, original.definition);
-        assert_eq!(record.runtime, original.runtime);
-        assert_eq!(record.transitions, original.transitions);
-    }
+    assert!(sentinel_inventory(&storage).is_empty());
 
     let comparison = receipt.comparison.as_ref().expect("comparison");
     assert!(comparison.is_clean());
@@ -145,7 +120,7 @@ fn storage_migration_one_transaction_conserves_cron_and_sentinel_exactly() {
         counts,
         [
             (ImportDomain::Cron, 4, 4),
-            (ImportDomain::Sentinel, 3, 3),
+            (ImportDomain::Sentinel, 0, 0),
             (ImportDomain::Desk, 0, 0)
         ]
     );
@@ -267,21 +242,17 @@ fn storage_migration_import_constructs_no_effects() {
     let f = Fixture::seeded();
     let originals = tree(&f.source());
     let source_cron = decoded_cron();
-    let source_sentinels = decoded_sentinels();
     assert!(source_cron
         .jobs
         .iter()
         .any(|job| job.record.enabled && job.record.next_run.is_some_and(|at| at < 100)));
-    assert!(source_sentinels
-        .iter()
-        .any(|record| !record.runtime.paused && !record.runtime.stopped));
     let storage = f.open();
     let before = storage.metrics().committed_operations;
 
     import_seeded(&f, &storage);
 
     let snapshot = cron_snapshot(&storage);
-    let inventory = sentinel_inventory(&storage);
+    assert!(sentinel_inventory(&storage).is_empty());
     let mut known: HashSet<(String, String)> = HashSet::new();
     for history in &source_cron.histories {
         for run in &history.runs {
@@ -329,22 +300,6 @@ fn storage_migration_import_constructs_no_effects() {
         );
         ledger.cron_schedules_moved += usize::from(moved);
     }
-    for (stored, original) in inventory.iter().zip(&source_sentinels) {
-        let (now, then) = (&stored.record, original);
-        ledger.sentinel_transitions_added +=
-            now.transitions.len().saturating_sub(then.transitions.len());
-        let lease = |runtime: &StageRuntime| {
-            (
-                runtime.generation,
-                runtime.next_run,
-                runtime.paused,
-                runtime.stopped,
-            )
-        };
-        ledger.sentinel_leases_moved += usize::from(lease(&now.runtime) != lease(&then.runtime));
-        ledger.sentinel_claims_settled +=
-            unconfirmed(&then.transitions).saturating_sub(unconfirmed(&now.transitions));
-    }
     let instance: Vec<String> = fs::read_dir(f.instance())
         .expect("instance root")
         .map(|entry| {
@@ -364,11 +319,6 @@ fn storage_migration_import_constructs_no_effects() {
         1,
         "the import is the only write"
     );
-    let open_claims: usize = inventory
-        .iter()
-        .map(|stored| unconfirmed(&stored.record.transitions))
-        .sum();
-    assert_eq!(open_claims, 2, "unconfirmed claims stay unconfirmed");
     close(storage);
 }
 
@@ -462,17 +412,17 @@ fn storage_migration_manifests_are_versioned_deterministic_and_parseable() {
             "write-batch",
             "typed-cronwrite-batches-only",
         ]),
-        line(&["bound", "blueprint", "stages", &stages, "3"]),
-        line(&["bound", "blueprint", "import-batch", &import_batch, "3"]),
+        line(&["bound", "blueprint", "stages", &stages, "0"]),
+        line(&["bound", "blueprint", "import-batch", &import_batch, "0"]),
         line(&["rule", "blueprint", "fields", "repository-validated"]),
         line(&["count", "cron", "retired-identities", "1"]),
         line(&["count", "cron", "empty-live-histories", "1"]),
         line(&["count", "cron", "unlisted-last-runs", "1"]),
         line(&["count", "cron", "divergent-last-runs", "2"]),
-        line(&["count", "blueprint", "transitions", "3"]),
-        line(&["count", "blueprint", "handler-results", "5"]),
-        line(&["count", "blueprint", "unconfirmed-claims", "2"]),
-        line(&["count", "blueprint", "cron-targets-absent", "1"]),
+        line(&["count", "blueprint", "transitions", "0"]),
+        line(&["count", "blueprint", "handler-results", "0"]),
+        line(&["count", "blueprint", "unconfirmed-claims", "0"]),
+        line(&["count", "blueprint", "cron-targets-absent", "0"]),
     ] {
         assert!(manifest.contains(&expected), "missing {expected:?}");
     }
@@ -509,11 +459,11 @@ fn storage_migration_manifests_are_versioned_deterministic_and_parseable() {
             "compare",
             "blueprint",
             "entities",
-            "3",
-            "3",
+            "0",
+            "0",
             "items",
-            "3",
-            "3",
+            "0",
+            "0",
             "mismatches",
             "0",
             "elided",

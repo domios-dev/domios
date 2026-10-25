@@ -5,6 +5,8 @@ fn blueprint_memory_requests_offer_without_applying_and_preserve_identity() {
     for action in [
         BlueprintAction::New {
             kind: "watch".into(),
+            intent: None,
+            limit: 3,
             like: Some("watch CI failure".into()),
         },
         BlueprintAction::Apply {
@@ -30,8 +32,14 @@ fn blueprint_memory_requests_offer_without_applying_and_preserve_identity() {
     );
     let (method, params) = request(
         BlueprintAction::Keep {
-            id: "graph".into(),
-            when: "Watch CI failure".into(),
+            tags: vec!["ci".into()],
+            id: Some("graph".into()),
+            file: None,
+            when: vec![
+                "Watch CI failure".into(),
+                "tell me when the build goes red".into(),
+                "ping me about failing checks".into(),
+            ],
         },
         None,
         None,
@@ -39,6 +47,26 @@ fn blueprint_memory_requests_offer_without_applying_and_preserve_identity() {
     .unwrap();
     assert_eq!(method, "blueprint.keep");
     assert_eq!(params["id"], "graph");
+    assert_eq!(
+        params["when"],
+        json!([
+            "Watch CI failure",
+            "tell me when the build goes red",
+            "ping me about failing checks"
+        ])
+    );
+    let six = (0..6).map(|index| format!("intent {index}")).collect();
+    assert!(request(
+        BlueprintAction::Keep {
+            tags: vec!["ci".into()],
+            id: Some("graph".into()),
+            file: None,
+            when: six,
+        },
+        None,
+        None,
+    )
+    .is_err());
     let (method, params) = request(
         BlueprintAction::Apply {
             source: "memory:skill_saved".into(),
@@ -54,7 +82,22 @@ fn blueprint_memory_requests_offer_without_applying_and_preserve_identity() {
     assert_eq!(method, "blueprint.apply_recipe");
     assert_eq!(params["id"], "skill_saved");
     assert_eq!(params["dry_run"], true);
-    assert_eq!(memory::offers(json!([])), json!([]));
+    let offers = memory::offers(json!([]), "HTTP endpoint response code");
+    assert!(offers
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|offer| offer["id"] == "http-health"));
+    let yaml = authoring::scaffold("watch").unwrap();
+    let stored = json!([{"id":"skill_vector","yaml":yaml,"intents":["Detect stalled deployments"],"uses":0,"successes":1,"why":"intent 0.81"}]);
+    let offers = memory::offers(stored, "Identify frozen releases HTTP endpoint");
+    assert_eq!(offers[0]["id"], "memory:skill_vector");
+    assert_eq!(offers[0]["why"], "intent 0.81");
+    assert_eq!(offers[0]["intents"], json!(["Detect stalled deployments"]));
+    assert_eq!(
+        memory::offers(json!([]), "unmatched opaque zebra"),
+        json!([])
+    );
 }
 
 #[test]
@@ -81,23 +124,29 @@ fn blueprint_text_input_wire_preserves_file_body_and_identity() {
 }
 
 #[test]
-fn update_handler_definitions_generate_ids_for_buckets_and_other() {
-    let mut definition = json!({
-        "buckets": ["passed"],
-        "handlers": {"passed": [{"type":"notify", "parameters":{}}]},
-        "on_other": [{"type":"escalate", "parameters":{"target":"creator"}}]
-    });
-
-    normalize_update_handlers(definition.as_object_mut().unwrap()).unwrap();
-
-    assert_eq!(
-        definition["handlers"]["passed"][0]["id"],
-        "notify-on-passed"
-    );
-    assert_eq!(
-        definition["on_other"][0]["id"],
-        "escalate-to-owner-on-other"
-    );
+fn blueprint_update_refuses_unversioned_definitions_and_history() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("old.json");
+    for old in [
+        json!({"buckets":["done"],"handlers":{}}),
+        json!({"current_version":1,"versions":[]}),
+        json!({"schema_version":1,"watch":{}}),
+    ] {
+        std::fs::write(&path, old.to_string()).unwrap();
+        assert!(request(
+            BlueprintAction::Update {
+                note: None,
+                id: "graph".into(),
+                expect_version: 1,
+                from_file: path.clone(),
+                cause: None,
+                dry_run: false
+            },
+            None,
+            None
+        )
+        .is_err());
+    }
 }
 
 #[test]
@@ -130,19 +179,7 @@ fn sentinel_update_cli_json_round_trip_preserves_definition_and_history_request(
 
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("definition.json");
-    let definition = json!({
-        "name": "Updated graph",
-        "question": "Did it finish?",
-        "buckets": ["done"],
-        "every": "30s",
-        "routes": {"done": "notify"},
-        "matches": {"done": "^done$"},
-        "until": "done",
-        "on_other": [],
-        "max_transitions": 8,
-        "max_actions": 12,
-        "note": "new completion condition"
-    });
+    let definition = authoring::load_checked("echo", &["message=opaque".into()]).unwrap();
     std::fs::write(&path, serde_json::to_vec(&definition).unwrap()).unwrap();
     let cli = crate::args::cli::Cli::try_parse_from([
         "codeterm",
@@ -165,9 +202,8 @@ fn sentinel_update_cli_json_round_trip_preserves_definition_and_history_request(
     assert_eq!(params["caller_tab_id"], "editor");
     assert_eq!(params["session_binding_nonce"], "nonce");
     assert_eq!(params["expect_version"], 3);
-    let mut expected = definition;
-    expected["cause"] = json!("transition_2");
-    assert_eq!(params["update"], expected);
+    assert_eq!(params["definition"], definition);
+    assert_eq!(params["cause"], "transition_2");
 
     let cli = crate::args::cli::Cli::try_parse_from([
         "codeterm",
@@ -185,7 +221,7 @@ fn sentinel_update_cli_json_round_trip_preserves_definition_and_history_request(
         panic!("unexpected command")
     };
     let (method, _) = request(action, Some("editor".into()), Some("nonce".into())).unwrap();
-    assert_eq!(method, "blueprint.validate.update");
+    assert_eq!(method, "blueprint.update");
 
     let cli =
         crate::args::cli::Cli::try_parse_from(["codeterm", "blueprint", "history", "sentinel_a"])
@@ -282,6 +318,17 @@ fn blueprint_watch_summary_reports_progress_and_failed_probe_state() {
 }
 
 #[test]
+fn blueprint_quarantine_summary_names_the_typed_reason() {
+    let job = serde_json::json!({
+        "id":"bp", "name":"n", "state":"quarantined", "code":"c", "reason":"r"
+    });
+    assert_eq!(
+        super::quarantine_summary(&job),
+        "bp [quarantined] name=n code=c reason=r"
+    );
+}
+
+#[test]
 fn blueprint_watch_summary_exposes_explicit_classification_mode() {
     let mut job = serde_json::json!({"id":"watch", "interval_ms":60000, "model_classification":true, "matches":{}});
     assert!(super::watch_summary(&job).contains("classification=model"));
@@ -320,7 +367,7 @@ fn blueprint_apply_and_import_use_the_same_checked_document() {
         } else {
             &params["definition"]
         };
-        assert_eq!(definition["spec"]["steps"][0]["kind"]["probe"]["id"], 42);
+        assert_eq!(definition["steps"][0]["with"]["id"]["lit"], 42);
         assert_eq!(params["caller_tab_id"], "caller");
         assert_eq!(params["session_binding_nonce"], "nonce");
     }
@@ -341,18 +388,19 @@ fn blueprint_apply_note_and_dry_run_are_explicit() {
     )
     .unwrap();
     assert_eq!(params["dry_run"], true);
-    assert_eq!(params["definition"]["spec"]["note"], "Health check");
+    assert_eq!(params["definition"]["note"], "Health check");
 }
 #[test]
 fn human_apply_diff_uses_authoring_paths_and_hides_wire_wrappers() {
-    let before = json!({"spec":{"name":"CI watch","owner":"team","trigger":{"type":"schedule","every":"20s"},"steps":[{"name":"ci","input":"text","kind":{"kind":"github","probe":{"repo":"owner/repo","resource":"run","id":1}},"on":{"done":"stop"}}]}});
+    let before =
+        authoring::load_checked("github", &["repo=owner/repo".into(), "id=1".into()]).unwrap();
     let mut after = before.clone();
-    after["spec"]["steps"][0]["kind"]["probe"]["id"] = json!(2);
+    after["steps"][0]["with"]["id"]["lit"] = json!(2);
     let output = apply_output::summary(
         &json!({"action":"update","name":"CI watch","id":"blueprint_a","state":"running","before":before,"after":after}),
     );
     assert!(output.starts_with("update CI watch blueprint_a"));
-    assert!(output.contains("pipeline.steps[0].with.id: 1 -> 2"));
+    assert!(output.contains("steps[0].with.id.lit: 1 -> 2"));
     assert!(!output.contains("kind.probe"));
     assert!(!output.contains("spec."));
 }
@@ -390,21 +438,28 @@ mod command_tests {
     }
 
     #[test]
-    fn sentinel_update_input_field_passes_through_read_update() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("definition.json");
-        let definition = json!({
-            "question": "transcribed?",
-            "buckets": ["done"],
-            "input": {"data": {"file": "/tmp/clip.wav"}, "convert_to": "text"}
-        });
-        std::fs::write(&path, serde_json::to_vec(&definition).unwrap()).unwrap();
-        let update = read_update(&path, Some("transition_1")).unwrap();
-        assert_eq!(
-            update["input"],
-            json!({"data": {"file": "/tmp/clip.wav"}, "convert_to": "text"})
-        );
-        assert_eq!(update["cause"], "transition_1");
+    fn native_v2_update_preserves_explicit_data_inputs() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("update.yaml");
+        let definition = authoring::load_checked("echo", &["message=opaque input".into()]).unwrap();
+        std::fs::write(&path, serde_yaml::to_string(&definition).unwrap()).unwrap();
+        let (method, params) = request(
+            BlueprintAction::Update {
+                note: None,
+                id: "graph".into(),
+                expect_version: 2,
+                from_file: path,
+                cause: Some("transition_1".into()),
+                dry_run: true,
+            },
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(method, "blueprint.update");
+        assert_eq!(params["definition"], definition);
+        assert_eq!(params["cause"], "transition_1");
+        assert_eq!(params["dry_run"], true);
     }
 
     #[test]
@@ -436,55 +491,148 @@ mod command_tests {
     }
 
     #[test]
-    fn blueprint_history_json_round_trips_into_pipeline_update() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("history.json");
-        let spec = json!({
-            "name":"echo",
-            "trigger":{"type":"schedule","every":"20s"},
-            "steps":[{"name":"emit","input":"text","kind":{"kind":"command","command":"printf ready"}}],
-            "result":{"to":"owner"}
-        });
-        let history = json!({
-            "sentinel_id":"sentinel_echo",
-            "current_version":2,
-            "versions":[{"version":2,"definition":{"pipeline":spec}}]
-        });
-        std::fs::write(&path, serde_json::to_vec(&history).unwrap()).unwrap();
-        let (method, params) = request(
+    fn blueprint_history_json_is_not_an_authoring_document() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("history.json");
+        std::fs::write(
+            &path,
+            json!({"current_version":2,"versions":[]}).to_string(),
+        )
+        .unwrap();
+        assert!(request(
             BlueprintAction::Update {
                 note: None,
-                id: "sentinel_echo".into(),
+                id: "graph".into(),
                 expect_version: 2,
                 from_file: path,
                 cause: None,
-                dry_run: false,
+                dry_run: false
             },
-            Some("creator".into()),
             None,
+            None
         )
-        .unwrap();
-        assert_eq!(method, "blueprint.pipeline.update");
-        assert_eq!(params["spec"], spec);
+        .is_err());
     }
+}
+
+#[test]
+fn blueprint_save_receipt_surfaces_every_evicted_id() {
+    let result = json!({"id":"saved-new", "status":"saved", "tags":["ci","github"], "evicted_ids":["old-first", "old-second"]});
+    let text = memory::save_receipt(&result);
+    for id in ["saved-new", "old-first", "old-second"] {
+        assert!(text.contains(id), "missing {id} in {text}");
+    }
+    assert!(text.contains("Archived"));
+    assert!(text.contains("Tags: ci, github"));
+    assert_eq!(memory::tag_names(&result), "ci, github");
+}
+
+#[test]
+fn blueprint_keep_tag_error_preserves_typed_suggestions() {
+    let failure =
+        codeterm_blueprint_types::blueprint_tags::validate(&["githb".into()]).unwrap_err();
+    let error = memory::tag_error(failure);
+    assert_eq!(error.code, Some(-32602));
+    let data = error.data.unwrap();
+    assert_eq!(data["code"], "blueprint_tags_invalid");
+    assert_eq!(data["suggestions"][0], "github");
+    assert!(data["valid_tags"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("ci")));
 }
 
 #[test]
 fn blueprint_like_preserves_hybrid_recall_without_shared_words() {
     let query = "Transmit structured output downstream";
     let stored = json!([
-        {"id":"skill_pipeline", "when_to_use":"Chain shell commands", "yaml":"opaque recipe"},
-        {"id":"skill_second", "when_to_use":"Parse JSON", "yaml":"another recipe"}
+        {"id":"skill_pipeline", "when_to_use":"Chain shell commands", "yaml":"opaque recipe", "why":"intent 0.92", "enrichment_pending":true},
+        {"id":"skill_second", "when_to_use":"Parse JSON", "yaml":"another recipe", "why":"intent 0.81", "intents":["Parse JSON"]}
     ]);
     assert!(stored[0]["when_to_use"]
         .as_str()
         .unwrap()
         .split_whitespace()
         .all(|word| !query.to_lowercase().contains(&word.to_lowercase())));
-    let offers = memory::offers(stored.clone());
-    assert_eq!(offers.as_array().unwrap().len(), 2);
+    let offers = memory::offers(stored.clone(), query);
+    let offers = offers.as_array().unwrap();
     for (index, id) in ["skill_pipeline", "skill_second"].iter().enumerate() {
-        assert_eq!(offers[index]["id"], format!("memory:{id}"));
-        assert_eq!(offers[index]["yaml"], stored[index]["yaml"]);
+        let mut expected = stored[index].clone();
+        expected["id"] = json!(format!("memory:{id}"));
+        assert_eq!(offers[index], expected);
     }
+    for offer in &offers[2..] {
+        assert!(recipe_files::FILES.iter().any(|(id, _)| offer["id"] == *id));
+    }
+    let ids = offers
+        .iter()
+        .map(|offer| offer["id"].as_str().unwrap())
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(ids.len(), offers.len());
+}
+
+#[test]
+fn blueprint_like_appends_builtins_after_daemon_results_within_five_offers() {
+    for count in [4, 5, 6] {
+        let stored = (0..count)
+            .map(|index| {
+                json!({
+                    "id":format!("saved-{index}"),
+                    "yaml":format!("opaque recipe {index}"),
+                    "intents":["A semantic match with no shared query words"],
+                    "why":"intent 0.92",
+                    "enrichment_pending":true
+                })
+            })
+            .collect::<Vec<_>>();
+        let offers = memory::offers(json!(stored), "HTTP endpoint response code");
+        let offers = offers.as_array().unwrap();
+        assert_eq!(offers.len(), 5);
+        for (index, original) in stored.iter().take(5).enumerate() {
+            let mut expected = original.clone();
+            expected["id"] = json!(format!("memory:saved-{index}"));
+            assert_eq!(offers[index], expected);
+        }
+        if count == 4 {
+            assert_eq!(offers[4]["id"], "http-health");
+        }
+    }
+}
+
+#[path = "tests/blueprint_v2_intent.rs"]
+mod blueprint_v2_intent;
+
+#[test]
+fn blueprint_v2_call_keep_file_sends_bytes_and_preserves_unbound_signature() {
+    let path = std::env::temp_dir().join(format!("callable-{}.yaml", uuid::Uuid::new_v4()));
+    let raw="schema_version: 2\nkind: pipeline\nname: increment\ninputs:\n  n: {type: integer}\nsteps:\n  - id: value\n    code: {lang: python, src: 'def main(n): return n+1'}\n    in: {type: integer}\n    out: {type: integer}\nresult:\n  type: {type: integer}\n  from: value.out\n";
+    std::fs::write(&path, raw).unwrap();
+    let (method, params) = request(
+        BlueprintAction::Keep {
+            tags: vec!["ci".into()],
+            id: None,
+            file: Some(path.clone()),
+            when: vec!["Increment typed data".into()],
+        },
+        Some("caller".into()),
+        Some("nonce".into()),
+    )
+    .unwrap();
+    std::fs::remove_file(path).unwrap();
+    assert_eq!(method, "blueprint.keep");
+    assert_eq!(params["definition"]["inputs"]["n"]["type"], "integer");
+    assert_eq!(params["local_callees"], json!([]));
+    assert!(params.get("source_file").is_none());
+    assert!(params.get("id").is_none());
+}
+
+#[path = "review_tests.rs"]
+mod review_tests;
+
+#[test]
+fn blueprint_plan_lock_is_visible_in_watch_list_and_show_summary() {
+    let held = serde_json::json!({"id":"watch","admission":{"held_reason":"plan_limit_locked"},"machine":{}});
+    let summary = super::watch_summary(&held);
+    assert!(summary.contains("[held]"));
+    assert!(summary.contains("reason=plan_limit_locked"));
 }

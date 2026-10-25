@@ -11,7 +11,7 @@ import type { CronJob, CronRunInfo, Team } from "../../lib/types";
 import type { MeshInventoryView } from "../MeshPanel/servicesView";
 import type { Service } from "../MeshPanel/types";
 import type { MeshResourceActionAdapter } from "../MeshPanel/meshResourceActions";
-import { attachment, FixtureTransport, multiScenarioGraph } from "../Automation/fixtures.testdata";
+import { attachment, FixtureTransport, multiScenarioGraph, withWatchSnapshots } from "../Automation/fixtures.testdata";
 import { ALL_JOBS_SCOPE, type AutomationGraph } from "../Automation/types";
 
 async function main() {
@@ -72,6 +72,8 @@ async function main() {
     list: async () => { solutionReads++; return []; },
     save: async () => { throw new Error("Unexpected solution save"); },
     archive: async () => { throw new Error("Unexpected solution archive"); },
+    document: async () => { throw new Error("Unexpected solution read"); },
+    search: async () => { throw new Error("Unexpected solution search"); },
   };
   const cronCalls: string[] = [];
   const cronActions: MeshResourceActionAdapter = {
@@ -97,7 +99,7 @@ async function main() {
   const workspaceGraph = (graph: AutomationGraph): AutomationGraph => ({ ...graph, all_teams: true, team_id: null });
   function workspaceTransport(graph: AutomationGraph = new FixtureTransport().graph) {
     const transport = new FixtureTransport();
-    transport.graph = workspaceGraph(graph);
+    transport.graph = withWatchSnapshots(workspaceGraph(graph));
     transport.readOverride = async (scope) => scope.team_id === ALL_JOBS_SCOPE ? transport.graph : { ...transport.graph, all_teams: false, team_id: scope.team_id };
     return transport;
   }
@@ -359,10 +361,10 @@ async function main() {
       await settle(() => entry(view.host, `scenario:${scenario.id}`) !== null);
       await act(async () => { entry(view.host, `scenario:${scenario.id}`)!.focus(); entry(view.host, `scenario:${scenario.id}`)!.click(); });
       assert.ok(view.host.querySelector("h3")?.textContent?.startsWith(scenario.name));
-      assert.ok(view.host.querySelectorAll('[aria-label="Automation graph"] .bp-node').length > 0, "scenario graph rendered");
+      assert.ok(view.host.querySelectorAll('.bp-canvas .bp-node').length > 0, "scenario graph rendered");
       await act(async () => view.host.querySelector<HTMLButtonElement>('button[aria-label^="Back to"]')!.click());
       assert.equal(document.activeElement, entry(view.host, `scenario:${scenario.id}`));
-      assert.equal(transport.unsubscribeCount, 1, "closing the graph releases its exact-scope definition subscription");
+      assert.equal(transport.unsubscribeCount, 0, "the Blueprint view reads the Jobs graph instead of opening a second subscription");
     } finally { await view.close(); }
   });
 
@@ -416,15 +418,14 @@ async function main() {
     try {
       await settle(() => entry(view.host, "blueprint:blueprint-echo") !== null);
       await act(async () => entry(view.host, "blueprint:blueprint-echo")!.click());
-      const canvas = view.host.querySelector('[role="group"][aria-label="Echo pipeline pipeline"]');
-      assert.ok(canvas);
-      assert.deepEqual(Array.from(canvas.querySelectorAll("article h4")).map((node) => node.textContent), ["Trigger", "command: emit", "filter: match", "Result"]);
-      await act(async () => view.host.querySelector<HTMLButtonElement>('[aria-label="Blueprint view"] button[aria-expanded]')!.click());
+      await settle(() => view.host.querySelector('[aria-label="Echo pipeline graph"] .bp-node') !== null);
+      const canvas = view.host.querySelector('[aria-label="Echo pipeline graph"]')!;
+      assert.deepEqual(Array.from(canvas.querySelectorAll(".bp-node")).map((node) => node.getAttribute("aria-label")), ["Node Trigger", "Node command: emit", "Node filter: match", "Node Result"]);
       const run = view.host.querySelector<HTMLButtonElement>('[aria-label="Run run-echo"]');
       assert.ok(run);
       await act(async () => run.click());
       assert.equal(run.getAttribute("aria-pressed"), "true");
-      assert.equal(view.host.querySelector('[aria-current="step"]'), null);
+      assert.equal(view.host.querySelector('.bp-node[data-state="running"]'), null);
     } finally { await view.close(); }
   });
 
@@ -433,7 +434,7 @@ async function main() {
     transport.graph = {
       ...transport.graph,
       scenarios: [...transport.graph.scenarios, { ...transport.graph.scenarios[0], id: "blueprint-echo", name: "Previous name" }],
-      blueprints: [{
+      blueprints: [...(transport.graph.blueprints ?? []), {
         id: "blueprint-echo", name: "Echo pipeline", owner: { kind: "team", tab_id: "creator-a", team_id: attachment.team_id }, state: "running", run_id: "run-a", current_step: 0, last_event_at_ms: 100,
         trigger: { type: "event", summary: "Message received" },
         steps: [{ index: 0, name: "Echo", kind: "command", title: "Echo command", state: "running", outcome: "success", started_at_ms: 50, ended_at_ms: null, result_summary: "echoed", reason: null }],
@@ -446,13 +447,14 @@ async function main() {
       assert.equal(view.host.querySelectorAll('ul[aria-label="Jobs"] [data-job-key="blueprint:blueprint-echo"]').length, 1);
       assert.equal(entry(view.host, "scenario:blueprint-echo"), null, "the matching scenario is deduplicated by identity");
       assert.equal(view.host.querySelector('[aria-label="Blueprints by owner"]'), null);
-      assert.equal(view.host.querySelector('[aria-label="Echo pipeline pipeline"]'), null, "graphs stay out of the list");
+      assert.equal(view.host.querySelector(".bp-canvas"), null, "graphs stay out of the list");
       const open = entry(view.host, "blueprint:blueprint-echo");
       assert.equal(open?.getAttribute("aria-label"), "Echo pipeline, Blueprint, active");
       await act(async () => open!.click());
       assert.ok(view.host.querySelector('[aria-label="Blueprint view"]'), "opening a pipeline enters its Blueprint view");
-      assert.ok(view.host.querySelector('[aria-label="Echo pipeline pipeline"]'), "the Blueprint view keeps the trigger-step-result chain");
-      assert.ok(view.host.querySelector('[aria-current="step"]'));
+      await settle(() => view.host.querySelector('[aria-label="Echo pipeline graph"] .bp-node') !== null);
+      assert.ok(view.host.querySelector('[aria-label="Node Echo command"]'), "the Blueprint view keeps the trigger-step-result chain");
+      assert.ok(view.host.querySelector('.bp-node[data-state="running"]'), "the running step is visibly current");
       await act(async () => view.host.querySelector<HTMLButtonElement>('button[aria-label="Back to All jobs"]')!.click());
       assert.equal(document.activeElement, entry(view.host, "blueprint:blueprint-echo"));
     } finally { await view.close(); }
@@ -463,7 +465,7 @@ async function main() {
     transport.graph = { ...transport.graph, blueprints: [{ id: "deep-pipeline", name: "Deep pipeline", owner: { kind: "team", tab_id: null, team_id: attachment.team_id }, state: "stopped", run_id: null, current_step: null, last_event_at_ms: null }] };
     const view = await mount(<JobsView solutionsApi={solutionsApi} workspaces={workspaces} teams={teams} adapter={transport} initialBlueprintId="deep-pipeline" />);
     try {
-      await settle(() => view.host.querySelector('[aria-label="Deep pipeline pipeline"]') !== null);
+      await settle(() => view.host.querySelector('[aria-label="Deep pipeline graph"]') !== null);
       await act(async () => view.host.querySelector<HTMLButtonElement>('button[aria-label="Back to All jobs"]')!.click());
       assert.equal(document.activeElement, entry(view.host, "blueprint:deep-pipeline"));
     } finally { await view.close(); }
@@ -472,7 +474,7 @@ async function main() {
   for (const kind of ["cron", "blueprint", "scenario"] as const) {
     test(`${kind} header Back returns to the origin once, then uses normal navigation`, async () => {
       const transport = workspaceTransport();
-      transport.graph = { ...transport.graph, blueprints: [{ id: "return-pipeline", name: "Return pipeline", owner: { kind: "team", tab_id: null, team_id: attachment.team_id }, state: "stopped", run_id: null, current_step: null, last_event_at_ms: null }] };
+      transport.graph = { ...transport.graph, blueprints: [...(transport.graph.blueprints ?? []), { id: "return-pipeline", name: "Return pipeline", owner: { kind: "team", tab_id: null, team_id: attachment.team_id }, state: "stopped", run_id: null, current_step: null, last_event_at_ms: null }] };
       const activated: unknown[] = [];
       let exits = 0;
       const view = await mount(<JobsView solutionsApi={solutionsApi} workspaces={workspaces} teams={teams} adapter={transport}
@@ -536,7 +538,10 @@ async function main() {
     const transport = new FixtureTransport();
     transport.graph = {
       ...multiScenarioGraph(),
-      blueprints: [{ id: "team-blueprint", name: "Team pipeline", owner: { kind: "team", tab_id: "creator-a", team_id: attachment.team_id }, state: "running", run_id: "run-a", current_step: 0, last_event_at_ms: 100 }],
+      blueprints: [
+        { id: "team-blueprint", name: "Team pipeline", owner: { kind: "team", tab_id: "creator-a", team_id: attachment.team_id }, state: "running", run_id: "run-a", current_step: 0, last_event_at_ms: 100 },
+        { id: "watch-snapshot", name: "Internal watch", owner: { kind: "team", tab_id: "creator-a", team_id: attachment.team_id }, state: "running", run_id: null, current_step: null, last_event_at_ms: null, call_graph: { schema_version: 2, kind: "watch", name: "Internal watch", steps: [] } },
+      ],
     };
     const opened: string[] = [];
     const blueprintEvents: unknown[] = [];
@@ -554,10 +559,13 @@ async function main() {
       assert.ok(view.host.querySelector('[data-testid="cron-entry"]'));
       const rows = view.host.querySelectorAll<HTMLButtonElement>('[data-testid="sidebar-sentinel-job"]');
       assert.equal(rows.length, transport.graph.scenarios.length, "one row per stored scenario");
-      await act(async () => rows[1].click());
+      const scenarioRow = Array.from(rows).find(row => row.getAttribute("aria-label")?.startsWith(`${transport.graph.scenarios[1].name},`));
+      assert.ok(scenarioRow);
+      await act(async () => scenarioRow.click());
       assert.deepEqual(opened, [transport.graph.scenarios[1].id]);
       const blueprintRow = view.host.querySelector<HTMLButtonElement>('[data-testid="sidebar-blueprint-job"]');
       assert.ok(blueprintRow, "a running Team-owned Blueprint appears in the Team disclosure");
+      assert.equal(view.host.querySelectorAll('[data-testid="sidebar-blueprint-job"]').length, 1, "watch snapshots do not add a second job row");
       await act(async () => blueprintRow.click());
       assert.deepEqual(blueprintEvents, [{ workspaceId: attachment.workspace_id, target: { teamId: attachment.team_id, blueprintId: "team-blueprint" } }]);
     } finally { await view.close(); }
@@ -568,6 +576,7 @@ async function main() {
     const failed = await mount(<TeamJobsUnit {...props} cronCount={0} crons={null} sentinelScope={{ workspace_id: attachment.workspace_id, team_id: attachment.team_id }} sentinelAdapter={unavailable} onOpenSentinel={() => {}} />);
     try {
       await settle(() => toggleOf(failed.host) !== null);
+      assert.equal(toggleOf(failed.host)?.getAttribute("aria-label"), "JOBS 0", "an unavailable message is not a job");
       await act(async () => toggleOf(failed.host)!.click());
       assert.ok(failed.host.querySelector('[data-testid="sidebar-sentinels-unavailable"]'), "unknown Blueprint state is shown as unavailable");
     } finally { await failed.close(); }
@@ -575,7 +584,7 @@ async function main() {
 
   let passed = 0;
   try {
-    for (const [name, run] of tests) { await run(); passed++; console.log(`✓ ${name}`); }
+    for (const [name, run] of tests) { win.sessionStorage.clear(); await run(); passed++; console.log(`✓ ${name}`); }
     console.log(`${passed}/${tests.length} Jobs view cases passed`);
   } catch (error) {
     console.error(error);

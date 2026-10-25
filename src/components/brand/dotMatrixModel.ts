@@ -26,8 +26,8 @@ export function emitDotMatrixWave(
   return [...waves, wave];
 }
 
-export function sampleDotMatrixWave(wave: DotMatrixWave, now: number) {
-  const progress = (now - wave.releasedAt) / DOT_MATRIX_WAVE_DURATION_MS;
+export function sampleDotMatrixWave(wave: DotMatrixWave, now: number, durationMs = DOT_MATRIX_WAVE_DURATION_MS) {
+  const progress = (now - wave.releasedAt) / durationMs;
   if (progress < 0 || progress >= 1) return null;
   return {
     progress,

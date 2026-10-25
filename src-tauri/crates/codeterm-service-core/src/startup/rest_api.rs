@@ -516,17 +516,24 @@ fn probe_address(address: SocketAddr) -> SocketAddr {
     }
 }
 
-async fn prove_health(address: SocketAddr, deadline: tokio::time::Instant) -> Result<(), String> {
+pub(crate) async fn prove_health(
+    address: SocketAddr,
+    bearer: Option<&str>,
+    deadline: tokio::time::Instant,
+) -> Result<(), String> {
     let client = reqwest::Client::builder()
         .no_proxy()
         .build()
         .map_err(|error| format!("health proof client for {address} failed: {error}"))?;
     let url = format!("http://{}/api/health", probe_address(address));
     let status = tokio::time::timeout_at(deadline, async {
-        let response = client
+        let mut request = client
             .get(url)
-            .header(reqwest::header::CONNECTION, "close")
-            .send()
+            .header(reqwest::header::CONNECTION, "close");
+        if let Some(bearer) = bearer {
+            request = request.bearer_auth(bearer);
+        }
+        let response = request.send()
             .await?;
         let status = response.status();
         response.bytes().await?;
@@ -549,14 +556,7 @@ async fn bind_listener(bind_addr: &str) -> std::io::Result<std::net::TcpListener
             .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
         codeterm_paths::validate_listener_port(address.port(), cfg!(debug_assertions))
             .map_err(|error| std::io::Error::new(std::io::ErrorKind::PermissionDenied, error))?;
-        let socket = if address.is_ipv4() {
-            tokio::net::TcpSocket::new_v4()?
-        } else {
-            tokio::net::TcpSocket::new_v6()?
-        };
-        socket.set_reuseaddr(true)?;
-        socket.bind(address)?;
-        socket.listen(1024)?.into_std()
+        codeterm_util::tcp_listener::bind(address)
     }
     .await;
     result.map_err(|error| codeterm_util::local_endpoint::bind_error(bind_addr, error))
@@ -903,7 +903,13 @@ pub async fn start(control: RestApiControlState, bind_addr: String, router: axum
             generation_router,
             control.listeners.clone(),
         ));
-        let health = listeners::prove_set(local_addr, remote_addr, control.health_proof_budget());
+        let proof_token = control.listeners.proof_token();
+        let health = listeners::prove_set(
+            local_addr,
+            remote_addr,
+            proof_token.as_deref(),
+            control.health_proof_budget(),
+        );
         tokio::pin!(health);
 
         let event = loop {

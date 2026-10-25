@@ -85,6 +85,7 @@ impl ExtensionsBuilder {
     }
 
     pub(crate) fn insert_service_slots(&mut self) {
+        self.insert_late::<crate::service::account::AccountCredentialCell>();
         self.insert_late::<crate::service::agent_restart::ProviderSwitchOperations>();
         self.insert_late::<crate::CronState>();
         self.insert_late::<crate::CronWake>();
@@ -97,8 +98,11 @@ impl ExtensionsBuilder {
         self.insert_late::<std::sync::Weak<crate::service::ServiceContext>>();
         self.insert_late::<crate::service::cron::OwnerPromptRequests>();
         self.insert_late::<crate::service::session_persist::SessionPersistenceWorker>();
+        self.insert_late::<Arc<crate::service::turn_resume::Wave>>();
         self.insert_late::<crate::agent::live_state::RestoreReportWorker>();
+        self.insert_late::<crate::service::account_mesh::AccountMeshCell>();
         self.insert_late::<crate::service::lane_git_queue::LaneGitQueue>();
+        self.insert_late::<crate::service::durable_delivery::DurableDeliveryRuntime>();
     }
 
     pub fn finish(self) -> Extensions {

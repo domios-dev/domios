@@ -3,12 +3,11 @@ import { useState } from "react";
 import { Clock3, Network, RefreshCw, Workflow } from "lucide-react";
 import type { TransportClient } from "../../lib/transportClient";
 import type { PairedPeer } from "../../lib/types";
-import { BusyState } from "../shared/BusyState";
-import { DeferredLoader } from "@codeterm/chat-ui/DeferredLoader";
+import { RegionLoader } from "../shared/RegionLoader";
 import { CRON_ID_PREFIX } from "../MeshPanel/types";
 import { BackPill } from "../shared/BackPill";
 import { UI_BUTTON } from "../shared/design";
-import { BlueprintPipelineCanvas } from "../Automation/BlueprintPipelineCanvas";
+import { BlueprintView } from "../Automation/blueprint/BlueprintView";
 import { ServiceDrawer } from "../MeshPanel/ServiceDrawer";
 import { JobsFilterBar } from "./JobsFilterBar";
 import { JobsMachineFilter } from "./JobsMachineFilter";
@@ -45,7 +44,7 @@ export function PeerJobsView({ peerId, peers, onMachineChange, onClose, clientFo
     </header>
     <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:px-6">
       {state === "unavailable" && <p role={actionFailed ? "alert" : "status"}>Jobs unavailable on {peer?.instance_name ?? "this machine"}{peer?.online === false ? " · machine offline" : ""}.</p>}
-      {state === "loading" && <DeferredLoader state="present"><BusyState label="Reading jobs" inline /></DeferredLoader>}
+      {state === "loading" && <RegionLoader label="Reading jobs" className="min-h-48" />}
       {state === "partial" && <p role="status">Some jobs on {peer?.instance_name} are unavailable.</p>}
       {data && !selected && <>
         {state === "empty" && <p role="status" aria-label="No jobs">No jobs</p>}
@@ -60,7 +59,7 @@ export function PeerJobsView({ peerId, peers, onMachineChange, onClose, clientFo
       {selected && <article aria-label={selected.title} className="mx-auto max-w-3xl">
         <h3 className="break-words font-semibold">{selected.title}</h3>
         <p className="ct-meta-muted">{peer?.instance_name} · {jobStateLabel(selected.state)}</p>
-        {selected.kind === "blueprint" ? <BlueprintPipelineCanvas pipeline={selected.blueprint.pipeline} />
+        {selected.kind === "blueprint" ? <BlueprintView pipeline={selected.blueprint.pipeline} headingLevel={3} />
           : selected.kind === "sentinel" ? <p className="mt-3 break-words">{sentinelRowText(selected.sentinel, selected.title).meta}</p>
             : service ? <ServiceDrawer state={{ kind: "service", id: service.id, sourcePeerId: peerId }} services={remoteServices} peers={[]} thisMachineName="This machine" onClose={() => setSelected(null)} onActionDone={refreshAfterAction} />
               : <p role="status">Job details unavailable on {peer?.instance_name}.</p>}

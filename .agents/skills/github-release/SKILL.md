@@ -36,6 +36,10 @@ each failed run. An untested proposal must not become an established recipe.
 - Keep PROD 7685 untouched. Native builds, suites and installs follow the assigned machine and
   checkout ownership. Do not stop another owner's process or replace installed files manually.
 
+## Public repository policy
+
+Follow [the public repository handoff](../../../docs/release/public-repo.md) before enabling public Actions. Only owner pushes/dispatches from reviewed release branches may acquire release runners and secrets, behind the `release` environment approval. Dev qualification uses the branch-restricted `ci` environment without reviewers. PR checks run hosted and secret-free; repository-level runners must be removed or replaced with workflow-restricted organization runners before public Actions is enabled.
+
 ## Choose the release kind
 
 | Kind | Procedure |
@@ -53,7 +57,7 @@ For a plugin release, run `node scripts/release-plugin.mjs bump <id> <version>`,
 `--min-codeterm` only when a new host capability is required. Verify `release-plugin.mjs check`
 and `check-plugin.mjs <id>`, merge the checked PR, then with publication GO tag the verified master
 commit `plugin-<id>-v<version>`. Verify the installed version through `domios plugin update-system`.
-The tag's `publish_core_channel` job runs `scripts/publish-core-channel.mjs`, which uploads the whole
+Dispatch `plugin-release.yml` from a reviewed release branch with `tag=plugin-<id>-v<version>`; tag pushes do not publish. The dispatch's `publish_core_channel` job runs `scripts/publish-core-channel.mjs`, which uploads the whole
 `plugins/` tree as `codeterm-core.tar.gz` (+ `.sha256`, `.source-commit`) to the public
 `rollacode/codeterm-releases` release `codeterm-core-latest`, skips an older master commit, and
 verifies the anonymous download. Every install refreshes `codeterm-core` from there.
@@ -63,7 +67,7 @@ verifies the anonymous download. Every install refreshes `codeterm-core` from th
 | Branch | Purpose |
 |---|---|
 | `develop` | Integration through reviewed real merges. |
-| `release/X.Y.Z` | One version; owner pushes start the publishing release graph. |
+| `release/X.Y.Z` | One version; owner pushes qualify; green qualification starts packaging. |
 | `master` | Released code, promoted by the successful release workflow. |
 | `ci/*` | Reviewed non-publishing candidate refs for diagnostics. |
 
@@ -80,34 +84,32 @@ verifies the anonymous download. Every install refreshes `codeterm-core` from th
    `npm run check:versions` and `node scripts/check-release-locks.mjs`. Commit the complete bump;
    plugin versions remain independent. Run `build.sh release-preflight` per the gates skill on
    that committed head and `git diff --check`.
-   Before every push of `release/X.Y.Z` (the first one and each one carrying a fix or merge), the
-   Orchestrator mirrors the CI fast tier on that exact candidate in canonical, so a CI round never
-   stops on a one-minute defect. Rust jobs go through
-   the gateway one after another; the frontend and guards run in parallel in a second utility tab:
-   - Rust: `./build.sh fmt-check`, `./build.sh ci-clippy`, `./build.sh nextest cli 'all()'` (every
-     CLI target, generated manifest, essence map), and `./build.sh ci-tests full` with `RUNNER_OS`
-     set to the host OS (the whole workspace, one build).
-   - Frontend: `pnpm exec tsc --noEmit`, `pnpm check:api-effects`, `npm run test:unit` (all TS unit
-     files) and `pnpm exec vitest run` (all files). Never only the files that failed before.
-   - Guards: `bash scripts/check-file-sizes.sh --fail`, `node scripts/check-provider-boundary.mjs`,
-     `node scripts/check-installed-identity.mjs`, `node scripts/test-catalogue.mjs validate`,
-     `node scripts/check-plugin-bundles.mjs` (a changed plugin UI source needs its rebuilt bundle).
-   While iterating on a fix, `pnpm exec vitest related <files>` and the matching Rust filterset give
-   a quick signal, but the push to the release branch still waits for the whole list above: the warm
-   build keeps that rerun cheap.
-   Before every push to `release/X.Y.Z`, including each merge or fix, the release manager runs the
-   checks a CI round would otherwise find one at a time: `./build.sh fmt-check`,
-   `./build.sh nextest cli --wait-build` (every CLI target: transport rows, help text, generated
-   manifest, essence map), `node scripts/test-catalogue.mjs run --entry python-script-tests` (POSIX)
-   and `node --test` over the changed `scripts/**/*.test.mjs`. The owner authorizes these for the
-   release manager; a refused gate goes to the Orchestrator as the exact command to grant.
+   Keep the release branch separate from moving `develop`. Commit release fixes on that line,
+   then real-merge the release into `develop`; never pull unrelated dev work into the release.
+   Pushes to `release/X.Y.Z` qualify their exact SHA through `tests.yml`, as do dev/master pushes.
+   The successful push qualification triggers release.yml through workflow_run; failed qualification
+   never starts packaging. Admission checks the trusted tests.yml event, repository, owner actors
+   and exact current release head before any release runner or secret is acquired. Superseded heads
+   skip packaging successfully. Prepare still verifies the exact-SHA receipt; owner workflow_dispatch
+   reruns retain that gate. workflow_run uses the default branch workflow definition: this trigger
+   and its reusable guards must reach the default branch before automatic packaging can activate.
+   Until then, use scripts/dispatch-qualified-release.mjs with the exact SHA and release/X.Y.Z after qualification is green; see [CI operation](../../../docs/release/ci.md).
+   Two nightly schedules qualify dev as fallback. Fast checks own
+   frontend production/typechecking, static/plugin/TS suites, Clippy and the CLI suite.
+   The Rust tier owns the Linux full suite, native macOS/Windows subsets and embeddings.
+   `scripts/ci-qualification.mjs check <40-hex-sha>` verifies a green trusted tests run,
+   its current attempt, every required job and the executed Rust receipts. Missing, expired,
+   skipped or foreign evidence refuses release preparation and publication. Qualification
+   artifacts expire after seven days; qualify the exact SHA again if needed. Equal trees
+   or ancestor receipts never qualify another SHA. Local focused fixes do not replace CI
+   evidence; do not rerun identical suites in the release graph.
 4. Verify runner availability with `bash scripts/check-release-runners.sh` and credential
    preflight through `release-credentials.yml`. Confirm the intended version is unpublished.
    With publication GO, push `release/X.Y.Z` and open its PR to master. Do not manually create
    `vX.Y.Z`; release.yml owns tag creation and promotion.
 5. The final manifest job requires all builds and test gates, publishes and verifies served
-   bytes. Promotion merges the release PR to master, merges master back to develop and deletes
-   the release branch. A later correction takes a new version.
+   bytes. Promotion merges the release PR to master, merges master back to develop and retains
+   the protected release branch. A later correction takes a new version.
 
 ## Dry runs and narrow diagnostics
 
@@ -116,16 +118,16 @@ any dispatch. `mirror=false` alone is not a dry run. For the full graph use:
 
 ```bash
 gh workflow run release.yml --repo rollacode/codeterm --ref <reviewed-ref> \
-  -f tag=<version-tag> -f dry_run=true -f mirror=false -f dry_run_tests=true
+  -f tag=<version-tag> -f dry_run=true -f mirror=false
 ```
 
-Until repository variable `RELEASE_PUBLISH_ENABLED` is `true`, a `release/X.Y.Z` push runs as a
+Until repository variable `RELEASE_PUBLISH_ENABLED` is `true`, a green qualification of a `release/X.Y.Z` push runs as a
 full dry run of that branch (tests included, no drafts or uploads) in its own concurrency group, so
 it never cancels another version's run; its branch must carry version X.Y.Z.
 
 Verify the remote ref resolves to the reviewed SHA before dispatch. Capture the returned/new run
 ID and its workflow/source identity. Do not identify a run merely as the latest result in a list.
-`dry_run_tests=false` is an explicitly limited packaging diagnostic: skipped tests remain unverified.
+Dry runs also require the exact-SHA dev qualification receipt; there is no test bypass.
 Dry runs skip release creation/public uploads/publication, public served-byte verification and promotion;
 they cannot prove write permissions or CDN behavior.
 
@@ -137,18 +139,17 @@ evidence; no public release, tag, channel asset or issue-closure boundary is cre
 dispatch inputs pin the producing run ID, tag and source SHA for a follow-up within retention.
 An older run that did not retain those inputs cannot be retroactively called validated.
 
-Builds run on builder machines and start as soon as the frontend bundle exists. Rust tests run on
-test machines and open through `tests-tier` (`scripts/release-tier-gate.mjs`) once every fast check is
-claimed by a runner or finished, so a free test runner never takes a test before a fast check. A fast
-check still unclaimed after 45 minutes opens the tests anyway with a `tier order fallback` warning, a
-run-summary line and the receipt `<run-id>/release-tiers/fast-checks.json`; a red fast check still
-cancels the run.
+Builds start after exact-SHA qualification and the frontend bundle. There are no tier
+polling jobs. The full suite stays on the designated heavy BLACKSTAR WSL runner;
+Windows native tests use ROG, macOS and embeddings use Air sequentially. Ubuntu's
+native build runner owns Clippy, fast CLI and generated types. Light checks request
+`host-ubunta` and cannot occupy the WSL Rust runner. Targets remain per workspace.
 
 Publish a wholly green dry run with `release-publish.yml`, never by rebuilding. Its tooling comes from
-the default branch, so fixing publication never invalidates a qualified run:
+the reviewed release branch; publication reuses the qualified bytes:
 
 ```bash
-gh workflow run release-publish.yml --repo rollacode/codeterm --ref master \
+gh workflow run release-publish.yml --repo rollacode/codeterm --ref release/X.Y.Z \
   -f run_id=<dry-run run id> -f tag=vX.Y.Z -f rehearsal=true   # then rehearsal=false with publication GO
 ```
 
@@ -157,9 +158,7 @@ on `release/X.Y.Z` whose platform, test and manifest jobs all succeeded. A rehea
 tokens' write access, downloads and re-validates every retained byte and signature, and changes
 nothing. Publication creates both drafts, uploads the retained bytes (fragments only to the source
 draft) with read-back against each receipt, merges and verifies `domios-latest.json`/`domios-latest-deb.json`,
-tags `vX.Y.Z` on the run's SHA, publishes both releases and verifies the served manifests. With
-repository variable `RELEASE_AUTO_PROMOTE=true`, every green dry run of a release branch publishes
-itself through the same workflow; otherwise the run waits for this command. Issue closure and the
+tags `vX.Y.Z` on the run's SHA, publishes both releases and verifies the served manifests. Automatic publication through `release-publish.yml` is disabled; the owner dispatches this workflow and approves the release environment. Issue closure and the
 merge to master stay separate steps.
 
 The store endpoint is defined once in `scripts/ci-store.sh`. When a CI job finds it unreachable,
@@ -169,22 +168,28 @@ it as a run artifact; `get`/`get-prefix` read `<run-id>/...` keys back from that
 compile with a job-local sccache that `build.sh cache-release` stops at job end. A reachable store
 that refuses a request, and any digest or signature mismatch, still fail.
 
-For one platform, direct-dispatch `release-linux.yml`, `release-windows.yml` or
+For one platform, direct-dispatch `release-linux.yml`, `release-windows.yml`, `release-windows-arm64.yml` or
 `release-macos-build.yml` with explicit `source_ref`, tag, selected architecture, `dry_run=true`
 and `mirror=false`, using that workflow's declared inputs. A `tests.yml` dispatch runs the fast tier only.
 Direct platform dispatch cannot mutate release assets. Its guard distinguishes the direct workflow
 name from a manually dispatched release.yml caller: reusable workflows inherit the caller's event.
 Do not disable publication for a legitimate release caller merely because its event is workflow_dispatch.
 
-The full graph separates fast guards/checks (`tests-fast.yml`) from full Rust and platform-specific
-tests (`tests-rust.yml`); release.yml calls each tier directly. Tiers open on claim, not on completion:
-the Rust tier starts once every fast check holds a runner, and the six builds start once every Rust
-test job does (`release-tier-gate.mjs`, 45-minute visible fallback). Required
-Rust receipts include nonzero executed counts for the full suite and each OS subset. A failed,
-cancelled or skipped required gate cannot publish. Diagnose cancellation from run/job evidence
-and workflow conditions; never call cancelled jobs passes or assume who cancelled them.
+`tests-fast.yml` resolves scope once and passes it to `tests-rust.yml`. Required Rust
+receipts include one nonempty Linux full suite, macOS and Windows subsets, and embeddings.
+The fast CLI suite omits `isolated_server`; full Linux runs only that real CLI/server pair,
+and native subsets retain their own cfg-gated tests. Frontend production owns TypeScript;
+Windows has a focused pnpm symlink/subst identity regression with a TS2451 negative control.
+Signing, notarization, bundle smoke, updater signatures and served-byte checks remain release gates.
 
 ## One build, two distributions
+
+Linux and Windows arm64 compile unsigned on hosted native runners, then transfer a
+digest-pinned stage and bundles to private finalize jobs for signing, bundle smoke,
+headless validation and the existing private/public receipts. Hosted jobs receive
+public client configuration through repository variables and no signing/cache secrets.
+See [hosted arm64 setup and measurement](../../../docs/release/hosted-arm64.md) before
+the first run; the initial policy deliberately measures cold compilation without Tailnet.
 
 A release run builds the platform-independent frontend once in its `frontend-dist` job; each
 platform job fetches that archive, checks its SHA-256 and installs it as `dist` through
@@ -254,18 +259,19 @@ DMG; staple/assess the app before creating its updater archive. Unexpected helpe
 Tauri re-signing fail loudly. Native execution must validate this path; injected fixtures are only
 source-contract evidence. Standard DMG, .app.tar.gz updater and self-install remain the transports.
 
-### Packaged runtime proof
+### Runtime and bundle proof
 
-`scripts/release-pair-smoke.mjs` checks extraction, stage/manifest digests and exactly one server
-copy, then launches packaged server bytes in isolated temporary data/config roots on a private
-loopback port. It waits for READY under a deadline, verifies health/build identity, runs authenticated
-packaged CLI and requires clean shutdown. Token stays in child environment, never argv/URL/logs.
-Use the committed isolated-verification contract; do not launch against a user's production roots.
+Release build jobs retain bundle contents, digest and signing checks. Server startup,
+local API-token resolution, authenticated CLI identify and clean shutdown run in
+CLI integration target isolated_server through the Rust test tier on every native test OS.
+Windows jobs discover installed Python through the job-local tool-path helper; the service
+PATH may differ from an interactive shell. Do not change machine execution policy to install it.
+The nextest cli, test-one cli isolated_server and CI CLI runners prepare the debug server
+and its exact bound CLI before the capped tests. This test creates disposable data/config
+roots and uses an explicit private port; CODETERM_API_URL alone never selects that port.
 
-Cross-architecture jobs still perform every byte check. Unsupported execution writes an explicit
-`unverified_cross_arch` receipt, never PASS. macOS x64 on Apple Silicon tries Rosetta first.
-Packaged native-client attach, browser authentication and cold update/restore need their own real
-platform evidence; headless smoke alone does not prove those surfaces.
+Native-client attach, browser authentication and cold update/restore require their own
+platform evidence. A CLI integration pass does not establish those surfaces.
 
 Headless users launch from the extracted root with
 `./domios-server/domios-server start --production --json` (Windows: the .exe equivalent).
@@ -318,7 +324,7 @@ publication complete. Never upload a Domios payload into a legacy manifest.
 
 ## Credentials, caches and runners
 
-Use repository secrets and `scripts/release-signing-material.py`. macOS jobs import the approved
+Use protected environment secrets and `scripts/release-signing-material.py`. macOS jobs import the approved
 certificate and pinned Apple intermediates into a unique RUNNER_TEMP keychain, validate team/identity
 and notary credentials, and clean up only their own keychain/files in always(). No persistent login
 keychain changes or copied private keys are a release prerequisite. Updater keys use temporary
@@ -326,25 +332,26 @@ restricted files; Tauri needs `TAURI_SIGNING_PRIVATE_KEY` pointing to the prepar
 Off-CI recovery copies live in Bitwarden, read with `domios mem secret get --name <slug>` and
 never printed: `codeterm-tauri-minisign-private-key` (updater signing, empty password; its public
 key is `tauri.conf.json` `plugins.updater.pubkey`) and `codeterm-apple-notary-env`. The Developer ID
-certificate is backed up only as the `APPLE_CERTIFICATE`/`APPLE_CERTIFICATE_PASSWORD` repo secrets.
+certificate is provisioned as the `APPLE_CERTIFICATE`/`APPLE_CERTIFICATE_PASSWORD` release environment secrets.
 Windows updater signatures are not Authenticode: no Authenticode signing is currently configured.
 
 ### Runner map
 
-Workflows select runners by label, never by name. Each runner carries `host-<machine>`, which no
-job routes on; `./build.sh runner-pause` keeps it and never lends it.
+Workflows select runners by label, never by name. Heavy lanes combine a role with `host-<machine>` to retain warm per-runner targets.
+`./build.sh runner-pause` keeps host labels and never lends them; a pinned lane stays unavailable
+until its own host is restored.
 
 | Runner (planned name) | Machine, OS/arch | Routing labels | Role |
 |---|---|---|---|
 | `codeterm-builder-2` (`eight-macos-arm64`) | eight, macOS arm64 | `codeterm-builder`, `heavy`, `light`, `host-eight` | builds: macOS arm64, Linux arm64 Docker; quick checks |
 | `build-mac-x64` | build-mac, macOS x64 (Intel) | `macos-x64-build`, `host-dev` | build: macOS x64, native (`RELEASE_MACOS_X64_LABEL=macos-x64-build`); also the private store host |
-| `air-macos` (`air-macos-arm64`) | air, macOS arm64 | `macos-ci`, `rust-shard`, `light`, `host-air` | tests: macOS Rust platform; quick checks |
-| `ROG-windows-build` (`rog-windows-x64`) | ROG, Windows x64 | `windows-build`, `windows-x64-build`, `medium`, `host-rog` | builds: Windows x64 and arm64 NSIS |
-| `BLACKSTAR-windows-x64` (`blackstar-windows-x64`) | BLACKSTAR, Windows x64 | `windows-ci`, `rust-shard`, `heavy`, `host-blackstar` | tests: Windows Rust platform and Windows test jobs |
-| `ubunta-linux-build` (`ubunta-linux-x64`) | ubunta, Linux x64 | `linux-build`, `host-ubunta` | builds: release prepare, frontend bundle, Linux x64, dry-run manifest, publication |
-| `BLACKSTAR-wsl-ci` (`blackstar-wsl-x64`) | BLACKSTAR, WSL2 Linux x64 | `linux-ci`, `rust-tests`, `heavy`, `light`, `host-blackstar` | tests: Rust full suite, embeddings, Linux platform, clippy |
-| `BLACKSTAR-wsl-light-1/2` (`blackstar-wsl-x64-light-1/2`) | BLACKSTAR, WSL2 Linux x64 | `linux-ci`, `rust-tests`, `light`, `host-blackstar` | tests: second and third Linux Rust test runners; quick checks |
-| `ubunta-light-1/2` (`ubunta-linux-x64-light-1/2`) | ubunta, Linux x64 | `light`, `host-ubunta` | quick checks and tier gates |
+| `air-macos` (`air-macos-arm64`) | air, macOS arm64 | `macos-ci`, `rust-shard`, `light`, `host-air` | tests: macOS Rust platform, then embeddings |
+| `ROG-windows-build` (`rog-windows-x64`) | ROG, Windows x64 | `windows-build`, `windows-x64-build`, `medium`, `host-rog` | builds: Windows x64 and arm64 NSIS; tests: native Windows |
+| `BLACKSTAR-windows-x64` (`blackstar-windows-x64`) | BLACKSTAR, Windows x64 | `windows-ci`, `rust-shard`, `heavy`, `host-blackstar` | no product CI compile lane |
+| `ubunta-linux-build` (`ubunta-linux-x64`) | ubunta, Linux x64 | `linux-build`, `host-ubunta` | builds: release prepare, frontend bundle, Linux x64, dry-run manifest, publication; tests: Clippy, fast CLI, generated types |
+| `BLACKSTAR-wsl-ci` (`blackstar-wsl-x64`) | BLACKSTAR, WSL2 Linux x64 | `linux-ci`, `rust-tests`, `heavy`, `light`, `host-blackstar` | tests: Linux Rust full suite only |
+| `BLACKSTAR-wsl-light-1/2` (`blackstar-wsl-x64-light-1/2`) | BLACKSTAR, WSL2 Linux x64 | `linux-ci`, `rust-tests`, `light`, `host-blackstar` | reserved; not eligible for the pinned full suite or light CI jobs |
+| `ubunta-light-1/2` (`ubunta-linux-x64-light-1/2`) | ubunta, Linux x64 | `light`, `host-ubunta` | quick checks and qualification receipt handling |
 | `green-windows-ci` (`green-windows-x64`) | green, Windows x64 | `windows-light`, `host-green` | Windows frontend quick check |
 
 The BLACKSTAR WSL runners (distro `BLACKSTAR-CI`, user `ci`) share one toolchain: rustup with the
@@ -353,9 +360,10 @@ sccache in `~/.local/bin` on one Unix-socket server. `~/start-runner.sh` and
 `~/start-light-runner.sh <n>` export that PATH and cache environment before `run.sh`, so a light
 runner takes Linux test jobs without further setup.
 
-Release builds and Rust tests never share a machine: build labels live only on builders and test
-labels only on test machines. Pausing a test machine (`./build.sh runner-pause <machine>`) lends its
-unique test labels to an online runner of the same OS, the one documented exception.
+ROG and Ubuntu serialize qualification compilation on their existing single build runners.
+Release packaging begins after exact-SHA qualification. BLACKSTAR WSL remains dedicated to the
+full suite; Air owns macOS and embeddings. All light jobs request `host-ubunta`, so a runner
+carrying both `light` and `rust-tests` cannot take them. No live labels need to be changed.
 
 Planned names follow `<machine>-<os>-<arch>[-role]`; renames re-register one machine at a time between
 runs, passing the current labels plus `host-<machine>`. Before dispatching on a new or changed macOS
@@ -372,7 +380,9 @@ through the existing ci-artifact tooling rather than assuming GitHub artifact st
 
 ## Monitoring and failure recovery
 
-Read `domios docs BLUEPRINTS`. Use one named monitor per actual run ID; validate its probe once
+CI normally finishes independent test jobs after failure; packaging remains blocked by exact-SHA qualification. The aggregate reports named failures and timeouts. Activation and verification: [CI failure notifications](ci-failure-notifications.md). Runner loss and job timeout still need an external failure observer; an in-run hook cannot execute on a dead runner.
+
+Read `domios docs BLUEPRINTS`. Scope monitors to the candidate commit and its CI result, then bind any run detail to that SHA; validate the probe once
 and verify blueprint show names that run's real bucket. Handle success, failure, cancellation,
 probe error and queued-too-long explicitly. Stop at terminal; never leave repeated failing probes,
 sleep/poll loops or duplicate watchers. A launch acknowledgement is not a completed build receipt.
@@ -446,4 +456,4 @@ never sweep caches or delete worktrees merely because the release ended.
 Implementation entry points: [release stage](../../../scripts/release-stage.mjs),
 [macOS x64 helper](../../../scripts/release-macos-x86_64.sh).
 
-<!-- revision: 10 -->
+<!-- revision: 12 -->

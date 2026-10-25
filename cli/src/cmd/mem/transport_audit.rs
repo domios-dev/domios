@@ -42,12 +42,17 @@ pub(crate) fn classify(action: &MemAction) -> MemTransport {
         | MemAction::Sync { .. }
         | MemAction::Reembed { .. } => Socket,
 
+        MemAction::Embedder {
+            action: crate::MemEmbedderAction::Key { .. },
+        } => ShortCircuitedInMain,
+
         MemAction::History { .. }
         | MemAction::Taxonomy { .. }
         | MemAction::Tail { .. }
         | MemAction::Skill { .. }
         | MemAction::Worker { .. }
-        | MemAction::Calibration { .. } => SocketDedicated,
+        | MemAction::Calibration { .. }
+        | MemAction::Embedder { .. } => SocketDedicated,
 
         MemAction::Graph { action } => classify_graph(action),
 

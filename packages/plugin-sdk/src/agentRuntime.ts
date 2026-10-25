@@ -40,7 +40,7 @@ export interface OpenItem { turnId:string; item:ChatMsg }
 export type RuntimeFailureCode =
   | "unsupported" | "invalid_schema" | "size_limit" | "hook_failed"
   | "method_not_allowed" | "binding_mismatch" | "deadline"
-  | "process_unavailable" | "protocol_error" | "provider_refused";
+  | "process_unavailable" | "protocol_error" | "provider_refused" | "thread_not_found";
 export interface RuntimeFailure { code:RuntimeFailureCode; message:string }
 export interface RuntimeContext {
   epoch:number;
@@ -173,4 +173,4 @@ export type RuntimeRestoreContext = {instructions:string|null; additionalContext
 export type RuntimeAdditionalContext = {key:string; kind:"application"|"user"; value:string}
 
 export type RuntimeLoginMethod = "browser"|"device"|"apiKey";
-export interface RuntimeLoginState {status:"pending"|"completed"|"failed"|"canceled"; loginId?:string; method?:RuntimeLoginMethod; url?:string; userCode?:string; error?:string}
+export interface RuntimeLoginState {status:"pending"|"completed"|"failed"|"canceled"; loginId?:string; method?:RuntimeLoginMethod; url?:string; userCode?:string; expiresAtMs?:number|null; error?:string}

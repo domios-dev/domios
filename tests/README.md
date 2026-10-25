@@ -9,9 +9,10 @@ on a file two runners discover, on an empty test file, on an invalid field, on a
 
 | Id | Kind | Lang | Tier | Instance | Live agent | Budget (s) | Discovery | Runner | Owner doc |
 |---|---|---|---|---|---|---|---|---|---|
+| `qualification-receipt` | guard | js | release | no | no | 300 | single | `node scripts/ci-qualification.mjs record "$SOURCE_SHA" qualification-rust` | `.agents/skills/github-release/SKILL.md` |
 | `eval-bubble-geometry` | eval | mixed | manual | yes | no | 60 | single | `bash evals/bubble-geometry/run.sh` | `evals/bubble-geometry/README.md` |
 | `ts-unit` | unit | ts | pr | no | no | 300 | glob `src/**/*.test.ts` `src/**/*.test.tsx` `packages/**/*.test.ts` `packages/**/*.test.tsx` minus `**/node_modules/**` `**/dist/**` minus `scripts/vitest-owned-tests.json` | `pnpm test:unit` | `.agents/skills/testing/SKILL.md` |
-| `frontend-windows-build` | guard | ts | pr | no | no | 300 | single | `bash build.sh frontend-build` | `.agents/skills/github-release/SKILL.md` |
+| `frontend-windows-build` | guard | ts | pr | no | no | 60 | single | `node --test scripts/tests/windows-path-identity.test.mjs` | `.agents/skills/github-release/SKILL.md` |
 | `ts-vitest` | unit | ts | pr | no | no | 180 | list-file `scripts/vitest-owned-tests.json` | `pnpm test:vitest --maxWorkers=4` | `.agents/skills/testing/SKILL.md` |
 | `ts-perf-bench` | eval | ts | manual | no | no | 120 | glob `tests/perf/*.bench.ts` | `npx tsx tests/perf/transcript-churn.bench.ts && npx tsx tests/perf/pty-write-slicing.bench.ts` | `tests/perf/README.md` |
 | `node-script-tests` | contract | js | pr | no | no | 300 | glob `scripts/tests/*.test.mjs` `scripts/*.test.mjs` minus `scripts/build-gateway-*.test.mjs` `scripts/build-history.test.mjs` `scripts/check-worktree.test.mjs` `scripts/dev-build-configuration.test.mjs` `scripts/affected-tests.test.mjs` `scripts/check-analytics-catalog.test.mjs` `scripts/run-ts-unit-tests.test.mjs` | `node scripts/test-catalogue.mjs run --entry node-script-tests` | `.agents/skills/testing/SKILL.md` |
@@ -19,12 +20,14 @@ on a file two runners discover, on an empty test file, on an invalid field, on a
 | `node-script-tests-cargo` | contract | js | release | no | no | 60 | glob `scripts/affected-tests.test.mjs` `scripts/check-analytics-catalog.test.mjs` | `node scripts/test-catalogue.mjs run --entry node-script-tests-cargo` | `.agents/skills/testing/SKILL.md` |
 | `ts-unit-runner-tests` | contract | js | pr | no | no | 120 | glob `scripts/run-ts-unit-tests.test.mjs` | `node scripts/test-catalogue.mjs run --entry ts-unit-runner-tests` | `.agents/skills/testing/SKILL.md` |
 | `python-script-tests` | contract | python | pr | no | no | 120 | glob `scripts/tests/test_*.py` `scripts/tests/*_test.py` | `node scripts/test-catalogue.mjs run --entry python-script-tests` | `.agents/skills/testing/SKILL.md` |
+| `account-mesh-e2e-contract` | contract | js | manual | no | no | 60 | glob `scripts/test/*.test.mjs` | `node --test scripts/test/account-mesh-e2e.test.mjs` | `scripts/account-mesh-e2e/README.md` |
+| `account-mesh-e2e` | e2e-curated | js | manual | yes | no | 3600 | single | `node scripts/account-mesh-e2e.mjs --manifest <turner-approved-manifest.json> --out <owned-evidence-dir>` | `scripts/account-mesh-e2e/README.md` |
 | `frontend-release-producer-tests` | contract | js | release | no | no | 60 | glob `scripts/frontend-release/*.test.mjs` | `node --test scripts/frontend-release/*.test.mjs` | `.agents/skills/github-release/SKILL.md` |
 | `plugin-tests` | unit | ts | pr | no | no | 120 | glob `plugins/**/*.test.ts` `plugins/**/*.test.tsx` minus `**/node_modules/**` minus `scripts/vitest-owned-tests.json` | `pnpm test:plugins` | `.agents/skills/testing/SKILL.md` |
 | `plugin-bundles` | guard | js | pr | no | no | 60 | single | `pnpm check:plugin-bundles` | `.agents/skills/testing/SKILL.md` |
 | `plugin-check` | contract | js | pr | no | no | 60 | glob `plugins/channel.json` | `node scripts/check-plugin.mjs <plugin-id>` | `plugins/channel.json` |
 | `plugin-release-contracts` | contract | js | pr | no | no | 60 | single | `node scripts/release-plugin.mjs check` | `.agents/skills/github-release/SKILL.md` |
-| `ts-typecheck` | guard | ts | pr | no | no | 120 | single | `pnpm exec tsc --noEmit` | `.agents/skills/testing/SKILL.md` |
+| `ts-typecheck` | guard | ts | pr | no | no | 120 | single | `pnpm build` | `.agents/skills/testing/SKILL.md` |
 | `ts-unused-exports` | guard | ts | pr | no | no | 120 | single | `pnpm check:unused-exports` | `.agents/skills/testing/SKILL.md` |
 | `ts-knip-report` | guard | ts | pr | no | no | 120 | single | `pnpm knip:report` | `.agents/skills/testing/SKILL.md` |
 | `ts-api-effects` | guard | ts | pr | no | no | 120 | single | `pnpm check:api-effects` | `.agents/skills/testing/SKILL.md` |
@@ -122,6 +125,7 @@ on a file two runners discover, on an empty test file, on an invalid field, on a
 | `core-journeys-offline` | unit | js | pr | no | no | 30 | glob `evals/core-journeys/*.test.mjs` `evals/core-journeys/lib/*.test.mjs` | `node scripts/test-catalogue.mjs run --entry core-journeys-offline`; depends on `evals/restart-endurance/restart.mjs` | `evals/core-journeys/README.md` |
 | `evals-offline-node` | unit | js | manual | no | no | 120 | glob `evals/**/*.test.mjs` `evals/**/*.test.cjs` minus `evals/core-journeys/**` | `node scripts/test-catalogue.mjs run --entry evals-offline-node` | `evals/README.md` |
 | `evals-offline-python` | unit | python | manual | no | no | 120 | glob `evals/**/test_*.py` minus `evals/_lib/**` | `node scripts/test-catalogue.mjs run --entry evals-offline-python` | `evals/README.md` |
+| `hand-test-blueprint-intent-self` | unit | python | manual | no | no | 60 | glob `scripts/hand-tests/blueprint-v2-intent/self_test.py` | `python3 scripts/hand-tests/blueprint-v2-intent/self_test.py` | `scripts/hand-tests/blueprint-v2-intent/README.md` |
 | `evals-lib-guards` | guard | mixed | manual | no | no | 60 | glob `evals/_lib/test-*.sh` `evals/_lib/test_*.py` | `bash evals/_lib/test-dc-cli-resolution.sh && bash evals/_lib/test-source-purity.sh && python3 evals/_lib/test_bench_infrastructure.py` | `AGENTS.md` |
 | `playwright-helpers` | unit | ts | manual (suspended) | no | no | 120 | glob `tests/playwright/helpers/*.test.{ts,mjs}` `tests/playwright/fixtures/**/*.test.mjs` | `node scripts/test-catalogue.mjs run --entry playwright-helpers` | `tests/playwright/README.md` |
 | `fixture-self-tests` | unit | js | manual | no | no | 60 | glob `tests/fixtures/**/*.test.mjs` | `node scripts/test-catalogue.mjs run --entry fixture-self-tests` | `.agents/skills/testing/SKILL.md` |
@@ -176,6 +180,7 @@ Not tests:
 - `src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/fixtures/**`: Scripts the codeterm-plugin parity_test Rust tests execute as fixtures; owned by rust-plugin.
 - `scripts/tests/fixtures/**`: Fixture trees read by scripts/tests (Cargo manifests for the rust-test-inventory tests), not crates.
 - `src-tauri/vendor/**`: Vendored upstream crate (tauri-runtime-wry); its tests belong upstream.
+- `evals/mem-embedder/Cargo.toml`: Embedder evaluation oracle crate whose results are recorded in evals/mem-embedder/REPORT.md, not a test crate.
 
 ## STALE (no longer matches the product; left out, never healthy)
 

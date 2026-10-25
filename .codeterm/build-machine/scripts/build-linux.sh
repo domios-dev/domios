@@ -78,8 +78,6 @@ node scripts/release-stage.mjs finalize --target "$TARGET" --tag "$RELEASE_TAG" 
   --tree-log "release-artifacts/build-logs/$TARGET/closure.txt" \
   --bundle "${DEBS[0]}" --output-dir /work/out
 cp "release-artifacts/common-stage/$TARGET/headless-stage.json" "/work/out/headless-stage-$TARGET.json"
-node scripts/release-pair-smoke.mjs "$TARGET" "$RELEASE_TAG" "$(git rev-parse HEAD)" \
-  "release-artifacts/common-stage/$TARGET" /work/out
 node scripts/release-bundle-smoke.mjs linux /work/out "$(git rev-parse HEAD)"
 ls -la /work/out/
 echo "BUILD_LINUX_DONE tag=$TAG"

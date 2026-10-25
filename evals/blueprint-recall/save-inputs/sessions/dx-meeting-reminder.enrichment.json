@@ -1,0 +1,99 @@
+{
+  "duration_api_ms": 12225,
+  "stop_reason": "end_turn",
+  "session_id": "43bbd26d-ae08-41fb-abd6-20c0d910a78c",
+  "total_cost_usd": 0.02982,
+  "usage": {
+    "input_tokens": 9,
+    "cache_creation_input_tokens": 11398,
+    "cache_read_input_tokens": 0,
+    "output_tokens": 1403,
+    "output_tokens_details": {
+      "thinking_tokens": 1289
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 11398,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "not_available",
+    "iterations": [
+      {
+        "input_tokens": 9,
+        "output_tokens": 1403,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 11398,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 11398
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-haiku-4-5-20251001": {
+      "inputTokens": 9,
+      "outputTokens": 1403,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 11398,
+      "webSearchRequests": 0,
+      "costUSD": 0.02982,
+      "contextWindow": 200000,
+      "maxOutputTokens": 32000,
+      "thinkingTokens": 1289,
+      "canonicalModel": "claude-haiku-4-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 1,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "WHAT: Automatically sends a weekly reminder message to a designated Domios tab on a 168-hour schedule. Runs a command to generate the reminder text and posts the result directly to the tab, stopping after execution completes or fails. || INTENT: Set up a weekly reminder message for the planning meeting || INTENT: Automate recurring notifications to a specific tab each week || INTENT: Send a weekly reminder before the planning meeting starts || INTENT: Create a scheduled message that posts every 168 hours",
+  "ttft_ms": 11545,
+  "type": "result",
+  "duration_ms": 12317,
+  "uuid": "d75521db-8aa6-42b1-af5f-1a600c329847",
+  "ttft_stream_ms": 636,
+  "time_to_request_ms": 52,
+  "first_content_frame_ms": 636,
+  "queued_turn_count": 0,
+  "result_index": 0
+}

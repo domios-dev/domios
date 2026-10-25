@@ -1,0 +1,18 @@
+schema_version: 1
+name: Release gate watch
+note: One combined probe checks the essence map and stale lanes; notify while a release is blocked.
+inputs:
+  release_probe:
+    type: string
+    description: Read-only command running essence-map validate and the stale-lane check, printing clean or blocked
+watch:
+  probe: '{{release_probe}}'
+  question: is-the-release-clean
+  buckets: [clean, blocked]
+  matches: {clean: '(?m)^clean$', blocked: '(?m)^blocked$'}
+  every: 5m
+  until: clean
+  timeout: 1d
+  routes:
+    clean: notify
+    blocked: notify

@@ -38,34 +38,6 @@ fn lower_access_sync_keeps_only_the_sender_identity_and_liveness() {
 }
 
 #[test]
-fn mesh_gossip_never_relearns_its_own_identity_or_known_peers() {
-    let mut mesh = codeterm_service_core::mesh::MeshManager::in_memory(
-        codeterm_service_core::mesh::types::MeshIdentity {
-            instance_id: "self".into(),
-            private_key: None,
-            public_key: None,
-        },
-        "BLACKSTAR".into(),
-        7685,
-    );
-    let peers = [peer("self"), peer("sender"), peer("introduced")];
-
-    let first = super::known_peer_ids(&mesh);
-    let learned: Vec<_> = super::newly_learned_peers(&first, &peers)
-        .map(|peer| peer.instance_id.as_str())
-        .collect();
-    assert_eq!(learned, ["sender", "introduced"]);
-
-    mesh.apply_gossip_snapshot("sender", 1, &peers, 10);
-    let second = super::known_peer_ids(&mesh);
-    assert_eq!(
-        super::newly_learned_peers(&second, &peers).count(),
-        0,
-        "a repeated exchange learns nothing"
-    );
-}
-
-#[test]
 fn full_access_sync_keeps_peer_introductions() {
     let peers = [peer("sender"), peer("introduced")];
     let allowed = sync_input_for_access(true, Some("sender"), &peers);

@@ -121,7 +121,7 @@ export interface LaunchParams {
   sessionId?: string;
   task?: string;
   /** Optional provider-visible starter turn selected by the host. */
-  starterPrompt?: "no_starter" | "assigned_task" | "idle_wakeup" | "team_bootstrap" | "startup_handshake";
+  starterPrompt?: "no_starter" | "assigned_task" | "idle_wakeup" | "team_bootstrap" | "general_bootstrap" | "startup_handshake";
   /** Host-owned text for starter prompts shared across providers. */
   starterPromptText?: string;
   /** Host-owned opening frame for the selected starter turn. */
@@ -278,7 +278,7 @@ export interface AgentProvider {
   sessionResume?(): SessionResumeCapability;
   authStatusProbe?(): {args: string[]; timeoutMs: number} | null;
   tracksBackgroundWork?(): boolean;
-  parseBackgroundWork?(record: unknown): {id:string;state:"running"|"completed"|"failed"|"killed"}[];
+  parseBackgroundWork?(record: unknown): {id:string;state:"running"|"completed"|"failed"|"killed"|"session_boundary"}[];
   reasoningEffortLaunchArgsForModel?(model: string | null, effort: string): string[];
   modelCatalogueSeed?(): ModelInfo[];
   parseAuthStatus?(record: unknown): ProviderAuthStatus | null;
@@ -1023,6 +1023,7 @@ export interface SurfaceContribution {
 // ── onAgentCommand (the inverse seam) ──
 
 export interface AgentCommandCtx {
+  body?: string;
   sessionId: string;
   verb: string;
   args: string[];

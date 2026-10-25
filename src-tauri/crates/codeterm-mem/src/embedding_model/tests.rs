@@ -3,8 +3,9 @@
 fn candle_embedding_matches_fastembed_golden() {
     let fixture: serde_json::Value =
         serde_json::from_str(include_str!("../../tests/fixtures/embed_parity.json")).unwrap();
-    assert_eq!(fixture["model"], crate::embeddings::EMBEDDER_MODEL_ID);
-    assert_eq!(fixture["dimension"], crate::embeddings::EMBEDDING_DIMENSION);
+    let l12 = crate::embedder::local::default_model();
+    assert_eq!(fixture["model"], l12.model);
+    assert_eq!(fixture["dimension"], l12.dimension);
     let cases = fixture["cases"].as_array().unwrap();
     assert_eq!(cases.len(), 25);
     for (index, case) in cases.iter().enumerate() {

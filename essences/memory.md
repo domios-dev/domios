@@ -4,6 +4,12 @@ Memory keeps facts, notes, preferences and skills available to agents across con
 
 Persistent memory lives in Domios, never in provider side stores. It is English and its bodies carry no dates. Skills are registered through memory, never written directly into provider skill directories. Conversations are searched as sessions; durable facts are searched as memory.
 
+## Embedding transitions
+
+Recall embeddings take priority over queued background inference. A bounded semantic budget falls back to keyword results with an explicit degradation reason. Embedder status exposes live queued and in-flight work separately from persisted vector-pending items, along with failures and availability.
+
+Recall stays fully semantic on one published model and its stamped vectors while a replacement index is built, and the two swap atomically. One item's embedding failure never stops a rebuild; changes made during it are picked up before the swap, and completed work survives restart. Recall is reported degraded only when it actually is. Choosing the published model cancels a rebuild.
+
 ## Decision recall
 
 A connected Supporter adds a second stage that judges how directly and usefully each candidate answers the query. The first stage retains ordinary hybrid retrieval; the [Supporter Agent](supporter-agent.md) judges candidates independently and orders the pool by absolute relevance. Each candidate receives one yes/no probability judgment when supported, otherwise a normalized score. Ties keep the original order.

@@ -121,6 +121,7 @@ fn runtime_team_projection_preserves_persisted_order_and_appends_new_teams() {
         .into_iter()
         .enumerate()
         .map(|(index, id)| Team {
+            locked: false,
             id: id.into(),
             name: None,
             lifecycle: TeamLifecycle::Active,
@@ -139,6 +140,7 @@ fn runtime_team_projection_preserves_persisted_order_and_appends_new_teams() {
     );
 
     mux.upsert_team(Team {
+        locked: false,
         id: "team-new".into(),
         name: None,
         lifecycle: TeamLifecycle::Forming,
@@ -361,6 +363,7 @@ fn storage_desk_app_adapter_imports_and_flushes_exact_selection() {
         active_workspace_id: Some("ws-a".into()),
         teams: vec![],
         workspaces: vec![crate::session::store::WorkspaceSnapshot {
+            created_at_ms: 0,
             id: "ws-a".into(),
             name: "Alpha".into(),
             tabs: vec![],
@@ -390,6 +393,7 @@ fn storage_desk_app_adapter_imports_and_flushes_exact_selection() {
     backup
         .workspaces
         .push(crate::session::store::WorkspaceSnapshot {
+            created_at_ms: 0,
             id: "ws-b".into(),
             name: "Restored".into(),
             tabs: vec![],

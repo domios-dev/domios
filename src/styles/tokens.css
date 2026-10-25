@@ -11,6 +11,8 @@
   --ct-font-size-md: 0.875rem;
   --ct-font-size-lg: 1rem;
   --ct-line-height: 1.45;
+  --ct-capsule-font-size: 14px;
+  --ct-capsule-line-height: 20px;
 
   /* Input / control rhythm */
   --ct-control-height: 2.125rem;

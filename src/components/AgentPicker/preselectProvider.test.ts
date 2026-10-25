@@ -36,6 +36,7 @@ function mkProvider(
     notifications_schema: [],
     supports_lazy_skills: false,
     has_hooks: false,
+    general_agent_offer_when_absent: true,
     cli_binary: cli ?? null,
     install_command: cli ? `install-${id}` : null,
     availability,
@@ -101,6 +102,32 @@ test("General agent eligibility follows PTY or agent runtime capabilities", () =
     preselectProviderId(eligible) === runtime.id,
     "an available runtime can be preselected ahead of PTY providers",
   );
+});
+
+test("General offers bundled defaults always and Cursor only when detected", () => {
+  for (const availability of ["available", "unavailable", "unknown", undefined] as const) {
+    const providers = ["codex", "claude", "opencode", "cursor"].map((id) => {
+      const manifest = JSON.parse(readFileSync(
+        new URL(`../../../plugins/provider-${id}/plugin.json`, import.meta.url), "utf8",
+      )) as { generalAgentOfferWhenAbsent?: boolean };
+      return {
+        ...mkProvider(id, `${id}-cli`, availability),
+        general_agent_offer_when_absent: manifest.generalAgentOfferWhenAbsent,
+        ...(id === "codex" ? { transport: "chat_backend" as const, agent_runtime: {} } : {}),
+      };
+    });
+    const expected = availability === "available" ? "codex,claude,opencode,cursor" : "codex,claude,opencode";
+    assert(generalAgentProviders(providers).map((provider) => provider.id).join(",") === expected,
+      `General options for ${availability ?? "unobserved"}`);
+  }
+});
+
+test("General offer policy belongs to capabilities rather than provider identities", () => {
+  const hidden = { ...mkProvider("codex", "engine", "unavailable"), general_agent_offer_when_absent: false };
+  const offered = { ...mkProvider("arbitrary-installable-agent", "engine", "unavailable"), general_agent_offer_when_absent: true };
+  const plainChat = { ...offered, id: "plain-chat", transport: "chat_backend" as const };
+  assert(generalAgentProviders([hidden, offered, plainChat]).map((provider) => provider.id).join(",") === offered.id,
+    "the flag allows install offers only for eligible agent transports");
 });
 
 test("providerRequiresCli respects descriptor", () => {

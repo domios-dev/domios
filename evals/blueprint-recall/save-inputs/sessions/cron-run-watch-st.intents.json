@@ -1,0 +1,99 @@
+{
+  "duration_api_ms": 4748,
+  "stop_reason": "end_turn",
+  "session_id": "60666528-0d2b-47c4-b84b-e2ae91116dad",
+  "total_cost_usd": 0.0698538,
+  "usage": {
+    "input_tokens": 2,
+    "cache_creation_input_tokens": 8487,
+    "cache_read_input_tokens": 649,
+    "output_tokens": 91,
+    "output_tokens_details": {
+      "thinking_tokens": 0
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 8487,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "global",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 91,
+        "cache_read_input_tokens": 649,
+        "cache_creation_input_tokens": 8487,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 8487
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-opus-5-5": {
+      "inputTokens": 2,
+      "outputTokens": 91,
+      "cacheReadInputTokens": 649,
+      "cacheCreationInputTokens": 8487,
+      "webSearchRequests": 0,
+      "costUSD": 0.0698538,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-opus-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 1,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "[\"Watch the scheduled job's current run and ping me when it finishes\", \"Notify me once the nightly cron job completes\", \"Let me know when this cron run is done\", \"Follow the running scheduled task and alert me on completion\", \"Tell me when the backup job's current execution ends\"]",
+  "ttft_ms": 5449,
+  "type": "result",
+  "duration_ms": 5498,
+  "uuid": "f46ff293-96a5-4456-8d6d-50d8677125dd",
+  "ttft_stream_ms": 5448,
+  "time_to_request_ms": 708,
+  "first_content_frame_ms": 5448,
+  "queued_turn_count": 0,
+  "result_index": 0
+}

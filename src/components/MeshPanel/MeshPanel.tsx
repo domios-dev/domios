@@ -5,10 +5,14 @@ import { invoke, listen } from "../../lib/bridge";
 import { BusySpinner } from "../shared/BusyState";
 import type { ApiConfig, AppConfig } from "../../lib/types";
 import type { MeshTab } from "./types";
-import { MeshCanvas, type RecentPush } from "./MeshCanvas";
+import type { RecentPush } from "./MeshCanvas";
+import { AccountMeshCanvas } from "./AccountMeshCanvas";
+import { useCanvasTailscale } from "./useCanvasTailscale";
 import { ServiceDrawer, type DrawerState } from "./ServiceDrawer";
 import { useMeshData } from "./useMeshData";
-import { pairedPeers } from "./meshProjection";
+import { meshDataUnavailable, meshHeaderState } from "./meshProjection";
+import { DeferredLoader } from "@codeterm/chat-ui/DeferredLoader";
+import { RegionLoader } from "../shared/RegionLoader";
 import { NetworkTab } from "./NetworkTab";
 import { ActivityTab } from "./ActivityTab";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
@@ -61,6 +65,7 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
   }, [config, onConfigUpdate]);
   const [activeTab, setActiveTab] = useState<MeshTab>(() => normalizeTab("map"));
   const [refreshKey, setRefreshKey] = useState(0);
+  const [registryRefreshKey, setRegistryRefreshKey] = useState(0);
   const data = useMeshData(refreshKey);
   const [recentPushes, setRecentPushes] = useState<RecentPush[]>([]);
   const [network, setNetwork] = useState<NetworkInfo | null>(null);
@@ -68,9 +73,16 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
   const [serveLoading, setServeLoading] = useState(true);
 
   const triggerRefresh = useCallback(() => setRefreshKey((k) => k + 1), []);
-  // Same projection the graph nodes render from — a pending (discovered-not-
-  // paired) peer must never inflate this count (codeterm#440).
-  const headerPeerCount = useMemo(() => pairedPeers(data.peers).length, [data.peers]);
+  const refreshAll = useCallback(() => {
+    triggerRefresh();
+    setRegistryRefreshKey((key) => key + 1);
+  }, [triggerRefresh]);
+  const header = useMemo(
+    () => meshHeaderState({ error: data.error, loaded: data.loaded, peers: data.peers }, activeTab === "inventory"),
+    [data.error, data.loaded, data.peers, activeTab],
+  );
+  const unavailable = meshDataUnavailable(data);
+  const graphReady = data.loaded;
 
   useEffect(() => {
     let unlistenHealth: (() => void) | null = null;
@@ -107,6 +119,18 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
 
   useEffect(() => {
     void loadServe();
+    let active = true;
+    const refresh = () => {
+      void invoke<NetworkInfo>("get_network_info").then((info) => {
+        if (active) setNetwork(info);
+      }).catch(() => undefined);
+    };
+    let stop: (() => void) | undefined;
+    void listen("mesh-state-changed", refresh).then((unlisten) => {
+      if (active) stop = unlisten; else unlisten();
+    });
+    window.addEventListener("focus", refresh);
+    return () => { active = false; stop?.(); window.removeEventListener("focus", refresh); };
   }, [loadServe, refreshKey]);
 
   const runWebUiAction = useCallback(
@@ -139,7 +163,6 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
     setDrawerState({ kind: "peer", id: name });
   }, []);
   const closeDrawer = useCallback(() => setDrawerState(null), []);
-  const showNetwork = useCallback(() => setActiveTab("network"), []);
   const setupWebAccess = useCallback(async () => {
     await startWebAccessSetupHelper(serve, buildWebUiTarget(config, network, serve).port, config.api);
     onClose();
@@ -148,6 +171,7 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
   const webCard = useCallback((qrSize: number) => <WebNodeCard qrSize={qrSize} config={config} network={network} serve={serve} loading={serveLoading}
     actions={WEB_ACTIONS} onAction={runWebUiAction} onSetup={setupWebAccess} />, [config, network, serve, serveLoading, runWebUiAction, setupWebAccess]);
   const webUiTarget = useMemo(() => buildWebUiTarget(config, network, serve), [config, network, serve]);
+  const tailscale = useCanvasTailscale({ serve, network, loading: serveLoading, api: config.api, onOpened: onClose });
 
   useLayoutEffect(() => {
     const element = mapRef.current;
@@ -163,7 +187,7 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
     const observer = new ResizeObserver(measure);
     observer.observe(element);
     return () => observer.disconnect();
-  }, [activeTab]);
+  }, [activeTab, graphReady]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -201,12 +225,14 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
         <div className="ct-section-toolbar__identity flex items-center gap-3 mr-4 shrink-0">
           <strong>Mesh</strong>
           <div className={`${UI_TEXT.meta} opacity-70`}>
-            {data.error && activeTab !== "inventory" && headerPeerCount === 0
+            {header.kind === "unavailable"
               ? <span role="status">Mesh data is unavailable.</span>
-              : `${headerPeerCount} peer${headerPeerCount === 1 ? "" : "s"}`}
+              : header.kind === "loading"
+                ? <DeferredLoader state="present" aria-busy="true">Loading peers</DeferredLoader>
+                : `${header.count} peer${header.count === 1 ? "" : "s"}`}
           </div>
           {activeTab !== "inventory" && <button
-            onClick={() => setRefreshKey((k) => k + 1)}
+            onClick={refreshAll}
             className={`flex ${touchUi ? "h-9 w-9" : "h-7 w-7"} shrink-0 items-center justify-center p-0 text-[var(--ct-muted-fg)] transition-colors hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)] active:scale-95`}
             style={{ borderRadius: "9999px" }}
             title="Refresh"
@@ -226,10 +252,31 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
         </div>
       </div>
       <div className="relative flex-1 min-h-0 overflow-hidden">
-        {activeTab === "inventory" && (
+        {activeTab === "inventory" && unavailable && (
+          <section aria-label="Mesh inventory" className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-[var(--ct-muted-fg)]">
+            <p>Mesh data is unavailable.</p>
+            <button
+              type="button"
+              onClick={triggerRefresh}
+              disabled={data.loading}
+              className="flex items-center gap-2 rounded-md border border-[var(--ct-border)] px-3 py-1.5 text-[var(--ct-fg)] transition-colors hover:bg-[var(--ct-hover)] disabled:opacity-60"
+            >
+              <BusySpinner icon={RefreshCw} size={13} spinning={data.loading} />
+              Retry
+            </button>
+          </section>
+        )}
+        {activeTab === "inventory" && !graphReady && !unavailable && (
+          <section aria-label="Mesh inventory" aria-busy="true" className="absolute inset-0 flex items-center justify-center">
+            <RegionLoader label="Loading mesh" />
+          </section>
+        )}
+        {activeTab === "inventory" && graphReady && (
           <div ref={mapRef} className="absolute inset-0">
-            <MeshCanvas
-              onRefresh={triggerRefresh}
+            <AccountMeshCanvas
+              registryRefreshKey={registryRefreshKey}
+              onAccountChanged={triggerRefresh}
+              onRefresh={refreshAll}
               webCard={webCard}
               webStatus={deriveWebUiView(serve?.snapshot, serveLoading).label}
               thisMachine={data.thisMachine}
@@ -241,9 +288,9 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
               onPeerClick={handlePeerClick}
               width={mapSize.width}
               height={mapSize.height}
-              onAddPeerClick={showNetwork}
               meshEnabled={config.mesh.enabled}
               onGoOnline={goOnline}
+              tailscale={tailscale}
               onOpenPeerWebUi={openPeerWebUi}
               webUiBaseUrl={displayedWebUrl(webUiTarget.link)}
               webUiToken={config.api.token}
@@ -252,7 +299,7 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
         )}
         {activeTab === "activity" && <ActivityTab active={activeTab === "activity"} />}
         {activeTab === "network" && (
-          <NetworkTab data={data} triggerRefresh={triggerRefresh} />
+          <NetworkTab triggerRefresh={triggerRefresh} />
         )}
         <ServiceDrawer
           state={drawerState}

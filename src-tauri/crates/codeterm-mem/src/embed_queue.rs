@@ -12,17 +12,26 @@ use parking_lot::{Condvar, Mutex};
 use tokio::sync::Semaphore;
 
 use super::embed_schedule::{EmbedSchedule, EmbedUnit, SubmitOutcome};
+use super::embedder::index::{self, InsertOutcome};
+use super::embedder::{pending, ActiveEmbedder, EmbedError};
 use super::graph_layout::cache::LayoutCache;
 
 const QUEUE_CAPACITY: usize = 1024;
 
-pub(crate) type Embedder = Arc<dyn Fn(&str) -> Result<Vec<f32>, String> + Send + Sync>;
+#[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct QueueStatus {
+    pub queued: usize,
+    pub in_flight: usize,
+    pub failed: u64,
+    pub unavailable: bool,
+}
 
 #[derive(Default)]
 struct QueueState {
     schedule: EmbedSchedule,
     busy: bool,
     closed: bool,
+    failed: u64,
 }
 
 #[derive(Default)]
@@ -54,6 +63,22 @@ pub struct EmbedQueue {
 }
 
 impl EmbedQueue {
+    pub fn status(&self, unavailable: bool) -> QueueStatus {
+        let Some(shared) = self.shared() else {
+            return QueueStatus {
+                unavailable: true,
+                ..QueueStatus::default()
+            };
+        };
+        let state = shared.state.lock();
+        QueueStatus {
+            queued: state.schedule.queued_chunks(),
+            in_flight: usize::from(state.busy),
+            failed: state.failed,
+            unavailable: unavailable || state.closed,
+        }
+    }
+
     pub fn disabled() -> Self {
         Self { handle: None }
     }
@@ -62,24 +87,7 @@ impl EmbedQueue {
         db_path: PathBuf,
         heavy_ops_permits: Arc<Semaphore>,
         layout: Arc<LayoutCache>,
-    ) -> Self {
-        if !cfg!(feature = "embeddings") {
-            return Self::disabled();
-        }
-        Self::start_with(
-            db_path,
-            heavy_ops_permits,
-            layout,
-            Arc::new(|text: &str| super::embeddings::embed(text)),
-        )
-    }
-
-    #[cfg_attr(not(feature = "embeddings"), allow(dead_code))]
-    pub(crate) fn start_with(
-        db_path: PathBuf,
-        heavy_ops_permits: Arc<Semaphore>,
-        layout: Arc<LayoutCache>,
-        embedder: Embedder,
+        embedder: Arc<ActiveEmbedder>,
     ) -> Self {
         let shared = Arc::new(Shared::default());
         let worker_shared = shared.clone();
@@ -128,11 +136,14 @@ impl EmbedQueue {
                 drop(state);
                 shared.work.notify_one();
             }
-            SubmitOutcome::Full => log::warn!(
-                "[mem] embed queue full ({} items pending), dropping {}",
-                state.schedule.pending_items(),
-                id
-            ),
+            SubmitOutcome::Full => {
+                state.failed += 1;
+                log::warn!(
+                    "[mem] embed queue full ({} items pending), dropping {}",
+                    state.schedule.pending_items(),
+                    id
+                );
+            }
         }
     }
 
@@ -169,14 +180,7 @@ impl EmbedQueue {
 }
 
 fn chunks_for(text: &str) -> Vec<String> {
-    #[cfg(feature = "embeddings")]
-    {
-        super::embeddings::chunk_text(text)
-    }
-    #[cfg(not(feature = "embeddings"))]
-    {
-        vec![text.to_string()]
-    }
+    super::embeddings::chunk_text(text)
 }
 
 /// Take the next unit, or `None` once the queue is closed and drained.
@@ -196,14 +200,13 @@ fn next_unit(shared: &Shared) -> Option<EmbedUnit> {
     }
 }
 
-#[cfg(feature = "embeddings")]
 fn run_worker(
     db_path: PathBuf,
     shared: Arc<Shared>,
     heavy_ops_permits: Arc<Semaphore>,
     runtime: Option<tokio::runtime::Handle>,
     layout: Arc<LayoutCache>,
-    embedder: Embedder,
+    embedder: Arc<ActiveEmbedder>,
 ) {
     super::embeddings::ensure_extension_registered();
     let conn = match rusqlite::Connection::open(&db_path) {
@@ -228,50 +231,78 @@ fn run_worker(
             .as_ref()
             .and_then(|h| h.block_on(heavy_ops_permits.clone().acquire_owned()).ok());
         process_unit(&conn, &shared, &layout, &embedder, &unit);
-        shared.state.lock().schedule.finish(&unit);
+        let mut state = shared.state.lock();
+        state.schedule.finish(&unit);
+        state.busy = false;
+        if state.schedule.is_idle() {
+            shared.idle.notify_all();
+        }
     }
 
     log::info!("[mem] embed queue worker exiting (queue closed)");
 }
 
-#[cfg(feature = "embeddings")]
 fn process_unit(
     conn: &rusqlite::Connection,
     shared: &Shared,
     layout: &LayoutCache,
-    embedder: &Embedder,
+    embedder: &ActiveEmbedder,
     unit: &EmbedUnit,
 ) {
     if !shared.state.lock().schedule.is_current(unit) {
         return;
     }
-    let vector = match embedder(&unit.text) {
+    let vector = match embedder.passage(&unit.text) {
         Ok(vector) => vector,
-        Err(e) => {
-            log::warn!("[mem] embed {} chunk {}: {}", unit.id, unit.chunk_index, e);
+        Err(EmbedError::Unavailable(reason)) => {
+            shared.state.lock().failed += 1;
+            let dropped = shared.state.lock().schedule.abandon(unit);
+            if let Err(error) = pending::mark(conn, &unit.id, &reason) {
+                log::warn!("[mem] embed {}: {error}", unit.id);
+            }
+            log::info!(
+                "[mem] embed {} vector pending ({reason}); dropped {dropped} queued chunks",
+                unit.id
+            );
+            return;
+        }
+        Err(error) => {
+            shared.state.lock().failed += 1;
+            shared.state.lock().schedule.abandon(unit);
+            log::debug!(
+                "[mem] embed {} chunk {}: {error}",
+                unit.id,
+                unit.chunk_index
+            );
             return;
         }
     };
     if !shared.state.lock().schedule.is_current(unit) {
         return;
     }
-    match super::embeddings::insert_vector_if_item_live(conn, &unit.id, unit.chunk_index, &vector) {
-        Ok(true) => {
+    match index::insert_if_live(conn, &unit.id, unit.chunk_index, &vector) {
+        Ok(InsertOutcome::Inserted) => {
             if unit.chunk_index == 0 {
                 place_in_layout(conn, layout, &unit.id);
             }
             if unit.is_last {
+                if let Err(error) = pending::clear(conn, &unit.id) {
+                    log::warn!("[mem] embed {}: {error}", unit.id);
+                }
                 log::debug!("[mem] indexed embedding for {}", unit.id);
             }
         }
-        Ok(false) => {
+        Ok(InsertOutcome::ItemGone) => {
             let dropped = shared.state.lock().schedule.abandon(unit);
             log::info!(
                 "[mem] embed skipped deleted item {} (dropped {dropped} pending chunks)",
                 unit.id
             );
         }
-        Err(e) => log::warn!("[mem] embed index {}: {}", unit.id, e),
+        Err(e) => {
+            shared.state.lock().failed += 1;
+            log::warn!("[mem] embed index {}: {}", unit.id, e);
+        }
     }
 }
 
@@ -297,18 +328,7 @@ fn place_in_layout(conn: &rusqlite::Connection, layout: &LayoutCache, id: &str) 
 }
 
 #[cfg(not(feature = "embeddings"))]
-fn run_worker(
-    _db_path: PathBuf,
-    shared: Arc<Shared>,
-    _heavy_ops_permits: Arc<Semaphore>,
-    _runtime: Option<tokio::runtime::Handle>,
-    _layout: Arc<LayoutCache>,
-    _embedder: Embedder,
-) {
-    while let Some(unit) = next_unit(&shared) {
-        shared.state.lock().schedule.finish(&unit);
-    }
-}
+fn place_in_layout(_conn: &rusqlite::Connection, _layout: &LayoutCache, _id: &str) {}
 
 #[cfg(test)]
 mod tests;

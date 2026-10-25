@@ -53,12 +53,24 @@ impl JsSecretBackend {
         let plugin = self.plugin.clone();
         tokio::task::spawn_blocking(move || plugin.call(method, &args))
             .await
-            .map_err(|e| SecretError::Backend {
-                message: format!("plugin {method} worker failed: {e}"),
+            .map_err(|_| SecretError::Backend {
+                message: format!("plugin {method} worker failed"),
             })?
             .map_err(|e| SecretError::Backend {
-                message: format!("plugin {method} failed: {e:?}"),
+                message: format!("plugin {method} failed ({})", vm_error_kind(&e)),
             })
+    }
+
+    async fn call_value(
+        &self,
+        method: &'static str,
+        args: Vec<serde_json::Value>,
+    ) -> Result<serde_json::Value, SecretError> {
+        let value = self.call_raw(method, args).await?;
+        serde_json::from_value::<Envelope<serde_json::Value>>(value)
+            .map_err(|_| unexpected_shape(method))?
+            .into_result()
+            .map_err(SecretError::redacted)
     }
 
     async fn call<R: serde::de::DeserializeOwned>(
@@ -66,12 +78,17 @@ impl JsSecretBackend {
         method: &'static str,
         args: Vec<serde_json::Value>,
     ) -> Result<R, SecretError> {
-        let value = self.call_raw(method, args).await?;
-        serde_json::from_value::<Envelope<R>>(value)
-            .map_err(|e| SecretError::Backend {
-                message: format!("plugin {method} failed: {e}"),
-            })?
-            .into_result()
+        let value = self.call_value(method, args).await?;
+        serde_json::from_value::<R>(value).map_err(|_| unexpected_shape(method))
+    }
+
+    async fn call_metadata(
+        &self,
+        method: &'static str,
+        args: Vec<serde_json::Value>,
+    ) -> Result<Vec<SecretRef>, SecretError> {
+        crate::redact::metadata_list(self.call_value(method, args).await?)
+            .map_err(|_| unexpected_shape(method))
     }
 
     async fn call_unit(
@@ -82,6 +99,24 @@ impl JsSecretBackend {
         self.call::<serde_json::Value>(method, args)
             .await
             .map(|_| ())
+    }
+}
+
+fn vm_error_kind(e: &VmError) -> &'static str {
+    match e {
+        VmError::ReadFile { .. } => "read_file",
+        VmError::RuntimeInit(_) => "runtime_init",
+        VmError::Script(_) => "script",
+        VmError::MissingFunction(_) => "missing_function",
+        VmError::InvalidJson(..) => "invalid_json",
+        VmError::ArgSerialize(..) => "arg_serialize",
+        VmError::AsyncJobTimedOut => "timed_out",
+    }
+}
+
+fn unexpected_shape(method: &str) -> SecretError {
+    SecretError::Backend {
+        message: format!("plugin {method} returned an unexpected response shape"),
     }
 }
 
@@ -142,12 +177,19 @@ impl SecretStore for JsSecretBackend {
 
     async fn status(&self) -> StoreStatus {
         let status = match self.call_raw("secretStatus", Vec::new()).await {
-            Ok(value) => serde_json::from_value::<StoreStatus>(value).map_err(|e| e.to_string()),
-            Err(e) => Err(format!("{e:?}")),
+            Ok(value) => serde_json::from_value::<StoreStatus>(value)
+                .map_err(|_| unexpected_shape("secretStatus")),
+            Err(e) => Err(e),
         };
-        status.unwrap_or_else(|e| StoreStatus::Unavailable {
-            reason: format!("status failed: {e}"),
-        })
+        match status {
+            Ok(StoreStatus::Unavailable { reason }) => StoreStatus::Unavailable {
+                reason: crate::redact::bounded_reason(&reason),
+            },
+            Ok(other) => other,
+            Err(e) => StoreStatus::Unavailable {
+                reason: format!("status failed: {e}"),
+            },
+        }
     }
 
     async fn unlock(&self, creds: UnlockCredentials) -> Result<(), SecretError> {
@@ -173,7 +215,8 @@ impl SecretStore for JsSecretBackend {
             "collection": req.collection,
             "overwrite": req.overwrite,
         })];
-        self.call::<SecretRef>("secretSave", args).await
+        let saved = self.call_value("secretSave", args).await?;
+        crate::redact::metadata_only(&saved).ok_or_else(|| unexpected_shape("secretSave"))
     }
 
     async fn get(&self, name_or_id: &str) -> Result<SecretValue, SecretError> {
@@ -189,7 +232,7 @@ impl SecretStore for JsSecretBackend {
     }
 
     async fn list(&self, filter: ListFilter) -> Result<Vec<SecretRef>, SecretError> {
-        self.call::<Vec<SecretRef>>(
+        self.call_metadata(
             "secretList",
             vec![serde_json::to_value(&filter).unwrap_or(json!({}))],
         )
@@ -197,8 +240,7 @@ impl SecretStore for JsSecretBackend {
     }
 
     async fn search(&self, query: &str) -> Result<Vec<SecretRef>, SecretError> {
-        self.call::<Vec<SecretRef>>("secretSearch", vec![json!(query)])
-            .await
+        self.call_metadata("secretSearch", vec![json!(query)]).await
     }
 
     async fn delete(&self, name_or_id: &str) -> Result<(), SecretError> {

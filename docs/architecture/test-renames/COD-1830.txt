@@ -1,0 +1,1 @@
+server_bootstrap::tests::server_bootstrap_isolated_verification_is_release_only -> server_bootstrap::tests::server_bootstrap_isolated_verification_accepts_both_artifact_profiles

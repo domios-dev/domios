@@ -1,0 +1,19 @@
+schema_version: 1
+name: Echo watcher
+note: Print a configured word with a fixed probe, recognise it in the output, and notify with the match.
+inputs:
+  word:
+    type: string
+    description: Word the probe prints
+watch:
+  probe: echo '{{word}}'
+  question: did-the-probe-print-the-word
+  buckets:
+  - matched
+  matches:
+    matched: (?m)^{{word}}$
+  every: 30s
+  until: matched
+  timeout: 10m
+  routes:
+    matched: notify

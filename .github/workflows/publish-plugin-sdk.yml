@@ -8,12 +8,11 @@ name: publish-plugin-sdk
 
 on:
   workflow_dispatch:
-  push:
-    tags:
-      - "plugin-sdk-v*"
 
 jobs:
   publish:
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && startsWith(github.ref, 'refs/heads/release/') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    environment: release
     runs-on: [self-hosted, linux-build]
     permissions:
       id-token: write # required for OIDC trusted publishing
@@ -22,25 +21,30 @@ jobs:
       run:
         working-directory: packages/plugin-sdk
     steps:
-      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v5
+      - name: Use the runner bundled Node
+        if: runner.environment == 'self-hosted'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            const path = require('node:path');
+            core.addPath(path.dirname(process.execPath));
+            core.info('Using runner Node ' + process.version);
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
           package-manager-cache: false
-          node-version: "22"
-          registry-url: "https://registry.npmjs.org"
+          node-version: 22.22.0
+          registry-url: https://registry.npmjs.org
+        if: runner.environment == 'github-hosted'
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+          ref: ${{ github.sha }}
+      - name: Discover installed runner tools
+        if: runner.environment == 'self-hosted'
+        run: node scripts/ci-runner-paths.mjs --paths-only
 
       # Trusted publishing (OIDC) requires npm >= 11.5.1.
       - run: npm install -g npm@latest
-
-      - name: Guard tag matches package version
-        if: startsWith(github.ref, 'refs/tags/plugin-sdk-v')
-        run: |
-          pkg_version="$(node -p "require('./package.json').version")"
-          tag_version="${GITHUB_REF_NAME#plugin-sdk-v}"
-          if [ "$pkg_version" != "$tag_version" ]; then
-            echo "tag $tag_version != package.json $pkg_version" >&2
-            exit 1
-          fi
 
       - run: npm publish --access public

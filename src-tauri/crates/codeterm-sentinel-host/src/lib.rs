@@ -5,11 +5,14 @@ pub use codeterm_sentinel::{
 };
 pub(crate) mod actions;
 pub mod blueprint_apply;
+pub mod blueprint_calls;
 pub mod blueprint_memory;
 pub use blueprint_memory::BlueprintMemoryExt;
 pub mod blueprint_pipeline;
 pub mod blueprint_portable;
+pub mod blueprint_webhook;
 pub use blueprint_apply::BlueprintApplyExt;
+mod plan_lock;
 mod ports_impl;
 pub mod service_adapter;
 pub use blueprint_pipeline::BlueprintExt;
@@ -20,9 +23,10 @@ pub use service_adapter::delete::SentinelDeleteExt;
 pub use service_adapter::graph::{AutomationFilesExt, AutomationGraphExt};
 pub use service_adapter::SentinelExt;
 pub(crate) mod classify;
+pub(crate) mod code_runtime;
 pub mod event_subscription;
 pub mod graph;
-mod pipeline;
+pub mod pipeline;
 mod probe_env;
 pub(crate) mod routes;
 pub(crate) mod run_binding;
@@ -61,3 +65,5 @@ mod persistence_roundtrip_tests;
 #[cfg(test)]
 #[path = "run_binding_tests.rs"]
 mod run_binding_tests;
+
+pub mod blueprint_viewer;

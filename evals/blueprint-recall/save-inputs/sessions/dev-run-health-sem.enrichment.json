@@ -1,0 +1,99 @@
+{
+  "duration_api_ms": 10755,
+  "stop_reason": "end_turn",
+  "session_id": "b5d3b693-b3a4-4a45-9a6b-0c67689a04ad",
+  "total_cost_usd": 0.028498,
+  "usage": {
+    "input_tokens": 9,
+    "cache_creation_input_tokens": 11487,
+    "cache_read_input_tokens": 0,
+    "output_tokens": 1103,
+    "output_tokens_details": {
+      "thinking_tokens": 994
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 11487,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "not_available",
+    "iterations": [
+      {
+        "input_tokens": 9,
+        "output_tokens": 1103,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 11487,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 11487
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-haiku-4-5-20251001": {
+      "inputTokens": 9,
+      "outputTokens": 1103,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 11487,
+      "webSearchRequests": 0,
+      "costUSD": 0.028498,
+      "contextWindow": 200000,
+      "maxOutputTokens": 32000,
+      "thinkingTokens": 994,
+      "canonicalModel": "claude-haiku-4-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 1,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "WHAT: Monitors a development REST listener by checking it every 30 seconds. When the listener is down or fails to respond, it automatically retrieves recent system traces and sends a notification alert. Useful for catching dev service crashes immediately without manual checking. || INTENT: Monitor when my dev listener goes down and alert me || INTENT: Check dev REST API health and fetch traces on failure || INTENT: Notify me if development listener stops responding || INTENT: Pull traces automatically when dev service crashes",
+  "ttft_ms": 10188,
+  "type": "result",
+  "duration_ms": 10894,
+  "uuid": "90b27efa-9872-4680-af0e-eea398fa070e",
+  "ttft_stream_ms": 978,
+  "time_to_request_ms": 105,
+  "first_content_frame_ms": 978,
+  "queued_turn_count": 0,
+  "result_index": 0
+}

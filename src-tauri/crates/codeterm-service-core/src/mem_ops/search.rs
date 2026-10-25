@@ -30,7 +30,17 @@ pub fn execute_search(
     p: SearchParams,
 ) -> Result<serde_json::Value, SearchError> {
     let cfg = svc.configuration().supporter;
-    resolve_search(&**svc, &svc.supporter_models, &cfg, p)
+    let (result, degraded) = codeterm_mem::embedder::recall_priority::with_recall_status(|| {
+        resolve_search(&**svc, &svc.supporter_models, &cfg, p)
+    });
+    result.map(|result| search_status(result, degraded))
+}
+
+fn search_status(mut result: serde_json::Value, degraded: bool) -> serde_json::Value {
+    if degraded {
+        result["degraded"] = serde_json::json!("semantic pending");
+    }
+    result
 }
 
 #[cfg(test)]

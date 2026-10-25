@@ -1,0 +1,25 @@
+schema_version: 1
+name: Dependency audit
+note: Run npm audit weekly and notify only if high or critical vulnerabilities show up.
+owner: team
+inputs:
+  project_dir:
+    type: string
+    description: Node project directory
+pipeline:
+  trigger: {type: schedule, every: 168h}
+  steps:
+    - name: audit
+      input: text
+      run: npm audit --prefix '{{project_dir}}' --json
+      on: {done: next, failed: next}
+    - name: severe
+      input: text
+      uses: filter
+      with: {pattern: '"(high|critical)":\s*[1-9]', bucket: severe}
+      on: {severe: next, done: stop, failed: stop}
+    - name: flag
+      input: text
+      run: echo vulnerable-dependencies
+      on: {done: stop, failed: stop}
+  result: {to: notify}

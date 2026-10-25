@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # Caller: build.sh release-preflight; CI ready-for-release.yml, release-manifest-validate.yml, tests-fast.yml; scripts tests/test_release_issue_contract.py; skill github-release
 import argparse
+import os
+import subprocess
 import json
 import re
 import sys
@@ -8,14 +10,18 @@ from pathlib import Path
 
 
 PUBLIC_REPOSITORY = "rollacode/codeterm-releases"
-SOURCE_REPOSITORY = "rollacode/codeterm"
-# A declaration may close a prose line: commit messages are immutable, so a
-# trailing marker must resolve instead of failing every range that contains it.
+SOURCE_REPOSITORY = os.environ.get("GITHUB_REPOSITORY") or os.environ.get("DOMIOS_SOURCE_REPOSITORY") or subprocess.check_output(
+    ["node", str(Path(__file__).with_name("source-repository.mjs"))], text=True
+).strip()
+SOURCE_ALIASES = json.loads(Path(__file__).with_name("source-repository-aliases.json").read_text(encoding="utf-8"))
+SOURCE_NAMES = {SOURCE_REPOSITORY, *SOURCE_ALIASES}
+# A declaration may sit inside a prose line: commit messages are immutable, so a
+# well-formed marker must resolve instead of failing every range that contains it.
 PUBLIC_REFERENCE = re.compile(
-    r"(?:^|(?<=[\s(]))Public-Issue: rollacode/codeterm-releases#([1-9][0-9]*)[).,;]*$"
+    r"(?:^|(?<=[\s(]))Public-Issue: rollacode/codeterm-releases#([1-9][0-9]*)(?![0-9A-Za-z_])"
 )
 REPOSITORY_REFERENCE = re.compile(
-    r"(?:^|(?<=[\s(]))Repository-Issue: rollacode/codeterm#([1-9][0-9]*)[).,;]*$"
+    r"(?:^|(?<=[\s(]))Repository-Issue: (?:" + "|".join(re.escape(name) for name in sorted(SOURCE_NAMES)) + r")#([1-9][0-9]*)(?![0-9A-Za-z_])"
 )
 INLINE_CODE_SPAN = re.compile(r"`[^`]*`")
 PUBLIC_REFERENCE_MARKER = re.compile(r"Public-Issue:", re.IGNORECASE)
@@ -73,8 +79,8 @@ def parse_metadata(
                 seen.add(reference)
                 target = public_references if public_match else repository_references
                 target.append(reference)
-        # Text before a trailing declaration is still prose, held to the same rules.
-        remainder = line[: declaration.start()] if declaration else line
+        # Text around a declaration is still prose, held to the same rules.
+        remainder = f"{line[: declaration.start()]} {line[declaration.end():]}" if declaration else line
         # A backticked span quotes the syntax rather than using it. Without this a
         # commit that documents the contract fails the contract, permanently: a
         # message on master cannot be edited, so every later release re-reads it.
@@ -158,7 +164,7 @@ def audit_commits(commits: list[dict], body: str) -> None:
         for match in CLOSING_KEYWORD_TARGET.finditer(commit.get("body") or ""):
             repository = match.group("repository") or match.group("url_repository")
             number = match.group("number") or match.group("url_number")
-            if repository and repository != SOURCE_REPOSITORY:
+            if repository and repository not in SOURCE_NAMES:
                 errors.append(
                     f"commit {sha}: closing keyword for {repository}#{number}; "
                     "public release issues close after verified publication, never on merge"

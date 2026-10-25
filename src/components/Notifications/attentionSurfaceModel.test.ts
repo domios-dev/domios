@@ -17,6 +17,9 @@ describe("attention liveness", () => {
     expect(isLiveAttention(answered)).toBe(false);
     expect(retainedAttention([answered], request.id)).toBeUndefined();
   });
+  it("retains a daemon-owned connection approval without an agent tab", () => {
+    expect(isLiveAttention({ ...request, answer: { ...request.answer!, asked_from_tab: null, daemon_request: "mesh-link:request" } })).toBe(true);
+  });
   it("removes resolved, cleared, and orphaned requests", () => {
     expect(retainedAttention([{ ...request, resolved: true }], request.id)).toBeUndefined();
     expect(retainedAttention([], request.id)).toBeUndefined();

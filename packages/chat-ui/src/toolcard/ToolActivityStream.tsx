@@ -106,7 +106,6 @@ export function ToolActivityStream({ event, expanded, onToggle, renderAction }: 
                     rememberOpenSegment(commandCallKey(member), index);
                     selectMember(memberKey(member));
                   }}
-                  onMore={() => selectMember(memberKey(member))}
                 />
               )}
             </>

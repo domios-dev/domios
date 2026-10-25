@@ -123,7 +123,7 @@ pub fn timeline(
 ) -> Result<Vec<Relation>, String> {
     let mut sql = String::from(
         r#"SELECT from_id, relation_type, to_id, scope, valid_from, valid_to,
-                  confidence, properties_json
+                  confidence, properties_json, reason
            FROM relations
            WHERE (from_id = ?1 OR to_id = ?1)"#,
     );
@@ -146,7 +146,7 @@ pub fn timeline(
                 valid_to: r.get(5)?,
                 confidence: r.get(6)?,
                 properties: serde_json::from_str(&props_json).unwrap_or(Value::Null),
-                reason: None,
+                reason: r.get(8)?,
             })
         })
         .map_err(|e| e.to_string())?;
@@ -194,7 +194,7 @@ pub fn related(
 ) -> Result<Vec<Relation>, String> {
     let mut sql = String::from(
         r#"SELECT from_id, relation_type, to_id, scope, valid_from, valid_to,
-                  confidence, properties_json
+                  confidence, properties_json, reason
            FROM relations WHERE (from_id = ?1 OR to_id = ?1)"#,
     );
     let mut binds: Vec<String> = vec![id.to_string()];
@@ -219,7 +219,7 @@ pub fn related(
                 valid_to: r.get(5)?,
                 confidence: r.get(6)?,
                 properties: serde_json::from_str(&props_json).unwrap_or(Value::Null),
-                reason: None,
+                reason: r.get(8)?,
             })
         })
         .map_err(|e| e.to_string())?;
@@ -267,7 +267,7 @@ pub fn traverse(
         hops_used = hops_used.max(hop + 1);
 
         let mut sql = String::from(
-            r#"SELECT from_id, relation_type, to_id, scope, valid_from, valid_to, confidence, properties_json
+            r#"SELECT from_id, relation_type, to_id, scope, valid_from, valid_to, confidence, properties_json, reason
                FROM relations WHERE (from_id = ?1 OR to_id = ?1)"#,
         );
         let mut binds: Vec<String> = vec![node.clone()];
@@ -288,7 +288,7 @@ pub fn traverse(
                     valid_to: r.get(5)?,
                     confidence: r.get(6)?,
                     properties: serde_json::from_str(&props_json).unwrap_or(Value::Null),
-                    reason: None,
+                    reason: r.get(8)?,
                 })
             })
             .map_err(|e| e.to_string())?;
@@ -340,7 +340,7 @@ pub fn shortest_path(
         }
 
         let mut sql = String::from(
-            r#"SELECT from_id, relation_type, to_id, scope, valid_from, valid_to, confidence, properties_json
+            r#"SELECT from_id, relation_type, to_id, scope, valid_from, valid_to, confidence, properties_json, reason
                FROM relations WHERE (from_id = ?1 OR to_id = ?1)"#,
         );
         let mut binds: Vec<String> = vec![node.clone()];
@@ -360,7 +360,7 @@ pub fn shortest_path(
                     valid_to: r.get(5)?,
                     confidence: r.get(6)?,
                     properties: serde_json::from_str(&props_json).unwrap_or(Value::Null),
-                    reason: None,
+                    reason: r.get(8)?,
                 })
             })
             .map_err(|e| e.to_string())?;

@@ -46,26 +46,44 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
-  AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
   CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
 
 jobs:
   jev-linux:
     name: Jev local evaluator (linux)
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'jev-linux' }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'jev-linux') }}
+    environment: ci
     runs-on: [self-hosted, linux-build]
     timeout-minutes: 20
     env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
       JEV_EXPECTED_SHA: ${{ inputs.expected_source_sha }}
       JEV_WORKFLOW_SHA: ${{ github.workflow_sha }}
       JEV_EVENT_SHA: ${{ github.sha }}
       JEV_QA_PY: ${{ inputs.interpreter_path }}
     steps:
+      - name: Use the runner bundled Node
+        if: runner.environment == 'self-hosted'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            const path = require('node:path');
+            core.addPath(path.dirname(process.execPath));
+            core.info('Using runner Node ' + process.version);
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+        if: runner.environment == 'github-hosted'
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+          fetch-depth: 1
+      - name: Discover installed runner tools
+        if: runner.environment == 'self-hosted'
+        run: node scripts/ci-runner-paths.mjs --paths-only
       - name: Validate reviewed source and interpreter selection
         shell: bash
         run: |
@@ -161,16 +179,37 @@ jobs:
 
   jev-windows-inventory:
     name: Jev Windows registered interpreter inventory
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'jev-windows-inventory' }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'jev-windows-inventory') }}
+    environment: ci
     runs-on: [self-hosted, windows-build]
     timeout-minutes: 5
     permissions:
       contents: read
     env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
       JEV_EXPECTED_SHA: ${{ inputs.expected_source_sha }}
       JEV_WORKFLOW_SHA: ${{ github.workflow_sha }}
       JEV_EVENT_SHA: ${{ github.sha }}
     steps:
+      - name: Use the runner bundled Node
+        if: runner.environment == 'self-hosted'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            const path = require('node:path');
+            core.addPath(path.dirname(process.execPath));
+            core.info('Using runner Node ' + process.version);
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+        if: runner.environment == 'github-hosted'
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12"
+        if: runner.environment == 'github-hosted'
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         env:
           GIT_CONFIG_COUNT: '1'
@@ -179,6 +218,10 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+          fetch-depth: 1
+      - name: Discover installed runner tools
+        if: runner.environment == 'self-hosted'
+        run: node scripts/ci-runner-paths.mjs --paths-only
       - name: Validate reviewed inventory source
         shell: pwsh
         run: |
@@ -585,15 +628,31 @@ jobs:
 
   jev-windows:
     name: Jev local evaluator (windows)
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'jev-windows' }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'jev-windows') }}
+    environment: ci
     runs-on: [self-hosted, windows-build]
     timeout-minutes: 20
     env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
       JEV_EXPECTED_SHA: ${{ inputs.expected_source_sha }}
       JEV_WORKFLOW_SHA: ${{ github.workflow_sha }}
       JEV_EVENT_SHA: ${{ github.sha }}
       JEV_QA_PY: ${{ inputs.interpreter_path }}
     steps:
+      - name: Use the runner bundled Node
+        if: runner.environment == 'self-hosted'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            const path = require('node:path');
+            core.addPath(path.dirname(process.execPath));
+            core.info('Using runner Node ' + process.version);
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+        if: runner.environment == 'github-hosted'
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         env:
           GIT_CONFIG_COUNT: '1'
@@ -602,6 +661,10 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+          fetch-depth: 1
+      - name: Discover installed runner tools
+        if: runner.environment == 'self-hosted'
+        run: node scripts/ci-runner-paths.mjs --paths-only
       - name: Validate reviewed source and interpreter selection
         shell: pwsh
         run: |
@@ -747,10 +810,13 @@ jobs:
 
   rust-windows-task-local:
     name: Rust Windows task boundary
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'rust-windows-task-local' }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'rust-windows-task-local') }}
+    environment: ci
     runs-on: [self-hosted, windows-build]
     timeout-minutes: 50
     env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
       EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
       WORKFLOW_SOURCE_SHA: ${{ github.workflow_sha }}
       EVENT_SOURCE_SHA: ${{ github.sha }}
@@ -761,6 +827,24 @@ jobs:
       CARGO_TERM_COLOR: never
       TEST_CAP_SECS: '600'
     steps:
+      - name: Use the runner bundled Node
+        if: runner.environment == 'self-hosted'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            const path = require('node:path');
+            core.addPath(path.dirname(process.execPath));
+            core.info('Using runner Node ' + process.version);
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+        if: runner.environment == 'github-hosted'
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12"
+        if: runner.environment == 'github-hosted'
       - name: Set bounded task cache session deadline
         shell: pwsh
         run: |
@@ -773,8 +857,18 @@ jobs:
           GIT_CONFIG_VALUE_0: 'true'
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 0
+          fetch-depth: 1
           persist-credentials: false
+      - name: Discover installed runner tools
+        if: runner.environment == 'self-hosted'
+        run: node scripts/ci-runner-paths.mjs --paths-only
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
+        if: runner.environment == 'github-hosted'
       - name: Run fixed task boundary and retain raw outcomes
         id: task_boundary
         shell: pwsh
@@ -1090,26 +1184,56 @@ jobs:
 
   sentinel-command-linux:
     name: Sentinel command native qualification (Linux)
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'sentinel-command-linux' }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'sentinel-command-linux') }}
+    environment: ci
     runs-on: [self-hosted, linux-build]
     timeout-minutes: 30
     env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
       EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
       WORKFLOW_SOURCE_SHA: ${{ github.workflow_sha }}
       TEST_CAP_SECS: '600'
       CARGO_TERM_COLOR: never
     steps:
+      - name: Use the runner bundled Node
+        if: runner.environment == 'self-hosted'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            const path = require('node:path');
+            core.addPath(path.dirname(process.execPath));
+            core.info('Using runner Node ' + process.version);
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+        if: runner.environment == 'github-hosted'
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12"
+        if: runner.environment == 'github-hosted'
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+          fetch-depth: 1
+      - name: Discover installed runner tools
+        if: runner.environment == 'self-hosted'
+        run: node scripts/ci-runner-paths.mjs --paths-only
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
         with:
-          package-manager-cache: false
-          node-version: '22.22.0'
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
+        if: runner.environment == 'github-hosted'
       - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
         with:
           toolchain: 1.99.1
+          components: clippy,rustfmt
+        if: runner.environment == 'github-hosted'
       - name: Verify exact source and run five native controls
         shell: bash
         run: |
@@ -1164,21 +1288,53 @@ jobs:
 
   sentinel-linux-task-local:
     name: Sentinel probe fixed qualification (Linux)
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'sentinel-linux-task-local' }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'sentinel-linux-task-local') }}
+    environment: ci
     runs-on: [self-hosted, linux-build]
     timeout-minutes: 30
     env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
       EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
       WORKFLOW_SOURCE_SHA: ${{ github.workflow_sha }}
       EVENT_SOURCE_SHA: ${{ github.sha }}
       TEST_CAP_SECS: '600'
       CARGO_TERM_COLOR: never
     steps:
+      - name: Use the runner bundled Node
+        if: runner.environment == 'self-hosted'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            const path = require('node:path');
+            core.addPath(path.dirname(process.execPath));
+            core.info('Using runner Node ' + process.version);
+      - name: Setup Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+        if: runner.environment == 'github-hosted'
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12"
+        if: runner.environment == 'github-hosted'
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 0
+          fetch-depth: 1
           persist-credentials: false
+      - name: Discover installed runner tools
+        if: runner.environment == 'self-hosted'
+        run: node scripts/ci-runner-paths.mjs --paths-only
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
+        if: runner.environment == 'github-hosted'
       - name: Create fresh qualification receipt directory
         id: task_boundary
         shell: bash
@@ -1192,14 +1348,11 @@ jobs:
           mkdir -- "$receipt_dir"
           printf '%s\n' '{"schema":"sentinel-linux-fixed-v1","outcome":"unqualified","errors":["qualification_step_not_completed"]}' > "$receipt_dir/receipt.json"
           printf '%s\n' 'fresh_receipt_directory=true' >> "$GITHUB_OUTPUT"
-      - name: Setup Node.js
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
-        with:
-          package-manager-cache: false
-          node-version: '22.22.0'
       - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
         with:
           toolchain: 1.99.1
+          components: clippy,rustfmt
+        if: runner.environment == 'github-hosted'
       - name: Ensure Rust toolchain on PATH
         shell: bash
         run: |
@@ -1578,10 +1731,13 @@ jobs:
   # Linux proof of the dormant Storage foundation reviewed at dbc17edee; Sentinel scopes never count toward it.
   storage-foundation-linux:
     name: Storage foundation fixed qualification (Linux)
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'storage-foundation-linux' }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'storage-foundation-linux') }}
+    environment: ci
     runs-on: [self-hosted, linux-build]
     timeout-minutes: 30
     env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
       EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
       WORKFLOW_SOURCE_SHA: ${{ github.workflow_sha }}
       EVENT_SOURCE_SHA: ${{ github.sha }}
@@ -1590,11 +1746,44 @@ jobs:
       CARGO_TERM_COLOR: never
       RUST_TEST_THREADS: '1'
     steps:
+      - name: Use the runner bundled Node
+        if: runner.environment == 'self-hosted'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            const path = require('node:path');
+            core.addPath(path.dirname(process.execPath));
+            core.info('Using runner Node ' + process.version);
+      - name: Setup Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+        if: runner.environment == 'github-hosted'
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12"
+        if: runner.environment == 'github-hosted'
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 0
+          fetch-depth: 1
           persist-credentials: false
+      - name: Discover installed runner tools
+        if: runner.environment == 'self-hosted'
+        run: node scripts/ci-runner-paths.mjs --paths-only
+      - name: Fetch scoped ancestry history
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci-git-history.mjs ancestry
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
+        if: runner.environment == 'github-hosted'
       - name: Create fresh qualification receipt directory
         id: task_boundary
         shell: bash
@@ -1608,14 +1797,11 @@ jobs:
           mkdir -- "$receipt_dir"
           printf '%s\n' '{"schema":"storage-foundation-linux-v1","outcome":"unqualified","errors":["qualification_step_not_completed"]}' > "$receipt_dir/receipt.json"
           printf '%s\n' 'fresh_receipt_directory=true' >> "$GITHUB_OUTPUT"
-      - name: Setup Node.js
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
-        with:
-          package-manager-cache: false
-          node-version: '22.22.0'
       - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
         with:
           toolchain: 1.99.1
+          components: clippy,rustfmt
+        if: runner.environment == 'github-hosted'
       - name: Ensure Rust toolchain on PATH
         shell: bash
         run: |
@@ -2112,10 +2298,13 @@ jobs:
   # Combined Cron, Sentinel and Storage qualification; source expectations are not execution proof.
   storage-domains-linux:
     name: Cron, Sentinel, and Storage fixed qualification (Linux)
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'storage-domains-linux' }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'storage-domains-linux') }}
+    environment: ci
     runs-on: [self-hosted, linux-build]
     timeout-minutes: 75
     env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
       EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
       WORKFLOW_SOURCE_SHA: ${{ github.workflow_sha }}
       EVENT_SOURCE_SHA: ${{ github.sha }}
@@ -2126,11 +2315,44 @@ jobs:
       CARGO_TERM_COLOR: never
       RUST_TEST_THREADS: '1'
     steps:
+      - name: Use the runner bundled Node
+        if: runner.environment == 'self-hosted'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            const path = require('node:path');
+            core.addPath(path.dirname(process.execPath));
+            core.info('Using runner Node ' + process.version);
+      - name: Setup Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+        if: runner.environment == 'github-hosted'
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12"
+        if: runner.environment == 'github-hosted'
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 0
+          fetch-depth: 1
           persist-credentials: false
+      - name: Discover installed runner tools
+        if: runner.environment == 'self-hosted'
+        run: node scripts/ci-runner-paths.mjs --paths-only
+      - name: Fetch scoped ancestry history
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci-git-history.mjs ancestry
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
+        if: runner.environment == 'github-hosted'
       - name: Create fresh qualification receipt directory
         id: task_boundary
         shell: bash
@@ -2144,14 +2366,11 @@ jobs:
           mkdir -- "$receipt_dir"
           printf '%s\n' '{"schema":"storage-domains-linux-v1","outcome":"unqualified","errors":["qualification_step_not_completed"]}' > "$receipt_dir/receipt.json"
           printf '%s\n' 'fresh_receipt_directory=true' >> "$GITHUB_OUTPUT"
-      - name: Setup Node.js
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
-        with:
-          package-manager-cache: false
-          node-version: '22.22.0'
       - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
         with:
           toolchain: 1.99.1
+          components: clippy,rustfmt
+        if: runner.environment == 'github-hosted'
       - name: Ensure Rust toolchain on PATH
         shell: bash
         run: |
@@ -3086,15 +3305,31 @@ jobs:
 
   windows-sccache-maintenance:
     name: Pinned Windows sccache maintenance
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'windows-sccache-maintenance' && (inputs.maintenance_operation == 'contract-only' || inputs.maintenance_operation == 'provision-verify-cleanup') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'windows-sccache-maintenance' && (inputs.maintenance_operation == 'contract-only' || inputs.maintenance_operation == 'provision-verify-cleanup')) }}
+    environment: ci
     runs-on: [self-hosted, windows-build]
     timeout-minutes: 6
     env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
       EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
       WORKFLOW_SOURCE_SHA: ${{ github.workflow_sha }}
       EVENT_SOURCE_SHA: ${{ github.sha }}
       MAINTENANCE_OPERATION: ${{ inputs.maintenance_operation }}
     steps:
+      - name: Use the runner bundled Node
+        if: runner.environment == 'self-hosted'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            const path = require('node:path');
+            core.addPath(path.dirname(process.execPath));
+            core.info('Using runner Node ' + process.version);
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+        if: runner.environment == 'github-hosted'
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         env:
           GIT_CONFIG_COUNT: '1'
@@ -3102,8 +3337,11 @@ jobs:
           GIT_CONFIG_VALUE_0: 'true'
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 0
+          fetch-depth: 1
           persist-credentials: false
+      - name: Discover installed runner tools
+        if: runner.environment == 'self-hosted'
+        run: node scripts/ci-runner-paths.mjs --paths-only
       - name: Compile source and run pure contract controls
         if: ${{ inputs.maintenance_operation == 'contract-only' }}
         shell: pwsh

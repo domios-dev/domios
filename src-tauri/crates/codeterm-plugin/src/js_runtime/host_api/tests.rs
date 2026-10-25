@@ -1,3 +1,5 @@
+mod lock_cleanup;
+
 use super::*;
 use crate::js_runtime::vm::PluginVm;
 use serde_json::json;
@@ -541,7 +543,7 @@ fn file_lock_cleanup_preserves_another_live_plugin_call() {
         .truncate(false)
         .read(true)
         .write(true)
-        .open(first_path)
+        .open(&first_path)
         .unwrap();
     let second = std::fs::OpenOptions::new()
         .create(true)
@@ -557,6 +559,7 @@ fn file_lock_cleanup_preserves_another_live_plugin_call() {
         "first-call-lock".into(),
         HeldFileLock {
             call_id: "first-call".into(),
+            path: first_path,
             file: first,
         },
     );
@@ -564,6 +567,7 @@ fn file_lock_cleanup_preserves_another_live_plugin_call() {
         "second-call-lock".into(),
         HeldFileLock {
             call_id: "second-call".into(),
+            path: second_path.clone(),
             file: second,
         },
     );

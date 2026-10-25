@@ -133,7 +133,13 @@ pub fn defer(
     Some(DEFERRED.into())
 }
 
-pub fn prepare(svc: &ServiceContext, tab: &str, provider: &str, command: String) -> String {
+pub fn prepare(
+    svc: &ServiceContext,
+    tab: &str,
+    provider: &str,
+    command: String,
+    reserved_nonce: Option<&str>,
+) -> String {
     if command != DEFERRED {
         if super::lifecycle::for_tab(tab).is_none() {
             super::lifecycle::plain_launch(svc, tab, &svc.ensure_session_binding_nonce(tab));
@@ -174,10 +180,12 @@ pub fn prepare(svc: &ServiceContext, tab: &str, provider: &str, command: String)
             }
         }
     };
-    if super::lifecycle::for_tab(tab).is_none() {
-        svc.rotate_session_binding_nonce(tab);
-    }
-    let launch_nonce = svc.ensure_session_binding_nonce(tab);
+    let launch_nonce = crate::service::orchestrator::deferred_launch_nonce(
+        svc,
+        tab,
+        reserved_nonce,
+        super::lifecycle::for_tab(tab).is_some(),
+    );
     let instructions = svc
         .agent_registry
         .with_provider(provider, |p| {

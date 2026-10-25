@@ -1,4 +1,8 @@
-use super::{optimistic_agent_pty_target, public_agent_input_readiness, AuthenticatedPtyDelivery};
+use super::super::lifecycle::RestoredLaunchStart;
+use super::{
+    is_pre_ready_launch_stage, optimistic_agent_pty_target, public_agent_input_readiness,
+    AuthenticatedPtyDelivery,
+};
 use crate::service::{delivery_error::DeliveryError, ServiceContext};
 
 impl ServiceContext {
@@ -15,12 +19,26 @@ impl ServiceContext {
                 .filter(|tab| tab.restored_from_snapshot && !tab.agent_booting)
                 .is_some()
         };
-        if restored {
-            self.materialize_restored_agent_with_claim(claim)?;
-        }
+        let relaunch_nonce = if restored {
+            match self.start_restored_launch(claim)? {
+                RestoredLaunchStart::Started { binding_nonce } => Some(binding_nonce),
+                RestoredLaunchStart::NotStarted { reason } => {
+                    return Err(format!(
+                        "agent_unavailable: recipient relaunch did not start: {reason}"
+                    ));
+                }
+            }
+        } else {
+            None
+        };
         let binding = self
             .queued_agent_binding(tab_id)
             .ok_or_else(|| "agent_unavailable: recipient has no active PTY launch".to_string())?;
+        if relaunch_nonce.is_some_and(|nonce| nonce != binding.2) {
+            return Err(
+                "agent_unavailable: recipient relaunch was superseded before delivery".into(),
+            );
+        }
         if payload
             .expected_pty_id
             .as_deref()
@@ -42,11 +60,25 @@ impl ServiceContext {
         Ok(())
     }
 
+    fn start_restored_launch(
+        &self,
+        claim: &crate::service::pty_ownership::TabPtyClaim,
+    ) -> Result<RestoredLaunchStart, String> {
+        #[cfg(test)]
+        if let Some(start) = restored_launch_boundary::take() {
+            return start(self);
+        }
+        self.materialize_restored_agent_launch(claim)
+    }
+
     pub(crate) fn agent_delivery_binding_matches(
         &self,
         tab_id: &str,
         payload: &crate::service::messenger::AgentDeliveryPayload,
     ) -> bool {
+        if !self.saved_delivery_target_matches(tab_id, payload) {
+            return false;
+        }
         let Some(binding) = self.queued_agent_binding(tab_id) else {
             return false;
         };
@@ -67,6 +99,13 @@ impl ServiceContext {
         tab_id: &str,
         payload: &crate::service::messenger::AgentDeliveryPayload,
     ) -> Result<(), String> {
+        if !self.saved_delivery_target_matches(tab_id, payload) {
+            return Err(DeliveryError::TabBusyRefused {
+                tab: tab_id.to_string(),
+                detail: "saved delivery recipient session or provider changed".into(),
+            }
+            .ledger_message());
+        }
         let Some(_expected_binding_nonce) = payload.expected_binding_nonce.as_deref() else {
             return Err(DeliveryError::TabBusyRefused {
                 tab: tab_id.to_string(),
@@ -129,11 +168,10 @@ fn delivery_binding(
     if tab.agent_type.is_none() || tab.is_chat_backend() {
         return None;
     }
-    let pty_id = if tab.agent_booting
-        && matches!(
-            tab.boot_stage,
-            Some(codeterm_types::pty::BootStage::PtyStarting)
-        ) {
+    let pty_id = if matches!(
+        tab.boot_stage,
+        Some(codeterm_types::pty::BootStage::PtyStarting)
+    ) {
         None
     } else {
         tab.pty_id.clone()
@@ -147,7 +185,11 @@ fn delivery_binding(
     let provisional = tab.provisional_launch.as_ref().is_some_and(|launch| {
         Some(&launch.pty_id) == pty_id.as_ref() && launch.binding_nonce == nonce
     });
+    // The launch thread clears agent_booting before readiness settles; its pre-ready stage
+    // still names the launch that owns this nonce.
+    let launch_in_flight = tab.boot_stage.is_some_and(is_pre_ready_launch_stage);
     (tab.agent_booting
+        || launch_in_flight
         || provisional
         || tab.launch_session_authenticated()
         || tab.boot_stage == Some(codeterm_types::pty::BootStage::AgentReady))
@@ -194,5 +236,25 @@ fn queued_delivery_target(
     }
 }
 
+#[cfg(test)]
+mod restored_launch_boundary {
+    type Start =
+        Box<dyn FnOnce(&super::ServiceContext) -> Result<super::RestoredLaunchStart, String>>;
+
+    thread_local! {
+        static START: std::cell::RefCell<Option<Start>> = const { std::cell::RefCell::new(None) };
+    }
+
+    pub(super) fn install(start: Start) {
+        START.with(|slot| *slot.borrow_mut() = Some(start));
+    }
+
+    pub(super) fn take() -> Option<Start> {
+        START.with(|slot| slot.borrow_mut().take())
+    }
+}
+
+#[cfg(test)]
+mod restored_relaunch_tests;
 #[cfg(test)]
 mod tests;

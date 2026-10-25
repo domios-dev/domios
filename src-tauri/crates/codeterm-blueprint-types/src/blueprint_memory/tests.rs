@@ -2,7 +2,7 @@ use super::*;
 use crate::blueprint_document::Input;
 
 fn graph(repo: &str, id: u64) -> Document {
-    Document::from_definition(&json!({"spec":{"name":"CI watcher","note":"Concrete instance","owner":"team","trigger":{"type":"schedule","every":"1m"},"steps":[{"name":"Check instance","input":"text","kind":{"kind":"github","probe":{"resource":"run","repo":repo,"id":id}},"on":{"done":"stop","failing":"stop","failed":"stop"}}],"result":{"to":"notify"}}})).unwrap()
+    Document::from_definition(&json!({"schema_version":2,"kind":"pipeline","name":"CI watcher","note":"Concrete instance","owner":"team","trigger":{"type":"schedule","every":{"lit":"1m"}},"steps":[{"id":"check","uses":"github","with":{"resource":{"lit":"run"},"repo":{"lit":repo},"id":{"lit":id}},"routes":{"done":"@stop","failing":"@stop","failed":"@stop"}}],"result":{"to":"notify"}})).unwrap()
 }
 fn entry(id: &str, uses: u64) -> Entry {
     Entry {
@@ -10,7 +10,7 @@ fn entry(id: &str, uses: u64) -> Entry {
         document: abstract_document(graph("org/repo", 42)),
         uses,
         last_used: 100,
-        when_to_use: "Watch CI run and report failing jobs".into(),
+        intents: vec!["Watch CI run and report failing jobs".into()],
         successes: 1,
         failures: 0,
         kept: false,
@@ -129,7 +129,7 @@ fn generalisation_removes_instances_and_keeps_described_typed_required_inputs() 
     let bound = doc
         .bind(&["repo=another/service".into(), "id=999".into()])
         .unwrap();
-    assert_eq!(bound["spec"]["steps"][0]["kind"]["probe"]["id"], 999);
+    assert_eq!(bound["steps"][0]["with"]["id"]["lit"], 999);
     assert!(crate::blueprint_document::definition_errors(&bound).is_empty());
     assert_eq!(parse_document(&yaml).unwrap().inputs.len(), 2);
     assert_eq!(
@@ -141,7 +141,7 @@ fn generalisation_removes_instances_and_keeps_described_typed_required_inputs() 
 #[test]
 fn safety_drops_query_credentials_and_personal_paths_even_from_defaults() {
     let mut doc = graph("owner/service", 1);
-    doc.pipeline.as_mut().unwrap()["steps"][0] = json!({"name":"private","input":"text","uses":"http","with":{"url":"https://user:pass@example.test/health?token=private-token"},"on":{"up":"stop","down":"stop","failed":"stop"}});
+    doc.steps[0] = serde_json::from_value(json!({"id":"private","uses":"http","with":{"url":{"lit":"https://user:pass@example.test/health?token=private-token"}},"routes":{"up":"@stop","down":"@stop","failed":"@stop"}})).unwrap();
     doc.inputs.insert(
         "personal_file".into(),
         Input {
@@ -149,6 +149,7 @@ fn safety_drops_query_credentials_and_personal_paths_even_from_defaults() {
             default: Some(json!("C:/Users/owner/private.txt")),
             description: Some("private".into()),
             choices: None,
+            ..Default::default()
         },
     );
     let general = abstract_document(doc);
@@ -166,7 +167,9 @@ fn structural_dedupe_ignores_instance_values_and_names_but_keeps_routes() {
     let library = vec![entry("saved", 4)];
     let mut candidate = abstract_document(graph("other/service", 999));
     assert_eq!(duplicate(&library, &candidate).unwrap().id, "saved");
-    candidate.pipeline.as_mut().unwrap()["steps"][0]["on"]["failed"] = json!("next");
+    candidate.steps[0]
+        .routes
+        .insert("failed".into(), "@next".into());
     assert!(duplicate(&library, &candidate).is_none());
 }
 
@@ -181,14 +184,14 @@ fn score_rewards_success_reuse_and_keep_penalizes_failures_and_decays() {
     let library = (0..51)
         .map(|index| entry(&format!("item-{index:02}"), index))
         .collect::<Vec<_>>();
-    assert_eq!(evictions(&library, AREA_CAP, 100), vec!["item-00"]);
+    assert_eq!(evictions(&library, 50, 100, "saved"), vec!["item-00"]);
 }
 
 #[test]
 fn recall_ranks_problem_before_popularity_and_rejects_unrelated_items() {
     let ci = entry("ci", 1);
     let mut health = entry("health", 500);
-    health.when_to_use = "Watch HTTP health".into();
+    health.intents = vec!["Watch HTTP health".into()];
     assert_eq!(
         recall(&[health.clone(), ci.clone()], "CI failing jobs", 3, 100)[0].id,
         "ci"
@@ -200,7 +203,7 @@ fn recall_ranks_problem_before_popularity_and_rejects_unrelated_items() {
 fn dreamer_merges_inputs_statistics_and_best_problem_with_hard_budget() {
     let a = entry("a", 5);
     let mut b = entry("b", 1);
-    b.when_to_use = "Watch a CI run and report failed jobs before completion".into();
+    b.intents = vec!["Watch a CI run and report failed jobs before completion".into()];
     b.document.inputs.insert(
         "interval".into(),
         Input {
@@ -208,6 +211,7 @@ fn dreamer_merges_inputs_statistics_and_best_problem_with_hard_budget() {
             default: Some(json!("1m")),
             description: Some("Probe cadence".into()),
             choices: None,
+            ..Default::default()
         },
     );
     let merged = merge_pair(&a, &b).unwrap();
@@ -215,9 +219,34 @@ fn dreamer_merges_inputs_statistics_and_best_problem_with_hard_budget() {
     assert_eq!(merged.keeper.uses, 6);
     assert_eq!(merged.keeper.successes, 2);
     assert!(merged.keeper.document.inputs.contains_key("interval"));
+    assert_eq!(
+        merged.keeper.intents,
+        vec![
+            "Watch CI run and report failing jobs".to_owned(),
+            "Watch a CI run and report failed jobs before completion".to_owned()
+        ]
+    );
     let entries = (0..50)
         .map(|index| entry(&format!("{index}"), 1))
         .collect::<Vec<_>>();
     assert!(dream_merges(&entries, 0).is_empty());
     assert_eq!(dream_merges(&entries, usize::MAX).len(), MERGE_BUDGET);
+}
+
+#[test]
+fn intents_accept_one_to_five_plain_values() {
+    let intents = |n: usize| (0..n).map(|i| format!("intent {i}")).collect::<Vec<_>>();
+    assert!(validate_intents(&intents(0)).is_err());
+    assert_eq!(validate_intents(&intents(5)).unwrap().len(), 5);
+    assert!(validate_intents(&intents(6)).is_err());
+    assert!(validate_intents(&["bad\u{7}".into()]).is_err());
+    assert!(validate_intents(&["x".repeat(201)]).is_err());
+    assert_eq!(
+        validate_intents(&["  watch   CI ".into()]).unwrap(),
+        vec!["watch CI".to_owned()]
+    );
+    assert_eq!(
+        merge_intents(&["a".into(), "B".into()], &["b".into(), "c".into()]),
+        vec!["a".to_owned(), "B".to_owned(), "c".to_owned()]
+    );
 }

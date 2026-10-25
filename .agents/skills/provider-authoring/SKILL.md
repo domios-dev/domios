@@ -176,7 +176,10 @@ flag, the provider's automatic compaction policy remains authoritative.
 resumes the source with those arguments, and accepts only a distinct session
 proved by the new launch's nonce. No session id is prebound for a fork.
 `tracksBackgroundWork()` plus `parseBackgroundWork(record)` declare structured
-background task observations. The bounded per-tab roster is session-scoped;
+background task observations. A structural compaction, summary, resume or harness
+initialization emits `{id:"",state:"session_boundary"}` to invalidate prior live
+evidence. Historical launches project unknown; only own-session append observations
+can establish running. Completion projects ended. The bounded roster is session-scoped;
 `background_work_guard` defaults false. When enabled, restart refuses live work,
 provider updates wait for a roster change event, and explicit force is reported.
 
@@ -225,6 +228,18 @@ become available without restarting the daemon and prevents a removed file from
 remaining available. Preflight, enumeration, and `host.exec` use this shared
 observation; Windows PTY launch preserves the same process → machine → user
 PATH precedence without mutating the caller's environment.
+
+### CLI sign-in
+
+`cliLogin` declares `methods: [{id, label, args}]`, `urlPattern` (capture group 1),
+`timeoutMs` and optional `codeInput`. Commands run the resolved `cliBinary`
+with those arguments in a contained process; the host grants no new plugin
+filesystem, environment or subprocess host function. Declare this only with
+`authStatusProbe()` and `parseAuthStatus(record)`: exit zero alone never proves
+sign-in. Link capture must recognize complete URLs, including OSC 8 delimiters.
+The shared card renders method labels and optionally submits a masked browser
+code through stdin. Codes never enter arguments, logs or mesh requests.
+Native providers implement `cli_login()` with manifest/JS parity coverage.
 
 ### CLI status and management
 
@@ -292,6 +307,7 @@ Top-level `plugin.json` fields shared with capability plugins (`id`, `version`,
 |---|---|---|
 | `binaryName` | string? | Process name used for type-mapping a PTY to this provider. Defaults to `id`. |
 | `cliBinary` | string? | Binary probed for install/version checks. |
+| `generalAgentOfferWhenAbsent` | bool | Defaults false. Eligible PTY/runtime agents appear in General pickers only when detected available, unless this flag offers installation even when absent or unknown. Exported as `general_agent_offer_when_absent`; native/JS descriptor parity is required. Adds no sandbox access. |
 | `cliCompatibility` | `{supported: string[], breaking: {range: string, reasons: string[]}[], modelMinimumCli?: map, directSqlite?: bool}` | Rust semver ranges (comma-separated comparisons); empty supported ranges explicitly mean unknown. Breaking ranges win. `directSqlite` defaults false and gates read-only SQLite access: known breaking, invalid and undetected versions are refused; detected undeclared versions retain an unknown verdict and use best-effort SQL/JSON shape checks. Settings shows unverified compatibility quietly. |
 | `installer` | map platform→string | Per-OS install command (`macos` / `linux` / `windows`). |
 | `updater` | map platform→string | Per-OS update command run silently by the coordinator. `{version}` pins the checked target; required when compatibility declares breaking ranges. Running agents keep running. |

@@ -5,7 +5,9 @@ import {
   offerIdForPlan,
   offerPrice,
   parsePlanCatalog,
+  planCardAction,
   remoteCatalogSource,
+  upgradePlanKey,
   type PlanOffer,
 } from "./planCatalog";
 
@@ -32,8 +34,27 @@ assert.equal(offerIdForPlan(BUILTIN_PLAN_CATALOG, "sponsor"), "sponsor");
 
 assert.deepEqual(
   BUILTIN_PLAN_CATALOG.offers.flatMap((offer) => Object.values(offer.prices).map((price) => price?.planKey)),
-  ["pro_monthly", "pro_yearly", "sponsor_yearly"],
+  ["pro_monthly", "pro_yearly", "sponsor_monthly", "sponsor_yearly"],
 );
+
+const sponsor = BUILTIN_PLAN_CATALOG.offers.find((item) => item.id === "sponsor")!;
+assert.deepEqual(offerPrice(sponsor, "month"), { headline: "$29.99", per: "/ month", note: "Billed monthly", planKey: "sponsor_monthly" });
+assert.equal(offerPrice(sponsor, "year").note, "Billed $199.99 yearly, save 44%");
+assert.equal(bestYearlySavings(BUILTIN_PLAN_CATALOG), 44);
+
+assert.equal(upgradePlanKey(BUILTIN_PLAN_CATALOG, "year"), "pro_yearly");
+assert.equal(upgradePlanKey(BUILTIN_PLAN_CATALOG, "month"), "pro_monthly");
+
+const [freeOffer, proOffer] = BUILTIN_PLAN_CATALOG.offers;
+const actions = (subscribed: string | null, interval: "month" | "year") =>
+  BUILTIN_PLAN_CATALOG.offers.map((item) => planCardAction(BUILTIN_PLAN_CATALOG, item, interval, subscribed).kind);
+assert.deepEqual(actions(null, "year"), ["none", "choose", "choose"]);
+assert.deepEqual(actions("pro_yearly", "year"), ["none", "none", "manage"]);
+assert.deepEqual(actions("pro_yearly", "month"), ["none", "manage", "manage"]);
+assert.deepEqual(actions("sponsor_monthly", "month"), ["none", "manage", "none"]);
+assert.deepEqual(actions("pro", "month"), ["none", "none", "manage"]);
+assert.deepEqual(planCardAction(BUILTIN_PLAN_CATALOG, proOffer, "year", null), { kind: "choose", planKey: "pro_yearly" });
+assert.deepEqual(planCardAction(BUILTIN_PLAN_CATALOG, freeOffer, "year", "pro_yearly"), { kind: "none" });
 
 assert.deepEqual(parsePlanCatalog(JSON.parse(JSON.stringify(BUILTIN_PLAN_CATALOG))), BUILTIN_PLAN_CATALOG);
 assert.equal(parsePlanCatalog({ offers: [] }), null);

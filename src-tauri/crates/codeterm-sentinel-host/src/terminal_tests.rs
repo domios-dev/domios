@@ -16,14 +16,12 @@ fn fixture() -> (tempfile::TempDir, Store, Sentinel) {
         codeterm_cron::clock::MockClock::starting_at(1_000),
     );
     let job = store
-        .create(
-            serde_json::from_value(json!({
-                "name":"terminal-adapter", "observe":{"kind":"tab","id":"shell"},
-                "terminal":{"pattern":null,"idle_ms":200}, "question":"reply?",
-                "buckets":["reply"], "matches":{"reply":"(?s).*"},
-                "routes":{"reply":"send:receiver"}, "timeout":"1h"
-            }))
-            .unwrap(),
+        .create_document(
+            json!({"schema_version":2,"kind":"watch","name":"terminal-adapter","steps":[
+                {"id":"source","uses":"terminal","with":{"kind":{"lit":"tab"},"id":{"lit":"shell"},"idle_ms":{"lit":200}},"timeout":{"lit":"1h"}},
+                {"id":"decide","uses":"ask","with":{"question":{"lit":"reply?"}},"buckets":["reply"],"matches":{"reply":{"lit":"(?s).*"}},"routes":{"reply":"send"}},
+                {"id":"send","uses":"send","with":{"target":{"lit":"receiver"}}}
+            ]}),
             Owner {
                 creator_tab_id: "creator".into(),
                 team_id: Some("team".into()),
@@ -160,16 +158,28 @@ fn blueprint_text_input_queue_is_ordered_bounded_and_at_most_once() {
 
 #[test]
 fn blueprint_text_input_admission_wakes_only_live_stage_and_routes_queued_body() {
-    let (_dir, mut store, mut job) = fixture();
-    job.set_terminal(None);
-    job.set_observe(None);
-    job.set_input(Some(codeterm_blueprint_types::sentinel_input::InputSpec {
-        kind: codeterm_blueprint_types::sentinel_input::MediaKind::Text,
-        data: codeterm_blueprint_types::sentinel_input::DataRef::Text("initial".into()),
-        convert_to: None,
-        convert_timeout_ms: None,
-    }));
-    store.jobs[0] = job.clone();
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::new(
+        dir.path().join("sentinels.json"),
+        codeterm_cron::clock::MockClock::starting_at(1_000),
+    );
+    let job = store
+        .create_document(
+            json!({"schema_version":2,"kind":"watch","name":"text-input-adapter","steps":[
+                {"id":"source","uses":"input","with":{"kind":{"lit":"text"},"text":{"lit":"initial"}},"timeout":{"lit":"1h"}},
+                {"id":"decide","uses":"ask","with":{"question":{"lit":"reply?"}},"buckets":["reply"],"matches":{"reply":{"lit":"(?s).*"}},"routes":{"reply":"send"}},
+                {"id":"send","uses":"send","with":{"target":{"lit":"receiver"}}}
+            ]}),
+            Owner {
+                creator_tab_id: "creator".into(),
+                team_id: Some("team".into()),
+                workspace_id: "workspace".into(),
+                cwd: ".".into(),
+            },
+            false,
+        )
+        .unwrap();
+    assert!(job.input().is_some());
     let handle = crate::scheduler::fixture_handle_without_app(store);
     let body = "\u{03bb} 'quotes' $() `ticks`\nnext";
     handle.enqueue_text(&job, body.into()).unwrap();

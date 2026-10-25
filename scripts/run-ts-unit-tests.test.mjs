@@ -12,6 +12,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   resolveTsUnitTimeouts,
+  discoverTests,
   runTsUnitTestMain,
   runTsUnitTests,
   selectRelatedTests,
@@ -249,26 +250,54 @@ main().catch((error) => {
   assert(slowCompleted > thirdLaunched, result.stdout);
 });
 
-test("real width-20 topology completes the Canvas test inventory", async () => {
-  const result = await runNodeEntrypoint(
-    {
-      TS_UNIT_JOBS: "20",
-      TS_UNIT_TIMEOUT_SECONDS: "60",
-      TS_UNIT_SUITE_TIMEOUT_SECONDS: "30",
-      TS_UNIT_TRACE: "1",
+test("width-20 scheduler completes the Canvas inventory independently of host capacity", async () => {
+  const output = new PassThrough();
+  let text = "";
+  output.setEncoding("utf8").on("data", chunk => { text += chunk; });
+  const inventory = discoverTests({}).filter(file => file.startsWith("src/components/Canvas/"));
+  let active = 0;
+  let peak = 0;
+  let launches = 0;
+  const code = await runTsUnitTests({
+    env: { TS_UNIT_JOBS: "20", TS_UNIT_SUITE_TIMEOUT_SECONDS: "30", TS_UNIT_TRACE: "1" },
+    filters: ["src/components/Canvas"],
+    output,
+    errorOutput: output,
+    spawnProcess: (_command, args) => {
+      const child = new EventEmitter();
+      child.pid = ++launches;
+      child.stdio = [null, null, null, new PassThrough()];
+      assert.ok(inventory.some(file => args.at(-1).split(path.sep).join('/').endsWith(file)));
+      peak = Math.max(peak, ++active);
+      queueMicrotask(() => {
+        active--;
+        child.emit("close", 0, null);
+      });
+      return child;
     },
-    ["src/components/Canvas"],
-  );
+  });
+  assert.equal(code, 0, text);
+  assert.equal(launches, inventory.length);
+  assert.equal(peak, Math.min(20, inventory.length));
+  assert.equal([...text.matchAll(/\[ts-unit trace\] completed index=/g)].length, inventory.length);
+  assert.ok(text.includes("all " + inventory.length + " TS unit test file(s) green"), text);
+});
+
+test("small real Canvas run completes with a host-sized worker pool", async (t) => {
+  const files = discoverTests({}).filter(file => file.startsWith("src/components/Canvas/")).slice(0, 4);
+  assert.equal(files.length, 4);
+  const { listFile } = await writeTestList(t, files);
+  const jobs = Math.min(2, os.availableParallelism());
+  const result = await runNodeEntrypoint({
+    TS_UNIT_JOBS: String(jobs),
+    TS_UNIT_TIMEOUT_SECONDS: "60",
+    TS_UNIT_SUITE_TIMEOUT_SECONDS: "30",
+    TS_UNIT_TRACE: "1",
+    CODETERM_TS_UNIT_RUNNER_TEST_LIST: listFile,
+  });
   assert.equal(result.code, 0, result.stdout + result.stderr);
-  const summary = /TS unit timing: (\d+) completed file\(s\), TS_UNIT_JOBS=20/.exec(result.stdout);
-  assert.ok(summary, result.stdout);
-  const expected = Number(summary[1]);
-  assert.ok(expected > 0);
-  assert.ok(result.stdout.includes(`all ${expected} TS unit test file(s) green`), result.stdout);
-  assert.equal(
-    [...result.stdout.matchAll(/\[ts-unit trace\] completed index=/g)].length,
-    expected,
-  );
+  assert.ok(result.stdout.includes("all 4 TS unit test file(s) green"), result.stdout);
+  assert.equal([...result.stdout.matchAll(/\[ts-unit trace\] completed index=/g)].length, 4);
 });
 
 test("both Bash wrappers ignore the removed control-fd switch", async (t) => {

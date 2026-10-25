@@ -17,6 +17,7 @@ export interface RecurrenceRule {
 }
 
 export interface DelayedMessage {
+  turnRetry?: { kind: "transient" | "rate_limited_until"; attempt: number; epoch: number; bindingNonce: string; threadId: string } | null;
   id: string;
   tabId: string;
   workspaceId?: string | null;

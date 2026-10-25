@@ -1,0 +1,35 @@
+schema_version: 1
+name: '{{name}}'
+note: Poll a scheduled job's pending prompt; let the safe path answer the trust prompt and escalate anything else.
+inputs:
+  name:
+    type: string
+    description: Short Blueprint name, 3 to 40 characters
+  prompt_probe:
+    type: string
+    description: Read-only command printing the scheduled run's pending prompt kind as JSON
+watch:
+  probe: '{{prompt_probe}}'
+  question: which-prompt-is-pending
+  buckets:
+  - quiet
+  - trust
+  matches:
+    quiet: \x22prompt\x22:null
+    trust: \x22kind\x22:\x22directory_trust\x22
+  every: 30s
+  rearm_on_change:
+  - trust
+  escalation_timeout_ms: 1800000
+  timeout: 30d
+  handlers:
+    quiet: []
+    trust:
+    - type: respond_prompt
+      parameters:
+        target: directory_trust
+    other:
+    - type: notify
+    - type: escalate
+      parameters:
+        target: creator

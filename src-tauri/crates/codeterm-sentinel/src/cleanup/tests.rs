@@ -2,14 +2,16 @@ use super::*;
 use serde_json::json;
 
 fn job(id: &str, creator: &str, stopped: bool, until: Option<&str>) -> Sentinel {
-    serde_json::from_value(json!({
-        "id":id,"scenario_id":id,"workspace_id":"workspace","team_id":"team","creator_tab_id":creator,
-        "cwd":"/tmp","probe":"status","question":"Ready?","buckets":["ready"],
-        "routes":{"ready":[]},"matches":{},"interval_ms":10000,"next_run":0,
-        "expires_at":null,"until":until,"last_reason":null,
-        "machine":{"paused":false,"stopped":stopped,"last_hash":null,"last_bucket":null}
-    }))
-    .unwrap()
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::new(
+        root.path().join("fixture.json"),
+        codeterm_cron::clock::MockClock::starting_at(0),
+    );
+    let mut job=store.prepare_document(json!({"schema_version":2,"kind":"watch","name":format!("cleanup {id}"),"steps":[{"id":"source","uses":"probe","with":{"command":{"lit":"status"}},"every":{"lit":"10s"},"timeout":{"lit":"1h"}},{"id":"decide","uses":"ask","with":{"question":{"lit":"Ready?"}},"buckets":["ready","done"],"matches":{"ready":{"lit":"ready"},"done":{"lit":"done"}},"until":until}]}),crate::store::Owner{creator_tab_id:creator.into(),team_id:Some("team".into()),workspace_id:"workspace".into(),cwd:"/tmp".into()},false).unwrap();
+    job.id = id.into();
+    job.scenario_id = Some(id.into());
+    job.machine.stopped = stopped;
+    job
 }
 
 #[test]
@@ -47,9 +49,10 @@ fn retained_stopped_agent_blueprint_is_valid_persisted_history() {
 
     assert!(super::super::store::validate(vec![blueprint]).is_ok());
 
-    let mut live = job("live", "creator", false, Some("done"));
-    live.agent_authored = true;
-    assert!(super::super::store::validate(vec![live]).is_err());
+    let mut diverged = job("diverged", "creator", true, Some("done"));
+    diverged.agent_authored = true;
+    diverged.until = Some("ready".into());
+    assert!(super::super::store::validate(vec![diverged]).is_err());
 }
 
 #[test]

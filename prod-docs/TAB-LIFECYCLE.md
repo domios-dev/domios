@@ -4,18 +4,18 @@ With Storage available, every tab open at shutdown returns. The append-only jour
 
 ## Utility shell deadlines
 
-Test/QA/build shells need deadlines (`30s`, `10m`, `2h`; maximum 365 days); servers need none. Only the creating agent controls deadlines; mesh requests are refused.
+Test/QA/build shells need per-command bounds (`60m` recommended; positive `s`, `m` or `h`, maximum 365 days); dev servers take none. Only the creating agent controls deadlines; mesh requests are refused.
 
 ```bash
 domios tab new --purpose qa --timeout 30s --cmd "sleep 600"
-domios tab timeout --tab <ID> --timeout 20m  # from now; none disables
+domios tab timeout --tab <ID> --timeout 20m  # measured from command start; none disables
 ```
 
-Reset keeps shell/command. Expiry quietly closes idle shells; running/unknown activity is terminated with one owner `timed out` status separating shell lifetime and command elapsed. Commands share the deadline. `tab restart` renews lifetime from restart; `--timeout` overrides (`none` disables). Daemon restarts preserve absolute deadlines; unrestorable shells report lost. `tab inspect`: `utility_deadline` (`started_ms`, `deadline_ms`, epoch ms); close journals `utility_timeout`.
+Each shell command-start mark starts a fresh deadline; command-finish marks cancel it. Idle shells never expire by this clock. Updating the bound applies to the current command from its original start and to future commands; `none` disables both. Expiry stops the owned process tree by restarting the shell, keeps the tab identity, title, purpose and cwd, and sends one owner `timed out` status with command, command elapsed and deadline. Existing owner/Team cleanup still removes orphan utility shells. `tab restart` retains the bound; `--timeout` overrides it. Daemon restart retains the bound, clears lost running-command evidence and reports it to the owner. `tab inspect`: `utility_deadline` includes `duration_ms` and nullable `started_ms`, `deadline_ms` (epoch ms); idle bounds have no deadline.
 
 REST: `POST /api/tabs` and `POST /api/tabs/{id}/restart` accept optional `timeout`; `POST /api/tabs/{id}/timeout` takes `{timeout}`.
 
-`tab restart --cmd` returns on fresh-shell write ACK (`command_delivered: true`), errors on delivery failure; use `tab exec` for final exit status. `tab new/restart --cmd` and `tab exec` reject C0 except tab/CR/LF. JSON paths need forward slashes or doubled backslashes.
+`tab restart --cmd` returns after submission to the replacement shell, without waiting for command completion. `command_delivered: true` includes `command_submission` with the exact `pty_id`, `status: submitted`, `bytes_queued` and `evidence: pty_write_queue`. Post-write or lost-response uncertainty returns `status: submit_unconfirmed`; never replay that command. Proven non-submission is refused as `shell_command_not_submitted`. Use `tab exec` for final exit status. `tab new/restart --cmd` and `tab exec` reject C0 except tab/CR/LF. JSON paths need forward slashes or doubled backslashes.
 
 ## Storage authority and recovery
 
@@ -171,4 +171,4 @@ Working tabs continue. Success: idle tabs (General included) `agent restart` as 
 
 Summary counts restarted/pending/failed restarts and updates in place as pending tabs finish. Supporter journals update runs, safe prompt answers and individual restart outcomes.
 
-<!-- revision: 63 -->
+<!-- revision: 65 -->

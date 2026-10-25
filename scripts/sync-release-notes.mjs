@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sourceRepository } from './source-repository.mjs';
 // Caller: CI release-manifest-validate.yml; scripts tests/release-notes-sync.test.mjs, tests/test_release_workflow_contract.py; skill github-release
 
 import { manualInstallNotes } from "./legacy-updater-refusal.mjs";
@@ -8,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-const DEFAULT_SOURCE = "rollacode/codeterm";
+const DEFAULT_SOURCE = sourceRepository();
 const DEFAULT_MIRROR = "rollacode/codeterm-releases";
 
 export function isPlaceholderBody(body, tag) {
@@ -19,7 +20,7 @@ export function isPlaceholderBody(body, tag) {
     text.length === 0 ||
     exact.has(text) ||
     /^Auto-mirrored release artifacts for Domios\b/i.test(text) ||
-    /^Auto-mirrored from rollacode\/codeterm\b/i.test(text) ||
+    /^Auto-mirrored from [\w.-]+\/[\w.-]+\b/i.test(text) ||
     /^See the assets to download this version and install\./i.test(text)
   );
 }
@@ -70,8 +71,13 @@ function ghText(args) {
   return runGh(args, { capture: true }).trim();
 }
 
+// The by-tag endpoint never returns drafts, and publication syncs notes before un-drafting.
 function release(repo, tag) {
-  return ghJson(["api", `repos/${repo}/releases/tags/${tag}`]);
+  const found = ghJson(["api", "--paginate", "--slurp", `repos/${repo}/releases?per_page=100`])
+    .flat()
+    .find((item) => item.tag_name === tag);
+  if (!found) throw new Error(`no release ${tag} in ${repo}`);
+  return found;
 }
 
 function generate(repo, tag) {

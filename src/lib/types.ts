@@ -18,6 +18,8 @@ export interface Workspace {
   cwd: string | null;
   cwd_missing?: boolean;
   protected?: boolean;
+  /** Over the plan limit: visible but not usable until the plan allows it. */
+  locked?: boolean;
   /** Sibling ordinal among workspaces; the sidebar sorts by it. */
   sort_order?: number;
 }
@@ -272,6 +274,8 @@ export interface Tab {
    *  the chat-view AgentStateIndicator. Absent until the backend classifies. */
   agent_state?: TabAgentState | null;
   protected?: boolean;
+  /** Over the plan limit: visible but takes no input until the plan allows it. */
+  locked?: boolean;
   connected_services?: string[];
   hidden?: boolean;
   show_in_tabbar?: boolean;
@@ -341,6 +345,8 @@ export interface Team {
   workspace_id: string;
   /** Set only on a synthesized remote Team; shows the origin peer once in the header. */
   remote_peer_name?: string | null;
+  /** Over the plan limit: visible but not usable until the plan allows it. */
+  locked?: boolean;
 }
 
 /** Result of the one atomic spawn command (`mux_spawn_tab`). */
@@ -703,7 +709,6 @@ export interface BitwardenSettings {
 export interface MeshConfig {
   enabled: boolean;
   instance_name: string;
-  broadcast_duration_secs: number;
 }
 
 export interface OrchestrationConfig {
@@ -715,14 +720,10 @@ export interface MeshStatus {
   enabled: boolean;
   instance_id: string;
   instance_name: string;
-  discovery_active: boolean;
-  broadcast_active: boolean;
-  broadcast_expires_at: number | null;
   tailscale_ip: string | null;
   local_ip: string | null;
   api_port: number;
   paired_count: number;
-  discovered_count: number;
 }
 
 export interface PeerAddress {
@@ -758,33 +759,8 @@ export interface WebUiAnnouncement {
   endpoints: WebUiEndpoint[];
 }
 
-export interface DiscoveredPeer {
-  instance_id: string;
-  instance_name: string;
-  addresses: PeerAddress[];
-  api_port: number;
-  discovery_method: "mdns" | "tailscale" | "udp" | "gossip" | "manual";
-  last_seen: number;
-  dev: boolean;
-  mesh_id: string | null;
-  /** instance_ids of paired peers who told us about this peer via gossip. */
-  vouched_by: string[];
-}
-
-export interface MeshPairingRequest {
-  request_id: string;
-  from_instance_id: string;
-  from_instance_name: string;
-  from_address: string;
-  from_port: number;
-  timestamp: number;
-  status: "pending" | "accepted" | "rejected" | "expired";
-}
-
 export interface MeshPeersResponse {
   paired: PairedPeer[];
-  discovered: DiscoveredPeer[];
-  incoming_requests: MeshPairingRequest[];
   local_instance_name: string;
 }
 
@@ -1093,7 +1069,15 @@ export interface ModelCatalogueCapability {
 
 export type ModelSwitchMode = "live" | "live_command" | "next_turn" | "restart_resume" | "unsupported";
 
+export interface ProviderAttachmentCapabilities {
+  filePaths: boolean;
+  inlineText: boolean;
+  imagePaths: boolean;
+}
+
 export interface ProviderDescriptor {
+  general_agent_offer_when_absent?: boolean;
+  attachments?: ProviderAttachmentCapabilities;
   remote_task?: import("../../packages/plugin-sdk/src/remoteTasks").RemoteTaskCapability;
   agent_runtime?: {
     serviceTiers?: readonly import("../../packages/plugin-sdk/src/agentRuntime").RuntimeServiceTier[];
@@ -1159,6 +1143,7 @@ export interface ProviderDescriptor {
   cli_binary?: string | null;
   /// Shell command that installs the CLI for the current platform. Used by
   /// the Install card on the per-provider Settings screen.
+  cli_login?: { methods: { id: string; label: string; args: string[] }[]; urlPattern: string; timeoutMs: number } | null;
   install_command?: string | null;
   /// Short provider-declared note shown beside the name in pickers, e.g. a
   /// free-tier offer. Absent means the provider claims nothing.

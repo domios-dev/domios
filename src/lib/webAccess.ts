@@ -73,7 +73,8 @@ function assertTokenSafeEntryUrl(value: string): void {
     || octets[0] === 127
   );
   const safeHttps = url.protocol === "https:" && host.endsWith(".ts.net");
-  const safeHttp = url.protocol === "http:" && (host === "localhost" || tailscaleIp || lanIp);
+  const tailnetIpv6 = host.startsWith("[fd7a:115c:a1e0:") && host.endsWith("]");
+  const safeHttp = url.protocol === "http:" && (host === "localhost" || tailscaleIp || tailnetIpv6 || lanIp);
   if (
     (!safeHttps && !safeHttp)
     || url.username

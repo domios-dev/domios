@@ -31,6 +31,7 @@ pub struct JsChatBackend {
     session_config: bool,
     context_owner: ContextOwner,
     agent_tasks: bool,
+    general_agent_offer_when_absent: bool,
     remote_task: Option<crate::remote_tasks::RemoteTaskCapability>,
     agent_runtime: Option<crate::agent_runtime::AgentRuntimeCapability>,
     model_catalogue: ModelCatalogueCapability,
@@ -52,6 +53,7 @@ impl JsChatBackend {
             session_config: false,
             context_owner: ContextOwner::Plugin,
             agent_tasks: false,
+            general_agent_offer_when_absent: false,
             remote_task: None,
             agent_runtime: None,
             model_catalogue: ModelCatalogueCapability::default(),
@@ -73,6 +75,7 @@ impl JsChatBackend {
             context_owner: manifest.capabilities.chat_backend.context_owner(),
             agent_tasks: manifest.capabilities.chat_backend.agent_tasks
                 && manifest.capabilities.remote_task.is_none(),
+            general_agent_offer_when_absent: manifest.general_agent_offer_when_absent,
             remote_task: manifest.capabilities.remote_task.clone(),
             agent_runtime: manifest.capabilities.agent_runtime.clone(),
             model_catalogue: manifest.model_catalogue.clone(),
@@ -198,6 +201,10 @@ fn chatbackend_host_exec_env(
 }
 
 impl ChatBackendProvider for JsChatBackend {
+    fn general_agent_offer_when_absent(&self) -> bool {
+        self.general_agent_offer_when_absent
+    }
+
     fn agent_runtime(&self) -> Option<crate::agent_runtime::AgentRuntimeCapability> {
         self.agent_runtime.clone()
     }

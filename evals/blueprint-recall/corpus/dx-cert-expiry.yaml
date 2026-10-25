@@ -1,0 +1,18 @@
+schema_version: 1
+name: TLS certificate expiry
+note: Probe a certificate's expiry date with openssl and warn me two weeks before it lapses.
+inputs:
+  cert_probe:
+    type: string
+    description: Read-only openssl command printing valid or expiring for one host
+watch:
+  probe: '{{cert_probe}}'
+  question: is-the-certificate-expiring
+  buckets: [valid, expiring]
+  matches: {valid: '(?m)^valid$', expiring: '(?m)^expiring$'}
+  every: 24h
+  until: expiring
+  timeout: 366d
+  routes:
+    valid: none
+    expiring: notify

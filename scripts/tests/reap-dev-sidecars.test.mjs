@@ -17,7 +17,7 @@ test('reaper kills the selected dev group and preserves foreign and prod fixture
   try {
     for (const instance of ['.domios-dev-own', '.domios-dev-other', '.domios']) {
       const token = path.join(fixture, instance, 'codex-rpc', 'a.token');
-      const child = spawn(process.execPath, [binary, 'app-server', '--ws-token-file', token], { detached: true, stdio: ['pipe', 'pipe', 'pipe'] });
+      const child = spawn(process.execPath, [binary, 'app-server', '--ws-token-file', token], { detached: true, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
       children.push(child);
       await once(child.stdout, 'data');
     }

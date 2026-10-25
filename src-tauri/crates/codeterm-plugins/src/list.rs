@@ -46,7 +46,7 @@ pub(super) fn list_installed() -> Result<serde_json::Value, String> {
             manifest_hash: manifest_hash(&path).ok(),
             verified: is_verified_install(&id, record.as_ref()),
             last_change: record.as_ref().and_then(|r| r.last_change.clone()),
-            state: if path.with_extension("tmp-install").exists() {
+            state: if super::staging::path_for(&path, "tmp-install").exists() {
                 "mid-install".to_string()
             } else if record.is_none() && is_reserved_system_id(&id) {
                 "bundled".to_string()

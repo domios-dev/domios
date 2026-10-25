@@ -1,19 +1,22 @@
-//! Mesh networking API routes — discovery, pairing, relay, sync.
+//! Mesh networking API routes — account links, relay, sync.
 
 use crate::routes::{check_auth, AppState};
 use axum::{
     extract::State as AxumState,
-    http::{HeaderMap, HeaderValue, StatusCode},
+    http::{HeaderMap, StatusCode},
     Json,
 };
 
 #[cfg(test)]
 mod version_tests;
 
+pub mod account_link;
 pub mod announce;
 pub mod connection;
-pub mod introduction;
+pub mod disconnect;
 pub mod pairing;
+mod presence;
+pub use presence::account_presence;
 pub mod relay;
 pub(crate) mod relay_stream;
 pub mod remote_tabs;
@@ -21,18 +24,16 @@ pub mod rpc;
 pub mod send_dedupe;
 pub mod worker_dispatch;
 pub mod worker_observation;
+pub mod worker_transfer;
 pub use worker_observation::mesh_worker_observation;
 
+pub use account_link::{
+    mesh_adopt_commit, mesh_adopt_offer, mesh_link_approval, mesh_link_commit, mesh_link_confirm,
+    mesh_link_hello,
+};
 pub use announce::{mesh_announce_all, mesh_announce_inbound, mesh_refresh, mesh_set_peer_addr};
-pub use connection::{
-    mesh_approve_peer, mesh_approve_peer_by_id, mesh_connect_peer, mesh_disconnect_peer,
-    mesh_disconnect_peer_by_id, mesh_reject_peer, mesh_reject_peer_by_id,
-};
-pub use introduction::mesh_introduce;
-pub use pairing::{
-    mesh_pair_accept, mesh_pair_confirm, mesh_pair_reject, mesh_pair_request, mesh_unpair,
-    mesh_unrevoke,
-};
+pub use connection::{mesh_account_link, mesh_disconnect_peer, mesh_disconnect_peer_by_id};
+pub use pairing::{mesh_unpair, mesh_unrevoke};
 pub use relay::{mesh_relay, mesh_relay_asset, mesh_relay_stream, mesh_relay_to_peer, mesh_sync};
 pub use rpc::mesh_rpc;
 pub use worker_dispatch::{
@@ -50,17 +51,27 @@ pub(crate) fn require_current_peer_version(
     })
 }
 
+#[cfg(test)]
 pub(crate) fn current_peer_version_header() -> HeaderMap {
     let mut headers = HeaderMap::new();
-    if let Ok(value) = HeaderValue::from_str(codeterm_service_core::mesh::version::local_version())
+    if let Ok(value) =
+        axum::http::HeaderValue::from_str(codeterm_service_core::mesh::version::local_version())
     {
         headers.insert(codeterm_service_core::mesh::version::VERSION_HEADER, value);
     }
     headers
 }
 
-pub async fn mesh_ping() -> Json<serde_json::Value> {
-    Json(serde_json::json!({"mesh": true}))
+pub async fn mesh_ping(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Json<serde_json::Value> {
+    let token = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "));
+    let notice = token.and_then(|token| state.mesh.lock().disconnect_notice_for(token));
+    Json(serde_json::json!({"mesh": true, "disconnect_notice": notice}))
 }
 
 pub async fn mesh_debug_sign(
@@ -98,73 +109,6 @@ pub async fn mesh_set_enabled(
     Ok(Json(serde_json::json!({ "ok": true, "enabled": enabled })))
 }
 
-pub async fn mesh_start_broadcast(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-    let duration = state.config.lock().mesh.broadcast_duration_secs;
-    codeterm_service_core::mesh::discovery::start_broadcast(state.mesh.clone(), duration).map_err(
-        |error| {
-            if error == "mesh_listener_not_remotely_ready" {
-                (StatusCode::CONFLICT, "mesh_listener_not_remotely_ready")
-            } else {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Failed to start broadcast",
-                )
-            }
-        },
-    )?;
-    state.svc.ui.emit(
-        "mesh-state-changed",
-        serde_json::to_value(serde_json::Value::Null).unwrap_or_default(),
-    );
-    Ok(Json(
-        serde_json::json!({"ok": true, "duration_secs": duration}),
-    ))
-}
-
-pub async fn mesh_stop_broadcast(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-    codeterm_service_core::mesh::discovery::stop_broadcast(&state.mesh);
-    state.svc.ui.emit(
-        "mesh-state-changed",
-        serde_json::to_value(serde_json::Value::Null).unwrap_or_default(),
-    );
-    Ok(Json(serde_json::json!({"ok": true})))
-}
-
-#[derive(serde::Deserialize)]
-pub struct AddManualBody {
-    pub address: String,
-    pub port: u16,
-}
-
-pub async fn mesh_add_manual(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Json(body): Json<AddManualBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-    let ip = body
-        .address
-        .parse::<std::net::IpAddr>()
-        .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid peer IP"))?;
-    let address = std::net::SocketAddr::new(ip, body.port);
-    let id = codeterm_service_core::mesh::manual::discover_at(&state.mesh, address, None)
-        .await
-        .map_err(|_| (StatusCode::BAD_GATEWAY, "Peer identity discovery refused"))?;
-    state.svc.ui.emit(
-        "mesh-state-changed",
-        serde_json::to_value(serde_json::Value::Null).unwrap_or_default(),
-    );
-    Ok(Json(serde_json::json!({"ok": true, "instance_id": id})))
-}
-
 pub async fn mesh_status(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -183,16 +127,6 @@ pub async fn mesh_peers(
     Ok(Json(serde_json::to_value(mesh.peers_response()).unwrap()))
 }
 
-pub async fn mesh_discover(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-    let mesh = state.mesh.lock();
-    let discovered: Vec<_> = mesh.discovered_peers.values().cloned().collect();
-    Ok(Json(serde_json::to_value(discovered).unwrap()))
-}
-
 /// Web-mirror twin of the `mesh_exit` Tauri command — notify paired peers
 /// then clear all local mesh state.
 pub async fn mesh_exit(
@@ -200,30 +134,29 @@ pub async fn mesh_exit(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let (peers_info, token) = {
+    let peers_info = {
         let m = state.mesh.lock();
-        let token = m.sign_request().ok();
         let our_id = m.ident.identity.instance_id.clone();
-        let peers: Vec<_> = m
-            .paired_peers
+        m.paired_peers
             .values()
-            .map(|p| {
-                (
+            .filter_map(|p| {
+                let token = m.sign_request_for(&p.instance_id).ok()?;
+                Some((
                     p.addresses.first().map(|a| a.ip.clone()),
                     p.api_port,
                     our_id.clone(),
-                )
+                    token,
+                ))
             })
-            .collect();
-        (peers, token)
+            .collect::<Vec<_>>()
     };
 
-    if let Some(token) = &token {
+    {
         let http = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(5))
             .build()
             .unwrap_or_default();
-        for (ip, port, our_id) in &peers_info {
+        for (ip, port, our_id, token) in &peers_info {
             if let Some(ip) = ip {
                 let url = format!("http://{}:{}/api/mesh/peers/{}", ip, port, our_id);
                 let _ = http

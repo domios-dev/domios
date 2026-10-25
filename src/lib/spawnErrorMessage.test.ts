@@ -41,3 +41,12 @@ test("a full transport body preserves long human messages and literal path brace
   const error = new TransportError(422, "/api/agents/spawn", JSON.stringify({ error: { message } }));
   assert.equal(spawnErrorMessage(error), message);
 });
+
+
+test("plan lock refuses native and typed PTY spawns without classifying echoed text", async () => {
+  const { isPlanLockedRefusal } = await import("./spawnErrorMessage");
+  assert.equal(isPlanLockedRefusal("plan_limit_locked: opaque"), true);
+  assert.equal(isPlanLockedRefusal(new TransportError(403, "/api/pty/spawn", JSON.stringify({ error: { code: "plan_limit_locked", message: "opaque" } }))), true);
+  assert.equal(isPlanLockedRefusal(new Error("echoed plan_limit_locked: opaque")), false);
+  assert.equal(isPlanLockedRefusal(new Error("unavailable")), false);
+});

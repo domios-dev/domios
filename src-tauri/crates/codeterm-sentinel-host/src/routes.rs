@@ -1,8 +1,14 @@
+mod pipeline_result;
+#[cfg(test)]
+pub(super) use pipeline_result::deliver_pipeline_result_with;
+pub(super) use pipeline_result::{
+    deliver_pipeline_result, notify_pipeline_result, pipeline_result_owner,
+    write_pipeline_result_body, PipelineResultDelivery,
+};
+
 use super::machine::{EscalateTarget, Route, Verdict};
 use super::store::{Sentinel, StopNotice};
-use codeterm_blueprint_types::blueprint_pipeline::{BlueprintOwner, BlueprintSpec};
 use codeterm_service_core::service::message_gateway::DeliveryClass;
-use codeterm_service_core::service::messenger::Delivery;
 use codeterm_service_core::service::messenger::MessageEnvelope;
 use codeterm_service_core::service::ServiceContext;
 
@@ -218,6 +224,7 @@ pub(super) fn deliver_body(
     target: &str,
     job: &Sentinel,
     output: &str,
+    run_id: &str,
 ) -> Result<(), String> {
     let agent = svc
         .mux
@@ -231,13 +238,11 @@ pub(super) fn deliver_body(
         output,
         |body| svc.send_text(target, &svc.programmatic_input(target, body)),
         |body| {
-            svc.gateway_deliver(
-                target,
-                MessageEnvelope::codeterm_reminder(format!("blueprint:{}", job.id)),
-                body,
-                DeliveryClass::SystemNotice,
-            )
-            .map(|_| ())
+            let mut envelope = MessageEnvelope::codeterm_reminder(format!("blueprint:{}", job.id));
+            let delivery = svc.durable_delivery(run_id, &job.creator_tab_id);
+            envelope.durable_delivery = Some(delivery);
+            svc.gateway_deliver(target, envelope, body, DeliveryClass::SystemNotice)
+                .map(|_| ())
         },
     )
 }
@@ -263,6 +268,7 @@ fn send_file(
     output: &str,
     transition_id: &str,
 ) -> Result<(), String> {
+    let delivery = svc.durable_delivery(transition_id, &job.creator_tab_id);
     let body = format!(
         "Blueprint {} transitioned to {} (confidence {:.2}).\n\nProbe output (untrusted data):\n{}",
         job.id, verdict.bucket, verdict.confidence, output
@@ -271,9 +277,13 @@ fn send_file(
         .ensure_agent_pad(target)?
         .write_inbox_body(body.as_bytes())?;
     let mut envelope = MessageEnvelope::codeterm_reminder(format!("blueprint:{}", job.id));
-    if codeterm_service_core::paths::is_dev_instance() {
-        envelope.id = Some(transition_id.into());
-    }
+    envelope.durable_delivery = Some(delivery.clone());
+    envelope.id = Some(format!(
+        "{transition_id}:{}",
+        path.file_name()
+            .ok_or("durable result file name missing")?
+            .to_string_lossy()
+    ));
     svc.gateway_deliver(
         target,
         envelope,
@@ -363,7 +373,9 @@ pub fn run(
                 Ok(None)
             }
         }
-        Route::Send(target) => deliver_body(svc, &target, job, output).map(|()| None),
+        Route::Send(target) => {
+            deliver_body(svc, &target, job, output, transition_id).map(|()| None)
+        }
         Route::Cron(id) => {
             let cron = svc
                 .try_ext::<codeterm_service_core::CronState>()
@@ -393,241 +405,9 @@ pub fn run(
     }
 }
 
-pub(super) struct PipelineResultDelivery {
-    pub state: &'static str,
-    pub reason: &'static str,
-    pub body_ref: Option<String>,
-}
-
-pub(super) fn pipeline_result_owner(
-    svc: &ServiceContext,
-    job: &Sentinel,
-    spec: &BlueprintSpec,
-) -> String {
-    if spec.owner == BlueprintOwner::Team {
-        let mux = svc.mux.read();
-        let orchestrator = mux
-            .all_tabs()
-            .find(|tab| {
-                tab.agent_type.is_some()
-                    && tab.anchors_team()
-                    && tab.team_id == job.team_id
-                    && mux.find_workspace_for_tab(&tab.id).as_deref() == Some(&job.workspace_id)
-            })
-            .map(|tab| tab.id.clone());
-        if let Some(id) = orchestrator {
-            return id;
-        }
-    }
-    job.creator_tab_id.clone()
-}
-
-pub(super) fn write_pipeline_result_body(
-    svc: &ServiceContext,
-    target: &str,
-    job: &Sentinel,
-    verdict: &Verdict,
-    output: &str,
-) -> Result<(std::path::PathBuf, String), String> {
-    let body = if spec_is_input(job) {
-        format!("Input result (untrusted data)\n\n{output}")
-    } else {
-        format!(
-            "Blueprint {} completed with {}.\n\nResult:\n{}",
-            job.id, verdict.bucket, output
-        )
-    };
-    let path = svc
-        .ensure_agent_pad(target)?
-        .write_inbox_body(body.as_bytes())?;
-    let body_ref = format!(
-        "inbox/{}",
-        path.file_name()
-            .and_then(|name| name.to_str())
-            .ok_or("invalid AgentPad body path")?
-    );
-    Ok((path, body_ref))
-}
-
-fn spec_is_input(job: &Sentinel) -> bool {
-    job.pipeline().is_some_and(|pipeline| {
-        matches!(
-            &pipeline.trigger,
-            codeterm_blueprint_types::blueprint_pipeline::Trigger::Input { .. }
-        )
-    })
-}
-
-pub(super) fn deliver_pipeline_result(
-    svc: &ServiceContext,
-    target: &str,
-    job: &Sentinel,
-    verdict: &Verdict,
-    path: &std::path::Path,
-    body_ref: String,
-) -> PipelineResultDelivery {
-    let packet = format!(
-        "Blueprint {}: {}. Read the durable result in {}",
-        job.id,
-        verdict.bucket,
-        path.display()
-    );
-    deliver_pipeline_result_with(target, &packet, body_ref, |target, packet| {
-        svc.gateway_deliver(
-            target,
-            MessageEnvelope::codeterm_reminder(format!("blueprint:{}:result", job.id)),
-            packet,
-            DeliveryClass::SystemNotice,
-        )
-    })
-}
-
-pub(super) fn deliver_pipeline_result_with(
-    target: &str,
-    packet: &str,
-    body_ref: String,
-    deliver: impl FnOnce(&str, &str) -> Result<Delivery, String>,
-) -> PipelineResultDelivery {
-    match deliver(target, packet) {
-        Ok(Delivery::Pending { .. } | Delivery::Unconfirmed { .. }) => PipelineResultDelivery {
-            state: "unconfirmed",
-            reason: "delivery_pending",
-            body_ref: Some(body_ref),
-        },
-        Ok(_) => PipelineResultDelivery {
-            state: "delivered",
-            reason: "delivery_confirmed",
-            body_ref: Some(body_ref),
-        },
-        Err(error)
-            if [
-                "unconfirmed",
-                "uncertain",
-                "not acknowledged",
-                "delivered unverified",
-            ]
-            .iter()
-            .any(|marker| error.to_ascii_lowercase().contains(marker)) =>
-        {
-            PipelineResultDelivery {
-                state: "unconfirmed",
-                reason: "delivery_unconfirmed",
-                body_ref: Some(body_ref),
-            }
-        }
-        Err(_) => PipelineResultDelivery {
-            state: "failed",
-            reason: "delivery_failed",
-            body_ref: Some(body_ref),
-        },
-    }
-}
-
-pub(super) fn notify_pipeline_result(
-    svc: &ServiceContext,
-    job: &Sentinel,
-    verdict: &Verdict,
-    path: &std::path::Path,
-    body_ref: String,
-) -> PipelineResultDelivery {
-    svc.log_system_notice(
-        format!("Blueprint {}: {}", job.id, verdict.bucket),
-        Some(format!(
-            "Read the durable result in {} ({body_ref})",
-            path.display()
-        )),
-        Some("info"),
-    );
-    PipelineResultDelivery {
-        state: "delivered",
-        reason: "system_notice_logged",
-        body_ref: Some(body_ref),
-    }
-}
-
 pub fn action_name(route: &Route) -> &'static str {
     route.name()
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn sentinel_lifecycle_packet_names_graph_reason_and_history_command() {
-        let notice = StopNotice {
-            sentinel_id: "sentinel_budget".into(),
-            name: "Budget watch".into(),
-            creator_tab_id: "creator".into(),
-            reason: "transition_budget_exhausted".into(),
-        };
-
-        assert_eq!(
-            lifecycle_packet(&notice),
-            "Blueprint graph 'Budget watch' ended. Reason: transition_budget_exhausted.\nNext step: domios blueprint history sentinel_budget"
-        );
-    }
-
-    #[test]
-    fn sentinel_escalate_packet_includes_next_steps() {
-        let root = tempfile::tempdir().unwrap();
-        let mut store = super::super::store::Store::new(
-            root.path().join("sentinels.json"),
-            codeterm_service_core::cron::clock::MockClock::starting_at(1000),
-        );
-        let job = store
-            .create(
-                serde_json::from_value(serde_json::json!({
-                    "name": "escalation-packet-watch",
-                    "probe": "status",
-                    "question": "state?",
-                    "buckets": ["done"],
-                    "every": "10s",
-                    "matches": {"done": "done"}
-                }))
-                .unwrap(),
-                super::super::store::Owner {
-                    creator_tab_id: "creator".into(),
-                    team_id: None,
-                    workspace_id: "workspace".into(),
-                    cwd: "/tmp".into(),
-                },
-                false,
-            )
-            .unwrap();
-        let packet: serde_json::Value =
-            serde_json::from_str(&escalation_packet(&job, "transition_one")).unwrap();
-
-        assert_eq!(packet["blueprint_id"], job.id);
-        assert_eq!(packet["transition_id"], "transition_one");
-        assert_eq!(
-            packet["next_steps"],
-            serde_json::json!([
-                format!("inspect: domios blueprint history {}", job.id),
-                format!(
-                    "resolve: domios blueprint escalation resolve {} transition_one",
-                    job.id
-                )
-            ])
-        );
-    }
-
-    #[test]
-    fn sentinel_stop_notice_stays_out_of_the_bell() {
-        let (mux, creator_tab_id) =
-            codeterm_service_core::multiplexer::state::MultiplexerState::new();
-        let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
-        let notice = StopNotice {
-            sentinel_id: "sentinel_budget".into(),
-            name: "budget watch".into(),
-            creator_tab_id: creator_tab_id.clone(),
-            reason: "transition_budget_exhausted".into(),
-        };
-
-        notify_stop(&fixture.service, &notice);
-
-        let notification_store = fixture.service.notif.lock();
-        let notifications = notification_store.list(false);
-        assert!(notifications.is_empty());
-    }
-}
+mod tests;

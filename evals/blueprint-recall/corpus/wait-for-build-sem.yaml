@@ -1,0 +1,41 @@
+schema_version: 1
+name: Build verdict pipeline
+note: Run a read-only build status command and report when it shows either a passed or a failed verdict.
+owner: team
+inputs:
+  build_status_command:
+    type: string
+    description: Read-only command printing the build verdict
+pipeline:
+  trigger:
+    type: schedule
+    every: 30s
+  steps:
+  - name: verdict
+    input: text
+    run: '{{build_status_command}}'
+    'on':
+      failed: stop
+  - name: passed
+    input: text
+    uses: filter
+    with:
+      pattern: (?m)^passed$
+      bucket: passed
+    'on':
+      passed: report
+      done: next
+  - name: broken
+    input: text
+    uses: filter
+    with:
+      pattern: (?m)^failed$
+      bucket: broken
+    'on':
+      broken: report
+      done: stop
+  - name: report
+    input: text
+    run: echo build-finished
+  result:
+    to: notify

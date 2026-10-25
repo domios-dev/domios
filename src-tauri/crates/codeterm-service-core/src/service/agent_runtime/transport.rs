@@ -10,6 +10,13 @@ use codeterm_plugin::agent_runtime::*;
 use serde_json::Value;
 use std::sync::Arc;
 
+const REJECTED_BEFORE_WRITE: &str = "runtime_rejected_before_write";
+
+/// The provider failed the turn before any frame reached the runtime, so holding the send would only repeat it.
+pub(crate) fn rejected_before_write(error: &DeliveryError) -> bool {
+    matches!(error, DeliveryError::TabBusyRefused { detail, .. } if detail.starts_with(REJECTED_BEFORE_WRITE))
+}
+
 fn before_write(tab: &str, error: RuntimeFailure) -> DeliveryError {
     DeliveryError::TabBusyRefused {
         tab: tab.into(),
@@ -23,6 +30,33 @@ pub fn send(
     input: &crate::service::messenger::AgentInput,
     send_id: Option<&str>,
 ) -> Result<(), DeliveryError> {
+    send_inner(svc, tab, input, send_id, None)
+}
+
+pub(crate) fn send_pinned(
+    svc: &ServiceContext,
+    tab: &str,
+    input: &crate::service::messenger::AgentInput,
+    send_id: &str,
+    session_id: &str,
+    binding_nonce: &str,
+) -> Result<(), DeliveryError> {
+    send_inner(
+        svc,
+        tab,
+        input,
+        Some(send_id),
+        Some((session_id, binding_nonce)),
+    )
+}
+
+fn send_inner(
+    svc: &ServiceContext,
+    tab: &str,
+    input: &crate::service::messenger::AgentInput,
+    send_id: Option<&str>,
+    pinned: Option<(&str, &str)>,
+) -> Result<(), DeliveryError> {
     let rendered = input.text();
     let text = rendered.as_ref();
     svc.require_admitted_input_allowed(tab, send_id)
@@ -35,6 +69,8 @@ pub fn send(
             tab: tab.into(),
             detail,
         })?;
+    super::capacity_retry::cancel(svc, tab)
+        .map_err(|reason| before_write(tab, RuntimeFailure::Refused(reason)))?;
     svc.wake_frozen_tab(tab)
         .map_err(|detail| DeliveryError::TabBusyRefused {
             tab: tab.into(),
@@ -52,8 +88,12 @@ pub fn send(
             detail: "Runtime handoff already claimed; replay refused".into(),
         });
     }
-    let session = crate::async_runtime::block_on(engine::ensure(svc, tab))
-        .map_err(|error| before_write(tab, error))?;
+    let session = if pinned.is_some() {
+        engine::for_tab(tab).ok_or_else(|| before_write(tab, RuntimeFailure::Superseded))?
+    } else {
+        crate::async_runtime::block_on(engine::ensure(svc, tab))
+            .map_err(|error| before_write(tab, error))?
+    };
     let _permit =
         super::blocking::deadline(std::time::Duration::from_secs(30), session.gate.acquire())
             .map_err(|_| before_write(tab, RuntimeFailure::Deadline))?
@@ -61,6 +101,20 @@ pub fn send(
     let context = session.context.lock().clone();
     if context.binding_nonce != expected {
         return Err(before_write(tab, RuntimeFailure::Superseded));
+    }
+    if let Some((thread, nonce)) = pinned {
+        if context.thread_id.as_deref() != Some(thread)
+            || context.binding_nonce != nonce
+            || !session.thread_loaded.load(std::sync::atomic::Ordering::Acquire)
+            || !svc.mux.read().get_tab(tab).is_some_and(|tab| {
+                tab.launch_session_authenticated()
+                    && tab.agent_session_id.as_deref() == Some(thread)
+                    && tab.session_binding_nonce.as_deref() == Some(nonce)
+                    && matches!(&tab.backing, crate::multiplexer::types::TabBacking::ChatBackend { session_id, .. } if session_id == thread)
+            })
+        {
+            return Err(before_write(tab, RuntimeFailure::Superseded));
+        }
     }
     let process = session
         .process
@@ -188,6 +242,12 @@ pub(crate) async fn submit_loaded(
             RuntimeFailure::Refused("Runtime input or outstanding claim limit".into()),
         ));
     }
+    if !session.capacity_retry.lock().permits_send(send_id) {
+        return Err(before_write(
+            tab,
+            RuntimeFailure::Refused("Capacity retry cancelled".into()),
+        ));
+    }
     if !svc.chat_send_ledger.bind_rpc_send(
         &pending.send_id,
         SendLiveBinding {
@@ -200,6 +260,12 @@ pub(crate) async fn submit_loaded(
             detail: "Runtime send already claimed".into(),
         });
     }
+    if matches!(classified, crate::service::messenger::AgentInput::Human(_)) {
+        session.capacity_retry.lock().begin(send_id, &input.text);
+    } else {
+        super::capacity_retry::cancel(svc, tab)
+            .map_err(|reason| before_write(tab, RuntimeFailure::Refused(reason)))?;
+    }
     session.context.lock().claimed_sends.push(ClaimedSend {
         send_id: pending.send_id.clone(),
         thread_id: thread.clone(),
@@ -209,19 +275,52 @@ pub(crate) async fn submit_loaded(
     let submitted_turn = context.active_turn_id.clone();
     let operation = RuntimeOperation::SubmitTurn {
         thread_id: thread.clone(),
-        active_turn_id: context.active_turn_id,
+        active_turn_id: context.active_turn_id.clone(),
         send_id: pending.send_id.clone(),
         input,
-        settings: context.settings,
+        settings: context.settings.clone(),
     };
-    let result = engine::run(svc, &session.provider, session, process, operation).await;
+    let starts = svc.runtime_turn_starts(tab, &context.binding_nonce, context.epoch);
+    let before_start = starts.sequence();
+    let (result, handed_off) = engine::run_submit(svc, session, process, operation).await;
+    let result = match result {
+        Err(
+            reason @ (RuntimeFailure::PipeEof
+            | RuntimeFailure::PipeFailure { .. }
+            | RuntimeFailure::ProcessExited {
+                requested: false, ..
+            }),
+        ) if !handed_off => Err(RuntimeFailure::PrewriteRefused(format!(
+            "{REJECTED_BEFORE_WRITE}: {reason}"
+        ))),
+        Err(RuntimeFailure::HookFailed(reason)) if !handed_off => Err(
+            RuntimeFailure::PrewriteRefused(format!("{REJECTED_BEFORE_WRITE}: {reason}")),
+        ),
+        other => other,
+    };
+    if let Err(failure) = &result {
+        log::warn!(
+            "[runtime-send] tab={tab} send_id={} handed_off={handed_off} failed: {failure}",
+            pending.send_id
+        );
+    }
     match result {
         Ok(RuntimeResult::TurnAccepted {
             thread_id,
             send_id,
             turn_id,
         }) if thread_id == thread && send_id == pending.send_id => {
+            if turn_id.is_none() || turn_id.as_ref() != submitted_turn.as_ref() {
+                svc.arm_runtime_turn_start(
+                    session,
+                    context.clone(),
+                    starts,
+                    before_start,
+                    turn_id.clone(),
+                );
+            }
             if let Some(turn) = turn_id {
+                session.capacity_retry.lock().bind(&send_id, &turn);
                 let mut current = session.context.lock();
                 if current.epoch == context.epoch
                     && session.completions.lock().permits_receipt(
@@ -370,6 +469,10 @@ fn launch_with_fork(
             None => engine::ensure(svc, tab).await,
         }
     })
+    .or_else(|error| match fork {
+        None => engine::login_pending_session(svc, tab, error),
+        Some(_) => Err(error),
+    })
     .map(|_| ())
     .map_err(|error| format!("Runtime tab {tab} degraded: {error}"));
     if fork.is_none() {
@@ -398,7 +501,9 @@ pub fn snapshot(
         started.elapsed().as_millis(),
         ensured.is_ok()
     );
-    let session = ensured.map_err(|error| error.to_string())?;
+    let session = ensured
+        .or_else(|error| engine::login_pending_session(svc, tab, error))
+        .map_err(|error| error.to_string())?;
     let reading = std::time::Instant::now();
     let items = session.cache.lock().snapshot();
     log::debug!(

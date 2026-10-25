@@ -17,6 +17,7 @@ const SHOT_1 = String.raw`C:\Users\dev\AppData\Local\Temp\codeterm-chat\a1-paste
 const SHOT_2 = String.raw`C:\Users\dev\AppData\Local\Temp\codeterm-chat\b2-pasted-image-2.png`;
 const stored = vi.hoisted(() => ({
   path: String.raw`C:\Users\dev\AppData\Local\Temp\codeterm-chat\c3-pasted-text.txt`,
+  pending: null as Promise<void> | null,
   blobs: [] as { name: string; text: Promise<string> }[],
 }));
 const TEXT_FILE = stored.path;
@@ -25,6 +26,7 @@ vi.mock("./voice/audio", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./voice/audio")>()),
   storeBlob: async (blob: Blob, name: string) => {
     stored.blobs.push({ name, text: blob.text() });
+    await stored.pending;
     return stored.path;
   },
 }));
@@ -41,6 +43,7 @@ let host: HTMLDivElement | null = null;
 afterEach(async () => {
   await act(async () => root?.unmount()); root = null; host?.remove(); host = null;
   __setInvokeForTest(null); __setListenForTest(null);
+  stored.pending = null; vi.restoreAllMocks();
   try { window.localStorage.clear(); } catch { /* storage may be unavailable */ }
 });
 
@@ -106,13 +109,18 @@ async function sendAndRead(textarea: HTMLTextAreaElement, calls: Call[]) {
 }
 
 const mirror = () => document.querySelector('[data-testid="composer-capsule-mirror"]');
+function expectImageWithoutOrdinal() {
+  const visible = (mirror()?.textContent ?? "").replace(/[⁠⁨⁩  \s]/g, "");
+  expect(visible).toContain("image");
+  expect(visible).not.toMatch(/\d/);
+}
 
 it("inserts dropped images as numbered capsules at the caret and sends tags with absolute paths", async () => {
   const { textarea, sink, calls } = await renderComposer("capsule-insert");
   await setValue(textarea, "look  here", 5);
   await act(async () => sink.current?.([{ path: SHOT_1, kind: "image" }, { path: SHOT_2, kind: "image" }]));
   expect(textarea.value).toBe(`look ${capsuleToken("image1")} ${capsuleToken("image2")} here`);
-  expect(mirror()?.textContent).toContain("image1");
+  expectImageWithoutOrdinal();
   expect(await sendAndRead(textarea, calls)).toEqual([
     `look ${formatAttachmentMarker(SHOT_1, "image", "image1")} ${formatAttachmentMarker(SHOT_2, "image", "image2")} here`,
   ]);
@@ -129,7 +137,7 @@ it("removes a whole capsule with Backspace and brings it back when the text is r
   expect(textarea.value).toBe("see  ");
   expect(mirror()).toBeNull();
   await setValue(textarea, withCapsule);
-  expect(mirror()?.textContent).toContain("image1");
+  expectImageWithoutOrdinal();
   expect(await sendAndRead(textarea, calls)).toEqual([`see ${formatAttachmentMarker(SHOT_1, "image", "image1")}`]);
 });
 
@@ -169,7 +177,7 @@ it("restores a draft with its capsules after the composer remounts", async () =>
 
   const second = await renderComposer("capsule-draft");
   expect(second.textarea.value).toBe(draft);
-  expect(mirror()?.textContent).toContain("image1");
+  expectImageWithoutOrdinal();
   expect(await sendAndRead(second.textarea, second.calls)).toEqual([`keep ${formatAttachmentMarker(SHOT_1, "image", "image1")}`]);
 });
 
@@ -209,7 +217,7 @@ it("a selection copied from a sent bubble pastes back as inline capsules", async
   window.getSelection()!.removeAllRanges();
   await act(async () => bubbleRoot.unmount());
   bubbleHost.remove();
-  expect(written["text/plain"]).toBe("inspect text2 and text1 · 702 lines please");
+  expect(written["text/plain"]).toBe("inspect text and text · 702 lines please");
 
   const { textarea, calls } = await renderComposer("capsule-bubble-paste");
   await paste(textarea, written);
@@ -226,4 +234,38 @@ it("typing after a chip appends normally over an inert mirror", async () => {
   expect(mirror()?.textContent).toBe(textarea.value);
   expect(mirror()?.getAttribute("aria-hidden")).not.toBeNull();
   expect(mirror()?.querySelectorAll("button, a, input, [tabindex]")).toHaveLength(0);
+});
+
+it("keeps a deferred paste in its receiving composer after switching to another mounted tab", async () => {
+  const first = await renderComposer("paste-owner");
+  const firstRoot = root!;
+  const firstHost = host!;
+  const second = await renderComposer("paste-other");
+  let resolve!: () => void;
+  stored.pending = new Promise<void>(done => { resolve = done; });
+  try {
+    first.textarea.focus();
+    await paste(first.textarea, Array.from({ length: 50 }, (_, i) => `line ${i}`).join("\n"));
+    firstHost.hidden = true;
+    second.textarea.focus();
+    vi.spyOn(first.textarea, "focus").mockImplementation(() => {});
+    const edit = vi.fn((_command: string, _show?: boolean, text?: string) => {
+      const target = document.activeElement as HTMLTextAreaElement;
+      target.setRangeText(text ?? "", target.selectionStart, target.selectionEnd, "end");
+      target.dispatchEvent(new Event("input", { bubbles: true }));
+      return true;
+    });
+    Object.defineProperty(document, "execCommand", { configurable: true, value: edit });
+    await act(async () => resolve());
+    expect(document.activeElement).toBe(second.textarea);
+    expect(second.textarea.value).toBe("");
+    expect(first.textarea.value).toBe(`${capsuleToken("text1 · 50 lines")} `);
+    expect(edit).not.toHaveBeenCalled();
+    firstHost.hidden = false;
+    expect(await sendAndRead(first.textarea, second.calls)).toEqual([formatAttachmentMarker(TEXT_FILE, "text", "text1 · 50 lines")]);
+    expect(second.calls.filter(call => call.command === "chat_send_text").map(call => call.args.tabId)).toEqual(["paste-owner"]);
+  } finally {
+    Reflect.deleteProperty(document, "execCommand");
+    await act(async () => firstRoot.unmount()); firstHost.remove();
+  }
 });

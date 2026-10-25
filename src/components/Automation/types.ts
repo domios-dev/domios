@@ -1,3 +1,4 @@
+import type { BlueprintProjection } from "../../lib/blueprintApi";
 export interface AutomationScope {
   workspace_id: string;
   team_id: string | null;
@@ -68,6 +69,7 @@ export interface AgentBlueprintDefinition {
 }
 
 export interface AutomationNode {
+  held_reason?: string | null;
   solution_success?: boolean;
   conversation?: import("../../lib/blueprintRun").ConversationCounts;
   source?: { type: string; kind?: string; display_name?: string; ref_type?: string; convert_to?: string | null; pattern?: string | null; idle_ms?: number | null };
@@ -167,6 +169,16 @@ export interface AutomationGraph extends AutomationScope {
   edges: readonly AutomationEdge[];
   blueprints?: readonly BlueprintSnapshot[];
   runs?: readonly AutomationRun[];
+  quarantined?: readonly QuarantinedBlueprint[];
+}
+
+/** A committed Blueprint refused at load; it never runs until recreated. */
+export interface QuarantinedBlueprint {
+  id: string;
+  name: string | null;
+  state: "quarantined";
+  code: string;
+  reason: string;
 }
 
 export type BlueprintOwnerKind = "tab" | "team";
@@ -185,7 +197,7 @@ export interface BlueprintStep {
   source_state?: string | null;
   index: number;
   name: string;
-  kind: import("./blueprintKinds").BlueprintStepKind;
+  kind: import("./blueprint/kinds").BlueprintStepKind;
   title: string;
   state: BlueprintStepState;
   outcome: string | null;
@@ -202,7 +214,7 @@ export interface BlueprintResult {
   body_ref: string | null;
 }
 
-export interface BlueprintRunSnapshot {
+export interface BlueprintRunSnapshot extends BlueprintProjection {
   id: string;
   state: "idle" | "running" | "completed" | "failed" | "held";
   closed: boolean;
@@ -213,10 +225,11 @@ export interface BlueprintRunSnapshot {
   result: BlueprintResult;
 }
 
-export interface BlueprintSnapshot {
+export interface BlueprintSnapshot extends BlueprintProjection {
   note?: string | null;
   stopped_at?: number | null;
   deletes_at?: number | null;
+  held_reason?: string | null;
   runs?: readonly BlueprintRunSnapshot[];
   id: string;
   name: string;

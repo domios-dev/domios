@@ -302,6 +302,30 @@ where
             .map(|session| session.connection.clone())
     }
 
+    pub fn cdp_port(&self) -> Option<u16> {
+        match self.webview_diagnostics_snapshot()?.status {
+            codeterm_types::native_host::NativeWebviewDiagnosticsStatus::Active {
+                port, ..
+            } => Some(port),
+            _ => None,
+        }
+    }
+
+    pub fn frontend_port(&self) -> Option<u16> {
+        let session = self.active.read().as_ref().cloned()?;
+        let state = session.state.lock();
+        if session.retired.load(Ordering::Acquire)
+            || self.active_generation.load(Ordering::Acquire) != session.connection.generation
+        {
+            return None;
+        }
+        let origin = url::Url::parse(&state.view.as_ref()?.origin).ok()?;
+        (origin.scheme() == "http"
+            && matches!(origin.host_str(), Some("127.0.0.1" | "localhost" | "[::1]")))
+        .then(|| origin.port())
+        .flatten()
+    }
+
     pub fn webview_diagnostics_snapshot(&self) -> Option<NativeWebviewDiagnosticsSnapshot> {
         let session = self
             .active

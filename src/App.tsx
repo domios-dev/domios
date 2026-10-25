@@ -1,10 +1,13 @@
 import { WorkspacePaneState } from "./components/shared/FolderPaneState";
+import { firstRunLocked, firstRunSelection } from "./lib/firstRunGate";
+import { FirstRunGeneralPicker } from "./components/AgentPicker/FirstRunGeneralPicker";
 import { BrandState } from "./components/brand/BrandState";
 import { DeferredPresence } from "./components/shared/DeferredPresence";
 import { releaseBootCover } from "./lib/bootCover";
 import { brandStateModel } from "./components/brand/brandStateModel";
 import { ServerConnectionLayer } from "./components/brand/ServerConnectionLayer";
 import { initialRouteReady } from "./store/multiplexer/pageSelection";
+import { useAppNavigation } from "./hooks/useAppNavigation";
 import { emitFeatureUsed } from "./lib/productAnalytics";
 import { localJson } from "./lib/webApi";
 import { frontendBootDiagnostic } from "./lib/frontendBootDiagnostic";
@@ -61,7 +64,7 @@ import { useSidebarViewport } from "./hooks/useSidebarViewport";
 import { useTabPrewarm } from "./hooks/terminal/useTabPrewarm";
 import { needsBackendPrewarm, workspacePrewarmInput } from "./hooks/terminal/workspacePrewarmModel";
 import { usageTrackingOverrides } from "./components/Terminal/usageTracking";
-import { useAgentProviderCachePublisher } from "./hooks/useAgentProviders";
+import { useAgentProviderCachePublisher, useAgentProviders } from "./hooks/useAgentProviders";
 import { usePluginProviderMetaSync } from "./hooks/usePluginProviderMeta";
 import { UpdatePanelProvider } from "./hooks/useUpdatePanel";
 import { UpdateProvider } from "./hooks/useUpdate";
@@ -75,14 +78,21 @@ import { appShellStateEqual } from "./store/multiplexer/selectors";
 import type { ExtendedState } from "./store/multiplexer/tree";
 import { defaultSpawnProviderId } from "./lib/agentDescriptorCache";
 import { openNewSessionPicker } from "./lib/newSessionChoice";
-import { matchesBinding } from "./lib/keybindings";
+import { zoomedFontSize } from "./lib/appShortcuts";
+import { useAppShortcuts } from "./hooks/useAppShortcuts";
+import { useFolderPicker } from "./hooks/useFolderPicker";
+import { copyFromTab, pasteToTab } from "./lib/tabClipboardRegistry";
+import { buildSidebarCycleItems, cycleStep } from "./components/Sidebar/sidebarCycle";
+import { openNotificationCenter } from "./components/Notifications/openNotificationCenter";
+import { paletteTabTargets } from "./components/CommandPalette/paletteTabs";
 import { forwardTerminalFallback } from "./lib/terminalFallbackInput";
 import { writeTerminalInput } from "./hooks/terminal/terminalInputWrite";
 import { cacheThemeSnapshot, isLightColor, themeToCSS } from "./lib/themeCss";
-import { nativeFolderDialog as openDialog } from "./lib/nativeBridge";
 import { fontSizeToUiFontScale } from "./lib/uiFontScale";
 import { DEV_BUILD } from "./lib/devBuild";
 import { FreeLimitPlansModal } from "./components/billing/FreeLimitPlansModal";
+import { useSessionRevocationScreen } from "./components/Settings/useSessionRevocationScreen";
+import { useAccountMeshLimitNotice } from "./components/MeshPanel/accountMeshLimitNotice";
 import { precheckFreeLimit } from "./components/billing/freeLimitGate";
 // TODO: Agent Swarm Visualization — future feature import { SwarmOverlay } from "./components/Swarm/SwarmOverlay";
 
@@ -148,12 +158,17 @@ function AppInner() {
       : "opacity 200ms ease, visibility 0ms linear 200ms",
   });
   const { inset: keyboardInset, keyboardOpen } = useKeyboardInset();
-  const [mainView, setMainView] = useState<"workspace" | "settings" | "memory" | "mesh" | "extensions" | "analytics">("workspace");
+  const backendState = useMuxSelector(selectWholeState, appShellStateEqual);
+  const { config, updateConfig, theme, loading: configLoading } = useConfig();
+  const locked = firstRunLocked(configLoading ? undefined : config.general_agent);
+  const state = firstRunSelection(locked, backendState);
+  const lockedRef = useRef(locked);
+  lockedRef.current = locked;
+  const { providers: firstRunProviders } = useAgentProviders();
+  const { navigationReady, mainView: savedMainView, setMainView, automationWorkspaceId, setAutomationWorkspaceId, jobsScope, setJobsScope, workspaceMapWorkspaceId, setWorkspaceMapWorkspaceId } = useAppNavigation(state.generation, state.focused_tab_id, state.workspaces);
+  const mainView = locked ? "workspace" : savedMainView;
   const automationOpener = useRef<HTMLElement | null>(null);
-  const [automationWorkspaceId, setAutomationWorkspaceId] = useState<string | null>(null);
   const [jobsTarget, setJobsTarget] = useState<(JobsTarget & { request: number; returnTo?: ReturnTo }) | null>(null);
-  const [jobsScope, setJobsScope] = useState<JobsOpenScope>("workspace");
-  const [workspaceMapWorkspaceId, setWorkspaceMapWorkspaceId] = useState<string | null>(null);
   const [pluginViewId, setPluginViewId] = useState<string | null>(null);
   const [pluginViewCwd, setPluginViewCwd] = useState<string | null>(null);
   const [pluginViewOwner, setPluginViewOwner] = useState<PluginViewScope | null>(null);
@@ -222,7 +237,6 @@ function AppInner() {
       return open ? "extensions" : "workspace";
     });
   }, []);
-  const { config, updateConfig, theme, loading: configLoading } = useConfig();
   const stableTheme = useStableJsonValue(theme);
   const stableFontConfig = useStableJsonValue(config.font);
   const stableTerminalConfig = useStableJsonValue(config.terminal);
@@ -257,7 +271,6 @@ function AppInner() {
     dismissToast,
     spawnClaudeTab,
   } = useMultiplexer();
-  const state = useMuxSelector(selectWholeState, appShellStateEqual);
   useEffect(() => {
     if (IS_WEB && !configLoading) void emitFeatureUsed(localJson, "web_ui_opened");
   }, [configLoading]);
@@ -351,16 +364,6 @@ function AppInner() {
     [selectTabByTab, setFocusedTab],
   );
 
-  const lastFocusedRef = useRef(state.focused_tab_id);
-  useEffect(() => {
-    if (state.focused_tab_id !== lastFocusedRef.current) {
-      lastFocusedRef.current = state.focused_tab_id;
-      if (state.focused_tab_id != null && mainView !== "workspace") {
-        setMainView("workspace");
-      }
-    }
-  }, [state.focused_tab_id, mainView]);
-
   const stateRef = useRef(state);
   stateRef.current = state;
   const teamActions = useMemo(
@@ -372,12 +375,14 @@ function AppInner() {
   );
 
   useComposerDraftGc(state.tabs);
+  useAccountMeshLimitNotice();
   const configRef = useRef(config);
   configRef.current = config;
 
   // (e.g. the Git plugin's "Open Git" button, or a glance's "Open settings").
   useEffect(() => {
     const onOpenPanel = (e: Event) => {
+      if (lockedRef.current) return;
       const detail = (e as CustomEvent<{
         panel?: string;
         cwd?: string | null;
@@ -408,6 +413,7 @@ function AppInner() {
   // dismiss any covering Extensions/glance overlay and focus the new tab.
   useEffect(() => {
     const onFocusTab = (e: Event) => {
+      if (lockedRef.current) return;
       const detail = (e as CustomEvent<{ tabId?: string; workspaceId?: string }>).detail;
       const tabId = detail?.tabId;
       if (!tabId) return;
@@ -487,7 +493,7 @@ function AppInner() {
     });
   }, []);
   const prewarmTabIds = useTabPrewarm({
-    ...workspacePrewarmInput(activeWs, activeTab?.id ?? null, state.tabs),
+    ...workspacePrewarmInput(locked ? undefined : activeWs, activeTab?.id ?? null, state.tabs),
     liveTabIds: state.workspaces.flatMap((ws) => ws.tabs),
     prewarmTab: prewarmBackendTab,
   });
@@ -528,6 +534,7 @@ function AppInner() {
   }, [closePluginView, closeSidebarOnMobile, setActiveWorkspace]);
   useEffect(() => {
     const onOpenJob = (event: Event) => {
+      if (lockedRef.current) return;
       const detail = (event as CustomEvent<OpenJobDetail>).detail;
       if (detail?.workspaceId) openWorkspaceAutomation(detail.workspaceId, detail.target, "workspace", detail.returnTo);
     };
@@ -559,14 +566,15 @@ function AppInner() {
     if (mainView !== "workspace") setWorkspaceMapWorkspaceId(null);
   }, [mainView]);
   useEffect(() => {
-    if (mainView !== "workspace" || cronSelection || (automationWorkspaceId && !state.workspaces.some((workspace) => workspace.id === automationWorkspaceId))) setAutomationWorkspaceId(null);
-  }, [mainView, cronSelection, automationWorkspaceId, state.workspaces]);
+    if (mainView !== "workspace" || cronSelection) setAutomationWorkspaceId(null);
+  }, [mainView, cronSelection, setAutomationWorkspaceId]);
   useEffect(() => {
     if (!activeTab) canvasFocusStore.resetWorkspaceDismissed();
   }, [activeTab]);
   const canvasFocusOpen = useCanvasFocusOpen();
   const canvasFocusTarget = useCanvasFocusTarget();
   const handleNewTab = useCallback(() => {
+    if (lockedRef.current) return;
     if (!activeWs) return;
     const focusedTab = state.focused_tab_id ? state.tabs[state.focused_tab_id] : null;
     const cwd = focusedTab?.cwd || undefined;
@@ -574,6 +582,7 @@ function AppInner() {
   }, [activeWs, state.focused_tab_id, state.tabs, createTab]);
 
   const handleCloseCurrentTab = useCallback(() => {
+    if (lockedRef.current) return;
     if (activeWs && activeTab) {
       closeTab(activeWs.id, activeTab.id);
     }
@@ -587,28 +596,39 @@ function AppInner() {
     [setTabPty],
   );
 
+  const { pickFolder, folderPicker } = useFolderPicker();
+  const handleNewWorkspace = useCallback(async () => {
+    if (lockedRef.current) return;
+    if (precheckFreeLimit(["workspaces"])) return;
+    const folder = await pickFolder("Choose workspace folder");
+    if (!folder) return;
+    const basename = folder.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "Workspace";
+    await createWorkspace(basename, folder);
+  }, [pickFolder, createWorkspace]);
+  const openSettings = useCallback((section?: SettingsLinkId) => {
+    if (lockedRef.current) return;
+    setSettingsSection(section);
+    setSettingsOpen(true);
+  }, [setSettingsOpen]);
+  const showRevokedSignIn = useCallback(() => openSettings("account"), [openSettings]);
+  useSessionRevocationScreen(showRevokedSignIn);
+  const showBell = config.notifications?.show_bell !== false;
+
   const paletteCommands = useMemo(
     () =>
       buildDefaultCommands({
         newTab: handleNewTab,
         closeTab: handleCloseCurrentTab,
-        newWorkspace: () => {
-          if (precheckFreeLimit(["workspaces"])) return;
-          openDialog({ directory: true, multiple: false, title: "Choose workspace folder" })
-            .then((folder) => {
-              if (!folder) return;
-              const basename = folder.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "Workspace";
-              createWorkspace(basename, folder);
-            })
-            .catch(() => {});
-        },
-        openSettings: () => { setSettingsSection(undefined); setSettingsOpen(true); },
+        newWorkspace: () => void handleNewWorkspace(),
+        openSettings: () => openSettings(),
+        openThemeSettings: () => openSettings("general"),
         toggleSidebar,
+        openNotifications: showBell ? openNotificationCenter : undefined,
         spawnClaude: async () => {
           const wsId = stateRef.current.active_workspace_id ?? stateRef.current.workspaces[0]?.id;
           if (!wsId || precheckFreeLimit(["agent.tabs"])) return;
+          const workspace = stateRef.current.workspaces.find((candidate) => candidate.id === wsId);
           if (config.agent.full_access === undefined) {
-            const workspace = stateRef.current.workspaces.find((candidate) => candidate.id === wsId);
             openNewSessionPicker({
               workspaceId: wsId,
               workspaceCwd: workspace?.cwd ?? null,
@@ -616,43 +636,74 @@ function AppInner() {
             });
             return;
           }
-          let folder: string | null;
-          try {
-            folder = await openDialog({
-              directory: true,
-              multiple: false,
-              title: "Choose project folder for Claude",
-            });
-          } catch {
-            return;
-          }
-          if (!folder) return;
-          spawnClaudeTab(wsId, folder);
+          const folder = workspace?.cwd || await pickFolder("Choose project folder", workspace?.cwd);
+          if (folder) spawnClaudeTab(wsId, folder);
         },
+      }, {
+        bindings: config.keybindings,
+        tabs: paletteTabTargets(state.workspaces, state.tabs),
+        goToTab: (workspaceId, tabId) => { setActiveTab(workspaceId, tabId); handleNavigateToTab(); },
       }),
     [
       handleNewTab,
       handleCloseCurrentTab,
-      createWorkspace,
+      handleNewWorkspace,
+      openSettings,
+      showBell,
       config.agent.full_access,
+      config.keybindings,
+      pickFolder,
       spawnClaudeTab,
       toggleSidebar,
+      state.workspaces,
+      state.tabs,
+      setActiveTab,
+      handleNavigateToTab,
     ],
   );
 
-  const kb = config.keybindings;
-  const kbKey = JSON.stringify(kb);
   const activeWorkspaceId = activeWs?.id ?? null;
+  const workspaceCanvasActive = workspaceCanvasVisible || !!cronSelection || workspaceMapWorkspaceId !== null || automationWorkspaceId !== null;
+  const cycleTab = (direction: 1 | -1) => {
+    const ws = stateRef.current.workspaces.find((w) => w.id === stateRef.current.active_workspace_id);
+    if (!ws) return false;
+    const items = buildSidebarCycleItems(ws.tabs, stateRef.current.tabs, false);
+    if (items.length < 2) return false;
+    const next = cycleStep(items, stateRef.current.activeTabIds[ws.id], workspaceCanvasActive, direction);
+    if (!next || next.kind !== "tab") return false;
+    setActiveTab(ws.id, next.tabId);
+    handleNavigateToTab();
+    return true;
+  };
+  const zoom = (action: "zoom_in" | "zoom_out" | "zoom_reset") => {
+    const size = zoomedFontSize(config.font.size, action);
+    if (size !== config.font.size) void updateConfig({ ...config, font: { ...config.font, size } }).catch(() => {});
+  };
+  const focusedTabId = () => stateRef.current.focused_tab_id;
+  useAppShortcuts(config.keybindings, {
+    new_tab: handleNewTab,
+    close_tab: handleCloseCurrentTab,
+    reopen_tab: () => { if (activeWorkspaceId) void reopenClosed(activeWorkspaceId, 0); },
+    next_tab: () => cycleTab(1),
+    prev_tab: () => cycleTab(-1),
+    new_workspace: () => void handleNewWorkspace(),
+    copy: () => { const tabId = focusedTabId(); return tabId ? copyFromTab(tabId) : false; },
+    paste: () => { const tabId = focusedTabId(); return tabId ? pasteToTab(tabId) : false; },
+    search: () => {
+      const tabId = focusedTabId();
+      if (!tabId) return false;
+      window.dispatchEvent(new CustomEvent("codeterm-toggle-search", { detail: { tabId } }));
+    },
+    zoom_in: () => zoom("zoom_in"),
+    zoom_out: () => zoom("zoom_out"),
+    zoom_reset: () => zoom("zoom_reset"),
+    open_settings: () => openSettings(),
+    toggle_sidebar: toggleSidebar,
+  }, locked);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Config-driven bindings (language-independent via e.code)
-      // Browser-standard reopen-closed-tab. Most recent = ring index 0.
-      if (matchesBinding(e, kb.reopen_tab ?? "Ctrl+Shift+T")) {
-        e.preventDefault();
-        if (activeWorkspaceId) reopenClosed(activeWorkspaceId, 0);
-        return;
-      }
-
+      if (lockedRef.current) return;
       if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) return;
 
       // FALLBACK: If xterm.js textarea doesn't have focus, send keys directly to PTY.
@@ -671,11 +722,7 @@ function AppInner() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [
-    kbKey,
-    activeWorkspaceId,
-    reopenClosed,
-  ]);
+  }, []);
 
   const themeStyles = useMemo(() => themeToCSS(stableTheme), [stableTheme]);
   const isCRT = stableTheme.name.toLowerCase().replace(/[\s-]/g, "") === "pipboy";
@@ -714,12 +761,13 @@ function AppInner() {
       {/* Native + web mirror share one titlebar strip (parity decision A) — its
           own --ct-safe-top padding covers the web notch/status-bar inset. */}
       <Titlebar
+        locked={locked}
         api={stableApiConfig}
         onToggleSidebar={sidebarRailCollapsed && sidebarOpen ? () => setSidebarExpandRequest((count) => count + 1) : toggleSidebar}
         showSidebarToggle={phoneViewport || !sidebarOpen || sidebarRailCollapsed}
         onNewTab={handleNewTab}
         theme={stableTheme}
-        onOpenSettings={(section) => { setSettingsSection(section); setSettingsOpen(true); }}
+        onOpenSettings={(section) => { if (locked) return; setSettingsSection(section); setSettingsOpen(true); }}
         onOpenExtensions={() => { setExtensionsOpen(true); }}
         analyticsOpen={mainView === "analytics"}
         onToggleAnalytics={toggleAnalytics}
@@ -769,7 +817,7 @@ function AppInner() {
                 mainView={mainView}
                 config={config}
                 uiFontScale={uiFontScale}
-                workspaceCanvasActive={workspaceCanvasVisible || !!cronSelection || workspaceMapWorkspaceId !== null || automationWorkspaceId !== null}
+                workspaceCanvasActive={workspaceCanvasActive}
                 onOpenWorkspaceMap={openWorkspaceMap}
                 onOpenWorkspaceAutomation={openWorkspaceAutomation}
                 teamActions={teamActions}
@@ -781,7 +829,9 @@ function AppInner() {
 
         <div className="flex-1 min-w-0 min-h-0 flex flex-col">
         <main className="flex-1 min-w-0 min-h-0 relative overflow-hidden">
-          {!routeRestored && !state.storageUnavailable ? (
+          {locked ? (configLoading ? <BrandState model={brandStateModel({ loading: true, label: "Loading settings" })} />
+            : <FirstRunGeneralPicker providers={firstRunProviders} home={state.active_workspace_id && state.focused_tab_id
+              ? { workspaceId: state.active_workspace_id, tabId: state.focused_tab_id } : undefined} />) : !routeRestored && !state.storageUnavailable ? (
             <DeferredPresence present className="absolute inset-0">
               <BrandState model={brandStateModel({ loading: true, label: "Restoring workspace" })} />
             </DeferredPresence>
@@ -878,12 +928,12 @@ function AppInner() {
               <PluginView pluginId={pluginViewId} api={config.api} cwd={pluginViewCwd} onClose={closePluginView} />
             </div>
           )}
-          {automationWorkspaceId && mainView === "workspace" && (
+          {automationWorkspaceId && navigationReady && mainView === "workspace" && (
             <div className="absolute inset-0" style={{ zIndex: 26 }}>
               <JobsView key={`${automationWorkspaceId}:${jobsScope}:${jobsTarget?.request ?? 0}`} workspaces={state.workspaces} teams={state.teams} tabs={state.tabs} initialFilter={jobsEntryFilter(jobsOpenEntry(automationWorkspaceId, jobsScope, jobsTarget?.teamId))} initialScenarioId={jobsTarget?.scenarioId} initialRunId={jobsTarget?.runId} initialCronId={jobsTarget?.cronId} initialBlueprintId={jobsTarget?.blueprintId} returnTo={jobsTarget?.returnTo} onReturnTo={activateReturnTo} onClose={closeWorkspaceAutomation} />
             </div>
           )}
-          {workspaceMapWorkspaceId && mainView === "workspace" && (
+          {workspaceMapWorkspaceId && navigationReady && mainView === "workspace" && (
             <div className="absolute inset-0" style={{ zIndex: 26 }}>
               <EssenceMapCanvas workspaceId={workspaceMapWorkspaceId} onClose={closeWorkspaceMap} />
             </div>
@@ -980,7 +1030,8 @@ function AppInner() {
       </AppChatBlockServices>
       </PlansProvider>
 
-      <CommandPalette commands={paletteCommands} />
+      <CommandPalette commands={paletteCommands} disabled={locked} />
+      {folderPicker}
 
 
       <StorageUnavailableToast active={state.storageUnavailable === true} />

@@ -1,6 +1,6 @@
 // Run: npm run test:unit -- meshProjection
 
-import { groupServicesByPeer, pairedPeers, SELF_PEER_KEY, visibleServices } from "./meshProjection";
+import { groupServicesByPeer, meshDataUnavailable, meshHeaderState, pairedPeers, SELF_PEER_KEY, visibleServices } from "./meshProjection";
 import type { Service } from "./types";
 import type { PeerStatus } from "./useMeshData";
 
@@ -92,6 +92,25 @@ function peer(instanceId: string, pending: boolean): PeerStatus {
   assert("self service attributed to self", grouped.get(SELF_PEER_KEY)?.some((s) => s.id === "self-daemon") === true);
   assert("remote daemon attributed to its peer", grouped.get("peer-a")?.some((s) => s.id === "remote-daemon") === true);
   assert("remote cron dropped from every bucket", !Array.from(grouped.values()).some((list) => list.some((s) => s.id === "remote-cron")));
+}
+
+{
+  assert("a failed first load is unavailable", meshDataUnavailable({ error: "timed out", loaded: false }));
+  assert("a failed refresh over loaded data keeps the data", !meshDataUnavailable({ error: "timed out", loaded: true }));
+  assert("an initial load in flight is not a failure", !meshDataUnavailable({ error: null, loaded: false }));
+}
+
+{
+  const paired = [peer("a", false), peer("b", false), peer("vouched", true)];
+  const kind = (state: ReturnType<typeof meshHeaderState>) => state.kind === "peers" ? `peers:${state.count}` : state.kind;
+  assert("placeholder data before the cache renders loading, not 0 peers",
+    kind(meshHeaderState({ error: null, loaded: false, peers: [] }, true)) === "loading");
+  assert("cached data renders its paired count", kind(meshHeaderState({ error: null, loaded: true, peers: paired }, true)) === "peers:2");
+  assert("a failed first load renders unavailable on inventory",
+    kind(meshHeaderState({ error: "timed out", loaded: false, peers: [] }, true)) === "unavailable");
+  assert("a failed refresh keeps the loaded count", kind(meshHeaderState({ error: "timed out", loaded: true, peers: paired }, true)) === "peers:2");
+  assert("an errored empty list off inventory is unavailable",
+    kind(meshHeaderState({ error: "timed out", loaded: true, peers: [] }, false)) === "unavailable");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

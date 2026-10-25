@@ -1,6 +1,7 @@
 //! Agent spawn & batch command orchestration.
 
 mod launch;
+pub(crate) use launch::deferred_launch_nonce;
 #[cfg(any(test, feature = "test-support"))]
 pub use launch::test_support as launch_test_support;
 mod launch_env;
@@ -45,5 +46,7 @@ pub use types::{BatchOp, SpawnAgentParams, SpawnIdentityProvenance, SpawnResult}
 mod tests;
 
 pub use launch::mark_tab_agent_launch_started;
+#[cfg(test)]
+pub(crate) use launch::reserve_launch_binding_nonce;
 
 pub use launch::launch_agent_in_background_with_env;

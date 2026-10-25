@@ -39,12 +39,15 @@ impl Inbox {
     }
 
     pub fn retain(&mut self, jobs: &[Sentinel]) {
-        let live = |id: &String| jobs.iter().any(|job| job.id == *id && !job.machine.stopped);
+        let live = |id: &String| {
+            jobs.iter()
+                .any(|job| job.id == *id && !job.machine.stopped && job.admission.permits_steps())
+        };
         self.streams.retain(|id, _| live(id));
         self.pending.retain(|id, _| live(id));
         self.revisions.retain(|id, _| live(id));
         self.failures.retain(|id| live(id));
-        for job in jobs {
+        for job in jobs.iter().filter(|job| job.admission.permits_steps()) {
             self.bind(job);
         }
     }

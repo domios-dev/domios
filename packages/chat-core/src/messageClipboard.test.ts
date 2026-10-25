@@ -27,12 +27,16 @@ const names = { agent: "Fermi", formatTime: (ts: NormalizedChatMessage["timestam
 describe("attachment tags", () => {
   it("become their capsule labels, or the file name when unlabelled", () => {
     const unlabelled = formatAttachmentMarker("/docs/plan.md", "file");
-    expect(attachmentTagsAsLabels(`see ${IMAGE} and ${unlabelled}.`)).toBe("see image1 and plan.md.");
+    expect(attachmentTagsAsLabels(`see ${IMAGE} and ${unlabelled}.`)).toBe("see image and plan.md.");
+  });
+
+  it("a tag cut off at the end of the text never leaks into the labels", () => {
+    expect(attachmentTagsAsLabels(`see ${IMAGE.slice(0, 20)}`)).toBe("see ");
   });
 
   it("copy keeps the exact source with tags in the portable flavour and labels in plain", () => {
     const source = `look ${IMAGE} **now**`;
-    expect(messageClipboard(user(source))).toEqual({ plain: "look image1 **now**", portable: source });
+    expect(messageClipboard(user(source))).toEqual({ plain: "look image **now**", portable: source });
   });
 });
 
@@ -86,7 +90,7 @@ describe("several messages", () => {
 
   it("copy concatenates in order under role headings", () => {
     expect(messagesClipboard(messages)).toEqual({
-      plain: "You · 14:05\nfix image1\n\nFermi · 14:06\nDone now.",
+      plain: "You · 14:05\nfix image\n\nFermi · 14:06\nDone now.",
       portable: `### You · 14:05\n\nfix ${IMAGE}\n\n### Fermi · 14:06\n\nDone **now**.`,
     });
   });

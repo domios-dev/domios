@@ -516,11 +516,21 @@ fn push_lane(
 }
 
 pub(crate) fn lane_hold_reason(lane: &TeamCloseLane) -> Option<String> {
+    lane_hold_reason_with_inventory(lane, None, merged_refusal)
+}
+
+pub(crate) fn lane_hold_reason_with_inventory(
+    lane: &TeamCloseLane,
+    inventory: Option<(&str, &HashMap<String, String>)>,
+    merged: impl Fn(&str, &str, &str) -> Option<String>,
+) -> Option<String> {
     if let Some(reason) = &lane.hold_reason {
         return Some(reason.clone());
     }
     if let Some(branch) = lane.branch.as_deref() {
-        let registrations =
+        let registrations = if let Some((worktrees, _)) = inventory {
+            worktrees.to_string()
+        } else {
             match git_output(&lane.project_path, &["worktree", "list", "--porcelain"]) {
                 Ok(output) if output.status.success() => {
                     String::from_utf8_lossy(&output.stdout).to_string()
@@ -533,7 +543,8 @@ pub(crate) fn lane_hold_reason(lane: &TeamCloseLane) -> Option<String> {
                     ))
                 }
                 Err(error) => return Some(error),
-            };
+            }
+        };
         let mut worktree = None;
         for line in registrations.lines() {
             if let Some(path) = line.strip_prefix("worktree ") {
@@ -574,7 +585,7 @@ pub(crate) fn lane_hold_reason(lane: &TeamCloseLane) -> Option<String> {
             Ok(_) => {}
         }
         if let Some(destination) = lane.destination.as_deref() {
-            if let Some(reason) = merged_refusal(path, "HEAD", destination) {
+            if let Some(reason) = merged(path, "HEAD", destination) {
                 return Some(reason);
             }
         }
@@ -602,7 +613,10 @@ pub(crate) fn lane_hold_reason(lane: &TeamCloseLane) -> Option<String> {
         }
     }
     let branch = match branch {
-        Some(branch) => match branch_exists(lane, branch) {
+        Some(branch) => match inventory.map_or_else(
+            || branch_exists(lane, branch),
+            |(_, refs)| Ok(refs.contains_key(&format!("refs/heads/{branch}"))),
+        ) {
             Ok(true) => Some(branch),
             Ok(false) => None,
             Err(error) => return Some(error),
@@ -628,7 +642,7 @@ pub(crate) fn lane_hold_reason(lane: &TeamCloseLane) -> Option<String> {
     } else {
         reference.to_string()
     };
-    merged_refusal(cwd, &reference, destination)
+    merged(cwd, &reference, destination)
 }
 
 pub(crate) fn merged_refusal(cwd: &str, reference: &str, destination: &str) -> Option<String> {
@@ -650,6 +664,7 @@ pub(crate) fn merged_refusal(cwd: &str, reference: &str, destination: &str) -> O
 
 #[derive(Debug, Serialize)]
 pub struct TeamCloseResult {
+    pub remote_members: Vec<codeterm_service_core::service::remote_team::RemoteTeamFinalization>,
     pub team: Team,
     pub inventory: TeamCloseInventory,
     #[serde(skip_serializing_if = "Vec::is_empty")]

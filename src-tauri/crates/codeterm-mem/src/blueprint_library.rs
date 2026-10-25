@@ -6,20 +6,49 @@ use codeterm_blueprint_types::{
 };
 use rusqlite::{params, Connection};
 use std::sync::atomic::{AtomicU64, Ordering};
+pub mod authoring;
+mod call_revisions;
+pub mod catalog;
+mod changes;
+pub(crate) mod cleanup;
+pub mod dedupe;
+pub mod enrichment;
+#[cfg(test)]
+pub(crate) mod fakes;
+pub mod index;
+mod merge_policy;
 mod qualification;
+pub mod recall;
+pub mod services;
+mod show;
 use qualification::PreparedBlueprint;
+pub use recall::{BlueprintHit, Fusion, RecallConfig, Weights};
+pub use services::{BlueprintEnricher, EnrichmentJob};
 
-const SOURCE: &str = "blueprint-library";
+pub(crate) const SOURCE: &str = "blueprint-library";
 static RECALLS: AtomicU64 = AtomicU64::new(0);
 static HITS: AtomicU64 = AtomicU64::new(0);
 static DREAM_AREA: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct SaveResult {
+    pub id: String,
+    pub evicted_ids: Vec<String>,
+}
 
 pub(crate) enum Pending {
     Keep {
         area: String,
         prepared: PreparedBlueprint,
+        reply: std::sync::mpsc::SyncSender<Result<SaveResult, String>>,
     },
     Reuse(Vec<String>),
+    Backfill,
+}
+
+pub(crate) fn initialize(conn: &Connection) -> Result<(), String> {
+    index::initialize(conn)?;
+    call_revisions::initialize(conn)
 }
 
 fn load_entries(
@@ -28,7 +57,26 @@ fn load_entries(
     area: &str,
     validate: bool,
 ) -> Result<Vec<Entry>, String> {
-    let mut stmt=conn.prepare("SELECT m.id FROM mem_items m JOIN solution_metadata s ON s.item_id=m.id WHERE m.kind='skill' AND m.area=?1 AND m.source=?2 ORDER BY json_extract(s.metadata_json,'$.blueprint.successes') DESC, json_extract(s.metadata_json,'$.blueprint.last_used') DESC, m.id LIMIT 51").map_err(|error|error.to_string())?;
+    load_entries_in(conn, blobs, area, validate)
+}
+
+pub(crate) fn load_entries_in(
+    conn: &Connection,
+    blobs: &std::path::Path,
+    area: &str,
+    validate: bool,
+) -> Result<Vec<Entry>, String> {
+    load_entries_scoped(conn, blobs, area, validate, None)
+}
+
+fn load_entries_scoped(
+    conn: &Connection,
+    blobs: &std::path::Path,
+    area: &str,
+    validate: bool,
+    team: Option<&str>,
+) -> Result<Vec<Entry>, String> {
+    let mut stmt=conn.prepare("SELECT m.id FROM mem_items m JOIN solution_metadata s ON s.item_id=m.id WHERE m.kind='skill' AND (?1='' OR m.area=?1) AND m.source=?2 ORDER BY json_extract(s.metadata_json,'$.blueprint.successes') DESC, json_extract(s.metadata_json,'$.blueprint.last_used') DESC, m.id").map_err(|error|error.to_string())?;
     let ids = stmt
         .query_map(params![area, SOURCE], |row| row.get::<_, String>(0))
         .map_err(|error| error.to_string())?
@@ -36,6 +84,9 @@ fn load_entries(
         .map_err(|error| error.to_string())?;
     let mut result = Vec::new();
     for id in ids {
+        if team.is_some() && !call_revisions::same_scope(conn, &id, area, team)? {
+            continue;
+        }
         let item = store::get(conn, &id, blobs)?.ok_or("Blueprint solution disappeared")?;
         let stats = metadata::read(conn, &id)?
             .and_then(|record| record.blueprint)
@@ -50,7 +101,7 @@ fn load_entries(
         result.push(Entry {
             id,
             document,
-            when_to_use: stats.when_to_use,
+            intents: stats.intents,
             uses: stats.uses,
             successes: stats.successes,
             failures: stats.failures,
@@ -84,7 +135,11 @@ fn write_entry(
 ) -> Result<(), String> {
     record.set_entry(entry);
     let document = &entry.document;
-    let mut tags = vec!["blueprint-library".into()];
+    let mut tags = store::get(conn, &entry.id, blobs)?
+        .map(|item| item.tags)
+        .unwrap_or_default();
+    tags.retain(|tag| codeterm_blueprint_types::blueprint_tags::contains(tag));
+    tags.push("blueprint-library".into());
     if let Some(curator) = &record.curator {
         tags.push("curator".into());
         tags.extend(curator.rounds.keys().cloned());
@@ -95,18 +150,38 @@ fn write_entry(
         &store::MemUpdate {
             title: Some(document.name.clone()),
             body: Some(document.yaml()?),
-            summary: Some(entry.when_to_use.clone()),
+            summary: Some(entry.when_to_use()),
             tags: Some(tags),
             ..Default::default()
         },
         blobs,
     )?;
+    call_revisions::retain(conn, &entry.id, document)?;
     metadata::write(conn, &entry.id, &record)
 }
 
 impl MemManager {
+    pub fn blueprint_tags(&self, id: &str) -> Result<Vec<String>, String> {
+        if id.starts_with("catalog:") {
+            return Ok(catalog::tags(id).iter().map(|tag| (*tag).into()).collect());
+        }
+        let id = id
+            .strip_prefix("mem:")
+            .or_else(|| id.strip_prefix("memory:"))
+            .unwrap_or(id);
+        Ok(self
+            .get(id)?
+            .map(|item| {
+                item.tags
+                    .into_iter()
+                    .filter(|tag| codeterm_blueprint_types::blueprint_tags::contains(tag))
+                    .collect()
+            })
+            .unwrap_or_default())
+    }
+
     fn queue_blueprint(self: &std::sync::Arc<Self>, pending: Pending) -> Result<(), String> {
-        let mut queue = self.blueprint_queue.lock();
+        let mut queue = self.blueprint.queue.lock();
         if queue.is_none() {
             let (sender, receiver) = std::sync::mpsc::sync_channel::<Pending>(16);
             let weak = std::sync::Arc::downgrade(self);
@@ -116,10 +191,18 @@ impl MemManager {
                     while let Ok(pending) = receiver.recv() {
                         let Some(mem) = weak.upgrade() else { break };
                         let result = match pending {
-                            Pending::Keep { area, prepared } => {
-                                mem.persist_blueprint(&area, prepared).map(|_| ())
+                            Pending::Keep {
+                                area,
+                                prepared,
+                                reply,
+                            } => {
+                                let saved = mem.persist_blueprint(&area, prepared, true, AREA_CAP);
+                                let id = saved.as_ref().ok().map(|saved| saved.id.clone());
+                                let _ = reply.send(saved);
+                                id.map_or(Ok(()), |id| mem.index_blueprint(&id).map(|_| ()))
                             }
                             Pending::Reuse(ids) => mem.reuse_blueprints(&ids),
+                            Pending::Backfill => mem.backfill_blueprints().map(|_| ()),
                         };
                         if let Err(error) = result {
                             log::error!("[blueprint-memory] persistence failed: {error}");
@@ -140,54 +223,125 @@ impl MemManager {
         self: &std::sync::Arc<Self>,
         area: String,
         definition: serde_json::Value,
-        when_to_use: String,
+        intents: Vec<String>,
         evidence: Evidence,
-    ) -> Result<(), String> {
+    ) -> Result<SaveResult, String> {
         self.guard_commit()?;
         let prepared = self.qualify_blueprint(
             &area,
             Document::from_definition(&definition)?,
-            &when_to_use,
+            &intents,
             evidence,
         )?;
-        self.queue_blueprint(Pending::Keep { area, prepared })
+        let (reply, completion) = std::sync::mpsc::sync_channel(1);
+        self.queue_blueprint(Pending::Keep {
+            area,
+            prepared,
+            reply,
+        })?;
+        completion
+            .recv()
+            .map_err(|_| "Blueprint memory worker stopped before save completion")?
     }
 
     pub fn save_blueprint(
         &self,
         area: &str,
         document: Document,
-        when_to_use: &str,
+        intents: &[String],
         evidence: Evidence,
-    ) -> Result<Option<String>, String> {
-        let prepared = self.qualify_blueprint(area, document, when_to_use, evidence)?;
-        self.persist_blueprint(area, prepared)
+    ) -> Result<SaveResult, String> {
+        let prepared = self.qualify_blueprint(area, document, intents, evidence)?;
+        let saved = self.persist_blueprint(area, prepared, true, AREA_CAP)?;
+        self.index_after_save(&saved.id);
+        Ok(saved)
+    }
+
+    pub fn save_blueprint_without_merge(
+        &self,
+        area: &str,
+        document: Document,
+        intents: &[String],
+        evidence: Evidence,
+    ) -> Result<SaveResult, String> {
+        let prepared = self.qualify_blueprint(area, document, intents, evidence)?;
+        self.persist_blueprint(area, prepared, false, AREA_CAP)
+    }
+
+    fn index_after_save(&self, id: &str) {
+        if let Err(error) = self.index_blueprint(id) {
+            log::warn!("[blueprint-memory] index {id}: {error}");
+        }
     }
 
     fn persist_blueprint(
         &self,
         area: &str,
         prepared: PreparedBlueprint,
-    ) -> Result<Option<String>, String> {
+        merge: bool,
+        area_cap: usize,
+    ) -> Result<SaveResult, String> {
         self.guard_commit()?;
         let PreparedBlueprint {
             document,
-            when_to_use,
+            intents,
             evidence,
+            team,
+            index: mut index_row,
         } = prepared;
-        let yaml = document.yaml()?;
+        let purpose = merge_policy::callable(&document)
+            .then(|| merge_policy::Purpose::candidate(self, &intents));
         let conn = self.conn.lock();
         let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+        let document =
+            call_revisions::freeze(&tx, &self.blobs_dir, area, team.as_deref(), document)?;
+        if !model::safe_template(&document, &intents.join("; ")) {
+            return Err("Unsafe callee closure cannot be saved".into());
+        }
+        if team.is_some() {
+            index_row = qualification::index_row(&document, &intents);
+        }
+        let yaml = document.yaml()?;
         let mut library = load_entries(&tx, &self.blobs_dir, area, !evidence.kept)?;
+        let mut scoped = Vec::new();
+        for entry in library {
+            if call_revisions::same_scope(&tx, &entry.id, area, team.as_deref())? {
+                scoped.push(entry);
+            }
+        }
+        library = scoped;
+        merge_policy::check_name(&library, &document, &intents)?;
+        if purpose
+            .as_ref()
+            .is_some_and(|purpose| self.embedder.identity() != purpose.identity)
+        {
+            return Err("Blueprint embedder changed during save".into());
+        }
         let now = chrono::Utc::now();
-        let id = if let Some(existing) = model::duplicate(&library, &document) {
+        let mut compatible = Vec::new();
+        for entry in &library {
+            if let Some(purpose) = &purpose {
+                if !purpose.agrees(&merge_policy::Purpose::stored(
+                    &tx,
+                    &self.embedder.identity(),
+                    entry,
+                )?) {
+                    continue;
+                }
+            }
+            compatible.push(entry.clone());
+        }
+        let existing = merge
+            .then(|| model::duplicate(&compatible, &document))
+            .flatten();
+        let id = if let Some(existing) = existing {
             let mut record =
                 metadata::read(&tx, &existing.id)?.ok_or("Blueprint metadata absent")?;
             let prior = record.prior(evidence.origin.as_deref());
             let candidate = Entry {
                 id: "candidate".into(),
                 document,
-                when_to_use: when_to_use.clone(),
+                intents: intents.clone(),
                 uses: 0,
                 successes: evidence.successes.saturating_sub(prior.successes),
                 failures: evidence.failures.saturating_sub(prior.failures),
@@ -197,12 +351,20 @@ impl MemManager {
             let mut next = model::merge_pair(existing, &candidate)
                 .ok_or("Blueprint structure changed")?
                 .keeper;
+            let stored = index::read_row(&tx, &existing.id)?;
             if evidence.kept {
                 next.document = candidate.document;
-                next.when_to_use = candidate.when_to_use;
+                next.intents = candidate.intents;
+                index_row.enrichment = stored.and_then(|row| row.enrichment);
+                index::write_row(&tx, &existing.id, &index_row)?;
+            } else if stored.is_none() {
+                index::write_row(&tx, &existing.id, &index_row)?;
             }
             next.id = existing.id.clone();
             record.observe(&evidence, now.timestamp());
+            if let Some(team) = &team {
+                call_revisions::scope(&tx, &next.id, area, team)?;
+            }
             write_entry(&tx, &self.blobs_dir, &next, record)?;
             let id = next.id.clone();
             library.retain(|entry| entry.id != id);
@@ -229,7 +391,7 @@ impl MemManager {
             let next = Entry {
                 id: id.clone(),
                 document,
-                when_to_use: when_to_use.clone(),
+                intents: intents.clone(),
                 uses: 0,
                 successes: evidence.successes,
                 failures: evidence.failures,
@@ -238,25 +400,39 @@ impl MemManager {
             };
             let mut record = SolutionMetadata::default();
             record.observe(&evidence, now.timestamp());
+            if let Some(team) = &team {
+                call_revisions::scope(&tx, &next.id, area, team)?;
+            }
             write_entry(&tx, &self.blobs_dir, &next, record)?;
+            index::write_row(&tx, &id, &index_row)?;
             library.push(next);
             id
         };
-        for evicted in model::evictions(&library, AREA_CAP, now.timestamp()) {
-            archive(&tx, &evicted, "blueprint solution area cap")?;
+        if !evidence.tags.is_empty() {
+            let mut tags = store::get(&tx, &id, &self.blobs_dir)?
+                .ok_or("Blueprint solution disappeared")?
+                .tags;
+            tags.retain(|tag| !codeterm_blueprint_types::blueprint_tags::contains(tag));
+            tags.extend(evidence.tags);
+            store::update(
+                &tx,
+                &id,
+                &store::MemUpdate {
+                    tags: Some(tags),
+                    ..Default::default()
+                },
+                &self.blobs_dir,
+            )?;
+        }
+        let evicted_ids = model::evictions(&library, area_cap, now.timestamp(), &id);
+        for evicted in &evicted_ids {
+            archive(&tx, evicted, "blueprint solution area cap")?;
         }
         tx.commit().map_err(|e| e.to_string())?;
-        let added: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM mem_items WHERE source=?1 AND date(created_at)=date('now')",
-                [SOURCE],
-                |row| row.get(0),
-            )
-            .map_err(|e| e.to_string())?;
         drop(conn);
+        self.notify_blueprint_library_changed([area.to_owned()]);
         self.refresh_embedding(&id);
-        log::debug!("[blueprint-memory] added_today={added}");
-        Ok(Some(id))
+        Ok(SaveResult { id, evicted_ids })
     }
 
     fn reuse_blueprints(&self, ids: &[String]) -> Result<(), String> {
@@ -284,14 +460,28 @@ impl MemManager {
         area: &str,
         intent: &str,
         limit: usize,
-    ) -> Result<Vec<Entry>, String> {
-        let embedding = if intent.trim().is_empty() {
-            None
+    ) -> Result<Vec<BlueprintHit>, String> {
+        let result = if intent.trim().is_empty() {
+            let now = chrono::Utc::now().timestamp();
+            let mut library = entries(&self.conn.lock(), &self.blobs_dir, area)?;
+            library.sort_by(|a, b| {
+                model::score(b, now)
+                    .total_cmp(&model::score(a, now))
+                    .then(a.id.cmp(&b.id))
+            });
+            library.truncate(limit);
+            library
+                .into_iter()
+                .map(|entry| BlueprintHit {
+                    score: model::score(&entry, now),
+                    why: "most used".into(),
+                    enrichment_pending: false,
+                    entry,
+                })
+                .collect()
         } else {
-            crate::solution_search::query_embedding(intent)
+            self.recall_blueprint_hits(area, intent, None, limit, &RecallConfig::default())?
         };
-        let result =
-            self.recall_blueprints_with_embedding(area, intent, limit, embedding.as_deref())?;
         let total = RECALLS.fetch_add(1, Ordering::Relaxed) + 1;
         if !result.is_empty() {
             HITS.fetch_add(1, Ordering::Relaxed);
@@ -303,101 +493,75 @@ impl MemManager {
         );
         if !result.is_empty() && !intent.trim().is_empty() {
             let _ = self.queue_blueprint(Pending::Reuse(
-                result.iter().map(|entry| entry.id.clone()).collect(),
+                result.iter().map(|hit| hit.entry.id.clone()).collect(),
             ));
         }
         Ok(result)
-    }
-
-    fn recall_blueprints_with_embedding(
-        &self,
-        area: &str,
-        intent: &str,
-        limit: usize,
-        embedding: Option<&[f32]>,
-    ) -> Result<Vec<Entry>, String> {
-        let now = chrono::Utc::now().timestamp();
-        if intent.trim().is_empty() {
-            let mut library = entries(&self.conn.lock(), &self.blobs_dir, area)?;
-            library.sort_by(|a, b| {
-                model::score(b, now)
-                    .total_cmp(&model::score(a, now))
-                    .then(a.id.cmp(&b.id))
-            });
-            library.truncate(limit.min(AREA_CAP));
-            return Ok(library);
-        }
-        let hits = self.recall_solutions_with_embedding(
-            &crate::SearchQuery {
-                query: intent.into(),
-                kind: Some("skill".into()),
-                area: (!area.is_empty()).then(|| area.into()),
-                limit: Some(AREA_CAP),
-                ..Default::default()
-            },
-            Some(SOURCE),
-            embedding,
-        )?;
-        let conn = self.conn.lock();
-        let mut ranked = Vec::new();
-        for hit in hits {
-            let Some(stats) =
-                metadata::read(&conn, &hit.item.id)?.and_then(|record| record.blueprint)
-            else {
-                continue;
-            };
-            let document = match model::parse_document(&hit.item.body) {
-                Ok(document) if document.template_errors().is_empty() => document,
-                _ => {
-                    archive(
-                        &conn,
-                        &hit.item.id,
-                        "Blueprint recipe fails current validation",
-                    )?;
-                    continue;
-                }
-            };
-            ranked.push((
-                hit.score,
-                Entry {
-                    id: hit.item.id,
-                    document,
-                    when_to_use: stats.when_to_use,
-                    uses: stats.uses,
-                    successes: stats.successes,
-                    failures: stats.failures,
-                    kept: stats.explicitly_kept,
-                    last_used: stats.last_used,
-                },
-            ));
-        }
-        ranked.sort_by(|(a_rank, a), (b_rank, b)| {
-            a_rank
-                .total_cmp(b_rank)
-                .then(model::score(b, now).total_cmp(&model::score(a, now)))
-                .then(a.id.cmp(&b.id))
-        });
-        Ok(ranked
-            .into_iter()
-            .take(limit.min(AREA_CAP))
-            .map(|(_, entry)| entry)
-            .collect())
     }
 
     pub fn list_blueprint_solutions(&self, area: &str) -> Result<Vec<Entry>, String> {
         entries(&self.conn.lock(), &self.blobs_dir, area)
     }
 
+    pub fn blueprint_solutions_readonly(&self, area: &str) -> Result<Vec<Entry>, String> {
+        let snapshots = {
+            let conn = self.conn.lock();
+            let mut stmt = conn.prepare("SELECT m.id FROM mem_items m JOIN solution_metadata s ON s.item_id=m.id WHERE m.kind='skill' AND m.area=?1 AND m.source=?2 ORDER BY m.id").map_err(|e| e.to_string())?;
+            let ids = stmt
+                .query_map(params![area, SOURCE], |row| row.get::<_, String>(0))
+                .map_err(|e| e.to_string())?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| e.to_string())?;
+            ids.into_iter()
+                .map(|id| {
+                    let item = store::get(&conn, &id, &self.blobs_dir)?
+                        .ok_or("Blueprint solution disappeared")?;
+                    let stats = metadata::read(&conn, &id)?
+                        .and_then(|record| record.blueprint)
+                        .ok_or("Blueprint metadata absent")?;
+                    Ok((id, item.body, stats))
+                })
+                .collect::<Result<Vec<_>, String>>()?
+        };
+        snapshots
+            .into_iter()
+            .map(|(id, body, stats)| {
+                let document = model::parse_document(&body)?;
+                let errors = document.template_errors();
+                if !errors.is_empty() {
+                    return Err(format!("Saved solution {id} is unavailable: {errors:?}"));
+                }
+                Ok(Entry {
+                    id,
+                    document,
+                    intents: stats.intents,
+                    uses: stats.uses,
+                    successes: stats.successes,
+                    failures: stats.failures,
+                    kept: stats.explicitly_kept,
+                    last_used: stats.last_used,
+                })
+            })
+            .collect()
+    }
+
     pub fn archive_blueprint_solution(&self, area: &str, id: &str) -> Result<(), String> {
         self.guard_commit()?;
         let conn = self.conn.lock();
-        if !entries(&conn, &self.blobs_dir, area)?
+        let tx = conn
+            .unchecked_transaction()
+            .map_err(|error| error.to_string())?;
+        if !entries(&tx, &self.blobs_dir, area)?
             .iter()
             .any(|entry| entry.id == id)
         {
             return Err("Saved Blueprint recipe not found in this project".into());
         }
-        archive(&conn, id, "Archived by owner")
+        archive(&tx, id, "Archived by owner")?;
+        tx.commit().map_err(|error| error.to_string())?;
+        drop(conn);
+        self.notify_blueprint_library_changed([area.to_owned()]);
+        Ok(())
     }
 
     pub fn blueprint_recipe(
@@ -441,6 +605,7 @@ impl MemManager {
             rows
         };
         let mut changed = Vec::new();
+        let mut changed_areas = std::collections::BTreeSet::new();
         for area in areas {
             let library = entries(&tx, &self.blobs_dir, &area)?;
             for entry in &library {
@@ -452,6 +617,26 @@ impl MemManager {
                 }
             }
             for merge in model::dream_merges(&library, MERGE_BUDGET) {
+                if !call_revisions::merge_allowed(&tx, &merge.keeper.id, &merge.superseded)? {
+                    continue;
+                }
+                if merge_policy::callable(&merge.keeper.document) {
+                    let identity = self.embedder.identity();
+                    let first = library
+                        .iter()
+                        .find(|entry| entry.id == merge.keeper.id)
+                        .ok_or("Blueprint keeper missing")?;
+                    let second = library
+                        .iter()
+                        .find(|entry| entry.id == merge.superseded)
+                        .ok_or("Blueprint duplicate missing")?;
+                    if !merge_policy::Purpose::stored(&tx, &identity, first)?
+                        .agrees(&merge_policy::Purpose::stored(&tx, &identity, second)?)
+                        || self.embedder.identity() != identity
+                    {
+                        continue;
+                    }
+                }
                 let mut record =
                     metadata::read(&tx, &merge.keeper.id)?.ok_or("Blueprint metadata absent")?;
                 record.merge(
@@ -464,10 +649,12 @@ impl MemManager {
                     &format!("blueprint solution merged into {}", merge.keeper.id),
                 )?;
                 changed.push(merge.keeper.id);
+                changed_areas.insert(area.clone());
             }
         }
         tx.commit().map_err(|e| e.to_string())?;
         drop(conn);
+        self.notify_blueprint_library_changed(changed_areas);
         for id in &changed {
             self.refresh_embedding(id);
         }

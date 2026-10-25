@@ -2,6 +2,9 @@ use codeterm_plugin::provider_cli::manifest_cli_status;
 use std::path::Path;
 
 pub(super) fn register_installed(value: &mut serde_json::Value) -> Result<(), String> {
+    if value["provider_registration"] == "acknowledged" {
+        return Ok(());
+    }
     let ids: Vec<String> = value["cli_status"]
         .as_object()
         .into_iter()

@@ -67,6 +67,11 @@ fn ledger_on(fixture: &mut ServiceFixture) -> std::sync::Arc<KpiLedger> {
 }
 
 fn agent_tab(fixture: &ServiceFixture, agent: &str, session_id: &str) -> String {
+    fixture
+        .service
+        .mux
+        .write()
+        .set_limit_gate(codeterm_entitlements::LimitGate::dormant());
     let workspace = fixture
         .service
         .mux
@@ -670,9 +675,10 @@ fn mission_control_spend_ingests_a_settled_turn_with_no_status_transition() {
 
     // The composer's ready glyph: the screen the classifier reads as a settled turn.
     let hash = {
-        let mut screen = fixture.service.screen_state.lock();
-        screen.process(pty_id, "assistant finished\r\n\u{276f} \r\n".as_bytes());
-        screen.get_content_hash(pty_id, 0).unwrap()
+        let screen = fixture.service.screen_state.pty(pty_id);
+        let mut screen = screen.lock_for_update();
+        screen.process("assistant finished\r\n\u{276f} \r\n".as_bytes());
+        screen.get_content_hash(0).unwrap()
     };
     // One observation, so the tab has a quiescence reading. Status is Working here
     // and stays Working: nothing in this test moves it.

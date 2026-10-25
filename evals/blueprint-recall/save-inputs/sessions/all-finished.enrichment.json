@@ -1,0 +1,99 @@
+{
+  "duration_api_ms": 7986,
+  "stop_reason": "end_turn",
+  "session_id": "934f49c7-4a89-45fe-90c2-78dd5b9ac86e",
+  "total_cost_usd": 0.027382,
+  "usage": {
+    "input_tokens": 9,
+    "cache_creation_input_tokens": 11479,
+    "cache_read_input_tokens": 0,
+    "output_tokens": 883,
+    "output_tokens_details": {
+      "thinking_tokens": 764
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 11479,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "not_available",
+    "iterations": [
+      {
+        "input_tokens": 9,
+        "output_tokens": 883,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 11479,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 11479
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-haiku-4-5-20251001": {
+      "inputTokens": 9,
+      "outputTokens": 883,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 11479,
+      "webSearchRequests": 0,
+      "costUSD": 0.027382,
+      "contextWindow": 200000,
+      "maxOutputTokens": 32000,
+      "thinkingTokens": 764,
+      "canonicalModel": "claude-haiku-4-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 1,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "WHAT: Monitors work progress using a single verdict probe that repeatedly classifies tasks into waiting or alldone states. When all work matches the terminal pattern, it triggers a notification while keeping waiting states silent. Simplifies monitoring by using one probe for all classification, avoiding config complexity. || INTENT: Notify me when all work is complete || INTENT: Monitor job completion without status noise || INTENT: Watch for task done, alert on finish || INTENT: Track work progress silently until complete || INTENT: Single probe system for work monitoring",
+  "ttft_ms": 8240,
+  "type": "result",
+  "duration_ms": 8788,
+  "uuid": "b4831a8e-7de5-47d3-ba54-7f80d73d6a6c",
+  "ttft_stream_ms": 1416,
+  "time_to_request_ms": 769,
+  "first_content_frame_ms": 1417,
+  "queued_turn_count": 0,
+  "result_index": 0
+}

@@ -1,0 +1,22 @@
+{
+  "plugin-release.yml:publish:Publish plugin release": "Release publication, published-asset/issue verification or branch promotion requires the local release CLI.",
+  "release-linux.yml:build:Publish the Linux bundles": "Release publication, published-asset/issue verification or branch promotion requires the local release CLI.",
+  "release-linux.yml:build:Publish AppImage updater fragment": "Release publication, published-asset/issue verification or branch promotion requires the local release CLI.",
+  "release-linux.yml:build:Publish Debian updater fragment": "Release publication, published-asset/issue verification or branch promotion requires the local release CLI.",
+  "release-linux.yml:build:Mirror to public release repo": "Release publication, published-asset/issue verification or branch promotion requires the local release CLI.",
+  "release-manifest-validate.yml:validate:Stamp the source release tag after all gates succeed": "Release publication, published-asset/issue verification or branch promotion requires the local release CLI.",
+  "release-manifest-validate.yml:validate:Merge and upload final channel manifests": "Release publication, published-asset/issue verification or branch promotion requires the local release CLI.",
+  "release-manifest-validate.yml:validate:Verify draft artifact signatures before publication": "Release publication, published-asset/issue verification or branch promotion requires the local release CLI.",
+  "release-manifest-validate.yml:validate:Mark source and public releases published": "Release publication, published-asset/issue verification or branch promotion requires the local release CLI.",
+  "release-manifest-validate.yml:validate:Verify published public mirror": "Release publication, published-asset/issue verification or branch promotion requires the local release CLI.",
+  "release-manifest-validate.yml:validate:Mint issue closure boundary": "Release publication, published-asset/issue verification or branch promotion requires the local release CLI.",
+  "release-manifest-validate.yml:validate:Resolve included private source public issues": "Release publication, published-asset/issue verification or branch promotion requires the local release CLI.",
+  "release-manifest-validate.yml:validate:Close shipped public issues": "Release publication, published-asset/issue verification or branch promotion requires the local release CLI.",
+  "release-windows-arm64.yml:build:Publish per-platform updater fragment": "Release publication, published-asset/issue verification or branch promotion requires the local release CLI.",
+  "release-windows-arm64.yml:build:Mirror to public release repo": "Release publication, published-asset/issue verification or branch promotion requires the local release CLI.",
+  "release-windows.yml:build:Publish per-platform updater fragment": "Release publication, published-asset/issue verification or branch promotion requires the local release CLI.",
+  "release-windows.yml:build:Mirror to public release repo": "Release publication, published-asset/issue verification or branch promotion requires the local release CLI.",
+  "release.yml:prepare:Resolve release version": "Release publication, published-asset/issue verification or branch promotion requires the local release CLI.",
+  "release.yml:prepare:Create draft releases before parallel uploads": "Release publication, published-asset/issue verification or branch promotion requires the local release CLI.",
+  "release.yml:promote:Merge the release PR into master": "Release publication, published-asset/issue verification or branch promotion requires the local release CLI."
+}

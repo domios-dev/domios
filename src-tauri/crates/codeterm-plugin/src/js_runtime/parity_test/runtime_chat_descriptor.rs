@@ -1,8 +1,12 @@
 use super::*;
 
-struct RuntimeChatNativeStub(Option<crate::agent_runtime::AgentRuntimeCapability>);
+struct RuntimeChatNativeStub(Option<crate::agent_runtime::AgentRuntimeCapability>, bool);
 
 impl ChatBackendProvider for RuntimeChatNativeStub {
+    fn general_agent_offer_when_absent(&self) -> bool {
+        self.1
+    }
+
     fn agent_runtime(&self) -> Option<crate::agent_runtime::AgentRuntimeCapability> {
         self.0.clone()
     }
@@ -60,8 +64,9 @@ fn bundled_manifest_declaring_agent_runtime() -> String {
 #[test]
 fn runtime_chat_descriptor_preserves_manifest_capability_native_js_parity() {
     let manifest_text = bundled_manifest_declaring_agent_runtime();
-    for enabled in [false, true] {
+    for (enabled, offer) in [(false, false), (false, true), (true, false), (true, true)] {
         let mut value: serde_json::Value = serde_json::from_str(&manifest_text).unwrap();
+        value["generalAgentOfferWhenAbsent"] = offer.into();
         value["id"] = serde_json::json!("runtime-chat-fixture");
         if !enabled {
             value["capabilities"]
@@ -76,11 +81,16 @@ fn runtime_chat_descriptor_preserves_manifest_capability_native_js_parity() {
         )
         .unwrap();
         let js = super::super::JsChatBackend::from_manifest(std::sync::Arc::new(vm), &manifest);
-        let native = RuntimeChatNativeStub(manifest.capabilities.agent_runtime.clone());
+        let native = RuntimeChatNativeStub(manifest.capabilities.agent_runtime.clone(), offer);
         assert_eq!(js.agent_runtime(), native.agent_runtime());
         let registry = ChatBackendRegistry::new();
         registry.register("runtime-chat-fixture", std::sync::Arc::new(js));
         let descriptor = registry.descriptor("runtime-chat-fixture").unwrap();
+        assert_eq!(
+            descriptor.general_agent_offer_when_absent,
+            native.describe().general_agent_offer_when_absent
+        );
+        assert_eq!(descriptor.general_agent_offer_when_absent, offer);
         assert_eq!(descriptor.agent_runtime, native.describe().agent_runtime);
         assert_eq!(descriptor.agent_runtime.is_some(), enabled);
     }

@@ -8,6 +8,7 @@ pub use codeterm_agent_model::MessageKind;
 
 #[derive(Debug, Default, Clone)]
 pub struct MessageEnvelope {
+    pub durable_delivery: Option<super::durable_delivery::DurableDelivery>,
     pub kind: MessageKind,
     pub from_label: String,
     pub from_tab: String,
@@ -57,6 +58,8 @@ pub type QueuedAgentPayload = FramedDelivery;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AgentDeliveryPayload {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub durable_delivery: Option<super::durable_delivery::DurableDelivery>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace_id: Option<String>,
     pub transport: QueuedAgentPayload,
@@ -403,6 +406,9 @@ impl Messenger {
         envelope: MessageEnvelope,
         body: &str,
     ) -> Result<(Delivery, Option<std::path::PathBuf>), String> {
+        if let Some(refusal) = svc.tab_write_lock(to_tab) {
+            return Err(refusal.to_string());
+        }
         if let Some(refusal) = svc.tab_surface_input_refusal(to_tab) {
             return Err(refusal);
         }
@@ -497,6 +503,7 @@ impl Messenger {
                                         &resolved_target,
                                         &envelope,
                                     ),
+                                    durable_delivery: envelope.durable_delivery.clone(),
                                     transport,
                                     observer: envelope.delivery_observer.clone(),
                                     idempotency_key: envelope.id.clone(),
@@ -599,6 +606,7 @@ impl Messenger {
             let pty_id = svc.resolve_pty_id(to_tab)?;
             let payload = AgentDeliveryPayload {
                 trace_id: crate::flow_trace::envelope_flow(svc, to_tab, &messenger.envelope),
+                durable_delivery: messenger.envelope.durable_delivery.clone(),
                 transport: frame,
                 observer,
                 idempotency_key,

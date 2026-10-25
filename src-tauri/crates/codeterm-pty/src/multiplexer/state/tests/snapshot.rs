@@ -89,6 +89,7 @@ fn test_session_snapshot_never_derives_agent_type_from_title() {
             active_workspace_id: Some("ws-1".to_string()),
             teams: vec![],
             workspaces: vec![WorkspaceSnapshot {
+                created_at_ms: 0,
                 task_keys: Default::default(),
                 id: "ws-1".to_string(),
                 name: "W".to_string(),
@@ -105,6 +106,7 @@ fn test_session_snapshot_never_derives_agent_type_from_title() {
                     description: None,
                     sort_order: 0,
                     split_tree: SplitNodeSnapshot::Leaf {
+                        created_at_ms: 0,
                         purpose: Default::default(),
                         icon: None,
                         shell_profile: None,
@@ -170,6 +172,7 @@ fn test_session_snapshot_no_agent_type_for_plain_title() {
         active_workspace_id: Some("ws-1".to_string()),
         teams: vec![],
         workspaces: vec![WorkspaceSnapshot {
+            created_at_ms: 0,
             task_keys: Default::default(),
             id: "ws-1".to_string(),
             name: "W".to_string(),
@@ -186,6 +189,7 @@ fn test_session_snapshot_no_agent_type_for_plain_title() {
                 description: None,
                 sort_order: 0,
                 split_tree: SplitNodeSnapshot::Leaf {
+                    created_at_ms: 0,
                     purpose: Default::default(),
                     icon: None,
                     shell_profile: None,
@@ -259,6 +263,7 @@ fn test_session_snapshot_legacy_agent_type_treated_as_locked() {
         active_workspace_id: Some("ws-1".to_string()),
         teams: vec![],
         workspaces: vec![WorkspaceSnapshot {
+            created_at_ms: 0,
             task_keys: Default::default(),
             id: "ws-1".to_string(),
             name: "W".to_string(),
@@ -275,6 +280,7 @@ fn test_session_snapshot_legacy_agent_type_treated_as_locked() {
                 description: None,
                 sort_order: 0,
                 split_tree: SplitNodeSnapshot::Leaf {
+                    created_at_ms: 0,
                     purpose: Default::default(),
                     icon: None,
                     shell_profile: None,

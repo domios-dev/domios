@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sourceRepository } from './source-repository.mjs';
 // Caller: CI release-linux-arm64.yml, release-macos-build.yml; scripts tests/test_release_workflow_contract.py
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, readdirSync, copyFileSync } from 'node:fs';
@@ -45,7 +46,7 @@ if (deb) {
   execFileSync(process.execPath, ['scripts/verify-updater-manifest.mjs', '--manifest', debOutput, '--local', directory, '--require-version', version, '--require-platform', platform], { stdio: 'inherit' });
   fragments.push(debOutput);
 }
-if (process.env.RELEASE_VERIFY_ONLY !== 'true') for (const repo of ['rollacode/codeterm', ...(process.env.PUBLISH_PUBLIC_MIRROR === 'true' ? ['rollacode/codeterm-releases'] : [])]) {
+if (process.env.RELEASE_VERIFY_ONLY !== 'true') for (const repo of [sourceRepository(), ...(process.env.PUBLISH_PUBLIC_MIRROR === 'true' ? ['rollacode/codeterm-releases'] : [])]) {
   const env = { ...process.env, GH_TOKEN: repo.endsWith('-releases') ? process.env.MIRROR_TOKEN : process.env.GH_TOKEN };
   execFileSync('gh', ['release', 'upload', tag, ...assets.map(name => path.join(directory, name)), ...(repo.endsWith('-releases') ? [] : fragments), '--clobber', '--repo', repo], { env, stdio: 'inherit', timeout: 300000 });
   await publishHeadlessAssets({ tag, platform, directory, sourceSha, repository: repo, env });

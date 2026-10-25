@@ -1,0 +1,431 @@
+{
+  "about": "Simulated hidden mem worker enrichment: the product task (enrichment_task over the stored YAML and step gists) run once per pipeline; cached by document hash.",
+  "model": "claude-haiku-4-5-20251001",
+  "command": [
+    "-p",
+    "--model",
+    "claude-haiku-4-5-20251001",
+    "--output-format",
+    "json",
+    "--tools",
+    "",
+    "--strict-mcp-config"
+  ],
+  "prompt": "codeterm_mem::prompt_text::BLUEPRINT_ENRICHMENT",
+  "docs": {
+    "all-finished": {
+      "document_hash": "2e6f9a4412c55dcf9d39001ecb0c87ec18df6ae51567ea2ff15ded8309a359b8",
+      "report": "WHAT: Monitors work progress using a single verdict probe that repeatedly classifies tasks into waiting or alldone states. When all work matches the terminal pattern, it triggers a notification while keeping waiting states silent. Simplifies monitoring by using one probe for all classification, avoiding config complexity. || INTENT: Notify me when all work is complete || INTENT: Monitor job completion without status noise || INTENT: Watch for task done, alert on finish || INTENT: Track work progress silently until complete || INTENT: Single probe system for work monitoring",
+      "parsed": true,
+      "session": "save-inputs/sessions/all-finished.enrichment.json"
+    },
+    "all-finished-sem": {
+      "document_hash": "30e709aaac59684563b8c23420216a54fd18eb78fbfba2c9d5deb62adf6db111",
+      "report": "WHAT: Monitors a batch process by running a status check every 2 minutes, filtering for a completion signal, then notifying the owner when the batch ends. Useful for automated work that takes variable time and needs hands-off monitoring with final notification. || INTENT: Tell me when my batch finishes || INTENT: Automatic notification when batch completes || INTENT: Monitor a long-running job and alert on completion || INTENT: Poll process status and report when done || INTENT: Send notification when batch ends",
+      "parsed": true,
+      "session": "save-inputs/sessions/all-finished-sem.enrichment.json"
+    },
+    "all-finished-st": {
+      "document_hash": "bba94250701e605825c25f507134187c3249d36a6c095d664fd36ce4e1fb2341",
+      "report": "WHAT: This Blueprint monitors batch job completion using a single status command. It repeatedly probes the status output until a regex pattern indicates the batch is complete, then sends a notification. Perfect for watching deployment progress, long-running tests, or background job processing without cluttering your terminal with constant status checks. || INTENT: Monitor batch completion with one status command || INTENT: Watch long-running job progress and alert when done || INTENT: Poll deployment status until regex match then notify || INTENT: Track job completion silently with final alert",
+      "parsed": true,
+      "session": "save-inputs/sessions/all-finished-st.enrichment.json"
+    },
+    "cron-run-watch": {
+      "document_hash": "17253cd40875756b0ccfce6c77e79ee6ba4a24545ce3e5f98428f3fd23bf93de",
+      "report": "WHAT: Monitors a scheduled cron job by its name or ID and watches for completion. The Blueprint continuously checks the run state, matches output against your finished pattern, and sends a notification when the job is done. Useful for tracking long-running tasks without manual checking. Times out after one hour. || INTENT: Alert me when a cron job finishes running || INTENT: Get notified when my scheduled task completes || INTENT: Monitor this cron and tell me when it stops || INTENT: Watch for completion of a named cron job",
+      "parsed": true,
+      "session": "save-inputs/sessions/cron-run-watch.enrichment.json"
+    },
+    "cron-run-watch-sem": {
+      "document_hash": "5d6ae7e8ae3882c1081db3907757c3efaafc941a49a83de78af3fe5a5dbba2a2",
+      "report": "WHAT: Monitors a scheduled cron job for completion by checking its execution state every minute. When the job finishes, succeeds, or fails, it automatically runs a notification command to alert you. Perfect for tracking long-running jobs without manual polling. || INTENT: Alert me when a cron job completes || INTENT: Notify when scheduled task finishes || INTENT: Monitor cron job completion status || INTENT: Get notified when long-running job finishes",
+      "parsed": true,
+      "session": "save-inputs/sessions/cron-run-watch-sem.enrichment.json"
+    },
+    "cron-run-watch-st": {
+      "document_hash": "081e19a8d3e17c40964eb04431dc06ad160aabeed3cc66f747cbd0f0ae10f7e4",
+      "report": "WHAT: This Blueprint monitors a scheduled cron job and automatically notifies you when it finishes. You provide the job name and a regex pattern that signals completion. The Blueprint continuously watches the job's execution for up to 4 hours, detects when it matches your completion pattern, and sends you a ping. It's useful for tracking long-running jobs without manual checking. || INTENT: Get notified when my scheduled job finishes || INTENT: Monitor a cron job until completion then alert || INTENT: Watch a scheduled task and alert when done || INTENT: Track long-running job completion with automatic notification",
+      "parsed": true,
+      "session": "save-inputs/sessions/cron-run-watch-st.enrichment.json"
+    },
+    "dev-run-health": {
+      "document_hash": "123c2c4264efb896fa76bec1ca30b202f2bd255bdec3e4e21a86b9a1bbdf6848",
+      "report": "WHAT: This Blueprint continuously monitors a development REST listener health by checking every 30 seconds whether it is running or stopped. When the listener goes down, it automatically captures recent transaction flows for debugging, sends a notification, and escalates the incident to a specified target. The watch runs for up to 8 hours, helping teams quickly identify and investigate service interruptions. || INTENT: Monitor dev REST service and capture logs when it crashes || INTENT: Alert me if development listener stops and collect debug traces || INTENT: Watch development REST endpoint and escalate when service goes down || INTENT: Detect REST listener failures and automatically gather recent transaction data",
+      "parsed": true,
+      "session": "save-inputs/sessions/dev-run-health.enrichment.json"
+    },
+    "dev-run-health-sem": {
+      "document_hash": "31da37cca6ea14476dec92aaf56a92286967a04ae2d53af7af8101fdbecb0571",
+      "report": "WHAT: Monitors a development REST listener by checking it every 30 seconds. When the listener is down or fails to respond, it automatically retrieves recent system traces and sends a notification alert. Useful for catching dev service crashes immediately without manual checking. || INTENT: Monitor when my dev listener goes down and alert me || INTENT: Check dev REST API health and fetch traces on failure || INTENT: Notify me if development listener stops responding || INTENT: Pull traces automatically when dev service crashes",
+      "parsed": true,
+      "session": "save-inputs/sessions/dev-run-health-sem.enrichment.json"
+    },
+    "dev-run-health-st": {
+      "document_hash": "cb11f835a7604df22dda46e1b71411534dca9b2f058ccfd745b4841a78663105",
+      "report": "WHAT: This Blueprint continuously monitors your local development API server health. If the server stops, crashes, or fails, it automatically captures the latest request traces and alerts you, ensuring you do not miss debugging information when your dev server goes down. || INTENT: Monitor local API server and grab traces when it crashes || INTENT: Automatically capture request traces if dev server stops || INTENT: Alert me when development API goes down with debug info || INTENT: Set up watchdog for local API that saves traces on failure",
+      "parsed": true,
+      "session": "save-inputs/sessions/dev-run-health-st.enrichment.json"
+    },
+    "dx-cert-expiry": {
+      "document_hash": "5e5d401c50a6f7f8a2e023f4fc0c44a49daa826b828c1f2a1fd7d91963636bc7",
+      "report": "WHAT: This Blueprint monitors when TLS certificates will expire. It probes a certificate using openssl every 24 hours, checking if it is still valid or nearing expiration. When the certificate has less than two weeks before expiring, it sends a notification alert. Perfect for preventing service outages from expired certificates. || INTENT: Alert me when my TLS certificate is about to expire || INTENT: Monitor SSL certificate expiration and send notifications || INTENT: Get advance warning before certificate expires || INTENT: Automate checking for expiring SSL certificates || INTENT: Watch for upcoming certificate expiry dates",
+      "parsed": true,
+      "session": "save-inputs/sessions/dx-cert-expiry.enrichment.json"
+    },
+    "dx-dependency-audit": {
+      "document_hash": "a1331dba15056f13f477954927e270ac5bdd3dfaa034537ca2dd31e1e827ec93",
+      "report": "WHAT: Runs weekly npm audit on a specified Node.js project and sends notifications only when high or critical vulnerabilities are detected. Uses JSON output to parse severity levels and filters out low-severity findings to reduce alert noise. Automatically triggered every seven days. || INTENT: Alert me weekly if npm finds high or critical vulnerabilities || INTENT: Scan dependencies and notify only about severe security issues || INTENT: Automated security audit with conditional alerts for dangerous packages || INTENT: Set up weekly dependency checks that only alert on critical findings",
+      "parsed": true,
+      "session": "save-inputs/sessions/dx-dependency-audit.enrichment.json"
+    },
+    "dx-disk-space": {
+      "document_hash": "da0ecdbe2b2f122f19fbe9fff75352fce17ea122e0b471c352a4ae531de3af3c",
+      "report": "WHAT: This Blueprint continuously monitors free disk space on the root volume using a custom probe running every 10 minutes. It detects when space drops to low levels and sends immediate notifications. The monitoring rearms on each low-space event, so you receive alerts for each new incident without duplicate warnings during prolonged low-capacity conditions. || INTENT: Alert me when root volume free space runs low || INTENT: Monitor available disk space and notify when shortage occurs || INTENT: Get warned before storage capacity reaches critical threshold || INTENT: Watch filesystem and alert on low available space",
+      "parsed": true,
+      "session": "save-inputs/sessions/dx-disk-space.enrichment.json"
+    },
+    "dx-label-sync": {
+      "document_hash": "7d9bf58b97bb84f02c32f9d0f676b6ab694908d327bb951da040f774029f22e1",
+      "report": "WHAT: Automatically synchronizes issue labels from a canonical source repository to a target repository every 24 hours using GitHub label clone tool. Ensures label consistency across repositories by copying the shared label set daily, overwriting any local differences to maintain a standardized label taxonomy. || INTENT: Keep repository labels in sync with a shared standard every day || INTENT: Automatically copy issue labels from one repo to another daily || INTENT: Sync label sets across repositories on a daily schedule || INTENT: Mirror canonical issue labels to target repositories automatically",
+      "parsed": true,
+      "session": "save-inputs/sessions/dx-label-sync.enrichment.json"
+    },
+    "dx-meeting-reminder": {
+      "document_hash": "f8c0549ccbd87d087988c0a7ed611cb728ba719e574b37d05d5a98e63e067345",
+      "report": "WHAT: Automatically sends a weekly reminder message to a designated Domios tab on a 168-hour schedule. Runs a command to generate the reminder text and posts the result directly to the tab, stopping after execution completes or fails. || INTENT: Set up a weekly reminder message for the planning meeting || INTENT: Automate recurring notifications to a specific tab each week || INTENT: Send a weekly reminder before the planning meeting starts || INTENT: Create a scheduled message that posts every 168 hours",
+      "parsed": true,
+      "session": "save-inputs/sessions/dx-meeting-reminder.enrichment.json"
+    },
+    "dx-nightly-backup": {
+      "document_hash": "472cc7c7e8c6717050c21c99cc8377d1aee5815f1130e133560ec82a9a925a7a",
+      "report": "WHAT: This Blueprint automates nightly database backups by executing a user-provided backup command every 24 hours to create a compressed dump on the backup volume. After the backup completes, it measures the archive size and reports the results via notification. If the backup fails, the pipeline stops. || INTENT: Set up automatic database backups every night with size reporting || INTENT: Automate daily database dumps and monitor backup archive sizes || INTENT: Schedule nightly backup jobs with notification of backup sizes || INTENT: Create daily database backup pipeline with automated size checks",
+      "parsed": true,
+      "session": "save-inputs/sessions/dx-nightly-backup.enrichment.json"
+    },
+    "dx-screenshot-text": {
+      "document_hash": "ef7231561edcc0c5d0ea85605e5a4dd10d31e7ab3d98fbac97569f6e8b3ab068",
+      "report": "WHAT: This Blueprint extracts text from screenshot images and saves it as a note. It reads the image file, applies optical character recognition to identify content, and notifies you with extracted results within one hour. || INTENT: Extract text from screenshot and save as note || INTENT: OCR screenshot images to file automatically || INTENT: Turn screenshots into searchable text notes || INTENT: Capture text content from image files",
+      "parsed": true,
+      "session": "save-inputs/sessions/dx-screenshot-text.enrichment.json"
+    },
+    "dx-standup-summary": {
+      "document_hash": "742cc148e719572eb5eafe41428708f0a3fc1ccc44d74b2be23a2da4e73a3717",
+      "report": "WHAT: This Blueprint automates morning standup preparation by gathering git commits from a repository and using an AI agent to write a brief digest. It runs on a daily schedule, retrieves recent commits, processes them through an AI agent with a customizable task, and delivers a concise standup summary to the team. || INTENT: Generate daily standup digest from Git commit history || INTENT: Automate team standup summaries from recent repository changes || INTENT: Create morning standup updates using commit analysis || INTENT: Summarize previous work for daily standup automatically",
+      "parsed": true,
+      "session": "save-inputs/sessions/dx-standup-summary.enrichment.json"
+    },
+    "dx-translate-note": {
+      "document_hash": "4f2b33bff6f6e4636fcdac58800be21e377800edfe09680597abff6f9619a428",
+      "report": "WHAT: Translates pasted text into English using an AI agent. You provide the text and specify which provider and profile to use; the agent translates it within 30 seconds and returns the result. Works for notes, messages, and documents in any language. Great for getting quick English versions of content from other languages. || INTENT: Translate pasted text to English || INTENT: Convert a note from another language into English || INTENT: Have an agent translate my message || INTENT: Transform non-English text into English automatically || INTENT: Get a document translated to English quickly",
+      "parsed": true,
+      "session": "save-inputs/sessions/dx-translate-note.enrichment.json"
+    },
+    "echo": {
+      "document_hash": "20dfe9729d7fba58e5c38e8d55e1bb88d52a789b0c268a880a84249a22afcd74",
+      "report": "WHAT: Runs a scheduled command every 20 seconds, filters its output against an expected pattern, and reports whether the output matches back to the owner. A simple periodic validation tool. || INTENT: Run scheduled command and validate output || INTENT: Verify command output matches expected result every 20 seconds || INTENT: Periodic shell command execution with output verification || INTENT: Schedule command execution and check results automatically",
+      "parsed": true,
+      "session": "save-inputs/sessions/echo.enrichment.json"
+    },
+    "echo-sem": {
+      "document_hash": "a52ba5ac56d91cdc169ea0c8118911e62ef860c852fef3da708f8dc21f6427d4",
+      "report": "WHAT: Monitors command output by echoing a specific word and checking if it appears in results. Runs every 30 seconds until the word is detected or 10 minutes pass. When the word is found, sends a notification. Useful for watching for specific outputs or validating that a process produces expected text. || INTENT: Monitor command output until a specific word appears || INTENT: Check if a process prints expected text within timeout || INTENT: Watch for specific text and get notified when found || INTENT: Periodically check command output and alert on match",
+      "parsed": true,
+      "session": "save-inputs/sessions/echo-sem.enrichment.json"
+    },
+    "echo-st": {
+      "document_hash": "10a0cb507f4d67b1157f3f24936359b8c8c0aedb6e98fae9ddaa88dab72387de",
+      "report": "WHAT: Periodically echo a word and verify the output matches exactly. This scheduled health check runs every 45 seconds, confirming your system can consistently print and match a specific word, then reports results back to the triggering tab. || INTENT: Monitor if my system can reliably print and match a specific word on a schedule || INTENT: Run a periodic health check that verifies output matches expected text || INTENT: Set up a background ping to confirm system responsiveness every 45 seconds || INTENT: Create a scheduled test that validates critical text output remains consistent",
+      "parsed": true,
+      "session": "save-inputs/sessions/echo-st.enrichment.json"
+    },
+    "github": {
+      "document_hash": "78653e7cf96b9e5b2a99e2a80b6d663261c02a9e9993080f4e98f7964f1b8e77",
+      "report": "WHAT: This Blueprint periodically polls GitHub for CI run or pull request check status, detecting failed jobs early and notifying the team while the pipeline runs. It catches issues immediately without waiting for full completion. || INTENT: Monitor GitHub CI progress and report failures early || INTENT: Watch pull request checks and alert on failures || INTENT: Get early notifications when GitHub Actions jobs fail || INTENT: Track GitHub workflow run status with alerts",
+      "parsed": true,
+      "session": "save-inputs/sessions/github.enrichment.json"
+    },
+    "github-org-runners": {
+      "document_hash": "618926a511211976b4e7590b5567f22126dbc2871c0b09f591f4652d878427bc",
+      "report": "WHAT: This Blueprint continuously monitors GitHub self-hosted runners with a specific label within an organization. On a scheduled interval, it checks whether labeled runners are online or offline and tracks their availability count. If checks fail, the pipeline stops. Results are reported to the owner. || INTENT: Monitor when my GitHub runners go offline || INTENT: Track labelled runner availability across GitHub organization || INTENT: Check self-hosted runner online status periodically || INTENT: Alert on GitHub runner failures and outages",
+      "parsed": true,
+      "session": "save-inputs/sessions/github-org-runners.enrichment.json"
+    },
+    "github-org-runners-sem": {
+      "document_hash": "8b3cb774e85451ff7e7da5f66ef1709601477a334fd054e9fe159a868115f04f",
+      "report": "WHAT: This Blueprint monitors GitHub organization runners using gh CLI commands. It periodically probes runner status and tracks which machines are online or offline. When a labelled runner goes offline, it automatically sends a notification to alert your team. Checks happen every 2 minutes with a 7-day timeout window to catch infrastructure issues quickly. || INTENT: Watch organization runners for offline status || INTENT: Alert when GitHub Actions runners go down || INTENT: Monitor CI infrastructure runner availability || INTENT: Notify team of runner machine failures",
+      "parsed": true,
+      "session": "save-inputs/sessions/github-org-runners-sem.enrichment.json"
+    },
+    "github-org-runners-st": {
+      "document_hash": "ddac33347d27e076a6030fcafdb9173d7c92c1327ee82f45e9f494c0065c0823",
+      "report": "WHAT: This Blueprint monitors GitHub runner availability for a specific organization. It checks on a schedule whether tagged build machines are reachable and counts how many are currently connected. Useful for ops teams managing CI/CD infrastructure health. || INTENT: Monitor GitHub runner availability by tag || INTENT: Check how many CI runners are online || INTENT: Track build machine fleet health || INTENT: Verify runner connectivity for organization",
+      "parsed": true,
+      "session": "save-inputs/sessions/github-org-runners-st.enrichment.json"
+    },
+    "github-pr-checks": {
+      "document_hash": "1a2aaac22ed5aeceda4cc7e0fa9739beac096f3f4c9de1842d9713223241adea",
+      "report": "WHAT: This Blueprint polls GitHub to monitor pull request check status. It runs at a configurable interval (default 60 seconds) until all checks complete or timeout. You provide the PR ID and repository name. It repeatedly queries GitHub endpoints, stopping when checks finish or the timeout is reached. Results are reported to the owner. || INTENT: Monitor GitHub pull request checks until they complete || INTENT: Poll PR check status and wait for completion || INTENT: Wait for pull request CI checks to finish || INTENT: Track GitHub PR checks with scheduled polling",
+      "parsed": true,
+      "session": "save-inputs/sessions/github-pr-checks.enrichment.json"
+    },
+    "github-pr-checks-sem": {
+      "document_hash": "627435e3e413ac9fe76cf5646ca091b9271cceff295b57d5e6c96f0254f01119",
+      "report": "WHAT: This Blueprint monitors your GitHub pull request checks at regular intervals and sends you a notification once all checks have completed or failed. It continuously polls the PR status every minute for up to 2 hours, watching for either success or failure states. When PR checks transition from pending to complete, it automatically notifies you. || INTENT: notify me when pull request checks finish running || INTENT: get alerted once all GitHub PR checks stop pending || INTENT: watch PR checks and alert me when they complete || INTENT: monitor pull request status and notify when done",
+      "parsed": true,
+      "session": "save-inputs/sessions/github-pr-checks-sem.enrichment.json"
+    },
+    "github-pr-checks-st": {
+      "document_hash": "3f18c5469cdab6712b389b441784ff3032f7a534dfce4e8d3497561e0d19b7c7",
+      "report": "WHAT: This Blueprint monitors a GitHub pull request at regular intervals, checking all CI/CD status checks. It polls every configured interval until all checks finish or the timeout expires. Useful for workflows that depend on PR verification completion before proceeding to merge, deploy, or notify. Sends results to the owner when done. || INTENT: Wait for all GitHub checks to complete on a pull request || INTENT: Poll status checks until my PR passes all CI || INTENT: Hold my workflow until PR status checks finish || INTENT: Monitor a pull request for completed status checks",
+      "parsed": true,
+      "session": "save-inputs/sessions/github-pr-checks-st.enrichment.json"
+    },
+    "github-pr-ci-watch": {
+      "document_hash": "bcdfb53bb655524723f501b6944290e32844c7d3252b1e7a07436ba486e19e1c",
+      "report": "WHAT: This Blueprint polls a single pull request status every 60 seconds until all CI checks pass. It classifies each check result as waiting, passed, or failed. Notifications are sent when checks fail or pass. Monitoring stops when checks pass or after 3 hours, whichever comes first. || INTENT: Alert me when a pull request check fails or passes || INTENT: Wait for CI checks to complete on a PR and notify || INTENT: Monitor PR status and send notifications for check results || INTENT: Poll pull request checks until passing, notify on changes",
+      "parsed": true,
+      "session": "save-inputs/sessions/github-pr-ci-watch.enrichment.json"
+    },
+    "github-pr-ci-watch-sem": {
+      "document_hash": "418e22b0490e17cc40ac752ef599c358efac28a04d5bbd7133c22c930ecebe4b",
+      "report": "WHAT: Monitors GitHub pull request CI checks every minute and automatically reports the outcome. When checks pass, it runs one command; when they fail, it runs another. Useful for notifications, status updates, or triggering downstream actions based on PR check results. || INTENT: Automatically report pull request check outcomes || INTENT: Trigger commands when PR CI completes || INTENT: Alert on GitHub pull request test failures || INTENT: Run actions based on PR check status",
+      "parsed": true,
+      "session": "save-inputs/sessions/github-pr-ci-watch-sem.enrichment.json"
+    },
+    "github-pr-ci-watch-st": {
+      "document_hash": "b6b4b28e94ee83d7396fe148b4eeee2585b2a4f6e2e852f2ce1db17f3205efb5",
+      "report": "WHAT: This Blueprint monitors a pull request CI status by running a command every 2 minutes. It alerts you immediately when the build breaks (turns red) and confirms when it passes (turns green). Monitoring stops once CI is green or after 6 hours. Perfect for staying on top of flaky builds without constant manual checking. || INTENT: Monitor PR CI status and get alerts when it fails || INTENT: Watch pull request build until it passes || INTENT: Auto-alert me if CI checks break on my PR || INTENT: Track PR CI status and notify on red builds",
+      "parsed": true,
+      "session": "save-inputs/sessions/github-pr-ci-watch-st.enrichment.json"
+    },
+    "github-runners": {
+      "document_hash": "255be6afa61bbad9fe27036122ea8273ca3a0fe5c7186ddd28df6e8b5a6d8dc3",
+      "report": "WHAT: Periodically checks a GitHub repository for self-hosted runners matching a specified label, monitors their online and offline status, and counts available runners. Runs on a configurable schedule and reports findings to the team owner for tracking runner health and availability. || INTENT: Monitor self-hosted runner availability by label || INTENT: Check GitHub runners status and online count || INTENT: Watch runner health trends over time || INTENT: Track when labeled runners go offline",
+      "parsed": true,
+      "session": "save-inputs/sessions/github-runners.enrichment.json"
+    },
+    "github-runners-sem": {
+      "document_hash": "a7984b3e14ec3b3423bd785a8f61d2dc72e78a508f3b960757ea0c6b126dcf7d",
+      "report": "WHAT: This Blueprint continuously monitors GitHub self-hosted runners for a specific repository by running probes every minute. When monitored runners go offline, it immediately sends a notification. Useful for alerting teams when critical CI/CD infrastructure becomes unavailable and helps maintain deployment reliability. || INTENT: Alert me when repository runners go offline || INTENT: Monitor GitHub self-hosted runner health || INTENT: Get notified of CI runner failures || INTENT: Watch for deployment infrastructure downtime",
+      "parsed": true,
+      "session": "save-inputs/sessions/github-runners-sem.enrichment.json"
+    },
+    "github-runners-st": {
+      "document_hash": "f1826d4b8aef9a88023efec162550e764e700d0b38e5b1de89a068f2243a38bd",
+      "report": "WHAT: This Blueprint monitors GitHub Actions runners in a repository by periodically checking which tagged build machines are reachable and how many are online. It runs on a custom schedule, queries GitHub for runners matching a specific label, applies a timeout to the check, and reports the status to the owner. Useful for tracking runner availability and detecting infrastructure issues. || INTENT: Check if GitHub Actions runners are online for my project || INTENT: Monitor build machine availability in a repository || INTENT: Track connected GitHub runners by label || INTENT: Get runner status updates on schedule",
+      "parsed": true,
+      "session": "save-inputs/sessions/github-runners-st.enrichment.json"
+    },
+    "github-sem": {
+      "document_hash": "39a8b5d0a041bdea7282b65601bd7ed7e55dd956dc55b38f0c8690e820fb503c",
+      "report": "WHAT: Monitors a GitHub Actions workflow run by checking its status every minute using gh run view. Sends an alert immediately when a job fails, then continues watching until the workflow completes up to 3 hours later, reporting the final outcome. Useful for catching workflow failures without polling manually. || INTENT: Watch GitHub Actions workflow until it completes and alert on failure || INTENT: Monitor workflow job status and notify on failure or completion || INTENT: Get alerts when GitHub Actions job fails or finishes || INTENT: Track workflow run and flag failures in real time",
+      "parsed": true,
+      "session": "save-inputs/sessions/github-sem.enrichment.json"
+    },
+    "github-st": {
+      "document_hash": "9a99b1309ea81501685a6c4c2a8f4358f9db1c4d5b38c34e41cff817892b2173",
+      "report": "WHAT: Monitor GitHub Actions workflows continuously on a schedule. This Blueprint polls job status at regular intervals and alerts teams to failures before the workflow completes, enabling faster detection and debugging of broken CI/CD jobs with configurable probe timeout and cadence. || INTENT: Get notified of failing GitHub Actions jobs before workflow ends || INTENT: Monitor CI/CD pipeline and alert on broken jobs || INTENT: Track GitHub Actions execution status with early failure detection || INTENT: Poll workflow jobs continuously and surface failures early",
+      "parsed": true,
+      "session": "save-inputs/sessions/github-st.enrichment.json"
+    },
+    "health-triage": {
+      "document_hash": "2620e4ac6884ab8f5e84719fac4066ef1979caac3dd1d126bba6f7b52b1c4e50",
+      "report": "WHAT: This Blueprint monitors a service health endpoint on a 60-second schedule. It probes the URL and stops if the service is up. When the service is down or fails, it runs a diagnostic command to measure status and latency, then asks whether the failure is transient or a real outage. Transient issues are logged; outages are escalated to notification. || INTENT: Monitor a service endpoint and alert on real outages || INTENT: Detect if a service failure is transient or critical || INTENT: Periodically probe health endpoint and escalate actual problems || INTENT: Automatically check service status and classify failures by severity",
+      "parsed": true,
+      "session": "save-inputs/sessions/health-triage.enrichment.json"
+    },
+    "health-triage-sem": {
+      "document_hash": "b9401d009772fbd099f5e86d6870ba9032af9b4dfcc21cb0ccacde143b1cbb3a",
+      "report": "WHAT: Continuously monitors a service health endpoint every minute, using AI to classify responses as healthy, transient, or outage. Automatically escalates to a specified target when detecting an outage or uncertain status, helping teams triage incidents quickly. || INTENT: Auto-escalate service failures when health checks fail || INTENT: Distinguish transient blips from real outages on health endpoints || INTENT: Monitor endpoint health and alert on status changes || INTENT: Set up continuous service health checks with smart escalation",
+      "parsed": true,
+      "session": "save-inputs/sessions/health-triage-sem.enrichment.json"
+    },
+    "health-triage-st": {
+      "document_hash": "b7557ab2ab18ad56c4ce883e68b78933c084ee0dc55db85ec5a412f66450aff0",
+      "report": "WHAT: This Blueprint monitors an API endpoint every two minutes. When failures are detected, it automatically scores their severity. Ambiguous cases are escalated to a person who determines whether it is a temporary blip or a real incident. Critical incidents trigger notifications to alert teams. || INTENT: Monitor API health and automatically grade failures, then escalate unclear cases to a team member || INTENT: Check endpoint availability every few minutes and notify only if it is a real incident || INTENT: Detect API downtime, score severity, and ask a human to decide if it needs alerting || INTENT: Automate API status checks with human judgment for incident severity and escalation decisions",
+      "parsed": true,
+      "session": "save-inputs/sessions/health-triage-st.enrichment.json"
+    },
+    "http-health": {
+      "document_hash": "2099971c7d95788ea810b8ec9f3550421bedeafc4efe9c8cc0a77646730b38ec",
+      "report": "WHAT: Monitors HTTP endpoints at regular intervals to track availability. Sends scheduled probes to a specified URL, checks if the response matches an expected status code, and reports up/down status with the actual response code. Does not follow redirects. Configurable probe interval and timeout. || INTENT: Monitor website availability with periodic health checks || INTENT: Set up HTTP endpoint uptime monitoring || INTENT: Check API endpoint status regularly and alert || INTENT: Track HTTP service health and response codes",
+      "parsed": true,
+      "session": "save-inputs/sessions/http-health.enrichment.json"
+    },
+    "http-health-sem": {
+      "document_hash": "eb5d52e331c13db5e362e291a4b1347cfbf31a8c843adda2e09a0ef2159735d1",
+      "report": "WHAT: This Blueprint monitors a URL availability by curling it every 30 seconds without following redirects, checking its HTTP status code. It reports the URL as either up or down based on the response pattern. When the status changes to down, it immediately sends a notification. Perfect for watching production endpoints or critical services. || INTENT: Monitor if a website is down and alert me || INTENT: Check URL status code every 30 seconds and notify on errors || INTENT: Watch for uptime changes and get alerts when services fail || INTENT: Alert me when an endpoint stops responding",
+      "parsed": true,
+      "session": "save-inputs/sessions/http-health-sem.enrichment.json"
+    },
+    "http-health-st": {
+      "document_hash": "dd21aafe30baebd07b6b3e0b2e1f5ef9a1b7f4ab8da0b80ddf665147506b78d7",
+      "report": "WHAT: This Blueprint monitors a website or API endpoint by regularly checking if it responds with an expected status code. It runs on a configurable schedule with a minimum 10-second interval and reports results to the owner. No redirects are followed. || INTENT: Monitor website uptime and alert on failures || INTENT: Check if endpoint returns expected status code || INTENT: Set up periodic HTTP health checks || INTENT: Watch server response status at regular intervals || INTENT: Poll API endpoint for availability monitoring",
+      "parsed": true,
+      "session": "save-inputs/sessions/http-health-st.enrichment.json"
+    },
+    "launch-prompt-gate": {
+      "document_hash": "a4a46760207fb7ffbc45f1e473e4800e3962f25277f4193656bfad5445b255b0",
+      "report": "WHAT: Automates responses to prompts during scheduled cron runs by observing a job and sorting incoming prompts by type—null prompts, directory trust requests, provider questions, and manual updates—then routing each to its designated responder. Unknown prompts escalate to the creator for manual review within 30 minutes. || INTENT: Auto-respond to cron job prompts with escalation for unknown requests || INTENT: Handle scheduled task prompts by type and escalate unexpected ones || INTENT: Route cron launch prompts to handlers, escalate unknowns to creator || INTENT: Automate permission and trust prompts during scheduled cron executions",
+      "parsed": true,
+      "session": "save-inputs/sessions/launch-prompt-gate.enrichment.json"
+    },
+    "launch-prompt-gate-sem": {
+      "document_hash": "237040fd741b3c448ba0acaae466780d92107fba03987e81c9fe5510a70d9abe",
+      "report": "WHAT: Monitors a scheduled job for pending prompts every 30 seconds, automatically responding to safe directory trust confirmations while escalating unexpected prompts for manual review. Includes safety timeouts preventing indefinite waits. || INTENT: Auto-approve directory trust prompts, escalate unexpected ones || INTENT: Monitor scheduled job prompts and auto-handle safe types || INTENT: Automatically answer job trust prompts with escalation || INTENT: Watch job pending prompts, auto-approve safe, escalate others",
+      "parsed": true,
+      "session": "save-inputs/sessions/launch-prompt-gate-sem.enrichment.json"
+    },
+    "launch-prompt-gate-st": {
+      "document_hash": "8bad761534d50b4c7db57eb132493dc9bc10de0c09e43d1a900c1fa86253238f",
+      "report": "WHAT: Automatically responds to common startup dialogs that interrupt cron execution—directory trust confirmations, vendor/provider checks, manual updates—using configured handlers and escalates unexpected questions to you for manual review. || INTENT: Automate responses to startup prompts in cron jobs || INTENT: Skip directory trust and vendor dialogs automatically || INTENT: Route startup questions based on type || INTENT: Escalate unknown startup prompts to me",
+      "parsed": true,
+      "session": "save-inputs/sessions/launch-prompt-gate-st.enrichment.json"
+    },
+    "plan-review-gate": {
+      "document_hash": "f167f67a67171752965032054046259f35cb174e96c781e8ab74df71accdf509",
+      "report": "WHAT: Validates Domios task plans by detecting coverage gaps and recommending revision. Analyzes whether all plan sections have tested tasks, asks for human approval with a yes/no decision, and either confirms readiness or runs a revision command to address missing coverage. || INTENT: Check if my task plan covers all sections with tests || INTENT: Validate plan coverage before approval || INTENT: Find gaps in plan and recommend fixes || INTENT: Ensure every plan section has a tested task",
+      "parsed": true,
+      "session": "save-inputs/sessions/plan-review-gate.enrichment.json"
+    },
+    "plan-review-gate-sem": {
+      "document_hash": "2a78f0b1d470f37d68eeb028364978c61bb95f6a6e2cb893d705f3afe924df68",
+      "report": "WHAT: Automatically monitors plan task coverage every 10 minutes, repeatedly checking whether every section has assigned tasks. When full coverage is detected, it notifies the owner to review and approve the plan. Useful for ensuring plans are complete before moving forward. || INTENT: Alert me when my project plan covers all sections and is ready to approve || INTENT: Watch for complete task coverage across all plan sections automatically || INTENT: Notify when plan gaps are filled and every section has assigned tasks || INTENT: Monitor plan completeness until all sections are covered by tasks",
+      "parsed": true,
+      "session": "save-inputs/sessions/plan-review-gate-sem.enrichment.json"
+    },
+    "plan-review-gate-st": {
+      "document_hash": "5dbeb3ecaf7e22f7888d5abd6f7242051184032ec3c3958d8ffcc85b6fdeecaa",
+      "report": "WHAT: This Blueprint audits a plan for specification gaps before sign-off. It runs plan validation to identify uncovered sections, determines if the plan is complete, then asks you whether to proceed or rework. If gaps exist or you choose rework, it runs a specified command to address them. The person makes the final sign-off decision. || INTENT: Verify plan covers all specification requirements || INTENT: Find uncovered spec sections in my plan || INTENT: Check plan completeness before sign off || INTENT: Audit plan and advise on gaps with approval decision",
+      "parsed": true,
+      "session": "save-inputs/sessions/plan-review-gate-st.enrichment.json"
+    },
+    "prompt-responder": {
+      "document_hash": "30d9f5eb13becf23ca33f47bc063d34479b2402cb85221798f594f711fd4686d",
+      "report": "WHAT: This Blueprint monitors a specific agent tab for permission prompts and automatically responds with safe answers when they match your pattern. It watches continuously for up to one hour, classifies incoming prompts to spot permission requests, and triggers a response handler when it finds a match. Useful for automating repetitive permission-related interactions or testing permission flows without manual intervention. || INTENT: Automatically respond to permission prompts on a specific tab || INTENT: Monitor agent tab and handle matching permission requests without manual input || INTENT: Set up automatic responses for permission-related prompts during testing || INTENT: Watch a tab and automatically answer permission prompts matching a pattern",
+      "parsed": true,
+      "session": "save-inputs/sessions/prompt-responder.enrichment.json"
+    },
+    "prompt-responder-sem": {
+      "document_hash": "c45409936249a15cf4435ee6c6bbee4d5806a24426b1444a83ffc3b60c658a2b",
+      "report": "WHAT: Monitors an agent tab in the background, polling its status every 15 seconds. When it detects the agent is waiting on a permission prompt, it automatically responds with approval and sends a notification. Works hands-off for up to 8 hours. || INTENT: Auto-respond to agent permission prompts || INTENT: Monitor and auto-approve agent permissions || INTENT: Automatically handle agent permission requests || INTENT: Keep agent running by auto-approving prompts",
+      "parsed": true,
+      "session": "save-inputs/sessions/prompt-responder-sem.enrichment.json"
+    },
+    "prompt-responder-st": {
+      "document_hash": "3f3a466db6e74631f0ebb1c770bb43e4c7bef6486c003703c4dd895e8771a8ca",
+      "report": "WHAT: This Blueprint monitors a specified agent tab for access requests matching a regex pattern. When a matching request appears, it automatically prompts a designated person for approval or the sanctioned answer. The workflow waits up to 3 hours and delivers the approval request, automating request routing and approval flows. || INTENT: Automatically ask someone to approve when a specific access request appears || INTENT: Monitor a tab and prompt for approval when matching access requests show up || INTENT: Route access requests to an approver and request their decision || INTENT: Watch for permission requests and automatically ask for approval",
+      "parsed": true,
+      "session": "save-inputs/sessions/prompt-responder-st.enrichment.json"
+    },
+    "release-preflight": {
+      "document_hash": "abe84fe391467d9bc306b749f295a6c8a60ac27f53451933821c099bab40d561",
+      "report": "WHAT: This Blueprint validates release readiness by checking two critical systems: the project map and task plan lanes. It runs essence-map validation on your codebase root, then checks the plan for stale lanes. If both pass and no stale lanes exist, it generates a release summary. If validation fails at any step, it blocks the release and runs a notification command to alert the team about what needs fixing before release can proceed. || INTENT: Validate project map and plan before release || INTENT: Block releases with stale lanes || INTENT: Run preflight checks to gate releases || INTENT: Check codebase state during release process",
+      "parsed": true,
+      "session": "save-inputs/sessions/release-preflight.enrichment.json"
+    },
+    "release-preflight-sem": {
+      "document_hash": "a591a10a77babb4b2ae5fba9b1ff34ea27bd1390305d2f85ab872e018331ccae",
+      "report": "WHAT: This Blueprint watches a release probe every 5 minutes to check if your release is blocked or proceeding cleanly. It runs a combined check on the essence map and stale lanes, which are the key gates for a release. When the release is blocked, you get notified immediately. It keeps checking until the release becomes clean, or stops after one day. Use this to monitor release progress without manual checking. || INTENT: Alert me when our release is blocked or stuck || INTENT: Monitor release gates and notify on blockage || INTENT: Watch release probe for clean or blocked status || INTENT: Get notifications when release becomes clean or blocked",
+      "parsed": true,
+      "session": "save-inputs/sessions/release-preflight-sem.enrichment.json"
+    },
+    "release-preflight-st": {
+      "document_hash": "b6cf5a430fa0bad3658579a6c450059c944a20af41ae12b672dba583ff499952",
+      "report": "WHAT: Gate your shipping process by refusing deployment when the capability graph is invalid or stale worktrees linger. The Blueprint validates the graph strictly, checks for abandoned worktrees, and blocks the ship until both pass before generating release notes. || INTENT: Prevent shipping when capability graph is invalid || INTENT: Block deployment if stale worktrees are left || INTENT: Gate releases on capability validation || INTENT: Stop ship until worktrees are cleaned up",
+      "parsed": true,
+      "session": "save-inputs/sessions/release-preflight-st.enrichment.json"
+    },
+    "retry-until-pass": {
+      "document_hash": "34a18590579ed67ab85178ada9acd0e5b1ae6ed4a1078d1c86c9ffd3748bd03c",
+      "report": "WHAT: This Blueprint monitors a retry process by periodically probing its status and checking if the result matches a success pattern. It watches continuously until the retry succeeds or a one-hour timeout expires, then sends a notification. Useful for tracking asynchronous operations like deployments or job completions. || INTENT: Monitor a deployment until it completes successfully with a one-hour timeout || INTENT: Watch a background jobs status and alert me when it finishes || INTENT: Continuously check for a success pattern in a retry operation || INTENT: Poll a status endpoint until completion and send notification",
+      "parsed": true,
+      "session": "save-inputs/sessions/retry-until-pass.enrichment.json"
+    },
+    "retry-until-pass-sem": {
+      "document_hash": "848dfc8c80d33e406c48c01f2cff0879d5cd2e8183a1c462c61e6aad0af63c38",
+      "report": "WHAT: Monitors a retry loop by running a status check every minute. The Blueprint executes your command, looks for the word passed in the output, and sends a notification as soon as the check succeeds. Ideal for watching automated retries without needing to manually check their progress. || INTENT: Alert me when retry loop finally passes after checking status every minute || INTENT: Monitor a process with periodic checks and notify once it succeeds || INTENT: Watch for passing status in an automated retry task with notifications || INTENT: Set up scheduled monitoring to detect and report when retries pass",
+      "parsed": true,
+      "session": "save-inputs/sessions/retry-until-pass-sem.enrichment.json"
+    },
+    "retry-until-pass-st": {
+      "document_hash": "ca967a6500f00f0af8cbb79722ce5d845abe10b6847b1d5cb45d4076b037db06",
+      "report": "WHAT: Continuously polls a command output watching for a success pattern, stopping when found or timeout reached, then sends notification. Monitors deployments completing, builds finishing, servers going online, or any process signaling success through text output. || INTENT: Wait for deployment to complete then notify || INTENT: Monitor build status until success appears || INTENT: Poll a command until ready then alert || INTENT: Check when server comes online and notify",
+      "parsed": true,
+      "session": "save-inputs/sessions/retry-until-pass-st.enrichment.json"
+    },
+    "service-health": {
+      "document_hash": "fa5b7ecabacb256b701b915b35062db0a88bbe8b610cb41dbe6d3deb0c99e14b",
+      "report": "WHAT: This Blueprint monitors a service health endpoint every minute, checking responsiveness. When the service goes down or the health check fails, it automatically runs a diagnostic command to investigate the issue, then sends a notification report. It helps teams quickly identify and troubleshoot service outages. || INTENT: Monitor service uptime and diagnose failures automatically || INTENT: Alert when service goes down with diagnostics || INTENT: Run health checks every minute and report issues || INTENT: Automatically investigate service outages and notify team",
+      "parsed": true,
+      "session": "save-inputs/sessions/service-health.enrichment.json"
+    },
+    "service-health-sem": {
+      "document_hash": "7b04933254e6efb5f336901e30cd2f26135e7b86ab145d87f23e43be25a529cb",
+      "report": "WHAT: Continuously monitors a service endpoint every minute. When detected as broken, it runs a diagnosis command to collect information and sends the findings via notification. The watch runs for up to 7 days, resetting whenever the service status returns to broken. || INTENT: Monitor service endpoint and diagnose when it fails || INTENT: Set up automatic failure detection with diagnostic response || INTENT: Watch service health and run diagnostics on outage || INTENT: Diagnose service problems automatically when health check fails",
+      "parsed": true,
+      "session": "save-inputs/sessions/service-health-sem.enrichment.json"
+    },
+    "service-health-st": {
+      "document_hash": "975ffe9f71674d822eba45a9c49f83fefc1c65aed1f7b29eb24da11f3f46f747",
+      "report": "WHAT: The Blueprint periodically monitors a backend service by sending HTTP pings every 5 minutes. When the service becomes unreachable or unresponsive, it automatically runs a diagnostic command to investigate the issue and captures the output. Results are sent to the owner, enabling proactive detection of backend failures and quick investigation without manual intervention. || INTENT: Monitor backend service availability with periodic health checks || INTENT: Alert me when my web service goes down || INTENT: Set up automated backend server status monitoring || INTENT: Run diagnostics when backend stops responding",
+      "parsed": true,
+      "session": "save-inputs/sessions/service-health-st.enrichment.json"
+    },
+    "team-watch": {
+      "document_hash": "e3a151e7f3a486b685a971c2874ee811057657a70fb2af6ac1a5d6641600343a",
+      "report": "WHAT: Watches a tab belonging to a team member for state changes and sends a notification when the observed state matches a specified pattern. Uses classification to interpret the tabs condition and watches for up to one hour before timing out. Useful for tracking work status or knowing when someone reaches a specific state. || INTENT: Alert me when a team members tab reaches a specific state || INTENT: Monitor a colleagues activity tab and notify on state change || INTENT: Get notified when someones work status matches a pattern || INTENT: Watch another team members terminal for specific activity || INTENT: Track when a peer reaches a particular state",
+      "parsed": true,
+      "session": "save-inputs/sessions/team-watch.enrichment.json"
+    },
+    "team-watch-sem": {
+      "document_hash": "53e3b053e62c3c4f33facd2d2487dcdabf5fba102a604f28b00f20aba5e423e9",
+      "report": "WHAT: Polls a team member tab every 30 seconds and sends a notification when the output changes to match a pattern you define. Perfect for watching long-running tasks without manually checking repeatedly. || INTENT: Alert me when another user terminal shows specific text || INTENT: Watch a remote tab for pattern matches every 30 seconds || INTENT: Monitor a tab and get notified on output change || INTENT: Notify me when a team member task completes",
+      "parsed": true,
+      "session": "save-inputs/sessions/team-watch-sem.enrichment.json"
+    },
+    "team-watch-st": {
+      "document_hash": "1e3701aa87aa054963ce524d20ebcd6561ad5c82474394666d4fb1168e367918",
+      "report": "WHAT: The Blueprint monitors a colleague terminal tab in real time, watching for a specific pattern indicating progress or change. When the watched tab displays text matching your regex pattern, it sends an alert. Useful for tracking colleague work status, waiting for builds to complete, or knowing when they finish long-running tasks without constantly checking manually. || INTENT: Alert me when my teammate finishes a long-running task in their terminal || INTENT: Watch colleague terminal and notify when build or process completes || INTENT: Monitor tab activity and tell me when specific text appears || INTENT: Get notified when coworker terminal shows new output matching a pattern",
+      "parsed": true,
+      "session": "save-inputs/sessions/team-watch-st.enrichment.json"
+    },
+    "voice-note-to-text": {
+      "document_hash": "92547dacace1e221ecfb39b9b636f3c077ce18f650d0dd5e349063770455e8d0",
+      "report": "WHAT: The Blueprint transcribes audio voice notes into text and automatically categorizes the content using AI classification. It accepts a voice file path, converts the speech to text, analyzes what the note contains, and sends a notification when processing completes. Useful for organizing voice memos or extracting structured data from spoken input. || INTENT: Turn my voice note into text and sort it by category || INTENT: Transcribe and classify a voice recording || INTENT: Convert audio memo to text with automatic classification || INTENT: Process voice notes into classified text",
+      "parsed": true,
+      "session": "save-inputs/sessions/voice-note-to-text.enrichment.json"
+    },
+    "voice-note-to-text-sem": {
+      "document_hash": "8418677d4142e17fe0b531fb90d314c86513c77c7f094f64da69739ba176d950",
+      "report": "WHAT: This pipeline accepts an audio recording, transcribes it to text using automatic speech recognition, then uses a language model to classify the transcript as a task, note, or other category. Results are delivered to the pipeline owner. || INTENT: Convert audio recordings to text and automatically categorize them || INTENT: Transcribe voice memos and classify them as tasks or notes || INTENT: Take audio input, transcribe, then label with AI classification || INTENT: Process voice recordings to text and label content type",
+      "parsed": true,
+      "session": "save-inputs/sessions/voice-note-to-text-sem.enrichment.json"
+    },
+    "voice-note-to-text-st": {
+      "document_hash": "6d3149be79f08dc66b1f3df26f213e2e4b2e9ac418aa6ce693206981befaa13c",
+      "report": "WHAT: Converts voice memos into transcribed text and automatically categorizes the content using AI classification. Takes an audio file and a title, transcribes the spoken words, analyzes what the memo is about, sorts it into relevant categories, and sends you a notification with the results. || INTENT: Turn voice recordings into organized notes automatically || INTENT: Transcribe audio memos and classify them by topic || INTENT: Convert spoken notes to text with AI sorting || INTENT: Process voice memos into searchable categorized transcriptions",
+      "parsed": true,
+      "session": "save-inputs/sessions/voice-note-to-text-st.enrichment.json"
+    },
+    "wait-for-build": {
+      "document_hash": "6eecc0a40ed8fd74894ae584416a6387c3b94cc57d4d08e50204b56060d11e68",
+      "report": "WHAT: Monitors a build system through periodic polling, classifies the result by comparing output against success and failure patterns, and sends notifications once the build reaches a terminal state within one hour. || INTENT: Notify me when a build finishes with success or failure || INTENT: Monitor build status and alert on completion || INTENT: Wait for build to pass and send notification || INTENT: Poll CI system and get alerted on result",
+      "parsed": true,
+      "session": "save-inputs/sessions/wait-for-build.enrichment.json"
+    },
+    "wait-for-build-sem": {
+      "document_hash": "76429c0710a8fd4d7d6b7ff28d80c007583a0dca36f3601f57f8738f29b8b2c5",
+      "report": "WHAT: Polls a build status command every 30 seconds, watching for passed or failed verdicts. When the output shows either result, stops polling and runs a notification command to report the build outcome. Useful for monitoring CI pipelines and alerting teams when builds complete, without continuous polling noise. || INTENT: Alert when build passes or fails || INTENT: Monitor build status every 30 seconds || INTENT: Check CI pipeline and notify on verdict || INTENT: Poll build status and report results || INTENT: Trigger notification when build finishes",
+      "parsed": true,
+      "session": "save-inputs/sessions/wait-for-build-sem.enrichment.json"
+    },
+    "wait-for-build-st": {
+      "document_hash": "dce5d17740979e0fb60171b0e4265a89c4e4802ca55914905eb82fdc269645be",
+      "report": "WHAT: Monitor a compilation process by polling a status command until it finishes. Categorizes output as running, successful, or broken using regex patterns. Sends notifications when compilation completes, either with success or failure, with a 90-minute timeout. || INTENT: Notify me when code compilation finishes || INTENT: Monitor build process and alert on completion || INTENT: Watch compilation status until success or failure || INTENT: Poll build command and ping on done",
+      "parsed": true,
+      "session": "save-inputs/sessions/wait-for-build-st.enrichment.json"
+    }
+  }
+}

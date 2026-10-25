@@ -11,6 +11,8 @@ pub struct BackgroundWorkObservation {
 #[serde(rename_all = "snake_case")]
 pub enum BackgroundWorkState {
     Running,
+    Unknown,
+    SessionBoundary,
     Completed,
     Killed,
     Failed,
@@ -18,6 +20,10 @@ pub enum BackgroundWorkState {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BackgroundRoster {
     pub running: BTreeMap<String, String>,
+    #[serde(default)]
+    pub unknown: BTreeMap<String, String>,
+    #[serde(default)]
+    pub ended: BTreeMap<String, String>,
     pub overflow: bool,
     #[serde(default)]
     pub history_incomplete: bool,
@@ -27,27 +33,75 @@ pub struct BackgroundRoster {
     completed: BTreeSet<String>,
 }
 impl BackgroundRoster {
+    pub fn invalidate(&mut self) {
+        for (id, label) in std::mem::take(&mut self.running) {
+            if self.unknown.len() >= LIMIT {
+                self.unknown.pop_first();
+            }
+            self.unknown.insert(id.clone(), label);
+            if self.completed.len() >= LIMIT {
+                self.completed.pop_first();
+            }
+            self.completed.insert(id);
+        }
+        for id in self.unknown.keys() {
+            if self.completed.len() >= LIMIT {
+                self.completed.pop_first();
+            }
+            self.completed.insert(id.clone());
+        }
+    }
     pub fn observe(&mut self, observation: &BackgroundWorkObservation, label: &str) {
+        if observation.state == BackgroundWorkState::SessionBoundary {
+            self.invalidate();
+            return;
+        }
         if observation.id.is_empty() || observation.id.len() > 256 {
             self.overflow = true;
             return;
         }
         match observation.state {
             BackgroundWorkState::Running => {
-                if self.completed.contains(&observation.id) {
+                if self.completed.contains(&observation.id)
+                    || self.ended.contains_key(&observation.id)
+                {
                     return;
                 }
                 if self.running.len() >= LIMIT && !self.running.contains_key(&observation.id) {
                     self.overflow = true;
                     return;
                 }
-                let value = self.running.entry(observation.id.clone()).or_default();
+                let previous_label = self.unknown.remove(&observation.id).unwrap_or_default();
+                let value = self
+                    .running
+                    .entry(observation.id.clone())
+                    .or_insert(previous_label);
                 if !label.is_empty() {
                     *value = label.chars().take(256).collect();
                 }
             }
+            BackgroundWorkState::Unknown => {
+                if !self.running.contains_key(&observation.id)
+                    && !self.ended.contains_key(&observation.id)
+                {
+                    if self.unknown.len() >= LIMIT && !self.unknown.contains_key(&observation.id) {
+                        self.unknown.pop_first();
+                    }
+                    self.unknown
+                        .entry(observation.id.clone())
+                        .or_insert_with(|| label.chars().take(256).collect());
+                }
+            }
             _ => {
-                self.running.remove(&observation.id);
+                let label = self
+                    .running
+                    .remove(&observation.id)
+                    .or_else(|| self.unknown.remove(&observation.id))
+                    .unwrap_or_else(|| label.chars().take(256).collect());
+                if self.ended.len() >= LIMIT {
+                    self.ended.pop_first();
+                }
+                self.ended.insert(observation.id.clone(), label);
                 if self.completed.len() >= LIMIT {
                     self.completed.pop_first();
                 }
@@ -88,51 +142,4 @@ impl BackgroundRoster {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    fn event(id: &str, state: BackgroundWorkState) -> BackgroundWorkObservation {
-        BackgroundWorkObservation {
-            id: id.into(),
-            state,
-        }
-    }
-    #[test]
-    fn restart_guard_roster_drains_and_ignores_replayed_starts() {
-        let mut roster = BackgroundRoster::default();
-        roster.observe(&event("shell", BackgroundWorkState::Running), "fixture");
-        assert!(!roster.is_empty());
-        roster.observe(&event("shell", BackgroundWorkState::Completed), "");
-        roster.observe(&event("shell", BackgroundWorkState::Running), "fixture");
-        assert!(roster.is_empty());
-        roster.observe(&event("agent", BackgroundWorkState::Running), "");
-        roster.observe(&event("agent", BackgroundWorkState::Killed), "");
-        assert!(roster.is_empty());
-    }
-    #[test]
-    fn restart_guard_unobserved_history_refuses_until_initialized() {
-        let mut roster = BackgroundRoster::default();
-        assert_eq!(roster.guarded_items().len(), 1);
-        roster.history_initialized = true;
-        assert!(roster.guarded_items().is_empty());
-    }
-    #[test]
-    fn restart_guard_incomplete_history_fails_closed() {
-        let mut roster = BackgroundRoster::default();
-        roster.history_incomplete = true;
-        assert!(!roster.is_empty());
-        assert_eq!(roster.items().len(), 1);
-    }
-    #[test]
-    fn restart_guard_roster_bound_fails_closed_and_tabs_are_independent() {
-        let mut first = BackgroundRoster::default();
-        for index in 0..=LIMIT {
-            first.observe(&event(&index.to_string(), BackgroundWorkState::Running), "");
-        }
-        assert_eq!(first.running.len(), LIMIT);
-        assert!(first.overflow);
-        assert!(!first.is_empty());
-        assert!(BackgroundRoster::default().is_empty());
-        first = BackgroundRoster::default();
-        assert!(first.is_empty());
-    }
-}
+mod tests;

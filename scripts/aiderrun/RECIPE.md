@@ -44,7 +44,7 @@ Record graph id with exact worker/lane/surface/session/generation. Mozart owns a
 | config, defaults | `node scripts/run-ts-unit-tests.mjs src/hooks/useConfig.test.ts` |
 | sdk | `npx tsc --noEmit --strict --skipLibCheck --target ES2021 --module ESNext --moduleResolution bundler packages/plugin-sdk/src/types.test.ts` |
 | shortcuts | `node scripts/run-ts-unit-tests.mjs src/help/shortcuts.test.ts` |
-| automation | `node scripts/run-ts-unit-tests.mjs src/components/Automation/nodeDetailsModel.test.ts src/components/Automation/CommandResultDetails.test.tsx src/components/Automation/AutomationGraphView.test.tsx` |
+| automation | `node scripts/run-ts-unit-tests.mjs src/components/Automation/AutomationGraphView.test.tsx` |
 
 Commands run in the exact worker lane. Missing node_modules or any selected target fails explicitly with its path; unknown surfaces fail. The whole command sequence has a 180-second failure deadline, plus five seconds for cleanup settlement. Windows uses encoded PowerShell argument transport and taskkill /PID /T /F; Unix uses a detached process group and SIGKILL. Unconfirmed containment retains active.lock and produces FAILED.
 

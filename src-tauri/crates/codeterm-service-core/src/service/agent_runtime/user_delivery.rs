@@ -186,6 +186,11 @@ pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String
             && !svc
                 .chat_send_ledger
                 .user_payload_may_have_been_written(&record.send_id);
+        let rejection = result
+            .as_ref()
+            .err()
+            .filter(|error| zero_write && transport::rejected_before_write(error))
+            .map(|error| error.ledger_message());
         store.finish_handoff(&record, zero_write)?;
         if zero_write {
             svc.chat_send_ledger
@@ -199,6 +204,24 @@ pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String
                 "chat-send-status",
                 serde_json::to_value(status).unwrap_or_default(),
             );
+        }
+        if let Some(reason) = rejection {
+            if !store.discard_queued_from_ended_launch(&record)? {
+                return Ok(UserDrain::ZeroWriteRefusal {
+                    dispatch_generation,
+                });
+            }
+            if let Some(status) = svc
+                .chat_send_ledger
+                .expire_owned_before_write(&record.send_id, &reason)
+            {
+                svc.ui.emit(
+                    "chat-send-status",
+                    serde_json::to_value(status).unwrap_or_default(),
+                );
+            }
+            super::capture::retire(&record.send_id);
+            continue;
         }
         if zero_write && record.capture_required {
             if store.discard_queued_from_ended_launch(&record)? {

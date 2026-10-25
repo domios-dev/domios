@@ -320,16 +320,26 @@ pub(super) fn install_from_dir(
     }
     let dest = plugin_dir(&parsed_id);
     ensure_plugin_path_inside(&dest)?;
-    let tmp = dest.with_extension("tmp-install");
+    let tmp = super::staging::path_for(&dest, "tmp-install");
     ensure_plugin_path_inside(&tmp)?;
     if tmp.exists() {
         fs::remove_dir_all(&tmp).map_err(|e| format!("clear {}: {e}", tmp.display()))?;
     }
+    super::staging::with_cleanup(&tmp, || stage_and_activate(source, id, record, &dest, &tmp))
+}
+
+fn stage_and_activate(
+    source: &Path,
+    id: &str,
+    record: Option<&InstallRecord>,
+    dest: &Path,
+    tmp: &Path,
+) -> Result<(), String> {
     if source.join("runtime-files.txt").is_file() {
-        codeterm_util::plugin_runtime_files::copy_runtime_bundle(source, &tmp)
+        codeterm_util::plugin_runtime_files::copy_runtime_bundle(source, tmp)
             .map_err(|e| e.to_string())?;
     } else {
-        copy_dir_filtered(source, &tmp)?;
+        copy_dir_filtered(source, tmp)?;
     }
     let manifest_path = tmp.join("plugin.json");
     let manifest_text = fs::read_to_string(&manifest_path)
@@ -348,8 +358,12 @@ pub(super) fn install_from_dir(
         let body = serde_json::to_string_pretty(record).map_err(|e| e.to_string())?;
         fs::write(tmp.join(".codeterm-install.json"), body).map_err(|e| e.to_string())?;
     }
-    carry_user_config(&dest, &tmp)?;
-    super::install_swap::activate(&tmp, &dest)
+    carry_user_config(dest, tmp)?;
+    for name in ["config.yaml", "grants.yaml", "state.json"] {
+        codeterm_util::private_file::restrict_if_present(&tmp.join(name))
+            .map_err(|error| format!("protect staged plugin state: {error}"))?;
+    }
+    super::lifecycle::activate(id, tmp, dest)
 }
 
 pub(super) fn copy_dir_filtered(source: &Path, dest: &Path) -> Result<(), String> {

@@ -18,11 +18,19 @@ pub struct SolutionBody {
     team_id: Value,
     id: String,
     when_to_use: Option<String>,
+    #[serde(default)]
+    tags: Vec<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ListBody {
     workspace_id: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ShowBody {
+    workspace_id: String,
+    id: String,
 }
 
 fn access(state: &AppState, headers: &HeaderMap) -> Result<(), (StatusCode, String)> {
@@ -61,6 +69,22 @@ pub async fn list(
         .map(Json)
         .map_err(|error| (StatusCode::BAD_REQUEST, error))
 }
+pub async fn show(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<ShowBody>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    access(&state, &headers)?;
+    tokio::task::spawn_blocking(move || {
+        state
+            .svc
+            .blueprint_solution_show_host(&body.workspace_id, &body.id)
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+    .map(Json)
+    .map_err(|error| (StatusCode::BAD_REQUEST, error))
+}
 pub async fn save(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -76,6 +100,7 @@ pub async fn save(
             team.as_deref(),
             &body.id,
             body.when_to_use.as_deref().unwrap_or_default(),
+            &body.tags,
         )
     })
     .await

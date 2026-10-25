@@ -1,0 +1,99 @@
+{
+  "duration_api_ms": 9058,
+  "stop_reason": "end_turn",
+  "session_id": "e6acc321-a0d9-43dc-beb5-2e8bd88d3574",
+  "total_cost_usd": 0.027903,
+  "usage": {
+    "input_tokens": 9,
+    "cache_creation_input_tokens": 11507,
+    "cache_read_input_tokens": 0,
+    "output_tokens": 976,
+    "output_tokens_details": {
+      "thinking_tokens": 872
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 11507,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "not_available",
+    "iterations": [
+      {
+        "input_tokens": 9,
+        "output_tokens": 976,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 11507,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 11507
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-haiku-4-5-20251001": {
+      "inputTokens": 9,
+      "outputTokens": 976,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 11507,
+      "webSearchRequests": 0,
+      "costUSD": 0.027903,
+      "contextWindow": 200000,
+      "maxOutputTokens": 32000,
+      "thinkingTokens": 872,
+      "canonicalModel": "claude-haiku-4-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 1,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "WHAT: Monitor a compilation process by polling a status command until it finishes. Categorizes output as running, successful, or broken using regex patterns. Sends notifications when compilation completes, either with success or failure, with a 90-minute timeout. || INTENT: Notify me when code compilation finishes || INTENT: Monitor build process and alert on completion || INTENT: Watch compilation status until success or failure || INTENT: Poll build command and ping on done",
+  "ttft_ms": 9233,
+  "type": "result",
+  "duration_ms": 9917,
+  "uuid": "2b2c4648-9f1a-464e-8596-8ab088f6f442",
+  "ttft_stream_ms": 1491,
+  "time_to_request_ms": 822,
+  "first_content_frame_ms": 1491,
+  "queued_turn_count": 0,
+  "result_index": 0
+}

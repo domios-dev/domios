@@ -3,7 +3,7 @@
 pub mod activity;
 pub mod auto_extract;
 pub mod blueprint_library;
-#[cfg_attr(not(feature = "embeddings"), allow(dead_code))]
+pub mod blueprint_wl;
 mod chunking;
 pub mod curation;
 pub mod decision;
@@ -11,8 +11,8 @@ pub mod docs_source;
 pub mod dream_status;
 pub mod dreaming;
 pub mod embed_queue;
-#[cfg_attr(not(feature = "embeddings"), allow(dead_code))]
 mod embed_schedule;
+pub mod embedder;
 #[cfg(feature = "embeddings")]
 mod embedding_model;
 #[cfg(feature = "embeddings")]
@@ -69,9 +69,7 @@ pub use extraction_authority::{
 pub use graph::{Entity, Relation};
 pub use layers::WakeUpOptions;
 pub use manager_crud::AreaForgetOutcome;
-#[cfg(feature = "embeddings")]
-pub use reindex::compose_embed_text;
-pub use reindex::{body_is_embeddable, MIN_EMBED_BODY_CHARS};
+pub use reindex::{body_is_embeddable, compose_embed_text, MIN_EMBED_BODY_CHARS};
 pub use search::{SearchHit, SearchQuery};
 pub use store::{MemItem, MemKind, MemScope, NewMemItem};
 
@@ -93,12 +91,15 @@ pub fn model_cache_dir() -> PathBuf {
 const HEAVY_OPS_PERMITS: usize = 2;
 
 pub struct MemManager {
-    blueprint_queue: Mutex<Option<std::sync::mpsc::SyncSender<blueprint_library::Pending>>>,
+    blueprint: blueprint_library::services::BlueprintServices,
     pub(crate) conn: Mutex<Connection>,
     pub(crate) db_path: PathBuf,
     pub(crate) blobs_dir: PathBuf,
     skill_dir: PathBuf,
     pub(crate) embed_queue: embed_queue::EmbedQueue,
+    pub(crate) embedder: Arc<embedder::ActiveEmbedder>,
+    pub(crate) reembed: embedder::switch::ReembedTracker,
+    pub(crate) docs_dir: Option<PathBuf>,
     pub(crate) heavy_ops_permits: Arc<Semaphore>,
     pub(crate) layout: graph_layout::LayoutState,
     pub(crate) extraction: Arc<ExtractionAuthority>,
@@ -125,30 +126,23 @@ impl MemManager {
 
 impl MemManager {
     pub fn open(data_dir: &std::path::Path) -> Result<Arc<Self>, String> {
-        let manager = Self::open_with_queue(data_dir, embed_queue::EmbedQueue::start)?;
+        let manager = Self::open_with(
+            data_dir,
+            embedder::ActiveEmbedder::global(),
+            Arc::new(embedder::SystemClock),
+            Some(data_dir.to_path_buf()),
+        )?;
         docs_source::start_background_build(data_dir);
-        spawn_entity_embedding_backfill(manager.db_path.clone());
+        spawn_entity_embedding_backfill(manager.db_path.clone(), manager.embedder.clone());
         Ok(manager)
     }
 
-    /// `open` with a caller-supplied embedder and no entity backfill.
-    #[cfg(all(test, feature = "embeddings"))]
-    pub(crate) fn open_with_embedder(
+    /// `open` with a caller-supplied embedder and clock, and no startup backfill.
+    pub fn open_with(
         data_dir: &std::path::Path,
-        embedder: embed_queue::Embedder,
-    ) -> Result<Arc<Self>, String> {
-        Self::open_with_queue(data_dir, |db_path, permits, layout| {
-            embed_queue::EmbedQueue::start_with(db_path, permits, layout, embedder)
-        })
-    }
-
-    fn open_with_queue(
-        data_dir: &std::path::Path,
-        start_queue: impl FnOnce(
-            PathBuf,
-            Arc<Semaphore>,
-            Arc<graph_layout::cache::LayoutCache>,
-        ) -> embed_queue::EmbedQueue,
+        embedder: Arc<embedder::ActiveEmbedder>,
+        clock: Arc<dyn embedder::Clock>,
+        docs_dir: Option<PathBuf>,
     ) -> Result<Arc<Self>, String> {
         let mem_dir = data_dir.join("mem");
         std::fs::create_dir_all(&mem_dir).map_err(|e| format!("create mem dir: {}", e))?;
@@ -165,50 +159,77 @@ impl MemManager {
 
         // WAL + synchronous=NORMAL pragmas come from store::init_schema.
         store::init_schema(&conn).map_err(|e| format!("init schema: {}", e))?;
+        blueprint_library::cleanup::remove_v1(&conn, &blobs_dir)?;
         solution_metadata::initialize(&conn)?;
 
-        if let Err(e) = embeddings::init_extension(&conn) {
+        if let Err(e) = embeddings::init_index(&conn, &embedder.identity()) {
             log::warn!(
-                "[mem] sqlite-vec init failed: {} — semantic recall disabled",
+                "[mem] vector index init failed: {} — semantic recall disabled",
                 e
             );
         }
 
         let heavy_ops_permits = Arc::new(Semaphore::new(HEAVY_OPS_PERMITS));
         let layout = graph_layout::LayoutState::load(&mem_dir);
-        let embed_queue = start_queue(
+        let embed_queue = embed_queue::EmbedQueue::start(
             db_path.clone(),
             heavy_ops_permits.clone(),
             layout.cache.clone(),
+            embedder.clone(),
         );
 
-        Ok(Arc::new(Self {
-            blueprint_queue: Mutex::new(None),
+        let manager = Arc::new(Self {
+            blueprint: Default::default(),
             conn: Mutex::new(conn),
             db_path,
             blobs_dir,
             skill_dir: data_dir.join("skills"),
             embed_queue,
+            embedder,
+            reembed: embedder::switch::ReembedTracker::new(clock),
+            docs_dir,
             heavy_ops_permits,
             layout,
             extraction: Arc::new(ExtractionAuthority::new()),
-        }))
+        });
+        manager
+            .reembed
+            .restore(mem_dir.join("reembed-progress.json"));
+        manager.subscribe_recovery();
+        Ok(manager)
     }
 
     pub fn open_in_memory() -> Result<Arc<Self>, String> {
+        embeddings::ensure_extension_registered();
         let conn = Connection::open_in_memory().map_err(|e| format!("open :memory:: {}", e))?;
         store::init_schema(&conn).map_err(|e| format!("init schema: {}", e))?;
         solution_metadata::initialize(&conn)?;
         let tmp = std::env::temp_dir().join(format!("mem-test-{}", ulid::Ulid::new()));
         std::fs::create_dir_all(tmp.join("blobs")).ok();
         let layout = graph_layout::LayoutState::load(&tmp);
+        #[cfg(test)]
+        let embedder = {
+            let model = embedder::local::default_model();
+            let provider = embedder::testing::MockProvider::new(
+                embedder::local::ID,
+                model.model,
+                model.dimension,
+            );
+            provider.set_down(true);
+            embedder::ActiveEmbedder::new(provider)
+        };
+        #[cfg(not(test))]
+        let embedder = embedder::ActiveEmbedder::global();
         Ok(Arc::new(Self {
-            blueprint_queue: Mutex::new(None),
+            blueprint: Default::default(),
             conn: Mutex::new(conn),
             db_path: tmp.join("knowledge.db"),
             blobs_dir: tmp.join("blobs"),
             skill_dir: tmp.join("skills"),
             embed_queue: embed_queue::EmbedQueue::disabled(),
+            embedder,
+            reembed: embedder::switch::ReembedTracker::new(Arc::new(embedder::SystemClock)),
+            docs_dir: None,
             heavy_ops_permits: Arc::new(Semaphore::new(HEAVY_OPS_PERMITS)),
             layout,
             extraction: Arc::new(ExtractionAuthority::new()),
@@ -243,6 +264,7 @@ impl MemManager {
             .map_err(|e| format!("set busy_timeout: {}", e))?;
 
         store::init_schema(&conn).map_err(|e| format!("init schema: {}", e))?;
+        blueprint_library::cleanup::remove_v1(&conn, &blobs_dir)?;
         solution_metadata::initialize(&conn)?;
 
         // Non-fatal: offline mode is allowed to run FTS5-only without vectors.
@@ -250,12 +272,15 @@ impl MemManager {
 
         let layout = graph_layout::LayoutState::load(data_dir);
         Ok(Arc::new(Self {
-            blueprint_queue: Mutex::new(None),
+            blueprint: Default::default(),
             conn: Mutex::new(conn),
             db_path,
             blobs_dir,
             skill_dir: data_dir.join("skills"),
             embed_queue: embed_queue::EmbedQueue::disabled(),
+            embedder: embedder::ActiveEmbedder::global(),
+            reembed: embedder::switch::ReembedTracker::new(Arc::new(embedder::SystemClock)),
+            docs_dir: None,
             heavy_ops_permits: Arc::new(Semaphore::new(HEAVY_OPS_PERMITS)),
             layout,
             extraction: Arc::new(ExtractionAuthority::new()),
@@ -326,11 +351,10 @@ impl MemManager {
         self.embed_queue.enqueue(id.to_string(), body.to_string());
     }
 
-    /// Initialize the sqlite-vec extension and mem_vectors table.
-    /// No-op when the `embeddings` feature is not compiled in.
+    /// Initialize the vector index for the active embedder.
     pub fn init_embeddings(&self) -> Result<(), String> {
         let conn = self.conn.lock();
-        embeddings::init_extension(&conn)
+        embeddings::init_index(&conn, &self.embedder.identity())
     }
 
     /// Run a read-only SQL closure against the underlying connection.
@@ -352,16 +376,19 @@ pub struct MemStats {
 }
 
 /// Starts entity backfill without putting model inference on the startup caller.
-fn spawn_entity_embedding_backfill(db_path: std::path::PathBuf) {
+fn spawn_entity_embedding_backfill(
+    db_path: std::path::PathBuf,
+    embedder: Arc<embedder::ActiveEmbedder>,
+) {
     let result = spawn_entity_embedding_backfill_task(move || {
         let work = || -> Result<(), String> {
             let conn = Connection::open(&db_path)
                 .map_err(|e| format!("open knowledge.db for entity backfill: {e}"))?;
             conn.busy_timeout(std::time::Duration::from_secs(5))
                 .map_err(|e| format!("set entity backfill busy_timeout: {e}"))?;
-            embeddings::init_extension(&conn)
-                .map_err(|e| format!("init sqlite-vec for entity backfill: {e}"))?;
-            backfill_entity_embeddings(&conn)
+            embeddings::init_index(&conn, &embedder.identity())
+                .map_err(|e| format!("init vector index for entity backfill: {e}"))?;
+            backfill_entity_embeddings(&conn, &embedder)
         };
         if let Err(error) = work() {
             log::warn!("[mem] entity-embedding backfill failed: {error}");
@@ -381,7 +408,10 @@ fn spawn_entity_embedding_backfill_task(
 }
 
 /// Idempotently embeds graph entities created before embed-on-create existed.
-fn backfill_entity_embeddings(conn: &Connection) -> Result<(), String> {
+fn backfill_entity_embeddings(
+    conn: &Connection,
+    embedder: &embedder::ActiveEmbedder,
+) -> Result<(), String> {
     let mut stmt = conn
         .prepare(
             "SELECT e.id, e.entity_type, e.properties_json
@@ -415,7 +445,7 @@ fn backfill_entity_embeddings(conn: &Connection) -> Result<(), String> {
     let mut ok_count = 0usize;
     for (id, entity_type, props_json) in rows {
         let text = embeddings::embeddable_text_for_entity(&id, &entity_type, &props_json);
-        match embeddings::index(conn, &id, &text) {
+        match embeddings::index_with(conn, embedder, &id, &text) {
             Ok(_) => ok_count += 1,
             Err(e) => log::warn!("[mem.backfill] embed {} failed: {}", id, e),
         }
@@ -449,3 +479,6 @@ mod startup_backfill_tests {
         worker.join().unwrap();
     }
 }
+
+#[cfg(all(test, feature = "embeddings"))]
+mod test_support;

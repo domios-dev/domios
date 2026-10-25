@@ -1,0 +1,99 @@
+{
+  "duration_api_ms": 5750,
+  "stop_reason": "end_turn",
+  "session_id": "f3ae5bd9-2a28-4452-9849-07af93513b03",
+  "total_cost_usd": 0.0708258,
+  "usage": {
+    "input_tokens": 2,
+    "cache_creation_input_tokens": 8581,
+    "cache_read_input_tokens": 649,
+    "output_tokens": 102,
+    "output_tokens_details": {
+      "thinking_tokens": 0
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 8581,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "global",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 102,
+        "cache_read_input_tokens": 649,
+        "cache_creation_input_tokens": 8581,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 8581
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-opus-5-5": {
+      "inputTokens": 2,
+      "outputTokens": 102,
+      "cacheReadInputTokens": 649,
+      "cacheCreationInputTokens": 8581,
+      "webSearchRequests": 0,
+      "costUSD": 0.0708258,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-opus-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 1,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "[\"Watch my local dev API server and grab recent request traces if it crashes\", \"Alert me when the local REST API stops or fails\", \"Monitor whether the dev API is still listening\", \"Capture the last few request traces when my local server goes down\", \"Keep an eye on the local API server overnight and notify me if it dies\"]",
+  "ttft_ms": 5814,
+  "type": "result",
+  "duration_ms": 5864,
+  "uuid": "51997251-5d68-4dcb-b36b-dec51ebbb3bb",
+  "ttft_stream_ms": 1114,
+  "time_to_request_ms": 71,
+  "first_content_frame_ms": 1114,
+  "queued_turn_count": 0,
+  "result_index": 0
+}

@@ -1,0 +1,99 @@
+{
+  "duration_api_ms": 9208,
+  "stop_reason": "end_turn",
+  "session_id": "5ac41305-bfae-442c-8f55-21c58ddf85ac",
+  "total_cost_usd": 0.028877,
+  "usage": {
+    "input_tokens": 9,
+    "cache_creation_input_tokens": 11519,
+    "cache_read_input_tokens": 0,
+    "output_tokens": 1166,
+    "output_tokens_details": {
+      "thinking_tokens": 1064
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 11519,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "not_available",
+    "iterations": [
+      {
+        "input_tokens": 9,
+        "output_tokens": 1166,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 11519,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 11519
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-haiku-4-5-20251001": {
+      "inputTokens": 9,
+      "outputTokens": 1166,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 11519,
+      "webSearchRequests": 0,
+      "costUSD": 0.028877,
+      "contextWindow": 200000,
+      "maxOutputTokens": 32000,
+      "thinkingTokens": 1064,
+      "canonicalModel": "claude-haiku-4-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 1,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "WHAT: Periodically checks a GitHub repository for self-hosted runners matching a specified label, monitors their online and offline status, and counts available runners. Runs on a configurable schedule and reports findings to the team owner for tracking runner health and availability. || INTENT: Monitor self-hosted runner availability by label || INTENT: Check GitHub runners status and online count || INTENT: Watch runner health trends over time || INTENT: Track when labeled runners go offline",
+  "ttft_ms": 9207,
+  "type": "result",
+  "duration_ms": 9687,
+  "uuid": "5bc7ebad-1010-4875-bd33-5433ef93aec5",
+  "ttft_stream_ms": 978,
+  "time_to_request_ms": 434,
+  "first_content_frame_ms": 978,
+  "queued_turn_count": 0,
+  "result_index": 0
+}

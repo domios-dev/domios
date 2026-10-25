@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, rmSync, realpathSync, mkdirSync, readFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, realpathSync, mkdirSync, readFileSync, existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { parseProbeArgs, cleanEnvironment, attachRequest, assertDisposableHome, assertSafePort,
@@ -15,7 +15,7 @@ test('only explicit disposable process cases are admitted', () => {
   for (const args of [[], ['--case', 'production'], ['--case', 'arbitration', '--instance', 'prod', '--artifact-receipt', '/receipt'], ['--case', 'arbitration', '--instance', 'split-oracle', '--port', '7685']]) assert.throws(() => parseProbeArgs(args));
 });
 test('launch environment discards inherited identity and display selectors into a disposable home', (t) => {
-  const home = mkdtempSync(path.join(os.tmpdir(), 'probe-home-'));
+  const home = mkdtempSync(path.join(realpathSync.native(os.tmpdir()), 'probe-home-'));
   t.after(() => rmSync(home, { recursive: true, force: true }));
   const runSource = readFileSync(path.resolve('src-tauri/src/run.rs'), 'utf8');
   const prefix = clientEnvironmentContract(runSource).instance.replace(/(?:_DEV)?_INSTANCE$/, '').toUpperCase();
@@ -34,7 +34,7 @@ test('protected ports, unnamed data roots and the owner data tree are refused', 
   assert.equal(assertSafePort(7711), 7711);
   for (const port of [7685, 7686, 0, 65536, Number.NaN]) assert.throws(() => assertSafePort(port));
   assert.throws(() => cleanEnvironment({}, os.homedir()), /disposable temp root/);
-  const temp = mkdtempSync(path.join(os.tmpdir(), 'probe-home-boundary-'));
+  const temp = mkdtempSync(path.join(realpathSync.native(os.tmpdir()), 'probe-home-boundary-'));
   t.after(() => rmSync(temp, { recursive: true, force: true }));
   const owner = path.join(temp, 'owner');
   mkdirSync(owner);
@@ -45,7 +45,7 @@ test('protected ports, unnamed data roots and the owner data tree are refused', 
   assert.throws(() => assertDisposableHome(path.join(owner, `.${legacy}`), owner, temp));
   assert.throws(() => assertDisposableHome(path.join(owner, `.${legacy}-dev`), owner, temp));
   assert.throws(() => assertDisposableHome(path.join(owner, `.${legacy}`, 'instance'), owner, temp));
-  assert.throws(() => assertDisposableHome(path.join(os.tmpdir(), 'outside-probe-home'), owner, temp));
+  assert.throws(() => assertDisposableHome(path.join(realpathSync.native(os.tmpdir()), 'outside-probe-home'), owner, temp));
 });
 test('native binary and environment names come from their source contracts', (t) => {
   const target = clientBuildTarget('[package]\nname = "native-app"\ndefault-run = "native-window"\n\n[[bin]]\nname = "native-window"\npath = "src/main.rs"\n');
@@ -54,7 +54,7 @@ test('native binary and environment names come from their source contracts', (t)
   assert.deepEqual(clientEnvironmentContract('std::env::var_os("SAMPLE_DEV_INSTANCE"); std::env::var_os("SAMPLE_API_PORT");'),
     { instance: 'SAMPLE_DEV_INSTANCE', port: 'SAMPLE_API_PORT' });
 
-  const root = mkdtempSync(path.join(os.tmpdir(), 'native-client-artifact-'));
+  const root = mkdtempSync(path.join(realpathSync.native(os.tmpdir()), 'native-client-artifact-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const source = path.join(root, 'src/main.rs');
   const executable = path.join(root, `native-window${process.platform === 'win32' ? '.exe' : ''}`);
@@ -80,7 +80,7 @@ test('production closure refuses each GUI edge and an absent server root', () =>
   assert.throws(() => assertServerClosure(['tokio v1.0']));
 });
 test('worker resource binds the CLI source artifact rather than a same-named GUI binary', () => {
-  const root = mkdtempSync(path.join(os.tmpdir(), 'domios-worker-artifact-unit-'));
+  const root = mkdtempSync(path.join(realpathSync.native(os.tmpdir()), 'domios-worker-artifact-unit-'));
   try {
     mkdirSync(path.join(root, 'cli/src'), { recursive: true });
     const source = path.join(root, 'cli/src/main.rs'); writeFileSync(source, 'fixture');
@@ -93,7 +93,7 @@ test('worker resource binds the CLI source artifact rather than a same-named GUI
   } finally { rmSync(root, { recursive: true }); }
 });
 test('artifact selection rejects missing, duplicate and test executable evidence', () => {
-  const root = mkdtempSync(path.join(os.tmpdir(), 'domios-artifact-unit-'));
+  const root = mkdtempSync(path.join(realpathSync.native(os.tmpdir()), 'domios-artifact-unit-'));
   try {
     const executable = path.join(root, 'artifact'); writeFileSync(executable, 'not-executed');
     const message = { reason: 'compiler-artifact', target: { name: 'domios-server', kind: ['bin'] }, executable, profile: { test: false } };
@@ -110,7 +110,7 @@ test('control requests bind challenge and exact intended server incarnation', ()
 });
 
 for (const target of ['', 'opaque-target']) test(`DEV stages exact paired artifacts under native resource root: ${target || 'host'}`, async () => {
-  const root = mkdtempSync(path.join(os.tmpdir(), 'domios-dev-stage-'));
+  const root = mkdtempSync(path.join(realpathSync.native(os.tmpdir()), 'domios-dev-stage-'));
   try {
     const exe = process.platform === 'win32' ? '.exe' : '';
     const artifactRoot = path.join(root, 'target', target, 'debug');
@@ -141,7 +141,12 @@ for (const target of ['', 'opaque-target']) test(`DEV stages exact paired artifa
     writeFileSync(cliLog, [{ ...artifact, target: { name: legacy, kind: ['bin'], src_path: cliSource }, executable: cli }, finish].map(JSON.stringify).join('\n'));
     writeFileSync(treeLog, 'domios-server v0.0.0\ntokio v1.0\n');
     const input = { cargoLog, cliLog, treeLog, repo: root, resourceRoot, client, build };
+    const staleChunk = path.join(resourceRoot, 'dist/assets/old-build.js');
+    mkdirSync(path.dirname(staleChunk), { recursive: true });
+    writeFileSync(staleChunk, 'obsolete bundle input');
     const result = await stageDevResources(input);
+    assert.equal(existsSync(staleChunk), false);
+    assert.equal(readFileSync(path.join(resourceRoot, 'dist/index.html'), 'utf8'), 'opaque-index.html');
     assert.equal(result.manifest.bootstrap_protocol, 2);
     assert.equal(result.manifest.server_sha256, digest(server));
     assert.deepEqual(result.manifest.client_identity, { kind: 'sha256', sha256: digest(client) });

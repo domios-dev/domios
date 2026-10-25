@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 mod activity;
+mod runtime_state;
 mod shell;
 pub use shell::{CloseRestoreTabState, ShellActivity, ShellCommandState, ShellPurpose};
 mod managed_tab;
@@ -42,6 +43,15 @@ pub struct Workspace {
     /// Protected workspaces cannot be closed via API or UI.
     #[serde(default)]
     pub protected: bool,
+    /// Creation order for plan-limit locks; 0 until restore backfills a legacy item.
+    #[serde(default)]
+    pub created_at_ms: u64,
+    #[serde(
+        default,
+        skip_deserializing,
+        skip_serializing_if = "std::ops::Not::not"
+    )]
+    pub locked: bool,
     /// Sibling ordinal among workspaces. Only relative order within the group
     /// matters; the frontend sorts by it. Legacy snapshots default to 0.
     #[serde(default)]
@@ -602,6 +612,15 @@ pub struct Tab {
     pub icon: Option<String>,
     #[serde(default)]
     pub utility_created_at: u64,
+    /// Creation order for plan-limit locks; 0 until restore backfills a legacy item.
+    #[serde(default)]
+    pub created_at_ms: u64,
+    #[serde(
+        default,
+        skip_deserializing,
+        skip_serializing_if = "std::ops::Not::not"
+    )]
+    pub locked: bool,
     #[serde(default)]
     pub shell_profile: Option<crate::pty::shell_profiles::ShellProfile>,
     #[serde(skip)]
@@ -676,6 +695,7 @@ pub struct Tab {
     #[serde(default)]
     pub structured_control_active: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(serialize_with = "runtime_state::serialize")]
     pub agent_runtime_state: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_runtime_config: Option<serde_json::Value>,

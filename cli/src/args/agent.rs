@@ -124,6 +124,15 @@ pub struct ReportArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum AgentAction {
+    /// Move an unbound running worker under a live local Team Orchestrator without restarting it
+    Reparent {
+        tab: String,
+        #[arg(long)]
+        to: String,
+        /// Peer that owns the worker; --to always names an Orchestrator on this machine
+        #[arg(long)]
+        peer: Option<String>,
+    },
     /// Read usage or consume a confirmed reset credit for an exact tab.
     Usage {
         #[command(subcommand)]
@@ -133,6 +142,9 @@ pub enum AgentAction {
     ChildHistory(ChildHistoryArgs),
     /// Sign in to the tab's runtime provider without a terminal
     Login {
+        /// Read the pending sign-in without starting another flow
+        #[arg(long, conflicts_with_all = ["device", "api_key_stdin", "cancel"])]
+        show: bool,
         #[arg(long, value_name = "TAB")]
         tab: String,
         #[arg(long, conflicts_with_all = ["api_key_stdin", "cancel"])]

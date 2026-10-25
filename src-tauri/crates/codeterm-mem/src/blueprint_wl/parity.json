@@ -1,0 +1,1058 @@
+{
+ "about": "Expected WL h=3 graph hash and S_struct from poc/bpl/memory/wl.py on the ported v1 corpus; regenerate only from the PoC oracle.",
+ "oracle": "poc/bpl/memory/wl.py @ 619a61d",
+ "docs": [
+  {
+   "id": "all-finished-sem",
+   "yaml": "schema_version: 1\nname: Batch done notice\nnote: Run one status command on a timer and report to the owner only when it says the whole batch has ended.\nowner: team\ninputs:\n  batch_status_command:\n    type: string\n    description: Command printing a single status line for all running work\npipeline:\n  trigger:\n    type: schedule\n    every: 2m\n  steps:\n  - name: status\n    input: text\n    run: '{{batch_status_command}}'\n    'on':\n      failed: stop\n  - name: ended\n    input: text\n    uses: filter\n    with:\n      pattern: (?m)^all-ended$\n      bucket: ended\n    'on':\n      ended: next\n      done: stop\n  - name: report\n    input: text\n    run: echo batch-ended\n  result:\n    to: owner\n",
+   "hash": "b66755aebe899cc95efa1d21b6abdd03bba4a52e1a887593bc60d1899f84095e"
+  },
+  {
+   "id": "all-finished-st",
+   "yaml": "schema_version: 1\nname: '{{title}}'\nnote: A single status command covers every job; stay quiet while pending and report once everything has ended.\ninputs:\n  status_command:\n    type: string\n    description: Status command printing one line for the whole batch\n  title:\n    type: string\n    description: Short Blueprint name, 3 to 40 characters\n  complete_regex:\n    type: string\n    description: Regex that matches when the batch is complete\nwatch:\n  probe: '{{status_command}}'\n  question: is-the-batch-complete\n  buckets:\n  - pending\n  - complete\n  matches:\n    complete: '{{complete_regex}}'\n  until: complete\n  timeout: 2h\n  routes:\n    pending: none\n    complete: notify\n",
+   "hash": "57ad612fecb3cea1a55c4b99860cb4ba44f5222f75a9c139117d78b3dc6704da"
+  },
+  {
+   "id": "all-finished",
+   "yaml": "# Check and apply this file with codeterm blueprint.\nschema_version: 1\nname: '{{name}}'\nnote: Use one verdict probe for all work; keep `waiting` silent and route only `alldone`.\ninputs:\n  name:\n    type: string\n    description: Short Blueprint name, 3 to 40 characters\n  all_terminal_pattern:\n    type: string\n    description: All terminal pattern\n  one_verdict_probe:\n    type: string\n    description: One verdict probe\nwatch:\n  probe: '{{one_verdict_probe}}'\n  question: classify-all-work\n  buckets:\n  - waiting\n  - alldone\n  matches:\n    alldone: '{{all_terminal_pattern}}'\n  until: alldone\n  timeout: 1h\n  routes:\n    waiting: none\n    alldone: notify\n",
+   "hash": "57ad612fecb3cea1a55c4b99860cb4ba44f5222f75a9c139117d78b3dc6704da"
+  },
+  {
+   "id": "cron-run-watch-sem",
+   "yaml": "schema_version: 1\nname: Cron result poller\nnote: Poll a scheduled job's latest execution record and tell me when it has completed.\nowner: team\ninputs:\n  cron:\n    type: string\n    description: Cron name or id\npipeline:\n  trigger:\n    type: schedule\n    every: 1m\n  steps:\n  - name: last run\n    input: text\n    run: codeterm cron show '{{cron}}' --json\n  - name: completed\n    input: text\n    uses: filter\n    with:\n      pattern: '\"state\":\\s*\"(finished|succeeded|failed)\"'\n      bucket: completed\n    'on':\n      completed: next\n      done: stop\n  - name: tell\n    input: text\n    run: echo cron-run-completed\n  result:\n    to: notify\n",
+   "hash": "5804491f87fea6eaf0c0ecedb2ed158932bbc7482b0cd2e2857d98c7d801c78d"
+  },
+  {
+   "id": "cron-run-watch-st",
+   "yaml": "schema_version: 1\nname: Scheduled job {{job}}\nnote: Follow a scheduled job's current execution and ping me once it completes.\ninputs:\n  done_regex:\n    type: string\n    description: Regex marking a completed execution\n  job:\n    type: string\n    description: Scheduled job name or id\nwatch:\n  observe: cron-run:{{job}}\n  question: has-the-run-ended\n  buckets:\n  - running\n  - ended\n  matches:\n    ended: '{{done_regex}}'\n  until: ended\n  timeout: 4h\n  routes:\n    running: none\n    ended: notify\n",
+   "hash": "7b9839e6dee3fbefe944281a318516f6e54943417240a64695e6741de3a7a383"
+  },
+  {
+   "id": "cron-run-watch",
+   "yaml": "# Check and apply this file with codeterm blueprint.\nschema_version: 1\nname: Cron {{cron_name_or_id}}\nnote: Observe one named cron's run and notify when it finishes.\ninputs:\n  cron_name_or_id:\n    type: string\n    description: Cron name or id\n  finished_pattern:\n    type: string\n    description: Finished pattern\nwatch:\n  observe: cron-run:{{cron_name_or_id}}\n  question: classify-run-state\n  buckets:\n  - waiting\n  - finished\n  matches:\n    finished: '{{finished_pattern}}'\n  until: finished\n  timeout: 1h\n  routes:\n    waiting: none\n    finished: notify\n",
+   "hash": "7b9839e6dee3fbefe944281a318516f6e54943417240a64695e6741de3a7a383"
+  },
+  {
+   "id": "dev-run-health-sem",
+   "yaml": "schema_version: 1\nname: Dev listener check\nnote: Hit the dev REST listener over HTTP; when it is down, pull the latest traces and notify.\nowner: team\ninputs:\n  listener_url:\n    type: string\n    description: Local dev REST listener health URL\npipeline:\n  trigger: {type: schedule, every: 30s}\n  steps:\n    - name: listener\n      input: text\n      uses: http\n      with: {url: '{{listener_url}}', timeout_ms: 2000}\n      on: {up: stop, down: traces, failed: traces}\n    - name: traces\n      input: text\n      run: codeterm trace recent --limit 5\n      on: {done: stop, failed: stop}\n  result: {to: notify}\n",
+   "hash": "1d9281cb469611e4ba61341f38b794840ad03a4e7316cde85764c89fe27670ba"
+  },
+  {
+   "id": "dev-run-health-st",
+   "yaml": "schema_version: 1\nname: local-api-guard\nnote: Monitor the local development API server; grab the latest request traces if it goes away.\nwatch:\n  probe: codeterm rest-api status --json --verbose\n  question: what-phase-is-the-server-in\n  buckets: [serving, gone]\n  matches: {serving: '\"phase\":\\s*\"listening\"', gone: '\"phase\":\\s*\"(stopped|failed|crashed)\"'}\n  every: 1m\n  timeout: 12h\n  rearm_on_change: [gone]\n  handlers:\n    serving: []\n    gone:\n      - {type: command, parameters: {command: codeterm trace recent --limit 10, label: Latest traces, timeout_ms: 2500}}\n      - {type: notify}\n    other:\n      - {type: escalate, parameters: {target: creator}}\n  escalation_timeout_ms: 300000\n",
+   "hash": "08b71d23bfa603d778a0238c817a89ba6e5a406aa0f823495e81fd27e216b4a5"
+  },
+  {
+   "id": "dev-run-health",
+   "yaml": "schema_version: 1\nname: dev-run-health\nnote: Watch the dev REST listener; capture recent flows when it drops.\nwatch:\n  probe: codeterm rest-api status --json\n  question: classify-listener-phase\n  buckets: [listening, down]\n  matches: {listening: '\"phase\": \"listening\"', down: '\"phase\": \"(stopped|failed)\"'}\n  every: 30s\n  timeout: 8h\n  rearm_on_change: [down]\n  handlers:\n    listening: []\n    down:\n      - {type: command, parameters: {command: codeterm trace recent --limit 5, label: Recent flows, timeout_ms: 3000}}\n      - {type: notify}\n    other:\n      - {type: escalate, parameters: {target: creator}}\n  escalation_timeout_ms: 600000\n",
+   "hash": "08b71d23bfa603d778a0238c817a89ba6e5a406aa0f823495e81fd27e216b4a5"
+  },
+  {
+   "id": "dx-cert-expiry",
+   "yaml": "schema_version: 1\nname: TLS certificate expiry\nnote: Probe a certificate's expiry date with openssl and warn me two weeks before it lapses.\ninputs:\n  cert_probe:\n    type: string\n    description: Read-only openssl command printing valid or expiring for one host\nwatch:\n  probe: '{{cert_probe}}'\n  question: is-the-certificate-expiring\n  buckets: [valid, expiring]\n  matches: {valid: '(?m)^valid$', expiring: '(?m)^expiring$'}\n  every: 24h\n  until: expiring\n  timeout: 366d\n  routes:\n    valid: none\n    expiring: notify\n",
+   "hash": "57ad612fecb3cea1a55c4b99860cb4ba44f5222f75a9c139117d78b3dc6704da"
+  },
+  {
+   "id": "dx-dependency-audit",
+   "yaml": "schema_version: 1\nname: Dependency audit\nnote: Run npm audit weekly and notify only if high or critical vulnerabilities show up.\nowner: team\ninputs:\n  project_dir:\n    type: string\n    description: Node project directory\npipeline:\n  trigger: {type: schedule, every: 168h}\n  steps:\n    - name: audit\n      input: text\n      run: npm audit --prefix '{{project_dir}}' --json\n      on: {done: next, failed: next}\n    - name: severe\n      input: text\n      uses: filter\n      with: {pattern: '\"(high|critical)\":\\s*[1-9]', bucket: severe}\n      on: {severe: next, done: stop, failed: stop}\n    - name: flag\n      input: text\n      run: echo vulnerable-dependencies\n      on: {done: stop, failed: stop}\n  result: {to: notify}\n",
+   "hash": "2240bcba3299ce5c10385870fc6c0922649e9b62af0647adaaf410a9e398c32d"
+  },
+  {
+   "id": "dx-disk-space",
+   "yaml": "schema_version: 1\nname: Disk space low\nnote: Probe free disk space on the root volume and notify when it crosses the low-space line.\ninputs:\n  df_probe:\n    type: string\n    description: Read-only command printing ok or low for root volume free space\nwatch:\n  probe: '{{df_probe}}'\n  question: is-disk-space-low\n  buckets: [ok, low]\n  matches: {ok: '(?m)^ok$', low: '(?m)^low$'}\n  every: 10m\n  timeout: 30d\n  rearm_on_change: [low]\n  routes:\n    ok: none\n    low: notify\n",
+   "hash": "57ad612fecb3cea1a55c4b99860cb4ba44f5222f75a9c139117d78b3dc6704da"
+  },
+  {
+   "id": "dx-label-sync",
+   "yaml": "schema_version: 1\nname: Issue label sync\nnote: Copy the shared issue label set into one repository every day so labels stay consistent.\nowner: team\ninputs:\n  repo:\n    type: string\n    description: GitHub owner/repository\n  source_repo:\n    type: string\n    description: Repository holding the canonical labels\npipeline:\n  trigger: {type: schedule, every: 24h}\n  steps:\n    - name: sync\n      input: text\n      run: gh label clone '{{source_repo}}' --repo '{{repo}}' --force\n      on: {done: stop, failed: stop}\n  result: {to: owner}\n",
+   "hash": "28163d389d9bb129cd878f32c31cca5c77ab6b8dec4b278556f53636c3debd75"
+  },
+  {
+   "id": "dx-log-rotate",
+   "yaml": "schema_version: 1\nname: Log rotation\nnote: Compress and rotate application logs weekly so the log directory stays small.\nowner: team\ninputs:\n  log_dir:\n    type: string\n    description: Application log directory\npipeline:\n  trigger: {type: schedule, every: 168h}\n  steps:\n    - name: rotate\n      input: text\n      run: logrotate --state /tmp/logrotate.state '{{log_dir}}/logrotate.conf'\n      on: {done: stop, failed: stop}\n  result: {to: owner}\n",
+   "hash": "28163d389d9bb129cd878f32c31cca5c77ab6b8dec4b278556f53636c3debd75"
+  },
+  {
+   "id": "dx-meeting-reminder",
+   "yaml": "schema_version: 1\nname: Meeting reminder\nnote: Post a fixed reminder into one tab before the weekly planning meeting.\nowner: team\ninputs:\n  tab:\n    type: string\n    description: Tab that receives the reminder\npipeline:\n  trigger: {type: schedule, every: 168h}\n  steps:\n    - name: remind\n      input: text\n      run: echo planning-meeting-in-15-minutes\n      on: {done: stop, failed: stop}\n  result: {to: 'tab:{{tab}}'}\n",
+   "hash": "5173e4c6893f7f0b6f6234f1281d87264195959f97fc9a8062cabfca64506731"
+  },
+  {
+   "id": "dx-nightly-backup",
+   "yaml": "schema_version: 1\nname: Nightly database backup\nnote: Dump the database to the backup volume each night and report the archive size.\nowner: team\ninputs:\n  backup_command:\n    type: string\n    description: Command that writes a compressed database dump\npipeline:\n  trigger: {type: schedule, every: 24h}\n  steps:\n    - name: dump\n      input: text\n      run: '{{backup_command}}'\n      on: {done: size, failed: stop}\n    - name: size\n      input: text\n      run: du -sh /var/backups/latest.sql.gz\n      on: {done: stop, failed: stop}\n  result: {to: notify}\n",
+   "hash": "0e22e3fd5eaec1e6ad66394b047ea2de9fe5329e23374bcf137f97a79c699c4a"
+  },
+  {
+   "id": "dx-screenshot-text",
+   "yaml": "schema_version: 1\nname: '{{name}}'\nnote: Extract the text from a screenshot image and file it as a note.\ninputs:\n  name:\n    type: string\n    description: Short Blueprint name, 3 to 40 characters\n  screenshot:\n    type: string\n    description: Absolute path to the screenshot image\nwatch:\n  input:\n    kind: image\n    data:\n      file: '{{screenshot}}'\n    convert_to: text\n  question: what-text-is-in-the-image\n  buckets:\n  - extracted\n  timeout: 1h\n  model_classification: true\n  routes:\n    extracted: notify\n",
+   "hash": "7c702aef5191c4415c16c4352867f95908e58093f53a5da26074b37b27996bf0"
+  },
+  {
+   "id": "dx-standup-summary",
+   "yaml": "schema_version: 1\nname: Standup digest\nnote: Each morning gather yesterday's commit log and have an agent write a short standup digest for the team.\nowner: team\ninputs:\n  repo_path:\n    type: string\n    description: Local repository path\npipeline:\n  trigger: {type: schedule, every: 24h}\n  steps:\n    - name: commits\n      input: text\n      run: git -C '{{repo_path}}' log --since=yesterday --oneline\n      on: {done: next, failed: stop}\n    - name: digest\n      input: text\n      uses: agent\n      with: {provider: opaque-provider, profile: writer, task: Summarize these commits as a three-line standup update, deadline_ms: 60000, max_tokens: 800, max_turns: 1}\n      on: {done: stop, failed: stop}\n  result: {to: team}\n",
+   "hash": "81636ed174546a7150ac49938fab276123a9032dda0ef44c935b5fb3fabc077a"
+  },
+  {
+   "id": "dx-translate-note",
+   "yaml": "schema_version: 1\nname: Translate a note\nnote: Take pasted text and have an agent translate it into English for the owner.\nowner: tab\ninputs:\n  text:\n    type: string\n    description: Text to translate\npipeline:\n  trigger: {type: input, kind: text, source: {text: '{{text}}'}}\n  steps:\n    - name: translate\n      input: text\n      uses: agent\n      with: {provider: opaque-provider, profile: translator, task: Translate the input into plain English, deadline_ms: 30000, max_tokens: 1200, max_turns: 1}\n      on: {done: stop, failed: stop}\n  result: {to: owner}\n",
+   "hash": "a6138846046d091d8eb7e956fa2f09ed660a912f9356b7bb9c7c5871b21c8260"
+  },
+  {
+   "id": "echo-sem",
+   "yaml": "schema_version: 1\nname: Echo watcher\nnote: Print a configured word with a fixed probe, recognise it in the output, and notify with the match.\ninputs:\n  word:\n    type: string\n    description: Word the probe prints\nwatch:\n  probe: echo '{{word}}'\n  question: did-the-probe-print-the-word\n  buckets:\n  - matched\n  matches:\n    matched: (?m)^{{word}}$\n  every: 30s\n  until: matched\n  timeout: 10m\n  routes:\n    matched: notify\n",
+   "hash": "7f3df39efb5f352c740cebf779f0f08f565bc7c499c77c3628202dfb86f19e8b"
+  },
+  {
+   "id": "echo-st",
+   "yaml": "schema_version: 1\nname: Ping sample\nnote: Print a fixed word, check the printed line against it, and hand the outcome back to the owning tab.\nowner: team\ninputs:\n  word:\n    type: string\n    description: Word to print\n    default: pong\npipeline:\n  trigger:\n    type: schedule\n    every: 45s\n  steps:\n  - name: say\n    input: text\n    run: echo '{{word}}'\n  - name: compare\n    input: text\n    uses: filter\n    with:\n      bucket: same\n      pattern: ^{{word}}$\n    'on':\n      same: stop\n  result:\n    to: owner\n",
+   "hash": "88d89bb7b5e6c81fa957488a8f641397246efd2d8e3f831fa11b3724f4d2209c"
+  },
+  {
+   "id": "echo",
+   "yaml": "# Check and apply this file with codeterm blueprint.\nschema_version: 1\nname: Echo example\nnote: Run one fixed command, match its output, and return the result to the owner tab.\nowner: team\ninputs:\n  message:\n    type: string\n    description: Message\n    default: ready\npipeline:\n  trigger:\n    type: schedule\n    every: 20s\n  steps:\n  - name: emit\n    input: text\n    run: echo '{{message}}'\n  - name: match\n    input: text\n    uses: filter\n    with:\n      pattern: ^{{message}}$\n      bucket: matched\n    'on':\n      matched: stop\n  result:\n    to: owner\n",
+   "hash": "88d89bb7b5e6c81fa957488a8f641397246efd2d8e3f831fa11b3724f4d2209c"
+  },
+  {
+   "id": "github-org-runners-sem",
+   "yaml": "schema_version: 1\nname: Org runner watch {{org}}\nnote: Probe the organization runner list with gh and notify when labelled machines go offline or come back.\ninputs:\n  org:\n    type: string\n    description: GitHub organization\n  runner_probe:\n    type: string\n    description: Read-only gh command printing online or offline for the org's labelled runners\nwatch:\n  probe: '{{runner_probe}}'\n  question: are-the-org-runners-online\n  buckets:\n  - online\n  - offline\n  matches:\n    online: (?m)^online\\r?$\n    offline: (?m)^offline\\r?$\n  every: 2m\n  rearm_on_change:\n  - offline\n  timeout: 7d\n  routes:\n    online: none\n    offline: notify\n",
+   "hash": "57ad612fecb3cea1a55c4b99860cb4ba44f5222f75a9c139117d78b3dc6704da"
+  },
+  {
+   "id": "github-org-runners-st",
+   "yaml": "schema_version: 1\nname: Org fleet {{organization}}\nnote: Track whether an organization's tagged build machines are reachable and how many are connected.\nowner: team\ninputs:\n  organization:\n    type: string\n    description: GitHub organization\n  tag:\n    type: string\n    default: linux-build\n    description: Runner label to match\n  every:\n    type: string\n    default: 5m\n    description: Probe interval, at least 10s\n  deadline_ms:\n    type: integer\n    default: 30000\n    description: Probe timeout in milliseconds\npipeline:\n  trigger:\n    type: schedule\n    every: '{{every}}'\n  steps:\n  - name: Fleet status\n    input: text\n    uses: github\n    with:\n      resource: runners\n      org: '{{organization}}'\n      timeout_ms: '{{deadline_ms}}'\n      label: '{{tag}}'\n    'on':\n      offline: next\n      online: next\n      failed: stop\n  result:\n    to: owner\n",
+   "hash": "a5f610649122c4b800e25f5851bc9c436c1de05eeb4aff817b9113ae68eefa5d"
+  },
+  {
+   "id": "github-org-runners",
+   "yaml": "# Check and apply this file with codeterm blueprint.\nschema_version: 1\nname: Runners {{org}} {{label}}\nnote: Watch labelled self-hosted runner availability and its online count.\nowner: team\ninputs:\n  interval:\n    type: string\n    default: 60s\n    description: Probe interval, at least 10s\n  label:\n    type: string\n    default: self-hosted\n    description: Runner label to match\n  org:\n    type: string\n    description: GitHub organization\n  timeout_ms:\n    type: integer\n    default: 60000\n    description: Probe timeout in milliseconds\npipeline:\n  trigger:\n    type: schedule\n    every: '{{interval}}'\n  steps:\n  - name: Check source\n    input: text\n    uses: github\n    with:\n      org: '{{org}}'\n      resource: runners\n      label: '{{label}}'\n      timeout_ms: '{{timeout_ms}}'\n    'on':\n      online: next\n      offline: next\n      failed: stop\n  result:\n    to: owner\n",
+   "hash": "a5f610649122c4b800e25f5851bc9c436c1de05eeb4aff817b9113ae68eefa5d"
+  },
+  {
+   "id": "github-pr-checks-sem",
+   "yaml": "schema_version: 1\nname: '{{name}}'\nnote: Run gh pr checks on a timer and tell me once no check on that pull request is still pending.\ninputs:\n  name:\n    type: string\n    description: Short Blueprint name, 3 to 40 characters\n  pr_checks_probe:\n    type: string\n    description: Read-only gh pr checks command for one pull request\nwatch:\n  probe: '{{pr_checks_probe}}'\n  question: are-the-pr-checks-complete\n  buckets:\n  - pending\n  - complete\n  matches:\n    pending: (?m)\\bpending\\b\n    complete: (?m)^All checks were successful|(?m)\\bfail\\b\n  until: complete\n  every: 1m\n  timeout: 2h\n  routes:\n    pending: none\n    complete: notify\n",
+   "hash": "57ad612fecb3cea1a55c4b99860cb4ba44f5222f75a9c139117d78b3dc6704da"
+  },
+  {
+   "id": "github-pr-checks-st",
+   "yaml": "schema_version: 1\nname: Checks for {{repository}} {{number}}\nnote: Hold until every status check on a given pull request has finished.\nowner: team\ninputs:\n  repository:\n    type: string\n    description: GitHub owner/repository\n  number:\n    type: integer\n    description: Positive run or pull request ID\n  poll:\n    type: string\n    default: 2m\n    description: Probe interval, at least 10s\n  limit_ms:\n    type: integer\n    default: 45000\n    description: Probe timeout in milliseconds\npipeline:\n  trigger:\n    type: schedule\n    every: '{{poll}}'\n  steps:\n  - name: Read checks\n    input: text\n    uses: github\n    with:\n      id: '{{number}}'\n      resource: pr_checks\n      repo: '{{repository}}'\n      timeout_ms: '{{limit_ms}}'\n    'on':\n      failed: stop\n      done: next\n  result:\n    to: owner\n",
+   "hash": "ddd25fa3e9fe1cee4538372ebd8a75178d04399ce528962608fa5ddc269b4b44"
+  },
+  {
+   "id": "github-pr-checks",
+   "yaml": "# Check and apply this file with codeterm blueprint.\nschema_version: 1\nname: GitHub PR {{repo}}#{{id}}\nnote: Wait for one pull request check set to complete.\nowner: team\ninputs:\n  id:\n    type: integer\n    description: Positive run or pull request ID\n  interval:\n    type: string\n    default: 60s\n    description: Probe interval, at least 10s\n  repo:\n    type: string\n    description: GitHub owner/repository\n  timeout_ms:\n    type: integer\n    default: 60000\n    description: Probe timeout in milliseconds\npipeline:\n  trigger:\n    type: schedule\n    every: '{{interval}}'\n  steps:\n  - name: Check source\n    input: text\n    uses: github\n    with:\n      repo: '{{repo}}'\n      resource: pr_checks\n      id: '{{id}}'\n      timeout_ms: '{{timeout_ms}}'\n    'on':\n      done: next\n      failed: stop\n  result:\n    to: owner\n",
+   "hash": "ddd25fa3e9fe1cee4538372ebd8a75178d04399ce528962608fa5ddc269b4b44"
+  },
+  {
+   "id": "github-pr-ci-watch-sem",
+   "yaml": "schema_version: 1\nname: PR CI reporter {{repo}}#{{id}}\nnote: Read the pull request check set through the GitHub node and post a passed or failed line for it.\nowner: team\ninputs:\n  repo:\n    type: string\n    description: GitHub owner/repository\n  id:\n    type: integer\n    description: Positive pull request ID\npipeline:\n  trigger:\n    type: schedule\n    every: 1m\n  steps:\n  - name: checks\n    input: text\n    uses: github\n    with:\n      repo: '{{repo}}'\n      resource: pr_checks\n      id: '{{id}}'\n    'on':\n      done: passed\n      failed: broken\n  - name: passed\n    input: text\n    run: echo pr-checks-passed\n    'on':\n      done: stop\n      failed: stop\n  - name: broken\n    input: text\n    run: echo pr-checks-failed\n    'on':\n      done: stop\n      failed: stop\n  result:\n    to: notify\n",
+   "hash": "6b94019a5e2de3633002bd921f305b10dc371d16cb54b950c4ec0dd8c259b0af"
+  },
+  {
+   "id": "github-pr-ci-watch-st",
+   "yaml": "schema_version: 1\nname: '{{label}}'\nnote: Keep an eye on a pull request's CI until it is green; alert me whenever something breaks.\ninputs:\n  verdict_command:\n    type: string\n    description: Read-only command printing pending, green or red for one pull request.\n  label:\n    type: string\n    description: Short Blueprint name, 3 to 40 characters\nwatch:\n  probe: '{{verdict_command}}'\n  question: what-is-the-ci-verdict\n  buckets:\n  - pending\n  - green\n  - red\n  matches:\n    pending: (?m)^pending\\r?$\n    green: (?m)^green\\r?$\n    red: (?m)^red\\r?$\n  until: green\n  rearm_on_change:\n  - red\n  every: 2m\n  timeout: 6h\n  routes:\n    pending: none\n    green: notify\n    red: notify\n",
+   "hash": "3f8af5053fb2b3ac173d808d3d3e1fcb4e1155117a12b571aa292c7436ef3c52"
+  },
+  {
+   "id": "github-pr-ci-watch",
+   "yaml": "# Check and apply this file with codeterm blueprint.\nschema_version: 1\nname: '{{name}}'\nnote: Watch one PR until all checks pass; notify on a failing check.\ninputs:\n  name:\n    type: string\n    description: Short Blueprint name, 3 to 40 characters\n  pr_verdict_probe:\n    type: string\n    description: Read-only command printing waiting, passed or failed for one PR.\nwatch:\n  probe: '{{pr_verdict_probe}}'\n  question: classify-pr-checks\n  buckets:\n  - waiting\n  - passed\n  - failed\n  matches:\n    waiting: (?m)^waiting\\r?$\n    passed: (?m)^passed\\r?$\n    failed: (?m)^failed\\r?$\n  until: passed\n  rearm_on_change:\n  - failed\n  every: 60s\n  timeout: 3h\n  routes:\n    waiting: none\n    passed: notify\n    failed: notify\n",
+   "hash": "3f8af5053fb2b3ac173d808d3d3e1fcb4e1155117a12b571aa292c7436ef3c52"
+  },
+  {
+   "id": "github-runners-sem",
+   "yaml": "schema_version: 1\nname: Repo runner watch {{repo}}\nnote: Probe a repository's self-hosted runner list with gh and notify when the labelled ones drop offline.\ninputs:\n  repo:\n    type: string\n    description: GitHub owner/repository\n  runner_probe:\n    type: string\n    description: Read-only gh command printing online or offline for the repository's labelled runners\nwatch:\n  probe: '{{runner_probe}}'\n  question: are-the-repo-runners-online\n  buckets:\n  - online\n  - offline\n  matches:\n    online: (?m)^online\\r?$\n    offline: (?m)^offline\\r?$\n  every: 1m\n  rearm_on_change:\n  - offline\n  timeout: 7d\n  routes:\n    online: none\n    offline: notify\n",
+   "hash": "57ad612fecb3cea1a55c4b99860cb4ba44f5222f75a9c139117d78b3dc6704da"
+  },
+  {
+   "id": "github-runners-st",
+   "yaml": "schema_version: 1\nname: Build agents {{project}}\nnote: Track whether a repository's tagged build machines are reachable and how many are connected.\nowner: team\ninputs:\n  project:\n    type: string\n    description: GitHub owner/repository\n  tag:\n    type: string\n    default: gpu\n    description: Runner label to match\n  period:\n    type: string\n    default: 2m\n    description: Probe interval, at least 10s\n  wait_ms:\n    type: integer\n    default: 20000\n    description: Probe timeout in milliseconds\npipeline:\n  trigger:\n    type: schedule\n    every: '{{period}}'\n  steps:\n  - name: Agent status\n    input: text\n    uses: github\n    with:\n      label: '{{tag}}'\n      resource: runners\n      repo: '{{project}}'\n      timeout_ms: '{{wait_ms}}'\n    'on':\n      failed: stop\n      offline: next\n      online: next\n  result:\n    to: owner\n",
+   "hash": "a5f610649122c4b800e25f5851bc9c436c1de05eeb4aff817b9113ae68eefa5d"
+  },
+  {
+   "id": "github-runners",
+   "yaml": "# Check and apply this file with codeterm blueprint.\nschema_version: 1\nname: Runners {{repo}} {{label}}\nnote: Watch labelled self-hosted runner availability and its online count.\nowner: team\ninputs:\n  interval:\n    type: string\n    default: 60s\n    description: Probe interval, at least 10s\n  label:\n    type: string\n    default: self-hosted\n    description: Runner label to match\n  repo:\n    type: string\n    description: GitHub owner/repository\n  timeout_ms:\n    type: integer\n    default: 60000\n    description: Probe timeout in milliseconds\npipeline:\n  trigger:\n    type: schedule\n    every: '{{interval}}'\n  steps:\n  - name: Check source\n    input: text\n    uses: github\n    with:\n      repo: '{{repo}}'\n      resource: runners\n      label: '{{label}}'\n      timeout_ms: '{{timeout_ms}}'\n    'on':\n      online: next\n      offline: next\n      failed: stop\n  result:\n    to: owner\n",
+   "hash": "a5f610649122c4b800e25f5851bc9c436c1de05eeb4aff817b9113ae68eefa5d"
+  },
+  {
+   "id": "github-sem",
+   "yaml": "schema_version: 1\nname: '{{name}}'\nnote: Probe a workflow run with gh run view; flag a failing job as soon as it appears, then report the conclusion.\ninputs:\n  name:\n    type: string\n    description: Short Blueprint name, 3 to 40 characters\n  run_view_probe:\n    type: string\n    description: Read-only gh run view command printing running, failing or concluded\nwatch:\n  probe: '{{run_view_probe}}'\n  question: how-is-the-workflow-run-going\n  buckets:\n  - running\n  - failing\n  - concluded\n  matches:\n    running: (?m)^running\\r?$\n    failing: (?m)^failing\\r?$\n    concluded: (?m)^concluded\\r?$\n  until: concluded\n  rearm_on_change:\n  - failing\n  every: 1m\n  timeout: 3h\n  routes:\n    running: none\n    failing: notify\n    concluded: notify\n",
+   "hash": "3f8af5053fb2b3ac173d808d3d3e1fcb4e1155117a12b571aa292c7436ef3c52"
+  },
+  {
+   "id": "github-st",
+   "yaml": "schema_version: 1\nname: Actions {{kind}} {{repository}}#{{run}}\nnote: Follow a workflow execution or its jobs and surface broken jobs before the whole workflow ends.\nowner: team\ninputs:\n  repository:\n    type: string\n    description: GitHub owner/repository\n  run:\n    type: integer\n    description: Positive run or pull request ID\n  kind:\n    type: string\n    default: jobs\n    description: Resource\n    enum:\n    - run\n    - jobs\n  cadence:\n    type: string\n    default: 90s\n    description: Probe interval, at least 10s\n  budget_ms:\n    type: integer\n    default: 40000\n    description: Probe timeout in milliseconds\npipeline:\n  trigger:\n    type: schedule\n    every: '{{cadence}}'\n  steps:\n  - name: Workflow status\n    input: text\n    uses: github\n    with:\n      id: '{{run}}'\n      repo: '{{repository}}'\n      timeout_ms: '{{budget_ms}}'\n      resource: '{{kind}}'\n    'on':\n      failing: next\n      done: next\n      failed: stop\n  result:\n    to: owner\n",
+   "hash": "a5f610649122c4b800e25f5851bc9c436c1de05eeb4aff817b9113ae68eefa5d"
+  },
+  {
+   "id": "github",
+   "yaml": "# Check and apply this file with codeterm blueprint.\nschema_version: 1\nname: GitHub {{resource}} {{repo}}#{{id}}\nnote: Watch run, jobs or PR checks; report failed jobs early while CI is in progress.\nowner: team\ninputs:\n  id:\n    type: integer\n    description: Positive run or pull request ID\n  interval:\n    type: string\n    default: 60s\n    description: Probe interval, at least 10s\n  repo:\n    type: string\n    description: GitHub owner/repository\n  resource:\n    type: string\n    default: run\n    description: Resource\n    enum:\n    - run\n    - jobs\n  timeout_ms:\n    type: integer\n    default: 60000\n    description: Probe timeout in milliseconds\npipeline:\n  trigger:\n    type: schedule\n    every: '{{interval}}'\n  steps:\n  - name: Check source\n    input: text\n    uses: github\n    with:\n      repo: '{{repo}}'\n      resource: '{{resource}}'\n      id: '{{id}}'\n      timeout_ms: '{{timeout_ms}}'\n    'on':\n      done: next\n      failed: stop\n      failing: next\n  result:\n    to: owner\n",
+   "hash": "a5f610649122c4b800e25f5851bc9c436c1de05eeb4aff817b9113ae68eefa5d"
+  },
+  {
+   "id": "health-triage-sem",
+   "yaml": "schema_version: 1\nname: Outage triage watch\nnote: Curl a health endpoint, let a model call it transient or an outage, and escalate anything unclear.\ninputs:\n  health_probe:\n    type: string\n    description: Read-only curl command for the service health endpoint\nwatch:\n  probe: '{{health_probe}}'\n  question: Is this a transient blip or an outage?\n  buckets: [healthy, transient, outage]\n  model_classification: true\n  every: 1m\n  timeout: 7d\n  rearm_on_change: [outage]\n  handlers:\n    healthy: []\n    transient: []\n    outage:\n      - {type: notify}\n    other:\n      - {type: escalate, parameters: {target: creator}}\n  escalation_timeout_ms: 600000\n",
+   "hash": "bee07f07706b7aadab711ee61ebbb8e49ffd2dafc977abf7f5feb0c897a772d7"
+  },
+  {
+   "id": "health-triage-st",
+   "yaml": "schema_version: 1\nname: api-incident-grader\nnote: Hit an API status page; rate any failure; hand unclear cases to a person.\nowner: team\ninputs:\n  endpoint: {type: string, description: API status page}\npipeline:\n  trigger: {type: schedule, every: 2m}\n  steps:\n    - name: check\n      input: text\n      uses: http\n      with: {url: '{{endpoint}}'}\n      on: {failed: grade, down: grade, up: stop}\n    - name: grade\n      input: text\n      run: >-\n        python3 -c 'import json, sys; c = json.load(sys.stdin);\n        print(\"high\" if c[\"status\"] >= 502 or c[\"latency_ms\"] > 5000 else \"low\", \"http\", c[\"status\"])'\n      on: {failed: stop, done: next}\n    - name: decide\n      input: text\n      uses: ask\n      with: {question: 'Is this a short blip or a real incident?', buckets: [blip, incident]}\n      on: {blip: stop, incident: next}\n  result: {to: notify}\n",
+   "hash": "30f4de290965977eeea7cc62af10bcfac89f0d376fd6273ed712d51c54f2cf1d"
+  },
+  {
+   "id": "health-triage",
+   "yaml": "schema_version: 1\nname: health-triage\nnote: Probe a URL; classify failures; escalate unknowns.\nowner: team\ninputs:\n  url: {type: string, description: Service health endpoint}\npipeline:\n  trigger: {type: schedule, every: 60s}\n  steps:\n    - name: probe\n      input: text\n      uses: http\n      with: {url: '{{url}}'}\n      on: {up: stop, down: measure, failed: measure}\n    - name: measure\n      input: text\n      run: >-\n        python3 -c 'import json, sys; p = json.load(sys.stdin);\n        print(\"high\" if p[\"status\"] >= 500 or p[\"latency_ms\"] > 2000 else \"low\", \"status\", p[\"status\"])'\n      on: {done: next, failed: stop}\n    - name: triage\n      input: text\n      uses: ask\n      with: {question: 'Is this a transient blip or an outage?', buckets: [transient, outage]}\n      on: {transient: stop, outage: next}\n  result: {to: notify}\n",
+   "hash": "30f4de290965977eeea7cc62af10bcfac89f0d376fd6273ed712d51c54f2cf1d"
+  },
+  {
+   "id": "http-health-sem",
+   "yaml": "schema_version: 1\nname: Curl status {{name}}\nnote: Curl a URL for its status code without following redirects and notify on up or down.\ninputs:\n  name:\n    type: string\n    description: Short Blueprint name, 3 to 40 characters\n  curl_probe:\n    type: string\n    description: Read-only curl command printing up or down with the status code\nwatch:\n  probe: '{{curl_probe}}'\n  question: is-the-url-up\n  buckets:\n  - up\n  - down\n  matches:\n    up: (?m)^up \\d{3}\\r?$\n    down: (?m)^down \\d{3}\\r?$\n  every: 30s\n  rearm_on_change:\n  - down\n  timeout: 30d\n  routes:\n    up: none\n    down: notify\n",
+   "hash": "57ad612fecb3cea1a55c4b99860cb4ba44f5222f75a9c139117d78b3dc6704da"
+  },
+  {
+   "id": "http-health-st",
+   "yaml": "schema_version: 1\nname: Uptime {{endpoint}}\nnote: Poll a web address and tell me whether it answers, including the status number; no redirect following.\nowner: team\ninputs:\n  endpoint:\n    type: string\n    description: HTTP endpoint URL\n  wait_ms:\n    type: integer\n    default: 5000\n    description: Probe timeout in milliseconds\n  ok_status:\n    type: string\n    default: '204'\n    description: Expected status\n  period:\n    type: string\n    default: 1m\n    description: Probe interval, at least 10s\npipeline:\n  trigger:\n    type: schedule\n    every: '{{period}}'\n  steps:\n  - name: Ping endpoint\n    input: text\n    uses: http\n    with:\n      timeout_ms: '{{wait_ms}}'\n      url: '{{endpoint}}'\n      expected_status: '{{ok_status}}'\n    'on':\n      down: next\n      up: next\n      failed: stop\n  result:\n    to: owner\n",
+   "hash": "cdacedc9a332a833f5fc18162aa11631786fdc563014001f69e92a90e58f0edd"
+  },
+  {
+   "id": "http-health",
+   "yaml": "# Check and apply this file with codeterm blueprint.\nschema_version: 1\nname: HTTP health {{url}}\nnote: Watch an HTTP endpoint and report up/down with the response code. Redirects are not followed.\nowner: team\ninputs:\n  expected_status:\n    type: string\n    default: 2xx\n    description: Expected status\n  interval:\n    type: string\n    default: 20s\n    description: Probe interval, at least 10s\n  timeout_ms:\n    type: integer\n    default: 3000\n    description: Probe timeout in milliseconds\n  url:\n    type: string\n    description: HTTP endpoint URL\npipeline:\n  trigger:\n    type: schedule\n    every: '{{interval}}'\n  steps:\n  - name: Check source\n    input: text\n    uses: http\n    with:\n      url: '{{url}}'\n      expected_status: '{{expected_status}}'\n      timeout_ms: '{{timeout_ms}}'\n    'on':\n      up: next\n      down: next\n      failed: stop\n  result:\n    to: owner\n",
+   "hash": "cdacedc9a332a833f5fc18162aa11631786fdc563014001f69e92a90e58f0edd"
+  },
+  {
+   "id": "launch-prompt-gate-sem",
+   "yaml": "schema_version: 1\nname: '{{name}}'\nnote: Poll a scheduled job's pending prompt; let the safe path answer the trust prompt and escalate anything else.\ninputs:\n  name:\n    type: string\n    description: Short Blueprint name, 3 to 40 characters\n  prompt_probe:\n    type: string\n    description: Read-only command printing the scheduled run's pending prompt kind as JSON\nwatch:\n  probe: '{{prompt_probe}}'\n  question: which-prompt-is-pending\n  buckets:\n  - quiet\n  - trust\n  matches:\n    quiet: \\x22prompt\\x22:null\n    trust: \\x22kind\\x22:\\x22directory_trust\\x22\n  every: 30s\n  rearm_on_change:\n  - trust\n  escalation_timeout_ms: 1800000\n  timeout: 30d\n  handlers:\n    quiet: []\n    trust:\n    - type: respond_prompt\n      parameters:\n        target: directory_trust\n    other:\n    - type: notify\n    - type: escalate\n      parameters:\n        target: creator\n",
+   "hash": "8f940fe0d04492a22360a9f7667e104b1f0e0608669fbf8a612456d4ba900c59"
+  },
+  {
+   "id": "launch-prompt-gate-st",
+   "yaml": "schema_version: 1\nname: Startup {{job}}\nnote: For every timed execution, clear known startup questions via the sanctioned reply route and hand unknown ones to me.\ninputs:\n  job:\n    type: string\n    description: Cron name or id\nwatch:\n  observe: cron-run:{{job}}\n  question: which-startup-question-is-shown\n  buckets:\n  - none\n  - folder\n  - vendor\n  - upgrade\n  matches:\n    none: \\x22prompt\\x22:null\n    folder: \\x22kind\\x22:\\x22directory_trust\\x22\n    vendor: \\x22kind\\x22:\\x22provider\\x22\n    upgrade: \\x22kind\\x22:\\x22manual_update\\x22\n  rearm_on_change:\n  - folder\n  - vendor\n  - upgrade\n  escalation_timeout_ms: 900000\n  timeout: 14d\n  handlers:\n    none: []\n    folder:\n    - type: respond_prompt\n      parameters:\n        target: directory_trust\n    vendor:\n    - type: respond_prompt\n      parameters:\n        target: onboarding\n    - type: respond_prompt\n      parameters:\n        target: permission\n    upgrade:\n    - type: respond_prompt\n      parameters:\n        target: update\n    other:\n    - type: escalate\n      parameters:\n        target: creator\n",
+   "hash": "b3601d1b1a894378acd48e26465b1825914757f0b13d4d588eeb35216cc4f800"
+  },
+  {
+   "id": "launch-prompt-gate",
+   "yaml": "# Check and apply this file with codeterm blueprint.\nschema_version: 1\nname: Launch {{cron_name_or_id}}\nnote: Answer each scheduled run's launch prompts through the safe-response path; escalate any other prompt to the\n  creator.\ninputs:\n  cron_name_or_id:\n    type: string\n    description: Cron name or id\nwatch:\n  observe: cron-run:{{cron_name_or_id}}\n  question: classify-launch-prompt\n  buckets:\n  - clear\n  - trust\n  - provider\n  - update\n  matches:\n    clear: \\x22prompt\\x22:null\n    trust: \\x22kind\\x22:\\x22directory_trust\\x22\n    provider: \\x22kind\\x22:\\x22provider\\x22\n    update: \\x22kind\\x22:\\x22manual_update\\x22\n  rearm_on_change:\n  - trust\n  - provider\n  - update\n  escalation_timeout_ms: 1800000\n  timeout: 30d\n  handlers:\n    clear: []\n    trust:\n    - type: respond_prompt\n      parameters:\n        target: directory_trust\n    provider:\n    - type: respond_prompt\n      parameters:\n        target: onboarding\n    - type: respond_prompt\n      parameters:\n        target: permission\n    update:\n    - type: respond_prompt\n      parameters:\n        target: update\n    other:\n    - type: escalate\n      parameters:\n        target: creator\n",
+   "hash": "b3601d1b1a894378acd48e26465b1825914757f0b13d4d588eeb35216cc4f800"
+  },
+  {
+   "id": "plan-review-gate-sem",
+   "yaml": "schema_version: 1\nname: Plan coverage watch\nnote: Probe plan gaps until every section is covered by a task, then recommend approval to the human owner.\ninputs:\n  plan_gaps_probe:\n    type: string\n    description: Read-only codeterm plan gaps command printing covered or gaps\nwatch:\n  probe: '{{plan_gaps_probe}}'\n  question: does-the-plan-cover-every-section\n  buckets: [gaps, covered]\n  matches: {gaps: '(?m)^gaps$', covered: '(?m)^covered$'}\n  every: 10m\n  until: covered\n  timeout: 2d\n  routes:\n    gaps: none\n    covered: notify\n",
+   "hash": "57ad612fecb3cea1a55c4b99860cb4ba44f5222f75a9c139117d78b3dc6704da"
+  },
+  {
+   "id": "plan-review-gate-st",
+   "yaml": "schema_version: 1\nname: plan-signoff-advisor\nnote: Look for uncovered spec parts and advise; a person does the final sign-off.\ninputs:\n  plan_id: {type: string, description: Plan id}\npipeline:\n  trigger: {type: input, kind: text, source: {text: review}}\n  steps:\n    - {name: holes, input: text, run: \"codeterm plan gaps '{{plan_id}}' --json --all\", on: {failed: rework}}\n    - {name: complete, input: text, uses: filter, with: {bucket: empty, pattern: '\"gaps\":\\s*\\[\\]'}, on: {failed: rework, empty: next, done: next}}\n    - {name: judge, input: text, uses: ask, with: {buckets: [go, rework], question: 'Does a verified task back each spec section?'}, on: {go: stop, other: rework, rework: next}}\n    - {name: rework, input: text, run: echo plan-rework-needed, on: {failed: stop, done: stop}}\n  result: {to: notify}\n",
+   "hash": "48bab507d3cbf88a5a894c9c2837bbe4179ed1cad75457f8a0f0210484543ec0"
+  },
+  {
+   "id": "plan-review-gate",
+   "yaml": "schema_version: 1\nname: plan-review-gate\nnote: Check plan coverage and recommend; the human runs plan approve.\ninputs:\n  plan: {type: string, description: Plan id}\npipeline:\n  trigger: {type: input, kind: text, source: {text: go}}\n  steps:\n    - {name: gaps, input: text, run: \"codeterm plan gaps '{{plan}}' --json\", on: {failed: revise}}\n    - {name: covered, input: text, uses: filter, with: {pattern: '\"gaps\": \\[\\]', bucket: full}, on: {full: next, done: next, failed: revise}}\n    - {name: verdict, input: text, uses: ask, with: {question: 'Is every section covered by a tested task?', buckets: [ready, revise]}, on: {ready: stop, revise: next, other: revise}}\n    - {name: revise, input: text, run: echo plan-needs-revision, on: {done: stop, failed: stop}}\n  result: {to: notify}\n",
+   "hash": "48bab507d3cbf88a5a894c9c2837bbe4179ed1cad75457f8a0f0210484543ec0"
+  },
+  {
+   "id": "prompt-responder-sem",
+   "yaml": "schema_version: 1\nname: '{{name}}'\nnote: Poll an agent tab's status; when it waits on a supported permission prompt, request the safe answer.\ninputs:\n  name:\n    type: string\n    description: Short Blueprint name, 3 to 40 characters\n  tab_status_probe:\n    type: string\n    description: Read-only codeterm tab status command for one agent tab\nwatch:\n  probe: '{{tab_status_probe}}'\n  question: is-the-agent-waiting-on-permission\n  buckets:\n  - working\n  - permission\n  matches:\n    working: '\"state\":\\s*\"working\"'\n    permission: '\"prompt\":\\s*\"permission\"'\n  every: 15s\n  rearm_on_change:\n  - permission\n  timeout: 8h\n  handlers:\n    working: []\n    permission:\n    - type: respond_prompt\n      parameters:\n        target: permission\n    - type: notify\n",
+   "hash": "2a230f2bc1eb87aece5ce119880138d1ac590ddb374ac1b04c78b5f7452a4592"
+  },
+  {
+   "id": "prompt-responder-st",
+   "yaml": "schema_version: 1\nname: Approve on {{agent_tab}}\nnote: Ask for the sanctioned answer when a known access request appears in one monitored agent tab.\ninputs:\n  agent_tab:\n    type: string\n    description: Tab id\n  access_regex:\n    type: string\n    description: Permission pattern\nwatch:\n  observe: tab:{{agent_tab}}\n  question: is-an-access-request-showing\n  buckets:\n  - access\n  matches:\n    access: '{{access_regex}}'\n  until: access\n  timeout: 3h\n  handlers:\n    access:\n    - type: respond_prompt\n      parameters:\n        target: permission\n",
+   "hash": "27528de1aa6b3bd92fbd0d1f573d161d36ad589c564e758ea8a2845dc7ccda19"
+  },
+  {
+   "id": "prompt-responder",
+   "yaml": "# Check and apply this file with codeterm blueprint.\nschema_version: 1\nname: Prompt {{tab_id}}\nnote: Request a safe response to a supported permission prompt on one observed agent tab.\ninputs:\n  permission_pattern:\n    type: string\n    description: Permission pattern\n  tab_id:\n    type: string\n    description: Tab id\nwatch:\n  observe: tab:{{tab_id}}\n  question: classify-current-prompt\n  buckets:\n  - permission\n  matches:\n    permission: '{{permission_pattern}}'\n  until: permission\n  timeout: 1h\n  handlers:\n    permission:\n    - type: respond_prompt\n      parameters:\n        target: permission\n",
+   "hash": "27528de1aa6b3bd92fbd0d1f573d161d36ad589c564e758ea8a2845dc7ccda19"
+  },
+  {
+   "id": "release-preflight-sem",
+   "yaml": "schema_version: 1\nname: Release gate watch\nnote: One combined probe checks the essence map and stale lanes; notify while a release is blocked.\ninputs:\n  release_probe:\n    type: string\n    description: Read-only command running essence-map validate and the stale-lane check, printing clean or blocked\nwatch:\n  probe: '{{release_probe}}'\n  question: is-the-release-clean\n  buckets: [clean, blocked]\n  matches: {clean: '(?m)^clean$', blocked: '(?m)^blocked$'}\n  every: 5m\n  until: clean\n  timeout: 1d\n  routes:\n    clean: notify\n    blocked: notify\n",
+   "hash": "ee815f3a443578f2e110a230ad41f44eb7b992f10b72104615ab6df1d188cb03"
+  },
+  {
+   "id": "release-preflight-st",
+   "yaml": "schema_version: 1\nname: ship-gate\nnote: Refuse to ship while the capability graph is invalid or old worktrees linger.\ninputs:\n  plan_id: {type: string, description: Plan id}\n  checkout: {type: string, description: Canonical checkout}\npipeline:\n  trigger: {type: input, kind: text, source: {text: start}}\n  steps:\n    - {name: graph, input: text, run: \"codeterm essence-map validate --root '{{checkout}}' --strict\", on: {failed: refuse}}\n    - {name: worktrees, input: text, run: \"codeterm plan lanes '{{plan_id}}' --stale --json\", on: {failed: refuse}}\n    - {name: none-left, input: text, uses: filter, with: {bucket: tidy, pattern: '\"stale\": \\[\\]'}, on: {tidy: next, failed: refuse, done: refuse}}\n    - {name: notes, input: text, run: \"codeterm essence-map release-summary --root '{{checkout}}' --since decision-1\", on: {failed: refuse, done: stop}}\n    - {name: refuse, input: text, run: echo ship-refused, on: {failed: stop, done: stop}}\n  result: {to: notify}\n",
+   "hash": "0637fab18c59bcb67f25daae6ec979f20927a1454047e463fbe418e2c2b25792"
+  },
+  {
+   "id": "release-preflight",
+   "yaml": "schema_version: 1\nname: release-preflight\nnote: Block a release until map and lanes are clean.\ninputs:\n  root: {type: string, description: Canonical checkout}\n  plan: {type: string, description: Plan id}\npipeline:\n  trigger: {type: input, kind: text, source: {text: go}}\n  steps:\n    - {name: map, input: text, run: \"codeterm essence-map validate --root '{{root}}'\", on: {failed: blocked}}\n    - {name: lanes, input: text, run: \"codeterm plan lanes '{{plan}}' --stale\", on: {failed: blocked}}\n    - {name: clean, input: text, uses: filter, with: {pattern: '(?m)^no stale lanes$', bucket: ok}, on: {ok: next, done: blocked, failed: blocked}}\n    - {name: summary, input: text, run: \"codeterm essence-map release-summary --root '{{root}}'\", on: {done: stop, failed: blocked}}\n    - {name: blocked, input: text, run: echo release-blocked, on: {done: stop, failed: stop}}\n  result: {to: notify}\n",
+   "hash": "0637fab18c59bcb67f25daae6ec979f20927a1454047e463fbe418e2c2b25792"
+  },
+  {
+   "id": "retry-until-pass-sem",
+   "yaml": "schema_version: 1\nname: Retry pass check\nnote: Ask a retry loop for its status on a timer and report once a run has passed.\nowner: team\ninputs:\n  retry_status_command:\n    type: string\n    description: Command printing the retry loop's latest result\npipeline:\n  trigger:\n    type: schedule\n    every: 1m\n  steps:\n  - name: status\n    input: text\n    run: '{{retry_status_command}}'\n    'on':\n      failed: stop\n  - name: passed\n    input: text\n    uses: filter\n    with:\n      pattern: (?m)^passed$\n      bucket: passed\n    'on':\n      passed: next\n      done: stop\n  result:\n    to: notify\n",
+   "hash": "8ce438c069c33a80e858f5f7c6cf0c2ff705938da377bb478f6937e9e2d3642b"
+  },
+  {
+   "id": "retry-until-pass-st",
+   "yaml": "schema_version: 1\nname: '{{title}}'\nnote: Follow a capped re-attempt loop and stop following once a success line shows up.\ninputs:\n  success_regex:\n    type: string\n    description: Passed pattern\n  title:\n    type: string\n    description: Short Blueprint name, 3 to 40 characters\n  attempt_status_command:\n    type: string\n    description: Retry status probe\nwatch:\n  probe: '{{attempt_status_command}}'\n  question: did-an-attempt-succeed\n  buckets:\n  - trying\n  - succeeded\n  matches:\n    succeeded: '{{success_regex}}'\n  until: succeeded\n  timeout: 3h\n  routes:\n    trying: none\n    succeeded: notify\n",
+   "hash": "57ad612fecb3cea1a55c4b99860cb4ba44f5222f75a9c139117d78b3dc6704da"
+  },
+  {
+   "id": "retry-until-pass",
+   "yaml": "# Check and apply this file with codeterm blueprint.\nschema_version: 1\nname: '{{name}}'\nnote: Keep watching a bounded retry process until its pass result arrives.\ninputs:\n  name:\n    type: string\n    description: Short Blueprint name, 3 to 40 characters\n  passed_pattern:\n    type: string\n    description: Passed pattern\n  retry_status_probe:\n    type: string\n    description: Retry status probe\nwatch:\n  probe: '{{retry_status_probe}}'\n  question: classify-retry-result\n  buckets:\n  - waiting\n  - passed\n  matches:\n    passed: '{{passed_pattern}}'\n  until: passed\n  timeout: 1h\n  routes:\n    waiting: none\n    passed: notify\n",
+   "hash": "57ad612fecb3cea1a55c4b99860cb4ba44f5222f75a9c139117d78b3dc6704da"
+  },
+  {
+   "id": "service-health-sem",
+   "yaml": "schema_version: 1\nname: Outage diagnosis watch\nnote: Probe a service endpoint; when it is broken, run a diagnosis command and send the findings.\ninputs:\n  status_probe:\n    type: string\n    description: Read-only command printing healthy or broken for the service\nwatch:\n  probe: '{{status_probe}}'\n  question: is-the-service-healthy\n  buckets: [healthy, broken]\n  matches: {healthy: '(?m)^healthy$', broken: '(?m)^broken$'}\n  every: 1m\n  timeout: 7d\n  rearm_on_change: [broken]\n  handlers:\n    healthy: []\n    broken:\n      - {type: command, parameters: {command: echo inspect-service, label: Diagnose, timeout_ms: 3000}}\n      - {type: notify}\n",
+   "hash": "0c8bb2059dd179db7ea83d6af3eb8f01515fa51e1ed2a1d2da96eb92c1cdccad"
+  },
+  {
+   "id": "service-health-st",
+   "yaml": "schema_version: 1\nname: Backend check\nnote: Investigate when the backend stops answering and send me what was found\nowner: team\ninputs:\n  address:\n    type: string\n    description: Backend status URL\n    default: https://api.example.org/status\npipeline:\n  trigger: {type: schedule, every: 5m}\n  steps:\n    - name: ping\n      input: text\n      uses: http\n      with: {timeout_ms: 8000, url: '{{address}}'}\n      on: {failed: investigate, down: investigate, up: stop}\n    - name: investigate\n      input: text\n      run: echo look-at-backend\n      on: {failed: stop, done: stop}\n  result: {to: notify}\n",
+   "hash": "1d9281cb469611e4ba61341f38b794840ad03a4e7316cde85764c89fe27670ba"
+  },
+  {
+   "id": "service-health",
+   "yaml": "schema_version: 1\nname: Service health\nnote: Diagnose outages and report the result\nowner: team\ninputs:\n  url:\n    type: string\n    description: Service health endpoint\n    default: https://example.com/health\npipeline:\n  trigger: {type: schedule, every: 1m}\n  steps:\n    - name: health\n      input: text\n      uses: http\n      with: {url: '{{url}}', timeout_ms: 3000}\n      on: {up: stop, down: diagnose, failed: diagnose}\n    - name: diagnose\n      input: text\n      run: echo inspect-service\n      on: {done: stop, failed: stop}\n  result: {to: notify}\n",
+   "hash": "1d9281cb469611e4ba61341f38b794840ad03a4e7316cde85764c89fe27670ba"
+  },
+  {
+   "id": "team-watch-sem",
+   "yaml": "schema_version: 1\nname: Tab change poll {{tab_id}}\nnote: Read a team member's tab text on a timer and notify me when it matches the change I care about.\nowner: team\ninputs:\n  tab_id:\n    type: string\n    description: Tab id\n  changed_pattern:\n    type: string\n    description: Changed pattern\npipeline:\n  trigger:\n    type: schedule\n    every: 30s\n  steps:\n  - name: read tab\n    input: text\n    run: codeterm tab get-text --tab '{{tab_id}}'\n  - name: changed\n    input: text\n    uses: filter\n    with:\n      pattern: '{{changed_pattern}}'\n      bucket: changed\n    'on':\n      changed: next\n      done: stop\n  result:\n    to: notify\n",
+   "hash": "8ce438c069c33a80e858f5f7c6cf0c2ff705938da377bb478f6937e9e2d3642b"
+  },
+  {
+   "id": "team-watch-st",
+   "yaml": "schema_version: 1\nname: Follow {{member_tab}}\nnote: Keep looking at a colleague's terminal and alert me when what it shows moves on.\ninputs:\n  member_tab:\n    type: string\n    description: Tab id\n  moved_regex:\n    type: string\n    description: Changed pattern\nwatch:\n  observe: tab:{{member_tab}}\n  question: did-the-colleague-tab-move-on\n  buckets:\n  - idle\n  - moved\n  matches:\n    moved: '{{moved_regex}}'\n  timeout: 4h\n  routes:\n    idle: none\n    moved: notify\n",
+   "hash": "7b9839e6dee3fbefe944281a318516f6e54943417240a64695e6741de3a7a383"
+  },
+  {
+   "id": "team-watch",
+   "yaml": "# Check and apply this file with codeterm blueprint.\nschema_version: 1\nname: Watch tab {{tab_id}}\nnote: Observe one Team member's tab and notify when the watched state changes.\ninputs:\n  changed_pattern:\n    type: string\n    description: Changed pattern\n  tab_id:\n    type: string\n    description: Tab id\nwatch:\n  observe: tab:{{tab_id}}\n  question: classify-member-state\n  buckets:\n  - waiting\n  - changed\n  matches:\n    changed: '{{changed_pattern}}'\n  timeout: 1h\n  routes:\n    waiting: none\n    changed: notify\n",
+   "hash": "7b9839e6dee3fbefe944281a318516f6e54943417240a64695e6741de3a7a383"
+  },
+  {
+   "id": "voice-note-to-text-sem",
+   "yaml": "schema_version: 1\nname: Audio transcript pipeline\nnote: Take an audio recording as input, convert it to text, then let a model label the transcript.\nowner: team\ninputs:\n  recording:\n    type: string\n    description: Absolute path to the audio recording\npipeline:\n  trigger:\n    type: input\n    kind: audio\n    source:\n      file: '{{recording}}'\n  steps:\n  - name: transcribe\n    input: audio\n    uses: convert\n    with:\n      from: audio\n      to: text\n  - name: label\n    input: text\n    uses: ask\n    with:\n      question: What is this recording about?\n      buckets: [task, note]\n    'on':\n      task: stop\n      note: stop\n      other: stop\n  result:\n    to: owner\n",
+   "hash": "89d5c2f43c4893c2871114c8ad589e151b559f6e03ef8770c84283a39759a2a7"
+  },
+  {
+   "id": "voice-note-to-text-st",
+   "yaml": "schema_version: 1\nname: '{{title}}'\nnote: Transcribe a recorded audio memo into words and sort what it says.\ninputs:\n  memo_path:\n    type: string\n    description: Path to voice note\n  title:\n    type: string\n    description: Short Blueprint name, 3 to 40 characters\nwatch:\n  input:\n    kind: audio\n    data:\n      file: '{{memo_path}}'\n    convert_to: text\n  question: what-is-in-the-memo\n  buckets:\n  - transcribed\n  timeout: 2h\n  model_classification: true\n  routes:\n    transcribed: notify\n",
+   "hash": "7c702aef5191c4415c16c4352867f95908e58093f53a5da26074b37b27996bf0"
+  },
+  {
+   "id": "voice-note-to-text",
+   "yaml": "# Check and apply this file with codeterm blueprint.\nschema_version: 1\nname: '{{name}}'\nnote: Convert a voice note to text and classify the transcript.\ninputs:\n  name:\n    type: string\n    description: Short Blueprint name, 3 to 40 characters\n  path_to_voice_note:\n    type: string\n    description: Path to voice note\nwatch:\n  input:\n    kind: audio\n    data:\n      file: '{{path_to_voice_note}}'\n    convert_to: text\n  question: what-does-the-voice-note-say\n  buckets:\n  - done\n  timeout: 1h\n  model_classification: true\n  routes:\n    done: notify\n",
+   "hash": "7c702aef5191c4415c16c4352867f95908e58093f53a5da26074b37b27996bf0"
+  },
+  {
+   "id": "wait-for-build-sem",
+   "yaml": "schema_version: 1\nname: Build verdict pipeline\nnote: Run a read-only build status command and report when it shows either a passed or a failed verdict.\nowner: team\ninputs:\n  build_status_command:\n    type: string\n    description: Read-only command printing the build verdict\npipeline:\n  trigger:\n    type: schedule\n    every: 30s\n  steps:\n  - name: verdict\n    input: text\n    run: '{{build_status_command}}'\n    'on':\n      failed: stop\n  - name: passed\n    input: text\n    uses: filter\n    with:\n      pattern: (?m)^passed$\n      bucket: passed\n    'on':\n      passed: report\n      done: next\n  - name: broken\n    input: text\n    uses: filter\n    with:\n      pattern: (?m)^failed$\n      bucket: broken\n    'on':\n      broken: report\n      done: stop\n  - name: report\n    input: text\n    run: echo build-finished\n  result:\n    to: notify\n",
+   "hash": "770c0ff2fd8954dfcdf03b567c0107b576e481d171dfbab2a09168c6afb62af8"
+  },
+  {
+   "id": "wait-for-build-st",
+   "yaml": "schema_version: 1\nname: '{{title}}'\nnote: Hold on until compilation finishes and ping me for success or breakage alike.\ninputs:\n  ok_regex:\n    type: string\n    description: Passed pattern\n  title:\n    type: string\n    description: Short Blueprint name, 3 to 40 characters\n  compile_status_command:\n    type: string\n    description: Read only build probe\n  broken_regex:\n    type: string\n    description: Failed pattern\nwatch:\n  probe: '{{compile_status_command}}'\n  question: how-did-compilation-end\n  buckets:\n  - running\n  - ok\n  - broken\n  matches:\n    ok: '{{ok_regex}}'\n    broken: '{{broken_regex}}'\n  until: ok\n  timeout: 90m\n  routes:\n    running: none\n    ok: notify\n    broken: notify\n",
+   "hash": "3f8af5053fb2b3ac173d808d3d3e1fcb4e1155117a12b571aa292c7436ef3c52"
+  },
+  {
+   "id": "wait-for-build",
+   "yaml": "# Check and apply this file with codeterm blueprint.\nschema_version: 1\nname: '{{name}}'\nnote: Wait for a build verdict and notify on either terminal result.\ninputs:\n  name:\n    type: string\n    description: Short Blueprint name, 3 to 40 characters\n  failed_pattern:\n    type: string\n    description: Failed pattern\n  passed_pattern:\n    type: string\n    description: Passed pattern\n  read_only_build_probe:\n    type: string\n    description: Read only build probe\nwatch:\n  probe: '{{read_only_build_probe}}'\n  question: classify-build-result\n  buckets:\n  - waiting\n  - passed\n  - failed\n  matches:\n    passed: '{{passed_pattern}}'\n    failed: '{{failed_pattern}}'\n  until: passed\n  timeout: 1h\n  routes:\n    waiting: none\n    passed: notify\n    failed: notify\n",
+   "hash": "3f8af5053fb2b3ac173d808d3d3e1fcb4e1155117a12b571aa292c7436ef3c52"
+  }
+ ],
+ "pairs": [
+  {
+   "a": "all-finished",
+   "b": "all-finished-st",
+   "s_struct": 1.0
+  },
+  {
+   "a": "all-finished",
+   "b": "all-finished-sem",
+   "s_struct": 0.04902903378454601
+  },
+  {
+   "a": "all-finished-st",
+   "b": "all-finished-sem",
+   "s_struct": 0.04902903378454601
+  },
+  {
+   "a": "all-finished",
+   "b": "dx-log-rotate",
+   "s_struct": 0.0625
+  },
+  {
+   "a": "all-finished",
+   "b": "dx-dependency-audit",
+   "s_struct": 0.04902903378454601
+  },
+  {
+   "a": "all-finished",
+   "b": "dx-label-sync",
+   "s_struct": 0.0625
+  },
+  {
+   "a": "cron-run-watch",
+   "b": "cron-run-watch-st",
+   "s_struct": 1.0
+  },
+  {
+   "a": "cron-run-watch",
+   "b": "cron-run-watch-sem",
+   "s_struct": 0.04902903378454601
+  },
+  {
+   "a": "cron-run-watch-st",
+   "b": "cron-run-watch-sem",
+   "s_struct": 0.04902903378454601
+  },
+  {
+   "a": "cron-run-watch",
+   "b": "dx-label-sync",
+   "s_struct": 0.0625
+  },
+  {
+   "a": "cron-run-watch",
+   "b": "dx-log-rotate",
+   "s_struct": 0.0625
+  },
+  {
+   "a": "cron-run-watch",
+   "b": "dx-dependency-audit",
+   "s_struct": 0.04902903378454601
+  },
+  {
+   "a": "echo",
+   "b": "echo-st",
+   "s_struct": 0.9999999999999998
+  },
+  {
+   "a": "echo",
+   "b": "echo-sem",
+   "s_struct": 0.05590169943749474
+  },
+  {
+   "a": "echo-st",
+   "b": "echo-sem",
+   "s_struct": 0.05590169943749474
+  },
+  {
+   "a": "echo",
+   "b": "dx-label-sync",
+   "s_struct": 0.4472135954999579
+  },
+  {
+   "a": "echo",
+   "b": "dx-disk-space",
+   "s_struct": 0.05590169943749474
+  },
+  {
+   "a": "echo",
+   "b": "dx-dependency-audit",
+   "s_struct": 0.2631174057921088
+  },
+  {
+   "a": "github-org-runners",
+   "b": "github-org-runners-st",
+   "s_struct": 1.0
+  },
+  {
+   "a": "github-org-runners",
+   "b": "github-org-runners-sem",
+   "s_struct": 0.0625
+  },
+  {
+   "a": "github-org-runners-st",
+   "b": "github-org-runners-sem",
+   "s_struct": 0.0625
+  },
+  {
+   "a": "github-org-runners",
+   "b": "dx-label-sync",
+   "s_struct": 0.375
+  },
+  {
+   "a": "github-org-runners",
+   "b": "dx-screenshot-text",
+   "s_struct": 0.0625
+  },
+  {
+   "a": "github-org-runners",
+   "b": "dx-cert-expiry",
+   "s_struct": 0.0625
+  },
+  {
+   "a": "health-triage",
+   "b": "health-triage-st",
+   "s_struct": 1.0000000000000002
+  },
+  {
+   "a": "health-triage",
+   "b": "health-triage-sem",
+   "s_struct": 0.04564354645876384
+  },
+  {
+   "a": "health-triage-st",
+   "b": "health-triage-sem",
+   "s_struct": 0.04564354645876384
+  },
+  {
+   "a": "health-triage",
+   "b": "dx-translate-note",
+   "s_struct": 0.051031036307982884
+  },
+  {
+   "a": "health-triage",
+   "b": "dx-dependency-audit",
+   "s_struct": 0.3202563076101743
+  },
+  {
+   "a": "health-triage",
+   "b": "dx-meeting-reminder",
+   "s_struct": 0.15309310892394865
+  },
+  {
+   "a": "launch-prompt-gate",
+   "b": "launch-prompt-gate-st",
+   "s_struct": 0.9999999999999999
+  },
+  {
+   "a": "launch-prompt-gate",
+   "b": "launch-prompt-gate-sem",
+   "s_struct": 0.2886751345948129
+  },
+  {
+   "a": "launch-prompt-gate-st",
+   "b": "launch-prompt-gate-sem",
+   "s_struct": 0.2886751345948129
+  },
+  {
+   "a": "launch-prompt-gate",
+   "b": "dx-disk-space",
+   "s_struct": 0.10606601717798213
+  },
+  {
+   "a": "launch-prompt-gate",
+   "b": "dx-meeting-reminder",
+   "s_struct": 0.035355339059327376
+  },
+  {
+   "a": "launch-prompt-gate",
+   "b": "dx-screenshot-text",
+   "s_struct": 0.07071067811865475
+  },
+  {
+   "a": "plan-review-gate",
+   "b": "plan-review-gate-st",
+   "s_struct": 1.0
+  },
+  {
+   "a": "plan-review-gate",
+   "b": "plan-review-gate-sem",
+   "s_struct": 0.04564354645876384
+  },
+  {
+   "a": "plan-review-gate-st",
+   "b": "plan-review-gate-sem",
+   "s_struct": 0.04564354645876384
+  },
+  {
+   "a": "plan-review-gate",
+   "b": "dx-cert-expiry",
+   "s_struct": 0.04564354645876384
+  },
+  {
+   "a": "plan-review-gate",
+   "b": "dx-translate-note",
+   "s_struct": 0.09128709291752768
+  },
+  {
+   "a": "plan-review-gate",
+   "b": "dx-disk-space",
+   "s_struct": 0.04564354645876384
+  },
+  {
+   "a": "prompt-responder",
+   "b": "prompt-responder-st",
+   "s_struct": 1.0
+  },
+  {
+   "a": "prompt-responder",
+   "b": "prompt-responder-sem",
+   "s_struct": 0.16770509831248423
+  },
+  {
+   "a": "prompt-responder-st",
+   "b": "prompt-responder-sem",
+   "s_struct": 0.16770509831248423
+  },
+  {
+   "a": "prompt-responder",
+   "b": "dx-disk-space",
+   "s_struct": 0.125
+  },
+  {
+   "a": "prompt-responder",
+   "b": "dx-screenshot-text",
+   "s_struct": 0.3125
+  },
+  {
+   "a": "prompt-responder",
+   "b": "dx-dependency-audit",
+   "s_struct": 0.04902903378454601
+  },
+  {
+   "a": "release-preflight",
+   "b": "release-preflight-st",
+   "s_struct": 1.0
+  },
+  {
+   "a": "release-preflight",
+   "b": "release-preflight-sem",
+   "s_struct": 0.032141217326661246
+  },
+  {
+   "a": "release-preflight-st",
+   "b": "release-preflight-sem",
+   "s_struct": 0.032141217326661246
+  },
+  {
+   "a": "release-preflight",
+   "b": "dx-dependency-audit",
+   "s_struct": 0.4139186771923578
+  },
+  {
+   "a": "release-preflight",
+   "b": "dx-label-sync",
+   "s_struct": 0.18844459036110225
+  },
+  {
+   "a": "release-preflight",
+   "b": "dx-meeting-reminder",
+   "s_struct": 0.18844459036110225
+  },
+  {
+   "a": "voice-note-to-text",
+   "b": "voice-note-to-text-st",
+   "s_struct": 1.0
+  },
+  {
+   "a": "voice-note-to-text",
+   "b": "voice-note-to-text-sem",
+   "s_struct": 0.05590169943749474
+  },
+  {
+   "a": "voice-note-to-text-st",
+   "b": "voice-note-to-text-sem",
+   "s_struct": 0.05590169943749474
+  },
+  {
+   "a": "voice-note-to-text",
+   "b": "dx-dependency-audit",
+   "s_struct": 0.04902903378454601
+  },
+  {
+   "a": "voice-note-to-text",
+   "b": "dx-disk-space",
+   "s_struct": 0.25
+  },
+  {
+   "a": "voice-note-to-text",
+   "b": "dx-label-sync",
+   "s_struct": 0.0625
+  },
+  {
+   "a": "all-finished",
+   "b": "release-preflight",
+   "s_struct": 0.037688918072220454
+  },
+  {
+   "a": "cron-run-watch",
+   "b": "github-org-runners",
+   "s_struct": 0.0625
+  },
+  {
+   "a": "echo",
+   "b": "prompt-responder",
+   "s_struct": 0.05590169943749474
+  },
+  {
+   "a": "github-org-runners",
+   "b": "voice-note-to-text",
+   "s_struct": 0.0625
+  },
+  {
+   "a": "health-triage",
+   "b": "all-finished",
+   "s_struct": 0.051031036307982884
+  },
+  {
+   "a": "launch-prompt-gate",
+   "b": "echo",
+   "s_struct": 0.03162277660168379
+  },
+  {
+   "a": "plan-review-gate",
+   "b": "prompt-responder",
+   "s_struct": 0.04564354645876384
+  },
+  {
+   "a": "prompt-responder",
+   "b": "release-preflight",
+   "s_struct": 0.037688918072220454
+  },
+  {
+   "a": "release-preflight",
+   "b": "echo",
+   "s_struct": 0.20225995873897262
+  },
+  {
+   "a": "voice-note-to-text",
+   "b": "all-finished",
+   "s_struct": 0.25
+  },
+  {
+   "a": "dev-run-health",
+   "b": "dev-run-health-st",
+   "s_struct": 1.0000000000000002
+  },
+  {
+   "a": "dev-run-health",
+   "b": "dev-run-health-sem",
+   "s_struct": 0.04564354645876384
+  },
+  {
+   "a": "dev-run-health-st",
+   "b": "dev-run-health-sem",
+   "s_struct": 0.04564354645876384
+  },
+  {
+   "a": "dev-run-health",
+   "b": "dx-dependency-audit",
+   "s_struct": 0.04003203845127179
+  },
+  {
+   "a": "dev-run-health",
+   "b": "dx-meeting-reminder",
+   "s_struct": 0.051031036307982884
+  },
+  {
+   "a": "dev-run-health",
+   "b": "dx-translate-note",
+   "s_struct": 0.051031036307982884
+  },
+  {
+   "a": "github",
+   "b": "github-st",
+   "s_struct": 1.0
+  },
+  {
+   "a": "github",
+   "b": "github-sem",
+   "s_struct": 0.053300179088902604
+  },
+  {
+   "a": "github-st",
+   "b": "github-sem",
+   "s_struct": 0.053300179088902604
+  },
+  {
+   "a": "github",
+   "b": "dx-log-rotate",
+   "s_struct": 0.375
+  },
+  {
+   "a": "github",
+   "b": "dx-standup-summary",
+   "s_struct": 0.11180339887498948
+  },
+  {
+   "a": "github",
+   "b": "dx-label-sync",
+   "s_struct": 0.375
+  },
+  {
+   "a": "github-pr-checks",
+   "b": "github-pr-checks-st",
+   "s_struct": 1.0
+  },
+  {
+   "a": "github-pr-checks",
+   "b": "github-pr-checks-sem",
+   "s_struct": 0.0625
+  },
+  {
+   "a": "github-pr-checks-st",
+   "b": "github-pr-checks-sem",
+   "s_struct": 0.0625
+  },
+  {
+   "a": "github-pr-checks",
+   "b": "dx-cert-expiry",
+   "s_struct": 0.0625
+  },
+  {
+   "a": "github-pr-checks",
+   "b": "dx-dependency-audit",
+   "s_struct": 0.09805806756909202
+  },
+  {
+   "a": "github-pr-checks",
+   "b": "dx-standup-summary",
+   "s_struct": 0.11180339887498948
+  },
+  {
+   "a": "github-pr-ci-watch",
+   "b": "github-pr-ci-watch-st",
+   "s_struct": 1.0
+  },
+  {
+   "a": "github-pr-ci-watch",
+   "b": "github-pr-ci-watch-sem",
+   "s_struct": 0.04181210050035454
+  },
+  {
+   "a": "github-pr-ci-watch-st",
+   "b": "github-pr-ci-watch-sem",
+   "s_struct": 0.04181210050035454
+  },
+  {
+   "a": "github-pr-ci-watch",
+   "b": "dx-nightly-backup",
+   "s_struct": 0.045454545454545456
+  },
+  {
+   "a": "github-pr-ci-watch",
+   "b": "dx-label-sync",
+   "s_struct": 0.053300179088902604
+  },
+  {
+   "a": "github-pr-ci-watch",
+   "b": "dx-screenshot-text",
+   "s_struct": 0.26650089544451305
+  },
+  {
+   "a": "github-runners",
+   "b": "github-runners-st",
+   "s_struct": 1.0
+  },
+  {
+   "a": "github-runners",
+   "b": "github-runners-sem",
+   "s_struct": 0.0625
+  },
+  {
+   "a": "github-runners-st",
+   "b": "github-runners-sem",
+   "s_struct": 0.0625
+  },
+  {
+   "a": "github-runners",
+   "b": "dx-screenshot-text",
+   "s_struct": 0.0625
+  },
+  {
+   "a": "github-runners",
+   "b": "dx-dependency-audit",
+   "s_struct": 0.09805806756909202
+  },
+  {
+   "a": "github-runners",
+   "b": "dx-cert-expiry",
+   "s_struct": 0.0625
+  },
+  {
+   "a": "http-health",
+   "b": "http-health-st",
+   "s_struct": 1.0
+  },
+  {
+   "a": "http-health",
+   "b": "http-health-sem",
+   "s_struct": 0.0625
+  },
+  {
+   "a": "http-health-st",
+   "b": "http-health-sem",
+   "s_struct": 0.0625
+  },
+  {
+   "a": "http-health",
+   "b": "dx-meeting-reminder",
+   "s_struct": 0.125
+  },
+  {
+   "a": "http-health",
+   "b": "dx-cert-expiry",
+   "s_struct": 0.0625
+  },
+  {
+   "a": "http-health",
+   "b": "dx-nightly-backup",
+   "s_struct": 0.10660035817780521
+  },
+  {
+   "a": "retry-until-pass",
+   "b": "retry-until-pass-st",
+   "s_struct": 1.0
+  },
+  {
+   "a": "retry-until-pass",
+   "b": "retry-until-pass-sem",
+   "s_struct": 0.05590169943749474
+  },
+  {
+   "a": "retry-until-pass-st",
+   "b": "retry-until-pass-sem",
+   "s_struct": 0.05590169943749474
+  },
+  {
+   "a": "retry-until-pass",
+   "b": "dx-dependency-audit",
+   "s_struct": 0.04902903378454601
+  },
+  {
+   "a": "retry-until-pass",
+   "b": "dx-screenshot-text",
+   "s_struct": 0.25
+  },
+  {
+   "a": "retry-until-pass",
+   "b": "dx-meeting-reminder",
+   "s_struct": 0.0625
+  },
+  {
+   "a": "service-health",
+   "b": "service-health-st",
+   "s_struct": 0.9999999999999998
+  },
+  {
+   "a": "service-health",
+   "b": "service-health-sem",
+   "s_struct": 0.04999999999999999
+  },
+  {
+   "a": "service-health-st",
+   "b": "service-health-sem",
+   "s_struct": 0.04999999999999999
+  },
+  {
+   "a": "service-health",
+   "b": "dx-cert-expiry",
+   "s_struct": 0.05590169943749474
+  },
+  {
+   "a": "service-health",
+   "b": "dx-label-sync",
+   "s_struct": 0.16770509831248423
+  },
+  {
+   "a": "service-health",
+   "b": "dx-translate-note",
+   "s_struct": 0.05590169943749474
+  },
+  {
+   "a": "team-watch",
+   "b": "team-watch-st",
+   "s_struct": 1.0
+  },
+  {
+   "a": "team-watch",
+   "b": "team-watch-sem",
+   "s_struct": 0.05590169943749474
+  },
+  {
+   "a": "team-watch-st",
+   "b": "team-watch-sem",
+   "s_struct": 0.05590169943749474
+  },
+  {
+   "a": "team-watch",
+   "b": "dx-disk-space",
+   "s_struct": 0.3125
+  },
+  {
+   "a": "team-watch",
+   "b": "dx-log-rotate",
+   "s_struct": 0.0625
+  },
+  {
+   "a": "team-watch",
+   "b": "dx-meeting-reminder",
+   "s_struct": 0.0625
+  },
+  {
+   "a": "wait-for-build",
+   "b": "wait-for-build-st",
+   "s_struct": 1.0
+  },
+  {
+   "a": "wait-for-build",
+   "b": "wait-for-build-sem",
+   "s_struct": 0.03768891807222045
+  },
+  {
+   "a": "wait-for-build-st",
+   "b": "wait-for-build-sem",
+   "s_struct": 0.03768891807222045
+  },
+  {
+   "a": "wait-for-build",
+   "b": "dx-cert-expiry",
+   "s_struct": 0.42640143271122083
+  },
+  {
+   "a": "wait-for-build",
+   "b": "dx-log-rotate",
+   "s_struct": 0.053300179088902604
+  },
+  {
+   "a": "wait-for-build",
+   "b": "dx-screenshot-text",
+   "s_struct": 0.26650089544451305
+  },
+  {
+   "a": "dev-run-health",
+   "b": "github",
+   "s_struct": 0.051031036307982884
+  },
+  {
+   "a": "github",
+   "b": "http-health",
+   "s_struct": 0.375
+  },
+  {
+   "a": "github-pr-checks",
+   "b": "dev-run-health",
+   "s_struct": 0.051031036307982884
+  },
+  {
+   "a": "github-pr-ci-watch",
+   "b": "retry-until-pass",
+   "s_struct": 0.42640143271122083
+  },
+  {
+   "a": "github-runners",
+   "b": "team-watch",
+   "s_struct": 0.0625
+  },
+  {
+   "a": "http-health",
+   "b": "team-watch",
+   "s_struct": 0.0625
+  },
+  {
+   "a": "retry-until-pass",
+   "b": "dev-run-health",
+   "s_struct": 0.3061862178478973
+  },
+  {
+   "a": "service-health",
+   "b": "github",
+   "s_struct": 0.11180339887498948
+  },
+  {
+   "a": "team-watch",
+   "b": "service-health",
+   "s_struct": 0.05590169943749474
+  },
+  {
+   "a": "wait-for-build",
+   "b": "http-health",
+   "s_struct": 0.053300179088902604
+  }
+ ]
+}

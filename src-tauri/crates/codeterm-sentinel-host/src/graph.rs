@@ -1,4 +1,7 @@
 mod detail;
+mod mux;
+pub(crate) use mux::MuxSnapshot;
+pub use mux::MuxView;
 pub(crate) mod files;
 pub use files::FileReference;
 mod history;
@@ -46,6 +49,9 @@ pub struct Snapshot {
     pub edges: Vec<Value>,
     pub truncated: bool,
     pub configured_fallback: Value,
+    /// Committed Blueprints refused at load, with their typed reasons; they never run.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub quarantined: Vec<crate::storage::quarantine::Quarantined>,
 }
 
 #[derive(Clone)]
@@ -60,7 +66,15 @@ pub fn validate_scope(
     workspace: &str,
     team: Option<&str>,
 ) -> Result<(), String> {
-    if mux.get_workspace(workspace).is_none() {
+    validate_view_scope(mux, workspace, team)
+}
+
+fn validate_view_scope(
+    mux: &dyn MuxView,
+    workspace: &str,
+    team: Option<&str>,
+) -> Result<(), String> {
+    if !mux.has_workspace(workspace) {
         return Err("automation workspace not found".into());
     }
     if let Some(team) = team {
@@ -88,10 +102,42 @@ pub fn scoped_inventory(
         .collect())
 }
 
+pub(crate) fn is_snapshot_root(job: &Sentinel) -> bool {
+    job.scenario_id.is_none() || job.is_scenario_root()
+}
+
+fn has_live_owner(job: &Sentinel, mux: &dyn MuxView) -> bool {
+    if job.pipeline().is_some_and(|spec| {
+        matches!(
+            spec.owner,
+            codeterm_blueprint_types::blueprint_pipeline::BlueprintOwner::Team
+        )
+    }) {
+        return job.team_id.as_deref().is_some_and(|team| {
+            mux.get_team(team).is_some()
+                && mux.team_workspace(team).as_deref() == Some(job.workspace_id.as_str())
+        });
+    }
+    mux.get_tab(&job.creator_tab_id).is_some()
+        && mux.find_workspace_for_tab(&job.creator_tab_id).as_deref()
+            == Some(job.workspace_id.as_str())
+}
+
+pub(crate) fn held_reason(job: &Sentinel) -> Option<&str> {
+    crate::plan_lock::held_reason(job)
+        .or(job.machine.held.as_deref())
+        .or_else(|| job.machine.paused.then_some("paused"))
+        .or_else(|| {
+            job.last_reason
+                .as_deref()
+                .filter(|reason| reason.starts_with("uncertain_"))
+        })
+}
+
 pub fn reachable_ids(jobs: &[Sentinel]) -> BTreeSet<String> {
     let mut pending: Vec<_> = jobs
         .iter()
-        .filter(|job| job.is_scenario_root())
+        .filter(|job| is_snapshot_root(job))
         .map(|job| job.id.clone())
         .collect();
     let mut seen = BTreeSet::new();
@@ -127,7 +173,7 @@ pub fn host_delete_staged(
     let root = store.get(id).ok_or("Blueprint scenario not found")?;
     if root.workspace_id != workspace
         || root.team_id.as_deref() != team
-        || !root.is_scenario_root()
+        || !is_snapshot_root(root)
         || !reachable_ids(store.list()).contains(id)
     {
         return Err("Blueprint scenario is unavailable in this automation scope".into());
@@ -210,7 +256,7 @@ fn worker(tab: &Tab, identity: &Identity) -> Value {
 
 pub fn project_worker_states(
     snapshot: &mut Snapshot,
-    mux: &MultiplexerState,
+    mux: &dyn MuxView,
     resolve: impl Fn(&Tab) -> Option<codeterm_service_core::agent::status::TabStatus>,
 ) {
     for node in &mut snapshot.nodes {
@@ -247,7 +293,7 @@ fn target(
     action: &Route,
     recorded: Option<&Identity>,
     jobs: &[Sentinel],
-    mux: &MultiplexerState,
+    mux: &dyn MuxView,
     crons: &BTreeMap<String, ConnectedCron>,
 ) -> Option<(Identity, bool)> {
     let (kind, id, owner) = match action {
@@ -301,7 +347,7 @@ fn target(
 fn add_cron(
     exact: &Identity,
     cron: &ConnectedCron,
-    mux: &MultiplexerState,
+    mux: &dyn MuxView,
     nodes: &mut BTreeMap<Identity, Value>,
     edges: &mut Vec<Value>,
     worker_statuses: &mut BTreeMap<Identity, u64>,
@@ -361,17 +407,20 @@ pub fn project(
     workspace: &str,
     team: Option<&str>,
     jobs: &[Sentinel],
-    mux: &MultiplexerState,
+    mux: &dyn MuxView,
     crons: &BTreeMap<String, ConnectedCron>,
     configured_fallback: Value,
     now_ms: u64,
     live_leases: &BTreeSet<String>,
 ) -> Result<Snapshot, String> {
-    validate_scope(mux, workspace, team)?;
+    validate_view_scope(mux, workspace, team)?;
     let mut scenarios: Vec<_> = jobs
         .iter()
         .filter(|j| {
-            j.is_scenario_root() && j.workspace_id == workspace && j.team_id.as_deref() == team
+            is_snapshot_root(j)
+                && j.workspace_id == workspace
+                && j.team_id.as_deref() == team
+                && has_live_owner(j, mux)
         })
         .map(|job| Scenario {
             id: job.id.clone(),
@@ -501,7 +550,7 @@ pub fn project(
                         .iter()
                         .any(|handler| handler.status == super::handlers::Status::Completed))
         });
-        nodes.insert(exact.clone(),json!({"identity":exact,"name":safe_name(job.name.as_deref().unwrap_or(&job.id)),"purpose":safe_purpose(&job.question),"state":if job.machine.stopped && executing{"finishing"}else if job.machine.stopped{"stopped"}else if expired{"expired"}else if job.machine.paused{"paused"}else{"active"},"availability":"available","hidden":false,"schedule":null,"cadence_ms":job.interval_ms,"conversation":{"enabled":job.session,"exchanges":super::session::usage(jobs,job,now_ms).exchanges,"actions":super::session::usage(jobs,job,now_ms).actions,"safety_limit":codeterm_blueprint_types::blueprint_terminal::SESSION_SAFETY_LIMIT,"rate_limit_per_minute":codeterm_blueprint_types::blueprint_terminal::SESSION_RATE_LIMIT},"expires_at":job.expires_at,"stopped_at":job.cleanup.stopped_at,"deletes_at":job.cleanup.deletes_at,"note":job.note,"solution_success":solution_success,"outcomes":outcomes,"last_result":last_result,"history":history,"history_truncated":history_truncated,"stop":{"allowed":executing || (!job.machine.stopped && !expired),"reason":if executing{None}else if job.machine.stopped{job.last_reason.as_deref().map(safe_purpose)}else if expired{Some("deadline elapsed".into())}else{None}},"executor":null,"detail":detail::project(job, mux, workspace, team, now_ms, executing),"source":source_descriptor(job),"blueprint_definition":{"source":"stored_agent_definition","definition_id":job.id,"creator_tab_id":job.creator_tab_id,"definition_version":job.definition_version,"lineage":job.amendments.iter().map(|amendment| json!({"version":amendment.version,"replaced_version":amendment.replaced_version,"author_tab_id":amendment.author_tab_id,"cause_transition_id":amendment.cause_transition_id,"at":amendment.at})).collect::<Vec<_>>()}}));
+        nodes.insert(exact.clone(),json!({"identity":exact,"name":safe_name(job.name.as_deref().unwrap_or(&job.id)),"purpose":safe_purpose(&job.question),"state":if job.machine.stopped && executing{"finishing"}else if job.machine.stopped{"stopped"}else if expired{"expired"}else if job.admission.held_reason.is_some() || (held_reason(job).is_some() && !job.machine.paused) || job.machine.held.is_some(){"held"}else if job.machine.paused{"paused"}else{"active"},"held_reason":held_reason(job),"availability":"available","hidden":false,"schedule":null,"cadence_ms":job.interval_ms,"conversation":{"enabled":job.session,"exchanges":super::session::usage(jobs,job,now_ms).exchanges,"actions":super::session::usage(jobs,job,now_ms).actions,"safety_limit":codeterm_blueprint_types::blueprint_terminal::SESSION_SAFETY_LIMIT,"rate_limit_per_minute":codeterm_blueprint_types::blueprint_terminal::SESSION_RATE_LIMIT},"expires_at":job.expires_at,"stopped_at":job.cleanup.stopped_at,"deletes_at":job.cleanup.deletes_at,"note":job.note,"solution_success":solution_success,"outcomes":outcomes,"last_result":last_result,"history":history,"history_truncated":history_truncated,"stop":{"allowed":executing || (!job.machine.stopped && !expired),"reason":if executing{None}else if job.machine.stopped{job.last_reason.as_deref().map(safe_purpose)}else if expired{Some("deadline elapsed".into())}else{None}},"executor":null,"detail":detail::project(job, mux, workspace, team, now_ms, executing),"source":source_descriptor(job),"blueprint_definition":{"source":"stored_agent_definition","definition_id":job.id,"creator_tab_id":job.creator_tab_id,"definition_version":job.definition_version,"lineage":job.amendments.iter().map(|amendment| json!({"version":amendment.version,"replaced_version":amendment.replaced_version,"author_tab_id":amendment.author_tab_id,"cause_transition_id":amendment.cause_transition_id,"at":amendment.at})).collect::<Vec<_>>()}}));
     }
     let nodes: Vec<_> = nodes.into_values().collect();
     let runs = runs::project(&nodes, jobs, now_ms, live_leases);
@@ -517,5 +566,6 @@ pub fn project(
         edges,
         truncated,
         configured_fallback,
+        quarantined: Vec::new(),
     })
 }

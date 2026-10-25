@@ -15,6 +15,7 @@
 mod construct;
 pub use construct::build_service_context;
 pub mod account;
+pub mod account_mesh;
 pub mod activity;
 pub(crate) mod agent_delivery_outbox;
 pub(crate) mod agent_fork;
@@ -162,6 +163,8 @@ mod reasoning_effort;
 pub mod receiver_target;
 pub use receiver_target::ReceiverTargetError;
 pub mod remote_tabs;
+pub mod remote_team;
+pub mod remote_worker_transfer;
 pub mod remote_workers;
 pub mod reply_relay;
 pub mod restore_admission;
@@ -180,6 +183,7 @@ mod session_resume;
 pub(crate) mod shell_exec;
 pub use shell_exec::ExecWaiter;
 mod shell_restart;
+pub use shell_restart::{ShellCommandSubmission, ShellRestartOutcome};
 pub mod smart_add;
 pub mod spawn;
 pub mod spawn_capability;
@@ -271,6 +275,7 @@ pub use worker_lane::{
     ProvisionedWorkerLane, WorkerLaneProvenance,
 };
 pub use worker_loss::BUSY_WORKER_CLOSE_REFUSAL_PREFIX;
+pub mod durable_delivery;
 mod worker_persona;
 mod workspace;
 pub(crate) mod workspace_cwd;
@@ -378,6 +383,7 @@ pub struct ServiceContext {
     /// Orchestrator-side view of remote (cross-mesh) workers, populated from
     /// inbound mesh reports. Drives the "remote Tab" ghost nodes in the UI.
     pub remote_workers: crate::service::remote_workers::RemoteWorkerRegistryHandle,
+    pub remote_teams: Arc<remote_team::RemoteTeamStore>,
     /// Channel for outbound Telegram messages (CLI bridge.send command).
     pub bridge_outbound: crate::bridge::manager::OutboundSender,
     /// Per-tab JSONL chat tailers — populated when a tab enters UI mode.
@@ -511,14 +517,8 @@ impl ServiceContext {
     ) -> Result<String, pending_delivery_payloads::PayloadStoreError> {
         use sha2::Digest;
         let digest = format!("{:x}", sha2::Sha256::digest(payload.as_bytes()));
-        let previous_digest = self
-            .mux
-            .read()
-            .get_tab(tab_id)
-            .and_then(|tab| tab.pending_delivery.as_ref())
-            .map(|record| record.content_digest.clone());
-        self.pending_delivery_payloads
-            .replace(previous_digest.as_deref(), &digest, payload)?;
+        let record = crate::multiplexer::types::PendingDeliveryRecord::new(digest.clone(), channel);
+        self.pending_delivery_payloads.write(&record, payload)?;
         let mut mux = self.mux.write();
         let tab = mux.get_tab_mut(tab_id).ok_or_else(|| {
             pending_delivery_payloads::PayloadStoreError::Io {
@@ -526,20 +526,33 @@ impl ServiceContext {
                 message: format!("tab {tab_id} vanished while creating pending delivery"),
             }
         })?;
-        let record = crate::multiplexer::types::PendingDeliveryRecord::new(digest.clone(), channel);
-        tab.pending_delivery = Some(match send_id {
-            Some(send_id) => record.with_send_id(send_id.to_string()),
-            None => record,
+        let previous = tab.pending_delivery.replace(match send_id {
+            Some(send_id) => record.clone().with_send_id(send_id.to_string()),
+            None => record.clone(),
         });
         drop(mux);
-        crate::service::session_persist::persist_session_after_mutation(
-            self,
-            crate::service::session_persist::SessionPersistUrgency::Prompt,
-        )
-        .map_err(|message| pending_delivery_payloads::PayloadStoreError::Io {
+        let persistence = if previous.is_some() {
+            crate::service::session_persist::write_session_snapshot(self, &self.mux).and_then(
+                |outcome| match outcome {
+                    crate::session::store::SaveOutcome::Saved => Ok(()),
+                    crate::session::store::SaveOutcome::RefusedReduction(_) => {
+                        Err("pending delivery replacement snapshot was refused".into())
+                    }
+                },
+            )
+        } else {
+            crate::service::session_persist::persist_session_after_mutation(
+                self,
+                crate::service::session_persist::SessionPersistUrgency::Prompt,
+            )
+        };
+        persistence.map_err(|message| pending_delivery_payloads::PayloadStoreError::Io {
             digest: digest.clone(),
             message,
         })?;
+        let live_keys = pending_delivery_payloads::live_payload_keys(&self.mux.read().snapshot());
+        self.pending_delivery_payloads
+            .retire_replaced(previous.as_ref(), &record, &live_keys)?;
         Ok(digest)
     }
 
@@ -661,9 +674,10 @@ impl ServiceContext {
             }
             return Err(pending_delivery_payloads::PayloadStoreError::Io { digest, message });
         }
-        if let Err(error) = self
-            .pending_delivery_payloads
-            .free_terminal_pair(&mut retired, decision)
+        let live_keys = pending_delivery_payloads::live_payload_keys(&self.mux.read().snapshot());
+        if let Err(error) =
+            self.pending_delivery_payloads
+                .free_terminal_pair(&mut retired, decision, &live_keys)
         {
             if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
                 tab.pending_delivery = retired.take();

@@ -1,9 +1,15 @@
+use crate::grant_store::Floors;
 use crate::*;
-use codeterm_entitlements::{LimitGate, Phase, Policy, Refusal, TimeState, Verdict, VerifiedGrant};
+use codeterm_entitlements::{
+    EntitlementAuthority, LimitGate, Refusal, RevisionFloor, TimeState, Verdict, VerifiedGrant,
+};
 use parking_lot::Mutex;
 use serde::Serialize;
 use std::{
-    sync::Arc,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
     time::{Duration, Instant},
 };
 
@@ -12,14 +18,22 @@ pub struct Snapshot {
     pub entitlements: Entitlements,
     pub stale: bool,
     pub access: Option<Access>,
+    /// No verified answer yet for an account last seen paid: the UI may defer showing locks.
+    pub checking: bool,
     #[serde(skip)]
     pub grant: Option<Verdict>,
 }
+
+/// Failure bound for the checking state when the first refresh never answers.
+pub const CHECKING_DEADLINE_SECS: u64 = 15;
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum RefreshEvent {
     SignIn,
     Focus,
+    Explicit,
     CheckoutReturned,
+    /// The verdict reached `refresh_after` while the daemon ran.
+    Deadline,
 }
 #[derive(Default)]
 struct Cache {
@@ -31,6 +45,7 @@ struct Cache {
     observed: bool,
     verified: Option<VerifiedGrant>,
     loaded: bool,
+    checking_until: Option<u64>,
 }
 #[derive(Clone)]
 pub struct Billing {
@@ -39,12 +54,12 @@ pub struct Billing {
     observer: Option<ProductObserver>,
     grants: Option<Grants>,
     clock: Arc<dyn Fn() -> u64 + Send + Sync>,
+    observed: Arc<AtomicU64>,
+    rearm: Arc<tokio::sync::Notify>,
 }
 #[derive(Clone)]
 struct Grants {
-    phase: Phase,
-    enforcing: bool,
-    policy: Policy,
+    authority: Arc<dyn EntitlementAuthority>,
     installation_id: String,
     store: Arc<dyn GrantStore>,
 }
@@ -61,6 +76,8 @@ impl Billing {
                     .unwrap_or_default()
                     .as_secs()
             }),
+            observed: Arc::new(AtomicU64::new(0)),
+            rearm: Arc::new(tokio::sync::Notify::new()),
         }
     }
     pub fn with_grants(
@@ -68,17 +85,11 @@ impl Billing {
         installation_id: &codeterm_account::InstallationId,
         store: Arc<dyn GrantStore>,
     ) -> Result<Self> {
-        if let Some(activation) = crate::grant_activation::current() {
-            self.grants = Some(Grants {
-                phase: activation.phase,
-                enforcing: codeterm_entitlements::enforcing(Some(&activation)),
-                policy: activation
-                    .policy()
-                    .map_err(|error| format!("Invalid compiled grant policy: {error:?}"))?,
-                installation_id: installation_id.as_str().into(),
-                store,
-            });
-        }
+        self.grants = Some(Grants {
+            authority: codeterm_entitlements::pinned(),
+            installation_id: installation_id.as_str().into(),
+            store,
+        });
         Ok(self)
     }
     #[cfg(test)]
@@ -90,33 +101,101 @@ impl Billing {
         clock: Arc<dyn Fn() -> u64 + Send + Sync>,
     ) -> Self {
         self.grants = Some(Grants {
-            phase: activation.phase,
-            enforcing: codeterm_entitlements::enforcing(Some(&activation)),
-            policy: activation.policy().unwrap(),
+            authority: Arc::new(codeterm_entitlements::PinnedAuthority::new(activation)),
             installation_id: installation_id.into(),
             store,
         });
         self.clock = clock;
         self
     }
+    /// Wall time that never moves backwards past the latest instant this installation observed.
+    fn now(&self) -> u64 {
+        let wall = (self.clock)();
+        self.observed.fetch_max(wall, Ordering::SeqCst).max(wall)
+    }
+    fn floor_key(&self, grants: &Grants, uid: &str) -> String {
+        Floors::key(uid, &grants.installation_id)
+    }
+    /// Persists the observed time so a restart with the clock set back cannot revive a lease.
+    /// Blocking IO.
+    pub fn observe(&self) {
+        let Some(grants) = &self.grants else {
+            return;
+        };
+        let now = self.now();
+        let mut floors = match grants.store.load_floors() {
+            Ok(Some(floors)) => floors,
+            Ok(None) => return,
+            Err(error) => {
+                log::debug!("Grant floor unreadable: {error}");
+                return;
+            }
+        };
+        if floors.observed_at >= now {
+            return;
+        }
+        floors.observed_at = now;
+        if let Err(error) = grants.store.save_floors(&floors) {
+            log::debug!("Grant floor persistence failed: {error}");
+        }
+    }
     fn recompute(&self, cache: &Cache) -> Snapshot {
         let mut snapshot = cache.snapshot.clone();
         snapshot.grant = cache
             .verified
             .as_ref()
-            .map(|grant| grant.verdict((self.clock)()));
-        if self
-            .grants
+            .map(|grant| grant.verdict(self.now()));
+        snapshot.access = cache.uid.as_ref().map(|_| {
+            Access::from_effective(
+                &snapshot
+                    .grant
+                    .as_ref()
+                    .map_or_else(codeterm_entitlements::compiled_free, Verdict::effective),
+            )
+        });
+        snapshot.entitlements.plan = snapshot
+            .grant
             .as_ref()
-            .is_some_and(|grants| grants.phase == Phase::B)
-        {
-            let access = snapshot
-                .grant
-                .as_ref()
-                .map_or_else(codeterm_entitlements::compiled_free, Verdict::effective);
-            snapshot.access = Some(Access::from_effective(&access));
-        }
+            .filter(|verdict| verdict.state.retains_grant())
+            .map_or(Plan::Free, |verdict| match verdict.label {
+                codeterm_entitlements::Label::Admin | codeterm_entitlements::Label::Pro => {
+                    Plan::Pro
+                }
+                codeterm_entitlements::Label::Sponsor => Plan::Sponsor,
+                codeterm_entitlements::Label::Free => Plan::Free,
+            });
+        snapshot.checking = self.checking(cache);
         snapshot
+    }
+    fn checking(&self, cache: &Cache) -> bool {
+        cache
+            .checking_until
+            .is_some_and(|deadline| self.now() < deadline)
+    }
+    /// Startup: verify the stored grant offline before the first lock projection. Blocking IO.
+    /// Returns the checking deadline when only the paid hint stands between the user and locks.
+    pub fn prime(&self, session: &codeterm_account::Session) -> Option<u64> {
+        let generation = {
+            let mut cache = self.cache.lock();
+            self.bind(&mut cache, Some(session));
+            cache.generation
+        };
+        let grants = self.grants.as_ref()?;
+        let current = self
+            .load_grant(generation, session)
+            .is_some_and(|grant| grant.verdict(self.now()).state.retains_grant());
+        let now = self.now();
+        if current || !grants.store.load_hint().unwrap_or(false) {
+            return None;
+        }
+        let mut cache = self.cache.lock();
+        if cache.generation != generation {
+            return None;
+        }
+        let deadline = now + CHECKING_DEADLINE_SECS;
+        cache.checking_until = Some(deadline);
+        self.rearm.notify_one();
+        Some(deadline)
     }
     pub fn with_observer(mut self, observer: ProductObserver) -> Self {
         self.observer = Some(observer);
@@ -133,14 +212,23 @@ impl Billing {
                     }
                 }
             }
+            if cache.uid.is_some() {
+                if let Some(grants) = &self.grants {
+                    if let Err(error) = grants.store.save_hint(false) {
+                        log::debug!("Plan hint reset failed: {error}");
+                    }
+                }
+            }
             cache.verified = None;
             cache.loaded = false;
+            cache.checking_until = None;
             cache.uid = uid;
             cache.generation += 1;
             cache.snapshot = Snapshot::default();
             cache.last_focus = None;
             cache.checkout_pending = false;
             cache.observed = false;
+            self.rearm.notify_one();
         }
     }
     pub fn snapshot(&self, session: Option<&codeterm_account::Session>) -> Snapshot {
@@ -148,35 +236,41 @@ impl Billing {
         self.bind(&mut cache, session);
         self.recompute(&cache)
     }
-    /// Free-tier limits bind only through a Phase B verdict, or compiled free without one.
+    /// Limits bind through the verified verdict, or compiled free without one. Checking defers
+    /// only how locks are shown; the unsigned hint never relaxes enforcement.
     pub fn limit_gate(&self) -> LimitGate {
-        if !self.grants.as_ref().is_some_and(|grants| grants.enforcing) {
-            return LimitGate::dormant();
-        }
-        let verdict = self
-            .cache
-            .lock()
-            .verified
+        let cache = self.cache.lock();
+        let enforcing = self
+            .grants
             .as_ref()
-            .map(|grant| grant.verdict((self.clock)()));
+            .map_or_else(codeterm_entitlements::enforcing, |grants| {
+                grants.authority.enforcement().enabled
+            });
+        let now = self.now();
+        let verdict = cache.verified.as_ref().map(|grant| grant.verdict(now));
+        let valid_until = cache.verified.as_ref().map(|grant| {
+            let payload = grant.payload();
+            payload
+                .period_end
+                .unwrap_or(payload.expires_at)
+                .min(payload.expires_at)
+        });
+        drop(cache);
         let access = verdict
             .as_ref()
             .map_or_else(codeterm_entitlements::compiled_free, Verdict::effective);
-        LimitGate::new(access, true)
+        LimitGate::new(access, enforcing).with_deadline(valid_until, self.clock.clone())
     }
     pub fn entitlement_allows(
         &self,
         session: Option<&codeterm_account::Session>,
         capability: Capability,
     ) -> bool {
-        let snapshot = self.snapshot(session);
-        if self.grants.is_some() {
-            return capability == Capability::Terminal
-                || snapshot
-                    .access
-                    .is_some_and(|access| access.authority != Authority::Free);
-        }
-        entitlement_allows(&snapshot.entitlements, capability)
+        capability == Capability::Terminal
+            || self
+                .snapshot(session)
+                .access
+                .is_some_and(|access| access.authority != Authority::Free)
     }
     pub async fn refresh(
         &self,
@@ -216,15 +310,32 @@ impl Billing {
                 .and_then(|raw| {
                     crate::grant_store::authenticate(
                         raw,
-                        &grants.policy,
+                        grants.authority.as_ref(),
                         &session.identity.uid,
                         &grants.installation_id,
                         cached.as_ref(),
-                        (self.clock)(),
+                        self.now(),
                     )
                     .err()
                 });
             if matches!(refusal, Some(Refusal::PolicyEpoch | Refusal::Revision)) {
+                if let Some(raw) = result
+                    .as_ref()
+                    .ok()
+                    .and_then(|reading| reading.grant.as_ref())
+                {
+                    let _ = crate::grant_store::authenticate_observed(
+                        raw,
+                        grants.authority.as_ref(),
+                        &session.identity.uid,
+                        &grants.installation_id,
+                        cached.as_ref(),
+                        self.now(),
+                        |issued_at| {
+                            self.observed.fetch_max(issued_at, Ordering::SeqCst);
+                        },
+                    );
+                }
                 let retry = self.provider.entitlements(session).await;
                 if retry.is_ok() {
                     result = retry;
@@ -260,7 +371,7 @@ impl Billing {
             && !cache
                 .verified
                 .as_ref()
-                .is_some_and(|grant| grant.verdict((self.clock)()).state == TimeState::Stale)
+                .is_some_and(|grant| grant.verdict(self.now()).state == TimeState::Stale)
             && !cache.checkout_pending
             && cache
                 .last_focus
@@ -286,15 +397,30 @@ impl Billing {
         }
         if !cache.loaded {
             cache.loaded = true;
+            let floors = grants.store.load_floors();
+            if let Ok(Some(floors)) = &floors {
+                self.observed
+                    .fetch_max(floors.observed_at, Ordering::SeqCst);
+            }
+            let key = self.floor_key(grants, &session.identity.uid);
             match grants.store.load() {
                 Ok(Some(raw)) => match crate::grant_store::authenticate(
                     &raw,
-                    &grants.policy,
+                    grants.authority.as_ref(),
                     &session.identity.uid,
                     &grants.installation_id,
                     None,
-                    (self.clock)(),
-                ) {
+                    self.now(),
+                )
+                .and_then(|verified| match &floors {
+                    Ok(Some(floors)) => floors
+                        .revisions
+                        .get(&key)
+                        .ok_or(Refusal::Revision)
+                        .and_then(|floor| floor.admits(&verified))
+                        .map(|()| verified),
+                    Ok(None) | Err(_) => Err(Refusal::Revision),
+                }) {
                     Ok(verified) => cache.verified = Some(verified),
                     Err(refusal) => {
                         log::debug!("Stored grant refused: {refusal:?}");
@@ -321,19 +447,42 @@ impl Billing {
         result: Result<Reading>,
     ) -> Snapshot {
         let mut cache = self.cache.lock();
-        let mut product_event = None;
+        let previous = cache.snapshot.entitlements.clone();
+        let observed = cache.observed;
+        let mut refreshed = false;
         if cache.generation == generation {
             if let Ok(reading) = &result {
+                cache.checking_until = None;
                 if let (Some(grants), Some(session)) = (&self.grants, session) {
+                    let key = self.floor_key(grants, &session.identity.uid);
+                    let floors = grants.store.load_floors();
+                    if let Ok(Some(floors)) = &floors {
+                        self.observed
+                            .fetch_max(floors.observed_at, Ordering::SeqCst);
+                    }
+                    if floors.is_err() {
+                        cache.verified = None;
+                    }
                     let accepted = reading.grant.as_ref().map(|raw| {
-                        crate::grant_store::authenticate(
+                        crate::grant_store::authenticate_observed(
                             raw,
-                            &grants.policy,
+                            grants.authority.as_ref(),
                             &session.identity.uid,
                             &grants.installation_id,
                             cache.verified.as_ref(),
-                            (self.clock)(),
+                            self.now(),
+                            |issued_at| {
+                                self.observed.fetch_max(issued_at, Ordering::SeqCst);
+                            },
                         )
+                        .and_then(|verified| match &floors {
+                            Ok(floors) => floors
+                                .as_ref()
+                                .and_then(|floors| floors.revisions.get(&key))
+                                .map_or(Ok(()), |floor| floor.admits(&verified))
+                                .map(|()| verified),
+                            Err(_) => Err(Refusal::Revision),
+                        })
                     });
                     match accepted {
                         Some(Ok(verified)) => {
@@ -342,6 +491,14 @@ impl Billing {
                                     log::debug!("Grant persistence failed: {error}");
                                 }
                             }
+                            let mut floors = floors.ok().flatten().unwrap_or_default();
+                            let raised =
+                                RevisionFloor::raised(floors.revisions.get(&key), &verified);
+                            floors.revisions.insert(key, raised);
+                            floors.observed_at = floors.observed_at.max(self.now());
+                            if let Err(error) = grants.store.save_floors(&floors) {
+                                log::debug!("Grant floor persistence failed: {error}");
+                            }
                             cache.verified = Some(verified);
                         }
                         Some(Err(refusal)) => {
@@ -349,8 +506,15 @@ impl Billing {
                         }
                         None => log::debug!("Reply has no grant; retaining cached grant"),
                     }
-                } else if reading.grant.is_some() {
-                    log::debug!("Detached grant ignored: compiled activation is absent");
+                    self.observe();
+                    let now = self.now();
+                    let paid = cache.verified.as_ref().is_some_and(|grant| {
+                        grant.verdict(now).effective().authority
+                            != codeterm_entitlements::Authority::Free
+                    });
+                    if let Err(error) = grants.store.save_hint(paid) {
+                        log::debug!("Plan hint persistence failed: {error}");
+                    }
                 }
             }
             match result {
@@ -367,44 +531,36 @@ impl Billing {
                     access,
                     ..
                 }) => {
-                    let changed = !cache.observed
-                        || cache.snapshot.entitlements.plan != entitlements.plan
-                        || cache.snapshot.entitlements.status != entitlements.status;
+                    refreshed = true;
                     cache.observed = true;
-                    if changed {
-                        product_event = Some(ProductEvent::SubscriptionChanged {
-                            plan: entitlements.plan,
-                            status: entitlements.status,
-                        });
-                    }
                     cache.snapshot = Snapshot {
                         entitlements,
                         stale: false,
                         access: Some(access),
+                        checking: false,
                         grant: None,
                     };
                 }
                 Err(_) => cache.snapshot.stale = true,
             }
         }
-        if self
-            .grants
-            .as_ref()
-            .is_some_and(|grants| grants.phase == Phase::A)
-        {
-            if let (Some(grant), Some(access)) = (&cache.verified, &cache.snapshot.access) {
-                for divergence in codeterm_entitlements::shadow(
-                    &grant.verdict((self.clock)()),
-                    &access.shadow_access(),
-                ) {
-                    log::debug!("Grant shadow divergence: {divergence:?}");
-                }
-            }
-        }
         let snapshot = self.recompute(&cache);
+        if refreshed {
+            cache.snapshot.entitlements.plan = snapshot.entitlements.plan;
+        }
         drop(cache);
-        if let (Some(event), Some(observer)) = (product_event, &self.observer) {
-            observer(event);
+        self.rearm.notify_one();
+        if refreshed
+            && (!observed
+                || previous.plan != snapshot.entitlements.plan
+                || previous.status != snapshot.entitlements.status)
+        {
+            if let Some(observer) = &self.observer {
+                observer(ProductEvent::SubscriptionChanged {
+                    plan: snapshot.entitlements.plan,
+                    status: snapshot.entitlements.status,
+                });
+            }
         }
         snapshot
     }
@@ -430,3 +586,6 @@ impl Billing {
         cache.checkout_pending = true;
     }
 }
+
+mod deadlines;
+pub use deadlines::DeadlineTick;

@@ -1,0 +1,22 @@
+schema_version: 1
+name: Service health
+note: Diagnose outages and report the result
+owner: team
+inputs:
+  url:
+    type: string
+    description: Service health endpoint
+    default: https://example.com/health
+pipeline:
+  trigger: {type: schedule, every: 1m}
+  steps:
+    - name: health
+      input: text
+      uses: http
+      with: {url: '{{url}}', timeout_ms: 3000}
+      on: {up: stop, down: diagnose, failed: diagnose}
+    - name: diagnose
+      input: text
+      run: echo inspect-service
+      on: {done: stop, failed: stop}
+  result: {to: notify}

@@ -49,6 +49,51 @@ fn shell_command_state_tracker_streaming_and_nonce_wiring() {
 }
 
 #[test]
+fn shell_command_state_follows_accepted_command_completion_after_rejected_text() {
+    use crate::command_detection::{CommandLifecycle, ShellCapabilityTracker};
+
+    let mut tracker = ShellCapabilityTracker::new();
+    tracker.feed(
+        "pty",
+        Some("own".into()),
+        b"\x1b]633;E;cmd;own\x07\x1b]633;C\x07",
+    );
+    assert_eq!(
+        tracker.command_state("pty").activity,
+        ShellActivity::Running
+    );
+    let events = tracker.feed(
+        "pty",
+        Some("own".into()),
+        b"\x1b]633;E;foreign;other\x07\x1b]633;D;7\x07",
+    );
+    assert!(matches!(
+        events.as_slice(),
+        [CommandLifecycle::Finished {
+            exit_code: Some(7),
+            ..
+        }]
+    ));
+    assert_eq!(
+        tracker.command_state("pty"),
+        ShellCommandState {
+            activity: ShellActivity::Idle,
+            last_exit_code: Some(7)
+        }
+    );
+
+    tracker.feed(
+        "pty",
+        Some("own".into()),
+        b"\x1b]633;E;cmd;own\x07\x1b]633;C\x07\x1b]633;D;0\x07\x1b]633;E;next;own\x07\x1b]633;C\x07",
+    );
+    assert_eq!(
+        tracker.command_state("pty").activity,
+        ShellActivity::Running
+    );
+}
+
+#[test]
 fn shell_command_state_prompt_start_finish_and_last_exit() {
     let mut model = ShellCommandStateModel::default();
     feed(&mut model, b"\x1b]633;A\x07", Some("own"));

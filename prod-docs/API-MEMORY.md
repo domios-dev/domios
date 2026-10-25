@@ -36,6 +36,10 @@ REST endpoints for memory items, retrieval, graph operations, workers, calibrati
 | GET | `/api/mem/wake-up` | `?budget=N&l0_only=true&no_l0=true&workspace=<ws>&explain=true` | Return L0 + L1 critical context. Workspace-scoped items receive a `+0.5` L1 boost; `explain=true` appends per-item score details. The configured L1 budget defaults to 300 tokens. |
 | GET | `/api/mem/stats` | — | Return kind counts, totals, and index health. |
 | POST | `/api/mem/reembed` | — | Rebuild embeddings. |
+| GET | `/api/mem/embedder` | — | Active embedder status: provider, model, dimension, index stamp, vectors, vector-pending count and re-embed progress. |
+| GET | `/api/mem/embedder/providers` | — | Embedder providers and models with key presence and any remote-gate refusal, plus the status. |
+| GET | `/api/mem/embedder/preview` | `?provider=P&model=M&dimension=N` | What a switch would re-embed (`plan`, `total`) and any refusal; changes nothing. |
+| POST | `/api/mem/embedder/use` | `{provider, model?, dimension?}` | Switch the embedder and re-embed in the background; 409 `{error:{message,hints}}` when the remote gate refuses. Progress arrives as the `mem-embedder-changed` event. |
 | POST | `/api/mem/learn` | `{...}` | Learn from agent or user context. |
 | POST | `/api/mem/promote/{id}` | — | Promote a learning to a memory item. |
 | POST | `/api/mem/check-duplicate` | `{...}` | Check for duplicate memory. |
@@ -118,4 +122,4 @@ Memory skills, workers, sync, and dreaming: `domios docs MEMORY-SERVICES`. Servi
 
 Connection failures use JSON `{error: {code, message}}`; codes include unavailable, authentication_failed, unknown_adapter, invalid_model and invalid_request. Token values are never returned.
 
-<!-- revision: 20 -->
+<!-- revision: 21 -->

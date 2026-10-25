@@ -1,0 +1,27 @@
+# Check and apply this file with codeterm blueprint.
+schema_version: 1
+name: '{{name}}'
+note: Keep watching a bounded retry process until its pass result arrives.
+inputs:
+  name:
+    type: string
+    description: Short Blueprint name, 3 to 40 characters
+  passed_pattern:
+    type: string
+    description: Passed pattern
+  retry_status_probe:
+    type: string
+    description: Retry status probe
+watch:
+  probe: '{{retry_status_probe}}'
+  question: classify-retry-result
+  buckets:
+  - waiting
+  - passed
+  matches:
+    passed: '{{passed_pattern}}'
+  until: passed
+  timeout: 1h
+  routes:
+    waiting: none
+    passed: notify

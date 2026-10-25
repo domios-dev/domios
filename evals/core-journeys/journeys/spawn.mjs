@@ -24,7 +24,7 @@ export async function singleAgent(ctx, provider) {
   const check = (name, body) => ctx.check("J1", name, provider.id, body);
   const id = await check("spawn_ready", async () => {
     const tab = await spawnOne(ctx, provider);
-    const ready = await waitReady(ctx, tab);
+    const ready = await waitReady(ctx, tab, { allowFirstTurn: true });
     return { summary: `${tab} ${ready.boot_stage}`, evidence: { tab, boot_stage: ready.boot_stage, backing: ready.backing?.kind } };
   }).then((value) => value?.evidence?.tab);
   if (!id) return;

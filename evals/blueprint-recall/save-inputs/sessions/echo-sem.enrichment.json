@@ -1,0 +1,99 @@
+{
+  "duration_api_ms": 12957,
+  "stop_reason": "end_turn",
+  "session_id": "40bf725e-982a-4344-ba0d-8c44c15bc25f",
+  "total_cost_usd": 0.030476000000000003,
+  "usage": {
+    "input_tokens": 9,
+    "cache_creation_input_tokens": 11426,
+    "cache_read_input_tokens": 0,
+    "output_tokens": 1523,
+    "output_tokens_details": {
+      "thinking_tokens": 1397
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 11426,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "not_available",
+    "iterations": [
+      {
+        "input_tokens": 9,
+        "output_tokens": 1523,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 11426,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 11426
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-haiku-4-5-20251001": {
+      "inputTokens": 9,
+      "outputTokens": 1523,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 11426,
+      "webSearchRequests": 0,
+      "costUSD": 0.030476000000000003,
+      "contextWindow": 200000,
+      "maxOutputTokens": 32000,
+      "thinkingTokens": 1397,
+      "canonicalModel": "claude-haiku-4-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 1,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "WHAT: Monitors command output by echoing a specific word and checking if it appears in results. Runs every 30 seconds until the word is detected or 10 minutes pass. When the word is found, sends a notification. Useful for watching for specific outputs or validating that a process produces expected text. || INTENT: Monitor command output until a specific word appears || INTENT: Check if a process prints expected text within timeout || INTENT: Watch for specific text and get notified when found || INTENT: Periodically check command output and alert on match",
+  "ttft_ms": 13680,
+  "type": "result",
+  "duration_ms": 14473,
+  "uuid": "bbb06a9b-2c06-4539-878d-52c01af4cd78",
+  "ttft_stream_ms": 2167,
+  "time_to_request_ms": 1486,
+  "first_content_frame_ms": 2167,
+  "queued_turn_count": 0,
+  "result_index": 0
+}

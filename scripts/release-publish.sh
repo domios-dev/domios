@@ -6,7 +6,7 @@ set -euo pipefail
 RUN_ID="${1:?usage: release-publish.sh <dry-run run id> <vX.Y.Z> rehearsal|publish}"
 TAG="${2:?release tag vX.Y.Z required}"
 MODE="${3:?rehearsal or publish required}"
-SOURCE_REPO="${GITHUB_REPOSITORY:-rollacode/codeterm}"
+SOURCE_REPO="$(node scripts/source-repository.mjs)"
 MIRROR_REPO=rollacode/codeterm-releases
 : "${GH_TOKEN:?GH_TOKEN must write $SOURCE_REPO}" "${MIRROR_TOKEN:?MIRROR_TOKEN must write $MIRROR_REPO}"
 [[ "$TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]] || { echo "::error::tag must be vX.Y.Z (got '$TAG')"; exit 1; }
@@ -41,7 +41,7 @@ step "drafts"
 gh release view "$TAG" --repo "$SOURCE_REPO" >/dev/null 2>&1 || gh release create "$TAG" --repo "$SOURCE_REPO" --target "$SHA" \
   --draft --title "Domios $TAG" --notes "See the assets to download this version and install."
 GH_TOKEN="$MIRROR_TOKEN" gh release view "$TAG" --repo "$MIRROR_REPO" >/dev/null 2>&1 || GH_TOKEN="$MIRROR_TOKEN" gh release create "$TAG" \
-  --repo "$MIRROR_REPO" --draft --title "Domios $TAG" --notes "Auto-mirrored from rollacode/codeterm. See the source repo for full release notes."
+  --repo "$MIRROR_REPO" --draft --title "Domios $TAG" --notes "Auto-mirrored from $SOURCE_REPO. See the source repo for full release notes."
 
 step "retained bytes to both drafts, read back against their receipts"
 PUBLISH_MIRROR=true node scripts/release-promote.mjs publish "$TAG" "$SHA" "$RUN_ID" "$work/promote"

@@ -19,12 +19,35 @@ function fixture(result: unknown = {}) {
 }
 
 describe("capabilities HTTP transport", () => {
-  it("has all 95 lane commands and rejects unregistered schema commands", async () => {
+  it("has all 96 lane commands and rejects unregistered schema commands", async () => {
     const { transport, calls } = fixture();
-    expect(Object.keys(transport)).toHaveLength(95);
+    expect(Object.keys(transport)).toHaveLength(96);
     await expect(invokeCapability(transport, "arbitrary_rust_command")).rejects.toThrow("No audited HTTP route");
     await expect(invokeCapability(transport, "toString")).rejects.toThrow("No audited HTTP route");
     expect(calls).toEqual([]);
+  });
+
+  it("keeps Account Mesh commands on local-only account routes", async () => {
+    const { transport, calls } = fixture({ ok: true });
+    const target = { installation_id: "laptop", key_id: "k".repeat(64), key_generation: 1, slot_revision: 3 };
+    await transport.account_mesh_state();
+    await transport.account_mesh_enroll();
+    await transport.account_mesh_list();
+    await transport.account_mesh_rename_self({ expectedMetadataRevision: 2, displayName: "Desk" });
+    await transport.account_mesh_revoke({ target });
+    await transport.account_mesh_session_revoke({ installationId: "laptop" });
+    await transport.account_mesh_session_revoke({});
+    await transport.account_mesh_acknowledge_limit({ requestId: "r1" });
+    expect(calls).toEqual([
+      ["local", "GET", "/api/account/mesh", undefined],
+      ["local", "POST", "/api/account/mesh/enroll", undefined],
+      ["local", "POST", "/api/account/mesh/list", undefined],
+      ["local", "POST", "/api/account/mesh/rename", { expected_metadata_revision: 2, display_name: "Desk" }],
+      ["local", "POST", "/api/account/mesh/revoke", { target }],
+      ["local", "POST", "/api/account/mesh/session-revoke", { installation_id: "laptop" }],
+      ["local", "POST", "/api/account/mesh/session-revoke", { installation_id: null }],
+      ["local", "POST", "/api/account/mesh/limit-notice/ack", { request_id: "r1" }],
+    ]);
   });
 
   it("reads heartbeat projections separately from queued messages", async () => {

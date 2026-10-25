@@ -24,9 +24,8 @@ use super::store::MemItem;
 
 pub(crate) mod graph_source;
 mod lexical;
-#[cfg(feature = "embeddings")]
 mod scoped;
-#[cfg(feature = "embeddings")]
+use super::embedder::{ActiveEmbedder, StampedVector};
 pub(crate) use scoped::scoped_vectors;
 
 const STOP_WORDS: &[&str] = &[
@@ -631,19 +630,11 @@ pub fn hybrid_rrf_with_config(
     cfg: &SearchConfig,
 ) -> Result<Vec<SearchHit>, String> {
     let embedding = query_embedding(&q.query);
-    hybrid_rrf_with_embedding(conn, q, blobs_dir, cfg, embedding.as_deref())
+    hybrid_rrf_with_embedding(conn, q, blobs_dir, cfg, embedding.as_ref())
 }
 
-pub(crate) fn query_embedding(query: &str) -> Option<Vec<f32>> {
-    #[cfg(feature = "embeddings")]
-    {
-        super::embeddings::query_embed(query).ok()
-    }
-    #[cfg(not(feature = "embeddings"))]
-    {
-        let _ = query;
-        None
-    }
+pub(crate) fn query_embedding(query: &str) -> Option<StampedVector> {
+    ActiveEmbedder::global().query(query)
 }
 
 pub(crate) fn hybrid_rrf_with_embedding(
@@ -651,11 +642,9 @@ pub(crate) fn hybrid_rrf_with_embedding(
     q: &SearchQuery,
     blobs_dir: &Path,
     cfg: &SearchConfig,
-    embedding: Option<&[f32]>,
+    embedding: Option<&StampedVector>,
 ) -> Result<Vec<SearchHit>, String> {
-    #[cfg(not(feature = "embeddings"))]
-    let _ = embedding;
-    if matches!(cfg.mode, SearchMode::VectorFirstRerank) {
+    if matches!(cfg.mode, SearchMode::VectorFirstRerank) && embedding.is_some() {
         return vector_first_with_embedding(conn, q, blobs_dir, cfg, embedding);
     }
     let limit = q.limit.unwrap_or(5).clamp(1, 50);
@@ -667,7 +656,6 @@ pub(crate) fn hybrid_rrf_with_embedding(
     };
     let mut fts_hits = run_with_config(conn, &wide_query, blobs_dir, cfg).unwrap_or_default();
 
-    #[cfg(feature = "embeddings")]
     let vec_hits = {
         let pool = limit * 5;
         let raw = embedding
@@ -703,8 +691,6 @@ pub(crate) fn hybrid_rrf_with_embedding(
         }
         out
     };
-    #[cfg(not(feature = "embeddings"))]
-    let vec_hits: Vec<SearchHit> = Vec::new();
 
     if fts_hits.is_empty() && vec_hits.is_empty() {
         return Ok(Vec::new());
@@ -843,7 +829,7 @@ pub fn run_vector_first(
     cfg: &SearchConfig,
 ) -> Result<Vec<SearchHit>, String> {
     let embedding = query_embedding(&q.query);
-    vector_first_with_embedding(conn, q, blobs_dir, cfg, embedding.as_deref())
+    vector_first_with_embedding(conn, q, blobs_dir, cfg, embedding.as_ref())
 }
 
 fn vector_first_with_embedding(
@@ -851,20 +837,15 @@ fn vector_first_with_embedding(
     q: &SearchQuery,
     blobs_dir: &Path,
     cfg: &SearchConfig,
-    embedding: Option<&[f32]>,
+    embedding: Option<&StampedVector>,
 ) -> Result<Vec<SearchHit>, String> {
-    #[cfg(not(feature = "embeddings"))]
-    let _ = embedding;
     let limit = q.limit.unwrap_or(5).clamp(1, 50);
-    #[cfg(feature = "embeddings")]
     let raw = {
         let pool = limit * cfg.vector_rerank_pool_multiplier.max(1);
         embedding
             .and_then(|v| scoped_vectors(conn, v, pool, q, cfg).ok())
             .unwrap_or_default()
     };
-    #[cfg(not(feature = "embeddings"))]
-    let raw: Vec<(String, f64)> = Vec::new();
 
     if raw.is_empty() {
         return Ok(Vec::new());

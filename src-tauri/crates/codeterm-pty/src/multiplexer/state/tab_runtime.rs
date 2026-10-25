@@ -14,7 +14,10 @@ impl MultiplexerState {
         pending_delivery: Option<PendingDeliveryRecord>,
     ) -> String {
         let tab_id = short_id();
+        let created_at_ms = self.next_created_at_ms();
         let tab = Tab {
+            locked: false,
+            created_at_ms,
             id: tab_id.clone(),
             sort_order: 0,
             pty_id: None,
@@ -204,6 +207,7 @@ impl MultiplexerState {
         title: &str,
         level: TitleLevel,
     ) -> Result<(), String> {
+        self.refuse_locked_tab(tab_id)?;
         let tab = self
             .tabs
             .get_mut(tab_id)
@@ -262,6 +266,7 @@ impl MultiplexerState {
         tab_id: &str,
         description: Option<String>,
     ) -> Result<(), String> {
+        self.refuse_locked_tab(tab_id)?;
         let tab = self
             .tabs
             .get_mut(tab_id)

@@ -21,11 +21,12 @@ pub use records::{
     AmendmentRecord, BatchFence, BlueprintJournalEntry, BlueprintJournalWrite, BucketDefinition,
     CaptureRecord, CommandParameters, CommandResultRecord, CommandStatus, DefinitionProvenance,
     DefinitionUpdate, EscalateTarget, Fence, HandlerAction, HandlerDefinition, HandlerResultRecord,
-    HandlerStatus, MutationOutcome, NewTransition, ObserveKind, ObserveSource, RunRecord,
-    RuntimeOutcome, SafeKind, ScheduleUpdate, SentinelCommit, SentinelCreate, SentinelEviction,
-    SentinelId, SentinelIdentity, SentinelImport, SentinelRecord, SentinelScope, SourceKind,
-    StageDefinition, StageRuntime, StageSource, StoredDefinition, StoredSentinel, TargetIdentity,
-    TransitionRecord, MAX_SENTINEL_BATCH, MAX_SENTINEL_LINEAGE, MAX_SENTINEL_RECORDS, OTHER_BUCKET,
+    HandlerStatus, MutationOutcome, NestedClaimParent, NewTransition, ObserveKind, ObserveSource,
+    RunRecord, RuntimeOutcome, SafeKind, ScheduleUpdate, SentinelCommit, SentinelCreate,
+    SentinelEviction, SentinelId, SentinelIdentity, SentinelImport, SentinelRecord, SentinelScope,
+    SourceKind, StageDefinition, StageRuntime, StageSource, StoredDefinition, StoredSentinel,
+    TargetIdentity, TransitionRecord, MAX_SENTINEL_BATCH, MAX_SENTINEL_LINEAGE,
+    MAX_SENTINEL_RECORDS, OTHER_BUCKET,
 };
 
 impl Storage {
@@ -314,6 +315,25 @@ impl SentinelRepository {
         let cost = updates.iter().map(ScheduleUpdate::cost).sum();
         self.storage
             .submit_mutation(cost, move |cx| runtime::schedule(cx, updates))
+    }
+
+    pub fn set_admission(
+        &self,
+        id: SentinelId,
+        generation: u64,
+        advance_generation: bool,
+        admission_json: String,
+    ) -> Mutation {
+        if admission_json.len() > 4 * 1024 * 1024 {
+            return refused(StorageError::invalid(
+                "blueprint admission",
+                "checkpoint exceeds 4 MiB",
+            ));
+        }
+        self.storage
+            .submit_mutation(id.as_str().len() + admission_json.len(), move |cx| {
+                runtime::set_admission(cx, &id, generation, advance_generation, &admission_json)
+            })
     }
 
     /// Records a lease's non-transition outcome while its generation is still current.

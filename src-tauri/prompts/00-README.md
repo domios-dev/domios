@@ -70,6 +70,7 @@ All in-binary prompt sources live in `src-tauri/prompts/`. Their loader constant
 | `mem_extraction.md` | `MEM_EXTRACTION` | Memory worker | `{id}` `{title}` `{body}` | `mem/auto_extract.rs` `build_extraction_prompt()` — entity/relation extraction by haiku |
 | `dreaming_rem.md` | `DREAMING_REM` | Memory worker | — | `mem/dreaming.rs` `spawn_rem_worker()` — REM-phase memory consolidation |
 | `mem_rerank.md` | `MEM_RERANK` | Direct API call | `{query}` `{items}` | `mem/rerank.rs` `build_rerank_prompt()` — POST to Anthropic/OpenAI for search reranking |
+| `blueprint_enrichment.md` | `BLUEPRINT_ENRICHMENT` | Memory worker | `{document}` `{gists}` | `mem/blueprint_library/enrichment.rs` `enrichment_task()` — hidden worker writes a retrieval-only summary and extra intents for a kept Blueprint |
 | `seed/identity_placeholder.md` | `IDENTITY_BODY` | Bundled seed | — | private `codeterm-mem/src/seed.rs` constant |
 | `seed/rule_never_edit_autogen.md` | `RULE_NEVER_EDIT_AUTOGEN` | Bundled seed | — | private `codeterm-mem/src/seed.rs` constant |
 | `seed/rule_save_to_mem.md` | `RULE_SAVE_TO_MEM` | Bundled seed | — | private `codeterm-mem/src/seed.rs` constant |
@@ -106,11 +107,12 @@ against `generated/cli/cli-manifest.json`, so a rename cannot leave dead guidanc
 references, never prompt wording.
 
 ## Memory worker prompts
-Four of the prompts above (`worker_task_preamble`, `mem_extraction`, `dreaming_rem`, `mem_rerank`) are owned by the memory subsystem and used at runtime, but they are still plain `.md` files like everything else — no inline string literals. Quick map:
+Five of the prompts above (`worker_task_preamble`, `mem_extraction`, `dreaming_rem`, `mem_rerank`, `blueprint_enrichment`) are owned by the memory subsystem and used at runtime, but they are still plain `.md` files like everything else — no inline string literals. Quick map:
 
 - **`worker_task_preamble.md`** — wrapper applied by `workers::build_worker_task()` to every headless memory worker. Sets the "you are a Graph Worker" framing, tells the worker how to call back via `domios mem worker progress|report`, then injects the inner `{task}`.
 - **`mem_extraction.md`** — inner task body for the auto-extraction worker spawned on `mem save` unless `skip_extract` is set. The code excludes only `MemKind::Summary`; all other kinds are eligible. Worker extracts people, projects, decisions, problems, area; calls back via `domios mem graph` commands. The body is truncated to 50,000 chars before substitution.
 - **`dreaming_rem.md`** — inner task body for REM, the only LLM-driven dreaming phase; Light, Deep, Normalize, and Calibration run as server-side SQL in `mem_dream` before `dreaming::spawn_rem_worker()` fires it. The bundled `mem-dreaming-auto` cron triggers it daily (see RUNTIME-CONFIG). A capped stage checklist opens it; it uses CLI JSON only, never scripts: a hidden run cannot answer approvals. Stages: A structural cleanup (A.1 from hub `clusters`; A.3 merges duplicates with the reversible `mem merge`, never `mem delete`), B diary + worker report listing merged and archived ids with reasons, C maintenance, D read-only calibration summary. The supervisor runs the calibration sweep and gated stale archive; STAGE D only reads `mem calibration log`. Server-side gates and caps: `domios docs API-MEMORY`.
+- **`blueprint_enrichment.md`** — inner task body for the Blueprint enrichment worker. It sees only the stored, value-abstracted YAML and the step gists, and reports one `WHAT: … || INTENT: …` line through `domios mem worker report`. The result is untrusted and used for retrieval only, keyed by the document hash.
 - **`mem_rerank.md`** — sent via raw `reqwest` POST from `mem/rerank.rs` to `api.anthropic.com/v1/messages` (`call_anthropic`) or the OpenAI equivalent. The only place in Domios that talks to a model API directly. Used when search needs higher precision than FTS5 + vector cosine alone. The `{items}` placeholder is built in Rust by formatting each `SearchHit` and joining them.
 
 ## Plugin-spawned agent prompts

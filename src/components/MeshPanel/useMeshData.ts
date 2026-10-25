@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke, listen } from "../../lib/bridge";
-import type { MeshStatus, MeshPeersResponse, PairedPeer, DiscoveredPeer } from "../../lib/types";
+import type { MeshStatus, MeshPeersResponse, PairedPeer } from "../../lib/types";
 import { DEV_BUILD } from "../../lib/devBuild";
+import { notifyMeshPeersLoaded } from "../../lib/localInstanceName";
 import type { Service } from "./types";
 import { buildHash } from "../../lib/buildStamp";
 import {
@@ -44,6 +45,8 @@ export interface MeshData {
   services: Service[];
   loading: boolean;
   error: string | null;
+  /** True once a live load or the cache supplied real data; the defaults are placeholders. */
+  loaded: boolean;
 }
 
 const DEFAULT_DATA: MeshData = {
@@ -52,6 +55,7 @@ const DEFAULT_DATA: MeshData = {
   services: [],
   loading: true,
   error: null,
+  loaded: false,
 };
 
 const CACHE_SCOPE = "codeterm:mesh-tab-cache:v3";
@@ -215,9 +219,8 @@ export function useMeshData(refreshKey: number): MeshDataResult {
       const status = await invoke<MeshStatus>("mesh_get_status").catch(
         () => null,
       );
-      const meshPeers = await invoke<MeshPeersResponse>("mesh_list_peers").catch(
-        () => ({ paired: [], discovered: [], incoming_requests: [], local_instance_name: "" }),
-      );
+      // A failed peer list is an error state, never an authoritative "0 peers".
+      const meshPeers = await invoke<MeshPeersResponse>("mesh_list_peers");
       const paired: PeerStatus[] = (meshPeers.paired ?? []).map(
         (p: PairedPeer) => ({
           instance_id: p.instance_id,
@@ -230,26 +233,6 @@ export function useMeshData(refreshKey: number): MeshDataResult {
           relay_protocol_version: p.relay_protocol_version,
         }),
       );
-
-      // Vouched-but-not-yet-paired peers: render in the Paired section with "will auto-pair when online" so users don't see a manual button.
-      const pairedIds = new Set(paired.map((p) => p.instance_id));
-      const pairedNamesById = new Map(paired.map((p) => [p.instance_id, p.name] as const));
-      const pending: PeerStatus[] = (meshPeers.discovered ?? [])
-        .filter((d: DiscoveredPeer) => d.vouched_by.length > 0 && !pairedIds.has(d.instance_id))
-        .map((d: DiscoveredPeer) => ({
-          instance_id: d.instance_id,
-          name: d.instance_name,
-          ip: d.addresses[0]?.ip ?? "",
-          api_port: d.api_port,
-          online: false,
-          access_level: "pending",
-          last_seen: null,
-          relay_protocol_version: 0,
-          pending: true,
-          vouched_by_names: d.vouched_by
-            .map((id) => pairedNamesById.get(id))
-            .filter((n): n is string => Boolean(n)),
-        }));
 
       // (stale-flagged) services instead of vanishing (#119/#127).
       const remotePromises = paired
@@ -300,12 +283,13 @@ export function useMeshData(refreshKey: number): MeshDataResult {
           name: status?.instance_name ?? "this",
           ip: status?.local_ip ?? status?.tailscale_ip ?? "",
         },
-        peers: [...peersWithServiceState, ...pending],
+        peers: peersWithServiceState,
         services: mergeServicesView(local, remoteWithCached),
       };
       liveAcceptedRef.current = true;
-      setData({ ...next, loading: false, error: null });
+      setData({ ...next, loading: false, error: null, loaded: true });
       void writeCache(next);
+      notifyMeshPeersLoaded();
     } catch (e) {
       refreshFailedRef.current = true;
       if (DEV_BUILD) console.debug("[mesh] local inventory fetch failed", e);
@@ -330,6 +314,7 @@ export function useMeshData(refreshKey: number): MeshDataResult {
         services: cachedServices(cached.services),
         loading: !refreshFailedRef.current,
         error: refreshFailedRef.current ? current.error : null,
+        loaded: true,
       }));
     });
     return () => { active = false; };

@@ -2,6 +2,7 @@ use super::*;
 
 fn team(id: &str) -> Team {
     Team {
+        locked: false,
         id: id.into(),
         name: Some("Board".into()),
         lifecycle: codeterm_types::team::TeamLifecycle::Active,

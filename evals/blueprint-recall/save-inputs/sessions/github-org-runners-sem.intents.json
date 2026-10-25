@@ -1,0 +1,99 @@
+{
+  "duration_api_ms": 3349,
+  "stop_reason": "end_turn",
+  "session_id": "e48f2c16-d68e-49c9-b45d-8ca074832548",
+  "total_cost_usd": 0.07092180000000001,
+  "usage": {
+    "input_tokens": 2,
+    "cache_creation_input_tokens": 8533,
+    "cache_read_input_tokens": 649,
+    "output_tokens": 126,
+    "output_tokens_details": {
+      "thinking_tokens": 0
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 8533,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "global",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 126,
+        "cache_read_input_tokens": 649,
+        "cache_creation_input_tokens": 8533,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 8533
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-opus-5-5": {
+      "inputTokens": 2,
+      "outputTokens": 126,
+      "cacheReadInputTokens": 649,
+      "cacheCreationInputTokens": 8533,
+      "webSearchRequests": 0,
+      "costUSD": 0.07092180000000001,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-opus-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 1,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "[\"Alert me when our GitHub org's self-hosted runners go offline\", \"Watch organization runners and notify if labelled machines drop\", \"Monitor gh org runner status, ping when a runner comes back online or offline\", \"Are our org's CI runners online? Keep checking and tell me when one dies\", \"Keep an eye on GitHub Actions runners for the org and notify on outages\"]",
+  "ttft_ms": 3440,
+  "type": "result",
+  "duration_ms": 3767,
+  "uuid": "9ecd3282-b006-4fcf-86cc-4203bc9ef317",
+  "ttft_stream_ms": 2138,
+  "time_to_request_ms": 104,
+  "first_content_frame_ms": 2138,
+  "queued_turn_count": 0,
+  "result_index": 0
+}

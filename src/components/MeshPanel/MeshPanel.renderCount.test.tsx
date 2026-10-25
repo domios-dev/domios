@@ -15,10 +15,12 @@ const inventory: MeshDataResult = {
     { instance_id: "laptop", name: "Laptop", ip: "100.64.0.2", api_port: 7686, online: true, access_level: "full", last_seen: null, relay_protocol_version: 2 },
     { instance_id: "desktop", name: "Desktop", ip: "100.64.0.3", api_port: 7686, online: true, access_level: "full", last_seen: null, relay_protocol_version: 2 },
   ],
-  loading: false, error: null, refresh: () => {},
+  loading: false, error: null, loaded: true, refresh: () => {},
 };
 
 vi.mock("./useMeshData", () => ({ useMeshData: () => inventory }));
+vi.mock("./useCanvasAccount", () => ({ useCanvasAccount: () => undefined }));
+vi.mock("./useCanvasTailscale", () => ({ useCanvasTailscale: () => undefined }));
 vi.mock("../../lib/bridge", async (original) => ({
   ...await original<typeof import("../../lib/bridge")>(),
   invoke: async (command: string) => command === "get_serve_status"

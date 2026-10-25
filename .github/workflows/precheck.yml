@@ -23,13 +23,31 @@ env:
 
 jobs:
   precheck:
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' }}
     runs-on: [self-hosted, codeterm-builder]
     timeout-minutes: 30
     steps:
+      - name: Use the runner bundled Node
+        if: runner.environment == 'self-hosted'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            const path = require('node:path');
+            core.addPath(path.dirname(process.execPath));
+            core.info('Using runner Node ' + process.version);
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+        if: runner.environment == 'github-hosted'
       - name: Checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          fetch-depth: 0
+          fetch-depth: 1
+          ref: ${{ github.sha }}
+      - name: Discover installed runner tools
+        if: runner.environment == 'self-hosted'
+        run: node scripts/ci-runner-paths.mjs --paths-only
 
       - name: Ensure Docker is running
         run: |
@@ -42,5 +60,5 @@ jobs:
         run: |
           TAG="v$VERSION"
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          git fetch origin "refs/tags/$TAG:refs/tags/$TAG"
+          git fetch --no-tags --depth=1 origin "refs/tags/$TAG:refs/tags/$TAG"
           .codeterm/build-machine/scripts/precheck.sh "$TAG"

@@ -29,7 +29,7 @@ test("backfill rendered before request completion still reveals the merged older
   });
   let view: ReturnType<typeof useChatWindowView> | undefined;
   let requests = 0;
-  const initial = page(createTranscriptState(), 220, 440);
+  const initial = page(createTranscriptState(), 220, 320);
   function Harness() {
     const [transcript, setTranscript] = useState(initial);
     const followTailRef = useRef(true);
@@ -51,8 +51,8 @@ test("backfill rendered before request completion still reveals the merged older
     assert.equal(host.textContent, "row-220");
     await act(async () => { await view?.loadOlder(); });
     assert.equal(requests, 1);
-    assert.equal(view?.allMessages.length, 440);
-    assert.equal(host.textContent, "row-60");
+    assert.equal(view?.allMessages.length, 320);
+    assert.equal(host.textContent, "row-120");
   } finally {
     await act(async () => root.unmount());
     clearTranscriptWindows();

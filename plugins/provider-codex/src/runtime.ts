@@ -5,7 +5,7 @@ import type {
   RuntimeContext, Operation, RuntimePlan, RuntimeStep, RpcReply, RuntimeSettings,
   RuntimeFailure, JsonValue, ChatMsg, OpenItem, RuntimeHistoryQuestion,
 } from "@codeterm/plugin-sdk";
-import { object, text, list, userThread, steerRefused, archivedResume } from "./runtimeProtocol";
+import { object, text, list, userThread, steerRefused, archivedResume, missingRollout } from "./runtimeProtocol";
 import { HISTORY_CHUNK_BYTES, serializedBytes, sanitizeHistory, historyItem } from "./runtimeHistoryBounds";
 import { json } from "./runtimeMessages";
 import { pagedHistoryPlan, pagedHistoryResponse } from "./runtimeHistoryPager";
@@ -205,6 +205,8 @@ function respondOperation(ctx: RuntimeContext, op: Operation, raw: JsonValue, re
     return pagedHistoryResponse(op,state,reply);
   }
   if (reply.kind === "error") {
+    if (op.kind === "resumeThread" && state.stage === "thread/resume" && missingRollout(reply.error,op.threadId))
+      return {kind:"refused",reason:{code:"thread_not_found",message:"The provider's saved conversation rollout is unavailable."},beforeAcceptance:true};
     if (op.kind === "control" && op.action === "serviceTiers") return {kind:"complete",result:{kind:"done"},events:[{kind:"controlsConfirmed",threadId:op.threadId ?? ctx.threadId!,settings:{serviceTierAvailability:{}}}]};
     const smaller = object(reply.error.data).historyPageLimit;
     if (op.kind === "readHistory" && state.stage === "items" && reply.error.code === -32097

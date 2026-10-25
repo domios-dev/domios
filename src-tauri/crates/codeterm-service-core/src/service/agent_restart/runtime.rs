@@ -40,6 +40,9 @@ impl ServiceContext {
         force: bool,
         fresh: bool,
     ) -> Result<RestartOutcome, RestartAttemptError> {
+        if let Some(refusal) = self.tab_write_lock(tab_id) {
+            return Err(AgentRestartError::BadRequest(refusal.to_string()).into());
+        }
         self.require_background_work_safe(tab_id, force)?;
         let _claim = self.claim_restart(tab_id, false)?;
         let tab = self
@@ -98,6 +101,17 @@ impl ServiceContext {
         let result = crate::async_runtime::block_on(agent_runtime::restart::restart(
             self, tab_id, &provider, &nonce, fresh,
         ));
+        if result.as_ref().is_ok_and(|session| {
+            matches!(
+                session.state.lock().phase,
+                agent_runtime::model::RuntimePhase::LoginPending
+            )
+        }) {
+            self.schedule_session_persist_debounced();
+            self.emit_state_changed(MuxEmitCause::AgentRestart);
+            return Ok(outcome);
+        }
+        self.clear_runtime_restart_binding(tab_id);
         match result {
             Ok(session) => {
                 let context = session.context.lock().clone();

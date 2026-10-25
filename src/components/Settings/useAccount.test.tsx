@@ -4,11 +4,21 @@ import { expect, it, vi } from "vitest";
 import type { Notification } from "../../lib/types";
 import { MultiplexerActionsContext, type MultiplexerActionsContextType } from "../../store/multiplexer/context";
 import { NotificationToastContainer } from "../Notifications/NotificationToast";
+const accountEvents = vi.hoisted(() => new Map<string, Set<() => void>>());
+vi.mock("../../lib/bridge", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../../lib/bridge")>(),
+  listen: async (event: string, handler: () => void) => {
+    const handlers = accountEvents.get(event) ?? new Set<() => void>();
+    accountEvents.set(event, handlers);
+    handlers.add(handler);
+    return () => { handlers.delete(handler); };
+  },
+}));
 const { request, rawBody, state } = vi.hoisted(() => ({
   request: vi.fn(), rawBody: vi.fn(() => "opaque-sensitive-response"), state: {
     identity:null as null | {uid:string;display_name:string;email:null;provider:string},
     failure:null as null | {stage:"redemption";error:"provider"},
-    failLogin:false, failStatus:false, failPlan:false, failBillingAction:false, loginHeldElsewhere:false,
+    revoked:false, failLogin:false, failStatus:false, failPlan:false, failBillingAction:false, loginHeldElsewhere:false,
   },
 }));
 vi.mock("../../lib/webApi", async (importOriginal) => ({
@@ -27,10 +37,11 @@ vi.mock("../../lib/webApi", async (importOriginal) => ({
   if (url.endsWith("/plan")) return {ok:true,json:async () => ({entitlements:{plan:"free",status:"active",current_period_end:0,cancel_at_period_end:false},stale:false})};
   if (url.split("?")[0].endsWith("/login")) state.identity = {uid:"user",display_name:"Ada",email:null,provider:"fake"};
   if (url.endsWith("/logout")) state.identity = null;
-  return {ok:true,json:async () => ({identity:state.identity,pending:false,last_sign_in_failure:state.failure})};
+  return {ok:true,json:async () => ({identity:state.identity,pending:false,last_sign_in_failure:state.failure,session_revoked:state.revoked})};
   },
 }));
 import { signInFailureToastMessage, useAccount } from "./useAccount";
+import { useSessionRevocationScreen } from "./useSessionRevocationScreen";
 import { AccountTab } from "./AccountTab";
 (globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -67,6 +78,23 @@ function AccountTabWithToasts() {
     <NotificationToastContainer toasts={toasts} onDismiss={(id) => setToasts((current) => current.filter((toast) => toast.id !== id))} />
   </MultiplexerActionsContext.Provider>;
 }
+it("refreshes mounted account surfaces on server identity changes and removes listeners on unmount", async () => {
+  state.identity = {uid:"external-user",display_name:"Ada",email:null,provider:"fake"};
+  state.failure = null;
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<><Surface name="header" /><Surface name="canvas" /></>));
+    expect(Array.from(host.querySelectorAll("output"), item => item.textContent)).toEqual(["external-user", "external-user"]);
+    state.identity = null;
+    await act(async () => { accountEvents.get("account-changed")?.forEach(handler => handler()); });
+    expect(Array.from(host.querySelectorAll("output"), item => item.textContent)).toEqual(["signed_out", "signed_out"]);
+  } finally {
+    await act(async () => root.unmount()); host.remove(); state.identity = null;
+  }
+  expect(accountEvents.get("account-changed")?.size).toBe(0);
+});
+
 it("updates both mounted account surfaces after login and logout and guards duplicate login", async () => {
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
@@ -178,5 +206,29 @@ it("attaches to a sign-in another surface holds instead of reporting a failure",
   } finally {
     await act(async () => root.unmount()); host.remove();
     state.identity = null; state.failure = null; state.loginHeldElsewhere = false;
+  }
+});
+
+it("opens sign-in once on session revocation and shows the machine sign-out explanation", async () => {
+  state.identity = null; state.failure = null; state.revoked = false;
+  const showSignIn = vi.fn();
+  function RevokedScreen() {
+    useSessionRevocationScreen(showSignIn);
+    return <AccountTab />;
+  }
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  const actions = { upsertToast: vi.fn() } as unknown as MultiplexerActionsContextType;
+  try {
+    await act(async () => root.render(<MultiplexerActionsContext.Provider value={actions}><RevokedScreen /></MultiplexerActionsContext.Provider>));
+    expect(showSignIn).not.toHaveBeenCalled();
+    state.revoked = true;
+    await act(async () => accountEvents.get("account-changed")?.forEach((handler) => handler()));
+    expect(showSignIn).toHaveBeenCalledTimes(1);
+    expect([...host.querySelectorAll('[role="status"]')].some((element) => element.textContent === "This machine was signed out from your account")).toBe(true);
+    await act(async () => accountEvents.get("account-changed")?.forEach((handler) => handler()));
+    expect(showSignIn).toHaveBeenCalledTimes(1);
+  } finally {
+    await act(async () => root.unmount()); host.remove(); state.revoked = false;
   }
 });

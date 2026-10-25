@@ -1,0 +1,15 @@
+schema_version: 1
+name: ship-gate
+note: Refuse to ship while the capability graph is invalid or old worktrees linger.
+inputs:
+  plan_id: {type: string, description: Plan id}
+  checkout: {type: string, description: Canonical checkout}
+pipeline:
+  trigger: {type: input, kind: text, source: {text: start}}
+  steps:
+    - {name: graph, input: text, run: "codeterm essence-map validate --root '{{checkout}}' --strict", on: {failed: refuse}}
+    - {name: worktrees, input: text, run: "codeterm plan lanes '{{plan_id}}' --stale --json", on: {failed: refuse}}
+    - {name: none-left, input: text, uses: filter, with: {bucket: tidy, pattern: '"stale": \[\]'}, on: {tidy: next, failed: refuse, done: refuse}}
+    - {name: notes, input: text, run: "codeterm essence-map release-summary --root '{{checkout}}' --since decision-1", on: {failed: refuse, done: stop}}
+    - {name: refuse, input: text, run: echo ship-refused, on: {failed: stop, done: stop}}
+  result: {to: notify}

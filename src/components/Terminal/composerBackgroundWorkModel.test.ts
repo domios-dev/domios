@@ -4,6 +4,20 @@ import { backgroundCommandName, backgroundOwnsTool, backgroundWorkElapsed, compo
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 
 const now = Date.parse("2026-10-17T12:00:00.000Z");
+test("provider background commands keep their task kind and own-session identity", () => {
+  const messages: NormalizedChatMessage[] = [{
+    id: "shell-result", type: "tool_call", content: "", sourceSessionId: "own-session",
+    toolKind: "command", toolInput: { command: "node fixture.mjs" }, toolId: "call", toolCallSourceId: "source",
+  }, {
+    id: "shell-outcome", type: "tool_result", content: "", sourceSessionId: "own-session",
+    toolId: "call", toolCallSourceId: "source", toolPairing: "exact", toolBackgroundTaskId: "shell",
+  }];
+  const items = withProviderBackgroundWork([], { shell: "", child: "Inspect" }, "own-session", {}, messages);
+  assert.deepEqual(items.map(item => [item.kind, item.name]), [["shell", "fixture.mjs"], ["agent", "Inspect"]]);
+  assert.equal(items[0].command, "node fixture.mjs");
+  assert.equal(items[0].processId, undefined);
+  assert.equal(withProviderBackgroundWork([], { shell: "" }, "foreign-session", {}, messages)[0].kind, "agent");
+});
 test("PTY background roster remains visible without runtime agent_activity rows and drains on completion", () => {
   const items = withProviderBackgroundWork([], { child: "Inspect source" }, "own-session");
   assert.equal(composerBackgroundWorkBubble(items)?.count, 1);
@@ -55,7 +69,7 @@ test("maps running terminals and capable-provider subagents into one counted bub
   assert.deepEqual(composerBackgroundWorkBubble(items), { count: 2, items });
 });
 
-test("groups every live item and reports the running count", () => {
+test("historical children without live evidence never raise a bubble", () => {
   const items = composerBackgroundWorkItems([
     agent("a", LONG_RUNNING_WORK_MS + 1, {agent_id:"a",agent_call_id:"call-a",agent_state:"running"}),
     agent("b", LONG_RUNNING_WORK_MS + 2, {agent_id:"b",agent_call_id:"call-b",agent_state:"started"}),
@@ -64,8 +78,8 @@ test("groups every live item and reports the running count", () => {
   ], [], now, { subagentsVisible: true, rootThreadId: "root" });
   const bubble = composerBackgroundWorkBubble(items);
 
-  assert.equal(bubble?.count, 3);
-  assert.deepEqual(bubble?.items.map(({threadId}) => threadId), ["c", "b", "a"]);
+  assert.deepEqual(items.map(({threadId, status}) => [threadId, status]), [["c", "unknown"], ["b", "unknown"], ["a", "unknown"]]);
+  assert.equal(bubble, null);
 });
 
 test("filters recent, completed, and untimed work and gates subagents by provider capability", () => {
@@ -118,4 +132,37 @@ test("deduplicates process identity while preserving distinct jobs and exact too
   assert.equal(backgroundOwnsTool({id:process.itemId,sourceSessionId:"foreign"},items),false);
   assert.equal(backgroundOwnsTool({id:"foreground"},items),false);
   assert.equal(backgroundOwnsTool(undefined,items),false);
+});
+
+test("only live work makes a bubble; unknown work rides along beside it and ended work is never shown", () => {
+  const items = withProviderBackgroundWork([], { live: "Live task" }, "root", { dropped: "Dropped task" });
+  assert.deepEqual(items.map(item => item.status), ["running", "unknown"]);
+  assert.equal(composerBackgroundWorkBubble(items)?.count, 1);
+  assert.deepEqual(composerBackgroundWorkBubble(items)?.items.map(item => item.name), ["Live task", "Dropped task"]);
+  assert.equal(composerBackgroundWorkBubble(items.slice(1)), null, "without running work there is no bubble at all");
+});
+
+test("unlabelled provider tasks read as numbered internal agents and keep their raw id aside", () => {
+  const items = withProviderBackgroundWork([], { bm76h90j0: "", a2: "Run the release gate", zz9: "  " }, "root");
+  assert.deepEqual(items.map(item => [item.name, item.ordinal ?? null, item.rawId]), [
+    ["Internal agent", 1, "bm76h90j0"],
+    ["Run the release gate", null, "a2"],
+    ["Internal agent", 2, "zz9"],
+  ]);
+});
+
+test("own-session compaction invalidates runtime child liveness until fresh activity", () => {
+  const authority = {rootThreadId:"root",bindingNonce:"nonce",epoch:1};
+  const options = {subagentsVisible:true,rootThreadId:"root",authority};
+  const child = agent("start", 60_000, {agent_id:"child",agent_state:"running",agent_binding_nonce:"nonce",agent_runtime_epoch:1});
+  const boundary: NormalizedChatMessage = {id:"boundary",type:"system",content:"",sourceSessionId:"root",timelineMarker:{kind:"context_compaction"}};
+  const invalidated = composerBackgroundWorkItems([child,boundary],[],now,options);
+  assert.equal(invalidated[0].status,"unknown");
+  assert.equal(invalidated[0].elapsed,"");
+  assert.equal(composerBackgroundWorkBubble(invalidated),null);
+  const fresh = composerBackgroundWorkItems([child,boundary,{...child,id:"fresh"}],[],now,options);
+  assert.equal(fresh[0].status,"running");
+  assert.equal(composerBackgroundWorkBubble(fresh)?.count,1);
+  const foreign = composerBackgroundWorkItems([child,{...boundary,sourceSessionId:"foreign"}],[],now,options);
+  assert.equal(foreign[0].status,"running");
 });

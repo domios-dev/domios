@@ -165,6 +165,7 @@ pub struct ApiConfig {
     pub host: String,
     pub mesh_tailnet_host: Option<String>,
     pub port: u16,
+    #[serde(skip)]
     pub token: Option<String>,
     pub cors: bool,
     pub cors_allow_origins: Vec<String>,
@@ -829,6 +830,8 @@ pub struct MemoryConfig {
     pub dreaming_telegram_notify: bool,
     #[serde(default)]
     pub dream_hygiene: DreamHygieneConfig,
+    #[serde(default)]
+    pub embedder: super::EmbedderConfig,
 }
 
 impl Default for MemoryConfig {
@@ -850,6 +853,7 @@ impl Default for MemoryConfig {
             l1_budget_tokens: default_l1_budget_tokens(),
             dreaming_telegram_notify: true,
             dream_hygiene: DreamHygieneConfig::default(),
+            embedder: super::EmbedderConfig::default(),
         }
     }
 }
@@ -1076,7 +1080,6 @@ impl Default for TextHooksConfig {
 pub struct MeshConfig {
     pub enabled: bool,
     pub instance_name: String,
-    pub broadcast_duration_secs: u64,
 }
 
 impl Default for MeshConfig {
@@ -1084,7 +1087,6 @@ impl Default for MeshConfig {
         Self {
             enabled: true,
             instance_name: String::new(),
-            broadcast_duration_secs: 180,
         }
     }
 }

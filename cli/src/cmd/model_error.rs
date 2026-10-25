@@ -45,7 +45,13 @@ pub(crate) fn render_socket_error(error: &SocketCallError) -> String {
             return rendered;
         }
     }
-    format!("Error: {error}")
+    match error {
+        SocketCallError::Rpc(rpc) => format!(
+            "Error: {}",
+            crate::cmd::print::rpc_explanation(&rpc.message)
+        ),
+        SocketCallError::Transport(message) => format!("Error: {message}"),
+    }
 }
 
 pub(crate) fn exit_with_socket_error(json: bool, error: SocketCallError) -> ! {
@@ -137,3 +143,7 @@ mod tests {
         assert_eq!(output["error"]["code"], "invalid_argument");
     }
 }
+
+#[cfg(test)]
+#[path = "model_error/plan_limit_tests.rs"]
+mod plan_limit_tests;

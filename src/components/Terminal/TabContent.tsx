@@ -29,6 +29,10 @@ import { SurfaceTabHost } from "./SurfaceTabHost";
 import { RemoteTaskTab } from "./RemoteTaskTab";
 import { surfaceBacking } from "../../lib/surfaceTab";
 import { hasSleepingTranscript } from "../../lib/tabSleep";
+import { usePanelInputBoundary } from "./usePanelInputBoundary";
+import { useTabLock } from "../billing/useTabLock";
+import { LockBadge, LockedOverlay } from "../billing/LockBadge";
+import { openLockedPlans } from "../billing/freeLimitGate";
 
 interface TabContentProps {
   tab: Tab | undefined;
@@ -62,7 +66,8 @@ export function TabContent({
   api,
 }: TabContentProps) {
   if (tab?.remote_peer_id) configureRemoteTabTransport(api);
-  const wake = useWakeOnOpen(tab, isVisible && Boolean(tab && isTabVisible(tab)));
+  const lock = useTabLock(tab);
+  const wake = useWakeOnOpen(tab, isVisible && !lock.locked && Boolean(tab && isTabVisible(tab)));
   const descriptor = useAgentDescriptor(tab?.agent_type ?? (tab?.backing?.kind === "chat_backend" ? tab.backing.plugin_id : null));
   const { providers, loading } = useAgentProviders();
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -77,6 +82,10 @@ export function TabContent({
 
   if (!tab) return null;
   if (!isTabVisible(tab)) return null;
+  if (lock.locked) return <TabWrapper tabId={tab.id} isVisible={isVisible}>
+    <LockBadge view={lock} />
+    <LockedOverlay view={lock} onActivate={() => openLockedPlans(lock)} />
+  </TabWrapper>;
   const restore = restoreStageView(tab, wake);
   const sleepingTranscript = hasSleepingTranscript(tab) && restore.phase !== "ready";
   const restoreOwnsBody = !sleepingTranscript && restorePanelOwnsBody(tab, wake, restore);
@@ -86,7 +95,7 @@ export function TabContent({
 
   if (isFirstRunGeneralTab(tab)) {
     return (
-      <TabWrapper tabId={tab.id}>
+      <TabWrapper tabId={tab.id} isVisible={isVisible}>
         <FirstRunGeneralPicker providers={providers} home={workspaceId ? { workspaceId, tabId: tab.id } : undefined} />
       </TabWrapper>
     );
@@ -95,7 +104,7 @@ export function TabContent({
   const surface = surfaceBacking(tab);
   if (surface) {
     return (
-      <TabWrapper tabId={tab.id}>
+      <TabWrapper tabId={tab.id} isVisible={isVisible}>
         <div className="flex h-full flex-col">
           <div className="min-h-0 flex-1"><SurfaceTabHost tab={tab} backing={surface} api={api} isVisible={isVisible} /></div>
         </div>
@@ -142,7 +151,7 @@ export function TabContent({
   );
 
   return (
-    <TabWrapper tabId={tab.id}>
+    <TabWrapper tabId={tab.id} isVisible={isVisible}>
       <div className="flex h-full w-full flex-col">
         <TabTopBar
           tabId={tab.id}
@@ -181,15 +190,20 @@ export function TabContent({
 
 interface TabWrapperProps {
   tabId: string;
+  isVisible: boolean;
   children: React.ReactNode;
 }
 
-function TabWrapper({ tabId, children }: TabWrapperProps) {
+function TabWrapper({ tabId, isVisible, children }: TabWrapperProps) {
+  const ref = usePanelInputBoundary(isVisible);
   return (
     <div
+      ref={ref}
       data-tab-id={tabId}
+      inert={!isVisible || undefined}
+      aria-hidden={!isVisible || undefined}
       className="w-full h-full relative group/Tab"
-      style={{ outline: "none", boxShadow: "none", border: "none", background: "transparent" }}
+      style={{ outline: "none", boxShadow: "none", border: "none", background: "transparent", pointerEvents: isVisible ? undefined : "none" }}
     >
       {children}
     </div>

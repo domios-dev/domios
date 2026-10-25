@@ -153,15 +153,17 @@ objc2-foundation = "0.3"
 codeterm-input-windows = { path = "../codeterm-input-windows" }
 conpty = "0.7"
 clipboard-win = "5"
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_Registry", "Win32_System_RestartManager", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.61", features = ["Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock", "Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_Registry", "Win32_System_RestartManager", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
 
 [dev-dependencies]
+codeterm-util = { path = "../codeterm-util", features = ["test-support"] }
 codeterm-paths = { path = "../codeterm-paths", features = ["isolated-data-root"] }
 codeterm-provider-ops = { path = "../codeterm-provider-ops", features = ["test-support"] }
 codeterm-recall = { path = "../codeterm-recall", features = ["test-support"] }
 codeterm-supporter = { path = "../codeterm-supporter", features = ["test-support"] }
 codeterm-worker-services = { path = "../codeterm-worker-services", features = ["test-support"] }
 codeterm-lanes = { path = "../codeterm-lanes", features = ["test-support"] }
+codeterm-mesh = { path = "../codeterm-mesh", features = ["test-support"] }
 codeterm-agent-model = { path = "../codeterm-agent-model", features = ["test-support"] }
 codeterm-plugin = { path = "../codeterm-plugin", features = ["test-support"] }
 codeterm-sentinel = { path = "../codeterm-sentinel", features = ["test-support"] }

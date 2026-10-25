@@ -76,12 +76,20 @@ test('bootstrap identity pins the config file, matching ResolvedInstancePaths ra
 test('build verb never invokes whole-client cleanup, frontend build, or native compilation', () => {
   const source = readFileSync(new URL('../../build.sh', import.meta.url), 'utf8').replaceAll('\r\n', '\n');
   const body = source.match(/^reload_dev_server\(\) \{[^]*?^\}/m)[0];
+  const server = source.match(/^build_dev_server\(\) \{[^]*?^\}/m)[0];
+  const config = readFileSync(new URL('../firebase-build-config.sh', import.meta.url), 'utf8');
   const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
   const directory = mkdtempSync(path.join(tmpdir(), 'dev-server-verb-'));
   mkdirSync(path.join(directory, '.domios-dev-build'));
   try {
   const result = spawnSync(bash, ['-c', `set -e
 ${body}
+${server}
+${config}
+codeterm() {
+  [ "$*" = 'mem secret get --name DOMIOS_QA_PROJECT_ID' ] || return 1
+  printf opaque-qa-project
+}
 named_dev_isolated() { return 1; }
 validate_dev_provenance() { echo server:opaque; }
 tauri_debug_dir() { echo '${directory.replaceAll('\\', '/')}'; }
@@ -93,7 +101,10 @@ enter_cargo_gateway() { echo gateway; }
 configure_dev_cargo() { :; }
 cli_file_sha256_or_status() { echo digest; }
 node() { echo "node:$*"; }
-cargo() { echo "cargo:$*" >&2; }
+cargo() {
+  if [ "$1" = build ]; then [ "$DOMIOS_QA_PROJECT_ID" = opaque-qa-project ] || return 94; fi
+  echo "cargo:$*" >&2
+}
 write_dev_provenance() { echo provenance; }
 release_stable_build_path() { :; }
 complete_build_gateway_before_handoff() { :; }

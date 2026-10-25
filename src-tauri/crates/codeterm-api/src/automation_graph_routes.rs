@@ -289,7 +289,17 @@ fn failure((status, message): (StatusCode, String)) -> GraphError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(debug_assertions)]
     use codeterm_sentinel_host::SentinelExt;
+
+    #[cfg(debug_assertions)]
+    fn native_watch(name: &str, kind: &str, target: &str) -> Value {
+        json!({"schema_version":2,"kind":"watch","name":name,"steps":[
+            {"id":"source","uses":"probe","with":{"command":{"lit":"status"}},"timeout":{"lit":"1h"}},
+            {"id":"decide","uses":"ask","with":{"question":{"lit":"state?"}},"buckets":["done"],"matches":{"done":{"lit":"done"}},"routes":{"done":"effect"}},
+            {"id":"effect","uses":kind,"with":if kind=="notify"{json!({})}else{json!({"target":{"lit":target}})}}
+        ]})
+    }
 
     #[test]
     fn blueprint_event_ingress_refusal_statuses_cover_admission_table() {
@@ -357,6 +367,7 @@ mod tests {
         use tower::ServiceExt;
 
         struct Fixture {
+            storage: codeterm_storage::Storage,
             runtime: ServiceFixture,
             state: AppState,
             router: Router,
@@ -396,15 +407,21 @@ mod tests {
                 tab.agent_type = Some("supplied-agent".into());
                 tab.session_binding_nonce = Some("fixture-nonce".into());
                 let runtime = ServiceFixture::new(mux);
+                let storage = codeterm_storage::Storage::open(
+                    runtime.temp.path().join("storage"),
+                    Default::default(),
+                )
+                .unwrap();
                 let sentinel_path = runtime.temp.path().join("sentinels.json");
-                if let Some(raw) = raw {
+                let clock = codeterm_service_core::cron::clock::MockClock::starting_at(1000);
+                let store = if let Some(raw) = raw {
                     std::fs::write(&sentinel_path, raw).unwrap();
-                }
+                    codeterm_sentinel_host::store::Store::new(sentinel_path, clock)
+                } else {
+                    codeterm_sentinel_host::store::Store::with_storage(&storage, clock)
+                };
                 let handle = codeterm_sentinel_host::scheduler::fixture_handle_with_ui(
-                    codeterm_sentinel_host::store::Store::new(
-                        sentinel_path,
-                        codeterm_service_core::cron::clock::MockClock::starting_at(1000),
-                    ),
+                    store,
                     runtime.service.ui.clone(),
                 );
                 codeterm_sentinel_host::manage_fixture_ports(&runtime.service, &handle);
@@ -457,6 +474,7 @@ mod tests {
                 assert!(runtime.service.set_ext(state.cron.clone()).is_ok());
                 let router = crate::routes::create_router(state.clone());
                 Self {
+                    storage,
                     runtime,
                     state,
                     router,
@@ -468,12 +486,43 @@ mod tests {
             }
 
             fn create(&self) -> codeterm_sentinel_host::store::Sentinel {
+                self.create_native("Supplied scenario", "notify", "")
+            }
+
+            fn create_native(
+                &self,
+                name: &str,
+                kind: &str,
+                target: &str,
+            ) -> codeterm_sentinel_host::store::Sentinel {
                 let caller = self
                     .runtime
                     .service
                     .sentinel_caller(&self.creator, Some("fixture-nonce"))
                     .unwrap();
-                self.runtime.service.sentinel_create(&caller,serde_json::from_value(json!({"name":"Supplied scenario","probe":"status","question":"state?","buckets":["done"],"matches":{"done":"done"},"timeout":"1h"})).unwrap()).unwrap()
+                let document =
+                    codeterm_blueprint_types::blueprint_document::Document::from_definition(
+                        &native_watch(name, kind, target),
+                    )
+                    .unwrap();
+                let runtime = document.lower().unwrap();
+                let mut job = self
+                    .runtime
+                    .service
+                    .prepare_sentinel_create(
+                        &caller,
+                        serde_json::from_value(runtime["create"].clone()).unwrap(),
+                    )
+                    .unwrap();
+                job.document = Some(serde_json::to_value(document).unwrap());
+                job.agent_authored = true;
+                let handle = self
+                    .runtime
+                    .service
+                    .host_extension::<codeterm_sentinel_host::scheduler::Handle>()
+                    .unwrap();
+                let staged = handle.store.lock().stage_insert(job);
+                staged.settle(&handle.store).unwrap()
             }
 
             async fn request(
@@ -520,6 +569,15 @@ mod tests {
                     .machine
                     .stopped
             }
+
+            fn restored_store(&self) -> codeterm_sentinel_host::store::Store {
+                let store = codeterm_sentinel_host::store::Store::with_storage(
+                    &self.storage,
+                    codeterm_service_core::cron::clock::MockClock::starting_at(1000),
+                );
+                store.ensure_available().unwrap();
+                store
+            }
         }
 
         #[tokio::test]
@@ -564,8 +622,7 @@ mod tests {
                 .contains("fixture-nonce"));
             let (private_key, public_key) =
                 codeterm_service_core::mesh::crown::generate_peer_keypair();
-            fixture.state.mesh.lock().paired_peers.insert(
-                "fixture-peer".into(),
+            fixture.state.mesh.lock().insert_legacy_pair_for_test(
                 codeterm_service_core::mesh::types::PairedPeer {
                     instance_id: "fixture-peer".into(),
                     instance_name: "Peer".into(),
@@ -608,17 +665,15 @@ mod tests {
                 .service
                 .host_extension::<codeterm_sentinel_host::scheduler::Handle>()
                 .unwrap();
-            let lease = handle.store.lock().due().unwrap().remove(0);
+            let staged = handle.store.lock().stage_due();
+            let lease = staged.settle(&handle.store).unwrap().remove(0);
             let (status, result) = fixture
                 .request(Method::POST, &stop, Some("fixture-instance-bearer"), body)
                 .await;
             assert_eq!(status, StatusCode::OK);
             assert_eq!(result["reason"], "stopped_by_host");
             assert!(lease.is_cancelled());
-            let restored = codeterm_sentinel_host::store::Store::new(
-                fixture.runtime.temp.path().join("sentinels.json"),
-                codeterm_service_core::cron::clock::MockClock::starting_at(1000),
-            );
+            let restored = fixture.restored_store();
             assert_eq!(
                 restored.get(&job.id).unwrap().last_reason.as_deref(),
                 Some("stopped_by_host")
@@ -689,11 +744,7 @@ mod tests {
                 .await;
             assert_eq!(status, StatusCode::OK);
             assert!(graph["scenarios"].as_array().unwrap().is_empty());
-            let persisted: Value = serde_json::from_slice(
-                &std::fs::read(fixture.runtime.temp.path().join("sentinels.json")).unwrap(),
-            )
-            .unwrap();
-            assert!(persisted.as_array().unwrap().is_empty());
+            assert!(fixture.restored_store().list().is_empty());
         }
 
         #[tokio::test]
@@ -722,11 +773,7 @@ mod tests {
                 .await;
             assert_eq!(status, StatusCode::OK);
             assert!(graph["scenarios"].as_array().unwrap().is_empty());
-            let persisted: Value = serde_json::from_slice(
-                &std::fs::read(fixture.runtime.temp.path().join("sentinels.json")).unwrap(),
-            )
-            .unwrap();
-            assert!(persisted.as_array().unwrap().is_empty());
+            assert!(fixture.restored_store().list().is_empty());
         }
 
         #[tokio::test]
@@ -829,12 +876,7 @@ mod tests {
         ) {
             let fixture = Fixture::new(None);
             let cron=fixture.state.cron.lock().create(serde_json::from_value(json!({"name":"nightly-ci-review","workspace_id":fixture.workspace,"creator_tab_id":fixture.creator,"schedule":"0 * * * *","task":"private task"})).unwrap()).unwrap();
-            let caller = fixture
-                .runtime
-                .service
-                .sentinel_caller(&fixture.creator, Some("fixture-nonce"))
-                .unwrap();
-            fixture.runtime.service.sentinel_create(&caller,serde_json::from_value(json!({"name":"cron-result-watch","probe":"status","question":"state?","buckets":["done"],"matches":{"done":"done"},"timeout":"1h","routes":{"done":format!("cron:{}",cron.id)}})).unwrap()).unwrap();
+            fixture.create_native("cron-result-watch", "cron", &cron.id);
             let before = fixture
                 .runtime
                 .service
@@ -925,12 +967,7 @@ mod tests {
                 .agent_tracker
                 .lock()
                 .set_idle("fixture-graph-pty");
-            let caller = fixture
-                .runtime
-                .service
-                .sentinel_caller(&fixture.creator, Some("fixture-nonce"))
-                .unwrap();
-            fixture.runtime.service.sentinel_create(&caller,serde_json::from_value(json!({"name":"agent-result-notify","probe":"status","question":"state?","buckets":["done"],"matches":{"done":"done"},"timeout":"1h","routes":{"done":format!("send:{worker}")}})).unwrap()).unwrap();
+            fixture.create_native("agent-result-notify", "send", &worker);
             let before = fixture
                 .runtime
                 .service

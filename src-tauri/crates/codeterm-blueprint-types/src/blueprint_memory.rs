@@ -7,17 +7,22 @@ pub mod curator;
 mod generalize;
 pub use credentials::contains_credentials;
 mod quality;
-pub use generalize::{abstract_document, safe_template};
+pub mod semantic_canon;
+pub use generalize::{abstract_document, portable_document, safe_template};
 pub use quality::{decide, CuratorEvidence, Evidence, Qualification};
 
-pub const AREA_CAP: usize = 50;
+pub const AREA_CAP: usize = 1000;
 pub const MERGE_BUDGET: usize = 8;
+pub const MAX_INTENTS: usize = 5;
+pub const MAX_INTENT_CHARS: usize = 200;
 
 pub fn parse_document(source: &str) -> Result<Document, String> {
     if source.len() > crate::blueprint_recipe::MAX_RECIPE_BYTES {
         return Err("Blueprint solution is too large".into());
     }
-    serde_yaml::from_str(source).map_err(|error| error.to_string())
+    crate::blueprint_document::parse("solution.yaml", source)
+        .map(|p| p.document)
+        .map_err(|errors| format!("{errors:?}"))
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -26,10 +31,48 @@ pub struct Entry {
     pub document: Document,
     pub uses: u64,
     pub last_used: i64,
-    pub when_to_use: String,
+    pub intents: Vec<String>,
     pub successes: u64,
     pub failures: u64,
     pub kept: bool,
+}
+
+impl Entry {
+    pub fn when_to_use(&self) -> String {
+        self.intents.join("; ")
+    }
+}
+
+pub fn validate_intents(intents: &[String]) -> Result<Vec<String>, String> {
+    let intents = intents
+        .iter()
+        .map(|intent| intent.split_whitespace().collect::<Vec<_>>().join(" "))
+        .collect::<Vec<_>>();
+    if intents.is_empty()
+        || intents.len() > MAX_INTENTS
+        || intents.iter().any(|intent| {
+            intent.is_empty()
+                || intent.chars().count() > MAX_INTENT_CHARS
+                || intent.chars().any(char::is_control)
+        })
+    {
+        return Err(format!(
+            "Give 1..{MAX_INTENTS} intents of 1..{MAX_INTENT_CHARS} plain-text characters each"
+        ));
+    }
+    Ok(intents)
+}
+
+pub fn merge_intents(first: &[String], second: &[String]) -> Vec<String> {
+    let mut merged: Vec<String> = Vec::new();
+    for intent in first.iter().chain(second) {
+        if merged.len() < MAX_INTENTS
+            && !merged.iter().any(|kept| kept.eq_ignore_ascii_case(intent))
+        {
+            merged.push(intent.clone());
+        }
+    }
+    merged
 }
 
 pub fn score(entry: &Entry, now: i64) -> f64 {
@@ -41,48 +84,21 @@ pub fn score(entry: &Entry, now: i64) -> f64 {
 }
 
 pub fn structure(document: &Document) -> Value {
-    if let Some(pipeline) = &document.pipeline {
-        let steps = pipeline["steps"].as_array().cloned().unwrap_or_default();
-        let names = steps
-            .iter()
-            .enumerate()
-            .filter_map(|(i, step)| step["name"].as_str().map(|name| (name.to_owned(), i)))
-            .collect::<BTreeMap<_, _>>();
-        let nodes = steps.iter().map(|step| {
-            let routes = step["on"].as_object().map(|routes| routes.iter().map(|(bucket,target)| {
-                let target = target.as_str().unwrap_or("");
-                (bucket.clone(), names.get(target).map_or_else(|| json!(target), |i| json!(i)))
-            }).collect::<BTreeMap<_, _>>());
-            json!({"kind":if step.get("run").is_some(){"command"}else{step["uses"].as_str().unwrap_or("")},"input":step["input"],"routes":routes})
-        }).collect::<Vec<_>>();
-        json!({"trigger":pipeline["trigger"]["type"],"event":pipeline["trigger"]["kind"],"nodes":nodes,"result":pipeline["result"]})
-    } else {
-        let watch = document.watch.as_ref().unwrap_or(&Value::Null);
-        let source = if watch.get("probe").is_some() {
-            "probe"
-        } else if watch.get("observe").is_some() {
-            "observe"
-        } else {
-            "input"
-        };
-        let handlers = watch["handlers"].as_object().map(|handlers| {
-            handlers
-                .iter()
-                .map(|(bucket, items)| {
-                    (
-                        bucket.clone(),
-                        items
-                            .as_array()
-                            .into_iter()
-                            .flatten()
-                            .map(|handler| handler["type"].clone())
-                            .collect::<Vec<_>>(),
-                    )
-                })
-                .collect::<BTreeMap<_, _>>()
-        });
-        json!({"source":source,"buckets":watch["buckets"],"routes":watch["routes"],"handlers":handlers,"until":watch["until"]})
+    if document.trigger.is_none() && document.result.port.is_some() {
+        let mut callable = document.clone();
+        callable.name.clear();
+        callable.note = None;
+        callable.intent = None;
+        callable.anchors.clear();
+        return json!({"callable": callable});
     }
+    let ids = document
+        .nodes()
+        .enumerate()
+        .map(|(i, n)| (n.id.as_str(), i))
+        .collect::<BTreeMap<_, _>>();
+    json!({"kind": document.kind, "trigger":document.trigger.as_ref().map(|t|match t {crate::blueprint_document::Trigger::Webhook{..}=>"webhook",crate::blueprint_document::Trigger::Schedule{..}=>"schedule",crate::blueprint_document::Trigger::Event{..}=>"event",crate::blueprint_document::Trigger::Input{..}=>"input"}),
+        "nodes":document.nodes().map(|n|json!({"kind":n.kind(),"in":n.input,"out":n.output,"caps":n.caps,"buckets":n.buckets,"bind":n.bind,"call":n.call,"routes":n.routes.iter().map(|(outcome,target)|(outcome, ids.get(target.as_str()).map_or_else(||json!(target),|i|json!(i)))).collect::<BTreeMap<_,_>>()})).collect::<Vec<_>>()})
 }
 
 pub fn duplicate<'a>(entries: &'a [Entry], candidate: &Document) -> Option<&'a Entry> {
@@ -93,8 +109,11 @@ pub fn duplicate<'a>(entries: &'a [Entry], candidate: &Document) -> Option<&'a E
         .max_by_key(|entry| (entry.successes.saturating_add(entry.uses), entry.last_used))
 }
 
-pub fn evictions(entries: &[Entry], cap: usize, now: i64) -> Vec<String> {
-    let mut ordered = entries.iter().collect::<Vec<_>>();
+pub fn evictions(entries: &[Entry], cap: usize, now: i64, saved_id: &str) -> Vec<String> {
+    let mut ordered = entries
+        .iter()
+        .filter(|entry| entry.id != saved_id)
+        .collect::<Vec<_>>();
     ordered.sort_by(|a, b| {
         score(a, now)
             .total_cmp(&score(b, now))
@@ -141,7 +160,7 @@ pub fn recall(entries: &[Entry], intent: &str, limit: usize, now: i64) -> Vec<En
     let mut ranked = entries
         .iter()
         .filter_map(|entry| {
-            let terms = words(&entry.when_to_use);
+            let terms = words(&entry.intents.join(" "));
             let hits = query.intersection(&terms).count();
             (query.is_empty() || hits > 0).then_some((hits, entry))
         })
@@ -155,7 +174,7 @@ pub fn recall(entries: &[Entry], intent: &str, limit: usize, now: i64) -> Vec<En
     });
     ranked
         .into_iter()
-        .take(limit.min(AREA_CAP))
+        .take(limit)
         .map(|(_, entry)| entry.clone())
         .collect()
 }
@@ -200,9 +219,7 @@ pub fn merge_pair(a: &Entry, b: &Entry) -> Option<Merge> {
     keeper.successes = a.successes.saturating_add(b.successes);
     keeper.failures = a.failures.saturating_add(b.failures);
     keeper.kept = a.kept || b.kept;
-    if lesser.when_to_use.len() > keeper.when_to_use.len() {
-        keeper.when_to_use = lesser.when_to_use.clone();
-    }
+    keeper.intents = merge_intents(&keeper.intents, &lesser.intents);
     keeper.last_used = a.last_used.max(b.last_used);
     Some(Merge {
         keeper,

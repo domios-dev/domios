@@ -1,6 +1,55 @@
 use super::*;
 
 #[test]
+fn status_delta_fanout_stays_small_with_221_tabs() {
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::service::test_fixture::ServiceFixture;
+    let (mut state, tab_id) = MultiplexerState::new();
+    state.set_limit_gate(codeterm_entitlements::LimitGate::dormant());
+    let workspace = state.list_workspaces()[0].id.clone();
+    for _ in 1..221 {
+        let id = state.create_tab(&workspace).unwrap();
+        state.rename_tab(&id, &"x".repeat(2800)).unwrap();
+    }
+    state.get_tab_mut(&tab_id).unwrap().pty_id = Some("delta-pty".into());
+    let fixture = ServiceFixture::new(state);
+    let service = &fixture.service;
+    service.agent_tracker.lock().set_working("delta-pty");
+    let base = service.published_mux_state_versioned().0;
+    let mut bus = service.events.subscribe();
+    emit(
+        service.clone(),
+        true,
+        Vec::new(),
+        MuxEmitCause::TabStatus.bit(),
+    );
+    let event = bus.try_recv().unwrap();
+    let codeterm_events::SystemEvent::Generic { event_type, data } = event.event else {
+        panic!("expected mux delta");
+    };
+    assert_eq!(event_type, "mux-state-changed");
+    assert_eq!(data["base_generation"], base);
+    assert_eq!(
+        data["status_deltas"],
+        serde_json::json!({
+            tab_id: {"status": "Working", "agent_state": null}
+        })
+    );
+    assert!(serde_json::to_vec(&data).unwrap().len() < 512);
+    assert!(service.published_mux_state().len() > 570_000);
+    let native = fixture.ui.0.lock();
+    let (_, signal) = native
+        .iter()
+        .find(|(name, _)| name == "mux-state-changed")
+        .unwrap();
+    assert_eq!(
+        signal,
+        &serde_json::json!({"generation": data["generation"]})
+    );
+    assert!(serde_json::to_vec(signal).unwrap().len() < 128);
+}
+
+#[test]
 fn burst_emits_once_with_last_generation_and_identical_published_bytes() {
     let (emitter, receiver) = Emitter::channel();
     let pending = emitter.pending.clone();
@@ -93,10 +142,12 @@ fn focus_is_emitted_after_snapshot_of_committed_focus() {
         .unwrap();
     assert!(structural < focused);
     assert_eq!(events[focused].1, serde_json::json!({"tab_id": target}));
-    assert_eq!(events[structural].1["focused_tab_id"], target);
+    let snapshot: serde_json::Value =
+        serde_json::from_slice(&service.published_mux_state()).unwrap();
+    assert_eq!(snapshot["focused_tab_id"], target);
     assert_eq!(
-        serde_json::from_slice::<serde_json::Value>(&service.published_mux_state()).unwrap(),
         events[structural].1,
+        serde_json::json!({"generation": snapshot["generation"]}),
     );
 }
 

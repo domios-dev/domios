@@ -11,18 +11,11 @@ set -euo pipefail
 #   ./orphan-bench.sh              # run bench
 #   ./orphan-bench.sh --baseline   # save result as baseline
 
-API="${CODETERM_API_URL:-http://127.0.0.1:7686}"
-DB="${HOME}/.codeterm-dev/mem/knowledge.db"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/evals/_lib/lib.sh"
+API="$(dev_api_url)"
+DB="$(dev_data_dir)/mem/knowledge.db"
 BASELINE_FILE="$(dirname "$0")/baselines/orphan-baseline.json"
-
-# Resolve auth token
-TOKEN=$(grep 'token' ~/.codeterm-dev/config.toml 2>/dev/null | head -1 | sed 's/.*= *"\(.*\)"/\1/')
-if [ -z "$TOKEN" ]; then
-  echo "ERROR: no API token in ~/.codeterm-dev/config.toml"
-  exit 1
-fi
-
-H="Authorization: Bearer $TOKEN"
+H="$(dev_auth_header)"
 
 save() {
   curl -s -X POST -H "$H" -H "Content-Type: application/json" "$API/api/mem/items" -d "$1" >/dev/null

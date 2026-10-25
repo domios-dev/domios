@@ -13,16 +13,21 @@ const inventory: MeshDataResult = {
   thisMachine: { name: "Local", ip: "127.0.0.1" },
   services: [daemon, schedule],
   peers: [{ instance_id: "remote", name: "Remote machine", ip: "100.64.0.1", api_port: 7686, online: false, access_level: "full", last_seen: null, relay_protocol_version: 2 }],
-  loading: false, error: "inventory request failed", refresh: () => {},
+  loading: false, error: "inventory request failed", loaded: true, refresh: () => {},
 };
+let meshData = inventory;
+const refreshKeys: number[] = [];
+const registryRefreshKeys: number[] = [];
 
-vi.mock("./useMeshData", () => ({ useMeshData: () => inventory }));
+vi.mock("./useMeshData", () => ({ useMeshData: (refreshKey: number) => { refreshKeys.push(refreshKey); return meshData; } }));
 vi.mock("../Jobs/JobsView", () => ({ JobsView: () => <section aria-label="Jobs" /> }));
+vi.mock("./useCanvasAccount", () => ({ useCanvasAccount: (_peers: unknown, _changed: unknown, key: number) => { registryRefreshKeys.push(key); return undefined; } }));
+vi.mock("./useCanvasTailscale", () => ({ useCanvasTailscale: () => undefined }));
 vi.mock("../../lib/bridge", async (original) => ({
   ...await original<typeof import("../../lib/bridge")>(),
   invoke: async (command: string) => command === "get_serve_status"
     ? { installed: true, active: true, snapshot: webUiSnapshot("ready") }
-    : { api_port: 7686, local_ip: "192.168.1.2" },
+    : { api_port: 7686, local_ip: "192.168.1.2", web_listener: "100.64.1.2:7686" },
   listen: async () => () => {},
 }));
 vi.mock("qrcode", () => ({ default: { toDataURL: async () => "data:image/png;base64,fixture" } }));
@@ -31,6 +36,92 @@ vi.mock("@codeterm/canvas-camera", async (original) => ({
   formatLayerTransform: () => "",
   useCanvasViewport: () => ({ containerRef: { current: null }, layerRef: { current: null }, transform: { x: 0, y: 0, scale: 1 }, handlers: {}, fitToView: () => {}, zoomBy: () => {} }),
 }));
+
+it("wires the toolbar Refresh to the account registry as well as inventory", async () => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const config = { api: { port: 7686, token: "private-token" }, mesh: { enabled: true } } as AppConfig;
+  try {
+    await act(async () => root.render(<MeshPanel api={config.api} config={config} onConfigUpdate={async () => {}} onClose={() => {}} />));
+    const inventoryKey = refreshKeys[refreshKeys.length - 1];
+    const registryKey = registryRefreshKeys[registryRefreshKeys.length - 1];
+    await act(async () => host.querySelector<HTMLButtonElement>('button[title="Refresh"]')!.click());
+    expect(refreshKeys[refreshKeys.length - 1]).toBe(inventoryKey + 1);
+    expect(registryRefreshKeys[registryRefreshKeys.length - 1]).toBe(registryKey + 1);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+it("shows the inventory as unavailable instead of an empty graph when the first load fails", async () => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const config = { api: { port: 7686, token: "private-token" }, mesh: { enabled: true } } as AppConfig;
+  meshData = {
+    thisMachine: { name: "this", ip: "127.0.0.1" }, services: [], peers: [],
+    loading: false, error: "request timed out", loaded: false, refresh: () => {},
+  };
+  try {
+    await act(async () => root.render(<MeshPanel api={config.api} config={config} onConfigUpdate={async () => {}} onClose={() => {}} />));
+    const view = host.querySelector('section[aria-label="Mesh inventory"]');
+    expect(view?.textContent).toContain("Mesh data is unavailable.");
+    expect(host.querySelector('[role="status"]')?.textContent).toBe("Mesh data is unavailable.");
+    expect(host.querySelector('[role="region"][aria-label="Mesh UI"]')).toBeNull();
+    expect(host.textContent).not.toContain("0 peers");
+    expect(host.textContent).not.toContain("127.0.0.1");
+
+    const before = refreshKeys[refreshKeys.length - 1];
+    const retry = Array.from(view!.querySelectorAll("button")).find((button) => button.textContent?.includes("Retry"));
+    await act(async () => retry!.click());
+    expect(refreshKeys[refreshKeys.length - 1]).toBe(before + 1);
+
+    meshData = { ...inventory, error: null };
+    await act(async () => retry!.click());
+    expect(host.querySelector('section[aria-label="Mesh inventory"]')).toBeNull();
+    expect(host.querySelector('[role="region"][aria-label="Mesh UI"]')).not.toBeNull();
+    expect(host.textContent).toContain("1 peer");
+  } finally {
+    meshData = inventory;
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+it("renders a loading header and inventory until cached or live data arrives, never 0 peers", async () => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const config = { api: { port: 7686, token: "private-token" }, mesh: { enabled: true } } as AppConfig;
+  const panel = () => <MeshPanel api={config.api} config={config} onConfigUpdate={async () => {}} onClose={() => {}} />;
+  meshData = {
+    thisMachine: { name: "this", ip: "127.0.0.1" }, services: [], peers: [],
+    loading: true, error: null, loaded: false, refresh: () => {},
+  };
+  try {
+    await act(async () => root.render(panel()));
+    expect(host.textContent).not.toContain("0 peers");
+    expect(host.querySelector('[aria-busy="true"]')?.textContent).toBe("Loading peers");
+    expect(host.querySelector('section[aria-label="Mesh inventory"][aria-busy="true"]')).not.toBeNull();
+    expect(host.textContent).not.toContain("127.0.0.1");
+
+    const second = { ...inventory.peers[0], instance_id: "second", name: "Second machine" };
+    meshData = { ...inventory, peers: [...inventory.peers, second], error: null, loading: true };
+    await act(async () => root.render(panel()));
+    expect(host.textContent).toContain("2 peers");
+    expect(host.querySelector('section[aria-label="Mesh inventory"]')).toBeNull();
+    expect(host.querySelector('[role="region"][aria-label="Mesh UI"]')).not.toBeNull();
+  } finally {
+    meshData = inventory;
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
 
 it("dismisses the peer drawer before closing Mesh on the next Escape", async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -74,7 +165,7 @@ it("shows the access card directly in the graph without a duplicate details dial
     expect(host.querySelector('[role="alert"]')).toBeNull();
     expect(host.querySelector('[role="dialog"]')).toBeNull();
     expect(host.querySelector('[data-testid="web-access-status"]')).toBeNull();
-    expect(host.querySelector('[role="region"][aria-label="Mesh UI"]')?.textContent).toContain('host.tail.ts.net');
+    expect(host.querySelector('[role="region"][aria-label="Mesh UI"]')?.textContent).toContain('100.64.1.2:7686');
     const expand = host.querySelector<HTMLButtonElement>('button[aria-label="Expand Mesh UI"]');
     expect(expand).not.toBeNull();
     await act(async () => expand!.click());

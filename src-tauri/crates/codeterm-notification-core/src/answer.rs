@@ -62,11 +62,13 @@ pub fn record_via(
     if let Some(standing) = slot.answered.as_deref() {
         return AnswerAdmission::AlreadyAnswered(standing.to_string());
     }
-    if slot.asked_from_tab.is_none() {
+    if slot.asked_from_tab.is_none() && slot.daemon_request.is_none() {
         return AnswerAdmission::Undeliverable;
     }
     slot.answered = Some(label.to_string());
     slot.answered_via = Some(answered_via.to_string());
+    // Answering is reading: the user acted on the question wherever they tapped it.
+    target.read = true;
     AnswerAdmission::Recorded(label.to_string())
 }
 
@@ -98,6 +100,7 @@ pub fn record_detached(
     }
     slot.answered = Some(label.to_string());
     slot.answered_via = Some("notification".to_string());
+    target.read = true;
     AnswerAdmission::Recorded(label.to_string())
 }
 

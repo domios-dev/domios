@@ -78,12 +78,23 @@ pub(super) async fn child_history(
     .map_err(|reason| (StatusCode::CONFLICT, reason))
 }
 
+pub(super) async fn show_login(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(tab): Path<String>,
+) -> Result<(HeaderMap, Json<serde_json::Value>), (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, reason)| (status, reason.to_string()))?;
+    codeterm_service_core::service::agent_runtime::login::show(&state.svc, &tab)
+        .map(login_response)
+        .map_err(|reason| (StatusCode::CONFLICT, reason))
+}
+
 pub(super) async fn login(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(tab): Path<String>,
     Json(request): Json<LoginRequest>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+) -> Result<(HeaderMap, Json<serde_json::Value>), (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(status, reason)| (status, reason.to_string()))?;
     if request.api_key.is_some() && !super::auth::is_local_caller(&state, &headers) {
         return Err((
@@ -91,9 +102,15 @@ pub(super) async fn login(
             "API keys must be entered on the provider's own machine".into(),
         ));
     }
+    if request.code.is_some() && !super::auth::is_local_caller(&state, &headers) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Sign-in codes must be entered on the provider's own machine".into(),
+        ));
+    }
     operate(&state.svc, &tab, request)
         .await
-        .map(Json)
+        .map(login_response)
         .map_err(|reason| (StatusCode::CONFLICT, reason))
 }
 
@@ -154,7 +171,10 @@ pub(super) fn router() -> Router<AppState> {
             "/api/tabs/{id}/agent/runtime/reset-credits",
             post(reset_credits),
         )
-        .route("/api/tabs/{id}/agent/runtime/login", post(login))
+        .route(
+            "/api/tabs/{id}/agent/runtime/login",
+            get(show_login).post(login),
+        )
         .route(
             "/api/tabs/{id}/agent/runtime/children/{thread}/history",
             get(child_history),
@@ -163,4 +183,16 @@ pub(super) fn router() -> Router<AppState> {
             "/api/tabs/{id}/agent/runtime/background-processes",
             get(background_processes).post(stop_background_process),
         )
+}
+
+#[cfg(test)]
+mod tests;
+
+fn login_response(value: serde_json::Value) -> (HeaderMap, Json<serde_json::Value>) {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("no-store"),
+    );
+    (headers, Json(value))
 }

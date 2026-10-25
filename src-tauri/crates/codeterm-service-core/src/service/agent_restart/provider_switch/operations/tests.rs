@@ -125,3 +125,52 @@ fn stale_self_identity_refuses_and_a_disconnected_response_does_not_cancel_accep
         .content
         .contains("opaque-runtime-refusal"));
 }
+
+#[test]
+fn slow_switch_preflight_leaves_runtime_and_mux_responsive() {
+    use std::{sync::mpsc, time::Duration};
+    let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
+    mux.get_tab_mut(&id).unwrap().agent_type = Some("source".into());
+    let fixture = ServiceFixture::new(mux);
+    let (entered, started) = mpsc::channel();
+    let (release, resume) = mpsc::channel();
+    let accepted = fixture
+        .service
+        .accept_provider_switch_with(&id, "target".into(), None, None, move |_, _, _, _| {
+            entered.send(()).unwrap();
+            resume
+                .recv_timeout(Duration::from_secs(5))
+                .map_err(|_| "fixture preflight was not released".to_string())?;
+            Err("provider_switch_auth_timeout: fixture".into())
+        })
+        .unwrap();
+    let operation = accepted.status.operation_id.clone();
+    accepted.response_complete.send(()).unwrap();
+    let entered_result = started.recv_timeout(Duration::from_secs(5));
+    let (sent, received) = mpsc::channel();
+    fixture.service.rt.spawn(async move {
+        sent.send(()).unwrap();
+    });
+    let runtime_result = received.recv_timeout(Duration::from_secs(5));
+    let current = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&id)
+        .unwrap()
+        .agent_type
+        .clone();
+    release.send(()).unwrap();
+    let status = fixture
+        .service
+        .provider_switch_status(&id, &operation, true)
+        .unwrap();
+    entered_result.unwrap();
+    runtime_result.unwrap();
+    assert_eq!(current.as_deref(), Some("source"));
+    assert_eq!(status.phase, "failed");
+    assert!(status
+        .error
+        .unwrap()
+        .starts_with("provider_switch_auth_timeout:"));
+}

@@ -1,407 +1,415 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { MachineSessionControls } from "./MachineSessionControls";
 import { RefreshCw } from "lucide-react";
-import { invoke } from "../../lib/bridge";
-import type { MeshPeersResponse, DiscoveredPeer, MeshPairingRequest, PairedPeer } from "../../lib/types";
-import { UI_BUTTON, UI_PANEL, UI_TEXT } from "../shared/design";
+import { UI_BUTTON, UI_TEXT } from "../shared/design";
 import { BusySpinner } from "../shared/BusyState";
+import { RegionLoader } from "../shared/RegionLoader";
+import { SettingsPill } from "../Settings/shared";
+import type { MachineRowView, MachineStatus, SelfRowView } from "./accountMachines";
+import { failureMessage } from "./accountMachines";
+import { LockBadge } from "../billing/LockBadge";
+import { lockedDimClass } from "../billing/freeLimitModel";
+import { meshMachineLockedView } from "../billing/lockSurfaces";
+import type { AccountMeshFailure, MeshTarget } from "./accountMeshClient";
+import { useMyMachines, type MyMachines as MachinesController, type MyMachinesOptions } from "./useMyMachines";
 
-const ACTION_BTN_CLASS = `${UI_BUTTON.ghost} ${UI_BUTTON.compact}`;
-const PRIMARY_BTN_CLASS = `${UI_BUTTON.accent} ${UI_BUTTON.compact}`;
+export interface MyMachinesProps extends MyMachinesOptions {
+  onFailure: (operation: string, failure: AccountMeshFailure) => void;
+}
 
-type ConnectResult = {
-  status?: "pending" | "connected";
-  existing?: boolean;
+type Confirm = { kind: "revoke" | "unpair"; key: string } | null;
+
+const ACTION_BTN = `${UI_BUTTON.ghost} ${UI_BUTTON.compact}`;
+const DANGER_BTN = `${UI_BUTTON.danger} ${UI_BUTTON.compact}`;
+const PRIMARY_BTN = `${UI_BUTTON.primary} ${UI_BUTTON.compact}`;
+
+const STATUS_PILL: Record<MachineStatus, { label: string; tone: "green" | "red" | "muted" | "accent" | "amber" }> = {
+  approval_requested: { label: "Approval requested", tone: "accent" },
+  declined: { label: "Declined", tone: "muted" },
+  link_expired: { label: "Expired", tone: "amber" },
+  link_failed: { label: "Connection failed", tone: "amber" },
+  signed_out: { label: "Signed out", tone: "muted" },
+  linked: { label: "Connected", tone: "green" },
+  linking: { label: "Connecting", tone: "accent" },
+  unlinked: { label: "Not connected", tone: "muted" },
+  endpoint_missing: { label: "Unavailable", tone: "muted" },
+  endpoint_stale: { label: "Stale", tone: "amber" },
+  expired: { label: "Expired", tone: "amber" },
+  revoked: { label: "Revoked", tone: "red" },
+  over_limit: { label: "Over limit", tone: "amber" },
+  unverified: { label: "Unverified", tone: "amber" },
+  legacy: { label: "Legacy pair", tone: "muted" },
+  blocked: { label: "Blocked", tone: "red" },
+  other_account: { label: "Other account", tone: "red" },
 };
 
-type ConnectStatus = {
-  instanceId: string;
-  message: string;
-};
+export default function MyMachines(props: MyMachinesProps) {
+  const machines = useMyMachines(props);
+  return <MachineManagement machines={machines} />;
+}
 
-export default function AddPeerPanel() {
-  const [peers, setPeers] = useState<MeshPeersResponse | null>(null);
-  const [connecting, setConnecting] = useState<string | null>(null);
-  const [approving, setApproving] = useState<string | null>(null);
-  const [elapsed, setElapsed] = useState(0);
-  const [manualAddr, setManualAddr] = useState("");
-  const [showManual, setShowManual] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [connectStatus, setConnectStatus] = useState<ConnectStatus | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const elapsedRef = useRef<ReturnType<typeof setInterval> | null>(null);
+export function MachineManagement({ machines }: { machines: MachinesController }) {
+  const { view, snapshot, listFailure, loadFailed, refreshing, signingIn, busy, load, signIn, retryEnrollment } = machines;
+  const [confirm, setConfirm] = useState<Confirm>(null);
+  const controls = useRef(new Map<string, HTMLElement>());
 
-  const [meshOnline, setMeshOnline] = useState<boolean | null>(null);
-  const [scanning, setScanning] = useState(false);
+  const enrollmentRefused = view.kind === "account" && snapshot?.enrollment === "refused";
 
-  const fetchPeers = useCallback(async () => {
-    try {
-      const p = await invoke<MeshPeersResponse>("mesh_list_peers");
-      setPeers(p);
-    } catch {}
-  }, []);
-
-  const fetchMeshState = useCallback(async () => {
-    try {
-      const cfg = await invoke<{ mesh: { enabled: boolean } }>("get_config");
-      setMeshOnline(cfg.mesh.enabled);
-    } catch {}
-  }, []);
-
-  const enableMesh = useCallback(async () => {
-    try {
-      const cfg = await invoke<{ mesh: { enabled: boolean }; [k: string]: unknown }>("get_config");
-      await invoke("update_config", {
-        config: { ...cfg, mesh: { ...cfg.mesh, enabled: true } },
-      });
-      setMeshOnline(true);
-    } catch (e) {
-      console.error("Enable mesh failed:", e);
-    }
-  }, []);
-
-  const handleScan = useCallback(async () => {
-    setScanning(true);
-    const start = Date.now();
-    try {
-      await invoke("mesh_scan_peers");
-      await fetchPeers();
-    } catch {}
-    const elapsed = Date.now() - start;
-    if (elapsed < 800) await new Promise((r) => setTimeout(r, 800 - elapsed));
-    setScanning(false);
-  }, [fetchPeers]);
-
+  const pendingFocus = useRef<string | null>(null);
   useEffect(() => {
-    fetchPeers();
-    fetchMeshState();
-    pollRef.current = setInterval(() => {
-      fetchPeers();
-      fetchMeshState();
-    }, 2000);
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
-  }, [fetchPeers, fetchMeshState]);
-
-  useEffect(() => {
-    if (!connecting) {
-      if (elapsedRef.current) { clearInterval(elapsedRef.current); elapsedRef.current = null; }
-      setElapsed(0);
-      return;
-    }
-    setElapsed(0);
-    elapsedRef.current = setInterval(() => setElapsed((n) => n + 1), 1000);
-    return () => { if (elapsedRef.current) clearInterval(elapsedRef.current); };
-  }, [connecting]);
-
-  const handleConnect = async (instanceId: string) => {
-    if (connecting) return;
-    setConnecting(instanceId);
-    setError(null);
-    setConnectStatus(null);
-    try {
-      const result = await invoke<ConnectResult>("mesh_connect", { instanceId });
-      if (result.status === "connected") {
-        setConnectStatus({ instanceId, message: "Already connected." });
-      } else if (result.status === "pending") {
-        setConnectStatus({
-          instanceId,
-          message: result.existing ? "Pairing request is already pending." : "Pairing request pending approval.",
-        });
-      }
-      await fetchPeers();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setConnecting(null);
-    }
+    const key = pendingFocus.current;
+    const element = key ? controls.current.get(key) : undefined;
+    if (!element) return;
+    pendingFocus.current = null;
+    element.focus();
+  });
+  const refocus = (key: string) => {
+    pendingFocus.current = key;
+    controls.current.get(key)?.focus();
+  };
+  const registerControl = (key: string) => (element: HTMLElement | null) => {
+    if (element) controls.current.set(key, element);
+    else controls.current.delete(key);
   };
 
-  const handleApprove = async (requestId: string) => {
-    setApproving(requestId);
-    setError(null);
-    try {
-      await invoke("mesh_approve_pairing", { requestId });
-      await fetchPeers();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setApproving(null);
-    }
+  const add = (row: MachineRowView, target: MeshTarget) => machines.connect(row, target);
+
+  const revoke = async (row: MachineRowView, target: MeshTarget, alsoSignOut: boolean) => {
+    if (await machines.revoke(row, target, alsoSignOut)) setConfirm(null);
+    else refocus(`${row.key}:confirm-revoke`);
   };
 
-  const handleReject = async (requestId: string) => {
-    try {
-      await invoke("mesh_reject_pairing", { requestId });
-      await fetchPeers();
-    } catch (e) {
-      setError(String(e));
-    }
+  const unpair = async (row: MachineRowView, instanceId: string) => {
+    if (await machines.disconnect(row, instanceId)) setConfirm(null);
+    else refocus(`${row.key}:confirm-unpair`);
   };
 
-  const handleAddManual = async () => {
-    const parts = manualAddr.split(":");
-    const address = parts[0];
-    const port = parseInt(parts[1] || "7685", 10);
-    if (!address) return;
-    setError(null);
-    try {
-      await invoke("mesh_add_manual", { address, port });
-      setManualAddr("");
-      setShowManual(false);
-      await fetchPeers();
-    } catch (e) {
-      setError(String(e));
-    }
+  const cancelConfirm = (key: string, kind: "revoke" | "unpair") => {
+    pendingFocus.current = `${key}:${kind}`;
+    setConfirm(null);
   };
 
-  const incoming = peers?.incoming_requests ?? [];
-  const paired = peers?.paired ?? [];
-  const pairedIds = new Set(paired.map((p) => p.instance_id));
-  // Vouched peers are surfaced in the "Paired devices" card as "auto-pairs when online" — drop them from "Discovered nearby" so users see one row, not two.
-  const discovered = (peers?.discovered ?? []).filter(
-    (d) => d.vouched_by.length === 0 && !pairedIds.has(d.instance_id),
+  const refresh = (
+    <button
+      type="button"
+      onClick={() => void load()}
+      disabled={refreshing}
+      aria-label="Refresh My machines"
+      aria-busy={refreshing}
+      className={`${ACTION_BTN} text-[var(--ct-muted)]`}
+    >
+      <BusySpinner icon={RefreshCw} size={12} spinning={refreshing} />
+      Refresh
+    </button>
   );
 
-  return (
-    <div className="flex flex-col gap-3">
-      {meshOnline === false && (
-        <div className="ct-card ct-card--quiet p-2.5 flex items-center justify-between gap-3">
-          <span className={UI_TEXT.meta}>
-            You're offline — broadcasting peers won't show up here.
-          </span>
-          <button
-            onClick={enableMesh}
-            className={`${UI_BUTTON.primary} ${UI_BUTTON.compact} flex-shrink-0`}
-            >
-            Go online
+  const rowList = (label: string, rows: MachineRowView[], empty: ReactNode) => (
+    <ul aria-label={label} className="ct-card ct-card--quiet flex flex-col">
+      {rows.length === 0 ? <li className={`p-3 ${UI_TEXT.metaMuted}`}>{empty}</li> : rows.map((row) => (
+        <MachineRow
+          key={row.key}
+          row={row}
+          busy={busy === row.key}
+          confirm={confirm?.key === row.key ? confirm.kind : null}
+          register={registerControl}
+          onDecision={(approve) => { if (row.linkRequest?.notification_id) void machines.decide(row, row.linkRequest.notification_id, approve); }}
+          onAdd={(target) => void add(row, target)}
+          onPlans={() => machines.openPlans(row.key)}
+          onAskConfirm={(kind) => setConfirm({ kind, key: row.key })}
+          onCancelConfirm={(kind) => cancelConfirm(row.key, kind)}
+          onRevoke={(target, alsoSignOut) => void revoke(row, target, alsoSignOut)}
+          onSignOut={() => machines.revokeSession(row)}
+          onUnpair={(instanceId) => void unpair(row, instanceId)}
+          failure={machines.failures.get(row.key)?.failure}
+        />
+      ))}
+    </ul>
+  );
+
+  if (view.kind === "loading") {
+    return (
+      <section aria-label="My machines" aria-busy={!loadFailed} className="flex flex-col gap-2">
+        {loadFailed ? (
+          <div className="flex items-center justify-between gap-2">
+            <p role="status" className={UI_TEXT.meta}>My machines could not be loaded.</p>
+            {refresh}
+          </div>
+        ) : <RegionLoader label="Loading your machines" className="min-h-40" />}
+      </section>
+    );
+  }
+
+  if (view.kind === "sign_in") {
+    return (
+      <section aria-label="My machines" className="flex flex-col gap-3">
+        <div className="ct-card ct-card--quiet flex items-center justify-between gap-3 p-3">
+          <p role="status" className={view.blocked ? "text-[var(--ct-fg)] font-medium" : UI_TEXT.meta}>{view.headline}</p>
+          <button type="button" onClick={() => void signIn()} disabled={signingIn} aria-busy={signingIn} className={`${PRIMARY_BTN} flex-shrink-0`}>
+            {signingIn ? "Signing in…" : "Sign in"}
           </button>
         </div>
-      )}
-      {error && (
-        <div data-testid="mesh-connect-error"><InlineErrorNotice error={error} operation="connecting this machine" blocking /></div>
-      )}
+        <Notes notes={view.notes} />
+        {view.saved.length > 0 && rowList("Saved pairings", view.saved, null)}
+      </section>
+    );
+  }
 
-      {incoming.length > 0 && (
-        <Section label="Incoming requests">
-          {incoming.map((req) => (
-            <IncomingRequestRow
-              key={req.request_id}
-              req={req}
-              approving={approving === req.request_id}
-              onApprove={() => handleApprove(req.request_id)}
-              onReject={() => handleReject(req.request_id)}
-            />
-          ))}
-        </Section>
-      )}
-
-      <Section
-        label="Discovered nearby"
-        action={
-          <button
-            onClick={handleScan}
-            disabled={scanning}
-            title="Scan for peers now"
-            className={`${ACTION_BTN_CLASS} text-[var(--ct-muted)] disabled:opacity-40`}
-          >
-            <BusySpinner icon={RefreshCw} size={12} spinning={scanning} />
-            {scanning ? "Scanning…" : "Refresh"}
-          </button>
-        }
-      >
-        {discovered.length === 0 ? (
-          <div className="p-3 text-[10px] text-[var(--ct-muted)] italic">
-            No peers found nearby
-          </div>
-        ) : (
-          discovered.map((peer) => (
-            <DiscoveredPeerRow
-              key={peer.instance_id}
-              peer={peer}
-              paired={paired}
-              isPending={connecting === peer.instance_id}
-              elapsed={connecting === peer.instance_id ? elapsed : 0}
-              onConnect={() => handleConnect(peer.instance_id)}
-              connectDisabled={connecting !== null}
-              status={connectStatus?.instanceId === peer.instance_id ? connectStatus.message : null}
-            />
-          ))
-        )}
-      </Section>
-
-      <div>
-        {showManual ? (
-          <div className="flex flex-col gap-2">
-            <div className={`${UI_TEXT.metaMuted} uppercase`}>Add manually</div>
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                value={manualAddr}
-                onChange={(e) => setManualAddr(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleAddManual()}
-                placeholder="192.168.1.50:7685"
-                className="ct-field ct-text-mono flex-1"
-                autoFocus
-              />
-              <button
-                onClick={handleAddManual}
-                className={PRIMARY_BTN_CLASS}
-              >
-                Add
-              </button>
-              <button
-                onClick={() => { setShowManual(false); setManualAddr(""); }}
-                className={ACTION_BTN_CLASS}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        ) : (
-          <button
-            onClick={() => setShowManual(true)}
-            className={`${UI_BUTTON.accent} ${UI_BUTTON.compact}`}
-          >
-            + Add peer manually…
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function Section({ label, action, children }: { label: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center justify-between">
-        <div className={`${UI_TEXT.metaMuted} uppercase`}>{label}</div>
-        {action}
+    <section aria-label="My machines" className="flex flex-col gap-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className={`${UI_TEXT.metaMuted} uppercase`}>Your account</div>
+        {refresh}
       </div>
-      <div className="ct-card ct-card--quiet flex flex-col">
-        {children}
-      </div>
-    </div>
+      {view.self && (
+        <SelfRow self={view.self} onRename={machines.renameSelf} onPlans={() => machines.openPlans(view.self!.installationId)} />
+      )}
+      {view.machineLimit && !view.self && <div role="group" aria-label="This machine plan limit" className="ct-card ct-card--quiet p-3 flex items-center gap-2">
+        <span className="font-medium">This machine</span>
+        <LockBadge view={meshMachineLockedView({ status: "over_limit" })} />
+        <SettingsPill tone="amber">Over limit</SettingsPill>
+        <button type="button" aria-label="See plans for this machine" onClick={() => machines.openPlans("self")} className={`${UI_BUTTON.accent} ${UI_BUTTON.compact}`}>See plans</button>
+      </div>}
+      {rowList("Your account's machines", view.machines, listFailure ? "Your account's machines could not be listed." : "No other machines in your account yet. Sign in to Domios with this account on another machine.")}
+      {view.saved.length > 0 && (
+        <>
+          <div className={`${UI_TEXT.metaMuted} uppercase`}>Saved pairings</div>
+          {rowList("Saved pairings", view.saved, null)}
+        </>
+      )}
+      {view.removed && <p role="status" className={UI_TEXT.metaMuted}>This machine was removed from your mesh</p>}
+      <Notes notes={view.notes} />
+      {enrollmentRefused && !view.machineLimit && (
+        <div className="flex gap-2">
+          {view.removed || view.reauthRequired || snapshot?.last_refusal?.reason === "unauthenticated" || snapshot?.last_refusal?.reason === "app-check" ? (
+            <button type="button" onClick={() => void signIn()} disabled={signingIn} className={PRIMARY_BTN}>{view.removed ? "Sign in and rejoin" : "Sign in again"}</button>
+          ) : (
+            <button type="button" onClick={() => void retryEnrollment()} className={ACTION_BTN}>{view.removed ? "Rejoin" : "Retry enrollment"}</button>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 
-function IncomingRequestRow({
-  req,
-  approving,
-  onApprove,
-  onReject,
-}: {
-  req: MeshPairingRequest;
-  approving: boolean;
-  onApprove: () => void;
-  onReject: () => void;
+function Notes({ notes }: { notes: string[] }) {
+  if (notes.length === 0) return null;
+  return <div className="flex flex-col gap-1">{notes.map((note) => <p key={note} className={UI_TEXT.metaMuted}>{note}</p>)}</div>;
+}
+
+function SelfRow({ self, onRename, onPlans }: {
+  self: SelfRowView;
+  onRename: (name: string) => Promise<boolean>;
+  onPlans: () => void;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  const pending = useRef(false);
+  const input = useRef<HTMLInputElement | null>(null);
+  const button = useRef<HTMLButtonElement | null>(null);
+  const returnFocus = useRef(false);
+  useEffect(() => {
+    if (editing || !returnFocus.current) return;
+    returnFocus.current = false;
+    button.current?.focus();
+  }, [editing]);
+  const close = () => {
+    returnFocus.current = true;
+    setEditing(false);
+  };
+  const save = async () => {
+    const name = draft.trim();
+    if (!name || pending.current) return;
+    pending.current = true;
+    setSaving(true);
+    setFailure(null);
+    try {
+      if (await onRename(name)) close();
+      else input.current?.focus();
+    } catch (error) {
+      setFailure(error instanceof Error ? error.message : "Could not rename. Try again.");
+      input.current?.focus();
+    } finally {
+      pending.current = false;
+      setSaving(false);
+    }
+  };
   return (
-      <div className="p-3 flex items-center justify-between gap-2">
+    <div role="group" aria-label={`This machine: ${self.name}`} className="ct-card ct-card--quiet p-3 flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
-          <div className="w-2 h-2 rounded-full bg-[var(--ct-accent)] animate-pulse flex-shrink-0" />
-          <span className="font-medium text-[var(--ct-fg)] truncate">{req.from_instance_name}</span>
-          <span className={`${UI_TEXT.meta} ct-text-mono flex-shrink-0`}>{req.from_address}</span>
+          <span className="w-2 h-2 rounded-full bg-[var(--ct-green)] flex-shrink-0" aria-hidden="true" />
+          <span className="font-medium text-[var(--ct-fg)] truncate">{self.name}</span>
+          <SettingsPill tone="accent">This machine</SettingsPill>
+          {self.planLimited && <>
+            <LockBadge view={meshMachineLockedView({ status: "over_limit" })} />
+            <SettingsPill tone="amber">Over limit</SettingsPill>
+          </>}
         </div>
-        <div className="flex items-center gap-1.5 flex-shrink-0">
+        {!editing && (
           <button
-            onClick={onApprove}
-            disabled={approving}
-            className={`${UI_BUTTON.primary} ${UI_BUTTON.compact} disabled:opacity-50`}
+            type="button"
+            ref={button}
+            onClick={() => { setDraft(self.displayName ?? ""); setEditing(true); }}
+            className={ACTION_BTN}
           >
-            {approving ? "Approving…" : "Approve"}
-          </button>
-          <button
-            onClick={onReject}
-            disabled={approving}
-            className={`${ACTION_BTN_CLASS} disabled:opacity-50`}
-          >
-            Reject
-          </button>
-        </div>
-      </div>
-  );
-}
-
-function DiscoveredPeerRow({
-  peer,
-  paired,
-  isPending,
-  elapsed,
-  onConnect,
-  connectDisabled,
-  status,
-}: {
-  peer: DiscoveredPeer;
-  paired: PairedPeer[];
-  isPending: boolean;
-  elapsed: number;
-  onConnect: () => void;
-  connectDisabled: boolean;
-  status: string | null;
-}) {
-  const voucherNames = (peer.vouched_by ?? [])
-    .map((id) => paired.find((p) => p.instance_id === id)?.instance_name)
-    .filter((n): n is string => Boolean(n));
-  const hasVouchers = voucherNames.length > 0;
-  const hasPeers = paired.length > 0;
-
-  return (
-    <div className="p-3">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0 flex-wrap">
-            <div className="w-2 h-2 rounded-full border border-[var(--ct-muted)] flex-shrink-0" />
-            <span className="text-sm truncate text-[var(--ct-fg)]">{peer.instance_name}</span>
-            <span className={`${UI_TEXT.meta} ct-text-mono flex-shrink-0`}>
-              {peer.addresses[0]?.ip || ""}
-            </span>
-            {peer.dev && (
-              <span className={`${UI_PANEL.smallPill} bg-[var(--ct-yellow)]/20 text-[var(--ct-yellow)]`}>
-                dev
-              </span>
-            )}
-            <span className={`ct-small-pill flex-shrink-0 ${
-              hasVouchers
-                ? "bg-[var(--ct-green)]/20 text-[var(--ct-green)]"
-                : "bg-[var(--ct-border)] text-[var(--ct-muted)]"
-            }`}>
-              {hasVouchers ? "vouched" : "discovered"}
-          </span>
-        </div>
-        {isPending ? (
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <BusySpinner size={12} />
-            <span className="text-[10px] text-[var(--ct-muted-fg)]">
-              Waiting… {elapsed}s
-            </span>
-          </div>
-        ) : (
-          <button
-            onClick={onConnect}
-            disabled={connectDisabled}
-            data-testid={`mesh-connect-${peer.instance_id}`}
-            className={`${UI_BUTTON.accent} ${UI_BUTTON.compact} disabled:opacity-50 flex-shrink-0`}
-          >
-            {hasVouchers ? "Pair too?" : hasPeers ? "Add to Mesh" : "Connect"}
+            Rename this machine
           </button>
         )}
       </div>
-      {hasVouchers && !isPending && (
-        <div className={`mt-1.5 ${UI_TEXT.meta}`}>
-          Vouched by {voucherNames.join(", ")}
-        </div>
+      {self.planLimited && <div className="flex items-center justify-between gap-2">
+        <span className={UI_TEXT.metaMuted}>This machine is outside your plan's machine limit.</span>
+        <button type="button" aria-label="See plans for this machine" onClick={onPlans} className={`${UI_BUTTON.accent} ${UI_BUTTON.compact}`}>See plans</button>
+      </div>}
+      {editing && (
+        <form className="flex items-center gap-2" onSubmit={(event) => { event.preventDefault(); void save(); }}>
+          <input
+            ref={input}
+            aria-label="Machine name"
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => { if (event.key === "Escape") close(); }}
+            className="ct-field flex-1"
+            maxLength={128}
+            autoFocus
+          />
+          <button type="submit" disabled={saving || !draft.trim()} aria-busy={saving} className={PRIMARY_BTN}>
+            {saving ? "Saving…" : "Save"}
+          </button>
+          <button type="button" onClick={close} disabled={saving} className={ACTION_BTN}>Cancel</button>
+        </form>
       )}
-      {isPending && (
-        <div className={`mt-1.5 ${UI_TEXT.metaMuted}`}>
-          Accept the pairing request on {peer.instance_name}
+      {editing && failure && <InlineErrorNotice error={failure} operation="renaming the machine" />}
+    </div>
+  );
+}
+
+function MachineRow({ row, busy, confirm, register, onDecision, onAdd, onPlans, onAskConfirm, onCancelConfirm, onRevoke, onUnpair, onSignOut, failure }: {
+  row: MachineRowView;
+  busy: boolean;
+  confirm: "revoke" | "unpair" | null;
+  register: (key: string) => (element: HTMLElement | null) => void;
+  onDecision: (approve: boolean) => void;
+  onAdd: (target: MeshTarget) => void;
+  onPlans: () => void;
+  onAskConfirm: (kind: "revoke" | "unpair") => void;
+  onCancelConfirm: (kind: "revoke" | "unpair") => void;
+  onRevoke: (target: MeshTarget, alsoSignOut: boolean) => void;
+  onSignOut: () => Promise<boolean>;
+  onUnpair: (instanceId: string) => void;
+  failure?: AccountMeshFailure;
+}) {
+  const reasonId = useId();
+  const [alsoSignOut, setAlsoSignOut] = useState(false);
+  const pill = STATUS_PILL[row.status];
+  const { add, revoke, unpairInstanceId } = row.controls;
+  const linking = row.status === "linking";
+  const lock = meshMachineLockedView(row);
+  return (
+    <li aria-label={row.name} data-status={row.status} className="ct-row p-3 flex flex-col gap-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <span
+            aria-hidden="true"
+            className={`w-2 h-2 rounded-full flex-shrink-0 ${row.online ? "bg-[var(--ct-green)]" : "border border-[var(--ct-muted)]"}`}
+          />
+          <span className={`text-sm text-[var(--ct-fg)] truncate ${lockedDimClass(lock)}`}>{row.name}</span>
+          <LockBadge view={lock} />
+          <SettingsPill tone={pill.tone}>{pill.label}</SettingsPill>
         </div>
+        {!confirm && (
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            {row.status === "approval_requested" && row.linkRequest?.notification_id && <>
+              <button type="button" disabled={busy} className={PRIMARY_BTN} onClick={() => onDecision(true)}>Approve</button>
+              <button type="button" disabled={busy} className={ACTION_BTN} onClick={() => onDecision(false)}>Decline</button>
+            </>}
+            {add && row.target && (
+              <button
+                type="button"
+                ref={register(`${row.key}:add`)}
+                onClick={() => row.target && onAdd(row.target)}
+                disabled={linking || add.reason !== null}
+                aria-busy={linking}
+                aria-describedby={add.reason && !linking ? reasonId : undefined}
+                aria-label={`Connect ${row.name}`}
+                className={`${UI_BUTTON.accent} ${UI_BUTTON.compact} disabled:opacity-50`}
+              >
+                {linking ? <><BusySpinner size={12} /> Connecting…</> : ["declined", "link_expired", "link_failed"].includes(row.status) ? "Try again" : "Connect"}
+              </button>
+            )}
+            {(row.status === "over_limit" || row.controls.plans) && (
+              <button type="button" ref={register(`${row.key}:plans`)} onClick={onPlans} aria-label={`See plans for ${row.name}`} className={`${UI_BUTTON.accent} ${UI_BUTTON.compact}`}>
+                See plans
+              </button>
+            )}
+            {unpairInstanceId && (
+              <button type="button" ref={register(`${row.key}:unpair`)} onClick={() => onAskConfirm("unpair")} aria-label={`Disconnect ${row.name}`} className={ACTION_BTN}>
+                Disconnect
+              </button>
+            )}
+            {revoke && (
+              <button type="button" ref={register(`${row.key}:revoke`)} onClick={() => onAskConfirm("revoke")} aria-label={`Revoke ${row.name}`} className={`${ACTION_BTN} text-[var(--ct-red)]`}>
+                Remove from mesh
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+      {row.canSignOut && <MachineSessionControls name={row.name} busy={busy} onSignOut={onSignOut} />}
+      <div className={UI_TEXT.metaMuted}>{row.detail}</div>
+      {failure && <InlineErrorNotice description={{ title: "The machine action could not be completed", cause: failureMessage(failure), raw: JSON.stringify(failure), actions: [] }} />}
+      {add?.reason && !linking && <div id={reasonId} className={UI_TEXT.metaMuted}>{add.reason}</div>}
+      {confirm === "revoke" && revoke && (
+        <ConfirmStrip
+          label={`Confirm revoke ${row.name}`}
+          message={`Remove ${row.name} from mesh? It frees its machine slot. It must sign in again to rejoin.`}
+          action="Revoke"
+          pendingAction="Revoking…"
+          busy={busy}
+          register={register(`${row.key}:confirm-revoke`)}
+          extra={<label className={UI_TEXT.meta}><input type="checkbox" checked={alsoSignOut} disabled={busy} onChange={(event) => setAlsoSignOut(event.target.checked)} /> Also sign it out</label>}
+          onConfirm={() => onRevoke(revoke, alsoSignOut)}
+          onCancel={() => onCancelConfirm("revoke")}
+        />
       )}
-      {status && (
-        <div role="status" aria-live="polite" data-testid={`mesh-connect-status-${peer.instance_id}`} className={`mt-1.5 ${UI_TEXT.metaMuted}`}>
-          {status}
-        </div>
+      {confirm === "unpair" && unpairInstanceId && (
+        <ConfirmStrip
+          label={`Confirm disconnect ${row.name}`}
+          message={`Disconnect ${row.name}? This removes the connection on this machine only. Its account slot stays allocated.`}
+          action="Disconnect"
+          pendingAction="Disconnecting…"
+          busy={busy}
+          register={register(`${row.key}:confirm-unpair`)}
+          onConfirm={() => onUnpair(unpairInstanceId)}
+          onCancel={() => onCancelConfirm("unpair")}
+        />
       )}
+    </li>
+  );
+}
+
+function ConfirmStrip({ label, message, action, pendingAction, busy, register, onConfirm, onCancel, extra }: {
+  label: string;
+  message: string;
+  extra?: ReactNode;
+  action: string;
+  pendingAction: string;
+  busy: boolean;
+  register: (element: HTMLElement | null) => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div role="group" aria-label={label} className="flex items-center justify-between gap-2 pt-1">
+      <span className={UI_TEXT.meta}>{message}{extra}</span>
+      <div className="flex items-center gap-1.5 flex-shrink-0">
+        <button type="button" ref={register} onClick={onConfirm} disabled={busy} aria-busy={busy} className={DANGER_BTN} autoFocus>
+          {busy ? pendingAction : action}
+        </button>
+        <button type="button" onClick={onCancel} disabled={busy} className={ACTION_BTN}>Cancel</button>
+      </div>
     </div>
   );
 }

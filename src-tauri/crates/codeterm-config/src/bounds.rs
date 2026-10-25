@@ -136,7 +136,6 @@ const CONFIG_BOUNDS: &[ConfigBound] = &[
         "integrations.text_hooks.fallback_on_error",
         &["forward", "drop"],
     ),
-    integer("mesh.broadcast_duration_secs", 1.0, 86400.0),
     integer("runaway.test_binary_max_secs", 1.0, 86400.0),
 ];
 

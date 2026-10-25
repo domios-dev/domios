@@ -4,7 +4,7 @@ const SOURCES: [(&str, &str); 10] = [
     ("jcs.rs", include_str!("../jcs.rs")),
     ("payload.rs", include_str!("../payload.rs")),
     ("policy.rs", include_str!("../policy.rs")),
-    ("shadow.rs", include_str!("../shadow.rs")),
+    ("authority.rs", include_str!("../authority.rs")),
     ("text.rs", include_str!("../text.rs")),
     ("verdict.rs", include_str!("../verdict.rs")),
     ("verify.rs", include_str!("../verify.rs")),

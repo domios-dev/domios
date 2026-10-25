@@ -29,17 +29,12 @@ impl crate::service::ServiceContext {
                 let record_id = record.record_id().to_string();
                 let send_id = record.send_id().map(str::to_string);
                 let delivery_id = send_id.as_deref().unwrap_or(&record_id).to_string();
-                (
-                    record_id,
-                    send_id,
-                    delivery_id,
-                    record.content_digest.clone(),
-                )
+                (record_id, send_id, delivery_id, record.clone())
             });
-        let Some((record_id, send_id, delivery_id, digest)) = parked else {
+        let Some((record_id, send_id, delivery_id, pending)) = parked else {
             return Ok(());
         };
-        let text = match self.pending_delivery_payloads.resolve(&digest) {
+        let text = match self.pending_delivery_payloads.resolve(&pending) {
             Ok(text) => text,
             Err(error) => {
                 log::warn!(
@@ -193,16 +188,19 @@ impl crate::service::ServiceContext {
                 });
             }
         }
-        let digest_is_live = crate::service::pending_delivery_payloads::live_payload_digests(
-            &self.mux.read().snapshot(),
-        )
-        .contains(&record.content_digest);
-        if !digest_is_live {
+        let snapshot = self.mux.read().snapshot();
+        let record_is_live = snapshot.tabs.values().any(|tab| {
+            tab.pending_delivery
+                .as_ref()
+                .is_some_and(|pending| pending.record_id() == record.record_id())
+        });
+        if !record_is_live {
             let mut consumed = Some(record);
-            if let Err(error) = self
-                .pending_delivery_payloads
-                .free_terminal_pair(&mut consumed, "interactive_send_claimed")
-            {
+            if let Err(error) = self.pending_delivery_payloads.free_terminal_pair(
+                &mut consumed,
+                "interactive_send_claimed",
+                &crate::service::pending_delivery_payloads::live_payload_keys(&snapshot),
+            ) {
                 log::warn!(
                     "[chat-send] parked send {} payload cleanup failed: {error}",
                     delivery_id

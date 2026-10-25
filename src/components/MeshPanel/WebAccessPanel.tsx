@@ -8,7 +8,7 @@ import { BusySpinner } from "../shared/BusyState";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { trapDialogTab } from "../shared/dialogFocusTrap";
 import { UI_BUTTON, UI_TEXT } from "../shared/design";
-import { buildWebUiTarget, classifyWebUiRoute, displayedWebUrl, shouldShowWebSetupHelper, webRouteLabel, type NetworkInfo } from "./webUiTarget";
+import { buildWebUiTarget, classifyWebUiRoute, displayedWebUrl, shouldShowWebSetupHelper, webRouteLabel, webUiListenerReady, type NetworkInfo } from "./webUiTarget";
 import { deriveWebUiView } from "./meshWebUi";
 
 export type WebUiAction = "setup" | "repair" | "disable";
@@ -36,6 +36,7 @@ interface Props {
 }
 
 export function WebAccessPanel({ config, network, serve, loading, actions, onAction, onSetup, onClose, embedded = false, qrSize = 228, onExpand }: Props) {
+  const ready = webUiListenerReady(network);
   const target = buildWebUiTarget(config, network, serve);
   const route = classifyWebUiRoute(config, network, serve);
   const view = deriveWebUiView(serve?.snapshot, loading);
@@ -56,12 +57,13 @@ export function WebAccessPanel({ config, network, serve, loading, actions, onAct
   }, [embedded]);
 
   useEffect(() => {
+    if (!ready) return;
     let active = true;
     void actions.qr(target.link).then((image) => {
       if (active) setQr({ link: target.link, image });
     }).catch((cause: unknown) => { if (active) setError(cause); });
     return () => { active = false; };
-  }, [target.link, actions.qr]);
+  }, [ready, target.link, actions.qr]);
 
   async function run(operation: () => Promise<string | void>) {
     setBusy(true);
@@ -103,9 +105,11 @@ export function WebAccessPanel({ config, network, serve, loading, actions, onAct
           {embedded && onExpand && <button type="button" aria-label="Expand Mesh UI" title="Expand Mesh UI" className={`${UI_BUTTON.ghost} ${UI_BUTTON.icon} rounded-full`} onClick={onExpand}><Maximize2 size={16} /></button>}
           {!embedded && <button type="button" aria-label="Collapse Mesh UI" onClick={onClose} className={`${UI_BUTTON.ghost} ${UI_BUTTON.icon}`}><Minimize2 size={16} /></button>}
         </div>
-        <p className="-mt-2 truncate text-sm text-[var(--ct-muted-fg)]">{host}</p>
-        {view.state !== "ready" && view.state !== "loading" && <p role="status" className="text-sm" data-testid="web-access-status">{view.label}</p>}
+        {ready && <p className="-mt-2 truncate text-sm text-[var(--ct-muted-fg)]">{host}</p>}
+        {!ready && !loading && <p role="status">Set up Tailscale to open the web UI.</p>}
+        {!ready && view.state !== "ready" && view.state !== "loading" && <p role="status" className="text-sm" data-testid="web-access-status">{view.label}</p>}
         {view.detail && !embedded && <p className={UI_TEXT.metaMuted}>{view.detail}</p>}
+        {ready && <>
         <div className="my-2 flex shrink-0 justify-center">
           <div className="rounded-2xl p-[3px] shadow-[0_10px_30px_rgba(31,111,235,0.25)]" style={{ background: "linear-gradient(135deg, var(--ct-accent, #58a6ff) 0%, var(--ct-magenta, #bc8cff) 100%)" }}>
             <div className="relative rounded-[15px] bg-white p-3">
@@ -124,10 +128,11 @@ export function WebAccessPanel({ config, network, serve, loading, actions, onAct
           <button type="button" style={{ minHeight: 48, fontSize: 16 }} className={`${UI_BUTTON.accent} ${UI_BUTTON.lg} !inline-flex !flex-row !items-center !justify-center gap-1.5 min-h-12 text-base`} onClick={() => actions.open(target.link)}><ExternalLink size={15} aria-hidden="true" />Open</button>
           <button type="button" style={{ minHeight: 48, fontSize: 16 }} disabled={busy} className={`${UI_BUTTON.ghost} ${UI_BUTTON.lg} !inline-flex !flex-row !items-center !justify-center gap-1.5 min-h-12 text-base`} onClick={() => void run(async () => { await actions.copy(target.link); return "Link copied."; })}><Copy size={15} aria-hidden="true" />Copy link</button>
         </div>
+        </>}
         <div className="flex flex-col gap-2">
           {view.canSetup && <button type="button" style={{ minHeight: 48, fontSize: 16 }} disabled={busy} className={`${UI_BUTTON.accent} ${UI_BUTTON.lg} !inline-flex !flex-row !items-center !justify-center gap-1.5 min-h-12 text-base`} onClick={() => void run(() => onAction("setup"))}>{view.operatorBootstrap ? "Set up Tailscale operator" : "Enable HTTPS (Tailscale Serve)"}</button>}
           {view.canRepair && <button type="button" style={{ minHeight: 48, fontSize: 16 }} disabled={busy} className={`${UI_BUTTON.ghost} ${UI_BUTTON.lg} !inline-flex !flex-row !items-center !justify-center gap-1.5 min-h-12 text-base`} onClick={() => void run(() => onAction("repair"))}>Repair route</button>}
-          {shouldShowWebSetupHelper(route.kind, view.state === "ready") && <button type="button" style={{ minHeight: 48, fontSize: 16 }} disabled={busy} className={`${UI_BUTTON.ghost} ${UI_BUTTON.lg} !inline-flex !flex-row !items-center !justify-center gap-1.5 min-h-12 text-base`} onClick={() => void run(onSetup)}>Set up Tailscale with AI</button>}
+          {shouldShowWebSetupHelper(route.kind, ready) && <button type="button" style={{ minHeight: 48, fontSize: 16 }} disabled={busy} className={`${UI_BUTTON.ghost} ${UI_BUTTON.lg} !inline-flex !flex-row !items-center !justify-center gap-1.5 min-h-12 text-base`} onClick={() => void run(onSetup)}>Set up Tailscale with AI</button>}
         </div>
         {message && <p role="status">{message}</p>}
         {error != null && !embedded && <InlineErrorNotice error={error} operation="setting up web access" blocking />}

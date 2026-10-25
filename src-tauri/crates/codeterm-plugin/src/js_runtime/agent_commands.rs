@@ -1,6 +1,6 @@
 //! `JsAgentCommandHandler` — adapts a JS `onAgentCommand` export to the core
 //! [`AgentCommandProvider`](crate::agent_commands::AgentCommandProvider) trait via
-//! synchronous `call_json`. Surface: `onAgentCommand({ sessionId, verb, args }) -> { result } | { error }`.
+//! synchronous `call_json`. Surface: `onAgentCommand({ sessionId, verb, args, body? }) -> { result } | { error }`.
 
 use std::sync::Arc;
 
@@ -88,8 +88,12 @@ impl AgentCommandProvider for JsAgentCommandHandler {
         session_id: &str,
         verb: &str,
         args: &[String],
+        body: Option<&str>,
     ) -> Result<crate::agent_commands::AgentCommandResult, String> {
-        let ctx = json!({ "sessionId": session_id, "verb": verb, "args": args });
+        let mut ctx = json!({ "sessionId": session_id, "verb": verb, "args": args });
+        if let Some(body) = body {
+            ctx["body"] = body.into();
+        }
         let _caller = super::host_surface::AgentCallerScope::enter(session_id);
         match call_json::<AgentCommandOut>(&self.vm, "onAgentCommand", &[ctx]) {
             Ok(out) => {
@@ -108,69 +112,4 @@ impl AgentCommandProvider for JsAgentCommandHandler {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn vm_with(src: &str) -> Arc<PluginVm> {
-        Arc::new(PluginVm::from_source("test-agent-commands", src.to_string()).expect("vm"))
-    }
-
-    #[test]
-    fn forwards_ctx_and_returns_result() {
-        let vm = vm_with(
-            r#"module.exports.default = {
-                onAgentCommand(ctx) {
-                    return { result: ctx.sessionId + "/" + ctx.verb + "/" + ctx.args.join("+") };
-                }
-            }"#,
-        );
-        let h = JsAgentCommandHandler::new(vm, "npc", true);
-        let out = h
-            .on_agent_command("s1", "say", &["hello".into(), "world".into()])
-            .unwrap();
-        assert_eq!(out.result, "s1/say/hello+world");
-        assert!(!out.catalogue_changed);
-    }
-
-    #[test]
-    fn catalogue_changed_flag_is_returned_from_agent_command() {
-        let vm = vm_with(
-            r#"module.exports.default = {
-                onAgentCommand() { return { result: "updated", catalogueChanged: true }; }
-            }"#,
-        );
-        let h = JsAgentCommandHandler::new(vm, "provider-plugin", true);
-
-        let out = h.on_agent_command("s1", "refresh", &[]).unwrap();
-
-        assert_eq!(out.result, "updated");
-        assert!(out.catalogue_changed);
-    }
-
-    #[test]
-    fn plugin_error_propagates_as_err() {
-        let vm = vm_with(
-            r#"module.exports.default = { onAgentCommand() { return { error: "bad verb" }; } }"#,
-        );
-        let h = JsAgentCommandHandler::new(vm, "npc", true);
-        assert_eq!(
-            h.on_agent_command("s1", "boom", &[]).unwrap_err(),
-            "bad verb"
-        );
-    }
-
-    #[test]
-    fn missing_export_is_err() {
-        let vm = vm_with(r#"module.exports.default = {}"#);
-        let h = JsAgentCommandHandler::new(vm, "npc", true);
-        assert!(h.on_agent_command("s1", "say", &[]).is_err());
-    }
-
-    #[test]
-    fn granted_flag_is_carried() {
-        let vm =
-            vm_with(r#"module.exports.default = { onAgentCommand() { return { result: "" }; } }"#);
-        assert!(!JsAgentCommandHandler::new(vm.clone(), "npc", false).granted());
-        assert!(JsAgentCommandHandler::new(vm, "npc", true).granted());
-    }
-}
+mod tests;

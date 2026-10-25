@@ -5,6 +5,7 @@ import { sendNotificationAnswer, type AnswerResult } from "./notificationAnswerS
 import { reducer } from "../store/multiplexer/reducer";
 import type { ExtendedState } from "../store/multiplexer/tree";
 import type { Notification } from "./types";
+import { isAnswerUndeliverable } from "./notificationAnswer";
 import type { AnswerUpdate } from "./notificationAnswer";
 
 const ASKING_TAB = "tab-asking";
@@ -72,6 +73,7 @@ async function run() {
   assert.equal(settled.answer?.answered, "Grant");
   assert.equal(settled.answer?.delivered, true);
   assert.equal(settled.answer_pending, false);
+  assert.equal(settled.read, true, "an answered question is read");
 
   const refusing = daemon("That choice was not offered by this notification");
   const refused = await tapThroughStore(refusing, ["Grant"]);
@@ -79,8 +81,11 @@ async function run() {
   assert.equal(refused.answer?.answered, null);
   assert.match(refused.answer_error ?? "", /not offered/, "a refused answer surfaces as an error on the record");
   assert.equal(refused.answer_pending, false);
+  assert.equal(refused.read, false, "a refused answer leaves the question unread");
 
   console.log("notification answer delivery: passed");
 }
 
 void run();
+
+assert.equal(isAnswerUndeliverable({ asked_from_tab: null, daemon_request: "mesh-link:request", answered: null, delivered: false }), false);

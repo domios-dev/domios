@@ -41,6 +41,13 @@ publishing keeps the signed release workflow. The package is written under
 `src-tauri/target/release/bundle/deb` unless the normal target policy selects
 another existing target root.
 
+Hosted Linux/Windows arm64 use `release-arm64-compile TAG SOURCE_SHA ARCHIVE` with
+an explicit `CARGO_BUILD_TARGET` and `CODETERM_USE_SCCACHE=0`. This operation builds
+the shared inputs and unsigned bundles, then freezes the handoff inside the same
+gateway session so Windows Cargo receipt paths stay accessible. No signing or S3
+credentials may be present. Private finalizers consume the digest-pinned archive;
+they do not invoke a compiler. Setup and measurement: [hosted arm64](../../../docs/release/hosted-arm64.md).
+
 Queued builds watch only the gateway root, queue entries and the current owner
 directory. Recursive slot watchers also traverse Cargo artifacts and transient
 `state.lock.pending.*` directories; Node can race their removal and abort a
@@ -138,9 +145,10 @@ pnpm install
 ./build.sh build        # production build
 ```
 
-### Release artifact pair smoke
+### Isolated CLI/server integration
 
-To verify a packaged release `domios-server` without using production paths,
+The CLI integration target `isolated_server` verifies a debug server without production paths.
+The same isolated launch contract accepts debug and release artifacts. To diagnose manually,
 create distinct existing temporary data and config directories and choose a
 private port other than 7685 or 7686:
 
@@ -148,23 +156,41 @@ private port other than 7685 or 7686:
 domios-server start --verify-isolated --data-dir <absolute-data-dir> --config-dir <absolute-config-dir> --port <private-port>
 ```
 
-This mode is release-only, binds `127.0.0.1`, and refuses relative paths and
+This mode binds `127.0.0.1`, and refuses relative paths and
 paths under the user's `.codeterm*` directories. It uses the private bootstrap
 pipe to start and stop the server; stdout contains one JSON line of the form
 `{"type":"READY","build":"<server-build-sha>","port":<bound-port>}`.
 Keep stdin open while using the server. Closing stdin on any platform or sending
 SIGTERM on Unix asks the supervisor to perform the normal authenticated
-shutdown. The API token stays in the isolated config file and private bootstrap
-pipe. Probe `http://127.0.0.1:<port>/api/health`. For the paired CLI, read the
-token from `<config-dir>/config.toml` and set it with `CODETERM_API_TOKEN`;
+shutdown. The API credential stays in `<data-dir>/.secrets` and the private
+bootstrap pipe. Probe `http://127.0.0.1:<port>/api/health`. Capture the credential
+with the packaged CLI's local-only `system api-token` command while setting
+`CODETERM_DATA_DIR=<data-dir>`, then set it with `CODETERM_API_TOKEN`;
 also set `CODETERM_DATA_DIR` to `<data-dir>` and `CODETERM_API_URL` to
 `http://127.0.0.1:<port>`. Add a fresh matching `CODETERM_INSTANCE` and
 `CODETERM_SOCKET_PATH` (for example `verify-smoke-<random>` and
-`codeterm-dev-verify-smoke-<random>.sock`). This forces a private HTTP fallback
-without scanning or connecting to another local server. Leave
-`CODETERM_API_PORT` unset, then run `domios identify --json` to verify
-authenticated CLI access. Do not put the token in argv, the URL, or smoke
-output.
+`domios-dev-verify-smoke-<random>.sock`). This forces a private HTTP fallback
+without scanning or connecting to another local server. Set
+`CODETERM_API_PORT=<private-port>` explicitly, then run `domios identify --json` to verify
+authenticated CLI access. Do not put the token in argv, the URL, or test output.
+
+Canonical uses the normal CLI test runners, which prepare the real server first.
+For an explicitly authorized direct lane run, load the build environment, then
+prepare both artifacts with the existing test target policy:
+
+~~~bash
+source build.sh env
+cli_target="$(node scripts/rust-test-lanes.mjs cli target)"
+server_target="$(node scripts/rust-test-lanes.mjs workspace target)"
+DOMIOS_CLI_TEST_SERVER="$(node scripts/cli-server-test.mjs "$cli_target" "$server_target")"
+export DOMIOS_CLI_TEST_SERVER CARGO_TARGET_DIR="$cli_target"
+scripts/test-capped.sh --no-default-features --manifest-path cli/Cargo.toml --test isolated_server
+~~~
+
+Assign the preparation result before exporting it: an export with command
+substitution hides a failed compiler exit. The fixture captures CLI stdout and stderr,
+checks missing-port and bad-token refusals, and closes server stdin in finally.
+A bounded cleanup failure terminates only the owned server process tree.
 
 ### Windows
 
@@ -533,6 +559,7 @@ calls; a successful build alone is not cache-hit proof.
 | Windows build reports MSVC not found despite an installed VS 2022 C++ workload | The VC tools are installed outside the default BuildTools directory | Use `setup_env` discovery through the installed `vswhere` utility; the default tools remain first choice, and discovered host/cross compiler paths also enter process PATH. Verify `source build.sh env` and `bash scripts/check-msvc-discovery.sh`; install nothing or change no global PATH for a relocated installation. |
 | Windows PowerShell refuses `build.ps1` because scripts are disabled | The shell process uses a restrictive execution policy | Invoke the authorized build through `powershell.exe -NoProfile -ExecutionPolicy Bypass -File build.ps1 <operation>`; this changes only that process, never machine policy. |
 | Gateway policy fixture expects `CARGO_TEST_BUILD_CMD="cargo nextest run"` | The guard predates nextest inventory compilation and metadata reuse | Check `cargo nextest list` and the reuse execution command separately; rerun `bash scripts/check-build-gateway-policy.sh`. |
+| Gateway policy exits after signing fixtures without starting the serial catalogue | Its DEV ordering assertion still searches for `kill_dev` after startup adopted `stop_dev_before_replacement`. | Check the current stop helper precedes gateway acquisition; preserve ordering and use the failure line and retained fixture logs. Run `bash scripts/check-build-gateway-policy.sh`, then the serial catalogue. |
 | Same SHA has few cross-machine Rust hits | Physical checkout, registry, toolchain, target or build environment differs | Compare the path contract and `rustc -vV`; do not enable BASEDIRS to conceal Rust path differences. |
 
 The gateway mutex, four-client queue, metadata/readers, cache-start, owner-reap and failed-Cargo regressions, the four `check-build-gateway-*.sh` guards (serialization, policy with the release-signing and source-clean checks, mutex cleanup, owner reap) run through `./build.sh script-guards`, which `./build.sh release-preflight` runs; no PR workflow runs them. This also runs `scripts/check-crate-layering.sh` and its fixture tests: lower crates cannot import service-core or Tauri, and the process layers in `scripts/crate-layers.json` hold: the native client (`codeterm`, `codeterm-client-shell`) links only client and shared crates, shared crates never reach a server crate, and nothing else depends on the client. Release-preflight and the file-sizes CI workflow run the same guard. Add a crate the window needs to `shared` only when its own normal dependencies are shared; otherwise move the needed item into a shared crate. Developer harnesses (`mem-bench`, `parser-eval`, `storage-verify`, `convert-plan-storage`, `mem_ab_bench`), the `render_timeline` example and cross-domain integration tests live in `src-tauri/tools/codeterm-devtools`; build a harness with `cargo run -p codeterm-devtools --features dev-tools --bin <name>`.
@@ -590,6 +617,16 @@ Missing-checkout targets and targets unused for `CODETERM_CACHE_MAX_AGE_DAYS` (d
 At the same hook, installed `cargo-sweep` prunes the current checkout's `src-tauri/target` and `cli/target` with the same configurable age. An unavailable sweep tool prints one installation hint; sweep failures do not fail a build. `SCCACHE_CACHE_SIZE` is explicitly exported with default **10G** before starting sccache. An already-running server retains its startup configuration: apply changed sccache limits only by restarting it with the gateway idle, never during compilation.
 
 Run `./build.sh gc --dry-run` to preview or `./build.sh gc` to reclaim immediately (Windows: `./build.ps1 gc --dry-run` / `./build.ps1 gc`). Manual GC acquires the machine gateway, bypasses the hourly throttle, and reports exceptional bytes reclaimed plus sweep output. Dry-run preserves artifacts and the hourly timestamp. Normal targets have an age policy; current artifacts and protected exceptional targets can exceed their usual retained size.
+
+Check-queue worktrees live in `check-worktrees/<common-gitdir-hash>/check-worktree`
+inside the gateway. Linked lanes share their repository's checkout; independent
+clones use different checkouts. The old top-level `check-worktree` is untouched.
+Manual GC removes registered broken/pending leftovers belonging to the calling
+repository, plus unregistered directories without Git metadata in its hashed
+namespace. Foreign, unknown top-level and interrupted-publication paths remain.
+Prove changes with `CT_BUILD_GATEWAY_SCOPE=fixture` and
+`CT_BUILD_GATEWAY_FIXTURE_DIR=<private-directory>`; never repair another clone's
+live checkout. Focused regression: `node --test scripts/check-worktree.test.mjs`.
 
 Retention also checks exact lane `target`, `src-tauri/target` and `cli/target`
 directories under the provisioned worktree root. It trims them only when all
@@ -841,6 +878,7 @@ initialization. Smoke the produced bundled CLI directly as well.
 
 | Symptom | Cause | Recovery |
 |---|---|---|
+| DEV rebuild refuses with `DEV process tree owns another listener` while Browser or a provider server is running | The stop guard treated owned descendant listeners as foreign ports. | Use the stop guard that accepts verified descendants and revalidates captured PID/port pairs; keep production, nested instances and foreign API owners protected. Verify with `node --test scripts/tests/dev-rebuild-stop.test.mjs`. |
 | A broad gate or its gateway metadata write fails with `ENOSPC` | Repeated compiler/profile experiments retain superseded incremental graphs on a small cloud disk | Stop compilation, inspect `df` and target sizes, and remove only inactive session-owned caches after preserving final outputs. Keep at least 6 GiB free before a full build. Run `gateway-status` to reap a finished failed owner; never delete an unknown state lock. Then rerun the interrupted gate. |
 | A Rust pin upgrade reports `double_must_use` from `async_trait` | Old macro expansions add a redundant attribute to boxed futures | Keep both lockfiles on `async-trait` 0.1.92 or newer and run `./build.sh ci-clippy`; do not suppress application warnings. |
 | An unchanged CLI recompiles on every invocation | A `rerun-if-changed` input names an absent `packed-refs` file | Watch existing Git metadata; for packed branch refs watch the nearest existing ref parent so loose-ref creation remains visible. Preserve SHA-triggered rebuilds. |
@@ -892,6 +930,7 @@ initialization. Smoke the produced bundled CLI directly as well.
 | PowerShell drops the standalone `--` before `--nocapture`, so Cargo rejects `--nocapture` as its own option | Native argument forwarding consumed the test-harness separator before Git Bash received it | Run the exact wrapper command through `bash -lc 'scripts/test-capped.sh ... <filter> -- --nocapture'` so the separator reaches Cargo's test binary. |
 | `verify` fails `daemon_windows_spawns_use_no_window_helper` after adding a Rust test fixture that invokes Git | The fixture constructed `std::process::Command` directly, so Windows could flash a console and the repository spawn audit rejected it | Build the command in a mutable variable and call `crate::process_util::no_window_std(&mut command)` before execution; run the spawn audit and the owning focused test, then retry `verify`. |
 | A fresh lane's focused Rust test reports missing `../dist` or `bundled-cli/*` | Ignored Tauri resource directories have not been staged in that worktree | Run `node scripts/dev-resource-preflight.mjs` and `node scripts/prepare-cli-stub.js`, then rerun the same focused test. Do not substitute a frontend build. |
+| `fmt` cannot find a Cargo manifest for a relocated example | The example's source is outside its owning package directory | Declare its path in the owning Cargo manifest; the formatter resolves external target directories and their child modules through Cargo metadata. Run `node --test scripts/tests/format-changed.test.mjs`, then retry `build.sh fmt`. |
 | Direct `bash scripts/clippy-gate.sh` fails in a fresh lane with a missing `bundled-cli` resource | The direct gate assumes Tauri's ignored compile resources are staged. | Run authorized `./build.sh check-tests` first; its resource preflight prepares frontend and CLI stubs. Then rerun the direct clippy gate. |
 | macOS `local-install-cache.test.mjs` refuses ordinary fixtures under `/var` as redirected | `realpath` expands macOS's standard `/var` alias to `/private/var`, so comparing the whole lexical target to its real path mistakes an ancestor alias for a redirected cache leaf | Compare the real target with the real parent plus the expected cache basename, retain an explicit redirected-leaf refusal test, then rerun the focused Node test and `release-preflight`. |
 | `sccache: incremental compilation is prohibited` | `CARGO_INCREMENTAL=1` was combined with the shared sccache wrapper | Keep `CARGO_INCREMENTAL=0`; reuse the persistent completed target and sccache entries instead. |
@@ -1147,7 +1186,7 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 | A build in one worktree could reuse a cached artifact built from a different worktree's sources (codeterm#327). Never reproduced on demand — this is a configuration hazard, not an observed rebuild; see `scripts/check-sccache-basedir-isolation.sh`. | `scripts/cache-policy.sh` and `scripts/test-capped.sh` defaulted `SCCACHE_BASEDIRS` to the current worktree root. That tells sccache to strip the worktree path before hashing, so two worktrees sharing one `SCCACHE_DIR`/server can derive the same cache key even though their absolute paths differ. | Basedir rewriting is disabled for this repo: `ct_reject_basedir_rewriting` in `scripts/cache-policy.sh` unsets `SCCACHE_BASEDIRS` (warning if a parent shell leaked one in) before every `ct_configure_sccache`/`ct_require_prestarted_sccache` call, and `scripts/test-capped.sh` no longer sets it. Machine-level `sccache` and per-worktree `CARGO_TARGET_DIR` isolation are unaffected. Verify with `bash scripts/check-sccache-basedir-isolation.sh`; do not reintroduce `SCCACHE_BASEDIRS` for this repo. |
 | `rustc` exits with `0xc0000005 (STATUS_ACCESS_VIOLATION)` while compiling an unchanged dependency | The Windows compiler process crashed before producing a source diagnostic; this is not a Rust assertion or test failure. | Rerun the same bounded `build.ps1` operation once so completed artifacts are reused. If it repeats, stop, preserve the exact rustc command and Windows crash evidence, and report the toolchain fault; do not clean targets or raise test deadlines. |
 | After an OS crash, `rustc` panics while linking with `Invalid archive terminator` | A generated `.rlib` in the canonical Cargo target was truncated; incremental metadata cleanup cannot repair the archive payload. | Confirm no dev build is running, run `./build.ps1 clean`, then restart the original named operation. Do not delete individual archives or reuse the damaged target. |
-| Dev compiles and opens but port 7686 never listens, with a trust-boundary policy error in `~/.codeterm-dev/logs/codeterm.log` | The retained dev config requests a non-loopback host without a bearer token, or contains a wildcard/malformed CORS origin. | Keep dev local by setting `api.host = "127.0.0.1"`, or configure a token for an intentional network-facing instance. Remove `*` and malformed entries from `api.cors_allow_origins`; an empty list is valid and denies all cross-origin browser requests. |
+| Dev compiles and opens but port 7686 never listens, with a trust-boundary policy error in `~/.domios-dev/logs/domios.log` | The retained dev config requests a non-loopback host without a bearer token, or contains a wildcard/malformed CORS origin. | Keep dev local by setting `api.host = "127.0.0.1"`, or configure a token for an intentional network-facing instance. Remove `*` and malformed entries from `api.cors_allow_origins`; an empty list is valid and denies all cross-origin browser requests. |
 | Windows `build.ps1 kill` reports that the clean shutdown deadline elapsed after a high-tab-count dev fixture | Closing many PTYs and watcher leases can exceed the bounded graceful-shutdown window even though the instance is otherwise healthy. | Let the named operation use its port-scoped force-stop fallback, then verify 7686 is free and 7685 still listens. Never replace it with a process-name kill. |
 | `test-one plan` fails to compile old `Task` fixtures after an orchestration schema change | The app gate compiled the plan crate as a dependency but did not compile its own unit-test fixtures. | Update every direct `Task` fixture and changed helper signature, then rerun the exact `test-one plan` filter. Do not remove the plan gate or move it to an app filter. |
 | `test-one plan` reports E0599 for `ReportStatus::InProgress` in a new fixture | The fixture confused task lifecycle status with the separate report-status enum. | Use the existing `ReportStatus::Partial` for a non-review progress report, preserve the rejection assertion, and rerun the failed focused selector before remaining gates. |
@@ -1212,6 +1251,12 @@ A moved repository-watcher source guard can fail with “expected the repository
 through the capped Rust runner in canonical. Workers type-check touched crates with four jobs and format their Rust sources;
 its HTTP fixtures use a local fake destination with synthetic retry timestamps.
 
+## macOS endpoint-security hazard
+
+On managed Macs an Endpoint Security agent (seen: BeyondTrust `defendpointd`, with CrowdStrike Falcon also present) evaluates every fresh executable on first exec. Under the `nextest --list` burst of many large fresh test binaries it can block one with a bare SIGKILL (signal 9, no AMFI or kernel line), different crate each time; the same binary runs fine by hand afterwards. Tiny fresh binaries do not trigger it. The same exec latency can also fail in-test deadlines spuriously.
+
+Diagnose before treating it as a test failure: `systemextensionsctl list`, then `/usr/bin/log show --start '<t-30s>' --end '<t+30s>' --predicate 'process == "defendpointd" OR eventMessage CONTAINS "Blocking"'` around the kill (call `/usr/bin/log` explicitly: zsh's builtin `log` shadows it). A `Blocking <pid> <path>` line for the test binary confirms it. The fix is environmental: exclude the developer build directories in the endpoint policy (owner/IT decision). The gateway does not retry killed binaries.
+
 ## Related documents
 
 Tooling, outputs, platform notes, and repository layout: `.agents/skills/build-reference/SKILL.md`. Test workflows: `.agents/skills/testing/SKILL.md`.
@@ -1265,6 +1310,15 @@ domios mem secret save --name DOMIOS_ACCOUNT_REDEEM_URL
 domios mem secret save --name DOMIOS_BILLING_FUNCTIONS_URL
 ```
 
+`dev`, `dev-back`, and `dev-server` resolve the same account and billing
+configuration for the server compile. They also inject `DOMIOS_QA_PROJECT_ID`
+from the secret store into the debug TEST activation. A missing entry prints
+`QA project not configured in this build`; that build refuses TEST grants and
+stays free. Save the entry with `domios mem secret save --name DOMIOS_QA_PROJECT_ID`
+and rebuild with `./build.sh dev`; `dev-prebuilt` cannot change compiled values.
+Focused configuration proof: `bash scripts/tests/firebase-build-config.test.sh`
+and `node --test scripts/tests/dev-gateway-handoff.test.mjs scripts/tests/dev-server.test.mjs`.
+
 Run each command and provide that value through stdin; omit `--value` so it
 stays out of shell history. The `domios mem secret` command uses `save` for
 this operation. Do not put these values in repository files.
@@ -1290,16 +1344,12 @@ Desktop account and billing build variables above remain app dependencies.
 Preserve domios://auth/callback, domios://billing/return and authenticated
 entitlement refresh when integrating either external service.
 
-Fresh lanes may lack node_modules: pnpm exec tsc or vitest reports "Command not
-found", and plugin generation or the unit runner reports ERR_MODULE_NOT_FOUND for
-esbuild or tsx. Run
-pnpm install --frozen-lockfile in the lane's Team QA shell, then rerun the affected
-non-Rust checks. A failed dependency lookup selected no executable tests.
-<!-- revision: 51 -->
+Run `./build.sh fmt` in a fresh lane before direct pnpm checks; it prepares the checkout-local dependencies automatically. Direct pnpm commands bypass that wrapper. A failed dependency lookup selected no executable tests.
+<!-- revision: 55 -->
 
 ### Lane and batch scopes
 
-After each batch of edits, Workers run `./build.sh fmt` once before their checks; the Orchestrator runs it once after each integrated edit batch before checks. It applies rustfmt to changed Rust files using their package editions and applies Biome's safe fixes/import organization to changed TS/JS/JSON files. This replaces hand-run rustfmt commands and does not enable Biome formatting. Use `--base REF` to select the comparison ref (default: dispatched lane base, canonical checkout HEAD, then upstream/local develop). Missing lane dependencies report `pnpm install --frozen-lockfile`; Biome runs in bounded argument batches.
+After each batch of edits, Workers run `./build.sh fmt` once before their checks; the Orchestrator runs it once after each integrated edit batch before checks. It applies rustfmt to changed Rust files using their package editions and applies Biome's safe fixes/import organization to changed TS/JS/JSON files. This replaces hand-run rustfmt commands and does not enable Biome formatting. Use `--base REF` to select the comparison ref (default: dispatched lane base, canonical checkout HEAD, then upstream/local develop). Missing, partial or stale lane dependencies are prepared automatically with `pnpm install --frozen-lockfile` from the shared pnpm store before formatting. Each checkout keeps its own `node_modules`. Install failures retain their diagnostics and stop formatting; fix the reported cause and rerun. There is no unfrozen retry. Biome runs in bounded argument batches. Focused proof: `node --test scripts/tests/lane-dependencies.test.mjs scripts/tests/pnpm-isolation.test.mjs`.
 
 Workers run `./build.sh fmt` once per batch, then one verification pass: a single `./build.sh lane-check <package>... [--tests]` call for all touched crates, changed TS/JS tests and `tsc` when TS changes, plus guards. List canonical selectors under GATES REQUESTED; on failure, fix all reported errors and recheck only what failed.
 
@@ -1326,6 +1376,14 @@ A gateway DEV build records physical artifact paths through the existing provena
 writer, so standalone `dev-prebuilt` verifies after the mapped drive is released.
 For a same-build restart, call `dev-prebuilt --wait` directly: provenance and runtime
 preflight precede dev-only stop. Never prepend `kill` to a prebuilt restart.
+
+DEV readiness requires healthy status, `startup.state=ready`, exact build and
+instance identity, and authenticated native attachment. The prebuilt launcher
+waits on startup events inside its existing 30-second phase deadline; listener
+availability alone cannot finish launch. An unsupported startup-event endpoint
+is an explicit failure. Preserve that receipt and rebuild the intended source,
+without extending the deadline. Focused tooling coverage is
+`node --test scripts/tests/server-readiness.test.mjs scripts/tests/dev-wait.test.mjs scripts/tests/dev-app-process.test.mjs`.
 
 DEV Cargo runs at the gateway's Windows `X:` cwd: default target directories are
 `X:/src-tauri/target` and `X:/cli/target` (the physical checkout targets). Named
@@ -1361,6 +1419,8 @@ Before committing, run `./build.sh lane-check <package>... [--tests]` once for a
 `lane-check` exports `CARGO_BUILD_BUILD_DIR=$CODETERM_RUST_CACHE_ROOT/lanes` inside its own subshell, falling back to `${CARGO_HOME:-$HOME/.cargo}/codeterm-lanes`. Repository Cargo configuration and canonical gateway operations never select this shared directory. An OS-backed nonblocking lock serializes the entire lane Cargo invocation across final targets; a competing lane exits 75 without compiling. Python is required for this lock. Final targets remain per worktree. `source build.sh env` loads the toolchain without changing this cache policy. Builds and tests retain the gateway; check-queue remains the committed integration/clippy gate.
 
 Lane-check and retention resolve the shared directory with `scripts/lane-build-dir.mjs`: `$CODETERM_RUST_CACHE_ROOT/lanes`, otherwise `$CARGO_HOME/codeterm-lanes` (Cargo home defaults to `~/.cargo`). GC adds that directory explicitly, independently of canonical/gateway Cargo metadata, and trims it once under Cargo locks. Its `CACHEDIR.TAG`, fixed basename and direct-child boundary are required; links and busy locks refuse trimming. Existing two-level hash directories retain their guarded collector. Verify with `node --test scripts/cargo-build-gc.test.mjs scripts/tests/lane-check.test.mjs`.
+
+`gc` and hourly automatic retention trim incremental caches in every remaining shared build hash, the lane cache and registered checkout targets. For each profile and crate they keep the newest hash directory and newest `s-*` session; older entries must be idle for 12 hours (`CODETERM_INCREMENTAL_IDLE_HOURS` overrides). Write times include descendants. The caller must own the gateway before compilation, Cargo/profile and lane locks must be available, and held rustc session locks protect their variant. Links and paths outside the recognized cache layout are refused. `gc --dry-run` reports reclaimable bytes. Existing lane deps retention keeps two units per identical Cargo fingerprint identity; different feature/profile identities remain protected. Focused fake-tree proof: `node --test scripts/tests/incremental-retention.test.mjs scripts/cargo-build-gc.test.mjs`.
 
 ### Canonical or gateway jobs unexpectedly use the lane build directory
 
@@ -1594,6 +1654,26 @@ Actual production/debug start, refusal and frontend-authentication proofs are
 parent-owned platform rows; source fixtures and compilation do not execute them.
 
 ### Diagnose an unchanged-SHA test rebuild
+
+`test-one <scope> <filter>` qualifies the filter with the owning Cargo package.
+The shared workspace selection includes every Cargo workspace member and all
+test targets, plus catalogue path dependencies; membership metadata is cached
+by manifest and lockfile contents. CLI target selection is local to its nextest
+invocation. Reverse-dependency scopes prepare frontend and bundle resources
+before compiling, including in a fresh checkout.
+
+Orphan lane collection requires absolute lane provenance. Rustc can emit
+workspace-relative dep-info (for example `crates/codeterm-orchestration/src/lib.rs`)
+without its original cwd; those units are retained until reliable provenance
+exists. Never resolve that path against whichever checkout runs GC.
+
+Nextest logs `[test-loop]` phases for gateway, sccache, resource preparation,
+listing and Cargo metadata. Record two unchanged canonical runs on BLACKSTAR,
+including the complete command wall time; the second must report Cargo Fresh
+before reusing metadata. A missing binary, changed manifest or dirty artifact
+refreshes the selection. Cache receipts live under the selected Cargo target
+and never bypass Cargo freshness validation. No lane timing substitutes for
+the canonical before/after measurement.
 
 Run the next focused gateway job with `CODETERM_BUILD_FINGERPRINTS=1` (PowerShell:
 `$env:CODETERM_BUILD_FINGERPRINTS='1'` before `./build.ps1 test-one <scope> <selector> --wait-build`).

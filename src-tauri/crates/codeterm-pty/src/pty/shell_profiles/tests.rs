@@ -1,5 +1,33 @@
 use super::*;
 
+#[test]
+fn git_bash_precedes_windows_shims_without_duplicate_path_entries() {
+    let git = std::path::PathBuf::from(if cfg!(windows) {
+        "C:/Program Files/Git/bin"
+    } else {
+        "/fixtures/Git/bin"
+    });
+    let shim = std::path::PathBuf::from(if cfg!(windows) {
+        "C:/Windows/System32"
+    } else {
+        "/fixtures/Windows/System32"
+    });
+    let inherited = std::env::join_paths([&shim, &git, &shim]).unwrap();
+    let profile = ShellProfile {
+        id: "git-bash".into(),
+        name: "Git Bash".into(),
+        executable: git.join("bash.exe").to_string_lossy().into_owned(),
+        args: Vec::new(),
+        wsl_distro: None,
+    };
+    let path = path_with_git_bash(&[profile], &inherited).unwrap();
+    assert_eq!(
+        std::env::split_paths(&path).collect::<Vec<_>>(),
+        [git, shim.clone(), shim]
+    );
+    assert!(path_with_git_bash(&[wsl()], &inherited).is_none());
+}
+
 fn wsl() -> ShellProfile {
     ShellProfile {
         id: "wsl:Ubuntu".into(),

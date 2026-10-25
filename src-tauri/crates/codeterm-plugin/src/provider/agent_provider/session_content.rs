@@ -7,6 +7,10 @@ macro_rules! agent_provider_session_content {
             SessionIdInjection::None
         }
 
+        fn attachment_capabilities(&self) -> AttachmentCapabilities {
+            AttachmentCapabilities::default()
+        }
+
         fn context_attach(&self) -> Option<ContextAttach> {
             None
         }

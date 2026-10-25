@@ -1,28 +1,30 @@
-# Check and apply this file with codeterm blueprint.
-schema_version: 1
+# Native Blueprint v2. Check with explicit author bindings before apply.
+schema_version: 2
+kind: pipeline
 name: Echo example
-note: Run one fixed command, match its output, and return the result to the owner tab.
-owner: team
+note: Echo an author-supplied message and return it to the owner tab.
+intent: Echo an author-supplied message and return it to the owner tab.
 inputs:
   message:
     type: string
     description: Message
     default: ready
-pipeline:
-  trigger:
-    type: schedule
-    every: 20s
-  steps:
-  - name: emit
-    input: text
-    run: echo '{{message}}'
-  - name: match
-    input: text
-    uses: filter
-    with:
-      pattern: ^{{message}}$
-      bucket: matched
-    'on':
-      matched: stop
-  result:
-    to: owner
+owner: team
+trigger:
+  type: input
+  kind:
+    lit: text
+  source:
+    input: message
+steps:
+- id: echo
+  uses: filter
+  with:
+    pattern:
+      lit: (?s).*
+    bucket:
+      lit: matched
+  routes:
+    matched: '@stop'
+result:
+  to: owner

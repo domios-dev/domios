@@ -20,6 +20,7 @@ pub struct OutstandingRequest {
 }
 
 pub struct Session {
+    pub(super) capacity_retry: Mutex<super::capacity_retry::Policy>,
     pub(super) update_generation: std::sync::atomic::AtomicU64,
     pub(super) update_recovery_available: std::sync::atomic::AtomicBool,
     pub provider: String,
@@ -57,6 +58,20 @@ pub fn requested(svc: &ServiceContext, provider: &str) -> bool {
 pub fn for_tab(tab: &str) -> Option<Arc<Session>> {
     SESSIONS.lock().get(tab).cloned()
 }
+
+pub(super) fn login_pending_session(
+    svc: &ServiceContext,
+    tab: &str,
+    error: RuntimeFailure,
+) -> Result<Arc<Session>, RuntimeFailure> {
+    if matches!(error, RuntimeFailure::SignInRequired) {
+        if let Some(session) = for_tab(tab) {
+            validate_binding(svc, &session)?;
+            return Ok(session);
+        }
+    }
+    Err(error)
+}
 pub(crate) fn has_live_bound_session(tab: &crate::multiplexer::types::Tab) -> bool {
     let Some(session) = for_tab(&tab.id) else {
         return false;
@@ -84,6 +99,7 @@ pub(super) mod backfill;
 
 #[path = "engine/launch.rs"]
 mod launch;
+mod resume;
 use launch::{require_launch_authority, validate_loaded_settings};
 
 #[cfg(test)]
@@ -91,6 +107,7 @@ use launch::{require_launch_authority, validate_loaded_settings};
 pub(crate) mod test_support;
 
 pub fn stop_blocking(svc: &ServiceContext, tab: &str) -> Result<(), String> {
+    super::login::close_cli(tab);
     if for_tab(tab).is_none() {
         return Ok(());
     }
@@ -128,6 +145,9 @@ pub(crate) fn stop_removed_provider(svc: &ServiceContext, provider: &str) {
 }
 
 pub async fn stop(svc: &ServiceContext, tab: &str) -> Result<(), String> {
+    if let Err(error) = super::capacity_retry::cancel(svc, tab) {
+        log::warn!("[runtime-retry] queued retry cleanup failed for {tab}: {error}");
+    }
     let Some(session) = for_tab(tab) else {
         return Ok(());
     };
@@ -258,6 +278,7 @@ async fn ensure_with_fork(
                 let mut state = RuntimeState::unloaded(thread.clone());
                 state.restore_timing(saved_state.as_ref());
                 Arc::new(Session {
+                    capacity_retry: Mutex::new(Default::default()),
                     update_generation: std::sync::atomic::AtomicU64::new(0),
                     update_recovery_available: std::sync::atomic::AtomicBool::new(false),
                     provider: provider.clone(),
@@ -531,7 +552,7 @@ async fn ensure_locked(
         )
         .await?;
         if matches!(*session.auth.lock(), RuntimeAuthState::SignedOut) {
-            return Err(RuntimeFailure::Refused("Sign-in required".into()));
+            return Err(RuntimeFailure::SignInRequired);
         }
     }
     let context = session.context.lock().clone();
@@ -563,7 +584,8 @@ async fn ensure_locked(
             },
         },
     };
-    let result = run(svc, provider, session, &process, operation).await?;
+    let result = resume::load(svc, provider, session, &process, operation).await?;
+    let context = session.context.lock().clone();
     let (thread_id, settings) = match (fork, result) {
         (
             Some((expected_source, expected_turn)),
@@ -616,6 +638,9 @@ async fn ensure_locked(
         context.settings = settings;
     }
     bind(svc, session, &thread_id)?;
+    if context.thread_id.is_none() && fork.is_none() {
+        resume::mark_unused(svc, session, &thread_id)?;
+    }
     let settings = session.context.lock().settings.clone();
     super::projections::controls(svc, session, settings);
     if let Err(reason) = super::controls::refresh_service_tiers(svc, session).await {
@@ -626,7 +651,24 @@ async fn ensure_locked(
     let thread = thread_id.clone();
     let nonce = session.context.lock().binding_nonce.clone();
     tokio::task::spawn_blocking(move || {
-        owner.finalize_runtime_worker_session(&target, &thread, &nonce)
+        owner.finalize_runtime_worker_session(&target, &thread, &nonce)?;
+        let main = {
+            let mux = owner.mux.read();
+            mux.get_tab(&target).is_some_and(|tab| {
+                crate::service::general_agent::session_contract::owns_main(&mux, tab)
+            })
+        };
+        if main {
+            let provider = owner
+                .mux
+                .read()
+                .get_tab(&target)
+                .and_then(|tab| tab.agent_type.clone());
+            if let Some(provider) = provider {
+                crate::service::general_agent::persist_switched_session(&provider, &thread);
+            }
+        }
+        Ok::<(), String>(())
     })
     .await
     .map_err(|reason| RuntimeFailure::HookFailed(reason.to_string()))?
@@ -699,6 +741,7 @@ async fn ensure_locked(
         backfill::continue_in_background(port, replay, reopen);
     }
     svc.emit_state_changed(MuxEmitCause::TabLifecycle);
+    svc.on_turn_resume_binding_changed(tab);
     Ok(())
 }
 
@@ -723,257 +766,11 @@ async fn inject_abort_note(
     }
 }
 
-pub(super) async fn plan(
-    session: &Session,
-    context: &RuntimeContext,
-    operation: &RuntimeOperation,
-) -> Result<RuntimePlan, RuntimeFailure> {
-    let adapter = session
-        .adapter
-        .lock()
-        .clone()
-        .ok_or(RuntimeFailure::Superseded)?;
-    tokio::time::timeout(
-        RUNTIME_HOOK_DEADLINE,
-        adapter.runtime_plan(context, operation),
-    )
-    .await
-    .map_err(|_| RuntimeFailure::Deadline)?
-    .map_err(|reason| RuntimeFailure::HookFailed(reason.to_string()))
-}
-
-pub async fn run(
-    svc: &ServiceContext,
-    _provider: &str,
-    session: &Arc<Session>,
-    process: &Arc<Process>,
-    operation: RuntimeOperation,
-) -> Result<RuntimeResult, RuntimeFailure> {
-    tokio::time::timeout(
-        std::time::Duration::from_secs(60),
-        run_inner(svc, session, process, operation),
-    )
-    .await
-    .map_err(|_| RuntimeFailure::Deadline)?
-}
-
-async fn run_inner(
-    svc: &ServiceContext,
-    session: &Arc<Session>,
-    process: &Arc<Process>,
-    operation: RuntimeOperation,
-) -> Result<RuntimeResult, RuntimeFailure> {
-    let mut context = session.context.lock().clone();
-    crate::service::execution_sandbox::validate_runtime_operation(svc, &context, &operation)
-        .map_err(RuntimeFailure::Refused)?;
-    super::model::validate_operation_thread(&context, &operation)?;
-    if matches!(operation, RuntimeOperation::SubmitTurn { .. })
-        && session.compaction.lock().held(context.epoch)
-    {
-        return Err(RuntimeFailure::Refused(
-            "Context restoration pending or failed; sends held".into(),
-        ));
-    }
-    if let RuntimeOperation::Answer { request_id, answer } = &operation {
-        let requests = session.prompts.lock();
-        let pending = requests.get(request_id).ok_or(RuntimeFailure::Superseded)?;
-        let prompt = pending.prompt.as_ref().ok_or(RuntimeFailure::Superseded)?;
-        super::model::validate_prompt_answer(prompt, answer)?;
-        context.pending_request = Some(pending.request.clone());
-    }
-    if matches!(operation, RuntimeOperation::SubmitTurn { .. }) {
-        process.begin_turn().await?;
-    }
-    let adapter = session
-        .adapter
-        .lock()
-        .clone()
-        .ok_or(RuntimeFailure::Superseded)?;
-    let capability = adapter.agent_runtime().ok_or(RuntimeFailure::Superseded)?;
-    validate_runtime_operation(&context, &operation)
-        .map_err(|reason| RuntimeFailure::Refused(reason.to_string()))?;
-    let mut next = plan(session, &context, &operation).await?;
-    let mut history = RuntimeHistory::default();
-    let mut steps = 0;
-    loop {
-        steps += 1;
-        if steps > MAX_RUNTIME_STEPS {
-            return Err(RuntimeFailure::HookFailed("Operation step limit".into()));
-        }
-        validate_binding(svc, session)?;
-        if session.context.lock().epoch != context.epoch {
-            return Err(RuntimeFailure::Superseded);
-        }
-        if matches!(&operation, RuntimeOperation::Answer { .. })
-            && !matches!(&next.action, RuntimeAction::Reply { .. })
-        {
-            return Err(RuntimeFailure::Refused(
-                "Answer requires an own request reply".into(),
-            ));
-        }
-        validate_runtime_plan(&capability, &context, &operation, &next)
-            .map_err(|reason| RuntimeFailure::Refused(reason.to_string()))?;
-        let reply = match &next.action {
-            RuntimeAction::QuestionAnswer { .. } => {
-                return Err(RuntimeFailure::Refused(
-                    "Question formatting must enter the durable user submit door".into(),
-                ));
-            }
-            RuntimeAction::Request { call } => {
-                log::debug!(
-                    "[runtime-rpc] tab={} operation={} method={}",
-                    context.tab_id,
-                    operation.kind(),
-                    call.method
-                );
-                if matches!(operation, RuntimeOperation::ReadHistory { .. })
-                    && !history.admit_request(&call.method, &call.params.to_string())
-                {
-                    return Err(RuntimeFailure::HookFailed(
-                        "Repeated history request".into(),
-                    ));
-                }
-                if !super::model::permits(&capability, &operation, &call.method) {
-                    return Err(RuntimeFailure::Refused(
-                        "RPC method outside declared contract".into(),
-                    ));
-                }
-                let owner = svc.clone();
-                let runtime = session.clone();
-                let epoch = context.epoch;
-                let captured_send = match &operation {
-                    RuntimeOperation::SubmitTurn { send_id, .. } => Some(send_id.clone()),
-                    _ => None,
-                };
-                let captured_read = matches!(operation, RuntimeOperation::ReadHistory { .. })
-                    .then(|| operation.clone());
-                let guard: super::rpc::PrewriteGuard = Arc::new(move || {
-                    if runtime.context.lock().epoch != epoch {
-                        return Err(RuntimeFailure::Superseded);
-                    }
-                    validate_binding(&owner, &runtime)?;
-                    if let Some(read) = &captured_read {
-                        super::model::validate_operation_thread(&runtime.context.lock(), read)?;
-                    }
-                    if let Some(send) = &captured_send {
-                        if runtime.compaction.lock().held(epoch) {
-                            return Err(RuntimeFailure::Refused(
-                                "Context restoration pending or failed; sends held".into(),
-                            ));
-                        }
-                        let tab = runtime.context.lock().tab_id.clone();
-                        super::capture::validate_if_present(&owner, &tab, send)?;
-                    }
-                    Ok(())
-                });
-                process.client.request_guarded(call, Some(guard)).await?
-            }
-            RuntimeAction::Notification { notification } => {
-                if !super::model::permits(&capability, &operation, &notification.method) {
-                    return Err(RuntimeFailure::Refused(
-                        "Notification outside declared contract".into(),
-                    ));
-                }
-                process.client.notify(notification).await?;
-                Ok(Value::Null)
-            }
-            RuntimeAction::Reply { request_id, result } => {
-                if !matches!(&operation,RuntimeOperation::Answer{request_id:expected,..} if expected==request_id)
-                    || !session.prompts.lock().contains_key(request_id)
-                {
-                    return Err(RuntimeFailure::Refused(
-                        "Reply does not belong to a pending own request".into(),
-                    ));
-                }
-                let reply = match result {
-                    RpcReply::Success { value } => Ok(value.clone()),
-                    RpcReply::Error { error } => Err(error.clone()),
-                };
-                process.client.reply(request_id, reply).await?;
-                session.prompts.lock().remove(request_id);
-                Ok(Value::Null)
-            }
-        };
-        let refused = reply.is_err();
-        let reply = match reply {
-            Ok(value) => RpcReply::Success { value },
-            Err(error) => RpcReply::Error { error },
-        };
-        let step = tokio::time::timeout(
-            RUNTIME_HOOK_DEADLINE,
-            adapter.runtime_response(&context, &operation, &next.state, &reply),
-        )
-        .await
-        .map_err(|_| RuntimeFailure::Deadline)?
-        .map_err(|reason| RuntimeFailure::HookFailed(reason.to_string()))?;
-        validate_runtime_step(&capability, &context, &operation, &reply, &step)
-            .map_err(|reason| RuntimeFailure::Refused(reason.to_string()))?;
-        validate_binding(svc, session)?;
-        if session.context.lock().epoch != context.epoch {
-            return Err(RuntimeFailure::Superseded);
-        }
-        match step {
-            RuntimeStep::Continue {
-                history: chunk,
-                plan,
-                before_acceptance,
-            } => {
-                if matches!(operation, RuntimeOperation::SubmitTurn { .. })
-                    && (!refused || !before_acceptance)
-                {
-                    return Err(RuntimeFailure::Refused(
-                        "Turn handoff cannot be replayed".into(),
-                    ));
-                }
-                if let Some(chunk) = chunk {
-                    history.append(chunk);
-                    steps = 0;
-                }
-                next = plan;
-            }
-            RuntimeStep::Refused { reason, .. } => {
-                return Err(RuntimeFailure::Refused(reason.to_string()));
-            }
-            RuntimeStep::Complete {
-                result,
-                notification,
-                events,
-            } => {
-                if let Some(notification) = notification {
-                    if !super::model::permits(&capability, &operation, &notification.method) {
-                        return Err(RuntimeFailure::Refused(
-                            "Notification outside declared contract".into(),
-                        ));
-                    }
-                    process.client.notify(&notification).await?;
-                }
-                if let Some(events) = events {
-                    let current = session.context.lock().clone();
-                    let events = events
-                        .into_iter()
-                        .filter(|event| model::accepts_response_event(&context, &current, event))
-                        .collect();
-                    let at = chrono::Utc::now().timestamp_millis().max(0) as u64;
-                    super::subscriber::publish_events(svc, session, context.epoch, events, at)
-                        .await?;
-                }
-                if let RuntimeResult::HistoryPage {
-                    ref thread_id,
-                    ref next_cursor,
-                    ..
-                } = result
-                {
-                    let thread = thread_id.clone();
-                    let cursor = next_cursor.clone();
-                    history.append(result);
-                    return Ok(history.finish(thread, cursor));
-                }
-                super::owned_context::record(svc, session, &context, &operation, &result)?;
-                return Ok(result);
-            }
-        }
-    }
-}
+#[path = "engine/operation.rs"]
+mod operation;
+pub(super) use operation::plan;
+pub use operation::run;
+pub(crate) use operation::run_submit;
 
 pub(crate) fn record_completed_turn(session: &Session, thread: &str, turn: Option<&str>) {
     if let Some(turn) = turn {
@@ -1095,7 +892,11 @@ pub fn publish(svc: &ServiceContext, tab: &str, session: &Session) {
         );
         snapshot.insert(
             "login".into(),
-            serde_json::to_value(session.login.lock().login.clone()).unwrap_or(Value::Null),
+            serde_json::to_value(super::login::project(
+                session.login.lock().login.as_ref(),
+                super::login::now_ms(),
+            ))
+            .unwrap_or(Value::Null),
         );
         let (history, pages) = {
             let cache = session.cache.lock();
@@ -1144,6 +945,26 @@ pub fn publish(svc: &ServiceContext, tab: &str, session: &Session) {
             })
         {
             target.record_activity();
+        }
+        if value["state"] == "loaded"
+            && context.thread_id.is_some()
+            && target.agent_session_id == context.thread_id
+            && target.reported_session_binding_nonce.as_deref()
+                == Some(context.binding_nonce.as_str())
+            && session
+                .thread_loaded
+                .load(std::sync::atomic::Ordering::Acquire)
+            && session
+                .process
+                .lock()
+                .as_ref()
+                .is_some_and(|process| process.ended.borrow().is_none())
+        {
+            crate::service::boot_stage::apply_boot_stage(
+                target,
+                codeterm_types::pty::BootStage::AgentReady,
+                None,
+            );
         }
         target.agent_runtime_state = Some(value.clone());
         target.agent_booting = value["state"] == "loading";

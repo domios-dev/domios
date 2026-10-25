@@ -70,6 +70,12 @@ a unit test on the parser plus, at most, one golden test for the end-to-end path
 
 ## Affected-test map
 
+`./build.sh test-related <file>...` prints the full selection before execution.
+Rust paths select their owning crate and module through nextest; crate roots
+select the crate. TS paths run Vitest related and the existing TS unit runner's
+import-based selection. Each Rust command still requires its own exact attempt
+grant. Use the printed commands when handing verification to canonical.
+
 Use `node scripts/affected-tests.mjs` to print exact commands for the current
 diff. Set the base with `--base <ref>` or `AFFECTED_TESTS_BASE`; it defaults to
 `origin/master`. Use `--rust-mode module-filters` for Rust changes.
@@ -470,12 +476,12 @@ and warm reruns are incremental. To reclaim disk:
 
 | | Path |
 |---|---|
-| Dev | `~/.codeterm-dev/logs/codeterm.log` |
-| Prod | `~/.codeterm/logs/codeterm.log` |
+| Dev | `~/.domios-dev/logs/domios.log` |
+| Prod | `~/.domios/logs/domios.log` |
 
 - Levels: DEBUG (dev), INFO (prod)
-- Rotation: 5MB max, 3 files kept
-- Live view: `tail -f ~/.codeterm-dev/logs/codeterm.log`
+- Rotation: 50 MiB per file, current log plus 3 rotated generations
+- Live view: `tail -f ~/.domios-dev/logs/domios.log`
 
 ## Cross-platform testing
 
@@ -708,7 +714,7 @@ For each batch, Workers run `./build.sh fmt` once, then one verification pass: o
 
 Prompt templates under `src-tauri/prompts/` are embedded by codeterm-service-core. The affected-test mapper selects `./build.sh nextest codeterm-service-core 'test(/^prompts::tests::/)'`; the shell crate has no such tests, and a zero-test shell selection is a failure rather than coverage.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->
 
 ## Independent server process oracle
 

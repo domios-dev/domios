@@ -1,13 +1,12 @@
 use crate::{
     bootstrap::{
         channel, process,
-        protocol::{ServerReady, BOOTSTRAP_PROTOCOL, FAILURE_DEADLINE},
+        protocol::{ServerReady, BOOTSTRAP_PROTOCOL},
     },
     launch::LaunchOptions,
 };
 use codeterm_service_core::{
     ports::host::{NoShell, ProcessPaths, ProcessShell, UiEvents},
-    startup::RestApiPhase,
     PathOwnership, ResolvedInstancePaths,
 };
 use codeterm_types::native_update::{NativeUpdateRequest, NativeUpdateResult};
@@ -68,6 +67,7 @@ pub fn run(
     options: LaunchOptions,
     acknowledge: impl FnOnce(&ServerReady, Option<&str>) -> io::Result<()>,
 ) -> io::Result<()> {
+    let boot_started = std::time::Instant::now();
     let job = if matches!(
         &options.instance,
         codeterm_types::server_bootstrap::InstanceSelector::IsolatedVerification { .. }
@@ -110,7 +110,6 @@ pub fn run(
         ),
         env!("SERVER_DEV_FRONTEND_ORIGIN"),
     )?;
-    let worker_cli = crate::resources::pin_worker_cli(shell.as_ref(), env!("SERVER_CLI_SHA256"))?;
     codeterm_build_info::install(env!("BUILD_SHA"), env!("BUILD_HASH"));
     codeterm_build_info::install_version(env!("DOMIOS_VERSION"));
     crate::bundle::install();
@@ -125,14 +124,6 @@ pub fn run(
     };
     let listener = runtime.block_on(async { channel::bind(&wire_identity) })?;
     let mut audit = audit_sink(&options, &identity)?;
-    let worker_observer = if audit.is_some() {
-        Some(crate::worker_observer::start(
-            identity.data(),
-            worker_cli.path.clone(),
-        )?)
-    } else {
-        None
-    };
     note(&mut audit, "mesh")?;
     let _lifetime = if matches!(
         &options.instance,
@@ -153,73 +144,49 @@ pub fn run(
     codeterm_service_core::crash::record_startup();
     note(&mut audit, "config-credential-hook-state")?;
     let native_events: NativeEventPort = Arc::new(parking_lot::RwLock::new(None));
-    let (exact_quit, mut headless_quit) = crate::exact_quit::ExactQuitCoordinator::new();
-    let running = crate::composition::compose_observed(
-        |events| {
-            Arc::new(ServerEvents {
-                events,
-                native: native_events.clone(),
-            })
+    let diagnostics_native = native_events.clone();
+    let diagnostics_port =
+        codeterm_api::health_routes::NativeDiagnosticsPort(Arc::new(move || {
+            diagnostics_native.read().as_ref()?.cdp_port()
+        }));
+    let frontend_native = native_events.clone();
+    let frontend_identity = codeterm_api::health_routes::NativeFrontendIdentity {
+        port: Arc::new(move || frontend_native.read().as_ref()?.frontend_port()),
+        identifier: if frontend_dev_url.is_some() {
+            env!("SERVER_DEV_IDENTIFIER").to_owned()
+        } else {
+            String::new()
         },
-        shell,
-        frontend_dev_url.clone(),
-        Some(resources.clone()),
-        worker_observer,
-        Some(codeterm_api::app_quit_routes::AppQuitPortHandle(
-            exact_quit.clone(),
-        )),
+    };
+    let prepared = crate::startup::early_api::PreparedStartup::new(
+        frontend_dev_url.as_ref(),
+        diagnostics_port.clone(),
+        frontend_identity.clone(),
     )
     .map_err(io::Error::other)?;
-    running
-        .service
-        .register_host_extension(Arc::new(
-            codeterm_commands::application_host::ApplicationHostState(Arc::new(
-                crate::native_application_host::NativeApplicationHost {
-                    native: native_events.clone(),
-                    service: running.service.clone(),
-                    update_state: running.states.update.clone(),
-                },
-            )),
-        ))
-        .map_err(|_| io::Error::other("native application host already registered"))?;
-    let ready = runtime.block_on(async {
-        let mut statuses = running.states.rest_api.subscribe_status();
-        tokio::time::timeout(FAILURE_DEADLINE, async {
-            loop {
-                match statuses.borrow_and_update().phase {
-                    RestApiPhase::Listening => break,
-                    RestApiPhase::Failed => {
-                        return Err(io::Error::other("Server listener initialization failed"))
-                    }
-                    RestApiPhase::Starting => {}
-                }
-                statuses.changed().await.map_err(io::Error::other)?;
-            }
-            Ok(())
-        })
-        .await
-        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "Server readiness deadline"))??;
-        let address = running
-            .states
-            .rest_api
-            .bound_addr()
-            .ok_or_else(|| io::Error::other("Listener ownership unavailable"))?;
-        Ok::<_, io::Error>(ServerReady {
-            protocol: BOOTSTRAP_PROTOCOL,
-            api_version: codeterm_service_core::frontend_bundle_api_version::API_VERSION,
-            build: codeterm_build_info::sha().into(),
-            instance_id: codeterm_service_core::paths::codeterm_instance_id().into(),
-            identity: wire_identity.clone(),
-            epoch: codeterm_service_core::crash::lifecycle::current_start_epoch()
-                .ok_or_else(|| io::Error::other("Server epoch unavailable"))?
-                .into(),
-            process: provenance,
-            api_address: address,
-            socket_address: codeterm_service_core::paths::socket_display_path(),
-            bootstrap_address: channel::address(&wire_identity)?,
-            resources,
-        })
-    })?;
+    let address = runtime
+        .block_on(prepared.listening())
+        .map_err(io::Error::other)?;
+    log::debug!(
+        "[boot-operation] API listener health-proven since_process_entry_ms={}",
+        boot_started.elapsed().as_millis()
+    );
+    let (exact_quit, mut headless_quit) = crate::exact_quit::ExactQuitCoordinator::new();
+    let ready = ServerReady {
+        protocol: BOOTSTRAP_PROTOCOL,
+        api_version: codeterm_service_core::frontend_bundle_api_version::API_VERSION,
+        build: codeterm_build_info::sha().into(),
+        instance_id: codeterm_service_core::paths::codeterm_instance_id().into(),
+        identity: wire_identity.clone(),
+        epoch: codeterm_service_core::crash::lifecycle::current_start_epoch()
+            .ok_or_else(|| io::Error::other("Server epoch unavailable"))?
+            .into(),
+        process: provenance,
+        api_address: address,
+        socket_address: codeterm_service_core::paths::socket_display_path(),
+        bootstrap_address: channel::address(&wire_identity)?,
+        resources: resources.clone(),
+    };
     log::debug!("[bootstrap] native listener binding started");
     let native_server = match native_inventory {
         Some(manifest)
@@ -234,7 +201,7 @@ pub fn run(
         }
         Some(manifest) => {
             let origins = codeterm_service_core::startup::frontend_shell_declared_frontend_origins(
-                &running.states.config.lock().api,
+                &prepared.config.lock().api,
                 frontend_dev_url.as_ref(),
             )
             .into_iter()
@@ -248,14 +215,24 @@ pub fn run(
     let native_server = match optional_native_listener(native_server) {
         Ok(server) => server,
         Err(error) => {
-            if let Err(cleanup) = shutdown(&running) {
-                log::error!("[native-host] refused startup cleanup failed: {cleanup}");
-            }
+            prepared.api.fail("integrity");
+            let _ = runtime.block_on(prepared.control.shutdown_and_wait());
             runtime.shutdown_timeout(std::time::Duration::from_secs(6));
             return Err(error);
         }
     };
     log::debug!("[bootstrap] native listener binding completed");
+    let worker_cli =
+        match crate::resources::pin_worker_cli(shell.as_ref(), env!("SERVER_CLI_SHA256")) {
+            Ok(worker_cli) => worker_cli,
+            Err(error) => {
+                prepared.api.fail("integrity");
+                let _ = runtime.block_on(prepared.control.shutdown_and_wait());
+                runtime.shutdown_timeout(std::time::Duration::from_secs(6));
+                return Err(error);
+            }
+        };
+    prepared.api.complete("integrity");
     if let Some(server) = &native_server {
         *native_events.write() = Some(server.endpoint());
     }
@@ -263,7 +240,7 @@ pub fn run(
         ready.clone(),
         native_server.as_ref().map(|server| server.endpoint()),
     );
-    let token = running.states.config.lock().api.token.clone();
+    let token = prepared.config.lock().api.token.clone();
     log::debug!("[bootstrap] inherited ready acknowledgement started");
     let acknowledgement = acknowledge(&ready, token.as_deref());
     log::debug!(
@@ -275,22 +252,117 @@ pub fn run(
             log::warn!("[bootstrap] launcher stderr release failed: {error}");
         }
     }
+    let startup_api = prepared.api.clone();
+    let startup_control = prepared.control.clone();
+    let service_native = native_events.clone();
+    let service_quit = exact_quit.clone();
+    let probe_workers = audit.is_some();
+    let worker_data = identity.data().to_path_buf();
+    let mut initializing = runtime.spawn_blocking(move || {
+        codeterm_util::sensitive_state::tighten_existing(&worker_data);
+        if let Ok(config) = codeterm_service_core::paths::config_path() {
+            if config.parent() != Some(worker_data.as_path()) {
+                codeterm_util::sensitive_state::tighten_config_recovery(&config);
+            }
+        }
+        let result = (|| {
+            let worker_observer = if probe_workers {
+                Some(
+                    crate::worker_observer::start(&worker_data, worker_cli.path.clone())
+                        .map_err(|error| error.to_string())?,
+                )
+            } else {
+                None
+            };
+            let running = crate::composition::compose_observed(
+                |events| {
+                    Arc::new(ServerEvents {
+                        events,
+                        native: service_native.clone(),
+                    })
+                },
+                shell,
+                frontend_dev_url,
+                Some(resources),
+                worker_observer,
+                Some(codeterm_api::app_quit_routes::AppQuitPortHandle(
+                    service_quit,
+                )),
+                prepared,
+            )?;
+            running
+                .service
+                .register_host_extension(Arc::new(diagnostics_port))
+                .map_err(|_| "native diagnostics port already registered".to_string())?;
+            running
+                .service
+                .register_host_extension(Arc::new(frontend_identity))
+                .map_err(|_| "native frontend identity already registered".to_string())?;
+            running
+                .service
+                .register_host_extension(Arc::new(
+                    codeterm_commands::application_host::ApplicationHostState(Arc::new(
+                        crate::native_application_host::NativeApplicationHost {
+                            native: service_native,
+                            service: running.service.clone(),
+                            update_state: running.states.update.clone(),
+                        },
+                    )),
+                ))
+                .map_err(|_| "native application host already registered".to_string())?;
+            startup_api.activate(
+                running
+                    .service
+                    .ext::<codeterm_service_core::ports::rest::LocalApiRouter>()
+                    .0
+                    .clone(),
+            )?;
+            Ok::<_, String>((running, worker_cli))
+        })();
+        if result.is_err() {
+            startup_api.fail("initialization");
+        }
+        result
+    });
+    let mut running = None;
     let control_result = continue_after_ack(acknowledgement, || {
         runtime.block_on(async {
             let control = channel::serve(listener, ready, token);
-            tokio::select! {
-                result = control => result.map(|completion| Some(QuitControl::Bootstrap(completion))),
+            tokio::pin!(control);
+            let native = serve_native(native_server, native_events);
+            tokio::pin!(native);
+            loop { tokio::select! {
+                result = &mut initializing, if running.is_none() => {
+                    running = Some(result.map_err(io::Error::other).and_then(|result| result.map_err(io::Error::other)));
+                    if running.as_ref().is_some_and(Result::is_err) {
+                        return Err(io::Error::other("Service initialization failed"));
+                    }
+                }
+                result = &mut control => return result.map(|completion| Some(QuitControl::Bootstrap(completion))),
                 _ = async {
                     while let Some(expected) = headless_quit.recv().await {
                         if exact_quit.admit_headless(&expected) { return; }
                     }
                     std::future::pending::<()>().await;
-                } => Ok(Some(QuitControl::Headless)),
-                result = shutdown_signal() => result.map(|_| None),
-                result = serve_native(native_server, native_events) => result.map(|_| None),
-            }
+                } => return Ok(Some(QuitControl::Headless)),
+                result = shutdown_signal() => return result.map(|_| None),
+                result = &mut native => return result.map(|_| None),
+            } }
         })
     });
+    let (running, _worker_cli) = match running.unwrap_or_else(|| {
+        runtime
+            .block_on(initializing)
+            .map_err(io::Error::other)
+            .and_then(|result| result.map_err(io::Error::other))
+    }) {
+        Ok(running) => running,
+        Err(error) => {
+            let _ = runtime.block_on(startup_control.shutdown_and_wait());
+            runtime.shutdown_timeout(std::time::Duration::from_secs(6));
+            return Err(error);
+        }
+    };
     let result = finish_server_control(
         control_result,
         || shutdown(&running),
@@ -479,113 +551,4 @@ fn note(sink: &mut Option<std::fs::File>, phase: &str) -> io::Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::cell::Cell;
-
-    #[test]
-    fn server_events_redact_generic_web_payloads() {
-        let events = Arc::new(codeterm_events::EventBroadcaster::new());
-        let mut web = events.subscribe();
-        let ui = ServerEvents {
-            events,
-            native: Arc::new(parking_lot::RwLock::new(None)),
-        };
-        ui.emit(
-            "config-changed",
-            serde_json::json!({ "api": { "token": "secret", "port": 1234 } }),
-        );
-        match web.try_recv().unwrap().event {
-            codeterm_events::SystemEvent::Generic { event_type, data } => {
-                assert_eq!(event_type, "config-changed");
-                assert_eq!(
-                    data,
-                    serde_json::json!({ "api": { "token": null, "port": 1234 } })
-                );
-            }
-            other => panic!("unexpected event: {other:?}"),
-        }
-        assert!(web.try_recv().is_err());
-    }
-
-    #[test]
-    fn server_events_keep_native_audiences_off_web() {
-        let events = Arc::new(codeterm_events::EventBroadcaster::new());
-        let mut web = events.subscribe();
-        let ui = ServerEvents {
-            events,
-            native: Arc::new(parking_lot::RwLock::new(None)),
-        };
-        ui.emit_native("native-probe", serde_json::json!({ "native": true }));
-        ui.emit_to("main", "targeted-probe", serde_json::Value::Null);
-        assert!(web.try_recv().is_err());
-    }
-
-    #[test]
-    fn development_frontend_requires_a_debug_development_server_and_loopback_origin() {
-        let value = "http://127.0.0.1:1420";
-        assert!(development_frontend_origin(false, true, value)
-            .unwrap()
-            .is_none());
-        assert!(development_frontend_origin(true, false, value)
-            .unwrap()
-            .is_none());
-        assert!(development_frontend_origin(true, true, "https://foreign.invalid").is_err());
-        assert_eq!(
-            development_frontend_origin(true, true, value)
-                .unwrap()
-                .unwrap()
-                .origin()
-                .ascii_serialization(),
-            value
-        );
-    }
-
-    #[test]
-    fn process_split_contract_native_listener_failure_is_distinct_from_inventory_rejection() {
-        use crate::native_host::NativeHostBindError;
-        for kind in [io::ErrorKind::PermissionDenied, io::ErrorKind::Other] {
-            let unavailable = optional_native_listener::<()>(Err(
-                NativeHostBindError::ListenerUnavailable(io::Error::from(kind)),
-            ));
-            assert!(unavailable.unwrap().is_none());
-            let rejected = optional_native_listener::<()>(Err(
-                NativeHostBindError::InventoryRejected(io::Error::from(kind)),
-            ));
-            assert!(rejected.is_err());
-        }
-    }
-
-    #[test]
-    fn process_split_contract_readiness_ack_failure_still_runs_cleanup_once() {
-        let controls = Cell::new(0);
-        let cleanups = Cell::new(0);
-        let control = continue_after_ack(Err(io::Error::from(io::ErrorKind::InvalidData)), || {
-            controls.set(controls.get() + 1);
-            Ok(None::<()>)
-        });
-        let result = finish_server_control(
-            control,
-            || {
-                cleanups.set(cleanups.get() + 1);
-                Ok(())
-            },
-            |_, _| panic!("No shutdown was admitted"),
-        );
-        assert!(result.is_err());
-        assert_eq!(controls.get(), 0);
-        assert_eq!(cleanups.get(), 1);
-    }
-
-    #[test]
-    fn process_split_contract_launcher_disconnect_keeps_service_control_independent() {
-        let controls = Cell::new(0);
-        let result = continue_after_ack(Err(io::Error::from(io::ErrorKind::BrokenPipe)), || {
-            controls.set(controls.get() + 1);
-            Ok(42)
-        })
-        .unwrap();
-        assert_eq!(result, 42);
-        assert_eq!(controls.get(), 1);
-    }
-}
+mod tests;

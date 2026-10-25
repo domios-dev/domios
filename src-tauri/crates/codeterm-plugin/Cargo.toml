@@ -47,6 +47,7 @@ libc = "0.2"
 test-support = []
 
 [dev-dependencies]
+codeterm-plugins = { path = "../codeterm-plugins" }
 codeterm-paths = { path = "../codeterm-paths", features = ["isolated-data-root"] }
 axum = { version = "0.8", features = ["json"] }
 tempfile = "3"
