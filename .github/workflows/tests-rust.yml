@@ -42,25 +42,17 @@ env:
   CI_CANCEL_RUN: ${{ inputs.cancel_run }}
   CI_SOURCE_SHA: ${{ inputs.source_ref || github.sha }}
   GH_TOKEN: ${{ github.token }}
-  DOMIOS_CI_WEBHOOK_URL: ${{ secrets.DOMIOS_CI_WEBHOOK_URL }}
-  DOMIOS_CI_WEBHOOK_TOKEN: ${{ secrets.DOMIOS_CI_WEBHOOK_TOKEN }}
-  AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
-  AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
   CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
   # Builders are shared with agents; a CI job queues for the slot instead of failing busy (75).
   CODETERM_BUILD_GATEWAY_MODE: queue
   CODETERM_SCCACHE_VERIFY_ONLY: '1'
-  DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
-  DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
-  DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
-  DOMIOS_ACCOUNT_REDEEM_URL: ${{ secrets.DOMIOS_ACCOUNT_REDEEM_URL }}
-  DOMIOS_BILLING_FUNCTIONS_URL: ${{ secrets.DOMIOS_BILLING_FUNCTIONS_URL }}
 
 jobs:
   # One stable executor retains warm final targets; light jobs use another host.
   rust-tests:
     name: rust tests (full suite)
-    if: ${{ !cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true' }}
+    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (!cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
+    environment: ci
     runs-on: [self-hosted, Linux, rust-tests, heavy, host-blackstar]
     permissions:
       contents: read
@@ -70,6 +62,15 @@ jobs:
       matrix:
         suite: [full]
     env:
+      DOMIOS_CI_WEBHOOK_URL: ${{ secrets.DOMIOS_CI_WEBHOOK_URL }}
+      DOMIOS_CI_WEBHOOK_TOKEN: ${{ secrets.DOMIOS_CI_WEBHOOK_TOKEN }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
+      DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
+      DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
+      DOMIOS_ACCOUNT_REDEEM_URL: ${{ secrets.DOMIOS_ACCOUNT_REDEEM_URL }}
+      DOMIOS_BILLING_FUNCTIONS_URL: ${{ secrets.DOMIOS_BILLING_FUNCTIONS_URL }}
       # Warm per-workspace targets outside the checkout; the cleanup step sweeps them by age.
       CI_TARGET_ROOT: ${{ github.workspace }}/../ci-targets/tests
       CODETERM_ALLOW_EXTERNAL_TARGET: '1'
@@ -222,7 +223,8 @@ jobs:
   # Each OS compiles and runs only its cfg-gated tests and the native input crates.
   rust-platform:
     name: rust platform (${{ matrix.os }})
-    if: ${{ !cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true' }}
+    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (!cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
+    environment: ci
     runs-on: [self-hosted, '${{ matrix.os }}', '${{ matrix.label }}', "${{ matrix.os == 'Windows' && 'windows-build' || 'rust-shard' }}"]
     permissions:
       contents: read
@@ -240,6 +242,15 @@ jobs:
             os: Windows
             label: host-rog
     env:
+      DOMIOS_CI_WEBHOOK_URL: ${{ secrets.DOMIOS_CI_WEBHOOK_URL }}
+      DOMIOS_CI_WEBHOOK_TOKEN: ${{ secrets.DOMIOS_CI_WEBHOOK_TOKEN }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
+      DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
+      DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
+      DOMIOS_ACCOUNT_REDEEM_URL: ${{ secrets.DOMIOS_ACCOUNT_REDEEM_URL }}
+      DOMIOS_BILLING_FUNCTIONS_URL: ${{ secrets.DOMIOS_BILLING_FUNCTIONS_URL }}
       # Warm per-workspace targets outside the checkout; the cleanup step sweeps them by age.
       CI_TARGET_ROOT: ${{ github.workspace }}/../ci-targets/tests
       CODETERM_ALLOW_EXTERNAL_TARGET: '1'
@@ -248,7 +259,8 @@ jobs:
   rust-embeddings:
     name: rust embeddings
     needs: rust-platform
-    if: ${{ !cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true' }}
+    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (!cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
+    environment: ci
     runs-on: [self-hosted, macOS, rust-shard, host-air]
     permissions:
       contents: read
@@ -258,6 +270,15 @@ jobs:
       matrix:
         suite: [embeddings]
     env:
+      DOMIOS_CI_WEBHOOK_URL: ${{ secrets.DOMIOS_CI_WEBHOOK_URL }}
+      DOMIOS_CI_WEBHOOK_TOKEN: ${{ secrets.DOMIOS_CI_WEBHOOK_TOKEN }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
+      DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
+      DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
+      DOMIOS_ACCOUNT_REDEEM_URL: ${{ secrets.DOMIOS_ACCOUNT_REDEEM_URL }}
+      DOMIOS_BILLING_FUNCTIONS_URL: ${{ secrets.DOMIOS_BILLING_FUNCTIONS_URL }}
       # Warm per-workspace targets outside the checkout; the cleanup step sweeps them by age.
       CI_TARGET_ROOT: ${{ github.workspace }}/../ci-targets/tests
       CODETERM_ALLOW_EXTERNAL_TARGET: '1'
@@ -266,12 +287,23 @@ jobs:
   rust-receipts:
     name: rust test receipts
     needs: [rust-tests, rust-platform, rust-embeddings]
-    if: ${{ always() && fromJSON(inputs.resolved_scope).heavy == 'true' }}
+    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (always() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
+    environment: ci
     runs-on: [self-hosted, Linux, light, host-ubunta]
     permissions:
       contents: read
       actions: write
     timeout-minutes: 5
+    env:
+      DOMIOS_CI_WEBHOOK_URL: ${{ secrets.DOMIOS_CI_WEBHOOK_URL }}
+      DOMIOS_CI_WEBHOOK_TOKEN: ${{ secrets.DOMIOS_CI_WEBHOOK_TOKEN }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
+      DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
+      DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
+      DOMIOS_ACCOUNT_REDEEM_URL: ${{ secrets.DOMIOS_ACCOUNT_REDEEM_URL }}
+      DOMIOS_BILLING_FUNCTIONS_URL: ${{ secrets.DOMIOS_BILLING_FUNCTIONS_URL }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         id: ci-1

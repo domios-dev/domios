@@ -29,7 +29,7 @@ described below.
 
 ## GitHub Secrets
 
-The release workflows use these repository secrets:
+The release workflows use these secrets in the owner-reviewed `release` environment (see [public repository policy](../../../docs/release/public-repo.md)):
 
 - `TAURI_SIGNING_PRIVATE_KEY` — full contents of `~/.tauri/codeterm.key`
 - `TAURI_KEY_PASSWORD` — optional password for an encrypted key

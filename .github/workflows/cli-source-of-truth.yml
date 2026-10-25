@@ -19,13 +19,16 @@ on:
       - 'packages/chat-ui/src/codeterm/**'
       - '.github/workflows/cli-source-of-truth.yml'
 
+permissions:
+  contents: read
+
 concurrency:
   group: cli-source-of-truth-${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref }}
   cancel-in-progress: true
 
 jobs:
   cli-doctor:
-    runs-on: [self-hosted, Linux, linux-build, host-ubunta]
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -53,7 +56,7 @@ jobs:
         run: cargo test -p codeterm-cli plugin_subcommands_parse
 
   chat-card-tests:
-    runs-on: [self-hosted, Linux, light, host-ubunta]
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5

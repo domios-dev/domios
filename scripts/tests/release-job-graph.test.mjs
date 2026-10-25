@@ -59,7 +59,8 @@ test('macOS and Linux arm64 have separate jobs, routing variables and manifest d
       ? ['workflow_dispatch', 'workflow_call'] : ['workflow_call']);
     assert.deepEqual(Object.keys(reusable.on.workflow_call.inputs), ['tag', 'source_ref', 'mirror', 'dry_run', ...(arch ? ['arch'] : []), 'frontend_sha256']);
     assert.deepEqual(Object.keys(reusable.jobs), ['build']);
-    assert.equal(reusable.jobs.build.if, undefined);
+    assert.match(reusable.jobs.build.if, /github.actor == 'rollacode'/);
+    assert.equal(reusable.jobs.build.environment, 'release');
   }
   assert.equal(release.jobs['macos-arm64'].name, 'macOS arm64');
   assert.equal(release.jobs['macos-x64'].name, 'macOS x64');

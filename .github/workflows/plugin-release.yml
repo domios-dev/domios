@@ -1,9 +1,12 @@
 name: plugin-release
 
 on:
-  push:
-    tags:
-      - 'plugin-*-v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing plugin tag on the reviewed release branch commit
+        type: string
+        required: true
 
 concurrency:
   group: plugin-release-${{ github.ref }}
@@ -15,6 +18,8 @@ permissions:
 jobs:
   publish:
     name: validate and publish plugin
+    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && startsWith(github.ref, 'refs/heads/release/') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    environment: release
     runs-on: [self-hosted, linux-build]
     steps:
       - uses: actions/checkout@v5
@@ -28,12 +33,17 @@ jobs:
         with:
           version: 10.32.1
           run_install: false
-      - name: Require a verified master commit
-        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/master
+      - name: Require a verified master commit and exact plugin tag
+        env:
+          PLUGIN_TAG: ${{ inputs.tag }}
+        run: |
+          [[ "$PLUGIN_TAG" =~ ^plugin-[a-z0-9-]+-v[0-9] ]]
+          test "$(git rev-parse "$PLUGIN_TAG^{commit}")" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/master
       - name: Validate release metadata
         id: plugin
         env:
-          PLUGIN_TAG: ${{ github.ref_name }}
+          PLUGIN_TAG: ${{ inputs.tag }}
         run: |
           node scripts/release-plugin.mjs check "$PLUGIN_TAG" > plugin-release.json
           # JavaScript template substitutions must reach Node unchanged.
@@ -49,22 +59,24 @@ jobs:
       - name: Archive plugin
         env:
           PLUGIN_PATH: ${{ steps.plugin.outputs.path }}
-          PLUGIN_TAG: ${{ github.ref_name }}
+          PLUGIN_TAG: ${{ inputs.tag }}
         run: |
           node scripts/release-plugin.mjs archive "$PLUGIN_TAG" "$GITHUB_SHA" "$PLUGIN_TAG.tar.gz"
           shasum -a 256 "$PLUGIN_TAG.tar.gz" > "$PLUGIN_TAG.tar.gz.sha256"
       - name: Publish plugin release
         env:
           GH_TOKEN: ${{ github.token }}
-          PLUGIN_TAG: ${{ github.ref_name }}
+          PLUGIN_TAG: ${{ inputs.tag }}
         run: |
           gh release create "$PLUGIN_TAG" "$PLUGIN_TAG.tar.gz" "$PLUGIN_TAG.tar.gz.sha256" \
             --verify-tag --latest=false --title "$PLUGIN_TAG" \
             --notes-file plugin-release.json
-  # Every install reads codeterm-core from these public assets; the source repository stays private.
+  # Every install reads codeterm-core from these public assets.
   publish_core_channel:
     name: publish public codeterm-core channel
     needs: publish
+    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && startsWith(github.ref, 'refs/heads/release/') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    environment: release
     runs-on: [self-hosted, linux-build]
     concurrency:
       group: codeterm-core-channel-publication
