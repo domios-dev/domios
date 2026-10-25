@@ -269,31 +269,7 @@ impl ServiceContext {
             (TabVisibility::Hidden, TabCommand::Shell) => self.spawn_hidden_shell_impl(spec),
             (_, TabCommand::ChatBackend { .. }) => {
                 super::permission_policy::configured_full_access_for(self)?;
-                let (handle, launch) = match self.stage_chatbackend_spawn(spec, emit_state_change) {
-                    Ok(staged) => staged,
-                    Err(error) => {
-                        if let Some(ready_tx) = ready_tx {
-                            let _ = ready_tx.send(Err(error.clone()));
-                        }
-                        return Err(error);
-                    }
-                };
-                match ready_tx {
-                    // A dispatch awaits readiness in the background, so its RPC returns before the provider runtime starts.
-                    Some(ready_tx) if launch.can_defer() => {
-                        std::thread::spawn(move || {
-                            let _ = ready_tx.send(launch.run());
-                        });
-                        Ok(handle)
-                    }
-                    ready_tx => {
-                        let readiness = launch.run();
-                        if let Some(ready_tx) = ready_tx {
-                            let _ = ready_tx.send(readiness.clone());
-                        }
-                        readiness.map(|()| handle)
-                    }
-                }
+                self.spawn_chatbackend_with_ready(spec, emit_state_change, ready_tx)
             }
         }
     }
