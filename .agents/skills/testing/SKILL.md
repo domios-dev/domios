@@ -708,7 +708,7 @@ JDK may be absent from `PATH`. Discover its installed path before running the
 same focused test with `JAVA_HOME` pointing to its JDK home and that JDK's `bin`
 prepended to `PATH`; no system Java registration or emulator bypass is needed.
 
-Ordinary Rust test operations disable default features to omit embeddings. Product DEV and library Clippy retain embeddings. The dedicated CI `rust-embeddings` job runs `./build.sh ci-tests embeddings` once, including the explicit golden-vector oracle after ordinary unit tests. The oracle downloads the MiniLM safetensors into the shared model cache on its first run; its receipt is required alongside the full and platform receipts. Use that verb to verify embedding-specific memory changes.
+Ordinary Rust test operations disable default features to omit embeddings. Product DEV and library Clippy retain embeddings. The dedicated CI `rust-embeddings` job runs `./build.sh ci-tests embeddings` once; its receipt is required alongside the full and platform receipts. Use that verb to verify embedding-specific memory changes. The real-model golden-vector oracle (`candle_embedding_matches_fastembed_golden`, ignored by default) never runs in CI; run it by hand or through evals with `./build.sh embedding-parity` when the embedder, its dependencies or the pinned model change.
 
 For each batch, Workers run `./build.sh fmt` once, then one verification pass: one multi-package `./build.sh lane-check <package>... [--tests]` call for all touched crates, changed TS/JS tests and `tsc` when TS changes, then guards once. On failure, fix all reported errors and recheck only what failed; list canonical selectors under GATES REQUESTED. The lane-check subshell selects `$CODETERM_RUST_CACHE_ROOT/lanes`, otherwise `$CARGO_HOME/codeterm-lanes` (Cargo home defaults to `~/.cargo`), and Cargo owns locking. Targets remain per worktree; canonical/gateway build directories remain separate. This check does not acquire the build gateway.
 
@@ -720,7 +720,7 @@ Build each Rust configuration once per batch: run every focused selector of a cr
 
 Prompt templates under `src-tauri/prompts/` are embedded by codeterm-service-core. The affected-test mapper selects `./build.sh nextest codeterm-service-core 'test(/^prompts::tests::/)'`; the shell crate has no such tests, and a zero-test shell selection is a failure rather than coverage.
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->
 
 ## Independent server process oracle
 
