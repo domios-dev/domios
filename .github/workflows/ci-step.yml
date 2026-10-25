@@ -23,6 +23,7 @@ on:
           - ci-suite
           - node-test
           - nextest
+          - build
       target:
         description: "test-one: build.sh scope (pty, mem, cli, ...); ci-suite: full, platform or embeddings; node-test: scripts/tests file; nextest: build.sh nextest scope, usually workspace"
         required: true
@@ -147,6 +148,7 @@ jobs:
             ci-suite) bash build.sh ci-tests "$STEP_TARGET" ;;
             node-test) node --test "$STEP_TARGET" ;;
             nextest) bash build.sh nextest "$STEP_TARGET" "$STEP_FILTER" ;;
+            build) source build.sh env && cargo test --workspace --no-run --locked --no-default-features --manifest-path src-tauri/Cargo.toml ;;
           esac
       - name: Run the step (Windows)
         if: runner.os == 'Windows'
@@ -157,5 +159,6 @@ jobs:
             'ci-suite' { & .\build.ps1 ci-tests $env:STEP_TARGET }
             'node-test' { node --test $env:STEP_TARGET }
             'nextest' { & .\build.ps1 nextest $env:STEP_TARGET $env:STEP_FILTER }
+            'build' { bash -c 'source build.sh env && cargo test --workspace --no-run --locked --no-default-features --manifest-path src-tauri/Cargo.toml' }
           }
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
