@@ -254,10 +254,10 @@ test('native Rust tests discover installed tools before runtime execution', () =
   }
 });
 
-test('compact unwind workaround belongs only to macOS platform tests, preserving release link flags', () => {
+test('compact unwind workaround belongs only to macOS native test suites, preserving release link flags', () => {
   const tests = workflow('tests-rust');
   const step = tests.jobs['rust-platform'].steps.find(step => step.run?.includes('bash build.sh ci-tests'));
-  assert.match(step.run, /\[ "\$RUNNER_OS" = macOS \] && \[ "\$\{\{ matrix.suite \}\}" = platform \]/);
+  assert.match(step.run, /\[ "\$RUNNER_OS" = macOS \]; then/);
   for (const triple of ['AARCH64', 'X86_64']) {
     const name = `CARGO_TARGET_${triple}_APPLE_DARWIN_RUSTFLAGS`;
     assert.ok(step.run.includes(`export ${name}="\${${name}:+$${name} }-C link-arg=-Wl,-no_compact_unwind"`));
@@ -266,7 +266,7 @@ test('compact unwind workaround belongs only to macOS platform tests, preserving
     assert.doesNotMatch(JSON.stringify(workflow(name)), /no_compact_unwind|CARGO_TARGET_.*_RUSTFLAGS/);
   }
   const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
-  for (const [os, suite, expected] of [['macOS', 'platform', true], ['Linux', 'platform', false], ['macOS', 'full', false]]) {
+  for (const [os, suite, expected] of [['macOS', 'platform', true], ['Linux', 'platform', false], ['macOS', 'embeddings', true], ['Linux', 'full', false]]) {
     const preparation = step.run.split('bash build.sh')[0].replaceAll('${{ matrix.suite }}', suite);
     const flags = execFileSync(bash, ['-c', preparation + '\nprintf "%s" "$CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS"'],
       { encoding: 'utf8', env: { ...process.env, RUNNER_OS: os, CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS: '-C debuginfo=1' } });
