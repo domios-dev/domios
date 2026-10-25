@@ -7,6 +7,7 @@ import type { SlashCommand, EditPair } from "@codeterm/chat-core";
 import { attachmentPathName, localArtifactTextParts, parseMarker } from "@codeterm/chat-core";
 import { File, Image, Info, Mic, Play, Settings } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import { MarkdownLink } from "./MarkdownLink";
 import remarkGfm from "remark-gfm";
 import { remarkCachedParse } from "./markdownParse";
 import { remarkBareDomains, remarkCodeMetadata } from "./remarkBareDomains";
@@ -328,7 +329,7 @@ export function RichMarkdown({
           return <img className="my-1 inline-block max-w-full rounded" loading="lazy" {...props} />;
         },
         a: ({ node: _node, ...props }) => (
-          <a
+          <MarkdownLink
             target="_blank"
             rel="noopener noreferrer"
             className="underline decoration-[color-mix(in_srgb,var(--ct-accent)_40%,transparent)] underline-offset-2 hover:decoration-[var(--ct-accent)]"
