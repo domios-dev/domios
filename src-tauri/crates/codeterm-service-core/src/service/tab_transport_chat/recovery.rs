@@ -32,16 +32,16 @@ impl Recovery {
     }
 
     fn claim(&mut self, epoch: &str, now: Instant) -> Decision {
-        if self.in_flight
-            || self.attempted_epoch.as_deref() == Some(epoch)
+        if self.attempted_epoch.as_deref() == Some(epoch)
             || self.incident_epoch.as_deref() == Some(epoch)
         {
             return Decision::Ignore;
         }
         self.attempted_epoch = Some(epoch.into());
-        if self
-            .last_attempt
-            .is_some_and(|last| now.saturating_duration_since(last) < COOLDOWN)
+        if self.in_flight
+            || self
+                .last_attempt
+                .is_some_and(|last| now.saturating_duration_since(last) < COOLDOWN)
         {
             self.incident_epoch = Some(epoch.into());
             return Decision::Incident;
@@ -108,6 +108,17 @@ impl ServiceContext {
         nonce: &str,
         epoch: u64,
         reason: &str,
+    ) {
+        self.recover_interrupted_chatbackend(tab_id, nonce, epoch, reason, false);
+    }
+
+    pub(crate) fn recover_interrupted_chatbackend(
+        &self,
+        tab_id: &str,
+        nonce: &str,
+        epoch: u64,
+        reason: &str,
+        interrupted: bool,
     ) {
         let expected = {
             let mux = self.mux.read();
@@ -180,18 +191,34 @@ impl ServiceContext {
                             && result.session_action() == "resumed"
                             && result.session_id.as_deref() == Some(&expected) =>
                     {
-                        crate::agent::state_verdict::apply_live(
-                            &svc.mux,
-                            &tab_id,
-                            &expected,
-                            codeterm_types::pty::AgentLiveState::from(
-                                codeterm_types::pty::TabVerdict {
-                                    state: codeterm_types::pty::TimelineState::Idle,
-                                    subtype: None,
-                                },
-                            ),
-                        );
+                        {
+                            let mut mux = svc.mux.write();
+                            if let Some(tab) = mux.get_tab_mut(&tab_id).filter(|tab| {
+                                tab.agent_session_id.as_deref() == Some(&expected)
+                                    && tab
+                                        .agent_runtime_state
+                                        .as_ref()
+                                        .is_some_and(|state| state["state"] == "loaded")
+                                    && tab.agent_state.as_ref().is_some_and(|state| {
+                                        state.status_line.as_deref() == Some(&reason)
+                                    })
+                            }) {
+                                tab.agent_state = Some(codeterm_types::pty::AgentLiveState::from(
+                                    codeterm_types::pty::TabVerdict {
+                                        state: codeterm_types::pty::TimelineState::Idle,
+                                        subtype: None,
+                                    },
+                                ));
+                            }
+                        }
+                        if let Some(runtime) = super::super::agent_runtime::engine::for_tab(&tab_id)
+                        {
+                            super::super::agent_runtime::engine::publish(&svc, &tab_id, &runtime);
+                        }
                         svc.emit_state_changed(super::super::MuxEmitCause::RuntimeSignal);
+                        if interrupted {
+                            svc.continue_recovered_runtime(&tab_id, &expected, &key);
+                        }
                         return;
                     }
                     Ok(_) => {
@@ -225,7 +252,7 @@ impl ServiceContext {
             Some("warning"), crate::notification::store::Ask::default(), Some(false),
             crate::service::notification::NotificationOrigin::local_tab(tab_id.into()),
             crate::service::notification::PushIntent {
-                level: Some(crate::notification::push::NotifyLevel::Failure),
+                level: Some(crate::notification::push::NotifyLevel::ActionNeeded),
                 event_key: Some(uuid::Uuid::new_v4().to_string()),
             }, None,
         );

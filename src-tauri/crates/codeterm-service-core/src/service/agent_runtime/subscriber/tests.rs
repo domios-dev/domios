@@ -3,6 +3,25 @@ use crate::service::agent_runtime::model::RuntimeState;
 use serde_json::{json, Value};
 
 #[test]
+fn crash_classification_precedes_requested_cleanup_exit() {
+    assert!(unexpected_exit(None));
+    assert!(unexpected_exit(Some(&RuntimeFailure::PipeEof)));
+    assert!(unexpected_exit(Some(&RuntimeFailure::ProcessExited {
+        code: Some(1),
+        signal: None,
+        stderr: "crash".into(),
+        requested: false,
+    })));
+    assert!(!unexpected_exit(Some(&RuntimeFailure::ProcessExited {
+        code: Some(0),
+        signal: None,
+        stderr: String::new(),
+        requested: true,
+    })));
+    assert!(!unexpected_exit(Some(&RuntimeFailure::Superseded)));
+}
+
+#[test]
 fn teardown_preserves_degraded_reason_and_refuses_old_epoch() {
     let mut state = RuntimeState::unloaded(Some("own".into()));
     let epoch = state.begin();
