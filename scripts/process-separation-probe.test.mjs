@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, rmSync, realpathSync, mkdirSync, readFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, realpathSync, mkdirSync, readFileSync, existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { parseProbeArgs, cleanEnvironment, attachRequest, assertDisposableHome, assertSafePort,
@@ -141,7 +141,12 @@ for (const target of ['', 'opaque-target']) test(`DEV stages exact paired artifa
     writeFileSync(cliLog, [{ ...artifact, target: { name: legacy, kind: ['bin'], src_path: cliSource }, executable: cli }, finish].map(JSON.stringify).join('\n'));
     writeFileSync(treeLog, 'domios-server v0.0.0\ntokio v1.0\n');
     const input = { cargoLog, cliLog, treeLog, repo: root, resourceRoot, client, build };
+    const staleChunk = path.join(resourceRoot, 'dist/assets/old-build.js');
+    mkdirSync(path.dirname(staleChunk), { recursive: true });
+    writeFileSync(staleChunk, 'obsolete bundle input');
     const result = await stageDevResources(input);
+    assert.equal(existsSync(staleChunk), false);
+    assert.equal(readFileSync(path.join(resourceRoot, 'dist/index.html'), 'utf8'), 'opaque-index.html');
     assert.equal(result.manifest.bootstrap_protocol, 2);
     assert.equal(result.manifest.server_sha256, digest(server));
     assert.deepEqual(result.manifest.client_identity, { kind: 'sha256', sha256: digest(client) });
