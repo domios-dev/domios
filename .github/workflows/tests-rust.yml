@@ -81,15 +81,25 @@ jobs:
       CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
       CI_ARTIFACT_STORAGE: ${{ (vars.CI_LINUX_RUST_FULL_RUNNER == 'ubuntu-24.04') && 'github' || '' }}
     steps:
+      - name: Use the runner bundled Node
+        if: runner.environment == 'self-hosted'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            const path = require('node:path');
+            core.addPath(path.dirname(process.execPath));
+            core.info('Using runner Node ' + process.version);
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         id: ci-2
         with:
           package-manager-cache: false
           node-version: 22.22.0
+        if: runner.environment == 'github-hosted'
       - name: Setup Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
           python-version: "3.12"
+        if: runner.environment == 'github-hosted'
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         id: ci-1
         with:
@@ -99,16 +109,13 @@ jobs:
           GIT_CONFIG_COUNT: "1"
           GIT_CONFIG_KEY_0: core.longpaths
           GIT_CONFIG_VALUE_0: "true"
+      - name: Discover installed runner tools
+        if: runner.environment == 'self-hosted'
+        run: node scripts/ci-runner-paths.mjs --paths-only
       - name: Fetch scoped baseline history
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/ci-git-history.mjs baseline
-      - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
-        with:
-          version: 10.32.1
-          run_install: false
-          dest: ${{ runner.tool_cache }}/setup-pnpm
       - name: Hosted Rust dependency cache
         if: ${{ vars.CI_LINUX_RUST_FULL_RUNNER == 'ubuntu-24.04' }}
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
@@ -119,35 +126,25 @@ jobs:
           key: ${{ format('cargo-{0}-{1}-{2}', runner.os, runner.arch, hashFiles('**/Cargo.lock')) }}
           restore-keys: ${{ format('cargo-{0}-{1}-', runner.os, runner.arch) }}
       - name: Hosted sccache
-        if: ${{ vars.CI_LINUX_RUST_FULL_RUNNER == 'ubuntu-24.04' }}
+        if: runner.environment == 'github-hosted' && (vars.CI_LINUX_RUST_FULL_RUNNER == 'ubuntu-24.04')
         uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
         env:
           SCCACHE_GHA_ENABLED: "true"
-      - name: Hosted nextest prerequisite
-        if: ${{ vars.CI_LINUX_RUST_FULL_RUNNER == 'ubuntu-24.04' }}
-        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8
-        with:
-          tool: cargo-nextest@0.9.148
-      - name: Runner preflight
-        run: node scripts/ci-runner-paths.mjs rust
-      - name: Prepare runner tool paths
-        id: ci-3
-        run: node scripts/ci-runner-paths.mjs
+      - name: Prepare compile fixtures
+        id: ci-7
+        run: node scripts/ci-rust-prepare.mjs
       - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
         id: ci-4
         with:
           toolchain: 1.99.1
-      - name: Reuse the pinned cargo-nextest when present
-        id: nextest
-        run: node scripts/ci-nextest-present.mjs 0.9.148
-      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8
-        id: ci-6
-        if: steps.nextest.outputs.present != 'true'
+        if: runner.environment == 'github-hosted'
+      - name: Install pinned nextest prerequisite
+        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8
         with:
           tool: cargo-nextest@0.9.148
-      - name: Prepare compile fixtures
-        id: ci-7
-        run: node scripts/ci-rust-prepare.mjs
+        if: runner.environment == 'github-hosted'
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs bash,cargo,curl,gh,git,nextest,node,python
       - name: Reset compiler capture
         id: ci-8
         continue-on-error: true
@@ -275,15 +272,25 @@ jobs:
       CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
       CI_ARTIFACT_STORAGE: ${{ (matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15') && 'github' || '' }}
     steps:
+      - name: Use the runner bundled Node
+        if: runner.environment == 'self-hosted'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            const path = require('node:path');
+            core.addPath(path.dirname(process.execPath));
+            core.info('Using runner Node ' + process.version);
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         id: ci-2
         with:
           package-manager-cache: false
           node-version: 22.22.0
+        if: runner.environment == 'github-hosted'
       - name: Setup Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
           python-version: "3.12"
+        if: runner.environment == 'github-hosted'
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         id: ci-1
         with:
@@ -293,16 +300,13 @@ jobs:
           GIT_CONFIG_COUNT: "1"
           GIT_CONFIG_KEY_0: core.longpaths
           GIT_CONFIG_VALUE_0: "true"
+      - name: Discover installed runner tools
+        if: runner.environment == 'self-hosted'
+        run: node scripts/ci-runner-paths.mjs --paths-only
       - name: Fetch scoped baseline history
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/ci-git-history.mjs baseline
-      - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
-        with:
-          version: 10.32.1
-          run_install: false
-          dest: ${{ runner.tool_cache }}/setup-pnpm
       - name: Hosted Rust dependency cache
         if: ${{ matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15' }}
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
@@ -313,35 +317,25 @@ jobs:
           key: ${{ format('cargo-{0}-{1}-{2}', runner.os, runner.arch, hashFiles('**/Cargo.lock')) }}
           restore-keys: ${{ format('cargo-{0}-{1}-', runner.os, runner.arch) }}
       - name: Hosted sccache
-        if: ${{ matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15' }}
+        if: runner.environment == 'github-hosted' && (matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15')
         uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
         env:
           SCCACHE_GHA_ENABLED: "true"
-      - name: Hosted nextest prerequisite
-        if: ${{ matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15' }}
-        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8
-        with:
-          tool: cargo-nextest@0.9.148
-      - name: Runner preflight
-        run: node scripts/ci-runner-paths.mjs rust
-      - name: Prepare runner tool paths
-        id: ci-3
-        run: node scripts/ci-runner-paths.mjs
+      - name: Prepare compile fixtures
+        id: ci-7
+        run: node scripts/ci-rust-prepare.mjs
       - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
         id: ci-4
         with:
           toolchain: 1.99.1
-      - name: Reuse the pinned cargo-nextest when present
-        id: nextest
-        run: node scripts/ci-nextest-present.mjs 0.9.148
-      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8
-        id: ci-6
-        if: steps.nextest.outputs.present != 'true'
+        if: runner.environment == 'github-hosted'
+      - name: Install pinned nextest prerequisite
+        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8
         with:
           tool: cargo-nextest@0.9.148
-      - name: Prepare compile fixtures
-        id: ci-7
-        run: node scripts/ci-rust-prepare.mjs
+        if: runner.environment == 'github-hosted'
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs bash,cargo,curl,gh,git,nextest,node,python
       - name: Reset compiler capture
         id: ci-8
         continue-on-error: true
@@ -459,15 +453,25 @@ jobs:
       CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
       CI_ARTIFACT_STORAGE: ${{ (vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15') && 'github' || '' }}
     steps:
+      - name: Use the runner bundled Node
+        if: runner.environment == 'self-hosted'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            const path = require('node:path');
+            core.addPath(path.dirname(process.execPath));
+            core.info('Using runner Node ' + process.version);
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         id: ci-2
         with:
           package-manager-cache: false
           node-version: 22.22.0
+        if: runner.environment == 'github-hosted'
       - name: Setup Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
           python-version: "3.12"
+        if: runner.environment == 'github-hosted'
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         id: ci-1
         with:
@@ -477,16 +481,13 @@ jobs:
           GIT_CONFIG_COUNT: "1"
           GIT_CONFIG_KEY_0: core.longpaths
           GIT_CONFIG_VALUE_0: "true"
+      - name: Discover installed runner tools
+        if: runner.environment == 'self-hosted'
+        run: node scripts/ci-runner-paths.mjs --paths-only
       - name: Fetch scoped baseline history
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/ci-git-history.mjs baseline
-      - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
-        with:
-          version: 10.32.1
-          run_install: false
-          dest: ${{ runner.tool_cache }}/setup-pnpm
       - name: Hosted Rust dependency cache
         if: ${{ vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15' }}
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
@@ -497,35 +498,25 @@ jobs:
           key: ${{ format('cargo-{0}-{1}-{2}', runner.os, runner.arch, hashFiles('**/Cargo.lock')) }}
           restore-keys: ${{ format('cargo-{0}-{1}-', runner.os, runner.arch) }}
       - name: Hosted sccache
-        if: ${{ vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15' }}
+        if: runner.environment == 'github-hosted' && (vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15')
         uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
         env:
           SCCACHE_GHA_ENABLED: "true"
-      - name: Hosted nextest prerequisite
-        if: ${{ vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15' }}
-        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8
-        with:
-          tool: cargo-nextest@0.9.148
-      - name: Runner preflight
-        run: node scripts/ci-runner-paths.mjs rust
-      - name: Prepare runner tool paths
-        id: ci-3
-        run: node scripts/ci-runner-paths.mjs
+      - name: Prepare compile fixtures
+        id: ci-7
+        run: node scripts/ci-rust-prepare.mjs
       - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
         id: ci-4
         with:
           toolchain: 1.99.1
-      - name: Reuse the pinned cargo-nextest when present
-        id: nextest
-        run: node scripts/ci-nextest-present.mjs 0.9.148
-      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8
-        id: ci-6
-        if: steps.nextest.outputs.present != 'true'
+        if: runner.environment == 'github-hosted'
+      - name: Install pinned nextest prerequisite
+        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8
         with:
           tool: cargo-nextest@0.9.148
-      - name: Prepare compile fixtures
-        id: ci-7
-        run: node scripts/ci-rust-prepare.mjs
+        if: runner.environment == 'github-hosted'
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs bash,cargo,curl,gh,git,nextest,node,python
       - name: Reset compiler capture
         id: ci-8
         continue-on-error: true
@@ -634,18 +625,30 @@ jobs:
       CI_HOSTED: ${{ vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04' }}
       CI_ARTIFACT_STORAGE: ${{ (vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && 'github' || '' }}
     steps:
+      - name: Use the runner bundled Node
+        if: runner.environment == 'self-hosted'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            const path = require('node:path');
+            core.addPath(path.dirname(process.execPath));
+            core.info('Using runner Node ' + process.version);
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         id: ci-2
         with:
           package-manager-cache: false
           node-version: 22.22.0
+        if: runner.environment == 'github-hosted'
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         id: ci-1
         with:
           ref: ${{ inputs.source_ref || github.sha }}
           fetch-depth: 1
+      - name: Discover installed runner tools
+        if: runner.environment == 'self-hosted'
+        run: node scripts/ci-runner-paths.mjs --paths-only
       - name: Runner preflight
-        run: node scripts/ci-runner-paths.mjs receipt
+        run: node scripts/ci-runner-paths.mjs bash,curl,gh,git,node
       - name: Fetch Rust test receipts
         id: ci-3
         continue-on-error: ${{ inputs.artifacts_optional }}

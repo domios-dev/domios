@@ -22,14 +22,26 @@ jobs:
     environment: release
     runs-on: [self-hosted, linux-build]
     steps:
+      - name: Use the runner bundled Node
+        if: runner.environment == 'self-hosted'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            const path = require('node:path');
+            core.addPath(path.dirname(process.execPath));
+            core.info('Using runner Node ' + process.version);
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
           package-manager-cache: false
           node-version: 22.22.0
+        if: runner.environment == 'github-hosted'
       - uses: actions/checkout@v5
         with:
           fetch-depth: 1
           ref: ${{ github.sha }}
+      - name: Discover installed runner tools
+        if: runner.environment == 'self-hosted'
+        run: node scripts/ci-runner-paths.mjs --paths-only
       - name: Fetch scoped master history
         env:
           GH_TOKEN: ${{ github.token }}
@@ -39,6 +51,7 @@ jobs:
           version: 10.32.1
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
+        if: runner.environment == 'github-hosted'
       - name: Require a verified master commit and exact plugin tag
         env:
           PLUGIN_TAG: ${{ inputs.tag }}
@@ -88,14 +101,26 @@ jobs:
       group: codeterm-core-channel-publication
       cancel-in-progress: false
     steps:
+      - name: Use the runner bundled Node
+        if: runner.environment == 'self-hosted'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            const path = require('node:path');
+            core.addPath(path.dirname(process.execPath));
+            core.info('Using runner Node ' + process.version);
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
           package-manager-cache: false
           node-version: 22.22.0
+        if: runner.environment == 'github-hosted'
       - uses: actions/checkout@v5
         with:
           fetch-depth: 1
           ref: ${{ github.sha }}
+      - name: Discover installed runner tools
+        if: runner.environment == 'self-hosted'
+        run: node scripts/ci-runner-paths.mjs --paths-only
       - name: Fetch scoped ancestry history
         env:
           GH_TOKEN: ${{ github.token }}

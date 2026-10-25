@@ -13,15 +13,28 @@ jobs:
       matrix:
         directory: [src-tauri, cli, crates/mem-store]
     steps:
+      - name: Use the runner bundled Node
+        if: runner.environment == 'self-hosted'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            const path = require('node:path');
+            core.addPath(path.dirname(process.execPath));
+            core.info('Using runner Node ' + process.version);
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
           package-manager-cache: false
           node-version: 22.22.0
+        if: runner.environment == 'github-hosted'
       - uses: actions/checkout@v5
         with:
           fetch-depth: 1
           ref: ${{ github.sha }}
+      - name: Discover installed runner tools
+        if: runner.environment == 'self-hosted'
+        run: node scripts/ci-runner-paths.mjs --paths-only
       - uses: dtolnay/rust-toolchain@stable
+        if: runner.environment == 'github-hosted'
       - name: Install cargo-audit
         run: cargo install cargo-audit
       - name: Run cargo audit in ${{ matrix.directory }}
@@ -33,19 +46,32 @@ jobs:
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' }}
     runs-on: [self-hosted, Linux, light, host-ubunta]
     steps:
+      - name: Use the runner bundled Node
+        if: runner.environment == 'self-hosted'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            const path = require('node:path');
+            core.addPath(path.dirname(process.execPath));
+            core.info('Using runner Node ' + process.version);
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
           package-manager-cache: false
           node-version: 22.22.0
+        if: runner.environment == 'github-hosted'
       - uses: actions/checkout@v5
         with:
           fetch-depth: 1
           ref: ${{ github.sha }}
+      - name: Discover installed runner tools
+        if: runner.environment == 'self-hosted'
+        run: node scripts/ci-runner-paths.mjs --paths-only
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
         with:
           version: 10.32.1
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
+        if: runner.environment == 'github-hosted'
       - run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
       - name: Run pnpm audit
         run: pnpm audit --prod

@@ -63,13 +63,24 @@ const tools = {
   curl: ['curl', '--version'], tar: ['tar', '--version'],
 };
 
+export function runnerRequirements(role) {
+  if (RUNNER_ROLES[role]) return RUNNER_ROLES[role];
+  const names = role.split(',');
+  if (!names.length || names.some(name => !(name in tools) && name !== 'python' && !/^python:[A-Za-z_][A-Za-z0-9_]*(?:[.][A-Za-z_][A-Za-z0-9_]*)*$/.test(name))) {
+    throw new Error('Unknown runner role or tool list: ' + role);
+  }
+  return names;
+}
+
 export function checkRunnerTools(role, { platform = process.platform, env = process.env,
   execute = (command, args, options) => spawnSync(command, args, options) } = {}) {
-  if (!RUNNER_ROLES[role]) throw new Error('Unknown runner role: ' + role);
+  const required = runnerRequirements(role);
   const missing = [];
-  for (const tool of RUNNER_ROLES[role]) {
-    const [command, ...args] = tool === 'python'
-      ? [platform === 'win32' ? 'python' : 'python3', '--version'] : tools[tool];
+  for (const tool of required) {
+    const python = platform === 'win32' ? 'python' : 'python3';
+    const [command, ...args] = tool.startsWith('python:')
+      ? [python, '-c', 'import ' + tool.slice(7)]
+      : tool === 'python' ? [python, '--version'] : tools[tool];
     const probeEnv = tool === 'cargo' && env.RUNNER_ENVIRONMENT === 'github-hosted' ? { ...env, RUSTUP_TOOLCHAIN: 'stable' } : env;
     const result = execute(command, args, { env: probeEnv, encoding: 'utf8', timeout: 2000,
       windowsHide: true, shell: platform === 'win32' && tool === 'pnpm' });
@@ -78,7 +89,8 @@ export function checkRunnerTools(role, { platform = process.platform, env = proc
   if (missing.length) throw new Error('Runner preflight (' + role + ') missing or broken: ' +
     missing.join(', ') + '. Install/restore tools using .agents/skills/build-machine/SKILL.md; ' +
     'nextest: cargo install cargo-nextest --locked; Python: https://www.python.org/downloads/; ' +
-    'Git Bash: https://gitforwindows.org/; Node/pnpm: https://nodejs.org/ and corepack enable; gh: https://cli.github.com/');
+    'Git Bash: https://gitforwindows.org/; Node/pnpm: https://nodejs.org/ and corepack enable; gh: https://cli.github.com/; ' +
+    'Python modules: python -m pip install -r scripts/requirements-ci.txt');
 }
 
 export function runnerPathContent(directories) {
@@ -101,6 +113,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
   directories.push(...extras.filter(directory => fs.existsSync(directory)));
   fs.appendFileSync(process.env.GITHUB_PATH, runnerPathContent(directories));
   const env = { ...process.env, PATH: [...directories, process.env.PATH].join(path.delimiter) };
-  checkRunnerTools(process.argv[2] || 'rust', { env });
+  if (process.argv[2] !== '--paths-only') checkRunnerTools(process.argv[2] || 'rust', { env });
   for (const directory of directories) console.log('Job-local tool directory: ' + directory);
 }
