@@ -84,3 +84,33 @@ fn starter_frame_native_argument_matches_native_and_js() {
         assert!(command.ends_with(&format!(" -- {argument}")));
     }
 }
+
+#[test]
+fn general_bootstrap_starter_matches_native_and_js() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (native, js) = pair();
+    let prompt = crate::provider::StarterPrompt::GeneralBootstrap;
+    assert_eq!(
+        native.starter_prompt_text(prompt),
+        js.starter_prompt_text(prompt)
+    );
+    let params = AgentLaunchParams {
+        task: Some("fragment-k83".into()),
+        starter_prompt: prompt,
+        ..Default::default()
+    };
+    let frame = crate::provider::StarterPrompt::system_prefix(prompt).unwrap();
+    let argument = codeterm_util::shell::ShellSyntax::quote_native_arg(&format!(
+        "{frame}{}{close}",
+        prompt.host_text().unwrap(),
+        close = codeterm_wire::domios::DOMIOS_CLOSE_TAG
+    ));
+    for command in [
+        native.build_launch_command(&params),
+        js.build_launch_command(&params),
+    ] {
+        assert!(command.ends_with(&format!(" -- {argument}")));
+    }
+}

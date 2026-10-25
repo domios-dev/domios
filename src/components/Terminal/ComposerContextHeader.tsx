@@ -166,7 +166,9 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
   const backgroundBubble = composerBackgroundWorkBubble(backgroundWork.items);
   const backgroundItems = backgroundBubble?.items ?? [];
   const onlySubagents = backgroundItems.length > 0 && backgroundItems.every(item => item.kind === "agent");
+  const onlyShells = backgroundItems.length > 0 && backgroundItems.every(item => item.kind === "shell");
   const internalAgentLabel = `Internal agent of ${descriptor?.display_name ?? "parent harness"}`;
+  const backgroundLabel = onlyShells ? "Background shell command" : onlySubagents ? internalAgentLabel : undefined;
   const { chips, byKey, blueprints, context, refresh } = useTabJobs(tabId, workspaceId, adapter, jobActionAdapter);
   const [requested, setRequested] = useState<ContextKind | null>(null);
   const goalTriggerRef = useRef<HTMLButtonElement>(null);
@@ -373,8 +375,8 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
               kind={kind}
               open={open === kind}
               aria-pressed={open === kind}
-              aria-label={kind === "goal" ? KIND_LABEL.goal : `${kindCount(kind, counts[kind])}${kind === "delayed" && heartbeats.length > 0 ? ", system reminder" : ""}${alerts[kind] ? ", one needs you" : ""}${kind === "background" && onlySubagents ? `, ${internalAgentLabel}` : ""}`}
-              title={kind === "background" && onlySubagents ? `${KIND_LABEL[kind]} · ${internalAgentLabel}` : KIND_LABEL[kind]}
+              aria-label={kind === "goal" ? KIND_LABEL.goal : `${kindCount(kind, counts[kind])}${kind === "delayed" && heartbeats.length > 0 ? ", system reminder" : ""}${alerts[kind] ? ", one needs you" : ""}${kind === "background" && backgroundLabel ? `, ${backgroundLabel}` : ""}`}
+              title={kind === "background" && backgroundLabel ? `${KIND_LABEL[kind]} · ${backgroundLabel}` : KIND_LABEL[kind]}
               onClick={() => toggle(kind)}
             >
               <Icon size={13} aria-hidden="true" />

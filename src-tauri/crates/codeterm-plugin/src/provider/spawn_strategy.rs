@@ -278,6 +278,7 @@ pub enum StarterPrompt {
     NoStarter,
     IdleWakeup,
     TeamBootstrap,
+    GeneralBootstrap,
     StartupHandshake,
 }
 
@@ -285,6 +286,9 @@ impl StarterPrompt {
     pub fn host_text(self) -> Option<&'static str> {
         match self {
             Self::TeamBootstrap => Some(crate::prompts::TEAM_BOOTSTRAP_STARTER.trim()),
+            Self::GeneralBootstrap => Some(
+                "Begin the General Agent greeting bootstrap provided in your instructions.",
+            ),
             Self::StartupHandshake => Some(
                 "Before any other action, run `domios agent startup-ack`. Then continue with the assigned role or task.",
             ),
@@ -297,6 +301,7 @@ impl StarterPrompt {
             Self::AssignedTask => "assigned-task",
             Self::IdleWakeup => "idle-wakeup",
             Self::TeamBootstrap => "team-bootstrap",
+            Self::GeneralBootstrap => "general-bootstrap",
             Self::StartupHandshake => "startup-handshake",
             Self::NoStarter => return None,
         };
