@@ -2,12 +2,13 @@ pub(super) struct Client(std::process::Child);
 
 impl Client {
     pub(super) fn new() -> Self {
+        // cmd.exe exits at once without a console, so Windows uses a small process that waits on its own.
         #[cfg(windows)]
         let mut command = {
             let executable = std::path::PathBuf::from(std::env::var_os("SystemRoot").unwrap())
-                .join("System32/cmd.exe");
+                .join("System32/PING.EXE");
             let mut command = std::process::Command::new(executable);
-            command.args(["/D", "/Q"]);
+            command.args(["-n", "3600", "127.0.0.1"]);
             command
         };
         #[cfg(unix)]

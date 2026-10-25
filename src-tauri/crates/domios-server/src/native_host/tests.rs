@@ -498,7 +498,9 @@ fn client_process_must_match_manifest_digest() {
         digest(&fs::read(image).unwrap()),
         allowed.clone(),
     );
-    assert!(super::enrollment::verify_client_process(&process, &trusted).is_ok());
+    if let Err(error) = super::enrollment::verify_client_process(&process, &trusted) {
+        panic!("the matching client process must verify: {error}");
+    }
 
     trusted.client_identity = fixture_client_identity("c".repeat(64));
     assert!(super::enrollment::verify_client_process(&process, &trusted).is_err());
