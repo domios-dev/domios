@@ -193,7 +193,7 @@ async fn credential_save_failure_is_retained_and_successful_login_clears_it() {
     store.fail.store(true, Ordering::SeqCst);
     let account = account(store.clone());
     assert_eq!(
-        account.login(&NoBrowser).await.unwrap_err(),
+        account.login(Arc::new(NoBrowser)).await.unwrap_err(),
         Error::Credentials
     );
     assert_eq!(
@@ -204,7 +204,7 @@ async fn credential_save_failure_is_retained_and_successful_login_clears_it() {
         })
     );
     store.fail.store(false, Ordering::SeqCst);
-    let status = account.login(&NoBrowser).await.unwrap();
+    let status = account.login(Arc::new(NoBrowser)).await.unwrap();
     assert!(status.identity.is_some());
     assert!(status.last_sign_in_failure.is_none());
 }
