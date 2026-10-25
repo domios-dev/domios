@@ -42,10 +42,19 @@ fn general_bootstrap_composition_follows_each_provider_capability() {
             );
             assert_eq!(pty.task.as_deref(), Some(expected.as_str()));
             assert!(pty.startup_message.is_none());
+            if bootstrap.is_some() {
+                let prefix = pty.starter_prompt.system_prefix().unwrap();
+                assert_eq!(
+                    codeterm_wire::domios::parse_message(&format!("{prefix}opaque</domios>"))
+                        .unwrap()
+                        .attr("context"),
+                    Some("general-bootstrap")
+                );
+            }
             assert_eq!(
                 pty.starter_prompt,
                 if bootstrap.is_some() {
-                    StarterPrompt::AssignedTask
+                    StarterPrompt::GeneralBootstrap
                 } else {
                     StarterPrompt::NoStarter
                 }

@@ -81,13 +81,13 @@ function WorkDetails({ item, onStop }: {
 
   return <li className="ct-background-command">
       <span className="ct-ctx-bubble ct-work-bubble" data-tone="active">
-        <button type="button" className="ct-ctx-bubble__open" aria-label={`Details for ${item.name}`} aria-description={`Task ${item.name}, ${busy ? "stopping" : stateLabel(item)}`} aria-expanded={expanded} aria-controls={detailsId} title={item.command} onClick={() => setExpanded(!expanded)}>
+        <button type="button" className="ct-ctx-bubble__open" aria-label={`Details for ${item.name}`} aria-description={`${item.kind === "shell" ? "Background shell command" : "Task"} ${item.name}, ${busy ? "stopping" : stateLabel(item)}`} aria-expanded={expanded} aria-controls={detailsId} title={item.command} onClick={() => setExpanded(!expanded)}>
           <SquareTerminal size={13} aria-hidden="true" />
           <span className="ct-ctx-bubble__title">{item.name}</span>
           <WorkState item={item} label={busy ? "stopping" : stateLabel(item)} />
           <ChevronDown size={11} aria-hidden="true" />
         </button>
-        <button type="button" className="ct-ctx-bubble__dismiss" aria-label={`Stop ${item.name}`} title={`Stop ${item.name}`} disabled={busy} aria-busy={busy || undefined} onClick={() => void stop()}><Square size={10} fill="currentColor" aria-hidden="true" /></button>
+        {item.kind === "terminal" && <button type="button" className="ct-ctx-bubble__dismiss" aria-label={`Stop ${item.name}`} title={`Stop ${item.name}`} disabled={busy} aria-busy={busy || undefined} onClick={() => void stop()}><Square size={10} fill="currentColor" aria-hidden="true" /></button>}
       </span>
       {expanded && <div id={detailsId} role="region" aria-label={`Command details for ${item.name}`} className="ct-background-command__details">
         <code>{item.command}</code>
@@ -105,7 +105,7 @@ export function ComposerBackgroundWorkPanel({ items, onStop, internalAgentLabel 
   return <div>
     <SubagentDetails items={items.filter(item => item.kind === "agent")} internalAgentLabel={internalAgentLabel} />
     <ul className="ct-background-commands">
-      {items.filter(item => item.kind === "terminal").map(item => <WorkDetails key={item.id} item={item} onStop={onStop} />)}
+      {items.filter(item => item.kind !== "agent").map(item => <WorkDetails key={item.id} item={item} onStop={onStop} />)}
     </ul>
   </div>;
 }

@@ -417,7 +417,7 @@ fn general_agent_launch_uses_system_prompt_channel_when_available() {
     assert!(params.task.as_deref().is_some_and(
         |task| task.contains("GA_INSTRUCTIONS_SENTINEL") && task.contains("BOOTSTRAP_SENTINEL")
     ));
-    assert_eq!(params.starter_prompt, StarterPrompt::AssignedTask);
+    assert_eq!(params.starter_prompt, StarterPrompt::GeneralBootstrap);
     assert!(native.startup_message.is_none());
     assert_eq!(native.prompt_delivery, "cli_flag");
 

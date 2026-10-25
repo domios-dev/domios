@@ -52,6 +52,7 @@ export interface MachineRowView {
 }
 
 export interface SelfRowView {
+  planLimited: boolean;
   name: string;
   installationId: string;
   metadataRevision: number;
@@ -115,7 +116,9 @@ export function myMachinesView({ account, snapshot, listFailure = null, linking,
   const known = new Set(registry.map((row) => row.installation_id));
   const saved = pairs
     .filter((pair) => !pair.installation_id || !known.has(pair.installation_id))
-    .map((pair) => blocked ? blockedRow(pair, "Mesh is blocked until your account finishes resuming") : locked ? lockedRow(pair) : savedPairRow(pair));
+    .map((pair) => blocked ? blockedRow(pair, "Mesh is blocked until your account finishes resuming") : locked
+      ? { ...savedPairRow(pair), detail: "Mesh is blocked on this machine", controls: { ...NO_CONTROLS, unpairInstanceId: pair.instance_id } }
+      : savedPairRow(pair));
   return {
     kind: "account",
     machineLimit,
@@ -124,7 +127,7 @@ export function myMachinesView({ account, snapshot, listFailure = null, linking,
     reauthRequired: snapshot.last_refusal?.reason === "reauth_required",
     self: selfRow(snapshot),
     machines: registryRows(snapshot, pairs, linking, now, !blocked && !locked).map((row) => machineLimit && row.status !== "revoked"
-      ? { ...row, status: "over_limit", detail: PLAN_LOCKED_COPY, controls: { ...NO_CONTROLS, revoke: row.target } } : row),
+      ? { ...row, controls: { ...row.controls, revoke: row.target } } : row),
     saved,
     notes: [...notes, ...registryNotes(snapshot, listFailure)],
   };
@@ -155,6 +158,7 @@ function selfRow(snapshot: AccountMeshSnapshot): SelfRowView | null {
   const row = snapshot.registry?.rows.find((candidate) => candidate.installation_id === self.installation_id);
   const displayName = row?.display_name ?? self.display_name;
   return {
+    planLimited: snapshot.traffic === "plan_limit_locked",
     name: displayName ?? "This machine",
     installationId: self.installation_id,
     metadataRevision: row?.metadata_revision ?? self.metadata_revision,
@@ -244,10 +248,6 @@ function signedOutLegacyRow(pair: LocalPairFact): MachineRowView {
     pairInstanceId: pair.instance_id,
     lastSeenAt: null,
   };
-}
-
-function lockedRow(pair: LocalPairFact): MachineRowView {
-  return { key: pairKey(pair), name: pair.name, status: "over_limit", detail: PLAN_LOCKED_COPY, online: pair.online, target: null, controls: { ...NO_CONTROLS, unpairInstanceId: pair.instance_id }, pairInstanceId: pair.instance_id, lastSeenAt: null };
 }
 
 function blockedRow(pair: LocalPairFact, detail: string): MachineRowView {
