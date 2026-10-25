@@ -181,6 +181,83 @@ impl ChatBackendRuntimeLaunch {
 }
 
 impl ServiceContext {
+    /// Returns once the tab exists; the provider runtime starts in the background.
+    pub(crate) fn spawn_chatbackend_with_ready(
+        &self,
+        spec: SpawnTabSpec,
+        emit_state_change: bool,
+        ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+    ) -> Result<TabHandle, String> {
+        let (handle, launch) = match self.stage_chatbackend_spawn(spec, emit_state_change) {
+            Ok(staged) => staged,
+            Err(error) => {
+                if let Some(ready_tx) = ready_tx {
+                    let _ = ready_tx.send(Err(error.clone()));
+                }
+                return Err(error);
+            }
+        };
+        if !launch.can_defer() {
+            let readiness = launch.run();
+            if let Some(ready_tx) = ready_tx {
+                let _ = ready_tx.send(readiness.clone());
+            }
+            return readiness.map(|()| handle);
+        }
+        let svc = self.clone();
+        let tab_id = handle.tab_id.clone();
+        std::thread::spawn(move || {
+            let recipient = svc.spawn_failure_recipient(&tab_id);
+            let readiness = launch.run();
+            match ready_tx {
+                // A dispatch owns its rollback and failure event once readiness arrives.
+                Some(ready_tx) => {
+                    let _ = ready_tx.send(readiness);
+                }
+                None => {
+                    if let Err(error) = readiness {
+                        svc.report_spawn_runtime_failure(recipient, &tab_id, &error);
+                    }
+                }
+            }
+        });
+        Ok(handle)
+    }
+
+    /// Read before the launch, which may roll the tab back on failure.
+    pub(crate) fn spawn_failure_recipient(&self, tab_id: &str) -> Option<(String, String)> {
+        let mux = self.mux.read();
+        let tab = mux.get_tab(tab_id)?;
+        Some((tab.parent_tab_id.clone()?, tab.title.clone()))
+    }
+
+    pub(crate) fn report_spawn_runtime_failure(
+        &self,
+        recipient: Option<(String, String)>,
+        tab_id: &str,
+        error: &str,
+    ) {
+        log::warn!("[spawn] tab={tab_id} provider runtime failed to start: {error}");
+        let Some((parent_tab_id, title)) = recipient else {
+            return;
+        };
+        let message = format!("{title} could not start its provider runtime: {error}");
+        let report = self.report_store.lock().add_detailed(
+            &parent_tab_id,
+            tab_id,
+            &title,
+            &message,
+            ReportDetails::default(),
+            None,
+        );
+        let gate = self.hierarchy_report_recipient_gate(&parent_tab_id);
+        self.events.broadcast(
+            "agent.report",
+            serde_json::json!({ "target_tab_id": parent_tab_id, "report": report.clone() }),
+        );
+        self.deliver_hierarchy_report_if_allowed(&gate, &report, self);
+    }
+
     #[cfg(test)]
     pub(crate) fn spawn_chatbackend_impl_with_state_change(
         &self,
