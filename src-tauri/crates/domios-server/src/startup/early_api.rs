@@ -40,6 +40,7 @@ pub(crate) struct EarlyApi {
     changes: watch::Sender<Readiness>,
     started: Instant,
     token: Option<String>,
+    diagnostics_port: codeterm_api::health_routes::NativeDiagnosticsPort,
 }
 
 pub(crate) struct PreparedStartup {
@@ -49,11 +50,15 @@ pub(crate) struct PreparedStartup {
 }
 
 impl PreparedStartup {
-    pub fn new(frontend: Option<&url::Url>) -> Result<Self, String> {
+    pub fn new(
+        frontend: Option<&url::Url>,
+        diagnostics_port: codeterm_api::health_routes::NativeDiagnosticsPort,
+    ) -> Result<Self, String> {
         let config = super::init_config();
         let control = Arc::new(RestApiControl::new());
         let api_config = config.lock().api.clone();
-        let api = EarlyApi::new(api_config.token.clone());
+        let mut api = EarlyApi::new(api_config.token.clone());
+        api.diagnostics_port = diagnostics_port;
         codeterm_service_core::config::validate_api_trust_boundary(&api_config)?;
         let remote = codeterm_service_core::startup::rest_api_additional_bind(
             &api_config,
@@ -143,6 +148,7 @@ impl EarlyApi {
             changes,
             started: Instant::now(),
             token,
+            diagnostics_port: codeterm_api::health_routes::NativeDiagnosticsPort(Arc::new(|| None)),
         }
     }
 
@@ -257,7 +263,7 @@ async fn route(State(api): State<EarlyApi>, request: Request) -> Response {
                 "name": std::env::var("CODETERM_INSTANCE").unwrap_or_default(),
                 "api_port": std::env::var("CODETERM_API_PORT").unwrap_or_default(),
                 "vite_port": std::env::var("CODETERM_VITE_PORT").unwrap_or_default(),
-                "cdp_port": std::env::var("CODETERM_CDP_PORT").unwrap_or_default(),
+                "cdp_port": api.diagnostics_port.cdp_port(),
                 "identifier": std::env::var("CODETERM_DEV_IDENTIFIER").unwrap_or_default(),
             }
         })).into_response();

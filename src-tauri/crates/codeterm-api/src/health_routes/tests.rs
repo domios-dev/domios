@@ -45,3 +45,51 @@ mod display_name {
         assert_eq!(instance["display_name"], "");
     }
 }
+
+#[test]
+fn native_diagnostics_port_is_never_published_for_production() {
+    let port = super::NativeDiagnosticsPort(std::sync::Arc::new(|| Some(9398)));
+    assert_eq!(port.for_build(false), "");
+    assert_eq!(port.for_build(true), "9398");
+    let invalid = super::NativeDiagnosticsPort(std::sync::Arc::new(|| Some(0)));
+    assert_eq!(invalid.for_build(true), "");
+}
+
+#[tokio::test]
+async fn health_reads_live_native_diagnostics_and_clears_detached_port() {
+    use codeterm_service_core::{
+        multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture,
+    };
+    use std::sync::{
+        atomic::{AtomicU16, Ordering},
+        Arc,
+    };
+    let fixture = ServiceFixture::new(MultiplexerState::empty());
+    let state = crate::test_support::app_state(&fixture);
+    assert_eq!(
+        super::health(axum::extract::State(state.clone())).await.0["instance"]["cdp_port"],
+        ""
+    );
+    let port = Arc::new(AtomicU16::new(9398));
+    let attached = port.clone();
+    assert!(state
+        .svc
+        .register_host_extension(Arc::new(super::NativeDiagnosticsPort(Arc::new(
+            move || {
+                match attached.load(Ordering::Acquire) {
+                    0 => None,
+                    port => Some(port),
+                }
+            }
+        ))))
+        .is_ok());
+    assert_eq!(
+        super::health(axum::extract::State(state.clone())).await.0["instance"]["cdp_port"],
+        if cfg!(debug_assertions) { "9398" } else { "" }
+    );
+    port.store(0, Ordering::Release);
+    assert_eq!(
+        super::health(axum::extract::State(state)).await.0["instance"]["cdp_port"],
+        ""
+    );
+}
