@@ -110,7 +110,7 @@ test("master accepts pull requests only from release branches", () => {
 test("platform builders do not push release tags before the test gate", () => {
   for (const name of ["release-macos-build", "release-linux-arm64", "release-linux", "release-windows"]) {
     for (const job of Object.values(workflow(name).jobs)) {
-      for (const step of job.steps) assert.doesNotMatch(step.run || "", /git push/);
+      for (const step of job.steps ?? []) assert.doesNotMatch(step.run || "", /git push/);
     }
   }
   const publisher = workflow("release-manifest-validate");

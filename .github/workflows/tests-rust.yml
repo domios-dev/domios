@@ -51,7 +51,7 @@ jobs:
   # One stable executor retains warm final targets; light jobs use another host.
   rust-tests:
     name: rust tests (full suite)
-    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (!cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (!cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
     environment: ci
     runs-on: [self-hosted, Linux, rust-tests, heavy, host-blackstar]
     permissions:
@@ -223,7 +223,7 @@ jobs:
   # Each OS compiles and runs only its cfg-gated tests and the native input crates.
   rust-platform:
     name: rust platform (${{ matrix.os }})
-    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (!cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (!cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
     environment: ci
     runs-on: [self-hosted, '${{ matrix.os }}', '${{ matrix.label }}', "${{ matrix.os == 'Windows' && 'windows-build' || 'rust-shard' }}"]
     permissions:
@@ -259,7 +259,7 @@ jobs:
   rust-embeddings:
     name: rust embeddings
     needs: rust-platform
-    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (!cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (!cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
     environment: ci
     runs-on: [self-hosted, macOS, rust-shard, host-air]
     permissions:
@@ -287,7 +287,7 @@ jobs:
   rust-receipts:
     name: rust test receipts
     needs: [rust-tests, rust-platform, rust-embeddings]
-    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (always() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (always() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
     environment: ci
     runs-on: [self-hosted, Linux, light, host-ubunta]
     permissions:
