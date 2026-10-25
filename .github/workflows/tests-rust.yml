@@ -81,15 +81,34 @@ jobs:
       CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
       CI_ARTIFACT_STORAGE: ${{ (vars.CI_LINUX_RUST_FULL_RUNNER == 'ubuntu-24.04') && 'github' || '' }}
     steps:
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        id: ci-2
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12"
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         id: ci-1
         with:
-          ref: ${{ inputs.source_ref || github.ref }}
-          fetch-depth: 0
+          ref: ${{ inputs.source_ref || github.sha }}
+          fetch-depth: 1
         env:
           GIT_CONFIG_COUNT: "1"
           GIT_CONFIG_KEY_0: core.longpaths
           GIT_CONFIG_VALUE_0: "true"
+      - name: Fetch scoped baseline history
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci-git-history.mjs baseline
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
       - name: Hosted Rust dependency cache
         if: ${{ vars.CI_LINUX_RUST_FULL_RUNNER == 'ubuntu-24.04' }}
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
@@ -111,11 +130,6 @@ jobs:
           tool: cargo-nextest@0.9.148
       - name: Runner preflight
         run: node scripts/ci-runner-paths.mjs rust
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
-        id: ci-2
-        with:
-          package-manager-cache: false
-          node-version: 22.22.0
       - name: Prepare runner tool paths
         id: ci-3
         run: node scripts/ci-runner-paths.mjs
@@ -261,15 +275,34 @@ jobs:
       CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
       CI_ARTIFACT_STORAGE: ${{ (matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15') && 'github' || '' }}
     steps:
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        id: ci-2
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12"
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         id: ci-1
         with:
-          ref: ${{ inputs.source_ref || github.ref }}
-          fetch-depth: 0
+          ref: ${{ inputs.source_ref || github.sha }}
+          fetch-depth: 1
         env:
           GIT_CONFIG_COUNT: "1"
           GIT_CONFIG_KEY_0: core.longpaths
           GIT_CONFIG_VALUE_0: "true"
+      - name: Fetch scoped baseline history
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci-git-history.mjs baseline
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
       - name: Hosted Rust dependency cache
         if: ${{ matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15' }}
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
@@ -291,11 +324,6 @@ jobs:
           tool: cargo-nextest@0.9.148
       - name: Runner preflight
         run: node scripts/ci-runner-paths.mjs rust
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
-        id: ci-2
-        with:
-          package-manager-cache: false
-          node-version: 22.22.0
       - name: Prepare runner tool paths
         id: ci-3
         run: node scripts/ci-runner-paths.mjs
@@ -431,15 +459,34 @@ jobs:
       CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
       CI_ARTIFACT_STORAGE: ${{ (vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15') && 'github' || '' }}
     steps:
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        id: ci-2
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12"
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         id: ci-1
         with:
-          ref: ${{ inputs.source_ref || github.ref }}
-          fetch-depth: 0
+          ref: ${{ inputs.source_ref || github.sha }}
+          fetch-depth: 1
         env:
           GIT_CONFIG_COUNT: "1"
           GIT_CONFIG_KEY_0: core.longpaths
           GIT_CONFIG_VALUE_0: "true"
+      - name: Fetch scoped baseline history
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci-git-history.mjs baseline
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
       - name: Hosted Rust dependency cache
         if: ${{ vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15' }}
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
@@ -461,11 +508,6 @@ jobs:
           tool: cargo-nextest@0.9.148
       - name: Runner preflight
         run: node scripts/ci-runner-paths.mjs rust
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
-        id: ci-2
-        with:
-          package-manager-cache: false
-          node-version: 22.22.0
       - name: Prepare runner tool paths
         id: ci-3
         run: node scripts/ci-runner-paths.mjs
@@ -592,17 +634,18 @@ jobs:
       CI_HOSTED: ${{ vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04' }}
       CI_ARTIFACT_STORAGE: ${{ (vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && 'github' || '' }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-        id: ci-1
-        with:
-          ref: ${{ inputs.source_ref || github.ref }}
-      - name: Runner preflight
-        run: node scripts/ci-runner-paths.mjs receipt
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         id: ci-2
         with:
           package-manager-cache: false
           node-version: 22.22.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        id: ci-1
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
+          fetch-depth: 1
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs receipt
       - name: Fetch Rust test receipts
         id: ci-3
         continue-on-error: ${{ inputs.artifacts_optional }}

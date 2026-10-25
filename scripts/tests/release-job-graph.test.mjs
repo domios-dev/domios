@@ -247,7 +247,11 @@ test('native Rust tests discover installed tools before runtime execution', () =
   const tests = steps.findIndex(step => step.name?.startsWith('Compile and run') && step.if === "runner.os == 'Windows'");
   assert.ok(setup >= 0 && setup < tests);
   assert.equal(steps[setup].if, undefined);
-  assert.ok(!steps.some(step => step.uses?.startsWith('actions/setup-python@')));
+  for (const action of ['actions/setup-node@', 'actions/setup-python@']) {
+    const provider = steps.findIndex(step => step.uses?.startsWith(action));
+    assert.ok(provider >= 0 && provider < setup, action + ' supplies the path repair prerequisite');
+    assert.equal(steps[provider].if, undefined);
+  }
 });
 
 test('compact unwind workaround belongs only to macOS platform tests, preserving release link flags', () => {

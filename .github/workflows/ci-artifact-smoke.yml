@@ -31,7 +31,14 @@ jobs:
       run:
         shell: bash
     steps:
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 1
+          ref: ${{ github.sha }}
       - name: Put, get and remove one object
         env:
           KEY: smoke/${{ github.run_id }}/${{ matrix.os }}.bin

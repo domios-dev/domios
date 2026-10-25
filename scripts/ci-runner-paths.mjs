@@ -52,7 +52,7 @@ export const RUNNER_ROLES = {
   frontend: ['node', 'git', 'bash', 'pnpm'],
   'cli-contracts': ['node', 'git', 'bash', 'cargo'],
   rust: ['node', 'git', 'bash', 'python', 'cargo', 'nextest', 'gh'],
-  'pr-guards': ['node', 'git', 'bash', 'python', 'cargo', 'pnpm'],
+  'pr-guards': ['node', 'git', 'bash', 'python', 'cargo', 'pnpm', 'nextest'],
   packaging: ['node', 'git', 'bash', 'python', 'cargo', 'gh', 'pnpm'],
   all: ['node', 'git', 'bash', 'python', 'cargo', 'nextest', 'gh', 'pnpm'],
 };

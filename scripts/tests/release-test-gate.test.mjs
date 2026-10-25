@@ -52,7 +52,7 @@ test('packaging admits only green trusted release push qualification, with owner
   assert.equal(condition(release.jobs.prepare.if, { github: qualifiedGithub, needs: { 'qualified-source': { outputs: { source_sha: '' } } } }), false);
   assert.equal(condition(release.jobs.prepare.if, { github: { ...qualifiedGithub, event_name: 'push', ref: 'refs/heads/release/9.9.9' }, needs }), false);
   assert.equal(condition(release.jobs.prepare.if, { github: { ...qualifiedGithub, event_name: 'workflow_dispatch', ref: 'refs/heads/release/9.9.9' } }), true);
-  assert.equal(release.jobs.prepare.steps[0].with.ref, '${{ needs.qualified-source.outputs.source_sha || inputs.tag || github.sha }}');
+  assert.equal(release.jobs.prepare.steps.find(step => step.uses?.startsWith('actions/checkout@')).with.ref, '${{ needs.qualified-source.outputs.source_sha || inputs.tag || github.sha }}');
   assert.equal(condition(release.jobs['rust-warnings'].if, { needs: { prepare: { result: 'skipped', outputs: {} } } }), false);
   assert.equal(condition(release.concurrency['cancel-in-progress'], { github: qualifiedGithub }), false, 'unadmitted completions cannot cancel packaging');
 });
@@ -60,7 +60,7 @@ test('packaging admits only green trusted release push qualification, with owner
 test('admission compares the exact live head and skips superseded or deleted branches without a red check', t => {
   const directory = mkdtempSync(join(tmpdir(), 'release-admission-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
-  const step = release.jobs['qualified-source'].steps[0];
+  const step = release.jobs['qualified-source'].steps.find(step => step.id === 'source');
   for (const [label, head, expected] of [['same', qualifiedSha, true], ['foreign', 'b'.repeat(40), false], ['deleted', '', false]]) {
     const output = join(directory, label);
     const script = 'gh() { printf "%s" "$MOCK_HEAD"; [ -n "$MOCK_HEAD" ]; }\n' + step.run;

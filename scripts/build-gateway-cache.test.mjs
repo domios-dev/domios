@@ -13,8 +13,9 @@ const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' 
 const env = { ...process.env, PATH: process.platform === 'win32' ? `C:/Program Files/Git/usr/bin;C:/Program Files/Git/bin;${path.dirname(process.execPath)};${process.env.PATH}` : process.env.PATH };
 // A CI job or a machine pin would switch the fixture's cache policy to the real store.
 for (const name of Object.keys(env)) {
-  if (/^(GITHUB_ENV|GITHUB_ACTIONS|CODETERM_SCCACHE_\w+|CT_BUILD_JOB_ID|CT_GATEWAY_\w+)$/.test(name)) delete env[name];
+  if (/^(GITHUB_ENV|GITHUB_ACTIONS|SCCACHE_\w+|RUSTC_WRAPPER|CODETERM_SCCACHE_\w+|CT_BUILD_JOB_ID|CT_GATEWAY_\w+)$/.test(name)) delete env[name];
 }
+env.CODETERM_USE_SCCACHE = '1';
 function observed(directory, predicate) {
   return new Promise((resolve, reject) => {
     let timer;
@@ -27,7 +28,13 @@ function observed(directory, predicate) {
   });
 }
 function shell(directory, body, id = 'fixture') {
-  const child = spawn(bash, ['-c', body, 'fixture', directory, id], { cwd: root, env, stdio: ['pipe', 'pipe', 'pipe'] });
+  const fixtureEnv = { ...env };
+  if (process.platform === 'win32') {
+    const preload = path.join(directory, 'cache-fixture-identity.mjs');
+    if (!fs.existsSync(preload)) fs.writeFileSync(preload, "import cp from 'node:child_process';\nimport { syncBuiltinESMExports } from 'node:module';\nconst spawn = cp.spawnSync;\ncp.spawnSync = function(command, args, ...rest) {\n  const pid = command === 'powershell.exe' && args.join(' ').match(/GetProcessById\\((\\d+)\\)/)?.[1];\n  if (!pid) return spawn.call(this, command, args, ...rest);\n  let present = true;\n  try { process.kill(Number(pid), 0); } catch { present = false; }\n  return { status: 0, stdout: present ? 'fixture-' + pid : 'GONE', stderr: '' };\n};\nsyncBuiltinESMExports();");
+    fixtureEnv.NODE_OPTIONS = [env.NODE_OPTIONS, '--import=' + pathToFileURL(preload).href].filter(Boolean).join(' ');
+  }
+  const child = spawn(bash, ['-c', body, 'fixture', directory, id], { cwd: root, env: fixtureEnv, stdio: ['pipe', 'pipe', 'pipe'] });
   let output = '', errors = '';
   child.stdout.on('data', c => output += c);
   child.stderr.on('data', c => errors += c);
@@ -257,25 +264,10 @@ test('mixed build verbs share one cache startup and persist four completed histo
     echo READY
     read -r start
   `;
-  const identityPreload = path.join(directory, 'fixture-identity.mjs');
-  fs.writeFileSync(identityPreload, `
-    import cp from 'node:child_process';
-    import { syncBuiltinESMExports } from 'node:module';
-    const spawn = cp.spawnSync;
-    cp.spawnSync = function(command, args, ...rest) {
-      const pid = command === 'powershell.exe' && args.join(' ').match(/GetProcessById\\((\\d+)\\)/)?.[1];
-      if (!pid) return spawn.call(this, command, args, ...rest);
-      let present = true;
-      try { process.kill(Number(pid), 0); } catch { present = false; }
-      return { status: 0, stdout: present ? 'fixture-' + pid : 'GONE', stderr: '' };
-    };
-    syncBuiltinESMExports();
-  `);
   const fixtureScript = path.join(directory, 'build.sh');
   fs.writeFileSync(fixtureScript, source.replace('source scripts/lane-rust-guard.sh', 'require_canonical_rust_tests() { :; }').replace('*) setup_env ;;', '*) : ;;').replace(dispatch, fixture + dispatch));
   const verbs = [['test-one', 'plan', 'fixture'], ['test-one', 'cli', 'fixture'], ['nextest', 'plan'], ['check-queue', '--all']];
   const clients = verbs.map((args, i) => shell(directory, `
-    export NODE_OPTIONS="--import=${pathToFileURL(identityPreload).href}"
     export BUILD_NOTIFY_CHILD=1 MIXED_FIXTURE_DIR="$1" CT_BUILD_JOB_ID="$2" CT_BUILD_GATEWAY_NO_TEE=1 CODETERM_BUILD_GATEWAY_MODE=queue
     unset CODETERM_BUILD_GATEWAY_FIXTURE_DIR CT_BUILD_GATEWAY_SCOPE BUILD_NOTIFY_TAB
     source "$1/build.sh" ${args.join(' ')}

@@ -18,8 +18,18 @@ Shared guards cover sizes, provider boundary, crate layering, Tauri reach,
 changed-file comments, API/prompt/eval documentation, secret scanning, issue
 metadata and master accepting only owner release/X.Y.Z PRs. Each runner checks
 its tools through ci-runner-paths before dependency work or compilation.
-Hosted bootstrap actions install Node/pnpm first; self-hosted images must already
-provide their role's tools. Failure names the missing tools and install procedure.
+Every executable job starts with pinned Node setup. Required Python/pnpm setup
+also precedes preflight and script use; self-hosted images provide the remaining
+role tools. Failure names the missing tools and install procedure.
+
+All checkouts select an explicit source at depth one (depth two only for
+parent-tree comparisons). Jobs that need ancestry fetch only the exact source
+and the named baseline/publication refs through scripts/ci-git-history.mjs;
+product tags are limited to v* and release-*. The five-minute warning receipt
+resolves the develop fork point through the compare API and fetches that single
+commit, so it never downloads branch history. Both guard graphs install pinned
+cargo-nextest before preflight; cache fixtures set their own cache policy instead
+of inheriting the runner's settings.
 
 Normal CI uses triage mode: independent test jobs finish after a failure,
 nextest and platform matrices keep fail-fast off, and no failing qualification
