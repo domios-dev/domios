@@ -8373,6 +8373,20 @@
       "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
     },
     {
+      "file": "src-tauri/crates/codeterm-service-core/src/service/general_agent/lifecycle/runtime_launch/tests/capture.rs",
+      "token": "codexHome",
+      "count": 1,
+      "justification": "Wire-capture fixture answers the installed Codex app-server schema for the General launch.",
+      "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
+    },
+    {
+      "file": "src-tauri/crates/codeterm-service-core/src/service/general_agent/lifecycle/runtime_launch/tests/capture.rs",
+      "token": "provider-codex",
+      "count": 1,
+      "justification": "Wire-capture fixture loads the Codex runtime plugin schemas it replays.",
+      "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
+    },
+    {
       "file": "src-tauri/crates/codeterm-service-core/src/service/codex_rpc/schema/codex_app_server_protocol.schemas.json",
       "token": "codexHome",
       "count": 2,
