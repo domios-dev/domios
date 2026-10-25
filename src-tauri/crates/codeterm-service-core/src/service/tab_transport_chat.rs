@@ -561,6 +561,13 @@ impl ServiceContext {
         tab_id: &str,
         input: &super::messenger::AgentInput,
     ) -> Result<(), String> {
+        if let Some((plugin_id, _)) = self.tab_chat_backing(tab_id) {
+            if self.chatbackend_registry.get(&plugin_id).is_none()
+                && self.agent_registry.provider_arc(&plugin_id).is_none()
+            {
+                return Err(removed_chatbackend_error(&plugin_id));
+            }
+        }
         self.wake_frozen_tab(tab_id)?;
         if super::agent_runtime::requested_for_tab(self, tab_id) {
             return super::agent_runtime::transport::send(self, tab_id, input, None)

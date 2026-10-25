@@ -5,6 +5,7 @@ fn status_delta_fanout_stays_small_with_221_tabs() {
     use crate::multiplexer::state::MultiplexerState;
     use crate::service::test_fixture::ServiceFixture;
     let (mut state, tab_id) = MultiplexerState::new();
+    state.set_limit_gate(codeterm_entitlements::LimitGate::dormant());
     let workspace = state.list_workspaces()[0].id.clone();
     for _ in 1..221 {
         let id = state.create_tab(&workspace).unwrap();

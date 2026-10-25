@@ -4,7 +4,7 @@ use std::task::Poll;
 use std::time::Duration;
 
 use crate::test_fixture::ServiceFixture;
-use codeterm_sentinel::store::{Create, Owner, Store};
+use codeterm_sentinel::store::{Owner, Store};
 use codeterm_service_core::cron::clock::MockClock;
 use codeterm_service_core::storage::{Storage, StorageConfig};
 use parking_lot::Mutex;
@@ -22,32 +22,8 @@ fn team_teardown_off_runtime_holds_sentinel_writer_without_stalling_runtime() {
     let sentinels = Arc::new(Mutex::new(store));
     let job = sentinels
         .lock()
-        .prepare(
-            Create {
-                note: None,
-                terminal: None,
-                session: false,
-                name: Some("Team teardown barrier".into()),
-                probe: Some("status".into()),
-                observe: None,
-                input: None,
-                question: "Did the state change?".into(),
-                buckets: vec!["waiting".into(), "passed".into(), "failed".into()],
-                every: "20s".into(),
-                routes: Default::default(),
-                matches: [("waiting".to_string(), ".*".to_string())]
-                    .into_iter()
-                    .collect(),
-                rearm_on_change: Default::default(),
-                until: None,
-                timeout: Some("1h".into()),
-                paused: true,
-                handlers: None,
-                model_classification: false,
-                escalation_timeout_ms: None,
-                max_transitions: None,
-                max_actions: None,
-            },
+        .prepare_document(
+            super::sentinel_fixture::teardown_document("Team teardown barrier"),
             Owner {
                 creator_tab_id: orchestrator,
                 team_id: Some(team_id.clone()),
