@@ -51,7 +51,7 @@ CODETERM_WEB_DIST= CT_DEV_CARGO_PROFILE= CT_DEV_CARGO_FEATURES=
 CODETERM_BUILD_SHA=opaque-sha
 CODETERM_BUILD_HASH=opaque-short
 built_cli_artifact=opaque-dev-cli
-built_cli_hash=opaque-hash CT_VITE_PORT=1520
+built_cli_hash=opaque-hash CT_VITE_PORT=1520 CT_IDENTIFIER=opaque-dev-identifier
 owned=1
 named_dev_isolated() { return 1; }
 gateway_cwd="$PWD"
@@ -68,6 +68,8 @@ node() {
 cargo() {
   [ "$owned" = 1 ] && [ "$PWD" = "$gateway_cwd" ]
   if [[ "$*" == 'build --manifest-path src-tauri/Cargo.toml -p domios-server '* ]]; then
+    [ "$CODETERM_SERVER_DEV_IDENTIFIER" = opaque-dev-identifier ] || return 90
+    [ "$CODETERM_SERVER_DEV_FRONTEND_ORIGIN" = http://127.0.0.1:1520 ] || return 91
     [ "$DOMIOS_QA_PROJECT_ID" = fixture-qa-project ] || return 94
     [ "$DOMIOS_QA_FIREBASE_API_KEY" = opaque-qa-key ] || return 96
     [ "$DOMIOS_QA_FIREBASE_APP_ID" = opaque-qa-app ] || return 97
