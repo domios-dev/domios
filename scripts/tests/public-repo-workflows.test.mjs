@@ -7,7 +7,8 @@ import { condition } from './workflow-condition.mjs';
 const directory = new URL('../../.github/workflows/', import.meta.url);
 const workflows = Object.fromEntries(readdirSync(directory).filter(name => name.endsWith('.yml'))
   .map(name => [name, parse(readFileSync(new URL(name, directory), 'utf8'))]));
-const github = { repository: 'rollacode/codeterm', actor: 'rollacode', triggering_actor: 'rollacode', event_name: 'push', ref: 'refs/heads/release/9.9.9' };
+const github = { repository: 'rollacode/codeterm', repository_owner: 'rollacode', actor: 'rollacode', triggering_actor: 'rollacode', event_name: 'push', ref: 'refs/heads/release/9.9.9' };
+const hostedCompile = name => name === 'release-arm64-compile.yml';
 const releaseWorkflow = name => /^(release|frontend-release|plugin-release|publish-plugin-sdk)/.test(name);
 const stringify = value => JSON.stringify(value ?? {});
 const secrets = value => /\bsecrets\./.test(stringify(value));
@@ -72,10 +73,10 @@ test('privileged reusable jobs refuse every PR actor, even the owner and same-re
   let guarded = 0;
   for (const [name, workflow] of Object.entries(workflows)) {
     for (const [id, job] of Object.entries(workflow.jobs)) {
-      if (!job['runs-on']) continue;
+      if (!job['runs-on'] || hostedCompile(name)) continue;
       if (!stringify(job['runs-on']).includes('self-hosted') && !secrets(job) && !releaseWorkflow(name)) continue;
       guarded++;
-      assert.match(job.if, /github\.repository == 'rollacode\/codeterm'/, `${name}/${id}`);
+      assert.match(job.if, /github\.repository_owner == 'rollacode' \|\| github\.repository_owner == 'domios-dev'/, `${name}/${id}`);
       assert.match(job.if, /github\.actor == 'rollacode'/, `${name}/${id}`);
       for (const event_name of ['pull_request', 'pull_request_target']) {
         for (const actor of ['rollacode', 'outside-collaborator', 'fork-contributor']) {
@@ -93,10 +94,10 @@ test('release jobs gate runner acquisition and secrets on owner, release branch 
     for (const trigger of Object.keys(workflow.on)) assert.ok(['push', 'workflow_dispatch', 'workflow_call'].includes(trigger), `${name}/${trigger}`);
     if (workflow.on.push) assert.deepEqual(workflow.on.push, { branches: ['release/**'] });
     for (const [id, job] of Object.entries(workflow.jobs)) {
-      if (job.uses) continue;
+      if (job.uses || hostedCompile(name)) continue;
       assert.equal(job.environment, 'release', `${name}/${id}`);
       for (const invalid of [
-        { actor: 'outside-collaborator' }, { triggering_actor: 'outside-collaborator' }, { repository: 'fork/codeterm' },
+        { actor: 'outside-collaborator' }, { triggering_actor: 'outside-collaborator' }, { repository: 'fork/codeterm', repository_owner: 'fork' },
         { event_name: 'workflow_run' }, { event_name: 'schedule' },
         { ref: 'refs/heads/master' }, { ref: 'refs/tags/v9.9.9' },
       ]) assert.equal(condition(job.if, { github: { ...github, ...invalid } }), false, `${name}/${id}/${stringify(invalid)}`);
@@ -131,4 +132,26 @@ test('owner handoff preserves strict branch rules, protected environments and fo
   for (const path of ['/.github/', '/scripts/release*', '/plugins/channel.json', '**/Cargo.toml', '**/package.json']) {
     assert.ok(ownership.includes(`${path} @rollacode`), path);
   }
+});
+
+test('repository owner policy survives the organization transfer and refuses forks', () => {
+  for (const [name, workflow] of Object.entries(workflows)) {
+    for (const [id, job] of Object.entries(workflow.jobs)) {
+      if (!job.if?.includes('github.repository_owner')) continue;
+      assert.equal((job.if.match(/github.repository_owner == 'rollacode'/g) ?? []).length, 1, `${name}/${id}`);
+      assert.doesNotMatch(job.if, /github\.repository ==/);
+      const evaluate = repository_owner => condition(job.if.match(/\(github.repository_owner[^)]+\)/)[0], { github: { ...github, repository_owner } });
+      assert.equal(evaluate('domios-dev'), evaluate('rollacode'), `${name}/${id}: transferred policy`);
+      assert.equal(evaluate('fork'), false, `${name}/${id}: foreign owner`);
+    }
+  }
+  assert.equal(condition(workflows['release.yml'].jobs.prepare.if, { github: { ...github, repository: 'domios-dev/domios', repository_owner: 'domios-dev' } }), true);
+});
+
+test('hosted arm64 compiler stays outside protected environments', () => {
+  const workflow = workflows['release-arm64-compile.yml'];
+  assertReadOnly(workflow.permissions);
+  assert.ok(!secrets(workflow));
+  assert.equal(workflow.jobs.compile.environment, undefined);
+  assert.doesNotMatch(stringify(workflow.jobs.compile['runs-on']), /self-hosted/);
 });

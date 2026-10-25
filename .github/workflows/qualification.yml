@@ -51,7 +51,7 @@ env:
 jobs:
   jev-linux:
     name: Jev local evaluator (linux)
-    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'jev-linux') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'jev-linux') }}
     environment: ci
     runs-on: [self-hosted, linux-build]
     timeout-minutes: 20
@@ -162,7 +162,7 @@ jobs:
 
   jev-windows-inventory:
     name: Jev Windows registered interpreter inventory
-    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'jev-windows-inventory') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'jev-windows-inventory') }}
     environment: ci
     runs-on: [self-hosted, windows-build]
     timeout-minutes: 5
@@ -589,7 +589,7 @@ jobs:
 
   jev-windows:
     name: Jev local evaluator (windows)
-    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'jev-windows') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'jev-windows') }}
     environment: ci
     runs-on: [self-hosted, windows-build]
     timeout-minutes: 20
@@ -754,7 +754,7 @@ jobs:
 
   rust-windows-task-local:
     name: Rust Windows task boundary
-    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'rust-windows-task-local') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'rust-windows-task-local') }}
     environment: ci
     runs-on: [self-hosted, windows-build]
     timeout-minutes: 50
@@ -1100,7 +1100,7 @@ jobs:
 
   sentinel-command-linux:
     name: Sentinel command native qualification (Linux)
-    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'sentinel-command-linux') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'sentinel-command-linux') }}
     environment: ci
     runs-on: [self-hosted, linux-build]
     timeout-minutes: 30
@@ -1177,7 +1177,7 @@ jobs:
 
   sentinel-linux-task-local:
     name: Sentinel probe fixed qualification (Linux)
-    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'sentinel-linux-task-local') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'sentinel-linux-task-local') }}
     environment: ci
     runs-on: [self-hosted, linux-build]
     timeout-minutes: 30
@@ -1594,7 +1594,7 @@ jobs:
   # Linux proof of the dormant Storage foundation reviewed at dbc17edee; Sentinel scopes never count toward it.
   storage-foundation-linux:
     name: Storage foundation fixed qualification (Linux)
-    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'storage-foundation-linux') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'storage-foundation-linux') }}
     environment: ci
     runs-on: [self-hosted, linux-build]
     timeout-minutes: 30
@@ -2131,7 +2131,7 @@ jobs:
   # Combined Cron, Sentinel and Storage qualification; source expectations are not execution proof.
   storage-domains-linux:
     name: Cron, Sentinel, and Storage fixed qualification (Linux)
-    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'storage-domains-linux') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'storage-domains-linux') }}
     environment: ci
     runs-on: [self-hosted, linux-build]
     timeout-minutes: 75
@@ -3108,7 +3108,7 @@ jobs:
 
   windows-sccache-maintenance:
     name: Pinned Windows sccache maintenance
-    if: ${{ github.repository == 'rollacode/codeterm' && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'windows-sccache-maintenance' && (inputs.maintenance_operation == 'contract-only' || inputs.maintenance_operation == 'provision-verify-cleanup')) }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'windows-sccache-maintenance' && (inputs.maintenance_operation == 'contract-only' || inputs.maintenance_operation == 'provision-verify-cleanup')) }}
     environment: ci
     runs-on: [self-hosted, windows-build]
     timeout-minutes: 6
