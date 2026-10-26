@@ -1,7 +1,7 @@
 {
   "license": "AGPL-3.0-only",
   "name": "@codeterm/chat-core",
-  "version": "1.15.3",
+  "version": "1.16.0",
   "private": true,
   "type": "module",
   "description": "Shared normalized chat contracts and helpers for CodeTerm providers.",
