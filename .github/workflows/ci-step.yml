@@ -45,8 +45,10 @@ jobs:
     runs-on: ${{ fromJSON('{"air-macos":["self-hosted","macOS","rust-shard","host-air"],"ubunta-build":["self-hosted","Linux","linux-build","host-ubunta"],"rog-windows":["self-hosted","Windows","host-rog","windows-build"],"hosted-linux":"ubuntu-24.04","blackstar-windows":["self-hosted","Windows","windows-ci","host-blackstar"],"eight-macos":["self-hosted","macOS","codeterm-builder","host-eight"]}')[inputs.runner] }}
     timeout-minutes: 60
     env:
-      AWS_ACCESS_KEY_ID: ${{ inputs.runner != 'hosted-linux' && secrets.SCCACHE_AWS_ACCESS_KEY_ID || '' }}
-      AWS_SECRET_ACCESS_KEY: ${{ inputs.runner != 'hosted-linux' && secrets.SCCACHE_AWS_SECRET_ACCESS_KEY || '' }}
+      # GitHub withholds secrets from fork pull requests; our hosted jobs use the private store over its public edge.
+      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
       DOMIOS_FIREBASE_API_KEY: ${{ inputs.runner != 'hosted-linux' && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
       DOMIOS_FIREBASE_PROJECT_ID: ${{ inputs.runner != 'hosted-linux' && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
       DOMIOS_FIREBASE_APP_ID: ${{ inputs.runner != 'hosted-linux' && secrets.DOMIOS_FIREBASE_APP_ID || '' }}
