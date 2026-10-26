@@ -139,13 +139,13 @@ const LISTENER = 'test(/startup::rest_api::tests::/)';
 const CLI_SERVER = 'binary_id(=codeterm-cli::isolated_server)';
 const jsonCommand = (args) => JSON.parse(execFileSync('cargo-nextest', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'inherit'] }));
 
+// REST API listener lifecycle tests hold real sockets and run as a curated suite (evals/rest-api-listeners), not in CI.
 export function executionGroups(selected) {
   const integration = selected.filter(test => test.binary === 'codeterm-cli::isolated_server');
-  const units = selected.filter(test => test.binary !== 'codeterm-cli::isolated_server');
-  return [...[false, true].map((listener) => ({
-    listener,
-    selected: units.filter((test) => test.name.includes('startup::rest_api::tests::') === listener),
-  })), { listener: false, integration: true, selected: integration }].filter((group) => group.selected.length > 0);
+  const units = selected.filter(test => test.binary !== 'codeterm-cli::isolated_server'
+    && !test.name.includes('startup::rest_api::tests::'));
+  return [{ listener: false, selected: units }, { listener: false, integration: true, selected: integration }]
+    .filter((group) => group.selected.length > 0);
 }
 
 export function candidateFilter(document, selected) {

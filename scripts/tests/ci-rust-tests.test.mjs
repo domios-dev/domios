@@ -137,13 +137,13 @@ test('advisory audits pass on parallel timings while enforce requires serial con
   }
 });
 
-test('listener isolation preserves every selected test and omits only empty groups', () => {
+test('REST API listener tests stay out of CI groups; they run as a curated suite', () => {
   const normal = { name: 'tests::normal' };
   const listener = { name: 'startup::rest_api::tests::rebind' };
   assert.deepEqual(executionGroups([]), []);
   assert.deepEqual(executionGroups([normal]), [{ listener: false, selected: [normal] }]);
-  assert.deepEqual(executionGroups([listener]), [{ listener: true, selected: [listener] }]);
-  assert.deepEqual(executionGroups([normal, listener]).flatMap((g) => g.selected), [normal, listener]);
+  assert.deepEqual(executionGroups([listener]), []);
+  assert.deepEqual(executionGroups([normal, listener]).flatMap((g) => g.selected), [normal]);
 });
 
 test('captured nextest logs settle both streams and retain failing process status', async () => {
