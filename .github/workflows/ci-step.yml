@@ -118,12 +118,12 @@ jobs:
           components: clippy,rustfmt
       - name: Hosted nextest
         if: runner.environment == 'github-hosted' && inputs.recipe != 'node-test'
-        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8
+        uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91
         with:
           tool: cargo-nextest@0.9.148
       - name: Hosted sccache
         if: runner.environment == 'github-hosted' && inputs.recipe != 'node-test'
-        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba
       - name: Hosted pnpm prerequisite
         if: runner.environment == 'github-hosted'
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
