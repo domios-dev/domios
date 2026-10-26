@@ -76,19 +76,31 @@ function collectTests(directory, tests = [], repositoryRoot = root) {
   return tests;
 }
 
+// TS_UNIT_SHARD=k/n keeps every n-th file of the sorted list, so n CI jobs split the suite without overlap.
+export function shardTests(tests, shard) {
+  if (!shard) return tests;
+  const match = /^([1-9][0-9]*)\/([1-9][0-9]*)$/.exec(shard);
+  if (!match || Number(match[1]) > Number(match[2])) {
+    throw new Error(`TS_UNIT_SHARD must be k/n with 1 <= k <= n, got ${shard}`);
+  }
+  const index = Number(match[1]) - 1;
+  const count = Number(match[2]);
+  return tests.filter((_, position) => position % count === index);
+}
+
 export function discoverTests(env = process.env, repositoryRoot = root) {
   if (env.CODETERM_TS_UNIT_RUNNER_TEST_LIST) {
-    return readFileSync(env.CODETERM_TS_UNIT_RUNNER_TEST_LIST, "utf8")
+    return shardTests(readFileSync(env.CODETERM_TS_UNIT_RUNNER_TEST_LIST, "utf8")
       .split(/\r?\n/)
-      .filter(Boolean);
+      .filter(Boolean), env.TS_UNIT_SHARD);
   }
   const vitestOwnedTests = new Set(
     JSON.parse(readFileSync(path.join(repositoryRoot, "scripts/vitest-owned-tests.json"), "utf8")),
   );
-  return [
+  return shardTests([
     ...collectTests(path.join(repositoryRoot, "src"), [], repositoryRoot),
     ...collectTests(path.join(repositoryRoot, "packages"), [], repositoryRoot),
-  ].filter((testFile) => !vitestOwnedTests.has(testFile)).sort();
+  ].filter((testFile) => !vitestOwnedTests.has(testFile)).sort(), env.TS_UNIT_SHARD);
 }
 
 function pathVariants(file) {

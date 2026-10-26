@@ -567,8 +567,13 @@ jobs:
           retention-days: 3
 
   ts-unit:
-    name: ts unit
+    name: ts unit (${{ matrix.shard }}/4)
     needs: changed
+    # Every file boots its own Node, tsx and jsdom, about 3 s each; four runners split the suite.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.frontend == 'true') }}
     # Air is idle until the Rust tier starts; the Ubuntu host compiles during the fast tier.
     runs-on: ubuntu-24.04
@@ -581,6 +586,7 @@ jobs:
       RUSTC_WRAPPER: ""
       CI_CANCEL_RUN: "false"
       CODETERM_SCCACHE_VERIFY_ONLY: "0"
+      TS_UNIT_SHARD: ${{ matrix.shard }}/4
     steps:
       - name: Setup Node.js
         id: ci-2
@@ -612,7 +618,7 @@ jobs:
         run: node scripts/ci-step.mjs ts-unit --ci
       - name: TS unit runner contracts
         id: ci-7
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && matrix.shard == 1 }}
         run: node scripts/ci-step.mjs ts-unit-runner-tests --ci
   ts-vitest:
     name: ts vitest
