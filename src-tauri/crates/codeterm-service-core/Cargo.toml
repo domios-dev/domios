@@ -118,7 +118,7 @@ regex = "1"
 ulid = "1"
 async-trait = "0.1"
 zeroize = { version = "1", features = ["zeroize_derive"] }
-which = "7"
+which = "8"
 wait-timeout = "0.2"
 sqlite-vec = { version = "0.1.9", optional = true }
 ndarray = { version = "0.17", optional = true }
