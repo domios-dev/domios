@@ -6,7 +6,7 @@ import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { classifyInventory } from './ci-rust-classification.mjs';
-import { overlayExclusions } from './ci-rust-archives.mjs';
+import { archiveRunArgs, overlayExclusions } from './ci-rust-archives.mjs';
 import { classifyTarget } from './ci-classifier-cache.mjs';
 import { FULL_LANES, testTargetDir } from './rust-test-lanes.mjs';
 import { renderedCompilerErrors } from './collect-rust-warnings.mjs';
@@ -163,6 +163,31 @@ export function candidateFilter(document, selected) {
   }).join(' | ');
 }
 
+// The full suite compiles once into a nextest archive in the CI store; shards run hash partitions of it.
+export const SHARD = process.env.CI_RUST_SHARD || '';
+export const ARCHIVE = process.env.CI_RUST_ARCHIVE || '';
+const archiveKey = (lane) => `${ARCHIVE}/full-${lane.lane}.tar.zst`;
+const archiveFile = (lane) => path.resolve(`ci-rust-archive-${lane.lane}.tar.zst`);
+const ARCHIVE_EXTRACT = path.resolve('ci-rust-archive-extract');
+
+export function shardRunArgs(archive, config, shard, alone = false) {
+  const partition = shard && !alone ? ['--partition', `hash:${shard}`] : [];
+  // A partition may hold no test of one execution group; the shard's receipt still requires tests overall.
+  return ['nextest', 'run', ...archiveRunArgs(archive, process.cwd(), ARCHIVE_EXTRACT, config, partition, alone)]
+    .map((arg) => arg === '--no-tests=fail' ? '--no-tests=pass' : arg);
+}
+
+function storeArchive(lane, env) {
+  execFileSync('cargo-nextest', ['nextest', 'archive', '--manifest-path', lane.manifest, ...lane.targets, '--locked',
+    '--archive-file', archiveFile(lane)], { stdio: 'inherit', env });
+  execFileSync('bash', ['scripts/ci-artifact.sh', 'put', archiveKey(lane), archiveFile(lane)], { stdio: 'inherit', env });
+}
+
+function fetchArchive(lane, env) {
+  execFileSync('bash', ['scripts/ci-artifact.sh', 'get', archiveKey(lane), archiveFile(lane)], { stdio: 'inherit', env });
+  fs.mkdirSync(ARCHIVE_EXTRACT, { recursive: true });
+}
+
 export function runArgs({ manifest, targets }, config, alone = false) {
   return ['nextest', 'run', '--manifest-path', manifest, ...targets, '--locked', '--config-file', config, '--no-tests=fail',
     '--status-level', 'pass', '--failure-output', 'immediate-final', ...(alone ? ['--test-threads', '1'] : [])];
@@ -256,12 +281,16 @@ async function run(mode, { compileOnly = false } = {}) {
   const plan = timingPlan({ release: process.env.CI_RELEASE_TESTS === 'true', os });
   const start = performance.now();
   const receipt = { mode, os, run_attempt: Number(process.env.GITHUB_RUN_ATTEMPT || 1), producer: process.env.GITHUB_JOB, arch: process.env.RUNNER_ARCH, runner: process.env.RUNNER_NAME, sha: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), executed: 0, exit: 1, seconds: 0 };
+  // Sharded full suite: the archive producer runs only the CLI lane, each shard one partition of the workspace lane.
+  const sharded = mode === 'full' && Boolean(ARCHIVE);
+  if (sharded) receipt.part = SHARD || 'cli';
   const directory = path.resolve('ci-rust-receipts');
   fs.mkdirSync(directory, { recursive: true });
   const targetEnv = { ...env };
   const timings = [];
   try {
     for (const planned of lanes) {
+      if (sharded && !compileOnly && (SHARD ? planned !== WORKSPACE : planned === WORKSPACE)) continue;
       const lane = mode === 'platform' && !planned.whole ? narrowToPlatformPackages(planned) : planned;
       if (!lane) { console.log(`[platform] ${planned.lane}: no package holds cfg-gated tests; nothing to compile`); continue; }
       if (lane !== planned) console.log(`[platform] ${lane.lane}: compiling ${lane.targets.filter((arg, index) => lane.targets[index - 1] === '-p').join(', ')}`);
@@ -273,12 +302,23 @@ async function run(mode, { compileOnly = false } = {}) {
           cliTarget: targetDir, serverTarget: testTargetDir(WORKSPACE, { env: targetEnv, mode }), env,
         });
       }
-      const messages = compile(lane);
+      const fromArchive = sharded && Boolean(SHARD);
+      if (fromArchive) fetchArchive(lane, env);
+      const messages = fromArchive ? '' : compile(lane);
       const compiled = messages.split('\n').filter(Boolean).flatMap(line => {
         try { const message = JSON.parse(line); return message.reason === 'compiler-artifact' && !message.fresh ? [message] : []; } catch { return []; }
       }).length;
       console.log(`[rust-tests] ${mode}/${lane.lane} compiled=${compiled}`);
-      if (compileOnly) continue;
+      if (compileOnly) {
+        if (sharded && lane === WORKSPACE) storeArchive(lane, env);
+        continue;
+      }
+      const listArgs = fromArchive
+        ? ['--archive-file', archiveFile(lane), '--workspace-remap', process.cwd(), '--extract-to', ARCHIVE_EXTRACT, '--extract-overwrite']
+        : ['--manifest-path', lane.manifest, ...lane.targets, '--locked'];
+      const testArgs = (config, alone = false) => fromArchive
+        ? shardRunArgs(archiveFile(lane), config, SHARD, alone)
+        : runArgs(lane, config, alone);
       const config = path.join(directory, `${mode}-${lane.lane}.toml`);
       fs.writeFileSync(config, tomlConfig('all()', false));
       let scope = mode === 'embeddings' ? 'package(=codeterm-mem) | (package(=codeterm-service-core) & test(/^mem::/))' : 'all()';
@@ -291,7 +331,7 @@ async function run(mode, { compileOnly = false } = {}) {
       }
       scope = withOverlayExclusions(scope, OVERLAY, os, lane);
       fs.writeFileSync(config, tomlConfig(scope, false));
-      const listed = jsonCommand(['nextest', 'list', '--manifest-path', lane.manifest, ...lane.targets, '--locked', '--config-file', config, '--message-format', 'json']);
+      const listed = jsonCommand(['nextest', 'list', ...listArgs, '--config-file', config, '--message-format', 'json']);
       const selected = Object.values(listed['rust-suites']).flatMap((suite) => Object.entries(suite.testcases)
         .filter(([, test]) => test['filter-match'].status === 'matches')
         .map(([name]) => ({ binary: suite['binary-id'], name })));
@@ -302,7 +342,7 @@ async function run(mode, { compileOnly = false } = {}) {
         const filter = `(${scope}) & (${category})`;
         fs.writeFileSync(config, tomlConfig(filter, listener));
         const log = path.join(directory, `${mode}-${lane.lane}-${integration ? 'integration' : listener ? 'listener' : 'normal'}.log`);
-        const result = await captureCommand('bash', ['scripts/test-capped.sh', '--exec', 'cargo-nextest', ...runArgs(lane, config)], log, env);
+        const result = await captureCommand('bash', ['scripts/test-capped.sh', '--exec', 'cargo-nextest', ...testArgs(config)], log, env);
         const report = fs.readFileSync(log, 'utf8');
         requireTestSuccess(result, report, `Rust tests failed on ${receipt.runner}`);
         receipt.executed += executedCount(report);
@@ -317,7 +357,7 @@ async function run(mode, { compileOnly = false } = {}) {
           if (exact) {
             aloneLog = log.replace(/\.log$/, '.alone.log');
             fs.writeFileSync(config, tomlConfig(`(${filter}) & (${exact})`, false));
-            const alone = await captureCommand('bash', ['scripts/test-capped.sh', '--exec', 'cargo-nextest', ...runArgs(lane, config, true)], aloneLog, env);
+            const alone = await captureCommand('bash', ['scripts/test-capped.sh', '--exec', 'cargo-nextest', ...testArgs(config, true)], aloneLog, env);
             requireTestSuccess(alone, fs.readFileSync(aloneLog, 'utf8'), `Candidate rerun failed on ${receipt.runner}`);
           }
         }
@@ -346,8 +386,9 @@ async function run(mode, { compileOnly = false } = {}) {
 
   function recordReceipt() {
     receipt.seconds = (performance.now() - start) / 1000;
-    fs.writeFileSync(path.join(directory, `rust-tests-${mode}-${os}.json`), JSON.stringify(receipt, null, 2));
-    if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\nRust ${mode} tests: **${receipt.runner}** (${os} ${receipt.arch}), ${receipt.executed} executed, ${receipt.seconds.toFixed(1)} s, exit ${receipt.exit}\n`);
+    const suffix = receipt.part ? `-${receipt.part.replace('/', '-of-')}` : '';
+    fs.writeFileSync(path.join(directory, `rust-tests-${mode}-${os}${suffix}.json`), JSON.stringify(receipt, null, 2));
+    if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\nRust ${mode}${receipt.part ? ` (${receipt.part})` : ''} tests: **${receipt.runner}** (${os} ${receipt.arch}), ${receipt.executed} executed, ${receipt.seconds.toFixed(1)} s, exit ${receipt.exit}\n`);
   }
 }
 

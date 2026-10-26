@@ -62,6 +62,8 @@ jobs:
       matrix:
         suite: [full]
     env:
+      # The workspace lane compiles once into a nextest archive; rust-shards run its four hash partitions.
+      CI_RUST_ARCHIVE: ${{ github.run_id }}/rust-archive-${{ github.run_attempt }}
       DOMIOS_CI_WEBHOOK_URL: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER != 'private') && secrets.DOMIOS_CI_WEBHOOK_URL || '' }}
       DOMIOS_CI_WEBHOOK_TOKEN: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER != 'private') && secrets.DOMIOS_CI_WEBHOOK_TOKEN || '' }}
       # GitHub withholds secrets from fork pull requests; our hosted jobs use the private store over its public edge.
@@ -190,10 +192,13 @@ jobs:
             echo "CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS=${CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS:+$CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS }-C link-arg=-Wl,-no_compact_unwind"
           } >> "$GITHUB_ENV"
       - name: Compile ${{ matrix.suite }} Rust tests (Unix)
+        id: compile
         if: runner.os != 'Windows'
         env:
           CI_RELEASE_TESTS: ${{ inputs.source_ref != '' }}
           RUST_WARNING_LOG: ci-rust-warnings.log
+          # The archive always travels through the store, which every shard reads.
+          CI_ARTIFACT_STORAGE: ''
         shell: bash
         run: bash build.sh ci-tests ${{ matrix.suite }} compile
       - name: Run ${{ matrix.suite }} Rust tests (Unix)
@@ -262,6 +267,178 @@ jobs:
         run: node scripts/ci-workspace-cleanup.mjs
     outputs:
       warnings: ${{ steps.target.outputs.warnings }}
+      archived: ${{ steps.compile.outcome == 'success' }}
+
+  rust-shards:
+    name: rust tests (full suite) shard ${{ matrix.shard }}/4
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')) && (!cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true' && needs.rust-tests.outputs.archived == 'true') }}
+    runs-on: ${{ vars.CI_LINUX_RUST_FULL_RUNNER == 'private' && fromJSON('["self-hosted","Linux","linux-build","host-ubunta"]') || 'ubuntu-24.04' }}
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+    needs: rust-tests
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [full]
+        shard: [1, 2, 3, 4]
+    env:
+      CI_RUST_ARCHIVE: ${{ github.run_id }}/rust-archive-${{ github.run_attempt }}
+      CI_RUST_SHARD: ${{ matrix.shard }}/4
+      DOMIOS_CI_WEBHOOK_URL: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER != 'private') && secrets.DOMIOS_CI_WEBHOOK_URL || '' }}
+      DOMIOS_CI_WEBHOOK_TOKEN: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER != 'private') && secrets.DOMIOS_CI_WEBHOOK_TOKEN || '' }}
+      # GitHub withholds secrets from fork pull requests; our hosted jobs use the private store over its public edge.
+      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      CI_STORE_LAN_ENDPOINT: ${{ secrets.CI_STORE_LAN_ENDPOINT }}
+      CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
+      DOMIOS_FIREBASE_API_KEY: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER != 'private') && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
+      DOMIOS_FIREBASE_PROJECT_ID: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER != 'private') && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
+      DOMIOS_FIREBASE_APP_ID: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER != 'private') && secrets.DOMIOS_FIREBASE_APP_ID || '' }}
+      DOMIOS_ACCOUNT_REDEEM_URL: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER != 'private') && secrets.DOMIOS_ACCOUNT_REDEEM_URL || '' }}
+      DOMIOS_BILLING_FUNCTIONS_URL: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER != 'private') && secrets.DOMIOS_BILLING_FUNCTIONS_URL || '' }}
+      # Warm per-workspace targets outside the checkout; the cleanup step sweeps them by age.
+      CI_TARGET_ROOT: ${{ github.workspace }}/../ci-targets/tests
+      CODETERM_ALLOW_EXTERNAL_TARGET: '1'
+      CI_HOSTED: ${{ vars.CI_LINUX_RUST_FULL_RUNNER != 'private' }}
+      SCCACHE_GHA_ENABLED: ${{ (vars.CI_LINUX_RUST_FULL_RUNNER != 'private') && 'true' || 'false' }}
+      CODETERM_SCCACHE_VERIFY_ONLY: ${{ (vars.CI_LINUX_RUST_FULL_RUNNER != 'private') && '0' || '1' }}
+      CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
+      CI_ARTIFACT_STORAGE: ${{ (vars.CI_LINUX_RUST_FULL_RUNNER != 'private') && 'github' || '' }}
+    steps:
+      - name: Use the runner bundled Node
+        if: runner.environment == 'self-hosted'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            const path = require('node:path');
+            core.addPath(path.dirname(process.execPath));
+            core.info('Using runner Node ' + process.version);
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        id: ci-2
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+        if: runner.environment == 'github-hosted'
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12"
+        if: runner.environment == 'github-hosted'
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        id: ci-1
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
+          fetch-depth: 1
+        env:
+          GIT_CONFIG_COUNT: "1"
+          GIT_CONFIG_KEY_0: core.longpaths
+          GIT_CONFIG_VALUE_0: "true"
+      - name: Discover installed runner tools
+        if: runner.environment == 'self-hosted'
+        run: node scripts/ci-runner-paths.mjs --paths-only
+      - name: Fetch scoped baseline history
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci-git-history.mjs baseline
+      - name: Hosted Linux build prerequisites
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
+        shell: bash
+        run: |-
+          # The workspace test build needs more disk than a hosted image leaves free.
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          # The image's azure.archive.ubuntu.com mirror stalled installs for minutes; use Canonical's own archive.
+          for f in /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list; do
+            [ ! -f "$f" ] || sudo sed -i 's#http://azure.archive.ubuntu.com/ubuntu#http://archive.ubuntu.com/ubuntu#g' "$f"
+          done
+          sudo apt-get -o Acquire::Retries=3 update -qq
+          sudo apt-get -o Acquire::Retries=3 install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libgtk-3-dev pkg-config xdg-utils patchelf
+      - name: Prepare compile fixtures
+        id: ci-7
+        run: node scripts/ci-rust-prepare.mjs
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
+        id: ci-4
+        with:
+          toolchain: 1.99.1
+          components: clippy,rustfmt
+        if: runner.environment == 'github-hosted'
+      - name: Install pinned nextest prerequisite
+        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8
+        with:
+          tool: cargo-nextest@0.9.148
+        if: runner.environment == 'github-hosted'
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs bash,cargo,curl,git,nextest,node,python
+      - name: Reset compiler capture
+        id: ci-8
+        continue-on-error: true
+        run: node -e "require('fs').writeFileSync('ci-rust-warnings.log', '')"
+      - id: target
+        name: Rust target of this runner
+        shell: bash
+        run: |
+          case "$RUNNER_OS-$RUNNER_ARCH" in
+            macOS-ARM64) triple=aarch64-apple-darwin ;;
+            macOS-X64) triple=x86_64-apple-darwin ;;
+            Linux-ARM64) triple=aarch64-unknown-linux-gnu ;;
+            Linux-X64) triple=x86_64-unknown-linux-gnu ;;
+            Windows-ARM64) triple=aarch64-pc-windows-msvc ;;
+            Windows-X64) triple=x86_64-pc-windows-msvc ;;
+            *) echo "::error::unsupported runner $RUNNER_OS-$RUNNER_ARCH"; exit 1 ;;
+          esac
+          echo "triple=$triple" >> "$GITHUB_OUTPUT"
+          echo "warnings=rust-warnings-tests-${{ matrix.suite }}-$RUNNER_OS-$triple" >> "$GITHUB_OUTPUT"
+      - name: Link macOS test binaries without compact unwind
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          # The large native test binaries exceed Mach-O compact-unwind offsets; release binaries keep compact unwind.
+          # Both the compile and the run step read these flags from GITHUB_ENV, so the run never recompiles.
+          {
+            echo "CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS=${CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS:+$CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS }-C link-arg=-Wl,-no_compact_unwind"
+            echo "CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS=${CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS:+$CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS }-C link-arg=-Wl,-no_compact_unwind"
+          } >> "$GITHUB_ENV"
+      - name: Run ${{ matrix.suite }} Rust tests shard ${{ matrix.shard }}/4 (Unix)
+        id: ci-10
+        if: runner.os != 'Windows'
+        env:
+          CI_RELEASE_TESTS: ${{ inputs.source_ref != '' }}
+          RUST_WARNING_LOG: ci-rust-warnings.log
+          CI_ARTIFACT_STORAGE: ''
+        shell: bash
+        run: bash build.sh ci-tests ${{ matrix.suite }}
+      - name: Run ${{ matrix.suite }} Rust tests (Windows)
+        id: ci-11
+        if: runner.os == 'Windows'
+        env:
+          CI_RELEASE_TESTS: ${{ inputs.source_ref != '' }}
+          RUST_WARNING_LOG: ci-rust-warnings.log
+        shell: pwsh
+        run: |
+          & .\build.ps1 ci-tests ${{ matrix.suite }}
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Stop this job's local compile cache
+        if: always()
+        shell: bash
+        run: bash build.sh cache-release
+      - name: Store Rust test receipts
+        if: always()
+        continue-on-error: ${{ inputs.artifacts_optional }}
+        shell: bash
+        run: |
+          node scripts/ci-rust-receipt-artifact.mjs
+      - name: Upload artifacts spooled while the private store was unreachable
+        if: always()
+        uses: ./.github/actions/ci-artifact-spool
+      - name: Clean compile fixtures
+        if: always()
+        run: node scripts/ci-rust-prepare.mjs cleanup
+      - name: Remove job archives and sweep old Rust targets
+        if: always()
+        continue-on-error: true
+        run: node scripts/ci-workspace-cleanup.mjs
 
   # Each OS compiles and runs only its cfg-gated tests and the native input crates.
   rust-platform:
@@ -808,7 +985,7 @@ jobs:
 
   rust-receipts:
     name: rust test receipts
-    needs: [rust-tests, rust-platform, rust-embeddings]
+    needs: [rust-tests, rust-shards, rust-platform, rust-embeddings]
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')) && (!cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
     runs-on: ${{ vars.CI_LINUX_LIGHT_RUNNER || fromJSON('["self-hosted","Linux","light","host-ubunta"]') }}
     permissions:
