@@ -94,3 +94,11 @@ release-artifacts/
 # Local run evidence and scratch output never belong in the repository.
 /.research/
 /artifacts/
+
+# Removed before going public; planning notes, specs, release PR bodies and issue dumps stay out of the repository.
+/docs/plans/
+/docs/specs/
+/docs/test-strategy/
+/docs/release/*-pr.md
+/issues_open.json
+/plugins/provider-codex/references/
