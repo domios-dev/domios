@@ -120,6 +120,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/ci-git-history.mjs baseline
+      - name: Test builds link the system OpenSSL
+        # Release builds keep the vendored OpenSSL; tests skip compiling it from source.
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
+        shell: bash
+        run: echo OPENSSL_NO_VENDOR=1 >> "$GITHUB_ENV"
       - name: Hosted Linux build prerequisites
         if: runner.environment == 'github-hosted' && runner.os == 'Linux'
         shell: bash
@@ -343,6 +348,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/ci-git-history.mjs baseline
+      - name: Test builds link the system OpenSSL
+        # Release builds keep the vendored OpenSSL; tests skip compiling it from source.
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
+        shell: bash
+        run: echo OPENSSL_NO_VENDOR=1 >> "$GITHUB_ENV"
       - name: Hosted Linux build prerequisites
         if: runner.environment == 'github-hosted' && runner.os == 'Linux'
         shell: bash
@@ -518,6 +528,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/ci-git-history.mjs baseline
+      - name: Test builds link the system OpenSSL
+        # Release builds keep the vendored OpenSSL; tests skip compiling it from source.
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
+        shell: bash
+        run: echo OPENSSL_NO_VENDOR=1 >> "$GITHUB_ENV"
       - name: Hosted Linux build prerequisites
         if: runner.environment == 'github-hosted' && runner.os == 'Linux'
         shell: bash
@@ -731,6 +746,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/ci-git-history.mjs baseline
+      - name: Test builds link the system OpenSSL
+        # Release builds keep the vendored OpenSSL; tests skip compiling it from source.
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
+        shell: bash
+        run: echo OPENSSL_NO_VENDOR=1 >> "$GITHUB_ENV"
       - name: Hosted Linux build prerequisites
         if: runner.environment == 'github-hosted' && runner.os == 'Linux'
         shell: bash
@@ -929,6 +949,11 @@ jobs:
       - name: Discover installed runner tools
         if: runner.environment == 'self-hosted'
         run: node scripts/ci-runner-paths.mjs --paths-only
+      - name: Test builds link the system OpenSSL
+        # Release builds keep the vendored OpenSSL; tests skip compiling it from source.
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
+        shell: bash
+        run: echo OPENSSL_NO_VENDOR=1 >> "$GITHUB_ENV"
       - name: Hosted Linux build prerequisites
         if: runner.environment == 'github-hosted' && runner.os == 'Linux'
         shell: bash
