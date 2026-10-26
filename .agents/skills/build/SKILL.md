@@ -1393,6 +1393,17 @@ measurement. Windows uses `build.ps1 embedding-parity` with the same arguments.
 
 DEV and check-queue library Clippy retain default product features, including embeddings. Ordinary `test-one`, `nextest`, `check-tests`, archives and CI use `--no-default-features`. Check-queue does not repeat the separate dev-lib check; its library Clippy pass type-checks the product configuration. Full check-queue also checks service-core tests in the test profile without defaults. The CI `rust-embeddings` job runs `./build.sh ci-tests embeddings` once, covering the memory crate and service-core memory tests with embeddings enabled. Receipt validation requires this job. Archives use `app-no-embeddings.tar.zst` so old feature-enabled archives cannot be reused.
 
+## Workspace-hack
+
+`src-tauri/crates/workspace-hack` (cargo-hakari, config `src-tauri/.config/hakari.toml`) gives the server,
+CLI and app one feature set per shared dependency, so separate release builds reuse each other's crates.
+After a dependency change run `cargo hakari generate` in `src-tauri`. The final-excludes list every crate
+that only the app uses on some platform; when the app gains a dependency, recompute that set from
+`cargo tree -p <codeterm|domios-server|codeterm-cli> --target <triple> -e normal,build --prefix none`
+on all six hakari platforms and add the app-only names. Then compare `domios-server` and `codeterm-cli`
+closures before and after: no new crate may appear, and `check-crate-layering.sh` must pass.
+`cargo hakari verify` reports the residual app-only feature differences; that is expected.
+
 ## Lane crate checks and shared intermediates
 
 Before committing, run `./build.sh lane-check <package>... [--tests]` once for all touched packages on every platform. It checks them in one Cargo invocation, stages frontend/sidecar resources without building them, and takes no gateway slot or sccache action. `codeterm-cli` selects `cli/Cargo.toml` and `--bin codeterm` and cannot mix with app workspace packages; library packages select the app manifest and `--lib`.
