@@ -30,7 +30,7 @@ export function commandTools(command, seen = new Set()) {
   const required = new Set();
   const add = tools => tools.forEach(tool => required.add(tool));
   command = command.replace(/node\s+(?:\S*\/)?scripts\/ci-runner-paths\.mjs[^\n]*/g, '');
-  const entries = [...command.matchAll(/fromJSON\(steps\.catalogue\.outputs\.commands\)\['([^']+)'\]|--entry\s+([\w-]+)|ci-catalogue-command\.mjs\s+([\w-]+)/g)];
+  const entries = [...command.matchAll(/fromJSON\(steps\.catalogue\.outputs\.commands\)\['([^']+)'\]|--entry\s+([\w-]+)|(?:ci-catalogue-command|ci-step)\.mjs\s+([\w-]+)/g)];
   for (const match of entries) {
     const id = match[1] || match[2] || match[3];
     if (seen.has('entry:' + id)) continue;
@@ -60,7 +60,8 @@ export function commandTools(command, seen = new Set()) {
 }
 export function jobTools(job) {
   const commands = (job.steps || []).map(step => step.run || '').filter(command => command && !command.includes('ci-runner-paths.mjs'));
-  const aggregate = commands.length && commands.every(command => command === 'node scripts/ci-result.mjs');
+  // A job of only github-script steps runs no shell command, so it needs node alone.
+  const aggregate = commands.every(command => command === 'node scripts/ci-result.mjs');
   const tools = new Set(aggregate ? ['node'] : ['node', 'git', 'bash']);
   for (const step of job.steps || []) {
     for (const tool of commandTools(step.run || '')) tools.add(tool);

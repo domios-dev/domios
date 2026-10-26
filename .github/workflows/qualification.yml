@@ -52,12 +52,13 @@ jobs:
   jev-linux:
     name: Jev local evaluator (linux)
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'jev-linux') }}
-    environment: ci
     runs-on: [self-hosted, linux-build]
     timeout-minutes: 20
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      CI_STORE_TAILNET_ENDPOINT: ${{ secrets.CI_STORE_TAILNET_ENDPOINT }}
+      CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
       JEV_EXPECTED_SHA: ${{ inputs.expected_source_sha }}
       JEV_WORKFLOW_SHA: ${{ github.workflow_sha }}
       JEV_EVENT_SHA: ${{ github.sha }}
@@ -180,7 +181,6 @@ jobs:
   jev-windows-inventory:
     name: Jev Windows registered interpreter inventory
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'jev-windows-inventory') }}
-    environment: ci
     runs-on: [self-hosted, windows-build]
     timeout-minutes: 5
     permissions:
@@ -188,6 +188,8 @@ jobs:
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      CI_STORE_TAILNET_ENDPOINT: ${{ secrets.CI_STORE_TAILNET_ENDPOINT }}
+      CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
       JEV_EXPECTED_SHA: ${{ inputs.expected_source_sha }}
       JEV_WORKFLOW_SHA: ${{ github.workflow_sha }}
       JEV_EVENT_SHA: ${{ github.sha }}
@@ -629,12 +631,13 @@ jobs:
   jev-windows:
     name: Jev local evaluator (windows)
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'jev-windows') }}
-    environment: ci
     runs-on: [self-hosted, windows-build]
     timeout-minutes: 20
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      CI_STORE_TAILNET_ENDPOINT: ${{ secrets.CI_STORE_TAILNET_ENDPOINT }}
+      CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
       JEV_EXPECTED_SHA: ${{ inputs.expected_source_sha }}
       JEV_WORKFLOW_SHA: ${{ github.workflow_sha }}
       JEV_EVENT_SHA: ${{ github.sha }}
@@ -811,12 +814,13 @@ jobs:
   rust-windows-task-local:
     name: Rust Windows task boundary
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'rust-windows-task-local') }}
-    environment: ci
     runs-on: [self-hosted, windows-build]
     timeout-minutes: 50
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      CI_STORE_TAILNET_ENDPOINT: ${{ secrets.CI_STORE_TAILNET_ENDPOINT }}
+      CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
       EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
       WORKFLOW_SOURCE_SHA: ${{ github.workflow_sha }}
       EVENT_SOURCE_SHA: ${{ github.sha }}
@@ -1185,12 +1189,13 @@ jobs:
   sentinel-command-linux:
     name: Sentinel command native qualification (Linux)
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'sentinel-command-linux') }}
-    environment: ci
     runs-on: [self-hosted, linux-build]
     timeout-minutes: 30
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      CI_STORE_TAILNET_ENDPOINT: ${{ secrets.CI_STORE_TAILNET_ENDPOINT }}
+      CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
       EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
       WORKFLOW_SOURCE_SHA: ${{ github.workflow_sha }}
       TEST_CAP_SECS: '600'
@@ -1289,12 +1294,13 @@ jobs:
   sentinel-linux-task-local:
     name: Sentinel probe fixed qualification (Linux)
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'sentinel-linux-task-local') }}
-    environment: ci
     runs-on: [self-hosted, linux-build]
     timeout-minutes: 30
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      CI_STORE_TAILNET_ENDPOINT: ${{ secrets.CI_STORE_TAILNET_ENDPOINT }}
+      CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
       EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
       WORKFLOW_SOURCE_SHA: ${{ github.workflow_sha }}
       EVENT_SOURCE_SHA: ${{ github.sha }}
@@ -1732,12 +1738,13 @@ jobs:
   storage-foundation-linux:
     name: Storage foundation fixed qualification (Linux)
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'storage-foundation-linux') }}
-    environment: ci
     runs-on: [self-hosted, linux-build]
     timeout-minutes: 30
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      CI_STORE_TAILNET_ENDPOINT: ${{ secrets.CI_STORE_TAILNET_ENDPOINT }}
+      CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
       EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
       WORKFLOW_SOURCE_SHA: ${{ github.workflow_sha }}
       EVENT_SOURCE_SHA: ${{ github.sha }}
@@ -2299,12 +2306,13 @@ jobs:
   storage-domains-linux:
     name: Cron, Sentinel, and Storage fixed qualification (Linux)
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'storage-domains-linux') }}
-    environment: ci
     runs-on: [self-hosted, linux-build]
     timeout-minutes: 75
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      CI_STORE_TAILNET_ENDPOINT: ${{ secrets.CI_STORE_TAILNET_ENDPOINT }}
+      CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
       EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
       WORKFLOW_SOURCE_SHA: ${{ github.workflow_sha }}
       EVENT_SOURCE_SHA: ${{ github.sha }}
@@ -3306,12 +3314,13 @@ jobs:
   windows-sccache-maintenance:
     name: Pinned Windows sccache maintenance
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'windows-sccache-maintenance' && (inputs.maintenance_operation == 'contract-only' || inputs.maintenance_operation == 'provision-verify-cleanup')) }}
-    environment: ci
     runs-on: [self-hosted, windows-build]
     timeout-minutes: 6
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      CI_STORE_TAILNET_ENDPOINT: ${{ secrets.CI_STORE_TAILNET_ENDPOINT }}
+      CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
       EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
       WORKFLOW_SOURCE_SHA: ${{ github.workflow_sha }}
       EVENT_SOURCE_SHA: ${{ github.sha }}

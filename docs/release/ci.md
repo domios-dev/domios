@@ -1,15 +1,16 @@
 # CI and release admission
 
-CI in tests.yml is the only push/PR pipeline. Its final **CI result** job is the
+CI in tests.yml is the only validation push/PR pipeline. Its final **CI result** job is the
 only required status on master and release branches. The ruleset configuration
 is .github/admin/public-repo.sh; applying repository settings remains an owner
 operation. Existing live rules do not change when that script is edited.
 
 | Event | Checks |
 | --- | --- |
-| Owner push to release/* | Shared guards, hosted frontend/TS/plugin jobs, protected Rust/CLI, native platforms, embeddings, warnings and exact-SHA qualification |
-| PR, including release PRs | Shared guards and hosted, read-only, secret-free scoped frontend/plugin/CLI contracts; no protected runner or environment |
-| Owner push to develop, rename/domios or master | Same complete qualification graph |
+| Owner push to release/X.Y.Z | Full CI on the PR head SHA, qualification, then signed packaging of all six platforms with retained dry-run artifacts in the same run |
+| All PRs, including release PRs and forks | Hosted, read-only, secret-free guards; release heads run only light policy/body checks |
+| Owner push to develop, rename/domios or master | Complete qualification unless develop carries a release push head SHA; that duplicate skips heavy work with a notice |
+| Admin merges release PR into master | Verify a real merge with the release head as second parent, then publish the retained bytes from that exact head's green push run through promote_run_id; never rebuild the merge commit |
 | Nightly | Complete qualification of rename/domios and develop |
 | Owner CI dispatch, scope=fast | All fast contracts against source_ref on their existing runner kinds; no Clippy, full/native Rust, embeddings or qualification |
 
@@ -46,20 +47,29 @@ nextest and platform matrices keep fail-fast off, and no failing qualification
 can start packaging. A newer commit can still supersede an older run.
 CI result reads named failing/timed-out child jobs from the Actions API; timeouts remain failures rather than cancelling siblings. Hosted TS checks have 15-minute bounds; generated types and the private guard role have 20 minutes.
 
-Release packaging uses a successful CI workflow_run for the same current release
-head, or an owner dispatch that checks the same exact-SHA qualification receipt.
-A failed qualification never requests packaging; superseded/deleted heads skip
-with a notice. No red job is an expected wait.
+The release branch push is the single full CI and packaging owner. Each push
+runs the full suite on its exact SHA, then calls release.yml with dry_run=true.
+Per-branch concurrency cancels the superseded run, including packaging. Its
+CI result check satisfies the release PR head. Release PR events report
+Release PR checks, so their light success cannot mask the push CI result. PR runs always remain hosted
+and secret-free, including PR body checks; they never start heavy packaging.
+Develop admission skips a SHA already owned by a release push run.
 
-GitHub reads workflow_run from the default branch. Until master carries this
-workflow, dispatch a qualified release head explicitly:
-
-    node scripts/dispatch-qualified-release.mjs <40-hex-sha> release/1.15.3
-
-The helper verifies owner identity, qualification and the branch head twice,
-then dispatches a dry run with tag pinned to that SHA and mirror=false.
-Publication still needs owner GO and the release environment. Once the default
-branch contains the trigger, a green release push starts packaging automatically.
+An admin merges the green release PR with a real merge commit. The master push
+event discovers the merged release PR, verifies the merge parents, selects the successful tests.yml push run of
+the same release head, and sets promote_run_id. Qualification and promotion
+validate the same-repository release/X.Y.Z push head, owner actors,
+green jobs, exact SHA, producing run and attempt. All retained artifacts are
+verified before publication; the master merge commit is never a build source.
+The existing release environment and publication switch still protect shipping.
+Fork PRs never acquire private runners, environments or secrets. Organization
+runner groups admit only approved branch workflow refs and reject refs/pull/*;
+workflow conditions alone cannot constrain a fork-rewritten workflow. The isolated
+fork-pr-guard.yml target workflow closes fork PRs with a release/* head, master
+base or release/* base using only hosted github-script API calls, without checkout. Hosted unsigned
+compile jobs receive only their existing public build configuration; signing
+credentials remain in protected signing jobs. Branch synchronization after
+publication is an admin-owned merge PR, never a workflow push to master/develop.
 
 Read status by commit, not by the latest run:
 
@@ -70,17 +80,17 @@ Read status by commit, not by the latest run:
 
 CI result summarizes its dependency results. Its success proves the event's
 required graph passed; packaging additionally requires the exact-SHA receipt
-with every Rust oracle. PR merge-ref checks describe that merge SHA; identify
-the qualification push by head_sha. Never borrow green evidence from a parent,
+with every Rust oracle and retained packaging. Release push jobs explicitly check
+out the branch head SHA; identify the producing push run by head_sha. Never borrow green evidence from a parent,
 equal tree, different attempt or different commit.
 
-Runner capacity switches (owner operation; defaults stay unchanged):
+Runner capacity switches (owner operation):
 
-| Repository variable | Hosted value | Default role |
+| Repository variable | Value | Effect |
 | --- | --- | --- |
 | CI_LINUX_LIGHT_RUNNER | ubuntu-24.04 | Current private light labels per job |
-| CI_LINUX_RUST_COMPILE_RUNNER | ubuntu-24.04 | Ubuntu Clippy/CLI compiler |
-| CI_LINUX_RUST_FULL_RUNNER | ubuntu-24.04 | Ubuntu linux-build full suite |
+| CI_LINUX_RUST_COMPILE_RUNNER | unset or `private` | Clippy and CLI tests on hosted ubuntu-24.04 by default; `private` routes them to the ubunta linux-build runner |
+| CI_LINUX_RUST_FULL_RUNNER | unset or `private` | Full Rust suite on hosted ubuntu-24.04 by default; `private` routes it to the ubunta linux-build runner |
 | CI_MACOS_RUST_RUNNER | macos-15 | Air macOS platform tests |
 | CI_MACOS_EMBEDDINGS_RUNNER | macos-15 | Air embeddings after platform tests |
 
@@ -156,8 +166,8 @@ is retired from workflow routing. Windows remains on ROG and macOS on the Macs.
 
 ## Hosted switch prerequisites
 
-The 1.15.3 defaults retain private Rust compilation and signing. Before enabling
-additional hosted compile capacity in 1.15.4:
+Linux compilation is hosted by default; signing stays private. Before moving more
+work to hosted runners:
 
 - Install Linux GUI development dependencies (WebKitGTK 4.1, GTK, appindicator,
   OpenSSL, librsvg, xdo and bundle utilities) before workspace compilation.

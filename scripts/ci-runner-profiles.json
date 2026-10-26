@@ -1,0 +1,119 @@
+{
+  "profiles": {
+    "hosted-linux": {
+      "environment": "github-hosted",
+      "platform": "linux",
+      "python": "python3"
+    },
+    "hosted-windows": {
+      "environment": "github-hosted",
+      "platform": "win32",
+      "python": "python"
+    },
+    "hosted-macos": {
+      "environment": "github-hosted",
+      "platform": "darwin",
+      "python": "python3"
+    },
+    "ubunta-service": {
+      "environment": "self-hosted",
+      "platform": "linux",
+      "python": "python3"
+    },
+    "rog-service": {
+      "environment": "self-hosted",
+      "platform": "win32",
+      "python": "python"
+    },
+    "mac-service": {
+      "environment": "self-hosted",
+      "platform": "darwin",
+      "python": "python3"
+    }
+  },
+  "preflight": {
+    "hosted-linux": {
+      "profile": "hosted-linux",
+      "tools": [
+        "bash",
+        "cargo",
+        "curl",
+        "git",
+        "jq",
+        "nextest",
+        "node",
+        "pnpm",
+        "python",
+        "python:yaml",
+        "tar"
+      ]
+    },
+    "hosted-windows": {
+      "profile": "hosted-windows",
+      "tools": [
+        "bash",
+        "git",
+        "node",
+        "pnpm"
+      ]
+    },
+    "hosted-macos": {
+      "profile": "hosted-macos",
+      "tools": [
+        "bash",
+        "cargo",
+        "curl",
+        "git",
+        "nextest",
+        "node",
+        "python"
+      ]
+    },
+    "self-linux-ubunta-light": {
+      "profile": "ubunta-service",
+      "tools": [
+        "bash",
+        "curl",
+        "git",
+        "node"
+      ]
+    },
+    "self-linux-ubunta-compile": {
+      "profile": "ubunta-service",
+      "tools": [
+        "bash",
+        "cargo",
+        "curl",
+        "git",
+        "nextest",
+        "node",
+        "python"
+      ]
+    },
+    "self-macos": {
+      "profile": "mac-service",
+      "tools": [
+        "bash",
+        "cargo",
+        "curl",
+        "git",
+        "nextest",
+        "node",
+        "python"
+      ]
+    },
+    "self-windows": {
+      "profile": "rog-service",
+      "tools": [
+        "bash",
+        "cargo",
+        "curl",
+        "git",
+        "nextest",
+        "node",
+        "pnpm",
+        "python"
+      ]
+    }
+  }
+}

@@ -52,13 +52,13 @@ fn unavailable_private_file_keeps_refresh_credential_in_memory_only() {
 }
 
 #[test]
-fn migration_attempt_survives_restart_and_never_retries() {
+fn interrupted_migration_retries_after_restart() {
     let root = tempfile::tempdir().unwrap();
     let store = ProtectedCredentials::new(root.path());
     assert!(store.claim_migration("refresh").unwrap());
     assert!(!store.claim_migration("refresh").unwrap());
     let reopened = ProtectedCredentials::new(root.path());
-    assert!(!reopened.claim_migration("refresh").unwrap());
+    assert!(reopened.claim_migration("refresh").unwrap());
 }
 
 #[test]
@@ -85,10 +85,55 @@ fn failed_migration_write_retains_old_copy() {
     let root = tempfile::tempdir().unwrap();
     let store = ProtectedCredentials::new(root.path());
     assert!(store.claim_migration("refresh").unwrap());
-    std::fs::remove_file(root.path().join(".secrets")).unwrap();
     std::fs::create_dir(root.path().join(".secrets")).unwrap();
     assert!(!store
         .finish_migration("refresh", &Secret::new("old"))
         .unwrap());
     assert!(store.session_only("refresh"));
+}
+
+#[test]
+fn migration_completion_requires_a_definitive_vault_result() {
+    assert_eq!(
+        migration_completion(&Ok(Some(Secret::new("found")))),
+        MigrationCompletion::Persist
+    );
+    assert_eq!(
+        migration_completion(&Ok(None)),
+        MigrationCompletion::MarkAbsent
+    );
+    for error in [Error::Credentials, Error::Timeout] {
+        assert_eq!(
+            migration_completion(&Err(error)),
+            MigrationCompletion::Retry
+        );
+    }
+}
+
+#[test]
+fn failed_vault_read_retries_and_absence_completes() {
+    let root = tempfile::tempdir().unwrap();
+    let store = ProtectedCredentials::new(root.path());
+    assert!(store.claim_migration("refresh").unwrap());
+    assert!(!store
+        .complete_migration("refresh", Err(Error::Credentials))
+        .unwrap());
+    assert!(store.claim_migration("refresh").unwrap());
+    assert!(!store.complete_migration("refresh", Ok(None)).unwrap());
+    assert!(!ProtectedCredentials::new(root.path())
+        .claim_migration("refresh")
+        .unwrap());
+}
+
+#[test]
+fn migrated_token_survives_interruption_before_legacy_cleanup() {
+    let root = tempfile::tempdir().unwrap();
+    let store = ProtectedCredentials::new(root.path());
+    assert!(store.claim_migration("refresh").unwrap());
+    assert!(store
+        .complete_migration("refresh", Ok(Some(Secret::new("found"))))
+        .unwrap());
+    let reopened = ProtectedCredentials::new(root.path());
+    assert!(!reopened.claim_migration("refresh").unwrap());
+    assert_eq!(reopened.load("refresh").unwrap().unwrap().expose(), "found");
 }

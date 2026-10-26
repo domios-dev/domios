@@ -161,6 +161,11 @@ fn scenario_paths(dir: &Path) -> Vec<PathBuf> {
     paths
 }
 fn fixtures(dir: &Path) -> Vec<(PathBuf, Fixture)> {
+    fixtures_with_load(dir, false)
+}
+
+// captured/load holds rate-measurement recordings: same frame kinds at larger volume, so only benchmarks replay them.
+fn fixtures_with_load(dir: &Path, load: bool) -> Vec<(PathBuf, Fixture)> {
     let mut paths = scenario_paths(dir);
     assert_eq!(
         paths.len(),
@@ -170,6 +175,10 @@ fn fixtures(dir: &Path) -> Vec<(PathBuf, Fixture)> {
     let captures = dir.join("captured");
     if captures.exists() {
         paths.extend(scenario_paths(&captures));
+    }
+    let load_captures = captures.join("load");
+    if load && load_captures.exists() {
+        paths.extend(scenario_paths(&load_captures));
     }
     paths
         .into_iter()
@@ -387,7 +396,7 @@ async fn runtime_quickjs_frame_mapping_benchmark() {
 }
 
 async fn benchmark(paths: &FixturePaths) {
-    let fixtures = fixtures(&paths.dir);
+    let fixtures = fixtures_with_load(&paths.dir, true);
     let (rate, peak) = observed_rates(&fixtures);
     let provider = load_provider(&paths.manifest, &paths.declaration);
     let mut batches = Vec::new();

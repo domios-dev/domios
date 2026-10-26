@@ -14,49 +14,58 @@ on:
           - ubunta-build
           - rog-windows
           - hosted-linux
+          - hosted-windows
+          - hosted-macos
+          - blackstar-windows
+          - eight-macos
       recipe:
         type: choice
         options:
           - test-one
           - ci-suite
           - node-test
+          - nextest
+          - build
       target:
-        description: "test-one: build.sh scope (pty, mem, cli, ...); ci-suite: full, platform or embeddings; node-test: scripts/tests file"
+        description: "test-one: build.sh scope (pty, mem, cli, ...); ci-suite: full, platform or embeddings; node-test: scripts/tests file; nextest: build.sh nextest scope, usually workspace"
         required: true
         type: string
       filter:
-        description: "test-one: test name filter"
+        description: "test-one: test name filter; nextest: one filterset across crates, e.g. package(codeterm-api) & test(~auth::tests) | package(codeterm-config) & test(~load::tests)"
         required: false
         type: string
 permissions:
   contents: read
 concurrency:
-  group: ci-step-${{ inputs.runner }}-${{ inputs.recipe }}-${{ inputs.target }}-${{ inputs.filter }}
+  group: ci-step-${{ inputs.runner }}-${{ inputs.recipe }}-${{ inputs.target }}-${{ github.run_id }}
   cancel-in-progress: true
 jobs:
   step:
-    name: ${{ inputs.recipe }} ${{ inputs.target }} ${{ inputs.filter }} on ${{ inputs.runner }}
-    if: ${{ github.actor == 'rollacode' }}
-    environment: ${{ inputs.runner != 'hosted-linux' && 'ci' || '' }}
-    runs-on: ${{ fromJSON('{"air-macos":["self-hosted","macOS","rust-shard","host-air"],"ubunta-build":["self-hosted","Linux","linux-build","host-ubunta"],"rog-windows":["self-hosted","Windows","host-rog","windows-build"],"hosted-linux":"ubuntu-24.04"}')[inputs.runner] }}
+    name: ${{ inputs.recipe }} ${{ inputs.target }} on ${{ inputs.runner }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' }}
+    runs-on: ${{ fromJSON('{"air-macos":["self-hosted","macOS","rust-shard","host-air"],"ubunta-build":["self-hosted","Linux","host-ubunta"],"rog-windows":["self-hosted","Windows","host-rog","windows-build"],"hosted-linux":"ubuntu-24.04","hosted-windows":"windows-2025","hosted-macos":"macos-15","blackstar-windows":["self-hosted","Windows","windows-build","host-blackstar"],"eight-macos":["self-hosted","macOS","codeterm-builder","host-eight"]}')[inputs.runner] }}
     timeout-minutes: 60
     env:
-      AWS_ACCESS_KEY_ID: ${{ inputs.runner != 'hosted-linux' && secrets.SCCACHE_AWS_ACCESS_KEY_ID || '' }}
-      AWS_SECRET_ACCESS_KEY: ${{ inputs.runner != 'hosted-linux' && secrets.SCCACHE_AWS_SECRET_ACCESS_KEY || '' }}
-      DOMIOS_FIREBASE_API_KEY: ${{ inputs.runner != 'hosted-linux' && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
-      DOMIOS_FIREBASE_PROJECT_ID: ${{ inputs.runner != 'hosted-linux' && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
-      DOMIOS_FIREBASE_APP_ID: ${{ inputs.runner != 'hosted-linux' && secrets.DOMIOS_FIREBASE_APP_ID || '' }}
-      DOMIOS_ACCOUNT_REDEEM_URL: ${{ inputs.runner != 'hosted-linux' && secrets.DOMIOS_ACCOUNT_REDEEM_URL || '' }}
-      DOMIOS_BILLING_FUNCTIONS_URL: ${{ inputs.runner != 'hosted-linux' && secrets.DOMIOS_BILLING_FUNCTIONS_URL || '' }}
+      # GitHub withholds secrets from fork pull requests; our hosted jobs use the private store over its public edge.
+      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      CI_STORE_TAILNET_ENDPOINT: ${{ secrets.CI_STORE_TAILNET_ENDPOINT }}
+      CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
+      DOMIOS_FIREBASE_API_KEY: ${{ !startsWith(inputs.runner, 'hosted-') && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
+      DOMIOS_FIREBASE_PROJECT_ID: ${{ !startsWith(inputs.runner, 'hosted-') && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
+      DOMIOS_FIREBASE_APP_ID: ${{ !startsWith(inputs.runner, 'hosted-') && secrets.DOMIOS_FIREBASE_APP_ID || '' }}
+      DOMIOS_ACCOUNT_REDEEM_URL: ${{ !startsWith(inputs.runner, 'hosted-') && secrets.DOMIOS_ACCOUNT_REDEEM_URL || '' }}
+      DOMIOS_BILLING_FUNCTIONS_URL: ${{ !startsWith(inputs.runner, 'hosted-') && secrets.DOMIOS_BILLING_FUNCTIONS_URL || '' }}
       CI_TARGET_ROOT: ${{ github.workspace }}/../ci-targets/step
       CODETERM_ALLOW_EXTERNAL_TARGET: '1'
-      CI_HOSTED: ${{ inputs.runner == 'hosted-linux' }}
-      SCCACHE_GHA_ENABLED: ${{ inputs.runner == 'hosted-linux' && 'true' || 'false' }}
-      CODETERM_SCCACHE_VERIFY_ONLY: ${{ inputs.runner == 'hosted-linux' && '0' || '1' }}
+      CI_HOSTED: ${{ startsWith(inputs.runner, 'hosted-') }}
+      SCCACHE_GHA_ENABLED: ${{ startsWith(inputs.runner, 'hosted-') && 'true' || 'false' }}
+      CODETERM_SCCACHE_VERIFY_ONLY: ${{ startsWith(inputs.runner, 'hosted-') && '0' || '1' }}
       CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
       STEP_RECIPE: ${{ inputs.recipe }}
       STEP_TARGET: ${{ inputs.target }}
       STEP_FILTER: ${{ inputs.filter }}
+      CI_RELEASE_TESTS: 'true'
     steps:
       - name: Use the runner bundled Node
         if: runner.environment == 'self-hosted'
@@ -71,18 +80,6 @@ jobs:
         with:
           package-manager-cache: false
           node-version: 22.22.0
-      - name: Validate the requested step
-        shell: bash
-        run: |
-          set -euo pipefail
-          safe='^[A-Za-z0-9_:./=~-]*$'
-          [[ "$STEP_TARGET" =~ $safe && -n "$STEP_TARGET" ]] || { echo "::error::invalid target"; exit 2; }
-          [[ "$STEP_FILTER" =~ $safe ]] || { echo "::error::invalid filter"; exit 2; }
-          case "$STEP_RECIPE" in
-            test-one) [ -n "$STEP_FILTER" ] || { echo "::error::test-one needs a filter"; exit 2; } ;;
-            ci-suite) case "$STEP_TARGET" in full|platform|embeddings) ;; *) echo "::error::ci-suite target is full, platform or embeddings"; exit 2 ;; esac ;;
-            node-test) [[ "$STEP_TARGET" == scripts/tests/*.test.mjs ]] || { echo "::error::node-test target is a scripts/tests/*.test.mjs file"; exit 2; } ;;
-          esac
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           ref: ${{ inputs.source_ref }}
@@ -94,6 +91,25 @@ jobs:
       - name: Discover installed runner tools
         if: runner.environment == 'self-hosted'
         run: node scripts/ci-runner-paths.mjs --paths-only
+      - name: Fetch scoped baseline history
+        if: inputs.recipe != 'node-test'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci-git-history.mjs baseline
+      - name: Validate the requested step
+        shell: bash
+        run: |
+          set -euo pipefail
+          safe='^[A-Za-z0-9_:./=~-]*$'
+          [[ "$STEP_TARGET" =~ $safe && -n "$STEP_TARGET" ]] || { echo "::error::invalid target"; exit 2; }
+          filterset='^[A-Za-z0-9_:./=~()&| -]*$'
+          if [ "$STEP_RECIPE" = nextest ]; then [[ "$STEP_FILTER" =~ $filterset && -n "$STEP_FILTER" ]] || { echo "::error::invalid nextest filterset"; exit 2; }
+          else [[ "$STEP_FILTER" =~ $safe ]] || { echo "::error::invalid filter"; exit 2; }; fi
+          case "$STEP_RECIPE" in
+            test-one) [ -n "$STEP_FILTER" ] || { echo "::error::test-one needs a filter"; exit 2; } ;;
+            ci-suite) case "$STEP_TARGET" in full|platform|embeddings) ;; *) echo "::error::ci-suite target is full, platform or embeddings"; exit 2 ;; esac ;;
+            node-test) [[ "$STEP_TARGET" == scripts/tests/*.test.mjs ]] || { echo "::error::node-test target is a scripts/tests/*.test.mjs file"; exit 2; } ;;
+          esac
       - name: Hosted Rust toolchain
         if: runner.environment == 'github-hosted' && inputs.recipe != 'node-test'
         uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
@@ -108,6 +124,17 @@ jobs:
       - name: Hosted sccache
         if: runner.environment == 'github-hosted' && inputs.recipe != 'node-test'
         uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
+      - name: Hosted pnpm prerequisite
+        if: runner.environment == 'github-hosted'
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
+      - name: Install dependencies
+        if: inputs.recipe == 'node-test'
+        shell: bash
+        run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
       - name: Prepare compile fixtures
         if: inputs.recipe != 'node-test'
         run: node scripts/ci-rust-prepare.mjs
@@ -124,6 +151,8 @@ jobs:
             test-one) bash build.sh test-one "$STEP_TARGET" "$STEP_FILTER" ;;
             ci-suite) bash build.sh ci-tests "$STEP_TARGET" ;;
             node-test) node --test "$STEP_TARGET" ;;
+            nextest) bash build.sh nextest "$STEP_TARGET" "$STEP_FILTER" ;;
+            build) source build.sh env && cargo test --workspace --exclude codeterm-cli --no-run --locked --no-default-features --manifest-path src-tauri/Cargo.toml ;;
           esac
       - name: Run the step (Windows)
         if: runner.os == 'Windows'
@@ -133,5 +162,7 @@ jobs:
             'test-one' { & .\build.ps1 test-one $env:STEP_TARGET $env:STEP_FILTER }
             'ci-suite' { & .\build.ps1 ci-tests $env:STEP_TARGET }
             'node-test' { node --test $env:STEP_TARGET }
+            'nextest' { & .\build.ps1 nextest $env:STEP_TARGET $env:STEP_FILTER }
+            'build' { bash -c 'source build.sh env && cargo test --workspace --exclude codeterm-cli --no-run --locked --no-default-features --manifest-path src-tauri/Cargo.toml' }
           }
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

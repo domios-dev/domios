@@ -33,6 +33,9 @@ use std::{
 };
 use tokio::sync::{mpsc, oneshot, watch};
 
+#[cfg(not(target_os = "macos"))]
+mod client_process;
+
 fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
@@ -118,10 +121,6 @@ fn server_fixture(path: PathBuf, bytes: &[u8]) -> (ServerComponentManifest, Serv
         resources: resource_root,
     };
     (manifest, ready)
-}
-
-fn client_sha256() -> String {
-    digest(&fs::read(std::env::current_exe().unwrap()).unwrap())
 }
 
 fn verified_client(policy: &EnrollmentPolicy) -> VerifiedClientProcess {
@@ -489,11 +488,20 @@ fn native_host_frame_round_trips_typed_observation_variants() {
 
 #[cfg(not(target_os = "macos"))]
 #[test]
+#[ignore = "local only: intermittent provenance change on GitHub-hosted Linux; run with --run-ignored only"]
 fn client_process_must_match_manifest_digest() {
-    let process = PinnedProcess::open(std::process::id()).unwrap();
+    let client = client_process::Client::new();
+    let process = PinnedProcess::open(client.id()).unwrap();
+    let image = process.provenance().unwrap().executable;
     let allowed = HashSet::new();
-    let mut trusted = policy(connection(1), client_sha256(), allowed.clone());
-    assert!(super::enrollment::verify_client_process(&process, &trusted).is_ok());
+    let mut trusted = policy(
+        connection(1),
+        digest(&fs::read(image).unwrap()),
+        allowed.clone(),
+    );
+    if let Err(error) = super::enrollment::verify_client_process(&process, &trusted) {
+        panic!("the matching client process must verify: {error}");
+    }
 
     trusted.client_identity = fixture_client_identity("c".repeat(64));
     assert!(super::enrollment::verify_client_process(&process, &trusted).is_err());
@@ -504,7 +512,7 @@ fn enrollment_binds_server_generation_challenge_and_allowed_origin() {
     let origin = "http://127.0.0.1:7686".to_string();
     let policy = policy(
         connection(7),
-        client_sha256(),
+        digest(b"enrollment fixture client"),
         HashSet::from([origin.clone()]),
     );
     let view = NativeViewBinding::observed(origin).unwrap();

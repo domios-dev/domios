@@ -28,6 +28,12 @@ on:
         required: true
       DOMIOS_AMPLITUDE_API_KEY_PROD:
         required: true
+      SCCACHE_AWS_ACCESS_KEY_ID:
+        required: false
+      SCCACHE_AWS_SECRET_ACCESS_KEY:
+        required: false
+      CI_STORE_PUBLIC_ENDPOINT:
+        required: false
     outputs:
       sha256:
         value: ${{ jobs.compile.outputs.sha256 }}
@@ -40,11 +46,15 @@ jobs:
     runs-on: ${{ inputs.target == 'aarch64-pc-windows-msvc' && 'windows-11-arm' || 'ubuntu-24.04-arm' }}
     timeout-minutes: 120
     env:
-      CODETERM_USE_SCCACHE: "0"
-      RUSTC_WRAPPER: ""
+      # The private store over its public edge when it answers, else the GitHub Actions cache.
+      SCCACHE_GHA_ENABLED: "true"
+      CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
+      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
       CODETERM_RELEASE_COMMON_STAGE: "1"
       CARGO_INCREMENTAL: "0"
-      CARGO_BUILD_JOBS: "2"
+      CARGO_BUILD_JOBS: "4"
       RUSTUP_TOOLCHAIN: 1.99.1-${{ inputs.target }}
       CARGO_BUILD_TARGET: ${{ inputs.target }}
       TARGET: ${{ inputs.target }}
@@ -89,6 +99,10 @@ jobs:
           rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --component clippy,rustfmt
           rustup target add --toolchain "$RUSTUP_TOOLCHAIN" "$TARGET"
           rustc -vV
+      - name: Hosted sccache
+        # Without an sccache build for this platform the compile proceeds uncached.
+        continue-on-error: true
+        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
       - name: Runner preflight
         run: node scripts/ci-runner-paths.mjs node,git,bash,python,cargo,pnpm
       - name: Validate source, platform and public build configuration

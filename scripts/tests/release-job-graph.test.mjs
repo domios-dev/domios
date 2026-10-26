@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import test from 'node:test';
 import { parse } from 'yaml';
@@ -73,7 +75,7 @@ test('macOS and Linux arm64 have separate jobs, routing variables and manifest d
   assert.ok(release.jobs['release-manifest'].needs.includes('linux-arm64'));
   assert.ok(release.jobs.prepare.steps.some(step => /requireQualificationWithGithub\(github, context, sha\)/.test(step.with?.script ?? '')));
   assert.ok(macos.jobs.build['runs-on'].some(label => label.includes('matrix.runner_label')));
-  assert.match(linuxArm64.jobs.build['runs-on'][1], /RELEASE_LINUX_ARM64_LABEL.*codeterm-builder/);
+  assert.equal(linuxArm64.jobs.build['runs-on'], 'ubuntu-24.04-arm');
   assert.equal(macos.jobs.build.strategy['fail-fast'], false);
   assert.deepEqual(macos.jobs.build.strategy.matrix.include.map(entry => entry.arch), ['${{ inputs.arch }}']);
   assert.deepEqual(['macos-arm64', 'macos-x64'].map(id => release.jobs[id].with.arch), ['arm64', 'x86_64']);
@@ -124,25 +126,15 @@ test('every platform checks its own built bundle before any upload, with indepen
 });
 const expression = text => (github, inputs, vars) => evaluateCondition(text, { github, inputs, vars });
 
-test('a qualified release head stays a dry run of its own branch until publication is enabled', () => {
+test('release push dry runs cannot publish and merged publication serializes', () => {
   const env = release.jobs.prepare.steps.find(step => step.id === 'release').env;
-  const dryRun = expression(env.DRY_RUN);
-  const group = expression(release.concurrency.group);
-  const push = { event_name: 'workflow_run', ref_name: 'master', event: { workflow_run: { head_branch: 'release/1.15.0' } } };
-  const dispatch = { event_name: 'workflow_dispatch', ref_name: 'release/1.15.0', event: { workflow_run: {} } };
-  const off = {};
-  const on = { RELEASE_PUBLISH_ENABLED: 'true' };
-  assert.equal(dryRun(push, {}, off), 'true');
-  assert.equal(group(push, {}, off), 'release-dry-run-release/1.15.0');
-  assert.equal(dryRun(push, {}, on), 'false');
-  assert.equal(group(push, {}, on), 'release-publication');
-  const dry = { dry_run: true, tag: 'v1.15.0', dry_run_tests: false };
-  assert.equal(dryRun(dispatch, dry, on), 'true');
-  assert.equal(group(dispatch, dry, on), 'release-dry-run-v1.15.0');
-  for (const [id, job] of Object.entries(release.jobs)) assert.doesNotMatch(job.if || '', /inputs\.dry_run_tests/, id);
+  assert.equal(expression(env.DRY_RUN)({event_name:'push'}, {dry_run:true}, {}), 'true');
+  assert.equal(expression(env.DRY_RUN)({event_name:'push'}, {}, {}), 'false');
+  assert.equal(expression(release.concurrency.group)({event_name:'push'}, {}, {}), 'release-publication');
 });
+
 test('production publications serialize and verify draft bytes before becoming public', () => {
-  assert.equal(release.concurrency['cancel-in-progress'], "${{ github.event_name != 'workflow_run' && (inputs.dry_run == true || vars.RELEASE_PUBLISH_ENABLED != 'true') }}");
+  assert.equal(release.concurrency['cancel-in-progress'], "${{ inputs.dry_run == true }}");
   assert.match(release.concurrency.group, /release-publication/);
   const steps = workflow('release-manifest-validate').jobs.validate.steps;
   const verify = steps.findIndex(step => step.name === 'Verify draft artifact signatures before publication');
@@ -165,7 +157,13 @@ test('release CI actions are immutable and every executable job has a deadline',
 });
 
 test('Mac jobs provision secret material before building and always clean up', () => {
-  for (const job of [macos.jobs.build, linuxArm64.jobs.build, workflow('release-credentials').jobs.macos]) {
+  // Linux arm64 signs on a hosted Linux runner with the updater key only; its setup is checked below.
+  const linuxSetup = linuxArm64.jobs.build.steps.findIndex(step => step.run === 'python3 scripts/release-signing-material.py linux');
+  const linuxCleanup = linuxArm64.jobs.build.steps.findIndex(step => step.run === 'python3 scripts/release-signing-material.py cleanup');
+  assert.ok(linuxSetup >= 0 && linuxCleanup > linuxSetup);
+  assert.equal(linuxArm64.jobs.build.steps[linuxCleanup].if, 'always()');
+  assert.equal(linuxArm64.jobs.build.steps[linuxSetup].env.TAURI_SIGNING_PRIVATE_KEY, '${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}');
+  for (const job of [macos.jobs.build, workflow('release-credentials').jobs.macos]) {
     for (const name of ['APPLE_SIGNING_IDENTITY', 'APPLE_TEAM_ID']) {
       assert.equal(job.env[name], '${{ secrets.' + name + ' }}');
     }
@@ -244,7 +242,7 @@ test('Windows Rust tests invoke the owning build forwarder without a bash shell'
 test('native Rust tests discover installed tools before runtime execution', () => {
   const steps = workflow('tests-rust').jobs['rust-platform'].steps;
   const setup = steps.findIndex(step => step.run === 'node scripts/ci-runner-paths.mjs --paths-only');
-  const tests = steps.findIndex(step => step.name?.startsWith('Compile and run') && step.if === "runner.os == 'Windows'");
+  const tests = steps.findIndex(step => step.name?.startsWith('Compile ') && step.if === "runner.os == 'Windows'");
   assert.ok(setup >= 0 && setup < tests);
   assert.equal(steps[setup].if, "runner.environment == 'self-hosted'");
   for (const action of ['actions/setup-node@', 'actions/setup-python@']) {
@@ -254,32 +252,34 @@ test('native Rust tests discover installed tools before runtime execution', () =
   }
 });
 
-test('compact unwind workaround belongs only to macOS platform tests, preserving release link flags', () => {
+test('compact unwind workaround belongs only to macOS native test suites, preserving release link flags', () => {
   const tests = workflow('tests-rust');
-  const step = tests.jobs['rust-platform'].steps.find(step => step.run?.includes('bash build.sh ci-tests'));
-  assert.match(step.run, /\[ "\$RUNNER_OS" = macOS \] && \[ "\$\{\{ matrix.suite \}\}" = platform \]/);
-  for (const triple of ['AARCH64', 'X86_64']) {
-    const name = `CARGO_TARGET_${triple}_APPLE_DARWIN_RUSTFLAGS`;
-    assert.ok(step.run.includes(`export ${name}="\${${name}:+$${name} }-C link-arg=-Wl,-no_compact_unwind"`));
-  }
+  const steps = tests.jobs['rust-platform'].steps;
+  // The flags reach compile and run through GITHUB_ENV, so the run step never rebuilds with other flags.
+  const flagsIndex = steps.findIndex(step => step.name === 'Link macOS test binaries without compact unwind');
+  const compileIndex = steps.findIndex(step => step.run?.includes('build.sh ci-tests') && step.run.includes(' compile'));
+  assert.ok(flagsIndex >= 0 && flagsIndex < compileIndex);
+  const step = steps[flagsIndex];
+  assert.equal(step.if, "runner.os == 'macOS'");
+  for (const run of steps.filter(item => item.run?.includes('build.sh ci-tests')).map(item => item.run)) assert.doesNotMatch(run, /RUSTFLAGS/);
   for (const name of ['release', 'release-macos-build', 'release-linux-arm64', 'release-linux', 'release-windows']) {
     assert.doesNotMatch(JSON.stringify(workflow(name)), /no_compact_unwind|CARGO_TARGET_.*_RUSTFLAGS/);
   }
   const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
-  for (const [os, suite, expected] of [['macOS', 'platform', true], ['Linux', 'platform', false], ['macOS', 'full', false]]) {
-    const preparation = step.run.split('bash build.sh')[0].replaceAll('${{ matrix.suite }}', suite);
-    const flags = execFileSync(bash, ['-c', preparation + '\nprintf "%s" "$CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS"'],
-      { encoding: 'utf8', env: { ...process.env, RUNNER_OS: os, CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS: '-C debuginfo=1' } });
-    assert.equal(flags, '-C debuginfo=1' + (expected ? ' -C link-arg=-Wl,-no_compact_unwind' : ''));
-  }
+  const envFile = path.join(os.tmpdir(), `compact-unwind-${process.pid}.env`);
+  try {
+    execFileSync(bash, ['-c', step.run], { encoding: 'utf8', env: { ...process.env, GITHUB_ENV: envFile, CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS: '-C debuginfo=1' } });
+    const written = readFileSync(envFile, 'utf8');
+    assert.match(written, /^CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS=-C debuginfo=1 -C link-arg=-Wl,-no_compact_unwind$/m);
+    assert.match(written, /^CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS=-C link-arg=-Wl,-no_compact_unwind$/m);
+  } finally { rmSync(envFile, { force: true }); }
 });
 
-test('Linux arm64 verifies hosted bytes in its native container without credentials or compilation', () => {
-  const command = linuxArm64.jobs.build.steps.find(step => step.run?.includes('docker run --rm --pull=never --platform linux/arm64')).run;
-  assert.match(command, /release-arm64-handoff\.mjs unpack/);
+test('Linux arm64 verifies hosted bytes natively on the hosted arm64 runner without compilation', () => {
+  const command = linuxArm64.jobs.build.steps.find(step => step.run?.includes('release-arm64-handoff.mjs unpack')).run;
   assert.match(command, /needs\.compile\.outputs\.sha256/);
   assert.match(command, /release-bundle-smoke\.mjs/);
-  assert.doesNotMatch(command, /-e AWS_|-e TAURI_|build-linux\.sh|cargo build|tauri build/);
+  assert.doesNotMatch(command, /docker run|build-linux\.sh|cargo build|tauri build/);
 });
 
 test('release builds keep bundle verification while server and CLI runtime checks belong to the test tier', () => {
@@ -312,5 +312,18 @@ test('light jobs cannot claim the physical Rust suite host and Linux compilation
       if (labels.includes('light')) assert.ok(labels.includes('host-ubunta') || idleRustHost, `${file}/${id}`);
       assert.ok(!labels.includes('linux-ci'), `${file}/${id}: unpinned compile pool`);
     }
+  }
+});
+
+test('a dispatched release builds the frontend and evidence although the workflow_run admission job is skipped', () => {
+  const github = { repository_owner: 'domios-dev', actor: 'rollacode', triggering_actor: 'rollacode', event_name: 'workflow_dispatch', ref: 'refs/heads/release/1.15.3' };
+  const cases = {
+    'frontend-dist': { outputs: { published: 'false', kind: 'app', promote_run_id: '' }, vars: {} },
+    'promote-evidence': { outputs: { published: 'false', kind: 'app', promote_run_id: '42', dry_run: 'false' }, vars: { RELEASE_PUBLISH_ENABLED: 'true' } },
+  };
+  for (const [job, { outputs, vars }] of Object.entries(cases)) {
+    const expression = release.jobs[job].if;
+    assert.equal(condition(expression, { github, vars, needs: { 'qualified-source': { result: 'skipped' }, prepare: { result: 'success', outputs } } }), true, job);
+    assert.equal(condition(expression, { github, vars, needs: { prepare: { result: 'failure', outputs } } }), false, job + ' after failed prepare');
   }
 });

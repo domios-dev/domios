@@ -16,7 +16,7 @@ set -e
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/bin/Hostarm64/arm64"
-touch "$work/bin/Hostarm64/arm64/cl.exe" "$work/bin/Hostarm64/arm64/lib.exe"
+touch "$work/bin/Hostarm64/arm64/cl.exe" "$work/bin/Hostarm64/arm64/lib.exe" "$work/bin/Hostarm64/arm64/link.exe"
 cygpath() { printf '%s' "$2"; }
 ${guard}
 ${native}
@@ -24,6 +24,7 @@ export VCToolsInstallDir="$work/" VSCMD_ARG_HOST_ARCH=arm64 VSCMD_ARG_TGT_ARCH=a
 ct_msvc_native_arm64_env
 test "$CC" = "$work/bin/Hostarm64/arm64/cl.exe"
 test "$AR_aarch64_pc_windows_msvc" = "$work/bin/Hostarm64/arm64/lib.exe"
+test "\${PATH%%:*}" = "$work/bin/Hostarm64/arm64"
 if VSCMD_ARG_HOST_ARCH=x64 ct_msvc_native_arm64_env 2>/dev/null; then exit 91; fi
 if LIB='C:/vc/lib/x64' ct_msvc_native_arm64_env 2>/dev/null; then exit 92; fi
 printf 'native tools and architecture refusals verified'

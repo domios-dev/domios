@@ -38,7 +38,8 @@ test('scoped history fetches only exact source and purpose-owned refs with expli
     assert.ok(policy.reason.length > 20);
     const args = historyArguments(purpose, sha, true);
     assert.deepEqual(args.slice(0,6), ['fetch','--no-tags','--filter=blob:none','--unshallow','origin',sha]);
-    assert.deepEqual(args.slice(6), policy.refs);
+    // Stale tracking refs on persistent self-hosted checkouts must not refuse the fetch.
+    assert.deepEqual(args.slice(6), policy.refs.map(ref => '+' + ref));
     assert.ok(!args.some(arg => /refs\/(?:heads|tags)\/\*:/.test(arg)));
     assert.ok(!historyArguments(purpose, sha, false).includes('--unshallow'));
   }

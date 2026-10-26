@@ -100,6 +100,8 @@ pub struct MemManager {
     pub(crate) embedder: Arc<embedder::ActiveEmbedder>,
     pub(crate) reembed: embedder::switch::ReembedTracker,
     pub(crate) docs_dir: Option<PathBuf>,
+    #[cfg(test)]
+    pub(crate) docs_sections: std::sync::OnceLock<Vec<docs_source::DocSection>>,
     pub(crate) heavy_ops_permits: Arc<Semaphore>,
     pub(crate) layout: graph_layout::LayoutState,
     pub(crate) extraction: Arc<ExtractionAuthority>,
@@ -188,6 +190,8 @@ impl MemManager {
             embedder,
             reembed: embedder::switch::ReembedTracker::new(clock),
             docs_dir,
+            #[cfg(test)]
+            docs_sections: Default::default(),
             heavy_ops_permits,
             layout,
             extraction: Arc::new(ExtractionAuthority::new()),
@@ -201,9 +205,21 @@ impl MemManager {
 
     pub fn open_in_memory() -> Result<Arc<Self>, String> {
         embeddings::ensure_extension_registered();
+        #[cfg(feature = "test-support")]
+        let conn = test_support::memory_connection()?;
+        #[cfg(not(feature = "test-support"))]
+        let conn = Self::empty_memory_connection()?;
+        Self::with_memory_connection(conn)
+    }
+
+    fn empty_memory_connection() -> Result<Connection, String> {
         let conn = Connection::open_in_memory().map_err(|e| format!("open :memory:: {}", e))?;
         store::init_schema(&conn).map_err(|e| format!("init schema: {}", e))?;
         solution_metadata::initialize(&conn)?;
+        Ok(conn)
+    }
+
+    fn with_memory_connection(conn: Connection) -> Result<Arc<Self>, String> {
         let tmp = std::env::temp_dir().join(format!("mem-test-{}", ulid::Ulid::new()));
         std::fs::create_dir_all(tmp.join("blobs")).ok();
         let layout = graph_layout::LayoutState::load(&tmp);
@@ -230,6 +246,8 @@ impl MemManager {
             embedder,
             reembed: embedder::switch::ReembedTracker::new(Arc::new(embedder::SystemClock)),
             docs_dir: None,
+            #[cfg(test)]
+            docs_sections: Default::default(),
             heavy_ops_permits: Arc::new(Semaphore::new(HEAVY_OPS_PERMITS)),
             layout,
             extraction: Arc::new(ExtractionAuthority::new()),
@@ -271,6 +289,17 @@ impl MemManager {
         let _ = embeddings::init_extension(&conn);
 
         let layout = graph_layout::LayoutState::load(data_dir);
+        #[cfg(test)]
+        let embedder = {
+            let model = embedder::local::default_model();
+            embedder::ActiveEmbedder::new(embedder::testing::MockProvider::new(
+                embedder::local::ID,
+                model.model,
+                model.dimension,
+            ))
+        };
+        #[cfg(not(test))]
+        let embedder = embedder::ActiveEmbedder::global();
         Ok(Arc::new(Self {
             blueprint: Default::default(),
             conn: Mutex::new(conn),
@@ -278,9 +307,11 @@ impl MemManager {
             blobs_dir,
             skill_dir: data_dir.join("skills"),
             embed_queue: embed_queue::EmbedQueue::disabled(),
-            embedder: embedder::ActiveEmbedder::global(),
+            embedder,
             reembed: embedder::switch::ReembedTracker::new(Arc::new(embedder::SystemClock)),
             docs_dir: None,
+            #[cfg(test)]
+            docs_sections: Default::default(),
             heavy_ops_permits: Arc::new(Semaphore::new(HEAVY_OPS_PERMITS)),
             layout,
             extraction: Arc::new(ExtractionAuthority::new()),
@@ -480,5 +511,5 @@ mod startup_backfill_tests {
     }
 }
 
-#[cfg(all(test, feature = "embeddings"))]
-mod test_support;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;

@@ -28,12 +28,13 @@ pub fn load_config() -> AppConfig {
     use std::sync::OnceLock;
     static CACHE: OnceLock<ConfigCache> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(None));
-    match super::config_path() {
-        Ok(path) => load_config_cached_at(&path, &codeterm_paths::data_dir_path(), cache),
-        Err(e) => {
-            panic!("Cannot determine protected instance config path: {e}")
-        }
-    }
+    let result = super::config_path()
+        .and_then(|path| load_config_cached_at(&path, &codeterm_paths::data_dir_path(), cache));
+    result.unwrap_or_else(|error| {
+        log::error!("[config] Domios startup refused: {error}");
+        eprintln!("Domios startup refused: {error}");
+        std::process::exit(2);
+    })
 }
 
 pub(super) fn config_file(path: &Path) -> StateFile {
@@ -57,37 +58,68 @@ fn parse_config(text: &str) -> Result<(AppConfig, String), String> {
 
 #[cfg(test)]
 pub(super) fn load_config_cached(path: &Path, cache: &ConfigCache) -> AppConfig {
-    load_config_cached_at(path, path.parent().unwrap(), cache)
+    load_config_cached_at(path, path.parent().unwrap(), cache).unwrap()
 }
 
-fn load_config_cached_at(path: &Path, data_root: &Path, cache: &ConfigCache) -> AppConfig {
+fn permission_warning(path: &Path, result: std::io::Result<()>) -> Option<String> {
+    result.err().map(|error| {
+        format!(
+            "Cannot tighten permissions on {}: {error}; continuing",
+            path.display()
+        )
+    })
+}
+
+fn tighten_permissions(path: &Path) {
+    if let Some(warning) =
+        permission_warning(path, codeterm_util::private_file::restrict_if_present(path))
+    {
+        log::warn!("[config] {warning}");
+    }
+}
+
+fn credential_failure(token: Option<&str>, error: String) -> Result<(), String> {
+    if token.is_some_and(|token| !token.trim().is_empty()) {
+        Ok(())
+    } else {
+        Err(error)
+    }
+}
+
+fn load_config_cached_at(
+    path: &Path,
+    data_root: &Path,
+    cache: &ConfigCache,
+) -> Result<AppConfig, String> {
     let mut guard = cache.lock();
     let mtime = std::fs::metadata(path).ok().and_then(|m| m.modified().ok());
     if let Some((cached_mtime, cfg)) = guard.as_ref() {
         if *cached_mtime == mtime {
-            return cfg.clone();
+            return Ok(cfg.clone());
         }
     }
     let last_known = guard.as_ref().map(|(_, cfg)| cfg.clone());
     if last_known.is_none() {
-        codeterm_util::private_file::restrict_if_present(&data_root.join(".secrets"))
-            .unwrap_or_else(|error| panic!("Cannot protect instance credential: {error}"));
+        tighten_permissions(&data_root.join(".secrets"));
     }
-    codeterm_util::private_file::restrict_if_present(path)
-        .unwrap_or_else(|error| panic!("Cannot protect instance config: {error}"));
-    let cfg = load_config_uncached_at(path, data_root, last_known);
+    tighten_permissions(path);
+    let cfg = load_config_uncached_at(path, data_root, last_known)?;
     // Re-read after the fill: a generated token or a restored backup rewrites the file.
     let post_mtime = std::fs::metadata(path).ok().and_then(|m| m.modified().ok());
     *guard = Some((post_mtime, cfg.clone()));
-    cfg
+    Ok(cfg)
 }
 
 fn load_config_uncached_at(
     path: &Path,
     data_root: &Path,
     last_known: Option<AppConfig>,
-) -> AppConfig {
+) -> Result<AppConfig, String> {
     let file = config_file(path);
+    if std::fs::metadata(path).is_ok_and(|metadata| !metadata.is_file()) {
+        file.hold_after_error("Config path must resolve to a regular file; writes are held");
+        return held_config(&file, data_root, last_known, None);
+    }
     let cached_token = last_known.as_ref().map(|config| config.api.token.clone());
     if let Ok(contents) = std::fs::read_to_string(path) {
         if is_salvaged_config(&contents) {
@@ -137,7 +169,7 @@ fn finish_loaded(
     contents: &str,
     tokens: TokenPolicy,
     cached_token: Option<&Option<String>>,
-) -> AppConfig {
+) -> Result<AppConfig, String> {
     let migrated_agent_access = agent_access::migrate(&mut config, contents);
     let migrated_kpi_default = kpi_default::migrate(&mut config);
     let dropped_keys = dropped_keys::detect(contents);
@@ -160,7 +192,8 @@ fn finish_loaded(
             Ok(migrated) => migrated,
             Err(error) => {
                 file.hold_after_error(&error);
-                return config;
+                credential_failure(config.api.token.as_deref(), error)?;
+                return Ok(config);
             }
         };
     if migrated_token || migrated_agent_access || migrated_kpi_default {
@@ -172,7 +205,7 @@ fn finish_loaded(
             }
         });
     }
-    config
+    Ok(config)
 }
 
 fn persist_migrated_config(
@@ -194,7 +227,7 @@ fn create_default(
     file: &StateFile,
     data_root: &Path,
     cached_token: Option<&Option<String>>,
-) -> AppConfig {
+) -> Result<AppConfig, String> {
     let mut config = AppConfig::default();
     normalize_runtime_defaults(&mut config);
     apply_instance_token(
@@ -203,8 +236,7 @@ fn create_default(
         "",
         TokenPolicy::GenerateWhenMissing,
         cached_token,
-    )
-    .unwrap_or_else(|error| panic!("Cannot initialize instance API credential: {error}"));
+    )?;
     let toml_str = toml::to_string_pretty(&config).unwrap_or_else(|_| super::default_config_toml());
     match file.save(&toml_str) {
         Ok(()) => log::info!("Default config created at {}", file.path().display()),
@@ -212,7 +244,7 @@ fn create_default(
             "Cannot persist default config: {error}; runtime credential retained and writes held"
         )),
     }
-    config
+    Ok(config)
 }
 
 /// Recover intact settings without generating authority when none can be recovered.
@@ -221,7 +253,7 @@ fn held_config(
     data_root: &Path,
     last_known: Option<AppConfig>,
     raw: Option<&str>,
-) -> AppConfig {
+) -> Result<AppConfig, String> {
     let cached_token = last_known.as_ref().map(|config| config.api.token.clone());
     let (mut config, contents) = match (last_known, raw) {
         (Some(config), raw) => {
@@ -253,6 +285,7 @@ fn held_config(
     );
     if let Err(error) = &migration {
         file.hold_after_error(error);
+        credential_failure(config.api.token.as_deref(), error.clone())?;
     }
     if let Some(contents) = contents {
         let contents = if migration.is_ok() {
@@ -270,7 +303,7 @@ fn held_config(
             "[config] no API credential could be recovered; token-authenticated calls are refused"
         );
     }
-    config
+    Ok(config)
 }
 
 pub(super) fn is_salvaged_config(contents: &str) -> bool {
@@ -458,7 +491,12 @@ fn apply_instance_token(
             None,
             policy == TokenPolicy::GenerateWhenMissing,
         )
-        .unwrap_or_else(|error| panic!("Cannot initialize instance API credential: {error}")),
+        .map_err(|error| {
+            format!(
+                "Cannot initialize instance API credential at {}: {error}",
+                data_root.join(".secrets").display()
+            )
+        })?,
     };
     if legacy_token.is_some() && config.api.token.as_deref() == legacy_token {
         return Err("Instance API credential rotation is pending; the legacy credential remains active and config writes are held until restart".into());

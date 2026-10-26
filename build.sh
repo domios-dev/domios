@@ -204,7 +204,8 @@ ct_assert_msvc_lib_arch() {
     [ -n "$entry" ] || continue
     leaf="${entry##*/}"
     leaf="${leaf##*\\}"
-    if [ "$leaf" != "$want" ]; then
+    # Visual Studio spells some library directories ARM64.
+    if [ "${leaf,,}" != "${want,,}" ]; then
       echo "ERROR: LIB entry '$entry' is not $want — refusing to link $want objects against host libraries" >&2
       return 1
     fi
@@ -221,7 +222,7 @@ ct_msvc_build_tools_base() {
   fi
   discovered=""
   if [ -f "$vswhere" ]; then
-    discovered="$("$vswhere" -latest -products '*' -version '[17.0,18.0)' \
+    discovered="$("$vswhere" -latest -products '*' -version '[17.0,)' \
       -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 \
       -property installationPath | tr -d '\r' | tr '\\' '/')" || discovered=""
   fi
@@ -240,10 +241,12 @@ ct_msvc_native_arm64_env() {
   native_tools="$(cygpath -m "${VCToolsInstallDir:?Native MSVC tools directory required}")"
   native_tools="${native_tools%/}"
   native_compiler="$native_tools/bin/Hostarm64/arm64"
-  [ -f "$native_compiler/cl.exe" ] && [ -f "$native_compiler/lib.exe" ] || {
+  [ -f "$native_compiler/cl.exe" ] && [ -f "$native_compiler/lib.exe" ] && [ -f "$native_compiler/link.exe" ] || {
     echo "ERROR: native arm64 MSVC tools are missing" >&2; return 2;
   }
   ct_assert_msvc_lib_arch arm64 || return
+  # rustc filters link.exe progress output only for a bare "link.exe", so MSVC must win the PATH lookup over Git's link.
+  export PATH="$(cygpath -u "$native_compiler"):$PATH"
   export CC="$native_compiler/cl.exe" CXX="$native_compiler/cl.exe"
   export CC_aarch64_pc_windows_msvc="$CC" CXX_aarch64_pc_windows_msvc="$CXX"
   export AR_aarch64_pc_windows_msvc="$native_compiler/lib.exe"
@@ -556,8 +559,9 @@ run_nextest_scope() {
     filter_args+=(--filter-expr "$filterset")
   fi
   if [ -n "$package" ]; then
-    if [[ "$filterset" == *"rdeps("* ]]; then
-      targets+=(--workspace)
+    if [[ "$filterset" == *"rdeps("* && "$package" != codeterm-cli ]]; then
+      # The CLI shares the workspace but keeps its own test lane.
+      targets+=(--workspace --exclude codeterm-cli)
     else
       targets+=(-p "$package")
     fi
@@ -1296,7 +1300,7 @@ require_release_source() {
 # Copy the freshly-built CLI into a target bin dir. Development commands install
 # only into their active dev data directory; production owns ~/.codeterm/bin.
 cli_profile_dir() {
-  local profile="$1" target_root="${CARGO_TARGET_DIR:-cli/target}"
+  local profile="$1" target_root="${CARGO_TARGET_DIR:-src-tauri/target}"
   if [ -n "${CARGO_BUILD_TARGET:-}" ]; then
     echo "$target_root/$CARGO_BUILD_TARGET/$profile"
   else
@@ -1910,7 +1914,7 @@ check_workspace_run() {
   out="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID.check-workspace.log"
   : > "$out"
   CARGO_TARGET_DIR="$CT_CHECK_WORKTREE/target/app" cargo check --manifest-path src-tauri/Cargo.toml \
-    --workspace --all-targets --message-format=short >> "$out" 2>&1 || status=$?
+    --workspace --exclude codeterm-cli --all-targets --message-format=short >> "$out" 2>&1 || status=$?
   CARGO_TARGET_DIR="$CT_CHECK_WORKTREE/target/cli" cargo check --manifest-path cli/Cargo.toml \
     --all-targets --message-format=short >> "$out" 2>&1 || status=$?
   check_queue_errors 20 "$status" < "$out"
@@ -2018,7 +2022,7 @@ check_queue_run() {
     return 0
   fi
   if [ "$all" = 1 ]; then
-    pkg_args=(--workspace)
+    pkg_args=(--workspace --exclude codeterm-cli)
     cli=1
     touched="*"
   else
@@ -2767,7 +2771,7 @@ Domios build commands
   release-bundle [--fresh-target] [tauri args...]  Package in one session; optionally use the fresh release target policy
   release-arm64-compile TAG SHA ARCHIVE  Build unsigned hosted bundles and freeze handoff in one session
   release-finalize [stage args...]  Verify/package final bytes while the stable gateway path exists
-  ci-tests full|platform|embeddings  Compile and run ordinary, OS-specific, or embeddings Rust tests
+  ci-tests full|platform|embeddings [compile]  Compile and run ordinary, OS-specific, or embeddings Rust tests; compile stops after building
   ci-clippy                   Run the clippy repo gate through the shared compile cache
   ci-cli-tests                Run every CLI test target (contracts included) in the fast tier
   frontend-build              Run the release bundle's frontend step from its stable build path, without Rust
@@ -3041,7 +3045,7 @@ EOF
     prepare_exceptional_worktree_target
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
-    cargo test --manifest-path src-tauri/Cargo.toml --workspace --all-targets --no-default-features --no-run
+    cargo test --manifest-path src-tauri/Cargo.toml --workspace --exclude codeterm-cli --all-targets --no-default-features --no-run
     cargo test --manifest-path cli/Cargo.toml --all-targets --no-run
     ;;
   frontend)
@@ -3062,10 +3066,11 @@ EOF
     scripts/test-capped.sh --no-default-features --manifest-path cli/Cargo.toml "${cli_fast_targets[@]}" --locked
     ;;
   ci-tests)
-    case "${2:-}" in full|platform|embeddings) ;; *) echo "Usage: ./build.sh ci-tests full|platform|embeddings" >&2; exit 2 ;; esac
+    case "${2:-}" in full|platform|embeddings) ;; *) echo "Usage: ./build.sh ci-tests full|platform|embeddings [compile]" >&2; exit 2 ;; esac
+    case "${3:-}" in ''|compile) ;; *) echo "Usage: ./build.sh ci-tests full|platform|embeddings [compile]" >&2; exit 2 ;; esac
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
-    node scripts/collect-rust-warnings.mjs run --log "${RUST_WARNING_LOG:-ci-rust-warnings.log}" -- node scripts/ci-rust-tests.mjs "$2"
+    node scripts/collect-rust-warnings.mjs run --log "${RUST_WARNING_LOG:-ci-rust-warnings.log}" -- node scripts/ci-rust-tests.mjs "$2" ${3:+--compile-only}
     ;;
   frontend-build)
     ensure_deps
@@ -3110,7 +3115,7 @@ EOF
       aarch64-unknown-linux-gnu|aarch64-pc-windows-msvc) ;;
       *) echo "Hosted compilation requires an explicit arm64 target" >&2; exit 2 ;;
     esac
-    [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}${TAURI_SIGNING_PRIVATE_KEY_PATH:-}${AWS_SECRET_ACCESS_KEY:-}" ] || { echo "Hosted compilation must be credential-free" >&2; exit 2; }
+    [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}${TAURI_SIGNING_PRIVATE_KEY_PATH:-}" ] || { echo "Hosted compilation must not receive signing credentials" >&2; exit 2; }
     export CODETERM_RELEASE_COMMON_STAGE=1 CODETERM_RELEASE_UNSIGNED=1
     ensure_deps
     prepare_release_bundle_inputs bundle

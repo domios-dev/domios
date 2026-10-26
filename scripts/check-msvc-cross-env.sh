@@ -70,4 +70,11 @@ fi
 grep -q "refusing to link arm64 objects against host libraries" "$GUARD_LOG"
 echo "PASS guard: host-architecture LIB entries are rejected before an arm64 link"
 
+if ! bash -c \
+  'source ./build.sh env >/dev/null 2>&1; LIB="C:/vc/ATLMFC/lib/ARM64;C:/sdk/ucrt/arm64" ct_assert_msvc_lib_arch arm64'; then
+  echo "FAIL guard: an uppercase ARM64 library directory was refused for an arm64 link" >&2
+  exit 1
+fi
+echo "PASS guard: library directories match their architecture case-insensitively"
+
 echo "PASS msvc cross-target link environment follows CARGO_BUILD_TARGET"

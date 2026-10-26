@@ -21,12 +21,13 @@ jobs:
           - os: Windows
             label: windows-light
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' }}
-    environment: ci
     runs-on: [self-hosted, '${{ matrix.os }}', '${{ matrix.label }}']
     timeout-minutes: 5
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      CI_STORE_TAILNET_ENDPOINT: ${{ secrets.CI_STORE_TAILNET_ENDPOINT }}
+      CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
     defaults:
       run:
         shell: bash

@@ -41,7 +41,7 @@ impl MemoryResolver for ScopedResolver<'_> {
         let body = serde_json::to_string(&callee.document).map_err(|e| e.to_string())?;
         self.conn.execute("INSERT INTO blueprint_call_revisions(item_id,hash,area,team,document) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(item_id,hash,area,team) DO NOTHING",params![id,callee.hash,self.area,self.team,body]).map_err(|e|e.to_string())?;
         let prior:String=self.conn.query_row("SELECT document FROM blueprint_call_revisions WHERE item_id=?1 AND hash=?2 AND area=?3 AND team=?4",params![id,callee.hash,self.area,self.team],|r|r.get(0)).map_err(|e|e.to_string())?;
-        if prior != body {
+        if !same_revision(&prior, &body) {
             return Err("Immutable revision collision or corruption".into());
         }
         Ok(())
@@ -166,10 +166,20 @@ pub(super) fn retain(conn: &Connection, id: &str, document: &Document) -> Result
     let body = serde_json::to_string(&body).map_err(|e| e.to_string())?;
     conn.execute("INSERT INTO blueprint_call_revisions(item_id,hash,area,team,document) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(item_id,hash,area,team) DO NOTHING",params![id,hash,area,team,body]).map_err(|e|e.to_string())?;
     let stored:String=conn.query_row("SELECT document FROM blueprint_call_revisions WHERE item_id=?1 AND hash=?2 AND area=?3 AND team=?4",params![id,hash,area,team],|r|r.get(0)).map_err(|e|e.to_string())?;
-    if stored != body {
+    if !same_revision(&stored, &body) {
         return Err("Immutable revision collision or corruption".into());
     }
     Ok(())
+}
+// macOS builds keep object key order (serde_json preserve_order), so equal revisions may differ in raw bytes.
+fn same_revision(stored: &str, body: &str) -> bool {
+    let sorted = |text: &str| {
+        serde_json::from_str::<serde_json::Value>(text).map(|mut value| {
+            value.sort_all_objects();
+            value
+        })
+    };
+    stored == body || matches!((sorted(stored), sorted(body)), (Ok(a), Ok(b)) if a == b)
 }
 pub(super) fn freeze(
     conn: &Connection,

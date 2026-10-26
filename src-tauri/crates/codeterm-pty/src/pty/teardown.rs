@@ -5,6 +5,9 @@ use parking_lot::{Condvar, Mutex};
 
 use super::manager::PtySession;
 
+/// Bounds the wait after an escalated kill so a missed exit cannot hang a restart request.
+const ESCALATED_EXIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 #[derive(Default)]
 struct PtyTeardownState {
     child_exited: bool,
@@ -100,6 +103,8 @@ pub struct PtyReaper {
     pub(super) pty_id: String,
     pub(super) session: Arc<PtySession>,
     pub(super) kill_error: Option<String>,
+    /// Darwin refuses to signal a group whose leader is still exiting; the kill stands once that exit is observed.
+    pub(super) exit_pending_error: Option<String>,
     pub(super) tree_killer: Box<dyn portable_pty::ChildKiller + Send + Sync>,
     #[cfg(target_os = "macos")]
     pub(super) child_pid: Option<u32>,
@@ -119,6 +124,19 @@ pub(super) fn classify_tree_kill(
             Ok(())
         }
         result => result,
+    }
+}
+
+/// The exit watcher may already have reaped the leader, so `try_wait` alone cannot prove exit.
+pub(super) fn leader_exited_natively(pid: Option<u32>) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        native_leader_exited(pid)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = pid;
+        false
     }
 }
 
@@ -172,9 +190,21 @@ impl PtyReaper {
         &self.pty_id
     }
 
+    fn kill_failure(&self) -> Option<String> {
+        if let Some(error) = &self.kill_error {
+            return Some(error.clone());
+        }
+        let error = self.exit_pending_error.as_ref()?;
+        self.session
+            .teardown
+            .wait_for_boundary(Some(Instant::now() + ESCALATED_EXIT_TIMEOUT), false)
+            .err()
+            .map(|_| error.clone())
+    }
+
     pub fn wait_for_restart(mut self, grace: std::time::Duration) -> Result<(), String> {
         self.observe_exit();
-        if let Some(error) = self.kill_error.as_ref() {
+        if let Some(error) = self.kill_failure() {
             return Err(format!(
                 "pty_tree_termination_failed: PTY {}: {error}",
                 self.pty_id
@@ -196,17 +226,27 @@ impl PtyReaper {
         restart_after_grace(
             process_exited,
             || {
-                classify_tree_kill(self.tree_killer.kill_tree(), exited_group_errno(), || {
+                let group_errno = exited_group_errno();
+                match classify_tree_kill(self.tree_killer.kill_tree(), group_errno, || {
                     #[cfg(target_os = "macos")]
                     {
                         native_leader_exited(self.child_pid)
                     }
                     #[cfg(not(target_os = "macos"))]
                     false
-                })
-                .map_err(|error| error.to_string())
+                }) {
+                    // The bounded exit wait below decides a group whose leader is still exiting.
+                    Err(error) if group_errno.is_some() && error.raw_os_error() == group_errno => {
+                        Ok(())
+                    }
+                    result => result.map_err(|error| error.to_string()),
+                }
             },
-            || self.session.teardown.wait_for_boundary(None, false),
+            || {
+                self.session
+                    .teardown
+                    .wait_for_boundary(Some(Instant::now() + ESCALATED_EXIT_TIMEOUT), false)
+            },
         )
         .map_err(|error| format!("pty_tree_termination_failed: PTY {}: {error}", self.pty_id))
     }
@@ -229,7 +269,7 @@ impl PtyReaper {
         require_cleanup: bool,
     ) -> Result<(), String> {
         self.observe_exit();
-        if let Some(error) = self.kill_error.as_ref() {
+        if let Some(error) = self.kill_failure() {
             return Err(format!(
                 "PTY {} process-tree termination failed: {error}",
                 self.pty_id

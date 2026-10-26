@@ -202,6 +202,14 @@ fn reversed_service_preparation_keeps_intake_order_before_first_handoff() {
             })
         }),
     );
+    // The boundary reports a write before the owner marks it written; evidence must follow the mark.
+    let (written_tx, written_rx) = mpsc::channel();
+    let written_tab = tab.clone();
+    fixture.ui.listen("chat-send-status", move |event| {
+        if event["tab_id"].as_str() == Some(written_tab.as_str()) && event["state"] == "written" {
+            let _ = written_tx.send(event["send_id"].as_str().unwrap_or_default().to_string());
+        }
+    });
     mark_ready(&fixture, &tab);
     let b = fixture
         .service
@@ -230,6 +238,7 @@ fn reversed_service_preparation_keeps_intake_order_before_first_handoff() {
         writes_rx.try_recv(),
         Err(mpsc::TryRecvError::Empty)
     ));
+    assert_eq!(written_rx.recv_timeout(TEST_DEADLINE).unwrap(), first_write);
     append_turn(&fixture, &first_text);
     let first_confirmation = live_turn(
         &fixture,
@@ -243,6 +252,10 @@ fn reversed_service_preparation_keeps_intake_order_before_first_handoff() {
     assert_eq!(first_confirmation[0].send_id, a.status.send_id);
     let (second_write, second_text) = writes_rx.recv_timeout(TEST_DEADLINE).unwrap();
     assert_eq!(second_write, b.status.send_id);
+    assert_eq!(
+        written_rx.recv_timeout(TEST_DEADLINE).unwrap(),
+        second_write
+    );
     append_turn(&fixture, &second_text);
     let second_confirmation = live_turn(
         &fixture,

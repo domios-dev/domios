@@ -53,7 +53,7 @@ test('simulate every CI executable job against its command-derived tool and Pyth
     console.log(name+'/'+id+' ['+kinds.join('|')+']: '+jobTools(job).join(','));
     count++;
   }
-  assert.equal(count,30);
+  assert.equal(count,31);
 });
 
 test('negative controls reject stale role, missing nextest provider, and missing Python dependencies', () => {

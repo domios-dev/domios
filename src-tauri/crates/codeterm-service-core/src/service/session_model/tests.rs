@@ -552,26 +552,32 @@ mod model_refresh_tests {
         assert!(fixture
             .service
             .schedule_session_model_refresh_after_stop(&tab_id));
+        let attempt_model = || {
+            fixture
+                .service
+                .plan_store
+                .show_task(&task_id)
+                .unwrap()
+                .task
+                .execution_attempts
+                .into_iter()
+                .find(|attempt| attempt.id == attempt_id)
+                .unwrap()
+                .session_model
+        };
+        // The tab publishes the model before the attempt persists it; wait for both.
         let refreshed = crate::service::boot_wait::wait_until(
-            std::time::Instant::now() + Duration::from_secs(2),
-            || session_model(&fixture.service.mux, &tab_id).as_deref() == Some("opus"),
+            std::time::Instant::now() + Duration::from_secs(30),
+            || {
+                session_model(&fixture.service.mux, &tab_id).as_deref() == Some("opus")
+                    && attempt_model().as_deref() == Some("opus")
+            },
         );
         assert!(
             refreshed,
-            "the same bound session's switched model is published"
+            "the same bound session's switched model is published and persisted"
         );
         assert!(detection_calls.load(Ordering::Relaxed) > 0);
-        let attempt = fixture
-            .service
-            .plan_store
-            .show_task(&task_id)
-            .unwrap()
-            .task
-            .execution_attempts
-            .into_iter()
-            .find(|attempt| attempt.id == attempt_id)
-            .unwrap();
-        assert_eq!(attempt.session_model.as_deref(), Some("opus"));
         let mux = fixture.service.mux.read();
         let tab = mux.get_tab(&tab_id).unwrap();
         assert!(tab.model_identity_mismatch.is_none());

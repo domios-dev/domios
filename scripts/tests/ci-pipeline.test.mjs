@@ -15,10 +15,10 @@ test('one CI event entrypoint owns every guard and its aggregate is the only req
   assert.deepEqual(pr, ['tests.yml']);
   for (const [name, w] of Object.entries(workflows)) {
     if (w.on.push?.branches?.some(branch => ['develop', 'rename/domios', 'master', 'release/**'].includes(branch))) {
-      assert.equal(name, 'tests.yml');
+      assert.ok(name === 'tests.yml' || name === 'release.yml' && w.on.push.branches.length === 1 && w.on.push.branches[0] === 'master');
     }
   }
-  for (const id of ['fast', 'pr']) assert.equal(ci.jobs[id].needs, 'policy', 'source guards finish before compiler acquisition');
+  for (const id of ['fast', 'pr']) assert.ok([ci.jobs[id].needs].flat().includes('policy'), 'source guards finish before compiler acquisition');
   const dependencies = new Set(ci.jobs.result.needs);
   assert.deepEqual(dependencies, new Set(Object.keys(ci.jobs).filter(id => id !== 'result')));
   assert.equal(condition(ci.jobs.result.if, { failed: true }), true);
@@ -27,7 +27,7 @@ test('one CI event entrypoint owns every guard and its aggregate is the only req
   assert.ok(checks.length);
   for (const [, contexts] of checks) {
     const required = [...contexts.matchAll(/context:"([^"]+)"/g)].map(match => match[1]);
-    assert.deepEqual(required, [ci.jobs.result.name]);
+    assert.deepEqual(required, ['CI result']);
   }
   const commands = ci.jobs.policy.steps.map(step => step.run || '').join('\n');
   for (const guard of ['check-file-sizes.sh', 'check-provider-boundary.mjs', 'check-tauri-reach.sh',

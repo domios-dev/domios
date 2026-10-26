@@ -180,6 +180,7 @@ mod tests {
         let (mux, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
         let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
         let svc = Arc::new(fixture.service.clone());
+        codeterm_storage::test_support::seed_empty_root(&fixture.temp.path().join("automation"));
         let storage = codeterm_storage::Storage::open(
             fixture.temp.path().join("automation"),
             Default::default(),

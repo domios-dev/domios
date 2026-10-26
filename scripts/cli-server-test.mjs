@@ -31,8 +31,10 @@ export function prepareCliServer({ cliTarget, serverTarget, env = process.env, e
   if (!cliTarget || !serverTarget) throw new Error('CLI integration requires both target directories');
   const cli = buildArtifact('cli/Cargo.toml', 'codeterm', { ...env, CARGO_TARGET_DIR: cliTarget }, [], execute);
   const digest = createHash('sha256').update(readFileSync(cli)).digest('hex');
+  // Tauri stages its domios-server/ resource directory beside workspace debug binaries.
+  const serverBuildTarget = path.resolve(serverTarget, 'test-preparation', 'server-build');
   const server = buildArtifact('src-tauri/Cargo.toml', 'domios-server',
-    { ...env, CARGO_TARGET_DIR: serverTarget, CODETERM_SERVER_CLI_SHA256: digest }, ['-p', 'domios-server', '--no-default-features'], execute);
+    { ...env, CARGO_TARGET_DIR: serverBuildTarget, CODETERM_SERVER_CLI_SHA256: digest }, ['-p', 'domios-server', '--no-default-features'], execute);
   const root = path.resolve(serverTarget, 'test-preparation', 'cli-server');
   const extension = process.platform === 'win32' ? '.exe' : '';
   const stagedServer = path.join(root, 'domios-server', 'domios-server' + extension);

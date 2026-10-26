@@ -28,52 +28,22 @@ const qualifiedGithub = {
   } },
 };
 
-test('packaging admits only green trusted release push qualification, with owner reruns retained', () => {
-  assert.equal(release.on.push, undefined);
-  assert.deepEqual(release.on.workflow_run, { workflows: ['CI'], types: ['completed'], branches: ['release/**'] });
-  const admission = release.jobs['qualified-source'];
-  assert.equal(admission['runs-on'], 'ubuntu-24.04');
-  assert.deepEqual(admission.permissions, { contents: 'read' });
-  assert.equal(admission.environment, undefined);
-  assert.equal(condition(admission.if, { github: qualifiedGithub }), true);
-  const run = qualifiedGithub.event.workflow_run;
-  for (const change of [
-    { conclusion: 'failure' }, { conclusion: 'cancelled' }, { conclusion: null },
-    { event: 'pull_request' }, { event: 'workflow_dispatch' }, { event: 'schedule' },
-    { path: '.github/workflows/unrelated.yml' }, { head_branch: 'develop' },
-    { head_repository: { full_name: 'fork/codeterm' } },
-    { actor: { login: 'contributor' } }, { triggering_actor: { login: 'contributor' } },
-  ]) {
-    const github = { ...qualifiedGithub, event: { workflow_run: { ...run, ...change } } };
-    assert.equal(condition(admission.if, { github }), false, JSON.stringify(change));
-  }
-  const needs = { 'qualified-source': { result: 'success', outputs: { source_sha: qualifiedSha } } };
-  assert.equal(condition(release.jobs.prepare.if, { github: qualifiedGithub, needs }), true);
-  assert.equal(condition(release.jobs.prepare.if, { github: qualifiedGithub, needs: { 'qualified-source': { outputs: { source_sha: '' } } } }), false);
-  assert.equal(condition(release.jobs.prepare.if, { github: { ...qualifiedGithub, event_name: 'push', ref: 'refs/heads/release/9.9.9' }, needs }), false);
-  assert.equal(condition(release.jobs.prepare.if, { github: { ...qualifiedGithub, event_name: 'workflow_dispatch', ref: 'refs/heads/release/9.9.9' } }), true);
-  assert.equal(release.jobs.prepare.steps.find(step => step.uses?.startsWith('actions/checkout@')).with.ref, '${{ needs.qualified-source.outputs.source_sha || inputs.tag || github.sha }}');
-  assert.equal(condition(release.jobs['rust-warnings'].if, { needs: { prepare: { result: 'skipped', outputs: {} } } }), false);
-  assert.equal(condition(release.concurrency['cancel-in-progress'], { github: qualifiedGithub }), false, 'unadmitted completions cannot cancel packaging');
-});
-
-test('admission compares the exact live head and skips superseded or deleted branches without a red check', async () => {
-  const step = release.jobs['qualified-source'].steps.find(step => step.id === 'source');
-  const execute = new (Object.getPrototypeOf(async function(){}).constructor)('require','process','github','context','core', step.with.script);
-  for (const [label, head, expected] of [['same', qualifiedSha, true], ['foreign', 'b'.repeat(40), false], ['deleted', '', false]]) {
-    const outputs = [];
-    await execute(() => ({}), {env:{QUALIFIED_SHA:qualifiedSha,QUALIFIED_BRANCH:'release/9.9.9'}},
-      {rest:{git:{getRef:async args=>{
-        assert.equal(args.ref,'heads/release/9.9.9');
-        if (!head) throw Object.assign(new Error('deleted'),{status:404});
-        return {data:{object:{sha:head}}};
-      }}}}, {repo:{owner:'fixture',repo:'source'}},
-      {notice:()=>{},setOutput:(key,value)=>outputs.push([key,value])});
-    assert.deepEqual(outputs,expected ? [['source_sha',qualifiedSha]] : [],label);
-  }
-  await assert.rejects(execute(()=>({}),{env:{QUALIFIED_SHA:qualifiedSha,QUALIFIED_BRANCH:'release/9.9.9'}},
-    {rest:{git:{getRef:async()=>{throw Object.assign(new Error('denied'),{status:403});}}}},
-    {repo:{}},{notice:()=>{}}),/denied/);
+test('release packaging belongs to push CI and merge publication checks the release head', () => {
+  assert.deepEqual(release.on.push,{branches:['master']});
+  assert.equal(release.on.workflow_run, undefined);
+  assert.equal(release.on.pull_request,undefined);
+  assert.ok(release.on.workflow_call);
+  assert.equal(release.jobs['qualified-source']['runs-on'],'ubuntu-24.04');
+  assert.equal(release.jobs['qualified-source'].environment,undefined);
+  assert.match(release.jobs['qualified-source'].steps[0].with.script,/merge.parents.length !== 2/);
+  assert.equal(tests.jobs['release-dry-run'].with.dry_run,true);
+  // Packaging overlaps the Rust suites; publication promotes only a fully green run and re-checks its qualification.
+  // Packaging starts with the push: it waits for no check, and builds the pushed commit itself.
+  assert.deepEqual(tests.jobs['release-dry-run'].needs,['admission','policy']);
+  assert.doesNotMatch(tests.jobs['release-dry-run'].if,/needs\.fast/);
+  assert.equal(tests.jobs['release-dry-run'].with.source_sha,'${{ github.sha }}');
+  assert.match(release.jobs['qualified-source'].steps[0].with.script,/run\.conclusion === 'success'/);
+  assert.match(release.jobs.prepare.steps.find(step => step.name === 'Require green dev qualification for the exact release SHA').if,/github\.event_name != 'push'/);
 });
 
 test('every privileged reusable release job accepts the qualified caller with protected environment intact', () => {
@@ -139,8 +109,8 @@ test("normal qualification finishes test siblings and packaging cannot start on 
 });
 
 test("qualified release branches retain owner admission and a published version never rebuilds", () => {
-  assert.deepEqual(release.on.workflow_run.branches, ["release/**"]);
-  assert.equal(release.on.push, undefined);
+  assert.equal(release.on.workflow_run, undefined);
+  assert.deepEqual(release.on.push,{branches:['master']});
   assert.match(release.jobs.prepare.if, /github.actor == 'rollacode'/);
   const resolve = release.jobs.prepare.steps.find(step => step.id === "release").run;
   assert.match(resolve, /release\/\*\) version="\$\{REQUESTED_REF#release\/\}"/);
@@ -149,15 +119,9 @@ test("qualified release branches retain owner admission and a published version 
   assert.match(resolve, /echo "source_ref=\$sha"/);
 });
 
-test("only a successful publication merges the release into master and back into develop", () => {
-  const promote = release.jobs.promote;
-  assert.deepEqual(new Set(dependencies(promote)), new Set(["prepare", "release-manifest", "frontend"]));
-  assert.match(promote.if, /always\(\) && needs\.prepare\.outputs\.branch != '' && needs\.prepare\.outputs\.published != 'true'/);
-  assert.match(promote.if, /needs\.release-manifest\.result == 'success' \|\| needs\.frontend\.result == 'success'/);
-  const scripts = promote.steps.map(step => step.run ?? "").join("\n");
-  assert.match(scripts, /gh pr merge "\$pr" --repo "\$REPO" --merge/);
-  assert.match(scripts, /git merge-base --is-ancestor "\$SOURCE_SHA" origin\/master/);
-  assert.match(scripts, /git push origin develop/);
+test("publication never pushes master or develop; administrators own merge PRs", () => {
+  assert.equal(release.jobs.promote,undefined);
+  assert.doesNotMatch(JSON.stringify(release),/git push origin (master|develop)|gh pr merge/);
 });
 
 test("master accepts pull requests only from release branches", () => {
@@ -227,14 +191,14 @@ test("dev pushes and nightly fallback qualify every exact SHA, and release reuse
   assert.match(source.env.CI_RELEASE_CALL, /develop/);
   assert.match(source.env.CI_RELEASE_CALL, /rename\/domios/);
   const qualify = tests.jobs.qualification;
-  assert.deepEqual(qualify.needs, ['fast', 'rust', 'rust-warnings', 'policy']);
+  assert.deepEqual(qualify.needs, ['admission', 'fast', 'rust', 'rust-warnings', 'policy']);
   assert.match(qualify.if, /needs.fast.outputs.heavy == 'true'/);
   assert.equal(qualify.steps.at(-1).with.name, 'qualification-${{ needs.fast.outputs.source_sha }}');
   const prepare = release.jobs.prepare.steps;
   const check = prepare.findIndex(step => /requireQualificationWithGithub\(github, context, sha\)/.test(step.with?.script ?? ''));
   const drafts = prepare.findIndex(step => step.name === 'Create draft releases before parallel uploads');
   assert.ok(check >= 0 && check < drafts);
-  assert.equal(prepare[check].if, undefined, 'dry runs cannot bypass qualification');
+  assert.equal(prepare[check].if, "${{ !inputs.dry_run || github.event_name != 'push' }}", 'Release push packaging follows its own successful qualification dependency');
   for (const id of ['tests-tier', 'builds-tier', 'quick-checks', 'tests']) assert.equal(release.jobs[id], undefined);
   for (const id of builds) assert.deepEqual(release.jobs[id].needs, ['prepare', 'frontend-dist']);
   for (const file of ['release-promote.mjs', 'release-publish.sh']) {
@@ -263,9 +227,9 @@ test("the frontend producer owns tsc and Windows keeps the focused TS2451 path o
   const commands = fast.jobs['ts-static'].steps.map(step => step.run ?? '').join('\n');
   assert.doesNotMatch(commands, /ts-typecheck|tsc/);
   for (const entry of ['ts-unused-exports', 'ts-knip-report', 'ts-api-effects', 'ts-biome']) assert.ok(commands.includes(entry));
-  assert.ok(fast.jobs['frontend-dist'].steps.some(step => step.run?.includes('ci-catalogue-command.mjs ts-typecheck')));
+  assert.ok(fast.jobs['frontend-dist'].steps.some(step => /(ci-catalogue-command|ci-step).mjs ts-typecheck/.test(step.run ?? '')));
   const windows = fast.jobs['frontend-windows'];
-  assert.ok(windows.steps.some(step => step.run?.includes('ci-catalogue-command.mjs frontend-windows-build')));
+  assert.ok(windows.steps.some(step => /(ci-catalogue-command|ci-step).mjs frontend-windows-build/.test(step.run ?? '')));
   assert.ok(windows.steps.every(step => !/frontend-build|pnpm build/.test(step.run ?? '')));
   const fixture = readFileSync(new URL('./windows-path-identity.test.mjs', import.meta.url), 'utf8');
   assert.match(fixture, /subst/);

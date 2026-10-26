@@ -708,13 +708,19 @@ JDK may be absent from `PATH`. Discover its installed path before running the
 same focused test with `JAVA_HOME` pointing to its JDK home and that JDK's `bin`
 prepended to `PATH`; no system Java registration or emulator bypass is needed.
 
-Ordinary Rust test operations disable default features to omit embeddings. Product DEV and library Clippy retain embeddings. The dedicated CI `rust-embeddings` job runs `./build.sh ci-tests embeddings` once, including the explicit golden-vector oracle after ordinary unit tests. The oracle downloads the MiniLM safetensors into the shared model cache on its first run; its receipt is required alongside the full and platform receipts. Use that verb to verify embedding-specific memory changes.
+Ordinary Rust test operations disable default features to omit embeddings. Product DEV and library Clippy retain embeddings. The dedicated CI `rust-embeddings` job runs `./build.sh ci-tests embeddings` once; its receipt is required alongside the full and platform receipts. Use that verb to verify embedding-specific memory changes. The real-model golden-vector oracle (`candle_embedding_matches_fastembed_golden`, ignored by default) never runs in CI; run it by hand or through evals with `./build.sh embedding-parity` when the embedder, its dependencies or the pinned model change.
 
 For each batch, Workers run `./build.sh fmt` once, then one verification pass: one multi-package `./build.sh lane-check <package>... [--tests]` call for all touched crates, changed TS/JS tests and `tsc` when TS changes, then guards once. On failure, fix all reported errors and recheck only what failed; list canonical selectors under GATES REQUESTED. The lane-check subshell selects `$CODETERM_RUST_CACHE_ROOT/lanes`, otherwise `$CARGO_HOME/codeterm-lanes` (Cargo home defaults to `~/.cargo`), and Cargo owns locking. Targets remain per worktree; canonical/gateway build directories remain separate. This check does not acquire the build gateway.
 
+Lanes do not run tests. A Worker lane runs `./build.sh fmt` and one `lane-check` for its touched crates (compile and Clippy on the shared warm lane intermediates), commits and reports; a bug fix that must prove red to green requests one `ci-step` run of its selector on its `ci/try-*` branch. An Integrator real-merges ready lanes into a `ci/try-*` branch and runs their tests hot in one batch: canonical `./build.sh test-one` through the gateway and `ci-step` on the warm runners for other platforms and feature sets. Failures go back to the owning lane with the exact selector and first error.
+
+Every lane diff also gets an independent read-only review before merge: correctness, the AGENTS.md hard rules (no sleeps, no lock across await, capability not provider id, file size, PTY delivery untouched, hook rules) and junk (dead code, duplication, needless abstraction, narration comments, tests that pass with the bug present). Blockers go back to the Worker before merge.
+
+Build each Rust configuration once per batch: run every focused selector of a crate in one capped invocation (one nextest filter expression), never one build per test. Do not add local builds for other feature sets, other platforms or all-target Clippy when CI covers them; request those as `ci-step` runs on warm runners (`.github/workflows/ci-step.yml`) instead of compiling them in a cold lane.
+
 Prompt templates under `src-tauri/prompts/` are embedded by codeterm-service-core. The affected-test mapper selects `./build.sh nextest codeterm-service-core 'test(/^prompts::tests::/)'`; the shell crate has no such tests, and a zero-test shell selection is a failure rather than coverage.
 
-<!-- revision: 5 -->
+<!-- revision: 8 -->
 
 ## Independent server process oracle
 

@@ -114,8 +114,4 @@ For a production build, run `./build.sh build`. On Windows PowerShell, use `.\bu
 
 Inside Domios, run `domios docs` to discover the help embedded in your installed version, then `domios docs <NAME>` to read a document.
 
-Contributions welcome: open an issue to discuss the change. Licensed under the [AGPL-3.0-only](LICENSE): PolyForm Shield 1.0.0 plus [terms that forbid circumventing paid-plan enforcement](legal/ADDITIONAL-TERMS.md). See also the [Terms of Service](legal/TERMS.md) and [Privacy Policy](legal/PRIVACY.md) (drafts).
-
-2026-10-16: All versions of this software, including every prior revision in this repository's history, are licensed solely under the PolyForm Shield License 1.0.0. No revision was ever distributed under the MIT License.
-
-Earlier revisions remain under PolyForm Shield 1.0.0 alone; see [NOTICE](NOTICE).
+Contributions welcome: open an issue to discuss the change. Domios is licensed under [AGPL-3.0-only](LICENSE). The [plugin SDK](packages/plugin-sdk/LICENSE), [chat engine](packages/chat-engine/LICENSE) and plugins under `plugins/` are licensed under Apache-2.0. See [NOTICE](NOTICE), the [Terms of Service](legal/TERMS.md) and [Privacy Policy](legal/PRIVACY.md) (drafts).

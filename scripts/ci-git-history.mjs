@@ -16,7 +16,8 @@ export function historyArguments(purpose, sha, shallow, env = {}) {
   const policy = HISTORY_PURPOSES[purpose];
   if (!policy) throw new Error('Unknown scoped history purpose: ' + purpose);
   if (!/^[a-f0-9]{40}$/.test(sha)) throw new Error('Scoped history requires an exact source SHA');
-  const refs = [sha, ...policy.refs];
+  // Persistent self-hosted checkouts keep stale tracking refs and moved tags, so mapped refs update by force.
+  const refs = [sha, ...policy.refs.map(ref => '+' + ref)];
   if (purpose === 'policy') {
     for (const name of ['PR_BASE_SHA', 'PR_HEAD_SHA', 'PUSH_BEFORE']) {
       const value = env[name];

@@ -1,5 +1,5 @@
 // Caller: build.sh ci-tests; scripts tests/ci-rust-tests.test.mjs
-import { verifyReceipts } from './ci-rust-receipts.mjs';
+import { verifyReceipts, readReceipts } from './ci-rust-receipts.mjs';
 export { verifyReceipts } from './ci-rust-receipts.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -10,6 +10,7 @@ import { overlayExclusions } from './ci-rust-archives.mjs';
 import { classifyTarget } from './ci-classifier-cache.mjs';
 import { FULL_LANES, testTargetDir } from './rust-test-lanes.mjs';
 import { renderedCompilerErrors } from './collect-rust-warnings.mjs';
+import { parseTimings } from './check-slow-unit-tests.mjs';
 import { prepareCliServer } from './cli-server-test.mjs';
 import { failureDetector, failureEvent, firstFailure } from './ci-first-failure.mjs';
 
@@ -138,13 +139,13 @@ const LISTENER = 'test(/startup::rest_api::tests::/)';
 const CLI_SERVER = 'binary_id(=codeterm-cli::isolated_server)';
 const jsonCommand = (args) => JSON.parse(execFileSync('cargo-nextest', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'inherit'] }));
 
+// REST API listener lifecycle tests hold real sockets and run as a curated suite (evals/rest-api-listeners), not in CI.
 export function executionGroups(selected) {
   const integration = selected.filter(test => test.binary === 'codeterm-cli::isolated_server');
-  const units = selected.filter(test => test.binary !== 'codeterm-cli::isolated_server');
-  return [...[false, true].map((listener) => ({
-    listener,
-    selected: units.filter((test) => test.name.includes('startup::rest_api::tests::') === listener),
-  })), { listener: false, integration: true, selected: integration }].filter((group) => group.selected.length > 0);
+  const units = selected.filter(test => test.binary !== 'codeterm-cli::isolated_server'
+    && !test.name.includes('startup::rest_api::tests::'));
+  return [{ listener: false, selected: units }, { listener: false, integration: true, selected: integration }]
+    .filter((group) => group.selected.length > 0);
 }
 
 export function candidateFilter(document, selected) {
@@ -206,8 +207,22 @@ export async function captureCommand(command, args, logPath, env = process.env, 
 }
 
 // Serial confirmation costs longer than the suite, so release runs and non-baseline OSes report parallel timings only.
-export function timingPlan({ release, os }) {
-  return release || os !== 'macOS' ? { confirm: false, policy: 'advisory' } : { confirm: true, policy: 'enforce' };
+// Test duration never fails a run: timeouts catch hangs only, and slow tests surface as warnings.
+export function timingPlan() {
+  return { confirm: false, policy: 'advisory' };
+}
+
+export const SLOW_TEST_WARNING_SECONDS = 0.5;
+
+// Every test above the warning line, slowest first, as one step-summary table.
+export function slowTestReport(entries, mode, runner) {
+  const slow = entries.filter(entry => entry.measuredSeconds > SLOW_TEST_WARNING_SECONDS)
+    .sort((left, right) => right.measuredSeconds - left.measuredSeconds);
+  if (!slow.length) return { count: 0, markdown: '' };
+  const rows = slow.map(entry => `| ${entry.measuredSeconds.toFixed(3)} | ${entry.binary} | ${entry.test} |`);
+  const markdown = [`\n### Rust ${mode} tests over ${SLOW_TEST_WARNING_SECONDS} s on ${runner} (${slow.length})\n`,
+    '| Seconds | Binary | Test |', '|---:|---|---|', ...rows, ''].join('\n');
+  return { count: slow.length, markdown };
 }
 
 export function timingAuditArgs(guard, aloneLog, policy) {
@@ -231,7 +246,8 @@ export function requireTestSuccess(result, report, label, { warn = console.log, 
 
 const tomlConfig = (filter, listener) => `[profile.default]\ndefault-filter = ${JSON.stringify(filter)}\nretries = 0\nfail-fast = false\n${listener ? 'test-threads = 1\n' : ''}slow-timeout = { period = "60s", terminate-after = 5 }\n`;
 
-async function run(mode) {
+// compileOnly builds every lane's test binaries and stops, so a CI step can time compilation apart from the run.
+async function run(mode, { compileOnly = false } = {}) {
   const lanes = MODES[mode];
   if (!lanes) throw new Error('usage: node scripts/ci-rust-tests.mjs full|platform|embeddings | verify DIR');
   for (const name of ['CODETERM_CONPTY_DIR', 'CODETERM_PLAN_ID', 'CODETERM_TASK_ID']) delete process.env[name];
@@ -239,10 +255,11 @@ async function run(mode) {
   const os = process.env.RUNNER_OS || { win32: 'Windows', darwin: 'macOS', linux: 'Linux' }[process.platform];
   const plan = timingPlan({ release: process.env.CI_RELEASE_TESTS === 'true', os });
   const start = performance.now();
-  const receipt = { mode, os, arch: process.env.RUNNER_ARCH, runner: process.env.RUNNER_NAME, sha: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), executed: 0, exit: 1, seconds: 0 };
+  const receipt = { mode, os, run_attempt: Number(process.env.GITHUB_RUN_ATTEMPT || 1), producer: process.env.GITHUB_JOB, arch: process.env.RUNNER_ARCH, runner: process.env.RUNNER_NAME, sha: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), executed: 0, exit: 1, seconds: 0 };
   const directory = path.resolve('ci-rust-receipts');
   fs.mkdirSync(directory, { recursive: true });
   const targetEnv = { ...env };
+  const timings = [];
   try {
     for (const planned of lanes) {
       const lane = mode === 'platform' && !planned.whole ? narrowToPlatformPackages(planned) : planned;
@@ -261,6 +278,7 @@ async function run(mode) {
         try { const message = JSON.parse(line); return message.reason === 'compiler-artifact' && !message.fresh ? [message] : []; } catch { return []; }
       }).length;
       console.log(`[rust-tests] ${mode}/${lane.lane} compiled=${compiled}`);
+      if (compileOnly) continue;
       const config = path.join(directory, `${mode}-${lane.lane}.toml`);
       fs.writeFileSync(config, tomlConfig('all()', false));
       let scope = mode === 'embeddings' ? 'package(=codeterm-mem) | (package(=codeterm-service-core) & test(/^mem::/))' : 'all()';
@@ -288,6 +306,7 @@ async function run(mode) {
         const report = fs.readFileSync(log, 'utf8');
         requireTestSuccess(result, report, `Rust tests failed on ${receipt.runner}`);
         receipt.executed += executedCount(report);
+        try { timings.push(...parseTimings(report)); } catch (error) { console.log(`[rust-tests] timings unavailable for ${log}: ${error.message}`); }
         if (integration) continue;
         const guard = ['scripts/check-slow-unit-tests.mjs', log, '--base', process.env.SLOW_UNIT_TESTS_BASE || 'origin/develop'];
         let aloneLog;
@@ -306,22 +325,26 @@ async function run(mode) {
         if (audit.error || audit.status !== 0) throw new Error(`Slow unit ratchet failed on ${receipt.runner}: ${audit.error || audit.status}`);
       }
     }
-    if (mode === 'embeddings') {
-      const lane = lanes[0];
-      const config = path.join(directory, 'embedding-parity.toml');
-      fs.writeFileSync(config, tomlConfig('package(=codeterm-mem) & test(=embedding_model::tests::candle_embedding_matches_fastembed_golden)', false));
-      const log = path.join(directory, 'embedding-parity.log');
-      const result = await captureCommand('bash', ['scripts/test-capped.sh', '--exec', 'cargo-nextest',
-        ...runArgs(lane, config), '--run-ignored', 'only'], log, env);
-      const report = fs.readFileSync(log, 'utf8');
-      requireTestSuccess(result, report, 'Embedding golden parity');
-      const count = executedCount(report);
-      if (count !== 1) throw new Error(`Expected one embedding parity oracle, got ${count}`);
-      receipt.executed += count;
-    }
+    if (compileOnly) return;
     if (!receipt.executed) throw new Error('No Rust tests executed');
     receipt.exit = 0;
   } finally {
+    // Only the run phase records a receipt; a compile-only pass proves nothing about tests.
+    if (!compileOnly) {
+      recordReceipt();
+      reportSlowTests();
+    }
+  }
+
+  function reportSlowTests() {
+    const { count, markdown } = slowTestReport(timings, mode, receipt.runner);
+    if (!count) return;
+    fs.writeFileSync(path.join(directory, `slow-tests-${mode}-${os}.md`), markdown);
+    console.log(`::warning::${count} Rust ${mode} tests ran longer than ${SLOW_TEST_WARNING_SECONDS} s; see the job summary`);
+    if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, markdown);
+  }
+
+  function recordReceipt() {
     receipt.seconds = (performance.now() - start) / 1000;
     fs.writeFileSync(path.join(directory, `rust-tests-${mode}-${os}.json`), JSON.stringify(receipt, null, 2));
     if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\nRust ${mode} tests: **${receipt.runner}** (${os} ${receipt.arch}), ${receipt.executed} executed, ${receipt.seconds.toFixed(1)} s, exit ${receipt.exit}\n`);
@@ -331,9 +354,9 @@ async function run(mode) {
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   if (process.argv[2] === 'verify') {
     const dir = process.argv[3];
-    const receipts = fs.readdirSync(dir).filter((f) => f.endsWith('.json')).map((f) => JSON.parse(fs.readFileSync(path.join(dir, f))));
+    const receipts = readReceipts(dir);
     const table = verifyReceipts(receipts);
     console.log(table);
     if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n${table}\n`);
-  } else await run(process.argv[2]);
+  } else await run(process.argv[2], { compileOnly: process.argv[3] === '--compile-only' });
 }

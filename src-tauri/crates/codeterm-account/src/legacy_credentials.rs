@@ -111,6 +111,14 @@ pub async fn load(namespace: String, name: String) -> Result<Option<Secret>> {
     // Search loads unlocked secrets without requesting the unlock prompt used by lookup.
     let output = command("search", &namespace, &name).await?;
     let body = String::from_utf8(output.stdout).map_err(|_| Error::Credentials)?;
+    legacy_search_result(output.status.success(), &body)
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn legacy_search_result(success: bool, body: &str) -> Result<Option<Secret>> {
+    if !success {
+        return Err(Error::Credentials);
+    }
     Ok(body
         .lines()
         .find_map(|line| line.strip_prefix("secret = ").map(Secret::new)))
@@ -132,3 +140,6 @@ pub async fn load(_: String, _: String) -> Result<Option<Secret>> {
 pub async fn delete(_: String, _: String) -> Result<()> {
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

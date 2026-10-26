@@ -15,7 +15,7 @@ function lockedVersion(path, packageName) {
 
 const locks = [
   ["src-tauri/Cargo.lock", "codeterm"],
-  ["cli/Cargo.lock", "codeterm-cli"],
+  ["src-tauri/Cargo.lock", "codeterm-cli"],
 ];
 
 const stale = locks
@@ -26,7 +26,7 @@ if (stale.length > 0) {
   const details = stale.map(({ path, name, version }) => `${path} (${name}=${version})`).join(", ");
   throw new Error(
     `Release lock version mismatch: package.json=${rootVersion}; ${details}. ` +
-      "Run the canonical release preflight, commit both lockfiles, then retry the production build.",
+      "Run the canonical release preflight, commit the workspace lockfile, then retry the production build.",
   );
 }
 

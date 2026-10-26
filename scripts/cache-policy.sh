@@ -126,6 +126,12 @@ ct_sccache_secret() (
 ct_sccache_storage() {
   local trace_enabled=0 access_key secret_key
   case "$-" in *x*) trace_enabled=1; set +x ;; esac
+  # A hosted job picks once: the private store when it answers with keys, else the GitHub Actions cache.
+  if [ "${SCCACHE_GHA_ENABLED:-false}" = true ] && [ -n "${AWS_ACCESS_KEY_ID:-}" ] && [ -n "${AWS_SECRET_ACCESS_KEY:-}" ] &&
+      [ -n "$CT_CI_STORE_ENDPOINT" ] && ct_ci_store_reachable; then
+    export SCCACHE_GHA_ENABLED=false
+    [ -z "${GITHUB_ENV:-}" ] || printf '%s\n' SCCACHE_GHA_ENABLED=false >> "$GITHUB_ENV"
+  fi
   if [ "${SCCACHE_GHA_ENABLED:-false}" = true ]; then
     unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN SCCACHE_ENDPOINT SCCACHE_BUCKET SCCACHE_REGION SCCACHE_S3_USE_SSL
     export CT_SCCACHE_STORAGE=gha CT_SCCACHE_REASON="GitHub Actions cache"
@@ -145,12 +151,14 @@ ct_sccache_storage() {
   else
     access_key="$(ct_sccache_secret domios-sccache-s3-access-key)" || access_key=""
     secret_key="$(ct_sccache_secret domios-sccache-s3-secret-key)" || secret_key=""
+    # A developer machine outside CI keeps the store address beside its keys in the vault.
+    [ -n "$CT_CI_STORE_ENDPOINT" ] || CT_CI_STORE_ENDPOINT="$(ct_sccache_secret domios-ci-store-endpoint)" || CT_CI_STORE_ENDPOINT=""
   fi
-  if [ -n "$access_key" ] && [ -n "$secret_key" ]; then
+  if [ -n "$access_key" ] && [ -n "$secret_key" ] && [ -n "$CT_CI_STORE_ENDPOINT" ]; then
     export AWS_ACCESS_KEY_ID="$access_key" AWS_SECRET_ACCESS_KEY="$secret_key"
     unset AWS_SESSION_TOKEN
-    export SCCACHE_ENDPOINT="$CT_CI_STORE_ENDPOINT" SCCACHE_BUCKET=sccache
-    export SCCACHE_REGION=us-east-1 SCCACHE_S3_USE_SSL=false
+    export SCCACHE_ENDPOINT="$CT_CI_STORE_ENDPOINT" SCCACHE_BUCKET=sccache SCCACHE_REGION=us-east-1
+    case "$CT_CI_STORE_ENDPOINT" in https://*) export SCCACHE_S3_USE_SSL=true ;; *) export SCCACHE_S3_USE_SSL=false ;; esac
     export CT_SCCACHE_STORAGE=shared CT_SCCACHE_REASON=""
   else
     unset SCCACHE_ENDPOINT SCCACHE_BUCKET SCCACHE_REGION SCCACHE_S3_USE_SSL
@@ -176,7 +184,7 @@ ct_sccache_print_location() {
   if [ "${CT_SCCACHE_STORAGE:-local}" = gha ]; then
     printf 'sccache: GitHub Actions cache\n'
   elif [ "${CT_SCCACHE_STORAGE:-local}" = shared ]; then
-    printf 'sccache: shared S3 cache at %s/%s\n' "$SCCACHE_ENDPOINT" "$SCCACHE_BUCKET"
+    printf 'sccache: shared S3 cache at the private store/%s\n' "$SCCACHE_BUCKET"
   else
     printf 'sccache: local disk cache at %s (%s; limit %s)\n' \
       "$(ct_sccache_disk_dir)" "${CT_SCCACHE_REASON:-shared credentials unavailable}" "$SCCACHE_CACHE_SIZE"
@@ -248,7 +256,7 @@ ct_sccache_start_job_local() {
   mkdir -p "$dir" || return 2
   export SCCACHE_SERVER_PORT="$port" SCCACHE_DIR="$dir" CODETERM_SCCACHE_STORAGE=local CODETERM_SCCACHE_JOB_LOCAL=1
   ct_sccache_storage
-  echo "::warning::private store $CT_CI_STORE_ENDPOINT is unreachable; this job compiles with a job-local sccache at $dir"
+  echo "::warning::private store is unreachable; this job compiles with a job-local sccache at $dir"
   if ! SCCACHE_IDLE_TIMEOUT=0 sccache --start-server >/dev/null 2>&1; then
     echo "[cache-policy] ERROR: job-local sccache did not start" >&2
     return 2
@@ -409,7 +417,7 @@ ct_configure_sccache_locked() {
   if [ "$CT_SCCACHE_STORAGE" = local ] && [ "${CODETERM_SCCACHE_STORAGE:-}" != local ] && [[ "$location" == 's3, name: '* ]]; then
     local running_bucket="${location#s3, name: }"
     running_bucket="${running_bucket%%, prefix:*}"
-    printf 'sccache: shared S3 cache at %s/%s (using running server credentials)\n' "$CT_CI_STORE_ENDPOINT" "$running_bucket"
+    printf 'sccache: shared S3 cache at the private store/%s (using running server credentials)\n' "$running_bucket"
   else
     ct_sccache_print_location
   fi

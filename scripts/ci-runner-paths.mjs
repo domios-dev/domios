@@ -1,4 +1,6 @@
 import fs from 'node:fs';
+import {inferRunnerProfile,runnerProfile} from './ci-runner-profile.mjs';
+import {reproLine} from './ci-repro.mjs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -60,6 +62,7 @@ export const RUNNER_ROLES = {
   rust: ['node', 'git', 'bash', 'python', 'cargo', 'nextest'],
   'pr-guards': ['node', 'git', 'bash', 'python', 'cargo', 'pnpm', 'nextest'],
   packaging: ['node', 'git', 'bash', 'python', 'cargo', 'gh', 'pnpm'],
+  finalize: ['node', 'git', 'bash', 'python', 'gh', 'pnpm'],
   all: ['node', 'git', 'bash', 'python', 'cargo', 'nextest', 'gh', 'pnpm'],
 };
 const tools = {
@@ -75,7 +78,9 @@ export function pythonInterpreter(platform, env, hasFile = file => {
   if (env.CI_PYTHON) return env.CI_PYTHON;
   const paths = platform === 'win32' ? path.win32 : path.posix;
   const directories = (env.PATH || '').split(platform === 'win32' ? ';' : ':');
-  for (const name of platform === 'win32' ? ['python.exe'] : ['python3', 'python']) {
+  const preferred=env.CI_RUNNER_PROFILE?runnerProfile(env.CI_RUNNER_PROFILE).python:null;
+  const names=platform==='win32'?['python.exe']:preferred?[preferred,...['python3','python'].filter(name=>name!==preferred)]:['python3','python'];
+  for (const name of names) {
     for (const directory of directories.filter(Boolean)) {
       const candidate = paths.join(directory, name);
       if (hasFile(candidate)) return candidate;
@@ -121,11 +126,30 @@ export function checkRunnerTools(role, { platform = process.platform, env = proc
     'Python modules: python -m pip install -r scripts/requirements-ci.txt.\n' + diagnostics.join('\n'));
 }
 
+// build.sh resolves tools from Git Bash, which can differ from the cmd lookup above; refuse before compilation.
+export const BASH_RESOLVED_TOOLS = ['node', 'git', 'cargo', 'pnpm'];
+
+export function checkBashTools(role, bash, { env = process.env,
+  execute = (command, args, options) => spawnSync(command, args, options) } = {}) {
+  const tools = runnerRequirements(role).filter(tool => BASH_RESOLVED_TOOLS.includes(tool));
+  if (!tools.length) return;
+  const options = { env, encoding: 'utf8', timeout: 10000, windowsHide: true };
+  const script = 'for tool in ' + tools.join(' ') + '; do command -v "$tool" >/dev/null 2>&1 || echo "missing:$tool"; done';
+  const result = execute(bash, ['-c', script], options);
+  const missing = String(result.stdout || '').split(/\r?\n/).filter(line => line.startsWith('missing:')).map(line => line.slice(8));
+  if (!result.error && result.status === 0 && !missing.length) return;
+  const seen = execute(bash, ['-c', 'printf "%s\\n" "$PATH" | tr : "\\n"'], options);
+  throw new Error('Git Bash used by build.sh cannot resolve: ' +
+    (missing.join(', ') || String(result.error?.code || 'exit ' + result.status)) +
+    '\nGit Bash PATH:\n' + String(seen.stdout || '').trim());
+}
+
 export function runnerPathContent(directories) {
   return directories.map(directory => directory + '\n').join('');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  try {
   if (!process.env.GITHUB_PATH) throw new Error('GITHUB_PATH is required for job-local tool setup');
   const hasFile = (file) => {
     try { return fs.statSync(file).isFile(); } catch { return false; }
@@ -145,6 +169,15 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
     try { fs.appendFileSync(process.env.GITHUB_ENV, 'CI_PYTHON=' + pythonInterpreter(process.platform, env) + '\n'); }
     catch { /* Python is optional for jobs whose declared tools exclude it. */ }
   }
-  if (process.argv[2] !== '--paths-only') checkRunnerTools(process.argv[2] || 'rust', { env });
+  if (process.argv[2] !== '--paths-only') {
+    checkRunnerTools(process.argv[2] || 'rust', { env });
+    if (process.platform === 'win32') checkBashTools(process.argv[2] || 'rust', bashInterpreter(process.platform, env), { env });
+  }
   for (const directory of directories) console.log('Job-local tool directory: ' + directory);
+  } catch(error) {
+    console.error(error.stack||error.message);
+    console.error(reproLine(process.env.CI_STEP||'node-script-tests',{profile:inferRunnerProfile()}));
+    process.exitCode=1;
+  }
+
 }

@@ -22,7 +22,7 @@ Two shapes, and picking the wrong one is what costs hours.
 | A release | Delegate, then verify its SHA yourself |
 
 In canonical, a per-task Rust test-profile change uses `./build.ps1 check-tests`, which
-compiles all test targets in both the app and CLI workspaces without running
+compiles all test targets of the app packages and the CLI without running
 them. A following `test-one app` or `test-one cli` reuses those artifacts.
 It uses the shared Cargo gateway entry and accepts `--wait-build`.
 `./build.ps1 check` does not compile `#[cfg(test)]` code, so a green `check`

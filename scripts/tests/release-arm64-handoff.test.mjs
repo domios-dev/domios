@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { inventory, unpack, verifyReceipt } from '../release-arm64-handoff.mjs';
+import { bundlePackages, inventory, unpack, verifyReceipt } from '../release-arm64-handoff.mjs';
 
 const expected = { target: 'aarch64-unknown-linux-gnu', tag: 'v1.2.3', source_sha: 'a'.repeat(40), run_id: '17', run_attempt: '2' };
 const files = [{ path: 'payload/server', sha256: 'b'.repeat(64) }];
@@ -42,6 +42,21 @@ test('inventory hashes nested regular files and rejects links', async () => {
     assert.deepEqual(await inventory(directory), [{ path: 'nested/payload', sha256: 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad' }]);
     await symlink(path.join(directory, 'nested'), path.join(directory, 'link'), process.platform === 'win32' ? 'junction' : 'dir');
     await assert.rejects(inventory(directory), /contains a link/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('handoff carries finished packages and leaves bundler staging trees behind', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'handoff-bundle-'));
+  try {
+    const root = directory.replaceAll('\\', '/');
+    for (const kind of ['appimage/Domios.AppDir', 'deb/Domios_1.2.3_arm64/data', 'nsis']) await mkdir(path.join(directory, kind), { recursive: true });
+    for (const file of ['appimage/Domios_1.2.3_aarch64.AppImage', 'deb/Domios_1.2.3_arm64.deb', 'deb/Domios_1.2.3_arm64/data/payload', 'nsis/Domios_1.2.3_arm64-setup.exe']) {
+      await writeFile(path.join(directory, file), 'abc');
+    }
+    await symlink(path.join(directory, 'nsis'), path.join(directory, 'appimage', 'Domios.AppDir', '.DirIcon'), process.platform === 'win32' ? 'junction' : 'dir');
+    assert.deepEqual(await bundlePackages(root), [
+      `${root}/appimage/Domios_1.2.3_aarch64.AppImage`, `${root}/deb/Domios_1.2.3_arm64.deb`, `${root}/nsis/Domios_1.2.3_arm64-setup.exe`,
+    ]);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 

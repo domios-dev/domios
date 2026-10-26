@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { createReadStream } from 'node:fs';
+import { createReadStream, realpathSync } from 'node:fs';
 import { chmod, lstat, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,7 +8,9 @@ import { assertMachine } from './release-bundle-smoke.mjs';
 import { produceVerifiedCommonStage, releaseCliDigest, verifyServerBuild } from './release-stage.mjs';
 
 const targets = new Set(['aarch64-unknown-linux-gnu', 'aarch64-pc-windows-msvc']);
-const run = (command, args) => execFileSync(command, args, { stdio: 'inherit', timeout: 120000 });
+const finalPackage = /\.(deb|AppImage)$|-setup\.exe$/;
+// Windows tar fails GetVolumePathName on the gateway's subst drive, so it runs from the real path.
+const tar = args => execFileSync(tarProgram, args, { stdio: 'inherit', timeout: 120000, cwd: realpathSync.native('.') });
 const tarProgram = process.platform === 'win32' ? path.join(process.env.SystemRoot, 'System32', 'tar.exe') : 'tar';
 
 async function fileDigest(file) {
@@ -51,11 +53,27 @@ function identity(target, tag, sourceSha) {
   return { target, tag, source_sha: sourceSha, run_id: process.env.GITHUB_RUN_ID, run_attempt: process.env.GITHUB_RUN_ATTEMPT };
 }
 
+// Only finished packages travel; bundler staging trees such as the AppDir hold links.
+export async function bundlePackages(bundleRoot) {
+  const packages = [];
+  for (const kind of (await readdir(bundleRoot)).sort()) {
+    const directory = `${bundleRoot}/${kind}`;
+    if (!(await lstat(directory)).isDirectory()) continue;
+    for (const name of (await readdir(directory)).sort()) {
+      if (finalPackage.test(name) && (await lstat(`${directory}/${name}`)).isFile()) packages.push(`${directory}/${name}`);
+    }
+  }
+  return packages;
+}
+
 async function payloadInventory(target) {
-  const roots = ['target/domios-package', `src-tauri/target/${target}/release/bundle`, `release-artifacts/build-logs/${target}`];
+  const packages = await bundlePackages(`src-tauri/target/${target}/release/bundle`);
+  const directories = ['target/domios-package', `release-artifacts/build-logs/${target}`];
   const rows = [];
-  for (const root of roots) rows.push(...await inventory(root, root));
-  return { roots, rows };
+  for (const root of directories) rows.push(...await inventory(root, root));
+  for (const file of packages) rows.push({ path: file, sha256: await fileDigest(file) });
+  rows.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
+  return { roots: [...directories, ...packages], rows };
 }
 
 export async function pack(target, tag, sourceSha, archive) {
@@ -72,7 +90,7 @@ export async function pack(target, tag, sourceSha, archive) {
   verifyReceipt(receipt, identity(target, tag, sourceSha), rows);
   await writeFile('release-arm64-handoff.json', JSON.stringify(receipt, null, 2) + '\n');
   await mkdir(path.dirname(path.resolve(archive)), { recursive: true });
-  run(tarProgram, ['-cf', archive, 'release-arm64-handoff.json', ...roots]);
+  tar(['-cf', path.resolve(archive), 'release-arm64-handoff.json', ...roots]);
   const hash = await fileDigest(archive);
   if (process.env.GITHUB_OUTPUT) await writeFile(process.env.GITHUB_OUTPUT, `sha256=${hash}\n`, { flag: 'a' });
   return hash;
@@ -82,7 +100,7 @@ export async function unpack(target, tag, sourceSha, archive, expectedDigest) {
   if (!targets.has(target) || !/^[a-f0-9]{64}$/.test(expectedDigest ?? '') || await fileDigest(archive) !== expectedDigest) {
     throw new Error('Handoff archive digest differs');
   }
-  run(tarProgram, ['-xf', archive]);
+  tar(['-xf', path.resolve(archive)]);
   const receipt = JSON.parse(await readFile('release-arm64-handoff.json', 'utf8'));
   const { rows } = await payloadInventory(target);
   verifyReceipt(receipt, identity(target, tag, sourceSha), rows);

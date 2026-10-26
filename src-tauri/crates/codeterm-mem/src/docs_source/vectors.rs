@@ -72,9 +72,13 @@ pub(super) fn prepare_for_benchmark(data_dir: &Path, sections: &[DocSection]) ->
 
 /// Rebuild the docs vectors with `embedder`; published only when it is the
 /// process's active embedder.
-pub(super) fn reembed(data_dir: &Path, embedder: &Arc<ActiveEmbedder>) -> Result<usize, String> {
+pub(super) fn reembed(
+    data_dir: &Path,
+    embedder: &Arc<ActiveEmbedder>,
+    sections: &[DocSection],
+) -> Result<usize, String> {
     let publish = Arc::ptr_eq(embedder, &ActiveEmbedder::global());
-    build(data_dir, super::corpus_sections(), embedder, publish)
+    build(data_dir, sections, embedder, publish)
 }
 
 fn build_and_publish(data_dir: &Path, sections: &[DocSection]) -> Result<usize, String> {
@@ -140,13 +144,14 @@ fn log_unavailable(reason: &str) {
 pub(crate) fn prepare(
     data_dir: &Path,
     embedder: &ActiveEmbedder,
+    sections: &[DocSection],
     progress: impl Fn(),
 ) -> Result<PreparedDocs, String> {
     let pinned = ActiveEmbedder::new(embedder.provider());
     let identity = pinned.identity();
     let (vectors, _) = load_or_build_with_progress(
         &data_dir.join("mem").join("docs-vectors"),
-        super::corpus_sections(),
+        sections,
         &cache_model_key(&identity),
         identity.dimension,
         &|text| {

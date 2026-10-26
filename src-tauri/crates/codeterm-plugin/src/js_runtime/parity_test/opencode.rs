@@ -284,6 +284,7 @@ fn detect_session_id_finds_recent_session() {
         rusqlite::params!["ses_old", "/work/proj", 1_700_000_000_000i64],
     )
     .unwrap();
+    conn.execute_batch("BEGIN").unwrap();
     let mut excluded = Vec::new();
     for index in 0..25 {
         let foreign = format!("ses_crowd_{index:02}");
@@ -300,6 +301,7 @@ fn detect_session_id_finds_recent_session() {
         .unwrap();
         excluded.push(same_cwd);
     }
+    conn.execute_batch("COMMIT").unwrap();
     drop(conn);
 
     let _env = EnvGuard::new(&[("XDG_DATA_HOME", dir.path().to_str().unwrap())]);
@@ -332,6 +334,7 @@ fn detect_session_id_finds_recent_session() {
 
 fn build_opencode_db(path: &std::path::Path) {
     let conn = rusqlite::Connection::open(path).unwrap();
+    conn.execute_batch("BEGIN").unwrap();
     conn.execute_batch(
         "CREATE TABLE session (id TEXT PRIMARY KEY, directory TEXT, time_created INTEGER);
          CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, time_updated INTEGER DEFAULT 0, data TEXT);
@@ -365,7 +368,7 @@ fn build_opencode_db(path: &std::path::Path) {
         ],
     )
     .unwrap();
-    // Close the writer so the plugin's read-only open sees a complete db.
+    conn.execute_batch("COMMIT").unwrap();
     drop(conn);
 }
 

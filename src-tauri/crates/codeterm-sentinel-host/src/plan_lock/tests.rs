@@ -14,6 +14,7 @@ fn plan_lock_scheduler_holds_without_observing_and_resumes_without_missed_effect
     let workspace = mux.find_workspace_for_tab(&creator).unwrap();
     let fixture = ServiceFixture::new(mux);
     let clock = MockClock::starting_at(1000);
+    codeterm_storage::test_support::seed_empty_root(&temp.path().join("storage"));
     let storage =
         codeterm_storage::Storage::open(&temp.path().join("storage"), Default::default()).unwrap();
     let store = Store::with_storage(&storage, clock.clone());

@@ -1,0 +1,275 @@
+{
+  "version": 1,
+  "sources": {
+    "tests-fast.yml": "10497b372f2ef01e67b653d1cbeb97e7ef93985e16b7f6b2b70533de01bcb0ea",
+    "tests-pr.yml": "1672a510a986bf85db8c67dd3bbb306b81ba5c264b35219ce63cab18e60c20f5"
+  },
+  "bindings": [
+    {
+      "file": "tests-fast.yml",
+      "jobId": "guards",
+      "entry": "plugin-release-contracts",
+      "role": "bash,cargo,git,nextest,node,pnpm,python,python:yaml",
+      "pythonBootstrap": "node scripts/ci-python-env.mjs"
+    },
+    {
+      "file": "tests-fast.yml",
+      "jobId": "guards",
+      "entry": "node-script-tests-serial",
+      "role": "bash,cargo,git,nextest,node,pnpm,python,python:yaml",
+      "pythonBootstrap": "node scripts/ci-python-env.mjs"
+    },
+    {
+      "file": "tests-fast.yml",
+      "jobId": "guards",
+      "entry": "rust-fmt",
+      "role": "bash,cargo,git,nextest,node,pnpm,python,python:yaml",
+      "pythonBootstrap": "node scripts/ci-python-env.mjs"
+    },
+    {
+      "file": "tests-fast.yml",
+      "jobId": "guards",
+      "entry": "node-script-tests",
+      "role": "bash,cargo,git,nextest,node,pnpm,python,python:yaml",
+      "pythonBootstrap": "node scripts/ci-python-env.mjs"
+    },
+    {
+      "file": "tests-fast.yml",
+      "jobId": "guards",
+      "entry": "python-script-tests",
+      "role": "bash,cargo,git,nextest,node,pnpm,python,python:yaml",
+      "pythonBootstrap": "node scripts/ci-python-env.mjs"
+    },
+    {
+      "file": "tests-fast.yml",
+      "jobId": "guards",
+      "entry": "core-journeys-offline",
+      "role": "bash,cargo,git,nextest,node,pnpm,python,python:yaml",
+      "pythonBootstrap": "node scripts/ci-python-env.mjs"
+    },
+    {
+      "file": "tests-fast.yml",
+      "jobId": "plugins",
+      "entry": "plugin-check",
+      "role": "bash,git,node,pnpm",
+      "pythonBootstrap": null
+    },
+    {
+      "file": "tests-fast.yml",
+      "jobId": "ts-static",
+      "entry": "ts-unused-exports",
+      "role": "bash,git,node,pnpm",
+      "pythonBootstrap": null
+    },
+    {
+      "file": "tests-fast.yml",
+      "jobId": "ts-static",
+      "entry": "ts-knip-report",
+      "role": "bash,git,node,pnpm",
+      "pythonBootstrap": null
+    },
+    {
+      "file": "tests-fast.yml",
+      "jobId": "ts-static",
+      "entry": "ts-api-effects",
+      "role": "bash,git,node,pnpm",
+      "pythonBootstrap": null
+    },
+    {
+      "file": "tests-fast.yml",
+      "jobId": "ts-static",
+      "entry": "ts-biome",
+      "role": "bash,git,node,pnpm",
+      "pythonBootstrap": null
+    },
+    {
+      "file": "tests-fast.yml",
+      "jobId": "frontend-dist",
+      "entry": "ts-typecheck",
+      "role": "bash,git,node,pnpm",
+      "pythonBootstrap": null
+    },
+    {
+      "file": "tests-fast.yml",
+      "jobId": "frontend-windows",
+      "entry": "frontend-windows-build",
+      "role": "bash,git,node,pnpm",
+      "pythonBootstrap": null
+    },
+    {
+      "file": "tests-fast.yml",
+      "jobId": "ts-types",
+      "entry": "ts-generated-types",
+      "role": "bash,cargo,git,node,pnpm",
+      "pythonBootstrap": null
+    },
+    {
+      "file": "tests-fast.yml",
+      "jobId": "ts-unit",
+      "entry": "ts-unit",
+      "role": "bash,git,node,pnpm",
+      "pythonBootstrap": null
+    },
+    {
+      "file": "tests-fast.yml",
+      "jobId": "ts-unit",
+      "entry": "ts-unit-runner-tests",
+      "role": "bash,git,node,pnpm",
+      "pythonBootstrap": null
+    },
+    {
+      "file": "tests-fast.yml",
+      "jobId": "ts-vitest",
+      "entry": "ts-vitest",
+      "role": "bash,git,node,pnpm",
+      "pythonBootstrap": null
+    },
+    {
+      "file": "tests-fast.yml",
+      "jobId": "ts-plugins",
+      "entry": "plugin-bundles",
+      "role": "bash,git,node,pnpm",
+      "pythonBootstrap": null
+    },
+    {
+      "file": "tests-fast.yml",
+      "jobId": "ts-plugins",
+      "entry": "plugin-tests",
+      "role": "bash,git,node,pnpm",
+      "pythonBootstrap": null
+    },
+    {
+      "file": "tests-pr.yml",
+      "jobId": "guards",
+      "entry": "plugin-release-contracts",
+      "role": "bash,cargo,git,nextest,node,pnpm,python,python:yaml",
+      "pythonBootstrap": "node scripts/ci-python-env.mjs"
+    },
+    {
+      "file": "tests-pr.yml",
+      "jobId": "guards",
+      "entry": "node-script-tests-serial",
+      "role": "bash,cargo,git,nextest,node,pnpm,python,python:yaml",
+      "pythonBootstrap": "node scripts/ci-python-env.mjs"
+    },
+    {
+      "file": "tests-pr.yml",
+      "jobId": "guards",
+      "entry": "rust-fmt",
+      "role": "bash,cargo,git,nextest,node,pnpm,python,python:yaml",
+      "pythonBootstrap": "node scripts/ci-python-env.mjs"
+    },
+    {
+      "file": "tests-pr.yml",
+      "jobId": "guards",
+      "entry": "node-script-tests",
+      "role": "bash,cargo,git,nextest,node,pnpm,python,python:yaml",
+      "pythonBootstrap": "node scripts/ci-python-env.mjs"
+    },
+    {
+      "file": "tests-pr.yml",
+      "jobId": "guards",
+      "entry": "python-script-tests",
+      "role": "bash,cargo,git,nextest,node,pnpm,python,python:yaml",
+      "pythonBootstrap": "node scripts/ci-python-env.mjs"
+    },
+    {
+      "file": "tests-pr.yml",
+      "jobId": "guards",
+      "entry": "core-journeys-offline",
+      "role": "bash,cargo,git,nextest,node,pnpm,python,python:yaml",
+      "pythonBootstrap": "node scripts/ci-python-env.mjs"
+    },
+    {
+      "file": "tests-pr.yml",
+      "jobId": "plugins",
+      "entry": "plugin-check",
+      "role": "bash,git,node,pnpm",
+      "pythonBootstrap": null
+    },
+    {
+      "file": "tests-pr.yml",
+      "jobId": "ts-static",
+      "entry": "ts-unused-exports",
+      "role": "bash,git,node,pnpm",
+      "pythonBootstrap": null
+    },
+    {
+      "file": "tests-pr.yml",
+      "jobId": "ts-static",
+      "entry": "ts-knip-report",
+      "role": "bash,git,node,pnpm",
+      "pythonBootstrap": null
+    },
+    {
+      "file": "tests-pr.yml",
+      "jobId": "ts-static",
+      "entry": "ts-api-effects",
+      "role": "bash,git,node,pnpm",
+      "pythonBootstrap": null
+    },
+    {
+      "file": "tests-pr.yml",
+      "jobId": "ts-static",
+      "entry": "ts-biome",
+      "role": "bash,git,node,pnpm",
+      "pythonBootstrap": null
+    },
+    {
+      "file": "tests-pr.yml",
+      "jobId": "frontend-dist",
+      "entry": "ts-typecheck",
+      "role": "bash,git,node,pnpm",
+      "pythonBootstrap": null
+    },
+    {
+      "file": "tests-pr.yml",
+      "jobId": "frontend-windows",
+      "entry": "frontend-windows-build",
+      "role": "bash,git,node,pnpm",
+      "pythonBootstrap": null
+    },
+    {
+      "file": "tests-pr.yml",
+      "jobId": "ts-types",
+      "entry": "ts-generated-types",
+      "role": "bash,cargo,git,node,pnpm",
+      "pythonBootstrap": null
+    },
+    {
+      "file": "tests-pr.yml",
+      "jobId": "ts-unit",
+      "entry": "ts-unit",
+      "role": "bash,git,node,pnpm",
+      "pythonBootstrap": null
+    },
+    {
+      "file": "tests-pr.yml",
+      "jobId": "ts-unit",
+      "entry": "ts-unit-runner-tests",
+      "role": "bash,git,node,pnpm",
+      "pythonBootstrap": null
+    },
+    {
+      "file": "tests-pr.yml",
+      "jobId": "ts-vitest",
+      "entry": "ts-vitest",
+      "role": "bash,git,node,pnpm",
+      "pythonBootstrap": null
+    },
+    {
+      "file": "tests-pr.yml",
+      "jobId": "ts-plugins",
+      "entry": "plugin-bundles",
+      "role": "bash,git,node,pnpm",
+      "pythonBootstrap": null
+    },
+    {
+      "file": "tests-pr.yml",
+      "jobId": "ts-plugins",
+      "entry": "plugin-tests",
+      "role": "bash,git,node,pnpm",
+      "pythonBootstrap": null
+    }
+  ]
+}

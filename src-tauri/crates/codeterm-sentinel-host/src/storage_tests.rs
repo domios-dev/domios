@@ -40,6 +40,9 @@ fn temp_root() -> tempfile::TempDir {
 }
 
 fn open(root: &Path) -> Storage {
+    if !Storage::database_path(root).exists() {
+        codeterm_storage::test_support::seed_empty_root(root);
+    }
     Storage::open(root, StorageConfig::default()).expect("open storage")
 }
 

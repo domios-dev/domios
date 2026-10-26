@@ -713,6 +713,44 @@ fn relay_non_send_paths_untouched() {
 }
 
 #[test]
+fn nested_relay_targets_are_rejected() {
+    for path in [
+        "/api/mesh/relay",
+        "/api/mesh/relay?target=local",
+        "/api/mesh/relay#fragment",
+    ] {
+        assert!(validate_relay_path(path).is_err(), "{path}");
+    }
+}
+
+#[test]
+fn local_only_relay_targets_are_rejected() {
+    for path in [
+        "/api/secrets/items",
+        "/api/secrets/opaque/value",
+        "/api/mesh/debug/sign",
+        "/api/supporter/token",
+        "/api/analytics/usage",
+        "/api/agents/reparent",
+        "/api/teams/team/adopt-remote",
+        "/api/account/status",
+        "/api/account/logout",
+        "/api/cli/rpc",
+        "/api/model-providers",
+        "/api/mesh/link",
+        "/api/mesh/disconnect",
+        "/api/mesh/unrevoke",
+        "/api/mesh/peers/disconnect/peer",
+        "/api/blueprints/graph/webhook/configure",
+    ] {
+        for suffix in ["", "?source=peer", "#fragment"] {
+            let target = format!("{path}{suffix}");
+            assert!(validate_relay_path(&target).is_err(), "{target}");
+        }
+    }
+}
+
+#[test]
 fn valid_relay_paths_pass() {
     assert!(validate_relay_path("/api/tabs/abc/output").is_ok());
     assert!(validate_relay_path("/api/tabs/abc/send").is_ok());

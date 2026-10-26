@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import {
   MODES, candidateFilter, captureCommand, compile, executedCount, executionGroups, generatedDirectories, platformFilter,
-  platformLane, requireTestSuccess, runArgs, timingAuditArgs, timingPlan, verifyReceipts, withOverlayExclusions,
+  platformLane, requireTestSuccess, runArgs, slowTestReport, timingAuditArgs, timingPlan, verifyReceipts, withOverlayExclusions,
 } from '../ci-rust-tests.mjs';
 
 const receipt = (overrides = {}) => ({ mode: 'full', runner: 'eight', os: 'Linux', arch: 'X64', sha: 'abc', executed: 6709, exit: 0, seconds: 128, ...overrides });
@@ -104,11 +104,17 @@ test('local runs compile in place with the lane targets and serialize only candi
   assert.equal(alone[alone.indexOf('--test-threads') + 1], '1');
 });
 
-test('only non-release macOS runs enforce with serial confirmation', () => {
-  assert.deepEqual(timingPlan({ release: false, os: 'macOS' }), { confirm: true, policy: 'enforce' });
-  for (const plan of [{ release: true, os: 'macOS' }, { release: false, os: 'Windows' }, { release: false, os: 'Linux' }]) {
+test('test duration never fails a run and slow tests become one sorted warning table', () => {
+  for (const plan of [{ release: false, os: 'macOS' }, { release: true, os: 'macOS' }, { release: false, os: 'Windows' }, { release: false, os: 'Linux' }]) {
     assert.deepEqual(timingPlan(plan), { confirm: false, policy: 'advisory' });
   }
+  const entries = [{ binary: 'b', test: 'fast', measuredSeconds: 0.5 }, { binary: 'b', test: 'slow', measuredSeconds: 0.6 },
+    { binary: 'c', test: 'slower', measuredSeconds: 2 }];
+  const report = slowTestReport(entries, 'full', 'runner');
+  assert.equal(report.count, 2);
+  assert.ok(report.markdown.indexOf('slower') < report.markdown.indexOf('| b | slow |'));
+  assert.doesNotMatch(report.markdown, /\| fast \|/);
+  assert.deepEqual(slowTestReport([entries[0]], 'full', 'runner'), { count: 0, markdown: '' });
   assert.deepEqual(timingAuditArgs(['GUARD'], 'ALONE', 'enforce'), ['GUARD', '--alone', 'ALONE', '--policy', 'enforce']);
   assert.deepEqual(timingAuditArgs(['GUARD'], undefined, 'advisory'), ['GUARD', '--policy', 'advisory']);
 });
@@ -131,13 +137,13 @@ test('advisory audits pass on parallel timings while enforce requires serial con
   }
 });
 
-test('listener isolation preserves every selected test and omits only empty groups', () => {
+test('REST API listener tests stay out of CI groups; they run as a curated suite', () => {
   const normal = { name: 'tests::normal' };
   const listener = { name: 'startup::rest_api::tests::rebind' };
   assert.deepEqual(executionGroups([]), []);
   assert.deepEqual(executionGroups([normal]), [{ listener: false, selected: [normal] }]);
-  assert.deepEqual(executionGroups([listener]), [{ listener: true, selected: [listener] }]);
-  assert.deepEqual(executionGroups([normal, listener]).flatMap((g) => g.selected), [normal, listener]);
+  assert.deepEqual(executionGroups([listener]), []);
+  assert.deepEqual(executionGroups([normal, listener]).flatMap((g) => g.selected), [normal]);
 });
 
 test('captured nextest logs settle both streams and retain failing process status', async () => {

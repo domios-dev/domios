@@ -28,6 +28,7 @@ fn assert_retained(state: RetainedState) {
                 team.id
             });
             let fixture = ServiceFixture::new(mux);
+            codeterm_storage::test_support::seed_empty_root(&temp.path().join("storage"));
             let storage =
                 codeterm_storage::Storage::open(&temp.path().join("storage"), Default::default())
                     .unwrap();

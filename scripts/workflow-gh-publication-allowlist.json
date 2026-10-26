@@ -17,6 +17,5 @@
   "release-windows.yml:build:Publish per-platform updater fragment": "Release publication, published-asset/issue verification or branch promotion requires the local release CLI.",
   "release-windows.yml:build:Mirror to public release repo": "Release publication, published-asset/issue verification or branch promotion requires the local release CLI.",
   "release.yml:prepare:Resolve release version": "Release publication, published-asset/issue verification or branch promotion requires the local release CLI.",
-  "release.yml:prepare:Create draft releases before parallel uploads": "Release publication, published-asset/issue verification or branch promotion requires the local release CLI.",
-  "release.yml:promote:Merge the release PR into master": "Release publication, published-asset/issue verification or branch promotion requires the local release CLI."
+  "release.yml:prepare:Create draft releases before parallel uploads": "Release publication, published-asset/issue verification or branch promotion requires the local release CLI."
 }

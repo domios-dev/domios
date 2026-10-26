@@ -7,9 +7,12 @@ default-run = "codeterm"
 
 [workspace]
 members = ["crates/codeterm-process-identity", "crates/codeterm-paths", "crates/domios-server", "crates/codeterm-crash", "crates/codeterm-worker-services", "crates/codeterm-local-preview", "crates/codeterm-lanes", "crates/codeterm-api", ".", "crates/codeterm-input-macos", "crates/codeterm-input-windows", "crates/codeterm-account", "crates/codeterm-billing", "crates/codeterm-analytics", "crates/codeterm-frontend-bundle", "crates/codeterm-types", "crates/codeterm-wire", "crates/codeterm-sentinel", "crates/codeterm-decision", "crates/codeterm-provider-signals", "crates/codeterm-util", "crates/codeterm-browser", "crates/codeterm-mesh", "crates/codeterm-mem", "crates/codeterm-plan", "crates/codeterm-bridge", "crates/codeterm-pty", "crates/codeterm-plugin", "crates/codeterm-plugins", "crates/codeterm-storage", "crates/codeterm-agent-detect", "crates/codeterm-notification-core", "crates/codeterm-repowatch", "crates/codeterm-usage", "crates/codeterm-blueprint-types", "crates/codeterm-local-recording", "crates/codeterm-notify-types", "crates/codeterm-events", "crates/codeterm-config", "crates/codeterm-secrets", "crates/codeterm-keepawake", "crates/codeterm-cron", "crates/codeterm-shutdown", "crates/codeterm-service-core", "crates/codeterm-surface", "crates/codeterm-notifications",
-    "crates/codeterm-provider-ops", "crates/codeterm-recall", "crates/codeterm-supporter", "crates/codeterm-socket", "crates/codeterm-commands", "crates/codeterm-sentinel-host", "crates/codeterm-orchestration", "crates/codeterm-build-info", "crates/codeterm-prompts", "crates/codeterm-agent-model", "crates/codeterm-entitlements", "crates/codeterm-update", "crates/codeterm-client-shell", "crates/codeterm-frontend-shell", "tools/codeterm-devtools"]
+    "crates/codeterm-provider-ops", "crates/codeterm-recall", "crates/codeterm-supporter", "crates/codeterm-socket", "crates/codeterm-commands", "crates/codeterm-sentinel-host", "crates/codeterm-orchestration", "crates/codeterm-build-info", "crates/codeterm-prompts", "crates/codeterm-agent-model", "crates/codeterm-entitlements", "crates/codeterm-update", "crates/codeterm-client-shell", "crates/codeterm-frontend-shell", "tools/codeterm-devtools", "../cli"]
 exclude = ["pty-fork", "vendor/tauri-runtime-wry"]
 resolver = "2"
+
+[workspace.package]
+license = "AGPL-3.0-only"
 
 [workspace.lints.rust]
 warnings = "deny"
@@ -85,6 +88,14 @@ debug = "line-tables-only"
 
 [profile.dev.package."*"]
 debug = false
+
+# Building the CLI's clap command is ~10^4x slower unoptimized; dev/test parsing otherwise hangs for minutes.
+[profile.dev.package.codeterm-cli]
+opt-level = 1
+
+# Agents exec the release CLI constantly; incremental keeps its iterative release rebuilds cheap.
+[profile.release.package.codeterm-cli]
+incremental = true
 
 [profile.test]
 split-debuginfo = "unpacked"

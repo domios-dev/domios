@@ -1,5 +1,6 @@
 #[test]
-#[ignore = "downloads immutable model weights; explicitly run by rust-embeddings CI"]
+// Real-model oracle, deliberately kept out of CI: run it with `./build.sh embedding-parity` or the evals when the embedder changes.
+#[ignore = "runs real model weights; never in CI, run by hand via build.sh embedding-parity"]
 fn candle_embedding_matches_fastembed_golden() {
     let fixture: serde_json::Value =
         serde_json::from_str(include_str!("../../tests/fixtures/embed_parity.json")).unwrap();
