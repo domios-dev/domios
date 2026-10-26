@@ -403,6 +403,7 @@ fn discover() -> Vec<(String, String, PathBuf)> {
 }
 
 #[test]
+#[ignore = "curated eval, not part of the test suite: run with evals/agent-state/run.sh"]
 fn agent_state_replay_eval() {
     let root = fixtures_root();
     if !root.exists() {

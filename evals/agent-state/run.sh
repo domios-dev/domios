@@ -13,4 +13,4 @@ source "$ROOT/evals/_lib/lib.sh"   # auto dev_env; never aborts when dev is down
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-/Users/user/Developer/.psetup-target}"
 
 cd "$ROOT/src-tauri"
-exec cargo test -p codeterm-devtools --test agent_state_replay -- --nocapture
+exec cargo test -p codeterm-devtools --test agent_state_replay -- --include-ignored --nocapture
