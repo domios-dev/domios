@@ -63,7 +63,6 @@ jobs:
     # A release branch's push already runs these checks on the exact SHA in release.yml.
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' }}
     # Every job waits on this gate, so any free light runner takes it.
-    environment: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && 'ci' || '' }}
     runs-on: ${{ vars.CI_LINUX_LIGHT_RUNNER || fromJSON('["self-hosted","Linux","light","host-ubunta"]') }}
     permissions:
       contents: read
@@ -350,7 +349,6 @@ jobs:
     name: clippy (linux)
     needs: changed
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.heavy == 'true') }}
-    environment: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private') && 'ci' || '' }}
     runs-on: ${{ vars.CI_LINUX_RUST_COMPILE_RUNNER == 'private' && fromJSON('["self-hosted","Linux","linux-build","host-ubunta"]') || 'ubuntu-24.04' }}
     permissions:
       contents: read
@@ -478,7 +476,6 @@ jobs:
     name: cli tests
     needs: changed
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (needs.changed.outputs.heavy == 'true' || github.event_name == 'workflow_dispatch' && inputs.scope == 'fast') }}
-    environment: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private') && 'ci' || '' }}
     runs-on: ${{ vars.CI_LINUX_RUST_COMPILE_RUNNER == 'private' && fromJSON('["self-hosted","Linux","linux-build","host-ubunta"]') || 'ubuntu-24.04' }}
     permissions:
       contents: read

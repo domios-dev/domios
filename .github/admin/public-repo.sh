@@ -64,12 +64,6 @@ jq -n --argjson owner "$owner_id" '{wait_timer:0,prevent_self_review:false,
 api --method PUT "repos/$repo/environments/release" --input "$scratch/environment.json"
 api --method POST "repos/$repo/environments/release/deployment-branch-policies" -f name='release/*' -f type=branch
 
-api --method PUT "repos/$repo/environments/ci" --input - <<'JSON'
-{"wait_timer":0,"reviewers":[],"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}
-JSON
-for branch in rename/domios develop master; do
-  api --method POST "repos/$repo/environments/ci/deployment-branch-policies" -f "name=$branch" -f type=branch
-done
 
 api --method PUT "repos/$repo/actions/permissions/fork-pr-contributor-approval" -f approval_policy=all_external_contributors
 api --method PUT "repos/$repo/actions/permissions/workflow" -f default_workflow_permissions=read -F can_approve_pull_request_reviews=false
@@ -81,8 +75,6 @@ api --method PUT "repos/$repo/actions/permissions/fork-pr-workflows-private-repo
 api "repos/$repo/rulesets" --paginate
 api "repos/$repo/environments/release"
 api "repos/$repo/environments/release/deployment-branch-policies"
-api "repos/$repo/environments/ci"
-api "repos/$repo/environments/ci/deployment-branch-policies"
 api "repos/$repo/actions/permissions/fork-pr-contributor-approval"
 api "repos/$repo/actions/permissions/workflow"
 api "repos/$repo/actions/runners" --paginate

@@ -12,7 +12,7 @@ export FIXTURE_DISCOVERED="$discovered" FIXTURE_QUERY_LOG="$WORK/query"
 cat > "$WORK/vswhere" <<'FAKE'
 #!/usr/bin/env bash
 set -euo pipefail
-[ "$*" = '-latest -products * -version [17.0,18.0) -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath' ]
+[ "$*" = '-latest -products * -version [17.0,) -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath' ]
 printf 'query\n' >> "$FIXTURE_QUERY_LOG"
 printf '%s\r\n' "$FIXTURE_DISCOVERED"
 FAKE

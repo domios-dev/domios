@@ -222,7 +222,7 @@ ct_msvc_build_tools_base() {
   fi
   discovered=""
   if [ -f "$vswhere" ]; then
-    discovered="$("$vswhere" -latest -products '*' -version '[17.0,18.0)' \
+    discovered="$("$vswhere" -latest -products '*' -version '[17.0,)' \
       -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 \
       -property installationPath | tr -d '\r' | tr '\\' '/')" || discovered=""
   fi
