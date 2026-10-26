@@ -1,0 +1,78 @@
+name: Store probe
+
+# Throwaway probe: every one of our runners picks its store route, starts sccache against the shared S3
+# cache, and round-trips an object, so a broken route shows in minutes without a release run.
+on:
+  push:
+    branches: [ci/store-probe]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: store on ${{ matrix.host }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - host: ubunta
+            labels: '["self-hosted","Linux","light","host-ubunta"]'
+          - host: ROG
+            labels: '["self-hosted","Windows","host-rog"]'
+          - host: BLACKSTAR
+            labels: '["self-hosted","Windows","host-blackstar"]'
+          - host: eight
+            labels: '["self-hosted","macOS","host-eight"]'
+          - host: air
+            labels: '["self-hosted","macOS","host-air"]'
+    runs-on: ${{ fromJSON(matrix.labels) }}
+    timeout-minutes: 10
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      CI_STORE_LAN_ENDPOINT: ${{ secrets.CI_STORE_LAN_ENDPOINT }}
+      CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
+      CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
+      KEY: store-probe/${{ github.run_id }}/${{ matrix.host }}.bin
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 1
+      - name: Put tools on PATH
+        run: node scripts/ci-runner-paths.mjs --paths-only
+      - name: Route, sccache against the shared store, object round trip
+        run: |
+          set -uo pipefail
+          source scripts/ci-store.sh
+          echo "route: $CT_CI_STORE_ROUTE"
+          for route in lan public; do
+            var=CI_STORE_$(echo "$route" | tr a-z A-Z)_ENDPOINT
+            ep=${!var}
+            if ct_ci_store_answers "$ep"; then health=ok; else health=fail; fi
+            port=$((4300 + RANDOM % 500))
+            ssl=false; case "$ep" in https://*) ssl=true ;; esac
+            out=$(SCCACHE_SERVER_PORT=$port SCCACHE_ENDPOINT="$ep" SCCACHE_BUCKET=sccache SCCACHE_REGION=us-east-1 \
+              SCCACHE_S3_USE_SSL=$ssl SCCACHE_IDLE_TIMEOUT=0 sccache --start-server 2>&1)
+            if [ $? -eq 0 ]; then
+              loc=$(SCCACHE_SERVER_PORT=$port sccache --show-stats 2>&1 | grep -i 'cache location' | sed 's/  */ /g')
+              SCCACHE_SERVER_PORT=$port sccache --stop-server >/dev/null 2>&1
+              echo "| ${{ matrix.host }} | $route | curl $health | sccache ok ($loc) |" | tee -a "$GITHUB_STEP_SUMMARY"
+            else
+              reason=$(printf '%s' "$out" | sed "s#$ep#<store>#g" | grep -i error | head -1)
+              echo "| ${{ matrix.host }} | $route | curl $health | sccache FAIL: $reason |" | tee -a "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+          head -c 52428800 /dev/urandom > "$RUNNER_TEMP/probe.bin" 2>/dev/null || dd if=/dev/urandom of="$RUNNER_TEMP/probe.bin" bs=1048576 count=50 2>/dev/null
+          start=$(date +%s)
+          if bash scripts/ci-artifact.sh put "$KEY" "$RUNNER_TEMP/probe.bin" >/dev/null && \
+             bash scripts/ci-artifact.sh get "$KEY" "$RUNNER_TEMP/back.bin" >/dev/null && \
+             cmp -s "$RUNNER_TEMP/probe.bin" "$RUNNER_TEMP/back.bin"; then
+            echo "| ${{ matrix.host }} | ci-artifact via $CT_CI_STORE_ROUTE | 50 MB put+get ok in $(( $(date +%s) - start ))s |" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "| ${{ matrix.host }} | ci-artifact via $CT_CI_STORE_ROUTE | put/get FAILED |" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+          bash scripts/ci-artifact.sh rm "$KEY" >/dev/null 2>&1 || true
