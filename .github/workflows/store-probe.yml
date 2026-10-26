@@ -89,3 +89,7 @@ jobs:
             echo "| ${{ matrix.host }} | ci-artifact via $CT_CI_STORE_ROUTE | put/get FAILED |" | tee -a "$GITHUB_STEP_SUMMARY"
           fi
           bash scripts/ci-artifact.sh rm "$KEY" >/dev/null 2>&1 || true
+      - name: The real CI cache check (build.sh cache-verify)
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: bash build.sh cache-verify
