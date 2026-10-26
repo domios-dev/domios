@@ -256,9 +256,10 @@ ct_msvc_native_arm64_env() {
 setup_env() {
   if [[ "$OSTYPE" != darwin* ]] && [[ "$OSTYPE" != linux* ]]; then
     if [ "$CMD" = release-arm64-compile ]; then
-      # An x64 host cross-compiles: rustc and cc locate MSVC's ARM64 tools per target, and a global ARM64
-      # environment would break the x64 build scripts.
-      if [ -z "${VSCMD_ARG_HOST_ARCH:-}" ]; then
+      # An x64 host cross-compiles: rustc and cc locate MSVC's tools per target. An inherited developer
+      # environment (the runner's x64 one) would hand x64 libraries to the ARM64 link, so it is dropped.
+      if [ "${VSCMD_ARG_HOST_ARCH:-}" != arm64 ]; then
+        unset VSCMD_ARG_HOST_ARCH VSCMD_ARG_TGT_ARCH VSCMD_VER VCINSTALLDIR VCToolsInstallDir LIB LIBPATH INCLUDE
         export npm_config_script_shell="$(cygpath -w "$(command -v bash)")"
         return
       fi
