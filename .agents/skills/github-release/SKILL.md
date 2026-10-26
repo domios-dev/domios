@@ -96,11 +96,9 @@ verifies the anonymous download. Every install refreshes `codeterm-core` from th
    and publishes the exact head's retained green push run through promote_run_id.
    Qualification and packaging must belong to that same run. No master merge
    commit is built. Protected release environments and the publication switch
-   remain required. Runner groups must refuse refs/pull/* workflow refs; workflow
-   if gates alone do not constrain a fork's rewritten workflow. The isolated
-   fork-pr-guard.yml target workflow closes fork release heads and fork PRs into
-   master/release branches using hosted API calls only, without checkout. Signing keys
-   remain out of unsigned compile jobs.
+   remain required. The release PR runs CI, so the trusted runner group serves this
+   repository's workflows without a ref list; every fork PR run waits for owner approval
+   and only the owner merges into master. Signing keys remain out of unsigned compile jobs.
    After publication, synchronize develop through an admin-owned merge PR; workflows
    never push master/develop with GITHUB_TOKEN.
    Two nightly schedules qualify dev as fallback. Fast checks own

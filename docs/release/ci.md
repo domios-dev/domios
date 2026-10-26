@@ -62,11 +62,9 @@ validate the same-repository release/X.Y.Z push head, owner actors,
 green jobs, exact SHA, producing run and attempt. All retained artifacts are
 verified before publication; the master merge commit is never a build source.
 The existing release environment and publication switch still protect shipping.
-Fork PRs never acquire private runners, environments or secrets. Organization
-runner groups admit only approved branch workflow refs and reject refs/pull/*;
-workflow conditions alone cannot constrain a fork-rewritten workflow. The isolated
-fork-pr-guard.yml target workflow closes fork PRs with a release/* head, master
-base or release/* base using only hosted github-script API calls, without checkout. Hosted unsigned
+CI runs from the owner's release/X.Y.Z PR, so the trusted runner group serves this
+repository's workflows without a ref list. A fork PR's run waits for owner approval,
+fork PRs receive no secrets, and only the owner merges into master. Hosted unsigned
 compile jobs receive only their existing public build configuration; signing
 credentials remain in protected signing jobs. Branch synchronization after
 publication is an admin-owned merge PR, never a workflow push to master/develop.
