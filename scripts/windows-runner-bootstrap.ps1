@@ -121,13 +121,20 @@ function Install-Pnpm([string]$NodeDir) {
     return $prefix
 }
 
+# Each shim has a .cmd for cmd/PowerShell and an extensionless script for the Git Bash that build.sh runs in.
+function Write-NodeShim([string]$Directory, [string]$Name, [string]$NodeDir, [string]$Script) {
+    Set-Content -Encoding ascii -Path (Join-Path $Directory "$Name.cmd") -Value "@echo off`r`n`"$NodeDir\node.exe`" `"$Script`" %*"
+    $node = ($NodeDir -replace '\\', '/') + '/node.exe'
+    [IO.File]::WriteAllText((Join-Path $Directory $Name), "#!/bin/sh`nexec `"$node`" `"$($Script -replace '\\', '/')`" `"`$@`"`n", [Text.Encoding]::ASCII)
+}
+
 function Write-RunnerShims([string]$NodeDir, [string]$PnpmPrefix) {
     $shim = Join-Path $ToolsRoot "runner-shims"
     New-Item -ItemType Directory -Force -Path $shim | Out-Null
-    Set-Content -Encoding ascii -Path (Join-Path $shim "npm.cmd") -Value "@echo off`r`n`"$NodeDir\node.exe`" `"$NodeDir\node_modules\npm\bin\npm-cli.js`" %*"
-    Set-Content -Encoding ascii -Path (Join-Path $shim "npx.cmd") -Value "@echo off`r`n`"$NodeDir\node.exe`" `"$NodeDir\node_modules\npm\bin\npx-cli.js`" %*"
-    Set-Content -Encoding ascii -Path (Join-Path $shim "corepack.cmd") -Value "@echo off`r`n`"$NodeDir\node.exe`" `"$NodeDir\node_modules\corepack\dist\corepack.js`" %*"
-    Set-Content -Encoding ascii -Path (Join-Path $shim "pnpm.cmd") -Value "@echo off`r`n`"$NodeDir\node.exe`" `"$PnpmPrefix\node_modules\pnpm\bin\pnpm.cjs`" %*"
+    Write-NodeShim $shim "npm" $NodeDir "$NodeDir\node_modules\npm\bin\npm-cli.js"
+    Write-NodeShim $shim "npx" $NodeDir "$NodeDir\node_modules\npm\bin\npx-cli.js"
+    Write-NodeShim $shim "corepack" $NodeDir "$NodeDir\node_modules\corepack\dist\corepack.js"
+    Write-NodeShim $shim "pnpm" $NodeDir "$PnpmPrefix\node_modules\pnpm\bin\pnpm.cjs"
     return $shim
 }
 
