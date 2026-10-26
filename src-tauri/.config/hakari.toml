@@ -45,3 +45,8 @@ third-party = [
     { name = "safetensors" },
     { name = "esaxx-rs" },
 ]
+
+# The app's GUI crates (the only Tauri users) stay out of the traversal, so the shared workspace-hack never
+# carries Tauri, wry, tao, gtk or objc2 into the server or shared crates on any platform.
+[traversal-excludes]
+workspace-members = ["codeterm", "codeterm-client-shell"]

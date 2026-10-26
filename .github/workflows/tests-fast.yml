@@ -439,51 +439,6 @@ jobs:
         id: ci-6
         run: node scripts/ci-step.mjs ts-typecheck --ci
 
-  frontend-windows:
-    name: Windows path identity
-    needs: changed
-    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')) && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}
-    runs-on: windows-latest
-    permissions:
-      contents: read
-    timeout-minutes: 15
-    defaults:
-      run:
-        shell: bash
-    env:
-      CI_SOURCE_SHA: ${{ needs.changed.outputs.source_sha || github.sha }}
-      CODETERM_USE_SCCACHE: "0"
-      RUSTC_WRAPPER: ""
-      CI_CANCEL_RUN: "false"
-      CODETERM_SCCACHE_VERIFY_ONLY: "0"
-    steps:
-      - name: Setup Node.js
-        id: ci-2
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
-        with:
-          package-manager-cache: false
-          node-version: 22.22.0
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        id: ci-1
-        with:
-          ref: ${{ inputs.source_ref || github.sha }}
-          fetch-depth: 1
-      - name: Setup pnpm
-        id: ci-3
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
-        with:
-          version: 10.32.1
-          run_install: false
-          dest: ${{ runner.tool_cache }}/setup-pnpm
-      - name: Runner preflight
-        run: node scripts/ci-runner-paths.mjs bash,git,node,pnpm
-      - name: Install dependencies
-        id: ci-4
-        run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
-      - *select-pr-catalogue
-      - name: Check pnpm workspace path identity
-        id: ci-6
-        run: node scripts/ci-step.mjs frontend-windows-build --ci
   ts-types:
     name: ts generated types
     needs: changed

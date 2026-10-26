@@ -1,6 +1,7 @@
 {
   "client": ["codeterm", "codeterm-client-shell"],
   "shared": [
+    "workspace-hack",
     "codeterm-build-info",
     "codeterm-crash",
     "codeterm-frontend-shell",
