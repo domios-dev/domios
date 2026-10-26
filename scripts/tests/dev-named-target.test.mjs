@@ -17,7 +17,7 @@ for (const platform of ['windows','linux']) for (const wait of [0, 1]) {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-named-target-'));
     try {
       const exe = platform === 'windows' ? '.exe' : '';
-      const defaultApp = path.join(directory, `src-tauri/target/debug/codeterm${exe}`);
+      const defaultApp = path.join(directory, `src-tauri/target/debug/domios-app${exe}`);
       fs.mkdirSync(path.dirname(defaultApp), { recursive: true });
       fs.writeFileSync(defaultApp, 'default running artifact');
       const result = spawnSync(bash, ['-c', `set -euo pipefail
@@ -71,7 +71,7 @@ done
 `, '--', directory, String(wait), platform === 'windows'?'msys':'linux-gnu'], { encoding: 'utf8' });
       assert.equal(result.status, 0, result.stderr);
       for (const instance of ['meshqa', 'welcomeqa']) {
-        const app = path.join(directory, 'src-tauri/target/dev-instances', instance, `debug/codeterm${exe}`);
+        const app = path.join(directory, 'src-tauri/target/dev-instances', instance, `debug/domios-app${exe}`);
         assert.equal(fs.readFileSync(app, 'utf8'), instance);
         const staged = platform === 'windows' ? path.join(path.dirname(app), 'domios-dev-app.exe') : path.join(path.dirname(app),'.domios-dev-runtime/bin/domios-dev-app');
         assert.equal(fs.readFileSync(staged, 'utf8'), instance);

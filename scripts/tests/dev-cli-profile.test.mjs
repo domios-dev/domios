@@ -126,7 +126,7 @@ printf '%s\\n' "$built_cli_artifact" "$native" "$(cat "$built_cli_artifact")" "$
         assert.equal(result.status, 0, result.stderr);
         const [cli, native, cliBytes, nativeBytes, receipt] = result.stdout.trim().split(/\r?\n/);
         assert.ok(cli.endsWith(`/${target ? target + '/' : ''}debug/codeterm${extension}`));
-        assert.ok(native.endsWith(`/${target ? target + '/' : ''}debug/codeterm${extension}`));
+        assert.ok(native.endsWith(`/${target ? target + '/' : ''}debug/domios-app${extension}`));
         assert.notEqual(cli, native);
         assert.equal(cliBytes, 'opaque-cli-bytes');
         assert.equal(nativeBytes, 'opaque-native-bytes');
