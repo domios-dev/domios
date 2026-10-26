@@ -255,8 +255,10 @@ pub fn launch_with_dispatch(
             codeterm_plugin::js_runtime::refresh_user_path();
             crate::agent::model_catalog::invalidate(&provider);
             let old_version = target.as_ref().map(|v| v.current_version.clone());
-            let new_version = if explicit_update { version_path.as_deref().and_then(|path| codeterm_plugin::provider_version::refresh(path).version) } else { None };
             let status = super::provider_cli::provider_cli_status(&service.provider_registry, &provider, platform).ok();
+            // An update may install a copy that now wins on PATH; verify the binary resolved after it, not before.
+            let verified_path = status.as_ref().and_then(|s| s.resolved_path.clone()).or(version_path);
+            let new_version = if explicit_update { verified_path.as_deref().and_then(|path| codeterm_plugin::provider_version::refresh(path).version) } else { None };
             let success = if explicit_update {
                 update::verified(completion.and_then(ExecCompletion::exit_code), target.as_ref().map(|v| v.latest_version.as_str()), new_version.as_deref())
             } else { completion.and_then(ExecCompletion::exit_code) == Some(0) && status.as_ref().and_then(|s| s.installed) == Some(true) };
