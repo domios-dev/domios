@@ -10,7 +10,7 @@ operation. Existing live rules do not change when that script is edited.
 | Owner push to release/X.Y.Z | Full CI on the PR head SHA, qualification, then signed packaging of all six platforms with retained dry-run artifacts in the same run |
 | All PRs, including release PRs and forks | Hosted, read-only, secret-free guards; release heads run only light policy/body checks |
 | Owner push to develop, rename/domios or master | Complete qualification unless develop carries a release push head SHA; that duplicate skips heavy work with a notice |
-| Admin merges release PR into master | Verify a real merge with the release head as second parent, then publish the retained bytes from that exact head's green push run through promote_run_id; never rebuild the merge commit |
+| Admin merges release PR into master | Verify the squashed master commit carries exactly the release head tree, then publish the retained bytes from that exact head's green push run through promote_run_id; never rebuild the merge commit |
 | Nightly | Complete qualification of rename/domios and develop |
 | Owner CI dispatch, scope=fast | All fast contracts against source_ref on their existing runner kinds; no Clippy, full/native Rust, embeddings or qualification |
 
@@ -55,7 +55,7 @@ Release PR checks, so their light success cannot mask the push CI result. PR run
 and secret-free, including PR body checks; they never start heavy packaging.
 Develop admission skips a SHA already owned by a release push run.
 
-An admin merges the green release PR with a real merge commit. The master push
+An admin squash-merges the green release PR (the only allowed method; the branch is deleted). The master push
 event discovers the merged release PR, verifies the merge parents, selects the successful tests.yml push run of
 the same release head, and sets promote_run_id. Qualification and promotion
 validate the same-repository release/X.Y.Z push head, owner actors,
