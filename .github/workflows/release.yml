@@ -55,7 +55,7 @@ concurrency:
 jobs:
   qualified-source:
     name: admit release head
-    if: ${{ !cancelled() && (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/release/'))) }}
+    if: ${{ !cancelled() && (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')))) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -105,7 +105,7 @@ jobs:
   prepare:
     name: prepare release
     needs: qualified-source
-    if: ${{ always() && (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/release/'))) && (github.event_name == 'workflow_dispatch' || (needs.qualified-source.result == 'success' && needs.qualified-source.outputs.source_sha != '')) }}
+    if: ${{ always() && (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')))) && (github.event_name == 'workflow_dispatch' || (needs.qualified-source.result == 'success' && needs.qualified-source.outputs.source_sha != '')) }}
     environment: release
     runs-on: [self-hosted, linux-build]
     timeout-minutes: 30
@@ -303,7 +303,7 @@ jobs:
   frontend-dist:
     name: frontend bundle
     needs: prepare
-    if: ${{ !cancelled() && (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/release/'))) && needs.prepare.result == 'success' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == '' }}
+    if: ${{ !cancelled() && (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')))) && needs.prepare.result == 'success' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == '' }}
     environment: release
     runs-on: [self-hosted, linux-build]
     timeout-minutes: 20
@@ -468,7 +468,7 @@ jobs:
   promote-evidence:
     name: promote qualified dry-run evidence
     needs: prepare
-    if: ${{ !cancelled() && (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/release/'))) && needs.prepare.result == 'success' && needs.prepare.outputs.promote_run_id != '' && vars.RELEASE_PUBLISH_ENABLED == 'true' && needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' }}
+    if: ${{ !cancelled() && (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')))) && needs.prepare.result == 'success' && needs.prepare.outputs.promote_run_id != '' && vars.RELEASE_PUBLISH_ENABLED == 'true' && needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' }}
     environment: release
     runs-on: [self-hosted, linux-build]
     timeout-minutes: 120

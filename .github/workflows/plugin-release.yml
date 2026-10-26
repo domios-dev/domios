@@ -18,7 +18,7 @@ permissions:
 jobs:
   publish:
     name: validate and publish plugin
-    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && startsWith(github.ref, 'refs/heads/release/') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
     environment: release
     runs-on: [self-hosted, linux-build]
     steps:
@@ -95,7 +95,7 @@ jobs:
   publish_core_channel:
     name: publish public codeterm-core channel
     needs: publish
-    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && startsWith(github.ref, 'refs/heads/release/') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
     environment: release
     runs-on: [self-hosted, linux-build]
     concurrency:
