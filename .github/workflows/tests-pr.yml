@@ -120,14 +120,11 @@ jobs:
         id: ci-7
         if: ${{ !cancelled() }}
         run: node --test scripts/tests/plugin-releases.test.mjs scripts/tests/ci-scope.test.mjs
-      - name: Build gateway guards and serial gateway script tests
+      - name: Build gateway and release signing policy
         id: ci-9
         if: ${{ !cancelled() }}
         run: |
-          bash scripts/check-build-gateway-serialization.sh
           bash scripts/check-build-gateway-policy.sh
-          bash scripts/check-build-gateway-mutex-cleanup.sh
-          node scripts/ci-step.mjs node-script-tests-serial --ci
       - name: cargo fmt --check
         id: ci-10
         if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}

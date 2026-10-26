@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { sourceRepository } from './source-repository.mjs';
-// Caller: CI release-manifest-validate.yml; scripts tests/release-notes-sync.test.mjs, tests/test_release_workflow_contract.py; skill github-release
+// Caller: CI release-manifest-validate.yml; scripts tests/release-notes-sync.test.mjs; skill github-release
 
 import { manualInstallNotes } from "./legacy-updater-refusal.mjs";
 import { spawnSync } from "node:child_process";
