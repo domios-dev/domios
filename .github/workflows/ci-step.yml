@@ -14,6 +14,8 @@ on:
           - ubunta-build
           - rog-windows
           - hosted-linux
+          - hosted-windows
+          - hosted-macos
           - blackstar-windows
           - eight-macos
       recipe:
@@ -41,8 +43,8 @@ jobs:
   step:
     name: ${{ inputs.recipe }} ${{ inputs.target }} on ${{ inputs.runner }}
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' }}
-    environment: ${{ inputs.runner != 'hosted-linux' && 'ci' || '' }}
-    runs-on: ${{ fromJSON('{"air-macos":["self-hosted","macOS","rust-shard","host-air"],"ubunta-build":["self-hosted","Linux","host-ubunta"],"rog-windows":["self-hosted","Windows","host-rog","windows-build"],"hosted-linux":"ubuntu-24.04","blackstar-windows":["self-hosted","Windows","windows-build","host-blackstar"],"eight-macos":["self-hosted","macOS","codeterm-builder","host-eight"]}')[inputs.runner] }}
+    environment: ${{ !startsWith(inputs.runner, 'hosted-') && 'ci' || '' }}
+    runs-on: ${{ fromJSON('{"air-macos":["self-hosted","macOS","rust-shard","host-air"],"ubunta-build":["self-hosted","Linux","host-ubunta"],"rog-windows":["self-hosted","Windows","host-rog","windows-build"],"hosted-linux":"ubuntu-24.04","hosted-windows":"windows-2025","hosted-macos":"macos-15","blackstar-windows":["self-hosted","Windows","windows-build","host-blackstar"],"eight-macos":["self-hosted","macOS","codeterm-builder","host-eight"]}')[inputs.runner] }}
     timeout-minutes: 60
     env:
       # GitHub withholds secrets from fork pull requests; our hosted jobs use the private store over its public edge.
@@ -50,16 +52,16 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
       CI_STORE_TAILNET_ENDPOINT: ${{ secrets.CI_STORE_TAILNET_ENDPOINT }}
       CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
-      DOMIOS_FIREBASE_API_KEY: ${{ inputs.runner != 'hosted-linux' && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
-      DOMIOS_FIREBASE_PROJECT_ID: ${{ inputs.runner != 'hosted-linux' && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
-      DOMIOS_FIREBASE_APP_ID: ${{ inputs.runner != 'hosted-linux' && secrets.DOMIOS_FIREBASE_APP_ID || '' }}
-      DOMIOS_ACCOUNT_REDEEM_URL: ${{ inputs.runner != 'hosted-linux' && secrets.DOMIOS_ACCOUNT_REDEEM_URL || '' }}
-      DOMIOS_BILLING_FUNCTIONS_URL: ${{ inputs.runner != 'hosted-linux' && secrets.DOMIOS_BILLING_FUNCTIONS_URL || '' }}
+      DOMIOS_FIREBASE_API_KEY: ${{ !startsWith(inputs.runner, 'hosted-') && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
+      DOMIOS_FIREBASE_PROJECT_ID: ${{ !startsWith(inputs.runner, 'hosted-') && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
+      DOMIOS_FIREBASE_APP_ID: ${{ !startsWith(inputs.runner, 'hosted-') && secrets.DOMIOS_FIREBASE_APP_ID || '' }}
+      DOMIOS_ACCOUNT_REDEEM_URL: ${{ !startsWith(inputs.runner, 'hosted-') && secrets.DOMIOS_ACCOUNT_REDEEM_URL || '' }}
+      DOMIOS_BILLING_FUNCTIONS_URL: ${{ !startsWith(inputs.runner, 'hosted-') && secrets.DOMIOS_BILLING_FUNCTIONS_URL || '' }}
       CI_TARGET_ROOT: ${{ github.workspace }}/../ci-targets/step
       CODETERM_ALLOW_EXTERNAL_TARGET: '1'
-      CI_HOSTED: ${{ inputs.runner == 'hosted-linux' }}
-      SCCACHE_GHA_ENABLED: ${{ inputs.runner == 'hosted-linux' && 'true' || 'false' }}
-      CODETERM_SCCACHE_VERIFY_ONLY: ${{ inputs.runner == 'hosted-linux' && '0' || '1' }}
+      CI_HOSTED: ${{ startsWith(inputs.runner, 'hosted-') }}
+      SCCACHE_GHA_ENABLED: ${{ startsWith(inputs.runner, 'hosted-') && 'true' || 'false' }}
+      CODETERM_SCCACHE_VERIFY_ONLY: ${{ startsWith(inputs.runner, 'hosted-') && '0' || '1' }}
       CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
       STEP_RECIPE: ${{ inputs.recipe }}
       STEP_TARGET: ${{ inputs.target }}
