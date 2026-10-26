@@ -47,6 +47,7 @@
 - Keep machine-level sccache and tuned Cargo profiles. Never share final target directories across worktrees or hand-compose cache/gateway settings.
 - `lane-check` alone selects shared lane intermediates; canonical gateway jobs own the stable `X:` mapping. Use `build.sh gc` for safe retention cleanup.
 - Warm-build/QA machine selection lives in `codeterm mem`; record it before dispatch. Cache limits and timeout controls belong in the build/gates skills.
+- After any Rust dependency change, run `cargo hakari generate` in `src-tauri`. A new app-only (GUI) dependency goes into the hakari final-excludes; prove the `domios-server` and `codeterm-cli` closures gain no crate and `check-crate-layering.sh` passes. Procedure: build skill, *Workspace-hack*.
 
 ## Lane integration preserves ancestry
 
