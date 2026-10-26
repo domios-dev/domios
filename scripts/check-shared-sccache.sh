@@ -357,8 +357,15 @@ printf 'PASS a hosted job uses the reachable private store with keys, else stays
   RUNNER_ENVIRONMENT=self-hosted
   source "$ROOT/scripts/ci-store.sh"
   [ "$CT_CI_STORE_ENDPOINT" = http://tailnet.invalid:9000 ]
+  curl() { case "$*" in *edge.invalid*) return 0 ;; *) return 7 ;; esac; }
+  source "$ROOT/scripts/ci-store.sh"
+  [ "$CT_CI_STORE_ENDPOINT" = https://edge.invalid ]
+  curl() { return 0; }
+  source "$ROOT/scripts/ci-store.sh"
+  [ "$CT_CI_STORE_ENDPOINT" = http://tailnet.invalid:9000 ]
+  unset -f curl
   unset CI_STORE_PUBLIC_ENDPOINT CI_STORE_TAILNET_ENDPOINT RUNNER_ENVIRONMENT
   source "$ROOT/scripts/ci-store.sh"
   [ -z "$CT_CI_STORE_ENDPOINT" ] && ! ct_ci_store_reachable
 )
-printf 'PASS the store endpoint comes from configuration: hosted jobs use the public edge, our runners the tailnet, never a tracked file\n'
+printf 'PASS the store endpoint comes from configuration: hosted jobs use the public edge, our runners the tailnet then the edge, never a tracked file\n'
