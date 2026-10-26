@@ -1180,7 +1180,7 @@ jobs:
           exit $exitCode
       - name: Retain complete task boundary evidence
         if: ${{ always() && steps.task_boundary.outputs.fresh_receipt_directory == 'true' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: rust-windows-task-local-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: ${{ runner.temp }}/rust-windows-task-local-${{ github.run_id }}-${{ github.run_attempt }}/
@@ -1283,7 +1283,7 @@ jobs:
           if summaries != [('ok', '5', '0', '0')]:
               raise SystemExit(f'Unexpected native summaries: {summaries!r}')
           PY
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           overwrite: true
@@ -1728,7 +1728,7 @@ jobs:
           exit "$node_status"
       - name: Retain complete Linux qualification evidence
         if: ${{ always() && steps.task_boundary.outputs.fresh_receipt_directory == 'true' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sentinel-linux-task-local-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: ${{ runner.temp }}/sentinel-linux-task-local-${{ github.run_id }}-${{ github.run_attempt }}/
@@ -2296,7 +2296,7 @@ jobs:
           exit "$node_status"
       - name: Retain complete Linux Storage qualification evidence
         if: ${{ always() && steps.task_boundary.outputs.fresh_receipt_directory == 'true' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: storage-foundation-linux-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: ${{ runner.temp }}/storage-foundation-linux-${{ github.run_id }}-${{ github.run_attempt }}/
@@ -3305,7 +3305,7 @@ jobs:
           if (( finish_status != 0 )); then exit "$finish_status"; fi
       - name: Retain complete Linux domain qualification evidence
         if: ${{ always() && steps.task_boundary.outputs.fresh_receipt_directory == 'true' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: storage-domains-linux-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: ${{ runner.temp }}/storage-domains-linux-${{ github.run_id }}-${{ github.run_attempt }}/
@@ -3374,7 +3374,7 @@ jobs:
           & .\scripts\windows-sccache-session.ps1 -Operation $env:MAINTENANCE_OPERATION
       - name: Retain fresh maintenance evidence
         if: ${{ always() && steps.maintenance.outputs.fresh_receipt_directory == 'true' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: windows-sccache-maintenance-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: ${{ runner.temp }}/windows-sccache-maintenance-${{ github.run_id }}-${{ github.run_attempt }}/
