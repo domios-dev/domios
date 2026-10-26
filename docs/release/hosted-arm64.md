@@ -2,7 +2,7 @@
 
 The release graph keeps its six platform callers and qualification, publication and
 promotion validators. Linux arm64 and Windows arm64 each call
-`release-arm64-compile.yml`, then finalize on the existing private runner. The other
+`.github/actions/arm64-compile` inside the signing job on the same hosted arm64 runner. The other
 four platforms keep their current paths.
 
 | Platform | Compile, unsigned | Finalize, sign and verify |

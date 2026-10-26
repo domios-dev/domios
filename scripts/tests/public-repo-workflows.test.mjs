@@ -8,7 +8,7 @@ const directory = new URL('../../.github/workflows/', import.meta.url);
 const workflows = Object.fromEntries(readdirSync(directory).filter(name => name.endsWith('.yml'))
   .map(name => [name, parse(readFileSync(new URL(name, directory), 'utf8'))]));
 const github = { repository: 'rollacode/codeterm', repository_owner: 'rollacode', actor: 'rollacode', triggering_actor: 'rollacode', event_name: 'push', ref: 'refs/heads/release/9.9.9', event: { workflow_run: {} } };
-const hostedCompile = (name, id) => name === 'release-arm64-compile.yml' || (name === 'release.yml' && id === 'qualified-source');
+const hostedCompile = (name, id) => name === 'release.yml' && id === 'qualified-source';
 const releaseWorkflow = name => /^(release|frontend-release|plugin-release|publish-plugin-sdk)/.test(name);
 const stringify = value => JSON.stringify(value ?? {});
 const secrets = value => /\bsecrets\./.test(stringify(value));
@@ -153,17 +153,6 @@ test('repository owner policy survives the organization transfer and refuses for
   }
   assert.equal(condition(workflows['release.yml'].jobs.prepare.if, { github: { ...github, repository: 'domios-dev/domios', repository_owner: 'domios-dev', event_name: 'workflow_dispatch' } }), true);
 });
-
-test('hosted arm64 compiler stays outside protected environments with only public client configuration', () => {
-  const workflow = workflows['release-arm64-compile.yml'];
-  assertReadOnly(workflow.permissions);
-  const names = Object.keys(workflow.on.workflow_call.secrets).sort();
-  const references = [...JSON.stringify(workflow).matchAll(/secrets\.([A-Z_]+)/g)].map(match => match[1]).sort();
-  assert.deepEqual(references, names);
-  assert.equal(workflow.jobs.compile.environment, undefined);
-  assert.doesNotMatch(stringify(workflow.jobs.compile['runs-on']), /self-hosted/);
-});
-
 
 test('fork release guard is the only tightly confined pull_request_target workflow',async()=>{
   const guard=workflows['fork-pr-guard.yml'];
