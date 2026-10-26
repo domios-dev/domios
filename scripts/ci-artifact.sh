@@ -86,6 +86,75 @@ s3() {
       --aws-sigv4 "aws:amz:$region:s3" "$@"
 }
 
+# Large objects move in parallel parts: one TCP stream from a far runner cannot fill the store's link.
+part_bytes=$((32 * 1024 * 1024))
+part_streams=8
+
+multipart_put() {
+  local file="$1" size parts work id n etag xml
+  size=$(wc -c < "$file")
+  parts=$(( (size + part_bytes - 1) / part_bytes ))
+  work=$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/ci-artifact-parts.XXXXXX")
+  id=$(s3 --request POST "$url?uploads" | grep -o '<UploadId>[^<]*</UploadId>' | sed 's#</*UploadId>##g')
+  [ -n "$id" ] || { rm -rf "$work"; echo "ci-artifact: store refused a multipart upload for $key" >&2; return 1; }
+  for n in $(seq 1 "$parts"); do
+    while [ "$(jobs -rp | wc -l)" -ge "$part_streams" ]; do wait -n || true; done
+    (
+      dd if="$file" of="$work/$n.part" bs="$part_bytes" skip=$((n - 1)) count=1 2>/dev/null
+      s3 --request PUT --upload-file "$work/$n.part" --dump-header "$work/$n.headers" --output /dev/null \
+        "$url?partNumber=$n&uploadId=$id" && rm -f "$work/$n.part"
+    ) &
+  done
+  wait
+  xml='<CompleteMultipartUpload>'
+  for n in $(seq 1 "$parts"); do
+    etag=$(grep -i '^etag:' "$work/$n.headers" 2>/dev/null | tr -d '\r' | sed 's/^[Ee][Tt][Aa][Gg]: *//')
+    if [ -z "$etag" ]; then
+      s3 --request DELETE "$url?uploadId=$id" >/dev/null || true
+      rm -rf "$work"
+      echo "ci-artifact: part $n of $key did not upload" >&2
+      return 1
+    fi
+    xml+="<Part><PartNumber>$n</PartNumber><ETag>$etag</ETag></Part>"
+  done
+  xml+='</CompleteMultipartUpload>'
+  printf '%s' "$xml" > "$work/complete.xml"
+  s3 --request POST --header 'Content-Type: application/xml' --data-binary "@$work/complete.xml" \
+    "$url?uploadId=$id" | grep -q '<CompleteMultipartUploadResult' || {
+    s3 --request DELETE "$url?uploadId=$id" >/dev/null || true
+    rm -rf "$work"
+    echo "ci-artifact: store did not complete the multipart upload of $key" >&2
+    return 1
+  }
+  rm -rf "$work"
+}
+
+ranged_get() {
+  local file="$1" size parts work n first last
+  size=$(s3 --head "$url" | tr -d '\r' | grep -i '^content-length:' | awk '{print $2}')
+  if [ -z "$size" ] || [ "$size" -le "$part_bytes" ]; then
+    s3 --output "$file" "$url"
+    return
+  fi
+  parts=$(( (size + part_bytes - 1) / part_bytes ))
+  work=$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/ci-artifact-parts.XXXXXX")
+  for n in $(seq 1 "$parts"); do
+    while [ "$(jobs -rp | wc -l)" -ge "$part_streams" ]; do wait -n || true; done
+    first=$(( (n - 1) * part_bytes ))
+    last=$(( n * part_bytes - 1 ))
+    [ "$last" -lt "$size" ] || last=$((size - 1))
+    s3 --range "$first-$last" --output "$work/$n.part" "$url" &
+  done
+  wait
+  : > "$file"
+  for n in $(seq 1 "$parts"); do
+    [ -f "$work/$n.part" ] || { rm -rf "$work"; echo "ci-artifact: part $n of $key did not download" >&2; return 1; }
+    cat "$work/$n.part" >> "$file"
+  done
+  rm -rf "$work"
+  [ "$(wc -c < "$file")" -eq "$size" ] || { echo "ci-artifact: $key arrived truncated" >&2; return 1; }
+}
+
 case "$verb" in
   put|get|get-prefix|rm) ;;
   *) echo "ci-artifact: unknown verb $verb" >&2; exit 2 ;;
@@ -141,13 +210,17 @@ fi
 case "$verb" in
   put)
     file=${3:?missing file}
-    s3 --upload-file "$file" "$url" >/dev/null
+    if [ "$(wc -c < "$file")" -gt "$part_bytes" ]; then
+      multipart_put "$file"
+    else
+      s3 --upload-file "$file" "$url" >/dev/null
+    fi
     record "$key" "private-store:$bucket/$key"
     echo "ci-artifact: put $bucket/$key ($(wc -c < "$file") bytes)"
     ;;
   get)
     file=${3:?missing file}
-    s3 --output "$file" "$url"
+    ranged_get "$file"
     record "$key" "private-store:$bucket/$key"
     echo "ci-artifact: got $bucket/$key ($(wc -c < "$file") bytes)"
     ;;
