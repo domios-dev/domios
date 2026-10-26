@@ -78,6 +78,11 @@ ct_reject_basedir_rewriting() {
     echo "[cache-policy] Basedir rewriting is disallowed for this repo: it can hand back a cache hit built from a different worktree's sources. See .agents/skills/build/SKILL.md." >&2
   fi
   unset SCCACHE_BASEDIRS
+  # A GitHub-hosted job holds exactly one checkout, so the worktree mix-up cannot occur there; stripping
+  # the runner's work root lets C/C++ and Rust keys match across hosted jobs.
+  if [ "${RUNNER_ENVIRONMENT:-}" = github-hosted ] && [ -n "${GITHUB_WORKSPACE:-}" ]; then
+    export SCCACHE_BASEDIRS="$(dirname "$GITHUB_WORKSPACE")"
+  fi
 }
 
 # Cache-key-relevant path scope once basedir rewriting is disabled: sccache
@@ -410,7 +415,7 @@ ct_configure_sccache_locked() {
   echo "[cache-policy] sccache verified before build server start"
   echo "[cache-policy] RUSTC_WRAPPER=$RUSTC_WRAPPER"
   echo "[cache-policy] SCCACHE_DIR=${SCCACHE_DIR:-<default>}"
-  echo "[cache-policy] SCCACHE_BASEDIRS=<disabled: per-worktree cache-key isolation, see .agents/skills/build/SKILL.md>"
+  echo "[cache-policy] SCCACHE_BASEDIRS=${SCCACHE_BASEDIRS:-<disabled: per-worktree cache-key isolation, see .agents/skills/build/SKILL.md>}"
   echo "[cache-policy] $(sccache --version)"
   if [ "${CODETERM_SCCACHE_VERIFY_ONLY:-0}" = 1 ]; then
     ct_sccache_verify
@@ -468,7 +473,7 @@ ct_require_prestarted_sccache_locked() {
   echo "[cache-policy] prestarted shared sccache verified"
   echo "[cache-policy] RUSTC_WRAPPER=$RUSTC_WRAPPER"
   echo "[cache-policy] SCCACHE_DIR=${SCCACHE_DIR:-<default>}"
-  echo "[cache-policy] SCCACHE_BASEDIRS=<disabled: per-worktree cache-key isolation, see .agents/skills/build/SKILL.md>"
+  echo "[cache-policy] SCCACHE_BASEDIRS=${SCCACHE_BASEDIRS:-<disabled: per-worktree cache-key isolation, see .agents/skills/build/SKILL.md>}"
   echo "[cache-policy] $(sccache --version)"
 }
 
