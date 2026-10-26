@@ -686,7 +686,6 @@
           "scripts/tests/release-stage.test.mjs",
           "scripts/tests/release-test-gate.test.mjs",
           "scripts/tests/test_release_issue_contract.py",
-          "scripts/tests/test_release_workflow_contract.py",
           "src-tauri/tauri.conf.json",
           "src-tauri/tauri.dev.conf.json",
           "src-tauri/tauri.dev.conf-restartwin.json",

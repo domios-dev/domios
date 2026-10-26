@@ -55,9 +55,9 @@ on a file two runners discover, on an empty test file, on an invalid field, on a
 | `rust-service-core` | unit | rust | release | no | no | 3600 | nextest-list (fallback static-scan) | `./build.sh nextest app` | `.agents/skills/gates/SKILL.md` |
 | `rust-app` | unit | rust | release | no | no | 900 | nextest-list (fallback static-scan) | `./build.sh nextest shell` | `.agents/skills/gates/SKILL.md` |
 | `rust-devtools` | integration | rust | release | no | no | 900 | nextest-list (fallback static-scan) | `./build.sh nextest devtools` | `.agents/skills/gates/SKILL.md` |
-| `rust-app-agent-state-replay` | eval | rust | manual | no | no | 600 | single | `scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-devtools --test agent_state_replay -- --nocapture` | `evals/agent-state/README.md` |
+| `rust-app-agent-state-replay` | eval | rust | manual | no | no | 600 | single | `evals/agent-state/run.sh` | `evals/agent-state/README.md` |
 | `rust-app-pty-test` | integration | rust | manual | no | no | 600 | single | `scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-devtools --test pty_test` | `.agents/skills/gates/SKILL.md` |
-| `rust-app-snapshot-testbench` | eval | rust | manual | no | no | 600 | single | `scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-devtools --test snapshot_testbench -- --nocapture` | `testbench/README.md` |
+| `rust-app-snapshot-testbench` | eval | rust | manual | no | no | 600 | single | `evals/snapshot-testbench/run.sh` | `testbench/README.md` |
 | `rust-app-state-calibration` | eval | rust | manual | no | no | 600 | single | `scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-devtools --test state_calibration -- --nocapture` | `testbench/README.md` |
 | `rust-app-state-doctor` | eval | rust | manual | no | no | 600 | single | `scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-devtools --test state_doctor state_dump_quality_gate -- --ignored --nocapture` | `testbench/README.md` |
 | `rust-build-info` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-build-info` | `.agents/skills/gates/SKILL.md` |

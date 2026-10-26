@@ -256,16 +256,13 @@ jobs:
         run: node --test scripts/tests/plugin-releases.test.mjs scripts/tests/ci-scope.test.mjs
       # Light services can miss the runner user's rustup on PATH.
       - *cancel-run-on-failure
-      # POSIX-only fixtures that a Windows release-preflight cannot run; policy also covers release signing.
+      # Gateway race and serial suites run locally through build.sh script-guards; policy covers release signing.
       - *cancel-run-on-failure
-      - name: Build gateway guards and serial gateway script tests
+      - name: Build gateway and release signing policy
         id: ci-9
         if: ${{ !cancelled() }}
         run: |
-          bash scripts/check-build-gateway-serialization.sh
           bash scripts/check-build-gateway-policy.sh
-          bash scripts/check-build-gateway-mutex-cleanup.sh
-          node scripts/ci-step.mjs node-script-tests-serial --ci
       - *cancel-run-on-failure
       - name: cargo fmt --check
         id: ci-10

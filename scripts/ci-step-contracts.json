@@ -1,21 +1,14 @@
 {
   "version": 1,
   "sources": {
-    "tests-fast.yml": "10497b372f2ef01e67b653d1cbeb97e7ef93985e16b7f6b2b70533de01bcb0ea",
-    "tests-pr.yml": "1672a510a986bf85db8c67dd3bbb306b81ba5c264b35219ce63cab18e60c20f5"
+    "tests-fast.yml": "c08fef992d9bc4ffdb9a9000a83c8a05b318f58acf55203abd4088c48c53291d",
+    "tests-pr.yml": "08d455a41a2bf62935fa73d9e2dbaf066934648f567f01ef23aee649ab263f6e"
   },
   "bindings": [
     {
       "file": "tests-fast.yml",
       "jobId": "guards",
       "entry": "plugin-release-contracts",
-      "role": "bash,cargo,git,nextest,node,pnpm,python,python:yaml",
-      "pythonBootstrap": "node scripts/ci-python-env.mjs"
-    },
-    {
-      "file": "tests-fast.yml",
-      "jobId": "guards",
-      "entry": "node-script-tests-serial",
       "role": "bash,cargo,git,nextest,node,pnpm,python,python:yaml",
       "pythonBootstrap": "node scripts/ci-python-env.mjs"
     },
@@ -142,13 +135,6 @@
       "file": "tests-pr.yml",
       "jobId": "guards",
       "entry": "plugin-release-contracts",
-      "role": "bash,cargo,git,nextest,node,pnpm,python,python:yaml",
-      "pythonBootstrap": "node scripts/ci-python-env.mjs"
-    },
-    {
-      "file": "tests-pr.yml",
-      "jobId": "guards",
-      "entry": "node-script-tests-serial",
       "role": "bash,cargo,git,nextest,node,pnpm,python,python:yaml",
       "pythonBootstrap": "node scripts/ci-python-env.mjs"
     },

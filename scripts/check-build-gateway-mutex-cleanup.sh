@@ -5,6 +5,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+# The fixture holds the mutex itself, so both contenders time out by design; a short bound proves the same path.
+export CT_GATEWAY_MUTEX_TIMEOUT_MS=500
 TEST_ROOT="$ROOT/.research/build-gateway-mutex-$$"
 STATE="$TEST_ROOT/state"
 RELEASE="$TEST_ROOT/release"

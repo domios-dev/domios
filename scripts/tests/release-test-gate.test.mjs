@@ -166,10 +166,10 @@ test("CI jobs queue for a shared builder's gateway slot instead of failing busy"
 });
 
 
-test("guards preflight prerequisites before cargo-dependent serial contracts", () => {
+test("guards preflight prerequisites before the gateway policy", () => {
   const steps = fast.jobs.guards.steps;
   const setup = steps.findIndex(step => step.run?.includes('ci-runner-paths.mjs'));
-  const serial = steps.findIndex(step => step.name === 'Build gateway guards and serial gateway script tests');
+  const serial = steps.findIndex(step => step.name === 'Build gateway and release signing policy');
   assert.ok(setup >= 0 && setup < serial);
 });
 
