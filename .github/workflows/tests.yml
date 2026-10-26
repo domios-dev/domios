@@ -371,9 +371,9 @@ jobs:
           retention-days: 3
   release-dry-run:
     name: Release packaging
-    # Packaging builds while the Rust suites run; publication still requires this run's green qualification.
+    # Packaging builds beside the checks so one push surfaces every failing layer; publication still requires this run's green qualification.
     needs: [admission, policy, fast]
-    if: ${{ !cancelled() && github.event_name == 'push' && needs.admission.outputs.release_head == 'true' && needs.policy.result == 'success' && needs.fast.result == 'success' }}
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.admission.outputs.release_head == 'true' && needs.policy.result == 'success' && needs.fast.outputs.source_sha != '' }}
     uses: ./.github/workflows/release.yml
     permissions:
       contents: write
