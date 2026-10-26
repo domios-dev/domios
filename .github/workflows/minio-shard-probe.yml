@@ -36,7 +36,7 @@ jobs:
           start=$(date +%s.%N)
           bash scripts/ci-artifact.sh put "$KEY" "$RUNNER_TEMP/archive.bin"
           took=$(echo "$(date +%s.%N) - $start" | bc)
-          echo "| pack | upload 200 MB | ${took}s |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| pack | upload 200 MB | ${took}s |" | tee -a "$GITHUB_STEP_SUMMARY"
 
   shard:
     needs: pack
@@ -62,7 +62,7 @@ jobs:
           took=$(echo "$(date +%s.%N) - $start" | bc)
           [ "$(sha256sum "$RUNNER_TEMP/archive.bin" | cut -d' ' -f1)" = "$SHA" ]
           work=$(git ls-files 'src-tauri/crates/*/Cargo.toml' | awk -v k="$SHARD" 'NR % 4 == k % 4' | wc -l)
-          echo "| shard $SHARD/4 | download 200 MB, checksum ok, $work crates | ${took}s |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| shard $SHARD/4 | download 200 MB, checksum ok, $work crates | ${took}s |" | tee -a "$GITHUB_STEP_SUMMARY"
 
   cleanup:
     needs: shard
