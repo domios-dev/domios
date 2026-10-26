@@ -118,17 +118,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/ci-git-history.mjs baseline
-      - name: Fast APT mirror
-        # GitHub's preconfigured azure.archive.ubuntu.com mirror is often slow; switch to the fastest healthy Ubuntu mirror.
-        if: runner.environment == 'github-hosted' && runner.os == 'Linux' && runner.arch == 'X64'
-        continue-on-error: true
-        uses: vegardit/fast-apt-mirror.sh@806c59276adfff2df420124ad5e4587f018c358a # 1.4.5
       - name: Hosted Linux build prerequisites
         if: runner.environment == 'github-hosted' && runner.os == 'Linux'
         shell: bash
         run: |-
           # The workspace test build needs more disk than a hosted image leaves free.
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          # The image's azure.archive.ubuntu.com mirror stalled installs for minutes; use Canonical's own archive.
+          for f in /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list; do
+            [ ! -f "$f" ] || sudo sed -i 's#http://azure.archive.ubuntu.com/ubuntu#http://archive.ubuntu.com/ubuntu#g' "$f"
+          done
           sudo apt-get -o Acquire::Retries=3 update -qq
           sudo apt-get -o Acquire::Retries=3 install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libgtk-3-dev pkg-config xdg-utils patchelf
       - name: Hosted Rust dependency cache
@@ -342,17 +341,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/ci-git-history.mjs baseline
-      - name: Fast APT mirror
-        # GitHub's preconfigured azure.archive.ubuntu.com mirror is often slow; switch to the fastest healthy Ubuntu mirror.
-        if: runner.environment == 'github-hosted' && runner.os == 'Linux' && runner.arch == 'X64'
-        continue-on-error: true
-        uses: vegardit/fast-apt-mirror.sh@806c59276adfff2df420124ad5e4587f018c358a # 1.4.5
       - name: Hosted Linux build prerequisites
         if: runner.environment == 'github-hosted' && runner.os == 'Linux'
         shell: bash
         run: |-
           # The workspace test build needs more disk than a hosted image leaves free.
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          # The image's azure.archive.ubuntu.com mirror stalled installs for minutes; use Canonical's own archive.
+          for f in /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list; do
+            [ ! -f "$f" ] || sudo sed -i 's#http://azure.archive.ubuntu.com/ubuntu#http://archive.ubuntu.com/ubuntu#g' "$f"
+          done
           sudo apt-get -o Acquire::Retries=3 update -qq
           sudo apt-get -o Acquire::Retries=3 install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libgtk-3-dev pkg-config xdg-utils patchelf
       - name: Hosted Rust dependency cache
@@ -556,17 +554,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/ci-git-history.mjs baseline
-      - name: Fast APT mirror
-        # GitHub's preconfigured azure.archive.ubuntu.com mirror is often slow; switch to the fastest healthy Ubuntu mirror.
-        if: runner.environment == 'github-hosted' && runner.os == 'Linux' && runner.arch == 'X64'
-        continue-on-error: true
-        uses: vegardit/fast-apt-mirror.sh@806c59276adfff2df420124ad5e4587f018c358a # 1.4.5
       - name: Hosted Linux build prerequisites
         if: runner.environment == 'github-hosted' && runner.os == 'Linux'
         shell: bash
         run: |-
           # The workspace test build needs more disk than a hosted image leaves free.
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          # The image's azure.archive.ubuntu.com mirror stalled installs for minutes; use Canonical's own archive.
+          for f in /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list; do
+            [ ! -f "$f" ] || sudo sed -i 's#http://azure.archive.ubuntu.com/ubuntu#http://archive.ubuntu.com/ubuntu#g' "$f"
+          done
           sudo apt-get -o Acquire::Retries=3 update -qq
           sudo apt-get -o Acquire::Retries=3 install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libgtk-3-dev pkg-config xdg-utils patchelf
       - name: Hosted Rust dependency cache
@@ -755,17 +752,16 @@ jobs:
       - name: Discover installed runner tools
         if: runner.environment == 'self-hosted'
         run: node scripts/ci-runner-paths.mjs --paths-only
-      - name: Fast APT mirror
-        # GitHub's preconfigured azure.archive.ubuntu.com mirror is often slow; switch to the fastest healthy Ubuntu mirror.
-        if: runner.environment == 'github-hosted' && runner.os == 'Linux' && runner.arch == 'X64'
-        continue-on-error: true
-        uses: vegardit/fast-apt-mirror.sh@806c59276adfff2df420124ad5e4587f018c358a # 1.4.5
       - name: Hosted Linux build prerequisites
         if: runner.environment == 'github-hosted' && runner.os == 'Linux'
         shell: bash
         run: |-
           # The workspace test build needs more disk than a hosted image leaves free.
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          # The image's azure.archive.ubuntu.com mirror stalled installs for minutes; use Canonical's own archive.
+          for f in /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list; do
+            [ ! -f "$f" ] || sudo sed -i 's#http://azure.archive.ubuntu.com/ubuntu#http://archive.ubuntu.com/ubuntu#g' "$f"
+          done
           sudo apt-get -o Acquire::Retries=3 update -qq
           sudo apt-get -o Acquire::Retries=3 install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libgtk-3-dev pkg-config xdg-utils patchelf
       - name: Hosted Rust cache (registry and clippy target)
@@ -879,17 +875,16 @@ jobs:
       - name: Discover installed runner tools
         if: runner.environment == 'self-hosted'
         run: node scripts/ci-runner-paths.mjs --paths-only
-      - name: Fast APT mirror
-        # GitHub's preconfigured azure.archive.ubuntu.com mirror is often slow; switch to the fastest healthy Ubuntu mirror.
-        if: runner.environment == 'github-hosted' && runner.os == 'Linux' && runner.arch == 'X64'
-        continue-on-error: true
-        uses: vegardit/fast-apt-mirror.sh@806c59276adfff2df420124ad5e4587f018c358a # 1.4.5
       - name: Hosted Linux build prerequisites
         if: runner.environment == 'github-hosted' && runner.os == 'Linux'
         shell: bash
         run: |-
           # The workspace test build needs more disk than a hosted image leaves free.
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          # The image's azure.archive.ubuntu.com mirror stalled installs for minutes; use Canonical's own archive.
+          for f in /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list; do
+            [ ! -f "$f" ] || sudo sed -i 's#http://azure.archive.ubuntu.com/ubuntu#http://archive.ubuntu.com/ubuntu#g' "$f"
+          done
           sudo apt-get -o Acquire::Retries=3 update -qq
           sudo apt-get -o Acquire::Retries=3 install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libgtk-3-dev pkg-config xdg-utils patchelf
       - name: Hosted Rust dependency cache
