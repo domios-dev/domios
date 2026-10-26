@@ -10,6 +10,7 @@ ed25519-dalek = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
 ed25519-dalek = { version = "2", features = ["rand_core"] }

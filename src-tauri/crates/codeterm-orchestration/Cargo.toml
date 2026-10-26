@@ -14,6 +14,7 @@ name = "codeterm_orchestration"
 test-support = ["codeterm-service-core/test-support"]
 
 [dependencies]
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 codeterm-service-core = { path = "../codeterm-service-core", default-features = false }
 codeterm-analytics = { path = "../codeterm-analytics" }
 codeterm-events = { path = "../codeterm-events" }

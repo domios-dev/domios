@@ -1139,6 +1139,7 @@ dependencies = [
  "url",
  "uuid",
  "windows-sys 0.61.2",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1162,6 +1163,7 @@ dependencies = [
  "tokio",
  "url",
  "windows-sys 0.61.2",
+ "workspace-hack",
  "zeroize",
 ]
 
@@ -1179,6 +1181,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "vt100",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1211,6 +1214,7 @@ dependencies = [
  "ulid",
  "uuid",
  "vt100",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1226,6 +1230,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "uuid",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1287,6 +1292,7 @@ dependencies = [
  "ulid",
  "url",
  "uuid",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1306,6 +1312,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "url",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1323,6 +1330,7 @@ dependencies = [
  "url",
  "uuid",
  "windows-sys 0.61.2",
+ "workspace-hack",
  "yaml-rust2",
 ]
 
@@ -1346,6 +1354,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "uuid",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1368,11 +1377,15 @@ dependencies = [
  "tokio-tungstenite",
  "url",
  "uuid",
+ "workspace-hack",
 ]
 
 [[package]]
 name = "codeterm-build-info"
 version = "0.0.0"
+dependencies = [
+ "workspace-hack",
+]
 
 [[package]]
 name = "codeterm-cli"
@@ -1410,6 +1423,7 @@ dependencies = [
  "toml 0.8.2",
  "urlencoding",
  "uuid",
+ "workspace-hack",
  "zeroize",
 ]
 
@@ -1437,6 +1451,7 @@ dependencies = [
  "url",
  "which",
  "windows-sys 0.61.2",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1467,6 +1482,7 @@ dependencies = [
  "url",
  "uuid",
  "which",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1487,6 +1503,7 @@ dependencies = [
  "toml 0.8.2",
  "url",
  "uuid",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1513,6 +1530,7 @@ dependencies = [
  "uuid",
  "wait-timeout",
  "windows-sys 0.61.2",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1523,6 +1541,7 @@ dependencies = [
  "chrono-tz",
  "cron",
  "rand 0.8.5",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1531,6 +1550,7 @@ version = "0.0.0"
 dependencies = [
  "serde",
  "serde_json",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1547,6 +1567,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1559,6 +1580,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1572,6 +1594,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "uuid",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1593,6 +1616,7 @@ dependencies = [
  "tempfile",
  "url",
  "uuid",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1600,11 +1624,15 @@ name = "codeterm-frontend-shell"
 version = "0.0.0"
 dependencies = [
  "url",
+ "workspace-hack",
 ]
 
 [[package]]
 name = "codeterm-input-macos"
 version = "0.0.0"
+dependencies = [
+ "workspace-hack",
+]
 
 [[package]]
 name = "codeterm-input-windows"
@@ -1614,6 +1642,7 @@ dependencies = [
  "codeterm-types",
  "parking_lot",
  "windows-sys 0.61.2",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1627,6 +1656,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1647,6 +1677,7 @@ dependencies = [
  "uuid",
  "wait-timeout",
  "windows-sys 0.61.2",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1664,6 +1695,7 @@ dependencies = [
  "tempfile",
  "url",
  "windows-sys 0.61.2",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1671,6 +1703,7 @@ name = "codeterm-local-recording"
 version = "0.0.0"
 dependencies = [
  "serde",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1711,6 +1744,7 @@ dependencies = [
  "ulid",
  "uuid",
  "windows-sys 0.61.2",
+ "workspace-hack",
  "zeroize",
 ]
 
@@ -1751,6 +1785,7 @@ dependencies = [
  "sha2",
  "tokio",
  "uuid",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1765,6 +1800,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "uuid",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1787,6 +1823,7 @@ dependencies = [
  "tempfile",
  "toml 0.8.2",
  "uuid",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1794,6 +1831,7 @@ name = "codeterm-notify-types"
 version = "0.0.0"
 dependencies = [
  "serde",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1812,6 +1850,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1820,6 +1859,7 @@ version = "0.0.0"
 dependencies = [
  "dirs 6.0.0",
  "tempfile",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1844,6 +1884,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "uuid",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1890,6 +1931,7 @@ dependencies = [
  "toml 0.8.2",
  "uuid",
  "wait-timeout",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1912,6 +1954,7 @@ dependencies = [
  "tar",
  "tempfile",
  "uuid",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1924,6 +1967,7 @@ dependencies = [
  "security-framework",
  "sha2",
  "windows-sys 0.61.2",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1944,6 +1988,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "toml 0.8.2",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1966,6 +2011,7 @@ dependencies = [
  "tempfile",
  "wait-timeout",
  "windows-sys 0.61.2",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1974,6 +2020,7 @@ version = "0.0.0"
 dependencies = [
  "serde",
  "serde_json",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -2006,6 +2053,7 @@ dependencies = [
  "vte",
  "wait-timeout",
  "windows-sys 0.61.2",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -2025,6 +2073,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -2040,6 +2089,7 @@ dependencies = [
  "serde",
  "tempfile",
  "windows-sys 0.61.2",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -2058,6 +2108,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "workspace-hack",
  "zeroize",
 ]
 
@@ -2087,6 +2138,7 @@ dependencies = [
  "uuid",
  "wait-timeout",
  "windows-sys 0.61.2",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -2124,6 +2176,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "uuid",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -2247,6 +2300,7 @@ dependencies = [
  "wait-timeout",
  "which",
  "windows-sys 0.61.2",
+ "workspace-hack",
  "x25519-dalek",
  "zeroize",
 ]
@@ -2257,6 +2311,7 @@ version = "0.0.0"
 dependencies = [
  "parking_lot",
  "serde",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -2294,6 +2349,7 @@ dependencies = [
  "tokio",
  "tower",
  "windows-sys 0.61.2",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -2308,6 +2364,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "windows-sys 0.61.2",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -2332,6 +2389,7 @@ dependencies = [
  "tempfile",
  "toml 0.8.2",
  "uuid",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -2359,6 +2417,7 @@ dependencies = [
  "tokio",
  "url",
  "uuid",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -2375,6 +2434,7 @@ dependencies = [
  "toml 0.8.2",
  "ts-rs",
  "uuid",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -2398,6 +2458,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "uuid",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -2410,6 +2471,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -2432,6 +2494,7 @@ dependencies = [
  "winapi",
  "windows-sys 0.61.2",
  "winreg 0.10.1",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -2441,6 +2504,7 @@ dependencies = [
  "serde",
  "serde_json",
  "ts-rs",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -2459,6 +2523,7 @@ dependencies = [
  "tempfile",
  "url",
  "uuid",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -3233,6 +3298,7 @@ dependencies = [
  "uuid",
  "widestring",
  "windows-sys 0.61.2",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -6696,6 +6762,7 @@ dependencies = [
  "smol",
  "winapi",
  "winreg 0.10.1",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -10658,6 +10725,138 @@ dependencies = [
  "serde_json",
  "unicode-xid",
  "wasmparser",
+]
+
+[[package]]
+name = "workspace-hack"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "aho-corasick",
+ "anstream",
+ "axum",
+ "bit-set",
+ "bitflags 2.11.0",
+ "block2",
+ "bytemuck",
+ "cc",
+ "chrono",
+ "clap",
+ "clap_builder",
+ "concurrent-queue",
+ "crossbeam-utils",
+ "crypto-common",
+ "deranged",
+ "digest",
+ "ed25519-dalek",
+ "either",
+ "errno",
+ "event-listener",
+ "event-listener-strategy",
+ "fastrand",
+ "foldhash 0.2.0",
+ "form_urlencoded",
+ "futures-channel",
+ "futures-core",
+ "futures-executor",
+ "futures-io",
+ "futures-sink",
+ "futures-task",
+ "futures-util",
+ "getrandom 0.2.17",
+ "getrandom 0.3.4",
+ "hashbrown 0.14.5",
+ "hashbrown 0.16.1",
+ "hyper",
+ "hyper-rustls",
+ "hyper-util",
+ "icu_properties",
+ "if-addrs",
+ "indexmap 2.13.0",
+ "interprocess",
+ "libc",
+ "linux-raw-sys",
+ "log",
+ "memchr",
+ "memmap2",
+ "miniz_oxide",
+ "mio",
+ "muda",
+ "notify 8.2.0",
+ "num-traits",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-core-foundation",
+ "objc2-core-graphics",
+ "objc2-foundation",
+ "objc2-quartz-core",
+ "objc2-web-kit",
+ "once_cell",
+ "openssl-sys",
+ "percent-encoding",
+ "proc-macro2",
+ "quote",
+ "rand_core 0.6.4",
+ "regex-automata",
+ "relative-path",
+ "reqwest 0.12.28",
+ "rquickjs-core",
+ "rusqlite",
+ "rustix",
+ "rustls",
+ "rustls-pki-types",
+ "rustls-webpki",
+ "schemars 0.8.22",
+ "security-framework-sys",
+ "semver",
+ "serde",
+ "serde_core",
+ "serde_json",
+ "sha2",
+ "simd-adler32",
+ "slab",
+ "smallvec",
+ "socket2 0.6.3",
+ "spin",
+ "stable_deref_trait",
+ "subtle",
+ "syn 2.0.117",
+ "syn 3.0.9",
+ "tauri",
+ "tauri-build",
+ "tauri-codegen",
+ "tauri-macros",
+ "tauri-plugin-single-instance",
+ "tauri-utils",
+ "time",
+ "time-core",
+ "time-macros",
+ "tokio",
+ "tokio-util",
+ "toml 0.8.2",
+ "toml_datetime 1.1.2+spec-1.1.0",
+ "toml_parser",
+ "tower",
+ "tower-http",
+ "tracing",
+ "ts-rs",
+ "url",
+ "uuid",
+ "winapi",
+ "windows 0.62.2",
+ "windows-core 0.62.2",
+ "windows-result 0.4.1",
+ "windows-sys 0.48.0",
+ "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
+ "winnow 0.7.15",
+ "winnow 1.0.0",
+ "yoke",
+ "zerocopy",
+ "zerofrom",
+ "zeroize",
 ]
 
 [[package]]

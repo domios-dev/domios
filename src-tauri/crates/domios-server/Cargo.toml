@@ -8,6 +8,7 @@ license = "AGPL-3.0-only"
 workspace = true
 
 [dependencies]
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 codeterm-process-identity = { path = "../codeterm-process-identity" }
 codeterm-service-core = { path = "../codeterm-service-core", default-features = false }
 codeterm-api = { path = "../codeterm-api", default-features = false }

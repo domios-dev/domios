@@ -9,6 +9,7 @@ name = "blueprint_recall_eval"
 path = "../../../evals/blueprint-recall/runner/main.rs"
 
 [dependencies]
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 codeterm-blueprint-types = { path = "../codeterm-blueprint-types" }
 codeterm-types = { path = "../codeterm-types" }
 codeterm-decision = { path = "../codeterm-decision" }

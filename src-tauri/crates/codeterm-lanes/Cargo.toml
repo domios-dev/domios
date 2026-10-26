@@ -24,6 +24,7 @@ wait-timeout = "0.2"
 sha2 = "0.10"
 url = "2"
 uuid = { version = "1", features = ["v4", "serde"] }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
 tempfile = "3"

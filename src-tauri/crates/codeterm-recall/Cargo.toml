@@ -8,6 +8,7 @@ edition = "2021"
 workspace = true
 
 [dependencies]
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 codeterm-agent-model = { path = "../codeterm-agent-model" }
 codeterm-config = { path = "../codeterm-config" }
 codeterm-decision = { path = "../codeterm-decision" }

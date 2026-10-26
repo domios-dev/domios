@@ -42,6 +42,7 @@ toml = "0.8"
 uuid = { version = "1", features = ["v4", "serde"] }
 wait-timeout = "0.2"
 libc = "0.2"
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [features]
 test-support = []

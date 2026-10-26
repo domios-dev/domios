@@ -15,6 +15,7 @@ embeddings = ["codeterm-service-core/embeddings"]
 dev-tools = []
 
 [dependencies]
+workspace-hack = { version = "0.1", path = "../../crates/workspace-hack" }
 codeterm-service-core = { path = "../../crates/codeterm-service-core", default-features = false }
 codeterm-decision = { path = "../../crates/codeterm-decision" }
 codeterm-types = { path = "../../crates/codeterm-types" }

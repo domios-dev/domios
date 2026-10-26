@@ -11,6 +11,7 @@ notify-debouncer-mini = "0.5"
 parking_lot = "0.12"
 serde = { version = "1", features = ["derive"] }
 log = "0.4"
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }

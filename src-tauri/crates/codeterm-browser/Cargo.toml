@@ -19,6 +19,7 @@ tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "process"
 tokio-tungstenite = "0.28"
 url = "2"
 uuid = { version = "1", features = ["v4"] }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
