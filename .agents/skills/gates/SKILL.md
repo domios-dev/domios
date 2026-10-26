@@ -123,7 +123,7 @@ summary, and skips only the `stale` and this platform's `platform_red` markers o
 a filter. A runner whose catalogue inventory holds no test passes nextest's
 no-tests check; every other runner fails it. The CI archive
 (`scripts/ci-rust-archives.mjs`) archives the same runners placed on
-`tests-rust.yml:rust-shards`; the input crates keep their own
+`tests-rust.yml:rust-tests`; the input crates keep their own
 `tests-rust.yml:rust-input-platform` job.
 
 Delegate it:

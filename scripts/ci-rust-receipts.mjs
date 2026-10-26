@@ -1,21 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-// The full suite is one receipt, or every hash partition k/n.
-export function fullSuiteComplete(full) {
-  if (full.length === 1 && !full[0].part) return true;
-  const shards = full.filter((r) => /^\d+\/\d+$/.test(r.part || ''));
-  const total = Number(shards[0]?.part.split('/')[1]);
-  const parts = new Set(shards.map((r) => r.part));
-  return total > 0 && shards.length === total && parts.size === total &&
-    [...parts].every((part) => Number(part.split('/')[1]) === total) && full.length === total;
-}
-
 export function verifyReceipts(receipts) {
-  const full = receipts.filter((r) => r.mode === 'full');
-  if (!fullSuiteComplete(full)) throw new Error('Expected exactly one full-suite receipt, or every full-suite shard');
+  if (receipts.filter((r) => r.mode === 'full').length !== 1) throw new Error('Expected exactly one full-suite receipt');
   if (receipts.filter((r) => r.mode === 'embeddings').length !== 1) throw new Error('Expected exactly one embeddings receipt');
-  if (full.some((r) => r.os !== 'Linux')) throw new Error('Full suite must cover Linux');
+  if (receipts.find(r => r.mode === 'full').os !== 'Linux') throw new Error('Full suite must cover Linux');
   for (const os of ['macOS', 'Windows']) {
     if (receipts.filter((r) => r.mode === 'platform' && r.os === os).length !== 1) throw new Error(`Expected one ${os} platform receipt`);
   }
@@ -25,7 +14,7 @@ export function verifyReceipts(receipts) {
     if (!(receipt.executed > 0)) throw new Error(`No executed ${receipt.mode} tests on ${receipt.runner}`);
   }
   return '| Suite | Runner | OS | Arch | Executed | Duration |\n| --- | --- | --- | --- | ---: | ---: |\n' +
-    receipts.map((r) => `| ${r.mode}${r.part ? ` ${r.part}` : ''} | ${r.runner} | ${r.os} | ${r.arch} | ${r.executed} | ${r.seconds.toFixed(1)} s |`).join('\n');
+    receipts.map((r) => `| ${r.mode} | ${r.runner} | ${r.os} | ${r.arch} | ${r.executed} | ${r.seconds.toFixed(1)} s |`).join('\n');
 }
 
 
@@ -33,7 +22,7 @@ export function readReceipts(directory) {
   const selected = new Map();
   for (const name of fs.readdirSync(directory).filter(file => file.endsWith('.json'))) {
     const receipt = JSON.parse(fs.readFileSync(path.join(directory, name), 'utf8'));
-    const producer = [receipt.mode, receipt.os, receipt.arch || '', receipt.part || ''].join('/');
+    const producer = [receipt.mode, receipt.os, receipt.arch || ''].join('/');
     const attempt = receipt.run_attempt || 1;
     if (!Number.isSafeInteger(attempt) || attempt < 1) throw new Error('Invalid Rust receipt attempt: ' + name);
     const previous = selected.get(producer);
