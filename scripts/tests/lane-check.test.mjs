@@ -107,7 +107,7 @@ test('shared resolver respects machine root, Cargo home and native home on every
   }
   assert.equal(laneBuildDirectory({ env: { CODETERM_RUST_CACHE_ROOT: 'C:\\cache root', CARGO_HOME: 'D:/cargo' }, platform: 'win32' }), 'C:/cache root/lanes');
   assert.equal(laneBuildDirectory({ env: { CARGO_HOME: '/d/cargo home' }, platform: 'win32' }), 'd:/cargo home/codeterm-lanes');
-  assert.equal(laneBuildDirectory({ env: {}, home: 'C:\\Users\\User', platform: 'win32' }), 'C:/Users/User/.cargo/codeterm-lanes');
+  assert.equal(laneBuildDirectory({ env: {}, home: 'C:\\Users\\User', platform: 'win32' }), 'C:/Users/dev/.cargo/codeterm-lanes');
 });
 
 test('lane checks cap Cargo jobs, propagate errors and request tests only when needed', () => {

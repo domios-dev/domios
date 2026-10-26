@@ -22,7 +22,7 @@ RL_PAD_DIR=/absolute/path/from/the/calling/agents/pad
 export RL_PAD_DIR
 CODETERM_INSTANCE=restartqa CODETERM_API_PORT=7692 \
 RL_EXPECTED_SHA=APPROVED_LITERAL_SHA \
-RL_PREBUILT_CWD=/Users/kandrey/Developer/codeterm \
+RL_PREBUILT_CWD=/Users/dev/Developer/codeterm \
 bash evals/restore-lifecycle/run-codex.sh
 ```
 

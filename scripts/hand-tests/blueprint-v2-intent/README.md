@@ -9,7 +9,7 @@ Chair owns setup, DEV lifecycle and all three provider-native launches. Workers 
 5. From the clean integrated checkout run once:
 
 ```bash
-CODETERM_INSTANCE=blueprint-v2-proof CODETERM_API_PORT=17693 bash scripts/hand-tests/blueprint-v2-intent.sh --out /Users/kandrey/.domios/runtime/agent-pads/f110fd04/blueprint-v2-live
+CODETERM_INSTANCE=blueprint-v2-proof CODETERM_API_PORT=17693 bash scripts/hand-tests/blueprint-v2-intent.sh --out /Users/dev/.domios/runtime/agent-pads/f110fd04/blueprint-v2-live
 ```
 
 The harness refuses a second invocation, source/health/CLI prompt mismatch, missing prerequisite ancestry, unsupported clean provider launch, extra context, stale native attachment, false reuse or wrong/missing effect. It creates no Domios child agents and restarts nothing. Each required case has one fresh bounded 900-second headless session; a refusal stays in the denominator. Cases are fresh Codex gpt-6.1-sol/high and Claude positives plus one fresh Codex no-fit author. Claude uses safe mode, Bash only, no settings/MCP/skills/session persistence. Codex ignores user config/rules/project docs, disables memories/plugins/hooks/other agent capabilities and uses the provider's workspace-write author policy at its empty trial cwd. Exact current CLI help, argv, environment key names, cwd listing, prompts and hashes, full redacted output/error streams, sessions and usage are retained. The only initial CODETERM keys are DEV_INSTANCE and DEV_API_PORT. Every subject invokes a helper-backed `domios`/`codeterm` proxy; identify is first proved inside that scrubbed environment. No token is passed to a model process.

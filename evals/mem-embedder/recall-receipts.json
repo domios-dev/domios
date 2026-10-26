@@ -3,14 +3,14 @@
     "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
     "set": "b3",
     "argv": [
-      "/Users/kandrey/.domios/provisioned-workspaces/blueprintlab-4bb4b384cfd9/domios-worktrees/blu-14-emb-scratch/src-tauri/target/release/examples/blueprint_recall_eval",
+      "/Users/dev/.domios/provisioned-workspaces/blueprintlab-4bb4b384cfd9/domios-worktrees/blu-14-emb-scratch/src-tauri/target/release/examples/blueprint_recall_eval",
       "--posthoc",
       "--queries",
       "evals/blueprint-recall/queries/set_b3.jsonl",
       "--label",
       "l12-b3",
       "--out",
-      "/Users/kandrey/.domios/provisioned-workspaces/blueprintlab-4bb4b384cfd9/domios-worktrees/blu-14-emb-scratch/evals/mem-embedder/l12-b3.json"
+      "/Users/dev/.domios/provisioned-workspaces/blueprintlab-4bb4b384cfd9/domios-worktrees/blu-14-emb-scratch/evals/mem-embedder/l12-b3.json"
     ],
     "exit": 0
   },
@@ -18,14 +18,14 @@
     "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
     "set": "ru",
     "argv": [
-      "/Users/kandrey/.domios/provisioned-workspaces/blueprintlab-4bb4b384cfd9/domios-worktrees/blu-14-emb-scratch/src-tauri/target/release/examples/blueprint_recall_eval",
+      "/Users/dev/.domios/provisioned-workspaces/blueprintlab-4bb4b384cfd9/domios-worktrees/blu-14-emb-scratch/src-tauri/target/release/examples/blueprint_recall_eval",
       "--posthoc",
       "--queries",
       "evals/blueprint-recall/queries/set_b3_ru.jsonl",
       "--label",
       "l12-ru",
       "--out",
-      "/Users/kandrey/.domios/provisioned-workspaces/blueprintlab-4bb4b384cfd9/domios-worktrees/blu-14-emb-scratch/evals/mem-embedder/l12-ru.json"
+      "/Users/dev/.domios/provisioned-workspaces/blueprintlab-4bb4b384cfd9/domios-worktrees/blu-14-emb-scratch/evals/mem-embedder/l12-ru.json"
     ],
     "exit": 0
   },
@@ -33,14 +33,14 @@
     "model": "intfloat/multilingual-e5-small",
     "set": "b3",
     "argv": [
-      "/Users/kandrey/.domios/provisioned-workspaces/blueprintlab-4bb4b384cfd9/domios-worktrees/blu-14-emb-scratch/src-tauri/target/release/examples/blueprint_recall_eval",
+      "/Users/dev/.domios/provisioned-workspaces/blueprintlab-4bb4b384cfd9/domios-worktrees/blu-14-emb-scratch/src-tauri/target/release/examples/blueprint_recall_eval",
       "--posthoc",
       "--queries",
       "evals/blueprint-recall/queries/set_b3.jsonl",
       "--label",
       "multilingual-e5-small-b3",
       "--out",
-      "/Users/kandrey/.domios/provisioned-workspaces/blueprintlab-4bb4b384cfd9/domios-worktrees/blu-14-emb-scratch/evals/mem-embedder/multilingual-e5-small-b3.json"
+      "/Users/dev/.domios/provisioned-workspaces/blueprintlab-4bb4b384cfd9/domios-worktrees/blu-14-emb-scratch/evals/mem-embedder/multilingual-e5-small-b3.json"
     ],
     "exit": 0
   },
@@ -48,14 +48,14 @@
     "model": "intfloat/multilingual-e5-small",
     "set": "ru",
     "argv": [
-      "/Users/kandrey/.domios/provisioned-workspaces/blueprintlab-4bb4b384cfd9/domios-worktrees/blu-14-emb-scratch/src-tauri/target/release/examples/blueprint_recall_eval",
+      "/Users/dev/.domios/provisioned-workspaces/blueprintlab-4bb4b384cfd9/domios-worktrees/blu-14-emb-scratch/src-tauri/target/release/examples/blueprint_recall_eval",
       "--posthoc",
       "--queries",
       "evals/blueprint-recall/queries/set_b3_ru.jsonl",
       "--label",
       "multilingual-e5-small-ru",
       "--out",
-      "/Users/kandrey/.domios/provisioned-workspaces/blueprintlab-4bb4b384cfd9/domios-worktrees/blu-14-emb-scratch/evals/mem-embedder/multilingual-e5-small-ru.json"
+      "/Users/dev/.domios/provisioned-workspaces/blueprintlab-4bb4b384cfd9/domios-worktrees/blu-14-emb-scratch/evals/mem-embedder/multilingual-e5-small-ru.json"
     ],
     "exit": 0
   },
@@ -63,14 +63,14 @@
     "model": "BAAI/bge-small-en-v1.5",
     "set": "b3",
     "argv": [
-      "/Users/kandrey/.domios/provisioned-workspaces/blueprintlab-4bb4b384cfd9/domios-worktrees/blu-14-emb-scratch/src-tauri/target/release/examples/blueprint_recall_eval",
+      "/Users/dev/.domios/provisioned-workspaces/blueprintlab-4bb4b384cfd9/domios-worktrees/blu-14-emb-scratch/src-tauri/target/release/examples/blueprint_recall_eval",
       "--posthoc",
       "--queries",
       "evals/blueprint-recall/queries/set_b3.jsonl",
       "--label",
       "bge-small-en-v1.5-b3",
       "--out",
-      "/Users/kandrey/.domios/provisioned-workspaces/blueprintlab-4bb4b384cfd9/domios-worktrees/blu-14-emb-scratch/evals/mem-embedder/bge-small-en-v1.5-b3.json"
+      "/Users/dev/.domios/provisioned-workspaces/blueprintlab-4bb4b384cfd9/domios-worktrees/blu-14-emb-scratch/evals/mem-embedder/bge-small-en-v1.5-b3.json"
     ],
     "exit": 0
   },
@@ -78,14 +78,14 @@
     "model": "BAAI/bge-small-en-v1.5",
     "set": "ru",
     "argv": [
-      "/Users/kandrey/.domios/provisioned-workspaces/blueprintlab-4bb4b384cfd9/domios-worktrees/blu-14-emb-scratch/src-tauri/target/release/examples/blueprint_recall_eval",
+      "/Users/dev/.domios/provisioned-workspaces/blueprintlab-4bb4b384cfd9/domios-worktrees/blu-14-emb-scratch/src-tauri/target/release/examples/blueprint_recall_eval",
       "--posthoc",
       "--queries",
       "evals/blueprint-recall/queries/set_b3_ru.jsonl",
       "--label",
       "bge-small-en-v1.5-ru",
       "--out",
-      "/Users/kandrey/.domios/provisioned-workspaces/blueprintlab-4bb4b384cfd9/domios-worktrees/blu-14-emb-scratch/evals/mem-embedder/bge-small-en-v1.5-ru.json"
+      "/Users/dev/.domios/provisioned-workspaces/blueprintlab-4bb4b384cfd9/domios-worktrees/blu-14-emb-scratch/evals/mem-embedder/bge-small-en-v1.5-ru.json"
     ],
     "exit": 0
   },
@@ -93,14 +93,14 @@
     "model": "intfloat/e5-small-v2",
     "set": "b3",
     "argv": [
-      "/Users/kandrey/.domios/provisioned-workspaces/blueprintlab-4bb4b384cfd9/domios-worktrees/blu-14-emb-scratch/src-tauri/target/release/examples/blueprint_recall_eval",
+      "/Users/dev/.domios/provisioned-workspaces/blueprintlab-4bb4b384cfd9/domios-worktrees/blu-14-emb-scratch/src-tauri/target/release/examples/blueprint_recall_eval",
       "--posthoc",
       "--queries",
       "evals/blueprint-recall/queries/set_b3.jsonl",
       "--label",
       "e5-small-v2-b3",
       "--out",
-      "/Users/kandrey/.domios/provisioned-workspaces/blueprintlab-4bb4b384cfd9/domios-worktrees/blu-14-emb-scratch/evals/mem-embedder/e5-small-v2-b3.json"
+      "/Users/dev/.domios/provisioned-workspaces/blueprintlab-4bb4b384cfd9/domios-worktrees/blu-14-emb-scratch/evals/mem-embedder/e5-small-v2-b3.json"
     ],
     "exit": 0
   },
@@ -108,14 +108,14 @@
     "model": "intfloat/e5-small-v2",
     "set": "ru",
     "argv": [
-      "/Users/kandrey/.domios/provisioned-workspaces/blueprintlab-4bb4b384cfd9/domios-worktrees/blu-14-emb-scratch/src-tauri/target/release/examples/blueprint_recall_eval",
+      "/Users/dev/.domios/provisioned-workspaces/blueprintlab-4bb4b384cfd9/domios-worktrees/blu-14-emb-scratch/src-tauri/target/release/examples/blueprint_recall_eval",
       "--posthoc",
       "--queries",
       "evals/blueprint-recall/queries/set_b3_ru.jsonl",
       "--label",
       "e5-small-v2-ru",
       "--out",
-      "/Users/kandrey/.domios/provisioned-workspaces/blueprintlab-4bb4b384cfd9/domios-worktrees/blu-14-emb-scratch/evals/mem-embedder/e5-small-v2-ru.json"
+      "/Users/dev/.domios/provisioned-workspaces/blueprintlab-4bb4b384cfd9/domios-worktrees/blu-14-emb-scratch/evals/mem-embedder/e5-small-v2-ru.json"
     ],
     "exit": 0
   }

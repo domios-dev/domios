@@ -3,7 +3,7 @@ import path from 'node:path';
 import {providers,directions,matrix,validateOutput} from './model.mjs';
 const run=process.argv[2];
 if(!/^[a-zA-Z0-9_-]+$/.test(run)) throw new Error('Invalid run name');
-const rc='/Users/kandrey/Developer/codeterm-worktrees/rc-mac/target-check/evals';
+const rc='/Users/dev/Developer/codeterm-worktrees/rc-mac/target-check/evals';
 const out=validateOutput(path.join(rc,'mesh-webui-'+run));
 await mkdir(out,{recursive:false});
 const rows=[],errors=[];

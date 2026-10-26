@@ -1,6 +1,6 @@
 # External design-system drop audit
 
-Audited `C:/Users/User/AppData/Local/Temp/claude/ds-zip/design-system` against the
+Audited `C:/Users/dev/AppData/Local/Temp/claude/ds-zip/design-system` against the
 current product source. This is a source audit, not a visual approval.
 
 ## Tokens

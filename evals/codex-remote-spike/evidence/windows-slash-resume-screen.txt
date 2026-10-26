@@ -11,7 +11,7 @@
   boot_stage                      agent_ready
   can_spawn                       false
   chat_view                       false
-  cwd                             C:/Users/User/AppData/Local/Temp
+  cwd                             C:/Users/dev/AppData/Local/Temp
   depth                           0
   focused                         false
   hidden                          false

@@ -1,6 +1,6 @@
 # B2 isolated browser driver
 
-RC source root: /Users/kandrey/Developer/codeterm-worktrees/rc-mac. Scripts are pad-only. The owner checkout is untouched. This fresh assignment explicitly authorizes isolated headless Chromium against aiderqa/7697 and BLACKSTAR Windows DEV/7686. Windows lifecycle belongs to Fermi via Euler. No live actions until GO live with exact Windows DEV ID. The source-only Worker has executed no gates or browser tests.
+RC source root: /Users/dev/Developer/codeterm-worktrees/rc-mac. Scripts are pad-only. The owner checkout is untouched. This fresh assignment explicitly authorizes isolated headless Chromium against aiderqa/7697 and BLACKSTAR Windows DEV/7686. Windows lifecycle belongs to Fermi via Euler. No live actions until GO live with exact Windows DEV ID. The source-only Worker has executed no gates or browser tests.
 
 ## Exact live command after GO
 
@@ -41,7 +41,7 @@ Receipts include expected/observed state, ordered steps, exact tab/session IDs, 
 Run under Orchestrator authority in RC, using the repository's bounded runner:
 
     scripts/test-capped.sh --exec node --test evals/mesh-webui/model.test.mjs
-    scripts/test-capped.sh --exec bash -c 'cd /Users/kandrey/.codeterm/runtime/agent-pads/ec518d63/b2 && python3 -m unittest -v test_evidence test_native'
+    scripts/test-capped.sh --exec bash -c 'cd /Users/dev/.codeterm/runtime/agent-pads/ec518d63/b2 && python3 -m unittest -v test_evidence test_native'
     scripts/test-capped.sh --exec node --check evals/mesh-webui/browser.mjs
     scripts/test-capped.sh --exec node --check evals/mesh-webui/records.mjs
     scripts/test-capped.sh --exec node --check evals/mesh-webui/run.mjs

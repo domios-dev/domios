@@ -17,7 +17,7 @@ This finding initially produced a NO-GO for the original rule. The subsequent Or
 
 ### Final Windows slash and teardown evidence
 
-Utility tab `906c2347`, temp directory `C:/Users/User/AppData/Local/Temp/codex-remote-spike-slashes-20261007`, same native absolute binary for server/TUI, port 18471. A seed turn materialized the original thread; this final run tests slash selection, while the earlier injection run proves the recommended startup binding order. The stale restored tab `9d68c34c` was closed before continuing.
+Utility tab `906c2347`, temp directory `C:/Users/dev/AppData/Local/Temp/codex-remote-spike-slashes-20261007`, same native absolute binary for server/TUI, port 18471. A seed turn materialized the original thread; this final run tests slash selection, while the earlier injection run proves the recommended startup binding order. The stale restored tab `9d68c34c` was closed before continuing.
 
 | Action | Visible outcome | Broadcast/identity outcome |
 |---|---|---|
@@ -48,13 +48,13 @@ Validation: both Node syntax checks exit 0; native audit live-identity and PID-r
 
 The Orchestrator accepted the denied-command backfill gap as non-blocking for lane A: P1/P2 must persist approval outcomes from the live stream. The TUI busy-after-interrupt discrepancy is a recorded provider UI defect. Argv-versus-thread instruction/hook-trust precedence, selective hook disabling and exhaustive shared-daemon isolation carry into P1's live oracle. The original full-checklist verdict below records the earlier state; the final Windows lane-A decision is at the top.
 
-macOS verification was completed by Fulton on eight, using native arm64 Codex 0.160.0 at `/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex`, from `/Users/kandrey/Developer/codeterm-worktrees/codex-hybrid-macqa` at lane tip `2b000075`. The Orchestrator's evidence stride on `pl_a0rcq7/task_8ghd29` records injection binding, slash transitions (/fork /clear /new /resume), subagent discrimination through thread/read, second-client streaming, clientId echo, approval fan-out both ways, interrupted turn with usable TUI, next-turn model and owned-process teardown. The same denied-command backfill gap was observed.
+macOS verification was completed by Fulton on eight, using native arm64 Codex 0.160.0 at `/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex`, from `/Users/dev/Developer/codeterm-worktrees/codex-hybrid-macqa` at lane tip `2b000075`. The Orchestrator's evidence stride on `pl_a0rcq7/task_8ghd29` records injection binding, slash transitions (/fork /clear /new /resume), subagent discrimination through thread/read, second-client streaming, clientId echo, approval fan-out both ways, interrupted turn with usable TUI, next-turn model and owned-process teardown. The same denied-command backfill gap was observed.
 
-The uncommitted macOS evidence bundle is `/Users/kandrey/.codeterm/runtime/agent-pads/20927f0a/hybrid-evidence/` on eight: per-flow launch.json, mint.ndjson, observer.ndjson, terminal screens, PID receipts, and teardown.txt containing every PID/token/listener and thread ID. These are **Fulton's executed results relayed through the Orchestrator**, not independently rerun by this Windows Worker. Mac evidence remains on eight and is not copied into this git lane. The plan stride and physical-machine transcript paths are the review references.
+The uncommitted macOS evidence bundle is `/Users/dev/.codeterm/runtime/agent-pads/20927f0a/hybrid-evidence/` on eight: per-flow launch.json, mint.ndjson, observer.ndjson, terminal screens, PID receipts, and teardown.txt containing every PID/token/listener and thread ID. These are **Fulton's executed results relayed through the Orchestrator**, not independently rerun by this Windows Worker. Mac evidence remains on eight and is not copied into this git lane. The plan stride and physical-machine transcript paths are the review references.
 
 ### Windows final observations before the second restart
 
-The resumed owner DEV run used utility tab `9d68c34c`, launcher PID 5944, server PID 16564 and TUI PID 44304. `dc identify` reported CLI SHA `30170071c9cc73cc332a54a2e456954dd0075a30`; this is the CLI build receipt, not an independently verified daemon SHA. Codex remained native 0.160.0. Same injection flow, dedicated port 18471, fresh temp directory `C:/Users/User/AppData/Local/Temp/codex-remote-spike-final-windows-bfbf99400cf845008a811446329fbc33`.
+The resumed owner DEV run used utility tab `9d68c34c`, launcher PID 5944, server PID 16564 and TUI PID 44304. `dc identify` reported CLI SHA `30170071c9cc73cc332a54a2e456954dd0075a30`; this is the CLI build receipt, not an independently verified daemon SHA. Codex remained native 0.160.0. Same injection flow, dedicated port 18471, fresh temp directory `C:/Users/dev/AppData/Local/Temp/codex-remote-spike-final-windows-bfbf99400cf845008a811446329fbc33`.
 
 Resize **PASS**: sourced the bench library and called `dev_post /api/tabs/9d68c34c/resize '{"cols":80,"rows":24}'`, then the same endpoint with 120/40; both returned `{"ok":true}` and the TUI visibly reflowed/truncated its cwd/footer at narrow width and restored them at wide width. Screens: windows-final-resize-80x24.txt and windows-final-resize-120x40.txt.
 
@@ -76,7 +76,7 @@ No product code was authored.
 
 ## Windows setup and exact commands
 
-Machine BLACKSTAR, 2026-10-07. Native binary: `C:/Users/User/AppData/Local/Programs/OpenAI/Codex/bin/codex.exe`, `codex-cli 0.160.0`. Both server and TUI use this same absolute binary. Owner DEV CLI reported 1.12.4, SHA `54cd23ad35c7570229b19243b1649ca188893723`.
+Machine BLACKSTAR, 2026-10-07. Native binary: `C:/Users/dev/AppData/Local/Programs/OpenAI/Codex/bin/codex.exe`, `codex-cli 0.160.0`. Both server and TUI use this same absolute binary. Owner DEV CLI reported 1.12.4, SHA `54cd23ad35c7570229b19243b1649ca188893723`.
 
 Our PROD Team does not exist in DEV. The Orchestrator explicitly authorized dedicated DEV workspace LaneSpike `e5c0d7ba` and a standalone utility shell with --no-team. No JobsDemo/AiderRun Team was used. All DEV CLI operations used the bench library's dc wrapper. No Domios build/restart occurred.
 
@@ -85,12 +85,12 @@ Initial utility tab `4a62b52c` tested the empty-thread flow and was closed. Subs
 ```bash
 source evals/_lib/lib.sh
 dc tab new --workspace e5c0d7ba --no-team --title Spike \
-  --cwd C:/Users/User/AppData/Local/Temp \
-  --cmd "node D:/Developer/codeterm-worktrees/pl-a0rcq7-scout/evals/codex-remote-spike/launch.mjs --binary C:/Users/User/AppData/Local/Programs/OpenAI/Codex/bin/codex.exe --port 18471 --dir C:/Users/User/AppData/Local/Temp/codex-remote-spike-seed-20261007 --flow seed"
+  --cwd C:/Users/dev/AppData/Local/Temp \
+  --cmd "node D:/Developer/codeterm-worktrees/pl-a0rcq7-scout/evals/codex-remote-spike/launch.mjs --binary C:/Users/dev/AppData/Local/Programs/OpenAI/Codex/bin/codex.exe --port 18471 --dir C:/Users/dev/AppData/Local/Temp/codex-remote-spike-seed-20261007 --flow seed"
 ```
 
-Flow (b) used `dc tab restart --tab bc042710 --cmd "..."`, with the same launcher command except `--dir C:/Users/User/AppData/Local/Temp/codex-remote-spike-tui-20261007 --flow tui`.
-Recommended injection flow used the same restart with `--dir C:/Users/User/AppData/Local/Temp/codex-remote-spike-inject-20261007 --flow inject`.
+Flow (b) used `dc tab restart --tab bc042710 --cmd "..."`, with the same launcher command except `--dir C:/Users/dev/AppData/Local/Temp/codex-remote-spike-tui-20261007 --flow tui`.
+Recommended injection flow used the same restart with `--dir C:/Users/dev/AppData/Local/Temp/codex-remote-spike-inject-20261007 --flow inject`.
 The default `--flow empty` preserves the original failing reproduction.
 
 Launcher spawns:
@@ -105,8 +105,8 @@ Flow tui omits resume. All processes inherit the utility tab's composed environm
 An independent probe was attached before PTY input in seed and inject flows. Example:
 
 ```powershell
-New-Item -ItemType File C:/Users/User/AppData/Local/Temp/codex-remote-spike-inject-20261007/control.ndjson
-node evals/codex-remote-spike/probe.mjs --port 18471 --token-file C:/Users/User/AppData/Local/Temp/codex-remote-spike-inject-20261007/token --thread 01a11616-07f5-73b1-a880-95c3c4df55cf --control-file C:/Users/User/AppData/Local/Temp/codex-remote-spike-inject-20261007/control.ndjson --out C:/Users/User/AppData/Local/Temp/codex-remote-spike-inject-20261007/observer.ndjson
+New-Item -ItemType File C:/Users/dev/AppData/Local/Temp/codex-remote-spike-inject-20261007/control.ndjson
+node evals/codex-remote-spike/probe.mjs --port 18471 --token-file C:/Users/dev/AppData/Local/Temp/codex-remote-spike-inject-20261007/token --thread 01a11616-07f5-73b1-a880-95c3c4df55cf --control-file C:/Users/dev/AppData/Local/Temp/codex-remote-spike-inject-20261007/control.ndjson --out C:/Users/dev/AppData/Local/Temp/codex-remote-spike-inject-20261007/observer.ndjson
 ```
 
 The control file is append-only, newline-delimited JSON. fs.watch is event-driven; no polling or sleeps. `--interactive` accepts the same JSON on stdin in an interactive QA shell. The probe uses separate client ID space, classifies server requests before response IDs, captures frames before response matching, and never auto-approves.

@@ -31,7 +31,7 @@ From the scratch merge root, with its own worktree-local target and offline mode
 
 ```bash
 export CARGO_TARGET_DIR="$PWD/src-tauri/target"
-export HF_HOME=/Users/kandrey/.cache/huggingface/hub
+export HF_HOME=/Users/dev/.cache/huggingface/hub
 export HF_HUB_OFFLINE=1
 # Repeat with each model id from the table; one process per model/run.
 MEM_EVAL_MODEL='<model-id>' cargo run --manifest-path src-tauri/Cargo.toml -p codeterm-mem --example blueprint_recall_eval --release -- --posthoc --queries evals/blueprint-recall/queries/set_b3.jsonl --label '<label>-b3' --out 'evals/mem-embedder/<label>-b3.json'

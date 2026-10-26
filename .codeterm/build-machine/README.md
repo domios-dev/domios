@@ -186,7 +186,7 @@ Provision the identical macOS/Windows physical paths and user-owned Linux paths 
 |---|---|---|
 | macOS: eight, air | `/Users/Shared/domios-ci/work/codeterm` | `/Users/Shared/domios-ci/cargo` |
 | Windows: ROG, BLACKSTAR, green | `C:\domios-ci\work\codeterm` | `C:\domios-ci\cargo` |
-| Linux: ubunta | `/home/rollacode/domios-ci/work/codeterm` | `/home/rollacode/domios-ci/cargo` |
+| Linux: ubunta | `/home/dev/domios-ci/work/codeterm` | `/home/dev/domios-ci/cargo` |
 | Linux: BLACKSTAR-CI WSL | `/home/ci/domios-ci/work/codeterm` | `/home/ci/domios-ci/cargo` |
 
 Only these exact CI checkouts use their checkout-local `target-check` for
@@ -199,7 +199,7 @@ unchanged; upstream Rust normalization is deferred. Also match
 toolchain executable paths: `CARGO` is hashed. Select the pinned toolchain under
 `/Users/Shared/domios-ci/rustup/toolchains/` on macOS,
 `C:\domios-ci\rustup\toolchains\` on Windows, or
-`/home/rollacode/domios-ci/rustup/toolchains/` on ubunta or
+`/home/dev/domios-ci/rustup/toolchains/` on ubunta or
 `/home/ci/domios-ci/rustup/toolchains/` in BLACKSTAR WSL in the builder process PATH;
 do not change developer toolchain defaults.
 

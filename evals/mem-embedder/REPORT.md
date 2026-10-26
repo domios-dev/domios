@@ -43,7 +43,7 @@ Mem-bench, its crosslang category, snapshot recall, fresh query writers and the 
 B4 SHA256 `3d9da7cd5d10ff345b5628a18f61151c03138893aab3dd4ab51bb6f5d2a4ec6b` matched B2 MANIFEST after the owner pick commit. The fixed B1 scratch source was `270bdbb18b3b3b23e6934b4694d0db997682d534`; C10 SHA256 was `4dbb17ad4f8ccf306755a3ce707b0ac5adefd7d49428d741e9dff29896ffb432`. Scoring and C10 stayed byte-identical. The adapters only expose the active provider identity, select the one global provider before ingestion, and disable the optional paid reranker.
 
 ```bash
-HF_HOME=/Users/kandrey/.cache/huggingface/hub HF_HUB_OFFLINE=1 \
+HF_HOME=/Users/dev/.cache/huggingface/hub HF_HUB_OFFLINE=1 \
 MEM_EVAL_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 \
 MEM_EVAL_NO_RERANK=1 \
 cargo run --manifest-path src-tauri/Cargo.toml -p codeterm-mem \

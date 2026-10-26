@@ -68,7 +68,7 @@ git fetch origin release/1.12.3
 CODETERM_INSTANCE=tabstate CODETERM_API_PORT=7697 ./build.sh dev --wait
 
 # Earlier setup on the same instance; token never printed.
-python3 -c "import json,sys; sys.stdout.write(json.load(open('/Users/kandrey/.codeterm/decision-models/typesafe-jev.json'))['token'])" | dc supporter token set
+python3 -c "import json,sys; sys.stdout.write(json.load(open('/Users/dev/.codeterm/decision-models/typesafe-jev.json'))['token'])" | dc supporter token set
 dc supporter status
 dc supporter use typesafe-jev
 dc plugin install lmstudio
@@ -100,7 +100,7 @@ dc --as-tab 107fc099 plan task dispatch pl_bbsrm7 task_lgdled --agent opencode -
 
 Case setup used per-instance CLI wrappers in `$HOME/.codeterm-dev-tabstate/bin`, restricted to the test working directory: Claude received `HTTPS_PROXY=http://127.0.0.1:9` for the proxy case; Codex received an empty `CODEX_HOME` for the logged-out case; for the bad-model case a temporary Codex wrapper rewrote the provider's valid `--model` value to `no-such-model-zzz` after CodeTerm accepted the catalogue model. Those wrappers and both temporary directories were removed after the run. These wrappers were test setup only; they did not change repository source.
 
-The proxy wrapper invoked `/Users/kandrey/.local/bin/claude` with the closed-port proxy only when `$PWD` was the canonical repository. The logged-out wrapper invoked `/opt/homebrew/bin/codex` with `CODEX_HOME=/tmp/tabstate-codex-home.0RmIdJ` under the same cwd condition. The bad-model wrapper transformed either `--model VALUE`, `-m VALUE`, or `--model=VALUE` into the same flag with value `no-such-model-zzz`, then invoked `/opt/homebrew/bin/codex`; it passed all arguments through unchanged in other working directories. The `mktemp -d` directories were `/tmp/tabstate-codex-home.0RmIdJ` and `/tmp/tabstate-trust.bUMpH9`.
+The proxy wrapper invoked `/Users/dev/.local/bin/claude` with the closed-port proxy only when `$PWD` was the canonical repository. The logged-out wrapper invoked `/opt/homebrew/bin/codex` with `CODEX_HOME=/tmp/tabstate-codex-home.0RmIdJ` under the same cwd condition. The bad-model wrapper transformed either `--model VALUE`, `-m VALUE`, or `--model=VALUE` into the same flag with value `no-such-model-zzz`, then invoked `/opt/homebrew/bin/codex`; it passed all arguments through unchanged in other working directories. The `mktemp -d` directories were `/tmp/tabstate-codex-home.0RmIdJ` and `/tmp/tabstate-trust.bUMpH9`.
 
 The LM Studio task dispatch and direct `agent spawn` attempts with the `codeterm` preset and Jev-style model failed with the same `chat_backend_session_config_required` response. No further provider configuration was changed.
 

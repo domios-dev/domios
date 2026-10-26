@@ -10,7 +10,7 @@
  "last_session_unix": 1792674902.549,
  "sessions_total": 110,
  "session_cwds_new_and_empty": true,
- "command_template": "cd \"$(mktemp -d \"$PWD/eval/runs/heldout.XXXX\")\" && /Users/kandrey/.local/bin/claude -p --model opus --effort high --output-format json --tools '' --strict-mcp-config --no-session-persistence \"<prompt>\"",
+ "command_template": "cd \"$(mktemp -d \"$PWD/eval/runs/heldout.XXXX\")\" && /Users/dev/.local/bin/claude -p --model opus --effort high --output-format json --tools '' --strict-mcp-config --no-session-persistence \"<prompt>\"",
  "prompts": {
   "b3": "eval/retrieval/heldout/run_heldout.py PROMPT",
   "b4": "eval/retrieval/heldout/run_heldout.py PROMPT",

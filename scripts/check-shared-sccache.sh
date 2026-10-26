@@ -93,7 +93,7 @@ printf 'PASS credential resolution suppresses tracing\n'
 ) > "$WORK/refusals.log" 2>&1
 printf 'PASS busy-machine and server-start refusals\n'
 
-for checkout in /Users/Shared/domios-ci/work/codeterm /home/rollacode/domios-ci/work/codeterm /home/ci/domios-ci/work/codeterm /c/domios-ci/work/codeterm; do
+for checkout in /Users/Shared/domios-ci/work/codeterm /home/dev/domios-ci/work/codeterm /home/ci/domios-ci/work/codeterm /c/domios-ci/work/codeterm; do
   [ "$(ct_exceptional_target_dir "$checkout" /gateway fixture-id)" = "$checkout/target-check" ]
 done
 [ "$(ct_exceptional_target_dir /developer/worktree /gateway fixture-id)" = /gateway/targets/exceptional/fixture-id ]

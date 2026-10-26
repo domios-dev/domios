@@ -5,7 +5,7 @@ set -euo pipefail
 peer="${1:?Exact Windows DEV peer id required}"
 out="${2:?Absolute target-check/evals/mesh-webui-RUN path required}"
 export CODETERM_INSTANCE=aiderqa CODETERM_API_PORT=7697
-source /Users/kandrey/Developer/codeterm-worktrees/rc-mac/evals/_lib/lib.sh
+source /Users/dev/Developer/codeterm-worktrees/rc-mac/evals/_lib/lib.sh
 [ "$EVAL_LIB_DEV_API_PORT" = 7697 ] || exit 7
 [ "$EVAL_LIB_RESOLVED_INSTANCE" = aiderqa ] || exit 7
 mkdir -p "$out"
