@@ -66,8 +66,8 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ !((github.workflow == 'CI' && inputs.report_name != 'rust-warnings-release-report') && vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.SCCACHE_AWS_ACCESS_KEY_ID || '' }}
           AWS_SECRET_ACCESS_KEY: ${{ !((github.workflow == 'CI' && inputs.report_name != 'rust-warnings-release-report') && vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.SCCACHE_AWS_SECRET_ACCESS_KEY || '' }}
-          CI_STORE_TAILNET_ENDPOINT: ${{ secrets.CI_STORE_TAILNET_ENDPOINT }}
-          CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
+          CI_STORE_TAILNET_ENDPOINT: ${{ !((github.workflow == 'CI' && inputs.report_name != 'rust-warnings-release-report') && vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.CI_STORE_TAILNET_ENDPOINT || '' }}
+          CI_STORE_PUBLIC_ENDPOINT: ${{ !((github.workflow == 'CI' && inputs.report_name != 'rust-warnings-release-report') && vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.CI_STORE_PUBLIC_ENDPOINT || '' }}
           GH_TOKEN: ${{ github.token }}
         run: bash scripts/ci-artifact.sh get-prefix "$GITHUB_RUN_ID/rust-warnings/" ci-rust-warnings
       - name: Fetch hosted warning evidence
@@ -88,8 +88,8 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ !((github.workflow == 'CI' && inputs.report_name != 'rust-warnings-release-report') && vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.SCCACHE_AWS_ACCESS_KEY_ID || '' }}
           AWS_SECRET_ACCESS_KEY: ${{ !((github.workflow == 'CI' && inputs.report_name != 'rust-warnings-release-report') && vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.SCCACHE_AWS_SECRET_ACCESS_KEY || '' }}
-          CI_STORE_TAILNET_ENDPOINT: ${{ secrets.CI_STORE_TAILNET_ENDPOINT }}
-          CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
+          CI_STORE_TAILNET_ENDPOINT: ${{ !((github.workflow == 'CI' && inputs.report_name != 'rust-warnings-release-report') && vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.CI_STORE_TAILNET_ENDPOINT || '' }}
+          CI_STORE_PUBLIC_ENDPOINT: ${{ !((github.workflow == 'CI' && inputs.report_name != 'rust-warnings-release-report') && vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.CI_STORE_PUBLIC_ENDPOINT || '' }}
           WARNING_REPORT_NAME: ${{ inputs.report_name }}
         run: |
           for file in rust-warnings-report/*; do

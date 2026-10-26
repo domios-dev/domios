@@ -14,7 +14,10 @@ const value = (expression, context) => {
   return expression.replace(/\$\{\{([\s\S]*?)\}\}/g, (_, source) => String(evaluateCondition(source, context)));
 };
 
-test('runner switches preserve private defaults and hosted variants expose no private credential or writable token', () => {
+// Owner decision: hosted compile jobs may use the private cache store; no other private value reaches them.
+const cacheStore = ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'CI_STORE_TAILNET_ENDPOINT', 'CI_STORE_PUBLIC_ENDPOINT'];
+
+test('runner switches preserve private defaults and hosted variants expose only the cache store, no writable token', () => {
   for (const name of ['tests-fast', 'tests-rust', 'tests', 'rust-warnings-summary']) {
     const graph = workflow(name);
     for (const [id, job] of Object.entries(graph.jobs)) {
@@ -36,6 +39,7 @@ test('runner switches preserve private defaults and hosted variants expose no pr
         for (const step of [{ env: {} }, ...job.steps]) {
           const effective = { ...graph.env, ...job.env, ...step.env };
           for (const [key, expression] of Object.entries(effective)) {
+            if (job.env.SCCACHE_GHA_ENABLED && cacheStore.includes(key)) continue;
             assert.ok(!String(value(expression, context)).includes('PRIVATE:'), name + '/' + id + '/' + key);
           }
         }
@@ -70,7 +74,7 @@ test('Linux routing excludes BLACKSTAR and all private compilation uses the same
     assert.ok(!readFileSync(new URL(file,directory),'utf8').includes('host-blackstar'),file);
   }
   const step=readFileSync(new URL('ci-step.yml',directory),'utf8');
-  assert.match(step,/"blackstar-windows":\["self-hosted","Windows","windows-ci","host-blackstar"\]/);
+  assert.match(step,/"blackstar-windows":\["self-hosted","Windows","windows-build","host-blackstar"\]/);
   assert.equal(step.match(/host-blackstar/g).length,1);
   const fast=workflow('tests-fast'),rust=workflow('tests-rust'),ci=workflow('tests');
   const guards=fast.jobs.guards;

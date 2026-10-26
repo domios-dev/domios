@@ -704,8 +704,8 @@ jobs:
       DOMIOS_CI_WEBHOOK_TOKEN: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_CI_WEBHOOK_TOKEN || '' }}
       AWS_ACCESS_KEY_ID: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.SCCACHE_AWS_ACCESS_KEY_ID || '' }}
       AWS_SECRET_ACCESS_KEY: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.SCCACHE_AWS_SECRET_ACCESS_KEY || '' }}
-      CI_STORE_TAILNET_ENDPOINT: ${{ secrets.CI_STORE_TAILNET_ENDPOINT }}
-      CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
+      CI_STORE_TAILNET_ENDPOINT: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.CI_STORE_TAILNET_ENDPOINT || '' }}
+      CI_STORE_PUBLIC_ENDPOINT: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.CI_STORE_PUBLIC_ENDPOINT || '' }}
       DOMIOS_FIREBASE_API_KEY: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
       DOMIOS_FIREBASE_PROJECT_ID: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
       DOMIOS_FIREBASE_APP_ID: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_APP_ID || '' }}
