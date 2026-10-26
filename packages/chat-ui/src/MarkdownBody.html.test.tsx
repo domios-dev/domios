@@ -290,7 +290,7 @@ test("html code fence renders a locked-down sandboxed frame", async () => {
 });
 
 test("file-backed HTML fence loads and sanitizes its single source", async () => {
-  const path = "C:\\Users\\User\\Desktop\\design-system.html";
+  const path = "C:\\Users\\dev\\Desktop\\design-system.html";
   let reads = 0;
   configureHtmlFileLoader(async (requested) => {
     reads += 1;
@@ -346,9 +346,9 @@ test("a denied gallery image leaves the allowed image visible with an unavailabl
 });
 
 test("standalone ct artifact directives render pages, images, and documents", async () => {
-  const pagePath = "C:\\Users\\User\\Desktop\\view.html";
-  const imagePath = "C:\\Users\\User\\Desktop\\preview.png";
-  const documentPath = "C:\\Users\\User\\Desktop\\notes.md";
+  const pagePath = "C:\\Users\\dev\\Desktop\\view.html";
+  const imagePath = "C:\\Users\\dev\\Desktop\\preview.png";
+  const documentPath = "C:\\Users\\dev\\Desktop\\notes.md";
   configureHtmlFileLoader(async (path) => {
     assert(path === pagePath, "ds-page uses the existing sandboxed page loader");
     return "<main>Page from file</main>";
@@ -460,8 +460,8 @@ test("local embeds retain DOM and scroll across focus, visibility, and identical
 });
 
 test("standalone ct directives preserve Windows and forward-slash paths", async () => {
-  const windowsPath = "C:\\Users\\User\\.codex\\generated_images\\windows.png";
-  const forwardPath = "C:/Users/User/.codex/generated_images/forward.png";
+  const windowsPath = "C:\\Users\\dev\\.codex\\generated_images\\windows.png";
+  const forwardPath = "C:/Users/dev/.codex/generated_images/forward.png";
   const requested: string[] = [];
   configureLocalArtifactLoader(async (path, kind) => {
     assert(kind === "image", "path compatibility fixture should remain an image directive");

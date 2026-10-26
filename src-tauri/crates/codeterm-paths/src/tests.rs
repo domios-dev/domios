@@ -19,8 +19,8 @@ fn runtime_identity_names_cover_release_and_debug_instances() {
 #[test]
 fn strip_verbatim_prefix_forms() {
     assert_eq!(
-        strip_verbatim_prefix(r"\\?\C:\Users\User\.domios-dev\general"),
-        r"C:\Users\User\.domios-dev\general"
+        strip_verbatim_prefix(r"\\?\C:\Users\dev\.domios-dev\general"),
+        r"C:\Users\dev\.domios-dev\general"
     );
     assert_eq!(
         strip_verbatim_prefix(r"\\?\UNC\server\share\proj"),
@@ -31,8 +31,8 @@ fn strip_verbatim_prefix_forms() {
         r"\\server\share\proj"
     );
     assert_eq!(
-        strip_verbatim_prefix("//?/C:/Users/User/project"),
-        r"C:\Users\User\project"
+        strip_verbatim_prefix("//?/C:/Users/dev/project"),
+        r"C:\Users\dev\project"
     );
     assert_eq!(strip_verbatim_prefix("/home/user/p"), "/home/user/p");
     assert_eq!(strip_verbatim_prefix(r"C:\plain\path"), r"C:\plain\path");

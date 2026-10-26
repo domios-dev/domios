@@ -4,7 +4,7 @@
     "--binary",
     "src-tauri/target/release/examples/mem_embedder_oracle",
     "--cache",
-    "/Users/kandrey/.cache/huggingface/hub",
+    "/Users/dev/.cache/huggingface/hub",
     "--out",
     "evals/mem-embedder/oracle-results.json",
     "--resume"

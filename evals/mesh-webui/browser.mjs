@@ -9,7 +9,7 @@ import {gatewayToken} from './secrets.mjs';
 import * as rawTerminal from './terminal-capture.mjs';
 import {readSelectedTab} from './provenance.mjs';
 import {activateAndSelectFixture,fixtureWorkspaceId,readFixtureModeState} from './workspace-selection.mjs';
-const rc = '/Users/kandrey/Developer/codeterm-worktrees/rc-mac';
+const rc = '/Users/dev/Developer/codeterm-worktrees/rc-mac';
 const require = createRequire(path.join(rc, 'package.json'));
 export const STEP_MS = 30_000;
 export async function deadline(promise, label, ms = STEP_MS) {

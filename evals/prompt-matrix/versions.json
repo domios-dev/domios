@@ -970,9 +970,9 @@
   },
   "cursor": {
     "status": "pending",
-    "binary": "/Users/kandrey/.local/bin/cursor-agent",
-    "archive": "/Users/kandrey/.local/share/cursor-agent/versions/2026.06.19-20-24-33-653a7fb",
-    "current": "/Users/kandrey/.local/share/cursor-agent/versions/2026.07.01-41b2de7",
+    "binary": "/Users/dev/.local/bin/cursor-agent",
+    "archive": "/Users/dev/.local/share/cursor-agent/versions/2026.06.19-20-24-33-653a7fb",
+    "current": "/Users/dev/.local/share/cursor-agent/versions/2026.07.01-41b2de7",
     "platform": "macos-arm64",
     "prompt_status": "pending",
     "updater_capability": null,

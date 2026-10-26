@@ -929,9 +929,9 @@ mod tests {
                 "-Users-user-Developer-wk-cb-p1",
             ),
             // Windows native path: drive colon + backslashes all collapse to dashes.
-            ("C:\\Users\\User\\proj", "C--Users-User-proj"),
+            ("C:\\Users\\dev\\proj", "C--Users-User-proj"),
             // encoder is separator-agnostic, so a normalized cwd binds the same dir.
-            ("C:/Users/User/proj", "C--Users-User-proj"),
+            ("C:/Users/dev/proj", "C--Users-User-proj"),
         ];
         for (cwd, want) in cases {
             assert_eq!(encode_cwd(cwd), want, "encode_cwd({cwd:?})");
@@ -1008,9 +1008,9 @@ mod tests {
     #[test]
     fn test_verbatim_cwd_encodes_like_plain_cwd() {
         // SAME claude project dir as the plain cwd — otherwise resume never matches.
-        let plain = encode_cwd(r"C:\Users\User\.domios-dev\general");
+        let plain = encode_cwd(r"C:\Users\dev\.domios-dev\general");
         let verbatim = encode_cwd(&codeterm_paths::strip_verbatim_prefix(
-            r"\\?\C:\Users\User\.domios-dev\general",
+            r"\\?\C:\Users\dev\.domios-dev\general",
         ));
         assert_eq!(plain, verbatim);
         assert_eq!(plain, "C--Users-User--domios-dev-general");

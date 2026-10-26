@@ -30,7 +30,7 @@ impl RpcClient for FakeRpc {
                 }
             }),
             "plan.files" => json!({
-                "index_path": "C:/Users/User/.domios/plans/active/plan_rpc/INDEX.md",
+                "index_path": "C:/Users/dev/.domios/plans/active/plan_rpc/INDEX.md",
                 "entries": []
             }),
             other => panic!("unexpected RPC method {other}"),

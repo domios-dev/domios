@@ -515,7 +515,7 @@ not expected because the usernames differ. No sudo or shared user is required:
 |---|---|---|
 | eight, air | `/Users/Shared/domios-ci/work/codeterm` | `/Users/Shared/domios-ci/cargo` |
 | ROG, BLACKSTAR, green | `C:\domios-ci\work\codeterm` | `C:\domios-ci\cargo` |
-| ubunta | `/home/rollacode/domios-ci/work/codeterm` | `/home/rollacode/domios-ci/cargo` |
+| ubunta | `/home/dev/domios-ci/work/codeterm` | `/home/dev/domios-ci/cargo` |
 | BLACKSTAR WSL | `/home/ci/domios-ci/work/codeterm` | `/home/ci/domios-ci/cargo` |
 
 Only the exact CI checkout paths above use checkout-local `target-check` for
@@ -536,7 +536,7 @@ Upstream Rust normalization is a separate follow-up. Also match
 toolchain executable paths: `CARGO` is hashed. Select the pinned toolchain under
 `/Users/Shared/domios-ci/rustup/toolchains/` on macOS,
 `C:\domios-ci\rustup\toolchains\` on Windows, or
-`/home/rollacode/domios-ci/rustup/toolchains/` on ubunta or
+`/home/dev/domios-ci/rustup/toolchains/` on ubunta or
 `/home/ci/domios-ci/rustup/toolchains/` in BLACKSTAR WSL in the builder process PATH;
 do not change developer toolchain defaults. See the builder path
 contract in `.codeterm/build-machine/README.md`.

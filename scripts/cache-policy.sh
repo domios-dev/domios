@@ -105,7 +105,7 @@ ct_cache_home() {
 
 ct_exceptional_target_dir() {
   case "$1" in
-    /Users/Shared/domios-ci/work/codeterm|/home/rollacode/domios-ci/work/codeterm|/home/ci/domios-ci/work/codeterm|/c/domios-ci/work/codeterm)
+    /Users/Shared/domios-ci/work/codeterm|/home/dev/domios-ci/work/codeterm|/home/ci/domios-ci/work/codeterm|/c/domios-ci/work/codeterm)
       printf '%s/target-check\n' "$1"
       ;;
     *) printf '%s/targets/exceptional/%s\n' "$2" "$3" ;;

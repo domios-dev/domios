@@ -7,7 +7,7 @@
   "failure": "multilingual-e5-small offline pinned cache lookup; no candidate vector/recall result produced",
   "resume": "L12 passing vectors and throughput retained; only remaining candidates measured after model_files cache fix",
   "commands": [
-    "python3 evals/mem-embedder/oracle.py --binary src-tauri/target/release/examples/mem_embedder_oracle --cache /Users/kandrey/.cache/huggingface/hub --out evals/mem-embedder/oracle-results.json",
+    "python3 evals/mem-embedder/oracle.py --binary src-tauri/target/release/examples/mem_embedder_oracle --cache /Users/dev/.cache/huggingface/hub --out evals/mem-embedder/oracle-results.json",
     "same command with --resume after pinned-cache fix"
   ],
   "reference": "Transformers AutoTokenizer/AutoModel local_files_only, same cached revisions; official masked mean or CLS pooling and L2 normalization"

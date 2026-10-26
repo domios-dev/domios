@@ -4,7 +4,7 @@ if [[ ${B3_GO_LIVE:-} != yes ]]; then
   echo 'Stage 2 only: requires Orchestrator GO live' >&2
   exit 7
 fi
-repo=/Users/kandrey/Developer/codeterm-worktrees/rc-mac
+repo=/Users/dev/Developer/codeterm-worktrees/rc-mac
 export CODETERM_INSTANCE=aiderqa CODETERM_API_PORT=7697
 source "$repo/evals/_lib/lib.sh"
 mode=${1:?preflight or snapshot}
