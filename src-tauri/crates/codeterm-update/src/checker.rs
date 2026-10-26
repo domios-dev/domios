@@ -1,47 +1,75 @@
 use super::InstallMethod;
 use crate::update_state::UpdateInfo;
 
-// Anonymous users check a public releases endpoint.
-// Do not bake updater tokens into shipped binaries; that breaks public download flows.
-const GITHUB_API: &str = "https://api.github.com/repos/rollacode/codeterm-releases/releases/latest";
-pub(super) const GITHUB_REPO: &str = "rollacode/codeterm-releases";
+// Anonymous users check public releases endpoints; never bake updater tokens into shipped binaries.
+// Releases publish to the public source repository from 1.16.0; the legacy mirror stays a fallback
+// until it is retired, and the newest version across both wins.
+pub const UPDATE_REPOSITORIES: [&str; 2] = ["domios-dev/domios", "rollacode/codeterm-releases"];
+pub(super) const GITHUB_REPO: &str = UPDATE_REPOSITORIES[0];
 
-fn latest_release_request(client: &reqwest::Client) -> reqwest::RequestBuilder {
+/// The newest stable release found across the update repositories.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LatestRelease {
+    pub repository: &'static str,
+    pub tag: String,
+}
+
+fn latest_release_request(client: &reqwest::Client, repository: &str) -> reqwest::RequestBuilder {
     client
-        .get(GITHUB_API)
+        .get(format!("https://api.github.com/repos/{repository}/releases/latest"))
         .query(&[("codeterm_cache_bust", uuid::Uuid::new_v4().to_string())])
         .header(reqwest::header::CACHE_CONTROL, "no-cache, no-store")
         .header(reqwest::header::PRAGMA, "no-cache")
 }
 
-pub async fn latest_release_tag() -> Result<String, String> {
+pub async fn latest_release_tag() -> Result<LatestRelease, String> {
     if codeterm_plugins::update_source::fixture_root().is_some() {
         let manifest =
             super::manifest::fetch("https://fixtures.invalid/domios-latest.json").await?;
-        return Ok(format!("v{}", manifest.version));
+        return Ok(LatestRelease { repository: GITHUB_REPO, tag: format!("v{}", manifest.version) });
     }
     let client = reqwest::Client::builder()
         .user_agent("Domios-Updater")
         .build()
         .map_err(|e| e.to_string())?;
-    let release = latest_release_request(&client)
+    let mut found = Vec::new();
+    let mut errors = Vec::new();
+    for repository in UPDATE_REPOSITORIES {
+        match repository_latest_tag(&client, repository).await {
+            Ok(tag) => found.push(LatestRelease { repository, tag }),
+            Err(error) => errors.push(format!("{repository}: {error}")),
+        }
+    }
+    newest_release(found).ok_or_else(|| format!("Failed to fetch release: {}", errors.join("; ")))
+}
+
+async fn repository_latest_tag(client: &reqwest::Client, repository: &str) -> Result<String, String> {
+    let release = latest_release_request(client, repository)
         .send()
         .await
-        .map_err(|e| format!("Failed to fetch release: {}", e))?;
+        .map_err(|e| e.to_string())?;
     if !release.status().is_success() {
-        return Err(format!(
-            "Failed to fetch release: HTTP {}",
-            release.status()
-        ));
+        return Err(format!("HTTP {}", release.status()));
     }
-    let release: serde_json::Value = release
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse response: {}", e))?;
+    let release: serde_json::Value = release.json().await.map_err(|e| e.to_string())?;
     release["tag_name"]
         .as_str()
         .map(ToOwned::to_owned)
-        .ok_or_else(|| "No tag_name in GitHub response".to_string())
+        .ok_or_else(|| "no tag_name".to_string())
+}
+
+/// Highest semantic version wins; the earlier repository wins a tie, and unparsable tags never win.
+pub fn newest_release(found: Vec<LatestRelease>) -> Option<LatestRelease> {
+    let mut best: Option<(semver::Version, LatestRelease)> = None;
+    for release in found {
+        let Ok(candidate) = semver::Version::parse(release.tag.trim_start_matches('v')) else {
+            continue;
+        };
+        if best.as_ref().is_none_or(|(current, _)| candidate > *current) {
+            best = Some((candidate, release));
+        }
+    }
+    best.map(|(_, release)| release)
 }
 
 pub async fn check_for_update(install_method: &InstallMethod) -> Result<UpdateInfo, String> {
@@ -52,14 +80,19 @@ pub async fn check_for_update_at(
     install_method: &InstallMethod,
     manifest_url: Option<&str>,
 ) -> Result<UpdateInfo, String> {
-    let endpoint = super::channel::default_endpoints_for_install_method(
-        super::Channel::Stable,
-        install_method,
-    )
-    .into_iter()
-    .next()
-    .ok_or("Missing updater endpoint")?;
-    let endpoint = manifest_url.unwrap_or(&endpoint);
+    let endpoint = match manifest_url {
+        Some(url) => url.to_string(),
+        None => {
+            let latest = latest_release_tag().await?;
+            super::channel::immutable_endpoint_for_release(
+                latest.repository,
+                &latest.tag,
+                super::Channel::Stable,
+                install_method,
+            )
+        }
+    };
+    let endpoint = endpoint.as_str();
     let manifest = super::manifest::fetch(endpoint).await.map_err(|error| {
         log::error!("[updater] GET {endpoint} failed: {error}");
         format!("GET {endpoint}: {error}")

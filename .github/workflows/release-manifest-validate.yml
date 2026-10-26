@@ -239,13 +239,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gh release edit "$TAG" --repo "$SOURCE_REPO" --draft=false
+          # Clients read releases/latest in both repositories; only a stable release may become latest.
+          latest=--latest=false
+          [ "$MANIFEST" != domios-latest.json ] || latest=--latest
+          gh release edit "$TAG" --repo "$SOURCE_REPO" --draft=false "$latest"
           export GH_TOKEN="$MIRROR_TOKEN"
-          if [ "$MANIFEST" = domios-latest.json ]; then
-            gh release edit "$TAG" --repo "$MIRROR_REPO" --draft=false --latest
-          else
-            gh release edit "$TAG" --repo "$MIRROR_REPO" --draft=false
-          fi
+          gh release edit "$TAG" --repo "$MIRROR_REPO" --draft=false "$latest"
 
       - name: Verify published public mirror
         if: inputs.mirror
