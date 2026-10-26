@@ -87,8 +87,9 @@ jobs:
               pr.head.repo.full_name === context.repo.owner + '/' + context.repo.repo && /^release\/\d+\.\d+\.\d+$/.test(pr.head.ref));
             if (!pr) {core.notice('No merged release PR for this master push');return;}
             const sha = pr.head.sha;
-            const merge = (await github.rest.repos.getCommit({...context.repo, ref: context.sha})).data;
-            if (merge.parents.length !== 2 || merge.parents[1].sha !== sha) throw new Error('Release requires a real merge of the qualified head');
+            // PRs squash-merge, so master must carry exactly the files of the green release head.
+            const tree = async ref => (await github.rest.repos.getCommit({...context.repo, ref})).data.commit.tree.sha;
+            if (await tree(context.sha) !== await tree(sha)) throw new Error('Release requires master to carry exactly the qualified head tree');
             const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {...context.repo,
               workflow_id: 'tests.yml', event: 'push', head_sha: sha, per_page: 100});
             const run = runs.filter(run => run.head_sha === sha && run.head_branch === pr.head.ref &&

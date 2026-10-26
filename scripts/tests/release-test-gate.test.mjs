@@ -35,7 +35,7 @@ test('release packaging belongs to push CI and merge publication checks the rele
   assert.ok(release.on.workflow_call);
   assert.equal(release.jobs['qualified-source']['runs-on'],'ubuntu-24.04');
   assert.equal(release.jobs['qualified-source'].environment,undefined);
-  assert.match(release.jobs['qualified-source'].steps[0].with.script,/merge.parents.length !== 2/);
+  assert.match(release.jobs['qualified-source'].steps[0].with.script,/qualified head tree/);
   assert.equal(tests.jobs['release-dry-run'].with.dry_run,true);
   // Packaging overlaps the Rust suites; publication promotes only a fully green run and re-checks its qualification.
   // Packaging starts with the push: it waits for no check, and builds the pushed commit itself.
