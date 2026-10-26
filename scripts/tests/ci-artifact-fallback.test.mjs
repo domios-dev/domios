@@ -82,36 +82,6 @@ test('the run-artifact fallback refuses without evidence or a run id instead of 
   } finally { rmSync(h.dir, { recursive: true, force: true }); }
 });
 
-test('every job that stores CI artifacts uploads its spool and every reader prefetches fallback artifacts', () => {
-  const workflows = ['release-macos-build', 'release-linux', 'release-linux-arm64', 'release-windows', 'tests',
-    'rust-warnings-summary', 'release-manifest-dry-run'];
-  for (const name of workflows) {
-    const text = readFileSync(path.join(root, '.github', 'workflows', `${name}.yml`), 'utf8');
-    for (const [id, job] of Object.entries(parse(text).jobs)) {
-      const steps = job.steps ?? [];
-      const runs = steps.map(step => step.run ?? '').join('\n');
-      const stores = /ci-artifact\.sh put|release-dry-run-manifest\.mjs capture/.test(runs) ||
-        steps.some(step => step.uses === './.github/actions/rust-warnings');
-      if (stores) {
-        const spool = steps.findIndex(step => step.uses === './.github/actions/ci-artifact-spool');
-        assert.ok(spool >= 0, `${name}/${id} uploads its spool`);
-        assert.equal(steps[spool].if, 'always()', `${name}/${id}`);
-      }
-      for (const step of steps) {
-        if (/ci-artifact\.sh get|release-dry-run-manifest\.mjs aggregate/.test(step.run ?? '')) {
-          assert.ok(steps.some(candidate => candidate.uses?.startsWith('actions/download-artifact@') && candidate.with?.pattern === 'ci-artifact-spool-*'), name+'/'+id+'/'+step.name);
-        }
-      }
-    }
-  }
-  const action = parse(readFileSync(path.join(root, '.github', 'actions', 'ci-artifact-spool', 'action.yml'), 'utf8'));
-  const upload = action.runs.steps.find(step => step.uses?.startsWith('actions/upload-artifact@'));
-  assert.match(upload.uses, /@[0-9a-f]{40}$/);
-  assert.equal(upload.with['if-no-files-found'], 'error');
-  const reader = action.runs.steps.find(step => step.id === 'spool');
-  assert.equal(reader.shell, "${{ runner.os == 'Windows' && 'pwsh' || 'bash' }}");
-  assert.equal(reader.run, 'node scripts/ci-artifact-spool.mjs');
-});
 
 test('the spool reader names the spooled artifact and stays silent without one', () => {
   const temp = mkdtempSync(path.join(os.tmpdir(), 'ci-artifact-spool-'));

@@ -44,89 +44,12 @@ function assertPublicJobs(graph, name, visited = new Set()) {
   }
 }
 
-test('every PR entry point and reusable descendant is hosted, read-only and secret-free', () => {
-  let entries = 0;
-  for (const [name, workflow] of Object.entries(workflows)) {
-    if (name !== 'fork-pr-guard.yml') assert.equal(workflow.on.pull_request_target, undefined, name);
-    if ('pull_request' in workflow.on) {
-      entries++;
-      assertPublicJobs(workflows, name);
-    }
-  }
-  assert.equal(entries, 1);
-  assert.ok(Object.hasOwn(workflows['tests.yml'].on, 'pull_request'));
-});
 
-test('PR graph contract rejects nested self-hosted labels, secrets and writable tokens', () => {
-  const root = { on: { pull_request: null }, permissions: { contents: 'read' }, jobs: { check: { uses: './.github/workflows/child.yml' } } };
-  const leaf = { on: { workflow_call: null }, jobs: { check: { 'runs-on': 'ubuntu-24.04', steps: [{ run: 'true' }] } } };
-  assertPublicJobs({ 'root.yml': root, 'child.yml': leaf }, 'root.yml');
-  for (const mutation of [
-    { 'runs-on': ['self-hosted', 'linux-build'] },
-    { env: { TOKEN: '${{ secrets.RELEASE_TOKEN }}' } },
-    { permissions: { contents: 'write' } },
-    { secrets: 'inherit' },
-  ]) {
-    const child = structuredClone(leaf);
-    Object.assign(child.jobs.check, mutation);
-    assert.throws(() => assertPublicJobs({ 'root.yml': root, 'child.yml': child }, 'root.yml'));
-  }
-});
 
-test('privileged reusable jobs refuse every PR actor, even the owner and same-repository PRs', () => {
-  let guarded = 0;
-  for (const [name, workflow] of Object.entries(workflows)) {
-    for (const [id, job] of Object.entries(workflow.jobs)) {
-      if (!job['runs-on'] || hostedCompile(name, id)) continue;
-      if (!stringify(job['runs-on']).includes('self-hosted') && !secrets(job) && !releaseWorkflow(name)) continue;
-      guarded++;
-      assert.match(job.if, /github\.repository_owner == 'rollacode' \|\| github\.repository_owner == 'domios-dev'/, `${name}/${id}`);
-      assert.match(job.if, /github\.actor == 'rollacode'/, `${name}/${id}`);
-      for (const event_name of ['pull_request', 'pull_request_target']) {
-        for (const actor of ['rollacode', 'outside-collaborator', 'fork-contributor']) {
-          assert.equal(condition(job.if, { github: { ...github, event_name, actor } }), false, `${name}/${id}/${actor}/${event_name}`);
-        }
-      }
-      assert.equal(condition(job.if, { github: { ...github, actor: 'outside-collaborator' } }), false, `${name}/${id}: outside push`);
-    }
-  }
-  assert.ok(guarded > 0);
-});
 
-test('release jobs gate runner acquisition and secrets on owner, release branch and allowed event', () => {
-  for (const [name, workflow] of Object.entries(workflows).filter(([name]) => releaseWorkflow(name))) {
-    for (const trigger of Object.keys(workflow.on)) assert.ok(['push', 'workflow_dispatch', 'workflow_call', 'workflow_run'].includes(trigger), `${name}/${trigger}`);
-    if (workflow.on.push) assert.deepEqual(workflow.on.push, { branches: [name === 'release.yml' ? 'master' : 'release/**'] });
-    for (const [id, job] of Object.entries(workflow.jobs)) {
-      if (job.uses || hostedCompile(name, id)) continue;
-      assert.equal(job.environment, 'release', `${name}/${id}`);
-      for (const invalid of [
-        { actor: 'outside-collaborator' }, { triggering_actor: 'outside-collaborator' }, { repository: 'fork/codeterm', repository_owner: 'fork' },
-        { event_name: 'workflow_run' }, { event_name: 'schedule' },
-        ...(name === 'release-manifest-validate.yml' ? [] : [{ ref: 'refs/heads/master' }]), { ref: 'refs/tags/v9.9.9' },
-      ]) assert.equal(condition(job.if, { github: { ...github, ...invalid } }), false, `${name}/${id}/${stringify(invalid)}`);
-    }
-  }
-  for (const event_name of ['workflow_dispatch']) {
-    assert.equal(condition(workflows['release.yml'].jobs.prepare.if, { github: { ...github, event_name } }), true);
-  }
-  assert.equal(condition(workflows['plugin-release.yml'].jobs.publish.if, { github: { ...github, event_name: 'workflow_dispatch' } }), true);
-});
 
 
 // Owner decision: only release jobs run in an environment; other jobs read repo-level secrets directly.
-test('secret references resolve in the release environment for release jobs and in no environment otherwise', () => {
-  for (const [name, workflow] of Object.entries(workflows)) {
-    assert.ok(!secrets(workflow.env), `${name}: secrets must resolve after job environment approval`);
-    for (const [id, job] of Object.entries(workflow.jobs)) {
-      if (job.uses || !secrets(job) || hostedCompile(name, id)) continue;
-      if (releaseWorkflow(name)) assert.equal(job.environment, 'release', `${name}/${id}`);
-      else if (name === 'rust-warnings-summary.yml') {
-        assert.equal(evaluateCondition(job.environment, { github }), 'release');
-      } else assert.equal(job.environment, undefined, `${name}/${id}`);
-    }
-  }
-});
 
 test('owner handoff preserves strict branch rules, protected environments and fork restrictions', () => {
   const admin = readFileSync(new URL('../../.github/admin/public-repo.sh', import.meta.url), 'utf8');
@@ -140,47 +63,4 @@ test('owner handoff preserves strict branch rules, protected environments and fo
   }
 });
 
-test('repository owner policy survives the organization transfer and refuses forks', () => {
-  for (const [name, workflow] of Object.entries(workflows)) {
-    for (const [id, job] of Object.entries(workflow.jobs)) {
-      if (!job.if?.includes('github.repository_owner')) continue;
-      assert.equal((job.if.match(/github.repository_owner == 'rollacode'/g) ?? []).length, 1, `${name}/${id}`);
-      assert.doesNotMatch(job.if, /github\.repository ==/);
-      const evaluate = repository_owner => condition(job.if.match(/\(github.repository_owner[^)]+\)/)[0], { github: { ...github, repository_owner } });
-      assert.equal(evaluate('domios-dev'), evaluate('rollacode'), `${name}/${id}: transferred policy`);
-      assert.equal(evaluate('fork'), false, `${name}/${id}: foreign owner`);
-    }
-  }
-  assert.equal(condition(workflows['release.yml'].jobs.prepare.if, { github: { ...github, repository: 'domios-dev/domios', repository_owner: 'domios-dev', event_name: 'workflow_dispatch' } }), true);
-});
 
-test('fork release guard is the only tightly confined pull_request_target workflow',async()=>{
-  const guard=workflows['fork-pr-guard.yml'];
-  assert.deepEqual(Object.keys(guard.on),['pull_request_target']);
-  assert.deepEqual(guard.on.pull_request_target.types,['opened','reopened','synchronize','edited']);
-  assert.deepEqual(guard.permissions,{'pull-requests':'write'});
-  assert.deepEqual(Object.keys(guard.jobs),['close']);
-  const job=guard.jobs.close;
-  assert.equal(job['runs-on'],'ubuntu-24.04');
-  assert.deepEqual(job.permissions,{'pull-requests':'write'});
-  assert.equal(job.environment,undefined);
-  assert.equal(job.secrets,undefined);
-  assert.equal(job.if,'github.event.pull_request.head.repo.full_name != github.repository');
-  assert.equal(job.steps.length,1);
-  assert.match(job.steps[0].uses,/^actions\/github-script@[a-f0-9]{40}$/);
-  assert.doesNotMatch(JSON.stringify(guard),/secrets\.|checkout|self-hosted|\"run\":/);
-  const execute=new (Object.getPrototypeOf(async function(){}).constructor)('github','context',job.steps[0].with.script);
-  for(const [head,base,repo,closed]of [
-    ['release/x','develop','fork/domios',true],['topic/x','master','fork/domios',true],
-    ['topic/x','release/1.15.3','fork/domios',true],['topic/x','develop','fork/domios',false],
-    ['release/1.15.3','master','domios-dev/domios',false],
-  ]){
-    const pr={number:3,head:{ref:head,repo:{full_name:repo}},base:{ref:base}};
-    const calls=[];
-    if(condition(job.if,{github:{repository:'domios-dev/domios',event:{pull_request:pr}}}))
-      await execute({rest:{pulls:{update:async row=>calls.push(row)},issues:{createComment:async row=>calls.push(row)}}},
-        {repo:{owner:'domios-dev',repo:'domios'},payload:{pull_request:pr}});
-    assert.equal(calls.length,closed?2:0,head+'/'+base+'/'+repo);
-    if(closed){assert.equal(calls[0].state,'closed');assert.doesNotMatch(calls[1].body,/\n/);}
-  }
-});

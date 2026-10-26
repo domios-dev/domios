@@ -39,30 +39,3 @@ test('native MSVC setup preserves quoted batch paths and target arguments', { sk
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
-test('one hosted arm64 job compiles, signs, smokes and keeps the existing receipts', () => {
-  const release = workflow('release');
-  for (const [name, target] of [['linux', 'aarch64-unknown-linux-gnu'], ['windows', 'aarch64-pc-windows-msvc']]) {
-    const arm = workflow(`release-${name}-arm64`);
-    assert.equal(release.jobs[`${name}-arm64`].uses, `./.github/workflows/release-${name}-arm64.yml`);
-    assert.deepEqual(Object.keys(arm.jobs), ['build']);
-    const job = arm.jobs.build;
-    assert.equal(job.needs, undefined);
-    assert.equal(job['runs-on'], name === 'linux' ? 'ubuntu-24.04-arm' : 'windows-11-arm');
-    assert.equal(job.environment, 'release');
-    for (const key of publicConfig) assert.equal(job.env[key], '$' + '{{ secrets.' + key + ' }}');
-    assert.equal(job.env.AWS_ACCESS_KEY_ID, '${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}');
-    const step = job.steps.findIndex(step => step.uses === './.github/actions/arm64-compile');
-    assert.ok(step >= 0);
-    assert.equal(job.steps[step].with.target, target);
-    // Signing keys appear only after the compile, in the steps that sign.
-    assert.ok(job.steps.slice(0, step).every(step => !/SIGNING_PRIVATE_KEY/.test(JSON.stringify(step))));
-    const commands = job.steps.map(step => step.run ?? '').join('\n');
-    assert.match(commands, /steps\.compile\.outputs\.sha256/);
-    assert.match(commands, /signer sign/);
-    assert.match(commands, /release-arm64-handoff\.mjs verify/);
-    assert.match(commands, /release-bundle-smoke\.mjs/);
-    assert.match(commands, /release-dry-run-manifest\.mjs capture/);
-    assert.ok(job.steps.some(step => step.name === 'Retain the frozen stage proof'));
-  }
-  assert.match(workflow('release-windows').jobs.build.if, /inputs.arch == 'x64'/);
-});

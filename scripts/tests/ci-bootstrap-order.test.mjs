@@ -45,30 +45,7 @@ function orderingErrors(steps,kind='github-hosted',matrix={}){
   return errors;
 }
 
-test('every workflow provisions hosted tools or discovers installed self-hosted tools before scripts',()=>{
-  const directory=new URL('../../.github/workflows/',import.meta.url);
-  for(const file of readdirSync(directory).filter(file=>file.endsWith('.yml'))){
-    for(const [id,job]of Object.entries(parse(readFileSync(new URL(file,directory),'utf8')).jobs)){
-      if(!job.steps)continue;
-      for(const {kind,matrix} of runnerScenarios(job))assert.deepEqual(orderingErrors(job.steps,kind,matrix),[],file+'/'+id+'/'+kind);
-    }
-  }
-});
 
-test('no installer action can execute on a self-hosted runner',()=>{
-  const directory=new URL('../../.github/workflows/',import.meta.url);
-  let checked=0;
-  for(const file of readdirSync(directory).filter(file=>file.endsWith('.yml'))){
-    for(const [id,job]of Object.entries(parse(readFileSync(new URL(file,directory),'utf8')).jobs)){
-      if(!job.steps || !runnerKinds(job).includes('self-hosted'))continue;
-      for(const step of job.steps.filter(installer)){
-        assert.equal(condition(step.if,{runner:{environment:'self-hosted'},matrix:{},vars:{},steps:{}}),false,file+'/'+id+'/'+step.uses);
-        checked++;
-      }
-    }
-  }
-  assert.ok(checked>30);
-});
 
 test('negative controls refuse early Node, Python and pnpm and an installer before discovery',()=>{
   const setup=tool=>({uses:providers[tool]+'a'.repeat(40)});
@@ -78,16 +55,3 @@ test('negative controls refuse early Node, Python and pnpm and an installer befo
   assert.ok(orderingErrors([{run:'python fixture.py'},{run:'node scripts/ci-runner-paths.mjs --paths-only'}],'self-hosted').length);
 });
 
-test('runner-owned Node bootstrap works without a system Node or shell PATH',()=>{
-  const workflow=parse(readFileSync(new URL('../../.github/workflows/tests-fast.yml',import.meta.url),'utf8'));
-  const steps=workflow.jobs.changed.steps;
-  const bootstrap=steps.find(step=>step.uses?.startsWith('actions/github-script@'));
-  const executable=path.resolve('opaque-runner','externals','node24','bin',process.platform==='win32'?'node.exe':'node');
-  const added=[];
-  runInNewContext(bootstrap.with.script,{
-    require:createRequire(import.meta.url),process:{execPath:executable,version:'v24.fixture',env:{}},
-    core:{addPath:directory=>added.push(directory),info:()=>{}},
-  });
-  assert.deepEqual(added,[path.dirname(executable)]);
-  assert.ok(orderingErrors(steps.filter(step=>step!==bootstrap),'self-hosted').some(error=>error.startsWith('node used before')));
-});

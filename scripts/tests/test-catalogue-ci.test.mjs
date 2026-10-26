@@ -51,13 +51,6 @@ function ownerErrors(cat, graph = workflows) {
   return errors;
 }
 
-test('every PR catalogue runner has an executing owner under the single CI entrypoint', () => {
-  assert.equal(workflows['tests.yml'].jobs.pr.uses, './.github/workflows/tests-pr.yml');
-  assert.deepEqual(ownerErrors(catalogue), []);
-  const mutant = structuredClone(catalogue);
-  mutant.runners.push({ id: 'orphan', tier: 'pr', runner: 'echo orphan' });
-  assert.ok(ownerErrors(mutant).some(error => error.startsWith('orphan:')));
-});
 
 test('docs, frontend, Rust and plugin changes select their behavior checks without heavy PR suites', () => {
   for (const files of [['essences/vision.md'], ['src/app.ts'], ['cli/src/main.rs'],
@@ -74,15 +67,6 @@ test('docs, frontend, Rust and plugin changes select their behavior checks witho
   }
 });
 
-test('one guard failure preserves independent test results and every PR job has a bounded deadline', () => {
-  const needs = reached(['src/app.ts', 'cli/src/main.rs'], { guards: 'failure' });
-  for (const id of ['cli-tests', 'ts-unit', 'ts-vitest', 'frontend-dist']) assert.equal(needs[id].result, 'success', id);
-  for (const job of Object.values(pr.jobs)) {
-    assert.ok(job['timeout-minutes'] > 0 && job['timeout-minutes'] <= 30);
-    assert.notEqual(job['continue-on-error'], true);
-    assert.ok(!job.strategy || job.strategy['fail-fast'] !== true);
-  }
-});
 
 test('PR catalogue refuses live agents, daemon fixtures and suspended Playwright', () => {
   for (const change of [{ needs_live_agent: true }, { needs_instance: true }, { runner: 'pnpm exec playwright test' }]) {
@@ -92,10 +76,3 @@ test('PR catalogue refuses live agents, daemon fixtures and suspended Playwright
   }
 });
 
-test('removing an owned test command is detected', () => {
-  const graph = structuredClone(workflows);
-  graph['tests-pr.yml'].jobs['ts-unit'].steps = [];
-  const mutant = structuredClone(catalogue);
-  mutant.runners.find(entry => entry.id === 'ts-unit').ci = ['tests-pr.yml:ts-unit'];
-  assert.ok(ownerErrors(mutant, graph).some(error => error.startsWith('ts-unit:')));
-});

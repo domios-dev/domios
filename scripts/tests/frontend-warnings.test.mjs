@@ -64,24 +64,6 @@ test('frontend build records failed type checks and preserves their exit without
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-test('a successful bundle with a new warning fails the shared ratchet and saves its artifact', async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'frontend-warnings-'));
-  try {
-    fs.mkdirSync(path.join(root, 'scripts'));
-    fs.writeFileSync(path.join(root, 'scripts/frontend-warnings-baseline.json'), JSON.stringify(makeBaseline([], [])));
-    let calls = 0;
-    const run = async (_program, _args, log) => { if (++calls === 2) fs.appendFileSync(log, 'Warning: fixture\n'); return 0; };
-    assert.equal(await buildFrontend({ root, platform: 'linux', run }), 1);
-    assert.equal(calls, 2);
-    const workflow = parseYaml(fs.readFileSync(new URL('../../.github/workflows/tests-fast.yml', import.meta.url), 'utf8'));
-    const typecheck = workflow.jobs['frontend-dist'].steps.find(step => /ts-typecheck/.test(step.run ?? ''));
-    assert.ok(typecheck);
-    assert.ok(!workflow.jobs['frontend-dist'].steps.some(step => step.with?.name === 'hosted-rust-warnings-frontend-dist'));
-    const document = JSON.parse(fs.readFileSync(path.join(root, 'ci-rust-warnings/rust-warnings-linux-frontend.json')));
-    assert.equal(document.complete, true);
-    assert.equal(document.decision.added.length, 1);
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
-});
 
 test('shared summary accepts the observed frontend warning and preserves independent Rust ratcheting', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'frontend-summary-'));

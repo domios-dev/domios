@@ -32,7 +32,7 @@ function refuse(message) {
 }
 
 export function isReleasePushRun(run, sha) {
-  return run.event === 'push' && run.head_sha === sha && /^release\/\d+\.\d+\.\d+$/.test(run.head_branch) &&
+  return run.event === 'pull_request' && run.head_sha === sha && /^release\/\d+\.\d+\.\d+$/.test(run.head_branch) &&
     ['rollacode','domios-dev'].includes(run.repository?.owner?.login) &&
     run.head_repository?.full_name === run.repository?.full_name &&
     run.actor?.login === 'rollacode' && run.triggering_actor?.login === 'rollacode';

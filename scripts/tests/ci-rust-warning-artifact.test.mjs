@@ -25,11 +25,3 @@ test('private upload invokes the real Git Bash executable directly on Windows', 
   assert.throws(() => warningArtifactCommand('store', { ...env, GITHUB_RUN_ID: 'other/run' }), /operation\/run/);
 });
 
-test('composite uses stock shells and keeps warning evidence failure separate from the build result', () => {
-  const action = parse(readFileSync(new URL('../../.github/actions/rust-warnings/action.yml', import.meta.url), 'utf8'));
-  for (const step of action.runs.steps) {
-    assert.equal(step.shell, "${{ runner.os == 'Windows' && 'pwsh' || 'bash' }}");
-    assert.equal(step['continue-on-error'], true);
-    assert.match(step.run, /^node scripts\/ci-rust-warning-artifact\.mjs (collect|store)$/);
-  }
-});

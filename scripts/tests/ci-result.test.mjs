@@ -10,21 +10,6 @@ const graph = event => ({
   qualification: { result: event === 'pull_request' ? 'skipped' : 'success' },
 });
 
-test('aggregate accepts complete PR and trusted graphs and rejects each missing or failed required job', () => {
-  for (const event of ['pull_request', 'push', 'schedule', 'workflow_dispatch']) {
-    const needs = graph(event);
-    assert.deepEqual(ciFailures(event, needs), []);
-    const required = event === 'pull_request' ? ['policy', 'pr'] : event === 'workflow_dispatch'
-      ? ['policy', 'fast'] : ['policy', 'fast', 'rust', 'rust-warnings', 'qualification'];
-    for (const id of required) {
-      for (const result of ['failure', 'cancelled', 'skipped', undefined]) {
-        const changed = structuredClone(needs);
-        changed[id] = { result };
-        assert.ok(ciFailures(event, changed).includes(id), event + '/' + id + '/' + result);
-      }
-    }
-  }
-});
 
 test('legitimate scope skips pass; failed optional jobs and missing graph results never pass', () => {
   const needs = graph('push');

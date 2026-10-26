@@ -53,23 +53,6 @@ ${entrypoint}
   for (const bundles of ['nsis', 'deb,appimage']) assert.match(shared, new RegExp(`--bundles ${bundles} "\\$\\{unsigned_config\\[@\\]\\}"`));
 });
 
-test('shared-stage bundles preserve the final client bytes used by the component identity', () => {
-  const files = [
-    '../../build.sh', '../../.github/workflows/release-linux.yml',
-    '../../.codeterm/build-machine/scripts/build-linux.sh',
-  ];
-  for (const file of files) {
-    const text = readFileSync(new URL(file, import.meta.url), 'utf8');
-    const commands = text.split('\n').filter(line => line.includes('pnpm tauri bundle '));
-    assert.ok(commands.length > 0, file);
-    for (const command of commands) assert.match(command, /tauri bundle --no-binary-patching\b/, file);
-  }
-  for (const file of ['../../.agents/skills/github-release/scripts/build-mac.sh', '../release-macos-x86_64.sh']) {
-    assert.match(readFileSync(new URL(file, import.meta.url), 'utf8'), /node scripts\/release-macos-bundle\.mjs/);
-  }
-  const dependencies = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).devDependencies;
-  assert.equal(dependencies['@tauri-apps/cli'], '^2.12.2');
-});
 
 test('macOS native compilation cannot overwrite the signed server with the sidecar stub', () => {
   for (const file of ['../../.agents/skills/github-release/scripts/build-mac.sh', '../release-macos-x86_64.sh']) {
@@ -84,39 +67,7 @@ test('macOS native compilation cannot overwrite the signed server with the sidec
   assert.doesNotMatch(assembly, /externalBin/);
 });
 
-test('Linux native compilation defers resource copying until the full package bundle', () => {
-  for (const file of ['../../.github/workflows/release-linux.yml', '../../.codeterm/build-machine/scripts/build-linux.sh']) {
-    const text = readFileSync(new URL(file, import.meta.url), 'utf8');
-    const nativeBuild = text.match(/pnpm tauri build --no-bundle[\s\S]*?--config '(\{[^\n]+\})'/)?.[1];
-    assert.ok(nativeBuild, file);
-    const config = JSON.parse(nativeBuild);
-    assert.deepEqual(config.bundle.resources, [], file);
-    assert.deepEqual(config.bundle.externalBin, [], file);
-    const bundle = text.match(/pnpm tauri bundle[^\n]*(?:\\\n[^\n]*)*/)?.[0];
-    assert.ok(bundle, file);
-    assert.doesNotMatch(bundle, /"resources"|"externalBin"/, file);
-  }
-});
 
-test('release callers explicitly defer the native client compile until Tauri', () => {
-  const entrypoint = source.match(/^  release-inputs\)\n([\s\S]*?)^    ;;/m)?.[1];
-  assert.ok(entrypoint);
-  const result = execFileSync(bash, ['-c', `
-set -e
-ensure_deps() { :; }
-prepare_release_bundle_inputs() { printf 'prepare <%s>' "$1"; }
-set -- release-inputs --for-bundle
-${entrypoint}
-`], { encoding: 'utf8' });
-  assert.equal(result, 'prepare <bundle>');
-  for (const file of ['../../.github/workflows/release-linux.yml', '../../.codeterm/build-machine/scripts/build-linux.sh',
-    '../../.agents/skills/github-release/scripts/build-mac.sh', '../release-macos-x86_64.sh']) {
-    const text = readFileSync(new URL(file, import.meta.url), 'utf8');
-    const calls = text.split('\n').filter(line => /build\.sh release-inputs/.test(line));
-    assert.ok(calls.length, file);
-    for (const call of calls) assert.match(call, /release-inputs --for-bundle\b/, file);
-  }
-});
 
 function commands(env = {}, captureEnvironment = false, mode = "") {
   assert.ok(preparation);

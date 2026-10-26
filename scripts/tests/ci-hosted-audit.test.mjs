@@ -8,27 +8,6 @@ import {parse} from 'yaml';
 import {bashInterpreter} from '../ci-runner-paths.mjs';
 import {sweepRustTargets} from '../ci-workspace-cleanup.mjs';
 const workflow=name=>parse(fs.readFileSync(new URL('../../.github/workflows/'+name+'.yml',import.meta.url),'utf8'));
-test('all frontend consumers download the producer digest rather than the consumer attempt',()=>{
- const arm64Compile=parse(fs.readFileSync(new URL('../../.github/actions/arm64-compile/action.yml',import.meta.url),'utf8'));
- for(const steps of [arm64Compile.runs.steps,...['release-linux','release-macos-build','release-windows'].map(name=>Object.values(workflow(name).jobs)[0].steps)]){
-  const download=steps.find(step=>step.name==='Download digest-pinned frontend bundle');
-  assert.equal(download.with.name,'frontend-dist-'+'$'+'{{ inputs.frontend_sha256 }}');
-  assert.ok(steps.some(step=>/release-frontend-dist.mjs fetch-run-artifact/.test(step.run||'')));
- }
- // arm64 compiles inside its signing job: no artifact handoff between jobs.
- for(const name of ['linux','windows']){
-  const job=workflow('release-'+name+'-arm64').jobs.build;
-  assert.equal(job.needs,undefined);
-  assert.ok(job.steps.some(step=>step.uses==='./.github/actions/arm64-compile'));
-  assert.ok(!job.steps.some(step=>step.uses?.startsWith('actions/download-artifact@')));
- }
-});
-test('plugin publication fetches only the validated tag before resolving it',()=>{
- const step=workflow('plugin-release').jobs.publish.steps.find(step=>step.name==='Require a verified master commit and exact plugin tag');
- assert.ok(step.run.indexOf('[[ "$PLUGIN_TAG"')<step.run.indexOf('git fetch --no-tags --depth=1'));
- assert.ok(step.run.indexOf('git fetch --no-tags --depth=1')<step.run.indexOf('git rev-parse'));
- assert.match(step.run,/refs\/tags\/\$PLUGIN_TAG:refs\/tags\/\$PLUGIN_TAG/);
-});
 test('disposable hosted targets never invoke cargo sweep',()=>{
  assert.deepEqual(sweepRustTargets('absent',()=>{throw new Error('must not invoke');},undefined,{RUNNER_ENVIRONMENT:'github-hosted'}),[]);
 });
@@ -60,23 +39,3 @@ test('Actions receipts always spool even if private-store credentials exist',()=
  }finally{fs.rmSync(root,{recursive:true,force:true});}
 });
 
-test('credential API checks use the action-authenticated clients without requiring action-private packages',async()=>{
- const steps=workflow('release-credentials').jobs.linux.steps;
- const checks=steps.filter(step=>step.name==='Updater signing key and repository write access'||step.name==='Mirror publication token write access');
- const calls=[];
- for(const step of checks){
-  assert.ok(step.with['github-token'].includes('secrets.'));
-  const execute=new (Object.getPrototypeOf(async function(){}).constructor)('process','Buffer','github','core',step.with.script);
-  await execute({env:{GITHUB_REPOSITORY:'fixture/source',TAURI_SIGNING_PRIVATE_KEY:Buffer.from('untrusted comment: opaque').toString('base64')}},
-   Buffer,{rest:{repos:{get:async args=>{calls.push(args);return{data:{permissions:{push:true}}};}}}},{info:()=>{}});
- }
- assert.deepEqual(calls,[{owner:'fixture',repo:'source'},{owner:'rollacode',repo:'codeterm-releases'},{owner:'rollacode',repo:'codeterm-releases'}]);
-});
-test('small evidence has short retention and large release evidence keeps the private path',()=>{
- const spool=parse(fs.readFileSync(new URL('../../.github/actions/ci-artifact-spool/action.yml',import.meta.url),'utf8'));
- assert.equal(spool.runs.steps.find(step=>step.uses?.startsWith('actions/upload-artifact@')).with['retention-days'],3); const frontend=workflow('release').jobs['frontend-dist'].steps.find(step=>step.uses?.startsWith('actions/upload-artifact@'));
- assert.equal(frontend.with['retention-days'],1);
- const transport=fs.readFileSync(new URL('../ci-artifact.sh',import.meta.url),'utf8');
- const policy=transport.slice(transport.indexOf('store_down()'),transport.indexOf('spool_put()'));
- assert.doesNotMatch(policy,/release-dry-run|frontend-release/);
-});

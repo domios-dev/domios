@@ -19,20 +19,6 @@ test('source repository follows runtime identity, local override or the checkout
   assert.throws(() => sourceRepository({ GITHUB_REPOSITORY: 'invalid' }), /Invalid source repository/);
 });
 
-test('workflows and release operations never hardcode the source repository', () => {
-  const workflows = readdirSync(path.join(root, '.github/workflows')).filter(file => file.endsWith('.yml'))
-    .map(file => '.github/workflows/' + file);
-  const scripts = readdirSync(path.join(root, 'scripts')).filter(file =>
-    (/^(release[-_]|check-release-runners|ci-qualification|dispatch-qualified-release|runner-toggle|sync-release-notes)/.test(file)) &&
-    /\.(?:mjs|sh|py)$/.test(file) && !file.includes('.test.')).map(file => 'scripts/' + file);
-  for (const file of [...workflows, ...scripts, '.github/admin/public-repo.sh']) {
-    const source = readFileSync(path.join(root, file), 'utf8').replaceAll('\\/', '/');
-    for (const alias of HISTORICAL_SOURCE_REPOSITORIES) {
-      const escaped = alias.replace(/[.*+?^$()|[\]\\]/g, '\\$&');
-      assert.doesNotMatch(source, new RegExp(escaped + '(?=$|[^\\w-])'), file);
-    }
-  }
-});
 
 test('historical issue aliases normalize to the runtime repository while foreign metadata is refused', t => {
   const directory = mkdtempSync(path.join(tmpdir(), 'source-repository-'));

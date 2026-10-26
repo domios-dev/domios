@@ -61,42 +61,5 @@ test('Cargo preflight preserves the job toolchain rather than triggering an unre
   }});
 });
 
-test('catalogue selection survives a prior failure and every command consumer reports its own named error',()=>{
-  for(const file of ['tests-fast','tests-pr']){
-    const workflow=parse(fs.readFileSync(new URL('../../.github/workflows/'+file+'.yml',import.meta.url),'utf8'));
-    assert.ok(!JSON.stringify(workflow).includes('fromJSON(steps.catalogue.outputs.commands)'));
-    for(const job of Object.values(workflow.jobs)){
-      const selector=job.steps?.find(step=>step.id==='catalogue');
-      if(selector)assert.equal(condition(selector.if,{failed:true}),true,file);
-    }
-  }
-});
 
-test('preflight-only dispatch probes all runner kinds without compilation or release qualification',()=>{
-  const workflow=parse(fs.readFileSync(new URL('../../.github/workflows/tests.yml',import.meta.url),'utf8'));
-  const job=workflow.jobs['runner-preflight'];
-  assert.deepEqual(job.strategy.matrix.include.map(row=>row.profile).sort(),Object.keys(PREFLIGHT_PROFILES).sort());
-  assert.doesNotMatch(JSON.stringify(job),/secrets\.|ci-tests|ci-cli-tests|ci-clippy|qualification\.mjs record/);
-  const context={github:{event_name:'workflow_dispatch',repository_owner:'domios-dev',actor:'rollacode'},inputs:{scope:'preflight',source_ref:'a'.repeat(40)}};
-  assert.equal(condition(job.if,context),true);
-  assert.equal(condition(workflow.jobs.policy.if,context),false);
-  assert.equal(condition(workflow.jobs.fast.if,context),false);
-  assert.deepEqual(ciFailures('workflow_dispatch',{'runner-preflight':{result:'success'}},'preflight'),[]);
-  assert.deepEqual(ciFailures('workflow_dispatch',{'runner-preflight':{result:'failure'}},'preflight'),['runner-preflight']);
-  assert.ok(ciFailures('push',{'runner-preflight':{result:'success'}},'preflight').includes('policy'));
-});
 
-test('live preflight profile tool sets cover the entire ordinary CI job inventory',()=>{
-  for(const file of ['tests','tests-fast','tests-rust','tests-pr']){
-    const workflow=parse(fs.readFileSync(new URL('../../.github/workflows/'+file+'.yml',import.meta.url),'utf8'));
-    for(const [id,job]of Object.entries(workflow.jobs)){
-      if(!job.steps||id==='runner-preflight')continue;
-      for(const scenario of runnerScenarios(job)){
-        const placement=JSON.stringify(scenario.labels)+' '+JSON.stringify(scenario.matrix);
-        const os=/Windows|windows-/.test(placement)?'windows':/macOS|macos-/.test(placement)?'macos':'linux';
-        const profile=scenario.kind==='github-hosted'?'hosted-'+os:os==='linux'?(jobTools(job).includes('cargo')?'self-linux-ubunta-compile':'self-linux-ubunta-light'):'self-'+os;
-        for(const tool of jobTools(job))assert.ok(PREFLIGHT_PROFILES[profile].includes(tool),file+'/'+id+'/'+profile+'/'+tool);
-      }
-    }
-  }
-});

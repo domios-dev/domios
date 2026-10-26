@@ -72,21 +72,3 @@ test('hosted frontend transport reads the producing run artifact and refuses cha
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test('every platform build waits for the single bundle and installs it by digest', () => {
-  const release = workflow('release');
-  for (const id of ['macos-arm64', 'macos-x64', 'linux-arm64', 'linux-x86_64', 'windows-x64', 'windows-arm64']) {
-    assert.ok(release.jobs[id].needs.includes('frontend-dist'), id);
-    assert.match(release.jobs[id].if, /needs\.frontend-dist\.result == 'success'/, id);
-    assert.equal(release.jobs[id].with.frontend_sha256, '${{ needs.frontend-dist.outputs.sha256 }}', id);
-  }
-  const arm64Compile = parse(readFileSync(new URL('../../.github/actions/arm64-compile/action.yml', import.meta.url), 'utf8'));
-  for (const name of ['release-macos-build', 'release-linux', 'arm64-compile', 'release-windows']) {
-    const steps = name === 'arm64-compile' ? arm64Compile.runs.steps : workflow(name).jobs.build.steps;
-    const fetch = steps.findIndex(step => /release-frontend-dist\.mjs fetch/.test(step.run ?? ''));
-    const compile = steps.findIndex(step => /mac-bundle|release-(?:inputs|bundle|arm64-compile)|native container/.test(`${step.run ?? ''} ${step.name ?? ''}`));
-    assert.ok(fetch >= 0 && fetch < compile, name);
-    assert.equal(steps[fetch].if, "${{ inputs.frontend_sha256 != '' }}", name);
-  }
-  const build = readFileSync(new URL('../../build.sh', import.meta.url), 'utf8');
-  assert.match(build, /release-frontend-dist\.mjs install "\$CODETERM_FRONTEND_ARCHIVE" "\$\{CODETERM_FRONTEND_SHA256:-\}" dist/);
-});

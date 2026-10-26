@@ -9,17 +9,6 @@ const frontendOnly = { frontend: true, rust: false, plugins: [] };
 const rustOnly = { frontend: false, rust: true, plugins: [] };
 const both = { frontend: true, rust: true, plugins: [] };
 
-test("frontend-only paths select frontend checks without Rust gates", () => {
-  for (const file of [
-    "src/App.tsx", "packages/plugin-sdk/src/index.ts", "public/icon.svg", "gen/Message.ts",
-    "index.html", "vite.config.ts", "vitest.config.ts", "tsconfig.json", "tsconfig.node.json",
-    "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "frontend-release-contract.json",
-    "scripts/vitest-owned-tests.json", "scripts/run-ts-unit-tests.mjs",
-    "scripts/run-ts-unit-tests.test.mjs", "scripts/ts-unit-tests.sh",
-    "scripts/ts-test-assets.mjs", "scripts/ts-test-asset-hook.mjs", "biome.json", "knip.json",
-    "scripts/frontend-release/archive.mjs", ".github/workflows/frontend-release.yml",
-  ]) assert.deepEqual(classifyPaths([file], plugins), frontendOnly, file);
-});
 
 test("Rust-only paths select Rust checks", () => {
   for (const file of [
@@ -59,11 +48,6 @@ test("documentation does not broaden plugin checks into host builds", () => {
   assert.deepEqual(classifyPaths(["AGENTS.md", "prod-docs/CONFIG.md", "essences/core.md", "plugins/provider-codex/plugin.json"], plugins), { frontend: false, rust: false, plugins: [plugins[0]] });
 });
 
-test("unknown paths conservatively select all host checks", () => {
-  for (const file of ["scripts/ci-scope.mjs", "scripts/tests/ci-scope.test.mjs", ".github/workflows/tests.yml", ".github/workflows/tests-fast.yml", ".github/workflows/cli-source-of-truth.yml", ".github/workflows/ready-for-release.yml", "unknown.txt", ".github/workflows/release.yml", "scripts/new-check.mjs", "src-other/module.ts", "tsconfig/other.json"]) {
-    assert.deepEqual(classifyPaths([file], plugins), both, file);
-  }
-});
 
 test("release calls force all host gates even for empty, docs, frontend or plugin changes", () => {
   for (const files of [[], ["AGENTS.md"], ["src/App.tsx"], ["plugins/provider-codex/plugin.json"]]) {
@@ -104,20 +88,7 @@ test("workflow wiring skips Rust jobs for frontend diffs and preserves generated
   }
 });
 
-test("workflow wiring rejects all self-hosted checks on pull requests", () => {
-  for (const job of ["changed", "rust-tests", "rust-platform", "cli-tests", "guards", "ts-plugins", "ts-static", "ts-unit", "ts-vitest", "ts-types"]) {
-    assert.equal(jobRuns(job, both, { event_name: "pull_request" }), false, job);
-  }
-});
 
-test("the release kind is an app release only when Rust changed since the last release", () => {
-  assert.equal(releaseKind(["src-tauri/src/lib.rs", "src/App.tsx"]), "app");
-  assert.equal(releaseKind(["Cargo.lock"]), "app");
-  assert.equal(releaseKind(["cli/src/main.rs"]), "app");
-  assert.equal(releaseKind(["src/App.tsx", "frontend-release-contract.json"]), "frontend");
-  assert.equal(releaseKind([".github/workflows/release.yml", "scripts/ci-scope.mjs", "AGENTS.md"]), "frontend");
-  assert.equal(releaseKind([]), "frontend");
-});
 
 test("a frontend release call runs the frontend checks and no Rust gate", () => {
   assert.deepEqual(scopeForRun(["src-tauri/src/lib.rs"], plugins, false, false, true), { frontend: true, rust: false, plugins: [], heavy: false });

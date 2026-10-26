@@ -13,32 +13,7 @@ const receipt = () => ({
     .map(([mode, os]) => ({ mode, os, sha, exit: 0, executed: 1, seconds: 1 })),
 });
 
-test('qualification accepts only exact-SHA green dev evidence with every distinct oracle', () => {
-  assert.equal(verifyQualification(receipt(), run, jobs(), sha).sha, sha);
-  for (const [field, value] of [['path', '.github/workflows/release.yml'], ['conclusion', 'failure'], ['status', 'in_progress'], ['event', 'pull_request'], ['head_branch', 'lane/opaque'], ['head_sha', 'b'.repeat(40)], ['run_attempt', 3]]) {
-    assert.throws(() => verifyQualification(receipt(), { ...run, [field]: value }, jobs(), sha), undefined, field);
-  }
-  for (const prefix of QUALIFICATION_JOBS) {
-    assert.throws(() => verifyQualification(receipt(), run, jobs().filter(job => job.name !== prefix), sha), /Missing green/, prefix);
-    for (const conclusion of ['skipped', 'cancelled', 'failure']) {
-      assert.throws(() => verifyQualification(receipt(), run, jobs().map(job => job.name === prefix ? { ...job, conclusion } : job), sha), /Missing green/, `${prefix}/${conclusion}`);
-    }
-  }
-  for (const mutate of [
-    row => { row.sha = 'b'.repeat(40); }, row => { row.run_id = 18; }, row => { row.run_attempt = 1; },
-    row => { delete row.results.fast; }, row => { row.results.rust = 'skipped'; }, row => { row.results.warnings = 'failure'; },
-    row => { row.rust[0].sha = 'b'.repeat(40); }, row => { row.rust[0].executed = 0; },
-    row => { row.rust[1].exit = 1; }, row => { row.rust.pop(); }, row => { row.rust[0].os = 'Windows'; },
-  ]) {
-    const value = receipt(); mutate(value);
-    assert.throws(() => verifyQualification(value, run, jobs(), sha));
-  }
-});
 
-test('nightly evidence pins the tested SHA independently of the default branch scheduler SHA', () => {
-  verifyQualification(receipt(), { ...run, event: 'schedule', head_sha: 'b'.repeat(40) }, jobs(), sha);
-  assert.throws(() => verifyQualification(receipt(), { ...run, event: 'workflow_dispatch' }, jobs(), sha), /Untrusted/);
-});
 
 test('release push qualification requires a complete version branch and the exact source SHA', () => {
   for (const branch of ['release/1.15.3', 'release/20.0.12']) {

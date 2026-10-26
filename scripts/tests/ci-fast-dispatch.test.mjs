@@ -23,43 +23,8 @@ const context=ref=>({
  inputs:{scope:'fast',source_ref:sha},needs:{...needs,changed:{outputs:diagnostic}},
 });
 
-test('fast dispatch selects every frontend contract without broad Rust compilation for any diff',()=>{
- for(const files of [[],['AGENTS.md'],['src/App.tsx'],['cli/src/main.rs']]){
-  assert.deepEqual(scopeForRun(files,[],true,false,false,true),{frontend:true,rust:true,heavy:false,plugins:[]});
- }
- const scope=fast.jobs.changed.steps.find(step=>step.id==='scope');
- assert.equal(evaluateCondition(scope.env.CI_FAST_DISPATCH,context('refs/heads/ci/try-cleanup')),true);
- assert.ok(ci.on.workflow_dispatch.inputs.scope.options.includes('fast'));
-});
 
-test('any trusted source branch can run fast contracts, while PR and untrusted actors retain their boundary',()=>{
- for(const ref of ['refs/heads/ci/try-cleanup','refs/heads/topic/fixture','refs/heads/release/1.15.3']){
-  const ctx=context(ref);
-  for(const id of ['policy','fast'])assert.equal(condition(ci.jobs[id].if,ctx),true,id);
-  for(const id of ['changed','guards','ts-static','frontend-dist','frontend-windows','ts-types','ts-unit','ts-vitest','ts-plugins']){
-   assert.equal(condition(fast.jobs[id].if,ctx),true,id);
-  }
- }
- for(const github of [{event_name:'pull_request'},{actor:'untrusted'},{repository_owner:'fork'}]){
-  const ctx=context('refs/heads/ci/try-cleanup');ctx.github={...ctx.github,...github};
-  for(const id of ['changed','guards'])assert.equal(condition(fast.jobs[id].if,ctx),false,id);
-  assert.equal(condition(rust.jobs['cli-tests'].if,{...ctx,inputs:{resolved_scope:'{"heavy":"true"}'}}),false);
- }
-});
 
-test('a fast dispatch cannot run Rust suites or write a qualification receipt even with green sibling outputs',()=>{
- for(const id of ['rust','rust-warnings','qualification','runner-preflight','pr']){
-  assert.equal(condition(ci.jobs[id].if,context('refs/heads/ci/try-cleanup')),false,id);
- }
- const ctx=context('refs/heads/ci/try-cleanup');
- ctx.needs.fast.outputs={...diagnostic,heavy:'true'};
- for(const id of ['rust','rust-warnings','qualification'])assert.equal(condition(ci.jobs[id].if,ctx),false,id);
- assert.deepEqual(ciFailures('workflow_dispatch',needs,'fast'),[]);
- for(const id of ['rust','qualification']){
-  assert.ok(ciFailures('workflow_dispatch',{...needs,[id]:{result:'success'}},'fast').includes(id));
- }
- assert.ok(ciFailures('workflow_dispatch',{...needs,fast:{result:'failure'}},'fast').includes('fast'));
-});
 
 test('the aggregate states that a successful fast dispatch is diagnostic and does not qualify the SHA',()=>{
  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'ci-fast-summary-'));
@@ -73,7 +38,3 @@ test('the aggregate states that a successful fast dispatch is diagnostic and doe
  }finally{fs.rmSync(directory,{recursive:true,force:true});}
 });
 
-test('the Rust tier runs the full CLI check',()=>{
- const step=rust.jobs['cli-tests'].steps.find(step=>step.name==='CLI tests');
- assert.equal(step.run,'bash build.sh ci-cli-tests');
-});

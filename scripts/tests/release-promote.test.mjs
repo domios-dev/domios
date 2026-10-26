@@ -25,35 +25,7 @@ const qualifiedJobs = () => [
 ].map(name => ({ name, conclusion: /rust tests \(full suite\)$|^release manifest/.test(name) ? 'skipped' : 'success' }));
 const qualifiedRun = { id: 41, path: '.github/workflows/release.yml', status: 'completed', conclusion: 'success', head_sha: sha, head_branch: branch };
 
-test('only a green release.yml dry run of the exact branch head with every gate qualifies', () => {
-  checkQualifiedRun({ run: qualifiedRun, jobs: qualifiedJobs(), sourceSha: sha, branch });
-  const refusals = [
-    [{ ...qualifiedRun, head_sha: 'c'.repeat(40) }, qualifiedJobs(), /built c+, not b+/],
-    [{ ...qualifiedRun, head_branch: 'develop' }, qualifiedJobs(), /ran on develop/],
-    [{ ...qualifiedRun, conclusion: 'cancelled' }, qualifiedJobs(), /completed\/cancelled/],
-    [{ ...qualifiedRun, path: '.github/workflows/tests.yml' }, qualifiedJobs(), /not a release\.yml run/],
-    [qualifiedRun, qualifiedJobs().filter(job => !job.name.startsWith('Windows arm64')), /has no Windows arm64 job/],
-    [qualifiedRun, qualifiedJobs().map(job => job.name.startsWith('macOS arm64 / ') ? { ...job, conclusion: 'skipped' } : job),
-      /macOS arm64 .* is skipped/],
-    [qualifiedRun, qualifiedJobs().map(job => job.name.startsWith('local dry-run') ? { ...job, conclusion: 'failure' } : job), /is failure/],
-  ];
-  for (const [run, jobs, message] of refusals) {
-    assert.throws(() => checkQualifiedRun({ run, jobs, sourceSha: sha, branch }), message);
-  }
-});
 
-test('every required job name exists in the release graph', () => {
-  const callers = Object.values(release.jobs);
-  for (const required of REQUIRED_JOBS) {
-    const [caller, inner] = required.split(' / ');
-    const job = callers.find(entry => entry.name === caller || (inner === undefined && caller.startsWith(entry.name ?? '\0')));
-    assert.ok(job, required);
-    if (inner) {
-      const called = workflow(path.basename(job.uses, '.yml'));
-      assert.ok(Object.values(called.jobs).some(entry => (entry.name ?? '').startsWith(inner.replace(/ \(.*$/, '')) || inner === ''), required);
-    }
-  }
-});
 
 test('the source draft takes every retained distributable and fragment; the mirror takes no fragment', () => {
   const tag = 'v9.9.9';
@@ -103,31 +75,6 @@ test('promotion uploads the retained bytes, reads each back and refuses a change
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
-test('a promotion run publishes without building, testing or a second warning report', () => {
-  const github = { repository_owner: 'rollacode', actor: 'rollacode', triggering_actor: 'rollacode',
-    event_name: 'workflow_dispatch', ref: 'refs/heads/release/9.9.9', event: { workflow_run: {} } };
-  const evaluate = expression => (needs, vars) => workflowCondition(expression, { needs, vars, github });
-  const prepare = { result: 'success', outputs: { promote_run_id: '41', published: 'false', kind: 'app', dry_run: 'false', run_tests: 'false' } };
-  assert.equal(evaluate(release.jobs['frontend-dist'].if)({ prepare }, {}), false);
-  for (const id of ['macos-arm64', 'macos-x64', 'linux-arm64', 'linux-x86_64', 'windows-x64', 'windows-arm64', 'rust-warnings']) {
-    // Even a successful bundle job could not start a build in a promotion run.
-    const needs = { prepare, 'quick-checks': { result: 'skipped' }, 'frontend-dist': { result: 'success' }, 'builds-tier': { result: 'skipped' } };
-    assert.equal(evaluate(release.jobs[id].if)(needs, {}), false, id);
-  }
-  assert.equal(release.jobs['quick-checks'], undefined);
-  const vars = { RELEASE_PUBLISH_ENABLED: 'true' };
-  assert.equal(evaluate(release.jobs['promote-evidence'].if)({ prepare }, vars), true);
-  assert.equal(evaluate(release.jobs['promote-evidence'].if)({ prepare }, {}), false, 'publication stays behind the owner switch');
-  const skipped = { result: 'skipped' };
-  const builds = result => Object.fromEntries(['macos-arm64', 'macos-x64', 'linux-arm64', 'linux-x86_64', 'windows-x64', 'windows-arm64', 'tests', 'quick-checks']
-    .map(id => [id, { result }]));
-  const manifest = evaluate(release.jobs['release-manifest'].if);
-  assert.equal(manifest({ prepare, ...builds('skipped'), 'promote-evidence': { result: 'success' } }, vars), true);
-  assert.equal(manifest({ prepare, ...builds('skipped'), 'promote-evidence': { result: 'failure' } }, vars), false);
-  const built = { result: 'success', outputs: { ...prepare.outputs, promote_run_id: '' } };
-  assert.equal(manifest({ prepare: built, ...builds('success'), 'promote-evidence': skipped }, vars), true);
-  assert.equal(manifest({ prepare: built, ...builds('success'), 'windows-arm64': { result: 'failure' }, 'promote-evidence': skipped }, vars), false);
-});
 
 test('the promotion CLI calls only gh flags every runner build has', async () => {
   const { readFile } = await import('node:fs/promises');

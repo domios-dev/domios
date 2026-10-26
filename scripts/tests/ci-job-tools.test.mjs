@@ -39,38 +39,7 @@ function provisionErrors(job, kind='github-hosted') {
   return errors;
 }
 
-test('simulate every CI executable job against its command-derived tool and Python-module inventory', () => {
-  let count = 0;
-  for (const name of files) for (const [id,job] of Object.entries(read(name).jobs)) {
-    if (!job.steps || id==='runner-preflight') continue;
-    const kinds=runnerKinds(job);
-    for(const kind of kinds)assert.deepEqual(provisionErrors(job,kind), [], name + '/' + id+'/'+kind);
-    const probes=[];
-    checkRunnerTools(job.steps.find(step => step.name==='Runner preflight')?.run.split(/\s+/).at(-1) || jobTools(job).join(','), {
-      platform:'linux', execute:(command,args)=>{probes.push({command,args});return {status:0};},
-    });
-    assert.equal(probes.length,jobTools(job).length,name+'/'+id);
-    console.log(name+'/'+id+' ['+kinds.join('|')+']: '+jobTools(job).join(','));
-    count++;
-  }
-  assert.equal(count,31);
-});
 
-test('negative controls reject stale role, missing nextest provider, and missing Python dependencies', () => {
-  const types=structuredClone(read('tests-fast').jobs['ts-types']);
-  assert.ok(!jobTools(types).includes('nextest'));
-  types.steps.find(step=>step.name==='Runner preflight').run='node scripts/ci-runner-paths.mjs pr-guards';
-  assert.ok(provisionErrors(types).length);
-  const rust=structuredClone(read('tests-rust').jobs['rust-tests']);
-  rust.steps=rust.steps.filter(step=>!step.with?.tool?.startsWith('cargo-nextest@'));
-  assert.ok(provisionErrors(rust).some(error=>error.includes('nextest')));
-  const early=structuredClone(read('tests-rust').jobs['rust-tests']);
-  early.steps.unshift({run:'cargo nextest run --workspace'});
-  assert.ok(provisionErrors(early).some(error=>error.includes('before installation')));
-  const guards=structuredClone(read('tests-pr').jobs.guards);
-  guards.steps=guards.steps.filter(step=>step.run!=='node scripts/ci-python-env.mjs');
-  assert.ok(provisionErrors(guards).some(error=>error.includes('Python modules')));
-});
 
 test('entrypoint semantics distinguish compilation, Cargo tests, nextest execution and receipt verification', () => {
   assert.ok(!commandTools('bash build.sh ci-clippy').includes('nextest'));

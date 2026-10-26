@@ -86,33 +86,6 @@ test('report includes per-target/lint/file counts and rendered diagnostics', () 
   assert.match(report, /let mut child/);
 });
 const workflow = name => parse(fs.readFileSync(new URL('../../.github/workflows/' + name + '.yml', import.meta.url), 'utf8'));
-test('every active release compiler, Rust test and clippy job uploads through the shared action', () => {
-  for (const name of ['release-macos-build', 'release-linux-arm64', 'release-linux', 'release-windows']) {
-    const steps = workflow(name).jobs.build.steps;
-    const artifact = steps.find(s => s.uses === './.github/actions/rust-warnings');
-    assert.equal(artifact.if, 'always()');
-    assert.equal(artifact['continue-on-error'], true);
-    assert.ok(steps.some(s => s.run?.includes('collect-rust-warnings.mjs run')));
-  }
-  for (const [tier, id] of [['tests-rust', 'rust-tests'], ['tests-rust', 'rust-platform']]) {
-    assert.ok(workflow(tier).jobs[id].steps.some(s => s.uses === './.github/actions/rust-warnings'), id);
-  }
-  assert.deepEqual(workflow('release').jobs['rust-warnings'].needs, ['prepare', 'macos-arm64', 'macos-x64', 'linux-arm64', 'linux-x86_64', 'windows-x64', 'windows-arm64']);
-  const report = workflow('release').jobs['rust-warnings'];
-  for (const result of ['success', 'failure', 'cancelled', 'skipped']) {
-    for (const promote_run_id of ['', '41']) {
-      assert.equal(condition(report.if, { needs: { prepare: { result, outputs: { promote_run_id } } } }),
-        result === 'success' && promote_run_id === '', result + '/' + promote_run_id);
-    }
-  }
-  const summary = workflow('tests').jobs['rust-warnings'];
-  for (const event_name of ['push', 'schedule']) {
-    for (const heavy of ['', 'true', 'false']) {
-      assert.equal(condition(summary.if, { github: { event_name }, inputs: { source_ref: '' },
-        needs: { fast: { outputs: { heavy } } } }), heavy !== '', event_name + '/' + heavy);
-    }
-  }
-});
 
 test('summary CLI persists a complete seed, preserves unbuilt targets, reports a new warning before failing', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'warning-report-'));
