@@ -43,43 +43,10 @@ test('Windows Store aliases and directories without an interpreter are not Pytho
   const env = { PATH: `D:\\Git\\bin;${store}`, LOCALAPPDATA: 'D:\\Profile\\AppData\\Local' };
   assert.deepEqual(runnerToolPaths('win32', env, has('D:\\Git\\bin\\bash.exe', `${store}\\python.exe`), () => ['Python399']), ['D:\\Git\\bin']);
 });
-import { checkBashTools, checkRunnerTools, RUNNER_ROLES, runnerPathContent } from '../ci-runner-paths.mjs';
+import { RUNNER_ROLES, runnerPathContent } from '../ci-runner-paths.mjs';
 
-test('role preflight checks every required tool and reports all missing prerequisites before compilation', () => {
-  for (const role of Object.keys(RUNNER_ROLES)) {
-    const commands = [];
-    checkRunnerTools(role, { platform: 'linux', execute: (command, args, options) => {
-      commands.push(command);
-      assert.ok(options.timeout <= 2000);
-      assert.deepEqual(args, ['--version']);
-      return { status: 0 };
-    } });
-    assert.equal(commands.length, RUNNER_ROLES[role].length);
-    assert.throws(() => checkRunnerTools(role, { execute: () => ({ status: 1 }) }),
-      error => RUNNER_ROLES[role].every(tool => error.message.includes(tool)) && error.message.includes('build-machine/SKILL.md'));
-  }
-});
 
-test('preflight rejects missing Python even when its path directory was discovered', () => {
-  assert.throws(() => checkRunnerTools('rust', { platform: 'win32', env: {}, execute: command =>
-    ({ status: command === 'python' ? 9009 : 0 }) }), /python/);
-  assert.throws(() => checkRunnerTools('unknown'), /Unknown runner role/);
-});
 
-test('Windows preflight resolves build tools through the Git Bash build.sh uses and prints its PATH on refusal', () => {
-  const calls = [];
-  checkBashTools('packaging', 'C:/Git/bin/bash.exe', { env: {}, execute: (command, args) => {
-    calls.push([command, args]);
-    return { status: 0, stdout: '' };
-  } });
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0][0], 'C:/Git/bin/bash.exe');
-  for (const tool of ['node', 'git', 'cargo', 'pnpm']) assert.match(calls[0][1][1], new RegExp('\\b' + tool + '\\b'));
-  assert.throws(() => checkBashTools('packaging', 'bash', { env: {}, execute: (command, args) =>
-    args[1].startsWith('for') ? { status: 0, stdout: 'missing:pnpm\n' } : { status: 0, stdout: '/opaque/entry\n' } }),
-  error => /cannot resolve: pnpm/.test(error.message) && error.message.includes('/opaque/entry'));
-  assert.doesNotThrow(() => checkBashTools('python', 'bash', { execute: () => { throw new Error('no bash-resolved tool to probe'); } }));
-});
 
 test('GitHub job-local path entries are separate physical lines', () => {
   assert.equal(runnerPathContent(['C:/Program Files/Git/bin', 'C:/Python']), 'C:/Program Files/Git/bin\nC:/Python\n');

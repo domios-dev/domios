@@ -184,7 +184,7 @@ ct_sccache_print_location() {
   if [ "${CT_SCCACHE_STORAGE:-local}" = gha ]; then
     printf 'sccache: GitHub Actions cache\n'
   elif [ "${CT_SCCACHE_STORAGE:-local}" = shared ]; then
-    printf 'sccache: shared S3 cache at the private store/%s\n' "$SCCACHE_BUCKET"
+    printf 'sccache: shared S3 cache at the private store (%s)/%s\n' "${CT_CI_STORE_ROUTE:-unknown}" "$SCCACHE_BUCKET"
   else
     printf 'sccache: local disk cache at %s (%s; limit %s)\n' \
       "$(ct_sccache_disk_dir)" "${CT_SCCACHE_REASON:-shared credentials unavailable}" "$SCCACHE_CACHE_SIZE"
@@ -293,8 +293,13 @@ ct_sccache_start_shared_if_absent() {
   ct_sccache_server_live && return 0
   ct_sccache_storage
   [ "$CT_SCCACHE_STORAGE" = shared ] || return 0
-  SCCACHE_IDLE_TIMEOUT=0 sccache --start-server >/dev/null 2>&1 ||
+  local started
+  started=$(SCCACHE_IDLE_TIMEOUT=0 sccache --start-server 2>&1) || {
     echo "[cache-policy] shared sccache start raced or failed; verifying the live server"
+    # The reason names the store address; keep it out of public logs.
+    printf '%s
+' "$started" | sed "s#${SCCACHE_ENDPOINT:-<none>}#<store>#g" | head -5 | sed 's/^/[cache-policy] sccache: /'
+  }
 }
 
 ct_sccache_storage_matches() {

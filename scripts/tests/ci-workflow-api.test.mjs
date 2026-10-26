@@ -3,22 +3,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import {parse} from 'yaml';
-import {checkRunnerTools} from '../ci-runner-paths.mjs';
+
 import {QUALIFICATION_JOBS} from '../ci-qualification.mjs';
 import {cancelWorkflow,listFailureJobs,verifyIssueReferences,requireQualificationWithGithub} from '../ci-workflow-api.mjs';
 import {cancelRun} from '../ci-first-failure.mjs';
 
 const workflows=new URL('../../.github/workflows/',import.meta.url);
 const read=name=>parse(fs.readFileSync(new URL(name+'.yml',workflows),'utf8'));
-test('probe errors preserve the real command, error code, stderr and stdout without longer deadlines',()=>{
-  assert.throws(()=>checkRunnerTools('cargo',{env:{},execute:(command,args,options)=>{
-    assert.equal(command,'cargo');assert.deepEqual(args,['--version']);assert.equal(options.timeout,2000);
-    return{status:1,stderr:'opaque rustup component refusal',stdout:'opaque diagnostic'};
-  }}),error=>error.message.includes('cargo --version (exit 1)')&&error.message.includes('opaque rustup component refusal')&&error.message.includes('opaque diagnostic'));
-  assert.throws(()=>checkRunnerTools('gh',{env:{},execute:(_command,args)=>{
-    assert.deepEqual(args,['--version']);return{status:null,error:{code:'ETIMEDOUT'},stderr:'opaque timeout output'};
-  }}),/ETIMEDOUT.*\nopaque timeout output/);
-});
 
 
 

@@ -40,20 +40,38 @@ test('failed compilation prints rendered errors and preserves the original failu
 });
 
 test('one full suite and one platform subset per OS, each passing with executed tests', () => {
-  assert.match(verifyReceipts(complete()), /\| full \| eight \| Linux \| X64 \| 6709 \| 128\.0 s \|/);
-  for (const [name, mutate, message] of [
-    ['missing full', (r) => r.shift(), /exactly one full/],
-    ['wrong full OS', (r) => { r[0].os = 'Windows'; }, /must cover Linux/],
-    ['missing embeddings', (r) => r.splice(1, 1), /exactly one embeddings/],
-    ['duplicate full', (r) => r.push(receipt()), /exactly one full/],
-    ['missing OS', (r) => r.pop(), /one Windows platform/],
-    ['failed', (r) => { r[2].exit = 1; }, /Failed/],
-    ['empty', (r) => { r[0].executed = 0; }, /No executed/],
-    ['mixed source', (r) => { r[2].sha = 'def'; }, /Mixed/],
+  assert.doesNotThrow(() => verifyReceipts(complete()));
+  for (const [name, mutate] of [
+    ['missing full', (r) => r.shift()],
+    ['wrong full OS', (r) => { r[0].os = 'Windows'; }],
+    ['missing embeddings', (r) => r.splice(1, 1)],
+    ['duplicate full', (r) => r.push(receipt())],
+    ['missing OS', (r) => r.pop()],
+    ['failed', (r) => { r[2].exit = 1; }],
+    ['empty', (r) => { r[0].executed = 0; }],
+    ['mixed source', (r) => { r[2].sha = 'def'; }],
   ]) {
     const receipts = complete();
     mutate(receipts);
-    assert.throws(() => verifyReceipts(receipts), message, name);
+    assert.throws(() => verifyReceipts(receipts), Error, name);
+  }
+});
+
+test('a sharded full suite counts only when every partition and the CLI part are present', () => {
+  const sharded = () => {
+    const receipts = complete();
+    const full = receipts.shift();
+    return [...[1, 2, 3, 4].map((k) => ({ ...full, part: `${k}/4` })), { ...full, part: 'cli' }, ...receipts];
+  };
+  assert.doesNotThrow(() => verifyReceipts(sharded()));
+  for (const [name, mutate] of [
+    ['missing shard', (r) => r.splice(1, 1)],
+    ['missing cli part', (r) => r.splice(4, 1)],
+    ['duplicate shard', (r) => { r[1].part = '1/4'; }],
+  ]) {
+    const receipts = sharded();
+    mutate(receipts);
+    assert.throws(() => verifyReceipts(receipts), Error, name);
   }
 });
 

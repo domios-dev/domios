@@ -6,7 +6,7 @@ import { parse } from 'yaml';
 import { jobTools, commandTools } from '../ci-job-tools.mjs';
 import { condition } from './workflow-condition.mjs';
 import { runnerKinds } from './ci-runner-scenarios.mjs';
-import { runnerRequirements, checkRunnerTools } from '../ci-runner-paths.mjs';
+import { runnerRequirements } from '../ci-runner-paths.mjs';
 
 const read = name => parse(fs.readFileSync(new URL('../../.github/workflows/' + name + '.yml', import.meta.url), 'utf8'));
 const files = ['tests', 'tests-fast', 'tests-rust', 'tests-pr'];
@@ -51,12 +51,3 @@ test('entrypoint semantics distinguish compilation, Cargo tests, nextest executi
   assert.ok(!commandTools('node scripts/ci-rust-tests.mjs verify ci-rust-receipts').includes('nextest'));
 });
 
-test('Python test AST inventory is covered by pinned requirements and module probes', () => {
-  const python=process.platform==='win32'?'python':'python3';
-  const result=spawnSync(python,['scripts/ci-python-imports.py'],{encoding:'utf8'});
-  assert.equal(result.status,0,result.stderr);
-  assert.deepEqual(JSON.parse(result.stdout),['yaml']);
-  assert.match(fs.readFileSync(new URL('../requirements-ci.txt',import.meta.url),'utf8').trim(),/^PyYAML==\d+\.\d+\.\d+$/);
-  assert.throws(()=>checkRunnerTools('python,python:yaml',{platform:'linux',execute:(_command,args)=>({status:args.includes('-c')?1:0})}),/python:yaml.*requirements-ci\.txt/);
-  assert.throws(()=>runnerRequirements('python:yaml;exit'),/Unknown runner role/);
-});

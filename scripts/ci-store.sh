@@ -11,21 +11,23 @@ ct_ci_store_answers() {
 }
 
 ct_ci_store_select() {
-  local candidate
   if [ -n "${CODETERM_CI_STORE_ENDPOINT:-}" ]; then
-    CT_CI_STORE_ENDPOINT="$CODETERM_CI_STORE_ENDPOINT"
+    CT_CI_STORE_ENDPOINT="$CODETERM_CI_STORE_ENDPOINT" CT_CI_STORE_ROUTE=override
     return
   fi
   if [ "${RUNNER_ENVIRONMENT:-}" = github-hosted ]; then
-    CT_CI_STORE_ENDPOINT="${CI_STORE_PUBLIC_ENDPOINT:-}"
+    CT_CI_STORE_ENDPOINT="${CI_STORE_PUBLIC_ENDPOINT:-}" CT_CI_STORE_ROUTE=public
     return
   fi
-  for candidate in "${CI_STORE_LAN_ENDPOINT:-}" "${CI_STORE_PUBLIC_ENDPOINT:-}"; do
-    if ct_ci_store_answers "$candidate"; then
-      CT_CI_STORE_ENDPOINT="$candidate"
-      return
-    fi
-  done
+  if ct_ci_store_answers "${CI_STORE_LAN_ENDPOINT:-}"; then
+    CT_CI_STORE_ENDPOINT="$CI_STORE_LAN_ENDPOINT" CT_CI_STORE_ROUTE=lan
+    return
+  fi
+  if ct_ci_store_answers "${CI_STORE_PUBLIC_ENDPOINT:-}"; then
+    CT_CI_STORE_ENDPOINT="$CI_STORE_PUBLIC_ENDPOINT" CT_CI_STORE_ROUTE=public
+    return
+  fi
+  CT_CI_STORE_ROUTE=none
   # Nothing answers: keep the preferred address so reachability checks fail and CI degrades to a job-local cache.
   CT_CI_STORE_ENDPOINT="${CI_STORE_LAN_ENDPOINT:-${CI_STORE_PUBLIC_ENDPOINT:-}}"
 }

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export function ciFailures(event, needs, scope = '', { releaseHead = false, skipHeavy = false } = {}) {
-  const required = event === 'workflow_dispatch' && scope === 'preflight' ? ['runner-preflight'] : ['policy', 'fast'];
+  const required = ['policy', 'fast'];
   if (skipHeavy) required.splice(required.indexOf('fast'), 1);
   if (releaseHead) required.push('rust', 'rust-warnings', 'qualification', 'release-dry-run');
   const failures = new Set(required.filter(id => needs[id]?.result !== 'success'));
@@ -11,7 +11,7 @@ export function ciFailures(event, needs, scope = '', { releaseHead = false, skip
     if (job.result === 'failure' || job.result === 'cancelled') failures.add(id);
   }
   if (event === 'workflow_dispatch' && scope === 'fast') {
-    for (const id of ['rust', 'rust-warnings', 'qualification', 'runner-preflight']) {
+    for (const id of ['rust', 'rust-warnings', 'qualification']) {
       if (needs[id]?.result !== 'skipped') failures.add(id);
     }
   }

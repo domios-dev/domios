@@ -14,7 +14,7 @@ export function fullSuiteComplete(full) {
 
 export function verifyReceipts(receipts) {
   const full = receipts.filter((r) => r.mode === 'full');
-  if (!fullSuiteComplete(full)) throw new Error('Expected one full-suite receipt or every full-suite shard and its CLI part');
+  if (!fullSuiteComplete(full)) throw new Error('Expected exactly one full-suite receipt, or every full-suite shard and its CLI part');
   if (receipts.filter((r) => r.mode === 'embeddings').length !== 1) throw new Error('Expected exactly one embeddings receipt');
   if (full.some((r) => r.os !== 'Linux')) throw new Error('Full suite must cover Linux');
   for (const os of ['macOS', 'Windows']) {
