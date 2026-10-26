@@ -157,7 +157,7 @@ class SingleRunGraphTest(unittest.TestCase):
     def test_reusable_platform_jobs_can_clear_incomplete_uploads_when_retried_alone(self):
         for name, build_marker in (
             ("release-macos-build.yml", "Build signed and notarized macOS bundle"),
-            ("release-linux-arm64.yml", "Verify transferred stage and smoke Linux arm64 in native container"),
+            ("release-linux-arm64.yml", "Verify transferred stage and smoke Linux arm64 natively"),
             ("release-linux.yml", "Build release bundle inputs"),
             ("release-windows.yml", "Build and sign release assets"),
         ):
