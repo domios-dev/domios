@@ -57,7 +57,8 @@ jobs:
   rust-tests:
     name: rust tests (full suite)
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')) && (!cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
-    runs-on: ${{ vars.CI_LINUX_RUST_FULL_RUNNER != 'hosted' && fromJSON('["self-hosted","Linux","linux-build","host-ubunta"]') || 'ubuntu-24.04' }}
+    # A light ubunta runner: the linux-build one must stay free for the frontend bundle and Linux release builds.
+    runs-on: ${{ vars.CI_LINUX_RUST_FULL_RUNNER != 'hosted' && fromJSON('["self-hosted","Linux","light","host-ubunta"]') || 'ubuntu-24.04' }}
     permissions:
       contents: read
       actions: read
