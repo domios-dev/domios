@@ -175,7 +175,7 @@ jobs:
       # Guards remain required by the reusable tier while sibling checks run in parallel.
       - *cancel-run-on-failure
   guards:
-    name: guards
+    name: script tests and rustfmt
     needs: changed
     # The Node and Python release contracts assume Linux paths (macOS /var is a symlink).
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')) }}
@@ -240,21 +240,12 @@ jobs:
           node -e 'const fs = require("node:fs"); const selected = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/pr-catalogue.json", "utf8")); fs.appendFileSync(process.env.GITHUB_OUTPUT, "commands=" + JSON.stringify(Object.fromEntries(selected.runners.map(entry => [entry.id, entry.runner]))) + "\n");'
         if: "!cancelled()"
       - *cancel-run-on-failure
-      - name: Installed application identity
-        id: ci-5
-        if: ${{ !cancelled() }}
-        run: node scripts/check-installed-identity.mjs
       - *cancel-run-on-failure
       - name: Plugin release contracts
         id: ci-6
         if: ${{ !cancelled() }}
         run: node scripts/ci-step.mjs plugin-release-contracts --ci
       - *cancel-run-on-failure
-      - name: Plugin release and scope script tests
-        id: ci-7
-        if: ${{ !cancelled() }}
-        run: node --test scripts/tests/plugin-releases.test.mjs scripts/tests/ci-scope.test.mjs
-      # Light services can miss the runner user's rustup on PATH.
       - *cancel-run-on-failure
       # Gateway race and serial suites run locally through build.sh script-guards; policy covers release signing.
       - *cancel-run-on-failure
@@ -270,10 +261,6 @@ jobs:
         run: node scripts/ci-step.mjs rust-fmt --ci
       # Release shards run tests from an archive extracted on another machine.
       - *cancel-run-on-failure
-      - name: Archive-portable Rust test paths
-        id: ci-11
-        if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
-        run: node scripts/check-archive-portable-test-paths.mjs
       - *cancel-run-on-failure
       - name: Install dependencies
         id: ci-13

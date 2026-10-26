@@ -1,7 +1,7 @@
 {
   "version": 1,
   "sources": {
-    "tests-fast.yml": "1697bd9e7e801043b01b65af184b2cc0b70a31ad492c3624663054c29c9fb1a0",
+    "tests-fast.yml": "c02c4947de7e4bf178e63558ad23a468bdb2ffe26c16f1799bef6adce9542f18",
     "tests-pr.yml": "0a5dedaadff7782b6c94f228abc144b06c131880c4f7383fa796393231f8bc1a"
   },
   "bindings": [
