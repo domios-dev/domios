@@ -39,7 +39,7 @@
       "id": "seed_5",
       "kind": "fact",
       "title": "home network setup",
-      "body": "Home router. Tailscale mesh on all machines. Mac Mini (rollacode-bot) runs Docker with Home Assistant, Mosquitto MQTT, a gateway gateway. MacBook Pro (build-mac) handles iOS builds. BLACKSTAR (Windows, a large GPU) does heavy compute.",
+      "body": "Home router with a Tailscale mesh on all machines. A Mac Mini runs Docker with Home Assistant and an MQTT broker. A MacBook Pro handles iOS builds. A Windows desktop with a large GPU does heavy compute.",
       "area": "home",
       "tags": ["infra", "network"],
       "importance": 4.0

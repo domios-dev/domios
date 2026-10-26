@@ -1,7 +1,6 @@
 //! Search across mem_items via FTS5 BM25 + hybrid scoring.
 //!
-//! Score formula (ported from a reference memory system hybrid_v3 — empirically validated
-//! +1.8pp over raw BM25 on LongMemEval):
+//! Score formula (empirically validated +1.8pp over raw BM25 on LongMemEval):
 //!
 //!   fused = bm25 * (1 - 0.30 * keyword_overlap) * (1 - temporal_boost)
 //!
@@ -233,14 +232,14 @@ pub struct SearchQuery {
 }
 
 /// Which retrieval pipeline to use when `hybrid_rrf_with_config` is called.
-/// Lets us A/B the existing RRF fusion against a a reference memory system-style vector-first
+/// Lets us A/B the existing RRF fusion against a vector-first
 /// rerank without changing the public `recall` API surface.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SearchMode {
     /// Current default: pull FTS candidates with keyword-rerank AND vector
     /// candidates, then fuse both rankings with Reciprocal Rank Fusion.
     HybridRrf,
-    /// a reference memory system hybrid_v2 port: pull only from vector recall (overfetched),
+    /// Vector-first: pull only from vector recall (overfetched),
     /// then rerank with `dist * (1 - w * keyword_overlap) * (1 - temporal_boost)`.
     /// Skips FTS entirely — tolerant of misspellings, fixes the
     /// "specific noun underweighted by cosine" failure mode via the keyword
@@ -279,15 +278,15 @@ pub struct SearchConfig {
     /// when title_match_bonus collapses FTS scores to 0.
     pub graph_as_rrf_source: bool,
     /// Retrieval pipeline selector. Default `HybridRrf` = unchanged behaviour.
-    /// Flip to `VectorFirstRerank` to test a reference memory system-style re-ranking.
+    /// Flip to `VectorFirstRerank` to test vector-first re-ranking.
     pub mode: SearchMode,
-    /// Weight of the keyword-overlap boost in vector-first mode. a reference memory system's
-    /// full-500 sweep settled on 0.30 as optimal; higher values overweight
+    /// Weight of the keyword-overlap boost in vector-first mode. A full-500
+    /// LongMemEval sweep settled on 0.30; higher values overweight
     /// exact-match at the cost of semantic neighbours.
     pub vector_rerank_weight: f64,
     /// Candidate pool multiplier for vector recall in vector-first mode.
-    /// a reference memory system uses fixed n_results=50; we mirror that by fetching
-    /// `limit * multiplier` then truncating post-rerank.
+    /// The pool is overfetched by
+    /// `limit * multiplier`, then truncated post-rerank.
     pub vector_rerank_pool_multiplier: usize,
 }
 
@@ -802,11 +801,10 @@ pub(crate) fn hybrid_rrf_with_embedding(
     Ok(merged)
 }
 
-/// Vector-first retrieval + keyword/temporal re-rank. Ported from a reference memory system's
-/// `build_palace_and_retrieve_hybrid_v2` (`benchmarks/longmemeval_bench.py`).
+/// Vector-first retrieval + keyword/temporal re-rank.
 ///
 /// Formula: `fused = cosine_dist × (1 − w × keyword_overlap) × (1 − temporal_boost)`
-/// where `w = cfg.vector_rerank_weight` (a reference memory system settled on 0.30 for LongMemEval).
+/// where `w = cfg.vector_rerank_weight` (0.30 from the LongMemEval sweep).
 ///
 /// Differs from `hybrid_rrf_with_config`:
 ///   - Skips FTS5 entirely — tolerates typos naturally (vector is character-fuzzy).

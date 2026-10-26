@@ -72,7 +72,7 @@ The initial empty-thread resume failure is solved by materializing history. The 
 
 Remaining concrete Windows failure: item 11, full backfill. Two declined/canceled approval commandExecution items observed live are absent from paginated thread/items/list. The returned IDs are stable across repeated reads, but full-history inclusion is false. Also, after probe interrupt reported interrupted/idle, the TUI still refused /fork as task in progress. Several required manual checks remain NOT OBSERVED. No GO is claimed.
 
-Design inputs were read completely, read-only from canonical (gitignored): `D:/Developer/codeterm/references/_reference-app-design/DESIGN.md` and `ADDENDUM-install.md`. No product code was authored.
+No product code was authored.
 
 ## Windows setup and exact commands
 
