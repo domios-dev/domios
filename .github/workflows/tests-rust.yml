@@ -136,7 +136,7 @@ jobs:
           # The workspace test build needs more disk than a hosted image leaves free.
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           # The image's azure.archive.ubuntu.com mirror stalled installs for minutes; use Canonical's own archive.
-          for f in /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list; do
+          for f in /etc/apt/apt-mirrors.txt /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list; do
             [ ! -f "$f" ] || sudo sed -i 's#http://azure.archive.ubuntu.com/ubuntu#http://archive.ubuntu.com/ubuntu#g' "$f"
           done
           sudo apt-get -o Acquire::Retries=3 update -qq
@@ -364,7 +364,7 @@ jobs:
           # The workspace test build needs more disk than a hosted image leaves free.
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           # The image's azure.archive.ubuntu.com mirror stalled installs for minutes; use Canonical's own archive.
-          for f in /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list; do
+          for f in /etc/apt/apt-mirrors.txt /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list; do
             [ ! -f "$f" ] || sudo sed -i 's#http://azure.archive.ubuntu.com/ubuntu#http://archive.ubuntu.com/ubuntu#g' "$f"
           done
           sudo apt-get -o Acquire::Retries=3 update -qq
@@ -544,7 +544,7 @@ jobs:
           # The workspace test build needs more disk than a hosted image leaves free.
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           # The image's azure.archive.ubuntu.com mirror stalled installs for minutes; use Canonical's own archive.
-          for f in /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list; do
+          for f in /etc/apt/apt-mirrors.txt /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list; do
             [ ! -f "$f" ] || sudo sed -i 's#http://azure.archive.ubuntu.com/ubuntu#http://archive.ubuntu.com/ubuntu#g' "$f"
           done
           sudo apt-get -o Acquire::Retries=3 update -qq
@@ -762,7 +762,7 @@ jobs:
           # The workspace test build needs more disk than a hosted image leaves free.
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           # The image's azure.archive.ubuntu.com mirror stalled installs for minutes; use Canonical's own archive.
-          for f in /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list; do
+          for f in /etc/apt/apt-mirrors.txt /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list; do
             [ ! -f "$f" ] || sudo sed -i 's#http://azure.archive.ubuntu.com/ubuntu#http://archive.ubuntu.com/ubuntu#g' "$f"
           done
           sudo apt-get -o Acquire::Retries=3 update -qq
