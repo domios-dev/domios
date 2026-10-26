@@ -36,8 +36,8 @@ if [ "$FINAL" != "Accepted" ]; then
   exit 1
 fi
 
-xcrun stapler staple "$DMG" >/dev/null 2>&1 \
-  || { echo "FAIL: stapler refused (notary accepted but ticket not yet propagated — retry in 30s)" >&2; exit 1; }
+bash "$(git rev-parse --show-toplevel)/scripts/staple-with-retry.sh" "$DMG" >/dev/null \
+  || { echo "FAIL: stapler refused after retries (notary accepted, id=$SUBID)" >&2; exit 1; }
 
 if spctl -a -t open --context context:primary-signature "$DMG" >/dev/null 2>&1; then
   echo "OK $DMG (id=$SUBID, stapled, spctl accepted)"

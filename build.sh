@@ -2699,7 +2699,7 @@ notarize_local_macos_package() {
     return 1
   fi
   bash .agents/skills/github-release/scripts/notarize-dmg.sh "${dmgs[0]}"
-  xcrun stapler staple "$bundle_root/macos/Domios.app"
+  bash scripts/staple-with-retry.sh "$bundle_root/macos/Domios.app"
   spctl --assess --type execute "$bundle_root/macos/Domios.app"
 }
 
