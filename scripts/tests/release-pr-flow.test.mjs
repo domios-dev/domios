@@ -30,8 +30,8 @@ test('every dependency and reusable input resolves in the PR release graph',()=>
       }
     }
   }
-  const compiler=workflow('release-arm64-compile');
-  assert.doesNotMatch(JSON.stringify(compiler),/secrets\.(APPLE_|TAURI_|GH_RELEASE|PACKAGE_REPOS)/);
+  const compiler=parse(readFileSync(new URL('../../.github/actions/arm64-compile/action.yml',import.meta.url),'utf8'));
+  assert.doesNotMatch(JSON.stringify(compiler),/secrets\./);
   const report=workflow('rust-warnings-summary').jobs.report;
   const context={github,inputs:{report_name:'rust-warnings-release-report'},vars:{CI_LINUX_LIGHT_RUNNER:'ubuntu-24.04'}};
   assert.equal(evaluateCondition(report.environment,context),'release');

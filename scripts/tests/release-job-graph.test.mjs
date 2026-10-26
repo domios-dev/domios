@@ -144,7 +144,7 @@ test('production publications serialize and verify draft bytes before becoming p
   assert.match(steps[verify].run, /gh release download/);
 });
 test('release CI actions are immutable and every executable job has a deadline', () => {
-  for (const name of ['release', 'tests', 'release-arm64-compile', 'release-windows-arm64', 'release-macos-build', 'release-linux-arm64', 'release-linux', 'release-windows', 'release-manifest-validate', 'frontend-release', 'release-credentials', 'qualification', 'precheck']) {
+  for (const name of ['release', 'tests', 'release-windows-arm64', 'release-macos-build', 'release-linux-arm64', 'release-linux', 'release-windows', 'release-manifest-validate', 'frontend-release', 'release-credentials', 'qualification', 'precheck']) {
     for (const job of Object.values(workflow(name).jobs)) {
       if (job.uses) continue;
       assert.ok(job['timeout-minutes'] > 0, `${name} deadline`);
@@ -275,9 +275,9 @@ test('compact unwind workaround belongs only to macOS native test suites, preser
   } finally { rmSync(envFile, { force: true }); }
 });
 
-test('Linux arm64 verifies hosted bytes natively on the hosted arm64 runner without compilation', () => {
+test('Linux arm64 verifies its frozen stage natively on the hosted arm64 runner', () => {
   const command = linuxArm64.jobs.build.steps.find(step => step.run?.includes('release-arm64-handoff.mjs unpack')).run;
-  assert.match(command, /needs\.compile\.outputs\.sha256/);
+  assert.match(command, /steps\.compile\.outputs\.sha256/);
   assert.match(command, /release-bundle-smoke\.mjs/);
   assert.doesNotMatch(command, /docker run|build-linux\.sh|cargo build|tauri build/);
 });

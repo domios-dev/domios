@@ -9,22 +9,19 @@ import {bashInterpreter} from '../ci-runner-paths.mjs';
 import {sweepRustTargets} from '../ci-workspace-cleanup.mjs';
 const workflow=name=>parse(fs.readFileSync(new URL('../../.github/workflows/'+name+'.yml',import.meta.url),'utf8'));
 test('all frontend consumers download the producer digest rather than the consumer attempt',()=>{
- for(const name of ['release-arm64-compile','release-linux','release-macos-build','release-windows']){
-  const steps=Object.values(workflow(name).jobs)[0].steps;
+ const arm64Compile=parse(fs.readFileSync(new URL('../../.github/actions/arm64-compile/action.yml',import.meta.url),'utf8'));
+ for(const steps of [arm64Compile.runs.steps,...['release-linux','release-macos-build','release-windows'].map(name=>Object.values(workflow(name).jobs)[0].steps)]){
   const download=steps.find(step=>step.name==='Download digest-pinned frontend bundle');
   assert.equal(download.with.name,'frontend-dist-'+'$'+'{{ inputs.frontend_sha256 }}');
   assert.ok(steps.some(step=>/release-frontend-dist.mjs fetch-run-artifact/.test(step.run||'')));
  }
+ // arm64 compiles inside its signing job: no artifact handoff between jobs.
  for(const name of ['linux','windows']){
   const job=workflow('release-'+name+'-arm64').jobs.build;
-  const download=job.steps.find(step=>step.uses?.startsWith('actions/download-artifact@'));
-  assert.ok(download.with.name.includes('needs.compile.outputs.sha256'));
-  assert.ok(!download.with.name.includes('run_attempt'));
+  assert.equal(job.needs,undefined);
+  assert.ok(job.steps.some(step=>step.uses==='./.github/actions/arm64-compile'));
+  assert.ok(!job.steps.some(step=>step.uses?.startsWith('actions/download-artifact@')));
  }
- const steps=workflow('release-arm64-compile').jobs.compile.steps;
- assert.ok(steps.findIndex(step=>step.name==='Prepare pinned toolchain')<steps.findIndex(step=>step.name==='Runner preflight'));
- assert.doesNotMatch(steps.find(step=>step.name==='Runner preflight').run,/\bgh\b/);
- assert.equal(workflow('release-arm64-compile').jobs.compile.environment,undefined);
 });
 test('plugin publication fetches only the validated tag before resolving it',()=>{
  const step=workflow('plugin-release').jobs.publish.steps.find(step=>step.name==='Require a verified master commit and exact plugin tag');
@@ -77,9 +74,7 @@ test('credential API checks use the action-authenticated clients without requiri
 });
 test('small evidence has short retention and large release evidence keeps the private path',()=>{
  const spool=parse(fs.readFileSync(new URL('../../.github/actions/ci-artifact-spool/action.yml',import.meta.url),'utf8'));
- assert.equal(spool.runs.steps.find(step=>step.uses?.startsWith('actions/upload-artifact@')).with['retention-days'],3);
- for(const step of workflow('release-arm64-compile').jobs.compile.steps.filter(step=>step.uses?.startsWith('actions/upload-artifact@')))assert.equal(step.with['retention-days'],1);
- const frontend=workflow('release').jobs['frontend-dist'].steps.find(step=>step.uses?.startsWith('actions/upload-artifact@'));
+ assert.equal(spool.runs.steps.find(step=>step.uses?.startsWith('actions/upload-artifact@')).with['retention-days'],3); const frontend=workflow('release').jobs['frontend-dist'].steps.find(step=>step.uses?.startsWith('actions/upload-artifact@'));
  assert.equal(frontend.with['retention-days'],1);
  const transport=fs.readFileSync(new URL('../ci-artifact.sh',import.meta.url),'utf8');
  const policy=transport.slice(transport.indexOf('store_down()'),transport.indexOf('spool_put()'));

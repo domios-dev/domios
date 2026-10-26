@@ -1,0 +1,90 @@
+name: Native arm64 release compile
+description: Compile the arm64 release bundles in the finalizing job and freeze them in a digest-pinned stage archive
+inputs:
+  tag:
+    required: true
+    description: Release tag
+  source_ref:
+    required: true
+    description: Exact source SHA
+  target:
+    required: true
+    description: aarch64-unknown-linux-gnu or aarch64-pc-windows-msvc
+  frontend_sha256:
+    required: false
+    default: ''
+    description: Digest of the run's frontend bundle
+outputs:
+  sha256:
+    description: Digest of the stage archive at runner.temp/arm64-handoff.tar
+    value: ${{ steps.handoff.outputs.sha256 }}
+runs:
+  using: composite
+  steps:
+    - name: Prepare pinned toolchain
+      shell: bash
+      env:
+        RUSTUP_TOOLCHAIN: 1.99.1-${{ inputs.target }}
+        TARGET: ${{ inputs.target }}
+      run: |-
+        rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --component clippy,rustfmt
+        rustup target add --toolchain "$RUSTUP_TOOLCHAIN" "$TARGET"
+        rustc +"$RUSTUP_TOOLCHAIN" -vV
+    - name: Hosted sccache
+      # Without an sccache build for this platform the compile proceeds uncached.
+      continue-on-error: true
+      uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
+    - name: Validate source, platform and public build configuration
+      shell: bash
+      env:
+        TARGET: ${{ inputs.target }}
+        SOURCE_REF: ${{ inputs.source_ref }}
+      run: |-
+        set -euo pipefail
+        [[ "$TARGET" = aarch64-unknown-linux-gnu || "$TARGET" = aarch64-pc-windows-msvc ]]
+        [[ "$SOURCE_REF" =~ ^[a-f0-9]{40}$ ]]
+        [ "$(git rev-parse HEAD)" = "$SOURCE_REF" ]
+        for name in DOMIOS_FIREBASE_API_KEY DOMIOS_FIREBASE_PROJECT_ID DOMIOS_FIREBASE_APP_ID DOMIOS_ACCOUNT_REDEEM_URL DOMIOS_BILLING_FUNCTIONS_URL DOMIOS_AMPLITUDE_API_KEY_PROD; do
+          test -n "${!name}" || { echo "::error::Missing public client configuration $name"; exit 1; }
+        done
+    - name: Install Linux bundle dependencies
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |-
+        # The image's ports mirror can stall; apt retries each download.
+        sudo apt-get -o Acquire::Retries=3 update -qq
+        sudo apt-get -o Acquire::Retries=3 install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libgtk-3-dev pkg-config xdg-utils patchelf libfuse2t64
+    - name: Install frozen dependencies
+      shell: bash
+      run: pnpm install --frozen-lockfile
+    - name: Download digest-pinned frontend bundle
+      if: ${{ inputs.frontend_sha256 != '' }}
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      with:
+        name: frontend-dist-${{ inputs.frontend_sha256 }}
+        path: ${{ runner.temp }}
+    - name: Fetch the run's frontend bundle
+      if: ${{ inputs.frontend_sha256 != '' }}
+      shell: bash
+      env:
+        FRONTEND_SHA256: ${{ inputs.frontend_sha256 }}
+      run: node scripts/release-frontend-dist.mjs fetch-run-artifact "$GITHUB_RUN_ID" "$FRONTEND_SHA256" "$RUNNER_TEMP/frontend-dist.tar"
+    - name: Compile release bundles and freeze the stage
+      id: handoff
+      shell: bash
+      env:
+        # The private store over its public edge when it answers, else the GitHub Actions cache.
+        SCCACHE_GHA_ENABLED: "true"
+        CODETERM_SCCACHE_VERIFY_ONLY: "0"
+        CODETERM_RELEASE_COMMON_STAGE: "1"
+        CARGO_INCREMENTAL: "0"
+        CARGO_BUILD_JOBS: "4"
+        RUSTUP_TOOLCHAIN: 1.99.1-${{ inputs.target }}
+        CARGO_BUILD_TARGET: ${{ inputs.target }}
+        TARGET: ${{ inputs.target }}
+        CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
+        APPIMAGE_EXTRACT_AND_RUN: "1"
+        CARGO_PROFILE_RELEASE_DEBUG: "0"
+        RELEASE_TAG: ${{ inputs.tag }}
+        SOURCE_REF: ${{ inputs.source_ref }}
+      run: node scripts/release-arm64-compile.mjs "$TARGET" "$SOURCE_REF" "$RELEASE_TAG" "$RUNNER_TEMP/arm64-handoff.tar"
