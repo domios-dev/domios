@@ -65,8 +65,10 @@ jobs:
     env:
       DOMIOS_CI_WEBHOOK_URL: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER != 'private') && secrets.DOMIOS_CI_WEBHOOK_URL || '' }}
       DOMIOS_CI_WEBHOOK_TOKEN: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER != 'private') && secrets.DOMIOS_CI_WEBHOOK_TOKEN || '' }}
-      AWS_ACCESS_KEY_ID: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER != 'private') && secrets.SCCACHE_AWS_ACCESS_KEY_ID || '' }}
-      AWS_SECRET_ACCESS_KEY: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER != 'private') && secrets.SCCACHE_AWS_SECRET_ACCESS_KEY || '' }}
+      # GitHub withholds secrets from fork pull requests; our hosted jobs use the private store over its public edge.
+      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
       DOMIOS_FIREBASE_API_KEY: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER != 'private') && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
       DOMIOS_FIREBASE_PROJECT_ID: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER != 'private') && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
       DOMIOS_FIREBASE_APP_ID: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER != 'private') && secrets.DOMIOS_FIREBASE_APP_ID || '' }}
@@ -282,8 +284,10 @@ jobs:
     env:
       DOMIOS_CI_WEBHOOK_URL: ${{ !(matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15') && secrets.DOMIOS_CI_WEBHOOK_URL || '' }}
       DOMIOS_CI_WEBHOOK_TOKEN: ${{ !(matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15') && secrets.DOMIOS_CI_WEBHOOK_TOKEN || '' }}
-      AWS_ACCESS_KEY_ID: ${{ !(matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15') && secrets.SCCACHE_AWS_ACCESS_KEY_ID || '' }}
-      AWS_SECRET_ACCESS_KEY: ${{ !(matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15') && secrets.SCCACHE_AWS_SECRET_ACCESS_KEY || '' }}
+      # GitHub withholds secrets from fork pull requests; our hosted jobs use the private store over its public edge.
+      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
       DOMIOS_FIREBASE_API_KEY: ${{ !(matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15') && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
       DOMIOS_FIREBASE_PROJECT_ID: ${{ !(matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15') && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
       DOMIOS_FIREBASE_APP_ID: ${{ !(matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15') && secrets.DOMIOS_FIREBASE_APP_ID || '' }}
@@ -489,8 +493,10 @@ jobs:
     env:
       DOMIOS_CI_WEBHOOK_URL: ${{ !(vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15') && secrets.DOMIOS_CI_WEBHOOK_URL || '' }}
       DOMIOS_CI_WEBHOOK_TOKEN: ${{ !(vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15') && secrets.DOMIOS_CI_WEBHOOK_TOKEN || '' }}
-      AWS_ACCESS_KEY_ID: ${{ !(vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15') && secrets.SCCACHE_AWS_ACCESS_KEY_ID || '' }}
-      AWS_SECRET_ACCESS_KEY: ${{ !(vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15') && secrets.SCCACHE_AWS_SECRET_ACCESS_KEY || '' }}
+      # GitHub withholds secrets from fork pull requests; our hosted jobs use the private store over its public edge.
+      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
       DOMIOS_FIREBASE_API_KEY: ${{ !(vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15') && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
       DOMIOS_FIREBASE_PROJECT_ID: ${{ !(vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15') && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
       DOMIOS_FIREBASE_APP_ID: ${{ !(vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15') && secrets.DOMIOS_FIREBASE_APP_ID || '' }}

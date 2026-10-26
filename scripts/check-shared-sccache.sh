@@ -2,6 +2,8 @@
 # Caller: skill build
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# The fixture never contacts a store; it only needs an address to select shared storage.
+export CODETERM_CI_STORE_ENDPOINT="http://store.invalid:9000"
 source "$ROOT/scripts/cache-policy.sh"
 # A machine may pin its own cache choice and a gateway job its identity; the fixtures decide both.
 unset CODETERM_SCCACHE_STORAGE CODETERM_SCCACHE_JOB_LOCAL CT_BUILD_JOB_ID CT_GATEWAY_ACTIVE CT_GATEWAY_OWNER_PID CT_GATEWAY_PROCESS_START
@@ -105,7 +107,7 @@ printf 'PASS CI target paths and developer target isolation\n'
   ct_sccache_status
   [ ! -e "$WORK/events" ]
 ) > "$WORK/status.log"
-grep -Fqx "sccache: shared S3 cache at $CT_CI_STORE_ENDPOINT/sccache" "$WORK/status.log"
+grep -Fqx "sccache: shared S3 cache at the private store/sccache" "$WORK/status.log"
 grep -Eq '^running server: Cache location Local disk:' "$WORK/status.log"
 grep -Eq '^shared endpoint health: 200$' "$WORK/status.log"
 ! grep -Eq 'fixture-access|fixture-secret' "$WORK/status.log"
@@ -303,7 +305,7 @@ printf 'PASS exact gateway owner skips global idle scans; foreign marker refuses
   [ ! -e "$WORK/location" ] && [ ! -d "$dir" ]
   grep -qx stop "$WORK/events"
 ) > "$WORK/job-local.log" 2>&1
-grep -q '^::warning::private store .* is unreachable; this job compiles with a job-local sccache' "$WORK/job-local.log"
+grep -q '^::warning::private store is unreachable; this job compiles with a job-local sccache' "$WORK/job-local.log"
 printf 'PASS an unreachable store degrades a CI job to a job-local cache that its end step removes\n'
 
 (
@@ -320,9 +322,39 @@ printf 'PASS an unreachable store degrades a CI job to a job-local cache that it
 printf 'PASS a reachable store with a broken cache still refuses and release is a no-op\n'
 
 (
+  unset CODETERM_SCCACHE_STORAGE
+  export GITHUB_ENV="$WORK/hosted-env" CODETERM_SCCACHE_CREDENTIAL_SOURCE=runner CT_CI_STORE_ENDPOINT=https://edge.invalid
+  : > "$GITHUB_ENV"
+  export SCCACHE_GHA_ENABLED=true AWS_ACCESS_KEY_ID=fixture-access AWS_SECRET_ACCESS_KEY=fixture-secret
+  ct_ci_store_reachable() { return 0; }
+  ct_sccache_storage
+  [ "$CT_SCCACHE_STORAGE" = shared ] && [ "$SCCACHE_S3_USE_SSL" = true ] && [ "$SCCACHE_GHA_ENABLED" = false ]
+  grep -qx SCCACHE_GHA_ENABLED=false "$GITHUB_ENV"
+  : > "$GITHUB_ENV"
+  export SCCACHE_GHA_ENABLED=true AWS_ACCESS_KEY_ID=fixture-access AWS_SECRET_ACCESS_KEY=fixture-secret
+  ct_ci_store_reachable() { return 1; }
+  ct_sccache_storage
+  [ "$CT_SCCACHE_STORAGE" = gha ] && [ -z "${AWS_ACCESS_KEY_ID:-}" ] && [ ! -s "$GITHUB_ENV" ]
+  export SCCACHE_GHA_ENABLED=true
+  unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+  ct_ci_store_reachable() { return 0; }
+  ct_sccache_storage
+  [ "$CT_SCCACHE_STORAGE" = gha ] && [ ! -s "$GITHUB_ENV" ]
+)
+printf 'PASS a hosted job uses the reachable private store with keys, else stays on the GitHub Actions cache\n'
+
+(
   CODETERM_CI_STORE_ENDPOINT=http://replica.invalid:9000
   source "$ROOT/scripts/ci-store.sh"
   [ "$CT_CI_STORE_ENDPOINT" = http://replica.invalid:9000 ]
-  [ "$(grep -rlE '100\.88\.47\.88' "$ROOT/scripts" "$ROOT/build.sh" "$ROOT/.github" "$ROOT/.codeterm/build-machine/scripts" | sed "s#^$ROOT/##")" = scripts/ci-store.sh ]
+  # The address lives only in runner and repository configuration, never in a tracked file.
+  [ -z "$(grep -rlE 'https?://[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:9000' "$ROOT/scripts" "$ROOT/build.sh" "$ROOT/.github" "$ROOT/.codeterm/build-machine/scripts")" ]
+  CI_STORE_PUBLIC_ENDPOINT=https://edge.invalid
+  unset CODETERM_CI_STORE_ENDPOINT
+  source "$ROOT/scripts/ci-store.sh"
+  [ "$CT_CI_STORE_ENDPOINT" = https://edge.invalid ]
+  unset CI_STORE_PUBLIC_ENDPOINT
+  source "$ROOT/scripts/ci-store.sh"
+  [ -z "$CT_CI_STORE_ENDPOINT" ] && ! ct_ci_store_reachable
 )
-printf 'PASS the store endpoint is defined once and overridable\n'
+printf 'PASS the store endpoint comes from configuration, falls back to the public edge, and is never tracked\n'
