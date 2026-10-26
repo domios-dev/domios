@@ -1147,7 +1147,7 @@ name = "codeterm-account"
 version = "0.0.0"
 dependencies = [
  "async-trait",
- "base64 0.22.1",
+ "base64 0.23.1",
  "codeterm-entitlements",
  "codeterm-util",
  "ed25519-dalek",
@@ -1240,7 +1240,7 @@ dependencies = [
  "async-stream",
  "async-trait",
  "axum",
- "base64 0.22.1",
+ "base64 0.23.1",
  "chrono",
  "codeterm-account",
  "codeterm-analytics",
@@ -1300,7 +1300,7 @@ name = "codeterm-billing"
 version = "0.0.0"
 dependencies = [
  "async-trait",
- "base64 0.22.1",
+ "base64 0.23.1",
  "codeterm-account",
  "codeterm-entitlements",
  "ed25519-dalek",
@@ -1362,7 +1362,7 @@ name = "codeterm-browser"
 version = "0.0.0"
 dependencies = [
  "async-trait",
- "base64 0.22.1",
+ "base64 0.23.1",
  "codeterm-util",
  "dirs 6.0.0",
  "futures-util",
@@ -1391,7 +1391,7 @@ dependencies = [
 name = "codeterm-cli"
 version = "1.16.0"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "chrono",
  "clap",
  "codeterm-blueprint-types",
@@ -1558,7 +1558,7 @@ name = "codeterm-devtools"
 version = "0.0.0"
 dependencies = [
  "axum",
- "base64 0.22.1",
+ "base64 0.23.1",
  "chrono",
  "codeterm-bridge",
  "codeterm-decision",
@@ -1684,7 +1684,7 @@ dependencies = [
 name = "codeterm-local-preview"
 version = "0.0.0"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "codeterm-types",
  "dirs 6.0.0",
  "libc",
@@ -2028,7 +2028,7 @@ name = "codeterm-pty"
 version = "0.0.0"
 dependencies = [
  "arc-swap",
- "base64 0.22.1",
+ "base64 0.23.1",
  "codeterm-build-info",
  "codeterm-entitlements",
  "codeterm-paths",
@@ -2189,7 +2189,7 @@ dependencies = [
  "async-stream",
  "async-trait",
  "axum",
- "base64 0.22.1",
+ "base64 0.23.1",
  "bytes",
  "chrono",
  "chrono-tz",
@@ -2319,7 +2319,7 @@ name = "codeterm-socket"
 version = "0.0.0"
 dependencies = [
  "axum",
- "base64 0.22.1",
+ "base64 0.23.1",
  "chrono",
  "codeterm-api",
  "codeterm-blueprint-types",
@@ -2398,7 +2398,7 @@ version = "0.0.0"
 dependencies = [
  "async-stream",
  "async-trait",
- "base64 0.22.1",
+ "base64 0.23.1",
  "codeterm-browser",
  "codeterm-input-macos",
  "codeterm-input-windows",
@@ -2442,7 +2442,7 @@ name = "codeterm-update"
 version = "0.0.0"
 dependencies = [
  "async-trait",
- "base64 0.22.1",
+ "base64 0.23.1",
  "codeterm-build-info",
  "codeterm-paths",
  "codeterm-plugins",

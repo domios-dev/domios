@@ -75,7 +75,7 @@ fern = "0.7"
 parking_lot = "0.12"
 arc-swap = "1"
 bytes = "1"
-base64 = "0.22"
+base64 = "0.23"
 interprocess = "2"
 sha2 = "0.10"
 # Embedded bundled-plugin bytes for the first-launch bootstrap. The
