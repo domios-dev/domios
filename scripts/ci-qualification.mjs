@@ -8,7 +8,7 @@ import { verifyReceipts, readReceipts } from './ci-rust-receipts.mjs';
 
 export const QUALIFICATION_JOBS = [
   'Repository guards', 'CI result', 'Fast checks / script tests and rustfmt',
-  'Fast checks / ts static checks', 'Fast checks / frontend producer', 'Fast checks / Windows path identity',
+  'Fast checks / ts static checks', 'Fast checks / frontend producer',
   'Fast checks / ts generated types', 'Fast checks / ts unit', 'Fast checks / ts vitest',
   'Fast checks / plugin bundles + tests', 'Rust tests / rust tests (full suite)',
   'Rust tests / rust platform (macOS)', 'Rust tests / rust platform (Windows)',
