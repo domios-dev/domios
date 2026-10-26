@@ -96,7 +96,7 @@ function jobRuns(job, scope, { cancelled = false, event_name = "push" } = {}) {
 
 test("workflow wiring skips Rust jobs for frontend diffs and preserves generated types for Rust", () => {
   const frontendJobs = ["ts-static", "ts-unit", "ts-vitest"];
-  const rustJobs = ["rust-tests", "rust-platform", "clippy-linux", "ts-plugins"];
+  const rustJobs = ["rust-tests", "rust-platform", "cli-tests", "ts-plugins"];
   for (const [scope, frontend, rust] of [[frontendOnly, true, false], [rustOnly, false, true], [both, true, true]]) {
     for (const job of frontendJobs) assert.equal(jobRuns(job, scope), frontend, job);
     for (const job of rustJobs) assert.equal(jobRuns(job, scope), rust, job);
@@ -105,7 +105,7 @@ test("workflow wiring skips Rust jobs for frontend diffs and preserves generated
 });
 
 test("workflow wiring rejects all self-hosted checks on pull requests", () => {
-  for (const job of ["changed", "rust-tests", "rust-platform", "clippy-linux", "guards", "ts-plugins", "ts-static", "ts-unit", "ts-vitest", "ts-types"]) {
+  for (const job of ["changed", "rust-tests", "rust-platform", "cli-tests", "guards", "ts-plugins", "ts-static", "ts-unit", "ts-vitest", "ts-types"]) {
     assert.equal(jobRuns(job, both, { event_name: "pull_request" }), false, job);
   }
 });
@@ -123,7 +123,7 @@ test("a frontend release call runs the frontend checks and no Rust gate", () => 
   assert.deepEqual(scopeForRun(["src-tauri/src/lib.rs"], plugins, false, false, true), { frontend: true, rust: false, plugins: [], heavy: false });
   const scope = scopeForRun([], plugins, false, false, true);
   for (const job of ["ts-static", "ts-unit", "ts-vitest", "ts-types"]) assert.equal(jobRuns(job, scope), true, job);
-  for (const job of ["rust-tests", "rust-platform", "clippy-linux"]) assert.equal(jobRuns(job, scope), false, job);
+  for (const job of ["rust-tests", "rust-platform", "cli-tests"]) assert.equal(jobRuns(job, scope), false, job);
 });
 
 

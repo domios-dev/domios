@@ -10,7 +10,7 @@ import {scopeForRun} from '../ci-scope.mjs';
 import {ciFailures} from '../ci-result.mjs';
 
 const read=name=>parse(fs.readFileSync(new URL('../../.github/workflows/'+name+'.yml',import.meta.url),'utf8'));
-const ci=read('tests'),fast=read('tests-fast');
+const ci=read('tests'),fast=read('tests-fast'),rust=read('tests-rust');
 const sha='a'.repeat(40);
 const diagnostic={frontend:'true',rust:'true',heavy:'false',plugins:'[]',source_sha:sha,resolved_scope:'opaque'};
 const needs={
@@ -36,14 +36,14 @@ test('any trusted source branch can run fast contracts, while PR and untrusted a
  for(const ref of ['refs/heads/ci/try-cleanup','refs/heads/topic/fixture','refs/heads/release/1.15.3']){
   const ctx=context(ref);
   for(const id of ['policy','fast'])assert.equal(condition(ci.jobs[id].if,ctx),true,id);
-  for(const id of ['changed','guards','ts-static','frontend-dist','frontend-windows','ts-types','ts-unit','ts-vitest','ts-plugins','cli-tests']){
+  for(const id of ['changed','guards','ts-static','frontend-dist','frontend-windows','ts-types','ts-unit','ts-vitest','ts-plugins']){
    assert.equal(condition(fast.jobs[id].if,ctx),true,id);
   }
-  assert.equal(condition(fast.jobs['clippy-linux'].if,ctx),false);
  }
  for(const github of [{event_name:'pull_request'},{actor:'untrusted'},{repository_owner:'fork'}]){
   const ctx=context('refs/heads/ci/try-cleanup');ctx.github={...ctx.github,...github};
-  for(const id of ['changed','guards','cli-tests'])assert.equal(condition(fast.jobs[id].if,ctx),false,id);
+  for(const id of ['changed','guards'])assert.equal(condition(fast.jobs[id].if,ctx),false,id);
+  assert.equal(condition(rust.jobs['cli-tests'].if,{...ctx,inputs:{resolved_scope:'{"heavy":"true"}'}}),false);
  }
 });
 
@@ -73,10 +73,7 @@ test('the aggregate states that a successful fast dispatch is diagnostic and doe
  }finally{fs.rmSync(directory,{recursive:true,force:true});}
 });
 
-test('fast CLI runs manifest and parsing contracts while the normal tier retains its full CLI check',()=>{
- const step=fast.jobs['cli-tests'].steps.find(step=>step.name==='CLI tests');
- assert.match(step.run,/cargo test --manifest-path cli\/Cargo.toml --locked -p codeterm-cli cmd::manifest/);
- assert.match(step.run,/cargo test --manifest-path cli\/Cargo.toml --locked -p codeterm-cli plugin_subcommands_parse/);
- assert.match(step.run,/else\s+bash build.sh ci-cli-tests/);
- assert.equal(evaluateCondition(step.env.CI_FAST_DISPATCH,context('refs/heads/ci/try-cleanup')),true);
+test('the Rust tier runs the full CLI check',()=>{
+ const step=rust.jobs['cli-tests'].steps.find(step=>step.name==='CLI tests');
+ assert.equal(step.run,'bash build.sh ci-cli-tests');
 });

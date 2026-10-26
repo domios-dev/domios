@@ -94,7 +94,7 @@ test('every active release compiler, Rust test and clippy job uploads through th
     assert.equal(artifact['continue-on-error'], true);
     assert.ok(steps.some(s => s.run?.includes('collect-rust-warnings.mjs run')));
   }
-  for (const [tier, id] of [['tests-rust', 'rust-tests'], ['tests-rust', 'rust-platform'], ['tests-fast', 'clippy-linux']]) {
+  for (const [tier, id] of [['tests-rust', 'rust-tests'], ['tests-rust', 'rust-platform']]) {
     assert.ok(workflow(tier).jobs[id].steps.some(s => s.uses === './.github/actions/rust-warnings'), id);
   }
   assert.deepEqual(workflow('release').jobs['rust-warnings'].needs, ['prepare', 'macos-arm64', 'macos-x64', 'linux-arm64', 'linux-x86_64', 'windows-x64', 'windows-arm64']);
