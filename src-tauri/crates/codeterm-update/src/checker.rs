@@ -1,9 +1,8 @@
 use super::InstallMethod;
 use crate::update_state::UpdateInfo;
 
-// Anonymous users check public releases endpoints; never bake updater tokens into shipped binaries.
-// Releases publish to the public source repository from 1.16.0; the legacy mirror stays a fallback
-// until it is retired, and the newest version across both wins.
+// Anonymous public endpoints only; never bake updater tokens into shipped binaries.
+// From 1.16.0 releases publish to the public repository; the newest version across both wins.
 pub const UPDATE_REPOSITORIES: [&str; 2] = ["domios-dev/domios", "rollacode/codeterm-releases"];
 pub(super) const GITHUB_REPO: &str = UPDATE_REPOSITORIES[0];
 

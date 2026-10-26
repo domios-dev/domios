@@ -79,7 +79,7 @@ fn the_newest_release_across_repositories_wins_and_ties_keep_the_public_reposito
         Some(release("domios-dev/domios", "v1.16.0"))
     );
     assert_eq!(
-        newest_release(vec![release("domios-dev/domios", "plugin-codex-v1.14.54"), release("rollacode/codeterm-releases", "v1.15.3")]),
+        newest_release(vec![release("domios-dev/domios", "frontend-latest"), release("rollacode/codeterm-releases", "v1.15.3")]),
         Some(release("rollacode/codeterm-releases", "v1.15.3"))
     );
     assert_eq!(newest_release(vec![]), None);
