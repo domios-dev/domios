@@ -588,7 +588,7 @@ mod tests {
             &orphan(
                 10,
                 8,
-                r"\\?\c:\users\user\appdata\local\codeterm\conpty\x64\OPENCONSOLE.EXE"
+                r"\\?\c:\users\dev\appdata\local\codeterm\conpty\x64\OPENCONSOLE.EXE"
             ),
             7,
             expected,

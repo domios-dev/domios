@@ -929,9 +929,9 @@ mod tests {
                 "-Users-user-Developer-wk-cb-p1",
             ),
             // Windows native path: drive colon + backslashes all collapse to dashes.
-            ("C:\\Users\\dev\\proj", "C--Users-User-proj"),
+            ("C:\\Users\\dev\\proj", "C--Users-dev-proj"),
             // encoder is separator-agnostic, so a normalized cwd binds the same dir.
-            ("C:/Users/dev/proj", "C--Users-User-proj"),
+            ("C:/Users/dev/proj", "C--Users-dev-proj"),
         ];
         for (cwd, want) in cases {
             assert_eq!(encode_cwd(cwd), want, "encode_cwd({cwd:?})");
