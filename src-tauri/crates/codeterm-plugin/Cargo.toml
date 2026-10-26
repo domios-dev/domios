@@ -7,7 +7,7 @@ edition = "2021"
 [dependencies]
 codeterm-build-info = { path = "../codeterm-build-info" }
 async-trait = "0.1"
-base64 = "0.22"
+base64 = "0.23"
 chrono = { version = "0.4", features = ["serde"] }
 codeterm-types = { path = "../codeterm-types" }
 codeterm-decision = { path = "../codeterm-decision" }
