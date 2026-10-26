@@ -27,8 +27,7 @@ each failed run. An untested proposal must not become an established recipe.
 - Use the authorized self-hosted fleet. Honor physical-machine exclusions for every job,
   including preparation/tests and that machine's WSL/VM runners. Verify eligible labels and
   actual job runner names through the runners/jobs REST APIs. Do not change labels, repository
-  variables or shared routing to evade an exclusion. BLACKSTAR is excluded from current
-  release builds and packaging.
+  variables or shared routing to evade an exclusion. BLACKSTAR carries no CI runners.
 - Read [gates](../gates/SKILL.md) before qualification, [build](../build/SKILL.md) for build and
   install verbs, [build-machine](../build-machine/SKILL.md) for runner/image recovery, and
   [release-signing](../release-signing/SKILL.md) before credential changes. A busy build gateway
@@ -115,11 +114,17 @@ verifies the anonymous download. Every install refreshes `codeterm-core` from th
    evidence; do not rerun identical suites in the release graph.
 4. Verify runner availability with `bash scripts/check-release-runners.sh` and credential
    preflight through `release-credentials.yml`. Confirm the intended version is unpublished.
+   Before the first push of a new `release/X.Y.Z`, add that exact ref to the organization runner
+   group `domios-trusted` (`restricted_to_workflows`): every workflow that acquires a self-hosted
+   runner needs `<workflow path>@refs/heads/release/X.Y.Z`. The `release/*` wildcard entry alone
+   leaves jobs queued forever. Read the group's `selected_workflows` back before pushing.
    Push `release/X.Y.Z` and open its PR to master for CI and dry-run packaging. Do not manually create
    `vX.Y.Z`; release.yml owns tag creation and promotion.
 5. The final manifest job requires all builds and test gates, publishes and verifies served
-   bytes after the admin merge starts promotion. Synchronize develop through an admin merge PR.
-   A later correction takes a new version.
+   bytes after the admin merge starts promotion. The master ruleset reports the PR as BLOCKED, so
+   the admin merges with `gh pr merge <n> --merge --admin` (never squash or rebase). Merge within
+   three days of the green run: its qualification artifact expires after that. Synchronize develop
+   through an admin merge PR. A later correction takes a new version.
 
 ## Dry runs and narrow diagnostics
 
@@ -127,7 +132,7 @@ Inspect the actual workflow inputs and publication conditions at the pinned work
 any dispatch. `mirror=false` alone is not a dry run. For the full graph use:
 
 ```bash
-gh workflow run release.yml --repo rollacode/codeterm --ref <reviewed-ref> \
+gh workflow run release.yml --repo domios-dev/domios --ref <reviewed-ref> \
   -f tag=<version-tag> -f dry_run=true -f mirror=false
 ```
 
@@ -138,7 +143,8 @@ publication, and the protected release environment remains required.
 Verify the remote ref resolves to the reviewed SHA before dispatch. Capture the returned/new run
 ID and its workflow/source identity. Do not identify a run merely as the latest result in a list.
 Dispatched dry runs require the exact-SHA qualification receipt. In the release push run,
-packaging depends directly on the successful qualification job in that same run.
+packaging starts once the fast tier resolves the source SHA, even when a fast check failed, so one
+push surfaces build and test failures together. Promotion still requires the whole push run green.
 Dry runs skip release creation/public uploads/publication, public served-byte verification and promotion;
 they cannot prove write permissions or CDN behavior.
 
@@ -150,17 +156,17 @@ evidence; no public release, tag, channel asset or issue-closure boundary is cre
 dispatch inputs pin the producing run ID, tag and source SHA for a follow-up within retention.
 An older run that did not retain those inputs cannot be retroactively called validated.
 
-Builds start after exact-SHA qualification and the frontend bundle. There are no tier
-polling jobs. The full suite stays on the designated heavy BLACKSTAR WSL runner;
-Windows native tests use ROG, macOS and embeddings use Air sequentially. Ubuntu's
-native build runner owns Clippy, fast CLI and generated types. Light checks request
-`host-ubunta` and cannot occupy the WSL Rust runner. Targets remain per workspace.
+Builds start after the frontend bundle, beside the Rust suites. There are no tier polling jobs.
+The Linux full suite runs on hosted `ubuntu-24.04` (`CI_LINUX_RUST_FULL_RUNNER=private` moves it to
+ubunta); Windows native tests use ROG, macOS and embeddings use Air sequentially. Light checks
+request `host-ubunta`. Targets remain per workspace.
 
-Publish a wholly green dry run with `release-publish.yml`, never by rebuilding. Its tooling comes from
-the reviewed release branch; publication reuses the qualified bytes:
+Manual fallback only: the normal publication is the admin merge of the release PR. To publish a
+wholly green dry run without that merge, use `release-publish.yml`, never a rebuild. Its tooling
+comes from the reviewed release branch; publication reuses the qualified bytes:
 
 ```bash
-gh workflow run release-publish.yml --repo rollacode/codeterm --ref release/X.Y.Z \
+gh workflow run release-publish.yml --repo domios-dev/domios --ref release/X.Y.Z \
   -f run_id=<dry-run run id> -f tag=vX.Y.Z -f rehearsal=true   # then rehearsal=false with publication GO
 ```
 
@@ -354,27 +360,20 @@ until its own host is restored.
 
 | Runner (planned name) | Machine, OS/arch | Routing labels | Role |
 |---|---|---|---|
-| `codeterm-builder-2` (`eight-macos-arm64`) | eight, macOS arm64 | `codeterm-builder`, `heavy`, `light`, `host-eight` | builds: macOS arm64, Linux arm64 Docker; quick checks |
-| `build-mac-x64` | build-mac, macOS x64 (Intel) | `macos-x64-build`, `host-dev` | build: macOS x64, native (`RELEASE_MACOS_X64_LABEL=macos-x64-build`); also the private store host |
+| `codeterm-builder-2` (`eight-macos-arm64`) | eight, macOS arm64 | `codeterm-builder`, `heavy`, `light`, `host-eight` | builds: macOS arm64 and x64, Linux arm64 Docker signing; quick checks |
 | `air-macos` (`air-macos-arm64`) | air, macOS arm64 | `macos-ci`, `rust-shard`, `light`, `host-air` | tests: macOS Rust platform, then embeddings |
-| `ROG-windows-build` (`rog-windows-x64`) | ROG, Windows x64 | `windows-build`, `windows-x64-build`, `medium`, `host-rog` | builds: Windows x64 and arm64 NSIS; tests: native Windows |
-| `BLACKSTAR-windows-x64` (`blackstar-windows-x64`) | BLACKSTAR, Windows x64 | `windows-ci`, `rust-shard`, `heavy`, `host-blackstar` | no product CI compile lane |
-| `ubunta-linux-build` (`ubunta-linux-x64`) | ubunta, Linux x64 | `linux-build`, `host-ubunta` | builds: release prepare, frontend bundle, Linux x64, dry-run manifest, publication; tests: Clippy, fast CLI, generated types |
-| `BLACKSTAR-wsl-ci` (`blackstar-wsl-x64`) | BLACKSTAR, WSL2 Linux x64 | `linux-ci`, `rust-tests`, `heavy`, `light`, `host-blackstar` | tests: Linux Rust full suite only |
-| `BLACKSTAR-wsl-light-1/2` (`blackstar-wsl-x64-light-1/2`) | BLACKSTAR, WSL2 Linux x64 | `linux-ci`, `rust-tests`, `light`, `host-blackstar` | reserved; not eligible for the pinned full suite or light CI jobs |
+| `ROG-windows-build` (`rog-windows-x64`) | ROG, Windows x64 | `windows-build`, `windows-x64-build`, `medium`, `host-rog` | builds: Windows x64 NSIS, arm64 handoff signing; tests: native Windows |
+| `ubunta-linux-build` (`ubunta-linux-x64`) | ubunta, Linux x64 | `linux-build`, `host-ubunta` | builds: release prepare, frontend bundle, Linux x64, dry-run manifest, publication |
 | `ubunta-light-1/2` (`ubunta-linux-x64-light-1/2`) | ubunta, Linux x64 | `light`, `host-ubunta` | quick checks and qualification receipt handling |
-| `green-windows-ci` (`green-windows-x64`) | green, Windows x64 | `windows-light`, `host-green` | Windows frontend quick check |
 
-The BLACKSTAR WSL runners (distro `BLACKSTAR-CI`, user `ci`) share one toolchain: rustup with the
-pinned channel from `rust-toolchain.toml` plus clippy/rustfmt in `~/.cargo`, `cargo-nextest`, and
-sccache in `~/.local/bin` on one Unix-socket server. `~/start-runner.sh` and
-`~/start-light-runner.sh <n>` export that PATH and cache environment before `run.sh`, so a light
-runner takes Linux test jobs without further setup.
+Arm64 compiles run on GitHub-hosted arm64 runners without signing or cache credentials; the
+self-hosted rows above sign their handoff. All self-hosted runners except `ubunta-linux-build`
+(still repository-level) belong to the organization group `domios-trusted`, visible only to
+this repository and restricted to its listed workflow refs (see train step 4).
 
-ROG and Ubuntu serialize qualification compilation on their existing single build runners.
-Release packaging begins after exact-SHA qualification. BLACKSTAR WSL remains dedicated to the
-full suite; Air owns macOS and embeddings. All light jobs request `host-ubunta`, so a runner
-carrying both `light` and `rust-tests` cannot take them. No live labels need to be changed.
+A persistent self-hosted runner accumulates job PATH entries in its `.path` file. On Windows an
+oversized `.path` truncates PATH and Bash loses tools such as pnpm; keep it to the base toolchain
+entries and restart the runner service after cleaning it.
 
 Planned names follow `<machine>-<os>-<arch>[-role]`; renames re-register one machine at a time between
 runs, passing the current labels plus `host-<machine>`. Before dispatching on a new or changed macOS
@@ -391,7 +390,7 @@ through the existing ci-artifact tooling rather than assuming GitHub artifact st
 
 ## Monitoring and failure recovery
 
-CI normally finishes independent test jobs after failure; packaging remains blocked by exact-SHA qualification. The aggregate reports named failures and timeouts. Activation and verification: [CI failure notifications](ci-failure-notifications.md). Runner loss and job timeout still need an external failure observer; an in-run hook cannot execute on a dead runner.
+CI normally finishes independent test jobs after failure, and release packaging runs beside them, so wait for the whole run and fix every failure in one batch. The aggregate reports named failures and timeouts. Activation and verification: [CI failure notifications](ci-failure-notifications.md). Runner loss and job timeout still need an external failure observer; an in-run hook cannot execute on a dead runner.
 
 Read `domios docs BLUEPRINTS`. Scope monitors to the candidate commit and its CI result, then bind any run detail to that SHA; validate the probe once
 and verify blueprint show names that run's real bucket. Handle success, failure, cancellation,
@@ -401,8 +400,8 @@ sleep/poll loops or duplicate watchers. A launch acknowledgement is not a comple
 Fetch completed job logs while siblings run:
 
 ```bash
-gh api repos/rollacode/codeterm/actions/runs/<run-id>/jobs --paginate
-gh api repos/rollacode/codeterm/actions/jobs/<job-id>/logs
+gh api repos/domios-dev/domios/actions/runs/<run-id>/jobs --paginate
+gh api repos/domios-dev/domios/actions/jobs/<job-id>/logs
 ```
 
 Classify the first error as pipeline, product or machine failure. Fix owned pipeline defects with
@@ -415,6 +414,30 @@ Manual fallback uses the same committed build/stage/readback helpers on an autho
 the build gateway, isolated checkout and output directory. Inspect helpers before invoking: some
 legacy wrappers upload or install. Missing signing/notary inputs remain an explicit verification gap;
 unsigned diagnostics cannot be called signed releases. No file swaps or process-kill workaround.
+
+### Before pushing a fix to a release branch
+
+Every release-branch push restarts the full graph, so a fix must not introduce the next failure:
+
+- Collect every failed job of the run first and fix them as one batch.
+- A change to `build.sh`, a workflow or a script also runs the whole `scripts/tests` suite
+  (`node --test scripts/tests/*.test.mjs scripts/*.test.mjs`), not only the touched files: contract
+  tests pin build.sh functions, runner routing and job permissions. Windows hosts show known
+  build-gateway and DEV-tooling flakes in that suite; judge those on Linux.
+- A behaviour change updates the tests that encode the old behaviour in the same commit.
+- An environmental failure on unchanged source reruns only the failed jobs (`gh run rerun <id> --failed`).
+
+### Known traps
+
+- rustc hides link.exe progress output (`Creating library ...`) only when the linker is the bare
+  name `link.exe`; an absolute linker path turns it into `linker_messages` warnings that fail the
+  zero-warning ratchet. Put the native MSVC tool directory first on PATH instead.
+- Windows `tar.exe` fails with `GetVolumePathName failed: 123` on the gateway's subst drive; run it
+  from the real path (`realpathSync.native`).
+- Tauri leaves its AppImage `*.AppDir` staging tree, which contains links, under the bundle
+  directory; handoffs carry only finished `.deb`, `.AppImage` and `-setup.exe` packages.
+- Repository policy (pinned by `ci-runner-routing.test.mjs`) refuses writable token permissions on
+  any job variant that can route to a hosted runner; keep such jobs read-only.
 
 ## Publication, notes and issue closure
 
@@ -440,7 +463,7 @@ backfill mutates published notes and needs explicit authorization.
 Declare fixed issues as exact metadata, one per line:
 
 ```text
-Repository-Issue: rollacode/codeterm#<number>
+Repository-Issue: domios-dev/domios#<number>
 Public-Issue: rollacode/codeterm-releases#<number>
 ```
 
