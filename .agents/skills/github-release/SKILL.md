@@ -192,8 +192,7 @@ Do not disable publication for a legitimate release caller merely because its ev
 
 `tests-fast.yml` resolves scope once and passes it to `tests-rust.yml`. Required Rust
 receipts include one nonempty Linux full suite, macOS and Windows subsets, and embeddings.
-The fast CLI suite omits `isolated_server`; full Linux runs only that real CLI/server pair,
-and native subsets retain their own cfg-gated tests. Frontend production owns TypeScript;
+Native subsets retain their own cfg-gated tests. Frontend production owns TypeScript;
 Windows has a focused pnpm symlink/subst identity regression with a TS2451 negative control.
 Signing, notarization, bundle smoke, updater signatures and served-byte checks remain release gates.
 
@@ -276,14 +275,9 @@ source-contract evidence. Standard DMG, .app.tar.gz updater and self-install rem
 
 ### Runtime and bundle proof
 
-Release build jobs retain bundle contents, digest and signing checks. Server startup,
-local API-token resolution, authenticated CLI identify and clean shutdown run in
-CLI integration target isolated_server through the Rust test tier on every native test OS.
+Release build jobs retain bundle contents, digest and signing checks.
 Windows jobs discover installed Python through the job-local tool-path helper; the service
 PATH may differ from an interactive shell. Do not change machine execution policy to install it.
-The nextest cli, test-one cli isolated_server and CI CLI runners prepare the debug server
-and its exact bound CLI before the capped tests. This test creates disposable data/config
-roots and uses an explicit private port; CODETERM_API_URL alone never selects that port.
 
 Native-client attach, browser authentication and cold update/restore require their own
 platform evidence. A CLI integration pass does not establish those surfaces.

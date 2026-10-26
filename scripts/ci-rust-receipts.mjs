@@ -1,20 +1,19 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-// The full suite is one receipt, or every hash partition k/n plus the archive producer's CLI part.
+// The full suite is one receipt, or every hash partition k/n.
 export function fullSuiteComplete(full) {
   if (full.length === 1 && !full[0].part) return true;
   const shards = full.filter((r) => /^\d+\/\d+$/.test(r.part || ''));
   const total = Number(shards[0]?.part.split('/')[1]);
   const parts = new Set(shards.map((r) => r.part));
   return total > 0 && shards.length === total && parts.size === total &&
-    [...parts].every((part) => Number(part.split('/')[1]) === total) &&
-    full.filter((r) => r.part === 'cli').length === 1 && full.length === total + 1;
+    [...parts].every((part) => Number(part.split('/')[1]) === total) && full.length === total;
 }
 
 export function verifyReceipts(receipts) {
   const full = receipts.filter((r) => r.mode === 'full');
-  if (!fullSuiteComplete(full)) throw new Error('Expected exactly one full-suite receipt, or every full-suite shard and its CLI part');
+  if (!fullSuiteComplete(full)) throw new Error('Expected exactly one full-suite receipt, or every full-suite shard');
   if (receipts.filter((r) => r.mode === 'embeddings').length !== 1) throw new Error('Expected exactly one embeddings receipt');
   if (full.some((r) => r.os !== 'Linux')) throw new Error('Full suite must cover Linux');
   for (const os of ['macOS', 'Windows']) {

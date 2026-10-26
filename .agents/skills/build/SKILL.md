@@ -145,10 +145,9 @@ pnpm install
 ./build.sh build        # production build
 ```
 
-### Isolated CLI/server integration
+### Isolated server launch
 
-The CLI integration target `isolated_server` verifies a debug server without production paths.
-The same isolated launch contract accepts debug and release artifacts. To diagnose manually,
+The isolated launch verifies a debug or release server without production paths. To diagnose manually,
 create distinct existing temporary data and config directories and choose a
 private port other than 7685 or 7686:
 
@@ -173,24 +172,6 @@ also set `CODETERM_DATA_DIR` to `<data-dir>` and `CODETERM_API_URL` to
 without scanning or connecting to another local server. Set
 `CODETERM_API_PORT=<private-port>` explicitly, then run `domios identify --json` to verify
 authenticated CLI access. Do not put the token in argv, the URL, or test output.
-
-Canonical uses the normal CLI test runners, which prepare the real server first.
-For an explicitly authorized direct lane run, load the build environment, then
-prepare both artifacts with the existing test target policy:
-
-~~~bash
-source build.sh env
-cli_target="$(node scripts/rust-test-lanes.mjs cli target)"
-server_target="$(node scripts/rust-test-lanes.mjs workspace target)"
-DOMIOS_CLI_TEST_SERVER="$(node scripts/cli-server-test.mjs "$cli_target" "$server_target")"
-export DOMIOS_CLI_TEST_SERVER CARGO_TARGET_DIR="$cli_target"
-scripts/test-capped.sh --no-default-features --manifest-path cli/Cargo.toml --test isolated_server
-~~~
-
-Assign the preparation result before exporting it: an export with command
-substitution hides a failed compiler exit. The fixture captures CLI stdout and stderr,
-checks missing-port and bad-token refusals, and closes server stdin in finally.
-A bounded cleanup failure terminates only the owned server process tree.
 
 ### Windows
 

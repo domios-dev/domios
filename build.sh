@@ -454,14 +454,6 @@ rust_test_package() {
   esac
 }
 
-prepare_cli_server_test() {
-  local cli_target server_target
-  cli_target="${1:-$(node scripts/rust-test-lanes.mjs cli target)}" || return $?
-  server_target="${2:-$(node scripts/rust-test-lanes.mjs workspace target)}" || return $?
-  DOMIOS_CLI_TEST_SERVER="$(node scripts/cli-server-test.mjs "$cli_target" "$server_target")" || return $?
-  export DOMIOS_CLI_TEST_SERVER
-}
-
 run_nextest_scope() {
   local CARGO_TARGET_DIR="${CARGO_TARGET_DIR-}"
   [ "$#" -le 2 ] || {
@@ -472,7 +464,6 @@ run_nextest_scope() {
   local filterset="${2:-}"
   local manifest="src-tauri/Cargo.toml"
   local package=""
-  local cli_server_target=""
   local targets=(--no-default-features)
   local filter_args=()
 
@@ -534,7 +525,6 @@ run_nextest_scope() {
     plugin|codeterm-plugin) package="codeterm-plugin"; targets+=(--lib) ;;
     plugins|codeterm-plugins) package="codeterm-plugins"; targets+=(--lib) ;;
     cli|codeterm-cli)
-      cli_server_target="$(node scripts/rust-test-lanes.mjs workspace target)" || return $?
       manifest="cli/Cargo.toml"
       local cli_selection cli_arg
       cli_selection="$(node scripts/rust-test-lanes.mjs cli)" || return $?
@@ -597,12 +587,6 @@ run_nextest_scope() {
   fi
   reuse_args=(--binaries-metadata "$timing_dir/binaries.json" --cargo-metadata "$timing_dir/cargo.json")
   confirmation_args=("$timing_dir/binaries.json" "$timing_dir/cargo.json")
-  fi
-  if [ "$manifest" = cli/Cargo.toml ]; then
-    cargo nextest list "${reuse_args[@]}" "${filter_args[@]}" --message-format json > "$timing_dir/selected.json" || return $?
-    if [ "$(node scripts/cli-server-test.mjs selected "$timing_dir/selected.json")" = true ]; then
-      prepare_cli_server_test "$CARGO_TARGET_DIR" "$cli_server_target" || return $?
-    fi
   fi
   if CARGO_TEST_CMD="cargo nextest run" CARGO_TEST_BUILD_CMD="" NEXTEST_STATUS_LEVEL=pass TEST_RAW_OUTPUT=1 \
     scripts/test-capped.sh \

@@ -7,7 +7,7 @@ export function fastCliTargets(metadata) {
   if (!cli) throw new Error('Missing CLI package');
   const targets = cli.targets.flatMap(target => {
     if (target.kind.includes('bin')) return ['--bin', target.name];
-    if (target.kind.includes('test') && target.name !== 'isolated_server') return ['--test', target.name];
+    if (target.kind.includes('test')) return ['--test', target.name];
     return [];
   });
   if (!targets.length) throw new Error('No fast CLI targets');

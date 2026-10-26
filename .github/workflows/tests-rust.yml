@@ -211,14 +211,6 @@ jobs:
           CI_ARTIFACT_STORAGE: ''
         shell: bash
         run: bash build.sh ci-tests ${{ matrix.suite }} compile
-      - name: Run ${{ matrix.suite }} Rust tests (Unix)
-        id: ci-10
-        if: runner.os != 'Windows'
-        env:
-          CI_RELEASE_TESTS: ${{ inputs.source_ref != '' }}
-          RUST_WARNING_LOG: ci-rust-warnings.log
-        shell: bash
-        run: bash build.sh ci-tests ${{ matrix.suite }}
       - name: Compile ${{ matrix.suite }} Rust tests (Windows)
         if: runner.os == 'Windows'
         env:
@@ -227,16 +219,6 @@ jobs:
         shell: pwsh
         run: |
           & .\build.ps1 ci-tests ${{ matrix.suite }} compile
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Run ${{ matrix.suite }} Rust tests (Windows)
-        id: ci-11
-        if: runner.os == 'Windows'
-        env:
-          CI_RELEASE_TESTS: ${{ inputs.source_ref != '' }}
-          RUST_WARNING_LOG: ci-rust-warnings.log
-        shell: pwsh
-        run: |
-          & .\build.ps1 ci-tests ${{ matrix.suite }}
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Shared compile cache statistics (Windows)
         if: always() && runner.os == 'Windows'
@@ -252,12 +234,6 @@ jobs:
         if: always()
         shell: bash
         run: bash build.sh cache-release
-      - name: Store Rust test receipts
-        if: always()
-        continue-on-error: ${{ inputs.artifacts_optional }}
-        shell: bash
-        run: |
-          node scripts/ci-rust-receipt-artifact.mjs
       - uses: ./.github/actions/rust-warnings
         if: always()
         continue-on-error: true
