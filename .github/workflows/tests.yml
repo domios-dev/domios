@@ -49,11 +49,18 @@ jobs:
     outputs:
       run: ${{ steps.route.outputs.run }}
       release_head: ${{ steps.route.outputs.release_head }}
+      source_sha: ${{ steps.route.outputs.source_sha }}
     steps:
       - id: route
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        env:
+          SOURCE_REF: ${{ inputs.source_ref }}
         with:
           script: |-
+            // The Rust tier starts from this exact source instead of waiting for the fast tier to resolve it.
+            const nightly = context.eventName === 'schedule' ? (context.payload.schedule === '17 2 * * *' ? 'rename/domios' : 'develop') : '';
+            core.setOutput('source_sha', nightly ? (await github.rest.repos.getBranch({...context.repo, branch: nightly})).data.commit.sha
+              : process.env.SOURCE_REF || context.sha);
             const release = context.eventName === 'push' && /^refs\/heads\/release\/\d+\.\d+\.\d+$/.test(context.ref) &&
               context.actor === 'rollacode' && process.env.GITHUB_TRIGGERING_ACTOR === 'rollacode';
             core.setOutput('release_head', String(release));
@@ -268,16 +275,18 @@ jobs:
       pull-requests: write
     secrets: inherit
     if: ${{ github.event_name != 'pull_request' && needs.admission.outputs.run != 'false' && inputs.scope != 'preflight' }}
-    needs: [policy, admission]
+    # Starts beside the repository guards; CI result still requires them.
+    needs: [admission]
   rust:
     name: Rust tests
-    needs: [fast, admission]
-    if: ${{ !cancelled() && inputs.scope != 'fast' && (github.event_name == 'push' || github.event_name == 'schedule') && needs.fast.outputs.resolved_scope != '' }}
+    # Starts with the push, beside the guards and the fast tier.
+    needs: [admission]
+    if: ${{ !cancelled() && inputs.scope != 'fast' && (github.event_name == 'push' || github.event_name == 'schedule') && needs.admission.outputs.run != 'false' }}
     uses: ./.github/workflows/tests-rust.yml
     with:
-      source_ref: ${{ needs.fast.outputs.source_sha }}
+      source_ref: ${{ needs.admission.outputs.source_sha }}
       cancel_run: false
-      resolved_scope: ${{ needs.fast.outputs.resolved_scope }}
+      resolved_scope: '{"heavy":"true"}'
       scope: full
     permissions:
       contents: read
@@ -364,8 +373,8 @@ jobs:
   release-dry-run:
     name: Release packaging
     # Packaging starts with the push, beside every check; publication still requires this run's green qualification.
-    needs: [admission, policy]
-    if: ${{ !cancelled() && github.event_name == 'push' && needs.admission.outputs.release_head == 'true' && needs.policy.result == 'success' }}
+    needs: [admission]
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.admission.outputs.release_head == 'true' }}
     uses: ./.github/workflows/release.yml
     permissions:
       contents: write

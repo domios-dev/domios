@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createServer } from "node:http";
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -30,22 +30,28 @@ async function fakeHttpCdp(targets) {
   };
 }
 
+// Asynchronous, so the fake CDP server in this process can answer while the probe runs.
 function runProbe(port, vitePort) {
-  return spawnSync(process.execPath, ["scripts/dev-frontend-ready.mjs", "ready"], {
-    cwd: new URL("../..", import.meta.url),
-    env: {
-      ...process.env,
-      CODETERM_CDP_PORT: String(port),
-      CODETERM_VITE_PORT: String(vitePort),
-    },
-    encoding: "utf8",
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ["scripts/dev-frontend-ready.mjs", "ready"], {
+      cwd: new URL("../..", import.meta.url),
+      env: {
+        ...process.env,
+        CODETERM_CDP_PORT: String(port),
+        CODETERM_VITE_PORT: String(vitePort),
+      },
+    });
+    let stderr = "";
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.on("error", reject);
+    child.on("close", (status) => resolve({ status, stderr }));
   });
 }
 
 async function testNoTargetFails() {
   const cdp = await fakeHttpCdp([]);
   try {
-    const result = runProbe(cdp.port, 1420);
+    const result = await runProbe(cdp.port, 1420);
     assert(result.status === 1, `no target should exit 1, got ${result.status}`);
   } finally {
     await cdp.close();
@@ -59,7 +65,7 @@ async function testWrongUrlFails() {
     webSocketDebuggerUrl: `ws://127.0.0.1:9/devtools/page/test`,
   }]);
   try {
-    const result = runProbe(cdp.port, 1420);
+    const result = await runProbe(cdp.port, 1420);
     assert(result.status === 1, `wrong URL should exit 1, got ${result.status}`);
   } finally {
     await cdp.close();
@@ -73,7 +79,7 @@ async function testLiveCdpWhenAvailable() {
     console.log("  - live CDP skipped (CODETERM_CDP_PORT/CODETERM_VITE_PORT unset)");
     return;
   }
-  const result = runProbe(cdpPort, vitePort);
+  const result = await runProbe(cdpPort, vitePort);
   assert(result.status === 0, `live CDP ready should exit 0, got ${result.status}: ${result.stderr}`);
 }
 

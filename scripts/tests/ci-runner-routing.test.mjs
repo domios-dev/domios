@@ -89,6 +89,6 @@ test('Linux routing excludes BLACKSTAR and all private compilation uses the same
     assert.ok(placement.includes('host-ubunta')&&placement.includes('linux-build'));
     assert.deepEqual(placement,labels[0]);
   }
-  assert.ok([ci.jobs.rust.needs].flat().includes('fast'));
+  assert.deepEqual([ci.jobs.rust.needs].flat(), ['admission'], 'Rust tests start with the push');
   assert.equal(value(rust.jobs['rust-tests']['runs-on'],{vars:{CI_LINUX_RUST_FULL_RUNNER:'ubuntu-24.04'}}),'ubuntu-24.04');
 });
