@@ -33,8 +33,8 @@ printf '%s\n' "$*" >>"$CARGO_CALL_LOG"
 EOF
 export CARGO_CALL_LOG="$fixture/cargo-calls.log"
 PATH="$fixture/bin:$PATH" bash "$gate"
-if [ "$(grep -c -- '--all-targets' "$CARGO_CALL_LOG")" != 2 ] || [ "$(wc -l <"$CARGO_CALL_LOG")" != 2 ]; then
-    echo "clippy gate must run exactly one --all-targets pass per workspace" >&2
+if [ "$(grep -c -- '--all-targets' "$CARGO_CALL_LOG")" != 1 ] || [ "$(wc -l <"$CARGO_CALL_LOG")" != 1 ]; then
+    echo "clippy gate must run exactly one --all-targets pass over the single workspace" >&2
     exit 1
 fi
 

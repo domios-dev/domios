@@ -224,8 +224,6 @@ qa_run_gate_body() {
       qa_clippy_allow
       cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets \
         -- -D warnings "${CLIPPY_ALLOW[@]}"
-      cargo clippy --manifest-path cli/Cargo.toml --workspace --all-targets \
-        -- -D warnings "${CLIPPY_ALLOW[@]}"
       ;;
     rust-unit)
       qa_prep_stubs

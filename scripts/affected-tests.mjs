@@ -306,11 +306,9 @@ function loadPackageSets(options, files) {
     }));
   }
   const sets = [];
-  if (files.some((file) => file.startsWith("src-tauri/") || file.startsWith("plugins/provider-"))) {
+  // The CLI is a member of the src-tauri workspace, so one metadata call covers it.
+  if (files.some((file) => /^(src-tauri\/|plugins\/provider-|cli\/|prod-docs\/)/.test(file))) {
     sets.push(...runMetadata(options.repo, "src-tauri/Cargo.toml"));
-  }
-  if (files.some((file) => file.startsWith("cli/")) || files.some((file) => file.startsWith("prod-docs/"))) {
-    sets.push(...runMetadata(options.repo, "cli/Cargo.toml"));
   }
   if (files.some((file) => file.startsWith("src-tauri/pty-fork/"))) {
     sets.push(...runMetadata(options.repo, "src-tauri/pty-fork/Cargo.toml"));

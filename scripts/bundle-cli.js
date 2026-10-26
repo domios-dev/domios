@@ -63,7 +63,7 @@ function assertTargetArchitecture(file, env = process.env, platform = process.pl
 function resolveCliReleaseDir(env = process.env, root = repoRoot) {
   const targetRoot = env.CARGO_TARGET_DIR
     ? path.resolve(env.CARGO_TARGET_DIR)
-    : path.join(root, "cli", "target");
+    : path.join(root, "src-tauri", "target");
   const target = env.CARGO_BUILD_TARGET || "";
   return target ? path.join(targetRoot, target, "release") : path.join(targetRoot, "release");
 }

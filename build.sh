@@ -559,8 +559,9 @@ run_nextest_scope() {
     filter_args+=(--filter-expr "$filterset")
   fi
   if [ -n "$package" ]; then
-    if [[ "$filterset" == *"rdeps("* ]]; then
-      targets+=(--workspace)
+    if [[ "$filterset" == *"rdeps("* && "$package" != codeterm-cli ]]; then
+      # The CLI shares the workspace but keeps its own test lane.
+      targets+=(--workspace --exclude codeterm-cli)
     else
       targets+=(-p "$package")
     fi
@@ -1299,7 +1300,7 @@ require_release_source() {
 # Copy the freshly-built CLI into a target bin dir. Development commands install
 # only into their active dev data directory; production owns ~/.codeterm/bin.
 cli_profile_dir() {
-  local profile="$1" target_root="${CARGO_TARGET_DIR:-cli/target}"
+  local profile="$1" target_root="${CARGO_TARGET_DIR:-src-tauri/target}"
   if [ -n "${CARGO_BUILD_TARGET:-}" ]; then
     echo "$target_root/$CARGO_BUILD_TARGET/$profile"
   else
@@ -1913,7 +1914,7 @@ check_workspace_run() {
   out="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID.check-workspace.log"
   : > "$out"
   CARGO_TARGET_DIR="$CT_CHECK_WORKTREE/target/app" cargo check --manifest-path src-tauri/Cargo.toml \
-    --workspace --all-targets --message-format=short >> "$out" 2>&1 || status=$?
+    --workspace --exclude codeterm-cli --all-targets --message-format=short >> "$out" 2>&1 || status=$?
   CARGO_TARGET_DIR="$CT_CHECK_WORKTREE/target/cli" cargo check --manifest-path cli/Cargo.toml \
     --all-targets --message-format=short >> "$out" 2>&1 || status=$?
   check_queue_errors 20 "$status" < "$out"
@@ -2021,7 +2022,7 @@ check_queue_run() {
     return 0
   fi
   if [ "$all" = 1 ]; then
-    pkg_args=(--workspace)
+    pkg_args=(--workspace --exclude codeterm-cli)
     cli=1
     touched="*"
   else
@@ -3044,7 +3045,7 @@ EOF
     prepare_exceptional_worktree_target
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
-    cargo test --manifest-path src-tauri/Cargo.toml --workspace --all-targets --no-default-features --no-run
+    cargo test --manifest-path src-tauri/Cargo.toml --workspace --exclude codeterm-cli --all-targets --no-default-features --no-run
     cargo test --manifest-path cli/Cargo.toml --all-targets --no-run
     ;;
   frontend)

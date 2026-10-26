@@ -80,7 +80,7 @@ verifies the anonymous download. Every install refreshes `codeterm-core` from th
    their documented commands, passing evidence contracts and real startup/restore results.
    Source fixtures or capture/import alone do not replace these gates.
 3. With version-bump GO, create the release branch from reviewed develop. Edit package.json's
-   version, run `npm run sync:versions`, refresh both workspace lockfiles offline, then run
+   version, run `npm run sync:versions`, refresh the workspace lockfile offline, then run
    `npm run check:versions` and `node scripts/check-release-locks.mjs`. Commit the complete bump;
    plugin versions remain independent. Run `build.sh release-preflight` per the gates skill on
    that committed head and `git diff --check`.
