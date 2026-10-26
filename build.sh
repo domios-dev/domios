@@ -241,10 +241,12 @@ ct_msvc_native_arm64_env() {
   native_tools="$(cygpath -m "${VCToolsInstallDir:?Native MSVC tools directory required}")"
   native_tools="${native_tools%/}"
   native_compiler="$native_tools/bin/Hostarm64/arm64"
-  [ -f "$native_compiler/cl.exe" ] && [ -f "$native_compiler/lib.exe" ] || {
+  [ -f "$native_compiler/cl.exe" ] && [ -f "$native_compiler/lib.exe" ] && [ -f "$native_compiler/link.exe" ] || {
     echo "ERROR: native arm64 MSVC tools are missing" >&2; return 2;
   }
   ct_assert_msvc_lib_arch arm64 || return
+  # rustc filters link.exe progress output only for a bare "link.exe", so MSVC must win the PATH lookup over Git's link.
+  export PATH="$(cygpath -u "$native_compiler"):$PATH"
   export CC="$native_compiler/cl.exe" CXX="$native_compiler/cl.exe"
   export CC_aarch64_pc_windows_msvc="$CC" CXX_aarch64_pc_windows_msvc="$CXX"
   export AR_aarch64_pc_windows_msvc="$native_compiler/lib.exe"

@@ -24,7 +24,7 @@ jobs:
     permissions:
       contents: read
       actions: read
-      pull-requests: read
+      pull-requests: write
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' }}
     environment: ${{ !((github.workflow == 'CI' && inputs.report_name != 'rust-warnings-release-report') && vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && ((startsWith(github.head_ref, 'release/') || startsWith(github.ref, 'refs/heads/release/') || (github.event_name == 'workflow_run' && startsWith(github.event.workflow_run.head_branch, 'release/'))) && 'release' || 'ci') || '' }}
     runs-on: ${{ (github.workflow == 'CI' && inputs.report_name != 'rust-warnings-release-report') && vars.CI_LINUX_LIGHT_RUNNER || fromJSON('["self-hosted","Linux","light","host-ubunta"]') }}

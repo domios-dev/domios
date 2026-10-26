@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -10,13 +10,6 @@ export function loadNativeMsvcEnvironment(vcvars, env = process.env) {
     const match = /^([^=]+)=(.*)$/.exec(line);
     return match ? [[match[1], match[2]]] : [];
   }));
-}
-
-// build.sh runs under Git Bash, whose /usr/bin/link would shadow MSVC link.exe on PATH.
-export function nativeMsvcLinker(env, exists = existsSync) {
-  const linker = path.join(env.VCToolsInstallDir ?? '', 'bin', 'HostARM64', 'arm64', 'link.exe');
-  if (!env.VCToolsInstallDir || !exists(linker)) throw new Error('Native ARM64 MSVC linker missing: ' + linker);
-  return linker;
 }
 
 function main([target, sourceSha, tag, archive]) {
@@ -30,7 +23,6 @@ function main([target, sourceSha, tag, archive]) {
     const vcvars = execFileSync(vswhere, ['-latest', '-products', '*', '-find', 'VC/Auxiliary/Build/vcvarsall.bat'], { encoding: 'utf8' }).trim().split(/\r?\n/)[0];
     if (!vcvars) throw new Error('Native ARM64 Visual Studio toolchain missing');
     Object.assign(process.env, loadNativeMsvcEnvironment(vcvars));
-    process.env.CARGO_TARGET_AARCH64_PC_WINDOWS_MSVC_LINKER = nativeMsvcLinker(process.env);
   }
 
   const run = (command, args) => execFileSync(command, args, { stdio: 'inherit', timeout: 110 * 60_000 });
