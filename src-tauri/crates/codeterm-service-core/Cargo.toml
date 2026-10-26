@@ -94,7 +94,7 @@ async-stream = "0.3"
 futures-core = "0.3"
 futures-util = "0.3"
 # Native async WebSocket framing shares Tokio's runtime; sidecars use loopback without TLS.
-tokio-tungstenite = "0.28"
+tokio-tungstenite = "0.30"
 futures-executor = "0.3"
 png = "0.17"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
