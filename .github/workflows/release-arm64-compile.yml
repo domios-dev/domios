@@ -44,7 +44,7 @@ jobs:
       RUSTC_WRAPPER: ""
       CODETERM_RELEASE_COMMON_STAGE: "1"
       CARGO_INCREMENTAL: "0"
-      CARGO_BUILD_JOBS: "2"
+      CARGO_BUILD_JOBS: "4"
       RUSTUP_TOOLCHAIN: 1.99.1-${{ inputs.target }}
       CARGO_BUILD_TARGET: ${{ inputs.target }}
       TARGET: ${{ inputs.target }}

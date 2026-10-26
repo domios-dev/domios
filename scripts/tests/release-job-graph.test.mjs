@@ -73,7 +73,7 @@ test('macOS and Linux arm64 have separate jobs, routing variables and manifest d
   assert.ok(release.jobs['release-manifest'].needs.includes('linux-arm64'));
   assert.ok(release.jobs.prepare.steps.some(step => /requireQualificationWithGithub\(github, context, sha\)/.test(step.with?.script ?? '')));
   assert.ok(macos.jobs.build['runs-on'].some(label => label.includes('matrix.runner_label')));
-  assert.match(linuxArm64.jobs.build['runs-on'][1], /RELEASE_LINUX_ARM64_LABEL.*codeterm-builder/);
+  assert.equal(linuxArm64.jobs.build['runs-on'], 'ubuntu-24.04-arm');
   assert.equal(macos.jobs.build.strategy['fail-fast'], false);
   assert.deepEqual(macos.jobs.build.strategy.matrix.include.map(entry => entry.arch), ['${{ inputs.arch }}']);
   assert.deepEqual(['macos-arm64', 'macos-x64'].map(id => release.jobs[id].with.arch), ['arm64', 'x86_64']);
@@ -155,7 +155,13 @@ test('release CI actions are immutable and every executable job has a deadline',
 });
 
 test('Mac jobs provision secret material before building and always clean up', () => {
-  for (const job of [macos.jobs.build, linuxArm64.jobs.build, workflow('release-credentials').jobs.macos]) {
+  // Linux arm64 signs on a hosted Linux runner with the updater key only; its setup is checked below.
+  const linuxSetup = linuxArm64.jobs.build.steps.findIndex(step => step.run === 'python3 scripts/release-signing-material.py linux');
+  const linuxCleanup = linuxArm64.jobs.build.steps.findIndex(step => step.run === 'python3 scripts/release-signing-material.py cleanup');
+  assert.ok(linuxSetup >= 0 && linuxCleanup > linuxSetup);
+  assert.equal(linuxArm64.jobs.build.steps[linuxCleanup].if, 'always()');
+  assert.equal(linuxArm64.jobs.build.steps[linuxSetup].env.TAURI_SIGNING_PRIVATE_KEY, '${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}');
+  for (const job of [macos.jobs.build, workflow('release-credentials').jobs.macos]) {
     for (const name of ['APPLE_SIGNING_IDENTITY', 'APPLE_TEAM_ID']) {
       assert.equal(job.env[name], '${{ secrets.' + name + ' }}');
     }
@@ -264,12 +270,11 @@ test('compact unwind workaround belongs only to macOS native test suites, preser
   }
 });
 
-test('Linux arm64 verifies hosted bytes in its native container without credentials or compilation', () => {
-  const command = linuxArm64.jobs.build.steps.find(step => step.run?.includes('docker run --rm --pull=never --platform linux/arm64')).run;
-  assert.match(command, /release-arm64-handoff\.mjs unpack/);
+test('Linux arm64 verifies hosted bytes natively on the hosted arm64 runner without compilation', () => {
+  const command = linuxArm64.jobs.build.steps.find(step => step.run?.includes('release-arm64-handoff.mjs unpack')).run;
   assert.match(command, /needs\.compile\.outputs\.sha256/);
   assert.match(command, /release-bundle-smoke\.mjs/);
-  assert.doesNotMatch(command, /-e AWS_|-e TAURI_|build-linux\.sh|cargo build|tauri build/);
+  assert.doesNotMatch(command, /docker run|build-linux\.sh|cargo build|tauri build/);
 });
 
 test('release builds keep bundle verification while server and CLI runtime checks belong to the test tier', () => {
