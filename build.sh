@@ -2771,7 +2771,7 @@ Domios build commands
   release-bundle [--fresh-target] [tauri args...]  Package in one session; optionally use the fresh release target policy
   release-arm64-compile TAG SHA ARCHIVE  Build unsigned hosted bundles and freeze handoff in one session
   release-finalize [stage args...]  Verify/package final bytes while the stable gateway path exists
-  ci-tests full|platform|embeddings  Compile and run ordinary, OS-specific, or embeddings Rust tests
+  ci-tests full|platform|embeddings [compile]  Compile and run ordinary, OS-specific, or embeddings Rust tests; compile stops after building
   ci-clippy                   Run the clippy repo gate through the shared compile cache
   ci-cli-tests                Run every CLI test target (contracts included) in the fast tier
   frontend-build              Run the release bundle's frontend step from its stable build path, without Rust
@@ -3066,10 +3066,11 @@ EOF
     scripts/test-capped.sh --no-default-features --manifest-path cli/Cargo.toml "${cli_fast_targets[@]}" --locked
     ;;
   ci-tests)
-    case "${2:-}" in full|platform|embeddings) ;; *) echo "Usage: ./build.sh ci-tests full|platform|embeddings" >&2; exit 2 ;; esac
+    case "${2:-}" in full|platform|embeddings) ;; *) echo "Usage: ./build.sh ci-tests full|platform|embeddings [compile]" >&2; exit 2 ;; esac
+    case "${3:-}" in ''|compile) ;; *) echo "Usage: ./build.sh ci-tests full|platform|embeddings [compile]" >&2; exit 2 ;; esac
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
-    node scripts/collect-rust-warnings.mjs run --log "${RUST_WARNING_LOG:-ci-rust-warnings.log}" -- node scripts/ci-rust-tests.mjs "$2"
+    node scripts/collect-rust-warnings.mjs run --log "${RUST_WARNING_LOG:-ci-rust-warnings.log}" -- node scripts/ci-rust-tests.mjs "$2" ${3:+--compile-only}
     ;;
   frontend-build)
     ensure_deps

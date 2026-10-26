@@ -231,7 +231,8 @@ export function requireTestSuccess(result, report, label, { warn = console.log, 
 
 const tomlConfig = (filter, listener) => `[profile.default]\ndefault-filter = ${JSON.stringify(filter)}\nretries = 0\nfail-fast = false\n${listener ? 'test-threads = 1\n' : ''}slow-timeout = { period = "60s", terminate-after = 5 }\n`;
 
-async function run(mode) {
+// compileOnly builds every lane's test binaries and stops, so a CI step can time compilation apart from the run.
+async function run(mode, { compileOnly = false } = {}) {
   const lanes = MODES[mode];
   if (!lanes) throw new Error('usage: node scripts/ci-rust-tests.mjs full|platform|embeddings | verify DIR');
   for (const name of ['CODETERM_CONPTY_DIR', 'CODETERM_PLAN_ID', 'CODETERM_TASK_ID']) delete process.env[name];
@@ -261,6 +262,7 @@ async function run(mode) {
         try { const message = JSON.parse(line); return message.reason === 'compiler-artifact' && !message.fresh ? [message] : []; } catch { return []; }
       }).length;
       console.log(`[rust-tests] ${mode}/${lane.lane} compiled=${compiled}`);
+      if (compileOnly) continue;
       const config = path.join(directory, `${mode}-${lane.lane}.toml`);
       fs.writeFileSync(config, tomlConfig('all()', false));
       let scope = mode === 'embeddings' ? 'package(=codeterm-mem) | (package(=codeterm-service-core) & test(/^mem::/))' : 'all()';
@@ -306,9 +308,15 @@ async function run(mode) {
         if (audit.error || audit.status !== 0) throw new Error(`Slow unit ratchet failed on ${receipt.runner}: ${audit.error || audit.status}`);
       }
     }
+    if (compileOnly) return;
     if (!receipt.executed) throw new Error('No Rust tests executed');
     receipt.exit = 0;
   } finally {
+    // Only the run phase records a receipt; a compile-only pass proves nothing about tests.
+    if (!compileOnly) recordReceipt();
+  }
+
+  function recordReceipt() {
     receipt.seconds = (performance.now() - start) / 1000;
     fs.writeFileSync(path.join(directory, `rust-tests-${mode}-${os}.json`), JSON.stringify(receipt, null, 2));
     if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\nRust ${mode} tests: **${receipt.runner}** (${os} ${receipt.arch}), ${receipt.executed} executed, ${receipt.seconds.toFixed(1)} s, exit ${receipt.exit}\n`);
@@ -322,5 +330,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
     const table = verifyReceipts(receipts);
     console.log(table);
     if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n${table}\n`);
-  } else await run(process.argv[2]);
+  } else await run(process.argv[2], { compileOnly: process.argv[3] === '--compile-only' });
 }

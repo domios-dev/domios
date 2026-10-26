@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import test from 'node:test';
 import { parse } from 'yaml';
@@ -240,7 +242,7 @@ test('Windows Rust tests invoke the owning build forwarder without a bash shell'
 test('native Rust tests discover installed tools before runtime execution', () => {
   const steps = workflow('tests-rust').jobs['rust-platform'].steps;
   const setup = steps.findIndex(step => step.run === 'node scripts/ci-runner-paths.mjs --paths-only');
-  const tests = steps.findIndex(step => step.name?.startsWith('Compile and run') && step.if === "runner.os == 'Windows'");
+  const tests = steps.findIndex(step => step.name?.startsWith('Compile ') && step.if === "runner.os == 'Windows'");
   assert.ok(setup >= 0 && setup < tests);
   assert.equal(steps[setup].if, "runner.environment == 'self-hosted'");
   for (const action of ['actions/setup-node@', 'actions/setup-python@']) {
@@ -252,22 +254,25 @@ test('native Rust tests discover installed tools before runtime execution', () =
 
 test('compact unwind workaround belongs only to macOS native test suites, preserving release link flags', () => {
   const tests = workflow('tests-rust');
-  const step = tests.jobs['rust-platform'].steps.find(step => step.run?.includes('bash build.sh ci-tests'));
-  assert.match(step.run, /\[ "\$RUNNER_OS" = macOS \]; then/);
-  for (const triple of ['AARCH64', 'X86_64']) {
-    const name = `CARGO_TARGET_${triple}_APPLE_DARWIN_RUSTFLAGS`;
-    assert.ok(step.run.includes(`export ${name}="\${${name}:+$${name} }-C link-arg=-Wl,-no_compact_unwind"`));
-  }
+  const steps = tests.jobs['rust-platform'].steps;
+  // The flags reach compile and run through GITHUB_ENV, so the run step never rebuilds with other flags.
+  const flagsIndex = steps.findIndex(step => step.name === 'Link macOS test binaries without compact unwind');
+  const compileIndex = steps.findIndex(step => step.run?.includes('build.sh ci-tests') && step.run.includes(' compile'));
+  assert.ok(flagsIndex >= 0 && flagsIndex < compileIndex);
+  const step = steps[flagsIndex];
+  assert.equal(step.if, "runner.os == 'macOS'");
+  for (const run of steps.filter(item => item.run?.includes('build.sh ci-tests')).map(item => item.run)) assert.doesNotMatch(run, /RUSTFLAGS/);
   for (const name of ['release', 'release-macos-build', 'release-linux-arm64', 'release-linux', 'release-windows']) {
     assert.doesNotMatch(JSON.stringify(workflow(name)), /no_compact_unwind|CARGO_TARGET_.*_RUSTFLAGS/);
   }
   const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
-  for (const [os, suite, expected] of [['macOS', 'platform', true], ['Linux', 'platform', false], ['macOS', 'embeddings', true], ['Linux', 'full', false]]) {
-    const preparation = step.run.split('bash build.sh')[0].replaceAll('${{ matrix.suite }}', suite);
-    const flags = execFileSync(bash, ['-c', preparation + '\nprintf "%s" "$CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS"'],
-      { encoding: 'utf8', env: { ...process.env, RUNNER_OS: os, CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS: '-C debuginfo=1' } });
-    assert.equal(flags, '-C debuginfo=1' + (expected ? ' -C link-arg=-Wl,-no_compact_unwind' : ''));
-  }
+  const envFile = path.join(os.tmpdir(), `compact-unwind-${process.pid}.env`);
+  try {
+    execFileSync(bash, ['-c', step.run], { encoding: 'utf8', env: { ...process.env, GITHUB_ENV: envFile, CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS: '-C debuginfo=1' } });
+    const written = readFileSync(envFile, 'utf8');
+    assert.match(written, /^CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS=-C debuginfo=1 -C link-arg=-Wl,-no_compact_unwind$/m);
+    assert.match(written, /^CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS=-C link-arg=-Wl,-no_compact_unwind$/m);
+  } finally { rmSync(envFile, { force: true }); }
 });
 
 test('Linux arm64 verifies hosted bytes natively on the hosted arm64 runner without compilation', () => {
