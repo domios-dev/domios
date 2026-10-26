@@ -1013,7 +1013,7 @@ mod tests {
             r"\\?\C:\Users\dev\.domios-dev\general",
         ));
         assert_eq!(plain, verbatim);
-        assert_eq!(plain, "C--Users-User--domios-dev-general");
+        assert_eq!(plain, "C--Users-dev--domios-dev-general");
     }
 
     #[test]
