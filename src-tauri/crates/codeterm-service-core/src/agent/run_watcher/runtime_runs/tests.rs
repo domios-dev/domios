@@ -125,7 +125,7 @@ impl Scene {
         let run = self
             .fixture
             .service
-            .cron_trigger(&self.cron, &job.id)
+            .cron_trigger_with_spawn(&self.cron, &job.id, |spec| self.spawn_ready(spec))
             .unwrap();
         assert!(run.tab_id.is_some());
         (job.id, run)
@@ -157,7 +157,7 @@ impl Scene {
             },
         )
         .unwrap();
-        let handle = self.fixture.service.spawn_tab(spec).unwrap();
+        let handle = self.spawn_ready(spec).unwrap();
         assert!(
             self.fixture
                 .service
@@ -168,6 +168,21 @@ impl Scene {
                 .hidden
         );
         (worker, handle.tab_id)
+    }
+    // Spawn returns once the tab exists; the runtime the scene drives must be launched first.
+    fn spawn_ready(
+        &self,
+        spec: crate::service::spawn::SpawnTabSpec,
+    ) -> Result<crate::service::spawn::TabHandle, String> {
+        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+        let handle = self
+            .fixture
+            .service
+            .spawn_tab_with_ready(spec, Some(ready_tx))?;
+        ready_rx
+            .blocking_recv()
+            .map_err(|_| "runtime launch dropped its readiness".to_string())??;
+        Ok(handle)
     }
     fn ended(&self, event: &str) -> mpsc::Receiver<()> {
         let (tx, rx) = mpsc::channel();

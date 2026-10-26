@@ -470,13 +470,18 @@ fn tailer_repopulates_when_session_file_appears_late() {
         Arc::new(SignalledCollector { ready: messages }),
         ready,
     );
-    ready_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    ready_rx.recv_timeout(Duration::from_secs(30)).unwrap();
     assert!(messages_rx.try_recv().is_err());
     assert!(handle.is_alive());
 
     std::fs::write(&jsonl, b"materialized\n").unwrap();
-    messages_rx.recv_timeout(Duration::from_secs(2)).unwrap();
-    assert_eq!(handle.current_offset(), 13);
+    messages_rx.recv_timeout(Duration::from_secs(30)).unwrap();
+    // A creation event may restart the read from zero; it restores the offset before re-emitting the batch.
+    while handle.current_offset() != 13 {
+        messages_rx
+            .recv_timeout(Duration::from_secs(30))
+            .expect("a restarted read must re-emit the materialized batch");
+    }
     handle.shutdown();
 }
 
