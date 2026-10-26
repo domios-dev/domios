@@ -39,6 +39,9 @@ test('release packaging belongs to push CI and merge publication checks the rele
   assert.equal(tests.jobs['release-dry-run'].with.dry_run,true);
   // Packaging overlaps the Rust suites; publication promotes only a fully green run and re-checks its qualification.
   assert.deepEqual(tests.jobs['release-dry-run'].needs,['admission','policy','fast']);
+  // A failing check must not hide build failures behind it; packaging needs only the resolved source.
+  assert.match(tests.jobs['release-dry-run'].if,/needs\.fast\.outputs\.source_sha != ''/);
+  assert.doesNotMatch(tests.jobs['release-dry-run'].if,/needs\.fast\.result/);
   assert.match(release.jobs['qualified-source'].steps[0].with.script,/run\.conclusion === 'success'/);
   assert.match(release.jobs.prepare.steps.find(step => step.name === 'Require green dev qualification for the exact release SHA').if,/github\.event_name != 'push'/);
 });
