@@ -62,6 +62,7 @@ export const RUNNER_ROLES = {
   rust: ['node', 'git', 'bash', 'python', 'cargo', 'nextest'],
   'pr-guards': ['node', 'git', 'bash', 'python', 'cargo', 'pnpm', 'nextest'],
   packaging: ['node', 'git', 'bash', 'python', 'cargo', 'gh', 'pnpm'],
+  finalize: ['node', 'git', 'bash', 'python', 'gh', 'pnpm'],
   all: ['node', 'git', 'bash', 'python', 'cargo', 'nextest', 'gh', 'pnpm'],
 };
 const tools = {

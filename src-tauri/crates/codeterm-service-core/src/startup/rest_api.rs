@@ -273,16 +273,19 @@ impl RestApiControl {
 
     fn mark_listening(&self, generation: u64, ready: Vec<SocketAddr>) -> Option<RestApiStatus> {
         let _transition = self.transition.lock();
-        let mut lifecycle = self.lifecycle.lock();
-        if lifecycle.status.generation != generation || !lifecycle.listener_owned {
-            return None;
+        {
+            let lifecycle = self.lifecycle.lock();
+            if lifecycle.status.generation != generation || !lifecycle.listener_owned {
+                return None;
+            }
         }
+        // A subscriber woken by Listening must already see the listeners; the transition lock holds the generation.
+        self.listeners.publish(ready);
+        let mut lifecycle = self.lifecycle.lock();
         let status = self.publish_locked(&mut lifecycle, RestApiPhase::Listening, None, None);
         if generation > 1 {
             self.publish_recovery_locked(&mut lifecycle, status.clone());
         }
-        drop(lifecycle);
-        self.listeners.publish(ready);
         Some(status)
     }
 
@@ -349,15 +352,17 @@ impl RestApiControl {
 
     pub(crate) fn record_successful_probe(&self) {
         let _transition = self.transition.lock();
-        let mut lifecycle = self.lifecycle.lock();
-        if lifecycle.listener_owned
-            && lifecycle.status.phase == RestApiPhase::Failed
-            && lifecycle.status.diagnostic == Some(RestApiDiagnostic::WorkersBlocked)
-        {
+        let recovering = {
+            let lifecycle = self.lifecycle.lock();
+            lifecycle.listener_owned
+                && lifecycle.status.phase == RestApiPhase::Failed
+                && lifecycle.status.diagnostic == Some(RestApiDiagnostic::WorkersBlocked)
+        };
+        if recovering {
+            self.listeners.resume();
+            let mut lifecycle = self.lifecycle.lock();
             let status = self.publish_locked(&mut lifecycle, RestApiPhase::Listening, None, None);
             self.publish_recovery_locked(&mut lifecycle, status);
-            drop(lifecycle);
-            self.listeners.resume();
         }
     }
 

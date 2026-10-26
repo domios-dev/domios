@@ -41,7 +41,7 @@ test('hosted native arm64 compilation has read-only permissions and no private c
   assert.deepEqual(hosted.permissions, { contents: 'read', actions: 'read' });
   assert.doesNotMatch(JSON.stringify(hosted), /self-hosted|tailscale|SCCACHE_AWS|GH_RELEASE_TOKEN|PACKAGE_REPOS_TOKEN|SIGNING_PRIVATE_KEY/);
   assert.equal(job.env.CODETERM_USE_SCCACHE, '0');
-  assert.equal(job.env.CARGO_BUILD_JOBS, '2');
+  assert.equal(job.env.CARGO_BUILD_JOBS, '4');
   assert.equal(job.env.RUSTUP_TOOLCHAIN, '1.99.1-${{ inputs.target }}');
   assert.ok(job['timeout-minutes'] > 0);
   assert.equal(job.steps.find(step => step.uses?.startsWith('actions/checkout')).with.ref, '${{ inputs.source_ref }}');
@@ -52,7 +52,7 @@ test('hosted native arm64 compilation has read-only permissions and no private c
 
 });
 
-test('arm64 graph requires hosted handoff then local signing, verification and existing receipts', () => {
+test('arm64 graph requires hosted handoff then hosted signing, verification and existing receipts', () => {
   const release = workflow('release');
   for (const [name, target] of [['linux', 'aarch64-unknown-linux-gnu'], ['windows', 'aarch64-pc-windows-msvc']]) {
     const arm = workflow(`release-${name}-arm64`);
@@ -63,7 +63,9 @@ test('arm64 graph requires hosted handoff then local signing, verification and e
     for (const key of publicConfig) assert.equal(arm.jobs.compile.secrets[key], '$' + '{{ secrets.' + key + ' }}');
     const final = arm.jobs.build;
     assert.equal(final.needs, 'compile');
-    assert.ok(final['runs-on'].includes('self-hosted'));
+    // Finalize runs on the hosted arm64 runner type that compiled, so the handoff never leaves GitHub.
+    assert.equal(final['runs-on'], name === 'linux' ? 'ubuntu-24.04-arm' : 'windows-11-arm');
+    assert.equal(final.environment, 'release');
     assert.equal(final.env.AWS_ACCESS_KEY_ID, '${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}');
     assert.equal(final.env.AWS_SECRET_ACCESS_KEY, '${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}');
     const commands = final.steps.map(step => step.run ?? '').join('\n');

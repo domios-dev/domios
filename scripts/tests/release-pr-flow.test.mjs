@@ -48,7 +48,7 @@ test('release push owns full CI and exact-head packaging while every PR stays li
     fast:{result:'success',outputs:{resolved_scope:'{}',heavy:'true'}},rust:{result:'success'},'rust-warnings':{result:'success'},qualification:{result:'success'}};
   for (const id of ['fast','rust','rust-warnings','qualification','release-dry-run']) assert.ok(condition(ci.jobs[id].if,{github,needs,inputs:{scope:'',source_ref:''}}),id);
   assert.equal(ci.jobs['release-dry-run'].with.dry_run,true);
-  assert.equal(evaluateCondition(ci.jobs['release-dry-run'].with.source_sha,{github,needs:{fast:{outputs:{source_sha:sha}}}}),sha);
+  assert.equal(evaluateCondition(ci.jobs['release-dry-run'].with.source_sha,{github:{...github,sha},needs:{}}),sha);
   for (const event_name of ['pull_request','pull_request_target']) {
     const request={...github,event_name,ref:'refs/pull/668/merge'};
     for(const name of ['tests-fast','tests-rust','rust-warnings-summary'])for(const [id,job]of Object.entries(workflow(name).jobs)){

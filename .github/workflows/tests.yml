@@ -371,9 +371,9 @@ jobs:
           retention-days: 3
   release-dry-run:
     name: Release packaging
-    # Packaging builds beside the checks so one push surfaces every failing layer; publication still requires this run's green qualification.
-    needs: [admission, policy, fast]
-    if: ${{ !cancelled() && github.event_name == 'push' && needs.admission.outputs.release_head == 'true' && needs.policy.result == 'success' && needs.fast.outputs.source_sha != '' }}
+    # Packaging starts with the push, beside every check; publication still requires this run's green qualification.
+    needs: [admission, policy]
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.admission.outputs.release_head == 'true' && needs.policy.result == 'success' }}
     uses: ./.github/workflows/release.yml
     permissions:
       contents: write
@@ -382,7 +382,7 @@ jobs:
       pull-requests: write
     with:
       tag: ${{ github.ref_name }}
-      source_sha: ${{ needs.fast.outputs.source_sha }}
+      source_sha: ${{ github.sha }}
       dry_run: true
       mirror: false
     secrets: inherit

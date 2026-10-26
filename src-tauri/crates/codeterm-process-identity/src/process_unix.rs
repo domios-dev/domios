@@ -98,7 +98,10 @@ impl PinnedProcess {
         self.ensure_alive()?;
         let current = observe(self.observed.pid)?;
         if current != self.observed {
-            return Err(io::Error::other("Bootstrap PID provenance changed"));
+            return Err(io::Error::other(format!(
+                "Bootstrap PID provenance changed: pinned={:?}; current={:?}",
+                self.observed, current
+            )));
         }
         self.ensure_alive()?;
         Ok(current)

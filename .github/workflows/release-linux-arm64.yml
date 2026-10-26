@@ -44,9 +44,8 @@ jobs:
       frontend_sha256: ${{ inputs.frontend_sha256 }}
   build:
     name: finalize
-    runs-on:
-      - self-hosted
-      - ${{ vars.RELEASE_LINUX_ARM64_LABEL || 'codeterm-builder' }}
+    # Finalizes on the same hosted arm64 runner type that compiled, so the handoff stays inside GitHub.
+    runs-on: ubuntu-24.04-arm
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && ((startsWith(github.ref, 'refs/heads/release/') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.path == '.github/workflows/tests.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.actor.login == 'rollacode' && github.event.workflow_run.triggering_actor.login == 'rollacode' && startsWith(github.event.workflow_run.head_branch, 'release/'))) }}
     environment: release
     timeout-minutes: 120
@@ -115,7 +114,7 @@ jobs:
           dest: ${{ runner.tool_cache }}/setup-pnpm
         if: runner.environment == 'github-hosted'
       - name: Runner preflight
-        run: node scripts/ci-runner-paths.mjs packaging
+        run: node scripts/ci-runner-paths.mjs finalize
       - name: Reset compiler capture
         continue-on-error: true
         run: node -e "require('fs').writeFileSync('ci-rust-warnings.log', '')"
@@ -137,13 +136,11 @@ jobs:
         with:
           name: unsigned-aarch64-unknown-linux-gnu-${{ needs.compile.outputs.sha256 }}
           path: ${{ runner.temp }}/hosted-arm64
-      - name: Verify transferred stage and smoke Linux arm64 in native container
+      - name: Verify transferred stage and smoke Linux arm64 natively
         run: |-
           set -euo pipefail
           cp "$RUNNER_TEMP/hosted-arm64/arm64-handoff.tar" arm64-handoff.tar
-          node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- docker run --rm --pull=never --platform linux/arm64 \
-            -v "$PWD:/src" -w /src -e GITHUB_RUN_ID -e GITHUB_RUN_ATTEMPT \
-            codeterm-build-linux-arm64 bash -euo pipefail -c '
+          node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash -euo pipefail -c '
               node scripts/release-arm64-handoff.mjs unpack aarch64-unknown-linux-gnu "${{ inputs.tag }}" "${{ inputs.source_ref }}" arm64-handoff.tar "${{ needs.compile.outputs.sha256 }}"
               node scripts/release-bundle-smoke.mjs linux src-tauri/target/aarch64-unknown-linux-gnu/release/bundle "${{ inputs.source_ref }}" arm64
             '
@@ -161,7 +158,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-        run: python3 scripts/release-signing-material.py macos
+        run: python3 scripts/release-signing-material.py linux
       - name: Sign Linux updater bundles
         run: |
           for bundle in "$ART"/out/*.AppImage "$ART"/out/*.deb; do
