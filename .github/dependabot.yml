@@ -8,7 +8,7 @@ updates:
       interval: weekly
     groups:
       minor-patch:
-        dependency-type: minor-or-patch
+        update-types: [minor, patch]
 
   # Cargo updates (cli)
   - package-ecosystem: cargo
@@ -18,7 +18,7 @@ updates:
       interval: weekly
     groups:
       minor-patch:
-        dependency-type: minor-or-patch
+        update-types: [minor, patch]
 
   # Cargo updates (crates/mem-store)
   - package-ecosystem: cargo
@@ -28,7 +28,7 @@ updates:
       interval: weekly
     groups:
       minor-patch:
-        dependency-type: minor-or-patch
+        update-types: [minor, patch]
 
   # npm/pnpm updates (workspace root)
   - package-ecosystem: npm
@@ -38,7 +38,7 @@ updates:
       interval: weekly
     groups:
       minor-patch:
-        dependency-type: minor-or-patch
+        update-types: [minor, patch]
 
   # GitHub Actions updates
   - package-ecosystem: github-actions
@@ -48,4 +48,4 @@ updates:
       interval: weekly
     groups:
       minor-patch:
-        dependency-type: minor-or-patch
+        update-types: [minor, patch]
