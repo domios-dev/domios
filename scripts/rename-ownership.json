@@ -440,7 +440,6 @@
           "scripts/check-dev-resource-preflight.sh",
           "scripts/check-empty-array-expansion.sh",
           "scripts/check-health-identity.sh",
-          "scripts/check-linux-arm64-builder.sh",
           "scripts/check-local-install-continuation.sh",
           "scripts/check-mux-write.mjs",
           "scripts/check-no-raw-graph-sql.sh",

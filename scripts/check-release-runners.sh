@@ -10,18 +10,23 @@ label_for() {
     value=$(printf '%s\n' "$variables" | awk -F'\t' -v key="$1" '$1 == key {print $2}')
     printf '%s\n' "${value:-$2}"
 }
+# arm64 releases build on GitHub-hosted runners; these are the self-hosted labels the release and its tests use.
 REQUIRED_LABELS=(
     "$(label_for RELEASE_MACOS_ARM64_LABEL codeterm-builder)"
     "$(label_for RELEASE_MACOS_X64_LABEL codeterm-builder)"
-    "$(label_for RELEASE_LINUX_ARM64_LABEL codeterm-builder)"
     "$(label_for RELEASE_WINDOWS_X64_LABEL windows-x64-build)"
-    "$(label_for RELEASE_WINDOWS_ARM64_LABEL windows-build)"
     "$(label_for RELEASE_LINUX_X64_LABEL linux-build)"
-    rust-tests rust-shard linux-ci windows-ci light
+    rust-shard light
 )
 
-runners=$(gh api "repos/$REPO/actions/runners" --paginate \
-    --jq '.runners[] | "\(.status)\t\(.name)\t\([.labels[].name] | join(","))"')
+# Most runners are registered to the organization's runner group, so both levels are listed.
+row='.runners[] | "\(.status)\t\(.name)\t\([.labels[].name] | join(","))"'
+runners=$(gh api "repos/$REPO/actions/runners" --paginate --jq "$row")
+if ! org_runners=$(gh api "orgs/${REPO%%/*}/actions/runners" --paginate --jq "$row" 2>&1); then
+    printf 'Cannot list organization runners: %s\nThe token needs organization "Self-hosted runners: Read".\n' "$org_runners" >&2
+    exit 1
+fi
+runners=$(printf '%s\n%s\n' "$runners" "$org_runners")
 
 missing=0
 for label in $(printf '%s\n' "${REQUIRED_LABELS[@]}" | awk '!seen[$0]++'); do
