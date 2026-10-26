@@ -7,7 +7,6 @@
       {"pattern":"playground/src/gallery/specimens/*.spec.tsx","reason":"Playground gallery specimens rendered by playground/src/gallery, not test cases."},
       {"pattern":"src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/fixtures/**","reason":"Scripts the codeterm-plugin parity_test Rust tests execute as fixtures; owned by rust-plugin."},
       {"pattern":"scripts/tests/fixtures/**","reason":"Fixture trees read by scripts/tests (Cargo manifests for the rust-test-inventory tests), not crates."},
-      {"pattern":"src-tauri/vendor/**","reason":"Vendored upstream crate (tauri-runtime-wry); its tests belong upstream."},
       {"pattern":"evals/mem-embedder/Cargo.toml","reason":"Embedder evaluation oracle crate whose results are recorded in evals/mem-embedder/REPORT.md, not a test crate."}
     ]
   },

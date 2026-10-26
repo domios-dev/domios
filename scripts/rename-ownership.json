@@ -223,8 +223,6 @@
           "src-tauri/pty-fork/src/lib.rs",
           "src-tauri/src/lib.rs",
           "src-tauri/src/main.rs",
-          "src-tauri/vendor/tauri-runtime-wry/Cargo.toml",
-          "src-tauri/vendor/tauri-runtime-wry/src/lib.rs",
           "tsconfig.json",
           "tsconfig.node.json",
           "vite.config.ts",

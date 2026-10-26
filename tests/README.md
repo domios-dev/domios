@@ -179,7 +179,6 @@ Not tests:
 - `playground/src/gallery/specimens/*.spec.tsx`: Playground gallery specimens rendered by playground/src/gallery, not test cases.
 - `src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/fixtures/**`: Scripts the codeterm-plugin parity_test Rust tests execute as fixtures; owned by rust-plugin.
 - `scripts/tests/fixtures/**`: Fixture trees read by scripts/tests (Cargo manifests for the rust-test-inventory tests), not crates.
-- `src-tauri/vendor/**`: Vendored upstream crate (tauri-runtime-wry); its tests belong upstream.
 - `evals/mem-embedder/Cargo.toml`: Embedder evaluation oracle crate whose results are recorded in evals/mem-embedder/REPORT.md, not a test crate.
 
 ## STALE (no longer matches the product; left out, never healthy)

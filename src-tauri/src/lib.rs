@@ -96,10 +96,6 @@ pub(crate) fn install_client_startup_options(
 }
 
 #[cfg(test)]
-#[path = "../vendor/tauri-runtime-wry/src/owner_thread.rs"]
-mod windows_rc_ownership_regression;
-
-#[cfg(test)]
 mod process_split_contract_client_arguments {
     use super::*;
 
