@@ -3,6 +3,8 @@ license = "AGPL-3.0-only"
 name = "codeterm-cli"
 version = "1.15.3"
 edition = "2021"
+# One workspace and one lockfile with the app and server, so shared dependencies resolve identically.
+workspace = "../src-tauri"
 
 [[bin]]
 name = "codeterm"
@@ -59,17 +61,3 @@ sha2 = "0.10"
 [dev-dependencies]
 codeterm-plugin = { path = "../src-tauri/crates/codeterm-plugin", features = ["test-support"] }
 tempfile = "3"
-
-# CLI ships release (agents exec it constantly — startup latency matters),
-# but incremental makes iterative release rebuilds cheap on dev restarts.
-[profile.release]
-incremental = true
-
-[profile.dev]
-split-debuginfo = "unpacked"
-debug = "line-tables-only"
-
-# Building Cli::command is ~10^4x slower unoptimized (release: 0ms) — every dev/test
-# calling try_parse_from otherwise hangs for minutes. opt-1 on just this crate fixes it.
-[profile.dev.package.codeterm-cli]
-opt-level = 1

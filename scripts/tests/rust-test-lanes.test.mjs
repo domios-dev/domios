@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import { execFileSync, spawnSync } from 'node:child_process';
 import test from 'node:test';
-import { FULL_LANES, testTargetDir, workspaceTestTargets, workspaceMembers } from '../rust-test-lanes.mjs';
+import { FULL_LANES, OWN_LANE_MEMBERS, testTargetDir, workspaceTestTargets, workspaceMembers } from '../rust-test-lanes.mjs';
 import { MODES } from '../ci-rust-tests.mjs';
 import { archiveTargets, loadReleaseRust } from '../ci-rust-archives.mjs';
 
@@ -26,7 +26,7 @@ test('nextest shell selection and full CI use the catalogue lane definitions', (
   }
   const packages = new Set(FULL_LANES[0].targets.flatMap((arg, index, args) => args[index - 1] === '-p' ? [arg] : []));
   for (const name of workspaceMembers()) {
-    assert.ok(packages.has(name), name);
+    assert.equal(packages.has(name), !OWN_LANE_MEMBERS.includes(name), name);
   }
   assert.equal(FULL_LANES[0].targets.at(-1), '--tests');
 });

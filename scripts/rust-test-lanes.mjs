@@ -29,10 +29,13 @@ export function workspaceMembers(repository = root, run = execFileSync) {
   return names;
 }
 
+// Workspace members whose tests run in their own lane and target directory.
+export const OWN_LANE_MEMBERS = ['codeterm-cli'];
+
 export function workspaceTestTargets(repository = root, catalogue = runners, members = workspaceMembers(repository)) {
   const selected = archiveTargets('workspace', catalogue);
   const packages = new Set(selected.flatMap((arg, index) => selected[index - 1] === '-p' ? [arg] : []));
-  for (const name of members) packages.add(name);
+  for (const name of members) if (!OWN_LANE_MEMBERS.includes(name)) packages.add(name);
   return ['--no-default-features', ...[...packages].flatMap(name => ['-p', name]), '--tests'];
 }
 

@@ -27,11 +27,11 @@ build_release_dir() {
   )
 }
 
-assert_eq "cli/target/release" \
+assert_eq "src-tauri/target/release" \
   "$(build_release_dir -u CARGO_TARGET_DIR -u CARGO_BUILD_TARGET)" \
   "build.sh default target dir"
 
-assert_eq "cli/target/$fixture_target/release" \
+assert_eq "src-tauri/target/$fixture_target/release" \
   "$(build_release_dir -u CARGO_TARGET_DIR CARGO_BUILD_TARGET="$fixture_target")" \
   "build.sh default target dir with CARGO_BUILD_TARGET"
 
@@ -58,7 +58,7 @@ const target = path.resolve("/tmp/codeterm-cli-target");
 
 assert.strictEqual(
   resolveCliSource({}, root, "codeterm"),
-  path.join(root, "cli", "target", "release", "codeterm")
+  path.join(root, "src-tauri", "target", "release", "codeterm")
 );
 
 assert.strictEqual(bundledCliName({}, "win32", "x64"), "codeterm-x86_64-pc-windows-msvc.exe");
@@ -75,7 +75,7 @@ assert.strictEqual(peMachineForTarget("x86_64-pc-windows-msvc"), 0x8664);
 assert.strictEqual(peMachineForTarget("aarch64-pc-windows-msvc"), 0xaa64);
 assert.strictEqual(
   resolveCliSource({ CARGO_BUILD_TARGET: "aarch64-apple-darwin" }, root, "codeterm"),
-  path.join(root, "cli", "target", "aarch64-apple-darwin", "release", "codeterm")
+  path.join(root, "src-tauri", "target", "aarch64-apple-darwin", "release", "codeterm")
 );
 assert.strictEqual(
   resolveCliSource({ CARGO_TARGET_DIR: target }, root, "codeterm"),

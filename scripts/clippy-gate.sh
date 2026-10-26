@@ -19,4 +19,3 @@ run_clippy_gate() {
 }
 
 run_clippy_gate src-tauri/Cargo.toml || exit $?
-run_clippy_gate cli/Cargo.toml || exit $?
