@@ -583,8 +583,7 @@ mod tests {
 
     #[test]
     fn orphan_selection_matches_the_bundled_path_case_insensitively() {
-        let expected =
-            Path::new(r"C:\Users\dev\AppData\Local\CodeTerm\conpty\x64\OpenConsole.exe");
+        let expected = Path::new(r"C:\Users\dev\AppData\Local\CodeTerm\conpty\x64\OpenConsole.exe");
         assert!(is_selected_bundled_host(
             &orphan(
                 10,

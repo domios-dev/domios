@@ -65,7 +65,7 @@ assert.equal(
   "does not carry a folder the owner explicitly declined",
 );
 assert.equal(
-  hasTrustedProjectPath("[projects.'C:\\Users\\dev\\Project']\ntrust_level = \"trusted\"\n", "c:/users/user/project"),
+  hasTrustedProjectPath("[projects.'C:\\Users\\dev\\Project']\ntrust_level = \"trusted\"\n", "c:/users/dev/project"),
   true,
   "matches the exact shared trusted project path with Windows case and separator normalization",
 );

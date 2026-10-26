@@ -15,7 +15,9 @@ pub struct LatestRelease {
 
 fn latest_release_request(client: &reqwest::Client, repository: &str) -> reqwest::RequestBuilder {
     client
-        .get(format!("https://api.github.com/repos/{repository}/releases/latest"))
+        .get(format!(
+            "https://api.github.com/repos/{repository}/releases/latest"
+        ))
         .query(&[("codeterm_cache_bust", uuid::Uuid::new_v4().to_string())])
         .header(reqwest::header::CACHE_CONTROL, "no-cache, no-store")
         .header(reqwest::header::PRAGMA, "no-cache")
@@ -25,7 +27,10 @@ pub async fn latest_release_tag() -> Result<LatestRelease, String> {
     if codeterm_plugins::update_source::fixture_root().is_some() {
         let manifest =
             super::manifest::fetch("https://fixtures.invalid/domios-latest.json").await?;
-        return Ok(LatestRelease { repository: GITHUB_REPO, tag: format!("v{}", manifest.version) });
+        return Ok(LatestRelease {
+            repository: GITHUB_REPO,
+            tag: format!("v{}", manifest.version),
+        });
     }
     let client = reqwest::Client::builder()
         .user_agent("Domios-Updater")
@@ -42,7 +47,10 @@ pub async fn latest_release_tag() -> Result<LatestRelease, String> {
     newest_release(found).ok_or_else(|| format!("Failed to fetch release: {}", errors.join("; ")))
 }
 
-async fn repository_latest_tag(client: &reqwest::Client, repository: &str) -> Result<String, String> {
+async fn repository_latest_tag(
+    client: &reqwest::Client,
+    repository: &str,
+) -> Result<String, String> {
     let release = latest_release_request(client, repository)
         .send()
         .await
@@ -64,7 +72,10 @@ pub fn newest_release(found: Vec<LatestRelease>) -> Option<LatestRelease> {
         let Ok(candidate) = semver::Version::parse(release.tag.trim_start_matches('v')) else {
             continue;
         };
-        if best.as_ref().is_none_or(|(current, _)| candidate > *current) {
+        if best
+            .as_ref()
+            .is_none_or(|(current, _)| candidate > *current)
+        {
             best = Some((candidate, release));
         }
     }

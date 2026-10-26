@@ -18,6 +18,9 @@ import {
   selectRelatedTests,
 } from "./run-ts-unit-tests.mjs";
 
+// The CI shard of the outer suite must not filter the fixture suites these tests run.
+delete process.env.TS_UNIT_SHARD;
+
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const gitBinBash = path.join(
   process.env.ProgramFiles ?? "C:\\Program Files",

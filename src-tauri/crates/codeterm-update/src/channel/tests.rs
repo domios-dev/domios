@@ -61,7 +61,12 @@ fn immutable_endpoint_pins_the_discovered_release() {
         "https://github.com/rollacode/codeterm-releases/releases/download/v1.7.7/domios-latest.json"
     );
     assert_eq!(
-        immutable_endpoint_for_release("domios-dev/domios", "v1.16.0", Channel::Stable, &InstallMethod::Deb),
+        immutable_endpoint_for_release(
+            "domios-dev/domios",
+            "v1.16.0",
+            Channel::Stable,
+            &InstallMethod::Deb
+        ),
         "https://github.com/domios-dev/domios/releases/download/v1.16.0/domios-latest-deb.json"
     );
 }
@@ -69,17 +74,29 @@ fn immutable_endpoint_pins_the_discovered_release() {
 #[test]
 fn the_newest_release_across_repositories_wins_and_ties_keep_the_public_repository() {
     use crate::checker::{newest_release, LatestRelease};
-    let release = |repository, tag: &str| LatestRelease { repository, tag: tag.to_string() };
+    let release = |repository, tag: &str| LatestRelease {
+        repository,
+        tag: tag.to_string(),
+    };
     assert_eq!(
-        newest_release(vec![release("domios-dev/domios", "v1.15.2"), release("rollacode/codeterm-releases", "v1.15.3")]),
+        newest_release(vec![
+            release("domios-dev/domios", "v1.15.2"),
+            release("rollacode/codeterm-releases", "v1.15.3")
+        ]),
         Some(release("rollacode/codeterm-releases", "v1.15.3"))
     );
     assert_eq!(
-        newest_release(vec![release("domios-dev/domios", "v1.16.0"), release("rollacode/codeterm-releases", "v1.16.0")]),
+        newest_release(vec![
+            release("domios-dev/domios", "v1.16.0"),
+            release("rollacode/codeterm-releases", "v1.16.0")
+        ]),
         Some(release("domios-dev/domios", "v1.16.0"))
     );
     assert_eq!(
-        newest_release(vec![release("domios-dev/domios", "frontend-latest"), release("rollacode/codeterm-releases", "v1.15.3")]),
+        newest_release(vec![
+            release("domios-dev/domios", "frontend-latest"),
+            release("rollacode/codeterm-releases", "v1.15.3")
+        ]),
         Some(release("rollacode/codeterm-releases", "v1.15.3"))
     );
     assert_eq!(newest_release(vec![]), None);

@@ -19,7 +19,7 @@ const AID = "af66d7d8e4a99a6bb";
 const CALL = "toolu_014GV5zWvScrS4JGfgwQCbCq";
 const FOREIGN_SID = "00000000-0000-0000-0000-000000000000";
 const projects = fileURLToPath(new URL("./fixtures/subagents/projects", import.meta.url)).replace(/\\/g, "/");
-const projectDir = `${projects}/C--Users-User-AppData-Local-Temp-snake-demo`;
+const projectDir = `${projects}/C--Users-dev-AppData-Local-Temp-snake-demo`;
 
 const tailReads: string[] = [];
 let hideSidechain = false;
