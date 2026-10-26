@@ -1326,12 +1326,9 @@ cli_release_binary() {
   cli_profile_binary release
 }
 
+# The app binary is domios-app and the CLI's is codeterm, so the CLI shares the app's target directory.
 dev_cli_target_dir() {
-  if [ -n "${CARGO_TARGET_DIR:-}" ]; then
-    printf '%s/cli\n' "$CARGO_TARGET_DIR"
-  else
-    printf '%s\n' cli/target
-  fi
+  printf '%s\n' "${CARGO_TARGET_DIR:-src-tauri/target}"
 }
 
 build_dev_cli() {
@@ -1914,9 +1911,7 @@ check_workspace_run() {
   out="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID.check-workspace.log"
   : > "$out"
   CARGO_TARGET_DIR="$CT_CHECK_WORKTREE/target/app" cargo check --manifest-path src-tauri/Cargo.toml \
-    --workspace --exclude codeterm-cli --all-targets --message-format=short >> "$out" 2>&1 || status=$?
-  CARGO_TARGET_DIR="$CT_CHECK_WORKTREE/target/cli" cargo check --manifest-path cli/Cargo.toml \
-    --all-targets --message-format=short >> "$out" 2>&1 || status=$?
+    --workspace --all-targets --message-format=short >> "$out" 2>&1 || status=$?
   check_queue_errors 20 "$status" < "$out"
   check_queue_warnings 40 "*" < "$out" || [ "$status" != 0 ] || status=1
   echo "check-workspace: sha=$sha os=$OSTYPE exit=$status wall=$(( $(date +%s) - started ))s full-log=$out"
@@ -2081,7 +2076,7 @@ check_queue_run() {
   if [ "$cli" = 1 ]; then
     local cli_targets=(--all-targets)
     [ "$lane" != 1 ] || cli_targets=(-p codeterm-cli --bins)
-    CARGO_TARGET_DIR="$cw/target/cli" run_check_queue_cargo "$out" cargo clippy --manifest-path cli/Cargo.toml \
+    CARGO_TARGET_DIR="$cw/target/app" run_check_queue_cargo "$out" cargo clippy --manifest-path cli/Cargo.toml \
       "${cli_targets[@]}" --no-deps --message-format=short -- -D warnings "${CLIPPY_ALLOW[@]}" || status=$?
   fi
   if [ "$lane" = 0 ]; then
