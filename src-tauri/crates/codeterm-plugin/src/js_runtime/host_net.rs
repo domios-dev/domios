@@ -736,28 +736,30 @@ mod tests {
     }
 
     #[test]
-    fn fetch_default_timeout_is_about_five_seconds() {
+    fn fetch_defaults_to_five_seconds_and_its_timeout_fails_the_request() {
         let _guard = TEST_LOCK.lock();
         let url = serve_unresponsive();
-        let started = Instant::now();
-        let body: serde_json::Value =
-            serde_json::from_str(&run(&serde_json::json!({ "url": url }).to_string())).unwrap();
-        let elapsed = started.elapsed();
+        // The default is checked on the built request, so the test never waits it out.
+        let unset: FetchOpts =
+            serde_json::from_str(&serde_json::json!({ "url": url }).to_string()).unwrap();
+        let request = request_builder(fetch_client().unwrap(), &unset)
+            .build()
+            .unwrap();
+        assert_eq!(
+            request.timeout(),
+            Some(&Duration::from_millis(DEFAULT_FETCH_TIMEOUT_MS))
+        );
 
+        let body: serde_json::Value = serde_json::from_str(&run(
+            &serde_json::json!({ "url": url, "timeoutMs": 50 }).to_string(),
+        ))
+        .unwrap();
         assert!(
             body["error"]
                 .as_str()
                 .unwrap_or_default()
                 .contains("request failed"),
             "unexpected response: {body}"
-        );
-        assert!(
-            elapsed >= Duration::from_millis(DEFAULT_FETCH_TIMEOUT_MS - 500),
-            "timeout returned too early: {elapsed:?}"
-        );
-        assert!(
-            elapsed < Duration::from_secs(8),
-            "timeout returned too late: {elapsed:?}"
         );
     }
 

@@ -1873,6 +1873,7 @@ dependencies = [
  "codeterm-util",
  "dirs 5.0.1",
  "flate2",
+ "libc",
  "log",
  "notify 8.2.0",
  "reqwest 0.12.28",

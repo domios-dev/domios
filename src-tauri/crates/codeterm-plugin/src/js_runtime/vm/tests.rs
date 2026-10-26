@@ -594,6 +594,11 @@ fn slow_plugin_does_not_block_an_unrelated_plugin() {
 fn vm_async_call_refuses_after_its_bounded_event_wait() {
     let release = "vm_serialization_timeout.release";
     call_gate::reset(release);
+    // The wedged job is refused at the bound itself; a short test bound proves it without waiting 5 s.
+    super::super::host_exec::set_test_wait_bound(
+        "vm-serialization-timeout",
+        std::time::Duration::from_millis(50),
+    );
 
     let vm = serialization_vm("vm-serialization-timeout");
     let result = call_json::<serde_json::Value>(&vm, "bounded", &[json!(release)]);
