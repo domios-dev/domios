@@ -3,7 +3,7 @@ license = "AGPL-3.0-only"
 name = "codeterm"
 version = "1.16.0"
 edition = "2021"
-default-run = "codeterm"
+default-run = "domios-app"
 
 [workspace]
 members = ["crates/codeterm-process-identity", "crates/codeterm-paths", "crates/domios-server", "crates/codeterm-crash", "crates/codeterm-worker-services", "crates/codeterm-local-preview", "crates/codeterm-lanes", "crates/codeterm-api", ".", "crates/codeterm-input-macos", "crates/codeterm-input-windows", "crates/codeterm-account", "crates/codeterm-billing", "crates/codeterm-analytics", "crates/codeterm-frontend-bundle", "crates/codeterm-types", "crates/codeterm-wire", "crates/codeterm-sentinel", "crates/codeterm-decision", "crates/codeterm-provider-signals", "crates/codeterm-util", "crates/codeterm-browser", "crates/codeterm-mesh", "crates/codeterm-mem", "crates/codeterm-plan", "crates/codeterm-bridge", "crates/codeterm-pty", "crates/codeterm-plugin", "crates/codeterm-plugins", "crates/codeterm-storage", "crates/codeterm-agent-detect", "crates/codeterm-notification-core", "crates/codeterm-repowatch", "crates/codeterm-usage", "crates/codeterm-blueprint-types", "crates/codeterm-local-recording", "crates/codeterm-notify-types", "crates/codeterm-events", "crates/codeterm-config", "crates/codeterm-secrets", "crates/codeterm-keepawake", "crates/codeterm-cron", "crates/codeterm-shutdown", "crates/codeterm-service-core", "crates/codeterm-surface", "crates/codeterm-notifications",
@@ -78,6 +78,11 @@ sha2 = "0.10"
 [lib]
 name = "codeterm_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+# The CLI binary is named codeterm; the app binary differs so both build into one target directory.
+[[bin]]
+name = "domios-app"
+path = "src/main.rs"
 
 # Build-speed profiles (round-16 build audit). dev: unpacked split-debuginfo
 # skips dSYM packing on macOS (faster links); line-tables keep usable

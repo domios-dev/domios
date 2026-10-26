@@ -1428,9 +1428,9 @@ dev_frontend_dir() {
 
 dev_built_app_path() {
   if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
-    printf '%s\n' "$(tauri_debug_dir)/codeterm"
+    printf '%s\n' "$(tauri_debug_dir)/domios-app"
   else
-    printf '%s\n' "$(tauri_debug_dir)/codeterm.exe"
+    printf '%s\n' "$(tauri_debug_dir)/domios-app.exe"
   fi
 }
 
@@ -1455,7 +1455,7 @@ dev_cli_path() {
 # A dev PDB is overwritten by the very next link. The 2026-09-05 abort became
 # unsymbolizable nine minutes after it was written, so the symbol file for each
 # linked dev build is retained under <data dir>/pdb/<build sha>/ and the store is
-# pruned to the newest few. The copy keeps the name codeterm.pdb because Windows
+# pruned to the newest few. The copy keeps the name domios_app.pdb because Windows
 # symbol lookup finds a PDB by the name recorded in the binary's RSDS record — a
 # renamed file is never found, which is why the sha is the directory.
 DEV_PDB_KEEP_DEFAULT=3
@@ -1467,7 +1467,7 @@ dev_pdb_store() {
 
 dev_pdb_source() {
   printf '%s
-' "${CARGO_TARGET_DIR:-$(pwd -P)/src-tauri/target}/debug/codeterm.pdb"
+' "${CARGO_TARGET_DIR:-$(pwd -P)/src-tauri/target}/debug/domios_app.pdb"
 }
 
 prune_dev_pdb_store() {
@@ -1512,10 +1512,10 @@ retain_dev_pdb() {
   store="$(dev_pdb_store)"
   dest="$store/$key"
   mkdir -p "$dest"
-  if [ ! -f "$dest/codeterm.pdb" ] || [ "$src" -nt "$dest/codeterm.pdb" ]; then
-    cp -f "$src" "$dest/codeterm.pdb.partial"
-    mv -f "$dest/codeterm.pdb.partial" "$dest/codeterm.pdb"
-    echo "[symbols] retained $key -> $dest/codeterm.pdb"
+  if [ ! -f "$dest/domios_app.pdb" ] || [ "$src" -nt "$dest/domios_app.pdb" ]; then
+    cp -f "$src" "$dest/domios_app.pdb.partial"
+    mv -f "$dest/domios_app.pdb.partial" "$dest/domios_app.pdb"
+    echo "[symbols] retained $key -> $dest/domios_app.pdb"
   else
     # Touch so an unchanged rerun still counts as the most recently used build.
     touch "$dest"
@@ -2210,7 +2210,7 @@ build_and_launch_dev() {
   ct_with_firebase_build_config build_dev_server "$split_logs/server.jsonl"
   cargo tree --manifest-path src-tauri/Cargo.toml -p domios-server --no-default-features \
     --features domios-server/embeddings --edges normal,build --prefix none > "$split_logs/server-tree.txt"
-  local build_args=(--manifest-path src-tauri/Cargo.toml -p codeterm --bin codeterm
+  local build_args=(--manifest-path src-tauri/Cargo.toml -p codeterm --bin domios-app
     --profile "$CT_DEV_CARGO_PROFILE" --no-default-features)
   build_dev_client "$conf" "${build_args[@]}"
   build_sha="$CODETERM_BUILD_SHA"
@@ -2600,7 +2600,7 @@ prepare_release_bundle_inputs() {
     cargo build --release --timings --manifest-path src-tauri/Cargo.toml \
       "${cargo_target_args[@]}" \
       --features "tauri/custom-protocol${CODETERM_RELEASE_FEATURES:+,$CODETERM_RELEASE_FEATURES}" \
-      --bin codeterm
+      --bin domios-app
   fi
   if [ "$mode" = "bundle" ] && [ "${CODETERM_RELEASE_COMMON_STAGE:-0}" != 1 ]; then
     node scripts/prepare-bundle-resource-stubs.mjs assert-package-ready
@@ -3024,7 +3024,7 @@ EOF
     configure_dev_cargo
     prepare_dev_frontend_dist
     prepare_bundle_stubs
-    measure_args=(--manifest-path src-tauri/Cargo.toml -p codeterm --bin codeterm
+    measure_args=(--manifest-path src-tauri/Cargo.toml -p codeterm --bin domios-app
       --profile "$CT_DEV_CARGO_PROFILE" --no-default-features --timings)
     TAURI_CONFIG="$(cat "$(dev_conf_path)")" cargo build "${measure_args[@]}"
     ;;
