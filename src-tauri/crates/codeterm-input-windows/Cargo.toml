@@ -8,6 +8,7 @@ edition = "2021"
 codeterm-types = { path = "../codeterm-types" }
 codeterm-local-recording = { path = "../codeterm-local-recording" }
 parking_lot = "0.12"
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Threading"] }

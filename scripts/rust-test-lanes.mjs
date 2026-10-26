@@ -29,8 +29,8 @@ export function workspaceMembers(repository = root, run = execFileSync) {
   return names;
 }
 
-// Workspace members whose tests run in their own lane and target directory.
-export const OWN_LANE_MEMBERS = ['codeterm-cli'];
+// Workspace members whose tests run in their own lane; none now: the CLI's tests join the workspace build.
+export const OWN_LANE_MEMBERS = [];
 
 export function workspaceTestTargets(repository = root, catalogue = runners, members = workspaceMembers(repository)) {
   const selected = archiveTargets('workspace', catalogue);
@@ -47,8 +47,9 @@ export const FULL_LANES = [
 export function testTargetDir(lane, { env = process.env, mode = 'full' } = {}) {
   const base = env.CI_TARGET_ROOT ? path.resolve(env.CI_TARGET_ROOT, 'src-tauri')
     : path.resolve(env.CARGO_TARGET_DIR || 'src-tauri/target');
-  const root = mode === 'full' ? base : `${base}-${mode}`;
-  return lane.lane === 'cli' ? path.join(root, 'cli') : root;
+  // The app binary is domios-app and the CLI's is codeterm, so every lane shares one target directory and
+  // Cargo reuses the dependencies an earlier lane built.
+  return mode === 'full' ? base : `${base}-${mode}`;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

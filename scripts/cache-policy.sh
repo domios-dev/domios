@@ -78,6 +78,11 @@ ct_reject_basedir_rewriting() {
     echo "[cache-policy] Basedir rewriting is disallowed for this repo: it can hand back a cache hit built from a different worktree's sources. See .agents/skills/build/SKILL.md." >&2
   fi
   unset SCCACHE_BASEDIRS
+  # A GitHub-hosted job holds exactly one checkout, so the worktree mix-up cannot occur there; stripping
+  # the runner's work root lets C/C++ and Rust keys match across hosted jobs.
+  if [ "${RUNNER_ENVIRONMENT:-}" = github-hosted ] && [ -n "${GITHUB_WORKSPACE:-}" ]; then
+    export SCCACHE_BASEDIRS="$(dirname "$GITHUB_WORKSPACE")"
+  fi
 }
 
 # Cache-key-relevant path scope once basedir rewriting is disabled: sccache
@@ -157,8 +162,13 @@ ct_sccache_storage() {
   if [ -n "$access_key" ] && [ -n "$secret_key" ] && [ -n "$CT_CI_STORE_ENDPOINT" ]; then
     export AWS_ACCESS_KEY_ID="$access_key" AWS_SECRET_ACCESS_KEY="$secret_key"
     unset AWS_SESSION_TOKEN
-    export SCCACHE_ENDPOINT="$CT_CI_STORE_ENDPOINT" SCCACHE_BUCKET=sccache SCCACHE_REGION=us-east-1
-    case "$CT_CI_STORE_ENDPOINT" in https://*) export SCCACHE_S3_USE_SSL=true ;; *) export SCCACHE_S3_USE_SSL=false ;; esac
+    local sccache_endpoint="$CT_CI_STORE_ENDPOINT"
+    # macOS Local Network privacy blocks a service-launched sccache from LAN addresses; it uses the public edge.
+    if [ "$(uname -s)" = Darwin ] && [ "${CT_CI_STORE_ROUTE:-}" = lan ] && [ -n "${CI_STORE_PUBLIC_ENDPOINT:-}" ]; then
+      sccache_endpoint="$CI_STORE_PUBLIC_ENDPOINT" CT_CI_STORE_ROUTE=public
+    fi
+    export SCCACHE_ENDPOINT="$sccache_endpoint" SCCACHE_BUCKET=sccache SCCACHE_REGION=us-east-1
+    case "$sccache_endpoint" in https://*) export SCCACHE_S3_USE_SSL=true ;; *) export SCCACHE_S3_USE_SSL=false ;; esac
     export CT_SCCACHE_STORAGE=shared CT_SCCACHE_REASON=""
   else
     unset SCCACHE_ENDPOINT SCCACHE_BUCKET SCCACHE_REGION SCCACHE_S3_USE_SSL
@@ -184,7 +194,7 @@ ct_sccache_print_location() {
   if [ "${CT_SCCACHE_STORAGE:-local}" = gha ]; then
     printf 'sccache: GitHub Actions cache\n'
   elif [ "${CT_SCCACHE_STORAGE:-local}" = shared ]; then
-    printf 'sccache: shared S3 cache at the private store/%s\n' "$SCCACHE_BUCKET"
+    printf 'sccache: shared S3 cache at the private store (%s)/%s\n' "${CT_CI_STORE_ROUTE:-unknown}" "$SCCACHE_BUCKET"
   else
     printf 'sccache: local disk cache at %s (%s; limit %s)\n' \
       "$(ct_sccache_disk_dir)" "${CT_SCCACHE_REASON:-shared credentials unavailable}" "$SCCACHE_CACHE_SIZE"
@@ -293,8 +303,13 @@ ct_sccache_start_shared_if_absent() {
   ct_sccache_server_live && return 0
   ct_sccache_storage
   [ "$CT_SCCACHE_STORAGE" = shared ] || return 0
-  SCCACHE_IDLE_TIMEOUT=0 sccache --start-server >/dev/null 2>&1 ||
+  local started
+  started=$(SCCACHE_IDLE_TIMEOUT=0 sccache --start-server 2>&1) || {
     echo "[cache-policy] shared sccache start raced or failed; verifying the live server"
+    # The reason names the store address; keep it out of public logs.
+    printf '%s
+' "$started" | sed "s#${SCCACHE_ENDPOINT:-<none>}#<store>#g" | head -5 | sed 's/^/[cache-policy] sccache: /'
+  }
 }
 
 ct_sccache_storage_matches() {
@@ -400,7 +415,7 @@ ct_configure_sccache_locked() {
   echo "[cache-policy] sccache verified before build server start"
   echo "[cache-policy] RUSTC_WRAPPER=$RUSTC_WRAPPER"
   echo "[cache-policy] SCCACHE_DIR=${SCCACHE_DIR:-<default>}"
-  echo "[cache-policy] SCCACHE_BASEDIRS=<disabled: per-worktree cache-key isolation, see .agents/skills/build/SKILL.md>"
+  echo "[cache-policy] SCCACHE_BASEDIRS=${SCCACHE_BASEDIRS:-<disabled: per-worktree cache-key isolation, see .agents/skills/build/SKILL.md>}"
   echo "[cache-policy] $(sccache --version)"
   if [ "${CODETERM_SCCACHE_VERIFY_ONLY:-0}" = 1 ]; then
     ct_sccache_verify
@@ -458,7 +473,7 @@ ct_require_prestarted_sccache_locked() {
   echo "[cache-policy] prestarted shared sccache verified"
   echo "[cache-policy] RUSTC_WRAPPER=$RUSTC_WRAPPER"
   echo "[cache-policy] SCCACHE_DIR=${SCCACHE_DIR:-<default>}"
-  echo "[cache-policy] SCCACHE_BASEDIRS=<disabled: per-worktree cache-key isolation, see .agents/skills/build/SKILL.md>"
+  echo "[cache-policy] SCCACHE_BASEDIRS=${SCCACHE_BASEDIRS:-<disabled: per-worktree cache-key isolation, see .agents/skills/build/SKILL.md>}"
   echo "[cache-policy] $(sccache --version)"
 }
 

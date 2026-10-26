@@ -147,8 +147,11 @@ fn stdin_taskless_report_keeps_http_fallback_identity_and_utf8_payload() {
                 let _ = Command::new("kill").args(["-9", &pid.to_string()]).status();
             }
         }
-        if let Ok(wake) = TcpStream::connect(address) {
-            let _ = wake.shutdown(Shutdown::Both);
+        // Windows retries a refused loopback connect for about two seconds; wake only a server still in accept.
+        if !server.is_finished() {
+            if let Ok(wake) = TcpStream::connect(address) {
+                let _ = wake.shutdown(Shutdown::Both);
+            }
         }
         let observed = server.join().unwrap();
         let output = output

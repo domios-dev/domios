@@ -3,7 +3,7 @@ import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {createRequire} from 'node:module';
 import {createHash} from 'node:crypto';
-import {checkRunnerTools,pythonInterpreter,runnerToolPaths,runnerRequirements} from './ci-runner-paths.mjs';
+import {pythonInterpreter,runnerToolPaths,runnerRequirements} from './ci-runner-paths.mjs';
 import {runnerProfile,profileEnvironment} from './ci-runner-profile.mjs';
 
 const files=directory=>{try{return fs.readdirSync(directory);}catch{return[];}};
@@ -95,5 +95,4 @@ export function bootstrapStep(owner,{root,env,profile,execute=spawnSync,ci=false
       run('rustup',['toolchain','install',channel,'--profile','minimal','--component','clippy,rustfmt']);
     }
   }
-  checkRunnerTools(role,{env,execute});
 }

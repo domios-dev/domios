@@ -18,7 +18,8 @@ function main([target, sourceSha, tag, archive]) {
   if (!/^[a-f0-9]{40}$/.test(sourceSha ?? '')) throw new Error('Invalid source identity');
   if (process.env.TAURI_SIGNING_PRIVATE_KEY) throw new Error('Hosted compilation must not receive signing credentials');
 
-  if (windows) {
+  // An x64 host cross-compiles without a global MSVC environment; rustc and cc find the ARM64 tools themselves.
+  if (windows && process.arch === 'arm64') {
     const vswhere = path.join(process.env['ProgramFiles(x86)'], 'Microsoft Visual Studio/Installer/vswhere.exe');
     const vcvars = execFileSync(vswhere, ['-latest', '-products', '*', '-find', 'VC/Auxiliary/Build/vcvarsall.bat'], { encoding: 'utf8' }).trim().split(/\r?\n/)[0];
     if (!vcvars) throw new Error('Native ARM64 Visual Studio toolchain missing');

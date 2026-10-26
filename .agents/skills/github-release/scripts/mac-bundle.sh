@@ -42,7 +42,7 @@ echo "=== build $ARCH ===" >&2
 
 echo "=== notarize+staple $DMG ===" >&2
 "$SCRIPT_DIR/notarize-dmg.sh" "$DMG" >&2
-xcrun stapler staple "$APP" >&2
+bash "$(git rev-parse --show-toplevel)/scripts/staple-with-retry.sh" "$APP" >&2
 spctl --assess --type execute "$APP" >&2
 
 echo "=== pack updater bundle $DMG_ARCH ===" >&2

@@ -145,10 +145,9 @@ pnpm install
 ./build.sh build        # production build
 ```
 
-### Isolated CLI/server integration
+### Isolated server launch
 
-The CLI integration target `isolated_server` verifies a debug server without production paths.
-The same isolated launch contract accepts debug and release artifacts. To diagnose manually,
+The isolated launch verifies a debug or release server without production paths. To diagnose manually,
 create distinct existing temporary data and config directories and choose a
 private port other than 7685 or 7686:
 
@@ -173,24 +172,6 @@ also set `CODETERM_DATA_DIR` to `<data-dir>` and `CODETERM_API_URL` to
 without scanning or connecting to another local server. Set
 `CODETERM_API_PORT=<private-port>` explicitly, then run `domios identify --json` to verify
 authenticated CLI access. Do not put the token in argv, the URL, or test output.
-
-Canonical uses the normal CLI test runners, which prepare the real server first.
-For an explicitly authorized direct lane run, load the build environment, then
-prepare both artifacts with the existing test target policy:
-
-~~~bash
-source build.sh env
-cli_target="$(node scripts/rust-test-lanes.mjs cli target)"
-server_target="$(node scripts/rust-test-lanes.mjs workspace target)"
-DOMIOS_CLI_TEST_SERVER="$(node scripts/cli-server-test.mjs "$cli_target" "$server_target")"
-export DOMIOS_CLI_TEST_SERVER CARGO_TARGET_DIR="$cli_target"
-scripts/test-capped.sh --no-default-features --manifest-path cli/Cargo.toml --test isolated_server
-~~~
-
-Assign the preparation result before exporting it: an export with command
-substitution hides a failed compiler exit. The fixture captures CLI stdout and stderr,
-checks missing-port and bad-token refusals, and closes server stdin in finally.
-A bounded cleanup failure terminates only the owned server process tree.
 
 ### Windows
 
@@ -1099,12 +1080,12 @@ in-app update, or `install-local`.
 
 ### Crash symbols for dev builds
 
-A dev link overwrites `src-tauri/target/debug/codeterm.pdb`, so a crash artifact
+A dev link overwrites `src-tauri/target/debug/domios_app.pdb`, so a crash artifact
 stops being symbolizable as soon as anyone rebuilds — that is how the 2026-09-05
 abort lost its frame names nine minutes after it was written.
 
 `./build.sh dev` therefore retains the symbol file of each build it runs under
-`~/.codeterm-dev/pdb/<key>/codeterm.pdb`, keeping the newest three
+`~/.codeterm-dev/pdb/<key>/domios_app.pdb`, keeping the newest three
 (`DEV_PDB_KEEP_DEFAULT` in `build.sh`; override the store with
 `CODETERM_DEV_PDB_DIR`, the count with `CODETERM_DEV_PDB_KEEP`). `--wait` retains
 once `/api/health` confirms which build is running; a foreground session retains
@@ -1117,7 +1098,7 @@ hex digits followed by the age in hex, the canonical Windows symbol-store form.
 a crash names is the directory retention wrote. A commit sha cannot be the key —
 the same source relinks to a different symbol file every time, and a foreground
 retention runs after HEAD may have moved. The sha is recorded beside the symbols in
-`build-sha.txt`, informative only. The copy keeps the name `codeterm.pdb` because
+`build-sha.txt`, informative only. The copy keeps the name `domios_app.pdb` because
 Windows symbol lookup finds a PDB by the name recorded in the binary.
 
 Every crash report names its own build: `Debug id:` is the RSDS GUID and age, and
@@ -1411,6 +1392,17 @@ latency; these process measurements do not replace a canonical daemon search
 measurement. Windows uses `build.ps1 embedding-parity` with the same arguments.
 
 DEV and check-queue library Clippy retain default product features, including embeddings. Ordinary `test-one`, `nextest`, `check-tests`, archives and CI use `--no-default-features`. Check-queue does not repeat the separate dev-lib check; its library Clippy pass type-checks the product configuration. Full check-queue also checks service-core tests in the test profile without defaults. The CI `rust-embeddings` job runs `./build.sh ci-tests embeddings` once, covering the memory crate and service-core memory tests with embeddings enabled. Receipt validation requires this job. Archives use `app-no-embeddings.tar.zst` so old feature-enabled archives cannot be reused.
+
+## Workspace-hack
+
+`src-tauri/crates/workspace-hack` (cargo-hakari, config `src-tauri/.config/hakari.toml`) gives the server,
+CLI and app one feature set per shared dependency, so separate release builds reuse each other's crates.
+After a dependency change run `cargo hakari generate` in `src-tauri`. The final-excludes list every crate
+that only the app uses on some platform; when the app gains a dependency, recompute that set from
+`cargo tree -p <codeterm|domios-server|codeterm-cli> --target <triple> -e normal,build --prefix none`
+on all six hakari platforms and add the app-only names. Then compare `domios-server` and `codeterm-cli`
+closures before and after: no new crate may appear, and `check-crate-layering.sh` must pass.
+`cargo hakari verify` reports the residual app-only feature differences; that is expected.
 
 ## Lane crate checks and shared intermediates
 

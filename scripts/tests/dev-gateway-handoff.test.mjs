@@ -105,7 +105,7 @@ build_and_launch_dev --wait --notify-tab opaque-tab`;
     assert.match(result.stderr, /cargo build .*--bin domios-server/);
     assert.match(result.stdout, /QA project config: present/);
     assert.doesNotMatch(result.stdout + result.stderr, /fixture-qa-project|inherited-wrong-project/);
-    if (!failure) assert.match(result.stderr, /cargo build .*--bin codeterm --profile dev --no-default-features\n/);
+    if (!failure) assert.match(result.stderr, /cargo build .*--bin domios-app --profile dev --no-default-features\n/);
     if (failure) assert.doesNotMatch(result.stdout, /frontend|staged|provenance|released|launch/);
     else assert.match(result.stdout, /frontend\nstopped\nstaged\nprovenance\nreleased\n[^\n]*\nlaunch dev-prebuilt --wait --notify-tab opaque-tab/);
     } finally { fs.rmSync(directory, { recursive: true, force: true }); }

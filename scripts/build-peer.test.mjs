@@ -122,7 +122,7 @@ test('completion event leads with route and outcome and ends with the remote log
   assert.equal(lines[0], `[peer-job peer-1] peer=ubunta verb=check-linux sha=${SHA} outcome=passed exit=0 wall=390s`);
   assert.ok(lines.includes('errors=0 shown=0'));
   assert.ok(lines.some((l) => l.startsWith('check-workspace: sha=')));
-  assert.match(lines.at(-1), /^remote-log=\/home\/r\/peer\.log gateway-log=\/home\/rollacode\//);
+  assert.match(lines.at(-1), /^remote-log=\/home\/r\/peer\.log gateway-log=\/home\/dev\//);
   assert.equal(outcomeOf(75, false), 'busy');
   assert.equal(outcomeOf(0, true), 'deadline');
   assert.equal(outcomeOf(101, false), 'failed');

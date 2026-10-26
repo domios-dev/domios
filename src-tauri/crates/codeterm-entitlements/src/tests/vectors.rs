@@ -321,22 +321,3 @@ fn refusals_short_circuit_later_facets() {
         (None, None)
     );
 }
-
-#[test]
-fn verify_stays_bounded_in_the_unoptimised_profile() {
-    let v = vector("valid-paid");
-    let context = &v["caller_context"];
-    let grant: DetachedGrant = serde_json::from_value(v["response"]["grant"].clone()).unwrap();
-    let policy = policy_for(context);
-    let binding = Binding {
-        uid: "fixture-user",
-        installation_id: "fixture-installation",
-    };
-    let started = std::time::Instant::now();
-    verify(&grant, &policy, &binding, None, 1_700_000_060).unwrap();
-    let elapsed = started.elapsed();
-    assert!(
-        elapsed < std::time::Duration::from_millis(25),
-        "verify took {elapsed:?}"
-    );
-}

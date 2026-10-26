@@ -46,13 +46,19 @@ env:
   # Builders are shared with agents; a CI job queues for the slot instead of failing busy (75).
   CODETERM_BUILD_GATEWAY_MODE: queue
   CODETERM_SCCACHE_VERIFY_ONLY: '1'
+  # Tests that bucket local days must not depend on the runner's zone or a daylight-saving change.
+  TZ: UTC
+  # CI test binaries keep only line tables: backtraces still name file and line, binaries stay small.
+  CARGO_PROFILE_TEST_DEBUG: 'line-tables-only'
+  CARGO_PROFILE_DEV_DEBUG: 'line-tables-only'
 
 jobs:
   # All Linux compilation shares the warm linux-build executor.
   rust-tests:
     name: rust tests (full suite)
-    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (!cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
-    runs-on: ${{ vars.CI_LINUX_RUST_FULL_RUNNER == 'private' && fromJSON('["self-hosted","Linux","linux-build","host-ubunta"]') || 'ubuntu-24.04' }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')) && (!cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
+    # ubunta keeps a single runner, so its jobs never share the host's sccache server; hosted is the opt-out.
+    runs-on: ${{ vars.CI_LINUX_RUST_FULL_RUNNER != 'hosted' && fromJSON('["self-hosted","Linux","linux-build","host-ubunta"]') || 'ubuntu-24.04' }}
     permissions:
       contents: read
       actions: read
@@ -62,26 +68,26 @@ jobs:
       matrix:
         suite: [full]
     env:
-      DOMIOS_CI_WEBHOOK_URL: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER != 'private') && secrets.DOMIOS_CI_WEBHOOK_URL || '' }}
-      DOMIOS_CI_WEBHOOK_TOKEN: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER != 'private') && secrets.DOMIOS_CI_WEBHOOK_TOKEN || '' }}
+      DOMIOS_CI_WEBHOOK_URL: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER == 'hosted') && secrets.DOMIOS_CI_WEBHOOK_URL || '' }}
+      DOMIOS_CI_WEBHOOK_TOKEN: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER == 'hosted') && secrets.DOMIOS_CI_WEBHOOK_TOKEN || '' }}
       # GitHub withholds secrets from fork pull requests; our hosted jobs use the private store over its public edge.
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
-      CI_STORE_TAILNET_ENDPOINT: ${{ secrets.CI_STORE_TAILNET_ENDPOINT }}
+      CI_STORE_LAN_ENDPOINT: ${{ secrets.CI_STORE_LAN_ENDPOINT }}
       CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
-      DOMIOS_FIREBASE_API_KEY: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER != 'private') && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
-      DOMIOS_FIREBASE_PROJECT_ID: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER != 'private') && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
-      DOMIOS_FIREBASE_APP_ID: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER != 'private') && secrets.DOMIOS_FIREBASE_APP_ID || '' }}
-      DOMIOS_ACCOUNT_REDEEM_URL: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER != 'private') && secrets.DOMIOS_ACCOUNT_REDEEM_URL || '' }}
-      DOMIOS_BILLING_FUNCTIONS_URL: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER != 'private') && secrets.DOMIOS_BILLING_FUNCTIONS_URL || '' }}
+      DOMIOS_FIREBASE_API_KEY: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER == 'hosted') && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
+      DOMIOS_FIREBASE_PROJECT_ID: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER == 'hosted') && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
+      DOMIOS_FIREBASE_APP_ID: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER == 'hosted') && secrets.DOMIOS_FIREBASE_APP_ID || '' }}
+      DOMIOS_ACCOUNT_REDEEM_URL: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER == 'hosted') && secrets.DOMIOS_ACCOUNT_REDEEM_URL || '' }}
+      DOMIOS_BILLING_FUNCTIONS_URL: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER == 'hosted') && secrets.DOMIOS_BILLING_FUNCTIONS_URL || '' }}
       # Warm per-workspace targets outside the checkout; the cleanup step sweeps them by age.
       CI_TARGET_ROOT: ${{ github.workspace }}/../ci-targets/tests
       CODETERM_ALLOW_EXTERNAL_TARGET: '1'
-      CI_HOSTED: ${{ vars.CI_LINUX_RUST_FULL_RUNNER != 'private' }}
-      SCCACHE_GHA_ENABLED: ${{ (vars.CI_LINUX_RUST_FULL_RUNNER != 'private') && 'true' || 'false' }}
-      CODETERM_SCCACHE_VERIFY_ONLY: ${{ (vars.CI_LINUX_RUST_FULL_RUNNER != 'private') && '0' || '1' }}
+      CI_HOSTED: ${{ vars.CI_LINUX_RUST_FULL_RUNNER == 'hosted' }}
+      SCCACHE_GHA_ENABLED: ${{ (vars.CI_LINUX_RUST_FULL_RUNNER == 'hosted') && 'true' || 'false' }}
+      CODETERM_SCCACHE_VERIFY_ONLY: ${{ (vars.CI_LINUX_RUST_FULL_RUNNER == 'hosted') && '0' || '1' }}
       CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
-      CI_ARTIFACT_STORAGE: ${{ (vars.CI_LINUX_RUST_FULL_RUNNER != 'private') && 'github' || '' }}
+      CI_ARTIFACT_STORAGE: ${{ (vars.CI_LINUX_RUST_FULL_RUNNER == 'hosted') && 'github' || '' }}
     steps:
       - name: Use the runner bundled Node
         if: runner.environment == 'self-hosted'
@@ -118,20 +124,26 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/ci-git-history.mjs baseline
+      - name: Test builds link the system OpenSSL
+        # Release builds keep the vendored OpenSSL; tests skip compiling it from source.
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
+        shell: bash
+        run: echo OPENSSL_NO_VENDOR=1 >> "$GITHUB_ENV"
+      - name: Fast APT mirror
+        # Pinned commit of release 1.4.5; apt still verifies every package signature. country skips its geo lookup.
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
+        uses: vegardit/fast-apt-mirror.sh@806c59276adfff2df420124ad5e4587f018c358a # 1.4.5
+        with:
+          country: US
       - name: Hosted Linux build prerequisites
         if: runner.environment == 'github-hosted' && runner.os == 'Linux'
         shell: bash
         run: |-
           # The workspace test build needs more disk than a hosted image leaves free.
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-          # The image's azure.archive.ubuntu.com mirror stalled installs for minutes; use Canonical's own archive.
-          for f in /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list; do
-            [ ! -f "$f" ] || sudo sed -i 's#http://azure.archive.ubuntu.com/ubuntu#http://archive.ubuntu.com/ubuntu#g' "$f"
-          done
-          sudo apt-get -o Acquire::Retries=3 update -qq
           sudo apt-get -o Acquire::Retries=3 install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libgtk-3-dev pkg-config xdg-utils patchelf
       - name: Hosted Rust dependency cache
-        if: ${{ vars.CI_LINUX_RUST_FULL_RUNNER != 'private' }}
+        if: ${{ vars.CI_LINUX_RUST_FULL_RUNNER == 'hosted' }}
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
         with:
           path: |-
@@ -140,7 +152,7 @@ jobs:
           key: ${{ format('cargo-{0}-{1}-{2}', runner.os, runner.arch, hashFiles('**/Cargo.lock')) }}
           restore-keys: ${{ format('cargo-{0}-{1}-', runner.os, runner.arch) }}
       - name: Hosted sccache
-        if: runner.environment == 'github-hosted' && (vars.CI_LINUX_RUST_FULL_RUNNER != 'private')
+        if: runner.environment == 'github-hosted' && (vars.CI_LINUX_RUST_FULL_RUNNER == 'hosted')
         uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
         env:
           SCCACHE_GHA_ENABLED: "true"
@@ -190,6 +202,7 @@ jobs:
             echo "CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS=${CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS:+$CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS }-C link-arg=-Wl,-no_compact_unwind"
           } >> "$GITHUB_ENV"
       - name: Compile ${{ matrix.suite }} Rust tests (Unix)
+        id: compile
         if: runner.os != 'Windows'
         env:
           CI_RELEASE_TESTS: ${{ inputs.source_ref != '' }}
@@ -262,11 +275,11 @@ jobs:
         run: node scripts/ci-workspace-cleanup.mjs
     outputs:
       warnings: ${{ steps.target.outputs.warnings }}
+      archived: ${{ steps.compile.outcome == 'success' }}
 
-  # Each OS compiles and runs only its cfg-gated tests and the native input crates.
   rust-platform:
     name: rust platform (${{ matrix.os }})
-    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (!cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')) && (!cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
     runs-on: ${{ matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER || fromJSON(format('["self-hosted","{0}","{1}","{2}"]', matrix.os, matrix.label, matrix.os == 'Windows' && 'windows-build' || 'rust-shard')) }}
     permissions:
       contents: read
@@ -280,7 +293,8 @@ jobs:
         include:
           - suite: platform
             os: macOS
-            label: host-air
+            # Any of our Macs with the rust-shard label (air or eight) takes it.
+            label: rust-shard
           - suite: platform
             os: Windows
             label: host-rog
@@ -290,7 +304,7 @@ jobs:
       # GitHub withholds secrets from fork pull requests; our hosted jobs use the private store over its public edge.
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
-      CI_STORE_TAILNET_ENDPOINT: ${{ secrets.CI_STORE_TAILNET_ENDPOINT }}
+      CI_STORE_LAN_ENDPOINT: ${{ secrets.CI_STORE_LAN_ENDPOINT }}
       CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
       DOMIOS_FIREBASE_API_KEY: ${{ !(matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15') && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
       DOMIOS_FIREBASE_PROJECT_ID: ${{ !(matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15') && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
@@ -341,17 +355,23 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/ci-git-history.mjs baseline
+      - name: Test builds link the system OpenSSL
+        # Release builds keep the vendored OpenSSL; tests skip compiling it from source.
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
+        shell: bash
+        run: echo OPENSSL_NO_VENDOR=1 >> "$GITHUB_ENV"
+      - name: Fast APT mirror
+        # Pinned commit of release 1.4.5; apt still verifies every package signature. country skips its geo lookup.
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
+        uses: vegardit/fast-apt-mirror.sh@806c59276adfff2df420124ad5e4587f018c358a # 1.4.5
+        with:
+          country: US
       - name: Hosted Linux build prerequisites
         if: runner.environment == 'github-hosted' && runner.os == 'Linux'
         shell: bash
         run: |-
           # The workspace test build needs more disk than a hosted image leaves free.
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-          # The image's azure.archive.ubuntu.com mirror stalled installs for minutes; use Canonical's own archive.
-          for f in /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list; do
-            [ ! -f "$f" ] || sudo sed -i 's#http://azure.archive.ubuntu.com/ubuntu#http://archive.ubuntu.com/ubuntu#g' "$f"
-          done
-          sudo apt-get -o Acquire::Retries=3 update -qq
           sudo apt-get -o Acquire::Retries=3 install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libgtk-3-dev pkg-config xdg-utils patchelf
       - name: Hosted Rust dependency cache
         if: ${{ matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15' }}
@@ -487,8 +507,8 @@ jobs:
   rust-embeddings:
     name: rust embeddings
     needs: rust-platform
-    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (!cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
-    runs-on: ${{ vars.CI_MACOS_EMBEDDINGS_RUNNER || fromJSON('["self-hosted","macOS","rust-shard","host-air"]') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')) && (!cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
+    runs-on: ${{ vars.CI_MACOS_EMBEDDINGS_RUNNER || 'macos-15' }}
     permissions:
       contents: read
       actions: read
@@ -498,26 +518,26 @@ jobs:
       matrix:
         suite: [embeddings]
     env:
-      DOMIOS_CI_WEBHOOK_URL: ${{ !(vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15') && secrets.DOMIOS_CI_WEBHOOK_URL || '' }}
-      DOMIOS_CI_WEBHOOK_TOKEN: ${{ !(vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15') && secrets.DOMIOS_CI_WEBHOOK_TOKEN || '' }}
+      DOMIOS_CI_WEBHOOK_URL: ${{ !((vars.CI_MACOS_EMBEDDINGS_RUNNER || 'macos-15') == 'macos-15') && secrets.DOMIOS_CI_WEBHOOK_URL || '' }}
+      DOMIOS_CI_WEBHOOK_TOKEN: ${{ !((vars.CI_MACOS_EMBEDDINGS_RUNNER || 'macos-15') == 'macos-15') && secrets.DOMIOS_CI_WEBHOOK_TOKEN || '' }}
       # GitHub withholds secrets from fork pull requests; our hosted jobs use the private store over its public edge.
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
-      CI_STORE_TAILNET_ENDPOINT: ${{ secrets.CI_STORE_TAILNET_ENDPOINT }}
+      CI_STORE_LAN_ENDPOINT: ${{ secrets.CI_STORE_LAN_ENDPOINT }}
       CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
-      DOMIOS_FIREBASE_API_KEY: ${{ !(vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15') && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
-      DOMIOS_FIREBASE_PROJECT_ID: ${{ !(vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15') && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
-      DOMIOS_FIREBASE_APP_ID: ${{ !(vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15') && secrets.DOMIOS_FIREBASE_APP_ID || '' }}
-      DOMIOS_ACCOUNT_REDEEM_URL: ${{ !(vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15') && secrets.DOMIOS_ACCOUNT_REDEEM_URL || '' }}
-      DOMIOS_BILLING_FUNCTIONS_URL: ${{ !(vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15') && secrets.DOMIOS_BILLING_FUNCTIONS_URL || '' }}
+      DOMIOS_FIREBASE_API_KEY: ${{ !((vars.CI_MACOS_EMBEDDINGS_RUNNER || 'macos-15') == 'macos-15') && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
+      DOMIOS_FIREBASE_PROJECT_ID: ${{ !((vars.CI_MACOS_EMBEDDINGS_RUNNER || 'macos-15') == 'macos-15') && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
+      DOMIOS_FIREBASE_APP_ID: ${{ !((vars.CI_MACOS_EMBEDDINGS_RUNNER || 'macos-15') == 'macos-15') && secrets.DOMIOS_FIREBASE_APP_ID || '' }}
+      DOMIOS_ACCOUNT_REDEEM_URL: ${{ !((vars.CI_MACOS_EMBEDDINGS_RUNNER || 'macos-15') == 'macos-15') && secrets.DOMIOS_ACCOUNT_REDEEM_URL || '' }}
+      DOMIOS_BILLING_FUNCTIONS_URL: ${{ !((vars.CI_MACOS_EMBEDDINGS_RUNNER || 'macos-15') == 'macos-15') && secrets.DOMIOS_BILLING_FUNCTIONS_URL || '' }}
       # Warm per-workspace targets outside the checkout; the cleanup step sweeps them by age.
       CI_TARGET_ROOT: ${{ github.workspace }}/../ci-targets/tests
       CODETERM_ALLOW_EXTERNAL_TARGET: '1'
-      CI_HOSTED: ${{ vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15' }}
-      SCCACHE_GHA_ENABLED: ${{ (vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15') && 'true' || 'false' }}
-      CODETERM_SCCACHE_VERIFY_ONLY: ${{ (vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15') && '0' || '1' }}
+      CI_HOSTED: ${{ (vars.CI_MACOS_EMBEDDINGS_RUNNER || 'macos-15') == 'macos-15' }}
+      SCCACHE_GHA_ENABLED: ${{ ((vars.CI_MACOS_EMBEDDINGS_RUNNER || 'macos-15') == 'macos-15') && 'true' || 'false' }}
+      CODETERM_SCCACHE_VERIFY_ONLY: ${{ ((vars.CI_MACOS_EMBEDDINGS_RUNNER || 'macos-15') == 'macos-15') && '0' || '1' }}
       CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
-      CI_ARTIFACT_STORAGE: ${{ (vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15') && 'github' || '' }}
+      CI_ARTIFACT_STORAGE: ${{ ((vars.CI_MACOS_EMBEDDINGS_RUNNER || 'macos-15') == 'macos-15') && 'github' || '' }}
     steps:
       - name: Use the runner bundled Node
         if: runner.environment == 'self-hosted'
@@ -554,20 +574,26 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/ci-git-history.mjs baseline
+      - name: Test builds link the system OpenSSL
+        # Release builds keep the vendored OpenSSL; tests skip compiling it from source.
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
+        shell: bash
+        run: echo OPENSSL_NO_VENDOR=1 >> "$GITHUB_ENV"
+      - name: Fast APT mirror
+        # Pinned commit of release 1.4.5; apt still verifies every package signature. country skips its geo lookup.
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
+        uses: vegardit/fast-apt-mirror.sh@806c59276adfff2df420124ad5e4587f018c358a # 1.4.5
+        with:
+          country: US
       - name: Hosted Linux build prerequisites
         if: runner.environment == 'github-hosted' && runner.os == 'Linux'
         shell: bash
         run: |-
           # The workspace test build needs more disk than a hosted image leaves free.
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-          # The image's azure.archive.ubuntu.com mirror stalled installs for minutes; use Canonical's own archive.
-          for f in /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list; do
-            [ ! -f "$f" ] || sudo sed -i 's#http://azure.archive.ubuntu.com/ubuntu#http://archive.ubuntu.com/ubuntu#g' "$f"
-          done
-          sudo apt-get -o Acquire::Retries=3 update -qq
           sudo apt-get -o Acquire::Retries=3 install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libgtk-3-dev pkg-config xdg-utils patchelf
       - name: Hosted Rust dependency cache
-        if: ${{ vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15' }}
+        if: ${{ (vars.CI_MACOS_EMBEDDINGS_RUNNER || 'macos-15') == 'macos-15' }}
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
         with:
           path: |-
@@ -576,7 +602,7 @@ jobs:
           key: ${{ format('cargo-{0}-{1}-{2}', runner.os, runner.arch, hashFiles('**/Cargo.lock')) }}
           restore-keys: ${{ format('cargo-{0}-{1}-', runner.os, runner.arch) }}
       - name: Hosted sccache
-        if: runner.environment == 'github-hosted' && (vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15')
+        if: runner.environment == 'github-hosted' && ((vars.CI_MACOS_EMBEDDINGS_RUNNER || 'macos-15') == 'macos-15')
         uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
         env:
           SCCACHE_GHA_ENABLED: "true"
@@ -698,138 +724,30 @@ jobs:
         run: node scripts/ci-workspace-cleanup.mjs
 
   # CLI contracts (transport rows, help text, generated manifest, essence map) fail in minutes here, not in the Rust tier.
-  cli-tests:
-    name: cli tests
-    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (fromJSON(inputs.resolved_scope).heavy == 'true') }}
-    runs-on: ${{ vars.CI_LINUX_RUST_COMPILE_RUNNER == 'private' && fromJSON('["self-hosted","Linux","linux-build","host-ubunta"]') || 'ubuntu-24.04' }}
-    permissions:
-      contents: read
-      actions: read
-      pull-requests: read
-    timeout-minutes: 30
-    env:
-      CI_SOURCE_SHA: ${{ inputs.source_ref || github.sha }}
-      DOMIOS_CI_WEBHOOK_URL: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private') && secrets.DOMIOS_CI_WEBHOOK_URL || '' }}
-      DOMIOS_CI_WEBHOOK_TOKEN: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private') && secrets.DOMIOS_CI_WEBHOOK_TOKEN || '' }}
-      # GitHub withholds secrets from fork pull requests; our hosted jobs use the private store over its public edge.
-      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
-      CI_STORE_TAILNET_ENDPOINT: ${{ secrets.CI_STORE_TAILNET_ENDPOINT }}
-      CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
-      DOMIOS_FIREBASE_API_KEY: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private') && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
-      DOMIOS_FIREBASE_PROJECT_ID: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private') && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
-      DOMIOS_FIREBASE_APP_ID: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private') && secrets.DOMIOS_FIREBASE_APP_ID || '' }}
-      DOMIOS_ACCOUNT_REDEEM_URL: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private') && secrets.DOMIOS_ACCOUNT_REDEEM_URL || '' }}
-      DOMIOS_BILLING_FUNCTIONS_URL: ${{ !(vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private') && secrets.DOMIOS_BILLING_FUNCTIONS_URL || '' }}
-      CI_TARGET_ROOT: ${{ github.workspace }}/../ci-targets/cli-tests
-      CODETERM_ALLOW_EXTERNAL_TARGET: '1'
-      CI_HOSTED: ${{ vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private' }}
-      SCCACHE_GHA_ENABLED: ${{ (vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private') && 'true' || 'false' }}
-      CODETERM_SCCACHE_VERIFY_ONLY: ${{ (vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private') && '0' || '1' }}
-      CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
-      CI_ARTIFACT_STORAGE: ${{ (vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private') && 'github' || '' }}
-    steps:
-      - name: Use the runner bundled Node
-        if: runner.environment == 'self-hosted'
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
-        with:
-          script: |-
-            const path = require('node:path');
-            core.addPath(path.dirname(process.execPath));
-            core.info('Using runner Node ' + process.version);
-      - name: Setup Node.js
-        id: ci-2
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
-        with:
-          package-manager-cache: false
-          node-version: 22.22.0
-        if: runner.environment == 'github-hosted'
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        id: ci-1
-        with:
-          ref: ${{ inputs.source_ref || github.sha }}
-          fetch-depth: 1
-      - name: Discover installed runner tools
-        if: runner.environment == 'self-hosted'
-        run: node scripts/ci-runner-paths.mjs --paths-only
-      - name: Hosted Linux build prerequisites
-        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
-        shell: bash
-        run: |-
-          # The workspace test build needs more disk than a hosted image leaves free.
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-          # The image's azure.archive.ubuntu.com mirror stalled installs for minutes; use Canonical's own archive.
-          for f in /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list; do
-            [ ! -f "$f" ] || sudo sed -i 's#http://azure.archive.ubuntu.com/ubuntu#http://archive.ubuntu.com/ubuntu#g' "$f"
-          done
-          sudo apt-get -o Acquire::Retries=3 update -qq
-          sudo apt-get -o Acquire::Retries=3 install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libgtk-3-dev pkg-config xdg-utils patchelf
-      - name: Hosted Rust dependency cache
-        if: ${{ vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private' }}
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
-        with:
-          path: |-
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ format('cargo-{0}-{1}-{2}', runner.os, runner.arch, hashFiles('**/Cargo.lock')) }}
-          restore-keys: ${{ format('cargo-{0}-{1}-', runner.os, runner.arch) }}
-      - name: Hosted sccache
-        if: runner.environment == 'github-hosted' && (vars.CI_LINUX_RUST_COMPILE_RUNNER != 'private')
-        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
-        env:
-          SCCACHE_GHA_ENABLED: "true"
-      - name: Provision the pinned hosted Rust toolchain
-        if: runner.environment == 'github-hosted'
-        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
-        with:
-          toolchain: 1.99.1
-          components: clippy,rustfmt
-      - name: Runner preflight
-        run: node scripts/ci-runner-paths.mjs bash,cargo,git,node
-      - name: CLI tests
-        id: ci-4
-        run: bash build.sh ci-cli-tests
-      - name: Upload artifacts spooled while the private store was unreachable
-        if: always()
-        uses: ./.github/actions/ci-artifact-spool
-      - name: Clean 0-byte stubs
-        if: always()
-        run: find src-tauri/bundled-cli -maxdepth 1 -type f -size 0 -delete 2>/dev/null || true
-      - &release-job-cache
-        name: Stop this job's local compile cache
-        if: always()
-        shell: bash
-        run: bash build.sh cache-release
-      - &clean-job-outputs
-        name: Remove job archives and sweep old Rust targets
-        if: always()
-        continue-on-error: true
-        run: node scripts/ci-workspace-cleanup.mjs
-
   rust-receipts:
     name: rust test receipts
     needs: [rust-tests, rust-platform, rust-embeddings]
-    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (always() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
-    runs-on: ${{ vars.CI_LINUX_LIGHT_RUNNER || fromJSON('["self-hosted","Linux","light","host-ubunta"]') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')) && (!cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
+    runs-on: ${{ vars.CI_LINUX_LIGHT_RUNNER || 'ubuntu-24.04' }}
     permissions:
       contents: read
       actions: read
       pull-requests: read
     timeout-minutes: 5
     env:
-      DOMIOS_CI_WEBHOOK_URL: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_CI_WEBHOOK_URL || '' }}
-      DOMIOS_CI_WEBHOOK_TOKEN: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_CI_WEBHOOK_TOKEN || '' }}
-      AWS_ACCESS_KEY_ID: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.SCCACHE_AWS_ACCESS_KEY_ID || '' }}
-      AWS_SECRET_ACCESS_KEY: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.SCCACHE_AWS_SECRET_ACCESS_KEY || '' }}
-      CI_STORE_TAILNET_ENDPOINT: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.CI_STORE_TAILNET_ENDPOINT || '' }}
-      CI_STORE_PUBLIC_ENDPOINT: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.CI_STORE_PUBLIC_ENDPOINT || '' }}
-      DOMIOS_FIREBASE_API_KEY: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
-      DOMIOS_FIREBASE_PROJECT_ID: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
-      DOMIOS_FIREBASE_APP_ID: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_APP_ID || '' }}
-      DOMIOS_ACCOUNT_REDEEM_URL: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_ACCOUNT_REDEEM_URL || '' }}
-      DOMIOS_BILLING_FUNCTIONS_URL: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.DOMIOS_BILLING_FUNCTIONS_URL || '' }}
-      CI_HOSTED: ${{ vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04' }}
-      CI_ARTIFACT_STORAGE: ${{ (vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && 'github' || '' }}
+      DOMIOS_CI_WEBHOOK_URL: ${{ !((vars.CI_LINUX_LIGHT_RUNNER || 'ubuntu-24.04') == 'ubuntu-24.04') && secrets.DOMIOS_CI_WEBHOOK_URL || '' }}
+      DOMIOS_CI_WEBHOOK_TOKEN: ${{ !((vars.CI_LINUX_LIGHT_RUNNER || 'ubuntu-24.04') == 'ubuntu-24.04') && secrets.DOMIOS_CI_WEBHOOK_TOKEN || '' }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      CI_STORE_LAN_ENDPOINT: ${{ secrets.CI_STORE_LAN_ENDPOINT }}
+      CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
+      DOMIOS_FIREBASE_API_KEY: ${{ !((vars.CI_LINUX_LIGHT_RUNNER || 'ubuntu-24.04') == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
+      DOMIOS_FIREBASE_PROJECT_ID: ${{ !((vars.CI_LINUX_LIGHT_RUNNER || 'ubuntu-24.04') == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
+      DOMIOS_FIREBASE_APP_ID: ${{ !((vars.CI_LINUX_LIGHT_RUNNER || 'ubuntu-24.04') == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_APP_ID || '' }}
+      DOMIOS_ACCOUNT_REDEEM_URL: ${{ !((vars.CI_LINUX_LIGHT_RUNNER || 'ubuntu-24.04') == 'ubuntu-24.04') && secrets.DOMIOS_ACCOUNT_REDEEM_URL || '' }}
+      DOMIOS_BILLING_FUNCTIONS_URL: ${{ !((vars.CI_LINUX_LIGHT_RUNNER || 'ubuntu-24.04') == 'ubuntu-24.04') && secrets.DOMIOS_BILLING_FUNCTIONS_URL || '' }}
+      CI_HOSTED: ${{ (vars.CI_LINUX_LIGHT_RUNNER || 'ubuntu-24.04') == 'ubuntu-24.04' }}
+      CI_ARTIFACT_STORAGE: ''
     steps:
       - name: Use the runner bundled Node
         if: runner.environment == 'self-hosted'

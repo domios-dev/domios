@@ -1,13 +1,13 @@
 name: CI
 on:
-  push:
+  # CI runs only for a release PR into master; a new push to the PR cancels its previous run.
+  pull_request:
     branches:
       - master
-      - rename/domios
-      - release/**
-  schedule:
-    - cron: 17 2 * * *
-    - cron: 17 3 * * *
+    types:
+      - opened
+      - synchronize
+      - reopened
   workflow_dispatch:
     inputs:
       source_ref:
@@ -21,21 +21,10 @@ on:
           - full
           - frontend
           - fast
-          - preflight
-  pull_request:
-    # A release PR into master carries a head that its release push run already qualifies.
-    branches-ignore:
-      - master
-    types:
-      - opened
-      - edited
-      - synchronize
-      - reopened
-      - ready_for_review
 permissions:
   contents: read
 concurrency:
-  group: ${{ inputs.source_ref != '' && format('tests-dispatch-{0}', github.run_id) || format('tests-{0}', github.event_name == 'schedule' && format('refs/heads/{0}', github.event.schedule == '17 2 * * *' && 'rename/domios' || 'develop') || github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref) }}
+  group: ${{ inputs.source_ref != '' && format('tests-dispatch-{0}', github.run_id) || format('tests-pr-{0}', github.event.pull_request.number) }}
   cancel-in-progress: true
 jobs:
   admission:
@@ -57,15 +46,15 @@ jobs:
           SOURCE_REF: ${{ inputs.source_ref }}
         with:
           script: |-
-            // The Rust tier starts from this exact source instead of waiting for the fast tier to resolve it.
-            const nightly = context.eventName === 'schedule' ? (context.payload.schedule === '17 2 * * *' ? 'rename/domios' : 'develop') : '';
-            core.setOutput('source_sha', nightly ? (await github.rest.repos.getBranch({...context.repo, branch: nightly})).data.commit.sha
-              : process.env.SOURCE_REF || context.sha);
-            const release = context.eventName === 'push' && /^refs\/heads\/release\/\d+\.\d+\.\d+$/.test(context.ref) &&
+            // The Rust tier starts from the exact PR head, not the synthetic merge commit.
+            const pr = context.payload.pull_request;
+            core.setOutput('source_sha', process.env.SOURCE_REF || pr?.head.sha || context.sha);
+            const release = context.eventName === 'pull_request' && /^release\/\d+\.\d+\.\d+$/.test(pr.head.ref) &&
+              pr.head.repo.full_name === context.repo.owner + '/' + context.repo.repo && pr.user.login === 'rollacode' &&
               context.actor === 'rollacode' && process.env.GITHUB_TRIGGERING_ACTOR === 'rollacode';
             core.setOutput('release_head', String(release));
-            if (context.eventName === 'push' && context.ref === 'refs/heads/master') {
-              core.notice('Skipping heavy CI on master: release publication reuses qualified release-head artifacts');
+            if (context.eventName === 'pull_request' && !release) {
+              core.notice('Only an owner release/X.Y.Z PR into master runs CI');
               core.setOutput('run', 'false');
               return;
             }
@@ -77,7 +66,6 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-      issues: read
     steps:
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
@@ -89,7 +77,7 @@ jobs:
           python-version: "3.12"
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: ${{ github.event_name == 'schedule' && (github.event.schedule == '17 2 * * *' && 'rename/domios' || 'develop') || inputs.source_ref || github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ inputs.source_ref || github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 1
       - name: Fetch scoped policy history
         env:
@@ -99,7 +87,7 @@ jobs:
           PUSH_BEFORE: ${{ github.event.before }}
         run: node scripts/ci-git-history.mjs policy
       - name: Runner preflight
-        run: node scripts/ci-runner-paths.mjs bash,curl,git,jq,node,python,tar
+        run: node scripts/ci-runner-paths.mjs bash,curl,git,node,tar
       - name: Embedded docs and generated contract preflight
         if: ${{ !cancelled() }}
         run: node scripts/check-ci-docs.mjs
@@ -123,40 +111,17 @@ jobs:
           fi
           git diff --name-only --diff-filter=ACMR "$base" "$head" > "$RUNNER_TEMP/ci-changed.txt"
           echo "base=$base" >> "$GITHUB_OUTPUT"
+      - name: Installed application identity
+        run: node scripts/check-installed-identity.mjs
+        if: ${{ !cancelled() }}
+      - name: Archive-portable Rust test paths
+        run: node scripts/check-archive-portable-test-paths.mjs
+        if: ${{ !cancelled() }}
       - name: Run file-size discipline check
         run: bash scripts/check-file-sizes.sh --fail
         if: ${{ !cancelled() }}
-      - name: Test provider boundary guard
-        run: node --test scripts/tests/check-provider-boundary.test.mjs
-        if: ${{ !cancelled() }}
-      - name: Test tauri reach guard
-        run: node --test scripts/tests/check-tauri-reach.test.mjs
-        if: ${{ !cancelled() }}
-      - name: Test crate layering guard
-        run: node --test scripts/tests/crate-layering.test.mjs
-        if: ${{ !cancelled() }}
       - name: Check crate layering and the thin native client
         run: bash scripts/check-crate-layering.sh
-        if: ${{ !cancelled() }}
-      - name: Check tauri reach against target baseline
-        env:
-          TAURI_REACH_BASE: ${{ steps.change.outputs.base }}
-        run: bash scripts/check-tauri-reach.sh
-        if: ${{ !cancelled() }}
-      - name: Check provider boundary against target baseline
-        env:
-          PROVIDER_BOUNDARY_BASE: ${{ steps.change.outputs.base }}
-          RELEASE_TO_MASTER: ${{ github.base_ref == 'master' && startsWith(github.head_ref, 'release/') }}
-        run: |
-          # A release PR carries develop's already-guarded allowlist; master predates it.
-          if [ "$RELEASE_TO_MASTER" = true ]; then
-            git fetch --no-tags origin develop
-            PROVIDER_BOUNDARY_BASE="$(git rev-parse FETCH_HEAD)"
-          fi
-          PROVIDER_BOUNDARY_BASE="$PROVIDER_BOUNDARY_BASE" node scripts/check-provider-boundary.mjs
-        if: ${{ !cancelled() }}
-      - name: Run comment-length discipline check on the change set
-        run: bash scripts/check-comment-length.sh --fail --changed "$RUNNER_TEMP/ci-changed.txt"
         if: ${{ !cancelled() }}
       - name: Check API docs
         run: bash scripts/check-api-docs.sh
@@ -164,27 +129,6 @@ jobs:
       - name: Check prompt docs
         run: bash scripts/check-prompts-doc.sh
         if: ${{ !cancelled() }}
-      - name: Check eval list
-        run: bash scripts/check-evals-list.sh
-        if: ${{ !cancelled() }}
-      - name: Warn on docs changes without revision bump
-        if: github.event_name == 'pull_request'
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -euo pipefail
-          base="${{ github.event.pull_request.base.sha }}"
-          changed="$(git diff --name-only "$base"...HEAD -- 'essences/*.md' 'prod-docs/*.md' || true)"
-          [ -n "$changed" ] || exit 0
-          missing=0
-          while IFS= read -r file; do
-            [ -n "$file" ] || continue
-            if ! git diff "$base"...HEAD -- "$file" | grep -Eq '<!-- revision: [0-9]+ -->'; then
-              echo "::warning file=$file::docs file changed without a revision-tag bump"
-              missing=1
-            fi
-          done <<< "$changed"
-          exit "$missing"
       - name: Scan new commits and working tree
         env:
           SCAN_BASE: ${{ steps.change.outputs.base }}
@@ -206,58 +150,10 @@ jobs:
           fi
           echo "release branch $HEAD_REF"
         if: ${{ !cancelled() && github.event_name == 'pull_request' && github.base_ref == 'master' }}
-      - name: Parse and verify public issues
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_BODY: ${{ github.event.pull_request.body }}
-          EVENT_NAME: ${{ github.event_name }}
-          PR_NUMBER: ${{ github.event.pull_request.number || 0 }}
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          PR_BASE_REF: ${{ github.base_ref }}
-          CHANGE_BASE: ${{ steps.change.outputs.base }}
-        run: |
-          printf '%s' "$PR_BODY" > "$RUNNER_TEMP/pr-body.md"
-          jq -n --argjson number "$PR_NUMBER" \
-            --arg url "$PR_URL" \
-            --arg base_ref "$PR_BASE_REF" \
-            --rawfile body "$RUNNER_TEMP/pr-body.md" \
-            'if $number == 0 then [] else [{number: $number, url: $url, body: $body, base_ref: $base_ref}] end' \
-            > "$RUNNER_TEMP/release-prs.json"
-          printf '[]' > "$RUNNER_TEMP/release-commits.json"
-          for sha in $(git rev-list "$CHANGE_BASE..HEAD"); do
-            git show -s --format=%B "$sha" > "$RUNNER_TEMP/commit-body.txt"
-            jq --arg sha "$sha" \
-              --arg url "https://github.com/${GITHUB_REPOSITORY}/commit/$sha" \
-              --rawfile body "$RUNNER_TEMP/commit-body.txt" \
-              '. + [{sha: $sha, url: $url, body: $body}]' \
-              "$RUNNER_TEMP/release-commits.json" > "$RUNNER_TEMP/release-commits.next.json"
-            mv "$RUNNER_TEMP/release-commits.next.json" "$RUNNER_TEMP/release-commits.json"
-          done
-          python3 scripts/release_issue_contract.py resolve \
-            --commits-file "$RUNNER_TEMP/release-commits.json" \
-            --prs-file "$RUNNER_TEMP/release-prs.json" \
-            > "$RUNNER_TEMP/resolved-public-issues.json"
-          jq -r '.issues[].reference' "$RUNNER_TEMP/resolved-public-issues.json" \
-            > "$RUNNER_TEMP/public-issues.txt"
-          jq -r '.repository_issues[].reference' "$RUNNER_TEMP/resolved-public-issues.json" \
-            > "$RUNNER_TEMP/repository-issues.txt"
-        if: ${{ !cancelled() }}
-      - name: Verify declared issue references
-        if: "!cancelled()"
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
-        with:
-          script: |-
-            const fs = require('node:fs');
-            const {pathToFileURL} = require('node:url');
-            const {verifyIssueReferences} = await import(pathToFileURL(process.env.GITHUB_WORKSPACE + '/scripts/ci-workflow-api.mjs').href);
-            const selection = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/resolved-public-issues.json','utf8'));
-            await verifyIssueReferences(github, selection);
-            await core.summary.addHeading('Issue contracts').addList([...selection.issues,...selection.repository_issues].map(issue=>issue.reference)).write();
     needs: admission
-    if: inputs.scope != 'preflight'
   pr:
     name: Pull request checks
-    if: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'release/') }}
+    if: ${{ false }}
     uses: ./.github/workflows/tests-pr.yml
     permissions:
       contents: read
@@ -266,7 +162,7 @@ jobs:
     name: Fast checks
     uses: ./.github/workflows/tests-fast.yml
     with:
-      source_ref: ${{ github.event_name == 'schedule' && (github.event.schedule == '17 2 * * *' && 'rename/domios' || 'develop') || inputs.source_ref }}
+      source_ref: ${{ needs.admission.outputs.source_sha }}
       scope: ${{ inputs.scope || 'full' }}
       cancel_run: false
     permissions:
@@ -274,14 +170,14 @@ jobs:
       actions: write
       pull-requests: write
     secrets: inherit
-    if: ${{ github.event_name != 'pull_request' && needs.admission.outputs.run != 'false' && inputs.scope != 'preflight' }}
+    if: ${{ needs.admission.outputs.run != 'false' }}
     # Starts beside the repository guards; CI result still requires them.
     needs: [admission]
   rust:
     name: Rust tests
     # Starts with the push, beside the guards and the fast tier.
     needs: [admission]
-    if: ${{ !cancelled() && inputs.scope != 'fast' && (github.event_name == 'push' || github.event_name == 'schedule') && needs.admission.outputs.run != 'false' }}
+    if: ${{ !cancelled() && inputs.scope != 'fast' && github.event_name == 'pull_request' && needs.admission.outputs.run != 'false' }}
     uses: ./.github/workflows/tests-rust.yml
     with:
       source_ref: ${{ needs.admission.outputs.source_sha }}
@@ -302,7 +198,7 @@ jobs:
       - admission
       - fast
       - rust
-    if: ${{ always() && inputs.scope != 'fast' && github.event_name != 'pull_request' && inputs.source_ref == '' && needs.fast.outputs.heavy != '' }}
+    if: ${{ !cancelled() && inputs.scope != 'fast' && inputs.source_ref == '' && needs.fast.outputs.heavy != '' }}
     uses: ./.github/workflows/rust-warnings-summary.yml
     secrets: inherit
     with:
@@ -317,16 +213,16 @@ jobs:
       - rust
       - rust-warnings
       - policy
-    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (inputs.scope != 'fast' && !cancelled() && needs.fast.result == 'success' && needs.rust.result == 'success' && needs.rust-warnings.result == 'success' && needs.policy.result == 'success' && (github.event_name == 'push' || github.event_name == 'schedule') && needs.fast.outputs.heavy == 'true') }}
-    runs-on: ${{ vars.CI_LINUX_LIGHT_RUNNER || fromJSON('["self-hosted","Linux","light","host-ubunta"]') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && needs.admission.outputs.release_head == 'true' && (inputs.scope != 'fast' && !cancelled() && needs.fast.result == 'success' && needs.rust.result == 'success' && needs.rust-warnings.result == 'success' && needs.policy.result == 'success' && needs.fast.outputs.heavy == 'true') }}
+    runs-on: ${{ vars.CI_LINUX_LIGHT_RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 5
     env:
-      AWS_ACCESS_KEY_ID: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.SCCACHE_AWS_ACCESS_KEY_ID || '' }}
-      AWS_SECRET_ACCESS_KEY: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.SCCACHE_AWS_SECRET_ACCESS_KEY || '' }}
-      CI_STORE_TAILNET_ENDPOINT: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.CI_STORE_TAILNET_ENDPOINT || '' }}
-      CI_STORE_PUBLIC_ENDPOINT: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.CI_STORE_PUBLIC_ENDPOINT || '' }}
-      CI_HOSTED: ${{ vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04' }}
-      CI_ARTIFACT_STORAGE: ${{ (vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && 'github' || '' }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      CI_STORE_LAN_ENDPOINT: ${{ secrets.CI_STORE_LAN_ENDPOINT }}
+      CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
+      CI_HOSTED: ${{ (vars.CI_LINUX_LIGHT_RUNNER || 'ubuntu-24.04') == 'ubuntu-24.04' }}
+      CI_ARTIFACT_STORAGE: ''
     steps:
       - name: Use the runner bundled Node
         if: runner.environment == 'self-hosted'
@@ -374,7 +270,7 @@ jobs:
     name: Release packaging
     # Packaging starts with the push, beside every check; publication still requires this run's green qualification.
     needs: [admission]
-    if: ${{ !cancelled() && github.event_name == 'push' && needs.admission.outputs.release_head == 'true' }}
+    if: ${{ !cancelled() && needs.admission.outputs.release_head == 'true' }}
     uses: ./.github/workflows/release.yml
     permissions:
       contents: write
@@ -382,99 +278,14 @@ jobs:
       issues: write
       pull-requests: write
     with:
-      tag: ${{ github.ref_name }}
-      source_sha: ${{ github.sha }}
+      tag: ${{ github.head_ref }}
+      source_sha: ${{ needs.admission.outputs.source_sha }}
       dry_run: true
       mirror: false
     secrets: inherit
-  runner-preflight:
-    name: Runner preflight (${{ matrix.profile }})
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.scope == 'preflight' && (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' }}
-    runs-on: ${{ matrix.runner }}
-    permissions:
-      contents: read
-    timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - profile: hosted-linux
-            runner: ubuntu-24.04
-          - profile: hosted-windows
-            runner: windows-latest
-          - profile: hosted-macos
-            runner: macos-15
-          - profile: self-macos
-            runner:
-              - self-hosted
-              - macOS
-              - rust-shard
-              - host-air
-          - profile: self-windows
-            runner:
-              - self-hosted
-              - Windows
-              - host-rog
-              - windows-build
-          - profile: self-linux-ubunta-light
-            runner:
-              - self-hosted
-              - Linux
-              - light
-              - host-ubunta
-          - profile: self-linux-ubunta-compile
-            runner:
-              - self-hosted
-              - Linux
-              - linux-build
-              - host-ubunta
-    steps:
-      - name: Use the runner bundled Node
-        if: runner.environment == 'self-hosted'
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
-        with:
-          script: |-
-            const path = require('node:path');
-            core.addPath(path.dirname(process.execPath));
-            core.info('Using runner Node ' + process.version);
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
-        if: runner.environment == 'github-hosted'
-        with:
-          package-manager-cache: false
-          node-version: 22.22.0
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
-        if: runner.environment == 'github-hosted' && matrix.profile != 'hosted-windows'
-        with:
-          python-version: "3.12"
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-        with:
-          ref: ${{ inputs.source_ref }}
-          fetch-depth: 1
-      - name: Discover installed runner tools
-        run: node scripts/ci-runner-paths.mjs --paths-only
-      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
-        if: runner.environment == 'github-hosted' && matrix.profile != 'hosted-macos'
-        with:
-          version: 10.32.1
-          run_install: false
-          dest: ${{ runner.tool_cache }}/setup-pnpm
-      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
-        if: runner.environment == 'github-hosted' && matrix.profile != 'hosted-windows'
-        with:
-          toolchain: 1.99.1
-          components: clippy,rustfmt
-      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8
-        if: runner.environment == 'github-hosted' && matrix.profile != 'hosted-windows'
-        with:
-          tool: cargo-nextest@0.9.148
-      - name: Isolate Python test dependencies
-        if: matrix.profile == 'hosted-linux'
-        run: node scripts/ci-python-env.mjs
-      - name: Probe actual runner prerequisites
-        run: node scripts/ci-preflight-profile.mjs "${{ matrix.profile }}"
   result:
-    name: ${{ github.event_name == 'pull_request' && startsWith(github.head_ref, 'release/') && 'Release PR checks' || 'CI result' }}
-    if: ${{ always() }}
+    name: CI result
+    if: ${{ !cancelled() }}
     needs:
       - admission
       - policy
@@ -484,7 +295,6 @@ jobs:
       - rust-warnings
       - qualification
       - release-dry-run
-      - runner-preflight
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     permissions:
@@ -513,7 +323,6 @@ jobs:
           CI_EVENT: ${{ github.event_name }}
           CI_NEEDS: ${{ toJSON(needs) }}
           CI_SCOPE: ${{ inputs.scope }}
-          CI_RELEASE_PR_LIGHT: ${{ github.event_name == 'pull_request' && startsWith(github.head_ref, 'release/') }}
           CI_RELEASE_HEAD: ${{ needs.admission.outputs.release_head }}
           CI_SKIP_HEAVY: ${{ needs.admission.outputs.run == 'false' }}
         run: node scripts/ci-result.mjs

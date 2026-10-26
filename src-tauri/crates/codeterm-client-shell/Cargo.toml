@@ -27,6 +27,7 @@ tauri-plugin-updater = "2"
 tokio = { version = "1", features = ["rt", "macros"] }
 url = "2"
 which = "7"
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 tauri-plugin-single-instance = "2"

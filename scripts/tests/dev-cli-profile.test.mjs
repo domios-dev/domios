@@ -67,8 +67,8 @@ for (const [platform, extension] of [['linux-gnu', ''], ['darwin', ''], ['msys',
       const directory = `cache root/${target ? target + '/' : ''}`;
       assert.deepEqual(result.stdout.trim().split(/\r?\n/), [
         'Building CLI...',
-        `installed:dev data/bin:cache root/cli/${target ? target + '/' : ''}debug/codeterm${extension}:opaque-hash`,
-        `bundled:cache root/cli/${target ? target + '/' : ''}debug/codeterm${extension}`,
+        `installed:dev data/bin:cache root/${target ? target + '/' : ''}debug/codeterm${extension}:opaque-hash`,
+        `bundled:cache root/${target ? target + '/' : ''}debug/codeterm${extension}`,
         `production:${directory}release/codeterm${extension}`,
       ]);
       assert.equal(readFileSync(path.join(logs, '.domios-dev-build/cli.jsonl'), 'utf8').trim(), 'cargo build --manifest-path cli/Cargo.toml --message-format=json-render-diagnostics');
@@ -108,7 +108,7 @@ OSTYPE="$2" CARGO_BUILD_TARGET="$3"
 app_target="$PWD/target/dev-instances/opaque-instance"
 export CARGO_TARGET_DIR="$app_target"
 cargo() {
-  [ "$CARGO_TARGET_DIR" = "$app_target/cli" ]
+  [ "$CARGO_TARGET_DIR" = "$app_target" ]
   artifact="$(cli_profile_binary debug)"
   mkdir -p "$(dirname "$artifact")"
   printf opaque-cli-bytes > "$artifact"
@@ -125,8 +125,8 @@ printf '%s\\n' "$built_cli_artifact" "$native" "$(cat "$built_cli_artifact")" "$
 `, '--', directory, platform, target], {encoding: 'utf8'});
         assert.equal(result.status, 0, result.stderr);
         const [cli, native, cliBytes, nativeBytes, receipt] = result.stdout.trim().split(/\r?\n/);
-        assert.ok(cli.endsWith(`/cli/${target ? target + '/' : ''}debug/codeterm${extension}`));
-        assert.ok(native.endsWith(`/${target ? target + '/' : ''}debug/codeterm${extension}`));
+        assert.ok(cli.endsWith(`/${target ? target + '/' : ''}debug/codeterm${extension}`));
+        assert.ok(native.endsWith(`/${target ? target + '/' : ''}debug/domios-app${extension}`));
         assert.notEqual(cli, native);
         assert.equal(cliBytes, 'opaque-cli-bytes');
         assert.equal(nativeBytes, 'opaque-native-bytes');
@@ -149,8 +149,8 @@ printf '%s\\n' "$(dev_built_app_path)" "$(dev_app_path)" "$(dev_resource_dir)"
       assert.equal(result.status, 0, result.stderr);
       const directory = `cache root/${target ? target + '/' : ''}debug`;
       assert.deepEqual(result.stdout.trim().split(/\r?\n/), platform === 'msys'
-        ? [`${directory}/codeterm.exe`, `${directory}/domios-dev-app.exe`, directory]
-        : [`${directory}/codeterm`, `${directory}/.domios-dev-runtime/bin/domios-dev-app`, `${directory}/.domios-dev-runtime/lib/codeterm`]);
+        ? [`${directory}/domios-app.exe`, `${directory}/domios-dev-app.exe`, directory]
+        : [`${directory}/domios-app`, `${directory}/.domios-dev-runtime/bin/domios-dev-app`, `${directory}/.domios-dev-runtime/lib/codeterm`]);
     });
   }
 }
@@ -168,7 +168,7 @@ printf '%s\\n' "$(dev_built_app_path)" "$(dev_app_path)" "$(dev_resource_dir)"
     assert.equal(result.status, 0, result.stderr);
     const debug = `cache root/dev-instances/macdev-fix/${target ? target + '/' : ''}debug`;
     assert.deepEqual(result.stdout.trim().split(/\r?\n/), [
-      `${debug}/codeterm`,
+      `${debug}/domios-app`,
       `${debug}/.domios-dev-runtime/Domios.app/Contents/MacOS/domios-dev-app`,
       `${debug}/.domios-dev-runtime/Domios.app/Contents/Resources`,
     ]);

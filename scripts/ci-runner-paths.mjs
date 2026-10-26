@@ -98,52 +98,6 @@ export function runnerRequirements(role) {
   return names;
 }
 
-export function checkRunnerTools(role, { platform = process.platform, env = process.env,
-  execute = (command, args, options) => spawnSync(command, args, options) } = {}) {
-  const required = runnerRequirements(role);
-  const missing = [];
-  const diagnostics = [];
-  for (const tool of required) {
-    const python = env.CI_PYTHON || (platform === 'win32' ? 'python' : 'python3');
-    const [command, ...args] = tool.startsWith('python:')
-      ? [python, '-c', 'import ' + tool.slice(7)]
-      : tool === 'python' ? [python, '--version'] : tools[tool];
-    const probeEnv = env;
-    const result = execute(command, args, { env: probeEnv, encoding: 'utf8', timeout: 2000,
-      windowsHide: true, shell: platform === 'win32' && tool === 'pnpm' });
-    if (result.error || result.status !== 0) {
-      missing.push(tool);
-      const status = result.error?.code || result.signal || ('exit ' + result.status);
-      diagnostics.push(tool + ': ' + command + ' ' + args.join(' ') + ' (' + status + ')' +
-        (result.stderr ? '\n' + String(result.stderr).trim() : '') +
-        (result.stdout ? '\nstdout: ' + String(result.stdout).trim() : ''));
-    }
-  }
-  if (missing.length) throw new Error('Runner preflight (' + role + ') missing or broken: ' +
-    missing.join(', ') + '. Install/restore tools using .agents/skills/build-machine/SKILL.md; ' +
-    'nextest: cargo install cargo-nextest --locked; Python: https://www.python.org/downloads/; ' +
-    'Git Bash: https://gitforwindows.org/; Node/pnpm: https://nodejs.org/ and corepack enable; gh: https://cli.github.com/; ' +
-    'Python modules: python -m pip install -r scripts/requirements-ci.txt.\n' + diagnostics.join('\n'));
-}
-
-// build.sh resolves tools from Git Bash, which can differ from the cmd lookup above; refuse before compilation.
-export const BASH_RESOLVED_TOOLS = ['node', 'git', 'cargo', 'pnpm'];
-
-export function checkBashTools(role, bash, { env = process.env,
-  execute = (command, args, options) => spawnSync(command, args, options) } = {}) {
-  const tools = runnerRequirements(role).filter(tool => BASH_RESOLVED_TOOLS.includes(tool));
-  if (!tools.length) return;
-  const options = { env, encoding: 'utf8', timeout: 10000, windowsHide: true };
-  const script = 'for tool in ' + tools.join(' ') + '; do command -v "$tool" >/dev/null 2>&1 || echo "missing:$tool"; done';
-  const result = execute(bash, ['-c', script], options);
-  const missing = String(result.stdout || '').split(/\r?\n/).filter(line => line.startsWith('missing:')).map(line => line.slice(8));
-  if (!result.error && result.status === 0 && !missing.length) return;
-  const seen = execute(bash, ['-c', 'printf "%s\\n" "$PATH" | tr : "\\n"'], options);
-  throw new Error('Git Bash used by build.sh cannot resolve: ' +
-    (missing.join(', ') || String(result.error?.code || 'exit ' + result.status)) +
-    '\nGit Bash PATH:\n' + String(seen.stdout || '').trim());
-}
-
 export function runnerPathContent(directories) {
   return directories.map(directory => directory + '\n').join('');
 }
@@ -168,10 +122,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
   if (process.env.GITHUB_ENV && !env.CI_PYTHON) {
     try { fs.appendFileSync(process.env.GITHUB_ENV, 'CI_PYTHON=' + pythonInterpreter(process.platform, env) + '\n'); }
     catch { /* Python is optional for jobs whose declared tools exclude it. */ }
-  }
-  if (process.argv[2] !== '--paths-only') {
-    checkRunnerTools(process.argv[2] || 'rust', { env });
-    if (process.platform === 'win32') checkBashTools(process.argv[2] || 'rust', bashInterpreter(process.platform, env), { env });
   }
   for (const directory of directories) console.log('Job-local tool directory: ' + directory);
   } catch(error) {

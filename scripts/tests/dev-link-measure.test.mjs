@@ -32,7 +32,7 @@ function measure(scope = 'app', status = 0, timing = false) {
 test('DEV timing builds only the configured application binary', () => {
   const result = measure();
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.stdout.trim(), 'build --manifest-path src-tauri/Cargo.toml -p codeterm --bin codeterm --profile dev --no-default-features --timings');
+  assert.equal(result.stdout.trim(), 'build --manifest-path src-tauri/Cargo.toml -p codeterm --bin domios-app --profile dev --no-default-features --timings');
 });
 
 for (const [scope, release] of [['cli-dev', false], ['cli-release', true]]) {

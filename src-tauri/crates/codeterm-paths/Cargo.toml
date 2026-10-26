@@ -10,6 +10,7 @@ isolated-data-root = ["dep:tempfile"]
 [dependencies]
 dirs = "6"
 tempfile = { version = "3", optional = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
 tempfile = "3"

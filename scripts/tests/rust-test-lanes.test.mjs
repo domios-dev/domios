@@ -17,7 +17,6 @@ function runShell(script, directory, env) {
 test('nextest shell selection and full CI use the catalogue lane definitions', () => {
   const { runners } = loadReleaseRust();
   assert.equal(MODES.full[0], FULL_LANES[0]);
-  assert.deepEqual(MODES.full[1].targets, ['--no-default-features', '--test', 'isolated_server']);
   assert.equal(MODES.platform[1], FULL_LANES[1]);
   for (const lane of FULL_LANES) {
     const args = execFileSync(process.execPath, ['scripts/rust-test-lanes.mjs', lane.lane], { encoding: 'utf8' }).trim().split('\n');
@@ -42,7 +41,7 @@ test('local and CI target policy shares full targets and isolates feature lanes'
       assert.notEqual(testTargetDir(lane, { env, mode: 'embeddings' }), normal);
       assert.notEqual(testTargetDir(lane, { env, mode: 'platform' }), normal);
     }
-    assert.equal(testTargetDir(FULL_LANES[1], { env }), path.join(testTargetDir(FULL_LANES[0], { env }), 'cli'));
+    assert.equal(testTargetDir(FULL_LANES[1], { env }), testTargetDir(FULL_LANES[0], { env }));
   }
 });
 
@@ -154,7 +153,7 @@ run_nextest_scope cli || [ "$?" = 42 ]
   const result = runShell(script, temp, { ...process.env, FIXTURE_TARGET: original, SELECTION_LOG: log });
   assert.equal(result.status, 0, result.stderr);
   const rows = fs.readFileSync(log, 'utf8').trim().split('\n').map(value => path.normalize(value));
-  assert.deepEqual(rows.slice(0, 2), [path.join(original, 'cli'), original]);
+  assert.deepEqual(rows.slice(0, 2), [original, original]);
 });
 
 test('reverse-dependency scopes prepare resources once before Cargo in a fresh checkout', t => {

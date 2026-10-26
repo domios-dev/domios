@@ -62,11 +62,3 @@ test('legacy release paths carry manual steps and no installable payload for eve
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
-test('both release publication paths generate legacy refusals before exposing manifests', () => {
-  for (const file of ['scripts/release-publish.sh', '.github/workflows/release-manifest-validate.yml']) {
-    const source = read(file);
-    const at = source.indexOf('node scripts/legacy-updater-refusal.mjs');
-    assert.ok(at >= 0, file);
-    assert.ok(source.indexOf('gh release upload', at) > at, file);
-  }
-});

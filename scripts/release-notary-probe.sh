@@ -41,7 +41,7 @@ if [ "$status" != Accepted ]; then
   echo "::error::Notarization probe rejected (id=${id:-none}, status=${status:-none})"
   exit 1
 fi
-xcrun stapler staple "$app"
+bash "$(dirname "$0")/staple-with-retry.sh" "$app"
 xcrun stapler validate "$app"
 spctl -a -vv "$app" 2>&1 | tee "$work/spctl.txt"
 grep -q "accepted" "$work/spctl.txt" || { echo "::error::spctl rejected the stapled probe"; exit 1; }

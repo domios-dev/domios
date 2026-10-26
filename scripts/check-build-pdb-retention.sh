@@ -14,7 +14,7 @@ fixture="$(mktemp -d)"
 trap 'rm -rf "$fixture"' EXIT
 
 store="$fixture/pdb"
-src="$fixture/codeterm.pdb"
+src="$fixture/domios_app.pdb"
 printf 'pdb-for-build-one' > "$src"
 
 # The key is supplied explicitly so this check needs neither a real PDB nor a
@@ -26,12 +26,12 @@ retain() { # key [sha]
 # The copy keeps the linker's own file name — Windows symbol lookup finds a PDB by
 # the name in the binary's RSDS record, so a renamed file would never be found.
 retain aaaaaaaaaaaa b9ba09cf3
-if [ ! -f "$store/aaaaaaaaaaaa/codeterm.pdb" ]; then
-  echo "retain-pdb must store the symbol file at <store>/<key>/codeterm.pdb" >&2
+if [ ! -f "$store/aaaaaaaaaaaa/domios_app.pdb" ]; then
+  echo "retain-pdb must store the symbol file at <store>/<key>/domios_app.pdb" >&2
   find "$store" >&2 || true
   exit 1
 fi
-if [ "$(cat "$store/aaaaaaaaaaaa/codeterm.pdb")" != "pdb-for-build-one" ]; then
+if [ "$(cat "$store/aaaaaaaaaaaa/domios_app.pdb")" != "pdb-for-build-one" ]; then
   echo "retained symbol file does not match the linked one" >&2
   exit 1
 fi
@@ -73,7 +73,7 @@ if [ -d "$store/aaaaaaaaaaaa" ]; then
   exit 1
 fi
 for key in bbbbbbbbbbbb cccccccccccc dddddddddddd; do
-  if [ ! -f "$store/$key/codeterm.pdb" ]; then
+  if [ ! -f "$store/$key/domios_app.pdb" ]; then
     echo "pruning removed a build that is still within the retention count: $key" >&2
     exit 1
   fi
@@ -97,7 +97,7 @@ fi
 # Without a key and with an unreadable symbol file, nothing is filed under a guess.
 unkeyed_store="$fixture/pdb-unkeyed"
 CODETERM_DEV_PDB_DIR="$unkeyed_store" ./build.sh retain-pdb b9ba09cf3 "$src" >/dev/null 2>&1 || true
-if find "$unkeyed_store" -name 'codeterm.pdb' 2>/dev/null | grep -q .; then
+if find "$unkeyed_store" -name 'domios_app.pdb' 2>/dev/null | grep -q .; then
   echo "a file with no readable debug identity must not be retained under a guessed key" >&2
   exit 1
 fi

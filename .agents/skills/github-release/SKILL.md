@@ -96,11 +96,9 @@ verifies the anonymous download. Every install refreshes `codeterm-core` from th
    and publishes the exact head's retained green push run through promote_run_id.
    Qualification and packaging must belong to that same run. No master merge
    commit is built. Protected release environments and the publication switch
-   remain required. Runner groups must refuse refs/pull/* workflow refs; workflow
-   if gates alone do not constrain a fork's rewritten workflow. The isolated
-   fork-pr-guard.yml target workflow closes fork release heads and fork PRs into
-   master/release branches using hosted API calls only, without checkout. Signing keys
-   remain out of unsigned compile jobs.
+   remain required. The release PR runs CI, so the trusted runner group serves this
+   repository's workflows without a ref list; every fork PR run waits for owner approval
+   and only the owner merges into master. Signing keys remain out of unsigned compile jobs.
    After publication, synchronize develop through an admin-owned merge PR; workflows
    never push master/develop with GITHUB_TOKEN.
    Two nightly schedules qualify dev as fallback. Fast checks own
@@ -194,8 +192,7 @@ Do not disable publication for a legitimate release caller merely because its ev
 
 `tests-fast.yml` resolves scope once and passes it to `tests-rust.yml`. Required Rust
 receipts include one nonempty Linux full suite, macOS and Windows subsets, and embeddings.
-The fast CLI suite omits `isolated_server`; full Linux runs only that real CLI/server pair,
-and native subsets retain their own cfg-gated tests. Frontend production owns TypeScript;
+Native subsets retain their own cfg-gated tests. Frontend production owns TypeScript;
 Windows has a focused pnpm symlink/subst identity regression with a TS2451 negative control.
 Signing, notarization, bundle smoke, updater signatures and served-byte checks remain release gates.
 
@@ -278,14 +275,9 @@ source-contract evidence. Standard DMG, .app.tar.gz updater and self-install rem
 
 ### Runtime and bundle proof
 
-Release build jobs retain bundle contents, digest and signing checks. Server startup,
-local API-token resolution, authenticated CLI identify and clean shutdown run in
-CLI integration target isolated_server through the Rust test tier on every native test OS.
+Release build jobs retain bundle contents, digest and signing checks.
 Windows jobs discover installed Python through the job-local tool-path helper; the service
 PATH may differ from an interactive shell. Do not change machine execution policy to install it.
-The nextest cli, test-one cli isolated_server and CI CLI runners prepare the debug server
-and its exact bound CLI before the capped tests. This test creates disposable data/config
-roots and uses an explicit private port; CODETERM_API_URL alone never selects that port.
 
 Native-client attach, browser authentication and cold update/restore require their own
 platform evidence. A CLI integration pass does not establish those surfaces.

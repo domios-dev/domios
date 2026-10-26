@@ -1,5 +1,5 @@
 name: Native arm64 release compile
-description: Compile the arm64 release bundles in the finalizing job and freeze them in a digest-pinned stage archive
+description: Compile the arm64 release bundles natively or cross-compiled and freeze them in a digest-pinned stage archive
 inputs:
   tag:
     required: true
@@ -24,7 +24,8 @@ runs:
     - name: Prepare pinned toolchain
       shell: bash
       env:
-        RUSTUP_TOOLCHAIN: 1.99.1-${{ inputs.target }}
+        # An arm64 runner compiles natively; an x64 runner keeps its host toolchain and cross-compiles.
+        RUSTUP_TOOLCHAIN: ${{ runner.arch == 'ARM64' && format('1.99.1-{0}', inputs.target) || '1.99.1' }}
         TARGET: ${{ inputs.target }}
       run: |-
         rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --component clippy,rustfmt
@@ -32,6 +33,7 @@ runs:
         rustc +"$RUSTUP_TOOLCHAIN" -vV
     - name: Hosted sccache
       # Without an sccache build for this platform the compile proceeds uncached.
+      if: runner.environment == 'github-hosted'
       continue-on-error: true
       uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
     - name: Validate source, platform and public build configuration
@@ -73,13 +75,14 @@ runs:
       id: handoff
       shell: bash
       env:
-        # The private store over its public edge when it answers, else the GitHub Actions cache.
-        SCCACHE_GHA_ENABLED: "true"
-        CODETERM_SCCACHE_VERIFY_ONLY: "0"
+        # Hosted: the private store over its public edge when it answers, else the GitHub Actions cache.
+        # Our runners use the cache policy's own store route.
+        SCCACHE_GHA_ENABLED: ${{ runner.environment == 'github-hosted' && 'true' || 'false' }}
+        CODETERM_SCCACHE_VERIFY_ONLY: ${{ runner.environment == 'github-hosted' && '0' || '1' }}
         CODETERM_RELEASE_COMMON_STAGE: "1"
         CARGO_INCREMENTAL: "0"
-        CARGO_BUILD_JOBS: "4"
-        RUSTUP_TOOLCHAIN: 1.99.1-${{ inputs.target }}
+        CARGO_BUILD_JOBS: ${{ runner.environment == 'github-hosted' && '4' || 'default' }}
+        RUSTUP_TOOLCHAIN: ${{ runner.arch == 'ARM64' && format('1.99.1-{0}', inputs.target) || '1.99.1' }}
         CARGO_BUILD_TARGET: ${{ inputs.target }}
         TARGET: ${{ inputs.target }}
         CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target

@@ -11,17 +11,17 @@ import { classifyTarget } from './ci-classifier-cache.mjs';
 import { FULL_LANES, testTargetDir } from './rust-test-lanes.mjs';
 import { renderedCompilerErrors } from './collect-rust-warnings.mjs';
 import { parseTimings } from './check-slow-unit-tests.mjs';
-import { prepareCliServer } from './cli-server-test.mjs';
 import { failureDetector, failureEvent, firstFailure } from './ci-first-failure.mjs';
 
 // The catalogue's release tier names every package and target, including path dependencies outside the workspace.
 const OVERLAY = JSON.parse(fs.readFileSync(new URL('../tests/catalogue.overlay.json', import.meta.url), 'utf8'));
 const [WORKSPACE, ALL_CLI] = FULL_LANES;
-const CLI = { ...ALL_CLI, targets: ['--no-default-features', '--test', 'isolated_server'] };
+// Test builds stage the server resources under another name, so they never collide with the server binary.
+const TEST_SERVER_RESOURCES = JSON.stringify({ bundle: { resources: { '../target/domios-package/domios-server/': 'test-server-resources' } } });
 const INPUT = { lane: 'input', manifest: 'src-tauri/Cargo.toml', targets: ['--no-default-features', '--lib', '-p', 'codeterm-input-macos', '-p', 'codeterm-input-windows'], whole: true };
 const EMBEDDINGS = { lane: 'embeddings', manifest: 'src-tauri/Cargo.toml', targets: ['--no-default-features', '--features', 'codeterm-service-core/embeddings,codeterm-mem/embeddings', '-p', 'codeterm-service-core', '-p', 'codeterm-mem', '--lib'] };
 // The full suite runs once on one runner; each OS runs only its cfg-gated tests and the native input crates.
-export const MODES = { full: [WORKSPACE, CLI], platform: [WORKSPACE, ALL_CLI, INPUT], embeddings: [EMBEDDINGS] };
+export const MODES = { full: [WORKSPACE], platform: [WORKSPACE, ALL_CLI, INPUT], embeddings: [EMBEDDINGS] };
 const CI_PLATFORM = { Linux: 'linux', macOS: 'macos', Windows: 'windows' };
 
 // The catalogue overlay's stale and platform-red binary markers apply to CI exactly as to release-rust.
@@ -136,16 +136,12 @@ function classify(lane, messages, config) {
   return classifyInventory(inventory, sources);
 }
 const LISTENER = 'test(/startup::rest_api::tests::/)';
-const CLI_SERVER = 'binary_id(=codeterm-cli::isolated_server)';
 const jsonCommand = (args) => JSON.parse(execFileSync('cargo-nextest', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'inherit'] }));
 
 // REST API listener lifecycle tests hold real sockets and run as a curated suite (evals/rest-api-listeners), not in CI.
 export function executionGroups(selected) {
-  const integration = selected.filter(test => test.binary === 'codeterm-cli::isolated_server');
-  const units = selected.filter(test => test.binary !== 'codeterm-cli::isolated_server'
-    && !test.name.includes('startup::rest_api::tests::'));
-  return [{ listener: false, selected: units }, { listener: false, integration: true, selected: integration }]
-    .filter((group) => group.selected.length > 0);
+  const units = selected.filter(test => !test.name.includes('startup::rest_api::tests::'));
+  return [{ listener: false, selected: units }].filter((group) => group.selected.length > 0);
 }
 
 export function candidateFilter(document, selected) {
@@ -251,6 +247,7 @@ async function run(mode, { compileOnly = false } = {}) {
   const lanes = MODES[mode];
   if (!lanes) throw new Error('usage: node scripts/ci-rust-tests.mjs full|platform|embeddings | verify DIR');
   for (const name of ['CODETERM_CONPTY_DIR', 'CODETERM_PLAN_ID', 'CODETERM_TASK_ID']) delete process.env[name];
+  if (process.platform === 'linux') process.env.TAURI_CONFIG = TEST_SERVER_RESOURCES;
   const env = { ...process.env, TEST_CAP_SECS: '1800', CODETERM_CONPTY_TEST_ISOLATION: '1' };
   const os = process.env.RUNNER_OS || { win32: 'Windows', darwin: 'macOS', linux: 'Linux' }[process.platform];
   const plan = timingPlan({ release: process.env.CI_RELEASE_TESTS === 'true', os });
@@ -268,17 +265,14 @@ async function run(mode, { compileOnly = false } = {}) {
       const targetDir = testTargetDir(lane, { env: targetEnv, mode });
       if (targetDir) process.env.CARGO_TARGET_DIR = env.CARGO_TARGET_DIR = targetDir;
       console.log(`[rust-tests] ${mode}/${lane.lane} target=${targetDir}`);
-      if (lane.lane === 'cli') {
-        env.DOMIOS_CLI_TEST_SERVER = prepareCliServer({
-          cliTarget: targetDir, serverTarget: testTargetDir(WORKSPACE, { env: targetEnv, mode }), env,
-        });
-      }
       const messages = compile(lane);
       const compiled = messages.split('\n').filter(Boolean).flatMap(line => {
         try { const message = JSON.parse(line); return message.reason === 'compiler-artifact' && !message.fresh ? [message] : []; } catch { return []; }
       }).length;
       console.log(`[rust-tests] ${mode}/${lane.lane} compiled=${compiled}`);
       if (compileOnly) continue;
+      const listArgs = ['--manifest-path', lane.manifest, ...lane.targets, '--locked'];
+      const testArgs = (config, alone = false) => runArgs(lane, config, alone);
       const config = path.join(directory, `${mode}-${lane.lane}.toml`);
       fs.writeFileSync(config, tomlConfig('all()', false));
       let scope = mode === 'embeddings' ? 'package(=codeterm-mem) | (package(=codeterm-service-core) & test(/^mem::/))' : 'all()';
@@ -291,23 +285,21 @@ async function run(mode, { compileOnly = false } = {}) {
       }
       scope = withOverlayExclusions(scope, OVERLAY, os, lane);
       fs.writeFileSync(config, tomlConfig(scope, false));
-      const listed = jsonCommand(['nextest', 'list', '--manifest-path', lane.manifest, ...lane.targets, '--locked', '--config-file', config, '--message-format', 'json']);
+      const listed = jsonCommand(['nextest', 'list', ...listArgs, '--config-file', config, '--message-format', 'json']);
       const selected = Object.values(listed['rust-suites']).flatMap((suite) => Object.entries(suite.testcases)
         .filter(([, test]) => test['filter-match'].status === 'matches')
         .map(([name]) => ({ binary: suite['binary-id'], name })));
       // Listener lifecycle cases need a process boundary without concurrent fork holders (#620).
-      for (const { listener, integration, selected: group } of executionGroups(selected)) {
+      for (const { listener, selected: group } of executionGroups(selected)) {
         const unitFilter = listener ? LISTENER : `not (${LISTENER})`;
-        const category = integration ? CLI_SERVER : lane.lane === 'cli' ? `${unitFilter} & not (${CLI_SERVER})` : unitFilter;
-        const filter = `(${scope}) & (${category})`;
+        const filter = `(${scope}) & (${unitFilter})`;
         fs.writeFileSync(config, tomlConfig(filter, listener));
-        const log = path.join(directory, `${mode}-${lane.lane}-${integration ? 'integration' : listener ? 'listener' : 'normal'}.log`);
-        const result = await captureCommand('bash', ['scripts/test-capped.sh', '--exec', 'cargo-nextest', ...runArgs(lane, config)], log, env);
+        const log = path.join(directory, `${mode}-${lane.lane}-${listener ? 'listener' : 'normal'}.log`);
+        const result = await captureCommand('bash', ['scripts/test-capped.sh', '--exec', 'cargo-nextest', ...testArgs(config)], log, env);
         const report = fs.readFileSync(log, 'utf8');
         requireTestSuccess(result, report, `Rust tests failed on ${receipt.runner}`);
         receipt.executed += executedCount(report);
         try { timings.push(...parseTimings(report)); } catch (error) { console.log(`[rust-tests] timings unavailable for ${log}: ${error.message}`); }
-        if (integration) continue;
         const guard = ['scripts/check-slow-unit-tests.mjs', log, '--base', process.env.SLOW_UNIT_TESTS_BASE || 'origin/develop'];
         let aloneLog;
         if (plan.confirm) {
@@ -317,7 +309,7 @@ async function run(mode, { compileOnly = false } = {}) {
           if (exact) {
             aloneLog = log.replace(/\.log$/, '.alone.log');
             fs.writeFileSync(config, tomlConfig(`(${filter}) & (${exact})`, false));
-            const alone = await captureCommand('bash', ['scripts/test-capped.sh', '--exec', 'cargo-nextest', ...runArgs(lane, config, true)], aloneLog, env);
+            const alone = await captureCommand('bash', ['scripts/test-capped.sh', '--exec', 'cargo-nextest', ...testArgs(config, true)], aloneLog, env);
             requireTestSuccess(alone, fs.readFileSync(aloneLog, 'utf8'), `Candidate rerun failed on ${receipt.runner}`);
           }
         }

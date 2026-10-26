@@ -11,6 +11,7 @@ workspace = true
 name = "codeterm_sentinel_host"
 
 [dependencies]
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 codeterm-service-core = { path = "../codeterm-service-core", default-features = false }
 codeterm-mem = { path = "../codeterm-mem", default-features = false }
 codeterm-sentinel = { path = "../codeterm-sentinel" }

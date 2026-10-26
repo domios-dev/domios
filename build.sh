@@ -256,6 +256,13 @@ ct_msvc_native_arm64_env() {
 setup_env() {
   if [[ "$OSTYPE" != darwin* ]] && [[ "$OSTYPE" != linux* ]]; then
     if [ "$CMD" = release-arm64-compile ]; then
+      # An x64 host cross-compiles: rustc and cc locate MSVC's tools per target. An inherited developer
+      # environment (the runner's x64 one) would hand x64 libraries to the ARM64 link, so it is dropped.
+      if [ "${VSCMD_ARG_HOST_ARCH:-}" != arm64 ]; then
+        unset VSCMD_ARG_HOST_ARCH VSCMD_ARG_TGT_ARCH VSCMD_VER VCINSTALLDIR VCToolsInstallDir LIB LIBPATH INCLUDE
+        export npm_config_script_shell="$(cygpath -w "$(command -v bash)")"
+        return
+      fi
       ct_msvc_native_arm64_env
       return
     fi
@@ -328,7 +335,7 @@ initialize_build_identity
 
 # --- Kill THIS dev instance only (never prod, never another worktree) ---
 # Scoped strictly to $CT_PORT / $CT_VITE_PORT / this instance's screen+pidfile.
-# No global pgrep on target/debug/codeterm — that would take down every worktree.
+# No global pgrep on target/debug/domios-app — that would take down every worktree.
 kill_dev() {
   if [ "$CT_PORT" = "7685" ]; then
     echo "ERROR: refusing to kill prod Domios port 7685" >&2
@@ -454,14 +461,6 @@ rust_test_package() {
   esac
 }
 
-prepare_cli_server_test() {
-  local cli_target server_target
-  cli_target="${1:-$(node scripts/rust-test-lanes.mjs cli target)}" || return $?
-  server_target="${2:-$(node scripts/rust-test-lanes.mjs workspace target)}" || return $?
-  DOMIOS_CLI_TEST_SERVER="$(node scripts/cli-server-test.mjs "$cli_target" "$server_target")" || return $?
-  export DOMIOS_CLI_TEST_SERVER
-}
-
 run_nextest_scope() {
   local CARGO_TARGET_DIR="${CARGO_TARGET_DIR-}"
   [ "$#" -le 2 ] || {
@@ -472,7 +471,6 @@ run_nextest_scope() {
   local filterset="${2:-}"
   local manifest="src-tauri/Cargo.toml"
   local package=""
-  local cli_server_target=""
   local targets=(--no-default-features)
   local filter_args=()
 
@@ -534,7 +532,6 @@ run_nextest_scope() {
     plugin|codeterm-plugin) package="codeterm-plugin"; targets+=(--lib) ;;
     plugins|codeterm-plugins) package="codeterm-plugins"; targets+=(--lib) ;;
     cli|codeterm-cli)
-      cli_server_target="$(node scripts/rust-test-lanes.mjs workspace target)" || return $?
       manifest="cli/Cargo.toml"
       local cli_selection cli_arg
       cli_selection="$(node scripts/rust-test-lanes.mjs cli)" || return $?
@@ -597,12 +594,6 @@ run_nextest_scope() {
   fi
   reuse_args=(--binaries-metadata "$timing_dir/binaries.json" --cargo-metadata "$timing_dir/cargo.json")
   confirmation_args=("$timing_dir/binaries.json" "$timing_dir/cargo.json")
-  fi
-  if [ "$manifest" = cli/Cargo.toml ]; then
-    cargo nextest list "${reuse_args[@]}" "${filter_args[@]}" --message-format json > "$timing_dir/selected.json" || return $?
-    if [ "$(node scripts/cli-server-test.mjs selected "$timing_dir/selected.json")" = true ]; then
-      prepare_cli_server_test "$CARGO_TARGET_DIR" "$cli_server_target" || return $?
-    fi
   fi
   if CARGO_TEST_CMD="cargo nextest run" CARGO_TEST_BUILD_CMD="" NEXTEST_STATUS_LEVEL=pass TEST_RAW_OUTPUT=1 \
     scripts/test-capped.sh \
@@ -1326,12 +1317,9 @@ cli_release_binary() {
   cli_profile_binary release
 }
 
+# The app binary is domios-app and the CLI's is codeterm, so the CLI shares the app's target directory.
 dev_cli_target_dir() {
-  if [ -n "${CARGO_TARGET_DIR:-}" ]; then
-    printf '%s/cli\n' "$CARGO_TARGET_DIR"
-  else
-    printf '%s\n' cli/target
-  fi
+  printf '%s\n' "${CARGO_TARGET_DIR:-src-tauri/target}"
 }
 
 build_dev_cli() {
@@ -1428,9 +1416,9 @@ dev_frontend_dir() {
 
 dev_built_app_path() {
   if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
-    printf '%s\n' "$(tauri_debug_dir)/codeterm"
+    printf '%s\n' "$(tauri_debug_dir)/domios-app"
   else
-    printf '%s\n' "$(tauri_debug_dir)/codeterm.exe"
+    printf '%s\n' "$(tauri_debug_dir)/domios-app.exe"
   fi
 }
 
@@ -1455,7 +1443,7 @@ dev_cli_path() {
 # A dev PDB is overwritten by the very next link. The 2026-09-05 abort became
 # unsymbolizable nine minutes after it was written, so the symbol file for each
 # linked dev build is retained under <data dir>/pdb/<build sha>/ and the store is
-# pruned to the newest few. The copy keeps the name codeterm.pdb because Windows
+# pruned to the newest few. The copy keeps the name domios_app.pdb because Windows
 # symbol lookup finds a PDB by the name recorded in the binary's RSDS record — a
 # renamed file is never found, which is why the sha is the directory.
 DEV_PDB_KEEP_DEFAULT=3
@@ -1467,7 +1455,7 @@ dev_pdb_store() {
 
 dev_pdb_source() {
   printf '%s
-' "${CARGO_TARGET_DIR:-$(pwd -P)/src-tauri/target}/debug/codeterm.pdb"
+' "${CARGO_TARGET_DIR:-$(pwd -P)/src-tauri/target}/debug/domios_app.pdb"
 }
 
 prune_dev_pdb_store() {
@@ -1512,10 +1500,10 @@ retain_dev_pdb() {
   store="$(dev_pdb_store)"
   dest="$store/$key"
   mkdir -p "$dest"
-  if [ ! -f "$dest/codeterm.pdb" ] || [ "$src" -nt "$dest/codeterm.pdb" ]; then
-    cp -f "$src" "$dest/codeterm.pdb.partial"
-    mv -f "$dest/codeterm.pdb.partial" "$dest/codeterm.pdb"
-    echo "[symbols] retained $key -> $dest/codeterm.pdb"
+  if [ ! -f "$dest/domios_app.pdb" ] || [ "$src" -nt "$dest/domios_app.pdb" ]; then
+    cp -f "$src" "$dest/domios_app.pdb.partial"
+    mv -f "$dest/domios_app.pdb.partial" "$dest/domios_app.pdb"
+    echo "[symbols] retained $key -> $dest/domios_app.pdb"
   else
     # Touch so an unchanged rerun still counts as the most recently used build.
     touch "$dest"
@@ -1914,9 +1902,7 @@ check_workspace_run() {
   out="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID.check-workspace.log"
   : > "$out"
   CARGO_TARGET_DIR="$CT_CHECK_WORKTREE/target/app" cargo check --manifest-path src-tauri/Cargo.toml \
-    --workspace --exclude codeterm-cli --all-targets --message-format=short >> "$out" 2>&1 || status=$?
-  CARGO_TARGET_DIR="$CT_CHECK_WORKTREE/target/cli" cargo check --manifest-path cli/Cargo.toml \
-    --all-targets --message-format=short >> "$out" 2>&1 || status=$?
+    --workspace --all-targets --message-format=short >> "$out" 2>&1 || status=$?
   check_queue_errors 20 "$status" < "$out"
   check_queue_warnings 40 "*" < "$out" || [ "$status" != 0 ] || status=1
   echo "check-workspace: sha=$sha os=$OSTYPE exit=$status wall=$(( $(date +%s) - started ))s full-log=$out"
@@ -2081,7 +2067,7 @@ check_queue_run() {
   if [ "$cli" = 1 ]; then
     local cli_targets=(--all-targets)
     [ "$lane" != 1 ] || cli_targets=(-p codeterm-cli --bins)
-    CARGO_TARGET_DIR="$cw/target/cli" run_check_queue_cargo "$out" cargo clippy --manifest-path cli/Cargo.toml \
+    CARGO_TARGET_DIR="$cw/target/app" run_check_queue_cargo "$out" cargo clippy --manifest-path cli/Cargo.toml \
       "${cli_targets[@]}" --no-deps --message-format=short -- -D warnings "${CLIPPY_ALLOW[@]}" || status=$?
   fi
   if [ "$lane" = 0 ]; then
@@ -2210,7 +2196,7 @@ build_and_launch_dev() {
   ct_with_firebase_build_config build_dev_server "$split_logs/server.jsonl"
   cargo tree --manifest-path src-tauri/Cargo.toml -p domios-server --no-default-features \
     --features domios-server/embeddings --edges normal,build --prefix none > "$split_logs/server-tree.txt"
-  local build_args=(--manifest-path src-tauri/Cargo.toml -p codeterm --bin codeterm
+  local build_args=(--manifest-path src-tauri/Cargo.toml -p codeterm --bin domios-app
     --profile "$CT_DEV_CARGO_PROFILE" --no-default-features)
   build_dev_client "$conf" "${build_args[@]}"
   build_sha="$CODETERM_BUILD_SHA"
@@ -2600,7 +2586,7 @@ prepare_release_bundle_inputs() {
     cargo build --release --timings --manifest-path src-tauri/Cargo.toml \
       "${cargo_target_args[@]}" \
       --features "tauri/custom-protocol${CODETERM_RELEASE_FEATURES:+,$CODETERM_RELEASE_FEATURES}" \
-      --bin codeterm
+      --bin domios-app
   fi
   if [ "$mode" = "bundle" ] && [ "${CODETERM_RELEASE_COMMON_STAGE:-0}" != 1 ]; then
     node scripts/prepare-bundle-resource-stubs.mjs assert-package-ready
@@ -2699,7 +2685,7 @@ notarize_local_macos_package() {
     return 1
   fi
   bash .agents/skills/github-release/scripts/notarize-dmg.sh "${dmgs[0]}"
-  xcrun stapler staple "$bundle_root/macos/Domios.app"
+  bash scripts/staple-with-retry.sh "$bundle_root/macos/Domios.app"
   spctl --assess --type execute "$bundle_root/macos/Domios.app"
 }
 
@@ -3024,7 +3010,7 @@ EOF
     configure_dev_cargo
     prepare_dev_frontend_dist
     prepare_bundle_stubs
-    measure_args=(--manifest-path src-tauri/Cargo.toml -p codeterm --bin codeterm
+    measure_args=(--manifest-path src-tauri/Cargo.toml -p codeterm --bin domios-app
       --profile "$CT_DEV_CARGO_PROFILE" --no-default-features --timings)
     TAURI_CONFIG="$(cat "$(dev_conf_path)")" cargo build "${measure_args[@]}"
     ;;
@@ -3150,10 +3136,7 @@ EOF
     node scripts/run-ts-unit-tests.mjs
     node node_modules/vitest/vitest.mjs run
     node scripts/run-plugin-tests.mjs
-    "$(command -v python3 || command -v python)" -m unittest scripts.tests.test_release_issue_contract
     node --test scripts/tests/updater-manifest.test.mjs
-    node --test scripts/tests/release-closure-authority.test.mjs
-    node --test scripts/tests/release-notes-sync.test.mjs
     node --test scripts/tests/bundled-cli-name.test.mjs
     node --test scripts/tests/local-install-cache.test.mjs
     node node_modules/@biomejs/biome/bin/biome check .

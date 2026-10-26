@@ -265,43 +265,6 @@ jobs:
       - name: Build and typecheck frontend
         id: ci-6
         run: node scripts/ci-step.mjs ts-typecheck --ci
-  frontend-windows:
-    name: Windows path identity
-    needs: changed
-    if: ${{ needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true' }}
-    runs-on: windows-2022
-    timeout-minutes: 15
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - name: Setup Node.js
-        id: ci-2
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
-        with:
-          package-manager-cache: false
-          node-version: 22.22.0
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-        id: ci-1
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 1
-      - name: Setup pnpm
-        id: ci-3
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
-        with:
-          version: 10.32.1
-          run_install: false
-          dest: ${{ runner.tool_cache }}/setup-pnpm
-      - name: Runner preflight
-        run: node scripts/ci-runner-paths.mjs bash,git,node,pnpm
-      - name: Install dependencies
-        id: ci-4
-        run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
-      - *a1
-      - name: Check pnpm workspace path identity
-        id: ci-6
-        run: node scripts/ci-step.mjs frontend-windows-build --ci
   ts-types:
     name: ts generated types
     needs: changed

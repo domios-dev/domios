@@ -1,8 +1,8 @@
 {
   "version": 1,
   "sources": {
-    "tests-fast.yml": "62d9295bcf4a2f717715f20d64a6bd7349d950557d03e2b7da9e040cef08fa62",
-    "tests-pr.yml": "08d455a41a2bf62935fa73d9e2dbaf066934648f567f01ef23aee649ab263f6e"
+    "tests-fast.yml": "33506f66353b62098e13e3388a58bf3325d6d191c97d56ed39c6f4a8111bc74d",
+    "tests-pr.yml": "0a5dedaadff7782b6c94f228abc144b06c131880c4f7383fa796393231f8bc1a"
   },
   "bindings": [
     {
@@ -79,13 +79,6 @@
       "file": "tests-fast.yml",
       "jobId": "frontend-dist",
       "entry": "ts-typecheck",
-      "role": "bash,git,node,pnpm",
-      "pythonBootstrap": null
-    },
-    {
-      "file": "tests-fast.yml",
-      "jobId": "frontend-windows",
-      "entry": "frontend-windows-build",
       "role": "bash,git,node,pnpm",
       "pythonBootstrap": null
     },
@@ -205,13 +198,6 @@
       "file": "tests-pr.yml",
       "jobId": "frontend-dist",
       "entry": "ts-typecheck",
-      "role": "bash,git,node,pnpm",
-      "pythonBootstrap": null
-    },
-    {
-      "file": "tests-pr.yml",
-      "jobId": "frontend-windows",
-      "entry": "frontend-windows-build",
       "role": "bash,git,node,pnpm",
       "pythonBootstrap": null
     },

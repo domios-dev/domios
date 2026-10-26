@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn latest_release_request_bypasses_mutable_github_cache() {
-    let request = latest_release_request(&reqwest::Client::new())
+    let request = latest_release_request(&reqwest::Client::new(), "domios-dev/domios")
         .build()
         .unwrap();
     assert_eq!(

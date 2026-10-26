@@ -26,6 +26,7 @@ hostname = "0.4.2"
 if-addrs = "0.13"
 chrono = { version = "0.4", features = ["serde"] }
 semver = "1"
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
 codeterm-paths = { path = "../codeterm-paths", features = ["isolated-data-root"] }

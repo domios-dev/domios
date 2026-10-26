@@ -32,9 +32,10 @@ async fn resolve_manifest_endpoint(opts: &ApplyOptions) -> Result<String, String
         return Ok(url.clone());
     }
     if opts.channel == Channel::Stable {
-        let tag = codeterm_update::checker::latest_release_tag().await?;
+        let latest = codeterm_update::checker::latest_release_tag().await?;
         return Ok(immutable_endpoint_for_release(
-            &tag,
+            latest.repository,
+            &latest.tag,
             opts.channel,
             &opts.install_method,
         ));
