@@ -79,8 +79,9 @@ test('every platform build waits for the single bundle and installs it by digest
     assert.match(release.jobs[id].if, /needs\.frontend-dist\.result == 'success'/, id);
     assert.equal(release.jobs[id].with.frontend_sha256, '${{ needs.frontend-dist.outputs.sha256 }}', id);
   }
-  for (const name of ['release-macos-build', 'release-linux', 'release-arm64-compile', 'release-windows']) {
-    const steps = workflow(name).jobs[name === 'release-arm64-compile' ? 'compile' : 'build'].steps;
+  const arm64Compile = parse(readFileSync(new URL('../../.github/actions/arm64-compile/action.yml', import.meta.url), 'utf8'));
+  for (const name of ['release-macos-build', 'release-linux', 'arm64-compile', 'release-windows']) {
+    const steps = name === 'arm64-compile' ? arm64Compile.runs.steps : workflow(name).jobs.build.steps;
     const fetch = steps.findIndex(step => /release-frontend-dist\.mjs fetch/.test(step.run ?? ''));
     const compile = steps.findIndex(step => /mac-bundle|release-(?:inputs|bundle|arm64-compile)|native container/.test(`${step.run ?? ''} ${step.name ?? ''}`));
     assert.ok(fetch >= 0 && fetch < compile, name);

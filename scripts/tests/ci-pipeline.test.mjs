@@ -18,7 +18,9 @@ test('one CI event entrypoint owns every guard and its aggregate is the only req
       assert.ok(name === 'tests.yml' || name === 'release.yml' && w.on.push.branches.length === 1 && w.on.push.branches[0] === 'master');
     }
   }
-  for (const id of ['fast', 'pr']) assert.ok([ci.jobs[id].needs].flat().includes('policy'), 'source guards finish before compiler acquisition');
+  // Owner decision: compilers start with the push beside the guards; CI result still requires the guards.
+  assert.ok([ci.jobs.pr.needs].flat().includes('policy'));
+  for (const id of ['fast', 'rust', 'release-dry-run']) assert.deepEqual([ci.jobs[id].needs].flat(), ['admission'], id);
   const dependencies = new Set(ci.jobs.result.needs);
   assert.deepEqual(dependencies, new Set(Object.keys(ci.jobs).filter(id => id !== 'result')));
   assert.equal(condition(ci.jobs.result.if, { failed: true }), true);

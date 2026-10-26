@@ -91,7 +91,7 @@ verifies the anonymous download. Every install refreshes `codeterm-core` from th
    New branch pushes cancel the previous run through per-ref concurrency. All PR
    runs remain hosted and secret-free; they never duplicate full CI or packaging.
    Develop skips a SHA already owned by a release push run with a clear notice.
-   With publication GO, an admin merges the green PR using a real merge commit.
+   With publication GO, an admin squash-merges the green PR; publication checks that master carries the qualified tree.
    The master push discovers that merged release PR, verifies both merge parents,
    and publishes the exact head's retained green push run through promote_run_id.
    Qualification and packaging must belong to that same run. No master merge

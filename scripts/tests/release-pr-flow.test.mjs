@@ -30,8 +30,8 @@ test('every dependency and reusable input resolves in the PR release graph',()=>
       }
     }
   }
-  const compiler=workflow('release-arm64-compile');
-  assert.doesNotMatch(JSON.stringify(compiler),/secrets\.(APPLE_|TAURI_|GH_RELEASE|PACKAGE_REPOS)/);
+  const compiler=parse(readFileSync(new URL('../../.github/actions/arm64-compile/action.yml',import.meta.url),'utf8'));
+  assert.doesNotMatch(JSON.stringify(compiler),/secrets\./);
   const report=workflow('rust-warnings-summary').jobs.report;
   const context={github,inputs:{report_name:'rust-warnings-release-report'},vars:{CI_LINUX_LIGHT_RUNNER:'ubuntu-24.04'}};
   assert.equal(evaluateCondition(report.environment,context),'release');
@@ -68,17 +68,9 @@ test('release push owns full CI and exact-head packaging while every PR stays li
 
 });
 
-test('develop duplicate admission uses exact release push SHA, with a clear skip reason',async()=>{
+test('master pushes skip heavy CI: publication reuses the qualified release head',async()=>{
   const script=ci.jobs.admission.steps[0].with.script;
   const execute=new AsyncFunction('github','context','core',script);
-  for (const [rows,expected] of [[[run],'false'],[[{...run,head_sha:'b'.repeat(40)}],'true'],[[],'true']]) {
-    const outputs={}, notices=[];
-    await execute({paginate:async()=>rows,rest:{actions:{listWorkflowRuns(){}}}},
-      {eventName:'push',ref:'refs/heads/develop',sha,repo:{owner:'domios-dev',repo:'domios'},payload:{}},
-      {setOutput:(key,value)=>outputs[key]=value,notice:value=>notices.push(value)});
-    assert.equal(outputs.run,expected);
-    if(expected==='false')assert.match(notices[0],/release push run owns this exact SHA/);
-  }
   const outputs={};
   await execute({}, {eventName:'push',ref:'refs/heads/master',repo:{},payload:{}},
     {setOutput:(key,value)=>outputs[key]=value,notice(){}});
@@ -87,7 +79,7 @@ test('develop duplicate admission uses exact release push SHA, with a clear skip
 
 });
 
-test('merge admission selects green retained PR head and refuses squash, unmerged or foreign heads',async()=>{
+test('merge admission selects the green retained PR head and refuses a differing tree, unmerged or foreign heads',async()=>{
   const script=release.jobs['qualified-source'].steps[0].with.script;
   const execute=new AsyncFunction('github','context','core','process',script);
   const admitted={};
@@ -96,19 +88,18 @@ test('merge admission selects green retained PR head and refuses squash, unmerge
   assert.deepEqual(admitted,{source_sha:sha});
   await assert.rejects(execute({}, {eventName:'push',ref:github.ref,sha}, {}, {env:{DRY_RUN:'true',SOURCE_SHA:'b'.repeat(40)}}),/Foreign release push head/);
   const merged={...pr,state:'closed',merged:true,merged_at:'2026-10-25',merge_commit_sha:'c'.repeat(40)};
-  const invoke=async(candidate,parents,runs=[run])=>{
+  const invoke=async(candidate,trees,runs=[run])=>{
     const outputs={};
-    await execute({rest:{repos:{getCommit:async()=>({data:{parents}}),listPullRequestsAssociatedWithCommit(){}},actions:{listWorkflowRuns(){}}},paginate:async(method,args)=>args.workflow_id?runs:[candidate]},
+    await execute({rest:{repos:{getCommit:async({ref})=>({data:{commit:{tree:{sha:trees[ref]}}}}),listPullRequestsAssociatedWithCommit(){}},actions:{listWorkflowRuns(){}}},paginate:async(method,args)=>args.workflow_id?runs:[candidate]},
       {eventName:'push',ref:'refs/heads/master',sha:candidate.merge_commit_sha,repo:{owner:'domios-dev',repo:'domios'}},{setOutput:(key,value)=>outputs[key]=value,notice(){}}, {env:{DRY_RUN:''}});
     return outputs;
   };
-  const parents=[{sha:'b'.repeat(40)},{sha}];
-  assert.deepEqual(await invoke(merged,parents),{source_sha:sha,promote_run_id:'42',branch:pr.head.ref});
-  await assert.rejects(invoke(merged,[{sha}]),/real merge/);
-  await assert.rejects(invoke(merged,[parents[0],{sha:'d'.repeat(40)}]),/real merge/);
-  assert.deepEqual(await invoke(pr,parents),{});
+  const same={[merged.merge_commit_sha]:'e'.repeat(40),[sha]:'e'.repeat(40)};
+  assert.deepEqual(await invoke(merged,same),{source_sha:sha,promote_run_id:'42',branch:pr.head.ref});
+  await assert.rejects(invoke(merged,{...same,[merged.merge_commit_sha]:'f'.repeat(40)}),/qualified head tree/);
+  assert.deepEqual(await invoke(pr,same),{});
   for(const bad of [{...run,conclusion:'failure'},{...run,head_sha:'d'.repeat(40)},{...run,head_repository:{full_name:'fork/domios'}}])
-    await assert.rejects(invoke(merged,parents,[bad]),/No green/);
+    await assert.rejects(invoke(merged,same,[bad]),/No green/);
   for(const id of ['frontend-dist','macos-arm64','macos-x64','linux-arm64','linux-x86_64','windows-x64','windows-arm64'])
     assert.equal(condition(release.jobs[id].if,{github,needs:{prepare:{result:'success',outputs:{promote_run_id:'42',kind:'app'}},'frontend-dist':{result:'success'}}}),false,id);
   assert.equal(release.jobs.promote,undefined);

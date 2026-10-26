@@ -35,11 +35,11 @@ test('release packaging belongs to push CI and merge publication checks the rele
   assert.ok(release.on.workflow_call);
   assert.equal(release.jobs['qualified-source']['runs-on'],'ubuntu-24.04');
   assert.equal(release.jobs['qualified-source'].environment,undefined);
-  assert.match(release.jobs['qualified-source'].steps[0].with.script,/merge.parents.length !== 2/);
+  assert.match(release.jobs['qualified-source'].steps[0].with.script,/qualified head tree/);
   assert.equal(tests.jobs['release-dry-run'].with.dry_run,true);
   // Packaging overlaps the Rust suites; publication promotes only a fully green run and re-checks its qualification.
   // Packaging starts with the push: it waits for no check, and builds the pushed commit itself.
-  assert.deepEqual(tests.jobs['release-dry-run'].needs,['admission','policy']);
+  assert.deepEqual(tests.jobs['release-dry-run'].needs,['admission']);
   assert.doesNotMatch(tests.jobs['release-dry-run'].if,/needs\.fast/);
   assert.equal(tests.jobs['release-dry-run'].with.source_sha,'${{ github.sha }}');
   assert.match(release.jobs['qualified-source'].steps[0].with.script,/run\.conclusion === 'success'/);
@@ -71,8 +71,8 @@ test("release pushes qualify even when their merge tree equals a parent", t => {
   }
 });
 
-const fastJobs = ["guards", "plugins", "clippy-linux", "cli-tests", "ts-static", "frontend-windows", "frontend-dist", "ts-types", "ts-unit", "ts-vitest", "ts-plugins"];
-const longJobs = ["rust-tests", "rust-platform", "rust-embeddings", "rust-receipts"];
+const fastJobs = ["guards", "plugins", "ts-static", "frontend-windows", "frontend-dist", "ts-types", "ts-unit", "ts-vitest", "ts-plugins"];
+const longJobs = ["rust-tests", "rust-platform", "rust-embeddings", "cli-tests", "rust-receipts"];
 const bash = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" : "bash";
 
 test("warning collection runs its node wrapper under stock shells and never fails the build", () => {
@@ -148,7 +148,6 @@ test("platform builders do not push release tags before the test gate", () => {
 test("heavy Rust and build jobs end by removing their own targets and archives", () => {
   const heavy = [
     ...["rust-tests", "rust-platform", "rust-embeddings"].map(id => rust.jobs[id]),
-    ...["clippy-linux"].map(id => fast.jobs[id]),
     ...["release-macos-build", "release-linux", "release-linux-arm64", "release-windows"].map(name => workflow(name).jobs.build),
   ];
   for (const job of heavy) {
@@ -166,25 +165,26 @@ test("CI jobs queue for a shared builder's gateway slot instead of failing busy"
 });
 
 
-test("guards preflight prerequisites before cargo-dependent serial contracts", () => {
+test("guards preflight prerequisites before the gateway policy", () => {
   const steps = fast.jobs.guards.steps;
   const setup = steps.findIndex(step => step.run?.includes('ci-runner-paths.mjs'));
-  const serial = steps.findIndex(step => step.name === 'Build gateway guards and serial gateway script tests');
+  const serial = steps.findIndex(step => step.name === 'Build gateway and release signing policy');
   assert.ok(setup >= 0 && setup < serial);
 });
 
-test("dev pushes and nightly fallback qualify every exact SHA, and release reuses the evidence", () => {
-  assert.deepEqual(tests.on.push.branches, ['master', 'develop', 'rename/domios', 'release/**']);
+test("only the release push qualifies a release; develop pushes and release PRs start no CI run", () => {
+  assert.deepEqual(tests.on.push.branches, ['master', 'rename/domios', 'release/**']);
+  assert.deepEqual(tests.on.pull_request['branches-ignore'], ['master']);
   assert.equal(tests.on.push['paths-ignore'], undefined);
   assert.equal(tests.on.schedule.length, 2);
   assert.match(tests.concurrency.group, /github.ref/);
   assert.equal(tests.concurrency['cancel-in-progress'], true);
   for (const event_name of ['push', 'schedule']) {
-    assert.equal(condition(tests.jobs.rust.if, { github: { event_name }, needs: {
-      fast: { outputs: { resolved_scope: '{}' } } } }), true);
+    assert.equal(condition(tests.jobs.rust.if, { github: { event_name }, needs: { admission: { outputs: { run: 'true' } } } }), true);
   }
-  assert.equal(tests.jobs.rust.with.resolved_scope, '${{ needs.fast.outputs.resolved_scope }}');
-  assert.equal(tests.jobs.rust.with.source_ref, '${{ needs.fast.outputs.source_sha }}');
+  assert.equal(condition(tests.jobs.rust.if, { github: { event_name: 'push' }, needs: { admission: { outputs: { run: 'false' } } } }), false);
+  assert.equal(tests.jobs.rust.with.resolved_scope, '{"heavy":"true"}');
+  assert.equal(tests.jobs.rust.with.source_ref, '${{ needs.admission.outputs.source_sha }}');
   assert.equal(rust.jobs.changed, undefined, 'the Rust tier reuses the caller scope without a second job');
   assert.equal(rust.on.workflow_call.inputs.resolved_scope.required, true);
   const source = fast.jobs.changed.steps.find(step => step.id === 'tree');
@@ -212,7 +212,6 @@ test("Rust qualification stays self-hosted and hosted frontend jobs have no secr
   for (const job of Object.values(rust.jobs)) {
     assert.ok(job['runs-on'].includes('self-hosted'));
   }
-  for (const id of ['clippy-linux', 'cli-tests']) assert.ok(fast.jobs[id]['runs-on'].includes('self-hosted'));
   for (const id of ['ts-unit', 'ts-vitest', 'ts-static', 'ts-types', 'ts-plugins', 'frontend-windows', 'frontend-dist', 'plugins']) {
     const job = fast.jobs[id];
     assert.match(job['runs-on'], /^(ubuntu-24.04|windows-latest)$/);

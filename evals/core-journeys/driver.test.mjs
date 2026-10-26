@@ -126,16 +126,18 @@ test("run.sh --plan exits 0 on a named instance and prints steps and evidence pa
 });
 
 test("run.sh refuses ports 7685 and 7686 and an unset instance, in plan and live modes", () => {
-  for (const mode of [["all", "--plan"], ["all"], ["setup"]]) {
-    for (const [env, message] of [
-      [previousTarget("curated", "7685"), /production port 7685/],
-      [previousTarget("curated", "7686"), /shared DEV port 7686/],
-      [{ [previousPortEnv]: "7697" }, /named instance is unset/],
-      [{}, /named instance is unset/],
-    ]) {
-      const result = runner(mode, env);
-      assert.notEqual(result.status, 0, `${mode.join(" ")} ${JSON.stringify(env)} must be refused`);
-      assert.match(result.stderr, message);
-    }
+  // Every refusal in one live mode; each other mode proves it shares the same pre-dispatch guard.
+  const cases = [
+    [["all"], previousTarget("curated", "7685"), /production port 7685/],
+    [["all"], previousTarget("curated", "7686"), /shared DEV port 7686/],
+    [["all"], { [previousPortEnv]: "7697" }, /named instance is unset/],
+    [["all"], {}, /named instance is unset/],
+    [["all", "--plan"], previousTarget("curated", "7685"), /production port 7685/],
+    [["setup"], {}, /named instance is unset/],
+  ];
+  for (const [mode, env, message] of cases) {
+    const result = runner(mode, env);
+    assert.notEqual(result.status, 0, `${mode.join(" ")} ${JSON.stringify(env)} must be refused`);
+    assert.match(result.stderr, message);
   }
 });

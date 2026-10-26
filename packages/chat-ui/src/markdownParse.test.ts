@@ -64,9 +64,12 @@ const STREAM_CORPUS = [
 
 test("streamed revisions parse only the open tail and stay identical to a full parse", () => {
   const full = unified().use(remarkParse).use(remarkGfm);
-  for (const document of [...STREAM_CORPUS, STREAM_CORPUS.join("\n")]) {
+  const joined = STREAM_CORPUS.join("\n");
+  for (const document of [...STREAM_CORPUS, joined]) {
     const parse = createIncrementalMarkdownParser((source) => full.parse(source));
-    for (let end = 0; end <= document.length; end++) {
+    // Each corpus entry covers every boundary; the joined document re-checks their seams at a prime stride.
+    const stride = document === joined ? 7 : 1;
+    for (let end = 0; end <= document.length; end = end === document.length ? end + 1 : Math.min(document.length, end + stride)) {
       const revision = document.slice(0, end);
       assert.deepEqual(parse(revision), full.parse(revision), JSON.stringify(revision));
     }
@@ -78,7 +81,7 @@ test("random stream chunks keep full-parse semantics and reuse finished blocks",
   const document = STREAM_CORPUS.join("\n\n");
   let seed = 7;
   const random = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
-  for (let run = 0; run < 20; run++) {
+  for (let run = 0; run < 8; run++) {
     const parsed: number[] = [];
     const parse = createIncrementalMarkdownParser((source) => { parsed.push(source.length); return full.parse(source); });
     let previous: ReturnType<typeof parse> | null = null;

@@ -41,28 +41,11 @@ permissions:
   contents: write
   actions: read
 jobs:
-  compile:
-    uses: ./.github/workflows/release-arm64-compile.yml
-    secrets:
-      SCCACHE_AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
-      SCCACHE_AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
-      CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
-      DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
-      DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
-      DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
-      DOMIOS_ACCOUNT_REDEEM_URL: ${{ secrets.DOMIOS_ACCOUNT_REDEEM_URL }}
-      DOMIOS_BILLING_FUNCTIONS_URL: ${{ secrets.DOMIOS_BILLING_FUNCTIONS_URL }}
-      DOMIOS_AMPLITUDE_API_KEY_PROD: ${{ secrets.DOMIOS_AMPLITUDE_API_KEY_PROD }}
-    with:
-      tag: ${{ inputs.tag }}
-      source_ref: ${{ inputs.source_ref }}
-      target: aarch64-pc-windows-msvc
-      frontend_sha256: ${{ inputs.frontend_sha256 }}
   build:
-    name: finalize
+    name: build (aarch64-pc-windows-msvc)
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && ((startsWith(github.ref, 'refs/heads/release/') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.path == '.github/workflows/tests.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.actor.login == 'rollacode' && github.event.workflow_run.triggering_actor.login == 'rollacode' && startsWith(github.event.workflow_run.head_branch, 'release/'))) }}
     environment: release
-    # Finalizes on the same hosted arm64 runner type that compiled, so the handoff stays inside GitHub.
+    # One hosted arm64 job compiles, signs, smokes and publishes; release signing secrets live in the release environment.
     runs-on: windows-11-arm
     timeout-minutes: 120
     env:
@@ -73,6 +56,12 @@ jobs:
       CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
       CODETERM_SCCACHE_VERIFY_ONLY: "1"
       TARGET: aarch64-pc-windows-msvc
+      DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
+      DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
+      DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
+      DOMIOS_ACCOUNT_REDEEM_URL: ${{ secrets.DOMIOS_ACCOUNT_REDEEM_URL }}
+      DOMIOS_BILLING_FUNCTIONS_URL: ${{ secrets.DOMIOS_BILLING_FUNCTIONS_URL }}
+      DOMIOS_AMPLITUDE_API_KEY_PROD: ${{ secrets.DOMIOS_AMPLITUDE_API_KEY_PROD }}
       GIT_CONFIG_COUNT: "1"
       GIT_CONFIG_KEY_0: core.longpaths
       GIT_CONFIG_VALUE_0: "true"
@@ -135,17 +124,20 @@ jobs:
       - name: Install npm dependencies
         shell: pwsh
         run: pnpm install --frozen-lockfile
-      - name: Download unsigned arm64 handoff
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - name: Compile release bundles natively
+        id: compile
+        uses: ./.github/actions/arm64-compile
         with:
-          name: unsigned-aarch64-pc-windows-msvc-${{ needs.compile.outputs.sha256 }}
-          path: ${{ runner.temp }}/hosted-arm64
-      - name: Download and verify unsigned arm64 handoff
+          tag: ${{ inputs.tag }}
+          source_ref: ${{ inputs.source_ref }}
+          target: aarch64-pc-windows-msvc
+          frontend_sha256: ${{ inputs.frontend_sha256 }}
+      - name: Verify the frozen stage
         shell: pwsh
         run: |-
-          node scripts/release-arm64-handoff.mjs unpack "$env:TARGET" "${{ inputs.tag }}" "${{ inputs.source_ref }}" "$env:RUNNER_TEMP/hosted-arm64/arm64-handoff.tar" "${{ needs.compile.outputs.sha256 }}"
+          node scripts/release-arm64-handoff.mjs unpack "$env:TARGET" "${{ inputs.tag }}" "${{ inputs.source_ref }}" "$env:RUNNER_TEMP/arm64-handoff.tar" "${{ steps.compile.outputs.sha256 }}"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Sign transferred updater bundle
+      - name: Sign the updater bundle
         shell: pwsh
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -290,10 +282,10 @@ jobs:
       - name: Upload artifacts spooled while the private store was unreachable
         if: always()
         uses: ./.github/actions/ci-artifact-spool
-      - name: Retain hosted handoff and final stage proof
+      - name: Retain the frozen stage proof
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: finalized-handoff-aarch64-pc-windows-msvc-${{ github.run_attempt }}
+          name: release-stage-aarch64-pc-windows-msvc-${{ github.run_attempt }}
           path: |-
             release-artifacts/hosted-handoff-aarch64-pc-windows-msvc.json
             release-artifacts/common-stage/aarch64-pc-windows-msvc/headless-stage.json
@@ -303,4 +295,3 @@ jobs:
         if: always()
         continue-on-error: true
         run: node scripts/ci-workspace-cleanup.mjs
-    needs: compile
