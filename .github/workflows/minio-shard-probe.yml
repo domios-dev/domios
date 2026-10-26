@@ -64,6 +64,32 @@ jobs:
           work=$(git ls-files 'src-tauri/crates/*/Cargo.toml' | awk -v k="$SHARD" 'NR % 4 == k % 4' | wc -l)
           echo "| shard $SHARD/4 | download 200 MB, checksum ok, $work crates | ${took}s |" | tee -a "$GITHUB_STEP_SUMMARY"
 
+  lan:
+    name: our runner over the LAN
+    runs-on: [self-hosted, Linux, light, host-ubunta]
+    timeout-minutes: 15
+    env:
+      CODETERM_CI_STORE_ENDPOINT: ${{ secrets.CI_STORE_LAN_ENDPOINT }}
+      LAN_KEY: shard-probe/${{ github.run_id }}/lan.bin
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 1
+      - name: Upload and download 200 MB over the LAN address
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -n "$CODETERM_CI_STORE_ENDPOINT" ] || { echo "::error::CI_STORE_LAN_ENDPOINT is not set"; exit 1; }
+          head -c 209715200 /dev/urandom > "$RUNNER_TEMP/lan.bin"
+          sha=$(sha256sum "$RUNNER_TEMP/lan.bin" | cut -d' ' -f1)
+          start=$(date +%s.%N); bash scripts/ci-artifact.sh put "$LAN_KEY" "$RUNNER_TEMP/lan.bin"
+          up=$(echo "$(date +%s.%N) - $start" | bc)
+          start=$(date +%s.%N); bash scripts/ci-artifact.sh get "$LAN_KEY" "$RUNNER_TEMP/lan-back.bin"
+          down=$(echo "$(date +%s.%N) - $start" | bc)
+          [ "$(sha256sum "$RUNNER_TEMP/lan-back.bin" | cut -d' ' -f1)" = "$sha" ]
+          bash scripts/ci-artifact.sh rm "$LAN_KEY"
+          echo "| lan (ubunta) | upload 200 MB ${up}s, download ${down}s, checksum ok |" | tee -a "$GITHUB_STEP_SUMMARY"
+
   cleanup:
     needs: shard
     if: always()
