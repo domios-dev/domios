@@ -35,9 +35,6 @@ jobs:
       CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
       CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
       KEY: store-probe/${{ github.run_id }}/${{ matrix.host }}.bin
-    defaults:
-      run:
-        shell: bash
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -45,8 +42,10 @@ jobs:
       - name: Put tools on PATH
         run: node scripts/ci-runner-paths.mjs --paths-only
       - name: Route, sccache against the shared store, object round trip
+        shell: bash
         run: |
-          set -uo pipefail
+          # Report every route even when one fails; the runner's bash starts with -e.
+          set +e -uo pipefail
           source scripts/ci-store.sh
           echo "route: $CT_CI_STORE_ROUTE"
           for route in lan public; do
