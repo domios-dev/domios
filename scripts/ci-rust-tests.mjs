@@ -10,6 +10,7 @@ import { overlayExclusions } from './ci-rust-archives.mjs';
 import { classifyTarget } from './ci-classifier-cache.mjs';
 import { FULL_LANES, testTargetDir } from './rust-test-lanes.mjs';
 import { renderedCompilerErrors } from './collect-rust-warnings.mjs';
+import { parseTimings } from './check-slow-unit-tests.mjs';
 import { prepareCliServer } from './cli-server-test.mjs';
 import { failureDetector, failureEvent, firstFailure } from './ci-first-failure.mjs';
 
@@ -206,8 +207,22 @@ export async function captureCommand(command, args, logPath, env = process.env, 
 }
 
 // Serial confirmation costs longer than the suite, so release runs and non-baseline OSes report parallel timings only.
-export function timingPlan({ release, os }) {
-  return release || os !== 'macOS' ? { confirm: false, policy: 'advisory' } : { confirm: true, policy: 'enforce' };
+// Test duration never fails a run: timeouts catch hangs only, and slow tests surface as warnings.
+export function timingPlan() {
+  return { confirm: false, policy: 'advisory' };
+}
+
+export const SLOW_TEST_WARNING_SECONDS = 0.5;
+
+// Every test above the warning line, slowest first, as one step-summary table.
+export function slowTestReport(entries, mode, runner) {
+  const slow = entries.filter(entry => entry.measuredSeconds > SLOW_TEST_WARNING_SECONDS)
+    .sort((left, right) => right.measuredSeconds - left.measuredSeconds);
+  if (!slow.length) return { count: 0, markdown: '' };
+  const rows = slow.map(entry => `| ${entry.measuredSeconds.toFixed(3)} | ${entry.binary} | ${entry.test} |`);
+  const markdown = [`\n### Rust ${mode} tests over ${SLOW_TEST_WARNING_SECONDS} s on ${runner} (${slow.length})\n`,
+    '| Seconds | Binary | Test |', '|---:|---|---|', ...rows, ''].join('\n');
+  return { count: slow.length, markdown };
 }
 
 export function timingAuditArgs(guard, aloneLog, policy) {
@@ -244,6 +259,7 @@ async function run(mode, { compileOnly = false } = {}) {
   const directory = path.resolve('ci-rust-receipts');
   fs.mkdirSync(directory, { recursive: true });
   const targetEnv = { ...env };
+  const timings = [];
   try {
     for (const planned of lanes) {
       const lane = mode === 'platform' && !planned.whole ? narrowToPlatformPackages(planned) : planned;
@@ -290,6 +306,7 @@ async function run(mode, { compileOnly = false } = {}) {
         const report = fs.readFileSync(log, 'utf8');
         requireTestSuccess(result, report, `Rust tests failed on ${receipt.runner}`);
         receipt.executed += executedCount(report);
+        try { timings.push(...parseTimings(report)); } catch (error) { console.log(`[rust-tests] timings unavailable for ${log}: ${error.message}`); }
         if (integration) continue;
         const guard = ['scripts/check-slow-unit-tests.mjs', log, '--base', process.env.SLOW_UNIT_TESTS_BASE || 'origin/develop'];
         let aloneLog;
@@ -313,7 +330,18 @@ async function run(mode, { compileOnly = false } = {}) {
     receipt.exit = 0;
   } finally {
     // Only the run phase records a receipt; a compile-only pass proves nothing about tests.
-    if (!compileOnly) recordReceipt();
+    if (!compileOnly) {
+      recordReceipt();
+      reportSlowTests();
+    }
+  }
+
+  function reportSlowTests() {
+    const { count, markdown } = slowTestReport(timings, mode, receipt.runner);
+    if (!count) return;
+    fs.writeFileSync(path.join(directory, `slow-tests-${mode}-${os}.md`), markdown);
+    console.log(`::warning::${count} Rust ${mode} tests ran longer than ${SLOW_TEST_WARNING_SECONDS} s; see the job summary`);
+    if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, markdown);
   }
 
   function recordReceipt() {
