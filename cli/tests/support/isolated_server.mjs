@@ -103,7 +103,11 @@ try {
   const [code] = await Promise.race([exit, new Promise((_, reject) =>
     deadline().addEventListener('abort', () => reject(new Error('Clean server shutdown deadline expired')), { once: true }))]);
   assert.equal(code, 0, 'Server must shut down cleanly');
-  await assert.rejects(fetch(url + '/api/health', { signal: deadline() }), 'Shutdown must release its listener');
+  // Rebinding proves the release at once; a refused connect costs about two seconds on Windows.
+  const released = createServer();
+  released.listen(port, '127.0.0.1');
+  await once(released, 'listening');
+  await new Promise((resolve, reject) => released.close(error => error ? reject(error) : resolve()));
   process.stdout.write('Server, health, api-token, authenticated identify and clean shutdown passed\n');
 } catch (error) {
   const log = await readFile(path.join(data, 'logs', 'domios.log'), 'utf8').catch(() => '');
