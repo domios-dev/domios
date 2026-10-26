@@ -3,6 +3,7 @@ updates:
   # Cargo updates (src-tauri)
   - package-ecosystem: cargo
     directory: /src-tauri
+    target-branch: develop
     schedule:
       interval: weekly
     groups:
@@ -12,6 +13,7 @@ updates:
   # Cargo updates (cli)
   - package-ecosystem: cargo
     directory: /cli
+    target-branch: develop
     schedule:
       interval: weekly
     groups:
@@ -21,6 +23,7 @@ updates:
   # Cargo updates (crates/mem-store)
   - package-ecosystem: cargo
     directory: /crates/mem-store
+    target-branch: develop
     schedule:
       interval: weekly
     groups:
@@ -30,6 +33,7 @@ updates:
   # npm/pnpm updates (workspace root)
   - package-ecosystem: npm
     directory: /
+    target-branch: develop
     schedule:
       interval: weekly
     groups:
@@ -39,6 +43,7 @@ updates:
   # GitHub Actions updates
   - package-ecosystem: github-actions
     directory: /
+    target-branch: develop
     schedule:
       interval: weekly
     groups:
