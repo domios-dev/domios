@@ -107,7 +107,8 @@ jobs:
     needs: qualified-source
     if: ${{ always() && (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')))) && (github.event_name == 'workflow_dispatch' || (needs.qualified-source.result == 'success' && needs.qualified-source.outputs.source_sha != '')) }}
     environment: release
-    runs-on: [self-hosted, linux-build]
+    # GitHub's runner: ubunta's single runner is often busy with the Rust suite, and every build waits on this job.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     outputs:
       tag: ${{ steps.release.outputs.tag }}
@@ -305,7 +306,8 @@ jobs:
     needs: prepare
     if: ${{ !cancelled() && (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')))) && needs.prepare.result == 'success' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == '' }}
     environment: release
-    runs-on: [self-hosted, linux-build]
+    # GitHub's runner: ubunta's single runner is often busy with the Rust suite, and every build waits on this job.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}

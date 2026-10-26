@@ -214,15 +214,15 @@ jobs:
       - rust-warnings
       - policy
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && needs.admission.outputs.release_head == 'true' && (inputs.scope != 'fast' && !cancelled() && needs.fast.result == 'success' && needs.rust.result == 'success' && needs.rust-warnings.result == 'success' && needs.policy.result == 'success' && needs.fast.outputs.heavy == 'true') }}
-    runs-on: ${{ vars.CI_LINUX_LIGHT_RUNNER || fromJSON('["self-hosted","Linux","light","host-ubunta"]') }}
+    runs-on: ${{ vars.CI_LINUX_LIGHT_RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 5
     env:
-      AWS_ACCESS_KEY_ID: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.SCCACHE_AWS_ACCESS_KEY_ID || '' }}
-      AWS_SECRET_ACCESS_KEY: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.SCCACHE_AWS_SECRET_ACCESS_KEY || '' }}
-      CI_STORE_LAN_ENDPOINT: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.CI_STORE_LAN_ENDPOINT || '' }}
-      CI_STORE_PUBLIC_ENDPOINT: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && secrets.CI_STORE_PUBLIC_ENDPOINT || '' }}
-      CI_HOSTED: ${{ vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04' }}
-      CI_ARTIFACT_STORAGE: ${{ (vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && 'github' || '' }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      CI_STORE_LAN_ENDPOINT: ${{ secrets.CI_STORE_LAN_ENDPOINT }}
+      CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
+      CI_HOSTED: ${{ (vars.CI_LINUX_LIGHT_RUNNER || 'ubuntu-24.04') == 'ubuntu-24.04' }}
+      CI_ARTIFACT_STORAGE: ''
     steps:
       - name: Use the runner bundled Node
         if: runner.environment == 'self-hosted'
