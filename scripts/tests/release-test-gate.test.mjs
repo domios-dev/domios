@@ -173,8 +173,9 @@ test("guards preflight prerequisites before cargo-dependent serial contracts", (
   assert.ok(setup >= 0 && setup < serial);
 });
 
-test("dev pushes and nightly fallback qualify every exact SHA, and release reuses the evidence", () => {
-  assert.deepEqual(tests.on.push.branches, ['master', 'develop', 'rename/domios', 'release/**']);
+test("only the release push qualifies a release; develop pushes and release PRs start no CI run", () => {
+  assert.deepEqual(tests.on.push.branches, ['master', 'rename/domios', 'release/**']);
+  assert.deepEqual(tests.on.pull_request['branches-ignore'], ['master']);
   assert.equal(tests.on.push['paths-ignore'], undefined);
   assert.equal(tests.on.schedule.length, 2);
   assert.match(tests.concurrency.group, /github.ref/);

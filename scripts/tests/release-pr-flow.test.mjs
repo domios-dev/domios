@@ -68,17 +68,9 @@ test('release push owns full CI and exact-head packaging while every PR stays li
 
 });
 
-test('develop duplicate admission uses exact release push SHA, with a clear skip reason',async()=>{
+test('master pushes skip heavy CI: publication reuses the qualified release head',async()=>{
   const script=ci.jobs.admission.steps[0].with.script;
   const execute=new AsyncFunction('github','context','core',script);
-  for (const [rows,expected] of [[[run],'false'],[[{...run,head_sha:'b'.repeat(40)}],'true'],[[],'true']]) {
-    const outputs={}, notices=[];
-    await execute({paginate:async()=>rows,rest:{actions:{listWorkflowRuns(){}}}},
-      {eventName:'push',ref:'refs/heads/develop',sha,repo:{owner:'domios-dev',repo:'domios'},payload:{}},
-      {setOutput:(key,value)=>outputs[key]=value,notice:value=>notices.push(value)});
-    assert.equal(outputs.run,expected);
-    if(expected==='false')assert.match(notices[0],/release push run owns this exact SHA/);
-  }
   const outputs={};
   await execute({}, {eventName:'push',ref:'refs/heads/master',repo:{},payload:{}},
     {setOutput:(key,value)=>outputs[key]=value,notice(){}});
