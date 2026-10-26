@@ -37,7 +37,7 @@ each failed run. An untested proposal must not become an established recipe.
 
 ## Public repository policy
 
-Follow [the public repository handoff](../../../docs/release/public-repo.md) before enabling public Actions. Only owner release/X.Y.Z pushes, admitted master merge publication and reviewed release dispatches may acquire release runners and secrets, behind the `release` environment approval. Dev qualification uses the branch-restricted `ci` environment without reviewers. All PR checks run hosted and secret-free; repository-level runners must be removed or replaced with workflow-restricted organization runners before public Actions is enabled.
+Follow [the public repository handoff](../../../docs/release/public-repo.md) before enabling public Actions. Only owner release/X.Y.Z pushes, admitted master merge publication and reviewed release dispatches may acquire release runners and secrets, behind the `release` environment approval. Non-release jobs use no environment. All PR checks run hosted and secret-free; repository-level runners must be removed or replaced with workflow-restricted organization runners before public Actions is enabled.
 
 ## Choose the release kind
 
@@ -204,7 +204,7 @@ Signing, notarization, bundle smoke, updater signatures and served-byte checks r
 Linux and Windows arm64 compile unsigned on hosted native runners, then transfer a
 digest-pinned stage and bundles to private finalize jobs for signing, bundle smoke,
 headless validation and the existing private/public receipts. Hosted jobs receive
-public client configuration through repository variables and no signing/cache secrets.
+the public client configuration and the cache store, never signing secrets.
 See [hosted arm64 setup and measurement](../../../docs/release/hosted-arm64.md) before
 the first run; the initial policy deliberately measures cold compilation without Tailnet.
 
@@ -340,6 +340,11 @@ Verify the served legacy refusals as well as the new signed manifests before cal
 publication complete. Never upload a Domios payload into a legacy manifest.
 
 ## Credentials, caches and runners
+
+New CI values: each lives once, as a repository secret, set from the vault through stdin
+(`gh secret set NAME --repo domios-dev/domios`). Only signing and publication credentials go in the `release`
+environment, which only release jobs use; no other job declares an environment. A host or address is a secret,
+never a tracked file; a job passes it beside the keys that use it.
 
 Use protected environment secrets and `scripts/release-signing-material.py`. macOS jobs import the approved
 certificate and pinned Apple intermediates into a unique RUNNER_TEMP keychain, validate team/identity

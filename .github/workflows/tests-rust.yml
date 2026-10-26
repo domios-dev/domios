@@ -52,7 +52,6 @@ jobs:
   rust-tests:
     name: rust tests (full suite)
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (!cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
-    environment: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER != 'private') && 'ci' || '' }}
     runs-on: ${{ vars.CI_LINUX_RUST_FULL_RUNNER == 'private' && fromJSON('["self-hosted","Linux","linux-build","host-ubunta"]') || 'ubuntu-24.04' }}
     permissions:
       contents: read
@@ -264,7 +263,6 @@ jobs:
   rust-platform:
     name: rust platform (${{ matrix.os }})
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (!cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
-    environment: ${{ !(matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15') && 'ci' || '' }}
     runs-on: ${{ matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER || fromJSON(format('["self-hosted","{0}","{1}","{2}"]', matrix.os, matrix.label, matrix.os == 'Windows' && 'windows-build' || 'rust-shard')) }}
     permissions:
       contents: read
@@ -482,7 +480,6 @@ jobs:
     name: rust embeddings
     needs: rust-platform
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (!cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
-    environment: ${{ !(vars.CI_MACOS_EMBEDDINGS_RUNNER == 'macos-15') && 'ci' || '' }}
     runs-on: ${{ vars.CI_MACOS_EMBEDDINGS_RUNNER || fromJSON('["self-hosted","macOS","rust-shard","host-air"]') }}
     permissions:
       contents: read
@@ -692,7 +689,6 @@ jobs:
     name: rust test receipts
     needs: [rust-tests, rust-platform, rust-embeddings]
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (always() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
-    environment: ${{ !(vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && 'ci' || '' }}
     runs-on: ${{ vars.CI_LINUX_LIGHT_RUNNER || fromJSON('["self-hosted","Linux","light","host-ubunta"]') }}
     permissions:
       contents: read
