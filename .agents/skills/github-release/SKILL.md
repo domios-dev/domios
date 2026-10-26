@@ -70,8 +70,8 @@ verifies the anonymous download. Every install refreshes `codeterm-core` from th
 | `master` | Admin merges the green release PR here to publish its retained artifacts. |
 | `ci/*` | Reviewed non-publishing candidate refs for diagnostics. |
 
-1. Record the candidate, included lanes, fixed/deferred issues and evidence in
-   `docs/release/<version>-pr.md`. Review changed commands/docs and remove obsolete callers.
+1. Record the candidate, included lanes, fixed/deferred issues and evidence in the release PR
+   description (not a file). Review changed commands/docs and remove obsolete callers.
 2. Before a release-branch push, qualify the exact committed release head in canonical using
    the gates skill. `build.sh check` is not release qualification. Required live evidence includes
    [core journeys J1–J4](../../../evals/core-journeys/README.md) and

@@ -72,7 +72,7 @@ Two structural blind spots, so you do not mistake green for complete:
 
 ## Historical surfaces are not drift
 
-`docs/release/<version>-*.md` are release records: they describe the CLI as it
+`docs/release/<version>-manual-install.md` and release PR descriptions are release records: they describe the CLI as it
 stood on their date. Divergence from today's clap tree is expected and is **not**
 a defect. Do not rewrite them to match the current tree, and do not add them to
 any validation corpus. Design decisions live in plan strides and commits; a
