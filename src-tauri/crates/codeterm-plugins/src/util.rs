@@ -190,6 +190,9 @@ fn run_registered_git(mut command: Command) -> Result<(), String> {
     command
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped());
+    // git's helpers (remote-https, ssh) inherit its stderr; its own process group lets shutdown stop them all.
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::process_group(&mut command, 0);
     // Spawn under the registry lock, so a concurrent shutdown cannot miss a child that already runs.
     let mut live = LIVE_GIT_CHILDREN
         .lock()
@@ -228,12 +231,27 @@ pub fn stop_live_git_children() -> usize {
         let Ok(mut child) = child.lock() else {
             continue;
         };
-        if child.kill().is_ok() {
+        if kill_git_tree(&mut child) {
             let _ = child.wait();
             stopped += 1;
         }
     }
     stopped
+}
+
+// Killing only git would leave its helpers holding stderr open, so the reader waits until they exit.
+#[cfg(unix)]
+fn kill_git_tree(child: &mut std::process::Child) -> bool {
+    let Ok(group) = libc::pid_t::try_from(child.id()) else {
+        return child.kill().is_ok();
+    };
+    // SAFETY: the group id is the leader we spawned and still hold unreaped, so it cannot name another group.
+    unsafe { libc::kill(-group, libc::SIGKILL) == 0 }
+}
+
+#[cfg(not(unix))]
+fn kill_git_tree(child: &mut std::process::Child) -> bool {
+    child.kill().is_ok()
 }
 
 pub(super) fn git_command() -> Command {
