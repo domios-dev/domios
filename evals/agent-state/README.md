@@ -19,7 +19,7 @@ It is **additive** — a new eval set only, no production behavior change.
 ```bash
 evals/agent-state/run.sh          # dev-locked wrapper (sources evals/_lib/lib.sh)
 # or directly:
-cd src-tauri && cargo test -p codeterm-devtools --test agent_state_replay -- --nocapture
+cd src-tauri && cargo test -p codeterm-devtools --test agent_state_replay -- --include-ignored --nocapture
 ```
 
 ## Capture real fixtures (RT3 driver)

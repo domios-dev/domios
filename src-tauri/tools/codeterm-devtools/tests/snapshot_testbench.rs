@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 mod harness;
 
 #[test]
+#[ignore = "curated eval, not part of the test suite: run with evals/snapshot-testbench/run.sh"]
 fn snapshot_testbench_library_is_green() {
     let root = harness::snapshots_root();
     if !root.exists() {
