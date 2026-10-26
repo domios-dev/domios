@@ -39,7 +39,7 @@ test('release packaging belongs to push CI and merge publication checks the rele
   assert.equal(tests.jobs['release-dry-run'].with.dry_run,true);
   // Packaging overlaps the Rust suites; publication promotes only a fully green run and re-checks its qualification.
   // Packaging starts with the push: it waits for no check, and builds the pushed commit itself.
-  assert.deepEqual(tests.jobs['release-dry-run'].needs,['admission','policy']);
+  assert.deepEqual(tests.jobs['release-dry-run'].needs,['admission']);
   assert.doesNotMatch(tests.jobs['release-dry-run'].if,/needs\.fast/);
   assert.equal(tests.jobs['release-dry-run'].with.source_sha,'${{ github.sha }}');
   assert.match(release.jobs['qualified-source'].steps[0].with.script,/run\.conclusion === 'success'/);
@@ -181,11 +181,11 @@ test("only the release push qualifies a release; develop pushes and release PRs 
   assert.match(tests.concurrency.group, /github.ref/);
   assert.equal(tests.concurrency['cancel-in-progress'], true);
   for (const event_name of ['push', 'schedule']) {
-    assert.equal(condition(tests.jobs.rust.if, { github: { event_name }, needs: {
-      fast: { outputs: { resolved_scope: '{}' } } } }), true);
+    assert.equal(condition(tests.jobs.rust.if, { github: { event_name }, needs: { admission: { outputs: { run: 'true' } } } }), true);
   }
-  assert.equal(tests.jobs.rust.with.resolved_scope, '${{ needs.fast.outputs.resolved_scope }}');
-  assert.equal(tests.jobs.rust.with.source_ref, '${{ needs.fast.outputs.source_sha }}');
+  assert.equal(condition(tests.jobs.rust.if, { github: { event_name: 'push' }, needs: { admission: { outputs: { run: 'false' } } } }), false);
+  assert.equal(tests.jobs.rust.with.resolved_scope, '{"heavy":"true"}');
+  assert.equal(tests.jobs.rust.with.source_ref, '${{ needs.admission.outputs.source_sha }}');
   assert.equal(rust.jobs.changed, undefined, 'the Rust tier reuses the caller scope without a second job');
   assert.equal(rust.on.workflow_call.inputs.resolved_scope.required, true);
   const source = fast.jobs.changed.steps.find(step => step.id === 'tree');
