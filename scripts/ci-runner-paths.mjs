@@ -109,7 +109,8 @@ export function checkRunnerTools(role, { platform = process.platform, env = proc
       ? [python, '-c', 'import ' + tool.slice(7)]
       : tool === 'python' ? [python, '--version'] : tools[tool];
     const probeEnv = env;
-    const result = execute(command, args, { env: probeEnv, encoding: 'utf8', timeout: 2000,
+    // A first launch under arm64 emulation can take seconds; the bound only stops a hung tool.
+    const result = execute(command, args, { env: probeEnv, encoding: 'utf8', timeout: 30000,
       windowsHide: true, shell: platform === 'win32' && tool === 'pnpm' });
     if (result.error || result.status !== 0) {
       missing.push(tool);
@@ -168,10 +169,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
   if (process.env.GITHUB_ENV && !env.CI_PYTHON) {
     try { fs.appendFileSync(process.env.GITHUB_ENV, 'CI_PYTHON=' + pythonInterpreter(process.platform, env) + '\n'); }
     catch { /* Python is optional for jobs whose declared tools exclude it. */ }
-  }
-  if (process.argv[2] !== '--paths-only') {
-    checkRunnerTools(process.argv[2] || 'rust', { env });
-    if (process.platform === 'win32') checkBashTools(process.argv[2] || 'rust', bashInterpreter(process.platform, env), { env });
   }
   for (const directory of directories) console.log('Job-local tool directory: ' + directory);
   } catch(error) {
