@@ -43,7 +43,7 @@ hashbrown-986da7b5efc2b80e = { package = "hashbrown", version = "0.16", features
 hyper = { version = "1", features = ["http1", "http2", "server"] }
 hyper-util = { version = "0.1", features = ["server-auto", "service", "tokio"] }
 icu_properties = { version = "2" }
-if-addrs = { version = "0.13", default-features = false, features = ["link-local"] }
+if-addrs = { version = "0.15", default-features = false, features = ["link-local"] }
 indexmap = { version = "2", features = ["serde"] }
 interprocess = { version = "2", features = ["tokio"] }
 libc = { version = "0.2", features = ["extra_traits"] }
