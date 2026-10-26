@@ -111,6 +111,7 @@
         "git",
         "nextest",
         "node",
+        "pnpm",
         "python"
       ]
     }

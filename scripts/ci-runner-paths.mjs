@@ -170,7 +170,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
   }
   if (process.argv[2] !== '--paths-only') {
     checkRunnerTools(process.argv[2] || 'rust', { env });
-    if (process.platform === 'win32') checkBashTools(process.argv[2] || 'rust', path.join(directories[0], 'bash.exe'), { env });
+    if (process.platform === 'win32') checkBashTools(process.argv[2] || 'rust', bashInterpreter(process.platform, env), { env });
   }
   for (const directory of directories) console.log('Job-local tool directory: ' + directory);
   } catch(error) {
