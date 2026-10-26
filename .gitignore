@@ -90,3 +90,7 @@ essences/map-history/
 # Build outputs that release and install packaging write beside the source.
 ci-rust-warnings/
 release-artifacts/
+
+# Local run evidence and scratch output never belong in the repository.
+/.research/
+/artifacts/
