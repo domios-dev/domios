@@ -495,7 +495,7 @@ The output must prove command resolution from the exact runner `.env` PATH:
 - `pwsh -> %USERPROFILE%\tools\PowerShell\<version>\pwsh.exe`
 - `rustup`, `cargo`, `rustc -> %USERPROFILE%\tools\rustup-proxies\*.exe`
 - `node -> %USERPROFILE%\tools\Node\<version>\node.exe`
-- `npm`, `corepack`, `pnpm -> %USERPROFILE%\tools\runner-shims\*.cmd`
+- `npm`, `corepack`, `pnpm -> %USERPROFILE%\tools\runner-shims\*.cmd`, plus extensionless sh shims of the same names that Git Bash (`build.sh`) resolves
 - `git ->` installed Git command path
 - MSVC inventory has `VisualStudioBuildTools: true` and a `vcvarsall.bat`
 - Windows SDK inventory has `WindowsSdk: true`
