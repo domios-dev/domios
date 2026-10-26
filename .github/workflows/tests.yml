@@ -194,7 +194,7 @@ jobs:
       - admission
       - fast
       - rust
-    if: ${{ always() && inputs.scope != 'fast' && inputs.source_ref == '' && needs.fast.outputs.heavy != '' }}
+    if: ${{ !cancelled() && inputs.scope != 'fast' && inputs.source_ref == '' && needs.fast.outputs.heavy != '' }}
     uses: ./.github/workflows/rust-warnings-summary.yml
     secrets: inherit
     with:
@@ -366,7 +366,7 @@ jobs:
         run: node scripts/ci-preflight-profile.mjs "${{ matrix.profile }}"
   result:
     name: CI result
-    if: ${{ always() }}
+    if: ${{ !cancelled() }}
     needs:
       - admission
       - policy
