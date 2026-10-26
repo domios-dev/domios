@@ -3,6 +3,7 @@ import { act, createElement, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { vi } from "vitest";
 import { localFetch } from "../../../lib/webApi";
+import { __resetWebEventsForTest } from "../../../lib/webEvents";
 import type { AccountPlan, PlanModel } from "../../Settings/accountPlanModel";
 import { useAccountPlan } from "../../Settings/useAccountPlan";
 import { accountTrayModel } from "../../Titlebar/accountTrayModel";
@@ -64,5 +65,7 @@ export async function openScenario(payload: AccountPlan, seed: Parameters<typeof
 export async function closeScenario() {
   for (const root of planRoots.splice(0)) await act(async () => root.unmount());
   await unmountAll();
+  // The event stream's reconnect timer must not outlive the test environment.
+  __resetWebEventsForTest();
   vi.mocked(localFetch).mockReset();
 }
