@@ -71,8 +71,8 @@ test("release pushes qualify even when their merge tree equals a parent", t => {
   }
 });
 
-const fastJobs = ["guards", "plugins", "clippy-linux", "cli-tests", "ts-static", "frontend-windows", "frontend-dist", "ts-types", "ts-unit", "ts-vitest", "ts-plugins"];
-const longJobs = ["rust-tests", "rust-platform", "rust-embeddings", "rust-receipts"];
+const fastJobs = ["guards", "plugins", "ts-static", "frontend-windows", "frontend-dist", "ts-types", "ts-unit", "ts-vitest", "ts-plugins"];
+const longJobs = ["rust-tests", "rust-platform", "rust-embeddings", "cli-tests", "rust-receipts"];
 const bash = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" : "bash";
 
 test("warning collection runs its node wrapper under stock shells and never fails the build", () => {
@@ -148,7 +148,6 @@ test("platform builders do not push release tags before the test gate", () => {
 test("heavy Rust and build jobs end by removing their own targets and archives", () => {
   const heavy = [
     ...["rust-tests", "rust-platform", "rust-embeddings"].map(id => rust.jobs[id]),
-    ...["clippy-linux"].map(id => fast.jobs[id]),
     ...["release-macos-build", "release-linux", "release-linux-arm64", "release-windows"].map(name => workflow(name).jobs.build),
   ];
   for (const job of heavy) {
@@ -213,7 +212,6 @@ test("Rust qualification stays self-hosted and hosted frontend jobs have no secr
   for (const job of Object.values(rust.jobs)) {
     assert.ok(job['runs-on'].includes('self-hosted'));
   }
-  for (const id of ['clippy-linux', 'cli-tests']) assert.ok(fast.jobs[id]['runs-on'].includes('self-hosted'));
   for (const id of ['ts-unit', 'ts-vitest', 'ts-static', 'ts-types', 'ts-plugins', 'frontend-windows', 'frontend-dist', 'plugins']) {
     const job = fast.jobs[id];
     assert.match(job['runs-on'], /^(ubuntu-24.04|windows-latest)$/);
