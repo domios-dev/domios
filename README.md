@@ -92,6 +92,15 @@ The Homebrew tap and Scoop bucket may trail the current release; use the desktop
 - **Windows:** download and run the `.exe` installer for x64 or ARM64.
 - **Linux:** download the `.deb` or `.AppImage` for your architecture. Install the Debian package with your package manager, or make the AppImage executable and launch it.
 
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+
+- Committers and reviewers: [rollacode](https://github.com/rollacode)
+- Approvers: [rollacode](https://github.com/rollacode)
+
+Privacy policy: [legal/PRIVACY.md](legal/PRIVACY.md), also published at [domios.dev/privacy](https://domios.dev/privacy). Domios sends account and installation data only when you sign in, and product analytics only if you opt in.
+
 ## Building from source
 
 Use Node.js 22, pnpm 10 (the exact version is in [package.json](package.json)), and Rust via rustup (the toolchain is pinned in [rust-toolchain.toml](rust-toolchain.toml)). Install the [Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/) for your OS: Xcode Command Line Tools on macOS, MSVC Build Tools and WebView2 on Windows, or the Linux system libraries.
