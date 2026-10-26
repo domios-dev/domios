@@ -9,14 +9,14 @@ it("web update channel reads and writes use the browser gateway and selected rel
     removeItem: (key: string) => values.delete(key),
   };
   vi.stubGlobal("window", Object.assign(new EventTarget(), {
-    location: { protocol: "http:", host: "100.96.252.97:7697" }, CustomEvent,
+    location: { protocol: "http:", host: "100.64.10.2:7697" }, CustomEvent,
   }));
   vi.stubGlobal("localStorage", storage);
   vi.stubGlobal("sessionStorage", storage);
   const api = await import("../lib/webApi");
   const { requestUpdateChannel } = await import("./updateTransport");
   const requests: Array<{ url: URL; init: RequestInit }> = [];
-  const origin = "http://100.96.252.97:7697";
+  const origin = "http://100.64.10.2:7697";
   const config = { host: "127.0.0.1", port: 7685, token: "desktop-only-token" };
   api.setTokenFor(origin, "gateway-token");
   vi.stubGlobal("fetch", async (input: unknown, init: RequestInit = {}) => {

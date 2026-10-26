@@ -10,9 +10,9 @@ export function cheap(provider, id) {
     opencode: /(^|\/)deepseek(?:-flash)?$/, grok: /^grok-4\.6$/}[provider])?.test(id);
 }
 export function validateManifest(m) {
-  assert.equal(m.rcRoot, '/Users/kandrey/Developer/codeterm-worktrees/rc-mac');
-  assert.equal(m.mac.origin, 'http://100.96.252.97:7697');
-  assert.equal(m.windows.origin, 'http://100.84.159.37:7686');
+  assert.equal(m.rcRoot, '/Users/dev/Developer/codeterm-worktrees/rc-mac');
+  assert.equal(m.mac.origin, 'http://100.64.10.2:7697');
+  assert.equal(m.windows.origin, 'http://100.64.10.1:7686');
   assert.ok(m.mac.peerId !== m.windows.peerId);
   for(const machine of [m.mac,m.windows]) assert.match(machine.peerId,/^[a-fA-F0-9-]{6,}$/);
   for (const machine of [m.mac, m.windows]) {
@@ -69,7 +69,7 @@ export function matrix(rows) {
 
 export function validateOutput(out) {
   const resolved=path.resolve(out);
-  assert.equal(path.dirname(resolved),'/Users/kandrey/Developer/codeterm-worktrees/rc-mac/target-check/evals');
+  assert.equal(path.dirname(resolved),'/Users/dev/Developer/codeterm-worktrees/rc-mac/target-check/evals');
   assert.match(path.basename(resolved),/^mesh-(?:webui|terminals)-[a-zA-Z0-9_.-]+$/);
   return resolved;
 }

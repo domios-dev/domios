@@ -1,7 +1,7 @@
 {
-  "rcRoot": "/Users/kandrey/Developer/codeterm-worktrees/rc-mac",
+  "rcRoot": "/Users/dev/Developer/codeterm-worktrees/rc-mac",
   "mac": {
-    "origin": "http://100.96.252.97:7697",
+    "origin": "http://100.64.10.2:7697",
     "peerId": "REPLACE_EXACT_PEER_ID",
     "tokenSecret": "REPLACE_MAC_SECRET_STORE_ENTRY_NAME",
     "tabs": [
@@ -73,7 +73,7 @@
     ]
   },
   "windows": {
-    "origin": "http://100.84.159.37:7686",
+    "origin": "http://100.64.10.1:7686",
     "peerId": "REPLACE_EXACT_PEER_ID",
     "tokenSecret": "REPLACE_MAC_SECRET_STORE_ENTRY_NAME",
     "tabs": [

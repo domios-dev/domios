@@ -24,12 +24,12 @@ const config = {
 } as AppConfig;
 
 const network: NetworkInfo = {
-  tailscale_ip: "100.110.3.12",
+  tailscale_ip: "100.64.10.3",
   local_ip: "192.168.1.20",
   api_port: 7685,
 };
 
-function readySnapshot(url = "https://rollacode-bot.tail0e459c.ts.net"): ServeReconcileSnapshot {
+function readySnapshot(url = "https://rollacode-bot.example-tailnet.ts.net"): ServeReconcileSnapshot {
   return {
     state: "ready",
     url,
@@ -48,7 +48,7 @@ function readySnapshot(url = "https://rollacode-bot.tail0e459c.ts.net"): ServeRe
       error: null,
     },
     route: {
-      host: "rollacode-bot.tail0e459c.ts.net",
+      host: "rollacode-bot.example-tailnet.ts.net",
       https_port: 443,
       proxy: "http://127.0.0.1:7685",
       ownership: "owned",
@@ -73,7 +73,7 @@ function serve(over: Partial<ServeStatus> = {}): ServeStatus {
     installed: true,
     active: true,
     https_url: snapshot.url,
-    self_dns: "rollacode-bot.tail0e459c.ts.net",
+    self_dns: "rollacode-bot.example-tailnet.ts.net",
     platform: "linux",
     snapshot,
     ...over,
@@ -100,31 +100,31 @@ const ready = buildWebUiTarget(config, network, serve());
 assert(
   "ready serve status wins over raw tailscale IP",
   ready.link,
-  "https://rollacode-bot.tail0e459c.ts.net/#token=secret",
+  "https://rollacode-bot.example-tailnet.ts.net/#token=secret",
 );
 assert("ready serve status is not fallback", ready.usingFallback, false);
 
 const cachedServe = buildWebUiTarget(config, network, serve({
   snapshot: { ...readySnapshot(), state: "setup_required", url: null },
-  https_url: "https://rollacode-bot.tail0e459c.ts.net",
+  https_url: "https://rollacode-bot.example-tailnet.ts.net",
   active: true,
 }));
 assert(
   "unproven serve status falls back",
   cachedServe.link,
-  "http://100.110.3.12:7685/#token=secret",
+  "http://100.64.10.3:7685/#token=secret",
 );
 assert("unproven serve status is fallback", cachedServe.usingFallback, true);
 
 const unhealthyServe = buildWebUiTarget(config, network, serve({
   snapshot: { ...readySnapshot(), state: "unhealthy", url: null },
-  https_url: "https://rollacode-bot.tail0e459c.ts.net",
+  https_url: "https://rollacode-bot.example-tailnet.ts.net",
   active: true,
 }));
 assert(
   "unhealthy owned serve route falls back instead of offering its https_url",
   unhealthyServe.link,
-  "http://100.110.3.12:7685/#token=secret",
+  "http://100.64.10.3:7685/#token=secret",
 );
 assert("unhealthy serve route is fallback", unhealthyServe.usingFallback, true);
 
@@ -132,17 +132,17 @@ const fallback = buildWebUiTarget(config, network, null);
 assert(
   "network tailscale IP remains fallback without serve",
   fallback.link,
-  "http://100.110.3.12:7685/#token=secret",
+  "http://100.64.10.3:7685/#token=secret",
 );
 assert("network IP is fallback", fallback.usingFallback, true);
 
 for (const [net, status, kind, expectedHost] of [
-  [network, serve(), "tailscale_https", "rollacode-bot.tail0e459c.ts.net"],
-  [network, null, "tailscale_ip", "100.110.3.12"],
+  [network, serve(), "tailscale_https", "rollacode-bot.example-tailnet.ts.net"],
+  [network, null, "tailscale_ip", "100.64.10.3"],
   [{ local_ip: "192.168.1.20" }, null, "lan", "192.168.1.20"],
   [null, null, "loopback", "127.0.0.1"],
   [{ local_ip: "localhost" }, null, "loopback", "localhost"],
-  [network, serve({ active: true, snapshot: { ...readySnapshot(), state: "unhealthy", url: null } }), "tailscale_ip", "100.110.3.12"],
+  [network, serve({ active: true, snapshot: { ...readySnapshot(), state: "unhealthy", url: null } }), "tailscale_ip", "100.64.10.3"],
 ] as const) {
   const target = buildWebUiTarget(config, net, status);
   const route = classifyWebUiRoute(config, net, status);

@@ -64,7 +64,7 @@ fn mesh_reachability_opt_in_requires_dev_build_authenticated_loopback_and_tailne
         ..Default::default()
     };
     assert_eq!(additional_bind(&config, false).unwrap(), None);
-    config.mesh_tailnet_host = Some("100.84.159.37".into());
+    config.mesh_tailnet_host = Some("100.64.10.1".into());
     assert!(additional_bind(&config, true).is_err());
     config.token = Some("test-only".into());
     assert!(additional_bind(&config, false).is_err());
@@ -74,7 +74,7 @@ fn mesh_reachability_opt_in_requires_dev_build_authenticated_loopback_and_tailne
             .unwrap()
             .ip()
             .to_string(),
-        "100.84.159.37"
+        "100.64.10.1"
     );
     for host in [
         "0.0.0.0",
@@ -97,7 +97,7 @@ fn mesh_reachability_configured_is_not_live_and_remote_loss_preserves_local() {
     let observed = Arc::new(Mutex::new(Vec::new()));
     let sink = observed.clone();
     let primary = "127.0.0.1:7690".parse().unwrap();
-    let remote = "100.84.159.37:7690".parse().unwrap();
+    let remote = "100.64.10.1:7690".parse().unwrap();
     state.configure(
         Some(remote),
         Arc::new(move |addresses| sink.lock().push(addresses)),

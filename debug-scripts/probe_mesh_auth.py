@@ -51,7 +51,7 @@ def sign_token(private_key_b64: str, instance_id: str) -> str:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("peer_url", help="e.g. http://100.85.116.96:7685")
+    ap.add_argument("peer_url", help="e.g. http://100.64.10.4:7685")
     ap.add_argument("--identity", default=str(Path.home() / ".codeterm" / "mesh" / "identity.json"))
     ap.add_argument("--path", default="/api/health")
     ap.add_argument("--method", default="GET")

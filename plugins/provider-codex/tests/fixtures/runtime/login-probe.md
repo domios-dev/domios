@@ -27,5 +27,5 @@ response `{type:"apiKey"}`. Cancellation status is `canceled` or `notFound`.
 Completion is `{loginId:string|null,success:boolean,error:string|null,onboardingEntrypoint:null|...}`.
 Account update is `{authMode:null|"apiKey"|"chatgpt"|"chatgptAuthTokens"|...,planType:null|...}`.
 The successful notification shape is schema evidence, not an executed login.
-T3's reference was consulted for exclusivity, cancellation and retry ownership;
+Exclusivity, cancellation and retry ownership stay with the host;
 Domios delegates OAuth, callback-page and credential persistence to app-server.

@@ -9,7 +9,7 @@ test('DEV process safety accepts multiple addresses of one owner and refuses abs
     . $env:PHASE_OWNER_MODULE
     $owner = Resolve-DevListenerOwner -Listeners @(
       [pscustomobject]@{ LocalAddress='127.0.0.1'; OwningProcess=72596 },
-      [pscustomobject]@{ LocalAddress='100.84.159.37'; OwningProcess=72596 }
+      [pscustomobject]@{ LocalAddress='100.64.10.1'; OwningProcess=72596 }
     )
     if ($owner -ne 72596) { throw 'Wrong owner' }
     $emptyRefused = $false

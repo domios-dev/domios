@@ -19,7 +19,7 @@
 │  Directory:                   D:\Developer\codeterm                                    │
 │  Permissions:                 Workspace (Ask for approval)                             │
 │  Agents.md:                   AGENTS.md                                                │
-│  Account:                     ainyiva@gmail.com (Pro)                                  │
+│  Account:                     user1@example.com (Pro)                                  │
 │  Collaboration mode:          Default                                                  │
 │  Session:                     01a06b83-722a-7f02-91f9-55d6c38f8345                     │
 │                                                                                        │
