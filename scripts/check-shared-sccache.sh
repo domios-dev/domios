@@ -349,12 +349,16 @@ printf 'PASS a hosted job uses the reachable private store with keys, else stays
   [ "$CT_CI_STORE_ENDPOINT" = http://replica.invalid:9000 ]
   # The address lives only in runner and repository configuration, never in a tracked file.
   [ -z "$(grep -rlE 'https?://[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:9000' "$ROOT/scripts" "$ROOT/build.sh" "$ROOT/.github" "$ROOT/.codeterm/build-machine/scripts")" ]
-  CI_STORE_PUBLIC_ENDPOINT=https://edge.invalid
   unset CODETERM_CI_STORE_ENDPOINT
+  CI_STORE_PUBLIC_ENDPOINT=https://edge.invalid CI_STORE_TAILNET_ENDPOINT=http://tailnet.invalid:9000
+  RUNNER_ENVIRONMENT=github-hosted
   source "$ROOT/scripts/ci-store.sh"
   [ "$CT_CI_STORE_ENDPOINT" = https://edge.invalid ]
-  unset CI_STORE_PUBLIC_ENDPOINT
+  RUNNER_ENVIRONMENT=self-hosted
+  source "$ROOT/scripts/ci-store.sh"
+  [ "$CT_CI_STORE_ENDPOINT" = http://tailnet.invalid:9000 ]
+  unset CI_STORE_PUBLIC_ENDPOINT CI_STORE_TAILNET_ENDPOINT RUNNER_ENVIRONMENT
   source "$ROOT/scripts/ci-store.sh"
   [ -z "$CT_CI_STORE_ENDPOINT" ] && ! ct_ci_store_reachable
 )
-printf 'PASS the store endpoint comes from configuration, falls back to the public edge, and is never tracked\n'
+printf 'PASS the store endpoint comes from configuration: hosted jobs use the public edge, our runners the tailnet, never a tracked file\n'

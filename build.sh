@@ -3115,7 +3115,7 @@ EOF
       aarch64-unknown-linux-gnu|aarch64-pc-windows-msvc) ;;
       *) echo "Hosted compilation requires an explicit arm64 target" >&2; exit 2 ;;
     esac
-    [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}${TAURI_SIGNING_PRIVATE_KEY_PATH:-}${AWS_SECRET_ACCESS_KEY:-}" ] || { echo "Hosted compilation must be credential-free" >&2; exit 2; }
+    [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}${TAURI_SIGNING_PRIVATE_KEY_PATH:-}" ] || { echo "Hosted compilation must not receive signing credentials" >&2; exit 2; }
     export CODETERM_RELEASE_COMMON_STAGE=1 CODETERM_RELEASE_UNSIGNED=1
     ensure_deps
     prepare_release_bundle_inputs bundle

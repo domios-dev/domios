@@ -16,7 +16,7 @@ function main([target, sourceSha, tag, archive]) {
   const windows = target === 'aarch64-pc-windows-msvc';
   if (!windows && target !== 'aarch64-unknown-linux-gnu') throw new Error('Unsupported hosted target');
   if (!/^[a-f0-9]{40}$/.test(sourceSha ?? '')) throw new Error('Invalid source identity');
-  if (process.env.TAURI_SIGNING_PRIVATE_KEY || process.env.AWS_SECRET_ACCESS_KEY) throw new Error('Hosted compilation must not receive signing or cache credentials');
+  if (process.env.TAURI_SIGNING_PRIVATE_KEY) throw new Error('Hosted compilation must not receive signing credentials');
 
   if (windows) {
     const vswhere = path.join(process.env['ProgramFiles(x86)'], 'Microsoft Visual Studio/Installer/vswhere.exe');
