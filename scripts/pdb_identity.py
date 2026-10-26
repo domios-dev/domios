@@ -2,7 +2,7 @@
 # Caller: build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe; scripts check-build-pdb-retention.sh, tests/test_pdb_identity.py, symbolicate-minidump.py; skill build
 """Debug identity of a Windows symbol file or binary, and the key it is stored under.
 
-    python scripts/pdb_identity.py <codeterm.pdb | codeterm.exe>   -> 06BBF58EADAC4DCDAE38084A168534501
+    python scripts/pdb_identity.py <domios_app.pdb | domios-app.exe>   -> 06BBF58EADAC4DCDAE38084A168534501
 
 The key is the canonical Windows symbol-store form: the GUID's 32 hex digits
 followed by the age in hex, no separators. It is the same string whether it is read

@@ -8,7 +8,7 @@ it parses the minidump with the stdlib and drives `dbghelp.dll` (present on ever
 Windows install), so a crash artifact can be read with nothing installed.
 
     python scripts/symbolicate-minidump.py <dump.dmp> \
-        --image <path-to-the-exact-codeterm.exe> [--all-threads] [--scan]
+        --image <path-to-the-exact-domios-app.exe> [--all-threads] [--scan]
 
     # with Microsoft symbols for the system DLLs:
     python scripts/symbolicate-minidump.py <dump.dmp> --image <exe> \
@@ -19,7 +19,7 @@ When the crashing binary has been relinked away, point the tool at the symbol fi
 the directory:
 
     python scripts/symbolicate-minidump.py <dump.dmp> --sidecar <crash-...-native.txt>
-    python scripts/symbolicate-minidump.py <dump.dmp> --pdb <codeterm.pdb>
+    python scripts/symbolicate-minidump.py <dump.dmp> --pdb <domios_app.pdb>
     python scripts/symbolicate-minidump.py <dump.dmp> --pdb-store ~/.codeterm-dev/pdb
 
 A symbol file is accepted only when the GUID and age it records for itself match the

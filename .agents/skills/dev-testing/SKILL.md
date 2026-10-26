@@ -320,7 +320,7 @@ curl -s -X POST "$API/api/mem/dream" -H "$H" -H "Content-Type: application/json"
 DEV_PID=$(netstat -ano -p tcp 2>/dev/null | grep ":7686 .*LISTENING" | awk '{print $NF}')
 [ -n "$DEV_PID" ] && taskkill //PID "$DEV_PID" //F   # Windows
 # Then in background: bash build.sh dev
-# Verify mtime: stat -c "%y %n" src-tauri/target/debug/codeterm.exe — must be newer than the source files you edited
+# Verify mtime: stat -c "%y %n" src-tauri/target/debug/domios-app.exe — must be newer than the source files you edited
 ```
 
 Note: `bash build.sh build` runs the production frontend bundle and currently fails on pre-existing TS errors in `CronTabl.tsx` / `useConfig.ts` — those are unrelated to backend Rust work and **don't block dev testing**. Use `bash build.sh dev` (which uses `vite dev`, no strict TS check) or `cargo build --bin codeterm` directly to validate Rust changes.

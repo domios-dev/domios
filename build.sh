@@ -328,7 +328,7 @@ initialize_build_identity
 
 # --- Kill THIS dev instance only (never prod, never another worktree) ---
 # Scoped strictly to $CT_PORT / $CT_VITE_PORT / this instance's screen+pidfile.
-# No global pgrep on target/debug/codeterm — that would take down every worktree.
+# No global pgrep on target/debug/domios-app — that would take down every worktree.
 kill_dev() {
   if [ "$CT_PORT" = "7685" ]; then
     echo "ERROR: refusing to kill prod Domios port 7685" >&2

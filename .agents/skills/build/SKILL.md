@@ -1099,12 +1099,12 @@ in-app update, or `install-local`.
 
 ### Crash symbols for dev builds
 
-A dev link overwrites `src-tauri/target/debug/codeterm.pdb`, so a crash artifact
+A dev link overwrites `src-tauri/target/debug/domios_app.pdb`, so a crash artifact
 stops being symbolizable as soon as anyone rebuilds — that is how the 2026-09-05
 abort lost its frame names nine minutes after it was written.
 
 `./build.sh dev` therefore retains the symbol file of each build it runs under
-`~/.codeterm-dev/pdb/<key>/codeterm.pdb`, keeping the newest three
+`~/.codeterm-dev/pdb/<key>/domios_app.pdb`, keeping the newest three
 (`DEV_PDB_KEEP_DEFAULT` in `build.sh`; override the store with
 `CODETERM_DEV_PDB_DIR`, the count with `CODETERM_DEV_PDB_KEEP`). `--wait` retains
 once `/api/health` confirms which build is running; a foreground session retains
@@ -1117,7 +1117,7 @@ hex digits followed by the age in hex, the canonical Windows symbol-store form.
 a crash names is the directory retention wrote. A commit sha cannot be the key —
 the same source relinks to a different symbol file every time, and a foreground
 retention runs after HEAD may have moved. The sha is recorded beside the symbols in
-`build-sha.txt`, informative only. The copy keeps the name `codeterm.pdb` because
+`build-sha.txt`, informative only. The copy keeps the name `domios_app.pdb` because
 Windows symbol lookup finds a PDB by the name recorded in the binary.
 
 Every crash report names its own build: `Debug id:` is the RSDS GUID and age, and
