@@ -471,7 +471,8 @@ jobs:
         include:
           - suite: platform
             os: macOS
-            label: host-air
+            # Any of our Macs with the rust-shard label (air or eight) takes it.
+            label: rust-shard
           - suite: platform
             os: Windows
             label: host-rog
@@ -684,7 +685,7 @@ jobs:
     name: rust embeddings
     needs: rust-platform
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')) && (!cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
-    runs-on: ${{ vars.CI_MACOS_EMBEDDINGS_RUNNER || fromJSON('["self-hosted","macOS","rust-shard","host-air"]') }}
+    runs-on: ${{ vars.CI_MACOS_EMBEDDINGS_RUNNER || fromJSON('["self-hosted","macOS","rust-shard"]') }}
     permissions:
       contents: read
       actions: read
