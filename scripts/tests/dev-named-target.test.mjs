@@ -34,7 +34,7 @@ stop_dev_before_replacement() { :; }
 enter_cargo_gateway() { :; }
 prepare_dev_frontend_dist() { :; }
 ensure_deps() { :; }
-cargo() { [ "$CARGO_TARGET_DIR" = "$PWD/src-tauri/target/dev-instances/$CT_INSTANCE_KEY/cli" ]; }
+cargo() { [ "$CARGO_TARGET_DIR" = "$PWD/src-tauri/target/dev-instances/$CT_INSTANCE_KEY" ]; }
 cli_profile_binary() { echo unused; }
 cli_file_sha256_or_status() { echo unused; }
 install_cli_to() { :; }
