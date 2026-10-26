@@ -46,6 +46,10 @@ env:
   # Builders are shared with agents; a CI job queues for the slot instead of failing busy (75).
   CODETERM_BUILD_GATEWAY_MODE: queue
   CODETERM_SCCACHE_VERIFY_ONLY: '1'
+  # CI test binaries carry no debug info: assert and panic locations still print, binaries and the
+  # shard archive shrink. Local builds keep line tables.
+  CARGO_PROFILE_TEST_DEBUG: 'false'
+  CARGO_PROFILE_DEV_DEBUG: 'false'
 
 jobs:
   # All Linux compilation shares the warm linux-build executor.
