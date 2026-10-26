@@ -151,6 +151,8 @@ ct_sccache_storage() {
   else
     access_key="$(ct_sccache_secret domios-sccache-s3-access-key)" || access_key=""
     secret_key="$(ct_sccache_secret domios-sccache-s3-secret-key)" || secret_key=""
+    # A developer machine outside CI keeps the store address beside its keys in the vault.
+    [ -n "$CT_CI_STORE_ENDPOINT" ] || CT_CI_STORE_ENDPOINT="$(ct_sccache_secret domios-ci-store-endpoint)" || CT_CI_STORE_ENDPOINT=""
   fi
   if [ -n "$access_key" ] && [ -n "$secret_key" ] && [ -n "$CT_CI_STORE_ENDPOINT" ]; then
     export AWS_ACCESS_KEY_ID="$access_key" AWS_SECRET_ACCESS_KEY="$secret_key"

@@ -58,6 +58,8 @@ jobs:
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      CI_STORE_TAILNET_ENDPOINT: ${{ secrets.CI_STORE_TAILNET_ENDPOINT }}
+      CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
       JEV_EXPECTED_SHA: ${{ inputs.expected_source_sha }}
       JEV_WORKFLOW_SHA: ${{ github.workflow_sha }}
       JEV_EVENT_SHA: ${{ github.sha }}
@@ -188,6 +190,8 @@ jobs:
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      CI_STORE_TAILNET_ENDPOINT: ${{ secrets.CI_STORE_TAILNET_ENDPOINT }}
+      CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
       JEV_EXPECTED_SHA: ${{ inputs.expected_source_sha }}
       JEV_WORKFLOW_SHA: ${{ github.workflow_sha }}
       JEV_EVENT_SHA: ${{ github.sha }}
@@ -635,6 +639,8 @@ jobs:
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      CI_STORE_TAILNET_ENDPOINT: ${{ secrets.CI_STORE_TAILNET_ENDPOINT }}
+      CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
       JEV_EXPECTED_SHA: ${{ inputs.expected_source_sha }}
       JEV_WORKFLOW_SHA: ${{ github.workflow_sha }}
       JEV_EVENT_SHA: ${{ github.sha }}
@@ -817,6 +823,8 @@ jobs:
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      CI_STORE_TAILNET_ENDPOINT: ${{ secrets.CI_STORE_TAILNET_ENDPOINT }}
+      CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
       EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
       WORKFLOW_SOURCE_SHA: ${{ github.workflow_sha }}
       EVENT_SOURCE_SHA: ${{ github.sha }}
@@ -1191,6 +1199,8 @@ jobs:
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      CI_STORE_TAILNET_ENDPOINT: ${{ secrets.CI_STORE_TAILNET_ENDPOINT }}
+      CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
       EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
       WORKFLOW_SOURCE_SHA: ${{ github.workflow_sha }}
       TEST_CAP_SECS: '600'
@@ -1295,6 +1305,8 @@ jobs:
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      CI_STORE_TAILNET_ENDPOINT: ${{ secrets.CI_STORE_TAILNET_ENDPOINT }}
+      CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
       EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
       WORKFLOW_SOURCE_SHA: ${{ github.workflow_sha }}
       EVENT_SOURCE_SHA: ${{ github.sha }}
@@ -1738,6 +1750,8 @@ jobs:
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      CI_STORE_TAILNET_ENDPOINT: ${{ secrets.CI_STORE_TAILNET_ENDPOINT }}
+      CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
       EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
       WORKFLOW_SOURCE_SHA: ${{ github.workflow_sha }}
       EVENT_SOURCE_SHA: ${{ github.sha }}
@@ -2305,6 +2319,8 @@ jobs:
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      CI_STORE_TAILNET_ENDPOINT: ${{ secrets.CI_STORE_TAILNET_ENDPOINT }}
+      CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
       EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
       WORKFLOW_SOURCE_SHA: ${{ github.workflow_sha }}
       EVENT_SOURCE_SHA: ${{ github.sha }}
@@ -3312,6 +3328,8 @@ jobs:
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      CI_STORE_TAILNET_ENDPOINT: ${{ secrets.CI_STORE_TAILNET_ENDPOINT }}
+      CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
       EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
       WORKFLOW_SOURCE_SHA: ${{ github.workflow_sha }}
       EVENT_SOURCE_SHA: ${{ github.sha }}
