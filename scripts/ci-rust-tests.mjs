@@ -165,11 +165,13 @@ export const ARCHIVE = process.env.CI_RUST_ARCHIVE || '';
 const archiveKey = (lane) => `${ARCHIVE}/full-${lane.lane}.tar.zst`;
 const archiveFile = (lane) => path.resolve(`ci-rust-archive-${lane.lane}.tar.zst`);
 const ARCHIVE_EXTRACT = path.resolve('ci-rust-archive-extract');
+// nextest remaps the archive onto the Cargo workspace root, which holds the lane manifest.
+const ARCHIVE_WORKSPACE = path.resolve(path.dirname(WORKSPACE.manifest));
 
 export function shardRunArgs(archive, config, shard, alone = false) {
   const partition = shard && !alone ? ['--partition', `hash:${shard}`] : [];
   // A partition may hold no test of one execution group; the shard's receipt still requires tests overall.
-  return ['nextest', 'run', ...archiveRunArgs(archive, process.cwd(), ARCHIVE_EXTRACT, config, partition, alone)]
+  return ['nextest', 'run', ...archiveRunArgs(archive, ARCHIVE_WORKSPACE, ARCHIVE_EXTRACT, config, partition, alone)]
     .map((arg) => arg === '--no-tests=fail' ? '--no-tests=pass' : arg);
 }
 
@@ -306,7 +308,7 @@ async function run(mode, { compileOnly = false } = {}) {
         continue;
       }
       const listArgs = fromArchive
-        ? ['--archive-file', archiveFile(lane), '--workspace-remap', process.cwd(), '--extract-to', ARCHIVE_EXTRACT, '--extract-overwrite']
+        ? ['--archive-file', archiveFile(lane), '--workspace-remap', ARCHIVE_WORKSPACE, '--extract-to', ARCHIVE_EXTRACT, '--extract-overwrite']
         : ['--manifest-path', lane.manifest, ...lane.targets, '--locked'];
       const testArgs = (config, alone = false) => fromArchive
         ? shardRunArgs(archiveFile(lane), config, SHARD, alone)
