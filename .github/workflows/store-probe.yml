@@ -26,6 +26,16 @@ jobs:
             labels: '["self-hosted","macOS","host-eight"]'
           - host: air
             labels: '["self-hosted","macOS","host-air"]'
+          - host: hosted-linux
+            labels: '"ubuntu-24.04"'
+          - host: hosted-linux-arm
+            labels: '"ubuntu-24.04-arm"'
+          - host: hosted-windows
+            labels: '"windows-latest"'
+          - host: hosted-windows-arm
+            labels: '"windows-11-arm"'
+          - host: hosted-macos
+            labels: '"macos-15"'
     runs-on: ${{ fromJSON(matrix.labels) }}
     timeout-minutes: 10
     env:
@@ -40,7 +50,11 @@ jobs:
         with:
           fetch-depth: 1
       - name: Put tools on PATH
+        if: runner.environment == 'self-hosted'
         run: node scripts/ci-runner-paths.mjs --paths-only
+      - name: Hosted sccache
+        if: runner.environment == 'github-hosted'
+        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
       - name: Route, sccache against the shared store, object round trip
         shell: bash
         run: |
