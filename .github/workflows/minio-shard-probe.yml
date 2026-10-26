@@ -1,0 +1,78 @@
+name: MinIO shard probe
+
+# Throwaway probe: one job stores a test-archive-sized file in MinIO, four hosted shards fetch it in
+# parallel, verify it and take their quarter of a work list. The run summary records the timings.
+on:
+  push:
+    branches: [ci/minio-shard-probe]
+
+permissions:
+  contents: read
+
+env:
+  AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+  CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
+  KEY: shard-probe/${{ github.run_id }}/archive.bin
+
+jobs:
+  pack:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      sha: ${{ steps.pack.outputs.sha }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 1
+      - id: pack
+        name: Store a 200 MB archive in MinIO
+        shell: bash
+        run: |
+          set -euo pipefail
+          head -c 209715200 /dev/urandom > "$RUNNER_TEMP/archive.bin"
+          sha=$(sha256sum "$RUNNER_TEMP/archive.bin" | cut -d' ' -f1)
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          start=$(date +%s.%N)
+          bash scripts/ci-artifact.sh put "$KEY" "$RUNNER_TEMP/archive.bin"
+          took=$(echo "$(date +%s.%N) - $start" | bc)
+          echo "| pack | upload 200 MB | ${took}s |" >> "$GITHUB_STEP_SUMMARY"
+
+  shard:
+    needs: pack
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 1
+      - name: Fetch, verify and take this shard's work
+        shell: bash
+        env:
+          SHA: ${{ needs.pack.outputs.sha }}
+          SHARD: ${{ matrix.shard }}
+        run: |
+          set -euo pipefail
+          start=$(date +%s.%N)
+          bash scripts/ci-artifact.sh get "$KEY" "$RUNNER_TEMP/archive.bin"
+          took=$(echo "$(date +%s.%N) - $start" | bc)
+          [ "$(sha256sum "$RUNNER_TEMP/archive.bin" | cut -d' ' -f1)" = "$SHA" ]
+          work=$(git ls-files 'src-tauri/crates/*/Cargo.toml' | awk -v k="$SHARD" 'NR % 4 == k % 4' | wc -l)
+          echo "| shard $SHARD/4 | download 200 MB, checksum ok, $work crates | ${took}s |" >> "$GITHUB_STEP_SUMMARY"
+
+  cleanup:
+    needs: shard
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 1
+      - name: Remove the probe archive
+        shell: bash
+        run: bash scripts/ci-artifact.sh rm "$KEY"
