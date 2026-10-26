@@ -29,8 +29,8 @@ export function workspaceMembers(repository = root, run = execFileSync) {
   return names;
 }
 
-// Workspace members whose tests run in their own lane and target directory.
-export const OWN_LANE_MEMBERS = ['codeterm-cli'];
+// Workspace members whose tests run in their own lane; none now: the CLI's tests join the workspace build.
+export const OWN_LANE_MEMBERS = [];
 
 export function workspaceTestTargets(repository = root, catalogue = runners, members = workspaceMembers(repository)) {
   const selected = archiveTargets('workspace', catalogue);

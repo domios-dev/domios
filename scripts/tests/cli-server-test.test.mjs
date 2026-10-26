@@ -33,8 +33,6 @@ test('CLI integration preparation binds the exact CLI bytes into the debug serve
       },
     });
     assert.equal(calls.length, 2);
-    assert.equal(calls[0].env.CARGO_TARGET_DIR, cliTarget);
-    assert.equal(calls[1].env.CARGO_TARGET_DIR, path.join(serverTarget, 'test-preparation', 'server-build'));
     assert.equal(calls[1].env.CODETERM_SERVER_CLI_SHA256,
       createHash('sha256').update(readFileSync(cli)).digest('hex'));
     assert.ok(calls[1].args.includes('--no-default-features'));

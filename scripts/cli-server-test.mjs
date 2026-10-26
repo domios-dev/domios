@@ -1,9 +1,12 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, copyFileSync, cpSync, mkdirSync, readFileSync, realpathSync } from 'node:fs';
+import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { renderedCompilerErrors } from './collect-rust-warnings.mjs';
+
+// Test builds stage the server resources under another name, so they never collide with the server binary.
+export const TEST_SERVER_RESOURCES = JSON.stringify({ bundle: { resources: { '../target/domios-package/domios-server/': 'test-server-resources' } } });
 
 export function requiresCliServer(inventory) {
   return Object.values(inventory['rust-suites']).some(suite => suite['binary-name'] === 'isolated_server' &&
@@ -31,8 +34,11 @@ export function prepareCliServer({ cliTarget, serverTarget, env = process.env, e
   if (!cliTarget || !serverTarget) throw new Error('CLI integration requires both target directories');
   const cli = buildArtifact('cli/Cargo.toml', 'codeterm', { ...env, CARGO_TARGET_DIR: cliTarget }, [], execute);
   const digest = createHash('sha256').update(readFileSync(cli)).digest('hex');
-  // Tauri stages its domios-server/ resource directory beside workspace debug binaries.
-  const serverBuildTarget = path.resolve(serverTarget, 'test-preparation', 'server-build');
+  // On Linux Tauri stages a domios-server/ resource directory where the server binary lands; the CI test
+  // build renames that staging (TEST_SERVER_RESOURCES), so the server reuses the shared target there.
+  const binaryPath = path.join(serverTarget, 'debug', 'domios-server');
+  const collides = existsSync(binaryPath) && statSync(binaryPath).isDirectory();
+  const serverBuildTarget = collides ? path.resolve(serverTarget, 'test-preparation', 'server-build') : serverTarget;
   const server = buildArtifact('src-tauri/Cargo.toml', 'domios-server',
     { ...env, CARGO_TARGET_DIR: serverBuildTarget, CODETERM_SERVER_CLI_SHA256: digest }, ['-p', 'domios-server', '--no-default-features'], execute);
   const root = path.resolve(serverTarget, 'test-preparation', 'cli-server');

@@ -11,7 +11,7 @@ import { classifyTarget } from './ci-classifier-cache.mjs';
 import { FULL_LANES, testTargetDir } from './rust-test-lanes.mjs';
 import { renderedCompilerErrors } from './collect-rust-warnings.mjs';
 import { parseTimings } from './check-slow-unit-tests.mjs';
-import { prepareCliServer } from './cli-server-test.mjs';
+import { prepareCliServer, TEST_SERVER_RESOURCES } from './cli-server-test.mjs';
 import { failureDetector, failureEvent, firstFailure } from './ci-first-failure.mjs';
 
 // The catalogue's release tier names every package and target, including path dependencies outside the workspace.
@@ -276,6 +276,7 @@ async function run(mode, { compileOnly = false } = {}) {
   const lanes = MODES[mode];
   if (!lanes) throw new Error('usage: node scripts/ci-rust-tests.mjs full|platform|embeddings | verify DIR');
   for (const name of ['CODETERM_CONPTY_DIR', 'CODETERM_PLAN_ID', 'CODETERM_TASK_ID']) delete process.env[name];
+  if (process.platform === 'linux') process.env.TAURI_CONFIG = TEST_SERVER_RESOURCES;
   const env = { ...process.env, TEST_CAP_SECS: '1800', CODETERM_CONPTY_TEST_ISOLATION: '1' };
   const os = process.env.RUNNER_OS || { win32: 'Windows', darwin: 'macOS', linux: 'Linux' }[process.platform];
   const plan = timingPlan({ release: process.env.CI_RELEASE_TESTS === 'true', os });
@@ -322,6 +323,8 @@ async function run(mode, { compileOnly = false } = {}) {
       const config = path.join(directory, `${mode}-${lane.lane}.toml`);
       fs.writeFileSync(config, tomlConfig('all()', false));
       let scope = mode === 'embeddings' ? 'package(=codeterm-mem) | (package(=codeterm-service-core) & test(/^mem::/))' : 'all()';
+      // The workspace lane holds the CLI's own tests; isolated_server needs a staged server and runs in the CLI lane.
+      if (lane.lane === 'workspace') scope = `(${scope}) & not (${CLI_SERVER})`;
       fs.writeFileSync(config, tomlConfig(scope, false));
       if (mode === 'platform' && !lane.whole) {
         const rows = classify(lane, messages, config);
