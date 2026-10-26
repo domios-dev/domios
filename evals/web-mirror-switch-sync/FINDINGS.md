@@ -711,7 +711,7 @@ distinct, and origin was never the discriminator.*
 
 The cross-peer half **did not run**. Dev's mesh has no paired peers
 (`dc mesh peers` -> `paired: []`, `discovered: []`), and Mac-Air (`air`,
-100.85.116.96) is on the tailnet but its dev refuses on 7686 and its
+100.64.10.4) is on the tailnet but its dev refuses on 7686 and its
 `tailscale serve` on 443 times out. No peer was simulated.
 
 Because Andrey's report is *"especially when working with other machines"*, and

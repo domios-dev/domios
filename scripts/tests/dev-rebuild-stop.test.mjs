@@ -87,7 +87,7 @@ test('owned browser and provider descendants may listen on their own ports', () 
 test('loopback and tailnet IPv4 and IPv6 listeners identify one server owner', () => {
   const input = fixture();
   input.listeners = input.listeners.filter(row => row.port !== input.port);
-  for (const address of ['127.0.0.1', '100.84.159.37', 'fd7a:115c:a1e0::9001:9f33']) {
+  for (const address of ['127.0.0.1', '100.64.10.1', 'fd7a:115c:a1e0::9001:9f33']) {
     input.listeners.push({ pid: 43, port: input.port, address });
   }
   assert.deepEqual(rebuildStopPlan(input).map(row => row.pid), [42, 43, 44]);

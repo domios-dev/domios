@@ -46,11 +46,11 @@ fn peer_api_url_skips_loopback_addresses() {
 fn tailscale_hint_fires_only_for_tailscale_addresses() {
     let hint = |url: &str| super::relay::tailscale_unreachable_hint(url);
     assert!(
-        hint("http://100.96.252.97:7685").is_some(),
+        hint("http://100.64.10.2:7685").is_some(),
         "CGNAT 100.64/10"
     );
     assert!(
-        hint("https://blackstar.tail0e459c.ts.net").is_some(),
+        hint("https://blackstar.example-tailnet.ts.net").is_some(),
         "ts.net host"
     );
     assert!(
@@ -67,13 +67,13 @@ fn tailscale_hint_fires_only_for_tailscale_addresses() {
     );
     assert!(hint("http://10.0.0.1:7685").is_none(), "private range");
     assert!(
-        hint("http://100.96.252.97:7685")
+        hint("http://100.64.10.2:7685")
             .unwrap()
             .contains("tailscale ping"),
         "hint names the remediation"
     );
     assert!(
-        hint("Network error: error sending request for url (http://100.96.252.97:7685/api/mesh/relay)")
+        hint("Network error: error sending request for url (http://100.64.10.2:7685/api/mesh/relay)")
             .is_some(),
         "detects a Tailscale address inside a daemon error body"
     );

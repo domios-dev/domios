@@ -29,11 +29,11 @@ test('later pass never erases first fail',()=>{
   assert.ok(text.includes('| FAIL | [first.json](first.json)'));assert.ok(text.includes('| PASS | [second.json](second.json)'));
 });
 test('only approved direct RC run directories accepted',()=>{
-  const root='/Users/kandrey/Developer/codeterm-worktrees/rc-mac/target-check/evals/';
+  const root='/Users/dev/Developer/codeterm-worktrees/rc-mac/target-check/evals/';
   assert.equal(validateOutput(root+'mesh-terminals-x'),root+'mesh-terminals-x');
   assert.equal(validateOutput(root+'mesh-webui-x'),root+'mesh-webui-x');
   assert.throws(()=>validateOutput(root+'mesh-webui-x/nested'));
-  assert.throws(()=>validateOutput('/Users/kandrey/Developer/codeterm/target-check/evals/mesh-webui-x'));
+  assert.throws(()=>validateOutput('/Users/dev/Developer/codeterm/target-check/evals/mesh-webui-x'));
 });
 test('convergence uses completion idle rather than pre-turn idle',()=>{
   assert.throws(()=>convergence({web:[{state:'idle',at:0},{state:'working',at:10},{state:'idle',at:3000}],
@@ -44,8 +44,8 @@ test('manifest admits only the two authorized gateway origins',()=>{
   const m=JSON.parse(readFileSync(new URL('./manifest.example.json',import.meta.url),'utf8'));
   m.mac.peerId='abcdef01';m.windows.peerId='abcdef02';
   assert.equal(validateManifest(m),m);
-  for(const [machine,origin] of [['windows','http://100.84.159.37:7698'],
-    ['windows','http://100.84.159.37:7685'],['mac','http://100.96.252.97:7685'],
+  for(const [machine,origin] of [['windows','http://100.64.10.1:7698'],
+    ['windows','http://100.64.10.1:7685'],['mac','http://100.64.10.2:7685'],
     ['windows','http://127.0.0.1:7686']]) {
     const other=structuredClone(m);other[machine].origin=origin;
     assert.throws(()=>validateManifest(other));

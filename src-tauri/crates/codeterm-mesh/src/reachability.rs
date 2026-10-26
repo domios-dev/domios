@@ -101,11 +101,11 @@ mod tests {
         ];
         let live = [
             "127.0.0.1:7690".parse().unwrap(),
-            "100.84.159.37:7690".parse().unwrap(),
+            "100.64.10.1:7690".parse().unwrap(),
         ];
         let result = advertised_addresses(&live, &candidates, 7690);
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0].ip, "100.84.159.37");
+        assert_eq!(result[0].ip, "100.64.10.1");
         assert!(result[0].is_tailscale);
         assert!(advertised_addresses(&live, &candidates, 7686).is_empty());
     }
@@ -126,13 +126,13 @@ mod tests {
     fn mesh_reachability_loopback_accepts_only_matching_verified_forward() {
         let listeners = ["127.0.0.1:7690".parse().unwrap()];
         let candidates = [
-            PeerAddress::from_ip("100.84.159.37"),
+            PeerAddress::from_ip("100.64.10.1"),
             PeerAddress::from_ip("192.168.1.2"),
         ];
         let verified_web_ui = WebUiAnnouncement {
             protocol_version: crate::types::RELAY_PROTOCOL_VERSION,
             endpoints: vec![WebUiEndpoint::TailscaleHttp {
-                ip: "100.84.159.37".parse().unwrap(),
+                ip: "100.64.10.1".parse().unwrap(),
                 port: 7690,
             }],
         };
@@ -145,14 +145,14 @@ mod tests {
         );
 
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0].ip, "100.84.159.37");
+        assert_eq!(result[0].ip, "100.64.10.1");
         assert!(result[0].is_tailscale);
     }
 
     #[test]
     fn mesh_reachability_loopback_rejects_unverified_forward() {
         let listeners = ["127.0.0.1:7690".parse().unwrap()];
-        let candidates = [PeerAddress::from_ip("100.84.159.37")];
+        let candidates = [PeerAddress::from_ip("100.64.10.1")];
 
         assert!(
             advertised_addresses_with_verified_forward(&listeners, &candidates, 7690, None,)

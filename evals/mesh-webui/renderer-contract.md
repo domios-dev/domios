@@ -30,7 +30,7 @@ try {
 Mac native desktop screenshots use the existing RC script exactly:
 
 ```bash
-node /Users/kandrey/Developer/codeterm-worktrees/rc-mac/scripts/dev-screenshot.mjs RC_RUN/captures/STEP/mac-desktop.png '' --api-port 7697
+node /Users/dev/Developer/codeterm-worktrees/rc-mac/scripts/dev-screenshot.mjs RC_RUN/captures/STEP/mac-desktop.png '' --api-port 7697
 ```
 
 Wrap in the Orchestrator's bounded runner; it has no internal request deadline. Read terminal state using the same readTerminalState evaluator through the existing CDP connection supplied by B2/Orchestrator. Remote Mac desktop selection is task-owned and explicitly identifies Windows DEV tab. No owner BLACKSTAR window is touched. The existing screenshot script is source-inspected, not run.
@@ -54,7 +54,7 @@ node --check evals/mesh-webui/capture-web.mjs
 Exact live command after GO, with assigned manifest and case file:
 
 ```bash
-B2_GO_LIVE=yes B3_GO_LIVE=yes node evals/mesh-webui/capture-web.mjs MANIFEST_JSON /Users/kandrey/Developer/codeterm-worktrees/rc-mac/target-check/evals/mesh-terminals-B3-RUN CASES_JSON
+B2_GO_LIVE=yes B3_GO_LIVE=yes node evals/mesh-webui/capture-web.mjs MANIFEST_JSON /Users/dev/Developer/codeterm-worktrees/rc-mac/target-check/evals/mesh-terminals-B3-RUN CASES_JSON
 ```
 
 CASES_JSON is a nonempty array of {id, gateway:'mac'|'windows', home:'mac'|'windows', view:'web', tabId}. Each tab must be in manifest[home].tabs or optional manifest[home].shells. Distinct ids are required. Origins/exact peer ids/token files stay B2 manifest-owned. Do not supply shell snippets or input payloads; only capture identities. New directories/observation evidence preserve originals. Orchestrator outer process deadline still required.
@@ -62,14 +62,14 @@ CASES_JSON is a nonempty array of {id, gateway:'mac'|'windows', home:'mac'|'wind
 Shared-driver adjustments requested from Engelbart: createHarness allow approved mesh-terminals-* alongside mesh-webui-*; generic visible terminal-tab provenance fallback when chat is hidden. Until applied, capture-web is authored but blocked by the shared B2 path guard. Windows-home native capture is now an explicit planned Orchestrator Windows DEV-only BLACKSTAR shell/CDP route, supplied at GO.
 
 Canonical executed evidence supplied by Euler:
-- /Users/kandrey/Developer/codeterm-worktrees/rc-mac/target-check/evals/mesh-phaseb-offline/b3-offline.txt: original 12 tests pass and shell syntax clean per Euler.
-- /Users/kandrey/Developer/codeterm-worktrees/rc-mac/target-check/evals/mesh-phaseb-offline/b3-capture-offline.txt: terminal-capture.mjs syntax check passed; 3 Node tests passed, 0 failed per Euler.
+- /Users/dev/Developer/codeterm-worktrees/rc-mac/target-check/evals/mesh-phaseb-offline/b3-offline.txt: original 12 tests pass and shell syntax clean per Euler.
+- /Users/dev/Developer/codeterm-worktrees/rc-mac/target-check/evals/mesh-phaseb-offline/b3-capture-offline.txt: terminal-capture.mjs syntax check passed; 3 Node tests passed, 0 failed per Euler.
 
 No live matrix results exist yet. capture-web.mjs is new and has no executed syntax/live proof.
 
 Shared integration source verification complete: Engelbart's model.validateOutput now accepts only direct RC eval children mesh-webui-* or mesh-terminals-*; browser.capture includes visible terminal-tab selectedTabId and terminalVisible. B3 capture-web imports that same output guard rather than maintaining duplicate path policy. Prior shared path/provenance blockers are resolved in source; runtime remains unexecuted pending GO. The latest capture-web revision still needs the deferred syntax check.
 
-Current respawn wiring: Engelbart supplied ec518d63/b2/browser.mjs and model.mjs. B3 imports those shared modules; browser.mjs imports this pad’s terminal-capture.mjs. Inspected exports and Windows origin guard http://100.84.159.37:7686. No syntax/runtime gate or browser connection executed. Await Euler GO live, exact peer id and populated manifest.
+Current respawn wiring: Engelbart supplied ec518d63/b2/browser.mjs and model.mjs. B3 imports those shared modules; browser.mjs imports this pad’s terminal-capture.mjs. Inspected exports and Windows origin guard http://100.64.10.1:7686. No syntax/runtime gate or browser connection executed. Await Euler GO live, exact peer id and populated manifest.
 
 
 ## Missing DEV xterm and wrong fixture provenance

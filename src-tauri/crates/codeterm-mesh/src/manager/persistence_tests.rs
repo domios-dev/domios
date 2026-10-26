@@ -10,7 +10,7 @@ fn paired_peer_routes_without_set_addr() {
                 "instance_id": "peer-a",
                 "instance_name": "rollacode-bot",
                 "addresses": [
-                    { "ip": "100.110.3.12", "is_tailscale": true },
+                    { "ip": "100.64.10.3", "is_tailscale": true },
                     { "ip": "192.168.1.251", "is_tailscale": false }
                 ],
                 "api_port": 7685,
@@ -62,7 +62,7 @@ fn paired_peer_routes_without_set_addr() {
         .find(|p| p.instance_id == "peer-a")
         .expect("peer-a listed in peers_response");
     assert!(
-        rendered.addresses.iter().any(|a| a.ip == "100.110.3.12"),
+        rendered.addresses.iter().any(|a| a.ip == "100.64.10.3"),
         "the real address renders, not a placeholder"
     );
 }

@@ -11,7 +11,7 @@ pub enum SendOrigin {
     Programmatic,
 }
 
-/// Byte bound for a single programmatic send payload (Orca prior art: 16MB).
+/// Byte bound for a single programmatic send payload (16MB).
 pub const PROGRAMMATIC_SEND_MAX_BYTES: usize = 16 * 1024 * 1024;
 
 /// Pre-write refusal of an over-bound programmatic payload. Raised at the

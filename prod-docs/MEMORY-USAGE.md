@@ -100,7 +100,7 @@ Save identity is the exact kind and title. Saving an unchanged body after whites
 | `note` | Meeting notes, conversations, context | "Talked to Tima about audio engine architecture" |
 | `skill` | How-to instructions, reusable procedures | "How to deploy a web service: build the image, then publish it..." |
 | `rule` | Hard never/always constraints | "Never commit .env files" |
-| `peer` | Machine or service info | "Mac Mini runs Docker with HA, Mosquitto, OpenClaw" |
+| `peer` | Machine or service info | "Build server runs Docker with the CI cache" |
 | `document` | Files tracked on disk | Saved with `--source-path`, re-synced by the Librarian |
 
 Valid `--kind` filters also include `conversation`, `script`, `daily` and `summary`. The body is chunked and embedded, so name people, projects, technologies and context: "fixed the bug" is useless. Never save a title-only or empty-body item: it gets no vector, stays invisible to semantic search and is noise; record a bare connection as a graph relation instead. Relations are free-form verb predicates (`works_on`, `uses`, `shipped`, `runs_on`); `--as-of` queries filter out stale and invalidated facts. Index a file with `cat doc.md | domios mem save --kind document --source-path doc.md --title "searchable title"`.
@@ -158,4 +158,4 @@ The Memory tab reads this directly.
 
 Memory preserves the body you save; later edits retain history.
 
-<!-- revision: 15 -->
+<!-- revision: 16 -->
