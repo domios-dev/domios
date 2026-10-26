@@ -3,7 +3,6 @@ on:
   push:
     branches:
       - master
-      - develop
       - rename/domios
       - release/**
   schedule:
@@ -24,6 +23,9 @@ on:
           - fast
           - preflight
   pull_request:
+    # A release PR into master carries a head that its release push run already qualifies.
+    branches-ignore:
+      - master
     types:
       - opened
       - edited
@@ -59,17 +61,6 @@ jobs:
               core.notice('Skipping heavy CI on master: release publication reuses qualified release-head artifacts');
               core.setOutput('run', 'false');
               return;
-            }
-            if (context.eventName === 'push' && context.ref === 'refs/heads/develop') {
-              const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {...context.repo,
-                workflow_id:'tests.yml', event:'push', head_sha:context.sha, per_page:100});
-              if (runs.some(run => run.id !== context.runId && run.head_sha === context.sha &&
-                /^release\/\d+\.\d+\.\d+$/.test(run.head_branch) &&
-                run.head_repository.full_name === context.repo.owner + '/' + context.repo.repo)) {
-                core.notice('Skipping heavy CI: a release push run owns this exact SHA');
-                core.setOutput('run', 'false');
-                return;
-              }
             }
             core.setOutput('run', 'true');
   policy:
