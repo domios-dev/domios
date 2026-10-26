@@ -157,8 +157,13 @@ ct_sccache_storage() {
   if [ -n "$access_key" ] && [ -n "$secret_key" ] && [ -n "$CT_CI_STORE_ENDPOINT" ]; then
     export AWS_ACCESS_KEY_ID="$access_key" AWS_SECRET_ACCESS_KEY="$secret_key"
     unset AWS_SESSION_TOKEN
-    export SCCACHE_ENDPOINT="$CT_CI_STORE_ENDPOINT" SCCACHE_BUCKET=sccache SCCACHE_REGION=us-east-1
-    case "$CT_CI_STORE_ENDPOINT" in https://*) export SCCACHE_S3_USE_SSL=true ;; *) export SCCACHE_S3_USE_SSL=false ;; esac
+    local sccache_endpoint="$CT_CI_STORE_ENDPOINT"
+    # macOS Local Network privacy blocks a service-launched sccache from LAN addresses; it uses the public edge.
+    if [ "$(uname -s)" = Darwin ] && [ "${CT_CI_STORE_ROUTE:-}" = lan ] && [ -n "${CI_STORE_PUBLIC_ENDPOINT:-}" ]; then
+      sccache_endpoint="$CI_STORE_PUBLIC_ENDPOINT" CT_CI_STORE_ROUTE=public
+    fi
+    export SCCACHE_ENDPOINT="$sccache_endpoint" SCCACHE_BUCKET=sccache SCCACHE_REGION=us-east-1
+    case "$sccache_endpoint" in https://*) export SCCACHE_S3_USE_SSL=true ;; *) export SCCACHE_S3_USE_SSL=false ;; esac
     export CT_SCCACHE_STORAGE=shared CT_SCCACHE_REASON=""
   else
     unset SCCACHE_ENDPOINT SCCACHE_BUCKET SCCACHE_REGION SCCACHE_S3_USE_SSL
