@@ -164,6 +164,10 @@ fn socket_plan_task_dispatch_runtime_preserves_binding_and_reaches_worker_ack() 
     )
     .unwrap();
     assert_eq!(manifest.len(), 1);
+    let (changed_tx, changed) = std::sync::mpsc::channel();
+    harness.fixture.ui.listen("plan-changed", move |_| {
+        let _ = changed_tx.send(());
+    });
     let before = svc.mux.read().snapshot().tabs.len();
     let response = super::super::dispatch(
         &Some(json!({
@@ -180,6 +184,22 @@ fn socket_plan_task_dispatch_runtime_preserves_binding_and_reaches_worker_ack() 
     let worker = response["tab_id"].as_str().unwrap();
     let attempt_id = response["attempt_id"].as_str().unwrap();
     assert_eq!(svc.mux.read().snapshot().tabs.len(), before + 1);
+    // Dispatch returns before the Worker runtime is ready; its startup commits the attempt binding.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while svc
+        .plan_store
+        .show_task(&task)
+        .unwrap()
+        .task
+        .execution_attempts
+        .last()
+        .and_then(|attempt| attempt.session_binding_nonce.clone())
+        .is_none()
+    {
+        changed
+            .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
+            .expect("dispatch startup did not commit the Worker binding");
+    }
     let tab = svc.mux.read().get_tab(worker).unwrap().clone();
     assert_eq!(tab.description.as_deref(), Some("runtime task"));
     assert_eq!(
@@ -252,7 +272,7 @@ fn socket_plan_task_dispatch_runtime_preserves_binding_and_reaches_worker_ack() 
 #[test]
 fn runtime_sync_spawn_reports_bound_session_readiness() {
     let (harness, owner, workspace) = fixture();
-    let (tx, mut rx) = tokio::sync::oneshot::channel();
+    let (tx, rx) = tokio::sync::oneshot::channel();
     let spawn = harness
         .fixture
         .service
@@ -267,7 +287,7 @@ fn runtime_sync_spawn_reports_bound_session_readiness() {
             Some(tx),
         )
         .unwrap();
-    assert_eq!(rx.try_recv().unwrap(), Ok(()));
+    assert_eq!(rx.blocking_recv().unwrap(), Ok(()));
     let tab = harness
         .fixture
         .service
