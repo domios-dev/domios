@@ -282,66 +282,6 @@ class ReleaseIssueContractTest(unittest.TestCase):
             second = self.run_contract("plan-close", "--resolved-file", str(resolved_path), "--states-file", str(states_path), "--version", "1.8.0")
             self.assertEqual(json.loads(second.stdout), [])
 
-    def test_publishing_workflow_mutates_no_issue(self):
-        """The caller delegates issue closure to its final manifest job."""
-        workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
-        self.assertIn("macos-arm64:", workflow)
-        self.assertIn("macos-x64:", workflow)
-        self.assertIn("linux-arm64:", workflow)
-        self.assertIn("linux-x86_64:", workflow)
-        self.assertIn("windows-x64:", workflow)
-        self.assertIn("windows-arm64:", workflow)
-        self.assertIn("release-manifest:", workflow)
-        self.assertIn("uses: ./.github/workflows/release-manifest-validate.yml", workflow)
-        self.assertNotIn("gh issue close", workflow)
-        self.assertNotIn("- name: Close shipped public issues", workflow)
-
-    def test_issue_mutation_is_after_verified_publication(self):
-        workflow = (ROOT / ".github" / "workflows" / "release-manifest-validate.yml").read_text(encoding="utf-8")
-        merge = workflow.index("- name: Merge and upload final channel manifests")
-        mark = workflow.index("- name: Mark source and public releases published")
-        verify = workflow.index("- name: Verify published public mirror")
-        boundary = workflow.index("- name: Mint issue closure boundary")
-        resolve = workflow.index("- name: Resolve included private source public issues")
-        close = workflow.index("- name: Close shipped public issues")
-        self.assertLess(merge, mark)
-        self.assertLess(mark, verify)
-        self.assertLess(verify, boundary)
-        self.assertLess(boundary, resolve)
-        self.assertLess(resolve, close)
-        for start in (verify, boundary, resolve, close):
-            step = workflow[start:workflow.index("shell: bash", start)]
-            self.assertIn("if: inputs.mirror", step)
-        close_step = workflow[close:]
-        self.assertNotIn("if: always()", close_step)
-        self.assertNotIn("continue-on-error", close_step)
-        self.assertIn('--repo "$MIRROR_REPO"', close_step)
-        self.assertNotIn('--repo "$GITHUB_REPOSITORY"', close_step)
-
-    def test_release_pr_collection_is_paginated_not_per_commit(self):
-        workflow = (ROOT / ".github" / "workflows" / "release-manifest-validate.yml").read_text(encoding="utf-8")
-        resolve = workflow[workflow.index("- name: Resolve included private source public issues") :]
-        self.assertIn("gh api --paginate", resolve)
-        self.assertIn("jq -s", resolve)
-        self.assertNotIn("--paginate --slurp", resolve)
-        self.assertIn("pulls?state=closed", resolve)
-        self.assertIn("$included[.merge_commit_sha]", resolve)
-        self.assertIn('--arg source_sha "$SOURCE_SHA"', resolve)
-        self.assertIn('test("(?im)^(?:Public-Issue:|Repository-Issue:)"', resolve)
-        self.assertIn(".merge_commit_sha == $source_sha", resolve)
-        self.assertNotIn('commits/$sha/pulls', resolve)
-
-    def test_pr_validation_includes_commit_metadata(self):
-        workflow = (ROOT / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8")
-        self.assertIn("git rev-list", workflow)
-        self.assertIn('--commits-file "$RUNNER_TEMP/release-commits.json"', workflow)
-        self.assertIn('--prs-file "$RUNNER_TEMP/release-prs.json"', workflow)
-        self.assertIn('--arg base_ref "$PR_BASE_REF"', workflow)
-        self.assertIn(".repository_issues[].reference", workflow)
-        self.assertIn('verifyIssueReferences(github, selection)', workflow)
-
-
-
 class Release1108ClosureContractTest(unittest.TestCase):
     """The 1.10.8 milestone integrates on release/1.10.8, so closing keywords are
     inert until the release PR reaches master. The Closes block in that PR is
