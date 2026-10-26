@@ -15,7 +15,7 @@ const value = (expression, context) => {
 };
 
 // Owner decision: hosted compile jobs may use the private cache store; no other private value reaches them.
-const cacheStore = ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'CI_STORE_TAILNET_ENDPOINT', 'CI_STORE_PUBLIC_ENDPOINT'];
+const cacheStore = ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'CI_STORE_LAN_ENDPOINT', 'CI_STORE_PUBLIC_ENDPOINT'];
 
 
 test('shared workflow evaluator always supplies a complete GitHub context without authorizing missing identity', () => {
