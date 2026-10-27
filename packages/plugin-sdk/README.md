@@ -75,6 +75,13 @@ successful display on errors or truncation. Hooks return continuations, not Prom
 
 The host snapshots callable exports when the bundle evaluates; methods added later are invisible until a bundle reload includes them.
 
+A plugin-owned chat backend confirms `closeSession` with
+`{ sessionId, processExited: true }` only after that exact session's owned
+processes have exited. Return `host.awaitJob(jobId, continuation)` when closure
+needs asynchronous work. Missing, failed, foreign-session or incomplete receipts
+refuse task respawn. A host-owned `agentRuntime` uses the host's pinned process
+exit observation instead. No additional subprocess or sandbox authority is granted.
+
 Exports: `Host`, `HostFs`, `HostShell`, `HostPath`, `DirEntry`, `ExecOpts`,
 `ExecResult`, `FetchOpts`, `FetchResult`, and the capability contracts
 (`PluginModule`, `StatusBubble`, `GlanceView`, `ViewNode`, `ViewCall`,

@@ -146,6 +146,16 @@ pub async fn task_respawn(
         .plan_store
         .reserve_task_respawn_startup(&id, &tid, &draft.source_attempt.id, &draft.attempt_id)
         .map_err(plan_err)?;
+    let retirement_service = state.svc.clone();
+    let retirement_draft = draft.clone();
+    tokio::task::spawn_blocking(move || {
+        retirement_service.retire_respawn_executor(&retirement_draft)
+    })
+    .await
+    .map_err(|error| {
+        text_err(axum::http::StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
+    })?
+    .map_err(|error| text_err(axum::http::StatusCode::CONFLICT, error))?;
     let description =
         codeterm_service_core::service::task_tab_description(&original_task.name, None);
     let spawn = state

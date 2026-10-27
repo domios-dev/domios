@@ -322,6 +322,17 @@ impl ServiceContext {
         reason: TabCloseReason,
         validate: impl FnOnce(&crate::multiplexer::state::MultiplexerState, &str) -> Result<(), String>,
     ) -> Result<(), String> {
+        self.close_tab_with_teardown(tab_id, reason, validate, || Ok(()), |_, _| Ok(()))
+    }
+
+    pub(crate) fn close_tab_with_teardown(
+        &self,
+        tab_id: &str,
+        reason: TabCloseReason,
+        validate: impl FnOnce(&crate::multiplexer::state::MultiplexerState, &str) -> Result<(), String>,
+        teardown: impl FnOnce() -> Result<(), String>,
+        validate_commit: impl FnOnce(&crate::multiplexer::state::MultiplexerState, &str) -> Result<(), String>,
+    ) -> Result<(), String> {
         let (pre_focus, reservation, provider_id, canonical_tab_id, session_id) = {
             let mut mux = self.mux.write();
             let canonical_tab_id = mux
@@ -342,7 +353,7 @@ impl ServiceContext {
             )
         };
         let role_policy = self.role_policy_for_tab(&canonical_tab_id);
-        if let Err(error) = self.prepare_tab_close(tab_id, reason) {
+        if let Err(error) = teardown().and_then(|()| self.prepare_tab_close(tab_id, reason)) {
             self.mux.write().abort_tab_close(&reservation);
             return Err(error);
         }
@@ -355,6 +366,10 @@ impl ServiceContext {
         }
         let (close_result, history_batch) = {
             let mut mux = self.mux.write();
+            if let Err(error) = validate_commit(&mux, &canonical_tab_id) {
+                mux.abort_tab_close(&reservation);
+                return Err(error);
+            }
             let result = mux.close_reserved_tab_with_reason(reservation, reason);
             (result, mux.take_closed_history_batch())
         };
