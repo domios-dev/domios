@@ -76,6 +76,13 @@ impl InboxSession for Session {
     async fn prepare(&self) -> codeterm_neighbors::Result<()> {
         self.current()?;
         self.keys().load().await?.ok_or(Error::Revoked)?;
+        self.current()?;
+        if let Some(tab) = &self.tab {
+            super::pending::publish(self).await?;
+            self.service.prepare_neighbor_gateway(tab).await?;
+            self.current()?;
+            super::pending::publish(self).await?;
+        }
         self.current()
     }
     async fn cursor(&self) -> codeterm_neighbors::Result<Option<Cursor>> {

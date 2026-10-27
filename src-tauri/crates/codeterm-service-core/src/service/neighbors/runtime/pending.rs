@@ -26,6 +26,8 @@ impl ServiceContext {
             "receiving_elsewhere"
         } else if missing {
             "concierge_missing"
+        } else if !gateway.is_some_and(|tab| self.neighbor_gateway_ready(tab)) {
+            "concierge_starting"
         } else {
             "ready"
         };
@@ -62,7 +64,7 @@ impl ServiceContext {
     }
 }
 
-async fn publish(session: &listener::Session) -> codeterm_neighbors::Result<()> {
+pub(super) async fn publish(session: &listener::Session) -> codeterm_neighbors::Result<()> {
     let settings = session.metadata.settings().await?;
     session.current()?;
     let receiver = session
