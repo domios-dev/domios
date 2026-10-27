@@ -3,6 +3,7 @@ use codeterm_service_core::{
     multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture,
 };
 use serde_json::{json, Value};
+use std::sync::Arc;
 
 fn fixture() -> (ServiceFixture, String, String) {
     let (mut mux, general) = MultiplexerState::new();
