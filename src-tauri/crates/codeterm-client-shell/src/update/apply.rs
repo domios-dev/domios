@@ -77,7 +77,13 @@ async fn check_and_apply_plugin(
     {
         let app_handle = app.clone();
         builder = builder.on_before_exit(move || {
-            app_handle.cleanup_before_exit();
+            if let Err(error) = super::restart::schedule_cleanup(&app_handle).and_then(|receiver| {
+                receiver
+                    .recv()
+                    .map_err(|error| format!("application cleanup was interrupted: {error}"))
+            }) {
+                log::error!("[updater] cleanup before installer exit failed: {error}");
+            }
         });
     }
     if let Some(target) = platform_key {
@@ -186,12 +192,12 @@ async fn check_and_apply_plugin(
             log::error!(
                 "[updater] install failed after the server stopped; relaunching the installed pair: {cause}"
             );
-            super::restart::restart(app)?;
+            super::restart::restart_from_async(app).await?;
         }
         return Err(cause);
     }
 
-    restart_after_plugin_install(app)
+    restart_after_plugin_install(app).await
 }
 
 /// A stop request that reached the server owes a relaunch even when its exit stays unconfirmed.
@@ -219,14 +225,14 @@ async fn stop_pair_server(
 }
 
 #[cfg(windows)]
-fn restart_after_plugin_install(_: &AppHandle) -> Result<ApplyResult, String> {
+async fn restart_after_plugin_install(_: &AppHandle) -> Result<ApplyResult, String> {
     // tauri-plugin-updater exits this process after launching the NSIS installer.
     Ok(ApplyResult::Restarting)
 }
 
 #[cfg(not(windows))]
-fn restart_after_plugin_install(app: &AppHandle) -> Result<ApplyResult, String> {
-    super::restart::restart(app)?;
+async fn restart_after_plugin_install(app: &AppHandle) -> Result<ApplyResult, String> {
+    super::restart::restart_from_async(app).await?;
     Ok(ApplyResult::Restarting)
 }
 
