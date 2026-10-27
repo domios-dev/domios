@@ -203,7 +203,7 @@ async fn run(
     retry: Arc<Notify>,
 ) -> Result<()> {
     let expected = account
-        .fresh_session()
+        .current_session()
         .await
         .map_err(|_| Error::Transport)?
         .ok_or(Error::Revoked)?;

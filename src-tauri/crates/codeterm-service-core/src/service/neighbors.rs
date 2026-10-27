@@ -65,7 +65,7 @@ impl ServiceContext {
         let history_generation = self.neighbor_history_generation();
         let account = self.account().await?;
         let session = account
-            .fresh_session()
+            .current_session()
             .await
             .map_err(|_| "Sign in to manage Neighbors")?
             .ok_or("Sign in to manage Neighbors")?;

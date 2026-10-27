@@ -64,7 +64,7 @@ fn session_refusal(error: codeterm_account::Error) -> AccountMeshRefusal {
 impl SessionSource for AccountSessions {
     async fn session(&self) -> Result<Option<Session>, AccountMeshRefusal> {
         let account = self.0.get().ok_or(AccountMeshRefusal::Unauthenticated)?;
-        account.fresh_session().await.map_err(session_refusal)
+        account.current_session().await.map_err(session_refusal)
     }
 }
 

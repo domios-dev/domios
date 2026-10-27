@@ -147,7 +147,7 @@ impl ServiceContext {
             return Err("Sign in with a hosted account to use Neighbors".into());
         }
         let session = account
-            .fresh_session()
+            .current_session()
             .await
             .map_err(|_| "Sign in to use Neighbors")?
             .ok_or("Sign in to use Neighbors")?;

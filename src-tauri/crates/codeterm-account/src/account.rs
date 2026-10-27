@@ -6,8 +6,6 @@ use std::{
 };
 use tokio::sync::{oneshot, Mutex, Notify};
 
-const ID_TOKEN_REFRESH_WINDOW_SECONDS: u64 = 60;
-
 fn unix_time() -> Option<u64> {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -15,9 +13,9 @@ fn unix_time() -> Option<u64> {
         .map(|duration| duration.as_secs())
 }
 
-fn token_expiring(expires_at: u64) -> bool {
+fn token_expired(expires_at: u64) -> bool {
     match unix_time() {
-        Some(now) => expires_at <= now.saturating_add(ID_TOKEN_REFRESH_WINDOW_SECONDS),
+        Some(now) => expires_at <= now,
         None => true,
     }
 }
@@ -41,6 +39,8 @@ struct State {
     pending: Option<(LoginFlow, oneshot::Sender<Redemption>)>,
     generation: u64,
     refresh_blocked: bool,
+    refresh_revision: u64,
+    last_refresh: Option<(u64, Result<()>)>,
     busy: bool,
     login_cancel: Option<oneshot::Sender<()>>,
     #[cfg(debug_assertions)]
@@ -285,9 +285,67 @@ impl Account {
         Ok(())
     }
     pub async fn refresh(&self) -> Result<Status> {
-        let _operation = self.operation.try_lock().map_err(|_| Error::Pending)?;
-        self.refresh_locked().await?;
+        let (generation, revision) = {
+            let state = self.state.lock().await;
+            (state.generation, state.refresh_revision)
+        };
+        self.refresh_shared(generation, revision, true).await?;
         Ok(self.status().await)
+    }
+    async fn refresh_shared(&self, generation: u64, revision: u64, force: bool) -> Result<()> {
+        if self.state.lock().await.busy {
+            return Err(Error::Pending);
+        }
+        let _operation = self.operation.lock().await;
+        {
+            let state = self.state.lock().await;
+            if state.refresh_blocked {
+                return Err(Error::Cancelled);
+            }
+            if state.refresh_revision != revision {
+                if let Some((owner, result)) = state.last_refresh {
+                    if owner == generation {
+                        return result;
+                    }
+                }
+            }
+            if state.generation != generation {
+                return Err(Error::Cancelled);
+            }
+            if !force
+                && !state
+                    .session
+                    .as_ref()
+                    .is_some_and(|session| session.expires_at.is_some_and(token_expired))
+            {
+                return Ok(());
+            }
+        }
+        let result = self.refresh_locked().await;
+        let cleared = {
+            let mut state = self.state.lock().await;
+            state.refresh_revision += 1;
+            state.last_refresh = Some((generation, result));
+            if result == Err(Error::Credentials)
+                && state.generation == generation
+                && state
+                    .session
+                    .as_ref()
+                    .is_some_and(|session| force || session.expires_at.is_some_and(token_expired))
+            {
+                state.generation += 1;
+                state.session = None;
+                true
+            } else {
+                false
+            }
+        };
+        if cleared {
+            if let Some(observer) = &self.observer {
+                observer.changed(None).await;
+            }
+        }
+        result
     }
     async fn refresh_locked(&self) -> Result<()> {
         let cancelled = self.refresh_cancel.notified();
@@ -389,9 +447,14 @@ impl Account {
         self.session_with_refresh(true).await
     }
     async fn session_with_refresh(&self, force: bool) -> Result<Option<Session>> {
-        let (current, refresh_blocked) = {
+        let (current, refresh_blocked, generation, revision) = {
             let state = self.state.lock().await;
-            (state.session.clone(), state.refresh_blocked)
+            (
+                state.session.clone(),
+                state.refresh_blocked,
+                state.generation,
+                state.refresh_revision,
+            )
         };
         let Some(current) = current else {
             return Ok(None);
@@ -399,44 +462,22 @@ impl Account {
         if refresh_blocked {
             return Ok(None);
         }
-        if !force && !current.expires_at.is_some_and(token_expiring) {
+        if !force && !current.expires_at.is_some_and(token_expired) {
             return Ok(Some(current));
         }
 
-        let _operation = self.operation.lock().await;
-        let current = self.state.lock().await.session.clone();
-        let Some(current) = current else {
+        self.refresh_shared(generation, revision, force).await?;
+        let state = self.state.lock().await;
+        if state.refresh_blocked || state.generation != generation {
             return Ok(None);
-        };
-        if force || current.expires_at.is_some_and(token_expiring) {
-            if let Err(error) = self.refresh_locked().await {
-                if error == Error::Credentials {
-                    let expired = {
-                        let mut state = self.state.lock().await;
-                        if state.session.as_ref().is_some_and(|session| {
-                            force || session.expires_at.is_some_and(token_expiring)
-                        }) {
-                            state.generation += 1;
-                            state.session = None;
-                            true
-                        } else {
-                            false
-                        }
-                    };
-                    if expired {
-                        if let Some(observer) = &self.observer {
-                            observer.changed(None).await;
-                        }
-                    }
-                }
-                return Err(error);
-            }
         }
-        let current = self.state.lock().await.session.clone();
-        Ok(current.filter(|session| match session.expires_at {
-            None => true,
-            Some(expires_at) => unix_time().is_some_and(|now| expires_at > now),
-        }))
+        Ok(state
+            .session
+            .clone()
+            .filter(|session| match session.expires_at {
+                None => true,
+                Some(expires_at) => unix_time().is_some_and(|now| expires_at > now),
+            }))
     }
 }
 
