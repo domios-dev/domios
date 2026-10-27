@@ -49,7 +49,12 @@ impl AddressChanges for NativeAddresses {
     }
 
     async fn changed(&mut self) -> Result<(), ()> {
-        self.0.changed().await.map_err(|_| ())
+        self.0.changed().await.map_err(|_| ())?;
+        let service = self.2.clone();
+        tokio::spawn(async move {
+            let _ = service.retry_account_sign_out(None).await;
+        });
+        Ok(())
     }
 }
 

@@ -12,6 +12,11 @@ pub type RegistryResult<T> = std::result::Result<T, RegistryRefusal>;
 /// Server registry seam; the HTTP adapter binds the reviewed callable names.
 #[async_trait]
 pub trait MeshRegistry: Send + Sync {
+    async fn revoke_prior_sessions(
+        &self,
+        session: &Session,
+        target: &super::wire::PriorSessionsTarget,
+    ) -> RegistryResult<super::wire::PriorSessionsRevokedResult>;
     async fn challenge(
         &self,
         session: &Session,
@@ -79,6 +84,13 @@ impl Clock for SystemClock {
 pub struct UnavailableRegistry;
 #[async_trait]
 impl MeshRegistry for UnavailableRegistry {
+    async fn revoke_prior_sessions(
+        &self,
+        _: &Session,
+        _: &super::wire::PriorSessionsTarget,
+    ) -> RegistryResult<super::wire::PriorSessionsRevokedResult> {
+        Err(RegistryRefusal::Unavailable)
+    }
     async fn challenge(&self, _: &Session, _: &ChallengeRequest) -> RegistryResult<String> {
         Err(RegistryRefusal::Unavailable)
     }

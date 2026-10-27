@@ -74,6 +74,10 @@ pub enum Enrollment {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(tag = "reason")]
 pub enum AccountMeshRefusal {
+    #[serde(rename = "installation_unverified")]
+    InstallationUnverified,
+    #[serde(rename = "cutoff_after_current_session")]
+    CutoffAfterCurrentSession,
     #[serde(rename = "invalid")]
     Invalid,
     #[serde(rename = "unauthenticated")]
@@ -122,6 +126,8 @@ pub enum AccountMeshRefusal {
 impl From<RegistryRefusal> for AccountMeshRefusal {
     fn from(value: RegistryRefusal) -> Self {
         match value {
+            RegistryRefusal::InstallationUnverified => Self::InstallationUnverified,
+            RegistryRefusal::CutoffAfterCurrentSession => Self::CutoffAfterCurrentSession,
             RegistryRefusal::Invalid => Self::Invalid,
             RegistryRefusal::Unauthenticated => Self::Unauthenticated,
             RegistryRefusal::ReauthRequired => Self::ReauthRequired,

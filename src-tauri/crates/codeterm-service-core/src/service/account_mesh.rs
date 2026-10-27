@@ -410,22 +410,15 @@ impl ServiceContext {
         AccountMeshOutcome<codeterm_account::account_mesh::wire::SessionRevokedResult>,
         String,
     > {
-        let account = self.account().await?;
         let self_id = self.installation_id().await?;
         let installation_id = installation_id.unwrap_or_else(|| self_id.as_str().to_owned());
         let own = installation_id == self_id.as_str();
         if own {
-            let session = account.session().await;
-            self.account_logout().await?;
-            let result = match (session, self.account_mesh().await) {
-                (Some(session), Ok(service)) => tokio::time::timeout(
-                    Duration::from_secs(15),
-                    service.mesh.revoke_outgoing_session(&session),
-                )
+            let service = self.clone();
+            let (_, result) = tokio::spawn(async move { service.account_sign_out_owned().await })
                 .await
-                .unwrap_or(Err(AccountMeshRefusal::Offline)),
-                _ => Err(AccountMeshRefusal::Unavailable),
-            };
+                .map_err(|_| codeterm_account::Error::Cancelled.to_string())??;
+            let result = result.and_then(|result| result.ok_or(AccountMeshRefusal::Unavailable));
             return Ok(match result {
                 Ok(result) => AccountMeshOutcome::of(Ok(result), None),
                 Err(failure) => {
@@ -440,6 +433,7 @@ impl ServiceContext {
             });
         }
         let service = self.account_mesh().await?;
+        let _ = self.account().await?;
         let result = service.mesh.revoke_session(installation_id).await;
         Ok(AccountMeshOutcome::of(result, None))
     }
