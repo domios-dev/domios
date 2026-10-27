@@ -183,6 +183,7 @@ fn taskless_runtime_preserves_idle_kickoff_parity() {
 
 #[test]
 fn runtime_planner_spawn_config_carries_assignment_and_plan_identity() {
+    const ASSIGNMENT: &str = " \tfragment-97α\r\n$opaque `x` \\\" {task}\ntrailing\t ";
     let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let workspace = mux.create_workspace("opaque-project".into(), None);
     let owner = mux.create_tab(&workspace.id).unwrap();
@@ -204,7 +205,7 @@ fn runtime_planner_spawn_config_carries_assignment_and_plan_identity() {
         role: Some("Manager".into()),
         role_profile: Some("planner".into()),
         plan_id: Some(plan.id.clone()),
-        task: Some("opaque-assignment".into()),
+        task: Some(ASSIGNMENT.into()),
         ..Default::default()
     };
     prepare_runtime_identity(&fixture.service, &mut params);
@@ -217,7 +218,7 @@ fn runtime_planner_spawn_config_carries_assignment_and_plan_identity() {
         panic!("runtime route absent");
     };
     let prompt = config["systemPrompt"].as_str().unwrap();
-    assert_eq!(prompt.matches("opaque-assignment").count(), 1);
+    assert_eq!(prompt.matches(ASSIGNMENT).count(), 1);
     assert!(prompt.contains(&plan.id));
     assert!(prompt.contains("opaque-team"));
     assert!(prompt.contains(crate::prompts::PLANNER_DOC.trim()));
@@ -230,7 +231,7 @@ fn runtime_planner_spawn_config_carries_assignment_and_plan_identity() {
         .task
         .as_deref()
         .unwrap();
-    assert_eq!(kickoff.matches("opaque-assignment").count(), 1);
+    assert_eq!(kickoff.matches(ASSIGNMENT).count(), 1);
     assert!(kickoff.contains(&owner));
 }
 

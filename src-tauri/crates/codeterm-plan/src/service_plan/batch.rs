@@ -369,6 +369,13 @@ impl PlanStore {
                                         None,
                                     )?;
                                 }
+                                if parsed_status == Some(TaskStatus::Done) {
+                                    super::mutations::finalize_task_done(
+                                        &mut working,
+                                        task_index,
+                                        now_ms,
+                                    )?;
+                                }
                                 let task = &mut working.tasks[task_index];
                                 if let Some(name) = name {
                                     task.name = name;
@@ -552,6 +559,13 @@ impl PlanStore {
                                 &parsed,
                                 status_label.as_deref().map(Some),
                             )?;
+                            if parsed == TaskStatus::Done {
+                                super::mutations::finalize_task_done(
+                                    &mut working,
+                                    task_index,
+                                    now_ms,
+                                )?;
+                            }
                             let task = &mut working.tasks[task_index];
                             if task.status != parsed {
                                 task.status = parsed;

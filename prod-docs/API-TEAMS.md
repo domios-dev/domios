@@ -62,6 +62,8 @@ Remote membership freezes during close. All nonfinalized remote members receive 
 
 ### Recovering a tab-gone task
 
+The live Plan owner may close pending, blocked or in-progress tasks directly with `plan task close --result-file`, or record `--status done` with a nonblank `--step` result note for that task. Both paths verify the owner's current session binding, persist the result and clear executor assignments. Worker completion goes through reports and review; a task body alone is not a result note.
+
 When a Worker's tab is gone, its owner epoch is stale by definition, so the epoch never blocks recovery. The **live authenticated Plan owner** may `cancel`, `pend`, reassign, respawn, or **dispatch** such a task. The recovery retires the stale attempt in the *same* transition that clears the dead owner identity, so no half-applied state is observable and a later `dispatch_ready` for the retired attempt is rejected instead of resurrecting ownership. A non-owner, non-epoch caller is still refused.
 
 Plan ownership is proven against the caller's **live tab binding**: tab present, agent session live, binding nonce both stored and reported back, and that tab recorded as the plan's owner with Team-Orchestrator authority. It is never proven from the owner record's `session_id`, so an Orchestrator whose session moved by restore, compaction, or provider relaunch stays its own plan's owner.
@@ -116,4 +118,4 @@ Team staffing and closing use the authority and confirmation rules above.
 | POST | `/api/teams/{team_id}/members` | Add a Team member. |
 | POST | `/api/teams/{team_id}/rename` | Rename a Team. |
 
-<!-- revision: 10 -->
+<!-- revision: 11 -->

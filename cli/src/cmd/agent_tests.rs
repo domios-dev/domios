@@ -371,7 +371,7 @@ fn json_next_commands_are_the_same_sequence_the_text_hint_prints() {
 
 #[test]
 fn task_file_round_trips_shell_metacharacters_byte_exact() {
-    let body = "run `whoami` then $(rm -rf /) and ${HOME}\nline two\twith tab\n";
+    let body = " \tfragment-97α\r\n$opaque `x` \\\" {task}\ntrailing\t ";
     let path = std::env::temp_dir().join(format!("ct-task-file-{}.txt", uuid::Uuid::new_v4()));
     std::fs::write(&path, body).unwrap();
 
@@ -385,6 +385,10 @@ fn task_file_round_trips_shell_metacharacters_byte_exact() {
 
     std::fs::remove_file(&path).ok();
     assert_eq!(resolved, Some(body.to_string()));
+    assert_eq!(
+        resolve_spawn_task(Some(body.into()), None, None, &mut &b""[..]).unwrap(),
+        Some(body.into())
+    );
 }
 
 #[test]

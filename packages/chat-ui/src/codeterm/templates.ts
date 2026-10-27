@@ -282,12 +282,13 @@ function describeInvocation(inv: CodetermInvocation, result?: string, resolve?: 
   }
   if (inv.path[0] === "plan" && inv.path[1] === "task") {
     const task = firstRef(TASK_RE, inv, result);
-    const name = flagText(inv, "name", "title") ?? firstMeaningful(inv, "task", "add", "update", "close");
     const action = inv.path[2];
+    const name = flagText(inv, "name", "title");
+    const target = action === "add" ? undefined : inv.positionals[1] ?? inv.positionals[0] ?? task;
     const changingDeps = action === "update" && (inv.flags["clear-dependencies"] === true || inv.flags["depends-on"] != null);
     const lead = changingDeps ? "task deps" : action === "update" ? "task edit" : action === "close" ? "close" : action === "dispatch" ? "dispatch" : "plan task";
     const model = flagText(inv, "model");
-    return { lead, object: safeObject(name, task ? "Task" : "New task"), chips: [model, action === "close" ? "done" : undefined].filter((v): v is string => Boolean(v)), detail: flagText(inv, "test-plan", "criterion", "correctness", "why"), fields: model ? [{ label: "model", value: model }] : undefined };
+    return { lead, object: name ?? target ?? (action === "add" ? "New task" : "Task"), chips: [model, action === "close" ? "done" : undefined].filter((v): v is string => Boolean(v)), detail: flagText(inv, "test-plan", "criterion", "correctness", "why"), fields: model ? [{ label: "model", value: model }] : undefined };
   }
   if (inv.path[0] === "plan" && inv.path[1] === "section") {
     const section = firstRef(SECTION_RE, inv, result) ?? flagText(inv, "handle");
