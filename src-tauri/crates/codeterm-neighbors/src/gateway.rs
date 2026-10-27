@@ -1,4 +1,24 @@
 use serde::{Deserialize, Serialize};
+use async_trait::async_trait;
+use crate::{permissions::Permission, receive::GatewayReceipt, wire::Kind, Result};
+
+pub const REFUSAL_BODY: &str = "Request refused.";
+
+#[async_trait]
+pub trait RequestPorts: Send + Sync {
+    async fn local_turn(&self) -> Result<GatewayReceipt>;
+    async fn refusal(&self) -> Result<GatewayReceipt>;
+}
+
+pub async fn route_request(permission: &Permission, kind: Kind, ports: &dyn RequestPorts) -> Result<GatewayReceipt> {
+    if permission.allows(kind) {
+        ports.local_turn().await
+    } else if kind == Kind::Answer {
+        Ok(GatewayReceipt::Delivered)
+    } else {
+        ports.refusal().await
+    }
+}
 
 #[derive(Deserialize, Serialize)]
 pub struct Admission {

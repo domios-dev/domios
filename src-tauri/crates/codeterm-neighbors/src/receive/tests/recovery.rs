@@ -435,3 +435,47 @@ async fn empty_inbox_current_marks_receiving_without_admission_or_ack() {
     assert!(fixture.fixture.events.lock().unwrap().is_empty());
     assert!(fixture.fixture.cursor.lock().unwrap().is_none());
 }
+
+struct RecoveryEvents {
+    retry: tokio::sync::Semaphore,
+    states: tokio::sync::mpsc::UnboundedSender<ListenerState>,
+}
+#[async_trait]
+impl ReceptionEvents for RecoveryEvents {
+    fn state(&self, state: ListenerState) {
+        self.states.send(state).unwrap();
+    }
+    async fn retry_after_failure(&self, _: usize) -> Result<()> {
+        self.retry.acquire().await.map_err(|_| Error::Transport)?.forget();
+        Ok(())
+    }
+}
+#[tokio::test]
+async fn reconnect_opens_only_after_explicit_recovery_event() {
+    use std::sync::Arc;
+    let fixture = Arc::new(Reconnect {
+        fixture: Fixture::new(), keys: recipient(), opens: Mutex::new(vec![]),
+        states: Mutex::new(vec![]), empty_current: true,
+    });
+    let (states, mut observed) = tokio::sync::mpsc::unbounded_channel();
+    let events = Arc::new(RecoveryEvents { retry: tokio::sync::Semaphore::new(0), states });
+    let task = {
+        let fixture = fixture.clone();
+        let events = events.clone();
+        tokio::spawn(async move {
+            supervise(fixture.as_ref(), &message().doc.envelope.friendship_id, fixture.as_ref(), events.as_ref()).await
+        })
+    };
+    for expected in [ListenerState::Connecting, ListenerState::Receiving, ListenerState::Reconnecting] {
+        assert_eq!(observed.recv().await, Some(expected));
+    }
+    assert_eq!(fixture.opens.lock().unwrap().len(), 1);
+    events.retry.add_permits(1);
+    for expected in [ListenerState::Connecting, ListenerState::Receiving, ListenerState::Reconnecting] {
+        assert_eq!(observed.recv().await, Some(expected));
+    }
+    assert_eq!(fixture.opens.lock().unwrap().len(), 2);
+    events.retry.close();
+    assert_eq!(task.await.unwrap(), Err(Error::Transport));
+    assert_eq!(observed.recv().await, Some(ListenerState::Stopped));
+}

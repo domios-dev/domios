@@ -5,6 +5,11 @@ use codeterm_neighbors::{
     wire::{Cursor, InboxMessage},
 };
 
+pub(super) struct Handle {
+    pub task: tokio::task::JoinHandle<()>,
+    pub retry: Arc<tokio::sync::Notify>,
+}
+
 struct Session {
     service: ServiceContext,
     transport: Arc<FirebaseTransport>,
@@ -12,9 +17,18 @@ struct Session {
     metadata: Metadata,
     friendship: String,
     tab: String,
+    generation: u64,
+    retry: Arc<tokio::sync::Notify>,
 }
 
 impl Session {
+    fn current(&self) -> codeterm_neighbors::Result<()> {
+        if self.service.neighbor_cell().listener_generation.load(Ordering::Acquire) != self.generation {
+            return Err(Error::Revoked);
+        }
+        Ok(())
+    }
+
     fn keys(&self) -> InstallationKeys<'_> {
         InstallationKeys {
             store: &OsKeyStore,
@@ -28,15 +42,15 @@ impl Session {
 #[async_trait]
 impl InboxSession for Session {
     async fn prepare(&self) -> codeterm_neighbors::Result<()> {
-        let _operation = self.service.neighbor_cell().operations.lock().await;
-        self.keys().reconcile().await?.ok_or(Error::Revoked)?;
-        Ok(())
+        self.current()?;
+        self.keys().load().await?.ok_or(Error::Revoked)?;
+        self.current()
     }
     async fn cursor(&self) -> codeterm_neighbors::Result<Option<Cursor>> {
         self.metadata.load(&self.friendship).await
     }
     async fn receive(&self, messages: &mut [InboxMessage]) -> codeterm_neighbors::Result<()> {
-        let _operation = self.service.neighbor_cell().operations.lock().await;
+        self.current()?;
         if self
             .service
             .neighbor_registry(super::super::NeighborCommand::List)
@@ -48,12 +62,14 @@ impl InboxSession for Session {
         {
             return Err(Error::Locked);
         }
+        self.current()?;
         let lifecycle = self.keys();
         let gateway = gateway::Gateway {
             service: self.service.clone(),
             metadata: self.metadata.clone(),
             friendship: self.friendship.clone(),
             tab: self.tab.clone(),
+            generation: self.generation,
         };
         Receiver {
             transport: self.transport.as_ref(),
@@ -72,6 +88,7 @@ impl InboxSession for Session {
 #[async_trait]
 impl ReceptionEvents for Session {
     fn state(&self, status: ListenerState) {
+        if self.current().is_err() { return; }
         self.service
             .neighbor_cell()
             .states
@@ -82,15 +99,9 @@ impl ReceptionEvents for Session {
             json!({"friendship_id":self.friendship,"status":status}),
         );
     }
-    async fn retry_after_failure(&self, attempt: usize) -> codeterm_neighbors::Result<()> {
-        let millis = match attempt {
-            1 => 250,
-            2 => 1000,
-            _ => 4000,
-        };
-        // Owner-authorized failure backoff bounds reconnect pressure; it conveys no readiness.
-        tokio::time::sleep(std::time::Duration::from_millis(millis)).await;
-        Ok(())
+    async fn retry_after_failure(&self, _: usize) -> codeterm_neighbors::Result<()> {
+        self.retry.notified().await;
+        self.current()
     }
 }
 
@@ -101,6 +112,8 @@ pub(super) async fn run(
     metadata: Metadata,
     friendship: String,
     tab: String,
+    generation: u64,
+    retry: Arc<tokio::sync::Notify>,
 ) {
     let session = Session {
         service,
@@ -109,6 +122,8 @@ pub(super) async fn run(
         metadata,
         friendship,
         tab,
+        generation,
+        retry,
     };
     let _ = supervise(
         session.transport.as_ref(),

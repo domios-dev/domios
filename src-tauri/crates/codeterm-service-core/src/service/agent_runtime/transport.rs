@@ -212,22 +212,6 @@ pub(super) fn runtime_input(
     }
 }
 
-pub(super) fn submit_turn(
-    thread_id: String,
-    active_turn_id: Option<String>,
-    send_id: String,
-    input: TurnInput,
-    settings: RuntimeSettings,
-) -> RuntimeOperation {
-    RuntimeOperation::SubmitTurn {
-        thread_id,
-        active_turn_id,
-        send_id,
-        input,
-        settings,
-    }
-}
-
 pub(crate) async fn submit_loaded(
     svc: &ServiceContext,
     session: &Arc<Session>,
@@ -300,13 +284,13 @@ pub(crate) async fn submit_loaded(
     });
     let before_completion = session.completions.lock().sequence();
     let submitted_turn = context.active_turn_id.clone();
-    let operation = submit_turn(
-        thread.clone(),
-        context.active_turn_id.clone(),
-        pending.send_id.clone(),
+    let operation = RuntimeOperation::SubmitTurn {
+        thread_id: thread.clone(),
+        active_turn_id: context.active_turn_id.clone(),
+        send_id: pending.send_id.clone(),
         input,
-        context.settings.clone(),
-    );
+        settings: context.settings.clone(),
+    };
     let starts = svc.runtime_turn_starts(tab, &context.binding_nonce, context.epoch);
     let before_start = starts.sequence();
     let (result, handed_off) = engine::run_submit(svc, session, process, operation).await;

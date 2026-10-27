@@ -44,7 +44,6 @@ pub async fn supervise(
         let result = async {
             session.prepare().await?;
             let cursor = session.cursor().await?;
-            // Each open authenticates anew; only the durable admitted cursor is resumed.
             let mut listener = transport
                 .listen_from_cursor(friendship, cursor.as_ref())
                 .await?;

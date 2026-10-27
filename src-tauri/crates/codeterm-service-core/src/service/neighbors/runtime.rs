@@ -1,6 +1,7 @@
 mod callable;
 mod gateway;
 mod listener;
+mod owner;
 
 use super::storage::Metadata;
 use crate::service::ServiceContext;
@@ -15,13 +16,15 @@ use codeterm_neighbors::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{collections::HashMap, sync::Arc};
-use tokio::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use zeroize::Zeroizing;
 
 #[derive(Default)]
 pub struct NeighborRuntimeCell {
-    operations: Mutex<()>,
-    listeners: parking_lot::Mutex<HashMap<String, tokio::task::JoinHandle<()>>>,
+    owner: parking_lot::Mutex<Option<tokio::sync::mpsc::UnboundedSender<owner::Request>>>,
+    generation: AtomicU64,
+    listener_generation: AtomicU64,
+    listeners: parking_lot::Mutex<HashMap<String, listener::Handle>>,
     states: parking_lot::Mutex<HashMap<String, codeterm_neighbors::supervisor::ListenerState>>,
     bootstrapped: std::sync::atomic::AtomicBool,
 }
@@ -64,8 +67,13 @@ pub enum NeighborRuntimeCommand {
 struct Outgoing {
     friendship: String,
     kind: Kind,
-    body: Zeroizing<String>,
+    body: OutboundBody,
     in_reply_to: Option<String>,
+}
+
+enum OutboundBody {
+    Granted(Zeroizing<String>),
+    Refusal,
 }
 
 pub(super) fn authoring_allowed(
@@ -144,7 +152,20 @@ impl ServiceContext {
         caller: Option<&str>,
         nonce: Option<&str>,
     ) -> Result<Value, String> {
-        let _operation = self.neighbor_cell().operations.lock().await;
+        self.neighbor_operation(owner::Operation::Command {
+            command,
+            caller: caller.map(str::to_owned),
+            nonce: nonce.map(str::to_owned),
+        }).await
+    }
+
+    async fn neighbor_runtime_owned(
+        &self,
+        command: NeighborRuntimeCommand,
+        caller: Option<&str>,
+        nonce: Option<&str>,
+        generation: u64,
+    ) -> Result<Value, String> {
         let (transport, scope, metadata) = self.neighbor_ports().await?;
         let lifecycle = InstallationKeys {
             store: &OsKeyStore,
@@ -167,7 +188,7 @@ impl ServiceContext {
                 }
                 NeighborRuntimeCommand::Retry { friendship_id } => {
                     if !hex_id(&friendship_id, 64) { return Err(Error::InvalidEnvelope); }
-                    if let Some(task) = self.neighbor_cell().listeners.lock().remove(&friendship_id) { task.abort(); }
+                    if let Some(listener) = self.neighbor_cell().listeners.lock().get(&friendship_id) { listener.retry.notify_one(); }
                     Ok(json!({"status":"reconnecting"}))
                 }
                 NeighborRuntimeCommand::Rotate => {
@@ -209,7 +230,7 @@ impl ServiceContext {
                     Ok(json!({"status":"saved"}))
                 }
                 NeighborRuntimeCommand::Send { friendship_id, kind, body, in_reply_to } => {
-                    self.send_neighbor(&transport, &lifecycle, &metadata, Outgoing { friendship: friendship_id, kind, body: Zeroizing::new(body), in_reply_to }).await
+                    self.send_neighbor(&transport, &lifecycle, &metadata, Outgoing { friendship: friendship_id, kind, body: OutboundBody::Granted(Zeroizing::new(body)), in_reply_to }).await
                 }
                 NeighborRuntimeCommand::DeliveryStatus { message_id } => {
                     if !hex_id(&message_id, 32) { return Err(Error::InvalidEnvelope); }
@@ -218,10 +239,11 @@ impl ServiceContext {
             }
         }.await;
         let result = result.map_err(|e| e.to_string())?;
+        self.require_neighbor_generation(generation)?;
         let scope = lifecycle.scope.clone();
         drop(lifecycle);
         if self
-            .start_neighbor_listeners(transport, scope, metadata)
+            .start_neighbor_listeners(transport, scope, metadata, generation)
             .await
             .is_err()
         {
@@ -256,9 +278,11 @@ impl ServiceContext {
             .get(&friendship)
             .cloned()
             .unwrap_or_default();
-        if !permission.allows(kind) {
-            return Err(Error::Gateway);
-        }
+        let body = match body {
+            OutboundBody::Granted(body) if permission.allows(kind) => body,
+            OutboundBody::Refusal if kind == Kind::Answer && in_reply_to.is_some() => Zeroizing::new(codeterm_neighbors::gateway::REFUSAL_BODY.to_owned()),
+            _ => return Err(Error::Gateway),
+        };
         let keys = lifecycle.load().await?.ok_or(Error::Revoked)?;
         if !transport
             .active_key_ids()
@@ -309,8 +333,9 @@ impl ServiceContext {
     }
 
     pub(crate) fn stop_neighbor_listeners(&self) {
+        self.neighbor_cell().listener_generation.fetch_add(1, Ordering::AcqRel);
         for (friendship, listener) in self.neighbor_cell().listeners.lock().drain() {
-            listener.abort();
+            listener.task.abort();
             self.neighbor_cell().states.lock().insert(
                 friendship.clone(),
                 codeterm_neighbors::supervisor::ListenerState::Stopped,
@@ -327,6 +352,7 @@ impl ServiceContext {
         transport: Arc<FirebaseTransport>,
         scope: KeyScope,
         metadata: Metadata,
+        generation: u64,
     ) -> Result<(), String> {
         let settings = metadata.settings().await.map_err(|e| e.to_string())?;
         let recovered = (InstallationKeys {
@@ -360,6 +386,8 @@ impl ServiceContext {
             self.stop_neighbor_listeners();
             return Ok(());
         }
+        self.require_neighbor_generation(generation)?;
+        let listener_generation = self.neighbor_cell().listener_generation.load(Ordering::Acquire);
         for (friendship, tab) in settings.bindings {
             if !hex_id(&friendship, 64) || self.validate_neighbor_gateway(&tab).is_err() {
                 continue;
@@ -367,7 +395,7 @@ impl ServiceContext {
             let mut listeners = self.neighbor_cell().listeners.lock();
             if listeners
                 .get(&friendship)
-                .is_some_and(|task| !task.is_finished())
+                .is_some_and(|task| !task.task.is_finished())
             {
                 continue;
             }
@@ -376,10 +404,11 @@ impl ServiceContext {
             let metadata = metadata.clone();
             let scope = scope.clone();
             let id = friendship.clone();
+            let retry = Arc::new(tokio::sync::Notify::new());
             let task = tokio::spawn(listener::run(
-                service, transport, scope, metadata, friendship, tab,
+                service, transport, scope, metadata, friendship, tab, listener_generation, retry.clone(),
             ));
-            listeners.insert(id, task);
+            listeners.insert(id, listener::Handle { task, retry });
         }
         Ok(())
     }
@@ -395,16 +424,12 @@ impl ServiceContext {
         }
         let service = self.clone();
         tokio::spawn(async move {
-            let _operation = service.neighbor_cell().operations.lock().await;
-            if let Ok((transport, scope, metadata)) = service.neighbor_ports().await {
-                let _ = service
-                    .start_neighbor_listeners(transport, scope, metadata)
-                    .await;
-            }
+            let _ = service.neighbor_operation(owner::Operation::Restore).await;
         });
     }
 
     pub(crate) fn neighbor_identity_changed(&self) {
+        self.neighbor_cell().generation.fetch_add(1, Ordering::AcqRel);
         self.stop_neighbor_listeners();
         self.neighbor_cell()
             .bootstrapped
@@ -412,7 +437,10 @@ impl ServiceContext {
     }
 
     pub(crate) async fn revoke_neighbors_for_logout(&self) -> Result<(), String> {
-        let _operation = self.neighbor_cell().operations.lock().await;
+        self.neighbor_operation(owner::Operation::Logout).await.map(|_| ())
+    }
+
+    async fn revoke_neighbors_owned(&self) -> Result<(), String> {
         self.neighbor_identity_changed();
         let Some(session) = self.account().await?.session().await else {
             return Ok(());
