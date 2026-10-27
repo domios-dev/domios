@@ -318,11 +318,11 @@ it("nests each concierge under its Neighbor; the Neighbor opens your conversatio
   }
 });
 
-it("offers the concierge actions: change agent, view permissions and edit with General", async () => {
+it("offers the concierge actions: change agent, view permissions, edit with General and pause", async () => {
   await renderSection([neighbor], { pair: "tab-gateway" });
   await act(async () => { button("Actions for Ada's concierge").dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 })); });
   const items = Array.from(document.querySelectorAll('[role="menuitem"]')).map(item => item.textContent);
-  expect(items).toEqual(["Change agent", "View permissions", "Edit with General"]);
+  expect(items).toEqual(["Change agent", "View permissions", "Edit with General", "Pause Ada"]);
   const viewPermissions = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent === "View permissions")!;
   await act(async () => viewPermissions.click());
   expect(takeNeighborFocus()).toEqual({ id: "pair", section: "permissions" });
