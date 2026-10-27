@@ -15,7 +15,7 @@ use std::sync::{
 use tokio::sync::{watch, Notify};
 
 #[derive(Default)]
-struct UpdateCell {
+pub(crate) struct UpdateCell {
     generation: AtomicU64,
     task: parking_lot::Mutex<Option<Handle>>,
 }
