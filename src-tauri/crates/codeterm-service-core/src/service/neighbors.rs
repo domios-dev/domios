@@ -4,7 +4,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 mod referral;
-mod runtime;
+pub(crate) mod runtime;
 mod storage;
 pub use runtime::{NeighborRuntimeCell, NeighborRuntimeCommand};
 

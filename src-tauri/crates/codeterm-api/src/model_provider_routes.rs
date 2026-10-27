@@ -19,12 +19,7 @@ pub async fn manage(
     Query(scope): Query<ModelProviderScope>,
     Json(request): Json<ModelProviderRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    let token = state.config.lock().api.token.clone();
-    if !super::cli_rpc_routes::local_caller(
-        remote,
-        token.as_deref(),
-        headers.get("authorization").and_then(|v| v.to_str().ok()),
-    ) {
+    if !host_caller(&state, remote, &headers) {
         return Err((
             StatusCode::FORBIDDEN,
             Json(serde_json::json!({"kind":"local_only"})),
@@ -45,3 +40,19 @@ pub async fn manage(
         )
     })
 }
+
+fn host_caller(state: &AppState, remote: SocketAddr, headers: &HeaderMap) -> bool {
+    matches!(
+        super::cli_rpc_routes::local_caller(
+            remote,
+            state,
+            headers
+                .get("authorization")
+                .and_then(|value| value.to_str().ok()),
+        ),
+        Ok(None)
+    )
+}
+
+#[cfg(test)]
+mod tests;

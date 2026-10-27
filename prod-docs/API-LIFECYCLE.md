@@ -46,6 +46,7 @@ Account fields: ACCOUNT. Backup and update contracts: API-STATE. Listener and we
 | PATCH | `/api/crons/{id}` | Patch cron settings (local owner). |
 | POST | `/api/account/billing` | Run an account billing operation. |
 | POST | `/api/account/callback` | Complete account sign-in with the verified callback. |
+| POST | `/api/account/gift/redeem` | Local signed-in redemption: `{key, expected_uid}`; returns the server plan, duration and expiry receipt after signed entitlement refresh. No key generation. |
 | POST | `/api/account/neighbors` | Manage account Neighbor channels. |
 | POST | `/api/account/neighbors/runtime` | Manage the local Neighbor receiving runtime. |
 | POST | `/api/analytics/consent` | Set analytics consent. |
@@ -88,4 +89,4 @@ Provider hook bodies and nonce admission: API-TABS.
 | POST | `/api/tabs/{id}/hook/stop` | Admit a provider stop hook. |
 | POST | `/api/tabs/{id}/launch-artifacts/release` | Release owned provider launch artifacts. |
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->

@@ -1,7 +1,7 @@
 mod callable;
 mod gateway;
 mod listener;
-mod logout;
+pub(crate) mod logout;
 mod owner;
 
 use super::storage::Metadata;

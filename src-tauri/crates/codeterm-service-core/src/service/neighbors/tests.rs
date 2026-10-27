@@ -4,7 +4,11 @@ use super::*;
 fn registry_commands_match_server_callables_without_extra_fields() {
     let cases = [
         (json!({"operation":"list"}), "friendsList", json!({})),
-        (json!({"operation":"claim_referral_trial"}), "claimReferralTrial", json!({})),
+        (
+            json!({"operation":"claim_referral_trial"}),
+            "claimReferralTrial",
+            json!({}),
+        ),
         (
             json!({"operation":"request","email":"friend@example.test"}),
             "friendsRequest",

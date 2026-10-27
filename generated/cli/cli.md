@@ -950,31 +950,6 @@ Validate a generated essence map and its append-only decisions log
 
 Show Domios version and system info
 
-#### `domios inbox`
-
-Workspace Inbox — standalone tasks with no plan
-
-#### `domios inbox add`
-
-Add a standalone task to the workspace Inbox
-
-- `--assign-tab`
-- `--body`
-- `--body-file`
-- `--correctness`
-- `--criterion`
-- `--execution-intent`
-- `--intent`
-- `--intent-file`
-- `--model`
-- `--name`
-- `--qa-plan`
-- `--qa-plan-file`
-- `--test-plan`
-- `--type`
-- `--why`
-- `--why-file`
-
 #### `domios integration`
 
 Provider hook integration: install it with recorded consent and trust, or read its state
@@ -3291,6 +3266,66 @@ Update bundled system provider plugins from the official plugin channel
 Validate a plugin directory without installing it: strict manifest parse (the daemon's deny-unknown-fields PluginManifest), a real QuickJS load of the entry script, then a report of which AgentProvider exports plugin.js implements and which fallbacks serve the rest. Exits non-zero on the first failure, naming it
 
 - `<dir>` — Path to the plugin directory (the folder containing plugin.json)
+
+#### `domios radar`
+
+Workspace Radar — items noticed above plans, pulled into a plan as tasks
+
+#### `domios radar add`
+
+Add an item to this workspace's Radar; the same --source-provider/--source-id refreshes it
+
+- `--body`
+- `--body-file`
+- `--project` — Workspace path; defaults to the current directory
+- `--source-id` — The item's stable id in that system
+- `--source-provider` — System the item came from, such as github or linear
+- `--source-url`
+- `--tag`
+- `--title`
+
+#### `domios radar drop`
+
+Remove a Radar item; a task it was pulled into stays in its plan
+
+- `<item_id>`
+
+#### `domios radar edit`
+
+Edit a Radar item's title, body or tags
+
+- `--body`
+- `--body-file`
+- `--clear-tags`
+- `<item_id>`
+- `--tag` — Replace the tags; repeat for several
+- `--title`
+
+#### `domios radar list`
+
+List this workspace's Radar items, newest first
+
+- `--all-workspaces` — List items of every workspace
+- `--project` — Workspace path; defaults to the current directory
+- `--provider` — Only items from this source provider
+- `--query` — Case-insensitive text in the title or body
+- `--status` — open (default), pulled or all
+- `--tag`
+
+#### `domios radar pull`
+
+Create a linked task for this item in a plan of the same workspace
+
+- `<item_id>`
+- `--plan`
+- `--sections` — Comma-separated section ids or handles
+- `--type` — Task kind; defaults to task
+
+#### `domios radar show`
+
+Show one Radar item
+
+- `<item_id>`
 
 #### `domios rest-api`
 

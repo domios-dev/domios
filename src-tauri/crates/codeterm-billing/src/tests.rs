@@ -136,7 +136,7 @@ fn envelope_inner_records_are_exact() {
         ("/schema_version", serde_json::json!(3)),
         ("/billing/schema_version", serde_json::json!(2)),
         ("/application_access/schema_version", serde_json::json!(2)),
-        ("/billing/plan", serde_json::json!("private")),
+        ("/billing/plan", serde_json::json!("")),
         ("/billing_inventory", serde_json::json!("unknown")),
         ("/application_access/authority", serde_json::json!("root")),
         ("/billing/period_end", serde_json::json!(-1)),
@@ -194,7 +194,15 @@ async fn requires_inventory_keeps_previous_entitlements_stale() {
 }
 #[test]
 fn entitlements_reject_unknown_plan() {
-    assert!(serde_json::from_value::<Entitlements>(serde_json::json!({"plan":"private","status":"active","current_period_end":0,"cancel_at_period_end":false})).is_err());
+    let value = serde_json::json!({"plan":"private","status":"active","current_period_end":0,"cancel_at_period_end":false});
+    let parsed = serde_json::from_value::<Entitlements>(value.clone()).unwrap();
+    assert_eq!(parsed.plan, Plan::Paid("private".into()));
+    assert_eq!(serde_json::to_value(parsed).unwrap(), value);
+    for invalid in ["".to_string(), "x".repeat(129), "bad\ntier".to_string()] {
+        let mut invalid_value = value.clone();
+        invalid_value["plan"] = invalid.into();
+        assert!(serde_json::from_value::<Entitlements>(invalid_value).is_err());
+    }
 }
 #[tokio::test]
 async fn stale_cache_transport_failure() {
@@ -787,7 +795,10 @@ async fn producer_vectors_replay_exact_response_bytes_through_cloud_and_cache() 
         let inst = vector.caller_context["installation_id"].as_str().unwrap();
         let requested_inst = vector.request["installation_id"].as_str().unwrap();
         let id = codeterm_account::InstallationId::parse(requested_inst.into()).unwrap();
-        let provider = Arc::new(adapters::cloud::Cloud::fixture(&address, id));
+        let provider = Arc::new(
+            adapters::cloud::Cloud::fixture(&address, id)
+                .with_installation_proofs(Arc::new(producer_proof::FixtureProof)),
+        );
         let (_, clock) = clock(vector.caller_context["now"].as_u64().unwrap());
         let store = Arc::new(MemoryGrants::default());
         let billing = Billing::new(provider).with_test_grants(
@@ -825,11 +836,14 @@ async fn producer_vectors_replay_exact_response_bytes_through_cloud_and_cache() 
         for request in requests {
             assert_eq!(
                 request,
-                serde_json::json!({"data":{"installation_id":requested_inst}})
+                serde_json::json!({"data":{"installation_id":requested_inst,"installation_proof":producer_proof::proof()}})
             );
         }
     }
 }
+
+#[path = "producer_proof.rs"]
+mod producer_proof;
 
 #[tokio::test]
 async fn policy_refusal_refetches_once_then_stays_free() {
@@ -1045,6 +1059,12 @@ fn signed_paid_revisions_at(
     )
     .unwrap();
     payload["label"] = label.into();
+    if !matches!(label, "pro" | "sponsor") {
+        activation.policy_version = 2;
+        payload["policy_version"] = serde_json::json!(2);
+        payload["limits"]["teams"] = serde_json::json!({"max":8,"scope":"installation"});
+        payload["limits"]["agent.tabs"] = serde_json::json!({"max":64,"scope":"installation"});
+    }
     let mut sign = |revision, issued| {
         for (field, delta) in [
             ("issued_at", 0),

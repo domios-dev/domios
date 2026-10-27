@@ -210,12 +210,13 @@ baseline. Never move this anchor to excuse new occurrences. Run
 
 These flows are deliberately separate. Full rebuilds, dev instances, full
 suites and gates run from the warm canonical checkout under Orchestrator
-authority. A Worker lane runs `./build.sh fmt` once per batch, then one
-verification pass: one `./build.sh lane-check <package>... [--tests]` call for
-all touched crates, changed TS/JS tests and `tsc` when TS changes, plus guards. Workers run the focused
-`test-one` and Clippy commands their dispatch grants (`--authorized-gate`) and
-never `check-queue`, `nextest` or regressions; without a grant they list the
-selectors and the Orchestrator runs them, reporting straight to the Worker's tab.
+authority. On a shared machine Workers run no checks unless dispatch grants them;
+they list the exact checks. The Orchestrator runs them in canonical after merging,
+batched: one `./build.sh lane-check <package>... [--tests]` call for all touched
+crates, one `./build.sh nextest <scope> "test(a) | test(b) | ..."` per crate scope
+covering every selector for that crate, changed TS/JS tests and `tsc` when TS
+changes, plus guards. Never run one `test-one` per selector: each call rebuilds
+and links the crate's test binary.
 `check-tests` compiles app and CLI test
 targets without running them; its artifacts are reused by matching `test-one`
 app and CLI calls in the same worktree. These app builds are deferred to the

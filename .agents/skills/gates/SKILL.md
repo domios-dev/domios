@@ -5,7 +5,7 @@ description: Run Domios's verification gates without burning a session on them. 
 
 # Gates
 
-Workers run the focused `test-one` and Clippy commands their dispatch grants (`--authorized-gate`), queued with `--wait-build`, and report the results with their SHA; they never run `check-queue`, `nextest` or regressions. A Worker without a grant lists its selectors, and the Orchestrator runs them with the results sent straight to the Worker's tab. One `./build.sh lane-check <package>... [--tests]` call type-checks all touched library crates; run changed TS/JS test files and `tsc` when TS changes in the lane. Full or reverse-dependency regressions run only in the Orchestrator's single release run. The build guard requires an exact `--authorized-gate "./build.sh <verb> <args>"` dispatch grant in the current persisted attempt, even in canonical. It reads the active plan store beside the host AgentPad, matches task/tab/attempt/session nonce and owner epoch, and refuses missing or unreadable proof. The Orchestrator and its direct utility shells may run these commands in canonical under their bound plan. No environment override exists.
+Workers run no verification on a shared machine unless their dispatch explicitly grants it; they write code and tests and list the exact checks (lane-check scope, test selectors, TS files, guards) in their report. The Orchestrator merges ready lanes and runs those checks serially in canonical, batched: one `./build.sh lane-check <package>... [--tests]` call for all touched library crates (CLI separately), then ONE `./build.sh nextest <scope> "test(a) | test(b) | ..."` per crate scope combining every selector for that crate, so each test binary builds once. Never run one `test-one` per selector: each call rebuilds and links its crate's test binary. Full or reverse-dependency regressions run only in the single release run. The build guard requires an exact `--authorized-gate "./build.sh <verb> <args>"` dispatch grant in the current persisted attempt, even in canonical. It reads the active plan store beside the host AgentPad, matches task/tab/attempt/session nonce and owner epoch, and refuses missing or unreadable proof. The Orchestrator and its direct utility shells may run these commands in canonical under their bound plan. No environment override exists.
 
 For file-backed QA summaries and agent-tab delivery, see [`utility-shell-reports`](../utility-shell-reports/SKILL.md).
 
@@ -43,9 +43,9 @@ active libtest case names captured from the execution output.
 
 ```bash
 ./build.ps1 check                      # cargo check, ~2s incremental
-./build.ps1 test-one app  <filter>     # one app test
-./build.ps1 test-one plan <filter>     # one codeterm-plan test
-./build.ps1 test-one cli  <filter>     # one CLI test
+./build.sh nextest app 'test(service::a) | test(service::b)'   # all app selectors in one run
+./build.sh nextest plan 'test(service_plan::x) | test(service_plan::y)'
+./build.sh nextest cli 'test(cmd::x) | test(cmd::y)'
 node node_modules/typescript/bin/tsc --noEmit
 node --import tsx --import ./scripts/ts-test-asset-hook.mjs <file>.test.tsx
 bash scripts/check-file-sizes.sh --fail
@@ -66,7 +66,7 @@ scope, archived or compiled; rerun with the owning scope, never accept the zero.
 The app scope runs a cached test archive only when the checkout is clean and
 its tree equals the archive's `.source-tree` receipt; otherwise it compiles.
 
-In a Worker lane, run `./build.sh fmt` once per batch, then one verification pass: one multi-package `./build.sh lane-check <package>... [--tests]` call, changed TS/JS tests and `tsc` when TS changes, plus guards. On failure, fix all reported errors and recheck only what failed. The formatter scopes rustfmt and Biome safe fixes to changed files. The lane-check helper selects the shared cache only inside its subshell: `$CODETERM_RUST_CACHE_ROOT/lanes`, otherwise `$CARGO_HOME/codeterm-lanes` (Cargo home defaults to `~/.cargo`); Cargo's lock serializes checks without a gateway slot. Canonical/gateway build directories and per-worktree targets remain separate. List canonical selectors under GATES REQUESTED.
+A verification pass (Orchestrator in canonical, or a Worker whose dispatch grants it) is: `./build.sh fmt` once, one multi-package `./build.sh lane-check <package>... [--tests]` call, one batched `nextest` per crate scope, changed TS/JS tests in one runner call and `tsc` when TS changes, plus guards. On failure, fix all reported errors and recheck only what failed. The formatter scopes rustfmt and Biome safe fixes to changed files. The lane-check helper selects the shared cache only inside its subshell: `$CODETERM_RUST_CACHE_ROOT/lanes`, otherwise `$CARGO_HOME/codeterm-lanes` (Cargo home defaults to `~/.cargo`); Cargo's lock serializes checks without a gateway slot. Canonical/gateway build directories and per-worktree targets remain separate. List canonical selectors under GATES REQUESTED.
 
 ## Check before tests
 

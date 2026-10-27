@@ -121,7 +121,9 @@ it("wires a generated integration action's provider_id and consent to the daemon
   const client: TransportClient = { json, localJson: json, currentToken: () => "owner", origin: () => "", upload: vi.fn(), subscribe: () => () => {} };
   const registry = createCommandRegistry(client);
   fixture.invoke.mockImplementation((command: string, args: Record<string, unknown>) => dispatchCommand(registry, command, args));
-  const confirmation = vi.spyOn(window, "confirm").mockReturnValue(true);
+  const previousConfirm = Object.getOwnPropertyDescriptor(window, "confirm");
+  const confirmation = vi.fn(() => true).mockReturnValueOnce(false);
+  Object.defineProperty(window, "confirm", { value: confirmation, writable: true, configurable: true });
   try {
     await act(async () => root.render(<SchemaRenderer
       schema={[action("install_integration", "primary", {
@@ -133,7 +135,12 @@ it("wires a generated integration action's provider_id and consent to the daemon
     />));
     const button = [...host.querySelectorAll<HTMLButtonElement>("button")].find(b => b.textContent === "Review and install")!;
     await act(async () => button.click());
-    expect(confirmation).toHaveBeenCalledOnce();
+    expect(calls).toEqual([["GET", "/api/setup/hooks?provider=fixture%2Fopaque", undefined]]);
+    expect(fixture.invoke.mock.calls.filter(([command]) => command === "install_provider_integration")).toEqual([]);
+    await act(async () => button.click());
+    expect(confirmation).toHaveBeenCalledTimes(2);
+    expect(confirmation).toHaveBeenNthCalledWith(1, "opaque consent");
+    expect(confirmation).toHaveBeenNthCalledWith(2, "opaque consent");
     expect(calls).toEqual([
       ["GET", "/api/setup/hooks?provider=fixture%2Fopaque", undefined],
       ["POST", "/api/setup/hooks/install?provider=fixture%2Fopaque", { consent: true, provider: "fixture/opaque" }],
@@ -144,6 +151,7 @@ it("wires a generated integration action's provider_id and consent to the daemon
     ]);
     expect(host.querySelector('[role="alert"]')).toBeNull();
   } finally {
-    confirmation.mockRestore();
+    if (previousConfirm) Object.defineProperty(window, "confirm", previousConfirm);
+    else Reflect.deleteProperty(window, "confirm");
   }
 });

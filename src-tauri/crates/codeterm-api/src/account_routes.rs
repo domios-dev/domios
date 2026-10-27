@@ -257,6 +257,25 @@ pub async fn billing_operation(
         .map(Json)
         .map_err(unavailable)
 }
+
+pub async fn redeem_gift_key(
+    State(state): State<AppState>,
+    caller: Option<Extension<CallerIdentity>>,
+    request: Result<
+        Json<codeterm_service_core::service::gift_redemption::GiftRedemption>,
+        JsonRejection,
+    >,
+) -> Result<Json<serde_json::Value>, Error> {
+    admit(caller.as_ref())?;
+    let Json(request) = request.map_err(|_| (StatusCode::BAD_REQUEST, "invalid_request".into()))?;
+    state
+        .svc
+        .redeem_gift_key(request)
+        .await
+        .map(Json)
+        .map_err(unavailable)
+}
+
 #[derive(Default, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PlanRefresh {

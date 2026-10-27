@@ -4,12 +4,24 @@ use serde_json::json;
 #[test]
 fn admission_refreshes_signed_access_without_using_the_claim_as_a_grant() {
     for outcome in ["granted", "already_granted"] {
-        assert_eq!(refresh_required(&json!({"schema_version":1,"outcome":outcome,
-            "trial_end":1700604800,"friend_request_id":null})), Ok(true));
+        assert_eq!(
+            refresh_required(&json!({"schema_version":1,"outcome":outcome,
+            "trial_end":1700604800,"friend_request_id":null})),
+            Ok(true)
+        );
     }
-    for outcome in ["not_invited", "inviter_not_paid", "already_paid", "not_fresh", "invite_expired"] {
-        assert_eq!(refresh_required(&json!({"schema_version":1,"outcome":outcome,
-            "trial_end":null,"friend_request_id":null})), Ok(false));
+    for outcome in [
+        "not_invited",
+        "inviter_not_paid",
+        "already_paid",
+        "not_fresh",
+        "invite_expired",
+    ] {
+        assert_eq!(
+            refresh_required(&json!({"schema_version":1,"outcome":outcome,
+            "trial_end":null,"friend_request_id":null})),
+            Ok(false)
+        );
     }
 }
 
