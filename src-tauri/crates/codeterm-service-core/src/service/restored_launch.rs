@@ -219,13 +219,8 @@ pub fn restored_fresh_launch_input(
 ) -> RestoredFreshLaunchInput {
     let legacy_snapshot = !launch_parameters.captured;
     if let Some(policy) = &launch_parameters.execution_sandbox {
-        params.sandbox = Some(
-            match &policy.intent {
-                crate::plan::ExecutionIntent::ReadOnly => "read-only",
-                _ => "workspace-write",
-            }
-            .into(),
-        );
+        params.sandbox =
+            Some(crate::service::execution_sandbox::requested_label(&policy.intent).into());
         params.cwd = Some(policy.cwd.clone());
         params.skip_permissions = Some(false);
         params.permission_bypass_authorization = None;

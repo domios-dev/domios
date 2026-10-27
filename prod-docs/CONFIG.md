@@ -68,6 +68,7 @@ open_settings = "Ctrl+,"
 # continue_after_restart: one system continue per mid-turn agent tab after any stop.
 # full_access: one global permission choice for every agent provider.
 # Omit it until onboarding or the first agent launch asks the user.
+# sandbox_ceiling: optional "read-only" or "workspace-write" cap for delegated spawns.
 poll_interval_ms = 500
 idle_timeout_s = 2
 resume_sessions = true
@@ -145,6 +146,8 @@ The API listens only on loopback by default. A non-loopback `host` requires a no
 `domios rest-api status` reads listener state through the local socket even when HTTP is down. It reports `phase`, `generation`, `diagnostic` and `message`; a port collision reports `bind_ownership_failed` with the bind address and OS error. Release the foreign port owner, then run `domios rest-api restart`. Restart waits for every bound listener's health proof and exits nonzero on failure, including with `--json`. These commands are local-only and never fall back to HTTP. Native Settings → Network also offers Restart REST API. After recovery, use Retry surface lookup on an unavailable Browser surface and confirm the page renders.
 
 Agent access is one global choice. `agent.full_access = true` applies the provider's permission-bypass capability whenever any agent starts or restarts, including General Agent; `false` keeps provider permission prompts everywhere. The first-run picker asks once with Full access selected by default; there are no per-provider, per-resume, audience, or Remember-choice policies. On first load, an enabled remembered bypass from the former global or per-provider settings is converted to `agent.full_access = true` before any agent tab starts; the removed keys are then deleted from the saved config.
+
+`agent.sandbox_ceiling` is unset by default, so Workers keep full machine access. Set to `read-only` or `workspace-write`, every delegated spawn must pass `--sandbox` at or below it; an omitted `--sandbox` means full access and is refused, as is any other value. Tabs restore and restart with the sandbox recorded at their launch.
 
 With `false`, a role, task, or cron launch still runs its own Domios commands (`agent startup-ack`, `agent ack`, `agent report`, `pad path`, and `cron complete` for a cron run) without an owner prompt: a provider that declares launch permissions grants exactly those commands through launch arguments when the model has no unattended mode, never through global provider settings. An Orchestrator or Planner on such a model is refused before any tab exists, naming the model and the models that have the mode. An Orchestrator launch always loses the provider's native subagent tools.
 
@@ -237,4 +240,4 @@ Notification settings: `domios docs NOTIFICATIONS`. Integration settings: `domio
 Utility limits apply to each Team and purpose (`build`, `dev`, `qa`, `deploy`, `logs`, `db`, `shell`). At the limit, creation restarts the oldest confirmed idle tab with the new command and description; busy or unknown tabs are refused. Use `domios tab new --description "Runs focused tests" --purpose qa --icon bug`; icon names are Lucide kebab-case names. Structured provider access refusals are always observed from the tab's bound session, independently of optional structured-signal settings. Incident levels and recovery are in the notification document above. Capability plugins may declare `permissions.projectFiles` as config selectors such as `["/root", "/profiles/*/root"]`. These configured, existing absolute directories become read roots. They remain read-only until the owner explicitly approves `domios plugin config <id> --grant project_write`. Approval records canonical roots in `grants.yaml`; changing a profile root never transfers that write grant. Revoke with `--revoke project_write`. Reload the plugin after root or grant changes. Symlink roots, traversal and symlink escapes are refused, including writes below missing parents. Project-file plugins use the confined filesystem even in DEV; they cannot rewrite their own `grants.yaml`. A separately granted arbitrary subprocess remains outside the file-tool confinement contract.
 Domios account sign-in and product analytics settings: `domios docs ACCOUNT`.
 
-<!-- revision: 125 -->
+<!-- revision: 126 -->

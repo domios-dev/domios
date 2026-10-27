@@ -661,6 +661,7 @@ export interface AgentConfig {
   idle_timeout_s: number;
   resume_sessions: boolean;
   full_access?: boolean;
+  sandbox_ceiling?: "read-only" | "workspace-write";
 }
 
 export interface ApiConfig {
