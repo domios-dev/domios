@@ -1,6 +1,18 @@
 use super::*;
 use serde_json::json;
 
+#[test]
+fn server_ciphertext_size_refusal_reports_the_plaintext_limit() {
+    let error = refusal(
+        &json!({"error":{"status":"INVALID_ARGUMENT","message":"Invalid Neighbor envelope","details":{"reason":"too_large"}}}),
+    );
+    assert_eq!(error, Error::MessageTooLarge { limit: 32752 });
+    let wire = error.to_string();
+    let details: Value =
+        serde_json::from_str(wire.strip_prefix("message_too_large:").unwrap()).unwrap();
+    assert_eq!(details, json!({"limit":32752}));
+}
+
 #[tokio::test]
 async fn cached_own_inventory_and_receiver_reads_still_require_the_current_account_session() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
