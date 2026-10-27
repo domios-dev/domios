@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode, type Ref } from "react";
-import { Check } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight } from "lucide-react";
+import { usePlanRow } from "./usePlanRow";
+import "./planRow.css";
 import { nativeBridge } from "../../lib/nativeBridge";
 import { siteLinks } from "../../../shared/siteLinks";
 import { ActivityDots } from "../shared/ActivityDots";
@@ -200,6 +202,7 @@ export function PlanCards({ currentPlan = null, subscribedPlan = null, subscript
   onCancel?: () => void;
 }) {
   const contextCatalog = usePlanCatalog();
+  const row = usePlanRow();
   const viewTarget = usePlanViewed(viewRequested);
   const offers = catalog ?? contextCatalog;
   const [ownInterval, setOwnInterval] = useState<BillingInterval>("year");
@@ -209,26 +212,34 @@ export function PlanCards({ currentPlan = null, subscribedPlan = null, subscript
   const intentOffer = intent.kind === "idle" ? null : offerIdForPlan(offers, intent.planKey);
   const view = intentView(intent, signedInAs);
   return (
-    <div ref={viewTarget} className="flex flex-col gap-3">
-      <div role="group" aria-label="Subscription plans" className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
-        {offers.offers.map((offer, index) => (
-          <PlanCard
-            key={offer.id}
-            offer={offer}
-            interval={interval}
-            current={offer.id === currentOffer}
-            canPurchase={canPurchase}
-            onChoose={onChoose}
-            intent={offer.id === intentOffer ? view : undefined}
-            onCancel={onCancel}
-            action={planCardAction(offers, offer, interval, subscribedPlan)}
-            onManage={onManage}
-            onChangePlan={offers.changesAvailable && offers.offers.some(entry => entry.id === currentOffer) ? onChangePlan : undefined}
-            changePrice={planChangePrice(offer, subscriptionInterval)}
-            changeDirection={index > offers.offers.findIndex(entry => entry.id === currentOffer) ? "upgrade" : "downgrade"}
-            manageBusy={manageBusy}
-          />
-        ))}
+    <div ref={viewTarget} className="flex min-w-0 flex-col gap-5">
+      <div className="ct-plan-row-frame">
+        <div ref={row.row} role="group" aria-label="Subscription plans" tabIndex={0} className="ct-plan-row" onKeyDown={row.onKeyDown} onFocus={row.onFocus}>
+          {offers.offers.map((offer, index) => (
+            <PlanCard
+              key={offer.id}
+              offer={offer}
+              interval={interval}
+              current={offer.id === currentOffer}
+              canPurchase={canPurchase}
+              onChoose={onChoose}
+              intent={offer.id === intentOffer ? view : undefined}
+              onCancel={onCancel}
+              action={planCardAction(offers, offer, interval, subscribedPlan)}
+              onManage={onManage}
+              onChangePlan={offers.changesAvailable && offers.offers.some(entry => entry.id === currentOffer) ? onChangePlan : undefined}
+              changePrice={planChangePrice(offer, subscriptionInterval)}
+              changeDirection={index > offers.offers.findIndex(entry => entry.id === currentOffer) ? "upgrade" : "downgrade"}
+              manageBusy={manageBusy}
+            />
+          ))}
+        </div>
+        {row.edges.previous && <div className="ct-plan-row-edge ct-plan-row-edge-start">
+          <Button size="sm" variant="outline" aria-label="Previous plans" onClick={() => row.move(-1)}><ChevronLeft size={16} aria-hidden="true" /></Button>
+        </div>}
+        {row.edges.next && <div className="ct-plan-row-edge ct-plan-row-edge-end">
+          <Button size="sm" variant="outline" aria-label="Next plans" onClick={() => row.move(1)}><ChevronRight size={16} aria-hidden="true" /></Button>
+        </div>}
       </div>
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <BillingIntervalToggle interval={interval} onChange={changeInterval} savings={bestYearlySavings(offers)} />

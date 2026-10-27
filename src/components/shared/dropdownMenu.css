@@ -282,6 +282,7 @@
 
 .ct-account-head { cursor: default; }
 .ct-account-head .ct-menu-identity { padding-bottom: 6px; }
+.ct-account-head .ct-menu-identity__text { max-width: 15rem; }
 
 .ct-account-plan {
   display: flex;

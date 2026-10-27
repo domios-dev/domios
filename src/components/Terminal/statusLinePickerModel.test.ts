@@ -213,9 +213,7 @@ test("Fast mode is capability gated and a tier-only change applies for the next 
 });
 
 test("runtime mode is capability gated and participates in staged apply planning", () => {
-  const capable = provider({ structured_control: {
-    protocol: "fixture",
-    minVersion: "1.0.0",
+  const capable = provider({ agent_runtime: {
     runtimeModes: [{ id: "auto", displayName: "Auto" }, { id: "full-access", displayName: "Full access" }],
   } });
   const current = pickerSelection(capable, "deep", "high", undefined, "auto");

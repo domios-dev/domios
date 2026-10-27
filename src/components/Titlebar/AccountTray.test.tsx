@@ -7,7 +7,7 @@ import { MultiplexerProvider, useMultiplexer, useMuxState } from "../../store/mu
 import { NotificationToastContainer } from "../Notifications/NotificationToast";
 const { signIn, signOut, manage, openPlans, openUrl, state } = vi.hoisted(() => ({
   signIn: vi.fn(), signOut: vi.fn(), manage: vi.fn(), openPlans: vi.fn(), openUrl: vi.fn(),
-  state: { signedIn: false, sessionOnly: false, billingPending: false, planStatus: "active", planAuthority: "billing", fullAccess: false, useRealPlan: false, photoUrl: null as string | null },
+  state: { signedIn: false, sessionOnly: false, billingPending: false, paidSubscription: true, planStatus: "active", planAuthority: "billing", fullAccess: false, useRealPlan: false, photoUrl: null as string | null },
 }));
 const localFetch = vi.hoisted(() => vi.fn());
 vi.mock("../Settings/useAccount", async (importOriginal) => ({
@@ -25,6 +25,9 @@ vi.mock("../Settings/useAccountPlan", async (importOriginal) => {
       pending:state.billingPending,
     }) };
 });
+vi.mock("../billing/useDesktopBilling", () => ({ useDesktopBilling: () => ({
+  subscription: state.paidSubscription ? { paid_subscription: { tier: "pro" } } : { paid_subscription: null },
+}) }));
 vi.mock("../../lib/webApi", async (importOriginal) => ({
   ...await importOriginal<typeof import("../../lib/webApi")>(),
   localFetch,
@@ -285,7 +288,7 @@ it("shows identity and plan and wires subscription and sign out", async () => {
     expect(Array.from(menu!.querySelectorAll<HTMLElement>('[role="menuitem"]')).some((item) => item.textContent?.includes("ada@example.test"))).toBe(false);
     const manageItem = Array.from(menu!.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent?.includes("Manage subscription"));
     await act(async () => manageItem!.click());
-    expect(manage).toHaveBeenCalledExactlyOnceWith(openPlans);
+    expect(manage).toHaveBeenCalledExactlyOnceWith();
     await act(async () => button!.dispatchEvent(new KeyboardEvent("keydown", {key:"Enter",bubbles:true})));
     const signOutItem = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent === "Sign out");
     await act(async () => signOutItem!.click());
@@ -458,5 +461,26 @@ it("keeps normal sign-out and confirms self session revocation separately", asyn
     expect(document.querySelector('[role="dialog"]')).toBeNull();
   } finally {
     await act(async () => root.unmount()); host.remove(); state.signedIn = false;
+  }
+});
+
+it("offers Upgrade for granted access without a paid subscription", async () => {
+  state.signedIn = true;
+  state.paidSubscription = false;
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<AccountTrayWithActions />));
+    await act(async () => host.querySelector("button")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    const items = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'));
+    expect(items.find(item => item.textContent?.includes("Manage subscription"))).toBeUndefined();
+    const upgrade = items.find(item => item.textContent?.includes("Upgrade"));
+    expect(upgrade).toBeDefined();
+    await act(async () => upgrade!.click());
+    expect(openPlans).toHaveBeenCalledOnce();
+    expect(manage).not.toHaveBeenCalled();
+  } finally {
+    await act(async () => root.unmount()); host.remove();
+    state.signedIn = false; state.paidSubscription = true;
   }
 });

@@ -9,8 +9,7 @@ fn register_runtime(svc: &ServiceContext) {
             "reasoningEfforts":[{"id":"low","displayName":"Low"},{"id":"medium","displayName":"Medium"}],
             "capabilities":{"agentProvider":true,
                 "chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
-                "structuredControl":{"protocol":"fixture","minVersion":"1.0.0","runtimeModes":[{"id":"auto","displayName":"Auto"}]},
-                "agentRuntime":{
+                    "agentRuntime":{"runtimeModes":[{"id":"auto","displayName":"Auto"}],
                 "runtime":"stdio-jsonrpc", "command":{"binary":"fixture-cli","args":[]},
                 "requestMethods":{"initialize":["handshake"]},"notificationMethods":[]}},
             "spawn":{"readinessStrategy":{"kind":"fixed_delay","durationMs":0},"taskDelivery":"pty_input","verifySubmit":{"kind":"none"},"executionSandbox":{"platforms":["windows","linux","macos"],

@@ -369,8 +369,6 @@ pub struct Capabilities {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_runtime: Option<crate::agent_runtime::AgentRuntimeCapability>,
     #[serde(default)]
-    pub structured_control: Option<crate::provider::StructuredControl>,
-    #[serde(default)]
     pub context_attach: Option<crate::provider::ContextAttach>,
     #[serde(default)]
     pub agent_provider: bool,

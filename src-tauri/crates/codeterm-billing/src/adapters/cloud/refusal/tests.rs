@@ -4,6 +4,7 @@ use super::{callable_status, BillingRefusal};
 fn structured_reason_codes_select_typed_refusals() {
     for (code, expected) in [
         ("already_subscribed", BillingRefusal::AlreadySubscribed),
+        ("no_billing_customer", BillingRefusal::NoBillingCustomer),
         ("renewal_window", BillingRefusal::RenewalWindow),
         (
             "interval_change_unavailable",
@@ -80,4 +81,12 @@ fn diagnostics_admit_only_callable_status_codes() {
     ] {
         assert_eq!(callable_status(Some(status)), status);
     }
+}
+
+#[test]
+fn no_billing_customer_explains_non_paid_access() {
+    assert_eq!(
+        BillingRefusal::classify(Some("no_billing_customer")).message(),
+        "There is no paid subscription to manage. Your current access is not billed through Paddle."
+    );
 }

@@ -6,22 +6,32 @@ pub(super) enum HookAuthority {
     BindingAndStatus,
 }
 
-pub(super) fn authority(structured_backing: bool) -> HookAuthority {
-    if structured_backing {
+pub(super) fn authority(runtime_capability: bool, runtime_backing: bool) -> HookAuthority {
+    if runtime_capability && runtime_backing {
         HookAuthority::Telemetry
     } else {
         HookAuthority::BindingAndStatus
     }
 }
 
-pub(super) fn telemetry_response(tab: &str, event: &str) -> Option<Json<serde_json::Value>> {
-    let structured = codeterm_service_core::service::codex_rpc::lifecycle::for_tab(tab).is_some();
-    if authority(structured) != HookAuthority::Telemetry {
+pub(super) fn telemetry_response(
+    svc: &codeterm_service_core::service::ServiceContext,
+    tab: &str,
+    event: &str,
+) -> Option<Json<serde_json::Value>> {
+    let structured = codeterm_service_core::service::agent_runtime::requested_for_tab(svc, tab);
+    let runtime_backing = svc.mux.read().get_tab(tab).is_some_and(|tab| {
+        matches!(
+            tab.backing,
+            codeterm_service_core::multiplexer::types::TabBacking::ChatBackend { .. }
+        )
+    });
+    if authority(structured, runtime_backing) != HookAuthority::Telemetry {
         return None;
     }
-    log::debug!("[hook-telemetry] tab={tab} event={event} authority=app-server");
+    log::debug!("[hook-telemetry] tab={tab} event={event} authority=agent-runtime");
     Some(Json(
-        serde_json::json!({"ok":true,"telemetry_only":true,"authority":"app-server"}),
+        serde_json::json!({"ok":true,"telemetry_only":true,"authority":"agent-runtime"}),
     ))
 }
 
@@ -53,16 +63,22 @@ mod tests {
     fn codex_rpc_hook_authority_preserves_structured_binding_and_pty_fallback() {
         let mut session = "server-root";
         let mut busy = true;
-        let apply_hook = |structured, session: &mut &str, busy: &mut bool| {
-            if authority(structured) == HookAuthority::BindingAndStatus {
+        let apply_hook = |capability, backing, session: &mut &str, busy: &mut bool| {
+            if authority(capability, backing) == HookAuthority::BindingAndStatus {
                 *session = "other-hook-root";
                 *busy = false;
             }
         };
-        apply_hook(true, &mut session, &mut busy);
+        apply_hook(true, true, &mut session, &mut busy);
         assert_eq!(session, "server-root");
         assert!(busy);
-        apply_hook(false, &mut session, &mut busy);
+        for (capability, backing) in [(true, false), (false, true), (false, false)] {
+            assert_eq!(
+                authority(capability, backing),
+                HookAuthority::BindingAndStatus
+            );
+        }
+        apply_hook(true, false, &mut session, &mut busy);
         assert_eq!(session, "other-hook-root");
         assert!(!busy);
     }

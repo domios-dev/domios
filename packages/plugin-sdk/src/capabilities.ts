@@ -97,12 +97,6 @@ export interface GlanceView {
 
 export type ViewCall = (method: string, args: unknown) => unknown;
 
-export interface StructuredControl {
-  protocol: "codex-app-server";
-  minVersion: string;
-  runtimeModes?: { id: string; displayName: string }[];
-}
-
 // ── agentProvider ──
 // Method set mirrors plugins/provider-*/plugin.js + the AgentProvider trait.
 

@@ -198,16 +198,29 @@ pub async fn upgrade(
         })?;
     Ok(Json(serde_json::json!({"opened": true})))
 }
+fn portal_failure(message: String) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    if message == codeterm_billing::NO_BILLING_CUSTOMER {
+        return (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({"code": "no_billing_customer", "message": message})),
+        )
+            .into_response();
+    }
+    unavailable(message).into_response()
+}
+
 pub async fn portal(
     State(state): State<AppState>,
     caller: Option<Extension<CallerIdentity>>,
-) -> Result<Json<serde_json::Value>, Error> {
-    admit(caller.as_ref())?;
+) -> Result<Json<serde_json::Value>, axum::response::Response> {
+    use axum::response::IntoResponse;
+    admit(caller.as_ref()).map_err(IntoResponse::into_response)?;
     state
         .svc
         .billing_open(None, None)
         .await
-        .map_err(unavailable)?;
+        .map_err(portal_failure)?;
     Ok(Json(serde_json::json!({"opened": true})))
 }
 

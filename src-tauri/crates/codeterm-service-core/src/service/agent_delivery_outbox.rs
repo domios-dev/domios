@@ -411,11 +411,10 @@ impl ServiceContext {
     ) -> AgentDeliveryRecovery {
         let captured = self.chat_send_anchor(tab_id);
         let anchor = captured.anchor.filter(|anchor| {
-            super::codex_rpc::lifecycle::for_tab(tab_id).is_none()
-                && payload
-                    .expected_session_id
-                    .as_deref()
-                    .is_some_and(|expected| anchor.session_id == expected)
+            payload
+                .expected_session_id
+                .as_deref()
+                .is_some_and(|expected| anchor.session_id == expected)
                 && captured.live_binding.as_ref().is_some_and(|binding| {
                     binding.session_id.as_deref() == payload.expected_session_id.as_deref()
                         && binding.binding_nonce.as_deref()

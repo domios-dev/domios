@@ -154,7 +154,7 @@ pub async fn install_update(
             status,
             Json(serde_json::json!({
                 "code": "native_capability_unavailable",
-                "message": "Automatic installation requires a native application host attached to this server. The server has no application-host updater registered; a running desktop client alone does not provide this capability. Use Settings > Updates in the desktop client, or download the official installer from https://github.com/rollacode/codeterm-releases/releases/latest and run domios update install --from-file <installer-path> locally on macOS or Windows. On Linux, install the official package with the package manager."
+                "message": "Automatic installation requires a native application host attached to this server. The server has no application-host updater registered; a running desktop client alone does not provide this capability. Use Settings > Updates in the desktop client, or download the official installer from https://github.com/domios-dev/domios/releases/latest and run domios update install --from-file <installer-path> locally on macOS or Windows. On Linux, install the official package with the package manager."
             })),
         ).into_response()
             } else {

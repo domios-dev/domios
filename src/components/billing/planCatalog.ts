@@ -20,6 +20,8 @@ export interface PlanOffer {
   limits?: PlanLimits;
   prices: Partial<Record<BillingInterval, PlanPrice>>;
   recommended?: boolean;
+  /** The offer the generic Upgrade action buys when no plan is chosen. */
+  upgradeDefault?: boolean;
 }
 
 export interface PlanCatalog {
@@ -69,7 +71,7 @@ export const BUILTIN_PLAN_CATALOG: PlanCatalog = {
         month: { planKey: "pro_monthly", amount: 9.99, currency: "USD" },
         year: { planKey: "pro_yearly", amount: 72, currency: "USD" },
       },
-      recommended: true,
+      upgradeDefault: true,
     },
     {
       id: "max",
@@ -81,6 +83,7 @@ export const BUILTIN_PLAN_CATALOG: PlanCatalog = {
         month: { planKey: "max_monthly", amount: 24.99, currency: "USD" },
         year: { planKey: "max_yearly", amount: 180, currency: "USD" },
       },
+      recommended: true,
     },
     {
       id: "sponsor",
@@ -149,6 +152,7 @@ function parseOffer(value: unknown): PlanOffer | null {
     prices,
     ...(isRecord(value.limits) ? { limits: parsePlanLimits(value.limits) } : {}),
     ...(value.recommended === true ? { recommended: true } : {}),
+    ...(value.upgradeDefault === true ? { upgradeDefault: true } : {}),
   };
 }
 
@@ -206,9 +210,9 @@ export function planCardAction(catalog: PlanCatalog, offer: PlanOffer, interval:
   return sameOffer && (subscribedPlan === planKey || subscribedPlan === offer.id) ? { kind: "none" } : { kind: "manage" };
 }
 
-/** The recommended offer's checkout key for the interval on screen, falling back to whichever interval it sells. */
+/** The default upgrade offer's checkout key for the interval on screen, falling back to whichever interval it sells. */
 export function upgradePlanKey(catalog: PlanCatalog, interval: BillingInterval): string | null {
-  const prices = catalog.offers.find((offer) => offer.recommended)?.prices;
+  const prices = (catalog.offers.find((offer) => offer.upgradeDefault) ?? catalog.offers.find((offer) => offer.recommended))?.prices;
   return (prices?.[interval] ?? prices?.year ?? prices?.month)?.planKey ?? null;
 }
 

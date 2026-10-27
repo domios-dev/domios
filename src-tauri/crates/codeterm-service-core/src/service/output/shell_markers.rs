@@ -137,24 +137,6 @@ impl ServiceContext {
                     }
                     other => other,
                 };
-                if let Some(sidecar) = crate::service::codex_rpc::lifecycle::for_tab(tab_id)
-                    .filter(|_| proof.is_some())
-                {
-                    crate::service::codex_rpc::recovery::try_start(
-                        self,
-                        tab_id,
-                        &sidecar.launch_nonce,
-                        "remote TUI exited to shell",
-                    );
-                    self.ui.emit(
-                        "shell-command-changed",
-                        serde_json::to_value(
-                            serde_json::json!({ "tab_id": tab_id, "event": event }),
-                        )
-                        .unwrap_or_default(),
-                    );
-                    continue;
-                }
                 if let Some(proof) = proof {
                     self.handle_proven_provider_exit(tab_id, pty_id, *exit_code, &proof);
                 } else if tree.is_none() && !cron_launch_pending {

@@ -188,7 +188,7 @@ fn build_agent_command_inner(
         model_arguments.as_deref().unwrap_or_default(),
     );
     let mut args = resolved_params.args.clone().unwrap_or_default();
-    if let Some((service, tab_id)) = notice_context {
+    if let Some((_, tab_id)) = notice_context {
         if let Some(session) = params
             .resume_session_id
             .as_deref()
@@ -197,18 +197,6 @@ fn build_agent_command_inner(
             crate::service::launch_session_detection::register_resume_launch_marker(
                 tab_id, session,
             );
-        }
-        if execution_policy.is_none() {
-            if let Some(command) = crate::service::codex_rpc::launch::defer(
-                service,
-                tab_id,
-                agent_cmd,
-                &resolved_params,
-                task,
-                injected_session_id,
-            ) {
-                return command.into();
-            }
         }
     }
     let structured_prompt_server = params.structured_prompt_server.clone().or_else(|| {

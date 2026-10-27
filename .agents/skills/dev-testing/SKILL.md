@@ -61,7 +61,7 @@ node scripts/dev-wheel-probe.mjs --api-port 7686 --delta 480
 
 Exit 1 means a probe did not move its scroller: first make sure the sidebar actually overflows (open enough tabs), then compare the `chain` of the failing point with the passing one; the first node that differs is the cause.
 
-DEV flow tracing writes bounded, rotated `~/.codeterm-dev/logs/trace.jsonl`; production writes no trace events. Unledgered PTY input uses a fresh trace ID; existing sends retain their IDs.
+DEV flow tracing writes bounded, rotated `~/.domios-dev/logs/trace.jsonl`; production writes no trace events. Unledgered PTY input uses a fresh trace ID; existing sends retain their IDs.
 From a DEV-bound shell, use `domios trace recent --limit 20`, then `domios trace show <trace_id|tab_id> --since 1h` to see ordered stages and gaps in the retained window.
 Exact protocol-turn and append-window source links join assistant appends, including late links; a missing assistant stage means pending or missing evidence, not a delivery verdict.
 
@@ -100,8 +100,10 @@ curl -s -X POST "$API/api/tabs/$GA/send" -H "$H" -H "Content-Type: application/j
 ```bash
 curl -s -X POST "$API/api/tabs/$GA/send" -H "$H" -H "Content-Type: application/json" \
   -d '{"text": "/new"}'
-sleep 5  # wait for new session
 ```
+
+Confirm the exact tab's new bound session through its lifecycle/session evidence
+before continuing. Elapsed time and screen text do not prove a session change.
 
 ## Read GA output (clean)
 
@@ -152,42 +154,30 @@ for w in json.load(sys.stdin):
 
 ```bash
 # Identity and soul
-cat ~/.codeterm-dev/general/identity.md 2>/dev/null || echo "NOT FOUND"
-cat ~/.codeterm-dev/general/soul.md 2>/dev/null || echo "NOT FOUND"
+cat ~/.domios-dev/general/identity.md 2>/dev/null || echo "NOT FOUND"
+cat ~/.domios-dev/general/soul.md 2>/dev/null || echo "NOT FOUND"
 
 # Bootstrap (should be deleted after onboarding)
-ls ~/.codeterm-dev/general/bootstrap.md 2>/dev/null || echo "DELETED (good)"
+ls ~/.domios-dev/general/bootstrap.md 2>/dev/null || echo "DELETED (good)"
 
 # Skills
-find ~/.codeterm-dev/skills/ -name "SKILL.md" 2>/dev/null
+find ~/.domios-dev/skills/ -name "SKILL.md" 2>/dev/null
 
 # AGENT.md (check identity injected)
-head -25 ~/.codeterm-dev/general/AGENT.md
+head -25 ~/.domios-dev/general/AGENT.md
 ```
 
 ## Full clean restart
 
-```bash
-lsof -ti :1420 | xargs kill 2>/dev/null; lsof -ti :7686 | xargs kill 2>/dev/null; sleep 2
-rm -f ~/.codeterm-dev/mem/knowledge.db ~/.codeterm-dev/mem/workers.json ~/.codeterm-dev/crons.json
-rm -rf ~/.codeterm-dev/mem/blobs
-rm -f ~/.codeterm-dev/general/{identity,soul,bootstrap,AGENT,CLAUDE,AGENTS}.md
-# Delete GA claude session files to force fresh start (not resume)
-find ~/.claude/projects/ -path "*general*" -name "*.jsonl" -delete 2>/dev/null
-find ~/.claude/projects/ -path "*codeterm-dev*" -name "*.jsonl" -delete 2>/dev/null
-# CRITICAL: Clear session ID from snapshot — without this GA resumes old session
-sed -i '' 's/"claude_session_id": "[^"]*"/"claude_session_id": null/g' ~/.codeterm-dev/sessions/last.json
-./build.sh dev
-```
+Use the dev-run skill's **Start from a clean dev** procedure only for the owned
+instance. Preserve its data directory as a backup; do not delete provider-global
+sessions or edit an obsolete JSON snapshot. `state.db` is the restore authority.
 
 ## Wait for ready
 
-```bash
-for i in $(seq 1 20); do
-  if curl -s http://127.0.0.1:7686/api/health 2>/dev/null | grep -q ok; then echo "Ready ($i)"; break; fi
-  sleep 3
-done
-```
+Use `./build.sh dev --wait` under the dev-run skill's scoped instance selectors.
+The native attachment event and authenticated exact-build health receipt prove
+readiness; a listener, a sleep or a successful launch request does not.
 
 ## Spawn agent in another workspace
 
@@ -315,22 +305,17 @@ curl -s -X POST "$API/api/mem/dream" -H "$H" -H "Content-Type: application/json"
 
 ## Rebuild dev daemon (only :7686, never :7685)
 
-```bash
-# Identify dev process by port — NEVER kill prod (7685)
-DEV_PID=$(netstat -ano -p tcp 2>/dev/null | grep ":7686 .*LISTENING" | awk '{print $NF}')
-[ -n "$DEV_PID" ] && taskkill //PID "$DEV_PID" //F   # Windows
-# Then in background: bash build.sh dev
-# Verify mtime: stat -c "%y %n" src-tauri/target/debug/domios-app.exe — must be newer than the source files you edited
-```
-
-Note: `bash build.sh build` runs the production frontend bundle and currently fails on pre-existing TS errors in `CronTabl.tsx` / `useConfig.ts` — those are unrelated to backend Rust work and **don't block dev testing**. Use `bash build.sh dev` (which uses `vite dev`, no strict TS check) or `cargo build --bin codeterm` directly to validate Rust changes.
+The instance owner follows the dev-run skill's change-type table and named
+`build.sh` operations. Keep explicit noncanonical instance and private-port
+selectors. Verify the authenticated running build and native attachment receipt;
+an executable mtime does not identify the running process. Workers without a
+verification grant defer the rebuild and live proof to canonical QA.
 
 ## Tips
 
 - GA tab ID stays the same across restarts (5a6a64dc in dev)
 - The DEV credential is in `<dev_data_dir>/.secrets`, key `domios.instance:api_token`; resolve it with `dev_token` from the bench library.
-- After sending message to GA, wait 20-60s for claude to process + extraction workers
-- After spawning agent, wait 30-60s for it to start + execute task
+- After sending or spawning, require exact owned-session delivery and completion evidence; timeouts bound failure only
 - `/new` resets claude context but keeps mem — tests recall from fresh context
 - Cross-workspace: agents in any project workspace can `domios mem search` and find GA memories
 - If something doesn't work, update this skill with what you learned

@@ -1,6 +1,6 @@
-import {execFileSync} from 'node:child_process';
-import {pythonInterpreter} from './ci-runner-paths.mjs';
-import {verifyQualification} from './ci-qualification.mjs';
+import {verifyQualification, selectQualificationArtifact, retainQualificationEvidence} from './ci-qualification.mjs';
+import {readQualificationArchive} from './ci-qualification-archive.mjs';
+export {readQualificationArchive} from './ci-qualification-archive.mjs';
 
 export async function verifyIssueReferences(github, selection) {
   for (const issue of [...selection.issues,...selection.repository_issues]) {
@@ -17,24 +17,21 @@ export async function listFailureJobs(github, context) {
 export async function cancelWorkflow(github, context) {
   await github.rest.actions.cancelWorkflowRun({...context.repo,run_id:context.runId});
 }
-export function readQualificationArchive(archive) {
-  const program="import io,json,sys,zipfile\nwith zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read())) as z:\n assert z.namelist().count('qualification.json') == 1\n assert z.getinfo('qualification.json').file_size <= 16777216\n sys.stdout.buffer.write(z.read('qualification.json'))";
-  return JSON.parse(execFileSync(pythonInterpreter(process.platform,process.env),['-c',program],{
-    input:Buffer.from(archive),encoding:'utf8',timeout:5000,maxBuffer:16*1024*1024}));
-}
-export async function requireQualificationWithGithub(github, context, sha, readArchive=readQualificationArchive) {
+export async function requireQualificationWithGithub(github, context, sha, readArchive=readQualificationArchive, retain=retainQualificationEvidence) {
   if(!/^[a-f0-9]{40}$/.test(sha))throw new Error('Invalid qualification SHA');
   const name='qualification-'+sha;
   const artifacts=(await github.rest.actions.listArtifactsForRepo({...context.repo,name,per_page:100})).data.artifacts;
-  const artifact=artifacts.filter(row=>row.name===name&&!row.expired).sort((a,b)=>b.id-a.id)[0];
-  if(!artifact)throw new Error('No qualification receipt for '+sha);
+  const artifact=selectQualificationArtifact(artifacts,sha);
   const run=(await github.rest.actions.getWorkflowRun({...context.repo,run_id:artifact.workflow_run.id})).data;
+  if(String(run.id)!==String(artifact.workflow_run.id))throw new Error('Foreign qualification artifact run');
   const jobs=[];
   for(let page=1;;page++){
     if(page>20)throw new Error('Qualification job inventory exceeds bound');
-    const batch=(await github.rest.actions.listJobsForWorkflowRunAttempt({...context.repo,run_id:run.id,attempt_number:run.run_attempt,per_page:100,page})).data;
+    const batch=(await github.rest.actions.listJobsForWorkflowRun({...context.repo,run_id:run.id,filter:'all',per_page:100,page})).data;
     jobs.push(...batch.jobs);if(jobs.length>=batch.total_count)break;
+    if(!batch.jobs.length)throw new Error('Incomplete qualification job inventory');
   }
   const archive=(await github.rest.actions.downloadArtifact({...context.repo,artifact_id:artifact.id,archive_format:'zip'})).data;
-  return verifyQualification(readArchive(archive),run,jobs,sha);
+  return retain({...verifyQualification(readArchive(archive),run,jobs,sha,context.repo.owner+'/'+context.repo.repo),
+    verification_artifact:{id:artifact.id,expires_at:artifact.expires_at}});
 }

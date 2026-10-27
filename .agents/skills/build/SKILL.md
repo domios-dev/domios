@@ -559,7 +559,7 @@ Mesh peers run the same verbs in their own gateway, with their own warm cache an
 
 | Verb | What happens |
 |---|---|
-| `./build.sh peer-setup <peer>` | One bounded build tab on the peer clones `rollacode/codeterm` into the configured checkout if missing, sets the push URL to `fetch-only.invalid`, detaches at the pushed `origin/develop` (or `--sha REF`, which must be pushed and contain `scripts/build-peer.mjs`), runs `./build.sh peer-toolchain` (rustc must equal `rust-toolchain.toml`, plus MSVC on Windows, Xcode CLT on macOS, `cc` on Linux, node, cargo-nextest, sccache) and opens the peer's `Buildpeer` status shell. `--install-toolchain` first runs `peer-toolchain --install`: a user-scope rustup (`rustup-init -y --no-modify-path --profile minimal`, the pinned toolchain with clippy and rustfmt) and the prebuilt cargo-nextest into `~/.cargo/bin`; no machine PATH or env change. |
+| `./build.sh peer-setup <peer>` | One bounded build tab on the peer clones `domios-dev/domios` into the configured checkout if missing, sets the push URL to `fetch-only.invalid`, detaches at the pushed `origin/develop` (or `--sha REF`, which must be pushed and contain `scripts/build-peer.mjs`), runs `./build.sh peer-toolchain` (rustc must equal `rust-toolchain.toml`, plus MSVC on Windows, Xcode CLT on macOS, `cc` on Linux, node, cargo-nextest, sccache) and opens the peer's `Buildpeer` status shell. `--install-toolchain` first runs `peer-toolchain --install`: a user-scope rustup (`rustup-init -y --no-modify-path --profile minimal`, the pinned toolchain with clippy and rustfmt) and the prebuilt cargo-nextest into `~/.cargo/bin`; no machine PATH or env change. |
 | `./build.sh check-queue <sha> --peer <name\|auto> [--lane] [--os OS]` | The peer fetches `develop` and the SHA, detaches its checkout at the SHA and runs `./build.sh check-queue <sha> [flags] --wait-build` in its gateway. `--lane`, `--all`, `--touched-only`, `--max-errors` and `--max-warnings` pass through unchanged. |
 | `./build.sh nextest <scope> [filterset] --peer <name\|auto> [--sha SHA]` | Same, running `./build.sh nextest <scope> [filterset] --wait-build` at the SHA (default HEAD). |
 | `./build.sh check-linux [sha] [--force]` | Once per batch: `./build.sh check-workspace <sha>` (`cargo check --workspace --all-targets` for the app workspace and the CLI, any warning fails) on the idle Linux peer, so `cfg(unix)` paths compile. A second call for the same SHA prints the existing receipt; `--force` dispatches again. |
@@ -864,7 +864,7 @@ initialization. Smoke the produced bundled CLI directly as well.
 | A broad gate or its gateway metadata write fails with `ENOSPC` | Repeated compiler/profile experiments retain superseded incremental graphs on a small cloud disk | Stop compilation, inspect `df` and target sizes, and remove only inactive session-owned caches after preserving final outputs. Keep at least 6 GiB free before a full build. Run `gateway-status` to reap a finished failed owner; never delete an unknown state lock. Then rerun the interrupted gate. |
 | A Rust pin upgrade reports `double_must_use` from `async_trait` | Old macro expansions add a redundant attribute to boxed futures | Keep the workspace lockfile on `async-trait` 0.1.92 or newer and run `./build.sh ci-clippy`; do not suppress application warnings. |
 | An unchanged CLI recompiles on every invocation | A `rerun-if-changed` input names an absent `packed-refs` file | Watch existing Git metadata; for packed branch refs watch the nearest existing ref parent so loose-ref creation remains visible. Preserve SHA-triggered rebuilds. |
-| Release executable ignores `CODETERM_INSTANCE` and still selects prod data | `codeterm-paths::instance_suffix` and `dir_name` select named instances only with debug assertions; release always uses `~/.codeterm`. A separate port does not isolate its databases. | Never launch a release daemon/GUI for testing. Validate a fresh `build` bundle and each binary's non-daemon `--version`/`--help` entry; full launch proof belongs to the owner-approved `install-local`, with the next Windows release workflow as an independent build proof. |
+| Release executable ignores `CODETERM_INSTANCE` and still selects prod data | `codeterm-paths::instance_suffix` and `dir_name` select named instances only with debug assertions; release always uses `~/.domios`. A separate port does not isolate its databases. | Never launch a release daemon/GUI for testing. Validate a fresh `build` bundle and each binary's non-daemon `--version`/`--help` entry; full launch proof belongs to the owner-approved `install-local`, with the next Windows release workflow as an independent build proof. |
 | Fresh release build ends as `owner_lost` after its Team shell deadline | The utility owner exited before the command result; a rustc child of the detached sccache server can outlive that owner. This is not a compiler diagnostic. | Preserve the job log and partial target, inspect compiler command lines for the exact owned scratch root, and terminate only those orphaned compilers. Obtain a new bounded build grant before retrying; retain intermediates, keep the fresh final target, and require the completed bundle before claiming success. |
 | Lane dispatch fixture exits 127 at `configure_product_cargo` | Its extracted dispatch fragment omitted the real product feature helper. | Load the helper from build.sh and assert selected features with `node --test scripts/check-queue-plan.test.mjs`. |
 | Lock-storm fixture reports a null child exit with empty output on Linux | The child never launched: Linux runners have `python3`, not bare `python`. | Select `python3` on Unix and `python` on Windows; assert launch errors and report signals before diagnosing a runtime crash. Run `node --test scripts/tests/qa-lock-storm.test.mjs`. |
@@ -1075,7 +1075,7 @@ The command builds the release
 CLI, regenerates the three generated CLI artifacts (`generated/cli/cli-manifest.json`, the
 generated block in `generated/cli/cli.md`, and the Chat UI command paths), then installs
 the binary into the active development data directory, replacing the CLI every
-tab of that dev instance runs. Dev builds never overwrite `~/.codeterm/bin`:
+tab of that dev instance runs. Dev builds never overwrite `~/.domios/bin`:
 production CLI updates come from the bundled production app during startup,
 in-app update, or `install-local`.
 
@@ -1086,7 +1086,7 @@ stops being symbolizable as soon as anyone rebuilds — that is how the 2026-09-
 abort lost its frame names nine minutes after it was written.
 
 `./build.sh dev` therefore retains the symbol file of each build it runs under
-`~/.codeterm-dev/pdb/<key>/domios_app.pdb`, keeping the newest three
+`~/.domios-dev/pdb/<key>/domios_app.pdb`, keeping the newest three
 (`DEV_PDB_KEEP_DEFAULT` in `build.sh`; override the store with
 `CODETERM_DEV_PDB_DIR`, the count with `CODETERM_DEV_PDB_KEEP`). `--wait` retains
 once `/api/health` confirms which build is running; a foreground session retains
@@ -1327,7 +1327,7 @@ Preserve domios://auth/callback, domios://billing/return and authenticated
 entitlement refresh when integrating either external service.
 
 Run `./build.sh fmt` in a fresh lane before direct pnpm checks; it prepares the checkout-local dependencies automatically. Direct pnpm commands bypass that wrapper. A failed dependency lookup selected no executable tests.
-<!-- revision: 55 -->
+<!-- revision: 56 -->
 
 ### Lane and batch scopes
 

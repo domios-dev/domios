@@ -89,7 +89,6 @@ pub(super) fn start(
     }
     let cols = 120u16;
     let rows = 40u16;
-    crate::service::codex_rpc::lifecycle::stop_tab(&tab_id);
     let pad = match svc.ensure_agent_pad(&tab_id) {
         Ok(pad) => pad,
         Err(error) => {
@@ -108,12 +107,6 @@ pub(super) fn start(
         }
     }
     env_vars.extend(svc.tab_env(&tab_id));
-    crate::service::codex_rpc::lifecycle::launch_env_for_provider(
-        svc,
-        &tab_id,
-        provider_name,
-        &mut env_vars,
-    );
     crate::service::launch_diagnostics::log_launch_environment("general_agent", &tab_id, &env_vars);
 
     let pty_claim = svc.pty_ownership.acquire(&tab_id);
@@ -215,7 +208,6 @@ pub(super) fn start(
 
     let use_resume = session_id.is_some();
     let mut startup_message = None;
-    let mut structured_starter = None;
     let cmd = if use_resume {
         let sid = session_id.as_ref().unwrap();
         match super::super::launch_files::command(
@@ -319,20 +311,13 @@ pub(super) fn start(
             launch_marker: None,
             instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
         };
-        structured_starter =
-            super::super::launch_files::starter(svc, provider_name, params.starter_prompt);
-        let command = match super::super::launch_files::command_with_selection(
+        let command = match super::super::launch_files::command(
             svc,
             &tab_id,
             provider_name,
             &ga_cwd,
             &mut params,
-            crate::ports::transport::Selection {
-                model: model_resolution
-                    .as_ref()
-                    .and_then(|resolution| resolution.model.clone()),
-                ..Default::default()
-            },
+            None,
         ) {
             Some(cmd) => cmd,
             None => {
@@ -382,20 +367,6 @@ pub(super) fn start(
         log::error!("[general-agent] Failed to write launch command: {}", e);
         fail_general_agent_start(svc, mux, &tab_id, &e.to_string());
         return;
-    }
-
-    match super::super::launch_files::finish_structured(
-        svc,
-        &tab_id,
-        &pty_id,
-        startup_message.as_deref().or(structured_starter.as_deref()),
-    ) {
-        Ok(true) => startup_message = None,
-        Ok(false) => {}
-        Err(error) => {
-            fail_general_agent_start(svc, mux, &tab_id, &error);
-            return;
-        }
     }
 
     let launched = await_agent_launch_evidence(

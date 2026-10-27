@@ -82,14 +82,7 @@ impl ServiceContext {
         }
         crate::service::pty_io::submit_transaction::wake_submit_cycle_output(pty_id);
         let stage = std::time::Instant::now();
-        let structured = self
-            .mux
-            .read()
-            .tab_id_for_pty(pty_id)
-            .is_some_and(|tab| super::codex_rpc::lifecycle::for_tab(&tab).is_some());
-        if !structured {
-            self.run_watcher.feed(self, pty_id, data);
-        }
+        self.run_watcher.feed(self, pty_id, data);
         let watcher_us = stage.elapsed().as_micros();
         let stage = std::time::Instant::now();
         let statuses = self.process_pty_output(pty_id, data);

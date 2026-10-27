@@ -5,6 +5,13 @@ description: "Change Domios prompts, placeholders, skills, and on-demand documen
 
 # Prompt architecture
 
+Domios uses `domios` as the canonical CLI and retains `CODETERM_*` as its frozen
+host environment contract. Internal crate names, prompt filenames, the
+`codeterm` skill id and `@codeterm/plugin-sdk` are technical identifiers.
+User data lives under `~/.domios` (`~/.domios-dev[-<instance>]` in development).
+Use the [consumer identity inventory](consumer-identities.md) to distinguish live
+consumers from retained technical names, rejection inputs and historical evidence.
+
 How Domios composes the prompts that drive the General Agent, project workers, and headless mem workers. This document explains where each piece lives, what gets included where, and how to decide which file a new instruction belongs in.
 
 ## Layout
@@ -53,9 +60,9 @@ The layout is an excerpt; the complete prompt inventory is the table in [invento
 | `{platform}` | `cfg!(target_os = ...)` |
 | `{hostname}` | `hostname::get()` |
 | `{provider_name}` | runtime arg (`claude` / `codex` / etc.) |
-| `{general_dir}` | `~/.codeterm/general/` |
-| `{secrets_dir}` | `~/.codeterm/secrets/` |
-| `{skills_dir}` | `~/.codeterm/skills/` |
+| `{general_dir}` | `~/.domios/general/` |
+| `{secrets_dir}` | `~/.domios/secrets/` |
+| `{skills_dir}` | `~/.domios/skills/` |
 | `{identity}` | `general/identity.md` contents |
 | `{soul}` | `general/soul.md` contents wrapped in `## Soul\n...` |
 | `{wake_up}` | `mem.wake_up()` L0+L1 snapshot wrapped in `## Live mem snapshot\n...` |
@@ -73,7 +80,7 @@ The system-prompt channel and generated General instruction files share a runtim
 
 ### Skill rendering
 
-`skills/codeterm/SKILL.md` is also a template. On daemon startup, `commands::skills::seed_bundled_skills` copies the bundled `skills/codeterm/` directory to `~/.codeterm/skills/codeterm/` (or `~/.codeterm-dev/skills/codeterm/` for dev), substituting each placeholder in `codeterm_skill_render_map()` as it writes:
+`skills/codeterm/SKILL.md` is also a template. On daemon startup, `commands::skills::seed_bundled_skills` copies the bundled `skills/codeterm/` directory to `~/.domios/skills/codeterm/` (or `~/.domios-dev/skills/codeterm/` for dev), substituting each placeholder in `codeterm_skill_render_map()` as it writes:
 
 | Placeholder | Source constant |
 |---|---|

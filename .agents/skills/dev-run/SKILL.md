@@ -277,6 +277,10 @@ Agent launchers for dev, build, check, QA batch and install-local (PowerShell an
 `kill` also reaps orphaned Codex RPC launchers whose `--ws-token-file` is
 inside this instance's `codex-rpc` directory. Unix cleanup requires an owned
 group leader; Windows cleanup terminates the identified launcher's tree.
+Windows `kill` first uses the rebuild shutdown verifier to pin the selected
+server, exact native executable and their descendants, then confirms their
+exit. Missing or conflicting authenticated ownership refuses before cleanup;
+an orphaned native window without a live server still requires owner diagnosis.
 A launcher in an unidentified Unix group fails cleanup rather than risking
 another instance. Inspect the scoped count with:
 
@@ -393,7 +397,7 @@ verify the named instance's live listener set first.
 
 **Important:** the dev CLI config is separate from prod. Dev PTYs receive the
 active data-directory CLI first on `PATH`; production shells continue using
-`~/.codeterm/bin/`. From outside a dev PTY, use the dev environment wrapper:
+`~/.domios/bin/`. From outside a dev PTY, use the dev environment wrapper:
 
 ```bash
 source evals/_lib/lib.sh
@@ -579,7 +583,7 @@ Claude Code should auto-load this skill whenever the user mentions:
 
 Don't preemptively run `./build.sh dev` on every edit — only when the user asks or when you have a Rust/prompt change that definitely needs a live binary to verify.
 
-<!-- revision: 14 -->
+<!-- revision: 15 -->
 
 ### REST listener bind recovery
 

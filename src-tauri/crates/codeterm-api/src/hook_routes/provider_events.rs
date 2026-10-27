@@ -23,7 +23,9 @@ pub(crate) async fn hook_provider_event(
     let started = std::time::Instant::now();
     let tab_id =
         crate::hook_routes::resolve_hook_tab_async(&state, &raw_tab_id, "provider_event").await?;
-    if let Some(response) = super::hook_authority::telemetry_response(&tab_id, "provider_event") {
+    if let Some(response) =
+        super::hook_authority::telemetry_response(&state.svc, &tab_id, "provider_event")
+    {
         return Ok(axum::response::IntoResponse::into_response(response));
     }
     let provider = header_str(&headers, "x-codeterm-agent-provider").ok_or((

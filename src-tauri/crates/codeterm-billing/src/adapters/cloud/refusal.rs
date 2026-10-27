@@ -1,6 +1,7 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum BillingRefusal {
     AlreadySubscribed,
+    NoBillingCustomer,
     RenewalWindow,
     IntervalChangeUnavailable,
     ChangePending,
@@ -21,6 +22,7 @@ pub(super) enum BillingRefusal {
 impl BillingRefusal {
     pub(super) fn classify(reason: Option<&str>) -> Self {
         match reason {
+            Some("no_billing_customer") => Self::NoBillingCustomer,
             Some("already_subscribed") => Self::AlreadySubscribed,
             Some("renewal_window") => Self::RenewalWindow,
             Some("interval_change_unavailable") => Self::IntervalChangeUnavailable,
@@ -43,6 +45,7 @@ impl BillingRefusal {
     pub(super) fn code(self) -> &'static str {
         match self {
             Self::AlreadySubscribed => "already_subscribed",
+            Self::NoBillingCustomer => "no_billing_customer",
             Self::RenewalWindow => "renewal_window",
             Self::IntervalChangeUnavailable => "interval_change_unavailable",
             Self::ChangePending => "change_pending",
@@ -64,6 +67,7 @@ impl BillingRefusal {
     pub(super) fn message(self) -> &'static str {
         match self {
             Self::AlreadySubscribed => crate::ALREADY_SUBSCRIBED,
+            Self::NoBillingCustomer => crate::NO_BILLING_CUSTOMER,
             Self::RenewalWindow => "renewal_window: Changes are unavailable immediately before renewal. Try after renewal.",
             Self::IntervalChangeUnavailable => "interval_change_unavailable: Choose a price with your current billing interval.",
             Self::ChangePending => "change_pending: Another plan change is pending. Check its status before changing again.",

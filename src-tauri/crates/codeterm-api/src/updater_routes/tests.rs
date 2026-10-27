@@ -49,5 +49,6 @@ async fn auto_install_without_native_host_returns_actionable_typed_refusal() {
     assert_eq!(body["code"], "native_capability_unavailable");
     let message = body["message"].as_str().unwrap();
     assert!(message.contains("attached to this server"));
+    assert!(message.contains("https://github.com/domios-dev/domios/releases/latest"));
     assert!(message.contains("domios update install --from-file <installer-path>"));
 }

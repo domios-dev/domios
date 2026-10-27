@@ -4,6 +4,7 @@ import { UserRound } from "lucide-react";
 import { BusyState } from "../shared/BusyState";
 import { ACCOUNT_ENTRY_OPTIONS, SIGN_IN_PROVIDER_OPTIONS, type SignInOption } from "../Settings/accountSignInOptions";
 import { useAccount } from "../Settings/useAccount";
+import { useDesktopBilling } from "../billing/useDesktopBilling";
 import { useAccountPlan } from "../Settings/useAccountPlan";
 import { billingFailureToast, signInFailureToast } from "../Settings/accountFailureToast";
 import { DropdownMenu, type DropdownMenuEntry } from "../shared/DropdownMenu";
@@ -33,7 +34,6 @@ function AccountHeader({ identity, email, avatarUrl, initial, badge, summary }: 
     <div className="ct-account-plan">
       {badge ? <>
         <span className="ct-plan-badge" data-tier={badge.tier}>{badge.admin ? `Admin · ${badge.name}` : badge.name}</span>
-        {badge.stale && <span className="ct-plan-status" data-tone="inactive">last known</span>}
       </> : <span className="ct-plan-status" data-tone="inactive">Plan unavailable</span>}
     </div>
   </div>;
@@ -43,6 +43,8 @@ export function AccountTray({ onOpenPlans, locked = false }: { onOpenPlans: () =
   const account = useAccount();
   const { upsertToast } = useMultiplexer();
   const billing = useAccountPlan(account.model.kind === "signed_in" ? account.model.identity.uid : null);
+  const desktopBilling = useDesktopBilling(account.model.kind === "signed_in" ? account.model.identity.uid : null);
+  const hasPaidSubscription = !!desktopBilling.subscription?.paid_subscription;
   const model = accountTrayModel(account.model, billing.plan);
   const [open, setOpen] = useState(false);
   const [confirmSignOut, setConfirmSignOut] = useState(false);
@@ -53,7 +55,7 @@ export function AccountTray({ onOpenPlans, locked = false }: { onOpenPlans: () =
     createNoticePublisher({ upsertToast })(signInFailureToast(failure, () => startSignIn(hint)));
   };
   const manageSubscription = async () => {
-    const failure = await billing.manage(onOpenPlans);
+    const failure = await billing.manage();
     if (!failure) return;
     createNoticePublisher({ upsertToast })(billingFailureToast(failure, "managing your subscription", billing.plan?.status,
       () => manageSubscription()));
@@ -61,7 +63,8 @@ export function AccountTray({ onOpenPlans, locked = false }: { onOpenPlans: () =
   const signInEntry = (option: SignInOption): DropdownMenuEntry =>
     ({ label: option.label, icon: option.icon, disabled: pending, onClick: () => void startSignIn(option.hint) });
   const items: DropdownMenuEntry[] = model.kind === "signed_in" ? [
-    { label: billing.pending ? "Opening subscription…" : "Manage subscription", disabled: billing.pending, onClick: () => void manageSubscription() },
+    { label: hasPaidSubscription ? billing.pending ? "Opening subscription…" : "Manage subscription" : "Upgrade",
+      disabled: billing.pending, onClick: () => { if (hasPaidSubscription) void manageSubscription(); else onOpenPlans(); } },
     ...legalMenuItems(["terms", "privacy"]),
     { separator: true, key: "sign-out" },
     { label: "Sign out this machine", onClick: () => setConfirmSignOut(true) },
