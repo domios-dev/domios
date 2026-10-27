@@ -61,8 +61,8 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
         <button type="button" className={`sidebar-tab-activation flex flex-1 items-center min-w-0 border-0 bg-transparent p-0 text-left text-inherit cursor-pointer ${touchMode ? "gap-2.5" : "gap-2"}`}
           aria-label={gatewayTab ? `Open ${name}'s conversation in ${gatewayTab.title}` : `Open ${name} in Neighbors`}
           onClick={() => {
-            if (gatewayTab) focusTab(gateway, workspaceOfTab({ workspaces, tabs }, gateway));
-            else openNeighbor(friend.friendship_id);
+            if (!gatewayTab) { openNeighbor(friend.friendship_id); return; }
+            focusTab(gateway, workspaceOfTab({ workspaces, tabs }, gateway));
             onNavigateToTab?.();
           }}>
           <span className={`sidebar-tab-body flex-1 min-w-0 ${touchMode ? "gap-x-2.5" : "gap-x-2"}`}>

@@ -406,6 +406,7 @@ function AppInner() {
         setSettingsOpen(true);
       } else if (panel === "neighbors") {
         setMainView("neighbors");
+        closeSidebarOnMobile();
       } else if (panel === "memory") {
         if (DEV_BUILD && import.meta.env.VITE_CODETERM_TEST === "1") setMemoryInitial(detail?.memoryState);
         setMemoryOpen(true);
@@ -413,7 +414,7 @@ function AppInner() {
     };
     window.addEventListener("codeterm:open-panel", onOpenPanel);
     return () => window.removeEventListener("codeterm:open-panel", onOpenPanel);
-  }, [setExtensionsOpen]);
+  }, [closeSidebarOnMobile, setExtensionsOpen]);
 
   // dismiss any covering Extensions/glance overlay and focus the new tab.
   useEffect(() => {

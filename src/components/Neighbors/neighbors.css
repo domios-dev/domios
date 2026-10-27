@@ -32,12 +32,14 @@
 /* The neighborhood sits on the Domios dot field, fading out toward the edges. */
 .neighbors-canvas {
   position: relative;
+  container-type: size;
   display: flex;
   min-width: 0;
+  min-height: 0;
   flex: 1;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: safe center;
   overflow: auto;
   padding: 2.5rem 1rem 3rem;
   background:
@@ -65,8 +67,8 @@
 .neighbors-stage {
   position: relative;
   z-index: 1;
-  width: min(34rem, 100%, calc(100dvh - 12rem));
-  min-width: 17rem;
+  width: min(34rem, calc(100cqw - 2rem), calc(100cqh - 9rem));
+  min-width: 14rem;
   aspect-ratio: 1;
   flex: none;
 }
@@ -629,25 +631,30 @@
   line-height: 1.45;
 }
 
+/* On a phone the panel is an opaque glass sheet below the graph, and the graph re-centres above it. */
 @container (max-width: 40rem) {
-  .neighbor-panel {
-    position: absolute;
-    right: 0;
-    bottom: 0;
-    left: 0;
-    z-index: 4;
-    width: auto;
-    max-height: 70%;
-    border-top: 1px solid color-mix(in srgb, var(--ct-fg) 8%, transparent);
-    border-left: 0;
-    border-radius: var(--ct-radius-xl) var(--ct-radius-xl) 0 0;
-    box-shadow: var(--ct-shadow-capsule);
-    animation-name: neighbor-sheet-in;
-  }
-
-  .neighbors-view {
+  .neighbors-body {
     --neighbor-node-size: 2.75rem;
     --neighbor-me-size: 4rem;
+    flex-direction: column;
+  }
+
+  .neighbors-canvas {
+    padding: 1.25rem 0.75rem 1.5rem;
+  }
+
+  .neighbor-panel {
+    position: relative;
+    z-index: 3;
+    width: auto;
+    max-height: 58%;
+    border-top: 1px solid color-mix(in srgb, var(--ct-fg) 9%, transparent);
+    border-left: 0;
+    border-radius: var(--ct-radius-xl) var(--ct-radius-xl) 0 0;
+    background: var(--ct-glass-sheen), var(--ct-glass-bg);
+    box-shadow: var(--ct-glass-edge), var(--ct-shadow-capsule);
+    backdrop-filter: blur(var(--ct-glass-blur)) saturate(var(--ct-glass-saturate));
+    animation-name: neighbor-sheet-in;
   }
 }
 
