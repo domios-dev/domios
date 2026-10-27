@@ -510,15 +510,23 @@ pub fn launch_agent_in_background_with_env(
         }
 
         let binding_turn = resume_binding::for_launch(
-            &svc, &tab_id, &agent_cmd, origin,
-            has_startup_task_turn || fallback_spec.is_some(), resume_session_id.as_deref(),
+            &svc,
+            &tab_id,
+            &agent_cmd,
+            origin,
+            has_startup_task_turn || fallback_spec.is_some(),
+            resume_session_id.as_deref(),
         );
         let binding_turn_planned = binding_turn.is_some();
         let fallback_spec = fallback_spec.or(binding_turn);
         let has_startup_task_turn = has_startup_task_turn || fallback_spec.is_some();
         let session_starts_on_first_turn = binding_turn_planned
             || startup_readiness::launch_waits_for_first_turn_binding_with_resume_session(
-                &svc, &agent_cmd, has_startup_task_turn, origin, resume_session_id.as_deref(),
+                &svc,
+                &agent_cmd,
+                has_startup_task_turn,
+                origin,
+                resume_session_id.as_deref(),
             );
 
         let (tab_agent_type, existing_binding_nonce) = {

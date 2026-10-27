@@ -72,7 +72,8 @@ impl RunWatcherRegistry {
                     .ok_or("cron binding missing")?,
             )
         };
-        let messages = crate::service::tab_chat::session_chat_snapshot(svc, &provider, &cwd, &session, 0)?.0;
+        let messages =
+            crate::service::tab_chat::session_chat_snapshot(svc, &provider, &cwd, &session, 0)?.0;
         let path = svc
             .agent_registry
             .with_provider(&provider, |p| p.session_file_path(&cwd, &session))

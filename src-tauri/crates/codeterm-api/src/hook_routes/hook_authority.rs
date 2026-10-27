@@ -14,10 +14,17 @@ pub(super) fn authority(runtime_capability: bool, runtime_backing: bool) -> Hook
     }
 }
 
-pub(super) fn telemetry_response(svc: &codeterm_service_core::service::ServiceContext, tab: &str, event: &str) -> Option<Json<serde_json::Value>> {
+pub(super) fn telemetry_response(
+    svc: &codeterm_service_core::service::ServiceContext,
+    tab: &str,
+    event: &str,
+) -> Option<Json<serde_json::Value>> {
     let structured = codeterm_service_core::service::agent_runtime::requested_for_tab(svc, tab);
     let runtime_backing = svc.mux.read().get_tab(tab).is_some_and(|tab| {
-        matches!(tab.backing, codeterm_service_core::multiplexer::types::TabBacking::ChatBackend { .. })
+        matches!(
+            tab.backing,
+            codeterm_service_core::multiplexer::types::TabBacking::ChatBackend { .. }
+        )
     });
     if authority(structured, runtime_backing) != HookAuthority::Telemetry {
         return None;
@@ -66,7 +73,10 @@ mod tests {
         assert_eq!(session, "server-root");
         assert!(busy);
         for (capability, backing) in [(true, false), (false, true), (false, false)] {
-            assert_eq!(authority(capability, backing), HookAuthority::BindingAndStatus);
+            assert_eq!(
+                authority(capability, backing),
+                HookAuthority::BindingAndStatus
+            );
         }
         apply_hook(true, false, &mut session, &mut busy);
         assert_eq!(session, "other-hook-root");

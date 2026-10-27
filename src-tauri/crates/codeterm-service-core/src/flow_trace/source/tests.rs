@@ -66,10 +66,19 @@ fn rpc_send_ingress_protocol_answer_reaches_sink_with_exact_client_turn_link() {
         ledger
             .confirm_rpc_send("tab", session, "nonce", client, Some("provider-item"))
             .unwrap();
-        SourceCursor::rpc("tab", "provider", "session", Some("nonce"), &ChatMsg {
-            id: "answer".into(), kind: "assistant".into(), tool_flow_id: Some("turn".into()),
-            content: "opaque answer".into(), ..Default::default()
-        });
+        SourceCursor::rpc(
+            "tab",
+            "provider",
+            "session",
+            Some("nonce"),
+            &ChatMsg {
+                id: "answer".into(),
+                kind: "assistant".into(),
+                tool_flow_id: Some("turn".into()),
+                content: "opaque answer".into(),
+                ..Default::default()
+            },
+        );
         SourceCursor::rpc(
             "tab",
             "provider",

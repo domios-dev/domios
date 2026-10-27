@@ -60,16 +60,23 @@ fn parity_runtime_modes_native_js_describe() {
                 "requestMethods":{"control":["fixture/settings"]},"notificationMethods":[]}},
         "permissions":{"subprocess":{"allow":["fixture-engine"]}}
     }).to_string()).unwrap();
-    let vm = crate::js_runtime::PluginVm::from_source("fixture", "module.exports={};".into()).unwrap();
+    let vm =
+        crate::js_runtime::PluginVm::from_source("fixture", "module.exports={};".into()).unwrap();
     let js = crate::js_runtime::JsProvider::new(manifest, std::sync::Arc::new(vm));
     assert_eq!(Native.agent_runtime(), js.agent_runtime());
     assert_eq!(Native.describe().agent_runtime, js.describe().agent_runtime);
     assert_eq!(js.describe().agent_runtime.unwrap().runtime_modes.len(), 2);
     for descriptor in [Native.describe(), js.describe()] {
-        assert!(!descriptor.settings_schema.iter().any(|section| matches!(section,
+        assert!(!descriptor
+            .settings_schema
+            .iter()
+            .any(|section| matches!(section,
             SettingField::Section { fields, .. } if fields.iter().any(|field| matches!(field,
                 SettingField::Toggle { key, .. } if key == "structured_control_enabled")))));
-        assert!(serde_json::to_value(descriptor).unwrap().get("structured_control").is_none());
+        assert!(serde_json::to_value(descriptor)
+            .unwrap()
+            .get("structured_control")
+            .is_none());
     }
     let absent = load_inline_js("absent", "");
     assert_eq!(absent.agent_runtime(), None);

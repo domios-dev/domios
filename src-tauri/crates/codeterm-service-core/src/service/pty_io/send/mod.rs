@@ -452,9 +452,7 @@ impl ServiceContext {
             claim,
         )
         .and_then(|result| require_submission_result(result, track_exact_session_turn))
-        .map_err(|error| {
-            DeliveryError::from_injection(&delivery.pty_id, error).ledger_message()
-        })
+        .map_err(|error| DeliveryError::from_injection(&delivery.pty_id, error).ledger_message())
     }
 
     /// Send text to a tab (chatBackend or PTY). Agent PTYs complete only after
