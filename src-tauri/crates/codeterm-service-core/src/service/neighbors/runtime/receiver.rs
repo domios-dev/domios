@@ -60,7 +60,8 @@ impl ServiceContext {
         transport: Arc<FirebaseTransport>,
         generation: u64,
     ) -> Result<(), String> {
-        self.require_neighbors_enabled().map_err(|e| e.to_string())?;
+        self.require_neighbors_enabled()
+            .map_err(|e| e.to_string())?;
         if self
             .neighbor_cell()
             .control
@@ -101,7 +102,10 @@ impl ServiceContext {
             }
         });
         let mut slot = self.neighbor_cell().control.lock();
-        if self.require_neighbors_enabled().is_err() { task.abort(); return Err(Error::Disabled.to_string()); }
+        if self.require_neighbors_enabled().is_err() {
+            task.abort();
+            return Err(Error::Disabled.to_string());
+        }
         *slot = Some(task);
         Ok(())
     }

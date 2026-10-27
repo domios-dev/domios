@@ -124,3 +124,11 @@ it("keeps recipient-not-receiving as a specific UI refusal", async () => {
   await act(async () => client.state().send("opaque"));
   expect(client.state().error).toBe("This Neighbor is not receiving right now.");
 });
+
+it.each(["session_revoked", "operation_id_conflict"] as const)("keeps the final backend %s refusal visible without retrying the operation", async reason => {
+  const client = await render(true, false, true);
+  vi.mocked(client.send).mockRejectedValueOnce(new NeighborRuntimeFailure(reason));
+  await act(async () => client.state().send("opaque"));
+  expect(client.send).toHaveBeenCalledTimes(1);
+  expect(client.state().error).toContain(reason === "session_revoked" ? "Sign in again" : "confirm again");
+});

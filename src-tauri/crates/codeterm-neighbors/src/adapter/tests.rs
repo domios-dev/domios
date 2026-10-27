@@ -85,7 +85,11 @@ async fn receiver_enrollment_requires_explicit_revision_and_never_replays_uncert
         assert_eq!(data["installation_id"], "machine");
         assert_eq!(data["machine_label"], "Here");
         assert_eq!(data["takeover"], true);
-        assert_eq!(data["operation_id"].as_str().unwrap().len(), 32);
+        let operation_id = data["operation_id"].as_str().unwrap();
+        assert!((16..=64).contains(&operation_id.len()));
+        assert!(operation_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-'));
         assert!(data.get("replace_others").is_none());
         assert_eq!(
             calls.last().unwrap().0,
@@ -122,4 +126,24 @@ async fn callable_delivery_and_ack_preserve_key_revoked_reason() {
             json!({"status":"not_delivered","reason":"key_revoked"})
         );
     }
+}
+
+#[test]
+fn final_receiver_status_preserves_disabled_machine_and_accepts_legacy_metadata() {
+    let status: ReceiverStatus = serde_json::from_value(json!({
+        "schema_version":1,"receiver_revision":8,"receiver_installation_id":"machine",
+        "receiver_key_id":null,"receiver_session_id":null,"receiver_machine_label":"Here",
+        "receiving_enabled":false,"is_me":true,"legacy_active":false,"updated_at":12
+    }))
+    .unwrap();
+    assert!(!status.receiving_here());
+    assert_eq!(status.receiver_machine_label.as_deref(), Some("Here"));
+    assert_eq!(status.receiver_installation_id.as_deref(), Some("machine"));
+    let legacy: ReceiverStatus = serde_json::from_value(json!({
+        "receiver_revision":0,"receiver_installation_id":null,"receiver_key_id":null,
+        "receiver_machine_label":null,"receiving_enabled":false,"is_me":false,"legacy_active":true
+    }))
+    .unwrap();
+    assert!(!legacy.receiving_here());
+    assert_eq!(legacy.receiver_revision, 0);
 }

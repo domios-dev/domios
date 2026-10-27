@@ -142,7 +142,13 @@ fn parse_signal(document: fs::Document) -> Result<RegistrySignal> {
     let kind = field("type")?;
     if !matches!(
         kind.as_str(),
-        Some("request_received" | "request_accepted" | "request_declined" | "friend_removed" | "receiver_changed")
+        Some(
+            "request_received"
+                | "request_accepted"
+                | "request_declined"
+                | "friend_removed"
+                | "receiver_changed"
+        )
     ) {
         return Err(Error::InvalidEnvelope);
     }
@@ -165,9 +171,18 @@ fn parse_signal(document: fs::Document) -> Result<RegistrySignal> {
         vec![]
     };
     let receiver_revision = if kind == "receiver_changed" {
-        Some(field("receiver_revision")?.as_u64().ok_or(Error::InvalidEnvelope)?)
-    } else { None };
-    Ok(RegistrySignal { accepted, receiver_revision })
+        Some(
+            field("receiver_revision")?
+                .as_u64()
+                .ok_or(Error::InvalidEnvelope)?,
+        )
+    } else {
+        None
+    };
+    Ok(RegistrySignal {
+        accepted,
+        receiver_revision,
+    })
 }
 
 #[cfg(test)]

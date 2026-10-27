@@ -56,7 +56,11 @@ impl ControlListener {
             };
             use fs::listen_response::ResponseType;
             match response.response_type {
-                Some(ResponseType::DocumentChange(_) | ResponseType::DocumentDelete(_) | ResponseType::DocumentRemove(_)) => return Ok(Some(())),
+                Some(
+                    ResponseType::DocumentChange(_)
+                    | ResponseType::DocumentDelete(_)
+                    | ResponseType::DocumentRemove(_),
+                ) => return Ok(Some(())),
                 Some(ResponseType::TargetChange(change)) => {
                     target_checkpoint(&change)?;
                 }

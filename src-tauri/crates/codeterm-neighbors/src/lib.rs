@@ -31,6 +31,8 @@ pub enum Error {
     NotReceiver,
     RecipientNotReceiving,
     InstallationUnverified,
+    SessionRevoked,
+    OperationIdConflict,
     Disabled,
 }
 
@@ -56,6 +58,8 @@ impl std::fmt::Display for Error {
                 "receiver_revision_stale: Receiving changed; refresh and confirm again"
             }
             Self::NotReceiver => "not_receiver: This machine is not receiving",
+            Self::SessionRevoked => "session_revoked: This machine was signed out; sign in again",
+            Self::OperationIdConflict => "operation_id_conflict: Receiving operation conflicted; refresh status and confirm again",
             Self::InstallationUnverified => {
                 "installation_unverified: Sign in on this installation again"
             }

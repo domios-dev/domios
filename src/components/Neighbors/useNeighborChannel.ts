@@ -68,11 +68,11 @@ export function useNeighborChannel(owner: string, friendship: string, client: Ne
     catch (failure) {
       if (generation.current === current) {
         if (failure instanceof NeighborRuntimeFailure) {
-          if (["receiver_revision_stale", "receiver_elsewhere", "not_receiver"].includes(failure.reason)) {
+          if (["operation_id_conflict", "receiver_revision_stale", "receiver_elsewhere", "not_receiver"].includes(failure.reason)) {
             try { const refreshed = await client.status(); if (generation.current === current) setStatus(refreshed); }
             catch { if (generation.current === current) setStatus(null); }
           }
-          if (generation.current === current) setError(failure.reason === "neighbors_disabled" ? "Neighbors is off on this machine." : failure.reason === "installation_unverified" ? "Sign in on this installation again." : failure.reason === "recipient_not_receiving" ? "This Neighbor is not receiving right now." : failure.reason === "not_receiver" ? "This machine is not receiving." : failure.reason === "receiver_revision_stale" || failure.reason === "receiver_elsewhere" ? "Receiving changed. Review the receiving machine and confirm again." : "The Neighbor operation could not be confirmed. Check delivery before sending again.");
+          if (generation.current === current) setError(failure.reason === "session_revoked" ? "This machine was signed out. Sign in again." : failure.reason === "neighbors_disabled" ? "Neighbors is off on this machine." : failure.reason === "installation_unverified" ? "Sign in on this installation again." : failure.reason === "recipient_not_receiving" ? "This Neighbor is not receiving right now." : failure.reason === "not_receiver" ? "This machine is not receiving." : failure.reason === "operation_id_conflict" || failure.reason === "receiver_revision_stale" || failure.reason === "receiver_elsewhere" ? "Receiving changed. Review the receiving machine and confirm again." : "The Neighbor operation could not be confirmed. Check delivery before sending again.");
         } else setError("The Neighbor operation could not be confirmed. Check delivery before sending again.");
       }
     }

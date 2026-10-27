@@ -459,15 +459,19 @@ impl ServiceContext {
     }
 
     pub(super) async fn neighbor_receiver_changed(&self) -> Result<(), String> {
-        self.require_neighbors_enabled().map_err(|e| e.to_string())?;
+        self.require_neighbors_enabled()
+            .map_err(|e| e.to_string())?;
         self.neighbor_cell().receiver.lock().take();
         self.stop_neighbor_listeners();
-        self.neighbor_operation(owner::Operation::ReceiverChanged).await?;
+        self.neighbor_operation(owner::Operation::ReceiverChanged)
+            .await?;
         Ok(())
     }
 
     pub(super) fn pause_neighbor_reception(&self) {
-        if let Some(task) = self.neighbor_cell().control.lock().take() { task.abort(); }
+        if let Some(task) = self.neighbor_cell().control.lock().take() {
+            task.abort();
+        }
         self.stop_neighbor_listeners();
         self.neighbor_cell()
             .bootstrapped

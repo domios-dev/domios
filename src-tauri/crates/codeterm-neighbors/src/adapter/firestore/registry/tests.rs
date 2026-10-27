@@ -107,3 +107,21 @@ fn empty_signal_target_refreshes_once_and_does_not_poll_unchanged_checkpoints() 
     malformed.fields.insert("type".into(), string("unknown"));
     assert!(parse_signal(malformed).is_err());
 }
+
+#[test]
+fn receiver_changed_signal_keeps_revision_without_a_friend_acceptance() {
+    let mut doc = document("own");
+    doc.fields.insert("type".into(), string("receiver_changed"));
+    doc.fields.insert(
+        "friendship_id".into(),
+        value(fs::value::ValueType::NullValue(0)),
+    );
+    assert!(parse_signal(doc.clone()).is_err());
+    doc.fields.insert(
+        "receiver_revision".into(),
+        value(fs::value::ValueType::IntegerValue(8)),
+    );
+    let signal = parse_signal(doc).unwrap();
+    assert_eq!(signal.receiver_revision, Some(8));
+    assert!(signal.accepted.is_empty());
+}
