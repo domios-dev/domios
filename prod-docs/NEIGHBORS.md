@@ -22,7 +22,9 @@ Keys stay in Windows Credential Manager, macOS Keychain or Linux Secret Service.
 
 Only the local, authenticated General Agent can author permission policy. Start with a deny policy. Ask the owner what this Neighbor may request and what information may be shared, then write a short, specific scope into the General Agent's own pad. Avoid broad grants such as access to every project or every secret. These are instructions for the gateway agent; a grant does not turn a Neighbor into a trusted machine or give it local command authority.
 
-Use the actual friendship ID from the connection and an independent local agent tab as its gateway. The General Agent, Team agents and role-bound tabs cannot be gateways. A gateway receives the sender's identity and the local permission hint in a normal `from="neighbor"` envelope. Denied requests must be refused without accessing or sharing local information. Tab requests need a separate explicit grant.
+Look up friendship IDs with `domios account neighbors list` (or `--json`). It shows connected or paused friendships, local scopes, and pending request IDs. Outgoing requests appear when supplied by the account service; an unavailable outgoing list is reported explicitly.
+
+Use an independent local agent tab as the gateway. The General Agent, Team agents and role-bound tabs cannot be gateways. A gateway receives the sender's identity and the local permission hint in a normal `from="neighbor"` envelope. Denied requests must be refused without accessing or sharing local information. Tab requests need a separate explicit grant. Read its conversation by opening the Neighbor's bound gateway tab.
 
 ```bash
 domios account neighbors permission FRIENDSHIP_ID
@@ -52,4 +54,4 @@ A failed receive stream reconnects with fresh authentication from the durable cu
 
 The server stores ciphertext and content-free delivery metadata. Plaintext may appear in the local gateway history, provider session transcript and local delivery stores with user-only permissions. Closing the gateway removes its local pending delivery data under the tab cleanup lifecycle. Native crash dumps remain a residual risk while sensitive data is live in process memory; Neighbor code does not log or upload payloads or private keys.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->
