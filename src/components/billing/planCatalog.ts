@@ -225,13 +225,19 @@ export function planChangePrice(offer: PlanOffer, interval: BillingInterval | nu
   return price?.priceId ? price : null;
 }
 
-export function planFeatures(offer: PlanOffer): string[] {
+/** A benefit line: a limit keeps its amount apart from the noun, and a null amount means unlimited. */
+export type PlanFeature = { kind: "limit"; amount: number | null; noun: string } | { kind: "text"; text: string };
+
+// Short enough that every line stays on one line in the narrowest plan card.
+const LIMIT_NOUNS: Record<keyof PlanLimits, string> = { "mesh.machines": "machines in your mesh", workspaces: "workspaces",
+  "mem.items": "memory items", teams: "Teams", "agent.tabs": TAB_LIMIT_NOUN, neighbors: "Neighbors" };
+
+export function planFeatures(offer: PlanOffer): PlanFeature[] {
   const limits = offer.limits;
-  if (!limits) return offer.features;
-  const nouns: Record<keyof PlanLimits, string> = { "mesh.machines": "machines in your mesh", workspaces: "workspaces",
-    "mem.items": "memory items", teams: "Teams across all workspaces", "agent.tabs": TAB_LIMIT_NOUN, neighbors: "Neighbors" };
-  return [...Object.entries(nouns).flatMap(([key, noun]) => {
-    const max = limits[key as keyof PlanLimits];
-    return key === "neighbors" && max === 0 ? [] : [`${max === null ? "Unlimited" : max} ${noun}`];
-  }), ...offer.features];
+  const extras = offer.features.map((text): PlanFeature => ({ kind: "text", text }));
+  if (!limits) return extras;
+  return [...Object.entries(LIMIT_NOUNS).flatMap(([key, noun]): PlanFeature[] => {
+    const amount = limits[key as keyof PlanLimits];
+    return key === "neighbors" && amount === 0 ? [] : [{ kind: "limit", amount, noun }];
+  }), ...extras];
 }
