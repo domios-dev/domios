@@ -515,8 +515,24 @@ it("draws last known friends at once with a quiet refresh indicator, and stays a
 it("remembers only names, avatars and the concierge binding, and forgets them on sign-out", async () => {
   await renderSection([{ ...neighbor, gateway_tab: "tab-gateway", my_daily_limit: 5 }]);
   const stored = JSON.parse(localStorage.getItem("domios.neighbors.last-known:owner")!);
-  expect(stored).toEqual({ access: "paid", friends: [{ friendship_id: "pair", uid: "peer", displayName: "Ada", photoURL: null, gateway_tab: "tab-gateway" }] });
+  expect(stored).toEqual({ access: "paid", can_invite: true, incoming: [], outgoing: [],
+    friends: [{ friendship_id: "pair", uid: "peer", displayName: "Ada", photoURL: null, gateway_tab: "tab-gateway" }] });
   account.model = { kind: "signed_out" };
   await act(async () => mounted!.root.render(<SidebarNeighborsSection touchMode={false} runtimeClient={runtime()} />));
   expect(localStorage.getItem("domios.neighbors.last-known:owner")).toBeNull();
+});
+
+it("draws the last known graph at once and says it is updating instead of loading", async () => {
+  localStorage.setItem("domios.neighbors.last-known:owner", JSON.stringify({ access: "paid", can_invite: true,
+    friends: [{ friendship_id: "pair", uid: "peer", displayName: "Ada", photoURL: null }],
+    incoming: [{ request_id: "request", uid: "requester", displayName: "Grace", photoURL: null }],
+    outgoing: [{ id: "c".repeat(64), typed_email: "later@example.test", created_at: 1700000000 }] }));
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborsView client={pendingClient()} runtimeClient={runtime()} />));
+  expect(hasButton("Ada, connected")).toBe(true);
+  expect(hasButton("Grace, wants to connect")).toBe(true);
+  expect(document.querySelector('[data-status="invited"]')?.textContent).toContain("later@example.test");
+  expect(document.body.textContent).toContain("Updating");
+  expect(document.body.textContent).not.toContain("Loading Neighbors");
 });

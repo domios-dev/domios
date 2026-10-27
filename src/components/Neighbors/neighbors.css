@@ -1064,3 +1064,12 @@
   align-items: stretch;
   padding: 0.75rem 0.85rem;
 }
+
+.neighbors-updating {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--ct-muted-fg);
+  font-size: 11px;
+  animation: neighbor-fade-in var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle) both;
+}

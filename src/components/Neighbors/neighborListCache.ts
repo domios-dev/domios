@@ -1,8 +1,10 @@
-import type { Neighbor, NeighborList } from "./neighborModel";
+import type { Neighbor, NeighborList, NeighborRequest, OutgoingNeighborRequest } from "./neighborModel";
 
-/** What the sidebar needs to draw a friend before the fresh list arrives: never messages or permissions. */
+/** What the sidebar and the graph need before the fresh list arrives: names, avatars and addresses, never messages or permissions. */
 export type CachedFriend = Pick<Neighbor, "friendship_id" | "uid" | "displayName" | "photoURL"> & { gateway_tab?: string | null };
-export interface CachedNeighbors { access: NeighborList["access"]; friends: CachedFriend[] }
+export type CachedRequest = Pick<NeighborRequest, "request_id" | "uid" | "displayName" | "photoURL">;
+export type CachedInvite = Pick<OutgoingNeighborRequest, "id" | "typed_email" | "created_at">;
+export interface CachedNeighbors { access: NeighborList["access"]; can_invite?: boolean; friends: CachedFriend[]; incoming: CachedRequest[]; outgoing: CachedInvite[] }
 
 const PREFIX = "domios.neighbors.last-known:";
 const MAX_FRIENDS = 200;
@@ -13,20 +15,29 @@ export function readNeighborCache(identity: string | null): CachedNeighbors | nu
   try {
     const value: unknown = JSON.parse(localStorage.getItem(key(identity)) ?? "null");
     if (typeof value !== "object" || value === null) return null;
-    const { access, friends } = value as { access?: unknown; friends?: unknown };
+    const { access, friends, incoming, outgoing, can_invite } = value as { access?: unknown; friends?: unknown; incoming?: unknown; outgoing?: unknown; can_invite?: unknown };
     if ((access !== "paid" && access !== "locked") || !Array.isArray(friends)) return null;
     const valid = friends.filter((friend): friend is CachedFriend => typeof friend === "object" && friend !== null
       && typeof friend.friendship_id === "string" && typeof friend.uid === "string"
       && (friend.displayName === null || typeof friend.displayName === "string")
       && (friend.photoURL === null || typeof friend.photoURL === "string"));
-    return { access, friends: valid.slice(0, MAX_FRIENDS) };
+    const text = (field: unknown) => field === null || typeof field === "string";
+    const requests = (Array.isArray(incoming) ? incoming : []).filter((request): request is CachedRequest => typeof request === "object" && request !== null
+      && typeof request.request_id === "string" && typeof request.uid === "string" && text(request.displayName) && text(request.photoURL));
+    const invites = (Array.isArray(outgoing) ? outgoing : []).filter((invite): invite is CachedInvite => typeof invite === "object" && invite !== null
+      && typeof invite.id === "string" && typeof invite.typed_email === "string" && typeof invite.created_at === "number");
+    return { access, friends: valid.slice(0, MAX_FRIENDS), incoming: requests.slice(0, MAX_FRIENDS), outgoing: invites.slice(0, MAX_FRIENDS),
+      ...(typeof can_invite === "boolean" ? { can_invite } : {}) };
   } catch { return null; }
 }
 
 export function writeNeighborCache(identity: string, list: NeighborList) {
   const friends = list.friends.slice(0, MAX_FRIENDS).map(({ friendship_id, uid, displayName, photoURL, gateway_tab }) =>
     ({ friendship_id, uid, displayName, photoURL, ...(gateway_tab === undefined ? {} : { gateway_tab }) }));
-  try { localStorage.setItem(key(identity), JSON.stringify({ access: list.access, friends })); }
+  const incoming = list.incoming.slice(0, MAX_FRIENDS).map(({ request_id, uid, displayName, photoURL }) => ({ request_id, uid, displayName, photoURL }));
+  const outgoing = list.outgoing.slice(0, MAX_FRIENDS).map(({ id, typed_email, created_at }) => ({ id, typed_email, created_at }));
+  const cached: CachedNeighbors = { access: list.access, friends, incoming, outgoing, ...(list.can_invite === undefined ? {} : { can_invite: list.can_invite }) };
+  try { localStorage.setItem(key(identity), JSON.stringify(cached)); }
   catch { /* The cache only speeds up the first paint; the fresh list still arrives. */ }
 }
 

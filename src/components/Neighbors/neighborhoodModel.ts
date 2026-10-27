@@ -1,4 +1,5 @@
-import { neighborName, type NeighborList } from "./neighborModel";
+import { neighborName } from "./neighborModel";
+import type { CachedNeighbors } from "./neighborListCache";
 
 export type NeighborNodeStatus = "connected" | "paused" | "request" | "invited";
 
@@ -16,7 +17,7 @@ export const STATUS_LABEL: Record<NeighborNodeStatus, string> = {
 };
 
 /** Places everyone on one ring around you, in percent of a square stage; the add node closes the ring. */
-export function neighborhoodNodes(list: NeighborList | null, canAdd: boolean): NeighborhoodNode[] {
+export function neighborhoodNodes(list: CachedNeighbors | null, canAdd: boolean): NeighborhoodNode[] {
   const people = [
     ...(list?.friends ?? []).map(friend => ({ kind: "neighbor" as const, id: friend.friendship_id, name: neighborName(friend), photoURL: friend.photoURL,
       status: list?.access === "paid" ? "connected" as const : "paused" as const })),

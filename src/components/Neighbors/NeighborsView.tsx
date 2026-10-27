@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { Mail, Plus, RefreshCw, UserRound } from "lucide-react";
 import { formatAge } from "../../lib/timeLabels";
 import { useAccount } from "../Settings/useAccount";
@@ -23,6 +23,8 @@ import { neighborConciergeClient, type NeighborConciergeClient } from "./neighbo
 import { referralStatus } from "./referralTrial";
 import { useNeighbors } from "./useNeighbors";
 import { useNeighborsSwitch } from "./neighborsSwitch";
+import { readNeighborCache, writeNeighborCache, type CachedNeighbors } from "./neighborListCache";
+import { ActivityDots } from "../shared/ActivityDots";
 import { receivingLine, useReceiverState } from "./useReceiverState";
 import { takeoverWarning } from "./NeighborChannel";
 
@@ -74,8 +76,13 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, conciergeC
     return onNeighborFocus(take);
   }, []);
   const list = neighbors.list;
+  // The last known graph draws at once; only a first load with nothing remembered shows a loading state.
+  const cached = useMemo(() => readNeighborCache(identity), [identity]);
+  const updating = identity !== null && list === null && cached !== null && !neighbors.error;
+  const graph: CachedNeighbors | null = list ?? (updating ? cached : null);
+  useEffect(() => { if (identity && list) writeNeighborCache(identity, list); }, [identity, list]);
   const paid = list?.access === "paid";
-  const nodes = identity && enabled ? neighborhoodNodes(list, list !== null) : [];
+  const nodes = identity && enabled ? neighborhoodNodes(graph, graph !== null) : [];
   const friend = list?.friends.find(entry => entry.friendship_id === selected);
   const request = list?.incoming.find(entry => entry.request_id === selected);
   const referral = neighbors.referral && list ? referralStatus(neighbors.referral, list.access, seconds => new Date(seconds * 1000).toLocaleString()) : null;
@@ -96,9 +103,9 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, conciergeC
     interview({ name: neighborName(accepted), friendshipId: accepted.friendship_id });
   }, [list]);
 
-  const people = (list?.friends.length ?? 0);
-  const requests = (list?.incoming.length ?? 0);
-  const invited = (list?.outgoing.length ?? 0);
+  const people = (graph?.friends.length ?? 0);
+  const requests = (graph?.incoming.length ?? 0);
+  const invited = (graph?.outgoing.length ?? 0);
   const summary = [`${people} ${people === 1 ? "neighbor" : "neighbors"}`,
     ...(requests ? [`${requests} ${requests === 1 ? "request" : "requests"}`] : []), ...(invited ? [`${invited} invited`] : [])].join(", ");
   const panelOpen = enabled && Boolean(request);
@@ -107,8 +114,9 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, conciergeC
     <div className={`${UI_PANEL.toolbar} ct-section-toolbar gap-3 px-4 py-0 text-[var(--ct-fg)] whitespace-nowrap`}>
       <strong>Neighborhood</strong>
       <span className={`${UI_TEXT.meta} opacity-70`}>
-        {identity && list ? summary : null}
+        {identity && graph ? summary : null}
       </span>
+      {updating && <span role="status" className="neighbors-updating"><ActivityDots size="small" tone="muted" active />Updating</span>}
       {identity && <button type="button" className="neighbors-refresh ct-liquid-interactive" aria-label="Refresh Neighbors" title="Refresh Neighbors"
         disabled={neighbors.pending} onClick={neighbors.refresh}>
         <BusySpinner icon={RefreshCw} size={13} spinning={neighbors.pending} />
@@ -145,7 +153,7 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, conciergeC
               </div>}
           </div>
           {nodes.map((node, index) => <NodeButton key={node.id} node={node} index={index} selected={node.id === selected}
-            canInvite={list?.can_invite} onSelect={() => {
+            canInvite={graph?.can_invite} onSelect={() => {
               if (node.kind === "invited") return;
               if (node.kind === "add") {
                 if (list?.can_invite) setAdding(true);
@@ -155,7 +163,7 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, conciergeC
               setOpenSection(null);
               setSelected(current => current === node.id ? null : node.id);
             }} />)}
-          {identity && list === null && !neighbors.error && <div className="neighbors-loading"><BusyState inline label="Loading Neighbors" phase="work" /></div>}
+          {identity && list === null && !updating && !neighbors.error && <div className="neighbors-loading"><BusyState inline label="Loading Neighbors" phase="work" /></div>}
         </div>
         {identity && enabled && list && people + requests + invited === 0 && <p className="neighbors-caption">Add someone you trust. Your agents can then ask theirs for help, and you decide what they may share.</p>}
         {identity && enabled && receiver && !receiver.receiving_here && <ReceiveHere receiver={receiver} client={runtimeClient} />}
