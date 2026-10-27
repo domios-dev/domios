@@ -609,6 +609,10 @@ pub(super) fn create_router_with_preview_admission(
             post(super::account_routes::neighbor_runtime),
         )
         .route(
+            "/api/account/neighbors/files",
+            post(super::account_routes::neighbor_files),
+        )
+        .route(
             "/api/account/neighbors/enabled",
             post(super::account_routes::neighbors_set_enabled),
         )

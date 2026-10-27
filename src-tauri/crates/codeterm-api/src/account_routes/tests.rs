@@ -1,6 +1,7 @@
 use super::*;
 
 mod neighbor_authority;
+mod neighbor_files;
 
 #[tokio::test]
 async fn size_and_permission_refusals_keep_their_typed_reason_and_limit() {

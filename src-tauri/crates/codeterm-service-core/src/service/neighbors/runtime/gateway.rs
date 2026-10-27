@@ -100,6 +100,9 @@ impl NeighborGateway for Gateway {
             Resume::Admit => {}
         }
         self.current()?;
+        let plaintext = self.service.receive_neighbor_files(
+            &self.metadata, message, plaintext, self.generation,
+        ).await?;
         self.service
             .append_neighbor_history(
                 &self.metadata,
