@@ -3,6 +3,9 @@ use codeterm_account::Session;
 use serde::de::DeserializeOwned;
 use std::time::Duration;
 
+mod refusal;
+use refusal::{callable_status, BillingRefusal};
+
 #[async_trait]
 pub trait InstallationProofSource: Send + Sync {
     async fn proof(
@@ -167,9 +170,14 @@ impl Cloud {
         if !successful || body.get("error").is_some() {
             static REFUSALS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
             let trace_id = REFUSALS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            log::debug!("Billing callable refused: callable={name} status={:?} reason={:?} trace_id={trace_id}",
-                body.pointer("/error/status").and_then(|value| value.as_str()),
-                body.pointer("/error/details/reason").or_else(|| body.pointer("/error/message")).and_then(|value| value.as_str()));
+            log::debug!(
+                "Billing callable refused: status={} reason={} trace_id={trace_id}",
+                callable_status(
+                    body.pointer("/error/status")
+                        .and_then(|value| value.as_str())
+                ),
+                refusal_reason(&body).code()
+            );
         }
         if codeterm_account::session_revocation::is_session_revoked(&body) {
             if let Some(observer) = &self.revocations {
@@ -247,53 +255,15 @@ fn entitlements_request(
     Ok(data)
 }
 
-/// Only reasons the app acts on cross the boundary; any other refusal stays opaque.
-fn refusal_message(body: &serde_json::Value) -> String {
-    if body
-        .pointer("/error/message")
-        .and_then(|message| message.as_str())
-        == Some("Test billing is limited to Domios staff")
-    {
-        return "test_billing_restricted: Test billing is limited to Domios staff".into();
-    }
-    match body
-        .pointer("/error/details/reason")
-        .and_then(|reason| reason.as_str())
-    {
-        Some(crate::ALREADY_SUBSCRIBED) => crate::ALREADY_SUBSCRIBED.into(),
-        Some("renewal_window") => "renewal_window: Changes are unavailable immediately before renewal. Try after renewal.".into(),
-        Some("interval_change_unavailable") => "interval_change_unavailable: Choose a price with your current billing interval.".into(),
-        Some("change_pending") => "change_pending: Another plan change is pending. Check its status before changing again.".into(),
-        Some("confirmation_pending") => "confirmation_pending: Your change is awaiting confirmation. Do not submit it again.".into(),
-        Some("subscription_unavailable") => "subscription_unavailable: Plan changes are unavailable for this subscription.".into(),
-        Some("same_tier") => "same_tier: You already subscribe to this tier.".into(),
-        reason => checkout_refusal(reason).or_else(|| checkout_refusal(body.pointer("/error/message").and_then(|value| value.as_str())))
-            .unwrap_or("Billing request refused").into(),
-    }
+fn refusal_reason(body: &serde_json::Value) -> BillingRefusal {
+    BillingRefusal::classify(
+        body.pointer("/error/details/reason")
+            .and_then(|value| value.as_str()),
+    )
 }
 
-fn checkout_refusal(reason: Option<&str>) -> Option<&'static str> {
-    Some(match reason? {
-        "unknown_plan" | "Unknown billing plan" => {
-            "This billing plan is unavailable. Choose a plan from the current catalog."
-        }
-        "catalog_selection_unavailable" | "Catalog selection unavailable" => {
-            "This catalog selection is unavailable. Refresh the catalog and choose again."
-        }
-        "catalog_selection_mismatch" | "Catalog selection mismatch" => {
-            "This price does not match the billing catalog. Refresh the catalog and choose again."
-        }
-        "reviewed_catalog_required" | "Reviewed provider catalog required" => {
-            "Checkout is unavailable until the billing catalog is reviewed."
-        }
-        "select_catalog_price" | "Select a catalog price" => {
-            "Select a price from the billing catalog to continue."
-        }
-        "trial_admission_pending" | "Verified trial payment admission pending" => {
-            "Trial checkout is not available yet. Choose a plan without a trial or try again later."
-        }
-        _ => return None,
-    })
+fn refusal_message(body: &serde_json::Value) -> String {
+    refusal_reason(body).message().into()
 }
 
 /// DEV QA issuer on loopback; its verdicts still need the pinned TEST signature to count.

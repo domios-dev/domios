@@ -97,7 +97,7 @@ fn valid_verdict_is_paid() {
 }
 
 #[test]
-fn activation_accepts_policy_one_and_two_without_relaxing_other_pins() {
+fn activation_admits_current_policy_and_refuses_old_policy_with_other_pins_intact() {
     let signer = LocalSigner::new();
     let mut activation = authority_for(&signer).activation();
     activation.policy_version = PRODUCTION.policy_version;
@@ -110,7 +110,23 @@ fn activation_accepts_policy_one_and_two_without_relaxing_other_pins() {
             payload["limits"]["agent.tabs"] = json!({"max":null,"scope":"installation"});
         }
         let grant = signer.sign(&payload);
-        assert_eq!(access_of(&authority, Some(&grant), T), Authority::Billing);
+        assert_eq!(
+            access_of(&authority, Some(&grant), T),
+            if version == activation.policy_version {
+                Authority::Billing
+            } else {
+                Authority::Free
+            }
+        );
+        if version != activation.policy_version {
+            assert_eq!(
+                authority
+                    .verify(&grant, &binding(), None, T)
+                    .unwrap_err()
+                    .refusal,
+                Refusal::PolicyVersion
+            );
+        }
         for patch in [
             json!({"policy_epoch":"wrong"}),
             json!({"aud":{"project":PROJECT,"env":"live"}}),
@@ -128,9 +144,6 @@ fn activation_accepts_policy_one_and_two_without_relaxing_other_pins() {
         let mut wrong_key = grant;
         wrong_key.key_id = "unknown".into();
         assert_eq!(access_of(&authority, Some(&wrong_key), T), Authority::Free);
-    }
-    for version in [0, 3, u64::MAX] {
-        assert!(!activation.policy().unwrap().accepts_version(version));
     }
 }
 
