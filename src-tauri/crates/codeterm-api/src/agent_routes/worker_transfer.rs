@@ -1,4 +1,5 @@
 use super::*;
+use codeterm_service_core::multiplexer::types::AgentRole;
 
 #[cfg(test)]
 mod tests;
