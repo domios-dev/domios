@@ -111,10 +111,48 @@ impl InboxSession for Session {
 
 #[async_trait]
 impl ReceptionEvents for Session {
+    fn failure(&self, error: Error) {
+        if self.current().is_err() {
+            return;
+        }
+        let detail = match error {
+            Error::Firestore { code, operation } => {
+                json!({"code":code,"operation":operation,"kind":"grpc"})
+            }
+            error => json!({"kind":format!("{error:?}")}),
+        };
+        log::debug!(
+            "[neighbor-listen] friendship={} failure={detail}",
+            self.friendship
+        );
+        self.service
+            .neighbor_cell()
+            .failures
+            .lock()
+            .insert(self.friendship.clone(), detail);
+    }
     fn state(&self, status: ListenerState) {
         if self.current().is_err() {
             return;
         }
+        if status == ListenerState::Receiving {
+            self.service
+                .neighbor_cell()
+                .failures
+                .lock()
+                .remove(&self.friendship);
+        }
+        let error = self
+            .service
+            .neighbor_cell()
+            .failures
+            .lock()
+            .get(&self.friendship)
+            .cloned();
+        log::debug!(
+            "[neighbor-listen] friendship={} status={status:?} error={error:?}",
+            self.friendship
+        );
         self.service
             .neighbor_cell()
             .states
@@ -122,7 +160,7 @@ impl ReceptionEvents for Session {
             .insert(self.friendship.clone(), status);
         self.service.ui.emit(
             "neighbor-runtime-status",
-            json!({"friendship_id":self.friendship,"status":status}),
+            json!({"friendship_id":self.friendship,"status":status,"error":error}),
         );
     }
     async fn retry_after_failure(&self, _: usize) -> codeterm_neighbors::Result<()> {

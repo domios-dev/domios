@@ -255,7 +255,7 @@ async fn run(
             result = result => result,
         };
         match outcome {
-            Err(Error::Transport) if attempt < 3 => {}
+            Err(Error::Transport | Error::Firestore { .. }) if attempt < 3 => {}
             outcome => {
                 session.state(ListenerState::Stopped);
                 return outcome;

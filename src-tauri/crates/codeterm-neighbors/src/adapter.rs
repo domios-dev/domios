@@ -13,6 +13,14 @@ use zeroize::Zeroizing;
 
 #[async_trait]
 pub trait AuthenticatedCall: Send + Sync {
+    fn firestore_failure(
+        &self,
+        _operation: &'static str,
+        _target: &str,
+        _code: Option<i32>,
+        _kind: &str,
+    ) {
+    }
     async fn invoke(&self, route: &str, data: Value) -> Result<Value>;
     async fn id_token(&self) -> Result<Zeroizing<String>>;
 }

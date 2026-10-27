@@ -1,3 +1,4 @@
+use super::AuthenticatedCall;
 use super::FirebaseTransport;
 use crate::receive::{InboxEvent, InboxListener};
 use crate::wire::{hex_id, Cursor, InboxDocument, InboxMessage, Timestamp};
@@ -31,12 +32,40 @@ async fn connection(
         .connect_timeout(Duration::from_secs(15))
         .connect()
         .await
-        .map_err(|_| Error::Transport)?;
+        .map_err(|_| {
+            transport.calls.firestore_failure(
+                "connect",
+                "firestore.googleapis.com",
+                None,
+                "transport_connect",
+            );
+            Error::Transport
+        })?;
     Ok((
         FirestoreClient::new(channel).max_decoding_message_size(2 * 1024 * 1024),
         transport.calls.id_token().await?,
         format!("projects/{}/databases/(default)", transport.project),
     ))
+}
+
+fn rpc_failure(
+    calls: &dyn AuthenticatedCall,
+    operation: &'static str,
+    target: &str,
+    status: tonic::Status,
+) -> Error {
+    code_failure(calls, operation, target, status.code() as i32)
+}
+
+fn code_failure(
+    calls: &dyn AuthenticatedCall,
+    operation: &'static str,
+    target: &str,
+    code: i32,
+) -> Error {
+    let kind = format!("{:?}", tonic::Code::from_i32(code));
+    calls.firestore_failure(operation, target, Some(code), &kind);
+    Error::Firestore { code, operation }
 }
 
 fn authenticated_request<T>(token: &str, database: &str, message: T) -> Result<tonic::Request<T>> {
@@ -79,10 +108,12 @@ pub(super) async fn listen(
         requests: None,
         buffered: HashMap::new(),
         pending: None,
+        calls: transport.calls.clone(),
     }))
 }
 
 struct Listener {
+    calls: std::sync::Arc<dyn AuthenticatedCall>,
     client: FirestoreClient<Channel>,
     token: Zeroizing<String>,
     database: String,
@@ -191,10 +222,19 @@ impl InboxListener for Listener {
                 .client
                 .run_query(request)
                 .await
-                .map_err(|_| Error::Transport)?
+                .map_err(|status| {
+                    rpc_failure(self.calls.as_ref(), "inbox.run_query", &self.parent, status)
+                })?
                 .into_inner();
             let mut messages = Vec::new();
-            while let Some(response) = responses.message().await.map_err(|_| Error::Transport)? {
+            while let Some(response) = responses.message().await.map_err(|status| {
+                rpc_failure(
+                    self.calls.as_ref(),
+                    "inbox.run_query.read",
+                    &self.parent,
+                    status,
+                )
+            })? {
                 if let Some(doc) = response.document {
                     messages.push(parse_document(doc, &self.parent)?);
                 }
@@ -231,7 +271,9 @@ impl InboxListener for Listener {
                 self.client
                     .listen(request)
                     .await
-                    .map_err(|_| Error::Transport)?
+                    .map_err(|status| {
+                        rpc_failure(self.calls.as_ref(), "inbox.listen", &self.parent, status)
+                    })?
                     .into_inner(),
             );
             self.requests = Some(sender);
@@ -243,7 +285,14 @@ impl InboxListener for Listener {
                 .ok_or(Error::Transport)?
                 .message()
                 .await
-                .map_err(|_| Error::Transport)?;
+                .map_err(|status| {
+                    rpc_failure(
+                        self.calls.as_ref(),
+                        "inbox.listen.read",
+                        &self.parent,
+                        status,
+                    )
+                })?;
             let Some(response) = response else {
                 return Ok(None);
             };
@@ -266,6 +315,14 @@ impl InboxListener for Listener {
                         .remove(change.document.rsplit('/').next().ok_or(Error::Transport)?);
                 }
                 Some(ResponseType::TargetChange(change)) => {
+                    if let Some(cause) = change.cause.as_ref() {
+                        return Err(code_failure(
+                            self.calls.as_ref(),
+                            "inbox.listen.target",
+                            &self.parent,
+                            cause.code,
+                        ));
+                    }
                     let checkpoint = target_checkpoint(&change)?;
                     let messages = if checkpoint.flush {
                         let messages = self.buffered.drain().map(|(_, message)| message).collect();

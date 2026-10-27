@@ -17,7 +17,10 @@ impl Calls {
         let session = account
             .fresh_session()
             .await
-            .map_err(|_| Error::Transport)?
+            .map_err(|error| {
+                log::debug!("[neighbor-listen] operation=auth.refresh kind={error:?}");
+                Error::Transport
+            })?
             .ok_or(Error::Revoked)?;
         if session.identity.uid != self.uid || session.login_generation != self.generation {
             return Err(Error::Revoked);
@@ -28,6 +31,17 @@ impl Calls {
 
 #[async_trait]
 impl AuthenticatedCall for Calls {
+    fn firestore_failure(
+        &self,
+        operation: &'static str,
+        target: &str,
+        code: Option<i32>,
+        kind: &str,
+    ) {
+        log::debug!(
+            "[neighbor-listen] operation={operation} target={target} code={code:?} kind={kind}"
+        );
+    }
     async fn id_token(&self) -> Result<Zeroizing<String>> {
         self.session()
             .await

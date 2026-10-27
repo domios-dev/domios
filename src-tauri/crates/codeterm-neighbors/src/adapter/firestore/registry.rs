@@ -1,4 +1,8 @@
-use super::{authenticated_request, connection, fs, json, target_checkpoint, FirebaseTransport};
+use super::{
+    authenticated_request, code_failure, connection, fs, json, rpc_failure, target_checkpoint,
+    FirebaseTransport,
+};
+use crate::adapter::AuthenticatedCall;
 use crate::{
     registry::{Acceptance, RegistryListener, RegistrySignal},
     wire::{hex_id, uid},
@@ -43,11 +47,12 @@ pub(in crate::adapter) async fn listen(
     let stream = client
         .listen(request)
         .await
-        .map_err(|_| Error::Transport)?
+        .map_err(|status| rpc_failure(transport.calls.as_ref(), "registry.listen", &path, status))?
         .into_inner();
     Ok(Box::new(Listener {
         stream,
         _requests: requests,
+        calls: transport.calls.clone(),
         state: SignalState {
             path,
             pending: RegistrySignal::default(),
@@ -57,6 +62,7 @@ pub(in crate::adapter) async fn listen(
 }
 
 struct Listener {
+    calls: std::sync::Arc<dyn AuthenticatedCall>,
     stream: tonic::Streaming<fs::ListenResponse>,
     _requests: tokio::sync::mpsc::Sender<fs::ListenRequest>,
     state: SignalState,
@@ -66,9 +72,29 @@ struct Listener {
 impl RegistryListener for Listener {
     async fn next(&mut self) -> Result<Option<RegistrySignal>> {
         loop {
-            let Some(response) = self.stream.message().await.map_err(|_| Error::Transport)? else {
+            let Some(response) = self.stream.message().await.map_err(|status| {
+                rpc_failure(
+                    self.calls.as_ref(),
+                    "registry.listen.read",
+                    &self.state.path,
+                    status,
+                )
+            })?
+            else {
                 return Ok(None);
             };
+            if let Some(fs::listen_response::ResponseType::TargetChange(change)) =
+                &response.response_type
+            {
+                if let Some(cause) = &change.cause {
+                    return Err(code_failure(
+                        self.calls.as_ref(),
+                        "registry.listen.target",
+                        &self.state.path,
+                        cause.code,
+                    ));
+                }
+            }
             if let Some(signal) = self.state.observe(response)? {
                 return Ok(Some(signal));
             }

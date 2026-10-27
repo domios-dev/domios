@@ -27,6 +27,7 @@ pub struct NeighborRuntimeCell {
     listener_generation: AtomicU64,
     listeners: parking_lot::Mutex<listener::Slots>,
     states: parking_lot::Mutex<HashMap<String, codeterm_neighbors::supervisor::ListenerState>>,
+    failures: parking_lot::Mutex<HashMap<String, Value>>,
     bootstrapped: std::sync::atomic::AtomicBool,
 }
 
@@ -227,7 +228,8 @@ impl ServiceContext {
                     let keys = lifecycle.reconcile().await?;
                     let id = keys.map(|keys| keys.verifier_key_id(&transport.uid));
                     let states = self.neighbor_cell().states.lock().clone();
-                    Ok(json!({"enabled":self.configuration().neighbors.enabled,"enrolled":id.is_some(),"verifier_key_id":id,"bindings":settings.bindings,"listeners":states}))
+                    let failures = self.neighbor_cell().failures.lock().clone();
+                    Ok(json!({"enabled":self.configuration().neighbors.enabled,"enrolled":id.is_some(),"verifier_key_id":id,"bindings":settings.bindings,"listeners":states,"listener_errors":failures}))
                 }
                 NeighborRuntimeCommand::Enroll { takeover_confirmed } => {
                     let keys = lifecycle.enroll_and_enable(takeover_confirmed, &mut rand::rngs::OsRng, &metadata).await?;

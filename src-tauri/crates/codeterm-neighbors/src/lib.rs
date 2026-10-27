@@ -27,10 +27,14 @@ pub enum Error {
     KeyNotFound,
     Refused,
     Disabled,
+    Firestore { code: i32, operation: &'static str },
 }
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Self::Firestore { code, operation } = self {
+            return write!(f, "Firestore {operation} failed (gRPC code {code})");
+        }
         f.write_str(match self {
             Self::InvalidEnvelope => "Invalid Neighbor envelope",
             Self::InvalidKey => "Invalid Neighbor key",
@@ -48,6 +52,7 @@ impl std::fmt::Display for Error {
             Self::KeyNotFound => "Neighbor installation key not found",
             Self::Refused => "Neighbor request refused",
             Self::Disabled => "neighbors_disabled: Neighbors is turned off on this instance",
+            Self::Firestore { .. } => unreachable!(),
         })
     }
 }
