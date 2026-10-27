@@ -86,6 +86,8 @@ async fn post_call_validation_never_refreshes_and_rejects_logout_or_new_login() 
         service: fixture.service.clone(),
         uid: captured.identity.uid.clone(),
         generation: captured.login_generation,
+        own_keys: Default::default(),
+        receiver_status: Default::default(),
     };
     calls.validate_session(&captured).await.unwrap();
     account.logout().await.unwrap();

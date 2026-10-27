@@ -99,12 +99,14 @@ impl SessionAdmission for RefusedAdmission {
 #[tokio::test]
 async fn deferred_server_stop_refusal_prevents_new_session_and_credential_publication() {
     let store = Arc::new(Store::default());
-    let account = Account::new(
-        Arc::new(Provider::default()),
-        store.clone(),
-        Duration::from_secs(1),
-    )
-    .with_session_admission(Arc::new(RefusedAdmission));
+    let account = Arc::new(
+        Account::new(
+            Arc::new(Provider::default()),
+            store.clone(),
+            Duration::from_secs(1),
+        )
+        .with_session_admission(Arc::new(RefusedAdmission)),
+    );
     assert_eq!(
         account.login(Arc::new(NoBrowser)).await.unwrap_err(),
         Error::Transport
