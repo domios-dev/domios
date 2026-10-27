@@ -60,17 +60,24 @@ impl AccountMesh {
         if installation_id != &self.config.installation_id {
             return Err(AccountMeshRefusal::Invalid);
         }
-        let signed = self.signed(None).await?;
+        let signed = self.signed(None).await.inspect_err(|refusal| {
+            log::debug!("Entitlement proof failed: stage=session kind={refusal:?}");
+        })?;
         if signed.session.identity.uid != session.identity.uid
             || signed.session.login_generation != session.login_generation
         {
             return Err(AccountMeshRefusal::Cancelled);
         }
-        let generation = self.generation(&signed).await?;
+        let generation = self.generation(&signed).await.inspect_err(|refusal| {
+            log::debug!("Entitlement proof failed: stage=enrollment kind={refusal:?}");
+        })?;
         let body = serde_json::json!({"installation_id": installation_id});
         let proof = self
             .prove(&signed, ProofEndpoint::GetEntitlements, &body, generation)
-            .await?;
+            .await
+            .inspect_err(|refusal| {
+                log::debug!("Entitlement proof failed: stage=challenge kind={refusal:?}");
+            })?;
         if !self.with(|inner| inner.is_current(signed.epoch)) {
             return Err(AccountMeshRefusal::Cancelled);
         }
