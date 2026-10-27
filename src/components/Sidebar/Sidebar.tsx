@@ -21,7 +21,8 @@ import type { AppConfig, CronJob, Tab } from "../../lib/types";
 import { anchorsTeam } from "../../lib/roleKind";
 import { MemoryGraphIcon, MeshIcon, NeighborsIcon, SidebarNavButton } from "./SidebarNavButton";
 import { OrchestrationCreate, type OrchestrationCreateResult } from "./OrchestrationCreate";
-import { SidebarDisclosure } from "./SidebarDisclosure";
+import { SidebarStructuralSection } from "./SidebarStructuralSection";
+import { SidebarNeighborsSection } from "../Neighbors/SidebarNeighborsSection";
 import { RecentlyClosed } from "./RecentlyClosed";
 import {
   keepPressFocusInPlace,
@@ -779,18 +780,9 @@ export const Sidebar = memo(function Sidebar({
                   onOpenJobs={onOpenWorkspaceAutomation}
                 />
               )}
-              {!isCompact && !restoring && <div className="sidebar-structural-section">
-                <div className="sidebar-structural-header">
-                  <SidebarDisclosure
-                    data-testid="workspaces-section-toggle"
-                    className="sidebar-structural-toggle"
-                    expanded={workspacesSectionExpanded}
-                    onClick={toggleWorkspacesSection}
-                  >
-                    <span className="sidebar-structural-label">WORKSPACES</span>
-                  </SidebarDisclosure>
-                  <div className="sidebar-structural-action" />
-                </div>
+              {!isCompact && !restoring && <SidebarNeighborsSection uiFontScale={uiFontScale} touchMode={touchMode} onNavigateToTab={onNavigateToTab} />}
+              {!isCompact && !restoring && <SidebarStructuralSection label="WORKSPACES" testId="workspaces-section-toggle"
+                expanded={workspacesSectionExpanded} onToggle={toggleWorkspacesSection}>
                 {workspaceSectionBodyVisible(isCompact, workspacesSectionExpanded) && (
                   <>
                     <WorkspaceCardGrid
@@ -816,7 +808,7 @@ export const Sidebar = memo(function Sidebar({
                     )}
                   </>
                 )}
-              </div>}
+              </SidebarStructuralSection>}
               </SidebarDnd>
               </div>
               <div ref={scrollAnchor.spaceRef} aria-hidden="true" />
@@ -849,7 +841,7 @@ export const Sidebar = memo(function Sidebar({
             >
               <SidebarNavButton
                 testId="nav-neighbors"
-                label="Neighbors"
+                label="Neighborhood"
                 icon={<NeighborsIcon size={navIconSize} />}
                 current={mainView === "neighbors"}
                 onClick={onOpenNeighbors}

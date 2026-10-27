@@ -670,3 +670,23 @@
     transition: none;
   }
 }
+
+.sidebar-neighbors {
+  padding: 2px 0 6px;
+}
+
+.sidebar-neighbor-avatar {
+  display: flex;
+  width: 18px;
+  height: 18px;
+}
+
+.sidebar-neighbor-avatar > span {
+  border-radius: 999px;
+  font-size: 8.5px;
+}
+
+.sidebar-neighbors .neighbor-dot {
+  width: 5px;
+  height: 5px;
+}

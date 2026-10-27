@@ -2,6 +2,8 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 import { NeighborsView } from "./NeighborsView";
+import { SidebarNeighborsSection } from "./SidebarNeighborsSection";
+import { takeNeighborFocus } from "./neighborFocus";
 import type { NeighborClient } from "./neighborClient";
 import type { NeighborList } from "./neighborModel";
 import { parseNeighbors } from "./neighborModel";
@@ -25,7 +27,7 @@ vi.mock("../../lib/bridge", () => ({ invoke: bridge.invoke, listen: vi.fn(async 
   return () => { bridge.changed = null; };
 }) }));
 vi.mock("../Settings/useAccount", () => ({ useAccount: () => ({ model: account.model, signIn: account.signIn, signOut: vi.fn() }) }));
-vi.mock("../../store/multiplexer/selectorStore", () => ({ useMuxSelector: (select: (state: typeof mux) => unknown) => select(mux) }));
+vi.mock("../../store/multiplexer", () => ({ useMuxSelector: (select: (state: typeof mux) => unknown) => select(mux) }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const neighbor = { uid: "peer", displayName: "Ada", photoURL: null, friendship_id: "pair", inbound_per_hour: 10, outbound_per_hour: 20, since: 1700000000 };
@@ -236,4 +238,36 @@ it("sends an empty authenticated referral command without user IDs, checkout or 
   const [path, init] = vi.mocked(localFetch).mock.calls[0];
   expect(path).toBe("/api/account/neighbors");
   expect(JSON.parse(String(init?.body))).toEqual({ operation: "claim_referral_trial" });
+});
+
+async function renderSection(friends: NeighborList["friends"], bindings: Record<string, string> = {}) {
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends, incoming: [] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<SidebarNeighborsSection touchMode={false} client={client} runtimeClient={runtime(bindings)} />));
+}
+
+it("keeps the sidebar Neighbors section away until there is a Neighbor", async () => {
+  await renderSection([]);
+  expect(document.querySelector('[data-testid="neighbors-section-toggle"]')).toBeNull();
+});
+
+it("opens a Neighbor's gateway tab from the sidebar, or the neighborhood when none is bound", async () => {
+  await renderSection([neighbor, { ...neighbor, uid: "peer-2", displayName: "Lin", friendship_id: "pair-2" }], { pair: "tab-gateway" });
+  const focused = vi.fn();
+  const panels = vi.fn();
+  window.addEventListener("codeterm:focus-tab", focused);
+  window.addEventListener("codeterm:open-panel", panels);
+  try {
+    await act(async () => button("Open Ada's conversation in Concierge").click());
+    expect((focused.mock.calls[0][0] as CustomEvent).detail).toEqual({ tabId: "tab-gateway", workspaceId: "ws-work" });
+    await act(async () => button("Open Lin in Neighbors").click());
+    expect((panels.mock.calls[0][0] as CustomEvent).detail).toEqual({ panel: "neighbors" });
+    expect(takeNeighborFocus()).toBe("pair-2");
+  } finally {
+    window.removeEventListener("codeterm:focus-tab", focused);
+    window.removeEventListener("codeterm:open-panel", panels);
+  }
 });

@@ -1,10 +1,10 @@
 # Encrypted Neighbors
 
-Neighbors connect two Domios accounts through an encrypted channel. Manage connections in General > Neighbors. Free keeps existing connections and can accept, configure or remove them; its message channel is locked and offers an upgrade.
+Neighbors connect two Domios accounts through an encrypted channel. Manage connections in Neighborhood at the bottom of the sidebar; connected Neighbors also appear in the Neighbors sidebar section. Free keeps existing connections and can accept, configure or remove them; its message channel is locked and offers an upgrade.
 
 ## Receive on this machine
 
-Open a Neighbor's details and choose Enable encrypted channel. Confirm that receiving moves to this machine and other machines stop receiving. One installation key pair serves all gateway tabs. Reopening or recreating a gateway tab keeps the same keys. Rotate keys explicitly, or revoke them when signing out. Messages waiting for a revoked key become `not_delivered`. Receiving on several machines at once is outside this version's scope.
+Open a Neighbor in Neighborhood, choose Messages, then Enable encrypted channel. Confirm that receiving moves to this machine and other machines stop receiving. One installation key pair serves all gateway tabs. Reopening or recreating a gateway tab keeps the same keys. Rotate keys explicitly, or revoke them when signing out. Messages waiting for a revoked key become `not_delivered`. Receiving on several machines at once is outside this version's scope.
 
 The equivalent local commands are:
 
@@ -52,4 +52,4 @@ A failed receive stream reconnects with fresh authentication from the durable cu
 
 The server stores ciphertext and content-free delivery metadata. Plaintext may appear in the local gateway history, provider session transcript and local delivery stores with user-only permissions. Closing the gateway removes its local pending delivery data under the tab cleanup lifecycle. Native crash dumps remain a residual risk while sensitive data is live in process memory; Neighbor code does not log or upload payloads or private keys.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

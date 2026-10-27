@@ -8,11 +8,12 @@ import { BusySpinner, BusyState } from "../shared/BusyState";
 import { Button } from "../shared/Button";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { UI_PANEL, UI_TEXT } from "../shared/design";
-import { useMuxSelector } from "../../store/multiplexer/selectorStore";
+import { useMuxSelector } from "../../store/multiplexer";
 import { AddNeighborDialog } from "./AddNeighborDialog";
 import { NeighborPanel, NeighborRequestPanel } from "./NeighborPanel";
 import { askGeneralAgent, focusTab, permissionInterviewTask, talkAboutTask, workspaceOfTab, type NeighborSubject } from "./neighborAgent";
 import type { NeighborClient } from "./neighborClient";
+import { onNeighborFocus, takeNeighborFocus } from "./neighborFocus";
 import { neighborhoodNodes, STATUS_LABEL, type NeighborhoodNode } from "./neighborhoodModel";
 import { neighborName, type Neighbor } from "./neighborModel";
 import { neighborRuntimeClient, type NeighborRuntimeClient } from "./neighborRuntimeClient";
@@ -69,6 +70,11 @@ function NeighborhoodPage({ identity, account, client, runtimeClient }: {
   const [adding, setAdding] = useState(false);
   const [agentError, setAgentError] = useState<string | null>(null);
   const awaitingAccept = useRef<string | null>(null);
+  useEffect(() => {
+    const take = () => { const id = takeNeighborFocus(); if (id) setSelected(id); };
+    take();
+    return onNeighborFocus(take);
+  }, []);
   const list = neighbors.list;
   const paid = list?.access === "paid";
   const nodes = identity ? neighborhoodNodes(list, list !== null) : [];
@@ -98,7 +104,7 @@ function NeighborhoodPage({ identity, account, client, runtimeClient }: {
 
   return <div className="neighbors-view absolute inset-0 flex flex-col bg-[var(--ct-bg)] pt-[var(--ct-safe-top,0px)]">
     <div className={`${UI_PANEL.toolbar} ct-section-toolbar gap-3 px-4 py-0 text-[var(--ct-fg)] whitespace-nowrap`}>
-      <strong>Neighbors</strong>
+      <strong>Neighborhood</strong>
       <span className={`${UI_TEXT.meta} opacity-70`}>
         {identity && list ? `${people} ${people === 1 ? "neighbor" : "neighbors"}${requests ? `, ${requests} ${requests === 1 ? "request" : "requests"}` : ""}` : null}
       </span>
