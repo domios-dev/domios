@@ -36,7 +36,10 @@ impl Extensions {
         if !create {
             return None;
         }
-        log::debug!("late extension {} created on first use", std::any::type_name::<T>());
+        log::debug!(
+            "late extension {} created on first use",
+            std::any::type_name::<T>()
+        );
         let slot: &'static OnceLock<T> = Box::leak(Box::new(OnceLock::new()));
         lazy.insert(TypeId::of::<T>(), slot);
         Some(slot)
