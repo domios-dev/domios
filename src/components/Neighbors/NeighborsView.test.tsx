@@ -638,11 +638,11 @@ it("keeps a message that is too long in the composer instead of sending it", asy
   await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtimeClient} conciergeClient={concierge([])} />));
   const input = document.querySelector<HTMLTextAreaElement>("textarea")!;
   await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "é".repeat(4100));
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "é".repeat(16377));
     input.dispatchEvent(new Event("input", { bubbles: true }));
   });
   await act(async () => { document.querySelector<HTMLButtonElement>("[data-testid=composer-send-button]")!.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, button: 0 })); });
   expect(runtimeClient.send).not.toHaveBeenCalled();
   expect(document.body.textContent).toContain("This message is too long for Ada.");
-  expect(input.value.length).toBe(4100);
+  expect(input.value.length).toBe(16377);
 });
