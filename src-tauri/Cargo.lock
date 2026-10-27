@@ -1828,7 +1828,7 @@ dependencies = [
  "dirs 6.0.0",
  "ed25519-dalek",
  "hostname",
- "if-addrs",
+ "if-addrs 0.13.4",
  "log",
  "parking_lot",
  "rand 0.8.5",
@@ -2337,7 +2337,7 @@ dependencies = [
  "git2",
  "hnsw_rs",
  "hostname",
- "if-addrs",
+ "if-addrs 0.15.0",
  "image",
  "include_dir",
  "interprocess",
@@ -5051,6 +5051,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "if-addrs"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c0a05c691e1fae256cf7013d99dad472dc52d5543322761f83ec8d47eab40d2b"
+dependencies = [
+ "libc",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "image"
 version = "0.25.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5721,7 +5731,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8fe7c11a1eb3cfbfcf702d1601c1f5f4c102cdc8665b8a557783ef634741676e"
 dependencies = [
  "flume",
- "if-addrs",
+ "if-addrs 0.13.4",
  "log",
  "polling 2.8.0",
  "socket2 0.5.10",
@@ -11131,7 +11141,7 @@ dependencies = [
  "hyper-rustls",
  "hyper-util",
  "icu_properties",
- "if-addrs",
+ "if-addrs 0.13.4",
  "indexmap 2.13.0",
  "interprocess",
  "libc",
