@@ -4,6 +4,7 @@ use crate::multiplexer::types::{PendingDeliveryChannel, PendingDeliveryState};
 use crate::service::chat_send_transaction::ChatSendState;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
+#[path = "bootstrap_ownership/overlap.rs"]
 mod overlap;
 
 #[test]
