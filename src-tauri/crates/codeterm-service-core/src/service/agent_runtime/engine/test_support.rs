@@ -1,3 +1,4 @@
+pub(in crate::service::agent_runtime) use super::tests::sync_send::runtime_fixture;
 use super::*;
 use crate::multiplexer::types::Tab;
 

@@ -54,7 +54,6 @@ pub enum GatewayReceipt {
 
 #[async_trait]
 pub trait NeighborGateway: Send + Sync {
-    // The gateway durably deduplicates this identity before admitting one local turn.
     async fn deliver(
         &self,
         message: &InboxMessage,

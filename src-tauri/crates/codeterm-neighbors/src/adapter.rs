@@ -74,8 +74,13 @@ impl NeighborTransport for FirebaseTransport {
     }
 }
 
+pub struct FirebaseRegistry {
+    pub calls: Arc<dyn AuthenticatedCall>,
+    pub uid: String,
+}
+
 #[async_trait]
-impl KeyRegistry for FirebaseTransport {
+impl KeyRegistry for FirebaseRegistry {
     async fn enroll(
         &self,
         signing_spki: &str,

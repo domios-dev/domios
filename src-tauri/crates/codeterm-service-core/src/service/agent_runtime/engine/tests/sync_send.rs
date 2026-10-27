@@ -5,7 +5,7 @@ use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
 use serde_json::json;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-pub(in crate::service::agent_runtime::engine) struct Cleanup(String);
+pub(in crate::service::agent_runtime) struct Cleanup(String);
 impl Drop for Cleanup {
     fn drop(&mut self) {
         test_support::stop_test(&self.0);
@@ -28,7 +28,8 @@ module.exports = {
 };
 "#;
 
-pub(super) fn runtime_fixture() -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
+pub(in crate::service::agent_runtime) fn runtime_fixture(
+) -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
     runtime_fixture_with(RUNTIME_FIXTURE_SOURCE)
 }
 

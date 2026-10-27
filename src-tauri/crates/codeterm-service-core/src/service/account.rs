@@ -136,8 +136,12 @@ impl super::ServiceContext {
     }
     /// Mesh blocks and attempts endpoint withdrawal while this account's credentials still exist.
     pub async fn account_logout(&self) -> Result<codeterm_account::Status, String> {
+        self.logout_neighbor_account().await
+    }
+
+    pub(crate) async fn account_logout_owned(&self) -> Result<codeterm_account::Status, String> {
         let account = self.account().await?;
-        self.revoke_neighbors_for_logout().await?;
+        self.revoke_neighbors_owned().await?;
         let logout = account.logout();
         let status = match self.account_mesh().await {
             Ok(mesh) => {

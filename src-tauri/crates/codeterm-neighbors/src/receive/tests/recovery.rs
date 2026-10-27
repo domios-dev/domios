@@ -222,7 +222,7 @@ impl crate::keys::EnrollmentState for FailedSettings {
 }
 
 #[tokio::test]
-async fn failed_initial_settings_write_signout_revokes_inventory_before_credentials() {
+async fn failed_initial_settings_write_keeps_registry_enrollment_visible() {
     let vault = Vault::default();
     let registry = Registry::new("owner", vec![]);
     let lifecycle = InstallationKeys {
@@ -238,29 +238,15 @@ async fn failed_initial_settings_write_signout_revokes_inventory_before_credenti
         Err(Error::CursorStore)
     ));
     assert_eq!(registry.active_key_ids().await.unwrap().len(), 1);
-    // No settings flag participates in revocation, including keys absent from this vault.
-    registry
-        .active
-        .lock()
+    assert!(vault
+        .load(&lifecycle.scope, Slot::Current)
+        .await
         .unwrap()
-        .push("vk_inventory_only".into());
-    lifecycle.revoke().await.unwrap();
-    let delete_credentials = || {
-        assert!(registry.active.lock().unwrap().is_empty());
-        assert_eq!(
-            *registry.receipt.lock().unwrap(),
-            DeliveryResult {
-                status: DeliveryStatus::NotDelivered,
-                reason: Some(DeliveryReason::KeyRevoked)
-            }
-        );
-        assert!(vault.slots.lock().unwrap().is_empty());
-    };
-    delete_credentials();
+        .is_some());
 }
 
 #[tokio::test]
-async fn signout_inventory_uncertainty_keeps_both_secret_slots() {
+async fn uncertain_inventory_keeps_both_secret_slots() {
     let vault = Vault::default();
     let registry = Registry::new("owner", vec![]);
     let scope = KeyScope::installation("machine", "owner").unwrap();
@@ -328,6 +314,9 @@ impl NeighborTransport for Reconnect {
 }
 #[async_trait]
 impl InboxSession for Reconnect {
+    async fn stopped(&self) {
+        std::future::pending().await
+    }
     async fn prepare(&self) -> Result<()> {
         Ok(())
     }
@@ -434,4 +423,146 @@ async fn empty_inbox_current_marks_receiving_without_admission_or_ack() {
     assert_eq!(*fixture.fixture.writes.lock().unwrap(), 0);
     assert!(fixture.fixture.events.lock().unwrap().is_empty());
     assert!(fixture.fixture.cursor.lock().unwrap().is_none());
+}
+
+struct RecoveryEvents {
+    retry: tokio::sync::Semaphore,
+    states: tokio::sync::mpsc::UnboundedSender<ListenerState>,
+}
+#[async_trait]
+impl ReceptionEvents for RecoveryEvents {
+    fn state(&self, state: ListenerState) {
+        self.states.send(state).unwrap();
+    }
+    async fn retry_after_failure(&self, _: usize) -> Result<()> {
+        self.retry
+            .acquire()
+            .await
+            .map_err(|_| Error::Transport)?
+            .forget();
+        Ok(())
+    }
+}
+#[tokio::test]
+async fn reconnect_opens_only_after_explicit_recovery_event() {
+    use std::sync::Arc;
+    let fixture = Arc::new(Reconnect {
+        fixture: Fixture::new(),
+        keys: recipient(),
+        opens: Mutex::new(vec![]),
+        states: Mutex::new(vec![]),
+        empty_current: true,
+    });
+    let (states, mut observed) = tokio::sync::mpsc::unbounded_channel();
+    let events = Arc::new(RecoveryEvents {
+        retry: tokio::sync::Semaphore::new(0),
+        states,
+    });
+    let task = {
+        let fixture = fixture.clone();
+        let events = events.clone();
+        tokio::spawn(async move {
+            supervise(
+                fixture.as_ref(),
+                &message().doc.envelope.friendship_id,
+                fixture.as_ref(),
+                events.as_ref(),
+            )
+            .await
+        })
+    };
+    for expected in [
+        ListenerState::Connecting,
+        ListenerState::Receiving,
+        ListenerState::Reconnecting,
+    ] {
+        assert_eq!(observed.recv().await, Some(expected));
+    }
+    assert_eq!(fixture.opens.lock().unwrap().len(), 1);
+    events.retry.add_permits(1);
+    for expected in [
+        ListenerState::Connecting,
+        ListenerState::Receiving,
+        ListenerState::Reconnecting,
+    ] {
+        assert_eq!(observed.recv().await, Some(expected));
+    }
+    assert_eq!(fixture.opens.lock().unwrap().len(), 2);
+    events.retry.close();
+    assert_eq!(task.await.unwrap(), Err(Error::Transport));
+    assert_eq!(observed.recv().await, Some(ListenerState::Stopped));
+}
+
+struct HeldAdmission {
+    stopped: tokio::sync::watch::Receiver<bool>,
+    admitted: tokio::sync::mpsc::UnboundedSender<()>,
+    release: tokio::sync::Semaphore,
+    persisted: std::sync::atomic::AtomicBool,
+}
+#[async_trait]
+impl InboxSession for HeldAdmission {
+    async fn stopped(&self) {
+        let mut stopped = self.stopped.clone();
+        if *stopped.borrow_and_update() {
+            return;
+        }
+        let _ = stopped.changed().await;
+    }
+    async fn prepare(&self) -> Result<()> {
+        Ok(())
+    }
+    async fn cursor(&self) -> Result<Option<Cursor>> {
+        Ok(None)
+    }
+    async fn receive(&self, _: &mut [InboxMessage]) -> Result<()> {
+        self.admitted.send(()).unwrap();
+        self.release
+            .acquire()
+            .await
+            .map_err(|_| Error::Gateway)?
+            .forget();
+        self.persisted
+            .store(true, std::sync::atomic::Ordering::Release);
+        Ok(())
+    }
+}
+#[tokio::test]
+async fn shutdown_settles_inflight_admission_before_listener_exits() {
+    use std::sync::{atomic::Ordering, Arc};
+    let fixture = Arc::new(Reconnect {
+        fixture: Fixture::new(),
+        keys: recipient(),
+        opens: Mutex::new(vec![]),
+        states: Mutex::new(vec![]),
+        empty_current: false,
+    });
+    let (stop, stopped) = tokio::sync::watch::channel(false);
+    let (admitted, mut entered) = tokio::sync::mpsc::unbounded_channel();
+    let session = Arc::new(HeldAdmission {
+        stopped,
+        admitted,
+        release: tokio::sync::Semaphore::new(0),
+        persisted: false.into(),
+    });
+    let task = {
+        let fixture = fixture.clone();
+        let session = session.clone();
+        tokio::spawn(async move {
+            supervise(
+                fixture.as_ref(),
+                &message().doc.envelope.friendship_id,
+                session.as_ref(),
+                fixture.as_ref(),
+            )
+            .await
+        })
+    };
+    entered.recv().await.unwrap();
+    stop.send(true).unwrap();
+    assert!(!task.is_finished());
+    assert!(!session.persisted.load(Ordering::Acquire));
+    session.release.add_permits(1);
+    assert_eq!(task.await.unwrap(), Err(Error::Revoked));
+    assert!(session.persisted.load(Ordering::Acquire));
+    assert_eq!(fixture.opens.lock().unwrap().len(), 1);
 }
