@@ -97,7 +97,7 @@ impl std::fmt::Display for Error {
             Self::InvalidEnvelope => "Invalid Neighbor envelope",
             Self::TabRequestsNotAllowed => "tab_requests_not_allowed: Tab requests are not allowed for this Neighbor",
             Self::PermissionDenied => "neighbor_permission_denied: This request is outside the Neighbor permission grant",
-            Self::MachineAccessUnsupported => "neighbor_machine_access_unsupported: This provider cannot enforce the requested machine access on this platform",
+            Self::MachineAccessUnsupported => "neighbor_machine_access_unsupported: This concierge launch cannot enforce the requested machine access on this platform",
             Self::MemoryAreaUnknown => "neighbor_memory_area_unknown: Choose memory areas from the current taxonomy",
             Self::InvalidKey => "Invalid Neighbor key",
             Self::BadSignature => "Invalid Neighbor signature",

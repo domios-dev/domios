@@ -121,6 +121,15 @@ impl crate::service::test_fixture::ServiceFixture {
             &session.identity.uid,
         );
         let mut settings = metadata.settings().await.unwrap();
+        if let Some(tab) = self.service.mux.write().get_tab_mut(tab) {
+            if tab.neighbor_authority.is_none() {
+                tab.neighbor_authority = Some(crate::multiplexer::types::NeighborAuthority {
+                    uid: session.identity.uid.clone(),
+                    friendship_id: friendship.into(),
+                    root_tab_id: None,
+                });
+            }
+        }
         settings.enabled = true;
         settings.bindings.insert(friendship.into(), tab.into());
         settings.permissions.insert(friendship.into(), permission);

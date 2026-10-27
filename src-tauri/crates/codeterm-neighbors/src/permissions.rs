@@ -31,6 +31,8 @@ pub struct Permission {
     pub machine_access: MachineAccess,
     #[serde(default)]
     pub memory_areas: Option<Vec<String>>,
+    #[serde(default)]
+    pub workspaces: Option<Vec<String>>,
 }
 
 fn enabled() -> bool {
@@ -49,6 +51,7 @@ impl Default for Permission {
             folder: None,
             machine_access: MachineAccess::ReadOnly,
             memory_areas: None,
+            workspaces: None,
         }
     }
 }
@@ -56,6 +59,12 @@ impl Default for Permission {
 impl Permission {
     pub fn validate(&self) -> Result<()> {
         if self.machine_access == MachineAccess::Folder && self.folder.is_none()
+            || self.workspaces.as_ref().is_some_and(|ids| {
+                ids.len() > 64
+                    || ids.iter().any(|id| {
+                        id.trim().is_empty() || id.len() > 128 || id.chars().any(char::is_control)
+                    })
+            })
             || self.memory_areas.as_ref().is_some_and(|areas| {
                 areas.len() > 64
                     || areas.iter().any(|area| {

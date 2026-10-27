@@ -247,7 +247,8 @@ impl ServiceContext {
             .and_then(|id| mux.get_tab(id))
             .ok_or("Only your General Agent may author Neighbor permissions")?;
         if !authoring_allowed(
-            crate::service::general_agent::is_general_agent(tab),
+            crate::service::general_agent::is_general_agent(tab)
+                && tab.neighbor_authority.is_none(),
             tab.launch_session_authenticated(),
             tab.session_binding_nonce.as_deref(),
             nonce,
@@ -462,41 +463,20 @@ impl ServiceContext {
                     friendship_id,
                     gateway_tab,
                 } => {
-                    if !hex_id(&friendship_id, 64) {
-                        return Err(Error::InvalidEnvelope);
-                    }
-                    self.validate_neighbor_gateway(&gateway_tab)
-                        .map_err(|_| Error::Gateway)?;
-                    transport.peer_keys(&friendship_id).await?;
-                    let mut settings = metadata.settings().await?;
-                    settings
-                        .bindings
-                        .insert(friendship_id.clone(), gateway_tab.clone());
-                    metadata.save_settings(settings).await?;
-                    self.stop_neighbor_listeners();
-                    self.emit_state_changed(crate::service::MuxEmitCause::TabMetadata);
-                    self.ui.emit(
-                        "neighbor-agent-changed",
-                        json!({"friendship_id":friendship_id,"gateway_tab":gateway_tab}),
-                    );
-                    Ok(json!({"status":"bound"}))
+                    self.bind_neighbor_concierge(
+                        &metadata,
+                        &transport,
+                        &friendship_id,
+                        &gateway_tab,
+                    )
+                    .await
                 }
                 NeighborRuntimeCommand::SetPermission {
                     friendship_id,
                     permission,
                 } => {
-                    if !hex_id(&friendship_id, 64) {
-                        return Err(Error::InvalidEnvelope);
-                    }
-                    permission.validate()?;
-                    transport.peer_keys(&friendship_id).await?;
-                    self.set_neighbor_permission(
-                        &metadata,
-                        &transport.uid,
-                        &friendship_id,
-                        permission,
-                    )
-                    .await
+                    self.set_neighbor_permission(&metadata, &transport, &friendship_id, permission)
+                        .await
                 }
                 NeighborRuntimeCommand::Send {
                     friendship_id,

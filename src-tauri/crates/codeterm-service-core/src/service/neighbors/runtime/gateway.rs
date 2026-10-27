@@ -85,6 +85,16 @@ impl NeighborGateway for Gateway {
     ) -> Result<GatewayReceipt> {
         let history_generation = self.service.neighbor_history_generation();
         self.current()?;
+        if self
+            .service
+            .mux
+            .read()
+            .get_tab(&self.tab)
+            .and_then(|tab| tab.neighbor_authority.as_ref())
+            .is_some_and(|authority| authority.uid != message.doc.envelope.recipient_uid)
+        {
+            return Err(Error::WrongPeer);
+        }
         let events = self.service.events.subscribe();
         let path = format!("gateway-{}.json", self.friendship);
         let previous: Option<Receipt> = self.metadata.read(path.clone()).await?;
@@ -210,6 +220,18 @@ impl Gateway {
     fn current(&self) -> Result<()> {
         self.service.require_neighbors_enabled()?;
         self.service.require_neighbor_receiver(None)?;
+        if self
+            .service
+            .mux
+            .read()
+            .get_tab(&self.tab)
+            .and_then(|tab| tab.neighbor_authority.as_ref())
+            .is_some_and(|authority| {
+                authority.friendship_id != self.friendship || authority.root_tab_id.is_some()
+            })
+        {
+            return Err(Error::Gateway);
+        }
         use std::sync::atomic::Ordering;
         if self
             .service

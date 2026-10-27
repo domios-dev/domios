@@ -1,5 +1,51 @@
 use super::*;
 
+#[test]
+fn manual_binding_cannot_reuse_an_unconfined_or_differently_rooted_launch() {
+    assert!(!bound_launch_matches(
+        Some("friend"),
+        None,
+        MachineAccess::ReadOnly,
+        "friend"
+    ));
+    assert!(bound_launch_matches(
+        Some("friend"),
+        Some(ExecutionIntent::ReadOnly),
+        MachineAccess::ReadOnly,
+        "friend"
+    ));
+    assert!(!bound_launch_matches(
+        Some("other"),
+        Some(ExecutionIntent::ReadOnly),
+        MachineAccess::ReadOnly,
+        "friend"
+    ));
+    assert!(!bound_launch_matches(
+        Some("friend"),
+        Some(ExecutionIntent::ReadOnly),
+        MachineAccess::Folder,
+        "friend"
+    ));
+    assert!(bound_launch_matches(
+        Some("friend"),
+        Some(ExecutionIntent::Mutating),
+        MachineAccess::Folder,
+        "friend"
+    ));
+    assert!(bound_launch_matches(
+        Some("friend"),
+        None,
+        MachineAccess::Full,
+        "friend"
+    ));
+    assert!(!bound_launch_matches(
+        Some("friend"),
+        None,
+        MachineAccess::None,
+        "friend"
+    ));
+}
+
 #[tokio::test]
 async fn default_friend_folder_is_account_scoped_and_explicit_folder_must_exist() {
     let temp = tempfile::tempdir().unwrap();

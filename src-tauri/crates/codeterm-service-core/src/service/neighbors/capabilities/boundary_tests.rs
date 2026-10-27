@@ -251,12 +251,44 @@ async fn rebind_and_signout_never_turn_a_former_concierge_into_an_unrestricted_t
         .logout()
         .await
         .unwrap();
+    fixture
+        .service
+        .neighbor_cell()
+        .concierge_accounts
+        .lock()
+        .clear();
     assert!(fixture
         .service
         .authorize_neighbor_rpc_credential(&token, "mem.search", None)
         .await
         .unwrap_err()
         .starts_with("neighbor_forbidden:"));
+}
+
+#[tokio::test]
+async fn neighbor_tag_cannot_gain_general_authority_through_role_metadata() {
+    let (fixture, caller, token) = fixture(allowed()).await;
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&caller.tab_id).unwrap();
+        tab.role = Some(crate::multiplexer::types::AgentRole::Manager);
+        tab.role_profile = Some(crate::service::general_agent::GENERAL_AGENT_KIND.into());
+    }
+    fixture
+        .service
+        .neighbor_cell()
+        .concierge_accounts
+        .lock()
+        .clear();
+    assert!(fixture
+        .service
+        .authorize_neighbor_rpc_credential(&token, "mem.secret.get", None)
+        .await
+        .is_err());
+    assert!(fixture
+        .service
+        .require_neighbor_general(Some(&caller.tab_id), Some(&caller.binding_nonce))
+        .is_err());
 }
 
 #[tokio::test]
@@ -287,4 +319,120 @@ async fn authenticated_api_request_can_report_own_launch_hooks_before_attestatio
         .authorize_neighbor_rpc_credential(&token, "mem.search", Some(&json!({"q":"opaque"})))
         .await
         .is_err());
+}
+
+#[tokio::test]
+async fn persistent_neighbor_authority_is_fail_closed_before_binding_and_after_account_switch() {
+    let (fixture, caller, token) = fixture(allowed()).await;
+    let service = &fixture.service;
+    let account = service
+        .ext::<crate::service::account::AccountCell>()
+        .0
+        .get()
+        .unwrap();
+    let session = account.session().await.unwrap();
+    let metadata = Metadata::new(service.account_data_root().unwrap(), &session.identity.uid);
+    let mut settings = metadata.settings().await.unwrap();
+    settings.bindings.clear();
+    metadata.save_settings(settings).await.unwrap();
+    service.neighbor_cell().concierge_accounts.lock().clear();
+    assert!(service
+        .authorize_neighbor_rpc_credential(&token, "mem.search", None)
+        .await
+        .is_err());
+    assert!(service
+        .authorize_neighbor_http(
+            &caller,
+            "POST",
+            &format!("/api/tabs/{}/hook/context", caller.tab_id)
+        )
+        .await
+        .is_ok());
+    service
+        .mux
+        .write()
+        .get_tab_mut(&caller.tab_id)
+        .unwrap()
+        .neighbor_authority
+        .as_mut()
+        .unwrap()
+        .uid = "other-account".into();
+    assert!(service
+        .authorize_neighbor_http(
+            &caller,
+            "POST",
+            &format!("/api/tabs/{}/hook/context", caller.tab_id)
+        )
+        .await
+        .unwrap_err()
+        .starts_with("neighbor_forbidden:"));
+}
+
+#[tokio::test]
+async fn a_neighbor_tag_cannot_be_reassigned_to_another_friend_or_account() {
+    let (fixture, caller, _) = fixture(allowed()).await;
+    let authority = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&caller.tab_id)
+        .unwrap()
+        .neighbor_authority
+        .clone()
+        .unwrap();
+    assert!(fixture
+        .service
+        .tag_neighbor_root(&authority.uid, &authority.friendship_id, &caller.tab_id)
+        .is_ok());
+    for (uid, friend) in [
+        (authority.uid.as_str(), "b".repeat(64)),
+        ("other-account", authority.friendship_id.clone()),
+    ] {
+        assert_eq!(
+            fixture
+                .service
+                .tag_neighbor_root(uid, &friend, &caller.tab_id),
+            Err(codeterm_neighbors::Error::PermissionDenied)
+        );
+    }
+    assert_eq!(
+        fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&caller.tab_id)
+            .unwrap()
+            .neighbor_authority
+            .as_ref(),
+        Some(&authority)
+    );
+}
+
+#[tokio::test]
+async fn common_agent_and_shell_launches_refuse_neighbors_before_creating_any_child() {
+    let (fixture, caller, _) = fixture(allowed()).await;
+    let before = fixture.service.mux.read().snapshot().tabs.len();
+    assert!(fixture
+        .service
+        .refuse_neighbor_descendant_launch(&[None])
+        .is_ok());
+    for field in ["spawned_by_tab_id", "creator_tab_id", "parent_tab_id"] {
+        let params: crate::service::SpawnAgentParams =
+            serde_json::from_value(json!({"agent":"missing-provider",(field):caller.tab_id}))
+                .unwrap();
+        let error = fixture.service.spawn_agent(params, None).await.unwrap_err();
+        assert!(error.starts_with("neighbor_capability_denied:"));
+        assert_eq!(fixture.service.mux.read().snapshot().tabs.len(), before);
+    }
+    for field in ["creator_tab_id", "parent_tab_id"] {
+        let spec: crate::service::spawn::SpawnTabSpec =
+            serde_json::from_value(json!({"command":{"kind":"shell"},(field):caller.tab_id}))
+                .unwrap();
+        assert!(fixture
+            .service
+            .spawn_tab(spec)
+            .unwrap_err()
+            .starts_with("neighbor_capability_denied:"));
+        assert_eq!(fixture.service.mux.read().snapshot().tabs.len(), before);
+    }
 }
