@@ -101,7 +101,7 @@ They retain artifacts in GitHub rather than attempting private S3. Private
 runners keep their existing cache and receipt paths. The hosted macOS capacity
 must be measured for embeddings before enabling it; signing and notarization
 always remain on the private Macs. Pure TS/plugin jobs already use hosted
-Ubuntu, and Windows path identity uses windows-latest.
+Ubuntu.
 
 Source-repository selection uses GITHUB_REPOSITORY in Actions and the checkout's
 origin for local scripts; DOMIOS_SOURCE_REPOSITORY is the explicit local override.
