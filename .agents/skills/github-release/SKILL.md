@@ -360,8 +360,11 @@ until its own host is restored.
 | `codeterm-builder-2` (`eight-macos-arm64`) | eight, macOS arm64 | `codeterm-builder`, `heavy`, `light`, `host-eight` | builds: macOS arm64 and x64, Linux arm64 Docker signing; quick checks |
 | `air-macos` (`air-macos-arm64`) | air, macOS arm64 | `macos-ci`, `rust-shard`, `light`, `host-air` | tests: macOS Rust platform, then embeddings |
 | `ROG-windows-build` (`rog-windows-x64`) | ROG, Windows x64 | `windows-build`, `windows-x64-build`, `medium`, `host-rog` | builds: Windows x64 NSIS, arm64 handoff signing; tests: native Windows |
-| `ubunta-linux-build` (`ubunta-linux-x64`) | ubunta, Linux x64 | `linux-build`, `host-ubunta` | builds: release prepare, frontend bundle, Linux x64, dry-run manifest, publication |
-| `ubunta-light-1/2` (`ubunta-linux-x64-light-1/2`) | ubunta, Linux x64 | `light`, `host-ubunta` | quick checks and qualification receipt handling |
+| `ubunta-linux-build` (`ubunta-linux-x64`) | ubunta, Linux x64 | `linux-build`, `host-ubunta` | builds: Linux x64, dry-run manifest, release evidence promotion; tests: full Rust suite. The only runner on ubunta |
+
+Publication (manifests, notes, un-drafting, issue closure) runs on hosted `ubuntu-24.04`, so a
+lost ubunta never strands a draft. If ubunta is down during promotion, set
+`CI_RELEASE_EVIDENCE_RUNNER=hosted` and re-run the failed jobs.
 
 Arm64 compiles run on GitHub-hosted arm64 runners without signing or cache credentials; the
 self-hosted rows above sign their handoff. All self-hosted runners except `ubunta-linux-build`
@@ -423,6 +426,8 @@ Every release-branch push restarts the full graph, so a fix must not introduce t
   build-gateway and DEV-tooling flakes in that suite; judge those on Linux.
 - A behaviour change updates the tests that encode the old behaviour in the same commit.
 - An environmental failure on unchanged source reruns only the failed jobs (`gh run rerun <id> --failed`).
+  A rerun raises the run attempt, and publication refuses a qualification receipt from an older
+  attempt: after it goes green, rerun the `qualification receipt` job alone (`gh run rerun --job <id>`).
 
 ### Known traps
 

@@ -472,7 +472,8 @@ jobs:
     needs: prepare
     if: ${{ !cancelled() && (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')))) && needs.prepare.result == 'success' && needs.prepare.outputs.promote_run_id != '' && vars.RELEASE_PUBLISH_ENABLED == 'true' && needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' }}
     environment: release
-    runs-on: [self-hosted, linux-build]
+    # The LAN store makes our Linux runner fastest; CI_RELEASE_EVIDENCE_RUNNER=hosted moves it to the public edge.
+    runs-on: ${{ vars.CI_RELEASE_EVIDENCE_RUNNER == 'hosted' && 'ubuntu-24.04' || fromJSON('["self-hosted","linux-build"]') }}
     timeout-minutes: 120
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}

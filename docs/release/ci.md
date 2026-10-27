@@ -88,7 +88,8 @@ Runner capacity switches (owner operation):
 | --- | --- | --- |
 | CI_LINUX_LIGHT_RUNNER | ubuntu-24.04 | Current private light labels per job |
 | CI_LINUX_RUST_COMPILE_RUNNER | unset or `private` | Clippy and CLI tests on hosted ubuntu-24.04 by default; `private` routes them to the ubunta linux-build runner |
-| CI_LINUX_RUST_FULL_RUNNER | unset or `private` | Full Rust suite on hosted ubuntu-24.04 by default; `private` routes it to the ubunta linux-build runner |
+| CI_LINUX_RUST_FULL_RUNNER | unset or `hosted` | Full Rust suite on the ubunta linux-build runner by default; `hosted` routes it to ubuntu-24.04 |
+| CI_RELEASE_EVIDENCE_RUNNER | unset or `hosted` | Release evidence promotion on the ubunta linux-build runner by default; `hosted` routes it to ubuntu-24.04 over the public store edge |
 | CI_MACOS_RUST_RUNNER | macos-15 | Air macOS platform tests |
 | CI_MACOS_EMBEDDINGS_RUNNER | macos-15 | Air embeddings after platform tests |
 
