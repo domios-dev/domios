@@ -6,10 +6,27 @@ import { Button } from "../shared/Button";
 import type { Neighbor, NeighborRequest } from "./neighborModel";
 import { NeighborChannelView, type NeighborChannelState } from "./NeighborChannel";
 import { NeighborPermissionsEditor } from "./NeighborPermissionsEditor";
+import { missingConciergeLine, type ConciergeStatus } from "./useConciergeStatus";
 import type { NeighborPermission } from "./neighborRuntimeClient";
 import { STATUS_LABEL, type NeighborNodeStatus } from "./neighborhoodModel";
 
 type Section = "messages" | "configure" | "revoke";
+
+/** A friend whose messages wait because this machine has no concierge for them yet. */
+export function MissingConciergeNotice({ status, onSetUpWithGeneral, onEditPermissions }: {
+  status: ConciergeStatus; onSetUpWithGeneral: () => void; onEditPermissions: () => void;
+}) {
+  return <div role="status" className="ct-card ct-card--static neighbor-missing">
+    <div className="min-w-0 flex-1">
+      <p className="ct-card__title">{missingConciergeLine(status)}</p>
+      <p className="ct-card__meta">Set their permissions here and a concierge starts answering on this machine.</p>
+    </div>
+    <div className="neighbor-confirm__actions">
+      <Button size="sm" variant="primary" onClick={onSetUpWithGeneral}>Set up with General</Button>
+      <Button size="sm" onClick={onEditPermissions}>Edit permissions</Button>
+    </div>
+  </div>;
+}
 
 /** What the relay keeps: ciphertext only until delivery, never the history. */
 export function NeighborPrivacyNote({ className = "" }: { className?: string }) {
@@ -57,8 +74,9 @@ export function NeighborRequestPanel({ request, pending, onAccept, onDecline, on
   </aside>;
 }
 
-export function NeighborPanel({ neighbor, name, locked, pending, channel, gateway, initialSection = null, onOpenGateway, onTalkAbout, onInterview, onSavePermission, onSaveDailyLimit, onLimit, onRemove, onPlans, onClose }: {
+export function NeighborPanel({ neighbor, name, locked, pending, channel, gateway, initialSection = null, concierge = null, onOpenGateway, onTalkAbout, onInterview, onSavePermission, onSaveDailyLimit, onLimit, onRemove, onPlans, onClose }: {
   neighbor: Neighbor; name: string; locked: boolean; pending: boolean; initialSection?: "configure" | null;
+  concierge?: ConciergeStatus | null;
   channel: NeighborChannelState | null;
   gateway: { title: string } | null;
   onOpenGateway: () => void; onTalkAbout: () => void; onInterview: () => void;
@@ -72,6 +90,7 @@ export function NeighborPanel({ neighbor, name, locked, pending, channel, gatewa
   return <aside className="neighbor-panel" aria-label={name}>
     <PanelHead name={name} photoURL={neighbor.photoURL} status={locked ? "paused" : "connected"}
       meta={`since ${new Date(neighbor.since * 1000).toLocaleDateString()}`} onClose={onClose} />
+    {concierge?.concierge_missing && <MissingConciergeNotice status={concierge} onSetUpWithGeneral={onInterview} onEditPermissions={() => setOpen("configure")} />}
     {neighbor.receiving === false && <p role="status" className="neighbor-note">Not receiving right now</p>}
     {locked && <div role="status" className="ct-card ct-card--static neighbor-perk">
       <div className="min-w-0 flex-1">

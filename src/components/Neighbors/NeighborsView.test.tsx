@@ -450,3 +450,22 @@ it("tells the old machine that receiving moved, and warns before taking it over"
   expect(document.querySelector('[aria-label="Receive on this machine"]')?.textContent)
     .toContain("Studio will stop receiving Neighbor messages. Concierges and permissions are per machine");
 });
+
+it("says when a friend has no concierge on this machine, with the waiting count only once it is known", async () => {
+  const missing = (pending_count: number | null) => ({ gateway_tab: null, concierge_missing: true, pending_count, receiving_here: true, receiver_machine_label: null, state: "concierge_missing" });
+  const runtimeClient = runtime();
+  vi.mocked(runtimeClient.status).mockResolvedValue({ enrolled: true, bindings: {}, receiving_here: true, receiving_enabled: true, receiver_machine_label: null, revision: 2,
+    concierges: { pair: missing(3) } } as unknown as Awaited<ReturnType<NeighborRuntimeClient["status"]>>);
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtimeClient} conciergeClient={concierge([])} />));
+  expect(document.body.textContent).toContain("No concierge on this machine — 3 messages waiting");
+  await act(async () => { emit("neighbor-concierge-status", { friendship_id: "pair", ...missing(null) }); });
+  expect(document.body.textContent).toContain("No concierge on this machine");
+  expect(document.body.textContent).not.toContain("messages waiting");
+  await act(async () => button("Set up with General").click());
+  expect(sentText()[0].text).toContain("pair");
+});

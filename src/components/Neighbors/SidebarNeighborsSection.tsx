@@ -22,6 +22,7 @@ import { neighborName, type Neighbor } from "./neighborModel";
 import { neighborRuntimeClient, type NeighborRuntimeClient } from "./neighborRuntimeClient";
 import { useNeighbors } from "./useNeighbors";
 import { receivingLine, useReceiverState } from "./useReceiverState";
+import { missingConciergeLine, useConciergeStatus } from "./useConciergeStatus";
 
 const STORAGE_KEY = "codeterm.sidebar.neighbors-expanded";
 const ROW = "sidebar-tab sidebar-tab-dimmed group flex items-center hover:bg-[var(--ct-hover)]";
@@ -50,6 +51,7 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
   const paid = neighbors.list?.access === "paid";
   const friendKey = friends.map(friend => friend.friendship_id).join(",");
   const receiver = useReceiverState(runtimeClient, friends.length > 0 && enabled);
+  const concierges = useConciergeStatus(runtimeClient, friends.length > 0 && enabled);
   // Concierges only work on the receiving machine; elsewhere they wait.
   const idleNote = receiver && !receiver.receiving_here && receiver.receiving_enabled ? `idle, ${receivingLine(receiver).toLowerCase()}` : null;
 
@@ -88,7 +90,8 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
       const name = neighborName(friend);
       const conciergeId = bindings[friend.friendship_id];
       const concierge = conciergeId ? tabs[conciergeId] : undefined;
-      const status = !enabled ? "off" : paid ? "connected" : "paused by plan";
+      const missing = enabled && concierges[friend.friendship_id]?.concierge_missing ? concierges[friend.friendship_id] : null;
+      const status = !enabled ? "off" : missing ? missingConciergeLine(missing).replace("No concierge on this machine", "no concierge here") : paid ? "connected" : "paused by plan";
       return <li key={friend.friendship_id}>
         <SurfaceOwnerBlock ownerId={`neighbor:${friend.friendship_id}`} attachments={concierge ? [concierge] : []} compact={false}
           renderOwner={() => <div className={`${ROW} ${rowPadding}`} data-active={activeChat === friend.friendship_id || undefined}>
@@ -101,7 +104,7 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
                   <span className={`${text} block truncate min-w-0 text-[var(--ct-fg)]`}>{name}</span>
                 </span>
                 <span className="sidebar-tab-body__sub neighbor-status text-[10px] leading-3">
-                  <span className="neighbor-dot" data-tone={enabled && paid ? "ok" : "muted"} aria-hidden="true" />{status}
+                  <span className="neighbor-dot" data-tone={missing ? "progress" : enabled && paid ? "ok" : "muted"} aria-hidden="true" />{status}
                 </span>
               </span>
             </button>

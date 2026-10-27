@@ -1,0 +1,64 @@
+import { useEffect, useState } from "react";
+import { listen } from "../../lib/bridge";
+import type { NeighborRuntimeClient } from "./neighborRuntimeClient";
+
+export interface ConciergeStatus {
+  gateway_tab: string | null;
+  concierge_missing: boolean;
+  /** Null until an inbox count has been observed; never a stand-in zero. */
+  pending_count: number | null;
+  receiving_here: boolean;
+  receiver_machine_label: string | null;
+  state: "ready" | "concierge_missing" | "receiving_elsewhere" | "not_receiving";
+}
+
+const STATES: readonly ConciergeStatus["state"][] = ["ready", "concierge_missing", "receiving_elsewhere", "not_receiving"];
+const record = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
+
+export function parseConciergeStatus(value: unknown): ConciergeStatus | null {
+  if (!record(value) || typeof value.concierge_missing !== "boolean" || typeof value.receiving_here !== "boolean"
+    || !STATES.includes(value.state as ConciergeStatus["state"])
+    || (value.gateway_tab !== null && typeof value.gateway_tab !== "string")
+    || (value.receiver_machine_label !== null && typeof value.receiver_machine_label !== "string")
+    || (value.pending_count !== null && (typeof value.pending_count !== "number" || !Number.isSafeInteger(value.pending_count) || value.pending_count < 0))) return null;
+  return {
+    gateway_tab: value.gateway_tab, concierge_missing: value.concierge_missing, pending_count: value.pending_count as number | null,
+    receiving_here: value.receiving_here, receiver_machine_label: value.receiver_machine_label, state: value.state as ConciergeStatus["state"],
+  };
+}
+
+/** Each friendship's concierge on this machine, from the runtime status and its per-friendship events. */
+export function useConciergeStatus(client: NeighborRuntimeClient, active: boolean): Record<string, ConciergeStatus> {
+  const [byFriendship, setByFriendship] = useState<Record<string, ConciergeStatus>>({});
+  useEffect(() => {
+    if (!active) { setByFriendship({}); return; }
+    const controller = new AbortController();
+    let stop: (() => void) | undefined;
+    void listen<unknown>("neighbor-concierge-status", event => {
+      const payload = event.payload;
+      const status = parseConciergeStatus(payload);
+      if (status && record(payload) && typeof payload.friendship_id === "string") {
+        const friendship = payload.friendship_id;
+        setByFriendship(current => ({ ...current, [friendship]: status }));
+      }
+    }).then(unlisten => { if (controller.signal.aborted) unlisten(); else stop = unlisten; });
+    client.status(controller.signal).then(status => {
+      const concierges = (status as unknown as Record<string, unknown>).concierges;
+      if (!record(concierges)) return;
+      const parsed: Record<string, ConciergeStatus> = {};
+      for (const [friendship, value] of Object.entries(concierges)) {
+        const entry = parseConciergeStatus(value);
+        if (entry) parsed[friendship] = entry;
+      }
+      setByFriendship(parsed);
+    }, () => {});
+    return () => { controller.abort(); stop?.(); };
+  }, [client, active]);
+  return byFriendship;
+}
+
+/** "No concierge on this machine", with the waiting count only once it has been observed. */
+export function missingConciergeLine(status: ConciergeStatus): string {
+  if (status.pending_count === null) return "No concierge on this machine";
+  return `No concierge on this machine — ${status.pending_count} ${status.pending_count === 1 ? "message" : "messages"} waiting`;
+}

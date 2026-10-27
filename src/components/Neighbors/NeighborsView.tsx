@@ -24,6 +24,7 @@ import { useNeighborChannel } from "./useNeighborChannel";
 import { useNeighbors } from "./useNeighbors";
 import { useNeighborsSwitch } from "./neighborsSwitch";
 import { receivingLine, useReceiverState } from "./useReceiverState";
+import { useConciergeStatus } from "./useConciergeStatus";
 
 const openPlans = () => window.dispatchEvent(new CustomEvent("codeterm:open-panel", { detail: { panel: "settings:plans" } }));
 
@@ -40,13 +41,14 @@ function SelectedNeighbor({ owner, neighbor, locked, pending, runtimeClient, ini
   onLimit: (limit: number) => Promise<boolean>; onRemove: () => Promise<boolean>; onClose: () => void;
 }) {
   const channel = useNeighborChannel(owner, neighbor.friendship_id, runtimeClient);
+  const concierge = useConciergeStatus(runtimeClient, true)[neighbor.friendship_id] ?? null;
   const tabMap = useTabMap();
   const gatewayId = channel.status?.bindings[neighbor.friendship_id] ?? null;
   const gatewayTab = gatewayId ? tabMap.tabs[gatewayId] : undefined;
   return <NeighborPanel neighbor={neighbor} name={neighborName(neighbor)} locked={locked} pending={pending} channel={channel}
     gateway={gatewayId && gatewayTab ? { title: gatewayTab.title } : null}
     onOpenGateway={() => { if (gatewayId) focusTab(gatewayId, workspaceOfTab(tabMap, gatewayId)); }}
-    initialSection={initialSection} onSavePermission={onSavePermission} onSaveDailyLimit={onSaveDailyLimit}
+    initialSection={initialSection} concierge={concierge} onSavePermission={onSavePermission} onSaveDailyLimit={onSaveDailyLimit}
     onTalkAbout={onTalkAbout} onInterview={onInterview} onLimit={onLimit} onRemove={onRemove} onPlans={openPlans} onClose={onClose} />;
 }
 

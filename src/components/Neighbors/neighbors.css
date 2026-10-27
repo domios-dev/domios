@@ -968,3 +968,17 @@
   font-size: 12px;
   text-align: center;
 }
+
+.neighbor-missing {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.75rem 0.85rem;
+  --ct-card-tone: var(--ct-accent);
+}
+
+.neighbor-chat__notice {
+  width: min(48rem, 100%);
+  margin: 0.75rem auto 0;
+  padding: 0 1rem;
+}
