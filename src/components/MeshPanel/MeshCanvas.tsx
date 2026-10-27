@@ -59,6 +59,7 @@ export interface CanvasAccount {
   actions: MachineNodeActions;
   onSignIn: () => void;
   onRetry: () => void;
+  onRetryEnrollment?: () => void;
 }
 
 interface Props {
@@ -259,6 +260,9 @@ export const MeshCanvas = memo(function MeshCanvas({
       }}
     >
       {account && <AccountNotes notes={account.canvas.notes} />}
+      {account?.onRetryEnrollment && <button type="button" onMouseDown={(event) => event.stopPropagation()}
+        disabled={account.busy !== null} aria-busy={account.busy === "enrollment"}
+        onClick={account.onRetryEnrollment} className="ct-btn ct-btn-compact absolute bottom-3 right-3 z-10">Retry enrollment</button>}
       {account?.moreMachines && <button type="button" onMouseDown={(event) => event.stopPropagation()}
         onClick={account.onRetry} className="ct-btn ct-btn-compact absolute bottom-3 left-3 z-10">Load more machines</button>}
       <CanvasToolbar label="Mesh graph controls" onRefresh={onRefresh} onFit={() => { userAdjustedRef.current = true; reset(); }} onZoomOut={() => { userAdjustedRef.current = true; zoomBy(-ZOOM_STEP); }} onZoomIn={() => { userAdjustedRef.current = true; zoomBy(ZOOM_STEP); }} />

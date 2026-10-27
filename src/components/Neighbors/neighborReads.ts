@@ -10,15 +10,27 @@ class NeighborReads {
   readonly list = new SharedRead<NeighborList>();
   private eligibility: string | undefined;
   private claim: Promise<ReferralClaim> | undefined;
+  private failure: { error: unknown; retryAt: number } | undefined;
 
-  referral(client: NeighborClient) {
-    this.claim ??= client.claimReferralTrial();
-    return this.claim;
+  constructor(private readonly accounts: Map<string, NeighborReads>, private readonly identity: string) {}
+
+  referral(client: NeighborClient, force = false): Promise<ReferralClaim> {
+    if (this.claim) return this.claim;
+    if (!force && this.failure && Date.now() < this.failure.retryAt) return Promise.reject(this.failure.error);
+    const flight = client.claimReferralTrial().catch((error: unknown) => {
+      if (this.accounts.get(this.identity) === this && this.claim === flight) {
+        this.claim = undefined;
+        this.failure = { error, retryAt: Date.now() + 60_000 };
+      }
+      throw error;
+    });
+    this.claim = flight;
+    return flight;
   }
 
   observe(list: NeighborList) {
     const next = eligibility(list);
-    if (this.eligibility !== undefined && this.eligibility !== next) this.claim = undefined;
+    if (this.eligibility !== undefined && this.eligibility !== next) { this.claim = undefined; this.failure = undefined; }
     this.eligibility = next;
   }
 }
@@ -28,6 +40,6 @@ export function neighborReads(client: NeighborClient, identity: string | null) {
   if (!accounts) { accounts = new Map(); clients.set(client, accounts); }
   if (!identity) { accounts.clear(); return null; }
   let reads = accounts.get(identity);
-  if (!reads) { reads = new NeighborReads(); accounts.set(identity, reads); }
+  if (!reads) { reads = new NeighborReads(accounts, identity); accounts.set(identity, reads); }
   return reads;
 }
