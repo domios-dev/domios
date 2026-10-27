@@ -1176,6 +1176,10 @@
   filter: grayscale(0.6);
 }
 
+.sidebar-neighbor-concierge[data-paused] {
+  opacity: 0.6;
+}
+
 .neighbor-pause-glyph {
   position: absolute;
   right: -2px;

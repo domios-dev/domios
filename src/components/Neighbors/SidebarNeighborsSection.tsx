@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Bot } from "lucide-react";
+import { Bot, Pause } from "lucide-react";
 import type { Tab } from "../../lib/types";
 import { useAccount } from "../Settings/useAccount";
 import { AccountAvatar } from "../Titlebar/AccountAvatar";
@@ -17,7 +17,7 @@ import type { NeighborClient } from "./neighborClient";
 import { neighborConciergeClient, type NeighborConciergeClient } from "./neighborConciergeClient";
 import { openNeighborPage, openNeighbor } from "./neighborFocus";
 import { publishNeighborGateways } from "./neighborGateways";
-import { neighborName } from "./neighborModel";
+import { listedPaused, neighborName } from "./neighborModel";
 import { neighborRuntimeClient, type NeighborRuntimeClient } from "./neighborRuntimeClient";
 import { useNeighbors } from "./useNeighbors";
 import { clearNeighborCaches, readNeighborCache, writeNeighborCache, type CachedFriend, type CachedNeighbors } from "./neighborListCache";
@@ -25,6 +25,7 @@ import { ActivityDots } from "../shared/ActivityDots";
 import { receivingLine, useReceiverState } from "./useReceiverState";
 import { missingConciergeLine, useConciergeStatus } from "./useConciergeStatus";
 import { resetNeighborStatus, useNeighborStatus } from "./neighborStatusStore";
+import { resetPausedFriends, setFriendPaused, usePausedFriends } from "./neighborPause";
 
 const STORAGE_KEY = "codeterm.sidebar.neighbors-expanded";
 const ROW = "sidebar-tab sidebar-tab-dimmed group flex items-center hover:bg-[var(--ct-hover)]";
@@ -48,6 +49,7 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
   const tabStatuses = useMuxSelector(state => state.tabStatuses);
   const [expanded, setExpanded] = useState(readExpanded);
   const [bindings, setBindings] = useState<Record<string, string>>({});
+  const isPaused = usePausedFriends(conciergeClient);
   const lastIdentity = useRef<string | null>(null);
   // Until the fresh list arrives, draw the friends this account had last time; an empty past keeps the section away.
   const cached = useMemo(() => readNeighborCache(identity), [identity]);
@@ -59,7 +61,7 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
     if (model.kind === "signed_out") clearNeighborCaches();
     else if (identity) clearNeighborCaches(identity);
     // The shared runtime status belongs to the account it was read for.
-    if (model.kind === "signed_out" || (identity && lastIdentity.current && lastIdentity.current !== identity)) resetNeighborStatus();
+    if (model.kind === "signed_out" || (identity && lastIdentity.current && lastIdentity.current !== identity)) { resetNeighborStatus(); resetPausedFriends(); }
     if (identity) lastIdentity.current = identity;
   }, [model.kind, identity]);
   useEffect(() => { if (identity && neighbors.list) writeNeighborCache(identity, neighbors.list); }, [identity, neighbors.list]);
@@ -87,6 +89,8 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
   }, [conciergeClient]);
 
   if (friends.length === 0) return null;
+  const togglePaused = (friend: CachedFriend, paused: boolean) => setFriendPaused(conciergeClient, friend.friendship_id, !paused, paused,
+    detail => publishNotice({ kind: "toast", severity: "Error", id: `neighbor-pause:${friend.friendship_id}`, title: paused ? "Could not resume" : "Could not pause", detail }));
   const text = touchMode ? pickUiFontScaleValue(uiFontScale, ["text-[13px]", "text-[14px]", "text-[15px]", "text-base"])
     : pickUiFontScaleValue(uiFontScale, ["text-[11px]", "text-xs", "text-sm", "text-base"]);
   const rowPadding = touchMode ? "min-h-11 pl-5 pr-2 py-2" : "pl-4 pr-4 py-1.5";
@@ -109,26 +113,33 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
       const concierge = conciergeId ? tabs[conciergeId] : undefined;
       // A bound concierge wins over a stale missing state.
       const missing = enabled && !concierge && concierges[friend.friendship_id]?.concierge_missing ? concierges[friend.friendship_id] : null;
-      const status = !enabled ? "off" : missing ? missingConciergeLine(missing).replace("No concierge on this machine", "no concierge here") : paid ? "connected" : "paused by plan";
+      const paused = isPaused(friend.friendship_id, listedPaused(friend));
+      const status = !enabled ? "off" : paused ? "paused" : missing ? missingConciergeLine(missing).replace("No concierge on this machine", "no concierge here") : paid ? "connected" : "paused by plan";
+      const pauseItem = { label: `${paused ? "Resume" : "Pause"} ${name}`, onClick: () => togglePaused(friend, paused) };
       return <li key={friend.friendship_id}>
         <SurfaceOwnerBlock ownerId={`neighbor:${friend.friendship_id}`} attachments={concierge ? [concierge] : []} compact={false}
-          renderOwner={() => <div className={`${ROW} ${rowPadding}`} data-active={activeChat === friend.friendship_id || undefined}>
+          renderOwner={() => <div className={`${ROW} ${rowPadding}`} data-active={activeChat === friend.friendship_id || undefined} data-paused={paused || undefined}>
             <button type="button" className={`sidebar-tab-activation flex flex-1 items-center min-w-0 border-0 bg-transparent p-0 text-left text-inherit cursor-pointer ${touchMode ? "gap-2.5" : "gap-2"}`}
               aria-label={`Open ${name}`} aria-current={activeChat === friend.friendship_id ? "page" : undefined}
               onClick={() => openNeighbor(friend.friendship_id)}>
               <span className={`sidebar-tab-body flex-1 min-w-0 ${touchMode ? "gap-x-2.5" : "gap-x-2"}`}>
-                <span data-testid="tab-tab-icon" className="sidebar-tab-body__icon sidebar-neighbor-avatar"><AccountAvatar url={friend.photoURL} initial={accountInitials(name)} label="" size="node" /></span>
+                <span data-testid="tab-tab-icon" className="sidebar-tab-body__icon sidebar-neighbor-avatar" data-paused={paused || undefined}>
+                  <AccountAvatar url={friend.photoURL} initial={accountInitials(name)} label="" size="node" />
+                  {paused && <span className="neighbor-pause-glyph" aria-hidden="true"><Pause size={8} /></span>}</span>
                 <span className="sidebar-tab-body__title flex min-w-0 items-center gap-1.5">
                   <span className={`${text} block truncate min-w-0 text-[var(--ct-fg)]`}>{name}</span>
                 </span>
                 <span className="sidebar-tab-body__sub neighbor-status text-[10px] leading-3">
-                  <span className="neighbor-dot" data-tone={missing ? "progress" : enabled && paid ? "ok" : "muted"} aria-hidden="true" />{status}
+                  <span className="neighbor-dot" data-tone={paused ? "muted" : missing ? "progress" : enabled && paid ? "ok" : "muted"} aria-hidden="true" />{status}
                 </span>
               </span>
             </button>
+            <DropdownMenu className="sidebar-neighbor-concierge__menu" menuLabel={`${name} actions`}
+              items={[pauseItem, { label: `${name}'s settings`, onClick: () => openNeighborPage(friend.friendship_id) }]}
+              trigger={<RowMenuButton label={`Actions for ${name}`} title="Friend actions" touchMode={touchMode} />} />
           </div>}
-          renderAttachment={tab => <ConciergeRow tab={tab} friendName={name} text={text} touchMode={touchMode}
-            activity={idleNote ?? tabActivity(tab, tabStatuses[tab.id]).label}
+          renderAttachment={tab => <ConciergeRow tab={tab} friendName={name} text={text} touchMode={touchMode} paused={paused} pauseItem={pauseItem}
+            activity={paused ? "paused" : idleNote ?? tabActivity(tab, tabStatuses[tab.id]).label}
             onOpen={() => { focusTab(tab.id, workspaceOfTab({ workspaces, tabs }, tab.id)); onNavigateToTab?.(); }}
             onChangeAgent={() => openNeighborPage(friend.friendship_id, "concierge")}
             onViewPermissions={() => openNeighborPage(friend.friendship_id, "permissions")}
@@ -138,12 +149,12 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
   </SidebarStructuralSection>;
 }
 
-function ConciergeRow({ tab, friendName, text, touchMode, activity, onOpen, onChangeAgent, onViewPermissions, onEditWithGeneral }: {
-  tab: Tab; friendName: string; text: string; touchMode: boolean; activity: string;
+function ConciergeRow({ tab, friendName, text, touchMode, activity, paused, pauseItem, onOpen, onChangeAgent, onViewPermissions, onEditWithGeneral }: {
+  tab: Tab; friendName: string; text: string; touchMode: boolean; activity: string; paused: boolean; pauseItem: { label: string; onClick: () => void };
   onOpen: () => void; onChangeAgent: () => void; onViewPermissions: () => void; onEditWithGeneral: () => void;
 }) {
   const label = `${friendName}'s concierge`;
-  return <div className={`${ROW} sidebar-neighbor-concierge ${touchMode ? "min-h-9 pl-5 pr-2 py-1" : "pr-2 py-0.5"}`}>
+  return <div className={`${ROW} sidebar-neighbor-concierge ${touchMode ? "min-h-9 pl-5 pr-2 py-1" : "pr-2 py-0.5"}`} data-paused={paused || undefined}>
     <button type="button" className="sidebar-tab-activation flex flex-1 items-center min-w-0 gap-2 border-0 bg-transparent p-0 text-left text-inherit cursor-pointer"
       aria-label={`Open ${label}`} title={tab.title} onClick={onOpen}>
       <span className="sidebar-tab-body flex-1 min-w-0 gap-x-2">
@@ -159,6 +170,7 @@ function ConciergeRow({ tab, friendName, text, touchMode, activity, onOpen, onCh
         { label: "Change agent", onClick: onChangeAgent },
         { label: "View permissions", onClick: onViewPermissions },
         { label: "Edit with General", onClick: onEditWithGeneral },
+        pauseItem,
       ]}
       trigger={<RowMenuButton label={`Actions for ${label}`} title="Concierge actions" touchMode={touchMode} />} />
   </div>;

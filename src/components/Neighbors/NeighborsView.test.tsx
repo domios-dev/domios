@@ -953,3 +953,17 @@ it("shows a friend you paused as paused on the graph", async () => {
   expect(hasButton("Ada, paused")).toBe(true);
   expect(document.querySelector('[data-node-id="pair"]')?.hasAttribute("data-paused")).toBe(true);
 });
+
+it("pauses a friend from their sidebar row menu and shows the row as paused", async () => {
+  const conciergeClient = concierge([]);
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, incoming: [], outgoing: [], friends: [neighbor] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<SidebarNeighborsSection touchMode={false} client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
+  await act(async () => { button("Actions for Ada").dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 })); });
+  await act(async () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent === "Pause Ada")!.click());
+  expect(conciergeClient.setPaused).toHaveBeenCalledExactlyOnceWith("pair", true);
+  expect(button("Open Ada").textContent).toContain("paused");
+});
