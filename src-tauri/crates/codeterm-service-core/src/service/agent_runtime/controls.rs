@@ -32,6 +32,43 @@ pub(crate) fn routed_tab(svc: &ServiceContext, tab: &str) -> Option<String> {
         .then_some(tab)
 }
 
+impl ServiceContext {
+    pub fn agent_switch_model_with_restart_fallback(
+        &self,
+        tab: &str,
+        model: &str,
+        effort: Option<&str>,
+        mode: Option<&str>,
+        options: super::model::ModelSwitchOptions,
+    ) -> Result<ModelSwitchOutcome, ModelSwitchError> {
+        if let Some(tab) = routed_tab(self, tab) {
+            return switch(self, &tab, model, effort, mode, options.service_tier);
+        }
+        if options.service_tier.is_some() {
+            return Err(ModelSwitchError::NotSwitchable(
+                "Fast mode requires a capable runtime".into(),
+            ));
+        }
+        if mode.is_some() {
+            return Err(ModelSwitchError::NotSwitchable(
+                if options.restart_resume {
+                    "restart fallback cannot change runtime mode"
+                } else {
+                    "Runtime mode requires a capable runtime"
+                }
+                .into(),
+            ));
+        }
+        self.agent_switch_model_with_fallback(
+            tab,
+            model,
+            effort,
+            options.force,
+            options.restart_resume,
+        )
+    }
+}
+
 pub(crate) fn switch(
     svc: &ServiceContext,
     tab: &str,

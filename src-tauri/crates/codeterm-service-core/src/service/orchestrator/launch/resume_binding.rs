@@ -4,24 +4,6 @@ use crate::service::launch_delivery::FallbackDeliverySpec;
 use crate::service::launch_diagnostics::AgentLaunchOrigin;
 use crate::service::{boot_stage::BootStage, ServiceContext};
 
-pub(crate) fn deferred_launch_nonce(
-    svc: &ServiceContext,
-    tab: &str,
-    reserved_nonce: Option<&str>,
-    structured_active: bool,
-) -> String {
-    let reservation_current = reserved_nonce.is_some_and(|reserved| {
-        svc.mux
-            .read()
-            .get_tab(tab)
-            .is_some_and(|tab| tab.session_binding_nonce.as_deref() == Some(reserved))
-    });
-    if !reservation_current && !structured_active {
-        svc.rotate_session_binding_nonce(tab);
-    }
-    svc.ensure_session_binding_nonce(tab)
-}
-
 fn binding_turn_required(
     relaunch: bool,
     lazy_session: bool,
