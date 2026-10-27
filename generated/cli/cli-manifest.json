@@ -4055,185 +4055,6 @@
       "subcommands": []
     },
     {
-      "name": "inbox",
-      "about": "Workspace Inbox — standalone tasks with no plan",
-      "aliases": [],
-      "args": [],
-      "subcommands": [
-        {
-          "name": "add",
-          "about": "Add a standalone task to the workspace Inbox",
-          "aliases": [],
-          "args": [
-            {
-              "name": "assign-tab",
-              "positional": false,
-              "required": false,
-              "value_name": "TAB",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "body",
-              "positional": false,
-              "required": false,
-              "value_name": "BODY",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "body-file",
-              "positional": false,
-              "required": false,
-              "value_name": "PATH",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "correctness",
-              "positional": false,
-              "required": false,
-              "value_name": "CORRECTNESS",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "criterion",
-              "positional": false,
-              "required": false,
-              "value_name": "CRITERION",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "execution-intent",
-              "positional": false,
-              "required": false,
-              "value_name": "EXECUTION_INTENT",
-              "possible_values": [
-                "repository_mutation",
-                "non_repository"
-              ],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "intent",
-              "positional": false,
-              "required": false,
-              "value_name": "INTENT",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "intent-file",
-              "positional": false,
-              "required": false,
-              "value_name": "PATH",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "model",
-              "positional": false,
-              "required": false,
-              "value_name": "MODEL",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "name",
-              "positional": false,
-              "required": true,
-              "value_name": "NAME",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "qa-plan",
-              "positional": false,
-              "required": false,
-              "value_name": "QA_PLAN",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "qa-plan-file",
-              "positional": false,
-              "required": false,
-              "value_name": "PATH",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "test-plan",
-              "positional": false,
-              "required": false,
-              "value_name": "TEST_PLAN",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "type",
-              "positional": false,
-              "required": false,
-              "value_name": "KIND",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "why",
-              "positional": false,
-              "required": false,
-              "value_name": "WHY",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "why-file",
-              "positional": false,
-              "required": false,
-              "value_name": "PATH",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        }
-      ]
-    },
-    {
       "name": "integration",
       "about": "Provider hook integration: install it with recorded consent and trust, or read its state",
       "aliases": [],
@@ -15159,6 +14980,326 @@
               "possible_values": [],
               "default": null,
               "help": "Path to the plugin directory (the folder containing plugin.json)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "radar",
+      "about": "Workspace Radar — items noticed above plans, pulled into a plan as tasks",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "add",
+          "about": "Add an item to this workspace's Radar; the same --source-provider/--source-id refreshes it",
+          "aliases": [],
+          "args": [
+            {
+              "name": "body",
+              "positional": false,
+              "required": false,
+              "value_name": "BODY",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "body-file",
+              "positional": false,
+              "required": false,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "project",
+              "positional": false,
+              "required": false,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": "Workspace path; defaults to the current directory",
+              "aliases": []
+            },
+            {
+              "name": "source-id",
+              "positional": false,
+              "required": false,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": "The item's stable id in that system",
+              "aliases": []
+            },
+            {
+              "name": "source-provider",
+              "positional": false,
+              "required": false,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": "System the item came from, such as github or linear",
+              "aliases": []
+            },
+            {
+              "name": "source-url",
+              "positional": false,
+              "required": false,
+              "value_name": "URL",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "tag",
+              "positional": false,
+              "required": false,
+              "value_name": "TAG",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "title",
+              "positional": false,
+              "required": true,
+              "value_name": "TITLE",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "drop",
+          "about": "Remove a Radar item; a task it was pulled into stays in its plan",
+          "aliases": [],
+          "args": [
+            {
+              "name": "item_id",
+              "positional": true,
+              "required": true,
+              "value_name": "ITEM_ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "edit",
+          "about": "Edit a Radar item's title, body or tags",
+          "aliases": [],
+          "args": [
+            {
+              "name": "body",
+              "positional": false,
+              "required": false,
+              "value_name": "BODY",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "body-file",
+              "positional": false,
+              "required": false,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "clear-tags",
+              "positional": false,
+              "required": false,
+              "value_name": "CLEAR_TAGS",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "item_id",
+              "positional": true,
+              "required": true,
+              "value_name": "ITEM_ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "tag",
+              "positional": false,
+              "required": false,
+              "value_name": "TAG",
+              "possible_values": [],
+              "default": null,
+              "help": "Replace the tags; repeat for several",
+              "aliases": []
+            },
+            {
+              "name": "title",
+              "positional": false,
+              "required": false,
+              "value_name": "TITLE",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "list",
+          "about": "List this workspace's Radar items, newest first",
+          "aliases": [],
+          "args": [
+            {
+              "name": "all-workspaces",
+              "positional": false,
+              "required": false,
+              "value_name": "ALL_WORKSPACES",
+              "possible_values": [],
+              "default": null,
+              "help": "List items of every workspace",
+              "aliases": []
+            },
+            {
+              "name": "project",
+              "positional": false,
+              "required": false,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": "Workspace path; defaults to the current directory",
+              "aliases": []
+            },
+            {
+              "name": "provider",
+              "positional": false,
+              "required": false,
+              "value_name": "PROVIDER",
+              "possible_values": [],
+              "default": null,
+              "help": "Only items from this source provider",
+              "aliases": []
+            },
+            {
+              "name": "query",
+              "positional": false,
+              "required": false,
+              "value_name": "QUERY",
+              "possible_values": [],
+              "default": null,
+              "help": "Case-insensitive text in the title or body",
+              "aliases": []
+            },
+            {
+              "name": "status",
+              "positional": false,
+              "required": false,
+              "value_name": "STATUS",
+              "possible_values": [
+                "open",
+                "pulled",
+                "all"
+              ],
+              "default": null,
+              "help": "open (default), pulled or all",
+              "aliases": []
+            },
+            {
+              "name": "tag",
+              "positional": false,
+              "required": false,
+              "value_name": "TAG",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "pull",
+          "about": "Create a linked task for this item in a plan of the same workspace",
+          "aliases": [],
+          "args": [
+            {
+              "name": "item_id",
+              "positional": true,
+              "required": true,
+              "value_name": "ITEM_ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "plan",
+              "positional": false,
+              "required": true,
+              "value_name": "PLAN",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "sections",
+              "positional": false,
+              "required": false,
+              "value_name": "SECTIONS",
+              "possible_values": [],
+              "default": null,
+              "help": "Comma-separated section ids or handles",
+              "aliases": []
+            },
+            {
+              "name": "type",
+              "positional": false,
+              "required": false,
+              "value_name": "KIND",
+              "possible_values": [],
+              "default": null,
+              "help": "Task kind; defaults to task",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "show",
+          "about": "Show one Radar item",
+          "aliases": [],
+          "args": [
+            {
+              "name": "item_id",
+              "positional": true,
+              "required": true,
+              "value_name": "ITEM_ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
               "aliases": []
             }
           ],
