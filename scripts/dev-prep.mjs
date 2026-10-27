@@ -46,7 +46,7 @@ const inputPathspecs = [
   "index.html",
   "tsconfig.json",
   "tsconfig.node.json",
-  "vite.config.ts",
+  "vite.config.mts",
   "src",
   "public",
   "packages",
