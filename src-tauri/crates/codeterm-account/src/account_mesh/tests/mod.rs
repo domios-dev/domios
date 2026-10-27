@@ -1,4 +1,5 @@
 mod callable;
+mod entitlements;
 mod lifecycle;
 mod membership;
 mod naming;

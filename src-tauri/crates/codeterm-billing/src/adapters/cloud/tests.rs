@@ -1,5 +1,83 @@
 use super::*;
 
+struct FixtureProof;
+#[async_trait]
+impl InstallationProofSource for FixtureProof {
+    async fn proof(
+        &self,
+        _session: &Session,
+        installation_id: &codeterm_account::InstallationId,
+    ) -> Result<codeterm_account::account_mesh::wire::InstallationProof> {
+        assert_eq!(installation_id, &id());
+        Ok(codeterm_account::account_mesh::wire::InstallationProof {
+            schema_version: 1,
+            key_id: "1".repeat(64),
+            generation: 3,
+            timestamp: 1_700_000_000,
+            nonce: "nonce".into(),
+            signature: "s".repeat(86),
+        })
+    }
+}
+
+#[test]
+fn entitlements_attach_proof_and_refuse_unsigned_remote_requests() {
+    let proof = codeterm_account::account_mesh::wire::InstallationProof {
+        schema_version: 1,
+        key_id: "1".repeat(64),
+        generation: 3,
+        timestamp: 1_700_000_000,
+        nonce: "nonce".into(),
+        signature: "s".repeat(86),
+    };
+    let data = entitlements_request(&id(), Some(proof.clone()), false).unwrap();
+    assert_eq!(
+        data,
+        serde_json::json!({"installation_id":"fixture-installation", "installation_proof":proof})
+    );
+    assert!(entitlements_request(&id(), None, false).is_err());
+    assert_eq!(
+        entitlements_request(&id(), None, true).unwrap(),
+        serde_json::json!({"installation_id":"fixture-installation"})
+    );
+    assert!(!Cloud::fixture("https://fixture.test/", id()).local_entitlements(&local_session()));
+}
+
+#[test]
+fn checkout_refusals_allow_only_reviewed_reasons_and_exact_messages() {
+    for (reason, message) in [
+        ("unknown_plan", "Unknown billing plan"),
+        (
+            "catalog_selection_unavailable",
+            "Catalog selection unavailable",
+        ),
+        ("catalog_selection_mismatch", "Catalog selection mismatch"),
+        (
+            "reviewed_catalog_required",
+            "Reviewed provider catalog required",
+        ),
+        ("select_catalog_price", "Select a catalog price"),
+        (
+            "trial_admission_pending",
+            "Verified trial payment admission pending",
+        ),
+    ] {
+        let by_reason =
+            refusal_message(&serde_json::json!({"error":{"details":{"reason":reason}}}));
+        assert_ne!(by_reason, "Billing request refused", "{reason}");
+        assert_eq!(
+            by_reason,
+            refusal_message(&serde_json::json!({"error":{"message":message}}))
+        );
+        assert_eq!(
+            refusal_message(
+                &serde_json::json!({"error":{"message":format!("{message}: private data")}})
+            ),
+            "Billing request refused"
+        );
+    }
+}
+
 #[test]
 fn plan_change_refusals_preserve_only_known_server_reasons() {
     for reason in [
@@ -285,8 +363,9 @@ impl CloudTransport for RefusingTransport {
 async fn session_revoked_from_entitlements_checkout_portal_and_sponsor_notifies_owner() {
     let observer = std::sync::Arc::new(Revocations::default());
     let transport = std::sync::Arc::new(RefusingTransport::default());
-    let mut cloud =
-        Cloud::fixture("https://fixture.test/", id()).with_revocations(observer.clone());
+    let mut cloud = Cloud::fixture("https://fixture.test/", id())
+        .with_revocations(observer.clone())
+        .with_installation_proofs(std::sync::Arc::new(FixtureProof));
     cloud.transport = transport.clone();
     let mut session = local_session();
     session.login_generation = 17;

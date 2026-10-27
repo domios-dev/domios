@@ -52,6 +52,31 @@ pub struct LinkTarget {
 }
 
 impl AccountMesh {
+    pub async fn entitlements_proof(
+        &self,
+        session: &Session,
+        installation_id: &crate::InstallationId,
+    ) -> Outcome<InstallationProof> {
+        if installation_id != &self.config.installation_id {
+            return Err(AccountMeshRefusal::Invalid);
+        }
+        let signed = self.signed(None).await?;
+        if signed.session.identity.uid != session.identity.uid
+            || signed.session.login_generation != session.login_generation
+        {
+            return Err(AccountMeshRefusal::Cancelled);
+        }
+        let generation = self.generation(&signed).await?;
+        let body = serde_json::json!({"installation_id": installation_id});
+        let proof = self
+            .prove(&signed, ProofEndpoint::GetEntitlements, &body, generation)
+            .await?;
+        if !self.with(|inner| inner.is_current(signed.epoch)) {
+            return Err(AccountMeshRefusal::Cancelled);
+        }
+        Ok(proof)
+    }
+
     pub(super) fn installation(&self) -> String {
         self.config.installation_id.as_str().to_owned()
     }

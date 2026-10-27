@@ -2,6 +2,28 @@ use crate::*;
 use codeterm_account::Session;
 use serde::de::DeserializeOwned;
 use std::time::Duration;
+
+#[async_trait]
+pub trait InstallationProofSource: Send + Sync {
+    async fn proof(
+        &self,
+        session: &Session,
+        installation_id: &codeterm_account::InstallationId,
+    ) -> Result<codeterm_account::account_mesh::wire::InstallationProof>;
+}
+
+#[async_trait]
+impl InstallationProofSource for codeterm_account::account_mesh::AccountMesh {
+    async fn proof(
+        &self,
+        session: &Session,
+        installation_id: &codeterm_account::InstallationId,
+    ) -> Result<codeterm_account::account_mesh::wire::InstallationProof> {
+        self.entitlements_proof(session, installation_id)
+            .await
+            .map_err(|_| "Installation proof unavailable".into())
+    }
+}
 #[async_trait]
 trait CloudTransport: Send + Sync {
     async fn execute(&self, request: reqwest::Request) -> Result<(bool, serde_json::Value)>;
@@ -30,6 +52,7 @@ pub struct Cloud {
     client: reqwest::Client,
     transport: std::sync::Arc<dyn CloudTransport>,
     installation_id: codeterm_account::InstallationId,
+    installation_proofs: Option<std::sync::Arc<dyn InstallationProofSource>>,
     revocations:
         Option<std::sync::Arc<dyn codeterm_account::session_revocation::SessionRevocationObserver>>,
 }
@@ -37,6 +60,7 @@ impl Cloud {
     pub fn configured(
         override_url: Option<&str>,
         installation_id: codeterm_account::InstallationId,
+        installation_proofs: std::sync::Arc<dyn InstallationProofSource>,
         revocations: std::sync::Arc<
             dyn codeterm_account::session_revocation::SessionRevocationObserver,
         >,
@@ -44,7 +68,9 @@ impl Cloud {
         let endpoint = codeterm_account::firebase_endpoints::configured_functions(override_url)?;
         match endpoint {
             Some(endpoint) => Ok(std::sync::Arc::new(
-                Self::new(endpoint, installation_id)?.with_revocations(revocations),
+                Self::new(endpoint, installation_id)?
+                    .with_installation_proofs(installation_proofs)
+                    .with_revocations(revocations),
             )),
             None => Ok(std::sync::Arc::new(super::local::Unavailable)),
         }
@@ -74,6 +100,7 @@ impl Cloud {
             transport: std::sync::Arc::new(HttpCloudTransport(client.clone())),
             client,
             installation_id,
+            installation_proofs: None,
             revocations: None,
         })
     }
@@ -84,6 +111,7 @@ impl Cloud {
             client: reqwest::Client::new(),
             transport: std::sync::Arc::new(HttpCloudTransport(reqwest::Client::new())),
             installation_id: id,
+            installation_proofs: None,
             revocations: None,
         }
     }
@@ -94,6 +122,13 @@ impl Cloud {
         >,
     ) -> Self {
         self.revocations = Some(observer);
+        self
+    }
+    pub fn with_installation_proofs(
+        mut self,
+        proofs: std::sync::Arc<dyn InstallationProofSource>,
+    ) -> Self {
+        self.installation_proofs = Some(proofs);
         self
     }
     fn request(
@@ -129,13 +164,20 @@ impl Cloud {
             .build()
             .map_err(|_| "Invalid billing request")?;
         let (successful, body) = self.transport.execute(request).await?;
+        if !successful || body.get("error").is_some() {
+            static REFUSALS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let trace_id = REFUSALS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            log::debug!("Billing callable refused: callable={name} status={:?} reason={:?} trace_id={trace_id}",
+                body.pointer("/error/status").and_then(|value| value.as_str()),
+                body.pointer("/error/details/reason").or_else(|| body.pointer("/error/message")).and_then(|value| value.as_str()));
+        }
         if codeterm_account::session_revocation::is_session_revoked(&body) {
             if let Some(observer) = &self.revocations {
                 observer.revoked(session).await;
             }
             return Err(codeterm_account::session_revocation::SESSION_REVOKED.into());
         }
-        if !successful {
+        if !successful || body.get("error").is_some() {
             return Err(refusal_message(&body));
         }
         serde_json::from_value(
@@ -160,6 +202,11 @@ impl Cloud {
             .finish();
         Some(format!("domios-local-dev.{claims}"))
     }
+    fn local_entitlements(&self, session: &Session) -> bool {
+        dev_issuer(&self.base)
+            && session.identity.provider == "local"
+            && session.identity.uid == "local-dev-user"
+    }
     async fn browser_url(
         &self,
         session: &Session,
@@ -183,6 +230,23 @@ impl Cloud {
     }
 }
 
+fn entitlements_request(
+    installation_id: &codeterm_account::InstallationId,
+    proof: Option<codeterm_account::account_mesh::wire::InstallationProof>,
+    local: bool,
+) -> Result<serde_json::Value> {
+    let mut data = serde_json::json!({"installation_id":installation_id});
+    match proof {
+        Some(proof) => {
+            data["installation_proof"] =
+                serde_json::to_value(proof).map_err(|_| "Invalid installation proof")?
+        }
+        None if local => {}
+        None => return Err("Installation proof unavailable".into()),
+    }
+    Ok(data)
+}
+
 /// Only reasons the app acts on cross the boundary; any other refusal stays opaque.
 fn refusal_message(body: &serde_json::Value) -> String {
     if body
@@ -203,8 +267,33 @@ fn refusal_message(body: &serde_json::Value) -> String {
         Some("confirmation_pending") => "confirmation_pending: Your change is awaiting confirmation. Do not submit it again.".into(),
         Some("subscription_unavailable") => "subscription_unavailable: Plan changes are unavailable for this subscription.".into(),
         Some("same_tier") => "same_tier: You already subscribe to this tier.".into(),
-        _ => "Billing request refused".into(),
+        reason => checkout_refusal(reason).or_else(|| checkout_refusal(body.pointer("/error/message").and_then(|value| value.as_str())))
+            .unwrap_or("Billing request refused").into(),
     }
+}
+
+fn checkout_refusal(reason: Option<&str>) -> Option<&'static str> {
+    Some(match reason? {
+        "unknown_plan" | "Unknown billing plan" => {
+            "This billing plan is unavailable. Choose a plan from the current catalog."
+        }
+        "catalog_selection_unavailable" | "Catalog selection unavailable" => {
+            "This catalog selection is unavailable. Refresh the catalog and choose again."
+        }
+        "catalog_selection_mismatch" | "Catalog selection mismatch" => {
+            "This price does not match the billing catalog. Refresh the catalog and choose again."
+        }
+        "reviewed_catalog_required" | "Reviewed provider catalog required" => {
+            "Checkout is unavailable until the billing catalog is reviewed."
+        }
+        "select_catalog_price" | "Select a catalog price" => {
+            "Select a price from the billing catalog to continue."
+        }
+        "trial_admission_pending" | "Verified trial payment admission pending" => {
+            "Trial checkout is not available yet. Choose a plan without a trial or try again later."
+        }
+        _ => return None,
+    })
 }
 
 /// DEV QA issuer on loopback; its verdicts still need the pinned TEST signature to count.
@@ -223,7 +312,20 @@ impl BillingProvider for Cloud {
         self.call(session, name, data).await
     }
     async fn entitlements(&self, session: &Session) -> Result<Reading> {
-        let data = serde_json::json!({"installation_id":self.installation_id});
+        let local = cfg!(debug_assertions) && self.local_entitlements(session);
+        let proof = if local {
+            None
+        } else {
+            Some(
+                self.installation_proofs
+                    .as_ref()
+                    .ok_or("Installation proof unavailable")?
+                    .proof(session, &self.installation_id)
+                    .await
+                    .map_err(|_| "Installation proof unavailable")?,
+            )
+        };
+        let data = entitlements_request(&self.installation_id, proof, local)?;
         self.call::<ApplicationEnvelope>(session, "getEntitlements", data)
             .await
             .map(Reading::from)

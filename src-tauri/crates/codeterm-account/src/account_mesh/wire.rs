@@ -16,6 +16,8 @@ pub const ROUTE_ADMISSION: &str = "accountMeshAdmission";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub enum ProofEndpoint {
+    #[serde(rename = "getEntitlements")]
+    GetEntitlements,
     #[serde(rename = "enrollInstallation")]
     EnrollInstallation,
     #[serde(rename = "meshAdmission")]

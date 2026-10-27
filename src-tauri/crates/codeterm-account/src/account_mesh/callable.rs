@@ -130,6 +130,25 @@ impl<T: CallableTransport> MeshRegistry for CallableRegistry<T> {
         session: &Session,
         request: &ChallengeRequest,
     ) -> RegistryResult<String> {
+        if request.endpoint == ProofEndpoint::GetEntitlements {
+            let installation_id = request
+                .body
+                .get("installation_id")
+                .ok_or(RegistryRefusal::Invalid)?;
+            return self
+                .call::<ChallengeResult>(
+                    "issueInstallationChallenge",
+                    session,
+                    &serde_json::json!({
+                        "installation_id": installation_id,
+                        "endpoint": request.endpoint,
+                        "key_id": request.key_id,
+                        "body": request.body,
+                    }),
+                )
+                .await
+                .map(|result| result.nonce);
+        }
         self.call::<ChallengeResult>(ROUTE_CHALLENGE, session, request)
             .await
             .map(|result| result.nonce)
