@@ -3,7 +3,7 @@ use crate::wire::Kind;
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Permission {
     pub allowed: bool,
@@ -11,12 +11,43 @@ pub struct Permission {
     pub allow_tab_requests: bool,
     #[serde(default)]
     pub allow_interactive_content: bool,
+    #[serde(default = "enabled")]
+    pub allow_memory: bool,
+    #[serde(default = "enabled")]
+    pub allow_files: bool,
+    #[serde(default)]
+    pub folder: Option<String>,
+}
+
+fn enabled() -> bool {
+    true
+}
+
+impl Default for Permission {
+    fn default() -> Self {
+        Self {
+            allowed: false,
+            scope: String::new(),
+            allow_tab_requests: false,
+            allow_interactive_content: false,
+            allow_memory: true,
+            allow_files: true,
+            folder: None,
+        }
+    }
 }
 
 impl Permission {
     pub fn validate(&self) -> Result<()> {
         if self.scope.len() > 8192 || self.allowed && self.scope.trim().is_empty() {
             return Err(Error::InvalidEnvelope);
+        }
+        if self.folder.as_ref().is_some_and(|folder| {
+            folder.len() > 4096
+                || folder.contains(['\0', '\r', '\n'])
+                || !std::path::Path::new(folder).is_absolute()
+        }) {
+            return Err(Error::InvalidRequest);
         }
         Ok(())
     }

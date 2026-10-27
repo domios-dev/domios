@@ -29,6 +29,7 @@ use zeroize::Zeroizing;
 
 #[derive(Default)]
 pub struct NeighborRuntimeCell {
+    pub(super) concierge_accounts: parking_lot::Mutex<HashMap<String, String>>,
     registry_snapshot: parking_lot::Mutex<Option<Value>>,
     owner: parking_lot::Mutex<Option<tokio::sync::mpsc::Sender<owner::Request>>>,
     pub(super) generation: AtomicU64,
@@ -912,6 +913,7 @@ impl ServiceContext {
             return Ok(());
         }
         let settings = metadata.settings().await.map_err(|e| e.to_string())?;
+        self.remember_neighbor_concierge_accounts(&transport.uid, &settings);
         let keys = InstallationKeys {
             store: &OsKeyStore,
             registry: registry.as_ref(),
