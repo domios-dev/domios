@@ -62,11 +62,12 @@ export function AgentStateIndicator({
   const phase = activity.phase;
   const work = useComposerBackgroundWorkStatus();
   const background = backgroundOwnsTool(activeTool, work.items);
-  const runningTool = activity.kind === "working" && !background ? activeTool : undefined;
-  const statusMessage = background && activity.kind === "working"
+  const compacting = phase === "compacting";
+  const runningTool = activity.kind === "working" && !background && !compacting ? activeTool : undefined;
+  const statusMessage = background && activity.kind === "working" && !compacting
     ? activity.status
     : runningTool ? activityLabel(runningTool) : activity.label;
-  const stableMessage = useStableStatusLabel(statusMessage, activity.kind, !runningTool && !background && activity.genericWork === true);
+  const stableMessage = useStableStatusLabel(statusMessage, compacting ? "compacting" : activity.kind, !runningTool && !background && activity.genericWork === true);
   const status = runtimeActivityLabel(stableMessage, activity.kind, runtimeState, Date.now(), activity.lastTurnMs);
   const detail = runningTool ? activityCommand(runningTool) : undefined;
   const actualEffort = reasoningEffort?.actual_source === "session-owned"
