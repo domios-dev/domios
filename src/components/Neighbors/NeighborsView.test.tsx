@@ -841,3 +841,19 @@ it("explains a send refused by today's sending limit across all friends", async 
   await act(async () => { document.querySelector<HTMLButtonElement>("[data-testid=composer-send-button]")!.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, button: 0 })); });
   expect(document.body.textContent).toContain("You reached today's sending limit (200). It resets in");
 });
+
+it("shows today's numbers under the friend's name and leaves out what is unknown", async () => {
+  const conciergeClient = concierge([{ direction: "in", kind: "question", author: "friend", body: "Hi", at: Date.now(), message_id: "t1" }]);
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, incoming: [], outgoing: [],
+    friends: [{ ...neighbor, sent_today: 3, their_daily_limit: 20 }] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
+  await act(async () => button("Ada, connected").click());
+  const stats = document.querySelector('[aria-label="Today with this friend"]')?.textContent ?? "";
+  expect(stats).toContain("3 of 20 sent today");
+  expect(stats).toContain("1 received today");
+  expect(stats).not.toContain("files today");
+});

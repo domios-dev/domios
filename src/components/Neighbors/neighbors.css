@@ -1257,3 +1257,10 @@ button.neighbor-file:hover {
   border-radius: 10px;
   background: color-mix(in srgb, var(--ct-accent) 6%, var(--ct-bg));
 }
+
+.neighbor-friend__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.35rem;
+}

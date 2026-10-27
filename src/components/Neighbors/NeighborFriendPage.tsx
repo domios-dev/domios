@@ -12,13 +12,14 @@ import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { useMuxSelector } from "../../store/multiplexer";
 import { ChangeConciergeDialog } from "./ChangeConciergeDialog";
 import { focusTab, workspaceOfTab } from "./neighborAgent";
-import type { NeighborConciergeClient, NeighborNotify } from "./neighborConciergeClient";
+import type { HistoryEntry, NeighborConciergeClient, NeighborNotify } from "./neighborConciergeClient";
+import { Chip } from "../shared/Chip";
 import { openNeighbor } from "./neighborFocus";
 import { neighborName, type Neighbor } from "./neighborModel";
 import { MissingConciergeNotice } from "./NeighborPanel";
 import { NeighborPermissionsEditor } from "./NeighborPermissionsEditor";
 import { formatBytes, neighborFilesClient, type NeighborFileQuota, type NeighborFilesClient } from "./neighborFilesClient";
-import { formatUntil } from "../../lib/timeLabels";
+import { formatAge, formatUntil } from "../../lib/timeLabels";
 import type { NeighborPermission, NeighborRuntimeClient } from "./neighborRuntimeClient";
 import { useConciergeStatus, type ConciergeStatus } from "./useConciergeStatus";
 import { useNeighborPermission } from "./useNeighborPermission";
@@ -59,6 +60,13 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, focusPerm
   const [notify, setNotify] = useState<NeighborNotify>(friend.notify ?? "in_app");
   const [error, setError] = useState<string | null>(null);
   const [quota, setQuota] = useState<NeighborFileQuota | null>(null);
+  // The newest page of the conversation is enough to count today's messages from them and date the last one.
+  const [recent, setRecent] = useState<HistoryEntry[] | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    conciergeClient.history(friendship, undefined, controller.signal).then(page => setRecent(page.entries), () => setRecent(null));
+    return () => controller.abort();
+  }, [conciergeClient, friendship]);
   useEffect(() => {
     const controller = new AbortController();
     filesClient.usage(friendship, controller.signal).then(setQuota, () => setQuota(null));
@@ -103,6 +111,7 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, focusPerm
             <p className="neighbor-status"><span className="neighbor-dot" data-tone={enabled && !locked ? "ok" : "muted"} aria-hidden="true" />{status}
               <span className="neighbor-note">, since {new Date(friend.since * 1000).toLocaleDateString()}</span></p>
             {receiver && <p className="neighbor-note">{receivingLine(receiver)}</p>}
+            <FriendStats friend={friend} quota={quota} history={recent} />
           </div>
         </header>
         {error && <InlineErrorNotice error={error} operation={`managing ${name}`} role="alert" />}
@@ -168,4 +177,21 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, focusPerm
     {changing && <ChangeConciergeDialog friendship={friendship} name={name} currentProvider={gateway?.agent_type ?? null}
       client={conciergeClient} onClose={() => setChanging(false)} />}
   </div>;
+}
+
+/** One quiet line of today's numbers; a value we do not know yet is left out rather than guessed. */
+function FriendStats({ friend, quota, history }: { friend: Neighbor; quota: NeighborFileQuota | null; history: HistoryEntry[] | null }) {
+  const now = Date.now();
+  const today = new Date(now).toDateString();
+  const received = history?.filter(entry => entry.direction === "in" && new Date(entry.at).toDateString() === today).length;
+  const last = history && history.length > 0 ? Math.max(...history.map(entry => entry.at)) : null;
+  const chips = [
+    typeof friend.sent_today === "number" ? (typeof friend.their_daily_limit === "number"
+      ? `${friend.sent_today} of ${friend.their_daily_limit} sent today` : `${friend.sent_today} sent today`) : null,
+    received !== undefined ? `${received} received today` : null,
+    quota ? `${formatBytes(quota.friend.used_bytes)} of ${formatBytes(quota.friend.limit_bytes)} files today` : null,
+    last !== null ? `last message ${formatAge(last, now)}` : null,
+  ].filter((chip): chip is string => chip !== null);
+  if (chips.length === 0) return null;
+  return <p className="neighbor-friend__stats" aria-label="Today with this friend">{chips.map(chip => <Chip key={chip} variant="muted">{chip}</Chip>)}</p>;
 }
