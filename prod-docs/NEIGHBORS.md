@@ -69,4 +69,8 @@ Concierges and permissions belong to each installation. Moving receiving keeps t
 
 Notifications default to `in_app` per friend. Choose `off`, `in_app` or `in_app_and_bridges`; the bridges option uses the configured notification channels and their existing audiences and limits. The local owner or authenticated General Agent can read `{operation:"notification_preference",friendship_id}` and write `{operation:"set_notification_preference",friendship_id,notify}` on the runtime API. Both return `{friendship_id,notify}`. List rows include `notify`; status includes `notification_preferences`; changes emit `neighbor-notification-changed`. Incoming messages, including refusal replies, get at most a 120-character first-line preview and an Open Neighbor action. Full bodies and outgoing messages never become notification previews. Neighbors off and sign-out stop these notices.
 
-<!-- revision: 10 -->
+When an agent's send is refused by a daily, hourly or plan limit, or because the recipient is not receiving, the owner gets a metadata-only notice under that friend's notification preference. It names the failed reply or agent message and the refusal reason, including reset or retry timing when supplied. Owner-authored sends stay silent. Outgoing history and receipts preserve `reason`, `limit`, `resets_at` and `retry_after_seconds` where applicable. An uncertain submission remains pending and does not generate a rejection notice.
+
+When a friendship ends, its local inbox targets stop and its concierge closes into Recently closed with its transcript. Its binding is cleared; the local friend conversation remains available as ended. This happens for either side's removal and does not affect other friendships.
+
+<!-- revision: 12 -->

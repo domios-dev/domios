@@ -73,6 +73,11 @@ fn own_signal_snapshot_refreshes_at_current_and_rejects_foreign_documents() {
         .fields
         .insert("event_id".into(), string("event"));
     assert!(parse_signal(invalid_event).is_err());
+    let mut removed = document(&path);
+    removed
+        .fields
+        .insert("type".into(), string("friend_removed"));
+    assert_eq!(parse_signal(removed).unwrap().removed, vec!["b".repeat(64)]);
 }
 
 #[test]

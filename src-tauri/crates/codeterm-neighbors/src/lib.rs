@@ -38,6 +38,9 @@ pub enum Error {
     LimitOutOfRange,
     InvalidRequest,
     FriendshipNotFound,
+    RecipientLocked,
+    RateLimited { retry_after_seconds: u64 },
+    AggregateLimited { retry_after_seconds: u64 },
     Firestore { code: i32, operation: &'static str },
     ListenProtocol { kind: &'static str },
 }
@@ -55,6 +58,18 @@ impl std::fmt::Display for Error {
                 f,
                 "neighbor_daily_limit: {{\"limit\":{limit},\"resets_at\":{resets_at}}}"
             );
+        }
+        let window = match self {
+            Self::RateLimited {
+                retry_after_seconds,
+            } => Some(("rate_limited", retry_after_seconds)),
+            Self::AggregateLimited {
+                retry_after_seconds,
+            } => Some(("aggregate_limited", retry_after_seconds)),
+            _ => None,
+        };
+        if let Some((reason, seconds)) = window {
+            return write!(f, "{reason}: {{\"retry_after_seconds\":{seconds}}}");
         }
         f.write_str(match self {
             Self::InvalidEnvelope => "Invalid Neighbor envelope",
@@ -89,7 +104,8 @@ impl std::fmt::Display for Error {
             Self::LimitOutOfRange => "limit_out_of_range: Choose a valid daily message limit",
             Self::InvalidRequest => "invalid_request: Invalid Neighbor request",
             Self::FriendshipNotFound => "friendship_not_found: Neighbor friendship not found",
-            Self::Firestore { .. } | Self::DailyLimit { .. } | Self::ListenProtocol { .. } => unreachable!(),
+            Self::RecipientLocked => "recipient_locked: This Neighbor's plan does not allow the channel",
+            Self::Firestore { .. } | Self::DailyLimit { .. } | Self::ListenProtocol { .. } | Self::RateLimited { .. } | Self::AggregateLimited { .. } => unreachable!(),
         })
     }
 }

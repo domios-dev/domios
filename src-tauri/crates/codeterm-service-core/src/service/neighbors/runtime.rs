@@ -492,6 +492,37 @@ impl ServiceContext {
         metadata: &Metadata,
         outgoing: Outgoing,
     ) -> codeterm_neighbors::Result<Value> {
+        let generation = self.neighbor_history_generation();
+        let friendship = outgoing.friendship.clone();
+        let agent = super::notifications::AgentNotice::for_author(
+            &outgoing.author,
+            outgoing.in_reply_to.is_some(),
+        );
+        let result = self
+            .send_neighbor_once(transport, lifecycle, metadata, outgoing)
+            .await;
+        let rejection = match &result {
+            Ok(result) => result.rejection,
+            Err(error) => super::delivery::Rejection::from_error(*error),
+        };
+        if let (Some(agent), Some(rejection)) = (agent, rejection) {
+            if let Err(error) = self
+                .notify_neighbor_rejection(metadata, &friendship, agent, rejection, generation)
+                .await
+            {
+                log::debug!("[neighbors] rejected-send notification unavailable: {error}");
+            }
+        }
+        result.map(|result| result.receipt)
+    }
+
+    async fn send_neighbor_once(
+        &self,
+        transport: &FirebaseTransport,
+        lifecycle: &InstallationKeys<'_>,
+        metadata: &Metadata,
+        outgoing: Outgoing,
+    ) -> codeterm_neighbors::Result<super::delivery::SendResult> {
         self.require_neighbors_enabled()?;
         let generation = self.neighbor_history_generation();
         let Outgoing {
@@ -585,6 +616,7 @@ impl ServiceContext {
                 reason: None,
                 limit: None,
                 resets_at: None,
+                retry_after_seconds: None,
                 delivery_status: Some(codeterm_neighbors::wire::DeliveryStatus::Pending),
             },
             generation,
@@ -598,10 +630,11 @@ impl ServiceContext {
             Err(_) => codeterm_neighbors::wire::DeliveryStatus::NotDelivered,
         };
         if self.require_neighbor_history_generation(generation).is_ok() {
-            let refusal = match &result {
-                Err(Error::DailyLimit { limit, resets_at }) => Some((*limit, *resets_at)),
-                _ => None,
-            };
+            let refusal = result
+                .as_ref()
+                .err()
+                .copied()
+                .and_then(super::delivery::Rejection::from_error);
             if let Err(error) = self
                 .update_neighbor_history_status(
                     metadata,
@@ -615,16 +648,62 @@ impl ServiceContext {
                 log::debug!("[neighbors] local delivery status write failed: {error}");
             }
         }
-        match result {
-            Err(Error::DailyLimit { limit, resets_at }) => Ok(
-                json!({"message_id":signed.envelope.message_id,"status":"not_delivered","reason":"neighbor_daily_limit","limit":limit,"resets_at":resets_at}),
-            ),
-            Ok(status) => Ok(json!({"message_id":signed.envelope.message_id,"status":status})),
-            Err(Error::Transport) => Ok(
-                json!({"message_id":signed.envelope.message_id,"status":"pending","submission":"unconfirmed"}),
-            ),
-            Err(error) => Err(error),
+        let refusal = result
+            .as_ref()
+            .err()
+            .copied()
+            .and_then(super::delivery::Rejection::from_error);
+        if let Some(rejection) = refusal {
+            return Ok(super::delivery::SendResult {
+                receipt: rejection.receipt(&signed.envelope.message_id),
+                rejection: Some(rejection),
+            });
         }
+        let receipt = match result {
+            Ok(status) => json!({"message_id":signed.envelope.message_id,"status":status}),
+            Err(Error::Transport) => {
+                json!({"message_id":signed.envelope.message_id,"status":"pending","submission":"unconfirmed"})
+            }
+            Err(error) => return Err(error),
+        };
+        Ok(super::delivery::SendResult {
+            receipt,
+            rejection: None,
+        })
+    }
+
+    pub(super) fn stop_neighbor_friendship_listeners(
+        &self,
+        friendship: &str,
+    ) -> Vec<tokio::task::JoinHandle<()>> {
+        let mut targets = vec![];
+        {
+            let mut listeners = self.neighbor_cell().listeners.lock();
+            if let Some(handle) = listeners.active.remove(friendship) {
+                let _ = handle.shutdown.send(true);
+                targets.push(handle.task);
+            }
+            if let Some(task) = listeners.retired.remove(friendship) {
+                targets.push(task);
+            }
+        }
+        self.neighbor_cell()
+            .pending_counts
+            .lock()
+            .remove(friendship);
+        self.neighbor_cell().states.lock().remove(friendship);
+        self.neighbor_cell().failures.lock().remove(friendship);
+        targets
+    }
+
+    pub(super) fn neighbor_listener_friendships(&self) -> Vec<String> {
+        let listeners = self.neighbor_cell().listeners.lock();
+        listeners
+            .active
+            .keys()
+            .chain(listeners.retired.keys())
+            .cloned()
+            .collect()
     }
 
     pub(crate) fn stop_neighbor_listeners(&self) {

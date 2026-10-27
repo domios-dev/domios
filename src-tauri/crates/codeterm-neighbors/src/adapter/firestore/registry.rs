@@ -216,6 +216,14 @@ fn parse_signal(document: fs::Document) -> Result<RegistrySignal> {
     Ok(RegistrySignal {
         accepted,
         receiver_revision,
+        removed: if kind == "friend_removed" {
+            vec![friendship
+                .as_str()
+                .ok_or(Error::InvalidEnvelope)?
+                .to_owned()]
+        } else {
+            vec![]
+        },
     })
 }
 

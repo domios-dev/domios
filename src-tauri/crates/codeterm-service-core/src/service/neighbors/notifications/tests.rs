@@ -15,6 +15,7 @@ fn incoming(id: u64) -> Entry {
         reason: None,
         limit: None,
         resets_at: None,
+        retry_after_seconds: None,
         delivery_status: None,
     }
 }
@@ -43,6 +44,81 @@ fn notification_preference_defaults_to_in_app_and_accepts_only_the_three_modes()
     }
     assert!(serde_json::from_value::<NeighborNotify>(json!("all")).is_err());
     assert_eq!(short_line("first\nprivate second", 120), "first");
+}
+
+#[tokio::test]
+async fn agent_rejections_notify_metadata_only_and_owner_sends_stay_silent() {
+    use super::super::{delivery::Rejection, history::Author};
+    let (mux, _) = MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let service = &fixture.service;
+    let metadata = Metadata::new(fixture.temp.path().to_owned(), "owner");
+    let friendship = "a".repeat(64);
+    let generation = service.neighbor_history_generation();
+    assert!(AgentNotice::for_author(&Author::Person("me".into()), false).is_none());
+    let author = Author::Agent {
+        agent: "concierge".into(),
+        name: "Concierge".into(),
+    };
+    for error in [
+        Error::DailyLimit {
+            limit: 7,
+            resets_at: 1793145600,
+        },
+        Error::RateLimited {
+            retry_after_seconds: 60,
+        },
+        Error::AggregateLimited {
+            retry_after_seconds: 90,
+        },
+        Error::Locked,
+        Error::RecipientLocked,
+        Error::RecipientNotReceiving,
+    ] {
+        service
+            .notify_neighbor_rejection(
+                &metadata,
+                &friendship,
+                AgentNotice::for_author(&author, true).unwrap(),
+                Rejection::from_error(error).unwrap(),
+                generation,
+            )
+            .await
+            .unwrap();
+    }
+    let mut settings = metadata.settings().await.unwrap();
+    settings
+        .notifications
+        .insert(friendship.clone(), NeighborNotify::Off);
+    metadata.save_settings(settings).await.unwrap();
+    service
+        .notify_neighbor_rejection(
+            &metadata,
+            &friendship,
+            AgentNotice::for_author(&author, false).unwrap(),
+            Rejection::from_error(Error::Locked).unwrap(),
+            generation,
+        )
+        .await
+        .unwrap();
+    let events = fixture.ui.0.lock();
+    let notices: Vec<_> = events
+        .iter()
+        .filter(|(event, _)| event == "notification-created")
+        .map(|(_, payload)| payload)
+        .collect();
+    assert_eq!(notices.len(), 6);
+    for notice in notices {
+        assert!(notice["title"]
+            .as_str()
+            .unwrap()
+            .contains("your concierge's reply was not delivered"));
+        assert!(notice["body"].is_null());
+        assert_eq!(
+            notice["actions"][0]["value"],
+            format!("domios://neighbor/{friendship}")
+        );
+    }
 }
 
 #[tokio::test]

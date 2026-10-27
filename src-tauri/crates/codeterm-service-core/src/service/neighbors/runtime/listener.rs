@@ -1,5 +1,7 @@
 use super::*;
 use async_trait::async_trait;
+#[cfg(test)]
+mod tests;
 use codeterm_neighbors::{
     supervisor::{supervise, InboxSession, ListenerState, ReceptionEvents},
     wire::{Cursor, InboxMessage},
@@ -34,6 +36,9 @@ pub(super) struct Session {
 
 impl Session {
     pub(super) fn current(&self) -> codeterm_neighbors::Result<()> {
+        if *self.stopped.borrow() {
+            return Err(Error::Revoked);
+        }
         self.service.require_neighbors_enabled()?;
         self.service
             .require_neighbor_receiver(Some(self.receiver_revision))?;

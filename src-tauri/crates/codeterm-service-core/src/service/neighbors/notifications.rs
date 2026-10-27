@@ -28,6 +28,28 @@ pub(super) struct Arrival {
     preview: String,
 }
 
+pub(super) struct AgentNotice {
+    agent: String,
+    reply: bool,
+}
+
+impl AgentNotice {
+    pub(super) fn for_author(author: &super::history::Author, reply: bool) -> Option<Self> {
+        match author {
+            super::history::Author::Agent { agent, .. } => Some(Self {
+                agent: agent.clone(),
+                reply,
+            }),
+            _ => None,
+        }
+    }
+}
+
+enum Notice {
+    Arrival(Arrival),
+    Rejected(AgentNotice, super::delivery::Rejection),
+}
+
 fn short_line(value: &str, limit: usize) -> String {
     let line = value.lines().next().unwrap_or_default();
     let mut chars = line.chars().filter(|ch| !ch.is_control());
@@ -93,6 +115,34 @@ impl ServiceContext {
         arrival: Arrival,
         generation: u64,
     ) -> Result<()> {
+        self.notify_neighbor(metadata, friendship, Notice::Arrival(arrival), generation)
+            .await
+    }
+
+    pub(super) async fn notify_neighbor_rejection(
+        &self,
+        metadata: &Metadata,
+        friendship: &str,
+        agent: AgentNotice,
+        rejection: super::delivery::Rejection,
+        generation: u64,
+    ) -> Result<()> {
+        self.notify_neighbor(
+            metadata,
+            friendship,
+            Notice::Rejected(agent, rejection),
+            generation,
+        )
+        .await
+    }
+
+    async fn notify_neighbor(
+        &self,
+        metadata: &Metadata,
+        friendship: &str,
+        notice: Notice,
+        generation: u64,
+    ) -> Result<()> {
         self.require_neighbor_history_generation(generation)?;
         let settings = metadata.settings().await?;
         let preference = settings.neighbor_notify(friendship);
@@ -104,13 +154,35 @@ impl ServiceContext {
             .get(friendship)
             .cloned()
             .unwrap_or_else(|| "Neighbor".into());
-        let verb = match arrival.kind {
-            Kind::Answer => "replied",
-            Kind::Refusal => "refused",
-            _ => "asked",
+        let (title, gateway, event_key) = match notice {
+            Notice::Arrival(arrival) => {
+                let verb = match arrival.kind {
+                    Kind::Answer => "replied",
+                    Kind::Refusal => "refused",
+                    _ => "asked",
+                };
+                (
+                    format!("{name} {verb}: {}", arrival.preview),
+                    settings.bindings.get(friendship).cloned(),
+                    format!("neighbor-arrival:{friendship}:{}", arrival.message_id),
+                )
+            }
+            Notice::Rejected(agent, rejection) => {
+                let subject = if agent.reply {
+                    "your concierge's reply"
+                } else {
+                    "your agent's message"
+                };
+                (
+                    format!(
+                        "{name}: {subject} was not delivered ({})",
+                        rejection.description()
+                    ),
+                    Some(agent.agent),
+                    format!("neighbor-rejected:{friendship}:{}", uuid::Uuid::new_v4()),
+                )
+            }
         };
-        let title = format!("{name} {verb}: {}", arrival.preview);
-        let gateway = settings.bindings.get(friendship).cloned();
         let friendship = friendship.to_owned();
         let service = self.clone();
         tokio::task::spawn_blocking(move || {
@@ -126,10 +198,7 @@ impl ServiceContext {
                 NotificationOrigin::claimed(gateway),
                 PushIntent {
                     level: Some(crate::notification::push::NotifyLevel::Verbose),
-                    event_key: Some(format!(
-                        "neighbor-arrival:{friendship}:{}",
-                        arrival.message_id
-                    )),
+                    event_key: Some(event_key),
                 },
                 preference == NeighborNotify::InAppAndBridges,
             );

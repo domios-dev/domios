@@ -14,6 +14,22 @@ async fn neighbor_limit_errors_keep_typed_status_and_fields() {
     assert_eq!(body["reason"], "neighbor_daily_limit");
     assert_eq!(body["limit"], 5);
     assert_eq!(body["resets_at"], 1000);
+    for reason in ["rate_limited", "aggregate_limited"] {
+        let response = neighbor_failure(format!("{reason}: {{\"retry_after_seconds\":42}}"));
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        let bytes = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["reason"], reason);
+        assert_eq!(body["retry_after_seconds"], 42);
+    }
+    for reason in ["friends_locked", "recipient_locked"] {
+        assert_eq!(
+            neighbor_failure(format!("{reason}: plan unavailable")).status(),
+            StatusCode::FORBIDDEN
+        );
+    }
     assert_eq!(
         neighbor_failure("limit_out_of_range: invalid daily limit".into()).status(),
         StatusCode::BAD_REQUEST

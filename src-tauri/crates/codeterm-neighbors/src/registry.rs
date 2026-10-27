@@ -10,6 +10,7 @@ pub struct Acceptance {
 pub struct RegistrySignal {
     pub receiver_revision: Option<u64>,
     pub accepted: Vec<Acceptance>,
+    pub removed: Vec<String>,
 }
 
 #[async_trait]
