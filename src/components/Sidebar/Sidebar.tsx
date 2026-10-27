@@ -82,6 +82,8 @@ interface SidebarProps {
   onOpenMemory?: () => void;
   onOpenMesh?: () => void;
   onOpenNeighbors?: () => void;
+  /** The Neighbor whose conversation is the current view, for its row's highlight. */
+  activeNeighborChat?: string | null;
   onNavigateToTab?: () => void;
   mainView?: "workspace" | "settings" | "memory" | "mesh" | "neighbors" | "neighbor" | "git" | "extensions" | "analytics";
   config?: AppConfig;
@@ -102,6 +104,7 @@ export const Sidebar = memo(function Sidebar({
   onOpenMemory,
   onOpenMesh,
   onOpenNeighbors,
+  activeNeighborChat = null,
   onNavigateToTab,
   mainView = "workspace",
   config,
@@ -783,7 +786,7 @@ export const Sidebar = memo(function Sidebar({
                   onOpenJobs={onOpenWorkspaceAutomation}
                 />
               )}
-              {!isCompact && !restoring && <SidebarNeighborsSection uiFontScale={uiFontScale} touchMode={touchMode} onNavigateToTab={onNavigateToTab} enabled={neighborsSwitch.enabled} />}
+              {!isCompact && !restoring && <SidebarNeighborsSection uiFontScale={uiFontScale} touchMode={touchMode} onNavigateToTab={onNavigateToTab} enabled={neighborsSwitch.enabled} activeChat={activeNeighborChat} />}
               {!isCompact && !restoring && <SidebarStructuralSection label="WORKSPACES" testId="workspaces-section-toggle"
                 expanded={workspacesSectionExpanded} onToggle={toggleWorkspacesSection}>
                 {workspaceSectionBodyVisible(isCompact, workspacesSectionExpanded) && (

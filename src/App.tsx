@@ -825,6 +825,7 @@ function AppInner() {
                 onOpenMemory={openMemoryFromSidebar}
                 onOpenMesh={openMeshFromSidebar}
                 onOpenNeighbors={openNeighborsFromSidebar}
+                activeNeighborChat={mainView === "neighbor" ? neighborChat : null}
                 onNavigateToTab={handleNavigateToTab}
                 mainView={mainView}
                 config={config}

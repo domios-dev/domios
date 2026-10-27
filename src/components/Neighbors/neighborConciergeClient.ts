@@ -12,6 +12,9 @@ export interface HistoryEntry {
   /** Incoming only: how your side handled it, and why when it was refused. */
   outcome?: "refused" | "answered";
   reason?: string;
+  /** Set on a message the daily limit refused: the limit and when it resets, in unix milliseconds. */
+  limit?: number;
+  resets_at?: number;
   author: HistoryAuthor;
   body: string;
   /** Unix milliseconds. */
@@ -29,9 +32,13 @@ export interface NeighborConciergeClient {
   onAgentChanged(handler: (friendship: string, gatewayTab: string) => void): Promise<() => void>;
   setPermission(friendship: string, permission: NeighborPermission): Promise<void>;
   changeAgent(friendship: string, provider: string, model?: string): Promise<string>;
+  setDailyLimit(friendship: string, dailyLimit: number | null): Promise<void>;
+  onDailyLimitChanged(handler: (friendship: string) => void): Promise<() => void>;
 }
 
 const KINDS: readonly HistoryKind[] = ["question", "answer", "refusal", "tab_request"];
+// Reset times may arrive in seconds or milliseconds; anything before 2001 in milliseconds is seconds.
+const unixMillis = (value: number) => value < 1e12 ? value * 1000 : value;
 const record = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 
 function author(value: unknown): HistoryAuthor {
@@ -54,6 +61,8 @@ export function parseHistory(value: unknown): HistoryPage {
         ...(typeof entry.in_reply_to === "string" ? { in_reply_to: entry.in_reply_to } : {}),
         ...(entry.outcome === "refused" || entry.outcome === "answered" ? { outcome: entry.outcome } : {}),
         ...(typeof entry.reason === "string" ? { reason: entry.reason } : {}),
+        ...(typeof entry.limit === "number" ? { limit: entry.limit } : {}),
+        ...(typeof entry.resets_at === "number" ? { resets_at: unixMillis(entry.resets_at) } : {}),
         ...(entry.delivery_status === undefined ? {} : { delivery_status: deliveryStatus(entry.delivery_status) }) };
     }),
   };
@@ -71,6 +80,10 @@ export const neighborConciergeClient: NeighborConciergeClient = {
     if (typeof event.payload?.friendship_id === "string" && typeof event.payload.gateway_tab === "string") handler(event.payload.friendship_id, event.payload.gateway_tab);
   }),
   setPermission: async (friendship, permission) => { await runtimeCall({ operation: "set_permission", friendship_id: friendship, permission }); },
+  setDailyLimit: async (friendship, dailyLimit) => { await runtimeCall({ operation: "set_daily_limit", friendship_id: friendship, daily_limit: dailyLimit }); },
+  onDailyLimitChanged: handler => listen<{ friendship_id?: unknown }>("neighbor-daily-limit-changed", event => {
+    if (typeof event.payload?.friendship_id === "string") handler(event.payload.friendship_id);
+  }),
   changeAgent: async (friendship, provider, model) => {
     const value = await runtimeCall({ operation: "change_agent", friendship_id: friendship, provider, ...(model ? { model } : {}) });
     if (!record(value) || typeof value.gateway_tab !== "string") throw new Error("Invalid concierge change");

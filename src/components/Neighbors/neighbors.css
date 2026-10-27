@@ -946,3 +946,12 @@
 .neighbor-chat__privacy {
   justify-content: center;
 }
+
+.sidebar-neighbors .sidebar-tab[data-active] {
+  border-radius: 8px;
+  background: var(--ct-active);
+}
+
+.neighbor-chat__limit {
+  text-align: center;
+}

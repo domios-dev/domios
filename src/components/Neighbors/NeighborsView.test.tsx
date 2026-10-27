@@ -139,7 +139,7 @@ it("manages a Neighbor from its panel: limit, talk about, and revoke only after 
   const { client } = await render();
   await act(async () => button("Ada, connected").click());
   await act(async () => button("Configure").click());
-  const input = document.querySelector<HTMLInputElement>('input[type="number"]')!;
+  const input = Array.from(document.querySelectorAll<HTMLLabelElement>("label")).find(label => label.textContent === "Incoming requests per hour")!.control as HTMLInputElement;
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "42");
     input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -318,7 +318,8 @@ it("offers the concierge actions: change agent, view permissions and edit with G
 
 it("saves permissions directly and refuses an allowed grant without a scope", async () => {
   const conciergeClient = { history: vi.fn(), onHistoryChanged: vi.fn(async () => () => {}), onPermissionChanged: vi.fn(async () => () => {}),
-    onAgentChanged: vi.fn(async () => () => {}), setPermission: vi.fn(async () => {}), changeAgent: vi.fn() };
+    onAgentChanged: vi.fn(async () => () => {}), setPermission: vi.fn(async () => {}), changeAgent: vi.fn(),
+    setDailyLimit: vi.fn(async () => {}), onDailyLimitChanged: vi.fn(async () => () => {}) };
   const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
   const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
     claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
@@ -383,6 +384,7 @@ function concierge(entries: HistoryEntry[]): NeighborConciergeClient & { changed
     onHistoryChanged: vi.fn(async (handler: (friendship: string) => void) => { changed = handler; return () => {}; }),
     onPermissionChanged: vi.fn(async () => () => {}), onAgentChanged: vi.fn(async () => () => {}),
     setPermission: vi.fn(async () => {}), changeAgent: vi.fn(async () => "tab-gateway"),
+    setDailyLimit: vi.fn(async () => {}), onDailyLimitChanged: vi.fn(async () => () => {}),
     changed: (friendship: string) => changed(friendship),
   };
 }
@@ -418,4 +420,21 @@ it("shows the conversation with a refused question, its linked refusal and deliv
   expect(conciergeClient.history).toHaveBeenCalledTimes(2);
   await act(async () => conciergeClient.changed("pair"));
   expect(conciergeClient.history).toHaveBeenCalledTimes(3);
+});
+
+it("shows their daily allowance, explains a limit refusal and holds the composer once the day is used up", async () => {
+  const entries: HistoryEntry[] = [
+    { direction: "out", kind: "question", author: "me", body: "One more thing", at: 1700000000000, message_id: "m9",
+      delivery_status: "not_delivered", reason: "neighbor_daily_limit", limit: 3, resets_at: 4102444800000 },
+  ];
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, outgoing: [], incoming: [],
+    friends: [{ ...neighbor, their_daily_limit: 3, sent_today: 3, my_daily_limit: null }] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtime()} conciergeClient={concierge(entries)} />));
+  expect(document.body.textContent).toContain("3/day, 3 sent today");
+  expect(document.getElementById("neighbor-msg-m9")?.textContent).toContain("Limit reached: Ada allows 3 messages a day; ask them to raise it.");
+  expect(document.querySelector<HTMLTextAreaElement>("textarea")!.disabled).toBe(true);
 });

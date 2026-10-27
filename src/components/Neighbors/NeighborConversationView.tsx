@@ -11,6 +11,7 @@ import { RowMenuButton } from "../shared/RowMenuButton";
 import { BusyState } from "../shared/BusyState";
 import { UI_INPUT, UI_PANEL } from "../shared/design";
 import { useMuxSelector } from "../../store/multiplexer";
+import { formatUntil } from "../../lib/timeLabels";
 import { askGeneralAgent, permissionInterviewTask } from "./neighborAgent";
 import type { NeighborClient } from "./neighborClient";
 import { neighborConciergeClient, type HistoryEntry, type NeighborConciergeClient } from "./neighborConciergeClient";
@@ -36,11 +37,11 @@ export function NeighborConversationView({ friendship, enabled = true, client, r
     </div>;
   }
   return <Conversation key={friendship} friend={friend} locked={neighbors.list?.access !== "paid"} enabled={enabled}
-    runtimeClient={runtimeClient} conciergeClient={conciergeClient} />;
+    runtimeClient={runtimeClient} conciergeClient={conciergeClient} onSent={neighbors.refresh} />;
 }
 
-function Conversation({ friend, locked, enabled, runtimeClient, conciergeClient }: {
-  friend: Neighbor; locked: boolean; enabled: boolean; runtimeClient: NeighborRuntimeClient; conciergeClient: NeighborConciergeClient;
+function Conversation({ friend, locked, enabled, runtimeClient, conciergeClient, onSent }: {
+  friend: Neighbor; locked: boolean; enabled: boolean; runtimeClient: NeighborRuntimeClient; conciergeClient: NeighborConciergeClient; onSent: () => void;
 }) {
   const name = neighborName(friend);
   const friendship = friend.friendship_id;
@@ -91,13 +92,15 @@ function Conversation({ friend, locked, enabled, runtimeClient, conciergeClient 
   };
 
   const byId = new Map((entries ?? []).map(entry => [entry.message_id, entry]));
-  const canSend = enabled && !locked;
+  const allowance = typeof friend.their_daily_limit === "number" ? { limit: friend.their_daily_limit, sent: friend.sent_today ?? 0 } : null;
+  const limitReached = allowance !== null && allowance.sent >= allowance.limit;
+  const canSend = enabled && !locked && !limitReached;
   const send = () => {
     const body = draft.trim();
     if (!body || sending || !canSend) return;
     setSending(true); setError(null); stickToEnd.current = true;
     setDraft("");
-    void runtimeClient.send(friendship, body).then(() => loadLatest(),
+    void runtimeClient.send(friendship, body).then(() => { onSent(); return loadLatest(); },
       (failure: unknown) => { setDraft(body); setError(failure instanceof Error ? failure.message : "The message was not sent."); })
       .finally(() => setSending(false));
   };
@@ -108,6 +111,7 @@ function Conversation({ friend, locked, enabled, runtimeClient, conciergeClient 
       <strong className="min-w-0 truncate">{name}</strong>
       <span className="neighbor-status"><span className="neighbor-dot" data-tone={enabled && !locked ? "ok" : "muted"} aria-hidden="true" />
         {!enabled ? "Neighbors is off" : locked ? "paused by plan" : "connected"}</span>
+      {allowance && <span className="neighbor-note" title={`${name} allows you ${allowance.limit} messages a day`}>{allowance.limit}/day, {allowance.sent} sent today</span>}
       <span className="ml-auto" />
       <DropdownMenu menuLabel={`${name} actions`} items={[
         { label: "View permissions", onClick: () => openNeighbor(friendship, "configure") },
@@ -142,10 +146,11 @@ function Conversation({ friend, locked, enabled, runtimeClient, conciergeClient 
     </div>
     <div className="neighbor-chat__composer">
       {error && <InlineErrorNotice error={error} operation={`messaging ${name}`} role="alert" />}
+      {limitReached && enabled && !locked && <p role="status" className="neighbor-note neighbor-chat__limit">Limit reached: {name} allows {allowance!.limit} {allowance!.limit === 1 ? "message" : "messages"} a day. Ask them to raise it.</p>}
       <form className="neighbor-chat__form" onSubmit={event => { event.preventDefault(); send(); }}>
         <label htmlFor={field} className="sr-only">Message to {name}</label>
         <textarea id={field} className={`${UI_INPUT.full} neighbor-chat__input`} rows={1} value={draft} disabled={!canSend}
-          placeholder={!enabled ? "Neighbors is off" : locked ? "Messages are paused by your plan" : `Message ${name}`}
+          placeholder={!enabled ? "Neighbors is off" : locked ? "Messages are paused by your plan" : limitReached ? "Daily limit reached" : `Message ${name}`}
           onChange={event => setDraft(event.currentTarget.value)}
           onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); send(); } }} />
         <Button type="submit" variant="primary" size="sm" aria-label="Send" loading={sending} disabled={!canSend || !draft.trim()}><Send size={14} aria-hidden="true" /></Button>
@@ -173,7 +178,9 @@ function Entry({ entry, friend, friendName, quoted, onOpenQuoted }: {
       </div>
       <p className="neighbor-msg__meta">
         <time dateTime={new Date(entry.at).toISOString()} title={new Date(entry.at).toLocaleString()}>{time}</time>
-        {mine && entry.delivery_status && <span className="neighbor-status"><span className="neighbor-dot"
+        {mine && entry.reason === "neighbor_daily_limit" ? <span className="neighbor-status neighbor-msg__refused"><span className="neighbor-dot" data-tone="danger" aria-hidden="true" />
+          Limit reached: {friendName} allows {entry.limit ?? "a few"} messages a day; ask them to raise it.{entry.resets_at ? ` Resets ${formatUntil(entry.resets_at, Date.now())}.` : ""}</span>
+        : mine && entry.delivery_status && <span className="neighbor-status"><span className="neighbor-dot"
           data-tone={entry.delivery_status === "delivered" ? "ok" : entry.delivery_status === "pending" ? "progress" : "danger"} aria-hidden="true" />{DELIVERY_LABEL[entry.delivery_status]}</span>}
         {!mine && entry.outcome === "refused" && <span className="neighbor-status neighbor-msg__refused"><span className="neighbor-dot" data-tone="danger" aria-hidden="true" />refused{entry.reason ? `: ${entry.reason}` : ""}</span>}
         {!mine && entry.outcome === "answered" && <span className="neighbor-status"><span className="neighbor-dot" data-tone="ok" aria-hidden="true" />answered</span>}

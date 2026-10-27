@@ -32,9 +32,10 @@ function useTabMap() {
   return { workspaces, tabs };
 }
 
-function SelectedNeighbor({ owner, neighbor, locked, pending, runtimeClient, initialSection, onTalkAbout, onInterview, onSavePermission, onLimit, onRemove, onClose }: {
+function SelectedNeighbor({ owner, neighbor, locked, pending, runtimeClient, initialSection, onTalkAbout, onInterview, onSavePermission, onSaveDailyLimit, onLimit, onRemove, onClose }: {
   owner: string; neighbor: Neighbor; locked: boolean; pending: boolean; runtimeClient: NeighborRuntimeClient; initialSection: "configure" | null;
   onTalkAbout: () => void; onInterview: () => void; onSavePermission: (permission: NeighborPermission) => Promise<void>;
+  onSaveDailyLimit: (dailyLimit: number | null) => Promise<void>;
   onLimit: (limit: number) => Promise<boolean>; onRemove: () => Promise<boolean>; onClose: () => void;
 }) {
   const channel = useNeighborChannel(owner, neighbor.friendship_id, runtimeClient);
@@ -44,7 +45,7 @@ function SelectedNeighbor({ owner, neighbor, locked, pending, runtimeClient, ini
   return <NeighborPanel neighbor={neighbor} name={neighborName(neighbor)} locked={locked} pending={pending} channel={channel}
     gateway={gatewayId && gatewayTab ? { title: gatewayTab.title } : null}
     onOpenGateway={() => { if (gatewayId) focusTab(gatewayId, workspaceOfTab(tabMap, gatewayId)); }}
-    initialSection={initialSection} onSavePermission={onSavePermission}
+    initialSection={initialSection} onSavePermission={onSavePermission} onSaveDailyLimit={onSaveDailyLimit}
     onTalkAbout={onTalkAbout} onInterview={onInterview} onLimit={onLimit} onRemove={onRemove} onPlans={openPlans} onClose={onClose} />;
 }
 
@@ -179,6 +180,7 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, conciergeC
       {enabled && friend && identity && <SelectedNeighbor key={`${friend.friendship_id}:${openSection ?? ""}`} owner={identity} neighbor={friend} locked={!paid} pending={neighbors.pending}
         runtimeClient={runtimeClient} initialSection={openSection}
         onSavePermission={permission => conciergeClient.setPermission(friend.friendship_id, permission)}
+        onSaveDailyLimit={dailyLimit => conciergeClient.setDailyLimit(friend.friendship_id, dailyLimit)}
         onTalkAbout={() => ask(talkAboutTask({ name: neighborName(friend), friendshipId: friend.friendship_id }))}
         onInterview={() => interview({ name: neighborName(friend), friendshipId: friend.friendship_id })}
         onLimit={per_hour => neighbors.apply({ operation: "set_limit", friendship_id: friend.friendship_id, per_hour })}

@@ -87,7 +87,7 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
       const status = !enabled ? "off" : paid ? "connected" : "paused by plan";
       return <li key={friend.friendship_id}>
         <SurfaceOwnerBlock ownerId={`neighbor:${friend.friendship_id}`} attachments={concierge ? [concierge] : []} compact={false}
-          renderOwner={() => <div className={`${ROW} ${rowPadding}`}>
+          renderOwner={() => <div className={`${ROW} ${rowPadding}`} data-active={activeChat === friend.friendship_id || undefined}>
             <button type="button" className={`sidebar-tab-activation flex flex-1 items-center min-w-0 border-0 bg-transparent p-0 text-left text-inherit cursor-pointer ${touchMode ? "gap-2.5" : "gap-2"}`}
               aria-label={`Open ${name}`} aria-current={activeChat === friend.friendship_id ? "page" : undefined}
               onClick={() => openNeighborChat(friend.friendship_id)}>

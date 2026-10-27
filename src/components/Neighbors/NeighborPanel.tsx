@@ -57,12 +57,13 @@ export function NeighborRequestPanel({ request, pending, onAccept, onDecline, on
   </aside>;
 }
 
-export function NeighborPanel({ neighbor, name, locked, pending, channel, gateway, initialSection = null, onOpenGateway, onTalkAbout, onInterview, onSavePermission, onLimit, onRemove, onPlans, onClose }: {
+export function NeighborPanel({ neighbor, name, locked, pending, channel, gateway, initialSection = null, onOpenGateway, onTalkAbout, onInterview, onSavePermission, onSaveDailyLimit, onLimit, onRemove, onPlans, onClose }: {
   neighbor: Neighbor; name: string; locked: boolean; pending: boolean; initialSection?: "configure" | null;
   channel: NeighborChannelState | null;
   gateway: { title: string } | null;
   onOpenGateway: () => void; onTalkAbout: () => void; onInterview: () => void;
   onSavePermission: (permission: NeighborPermission) => Promise<void>;
+  onSaveDailyLimit: (dailyLimit: number | null) => Promise<void>;
   onLimit: (limit: number) => Promise<boolean>; onRemove: () => Promise<boolean>; onPlans: () => void; onClose: () => void;
 }) {
   const [open, setOpen] = useState<Section | null>(initialSection);
@@ -88,7 +89,7 @@ export function NeighborPanel({ neighbor, name, locked, pending, channel, gatewa
       <ActionRow icon={<SlidersHorizontal size={15} />} label="Configure" hint={permission ? (permission.allowed ? "Some requests allowed" : "Nothing allowed yet") : "What they may ask for"}
         expanded={open === "configure"} onClick={() => toggle("configure")} />
       {open === "configure" && <div className="neighbor-panel__section">
-        <NeighborPermissionsEditor neighbor={neighbor} name={name} permission={permission} pending={pending} onSave={onSavePermission} onLimit={onLimit} onEditWithGeneral={onInterview} />
+        <NeighborPermissionsEditor neighbor={neighbor} name={name} permission={permission} pending={pending} onSave={onSavePermission} onSaveDailyLimit={onSaveDailyLimit} onLimit={onLimit} onEditWithGeneral={onInterview} />
       </div>}
       <ActionRow icon={<UserX size={15} />} label="Revoke" hint="End their access to your agents" danger expanded={open === "revoke"} onClick={() => toggle("revoke")} />
       {open === "revoke" && <div role="group" aria-label="Confirm removal" className="neighbor-panel__section neighbor-confirm">

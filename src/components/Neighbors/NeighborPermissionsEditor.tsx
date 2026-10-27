@@ -18,9 +18,10 @@ export function permissionProblem(permission: NeighborPermission): string | null
 }
 
 /** What a Neighbor may ask, whether they may open tabs, and how often; editable here or with your General Agent. */
-export function NeighborPermissionsEditor({ neighbor, name, permission, pending, onSave, onLimit, onEditWithGeneral }: {
+export function NeighborPermissionsEditor({ neighbor, name, permission, pending, onSave, onSaveDailyLimit, onLimit, onEditWithGeneral }: {
   neighbor: Neighbor; name: string; permission: NeighborPermission | null | undefined; pending: boolean;
   onSave: (permission: NeighborPermission) => Promise<void>;
+  onSaveDailyLimit: (dailyLimit: number | null) => Promise<void>;
   onLimit: (limit: number) => Promise<boolean>; onEditWithGeneral: () => void;
 }) {
   const [baseline, setBaseline] = useState<NeighborPermission | null>(permission ?? null);
@@ -28,6 +29,12 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [limit, setLimit] = useState(neighbor.inbound_per_hour);
+  const [daily, setDaily] = useState(neighbor.my_daily_limit == null ? "" : String(neighbor.my_daily_limit));
+  const [dailyError, setDailyError] = useState<string | null>(null);
+  const dailyField = useId();
+  const dailyValue = daily.trim() === "" ? null : Number(daily);
+  const dailyValid = dailyValue === null || (Number.isInteger(dailyValue) && dailyValue >= 1 && dailyValue <= 10000);
+  const dailyChanged = dailyValue !== (neighbor.my_daily_limit ?? null);
   const scopeField = useId();
   const limitField = useId();
   const allowLabel = useId();
@@ -64,6 +71,23 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
         }}>Save permissions</Button>
       <Button size="sm" variant="accent" onClick={onEditWithGeneral}>Edit with General</Button>
     </div>
+    <form className="neighbor-limit" onSubmit={event => {
+      event.preventDefault();
+      if (!dailyValid) return;
+      setDailyError(null);
+      void onSaveDailyLimit(dailyValue).catch((failure: unknown) => setDailyError(failure instanceof Error ? failure.message : "The daily limit could not be saved."));
+    }}>
+      <FormRow label="Messages per day" htmlFor={dailyField}
+        hint={dailyValid ? `How many messages ${name} may send you a day. Leave empty for no limit.` : "Use a whole number from 1 to 10000, or leave it empty."}>
+        <div className="neighbor-limit__row">
+          <input id={dailyField} type="number" min={1} max={10000} step={1} inputMode="numeric" placeholder="No limit"
+            className={`${UI_INPUT.compact} neighbor-limit__input`} value={daily} aria-invalid={!dailyValid}
+            onChange={event => setDaily(event.currentTarget.value)} />
+          <Button size="sm" type="submit" disabled={!dailyValid || !dailyChanged}>Save daily limit</Button>
+        </div>
+      </FormRow>
+      {dailyError && <InlineErrorNotice error={dailyError} operation="saving the daily limit" role="alert" />}
+    </form>
     <form className="neighbor-limit" onSubmit={event => { event.preventDefault(); if (validNeighborLimit(limit)) void onLimit(limit); }}>
       <FormRow label="Incoming requests per hour" htmlFor={limitField} hint={`They accept up to ${neighbor.outbound_per_hour} per hour from you.`}>
         <div className="neighbor-limit__row">
