@@ -1,6 +1,22 @@
 use super::*;
 use fs::listen_response::ResponseType;
 
+#[test]
+fn repeated_existence_filter_resets_stop_at_the_explicit_retry_boundary() {
+    let mut budget = ResetBudget::default();
+    for _ in 0..3 {
+        assert_eq!(budget.consume(), Ok(()));
+    }
+    for _ in 0..3 {
+        assert_eq!(
+            budget.consume(),
+            Err(Error::ListenProtocol {
+                kind: "existence_filter_retry_limit"
+            })
+        );
+    }
+}
+
 fn response(kind: ResponseType) -> fs::ListenResponse {
     fs::ListenResponse {
         response_type: Some(kind),

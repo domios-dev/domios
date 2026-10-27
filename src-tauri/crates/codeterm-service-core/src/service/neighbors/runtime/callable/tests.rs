@@ -94,6 +94,27 @@ async fn post_call_validation_never_refreshes_and_rejects_logout_or_new_login() 
     assert_eq!(calls.validate_session(&captured).await, Err(Error::Revoked));
 }
 
+#[tokio::test]
+async fn cached_own_inventory_and_receiver_reads_still_require_the_current_account_session() {
+    let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let calls = Calls {
+        service: fixture.service.clone(),
+        uid: "owner".into(),
+        generation: 1,
+        own_keys: tokio::sync::Mutex::new(Some(json!([]))),
+        receiver_status: tokio::sync::Mutex::new(Some(json!({}))),
+    };
+    assert_eq!(
+        calls.invoke("friendsOwnKeys", json!({})).await,
+        Err(Error::Revoked)
+    );
+    assert_eq!(
+        calls.invoke("friendsReceiverStatus", json!({})).await,
+        Err(Error::Revoked)
+    );
+}
+
 #[test]
 fn daily_limit_refusals_preserve_the_server_limit_and_reset_time() {
     let error = refusal(

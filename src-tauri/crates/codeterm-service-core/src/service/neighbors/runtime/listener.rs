@@ -75,13 +75,6 @@ impl InboxSession for Session {
     }
     async fn prepare(&self) -> codeterm_neighbors::Result<()> {
         self.current()?;
-        let status = self
-            .registry
-            .receiver_status_for(&self.keys(), false)
-            .await?;
-        if !status.receiving_here() || status.receiver_revision != self.receiver_revision {
-            return Err(Error::NotReceiver);
-        }
         self.keys().load().await?.ok_or(Error::Revoked)?;
         self.current()
     }
@@ -91,23 +84,7 @@ impl InboxSession for Session {
     async fn receive(&self, messages: &mut [InboxMessage]) -> codeterm_neighbors::Result<()> {
         self.current()?;
         let tab = self.tab.as_ref().ok_or(Error::Gateway)?;
-        let status = self
-            .registry
-            .receiver_status_for(&self.keys(), false)
-            .await?;
-        if !status.receiving_here() || status.receiver_revision != self.receiver_revision {
-            self.service.stop_neighbor_listeners();
-            return Err(Error::NotReceiver);
-        }
-        if self
-            .service
-            .neighbor_registry(super::super::NeighborCommand::List {})
-            .await
-            .map_err(|_| Error::Transport)?
-            .get("access")
-            .and_then(Value::as_str)
-            != Some("paid")
-        {
+        if !self.service.neighbor_registry_receiving(&self.friendship) {
             return Err(Error::Locked);
         }
         self.current()?;
@@ -139,6 +116,9 @@ impl ReceptionEvents for Session {
     fn failure(&self, error: Error) {
         if self.current().is_err() {
             return;
+        }
+        if matches!(error, Error::Firestore { code: 7, .. }) {
+            self.service.forget_neighbor_registry();
         }
         let detail = match error {
             Error::ListenProtocol { kind } => {
@@ -192,6 +172,16 @@ impl ReceptionEvents for Session {
         );
     }
     async fn retry_after_failure(&self, _: usize) -> codeterm_neighbors::Result<()> {
+        let reset_limit = self
+            .service
+            .neighbor_cell()
+            .failures
+            .lock()
+            .get(&self.friendship)
+            .is_some_and(|detail| detail["kind"] == "existence_filter_retry_limit");
+        if reset_limit {
+            self.state(ListenerState::Stopped);
+        }
         self.retry.notified().await;
         self.current()
     }

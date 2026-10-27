@@ -9,6 +9,7 @@ pub(super) enum Operation {
         nonce: Option<String>,
     },
     ReceiverChanged,
+    RegistryChanged,
     Refuse {
         friendship: String,
         message_id: String,
@@ -30,7 +31,10 @@ pub(super) struct Request {
 }
 
 impl ServiceContext {
-    pub(super) fn require_neighbor_generation(&self, generation: u64) -> Result<(), String> {
+    pub(in crate::service::neighbors) fn require_neighbor_generation(
+        &self,
+        generation: u64,
+    ) -> Result<(), String> {
         if self.neighbor_cell().generation.load(Ordering::Acquire) != generation {
             return Err("Neighbor account changed".into());
         }
@@ -67,7 +71,7 @@ impl ServiceContext {
     ) -> Result<Outcome, String> {
         self.require_neighbor_generation(generation)?;
         match operation {
-            Operation::ReceiverChanged => {
+            Operation::ReceiverChanged | Operation::RegistryChanged => {
                 let (transport, registry, scope, metadata) = self.neighbor_ports().await?;
                 self.start_neighbor_listeners(
                     transport.clone(),

@@ -99,6 +99,10 @@ impl Session {
 
     fn state(&self, status: ListenerState) {
         if self.current().is_ok() {
+            if matches!(status, ListenerState::Stopped | ListenerState::Reconnecting) {
+                self.service.forget_neighbor_registry();
+                self.service.stop_neighbor_listeners();
+            }
             self.service.ui.emit(
                 "neighbors-watch-status",
                 json!({"uid":self.transport.uid,"status":status}),
@@ -145,6 +149,16 @@ impl Session {
         }
         self.current()?;
         let service = self.service.clone();
+        self.service.remember_neighbor_registry(&list);
+        if list["access"] != "paid" {
+            self.service.stop_neighbor_listeners();
+        } else {
+            self.service
+                .refresh_neighbor_registry_listeners()
+                .await
+                .map_err(|_| Error::Transport)?;
+            self.current()?;
+        }
         let uid = self.transport.uid.clone();
         let generation = self.generation;
         tokio::task::spawn_blocking(move || {
@@ -238,6 +252,8 @@ async fn run(
         .into(),
         uid: uid.clone(),
         calls: Arc::new(Calls {
+            own_keys: Default::default(),
+            receiver_status: Default::default(),
             service: service.clone(),
             uid,
             generation: expected.login_generation,
