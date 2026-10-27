@@ -1,56 +1,68 @@
 use super::*;
 
-fn project(candidates: Vec<Credentials>) -> Vec<(u16, String)> {
-    candidates.into_iter().map(|c| (c.port, c.proof)).collect()
+#[test]
+fn probe_capture_preserves_utf8_split_across_http_chunks() {
+    let raw = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nA\r\n{\"text\":\"\xc3\r\n3\r\n\xa9\"}\r\n0\r\n\r\n";
+    let encoded = base64::engine::general_purpose::STANDARD.encode(raw);
+    assert_eq!(
+        decode_probe_output(&encoded),
+        Some(serde_json::json!({"text": "\u{e9}"}))
+    );
+    assert!(decode_probe_output("not base64!").is_none());
 }
 
 #[test]
-fn macsys_without_app_store_container_uses_system_proof_contents() {
+fn content_length_response_decodes_before_json() {
+    let raw = b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\n{\"ok\":true}";
+    let body = decode_response(raw).unwrap();
     assert_eq!(
-        project(proof_candidates(&[], Some("54285"), Some("a1b2c3\n"))),
-        vec![(54285, "a1b2c3".into())]
+        serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+        serde_json::json!({"ok": true})
     );
 }
 
 #[test]
-fn app_store_proof_remains_first_with_system_extension_fallback() {
-    let files = vec!["unrelated".into(), "sameuserproof-12345-abcdef".into()];
+fn multi_chunk_response_decodes_json_across_chunk_boundaries() {
+    let raw = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n4;fixture=yes\r\n{\"ok\r\n7\r\n\":true}\r\n0\r\nX-Fixture: done\r\n\r\n";
+    let body = decode_response(raw).unwrap();
     assert_eq!(
-        project(proof_candidates(&files, Some("54285"), Some("123abc"))),
-        vec![(12345, "abcdef".into()), (54285, "123abc".into())]
-    );
-    assert_eq!(
-        project(proof_candidates(&files, None, None)),
-        vec![(12345, "abcdef".into())]
+        serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+        serde_json::json!({"ok": true})
     );
 }
 
 #[test]
-fn macsys_requires_both_valid_port_and_file_contents() {
-    for (port, proof) in [
-        (None, None),
-        (Some("54285"), None),
-        (None, Some("abc123")),
-        (Some("0"), Some("abc123")),
-        (Some("65536"), Some("abc123")),
-        (Some("../54285"), Some("abc123")),
-        (Some("54285"), Some("")),
-        (Some("54285"), Some("abc\r\nInjected")),
+fn response_decoder_refuses_truncated_ambiguous_and_failed_responses() {
+    for raw in [
+        &b"HTTP/1.1 403 Forbidden\r\nContent-Length: 2\r\n\r\n{}"[..],
+        &b"HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\n{}"[..],
+        &b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\n{}"[..],
+        &b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nContent-Length: 2\r\n\r\n{}"[..],
+        &b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nContent-Length: 2\r\n\r\n{}"[..],
+        &b"HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip\r\n\r\n{}"[..],
+        &b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\n{"[..],
+        &b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\n{}xx0\r\n\r\n"[..],
+        &b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\nextra"[..],
+        &b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nffffffffffffffffffffffff\r\n"[..],
     ] {
-        assert!(proof_candidates(&[], port, proof).is_empty());
+        assert!(decode_response(raw).is_none());
     }
 }
 
 #[test]
-fn malformed_app_store_proof_does_not_mask_system_extension() {
-    let files = vec![
-        "sameuserproof-54285".into(),
-        "sameuserproof-0-abcdef".into(),
-        "sameuserproof-65536-abcdef".into(),
-        "sameuserproof-12345-not-hex".into(),
-    ];
-    assert_eq!(
-        project(proof_candidates(&files, Some("54285"), Some("abc123"))),
-        vec![(54285, "abc123".into())]
-    );
+fn response_decoder_bounds_headers_bodies_and_chunk_count() {
+    let mut headers = b"HTTP/1.1 200 OK\r\nX-Large: ".to_vec();
+    headers.extend(vec![b'x'; MAX_HEADERS]);
+    headers.extend_from_slice(b"\r\n\r\n{}");
+    assert!(decode_response(&headers).is_none());
+    let mut body = b"HTTP/1.1 200 OK\r\n\r\n".to_vec();
+    body.extend(vec![b' '; MAX_BODY + 1]);
+    assert!(decode_response(&body).is_none());
+    assert!(decode_response(&vec![b' '; MAX_RESPONSE + 1]).is_none());
+    let mut chunks = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n".to_vec();
+    for _ in 0..MAX_CHUNKS {
+        chunks.extend_from_slice(b"1\r\nx\r\n");
+    }
+    chunks.extend_from_slice(b"0\r\n\r\n");
+    assert!(decode_response(&chunks).is_none());
 }
