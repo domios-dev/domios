@@ -143,6 +143,7 @@ const finishLogin = async (outcome: "ok" | "fail") => {
   await settle();
 };
 const toast = () => host.querySelector('[data-testid="notification-toast"]');
+const planFailure = () => host.querySelector('[role="status"][aria-label="Something went wrong while managing your plan"]');
 
 it("signed out: Choose starts sign-in on that card, then opens checkout with no second click", async () => {
   await mount();
@@ -265,13 +266,19 @@ it("does not offer checkout when actual subscription status could not be verifie
   daemon.state.paidPlan = null;
   daemon.state.subscriptionUnavailable = true;
   await mount();
-  const choices = Array.from(host.querySelectorAll<HTMLButtonElement>("button")).filter(element => element.textContent?.startsWith("Choose "));
-  expect(choices.length).toBeGreaterThan(0);
-  for (const choose of choices) {
-    expect(choose.disabled).toBe(true);
+  expect(host.querySelector('[role="group"][aria-label="Subscription plans"]')).not.toBeNull();
+  for (const name of ["Pro", "Max", "Sponsor"]) {
+    const choose = button(card(name), `Choose ${name}`);
+    expect(choose === undefined || choose.disabled).toBe(true);
   }
-  expect(host.querySelector('[role="alert"]')).not.toBeNull();
+  expect(planFailure()).not.toBeNull();
   expect(daemon.state.upgrades).toEqual([]);
+  daemon.state.subscriptionUnavailable = false;
+  await click(host, "Refresh plan offers");
+  expect(planFailure()).toBeNull();
+  expect(button(card("Pro"), "Choose Pro")?.disabled).toBe(false);
+  await click(card("Pro"), "Choose Pro");
+  expect(daemon.state.upgrades).toEqual(["pro_yearly"]);
 });
 
 it("does not apply a previous account's late checkout refusal to the next account", async () => {
@@ -294,8 +301,14 @@ it("does not substitute built-in prices when a signed-in account's catalog is un
   daemon.state.catalogUnavailable = true;
   await mount();
   expect(host.querySelector('[role="group"][aria-label="Subscription plans"]')).toBeNull();
-  expect(host.querySelector('[role="alert"]')).not.toBeNull();
+  expect(planFailure()).not.toBeNull();
   expect(daemon.state.upgrades).toEqual([]);
+  daemon.state.catalogUnavailable = false;
+  await click(host, "Refresh plan offers");
+  expect(planFailure()).toBeNull();
+  expect(button(card("Pro"), "Choose Pro")?.disabled).toBe(false);
+  await click(card("Pro"), "Choose Pro");
+  expect(daemon.state.upgrades).toEqual(["pro_yearly"]);
 });
 
 const giftForm = () => host.querySelector<HTMLFormElement>('form[aria-label="Redeem a gift key"]');
