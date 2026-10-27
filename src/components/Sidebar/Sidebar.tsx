@@ -83,7 +83,7 @@ interface SidebarProps {
   onOpenMesh?: () => void;
   onOpenNeighbors?: () => void;
   onNavigateToTab?: () => void;
-  mainView?: "workspace" | "settings" | "memory" | "mesh" | "neighbors" | "git" | "extensions" | "analytics";
+  mainView?: "workspace" | "settings" | "memory" | "mesh" | "neighbors" | "neighbor" | "git" | "extensions" | "analytics";
   config?: AppConfig;
   uiFontScale?: number;
   workspaceCanvasActive?: boolean;

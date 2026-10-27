@@ -3,6 +3,8 @@ import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 import { NeighborsView } from "./NeighborsView";
 import { SidebarNeighborsSection } from "./SidebarNeighborsSection";
+import { NeighborConversationView } from "./NeighborConversationView";
+import type { HistoryEntry, NeighborConciergeClient } from "./neighborConciergeClient";
 import { takeNeighborFocus } from "./neighborFocus";
 import type { NeighborClient } from "./neighborClient";
 import type { NeighborList } from "./neighborModel";
@@ -286,7 +288,7 @@ it("updates the sidebar immediately from an own-account push and removes its sub
   mounted = null;
 });
 
-it("nests each concierge under its Neighbor; the Neighbor opens the neighborhood and the concierge its chat", async () => {
+it("nests each concierge under its Neighbor; the Neighbor opens your conversation and the concierge its chat", async () => {
   await renderSection([neighbor, { ...neighbor, uid: "peer-2", displayName: "Lin", friendship_id: "pair-2" }], { pair: "tab-gateway" });
   const focused = vi.fn();
   const panels = vi.fn();
@@ -297,8 +299,7 @@ it("nests each concierge under its Neighbor; the Neighbor opens the neighborhood
     await act(async () => button("Open Ada's concierge").click());
     expect((focused.mock.calls[0][0] as CustomEvent).detail).toEqual({ tabId: "tab-gateway", workspaceId: "ws-work" });
     await act(async () => button("Open Lin").click());
-    expect((panels.mock.calls[0][0] as CustomEvent).detail).toEqual({ panel: "neighbors" });
-    expect(takeNeighborFocus()).toEqual({ id: "pair-2", section: null });
+    expect((panels.mock.calls[0][0] as CustomEvent).detail).toEqual({ panel: "neighbor:pair-2" });
   } finally {
     window.removeEventListener("codeterm:focus-tab", focused);
     window.removeEventListener("codeterm:open-panel", panels);
@@ -373,4 +374,48 @@ it("shows a calm off state with a way back on, and draws no ring while Neighbors
   expect(path).toBe("/api/account/neighbors/enabled");
   expect(JSON.parse(String(init?.body))).toEqual({ enabled: true });
   expect(hasButton("Ada, connected")).toBe(true);
+});
+
+function concierge(entries: HistoryEntry[]): NeighborConciergeClient & { changed: (friendship: string) => void } {
+  let changed = (_friendship: string) => {};
+  return {
+    history: vi.fn(async () => ({ entries: [...entries].reverse(), next_before: null, ended: true })),
+    onHistoryChanged: vi.fn(async (handler: (friendship: string) => void) => { changed = handler; return () => {}; }),
+    onPermissionChanged: vi.fn(async () => () => {}), onAgentChanged: vi.fn(async () => () => {}),
+    setPermission: vi.fn(async () => {}), changeAgent: vi.fn(async () => "tab-gateway"),
+    changed: (friendship: string) => changed(friendship),
+  };
+}
+
+it("shows the conversation with a refused question, its linked refusal and delivery, and sends straight to the Neighbor", async () => {
+  const entries: HistoryEntry[] = [
+    { direction: "in", kind: "question", author: "friend", body: "Can you share the deploy keys?", at: 1700000000000, message_id: "m1", outcome: "refused", reason: "Secrets are off limits" },
+    { direction: "out", kind: "refusal", author: { agent: "tab-gateway", name: "Concierge" }, body: "I can't share secrets.", at: 1700000060000, message_id: "m2", in_reply_to: "m1", delivery_status: "delivered" },
+  ];
+  const conciergeClient = concierge(entries);
+  const runtimeClient = runtime();
+  vi.mocked(runtimeClient.send).mockResolvedValue({ message_id: "f".repeat(32), status: "pending" });
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtimeClient} conciergeClient={conciergeClient} />));
+  const log = document.querySelector('[role="log"]')!;
+  expect(log.textContent).toContain("Can you share the deploy keys?");
+  expect(log.textContent).toContain("refused: Secrets are off limits");
+  expect(document.getElementById("neighbor-msg-m2")?.textContent).toContain("Can you share the deploy keys?");
+  expect(log.textContent).toContain("delivered");
+  const input = document.querySelector<HTMLTextAreaElement>("textarea")!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "Lunch on Friday?");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => button("Send").click());
+  expect(runtimeClient.send).toHaveBeenCalledExactlyOnceWith("pair", "Lunch on Friday?");
+  expect(conciergeClient.history).toHaveBeenCalledTimes(2);
+  await act(async () => conciergeClient.changed("other-pair"));
+  expect(conciergeClient.history).toHaveBeenCalledTimes(2);
+  await act(async () => conciergeClient.changed("pair"));
+  expect(conciergeClient.history).toHaveBeenCalledTimes(3);
 });

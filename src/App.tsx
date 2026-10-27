@@ -94,6 +94,7 @@ import { FreeLimitPlansModal } from "./components/billing/FreeLimitPlansModal";
 import { useSessionRevocationScreen } from "./components/Settings/useSessionRevocationScreen";
 import { useAccountMeshLimitNotice } from "./components/MeshPanel/accountMeshLimitNotice";
 import { precheckFreeLimit } from "./components/billing/freeLimitGate";
+import { neighborsEnabled } from "./components/Neighbors/neighborsSwitch";
 // TODO: Agent Swarm Visualization — future feature import { SwarmOverlay } from "./components/Swarm/SwarmOverlay";
 
 /** One stable empty list, so a config still loading does not hand the chime a
@@ -104,6 +105,7 @@ const SettingsPanel = deferredComponent(async () => ({ default: (await import(".
 const MemoryPanel = deferredComponent(async () => ({ default: (await import("./components/MemoryPanel/MemoryPanel")).MemoryPanel }));
 const MeshPanel = deferredComponent(async () => ({ default: (await import("./components/MeshPanel/MeshPanel")).MeshPanel }));
 const NeighborsView = deferredComponent(async () => ({ default: (await import("./components/Neighbors/NeighborsView")).NeighborsView }));
+const NeighborConversationView = deferredComponent(async () => ({ default: (await import("./components/Neighbors/NeighborConversationView")).NeighborConversationView }));
 const ExtensionsView = deferredComponent(async () => ({ default: (await import("./components/Extensions/ExtensionsView")).ExtensionsView }));
 const AnalyticsSupporterSection = deferredComponent(async () => ({ default: (await import("./components/Supporter/AnalyticsSupporterSection")).AnalyticsSupporterSection }));
 const CanvasView = deferredComponent(async () => ({ default: (await import("./components/Canvas/CanvasView")).CanvasView }));
@@ -166,7 +168,7 @@ function AppInner() {
   const lockedRef = useRef(locked);
   lockedRef.current = locked;
   const { providers: firstRunProviders } = useAgentProviders();
-  const { navigationReady, mainView: savedMainView, setMainView, automationWorkspaceId, setAutomationWorkspaceId, jobsScope, setJobsScope, workspaceMapWorkspaceId, setWorkspaceMapWorkspaceId } = useAppNavigation(state.generation, state.focused_tab_id, state.workspaces);
+  const { navigationReady, mainView: savedMainView, setMainView, automationWorkspaceId, setAutomationWorkspaceId, jobsScope, setJobsScope, workspaceMapWorkspaceId, setWorkspaceMapWorkspaceId, neighborChat, setNeighborChat } = useAppNavigation(state.generation, state.focused_tab_id, state.workspaces);
   const mainView = locked ? "workspace" : savedMainView;
   const automationOpener = useRef<HTMLElement | null>(null);
   const [jobsTarget, setJobsTarget] = useState<(JobsTarget & { request: number; returnTo?: ReturnTo }) | null>(null);
@@ -406,6 +408,10 @@ function AppInner() {
         setSettingsOpen(true);
       } else if (panel === "neighbors") {
         setMainView("neighbors");
+        closeSidebarOnMobile();
+      } else if (panel?.startsWith("neighbor:")) {
+        setNeighborChat(panel.slice("neighbor:".length));
+        setMainView("neighbor");
         closeSidebarOnMobile();
       } else if (panel === "memory") {
         if (DEV_BUILD && import.meta.env.VITE_CODETERM_TEST === "1") setMemoryInitial(detail?.memoryState);
@@ -892,6 +898,11 @@ function AppInner() {
                 onConfigUpdate={updateConfig}
                 onClose={closeMesh}
               />
+            </div>
+          )}
+          {mainView === "neighbor" && neighborChat && (
+            <div className="absolute inset-0">
+              <NeighborConversationView key={neighborChat} friendship={neighborChat} enabled={neighborsEnabled(config)} />
             </div>
           )}
           {mountedNeighbors && (

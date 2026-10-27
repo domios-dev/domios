@@ -16,7 +16,7 @@ import { ChangeConciergeDialog } from "./ChangeConciergeDialog";
 import { askGeneralAgent, focusTab, permissionInterviewTask, workspaceOfTab } from "./neighborAgent";
 import type { NeighborClient } from "./neighborClient";
 import { neighborConciergeClient, type NeighborConciergeClient } from "./neighborConciergeClient";
-import { openNeighbor } from "./neighborFocus";
+import { openNeighbor, openNeighborChat } from "./neighborFocus";
 import { publishNeighborGateways } from "./neighborGateways";
 import { neighborName, type Neighbor } from "./neighborModel";
 import { neighborRuntimeClient, type NeighborRuntimeClient } from "./neighborRuntimeClient";
@@ -31,9 +31,9 @@ function readExpanded(): boolean {
 }
 
 /** Your connected Neighbors as sidebar rows, each with its concierge tucked under it; hidden until you have one. */
-export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTab, enabled = true, client, runtimeClient = neighborRuntimeClient,
+export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTab, enabled = true, activeChat = null, client, runtimeClient = neighborRuntimeClient,
   conciergeClient = neighborConciergeClient }: {
-  uiFontScale?: number; touchMode: boolean; onNavigateToTab?: () => void; enabled?: boolean; client?: NeighborClient;
+  uiFontScale?: number; touchMode: boolean; onNavigateToTab?: () => void; enabled?: boolean; activeChat?: string | null; client?: NeighborClient;
   runtimeClient?: NeighborRuntimeClient; conciergeClient?: NeighborConciergeClient;
 }) {
   const { model } = useAccount();
@@ -89,7 +89,8 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
         <SurfaceOwnerBlock ownerId={`neighbor:${friend.friendship_id}`} attachments={concierge ? [concierge] : []} compact={false}
           renderOwner={() => <div className={`${ROW} ${rowPadding}`}>
             <button type="button" className={`sidebar-tab-activation flex flex-1 items-center min-w-0 border-0 bg-transparent p-0 text-left text-inherit cursor-pointer ${touchMode ? "gap-2.5" : "gap-2"}`}
-              aria-label={`Open ${name}`} onClick={() => openNeighbor(friend.friendship_id)}>
+              aria-label={`Open ${name}`} aria-current={activeChat === friend.friendship_id ? "page" : undefined}
+              onClick={() => openNeighborChat(friend.friendship_id)}>
               <span className={`sidebar-tab-body flex-1 min-w-0 ${touchMode ? "gap-x-2.5" : "gap-x-2"}`}>
                 <span data-testid="tab-tab-icon" className="sidebar-tab-body__icon sidebar-neighbor-avatar"><AccountAvatar url={friend.photoURL} initial={accountInitials(name)} label="" size="node" /></span>
                 <span className="sidebar-tab-body__title flex min-w-0 items-center gap-1.5">

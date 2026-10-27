@@ -20,3 +20,8 @@ export function onNeighborFocus(handler: () => void): () => void {
   window.addEventListener(EVENT, handler);
   return () => window.removeEventListener(EVENT, handler);
 }
+
+/** Opens the conversation with one Neighbor as its own view. */
+export function openNeighborChat(friendshipId: string) {
+  window.dispatchEvent(new CustomEvent("codeterm:open-panel", { detail: { panel: `neighbor:${friendshipId}` } }));
+}
