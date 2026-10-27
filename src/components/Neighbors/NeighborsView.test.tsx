@@ -6,7 +6,7 @@ import { SidebarNeighborsSection } from "./SidebarNeighborsSection";
 import { NeighborConversationView } from "./NeighborConversationView";
 import type { HistoryEntry, NeighborConciergeClient, NeighborNotify } from "./neighborConciergeClient";
 import { takeNeighborFocus } from "./neighborFocus";
-import { missingConciergeLine } from "./useConciergeStatus";
+import { missingConciergeLine, parseConciergeStatus } from "./useConciergeStatus";
 import { useNeighborGatewayIds } from "./neighborGateways";
 import type { NeighborClient } from "./neighborClient";
 import type { NeighborList } from "./neighborModel";
@@ -659,4 +659,21 @@ it("keeps a message that is too long in the composer instead of sending it", asy
   expect(runtimeClient.send).not.toHaveBeenCalled();
   expect(document.body.textContent).toContain("This message is too long for Ada.");
   expect(input.value.length).toBe(16377);
+});
+
+it("reads an accepted, undelivered message as sent and a starting concierge as starting", async () => {
+  const entries: HistoryEntry[] = [
+    { direction: "out", kind: "question", author: "me", body: "Accepted", at: 1700000000000, message_id: "s".repeat(32), delivery_status: "pending", submission: "accepted" },
+    { direction: "out", kind: "question", author: "me", body: "Queued", at: 1700000001000, message_id: "q".repeat(32), delivery_status: "pending" },
+  ];
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtime()} conciergeClient={concierge(entries)} />));
+  expect(document.getElementById(`neighbor-msg-${"s".repeat(32)}`)?.textContent).toContain("sent");
+  expect(document.getElementById(`neighbor-msg-${"q".repeat(32)}`)?.textContent).toContain("sending");
+  expect(parseConciergeStatus({ gateway_tab: "tab", concierge_missing: false, pending_count: null, receiving_here: true, receiver_machine_label: null, state: "concierge_starting" })?.state)
+    .toBe("concierge_starting");
 });

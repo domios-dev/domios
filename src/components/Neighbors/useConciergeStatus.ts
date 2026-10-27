@@ -11,10 +11,10 @@ export interface ConciergeStatus {
   pending_count_capped?: boolean;
   receiving_here: boolean;
   receiver_machine_label: string | null;
-  state: "ready" | "concierge_missing" | "receiving_elsewhere" | "not_receiving";
+  state: "ready" | "concierge_starting" | "concierge_missing" | "receiving_elsewhere" | "not_receiving";
 }
 
-const STATES: readonly ConciergeStatus["state"][] = ["ready", "concierge_missing", "receiving_elsewhere", "not_receiving"];
+const STATES: readonly ConciergeStatus["state"][] = ["ready", "concierge_starting", "concierge_missing", "receiving_elsewhere", "not_receiving"];
 const record = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 
 export function parseConciergeStatus(value: unknown): ConciergeStatus | null {

@@ -28,8 +28,9 @@ export const NOTIFY_CHOICES: { value: NeighborNotify; label: string }[] = [
   { value: "in_app_and_bridges", label: "In Domios and your bridges" },
 ];
 
-function conciergeState(status: ConciergeStatus | null, bound: boolean): { label: string; tone: "green" | "amber" | "muted" } {
+function conciergeState(status: ConciergeStatus | null, bound: boolean): { label: string; tone: "green" | "amber" | "muted" | "accent" } {
   if (status?.state === "concierge_missing" || (!status && !bound)) return { label: "missing", tone: "amber" };
+  if (status?.state === "concierge_starting") return { label: "starting", tone: "accent" };
   if (status?.state === "receiving_elsewhere") return { label: "idle", tone: "muted" };
   if (status?.state === "not_receiving") return { label: "not receiving", tone: "muted" };
   return { label: "ready", tone: "green" };

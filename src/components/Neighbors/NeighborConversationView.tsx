@@ -224,6 +224,8 @@ function Entry({ entry, friend, friendName, interactive, checking, onCheckDelive
 }) {
   const time = formatMessageTime(entry.at);
   const refusal = entry.direction === "out" ? refusalLine(entry, friendName, Date.now()) : null;
+  // The relay accepted it and delivery is awaited; "sending" is only for before acceptance.
+  const sent = entry.delivery_status === "pending" && entry.submission === "accepted";
   const mine = entry.direction === "out";
   const agent = typeof entry.author === "object" ? entry.author : null;
   return <div id={`neighbor-msg-${entry.message_id}`} className="neighbor-msg" data-side={mine ? "out" : "in"} data-kind={entry.kind}>
@@ -240,7 +242,8 @@ function Entry({ entry, friend, friendName, interactive, checking, onCheckDelive
         <time dateTime={new Date(entry.at).toISOString()} title={new Date(entry.at).toLocaleString()}>{time}</time>
         {mine && refusal ? <span className="neighbor-status neighbor-msg__refused"><span className="neighbor-dot" data-tone="danger" aria-hidden="true" />{refusal}</span>
         : mine && entry.delivery_status && <span className="neighbor-status"><span className="neighbor-dot"
-          data-tone={entry.delivery_status === "delivered" ? "ok" : entry.delivery_status === "pending" ? "progress" : "danger"} aria-hidden="true" />{DELIVERY_LABEL[entry.delivery_status]}</span>}
+          data-tone={entry.delivery_status === "delivered" ? "ok" : sent ? "muted" : entry.delivery_status === "pending" ? "progress" : "danger"} aria-hidden="true" />
+          {sent ? "sent" : DELIVERY_LABEL[entry.delivery_status]}</span>}
         {mine && entry.submission === "unconfirmed" && <span className="neighbor-note">submission unconfirmed</span>}
         {mine && !refusal && entry.delivery_status === "pending" && <Button size="compact" loading={checking} onClick={onCheckDelivery}>Check delivery</Button>}
         {!mine && entry.outcome === "refused" && <span className="neighbor-status neighbor-msg__refused"><span className="neighbor-dot" data-tone="danger" aria-hidden="true" />refused{entry.reason ? `: ${entry.reason}` : ""}</span>}
