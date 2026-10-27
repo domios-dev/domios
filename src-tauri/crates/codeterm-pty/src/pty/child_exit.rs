@@ -41,7 +41,10 @@ pub struct ChildExit {
 impl ChildExit {
     fn set_pair_release(&self, phase: PairRelease) {
         *self.pair_release.lock().unwrap_or_else(|p| p.into_inner()) = phase;
-        log::debug!("[pty-exit] pair release phase={}", self.release_diagnostic());
+        log::debug!(
+            "[pty-exit] pair release phase={}",
+            self.release_diagnostic()
+        );
     }
 
     pub(super) fn release_diagnostic(&self) -> String {

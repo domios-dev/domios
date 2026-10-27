@@ -37,8 +37,15 @@ fn run_bash(cmd: &CommandBuilder, root: &std::path::Path) -> String {
         .stdin(Stdio::null())
         .stdout(std::fs::File::create(&stdout).unwrap())
         .stderr(std::fs::File::create(&stderr).unwrap());
-    let mut child = BashChild(Some(command.spawn().expect("native /bin/bash must be available")));
-    let status = child.0.as_mut().unwrap().wait_timeout(Duration::from_secs(10)).unwrap();
+    let mut child = BashChild(Some(
+        command.spawn().expect("native /bin/bash must be available"),
+    ));
+    let status = child
+        .0
+        .as_mut()
+        .unwrap()
+        .wait_timeout(Duration::from_secs(10))
+        .unwrap();
     let status = match status {
         Some(status) => {
             let _ = child.0.take();

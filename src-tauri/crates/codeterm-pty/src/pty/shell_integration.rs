@@ -27,7 +27,10 @@ pub(super) fn bind_bash_cli(cmd: &mut CommandBuilder) {
     for name in ["domios", "codeterm"] {
         cmd.env_remove(format!("BASH_FUNC_{name}%%"));
     }
-    let Some(cli_path) = cmd.get_env("CODETERM_CLI_PATH").and_then(|path| path.to_str()) else {
+    let Some(cli_path) = cmd
+        .get_env("CODETERM_CLI_PATH")
+        .and_then(|path| path.to_str())
+    else {
         return;
     };
     if !std::path::Path::new(cli_path).is_absolute() {

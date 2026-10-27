@@ -828,7 +828,11 @@ fn expand_home_resolves_domios_paths_in_the_instance_data_dir() {
 #[test]
 fn expand_home_treats_the_former_data_prefix_as_an_ordinary_home_path() {
     let home = dirs::home_dir();
-    for suffix in [".codeterm", ".codeterm/teams-client", ".codeterm-fixture-41/x"] {
+    for suffix in [
+        ".codeterm",
+        ".codeterm/teams-client",
+        ".codeterm-fixture-41/x",
+    ] {
         assert_eq!(
             PluginManifest::expand_home(&format!("~/{suffix}")),
             home.as_ref().map(|home| home.join(suffix))

@@ -92,7 +92,9 @@ fn classifies_cfg_macro_and_generated_test_scopes() {
 
 #[test]
 fn preserves_explicit_ignore_reasons_only() {
-    let rows = classify("#[ignore = \"TOKEN_REASON\"] #[test] fn named() {} #[ignore] #[test] fn anonymous() {}");
+    let rows = classify(
+        "#[ignore = \"TOKEN_REASON\"] #[test] fn named() {} #[ignore] #[test] fn anonymous() {}",
+    );
     assert_eq!(rows[0]["ignore_reason"], "TOKEN_REASON");
     assert_eq!(rows[1]["ignore_reason"], serde_json::Value::Null);
 }
