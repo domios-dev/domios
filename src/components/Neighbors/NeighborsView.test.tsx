@@ -908,3 +908,21 @@ it("keeps focus inside the friend window and hands it back to the friend's node 
   await act(async () => { dialog.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
   expect(document.activeElement?.getAttribute("data-node-id")).toBe("pair");
 });
+
+it("shows today's received count as a floor while older pages may hold more of today", async () => {
+  const now = Date.now();
+  const entries: HistoryEntry[] = [
+    { direction: "in", kind: "question", author: "friend", body: "First", at: now - 2, message_id: "m1" },
+    { direction: "in", kind: "question", author: "friend", body: "Second", at: now - 1, message_id: "m2" },
+  ];
+  const conciergeClient = concierge(entries);
+  vi.mocked(conciergeClient.history).mockResolvedValue({ entries, next_before: "m1", ended: false });
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
+  await act(async () => button("Ada, connected").click());
+  expect(document.querySelector('[aria-label="Today with this friend"]')?.textContent).toContain("2+ received today");
+});
