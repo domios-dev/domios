@@ -4,6 +4,7 @@ import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { CreditCard, UserRound } from "lucide-react";
 import { Button } from "../shared/Button";
 import { PlanCards } from "../billing/PlanCards";
+import { GiftRedemption } from "../billing/GiftRedemption";
 import { AccountLimits } from "../billing/AccountLimits";
 import { useDesktopBilling } from "../billing/useDesktopBilling";
 import { scheduledPlanCopy, tierName } from "../billing/desktopBilling";
@@ -113,6 +114,7 @@ export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) 
         </p>}
         {billing.plan?.stale && <p role="status" className={MUTED}>Showing the last known plan.</p>}
         <AccountLimits limits={billing.plan?.limits ?? null} />
+        {identity && <GiftRedemption key={identity} identity={identity} verifiedPlan={billing.plan?.stale ? null : billing.plan?.plan ?? null} />}
         {desktopBilling.subscription && <p role="status">{scheduledPlanCopy(desktopBilling.subscription, seconds => new Date(seconds * 1000).toLocaleDateString())}</p>}
         {desktopBilling.error && <InlineErrorNotice error={desktopBilling.error} operation="managing your plan" />}
         {signedIn && <Button type="button" size="sm" variant="ghost" onClick={desktopBilling.refresh}>Refresh plan offers</Button>}

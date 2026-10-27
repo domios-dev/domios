@@ -33,6 +33,7 @@ mod analytics_host;
 pub(crate) mod background_work;
 pub(crate) mod background_work_watch;
 pub mod billing;
+pub mod gift_redemption;
 pub(crate) mod boot_owner_prompt;
 pub mod boot_stage;
 pub(crate) mod boot_wait;

@@ -21,6 +21,11 @@ const daemon = vi.hoisted(() => {
     upgrades: [] as string[],
     upgradeFails: false,
     upgradeWait: null as Promise<Response> | null,
+    giftRequests: [] as { key: string; expected_uid: string }[],
+    giftResponse: null as unknown,
+    giftFailure: null as string | null,
+    giftWait: null as Promise<Response> | null,
+    giftAbortable: false,
   };
   const ok = (body: unknown) => ({ ok: true, json: async () => body, text: async () => "" });
   const status = () => ({ identity: state.identity, pending: state.pending, last_sign_in_failure: state.failure });
@@ -37,6 +42,14 @@ const daemon = vi.hoisted(() => {
     const path = url.split("?")[0];
     if (path.endsWith("/status")) return ok(status());
     if (path.endsWith("/plan") || path.endsWith("/plan/refresh")) return ok(plan());
+    if (path.endsWith("/gift/redeem")) {
+      state.giftRequests.push(JSON.parse(String(init?.body)));
+      if (state.giftAbortable) return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+      });
+      if (state.giftWait) return state.giftWait;
+      return state.giftFailure ? { ok: false, text: async () => state.giftFailure! } : ok(state.giftResponse);
+    }
     if (path.endsWith("/billing")) {
       const operation = JSON.parse(String(init?.body)).operation;
       if (operation === "catalog") return state.catalogUnavailable ? { ok: false, text: async () => "unavailable" } : ok(desktopCatalogFixture);
@@ -99,6 +112,7 @@ beforeEach(() => {
   Object.assign(daemon.state, {
     identity: null, pending: false, failure: null, account: { plan: "free", fullAccess: false },
     logins: 0, login: null, upgrades: [], upgradeFails: false, upgradeWait: null, paidPlan: undefined, subscriptionUnavailable: false, catalogUnavailable: false, portals: 0,
+    giftRequests: [], giftResponse: { schema_version: 1, status: "redeemed", plan: "max", duration: "lifetime", expires_at: null }, giftFailure: null, giftWait: null, giftAbortable: false,
   });
 });
 
@@ -106,6 +120,7 @@ afterEach(async () => {
   await act(async () => root?.unmount());
   root = null;
   host.remove();
+  vi.useRealTimers();
 });
 
 async function mount() {
@@ -281,4 +296,108 @@ it("does not substitute built-in prices when a signed-in account's catalog is un
   expect(host.querySelector('[role="group"][aria-label="Subscription plans"]')).toBeNull();
   expect(host.querySelector('[role="alert"]')).not.toBeNull();
   expect(daemon.state.upgrades).toEqual([]);
+});
+
+const giftForm = () => host.querySelector<HTMLFormElement>('form[aria-label="Redeem a gift key"]');
+const giftKey = `g1_${"a".repeat(43)}`;
+async function enterGift() {
+  const input = giftForm()!.querySelector("input")!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, giftKey);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+}
+async function submitGift() {
+  await act(async () => { giftForm()!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+}
+
+it("only signed-in accounts have the accessible gift control", async () => {
+  await mount();
+  expect(giftForm()).toBeNull();
+  daemon.state.identity = { uid: "gift-user", display_name: "Ada", email: "ada@example.test", provider: "fake" };
+  await act(async () => window.dispatchEvent(new Event("domios:account-changed")));
+  await settle();
+  const input = giftForm()!.querySelector("input")!;
+  expect(giftForm()!.querySelector("label")!.htmlFor).toBe(input.id);
+  expect(input.type).toBe("password");
+  expect(button(giftForm()!, "Redeem gift key")!.disabled).toBe(true);
+});
+
+it("displays server lifetime readback without turning a receipt into paid access", async () => {
+  daemon.state.identity = { uid: "gift-user", display_name: "Ada", email: "ada@example.test", provider: "fake" };
+  await mount();
+  await enterGift();
+  await submitGift();
+  expect(daemon.state.giftRequests).toEqual([{ key: giftKey, expected_uid: "gift-user" }]);
+  expect(giftForm()!.querySelector("input")!.value).toBe("");
+  expect(giftForm()!.querySelector('[role="status"]')!.textContent).toContain("Max");
+  expect(giftForm()!.querySelector('[role="status"]')!.textContent).toContain("Lifetime");
+  expect(giftForm()!.querySelector('[role="status"]')!.textContent).toContain("Free");
+  expect(daemon.state.account.plan).toBe("free");
+  expect(daemon.state.upgrades).toEqual([]);
+  expect(host.textContent).not.toContain(giftKey);
+});
+
+it.each(["invalid_key", "already_lifetime", "rate_limited", "unavailable", "opaque-private-material"])("gift refusal %s preserves a paid account and permits an explicit retry", async reason => {
+  daemon.state.identity = { uid: "paid-user", display_name: "Ada", email: "ada@example.test", provider: "fake" };
+  daemon.state.account = { plan: "pro", fullAccess: false };
+  daemon.state.giftFailure = reason;
+  await mount();
+  await enterGift();
+  await submitGift();
+  expect(giftForm()!.querySelector('[role="alert"]')).not.toBeNull();
+  expect(host.textContent).not.toContain("opaque-private-material");
+  expect(daemon.state.account.plan).toBe("pro");
+  expect(daemon.state.giftRequests).toHaveLength(1);
+  daemon.state.giftFailure = null;
+  await enterGift();
+  await submitGift();
+  expect(daemon.state.giftRequests).toHaveLength(2);
+  expect(giftForm()!.querySelector('[role="status"]')).not.toBeNull();
+});
+
+it("a pending gift submission is sent once and a late result cannot cross accounts", async () => {
+  let finish!: (response: Response) => void;
+  daemon.state.giftWait = new Promise(resolve => { finish = resolve; });
+  daemon.state.identity = { uid: "previous", display_name: "Ada", email: "ada@example.test", provider: "fake" };
+  await mount();
+  await enterGift();
+  await submitGift();
+  await submitGift();
+  expect(daemon.state.giftRequests).toHaveLength(1);
+  expect(giftForm()!.querySelector("input")!.disabled).toBe(true);
+  daemon.state.identity = { uid: "current", display_name: "Grace", email: "grace@example.test", provider: "fake" };
+  await act(async () => window.dispatchEvent(new Event("domios:account-changed")));
+  await settle();
+  await act(async () => finish(new Response(JSON.stringify(daemon.state.giftResponse), { status: 200 })));
+  expect(giftForm()!.querySelector('[role="status"]')).toBeNull();
+  expect(giftForm()!.querySelector("input")!.value).toBe("");
+  expect(daemon.state.identity.uid).toBe("current");
+});
+
+it("an unknown gift response is refused without changing account access", async () => {
+  daemon.state.identity = { uid: "gift-user", display_name: "Ada", email: "ada@example.test", provider: "fake" };
+  daemon.state.giftResponse = { schema_version: 1, status: "redeemed", plan: "admin", duration: "lifetime", expires_at: null };
+  await mount();
+  await enterGift();
+  await submitGift();
+  expect(giftForm()!.querySelector('[role="alert"]')).not.toBeNull();
+  expect(giftForm()!.querySelector('[role="status"]')).toBeNull();
+  expect(daemon.state.account).toEqual({ plan: "free", fullAccess: false });
+});
+
+it("bounds a stalled redemption without automatically replaying the key", async () => {
+  daemon.state.identity = { uid: "gift-user", display_name: "Ada", email: "ada@example.test", provider: "fake" };
+  daemon.state.giftAbortable = true;
+  await mount();
+  vi.useFakeTimers();
+  await enterGift();
+  await submitGift();
+  expect(giftForm()!.querySelector("input")!.disabled).toBe(true);
+  await act(async () => vi.advanceTimersByTimeAsync(45_000));
+  expect(giftForm()!.querySelector("input")!.disabled).toBe(false);
+  expect(giftForm()!.querySelector('[role="alert"]')).not.toBeNull();
+  expect(daemon.state.giftRequests).toHaveLength(1);
+  expect(daemon.state.account.plan).toBe("free");
 });
