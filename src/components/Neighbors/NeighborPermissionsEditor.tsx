@@ -9,7 +9,8 @@ import type { NeighborPermission } from "./neighborRuntimeClient";
 
 const SCOPE_LIMIT = 8192;
 const samePermission = (a: NeighborPermission, b: NeighborPermission) => a.allowed === b.allowed && a.scope === b.scope
-  && a.allow_tab_requests === b.allow_tab_requests && (a.allow_interactive_content ?? false) === (b.allow_interactive_content ?? false);
+  && a.allow_tab_requests === b.allow_tab_requests && (a.allow_interactive_content ?? false) === (b.allow_interactive_content ?? false)
+  && (a.allow_memory ?? true) === (b.allow_memory ?? true) && (a.allow_files ?? true) === (b.allow_files ?? true);
 const scopeBytes = (scope: string) => new TextEncoder().encode(scope).length;
 
 /** Allowing requests needs a written scope; the relay refuses an empty or oversized one. */
@@ -60,7 +61,11 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
     </FormRow>
     <SwitchTile label={`Show interactive content from ${name}`} hint="Runs their html previews and diagrams in your chat. Only for people you trust."
       checked={draft?.allow_interactive_content === true} onChange={allow_interactive_content => { if (draft && !saving) edit({ allow_interactive_content }); }} />
-    <SwitchTile label="May ask to open tabs" hint="A separate grant: without it, their agents can only ask questions."
+    <SwitchTile label="Read my memory" hint="Their agents may ask what your memory holds, within the scope above."
+      checked={draft !== null && draft.allow_memory !== false} onChange={allow_memory => { if (draft && !saving) edit({ allow_memory }); }} />
+    <SwitchTile label="Read files" hint="Their agents may ask for files and receive copies."
+      checked={draft !== null && draft.allow_files !== false} onChange={allow_files => { if (draft && !saving) edit({ allow_files }); }} />
+    <SwitchTile label="Open tabs and agents" hint="A separate grant: without it, their agents can only ask questions."
       checked={draft?.allow_tab_requests === true} onChange={allow_tab_requests => { if (draft && !saving) edit({ allow_tab_requests }); }} />
     {incoming && !samePermission(incoming, baseline ?? incoming) && <div role="status" className="neighbor-confirm">
       <p>These permissions were changed elsewhere while you were editing.</p>

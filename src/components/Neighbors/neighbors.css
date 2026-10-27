@@ -1140,3 +1140,20 @@
   font-size: 11px;
   animation: neighbor-fade-in var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle) both;
 }
+
+.neighbor-chat__who {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.6rem;
+  border: 0;
+  border-radius: 999px;
+  padding: 0.15rem 0.5rem 0.15rem 0.15rem;
+  background: transparent;
+  color: var(--ct-fg);
+  cursor: pointer;
+}
+
+.neighbor-chat__who:hover {
+  background: var(--ct-hover);
+}
