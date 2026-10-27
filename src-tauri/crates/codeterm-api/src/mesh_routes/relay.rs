@@ -412,6 +412,21 @@ pub async fn mesh_relay_to_peer(
         }
     }
     let mut relay_body = req.body;
+    if req.path.split('?').next() == Some("/api/agents/spawn")
+        && req.method.eq_ignore_ascii_case("POST")
+    {
+        let named = |field: &str| relay_body.get(field).and_then(|value| value.as_str());
+        codeterm_service_core::service::execution_sandbox_refuse_confined_mesh_delegation(
+            &state.svc,
+            &[
+                crate::tab_routes::caller_tab_header(&headers).as_deref(),
+                named("spawned_by_tab_id"),
+                named("creator_tab_id"),
+                named("parent_tab_id"),
+            ],
+        )
+        .map_err(|error| (StatusCode::FORBIDDEN, error))?;
+    }
     codeterm_service_core::service::mesh_artifacts_transfer(
         &state.svc,
         crate::tab_routes::caller_tab_header(&headers).as_deref(),

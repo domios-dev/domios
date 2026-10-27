@@ -68,6 +68,7 @@ impl ServiceContext {
         runtime_fork: Option<crate::service::spawn::RuntimeForkLaunch>,
     ) -> Result<SpawnResult, String> {
         self.validate_remote_spawn(&params)?;
+        crate::service::execution_sandbox::enforce_delegation_ceiling(self, &params, None)?;
         params.title = spawn_title::normalize_agent_title(params.title.take());
         spawn_title::validate_agent_tab_title(
             params.title.as_deref(),
@@ -207,6 +208,7 @@ impl ServiceContext {
         emit_state_change: bool,
     ) -> Result<SpawnResult, String> {
         self.validate_remote_spawn(&params)?;
+        crate::service::execution_sandbox::enforce_delegation_ceiling(self, &params, None)?;
         params.title = spawn_title::normalize_agent_title(params.title.take());
         spawn_title::validate_agent_tab_title(
             params.title.as_deref(),

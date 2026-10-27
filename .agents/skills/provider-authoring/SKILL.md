@@ -120,8 +120,9 @@ Every claim below is transcribed from the Rust source of truth:
 
 `spawn.executionSandbox` declares filesystem enforcement per platform and intent.
 Each `readOnly` or `mutating` mode supplies `launchArgs` and an optional
-`runtimeMode`; `{cwd}` expands to the canonical launch directory. Missing
-read-only enforcement refuses dispatch with `unsupportedReason`. Permission
+`runtimeMode`; `{cwd}` expands to the canonical launch directory. An explicit `--sandbox`
+request without a matching mode refuses with `unsupportedReason`; execution
+intent alone never requests confinement. Permission
 prompts or planning modes alone do not establish filesystem confinement.
 Core persists the resolved intent, cwd, arguments, mode and host-owned roots,
 revalidates them on relaunch and rejects runtime overrides. Scoped launches

@@ -264,6 +264,12 @@ pub async fn spawn_agent(
         },
     )?;
     let params = spawn_request::into_params(body, role_probe, ownership);
+    codeterm_service_core::service::execution_sandbox_enforce_delegation_ceiling(
+        &state.svc,
+        &params,
+        crate::tab_routes::caller_tab_header(&headers).as_deref(),
+    )
+    .map_err(|message| SpawnRejection::new(StatusCode::FORBIDDEN, "sandbox_ceiling", message))?;
     let cwd_params = params.clone();
     spawn_rejection::validate_spawn_cwd(
         &state.svc,
