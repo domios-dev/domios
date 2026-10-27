@@ -200,7 +200,8 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
 }
 
 const MIB = 1024 * 1024;
-const DEFAULT_FILE_LIMIT_MIB = 50;
+/** The service default and its ceiling are the same 50 MiB a day. */
+const FILE_LIMIT_MIB = 50;
 
 /** Files a day you accept from a friend, in MiB: empty keeps the 50 MiB default, 0 blocks files. */
 function FileDailyLimit({ neighbor, name, onSave }: { neighbor: Neighbor; name: string; onSave?: (bytes: number | null) => Promise<void> }) {
@@ -209,18 +210,18 @@ function FileDailyLimit({ neighbor, name, onSave }: { neighbor: Neighbor; name: 
   const [error, setError] = useState<string | null>(null);
   const field = useId();
   const mib = value.trim() === "" ? null : Number(value);
-  const valid = mib === null || (Number.isFinite(mib) && mib >= 0 && mib <= 1024);
+  const valid = mib === null || (Number.isFinite(mib) && mib >= 0 && mib <= FILE_LIMIT_MIB);
   const bytes = mib === null ? null : Math.round(mib * MIB);
-  const hint = current === 0 ? `Files from ${name} are blocked.` : `Empty for ${DEFAULT_FILE_LIMIT_MIB} MiB; 0 blocks files.`;
+  const hint = current === 0 ? `Files from ${name} are blocked.` : `Empty for ${FILE_LIMIT_MIB} MiB; 0 blocks files.`;
   return <form className="neighbor-limit" onSubmit={event => {
     event.preventDefault();
     if (!valid || !onSave) return;
     setError(null);
     void onSave(bytes).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : "The file limit could not be saved."));
   }}>
-    <FormRow label="Files per day from this friend" htmlFor={field} hint={valid ? hint : "Use a number of MiB from 0 to 1024, or leave it empty."}>
+    <FormRow label="Files per day from this friend" htmlFor={field} hint={valid ? hint : `Use a number of MiB from 0 to ${FILE_LIMIT_MIB}, or leave it empty.`}>
       <div className="neighbor-limit__row">
-        <input id={field} type="number" min={0} max={1024} step={0.5} inputMode="decimal" placeholder={`${DEFAULT_FILE_LIMIT_MIB} MiB`}
+        <input id={field} type="number" min={0} max={FILE_LIMIT_MIB} step={0.5} inputMode="decimal" placeholder={`${FILE_LIMIT_MIB} MiB`}
           className={`${UI_INPUT.compact} neighbor-limit__input`} value={value} aria-invalid={!valid} disabled={!onSave}
           onChange={event => setValue(event.currentTarget.value)} />
         <span className="neighbor-note">MiB</span>
