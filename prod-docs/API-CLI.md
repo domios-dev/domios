@@ -87,9 +87,9 @@ With `--json` commands print exactly one JSON object on stdout for success and f
 
 ### Sandboxed CLI transport
 
-The CLI tries its local pipe/socket first, then authenticated loopback `POST /api/cli/rpc` for socket and REST-backed commands. Tabs use only their launch-scoped `CODETERM_API_TOKEN`; a missing, revoked or foreign-instance credential never falls back to host authority. Outside a tab, the host credential resolves from the selected instance's `<data_dir>/.secrets`. An explicit DEV selection needs a configured or explicit port before its callback origin can match an inherited token; foreign selections never reuse a production token. Both startup discovery and RPC fallback refuse a callback URL differing from the resolved instance address.
+The CLI tries its local pipe/socket first, then authenticated loopback `POST /api/cli/rpc` for socket and REST-backed commands. Tabs use only their launch `CODETERM_API_TOKEN` and never fall back to host authority; outside a tab the host credential comes from the instance's `<data_dir>/.secrets`. An explicit DEV selection needs a configured or explicit port before its callback origin can match an inherited token; foreign selections never reuse a production token. Both startup discovery and RPC fallback refuse a callback URL differing from the resolved instance address.
 
-HTTP fallback requires exactly `http://127.0.0.1:<port>` without credentials, path, query or fragment; proxies and redirects are disabled. Named custom-port targets also need `CODETERM_INSTANCE` or an explicit socket path. It dispatches the same socket methods, including `api.request` for REST-backed commands. The credential must be a live tab credential or the host credential and the TCP peer loopback; mesh peer tokens are refused. Socket envelopes carry the same credential; `api.request` preserves that authority when forwarding to REST. Success wraps data in `{result: ...}`; an inner `error` remains ordinary data.
+HTTP fallback requires exactly `http://127.0.0.1:<port>` without credentials, path, query or fragment; proxies and redirects are disabled. Named custom-port targets also need `CODETERM_INSTANCE` or an explicit socket path. It dispatches the same socket methods, including `api.request` for REST-backed commands. It needs a live tab or host credential from a loopback peer (mesh tokens refused); socket envelopes and `api.request` carry the same credential. Success wraps data in `{result: ...}`; an inner `error` remains ordinary data.
 
 ### Mesh CLI failures
 
@@ -114,7 +114,7 @@ Set automatically in every PTY spawned by Domios:
 | `CODETERM_PARENT_TAB_ID` | `b4e2c8d1` | Parent Tab ID in hierarchy (empty for a Team anchor or no role). Set at PTY spawn. |
 | `CODETERM_API_PORT` | `7685` | API port for the running instance. Set by Domios so CLI and hooks use the correct port. A custom port needs `CODETERM_INSTANCE` or an explicit matching `CODETERM_SOCKET_PATH`. |
 | `CODETERM_API_URL` | `http://127.0.0.1:7685` | Optional API origin for local CLI fallback; fallback accepts only the exact IPv4 loopback host. |
-| `CODETERM_API_TOKEN` | `your-secret-token` | Credential for this tab's current launch, used by CLI and hook callbacks. It is distinct from the host credential, never restored from disk, and invalid after launch/session replacement, tab close or daemon restart. PTYs without a tab record receive no credential. |
+| `CODETERM_API_TOKEN` | `your-secret-token` | This tab's launch credential for CLI and hook callbacks; never the host credential, never restored from disk, invalid after launch/session replacement, tab close or daemon restart. PTYs without a tab get none. |
 | `TERM` | `xterm-256color` | Terminal type |
 | `COLORTERM` | `truecolor` | Color support |
 | `TERM_PROGRAM` | `CodeTerm` | Terminal name |
@@ -196,4 +196,4 @@ One flow per provider; cancel before retry. Verified completion resumes the same
 thread without replay. **Send to my phone** requests one `action_needed` push;
 saved sessions and notifications omit login values.
 
-<!-- revision: 65 -->
+<!-- revision: 66 -->
