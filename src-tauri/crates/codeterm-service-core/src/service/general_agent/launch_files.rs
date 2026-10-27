@@ -1,30 +1,6 @@
 use crate::service::ServiceContext;
 
-use crate::agent::provider::{AgentLaunchParams, StarterPrompt};
-use crate::service::codex_rpc;
-
-#[cfg(test)]
-pub(super) fn plan(
-    svc: &ServiceContext,
-    tab: &str,
-    provider: &str,
-    cwd: &str,
-    params: &AgentLaunchParams,
-    resume: Option<&str>,
-) -> Option<codex_rpc::lifecycle::Spawn> {
-    codex_rpc::launch::selection_plan(
-        svc,
-        tab,
-        provider,
-        cwd,
-        params,
-        crate::ports::transport::Selection {
-            resume: resume.map(str::to_owned),
-            extra_args: params.args.as_ref().is_some_and(|args| !args.is_empty()),
-            ..Default::default()
-        },
-    )
-}
+use crate::agent::provider::AgentLaunchParams;
 
 pub(super) fn command(
     svc: &ServiceContext,
@@ -34,33 +10,11 @@ pub(super) fn command(
     params: &mut AgentLaunchParams,
     resume: Option<&str>,
 ) -> Option<String> {
-    let selection = crate::ports::transport::Selection {
-        resume: resume.map(str::to_owned),
-        extra_args: params.args.as_ref().is_some_and(|args| !args.is_empty()),
-        ..Default::default()
-    };
-    command_with_selection(svc, tab, provider, cwd, params, selection)
-}
-
-pub(super) fn command_with_selection(
-    svc: &ServiceContext,
-    tab: &str,
-    provider: &str,
-    cwd: &str,
-    params: &mut AgentLaunchParams,
-    selection: crate::ports::transport::Selection,
-) -> Option<String> {
-    let resume = selection.resume.clone();
+    let resume = resume.map(str::to_owned);
     if let Some(session) = resume.as_deref() {
         crate::service::launch_session_detection::register_resume_launch_marker(tab, session);
     } else {
         crate::service::launch_session_detection::clear_launch_marker(tab);
-    }
-    if let Some(command) =
-        codex_rpc::launch::selection_plan(svc, tab, provider, cwd, params, selection)
-            .and_then(|plan| codex_rpc::launch::prepare_selection(svc, tab, plan))
-    {
-        return Some(command);
     }
     let command = if let Some(session) = resume.as_deref() {
         crate::service::task_files::capture(svc, tab, || {
@@ -87,62 +41,7 @@ pub(super) fn command_with_selection(
             params,
         )
     }?;
-    Some(codex_rpc::launch::prepare(
-        svc, tab, provider, command, None,
-    ))
-}
-
-pub(super) fn starter(
-    svc: &ServiceContext,
-    provider: &str,
-    prompt: StarterPrompt,
-) -> Option<String> {
-    if prompt == StarterPrompt::NoStarter {
-        return None;
-    }
-    let text = svc
-        .agent_registry
-        .with_provider(provider, |provider| provider.starter_prompt_text(prompt))
-        .flatten();
-    let text = crate::service::launch_delivery::assigned_task_starter(text.as_deref());
-    Some(crate::service::launch_delivery::mark_starter_prompt(
-        prompt, text,
-    ))
-}
-
-pub(super) fn finish_structured(
-    svc: &ServiceContext,
-    tab: &str,
-    pty: &str,
-    payload: Option<&str>,
-) -> Result<bool, String> {
-    let Some(sidecar) = codex_rpc::lifecycle::for_tab(tab) else {
-        return Ok(false);
-    };
-    let nonce = &sidecar.launch_nonce;
-    if !codex_rpc::lifecycle::wait_attached(tab, nonce, std::time::Duration::from_secs(30)) {
-        codex_rpc::recovery::try_start(svc, tab, nonce, "general remote TUI attachment failed");
-        if !codex_rpc::recovery::wait_recovery(tab, nonce) {
-            return Err("General Agent structured attachment failed".into());
-        }
-    }
-    let attempt = crate::service::launch_readiness::LaunchAttempt::current(&svc.mux, tab, pty)
-        .ok_or("General Agent launch was superseded")?;
-    if let Some(payload) = payload {
-        let consumed = codex_rpc::bootstrap::consume(
-            svc,
-            &attempt,
-            crate::service::launch_delivery::FallbackDeliverySpec {
-                channel: crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
-                payload: payload.into(),
-            },
-        )?;
-        if !consumed {
-            return Err("General Agent structured startup was not confirmed".into());
-        }
-    }
-    codex_rpc::lifecycle::startup_complete(svc, tab, nonce);
-    Ok(true)
+    Some(command)
 }
 
 pub(super) fn build_resume(

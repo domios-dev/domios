@@ -674,10 +674,6 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, fallback_base: &str) -> Vec<Chat
     out
 }
 
-pub(super) fn item_sidecar_owns(tab_id: &str) -> bool {
-    crate::service::codex_rpc::lifecycle::for_tab(tab_id).is_some()
-}
-
 /// Stateless normalized-chat read for a tab: parse the whole session
 /// (JSONL or sqlite) into a flat ChatMsg list, return messages[since..].
 /// No tailer spawned. Returns (messages, total_count).
@@ -773,11 +769,6 @@ pub fn tab_current_transcript_snapshot(
     }
     if crate::service::structured_endpoint::sse(tab_id).is_some() {
         let messages = crate::service::structured_prompt::snapshot::read(svc, tab_id)?;
-        let total = messages.len();
-        return Ok((messages.into_iter().skip(since).collect(), total));
-    }
-    if item_sidecar_owns(tab_id) {
-        let (messages, _, _) = crate::service::codex_rpc::transcript::snapshot(svc, tab_id)?;
         let total = messages.len();
         return Ok((messages.into_iter().skip(since).collect(), total));
     }

@@ -37,7 +37,12 @@ def bindings(records, before=None, provider="codex"):
         require(nonce and nonce == row.get("reported_session_binding_nonce"), f"{tab}: unauthenticated nonce")
         require(row.get("boot_stage") == "agent_ready", f"{tab}: boot_stage={row.get('boot_stage')}")
         require(not row.get("boot_failure_reason"), f"{tab}: {row.get('boot_failure_reason')}")
-        require("structured_control_active" in row, f"{tab}: missing structured control telemetry")
+        if row.get("backing", {}).get("kind") == "chat_backend":
+            runtime = row.get("agent_runtime_state") or {}
+            require(runtime.get("state") == "loaded", f"{tab}: runtime is not loaded")
+            require(row["backing"].get("session_id") == sid, f"{tab}: runtime thread is foreign")
+        else:
+            require(row.get("backing", {}).get("kind") == "pty", f"{tab}: missing backing telemetry")
         if before:
             for key in IDENTITY:
                 require(row.get(key) == before[tab].get(key), f"{tab}: {key} changed")

@@ -239,7 +239,7 @@ pub async fn hook_permission(
     let tab_id =
         crate::hook_routes::resolve_hook_tab_async(&state, &raw_tab_id, "permission").await?;
     record_hook_post(&state, &tab_id, "permission", body.as_ref());
-    if let Some(response) = hook_authority::telemetry_response(&tab_id, "permission") {
+    if let Some(response) = hook_authority::telemetry_response(&state.svc, &tab_id, "permission") {
         return Ok(response);
     }
     if let Some(raw) = body.as_ref() {
@@ -378,7 +378,7 @@ pub async fn hook_session_start(
     let prepared = tokio::task::spawn_blocking(move || {
         let state = owner;
     let tab_id = resolve_hook_tab(&state, &raw_tab_id, "session_start")?;
-    if let Some(response) = hook_authority::telemetry_response(&tab_id, "session_start") {
+    if let Some(response) = hook_authority::telemetry_response(&state.svc, &tab_id, "session_start") {
         return Ok(Err(axum::response::IntoResponse::into_response(response)));
     }
     let body = body.unwrap_or(serde_json::Value::Null);

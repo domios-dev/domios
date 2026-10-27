@@ -174,7 +174,6 @@ impl ServiceContext {
     pub(crate) fn finish_tab_close(&self, tab_id: &str) -> Result<(), String> {
         self.revoke_tab_credential(tab_id);
         super::supporter_tab_state::forget_observations(tab_id);
-        crate::service::codex_rpc::lifecycle::stop_tab(tab_id);
         self.release_managed_tabs(tab_id);
         self.ext::<std::sync::Arc<crate::service::reply_relay::ReplyRelayRegistry>>()
             .close(tab_id);

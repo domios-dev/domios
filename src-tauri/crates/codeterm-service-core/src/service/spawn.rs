@@ -616,11 +616,7 @@ impl ServiceContext {
             self.agent_registry
                 .with_provider(&agent_cmd, |provider| provider.is_tool_less())
                 .unwrap_or(false),
-            super::codex_rpc::launch::carries_startup_attempt(
-                self,
-                &agent_cmd,
-                !agent.extra_args.is_empty(),
-            ),
+            true,
         );
         let mut legacy_params = spec.to_agent_launch_params(resolved_cwd.clone())?;
         let input_provider = self.agent_registry.provider_arc(&agent_cmd);
@@ -935,7 +931,6 @@ impl ServiceContext {
             &env_vars,
         );
 
-        super::codex_rpc::lifecycle::launch_env(self, &tab_id, &mut env_vars);
         let pty_id = match self.link_hidden_agent_pty(&tab_id, resolved_cwd, env_vars) {
             Ok(pty_id) => pty_id,
             Err(error) => {
@@ -1042,12 +1037,6 @@ impl ServiceContext {
                 provider,
                 launch_session_id,
                 task: task_for_thread,
-                selection: crate::ports::transport::Selection {
-                    model: launch_model.clone(),
-                    effort: agent.reasoning_effort.clone(),
-                    resume: agent.resume_session_id.clone(),
-                    extra_args: false,
-                },
                 model_args,
                 role: role_for_thread,
                 role_profile: role_profile_for_thread,

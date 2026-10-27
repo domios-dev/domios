@@ -892,17 +892,6 @@ impl super::ServiceContext {
                 detail: "user owner readiness changed before guarded input".into(),
             });
         }
-        if let Some(result) = super::codex_rpc::send::try_send_owned(self, record, capture_send) {
-            if capture_send
-                && result
-                    .as_ref()
-                    .err()
-                    .is_some_and(|error| !error.bytes_written())
-            {
-                self.pending_user_send(record, "recording_capture_rpc_refused_before_handoff");
-            }
-            return result;
-        }
         let pty_id = authority
             .pty_id
             .as_deref()

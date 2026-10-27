@@ -99,7 +99,7 @@ pub(crate) fn switch(
             .agent_registry
             .with_provider(&provider, |provider| {
                 provider
-                    .structured_control()
+                    .agent_runtime()
                     .map(|control| {
                         control
                             .runtime_modes

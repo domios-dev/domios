@@ -1,12 +1,7 @@
 use super::*;
 use crate::service::chat_send_transaction::{ChatSendLedger, SendLiveBinding};
-use crate::service::codex_rpc::{normalize::Normalizer, protocol::Frame, send};
 use codeterm_types::trace::{gaps, read, select, Sink};
 use serde_json::json;
-use std::{
-    future::Future,
-    task::{Context, Poll, Waker},
-};
 
 #[test]
 fn captured_trace_link_preserves_source_and_bounded_display_detail() {
@@ -52,29 +47,13 @@ fn rpc_send_ingress_protocol_answer_reaches_sink_with_exact_client_turn_link() {
                 binding_nonce: Some("nonce".into()),
             }
         ));
-        let future = send::test_submit(
-            send::Origin::Agent,
-            None,
-            send::test_start_params("session", &id, "opaque", None, json!({})),
-            |method, request| {
-                assert_eq!(method, "turn/start");
-                assert_eq!(request["clientUserMessageId"], id);
-                std::future::ready(Ok(json!({"turn":{"id":"turn"}})))
-            },
-        );
-        let mut future = std::pin::pin!(future);
-        assert!(matches!(
-            future
-                .as_mut()
-                .poll(&mut Context::from_waker(Waker::noop())),
-            Poll::Ready(Ok(_))
-        ));
         ledger.mark_rpc_accepted(&id).unwrap();
         let later = ledger.try_start("tab", "later", None).unwrap();
         assert_ne!(later.send_id, id);
         let user = json!({"threadId":"session","turnId":"turn","item":{"id":"user","type":"userMessage",
             "clientId":id,"content":[{"type":"text","text":"opaque"}]}});
-        let (session, client) = send::user_client_id("item/completed", &user).unwrap();
+        let session = user["threadId"].as_str().unwrap();
+        let client = user["item"]["clientId"].as_str().unwrap();
         ledger.trace_rpc_turn("tab", session, "wrong", client, "turn", "provider");
         ledger.trace_rpc_turn(
             "tab",
@@ -87,14 +66,10 @@ fn rpc_send_ingress_protocol_answer_reaches_sink_with_exact_client_turn_link() {
         ledger
             .confirm_rpc_send("tab", session, "nonce", client, Some("provider-item"))
             .unwrap();
-        let mut normalizer = Normalizer::default();
-        let frame = Frame::Notification {
-            method: "item/completed".into(),
-            params: json!({"threadId":"session","turnId":"turn","item":{"id":"answer","type":"agentMessage","text":"opaque answer"}}),
-        };
-        for message in normalizer.apply_all(&frame) {
-            SourceCursor::rpc("tab", "provider", "session", Some("nonce"), &message);
-        }
+        SourceCursor::rpc("tab", "provider", "session", Some("nonce"), &ChatMsg {
+            id: "answer".into(), kind: "assistant".into(), tool_flow_id: Some("turn".into()),
+            content: "opaque answer".into(), ..Default::default()
+        });
         SourceCursor::rpc(
             "tab",
             "provider",

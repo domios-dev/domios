@@ -76,7 +76,7 @@ fn store_agent_state_and_record_turn_resume_edge(
 ) -> (bool, bool) {
     let mut new_state = new_state;
     finished_turn::carry_summary(tab.agent_state.as_ref(), &mut new_state);
-    if tab.structured_control_active || tab.agent_state.as_ref() == Some(&new_state) {
+    if matches!(tab.backing, crate::multiplexer::types::TabBacking::ChatBackend { .. }) || tab.agent_state.as_ref() == Some(&new_state) {
         return (false, false);
     }
     tab.record_activity();
@@ -198,14 +198,6 @@ impl ServiceContext {
         if let Some(tab_id) = tab_id.as_deref() {
             super::structured_prompt::wake_for_tab(tab_id);
         }
-        if tab_id
-            .as_deref()
-            .is_some_and(|tab| super::codex_rpc::lifecycle::for_tab(tab).is_some())
-        {
-            let status = self.agent_tracker.lock().get_status(pty_id);
-            return (status, status);
-        }
-
         // An unresolvable provider has UNKNOWN chrome, so refuse to hash
         // rather than measure the volatile band against a fictional zero.
         let status_bar_rows = match agent_type.as_deref() {
@@ -555,13 +547,6 @@ impl ServiceContext {
     }
 
     pub(crate) fn recompute_agent_state(&self, pty_id: &str) {
-        let tab = self.mux.read().tab_id_for_pty(pty_id);
-        if tab
-            .as_deref()
-            .is_some_and(|tab| super::codex_rpc::lifecycle::for_tab(tab).is_some())
-        {
-            return;
-        }
         use crate::agent::offline_state_classifier::{
             classify_state, extract_completion_summary, extract_question_message,
             extract_status_line, AgentLiveState, TabVerdict, TimelineState,

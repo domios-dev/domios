@@ -474,7 +474,6 @@ async fn shutdown_signal() -> io::Result<()> {
 fn shutdown(running: &crate::ComposedService) -> io::Result<()> {
     use codeterm_service_core::{crash, service::session_persist, startup};
     crash::shutdown::mark_shutting_down_for(crash::shutdown::ShutdownReason::Signal);
-    let sidecars = crash::exit::begin_sidecar_shutdown();
     let surfaces =
         codeterm_service_core::service::surface::begin_surface_shutdown(&running.service);
     let mut errors = Vec::new();
@@ -498,7 +497,6 @@ fn shutdown(running: &crate::ComposedService) -> io::Result<()> {
         Err(error) => errors.push(error.to_string()),
     }
     surfaces.wait();
-    sidecars.wait();
     let stopped_git = codeterm_plugins::stop_live_git_children();
     if stopped_git > 0 {
         log::info!(

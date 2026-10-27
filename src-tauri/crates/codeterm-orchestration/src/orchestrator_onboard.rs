@@ -296,7 +296,7 @@ mod tests {
             pending_model_selection: None,
             agent_planned_model: None,
             agent_requested_model: None,
-            structured_control_active: false,
+
             structured_runtime_mode: None,
             agent_provider_resolved_model: None,
             model_fallback: None,

@@ -21,8 +21,7 @@ export function utf8Bytes(value: string): number {
 
 function supportsDirectResume(): boolean {
   try {
-    const manifest = JSON.parse(host.manifestJson() || "null");
-    const minimum = manifest?.capabilities?.structuredControl?.minVersion;
+    const minimum = "0.159.0";
     const observed = JSON.parse(host.providerVersionJson());
     if (observed?.status !== "detected" || typeof minimum !== "string") return false;
     const parse = (value: string) => /^(\d+)\.(\d+)\.(\d+)$/.exec(value)?.slice(1).map(Number);

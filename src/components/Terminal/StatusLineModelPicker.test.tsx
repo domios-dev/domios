@@ -209,9 +209,7 @@ test("model rows stage a choice and Apply switches once and closes the picker", 
 test("declared runtime modes show the bound value and apply with other staged choices", async () => {
   const calls = recordSwitches();
   const provider = descriptor("live");
-  provider.structured_control = {
-    protocol: "fixture",
-    minVersion: "1.0.0",
+  provider.agent_runtime = {
     runtimeModes: [
       { id: "auto", displayName: "Auto" },
       { id: "full-access", displayName: "Full access" },

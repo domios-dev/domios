@@ -123,6 +123,7 @@ export type ResetCreditOutcome = "reset"|"nothingToReset"|"noCredit"|"alreadyRed
 export interface RuntimeReduction { state:JsonValue; events:readonly AgentEvent[] }
 export type AgentRuntimeTransport = "stdio-jsonrpc" | "http-sse";
 export interface StdioAgentRuntimeCapability {
+  runtimeModes?:readonly {id:string; displayName:string}[];
   serviceTiers?:readonly RuntimeServiceTier[];
   backgroundProcesses?:boolean;
   goals?:{actions:readonly RuntimeGoalAction[]};

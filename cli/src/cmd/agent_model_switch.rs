@@ -222,7 +222,7 @@ pub(super) fn validate_controls(
     }
     if let Some(requested) = runtime_mode {
         let ids = provider
-            .get("structured_control")
+            .get("agent_runtime")
             .and_then(|control| control.get("runtimeModes"))
             .and_then(serde_json::Value::as_array)
             .into_iter()
@@ -399,7 +399,7 @@ mod tests {
                 {"id":"model-a","reasoning_efforts":[{"id":"high"}]},
                 {"id":"model-b","reasoning_efforts":[]}
             ],
-            "structured_control":{"runtimeModes":[{"id":"auto"},{"id":"full-access"}]}
+            "agent_runtime":{"runtimeModes":[{"id":"auto"},{"id":"full-access"}]}
         });
         assert!(validate_controls(&provider, "model-a", Some("high"), Some("auto")).is_ok());
         assert!(validate_controls(&provider, "model-b", Some("medium"), None).is_ok());

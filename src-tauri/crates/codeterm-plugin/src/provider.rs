@@ -6,22 +6,6 @@ pub enum LaunchSpecParams<'a> {
     Resume(&'a AgentResumeParams),
 }
 pub mod reply_relay;
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct StructuredControl {
-    pub protocol: String,
-    pub min_version: String,
-    #[serde(default)]
-    pub runtime_modes: Vec<StructuredRuntimeMode>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct StructuredRuntimeMode {
-    pub id: String,
-    pub display_name: String,
-}
-
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ContextAttach {
@@ -282,8 +266,6 @@ pub struct ProviderDescriptor {
     pub cli_login: Option<CliLoginCapability>,
     #[serde(default)]
     pub supports_session_fork: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub structured_control: Option<StructuredControl>,
     pub schema_version: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cli_status: Option<crate::provider_cli::ProviderCliStatus>,
@@ -431,7 +413,7 @@ pub struct ProviderUpdateAvailability {
 }
 
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
-pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 25;
+pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 26;
 
 /// One provider-owned usage log to ingest for a session. `session_id` scopes a
 /// log shared by many sessions (e.g. one sqlite database); a per-session file
