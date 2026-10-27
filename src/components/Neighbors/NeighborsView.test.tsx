@@ -45,6 +45,7 @@ afterEach(async () => {
   localStorage.clear();
   notices.publishNotice.mockClear();
   transport.localFetch.mockReset();
+  transport.localFetch.mockImplementation(async () => new Response("{}", { status: 200 }));
   bridge.invoke.mockClear();
   account.model = signedIn;
 });
@@ -893,4 +894,17 @@ it("opens the friend window at Permissions when another surface asks for it", as
   await act(async () => openNeighborPage("pair", "permissions"));
   expect(document.querySelector('[role="dialog"][aria-modal="true"]')?.textContent).toContain("Ada");
   expect(hasButton("Save permissions")).toBe(true);
+});
+
+it("keeps focus inside the friend window and hands it back to the friend's node on close", async () => {
+  await render();
+  await act(async () => button("Ada, connected").click());
+  const dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-modal="true"]')!;
+  const focusable = Array.from(dialog.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'));
+  expect(dialog.contains(document.activeElement)).toBe(true);
+  focusable[0].focus();
+  await act(async () => { dialog.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true })); });
+  expect(document.activeElement).toBe(focusable[focusable.length - 1]);
+  await act(async () => { dialog.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+  expect(document.activeElement?.getAttribute("data-node-id")).toBe("pair");
 });

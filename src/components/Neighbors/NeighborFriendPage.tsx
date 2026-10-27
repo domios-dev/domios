@@ -7,6 +7,7 @@ import { Button } from "../shared/Button";
 import { DropdownSelect } from "../shared/DropdownMenu";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useBackDismissal } from "../../lib/backDismissal";
+import { trapDialogTab, useDialogFocus } from "../shared/dialogFocusTrap";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { useMuxSelector } from "../../store/multiplexer";
 import { ChangeConciergeDialog } from "./ChangeConciergeDialog";
@@ -101,7 +102,8 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
   // The window grows out of the node that was clicked and folds back into it on close.
   const titleId = useId();
   const layer = useRef<HTMLDivElement>(null);
-  const windowRef = useRef<HTMLElement>(null);
+  // Focus starts inside the window and returns to this friend's node, wherever the window was opened from.
+  const windowRef = useDialogFocus<HTMLElement>(() => document.querySelector<HTMLElement>(`[data-node-id="${friendship}"]`));
   const [closing, setClosing] = useState(false);
   const [fromStyle, setFromStyle] = useState<CSSProperties | undefined>(undefined);
   useLayoutEffect(() => {
@@ -109,7 +111,6 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
     if (box && origin) {
       setFromStyle({ "--neighbor-from-dx": `${origin.x - box.left - box.width / 2}px`, "--neighbor-from-dy": `${origin.y - box.top - box.height / 2}px` } as CSSProperties);
     }
-    windowRef.current?.focus({ preventScroll: true });
   }, [origin]);
   const close = () => {
     if (closing) return;
@@ -124,7 +125,12 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
   return <div ref={layer} className="neighbor-window-layer" data-closing={closing || undefined}
     onMouseDown={event => { if (event.target === event.currentTarget) close(); }}>
     <section ref={windowRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} className="neighbor-window" style={fromStyle}
-      onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); close(); } }}
+      onKeyDown={event => {
+        // The concierge dialog above owns the keyboard while it is open.
+        if (changing) return;
+        if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); close(); return; }
+        trapDialogTab(event, windowRef.current);
+      }}
       onAnimationEnd={event => { if (closing && event.target === event.currentTarget) onBack(); }}>
       <header className="neighbor-window__hero">
         <span className="neighbor-window__avatar"><AccountAvatar url={friend.photoURL} initial={accountInitials(name)} label="" size="node" /></span>
