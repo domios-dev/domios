@@ -177,6 +177,11 @@ export interface NormalizedChatMessage extends Omit<Partial<ChatMsg>, "pluginIco
   tagName?: string;
   systemSubtype?: string;
   timelineMarker?: ChatTimelineMarker;
+  contextCompaction?: {
+    state: "running" | "completed" | "failed";
+    startedAt: number;
+    endedAt?: number;
+  };
   sessionIntent?: ChatSessionIntent;
   sourceType?: string;
   sourceSubtype?: string;

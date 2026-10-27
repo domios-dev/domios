@@ -73,8 +73,10 @@ function appendMessage(items: TimelineItem[], message: NormalizedChatMessage): v
   if (
     isContextCompaction(message) &&
     previous?.kind === "message" &&
+    !(message.contextCompaction && previous.message.contextCompaction) &&
     isContextCompaction(previous.message)
   ) {
+    if (message.contextCompaction) items[items.length - 1] = { kind: "message", message };
     return;
   }
   items.push({ kind: "message", message });

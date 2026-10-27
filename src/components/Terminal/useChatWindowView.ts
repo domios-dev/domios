@@ -1,4 +1,6 @@
 import { useChatHistoryGaps } from "./useChatHistoryGaps";
+import { useContextCompaction } from "./useContextCompaction";
+import { projectCompactionRows } from "./contextCompactionModel";
 import { useLatestCallback } from "../../hooks/useLatestCallback";
 import { type MutableRefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
@@ -52,6 +54,7 @@ import { searchOlderChatHistory, type OlderChatPage } from "./chatHistorySearch"
  *  and enriched rows. It reads both stores and never keeps a copy of either. */
 export function useChatWindowView({
   tabId,
+  agentSessionId = null,
   windowKey,
   transcript,
   attachedAuthority = null,
@@ -61,6 +64,7 @@ export function useChatWindowView({
   loadHistoryPage,
 }: {
   tabId: string;
+  agentSessionId?: string | null;
   windowKey: string;
   transcript: TranscriptState;
   attachedAuthority?: TranscriptAuthority | null;
@@ -85,6 +89,7 @@ export function useChatWindowView({
   }, [windowKey]);
 
   const committedRows = useMemo(() => transcriptRows(transcript), [transcript]);
+  const compaction = useContextCompaction(tabId, agentSessionId ?? transcript.authority?.sourceSessionId ?? null, committedRows);
   const resetCutoffMs = useMemo(() => {
     const index = lastSessionResetIndex(committedRows);
     return index >= 0 ? timestampMs(committedRows[index]?.timestamp) : null;
@@ -101,10 +106,10 @@ export function useChatWindowView({
     const visible = hydration === "ready"
       ? visibleDeliveryRows(projection.rows, sends, projection.echoes)
       : projection.rows;
-    return projectContextEpochs(hydration === "ready"
+    return projectContextEpochs(projectCompactionRows(hydration === "ready"
       ? hideCompactedDismissals(visible, sends, projection.echoes, compactDismissals)
-      : visible);
-  }, [compactDismissals, hydration, projection, sends]);
+      : visible, compaction.history));
+  }, [compactDismissals, hydration, projection, sends, compaction.history]);
   useLayoutEffect(() => {
     if (hydration !== "ready") return;
     recordChatSendEchoes(tabId, projection.echoes);
@@ -294,6 +299,7 @@ export function useChatWindowView({
 
   return {
     addOptimistic,
+    compactionFailure: compaction.failure ? `Compaction history could not be saved: ${compaction.failure}` : undefined,
     allMessages,
     backfillLoading,
     backfillNotice: backfillNotice ?? (initialFillRef.current === windowKey && !backfillLoading
