@@ -114,6 +114,9 @@ jobs:
       - name: Installed application identity
         run: node scripts/check-installed-identity.mjs
         if: ${{ success() }}
+      - name: Current tracked tree privacy
+        run: node scripts/check-public-privacy.mjs
+        if: ${{ success() }}
       - name: Archive-portable Rust test paths
         run: node scripts/check-archive-portable-test-paths.mjs
         if: ${{ success() }}

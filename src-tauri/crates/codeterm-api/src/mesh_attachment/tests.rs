@@ -173,7 +173,7 @@ fn mesh_attachment_transfer_refuses_unusable_sources() {
 
 #[test]
 fn mesh_attachment_transfer_failure_never_yields_a_reference() {
-    let source = "C:\\Users\\blackstar\\.domios\\uploads\\1a2b-note.webm";
+    let source = "C:\\Users\\example\\.domios\\uploads\\1a2b-note.webm";
     let refused = RelayResponse {
         ok: false,
         status: 413,
@@ -199,7 +199,7 @@ fn mesh_attachment_transfer_failure_never_yields_a_reference() {
     assert!(parse_ingest_response(
         source,
         ok_response(serde_json::json!({
-            "path": "/Users/air/.domios/uploads/ffff-note.webm",
+            "path": "/Users/example/.domios/uploads/ffff-note.webm",
             "kind": "voice",
             "size": 1,
             "reference": format!("marker file={source}"),
@@ -353,7 +353,7 @@ fn mesh_attachment_consumer_transfer_body_matches_web_bridge() {
         let body: TransferBody = serde_json::from_value(serde_json::json!({
             "ordinary_tab_id": "mesh:air/tab-7",
             "peer_id": "air",
-            "path": "C:\\Users\\blackstar\\.domios\\uploads\\1a2b-note.webm",
+            "path": "C:\\Users\\example\\.domios\\uploads\\1a2b-note.webm",
             "kind": kind,
         }))
         .unwrap();
