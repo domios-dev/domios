@@ -62,6 +62,39 @@ impl Browser for NoBrowser {
 }
 
 impl crate::service::test_fixture::ServiceFixture {
+    pub async fn seed_neighbor_saved_file(
+        &self,
+        friendship: &str,
+        file_id: &str,
+        bytes: &[u8],
+    ) -> std::path::PathBuf {
+        assert!(codeterm_neighbors::wire::hex_id(file_id, 32));
+        let account = self
+            .service
+            .ext::<crate::service::account::AccountCell>()
+            .0
+            .get()
+            .unwrap();
+        let session = account.session().await.unwrap();
+        let metadata = Metadata::new(
+            self.service.account_data_root().unwrap(),
+            &session.identity.uid,
+        );
+        let folder = metadata.friend_folder(friendship).unwrap();
+        let path = folder.join(format!("{file_id}-opaque.bin"));
+        let destination = path.clone();
+        let bytes = bytes.to_vec();
+        let size = bytes.len();
+        tokio::task::spawn_blocking(move || {
+            codeterm_util::private_file::create_dir_all(&folder).unwrap();
+            std::fs::write(destination, bytes).unwrap();
+        })
+        .await
+        .unwrap();
+        metadata.write(format!("files-{friendship}.json"), serde_json::json!([{"file_id":file_id,"message_id":"1".repeat(32),"name":"opaque.bin","mime":"application/octet-stream","size_bytes":size,"direction":"in","state":"saved"}])).await.unwrap();
+        path
+    }
+
     pub async fn seed_neighbor_concierge(
         &self,
         tab: &str,
