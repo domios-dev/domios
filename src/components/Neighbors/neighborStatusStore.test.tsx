@@ -55,3 +55,11 @@ it("stays empty when an answer lands after the surface turned off", async () => 
   await act(async () => late.resolve(status(true, 1)));
   expect(probe.seen[probe.seen.length - 1]).toBeNull();
 });
+
+it("keeps a newer receiver event when the read it triggers answers with an older revision", async () => {
+  const { runtime, emit } = client(Promise.resolve(status(false, 4)), Promise.resolve(status(false, 4)));
+  const probe = show(runtime, true);
+  await probe.first;
+  await act(async () => emit(status(true, 5)));
+  expect(probe.seen[probe.seen.length - 1]).toBe(true);
+});

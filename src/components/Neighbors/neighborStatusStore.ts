@@ -22,6 +22,13 @@ export function resetNeighborStatus() {
   stores = new WeakMap();
 }
 
+/** Receiver fields only move forward: a read answered before a newer receiver event keeps that event's state. */
+function keepNewerReceiver(fresh: NeighborStatusSnapshot, current: NeighborStatusSnapshot | undefined): NeighborStatusSnapshot {
+  if (!current || current.receiver_status_known === false || current.revision <= fresh.revision) return fresh;
+  const { receiving_here, receiver_machine_label, receiving_enabled, revision } = current;
+  return { ...fresh, receiving_here, receiver_machine_label, receiving_enabled, revision, receiver_status_known: true };
+}
+
 /**
  * The shared snapshot while `active`. Events write into it, and a write supersedes any read still in flight,
  * so a late initial answer can never restore an older state; turning inactive drops it from this caller.
@@ -36,7 +43,7 @@ export function useNeighborStatus(client: NeighborRuntimeClient, active: boolean
     const store = storeFor(client);
     let live = true;
     const show = (value: NeighborStatusSnapshot) => { if (live) setStatus(value); };
-    const load = () => client.status() as Promise<NeighborStatusSnapshot>;
+    const load = () => (client.status() as Promise<NeighborStatusSnapshot>).then(fresh => keepNewerReceiver(fresh, store.value));
     const stops: Array<() => void> = [];
     const keep = (stop: () => void) => { if (live) stops.push(stop); else stop(); };
     stops.push(store.subscribe(show));
