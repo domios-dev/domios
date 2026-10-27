@@ -2,7 +2,10 @@ use super::{
     storage::{Metadata, Settings},
     ServiceContext,
 };
-use codeterm_neighbors::{permissions::Permission, Result};
+use codeterm_neighbors::{
+    permissions::{MachineAccess, Permission},
+    Result,
+};
 use codeterm_types::plan::ExecutionIntent;
 use serde_json::{json, Value};
 
@@ -38,34 +41,40 @@ fn sandbox_label(
     capability: &codeterm_plugin::provider::ExecutionSandboxCapability,
     platform: &str,
     runtime: bool,
-) -> Option<String> {
-    for (intent, label) in [
-        (ExecutionIntent::Mutating, "workspace-write"),
-        (ExecutionIntent::ReadOnly, "read-only"),
-    ] {
-        if capability
-            .resolve(&intent, platform, runtime)
-            .is_ok_and(|mode| mode.is_some())
-        {
-            return Some(label.into());
+    access: MachineAccess,
+) -> std::result::Result<Option<String>, String> {
+    let (intent, label) = match access {
+        MachineAccess::Full => return Ok(None),
+        MachineAccess::None => {
+            return Err(codeterm_neighbors::Error::MachineAccessUnsupported.to_string())
         }
+        MachineAccess::ReadOnly => (ExecutionIntent::ReadOnly, "read-only"),
+        MachineAccess::Folder => (ExecutionIntent::Mutating, "workspace-write"),
+    };
+    match capability.resolve(&intent, platform, runtime) {
+        Ok(Some(_)) => Ok(Some(label.into())),
+        _ => Err(codeterm_neighbors::Error::MachineAccessUnsupported.to_string()),
     }
-    None
 }
 
 impl ServiceContext {
-    pub(super) fn neighbor_concierge_sandbox(&self, provider: &str) -> Option<String> {
+    pub(super) fn neighbor_concierge_sandbox(
+        &self,
+        provider: &str,
+        access: MachineAccess,
+    ) -> std::result::Result<Option<String>, String> {
         let runtime = crate::service::agent_runtime::engine::requested(self, provider);
-        self.agent_registry
+        let capability = self
+            .agent_registry
             .with_provider(provider, |provider| provider.execution_sandbox_capability())
             .flatten()
-            .and_then(|capability| {
-                sandbox_label(
-                    &capability,
-                    crate::agent::provider::current_platform_tag(),
-                    runtime,
-                )
-            })
+            .unwrap_or_default();
+        sandbox_label(
+            &capability,
+            crate::agent::provider::current_platform_tag(),
+            runtime,
+            access,
+        )
     }
 
     pub(super) fn neighbor_permission_projection(
@@ -103,11 +112,12 @@ impl ServiceContext {
                     else { "Writes are limited to the folder by the provider sandbox." };
                 ("provider_sandbox", format!("{writes}{roots} Reads are not confined on {}.", std::env::consts::OS))
             }
-            None => ("advisory", format!("This provider has no active OS filesystem sandbox on {}. The working folder is advisory; reads and writes are not confined.", std::env::consts::OS)),
+            None => (if permission.machine_access == MachineAccess::Full { "unrestricted" } else { "advisory" }, format!("This provider has no active OS filesystem sandbox on {}. The working folder is advisory; reads and writes are not confined.", std::env::consts::OS)),
         };
         let mut value = json!(permission);
         value["effective_folder"] = json!(folder);
         value["folder_enforcement"] = json!({"writes":writes,"reads":"not_confined","note":note});
+        value["folder_enforcement"]["network"] = json!("not_confined");
         Ok(value)
     }
 }

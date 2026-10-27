@@ -3,6 +3,22 @@ use super::*;
 mod neighbor_authority;
 
 #[tokio::test]
+async fn aggregate_daily_send_limit_returns_429_with_limit_and_reset() {
+    let response = neighbor_failure(
+        "aggregate_daily_limited: {\"limit\":500,\"resets_at\":1793145600}".into(),
+    );
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    let body = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(body["reason"], "aggregate_daily_limited");
+    assert_eq!(body["code"], "aggregate_daily_limited");
+    assert_eq!(body["limit"], 500);
+    assert_eq!(body["resets_at"], 1793145600u64);
+}
+
+#[tokio::test]
 async fn size_and_permission_refusals_keep_their_typed_reason_and_limit() {
     let response = neighbor_failure("message_too_large: {\"limit\":32752}".into());
     assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);

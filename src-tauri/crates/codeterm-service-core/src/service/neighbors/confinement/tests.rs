@@ -40,30 +40,57 @@ async fn default_friend_folder_is_account_scoped_and_explicit_folder_must_exist(
     );
 }
 
-#[test]
-fn provider_capability_selects_a_supported_sandbox_and_refuses_false_os_claims() {
-    let mut capability: codeterm_plugin::provider::ExecutionSandboxCapability = serde_json::from_value(json!({
+fn capability() -> codeterm_plugin::provider::ExecutionSandboxCapability {
+    serde_json::from_value(json!({
         "platforms":["windows","linux","macos"],
         "mutating":{"launchArgs":["--sandbox","workspace-write"],"runtimeMode":"workspace-write"},
         "readOnly":{"launchArgs":["--sandbox","read-only"],"runtimeMode":"read-only"}
-    })).unwrap();
+    }))
+    .unwrap()
+}
+
+#[test]
+fn read_only_machine_access_requires_exact_provider_support() {
     for platform in ["windows", "linux", "macos"] {
-        assert_eq!(
-            sandbox_label(&capability, platform, true).as_deref(),
-            Some("workspace-write")
-        );
-        assert_eq!(
-            sandbox_label(&capability, platform, false).as_deref(),
-            Some("workspace-write")
-        );
+        for runtime in [true, false] {
+            assert_eq!(
+                sandbox_label(&capability(), platform, runtime, MachineAccess::ReadOnly)
+                    .unwrap()
+                    .as_deref(),
+                Some("read-only")
+            );
+        }
     }
-    capability.mutating = None;
+    assert!(sandbox_label(
+        &Default::default(),
+        "windows",
+        true,
+        MachineAccess::ReadOnly
+    )
+    .is_err());
+}
+
+#[test]
+fn folder_machine_access_never_falls_back_to_another_level() {
+    let mut capability = capability();
     assert_eq!(
-        sandbox_label(&capability, "windows", true).as_deref(),
-        Some("read-only")
+        sandbox_label(&capability, "windows", true, MachineAccess::Folder)
+            .unwrap()
+            .as_deref(),
+        Some("workspace-write")
     );
-    assert!(sandbox_label(&capability, "unsupported", true).is_none());
-    assert!(sandbox_label(&Default::default(), "windows", true).is_none());
+    capability.mutating = None;
+    assert!(sandbox_label(&capability, "windows", true, MachineAccess::Folder).is_err());
+}
+
+#[test]
+fn full_machine_access_is_explicit_and_none_is_not_claimed_without_a_capability() {
+    assert!(
+        sandbox_label(&Default::default(), "windows", true, MachineAccess::Full)
+            .unwrap()
+            .is_none()
+    );
+    assert!(sandbox_label(&capability(), "windows", true, MachineAccess::None).is_err());
 }
 
 #[test]

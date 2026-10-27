@@ -142,6 +142,8 @@ pub(crate) async fn dispatch(
                 Json(serde_json::json!({"error":{"code":-32003,"message":message,"data":null}})),
             )
         })?;
+    state.svc.authorize_neighbor_rpc_credential(token, &request.method, request.params.as_ref()).await
+        .map_err(|message| (StatusCode::FORBIDDEN, Json(serde_json::json!({"error":{"code":-32003,"message":message,"data":{"reason":message.split(':').next().unwrap_or("neighbor_capability_denied")}}}))))?;
     let bridge = codeterm_service_core::ports::socket::bridge();
     if let Some(error) = (bridge.version_skew_gate)(request.protocol_version.as_ref()) {
         return Err((
@@ -199,6 +201,8 @@ pub(crate) async fn dispatch(
     }
 }
 
+#[cfg(test)]
+mod neighbor_tests;
 #[cfg(test)]
 mod tests {
     use super::{identity_matches, local_caller};

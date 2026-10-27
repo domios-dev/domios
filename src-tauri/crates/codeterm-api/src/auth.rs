@@ -430,6 +430,21 @@ pub async fn auth_middleware(
     req: Request,
     next: Next,
 ) -> Response {
+    if let Some(caller) = req
+        .headers()
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .and_then(|token| state.svc.identify_tab_credential(token))
+    {
+        if let Err(message) = state
+            .svc
+            .authorize_neighbor_http(&caller, req.method().as_str(), req.uri().path())
+            .await
+        {
+            return neighbor_capability_failure(message);
+        }
+    }
     let local_liveness = matches!(req.uri().path(), "/api/health" | "/api/mesh/ping")
         && req
             .extensions()
@@ -585,20 +600,6 @@ fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
             return (StatusCode::FORBIDDEN, message).into_response().into();
         }
         req.extensions_mut().insert(identity.clone());
-        if let CallerIdentity::Tab(caller) = identity {
-            if let Some(capability) =
-                codeterm_service_core::service::neighbors::capabilities::http_capability(
-                    method.as_str(),
-                    &path,
-                )
-            {
-                if let Err(message) = codeterm_service_core::async_runtime::block_on(
-                    state.svc.authorize_neighbor_capability(caller, capability),
-                ) {
-                    return neighbor_capability_failure(message).into();
-                }
-            }
-        }
     }
     match caller {
         Ok(CallerIdentity::Local | CallerIdentity::Tab(_)) => AuthOutcome::Allowed(req, false),

@@ -15,6 +15,8 @@ pub enum Error {
     MessageTooLarge { limit: u64 },
     TabRequestsNotAllowed,
     PermissionDenied,
+    MachineAccessUnsupported,
+    MemoryAreaUnknown,
     InvalidKey,
     BadSignature,
     WrongPeer,
@@ -38,6 +40,7 @@ pub enum Error {
     OperationIdConflict,
     Disabled,
     DailyLimit { limit: u64, resets_at: u64 },
+    AggregateDailyLimited { limit: u64, resets_at: u64 },
     LimitOutOfRange,
     InvalidRequest,
     FriendshipNotFound,
@@ -60,10 +63,17 @@ impl std::fmt::Display for Error {
         if let Self::ListenProtocol { kind } = self {
             return write!(f, "Firestore Listen failed ({kind})");
         }
-        if let Self::DailyLimit { limit, resets_at } = self {
+        if let Self::DailyLimit { limit, resets_at }
+        | Self::AggregateDailyLimited { limit, resets_at } = self
+        {
+            let reason = if matches!(self, Self::DailyLimit { .. }) {
+                "neighbor_daily_limit"
+            } else {
+                "aggregate_daily_limited"
+            };
             return write!(
                 f,
-                "neighbor_daily_limit: {{\"limit\":{limit},\"resets_at\":{resets_at}}}"
+                "{reason}: {{\"limit\":{limit},\"resets_at\":{resets_at}}}"
             );
         }
         let window = match self {
@@ -82,6 +92,8 @@ impl std::fmt::Display for Error {
             Self::InvalidEnvelope => "Invalid Neighbor envelope",
             Self::TabRequestsNotAllowed => "tab_requests_not_allowed: Tab requests are not allowed for this Neighbor",
             Self::PermissionDenied => "neighbor_permission_denied: This request is outside the Neighbor permission grant",
+            Self::MachineAccessUnsupported => "neighbor_machine_access_unsupported: This provider cannot enforce the requested machine access on this platform",
+            Self::MemoryAreaUnknown => "neighbor_memory_area_unknown: Choose memory areas from the current taxonomy",
             Self::InvalidKey => "Invalid Neighbor key",
             Self::BadSignature => "Invalid Neighbor signature",
             Self::WrongPeer => "Neighbor identity mismatch",
@@ -115,7 +127,7 @@ impl std::fmt::Display for Error {
             Self::FriendshipNotFound => "friendship_not_found: Neighbor friendship not found",
             Self::FriendshipEnded => "friendship_ended: This Neighbor conversation has ended; refresh the friendship before sending",
             Self::RecipientLocked => "recipient_locked: This Neighbor's plan does not allow the channel",
-            Self::MessageTooLarge { .. } | Self::Firestore { .. } | Self::DailyLimit { .. } | Self::ListenProtocol { .. } | Self::RateLimited { .. } | Self::AggregateLimited { .. } => unreachable!(),
+            Self::MessageTooLarge { .. } | Self::Firestore { .. } | Self::DailyLimit { .. } | Self::AggregateDailyLimited { .. } | Self::ListenProtocol { .. } | Self::RateLimited { .. } | Self::AggregateLimited { .. } => unreachable!(),
         })
     }
 }

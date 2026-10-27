@@ -400,7 +400,7 @@ impl ServiceContext {
                             model,
                         )
                         .await
-                        .map_err(|_| Error::Gateway)?;
+                        .map_err(concierge::launch_error)?;
                     Ok(json!({"gateway_tab":tab}))
                 }
                 NeighborRuntimeCommand::Enroll {

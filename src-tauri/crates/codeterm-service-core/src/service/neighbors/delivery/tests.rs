@@ -11,6 +11,13 @@ fn definite_rejections_preserve_metadata_and_uncertain_sends_stay_pending() {
             "neighbor_daily_limit",
         ),
         (
+            Error::AggregateDailyLimited {
+                limit: 500,
+                resets_at: 1793145600,
+            },
+            "aggregate_daily_limited",
+        ),
+        (
             Error::RateLimited {
                 retry_after_seconds: 60,
             },
@@ -33,7 +40,8 @@ fn definite_rejections_preserve_metadata_and_uncertain_sends_stay_pending() {
         assert_eq!(receipt["reason"], reason);
         assert!(receipt.get("body").is_none());
         match error {
-            Error::DailyLimit { limit, resets_at } => {
+            Error::DailyLimit { limit, resets_at }
+            | Error::AggregateDailyLimited { limit, resets_at } => {
                 assert_eq!(receipt["limit"], limit);
                 assert_eq!(receipt["resets_at"], resets_at);
                 assert!(rejection.description().contains("UTC"));

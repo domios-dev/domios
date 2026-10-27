@@ -23,6 +23,11 @@ impl Rejection {
                 rejection.resets_at = Some(resets_at);
                 "neighbor_daily_limit"
             }
+            Error::AggregateDailyLimited { limit, resets_at } => {
+                rejection.limit = Some(limit);
+                rejection.resets_at = Some(resets_at);
+                "aggregate_daily_limited"
+            }
             Error::RateLimited {
                 retry_after_seconds,
             } => {
@@ -49,7 +54,7 @@ impl Rejection {
 
     pub(super) fn description(self) -> String {
         match self.reason {
-            "neighbor_daily_limit" => {
+            "neighbor_daily_limit" | "aggregate_daily_limited" => {
                 let time = self
                     .resets_at
                     .and_then(|time| i64::try_from(time).ok())
