@@ -27,7 +27,7 @@ pub(crate) use preparation::resolved_effort_provenance;
 use preparation::{
     apply_startup_handshake, bootstrap_bound_team_id, build_or_refuse_orchestrated_launch_command,
     compose_chatbackend_system_prompt, planner_startup_payload, prepare_manager_bootstrap,
-    prepare_standard_starter_prompt, team_bootstrap_payload,
+    prepare_standard_starter_prompt, spawn_fallback_spec, team_bootstrap_payload,
 };
 
 impl ServiceContext {
@@ -806,7 +806,9 @@ impl ServiceContext {
         };
         self.bind_worker_plan_task_or_rollback_tab_async(&params, &tab_id)
             .await?;
-        let fallback_spec = spawn_input.fallback_spec(
+        let fallback_spec = spawn_fallback_spec(
+            &spawn_input,
+            is_planner,
             fallback_bootstrap.as_deref(),
             bg_task.as_deref(),
             self.agent_registry
@@ -1079,6 +1081,14 @@ impl ServiceContext {
             runtime_prompt::prepare_runtime_identity(self, params);
             params.system_prompt = compose_runtime_system_prompt(params);
             return Ok(());
+        }
+        if params.role_kind() == Some(builtins::PLANNER)
+            && self
+                .chatbackend_registry
+                .get(agent)
+                .is_some_and(|backend| backend.spawnable())
+        {
+            runtime_prompt::prepare_runtime_identity(self, params);
         }
         move_chatbackend_task_to_system_prompt(self.chatbackend_registry.as_ref(), agent, params);
         Ok(())

@@ -116,17 +116,32 @@ pub(super) fn planner_startup_payload(
     manager_prompt: Option<String>,
     onboarding: &str,
 ) -> String {
-    if !system_prompt_capable {
-        return team_bootstrap_payload(false, onboarding.to_string());
-    }
     match manager_prompt {
         Some(prompt) => format!("{prompt}\n\n## Planner startup\n\n{onboarding}"),
-        None => agent_system_prompt(Some(onboarding)),
+        None if system_prompt_capable => agent_system_prompt(Some(onboarding)),
+        None => onboarding.to_string(),
     }
 }
 
+pub(super) fn spawn_fallback_spec(
+    input: &crate::service::launch_delivery::SpawnInput<'_>,
+    planner: bool,
+    bootstrap: Option<&str>,
+    task: Option<&str>,
+    starter: Option<&str>,
+) -> Option<crate::service::launch_delivery::FallbackDeliverySpec> {
+    input.fallback_spec(if planner { task } else { bootstrap }, task, starter)
+}
+
 pub(super) fn compose_chatbackend_system_prompt(params: &mut SpawnAgentParams) -> Option<String> {
-    let assignment = params.system_prompt.take().or_else(|| params.task.take());
+    let assignment = if params.role_kind() == Some(builtins::PLANNER) {
+        match (params.system_prompt.take(), params.task.take()) {
+            (Some(system), Some(task)) => Some(format!("{system}\n\n{task}")),
+            (system, task) => system.or(task),
+        }
+    } else {
+        params.system_prompt.take().or_else(|| params.task.take())
+    };
     let assignment = match params.manager_bootstrap.as_ref() {
         Some(manager) => {
             let bootstrap = manager.compose();
@@ -145,3 +160,6 @@ pub(super) fn compose_chatbackend_system_prompt(params: &mut SpawnAgentParams) -
         params.role_profile.as_deref(),
     )
 }
+
+#[cfg(test)]
+mod tests;

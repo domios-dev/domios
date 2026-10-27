@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 
 use crate::client::RpcClient;
 use crate::cmd::hints::{maybe_orchestration_reminder, push_hints};
-use crate::cmd::plan::call_plan_rpc;
+use crate::cmd::plan::{call_plan_rpc, inject_trusted_session};
 
 fn split_csv(raw: Option<String>) -> Vec<String> {
     raw.unwrap_or_default()
@@ -161,9 +161,7 @@ pub fn record(
         "key": stable_key,
         "ops": ops_value,
     });
-    if let Ok(tab_id) = std::env::var("CODETERM_TAB_ID") {
-        params["caller_tab_id"] = json!(tab_id);
-    }
+    inject_trusted_session(&mut params);
     if let Some(plan_id) = plan_id {
         params["plan_id"] = json!(plan_id);
     }

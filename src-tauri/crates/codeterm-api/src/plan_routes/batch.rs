@@ -86,6 +86,10 @@ pub async fn batch(
     Json(body): Json<Value>,
 ) -> BatchRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    state
+        .svc
+        .authorize_batch_completions(&id, &body)
+        .map_err(|message| text_err(StatusCode::FORBIDDEN, message))?;
     let result = apply_authorized_batch(&state.svc.plan_store, &id, &body, epoch_ms())?;
     emit_plan_changed(&state, &id);
     Ok(Json(serde_json::to_value(result).unwrap_or_default()))

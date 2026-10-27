@@ -64,6 +64,8 @@ This stores `assigned_tab_id`, `lane.tab_id` and `peer` as structured fields and
 
 ### Recovering a tab-gone task
 
+The live Plan owner may close pending, blocked or in-progress tasks directly with `plan task close --result-file`, or record `--status done` with a nonblank `--step` result note for that task. Both paths verify the owner's current session binding, persist the result and clear executor assignments. Worker completion goes through reports and review; a task body alone is not a result note.
+
 When a Worker's tab is gone, its owner epoch is stale by definition, so the epoch never blocks recovery. The **live authenticated Plan owner** may `cancel`, `pend`, reassign, respawn, or **dispatch** such a task. The recovery retires the stale attempt in the *same* transition that clears the dead owner identity, so no half-applied state is observable and a later `dispatch_ready` for the retired attempt is rejected instead of resurrecting ownership. A non-owner, non-epoch caller is still refused.
 
 Plan ownership is proven against the caller's **live tab binding**: tab present, agent session live, binding nonce both stored and reported back, and that tab recorded as the plan's owner with Team-Orchestrator authority. It is never proven from the owner record's `session_id`, so an Orchestrator whose session moved by restore, compaction, or provider relaunch stays its own plan's owner.
@@ -120,4 +122,4 @@ The Plan Orchestrator can create child tasks beneath an in-progress task with `d
 
 `plan.lanes_clean` accepts optional `stream: true` and returns `{job_id}` immediately. The cleanup runs outside the async runtime. `plan.lanes_clean_next` with `{job_id, cursor: 0}` waits for events, then returns `{events, cursor, done, result}`. Each event contains `{lane, finished}`; pass the returned cursor to receive the next events. A final response contains the ordinary `{plan_id, dry_run, lanes}` result and retires the job. Without `stream`, the call returns that final result directly. Dry runs remain available while confirmed cleanup runs; overlapping mutations for the same plan are refused. The existing owner authorization applies to confirmation and fetch.
 
-<!-- revision: 38 -->
+<!-- revision: 39 -->

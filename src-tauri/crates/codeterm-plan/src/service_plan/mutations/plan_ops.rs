@@ -379,7 +379,11 @@ impl PlanStore {
         let write = self.with_plan(plan_id, now_ms, |p| {
             let task_index = crate::plan::task_key::find_task_index(&p.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
-            if p.tasks[task_index].status == TaskStatus::Pending {
+            if p.tasks[task_index].status == TaskStatus::Pending
+                && !(from.tab_id.is_some()
+                    && from.tab_id == p.owner.tab_id
+                    && result.is_some_and(|note| !note.trim().is_empty()))
+            {
                 return Err(PlanError::TransitionDenied {
                     from: TaskStatus::Pending,
                     to: TaskStatus::Done,
