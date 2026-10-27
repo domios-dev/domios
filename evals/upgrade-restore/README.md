@@ -18,7 +18,10 @@ The daemon masks text with filler preserving UTF-8, UTF-16 and JSON escaped
 lengths. It keeps role/profile/provider, models, session and assignment ids,
 structure and scalar state, captures the typed Plan store with tasks and
 execution attempts, and keeps live hidden/tabbar metadata separately. Unsupported
-sanitization or missing transcript data refuses capture.
+sanitization refuses capture. Missing transcript data keeps the leaf and records
+`histories[].transcript.status = unavailable` with its backing kind and provider;
+other leaves retain their captured histories. Replay refuses unavailable
+transcript evidence explicitly rather than treating it as an empty conversation.
 
 Histories are generated from normalized parsed transcript shape with filler
 content, not copied provider session files. `history_pages` means normalized
