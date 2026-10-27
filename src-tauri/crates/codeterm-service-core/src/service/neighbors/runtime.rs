@@ -197,6 +197,11 @@ impl ServiceContext {
         nonce: Option<&str>,
         generation: u64,
     ) -> Result<Value, String> {
+        if matches!(command, NeighborRuntimeCommand::SetPermission { .. })
+            || (caller.is_some() && matches!(command, NeighborRuntimeCommand::Bind { .. }))
+        {
+            self.require_neighbor_general(caller, nonce)?;
+        }
         let (transport, registry, scope, metadata) = self.neighbor_ports().await?;
         let lifecycle = InstallationKeys {
             store: &OsKeyStore,
@@ -251,7 +256,6 @@ impl ServiceContext {
                     Ok(json!(metadata.settings().await?.permissions.get(&friendship_id).cloned().unwrap_or_default()))
                 }
                 NeighborRuntimeCommand::SetPermission { friendship_id, permission } => {
-                    self.require_neighbor_general(caller, nonce).map_err(|_| Error::Gateway)?;
                     if !hex_id(&friendship_id, 64) { return Err(Error::InvalidEnvelope); }
                     permission.validate()?;
                     transport.peer_keys(&friendship_id).await?;
