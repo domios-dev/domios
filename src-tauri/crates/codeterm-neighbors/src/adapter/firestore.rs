@@ -11,14 +11,12 @@ use tonic::transport::{Channel, ClientTlsConfig};
 use zeroize::Zeroizing;
 
 const PAGE_SIZE: i32 = 100;
+pub(super) mod registry;
 
-pub(super) async fn listen(
+async fn connection(
     transport: &FirebaseTransport,
-    friendship: &str,
-    cursor: Option<&Cursor>,
-) -> Result<Box<dyn InboxListener>> {
-    if !hex_id(friendship, 64)
-        || !crate::wire::uid(&transport.uid)
+) -> Result<(FirestoreClient<Channel>, Zeroizing<String>, String)> {
+    if !crate::wire::uid(&transport.uid)
         || transport.project.is_empty()
         || !transport
             .project
@@ -27,9 +25,6 @@ pub(super) async fn listen(
     {
         return Err(Error::InvalidEnvelope);
     }
-    if let Some(cursor) = cursor {
-        cursor.validate()?;
-    }
     let channel = Channel::from_static("https://firestore.googleapis.com")
         .tls_config(ClientTlsConfig::new().with_native_roots())
         .map_err(|_| Error::Transport)?
@@ -37,11 +32,43 @@ pub(super) async fn listen(
         .connect()
         .await
         .map_err(|_| Error::Transport)?;
-    let token = transport.calls.id_token().await?;
-    let database = format!("projects/{}/databases/(default)", transport.project);
+    Ok((
+        FirestoreClient::new(channel).max_decoding_message_size(2 * 1024 * 1024),
+        transport.calls.id_token().await?,
+        format!("projects/{}/databases/(default)", transport.project),
+    ))
+}
+
+fn authenticated_request<T>(token: &str, database: &str, message: T) -> Result<tonic::Request<T>> {
+    let mut request = tonic::Request::new(message);
+    let header = Zeroizing::new(format!("Bearer {token}"));
+    let mut metadata = header
+        .parse::<tonic::metadata::MetadataValue<_>>()
+        .map_err(|_| Error::Transport)?;
+    metadata.set_sensitive(true);
+    request.metadata_mut().insert("authorization", metadata);
+    request.metadata_mut().insert(
+        "google-cloud-resource-prefix",
+        database.parse().map_err(|_| Error::Transport)?,
+    );
+    Ok(request)
+}
+
+pub(super) async fn listen(
+    transport: &FirebaseTransport,
+    friendship: &str,
+    cursor: Option<&Cursor>,
+) -> Result<Box<dyn InboxListener>> {
+    if !hex_id(friendship, 64) {
+        return Err(Error::InvalidEnvelope);
+    }
+    if let Some(cursor) = cursor {
+        cursor.validate()?;
+    }
+    let (client, token, database) = connection(transport).await?;
     let parent = format!("{database}/documents/friendInbox/{}", transport.uid);
     Ok(Box::new(Listener {
-        client: FirestoreClient::new(channel).max_decoding_message_size(2 * 1024 * 1024),
+        client,
         token,
         database,
         parent,
@@ -71,18 +98,7 @@ struct Listener {
 
 impl Listener {
     fn request<T>(&self, message: T) -> Result<tonic::Request<T>> {
-        let mut request = tonic::Request::new(message);
-        let header = Zeroizing::new(format!("Bearer {}", self.token.as_str()));
-        let mut metadata = header
-            .parse::<tonic::metadata::MetadataValue<_>>()
-            .map_err(|_| Error::Transport)?;
-        metadata.set_sensitive(true);
-        request.metadata_mut().insert("authorization", metadata);
-        request.metadata_mut().insert(
-            "google-cloud-resource-prefix",
-            self.database.parse().map_err(|_| Error::Transport)?,
-        );
-        Ok(request)
+        authenticated_request(&self.token, &self.database, message)
     }
 
     fn query(&self, limit: Option<i32>) -> fs::StructuredQuery {

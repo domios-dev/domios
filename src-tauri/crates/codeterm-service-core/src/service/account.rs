@@ -31,9 +31,12 @@ struct AccountIdentity(std::sync::Weak<super::ServiceContext>);
 
 #[async_trait]
 impl codeterm_account::IdentityObserver for AccountIdentity {
-    async fn changed(&self, _identity: Option<&codeterm_account::Identity>) {
+    async fn changed(&self, identity: Option<&codeterm_account::Identity>) {
         if let Some(service) = self.0.upgrade() {
             service.neighbor_identity_changed();
+            if identity.is_some() {
+                service.restore_neighbor_updates_once();
+            }
             service.ui.emit("account-changed", serde_json::Value::Null);
         }
     }
@@ -140,6 +143,7 @@ impl super::ServiceContext {
             })
             .await?;
         self.account_mesh_restored();
+        self.restore_neighbor_updates_once();
         #[cfg(not(any(test, feature = "test-support")))]
         self.restore_neighbors_once();
         Ok(account.clone())

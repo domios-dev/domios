@@ -2,6 +2,7 @@ use super::{auth::CallerIdentity, routes::AppState};
 use axum::{
     extract::{rejection::JsonRejection, Query, State},
     http::StatusCode,
+    response::{IntoResponse, Response},
     Extension, Json,
 };
 use codeterm_account::Status;
@@ -243,8 +244,8 @@ pub async fn neighbor_runtime(
     caller: Option<Extension<CallerIdentity>>,
     headers: axum::http::HeaderMap,
     Json(command): Json<codeterm_service_core::service::neighbors::NeighborRuntimeCommand>,
-) -> Result<Json<serde_json::Value>, Error> {
-    admit(caller.as_ref())?;
+) -> Result<Json<serde_json::Value>, Response> {
+    admit(caller.as_ref()).map_err(IntoResponse::into_response)?;
     let tab = crate::tab_routes::caller_tab_header(&headers);
     let nonce = headers
         .get("x-codeterm-binding-nonce")
@@ -254,7 +255,41 @@ pub async fn neighbor_runtime(
         .neighbor_runtime(command, tab.as_deref(), nonce)
         .await
         .map(Json)
-        .map_err(unavailable)
+        .map_err(neighbor_failure)
+}
+
+fn neighbor_failure(message: String) -> Response {
+    if message.starts_with("neighbors_disabled:") {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "error":message,"code":"neighbors_disabled","reason":"neighbors_disabled"
+            })),
+        )
+            .into_response()
+    } else {
+        unavailable(message).into_response()
+    }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NeighborEnabled {
+    enabled: bool,
+}
+
+pub async fn neighbors_set_enabled(
+    State(state): State<AppState>,
+    caller: Option<Extension<CallerIdentity>>,
+    Json(body): Json<NeighborEnabled>,
+) -> Result<Json<serde_json::Value>, Error> {
+    admit(caller.as_ref())?;
+    let enabled = state
+        .svc
+        .set_neighbors_enabled(body.enabled)
+        .await
+        .map_err(unavailable)?;
+    Ok(Json(serde_json::json!({"ok":true,"enabled":enabled})))
 }
 
 pub async fn billing_operation(

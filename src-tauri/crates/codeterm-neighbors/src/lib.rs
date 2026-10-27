@@ -5,6 +5,7 @@ pub mod gateway;
 pub mod keys;
 pub mod permissions;
 pub mod receive;
+pub mod registry;
 pub mod supervisor;
 pub mod wire;
 
@@ -25,6 +26,7 @@ pub enum Error {
     Revoked,
     KeyNotFound,
     Refused,
+    Disabled,
 }
 
 impl std::fmt::Display for Error {
@@ -45,6 +47,7 @@ impl std::fmt::Display for Error {
             Self::Revoked => "Neighbor installation key revoked",
             Self::KeyNotFound => "Neighbor installation key not found",
             Self::Refused => "Neighbor request refused",
+            Self::Disabled => "neighbors_disabled: Neighbors is turned off on this instance",
         })
     }
 }

@@ -1,4 +1,4 @@
-mod callable;
+pub(super) mod callable;
 mod gateway;
 mod listener;
 pub(crate) mod logout;
@@ -196,6 +196,17 @@ impl ServiceContext {
         nonce: Option<&str>,
         generation: u64,
     ) -> Result<Value, String> {
+        if !matches!(
+            &command,
+            NeighborRuntimeCommand::Status
+                | NeighborRuntimeCommand::Permission { .. }
+                | NeighborRuntimeCommand::OwnKeys
+                | NeighborRuntimeCommand::DeliveryStatus { .. }
+                | NeighborRuntimeCommand::Revoke
+        ) {
+            self.require_neighbors_enabled()
+                .map_err(|error| error.to_string())?;
+        }
         let (transport, registry, scope, metadata) = self.neighbor_ports().await?;
         let lifecycle = InstallationKeys {
             store: &OsKeyStore,
@@ -210,7 +221,7 @@ impl ServiceContext {
                     let keys = lifecycle.reconcile().await?;
                     let id = keys.map(|keys| keys.verifier_key_id(&transport.uid));
                     let states = self.neighbor_cell().states.lock().clone();
-                    Ok(json!({"enrolled":id.is_some(),"verifier_key_id":id,"bindings":settings.bindings,"listeners":states}))
+                    Ok(json!({"enabled":self.configuration().neighbors.enabled,"enrolled":id.is_some(),"verifier_key_id":id,"bindings":settings.bindings,"listeners":states}))
                 }
                 NeighborRuntimeCommand::Enroll { takeover_confirmed } => {
                     let keys = lifecycle.enroll_and_enable(takeover_confirmed, &mut rand::rngs::OsRng, &metadata).await?;
@@ -293,6 +304,7 @@ impl ServiceContext {
         metadata: &Metadata,
         outgoing: Outgoing,
     ) -> codeterm_neighbors::Result<Value> {
+        self.require_neighbors_enabled()?;
         let Outgoing {
             friendship,
             kind,
@@ -357,6 +369,7 @@ impl ServiceContext {
             &mut rand::rngs::OsRng,
         )?;
         let signed = keys.sign(envelope)?;
+        self.require_neighbors_enabled()?;
         match transport.send(&signed).await {
             Ok(status) => Ok(json!({"message_id":signed.envelope.message_id,"status":status})),
             Err(Error::Transport) => Ok(
@@ -386,6 +399,13 @@ impl ServiceContext {
         }
     }
 
+    pub(super) fn pause_neighbor_reception(&self) {
+        self.stop_neighbor_listeners();
+        self.neighbor_cell()
+            .bootstrapped
+            .store(false, Ordering::Release);
+    }
+
     async fn start_neighbor_listeners(
         &self,
         transport: Arc<FirebaseTransport>,
@@ -394,6 +414,8 @@ impl ServiceContext {
         metadata: Metadata,
         generation: u64,
     ) -> Result<(), String> {
+        self.require_neighbors_enabled()
+            .map_err(|error| error.to_string())?;
         let settings = metadata.settings().await.map_err(|e| e.to_string())?;
         let recovered = (InstallationKeys {
             store: &OsKeyStore,
@@ -480,6 +502,9 @@ impl ServiceContext {
 
     #[cfg(not(any(test, feature = "test-support")))]
     pub(crate) fn restore_neighbors_once(&self) {
+        if self.require_neighbors_enabled().is_err() {
+            return;
+        }
         if self
             .neighbor_cell()
             .bootstrapped
@@ -494,6 +519,7 @@ impl ServiceContext {
     }
 
     pub(crate) fn neighbor_identity_changed(&self) {
+        self.stop_neighbor_updates();
         self.neighbor_cell()
             .generation
             .fetch_add(1, Ordering::AcqRel);

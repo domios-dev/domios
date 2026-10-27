@@ -850,6 +850,7 @@ export interface AppConfig {
   supporter: SupporterConfig;
   integrations: IntegrationsConfig;
   mesh: MeshConfig;
+  neighbors: { enabled: boolean };
   orchestration: OrchestrationConfig;
   ui?: UiConfig;
   model_defaults?: ModelDefaultsConfig;

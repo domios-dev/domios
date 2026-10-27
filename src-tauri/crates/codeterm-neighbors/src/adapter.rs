@@ -23,6 +23,12 @@ pub struct FirebaseTransport {
     pub uid: String,
 }
 
+impl FirebaseTransport {
+    pub async fn listen_registry(&self) -> Result<Box<dyn crate::registry::RegistryListener>> {
+        firestore::registry::listen(self).await
+    }
+}
+
 #[async_trait]
 impl NeighborTransport for FirebaseTransport {
     async fn send(&self, message: &SignedEnvelope) -> Result<DeliveryStatus> {

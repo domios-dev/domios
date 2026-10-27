@@ -32,6 +32,7 @@ pub(super) struct Session {
 
 impl Session {
     fn current(&self) -> codeterm_neighbors::Result<()> {
+        self.service.require_neighbors_enabled()?;
         if self
             .service
             .neighbor_cell()
