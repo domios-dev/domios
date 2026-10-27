@@ -198,7 +198,7 @@ jobs:
         shell: pwsh
         run: pnpm install --frozen-lockfile
       - name: Receive the frozen stage
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: arm64-handoff-aarch64-pc-windows-msvc-${{ github.run_attempt }}
           path: ${{ runner.temp }}
