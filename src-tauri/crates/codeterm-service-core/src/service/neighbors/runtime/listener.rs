@@ -134,6 +134,9 @@ impl ReceptionEvents for Session {
             return;
         }
         let detail = match error {
+            Error::ListenProtocol { kind } => {
+                json!({"kind":kind,"operation":"inbox.listen.protocol"})
+            }
             Error::Firestore { code, operation } => {
                 json!({"code":code,"operation":operation,"kind":"grpc"})
             }

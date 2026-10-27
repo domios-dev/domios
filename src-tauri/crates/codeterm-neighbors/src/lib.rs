@@ -35,12 +35,16 @@ pub enum Error {
     OperationIdConflict,
     Disabled,
     Firestore { code: i32, operation: &'static str },
+    ListenProtocol { kind: &'static str },
 }
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Self::Firestore { code, operation } = self {
             return write!(f, "Firestore {operation} failed (gRPC code {code})");
+        }
+        if let Self::ListenProtocol { kind } = self {
+            return write!(f, "Firestore Listen failed ({kind})");
         }
         f.write_str(match self {
             Self::InvalidEnvelope => "Invalid Neighbor envelope",
@@ -73,6 +77,7 @@ impl std::fmt::Display for Error {
             Self::Refused => "Neighbor request refused",
             Self::Disabled => "neighbors_disabled: Neighbors is turned off on this instance",
             Self::Firestore { .. } => unreachable!(),
+            Self::ListenProtocol { .. } => unreachable!(),
         })
     }
 }
