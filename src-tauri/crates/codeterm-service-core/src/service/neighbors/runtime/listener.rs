@@ -12,6 +12,7 @@ pub(super) struct Slots {
 }
 
 pub(super) struct Handle {
+    pub gateway_tab: Option<String>,
     pub task: tokio::task::JoinHandle<()>,
     pub retry: Arc<tokio::sync::Notify>,
     pub shutdown: tokio::sync::watch::Sender<bool>,
@@ -24,7 +25,7 @@ pub(super) struct Session {
     pub registry: Arc<FirebaseRegistry>,
     pub metadata: Metadata,
     pub friendship: String,
-    pub tab: String,
+    pub tab: Option<String>,
     pub generation: u64,
     pub receiver_revision: u64,
     pub retry: Arc<tokio::sync::Notify>,
@@ -32,7 +33,7 @@ pub(super) struct Session {
 }
 
 impl Session {
-    fn current(&self) -> codeterm_neighbors::Result<()> {
+    pub(super) fn current(&self) -> codeterm_neighbors::Result<()> {
         self.service.require_neighbors_enabled()?;
         self.service
             .require_neighbor_receiver(Some(self.receiver_revision))?;
@@ -81,6 +82,7 @@ impl InboxSession for Session {
     }
     async fn receive(&self, messages: &mut [InboxMessage]) -> codeterm_neighbors::Result<()> {
         self.current()?;
+        let tab = self.tab.as_ref().ok_or(Error::Gateway)?;
         let status = self.registry.receiver_status().await?;
         if !status.receiving_here() || status.receiver_revision != self.receiver_revision {
             self.service.stop_neighbor_listeners();
@@ -103,7 +105,7 @@ impl InboxSession for Session {
             service: self.service.clone(),
             metadata: self.metadata.clone(),
             friendship: self.friendship.clone(),
-            tab: self.tab.clone(),
+            tab: tab.clone(),
             generation: self.generation,
             stopped: self.stopped.clone(),
         };
@@ -186,6 +188,10 @@ pub(super) async fn run(session: Session, previous: Option<tokio::task::JoinHand
         let _ = previous.await;
     }
     if session.current().is_err() {
+        return;
+    }
+    if session.tab.is_none() {
+        super::pending::run(&session).await;
         return;
     }
     let _ = supervise(

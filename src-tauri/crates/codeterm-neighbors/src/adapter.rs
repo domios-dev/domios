@@ -35,6 +35,13 @@ pub struct FirebaseTransport {
 }
 
 impl FirebaseTransport {
+    pub async fn listen_pending(&self, friendship: &str) -> Result<Box<dyn InboxListener>> {
+        firestore::listen_pending(self, friendship).await
+    }
+
+    pub async fn pending_count(&self, friendship: &str) -> Result<u64> {
+        firestore::pending_count(self, friendship).await
+    }
     pub async fn listen_registry(&self) -> Result<Box<dyn crate::registry::RegistryListener>> {
         firestore::registry::listen(self).await
     }
@@ -51,9 +58,7 @@ impl NeighborTransport for FirebaseTransport {
             .invoke("friendsSend", {
                 let mut data = serde_json::to_value(message).map_err(|_| Error::InvalidEnvelope)?;
                 data["installation_id"] = self.installation_id.clone().into();
-                if let Some(reply) = &message.envelope.in_reply_to {
-                    data["in_reply_to"] = reply.clone().into();
-                }
+                data["in_reply_to"] = json!(message.envelope.in_reply_to);
                 data
             })
             .await?;

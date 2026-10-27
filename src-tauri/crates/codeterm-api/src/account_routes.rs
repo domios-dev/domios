@@ -288,6 +288,8 @@ fn neighbor_failure(message: String) -> Response {
         Some("session_revoked") => StatusCode::UNAUTHORIZED,
         Some("neighbors_disabled") => StatusCode::SERVICE_UNAVAILABLE,
         Some("limit_out_of_range") => StatusCode::BAD_REQUEST,
+        Some("invalid_request") => StatusCode::BAD_REQUEST,
+        Some("friendship_not_found") => StatusCode::NOT_FOUND,
         Some(
             "receiver_elsewhere"
             | "receiver_revision_stale"

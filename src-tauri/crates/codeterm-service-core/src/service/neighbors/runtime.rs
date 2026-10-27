@@ -4,6 +4,7 @@ mod gateway;
 mod listener;
 pub(crate) mod logout;
 mod owner;
+mod pending;
 mod receiver;
 
 use super::storage::Metadata;
@@ -30,6 +31,7 @@ pub struct NeighborRuntimeCell {
     listeners: parking_lot::Mutex<listener::Slots>,
     states: parking_lot::Mutex<HashMap<String, codeterm_neighbors::supervisor::ListenerState>>,
     failures: parking_lot::Mutex<HashMap<String, Value>>,
+    pending_counts: parking_lot::Mutex<HashMap<String, u64>>,
     receiver: parking_lot::Mutex<Option<codeterm_neighbors::adapter::ReceiverStatus>>,
     control: parking_lot::Mutex<Option<tokio::task::JoinHandle<()>>>,
     bootstrapped: std::sync::atomic::AtomicBool,
@@ -330,11 +332,13 @@ impl ServiceContext {
                 }
                 NeighborRuntimeCommand::Status => {
                     let settings = metadata.settings().await?;
+                    let friends = self.neighbor_registry(super::NeighborCommand::List {}).await.map_err(|_| Error::Transport)?;
+                    let concierges = self.neighbor_concierge_views(&settings, &receiver_status, &friends);
                     let keys = if receiver_status.receiving_here() { lifecycle.reconcile().await? } else { None };
                     let id = keys.map(|keys| keys.verifier_key_id(&transport.uid));
                     let states = self.neighbor_cell().states.lock().clone();
                     let failures = self.neighbor_cell().failures.lock().clone();
-                    Ok(json!({"enabled":self.configuration().neighbors.enabled,"enrolled":id.is_some(),"verifier_key_id":id,"bindings":settings.bindings,"listeners":states,"listener_errors":failures,"receiving_here":receiver_status.receiving_here(),"receiver_machine_label":receiver_status.receiver_machine_label,"receiving_enabled":receiver_status.receiving_enabled,"revision":receiver_status.receiver_revision}))
+                    Ok(json!({"enabled":self.configuration().neighbors.enabled,"enrolled":id.is_some(),"verifier_key_id":id,"bindings":settings.bindings,"concierges":concierges,"listeners":states,"listener_errors":failures,"receiving_here":receiver_status.receiving_here(),"receiver_machine_label":receiver_status.receiver_machine_label,"receiving_enabled":receiver_status.receiving_enabled,"revision":receiver_status.receiver_revision}))
                 }
                 NeighborRuntimeCommand::Enroll { takeover_confirmed, expected_receiver_revision } => {
                     if expected_receiver_revision != receiver_status.receiver_revision { return Err(Error::ReceiverRevisionStale); }
@@ -367,9 +371,11 @@ impl ServiceContext {
                     self.validate_neighbor_gateway(&gateway_tab).map_err(|_| Error::Gateway)?;
                     transport.peer_keys(&friendship_id).await?;
                     let mut settings = metadata.settings().await?;
-                    settings.bindings.insert(friendship_id, gateway_tab);
+                    settings.bindings.insert(friendship_id.clone(), gateway_tab.clone());
                     metadata.save_settings(settings).await?;
                     self.stop_neighbor_listeners();
+                    self.emit_state_changed(crate::service::MuxEmitCause::TabMetadata);
+                    self.ui.emit("neighbor-agent-changed", json!({"friendship_id":friendship_id,"gateway_tab":gateway_tab}));
                     Ok(json!({"status":"bound"}))
                 }
                 NeighborRuntimeCommand::Permission { friendship_id } => {
@@ -588,6 +594,7 @@ impl ServiceContext {
     }
 
     pub(crate) fn stop_neighbor_listeners(&self) {
+        self.neighbor_cell().pending_counts.lock().clear();
         self.neighbor_cell()
             .listener_generation
             .fetch_add(1, Ordering::AcqRel);
@@ -668,13 +675,10 @@ impl ServiceContext {
                 .await
                 .map_err(|e| e.to_string())?;
         }
-        if self
+        let friends = self
             .neighbor_registry(super::NeighborCommand::List {})
-            .await?
-            .get("access")
-            .and_then(Value::as_str)
-            != Some("paid")
-        {
+            .await?;
+        if friends.get("access").and_then(Value::as_str) != Some("paid") {
             self.stop_neighbor_listeners();
             return Ok(());
         }
@@ -683,17 +687,33 @@ impl ServiceContext {
             .neighbor_cell()
             .listener_generation
             .load(Ordering::Acquire);
-        for (friendship, tab) in settings.bindings {
-            if !hex_id(&friendship, 64) || self.validate_neighbor_gateway(&tab).is_err() {
+        let friendships = friends["friends"]
+            .as_array()
+            .ok_or("Invalid Neighbors response")?;
+        for friend in friendships {
+            let friendship = friend["friendship_id"]
+                .as_str()
+                .ok_or("Invalid Neighbors response")?
+                .to_owned();
+            if !hex_id(&friendship, 64) {
                 continue;
             }
+            let tab = settings
+                .bindings
+                .get(&friendship)
+                .filter(|tab| self.validate_neighbor_gateway(tab).is_ok())
+                .cloned();
             let mut listeners = self.neighbor_cell().listeners.lock();
             if listeners
                 .active
                 .get(&friendship)
-                .is_some_and(|task| !task.task.is_finished())
+                .is_some_and(|task| !task.task.is_finished() && task.gateway_tab == tab)
             {
                 continue;
+            }
+            if let Some(previous) = listeners.active.remove(&friendship) {
+                let _ = previous.shutdown.send(true);
+                listeners.retired.insert(friendship.clone(), previous.task);
             }
             let service = self.clone();
             let transport = transport.clone();
@@ -710,7 +730,7 @@ impl ServiceContext {
                     scope,
                     metadata,
                     friendship,
-                    tab,
+                    tab: tab.clone(),
                     generation: listener_generation,
                     receiver_revision: status.receiver_revision,
                     retry: retry.clone(),
@@ -722,6 +742,7 @@ impl ServiceContext {
             listeners.active.insert(
                 id,
                 listener::Handle {
+                    gateway_tab: tab,
                     task,
                     retry,
                     shutdown,

@@ -65,4 +65,6 @@ Local gateway history and pending delivery records use user-only permissions. Cl
 
 Use the revision returned by status when confirming Receive here. Receiving on another machine never moves automatically. If the revision is stale, read status and confirm again. Runtime status and receiver-change events expose `receiving_here`, `receiver_machine_label`, `receiving_enabled`, and `revision`. A Neighbor marked not receiving right now cannot receive a new message.
 
-<!-- revision: 8 -->
+Concierges and permissions belong to each installation. Moving receiving keeps the previous machine's concierges idle and does not copy its grants to the new machine. On the receiver, a friendship without a local concierge keeps messages pending in the encrypted inbox without acknowledgment or cursor advancement. Runtime status exposes `concierges[friendship_id]` with `concierge_missing`, `pending_count`, `gateway_tab`, `receiving_here`, `receiver_machine_label` and `state`. The count is null until observed; `neighbor-concierge-status` publishes observed changes. Set permissions or bind a concierge to admit those waiting messages through normal verified delivery.
+
+<!-- revision: 9 -->

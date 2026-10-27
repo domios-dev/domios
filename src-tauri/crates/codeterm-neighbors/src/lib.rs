@@ -36,6 +36,8 @@ pub enum Error {
     Disabled,
     DailyLimit { limit: u64, resets_at: u64 },
     LimitOutOfRange,
+    InvalidRequest,
+    FriendshipNotFound,
     Firestore { code: i32, operation: &'static str },
 }
 
@@ -81,6 +83,8 @@ impl std::fmt::Display for Error {
             Self::Refused => "Neighbor request refused",
             Self::Disabled => "neighbors_disabled: Neighbors is turned off on this instance",
             Self::LimitOutOfRange => "limit_out_of_range: Choose a valid daily message limit",
+            Self::InvalidRequest => "invalid_request: Invalid Neighbor request",
+            Self::FriendshipNotFound => "friendship_not_found: Neighbor friendship not found",
             Self::Firestore { .. } | Self::DailyLimit { .. } => unreachable!(),
         })
     }

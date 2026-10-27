@@ -116,6 +116,7 @@ async fn disabling_neighbors_stops_the_owned_inbox_listener() {
         .insert(
             "f".into(),
             listener::Handle {
+                gateway_tab: None,
                 task,
                 shutdown,
                 retry: Arc::new(tokio::sync::Notify::new()),

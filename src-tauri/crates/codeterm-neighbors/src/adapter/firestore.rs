@@ -13,7 +13,9 @@ use tonic::transport::{Channel, ClientTlsConfig};
 use zeroize::Zeroizing;
 
 const PAGE_SIZE: i32 = 100;
+mod pending;
 pub(super) mod registry;
+pub(super) use pending::count as pending_count;
 
 async fn connection(
     transport: &FirebaseTransport,
@@ -89,6 +91,22 @@ pub(super) async fn listen(
     friendship: &str,
     cursor: Option<&Cursor>,
 ) -> Result<Box<dyn InboxListener>> {
+    listen_mode(transport, friendship, cursor, false).await
+}
+
+pub(super) async fn listen_pending(
+    transport: &FirebaseTransport,
+    friendship: &str,
+) -> Result<Box<dyn InboxListener>> {
+    listen_mode(transport, friendship, None, true).await
+}
+
+async fn listen_mode(
+    transport: &FirebaseTransport,
+    friendship: &str,
+    cursor: Option<&Cursor>,
+    observe_only: bool,
+) -> Result<Box<dyn InboxListener>> {
     if !hex_id(friendship, 64) {
         return Err(Error::InvalidEnvelope);
     }
@@ -104,7 +122,9 @@ pub(super) async fn listen(
         parent,
         friendship: friendship.into(),
         cursor: cursor.cloned(),
-        catch_up: true,
+        catch_up: !observe_only,
+        observe_only,
+        dirty: false,
         stream: None,
         requests: None,
         buffered: HashMap::new(),
@@ -114,6 +134,8 @@ pub(super) async fn listen(
 }
 
 struct Listener {
+    observe_only: bool,
+    dirty: bool,
     calls: std::sync::Arc<dyn AuthenticatedCall>,
     client: FirestoreClient<Channel>,
     token: Zeroizing<String>,
@@ -134,23 +156,13 @@ impl Listener {
     }
 
     fn query(&self, limit: Option<i32>) -> fs::StructuredQuery {
-        use fs::structured_query::{self as q, field_filter::Operator, filter::FilterType};
+        use fs::structured_query as q;
         fs::StructuredQuery {
             from: vec![q::CollectionSelector {
                 collection_id: "messages".into(),
                 all_descendants: false,
             }],
-            r#where: Some(q::Filter {
-                filter_type: Some(FilterType::FieldFilter(q::FieldFilter {
-                    field: Some(q::FieldReference {
-                        field_path: "envelope.friendship_id".into(),
-                    }),
-                    op: Operator::Equal as i32,
-                    value: Some(value(fs::value::ValueType::StringValue(
-                        self.friendship.clone(),
-                    ))),
-                })),
-            }),
+            r#where: Some(friendship_filter(&self.friendship)),
             order_by: ["received_at", "__name__"]
                 .into_iter()
                 .map(|field| q::Order {
@@ -300,6 +312,10 @@ impl InboxListener for Listener {
             use fs::listen_response::ResponseType;
             match response.response_type {
                 Some(ResponseType::DocumentChange(change)) => {
+                    if self.observe_only {
+                        self.dirty = true;
+                        continue;
+                    }
                     let message =
                         parse_document(change.document.ok_or(Error::Transport)?, &self.parent)?;
                     if self.buffered.len() >= 500 {
@@ -308,10 +324,18 @@ impl InboxListener for Listener {
                     self.buffered.insert(message.id.clone(), message);
                 }
                 Some(ResponseType::DocumentDelete(change)) => {
+                    if self.observe_only {
+                        self.dirty = true;
+                        continue;
+                    }
                     self.buffered
                         .remove(change.document.rsplit('/').next().ok_or(Error::Transport)?);
                 }
                 Some(ResponseType::DocumentRemove(change)) => {
+                    if self.observe_only {
+                        self.dirty = true;
+                        continue;
+                    }
                     self.buffered
                         .remove(change.document.rsplit('/').next().ok_or(Error::Transport)?);
                 }
@@ -325,6 +349,13 @@ impl InboxListener for Listener {
                         ));
                     }
                     let checkpoint = target_checkpoint(&change)?;
+                    if self.observe_only {
+                        if checkpoint.ready || checkpoint.flush && self.dirty {
+                            self.dirty = false;
+                            return Ok(Some(InboxEvent::Ready));
+                        }
+                        continue;
+                    }
                     let messages = if checkpoint.flush {
                         let messages = self.buffered.drain().map(|(_, message)| message).collect();
                         self.sorted(messages)
@@ -378,6 +409,19 @@ mod tests;
 fn value(value_type: fs::value::ValueType) -> fs::Value {
     fs::Value {
         value_type: Some(value_type),
+    }
+}
+
+fn friendship_filter(friendship: &str) -> fs::structured_query::Filter {
+    use fs::structured_query::{self as q, field_filter::Operator, filter::FilterType};
+    q::Filter {
+        filter_type: Some(FilterType::FieldFilter(q::FieldFilter {
+            field: Some(q::FieldReference {
+                field_path: "envelope.friendship_id".into(),
+            }),
+            op: Operator::Equal as i32,
+            value: Some(value(fs::value::ValueType::StringValue(friendship.into()))),
+        })),
     }
 }
 

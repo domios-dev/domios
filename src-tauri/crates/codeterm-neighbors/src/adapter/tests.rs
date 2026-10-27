@@ -9,7 +9,7 @@ impl AuthenticatedCall for LimitedSend {
     async fn invoke(&self, route: &str, data: Value) -> Result<Value> {
         assert_eq!(route, "friendsSend");
         assert_eq!(data["in_reply_to"], data["envelope"]["in_reply_to"]);
-        assert_eq!(data["in_reply_to"], "b".repeat(32));
+        assert!(data.as_object().unwrap().contains_key("in_reply_to"));
         self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Err(Error::DailyLimit {
             limit: 3,
@@ -44,6 +44,15 @@ async fn linked_reply_reaches_the_callable_once_and_keeps_a_daily_limit_refusal(
         })
     );
     assert_eq!(calls.0.load(std::sync::atomic::Ordering::Relaxed), 1);
+    message.envelope.in_reply_to = None;
+    assert_eq!(
+        transport.send(&message).await,
+        Err(Error::DailyLimit {
+            limit: 3,
+            resets_at: 1000
+        })
+    );
+    assert_eq!(calls.0.load(std::sync::atomic::Ordering::Relaxed), 2);
 }
 #[async_trait]
 impl AuthenticatedCall for Calls {

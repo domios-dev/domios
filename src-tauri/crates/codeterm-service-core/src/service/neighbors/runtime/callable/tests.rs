@@ -30,4 +30,11 @@ fn daily_limit_refusals_preserve_the_server_limit_and_reset_time() {
         refusal(&json!({"error":{"details":{"reason":"session_other"}}})),
         Error::Refused
     );
+    for (reason, error) in [
+        ("invalid_request", Error::InvalidRequest),
+        ("friendship_not_found", Error::FriendshipNotFound),
+        ("invalid_envelope", Error::InvalidEnvelope),
+    ] {
+        assert_eq!(refusal(&json!({"error":{"message":reason}})), error);
+    }
 }
