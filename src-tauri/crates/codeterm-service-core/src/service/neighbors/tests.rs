@@ -4,6 +4,7 @@ use super::*;
 fn registry_commands_match_server_callables_without_extra_fields() {
     let cases = [
         (json!({"operation":"list"}), "friendsList", json!({})),
+        (json!({"operation":"claim_referral_trial"}), "claimReferralTrial", json!({})),
         (
             json!({"operation":"request","email":"friend@example.test"}),
             "friendsRequest",
@@ -32,6 +33,8 @@ fn registry_commands_match_server_callables_without_extra_fields() {
     for input in [
         json!({"operation":"friendsSend"}),
         json!({"operation":"list","uid":"other"}),
+        json!({"operation":"claim_referral_trial","uid":"other"}),
+        json!({"operation":"claim_referral_trial","trial_end":1700604800}),
         json!({"operation":"request","email":"friend@example.test","plan":"pro"}),
     ] {
         assert!(serde_json::from_value::<NeighborCommand>(input).is_err());
@@ -45,6 +48,27 @@ fn server_locked_and_count_refusals_have_upgrade_paths() {
             neighbor_refusal(&json!({"error":{"details":{"reason":reason}}})).starts_with(reason)
         );
     }
+}
+
+#[test]
+fn registry_results_require_the_same_account_and_login_generation() {
+    let session = |uid: &str, login_generation| codeterm_account::Session {
+        login_generation,
+        identity: codeterm_account::Identity {
+            uid: uid.into(),
+            provider: "firebase".into(),
+            email: None,
+            display_name: None,
+            photo_url: None,
+        },
+        id_token: codeterm_account::Secret::new("fixture-token"),
+        expires_at: None,
+    };
+    let expected = session("own", 1);
+    assert!(same_session(Some(&session("own", 1)), &expected));
+    assert!(!same_session(Some(&session("foreign", 1)), &expected));
+    assert!(!same_session(Some(&session("own", 2)), &expected));
+    assert!(!same_session(None, &expected));
 }
 
 #[test]

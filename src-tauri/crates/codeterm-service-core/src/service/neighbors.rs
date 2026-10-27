@@ -3,6 +3,7 @@ use codeterm_account::account_mesh::callable::{CallableFailure, CallableTranspor
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+mod referral;
 mod runtime;
 mod storage;
 pub use runtime::{NeighborRuntimeCell, NeighborRuntimeCommand};
@@ -11,6 +12,7 @@ pub use runtime::{NeighborRuntimeCell, NeighborRuntimeCommand};
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum NeighborCommand {
     List {},
+    ClaimReferralTrial {},
     Request {
         email: String,
     },
@@ -31,6 +33,7 @@ impl NeighborCommand {
     fn callable(self) -> (&'static str, Value) {
         match self {
             Self::List {} => ("friendsList", json!({})),
+            Self::ClaimReferralTrial {} => ("claimReferralTrial", json!({})),
             Self::Request { email } => ("friendsRequest", json!({"email": email})),
             Self::Respond { request_id, accept } => (
                 "friendsRespond",
@@ -74,19 +77,32 @@ impl ServiceContext {
             }
             Err(_) => return Err("Neighbors unavailable".into()),
         };
-        if account
-            .session()
-            .await
-            .as_ref()
-            .map(|current| &current.identity.uid)
-            != Some(&session.identity.uid)
-        {
+        if !same_session(account.session().await.as_ref(), &session) {
             return Err("Account changed while managing Neighbors".into());
         }
-        body.get("result")
+        let result = body
+            .get("result")
             .cloned()
-            .ok_or_else(|| "Invalid Neighbors response".into())
+            .ok_or_else(|| "Invalid Neighbors response".to_owned())?;
+        if name == "claimReferralTrial" && referral::refresh_required(&result)? {
+            self.refresh_billing(codeterm_billing::RefreshEvent::Explicit)
+                .await?;
+            if !same_session(account.session().await.as_ref(), &session) {
+                return Err("Account changed while checking the referral".into());
+            }
+        }
+        Ok(result)
     }
+}
+
+fn same_session(
+    current: Option<&codeterm_account::Session>,
+    expected: &codeterm_account::Session,
+) -> bool {
+    current.is_some_and(|current| {
+        current.identity.uid == expected.identity.uid
+            && current.login_generation == expected.login_generation
+    })
 }
 
 fn neighbor_refusal(body: &Value) -> String {

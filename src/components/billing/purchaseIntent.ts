@@ -11,8 +11,8 @@ export type PurchaseIntent =
 export type PurchaseAccount = "signed_in" | "signed_out" | "pending";
 
 export type PurchaseEvent =
-  | { type: "choose"; planKey: string; account: PurchaseAccount; plan: PlanModel | null; catalog: PlanCatalog }
-  | { type: "signedIn"; plan: PlanModel | null; catalog: PlanCatalog }
+  | { type: "choose"; planKey: string; account: PurchaseAccount; plan: PlanModel | null; catalog: PlanCatalog; subscriptionPlan?: string | null }
+  | { type: "signedIn"; plan: PlanModel | null; catalog: PlanCatalog; subscriptionPlan?: string | null }
   | { type: "signInFailed" }
   | { type: "cancel" }
   | { type: "checkoutSettled" };
@@ -20,13 +20,14 @@ export type PurchaseEvent =
 export const IDLE_INTENT: PurchaseIntent = { kind: "idle" };
 
 /** Full access covers every plan; otherwise only an active subscription to the same offer counts. */
-export function owns(plan: PlanModel, planKey: string, catalog: PlanCatalog): boolean {
+export function owns(plan: PlanModel, planKey: string, catalog: PlanCatalog, subscriptionPlan?: string | null): boolean {
   if (plan.fullAccess) return true;
+  if (subscriptionPlan !== undefined) return subscriptionPlan !== null && offerIdForPlan(catalog, subscriptionPlan) === offerIdForPlan(catalog, planKey);
   return plan.status === "active" && offerIdForPlan(catalog, plan.plan) === offerIdForPlan(catalog, planKey);
 }
 
-function decide(planKey: string, plan: PlanModel | null, catalog: PlanCatalog): PurchaseIntent {
-  return plan && owns(plan, planKey, catalog) ? { kind: "owned", planKey, staff: plan.fullAccess } : { kind: "opening", planKey };
+function decide(planKey: string, plan: PlanModel | null, catalog: PlanCatalog, subscriptionPlan?: string | null): PurchaseIntent {
+  return plan && owns(plan, planKey, catalog, subscriptionPlan) ? { kind: "owned", planKey, staff: plan.fullAccess } : { kind: "opening", planKey };
 }
 
 export function purchaseIntent(state: PurchaseIntent, event: PurchaseEvent): PurchaseIntent {
@@ -36,10 +37,10 @@ export function purchaseIntent(state: PurchaseIntent, event: PurchaseEvent): Pur
       if (event.account !== "signed_in") return { kind: "signing_in", planKey: event.planKey, attached: event.account === "pending" };
       // Without a known plan ownership is unproven, so checkout never opens; the caller reports it.
       if (!event.plan) return state;
-      return decide(event.planKey, event.plan, event.catalog);
+      return decide(event.planKey, event.plan, event.catalog, event.subscriptionPlan);
     case "signedIn":
       if (state.kind !== "signing_in") return state;
-      return event.plan ? decide(state.planKey, event.plan, event.catalog) : IDLE_INTENT;
+      return event.plan ? decide(state.planKey, event.plan, event.catalog, event.subscriptionPlan) : IDLE_INTENT;
     case "signInFailed":
       return state.kind === "signing_in" ? IDLE_INTENT : state;
     case "cancel":

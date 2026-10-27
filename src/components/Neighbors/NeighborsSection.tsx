@@ -9,6 +9,7 @@ import { useNeighbors } from "./useNeighbors";
 import type { NeighborClient } from "./neighborClient";
 import { NeighborChannel } from "./NeighborChannel";
 import { neighborRuntimeClient, type NeighborRuntimeClient } from "./neighborRuntimeClient";
+import { referralStatus } from "./referralTrial";
 
 const openPlans = () => window.dispatchEvent(new CustomEvent("codeterm:open-panel", { detail: { panel: "settings:plans" } }));
 
@@ -60,15 +61,23 @@ export function NeighborsInventory({ identity, onOpenGeneral, client, runtimeCli
   const title = useId();
   const selected = neighbors.list?.friends.find(friend => friend.friendship_id === selectedId);
   const paid = neighbors.list?.access === "paid";
+  const canInvite = neighbors.list?.can_invite === true;
+  const referral = neighbors.referral && neighbors.list
+    ? referralStatus(neighbors.referral, neighbors.list.access, seconds => new Date(seconds * 1000).toLocaleString()) : null;
   return <section aria-label="Neighbors" className="sidebar-team-section min-w-0">
     <SidebarDisclosure expanded={expanded} aria-controls={contentId} onClick={() => { setExpanded(value => !value); setAdding(false); setSelectedId(null); }}>Neighbors</SidebarDisclosure>
     <div id={contentId} hidden={!expanded}>
-      {!identity ? <p>Sign in to manage your Neighbors.</p> : <>
+      {!identity ? <div><p>If you were invited, sign up or sign in with the invited email to check your seven-day Domios referral trial. No payment method is required.</p>
+        <Button type="button" onClick={() => window.dispatchEvent(new CustomEvent("codeterm:open-panel", { detail: { panel: "settings:account" } }))}>Sign in or create account</Button></div> : <>
         {neighbors.error && <InlineErrorNotice error={neighbors.error} operation="managing your Neighbors" role="alert" />}
         {neighbors.list === null && !neighbors.error && <p role="status">Loading Neighbors…</p>}
         <Button type="button" disabled={neighbors.pending} onClick={neighbors.refresh}>Refresh Neighbors</Button>
-        {paid ? <Button type="button" onClick={() => { setAdding(true); setSent(false); }}>Add Neighbor</Button>
-          : neighbors.list && <Button type="button" onClick={openPlans}>Upgrade to add Neighbors</Button>}
+        {referral && <div role="status">{referral}
+          {neighbors.referral?.trial_end !== null && neighbors.referral?.trial_end !== undefined && <Button type="button" onClick={openPlans}>Subscribe</Button>}
+        </div>}
+        {canInvite ? <Button type="button" onClick={() => { setAdding(true); setSent(false); }}>Add Neighbor</Button>
+          : neighbors.list?.can_invite === false ? <Button type="button" onClick={openPlans}>Upgrade to add Neighbors</Button>
+          : neighbors.list && <p role="status">Invitation eligibility is unavailable. Refresh Neighbors to check again.</p>}
         <ul aria-label="Neighbor requests">{neighbors.list?.incoming.map(request => <li key={request.request_id}>
           <span>{neighborName(request)}</span>
           <Button type="button" disabled={neighbors.pending} onClick={() => { void neighbors.apply({ operation: "respond", request_id: request.request_id, accept: true }); }}>Accept {neighborName(request)}</Button>
@@ -82,13 +91,14 @@ export function NeighborsInventory({ identity, onOpenGeneral, client, runtimeCli
           onClose={() => setSelectedId(null)} onOpenGeneral={onOpenGeneral}
           onLimit={per_hour => neighbors.apply({ operation: "set_limit", friendship_id: selected.friendship_id, per_hour })}
           onRemove={() => neighbors.apply({ operation: "remove", friendship_id: selected.friendship_id })} />}
-        {adding && <FormDialog titleId={title} onCancel={() => setAdding(false)} onSubmit={event => {
+        {adding && canInvite && <FormDialog titleId={title} onCancel={() => setAdding(false)} onSubmit={event => {
           event.preventDefault();
           void neighbors.apply({ operation: "request", email: email.trim() }).then(ok => { if (ok) setSent(true); });
         }}>
           <h2 id={title}>Add Neighbor</h2>
           <label>Email address<input type="email" required maxLength={254} value={email} onChange={event => { setEmail(event.currentTarget.value); setSent(false); }} /></label>
           <p>Enter their Domios account email. Requests and invitations receive the same confirmation to protect account privacy.</p>
+          <p>Eligible new friends get seven days from Domios without a payment method. If they subscribe during those seven days, you earn one free month.</p>
           {neighbors.error && <InlineErrorNotice error={neighbors.error} operation="managing your Neighbors" role="alert" />}
           {sent && <p role="status">Request or invitation saved.</p>}
           <Button type="submit" disabled={neighbors.pending || sent || email.trim().length === 0}>Send request or invitation</Button>

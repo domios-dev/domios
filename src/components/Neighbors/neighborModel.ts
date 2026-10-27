@@ -19,6 +19,7 @@ export interface NeighborRequest {
 export interface NeighborList {
   schema_version: 1;
   access: "paid" | "locked";
+  can_invite?: boolean;
   friends: Neighbor[];
   incoming: NeighborRequest[];
 }
@@ -46,6 +47,7 @@ export function parseNeighbors(value: unknown): NeighborList {
     || !value.incoming.every(request => profile(request) && text(request.request_id) && count(request.created_at))) {
     throw new Error("Invalid Neighbors response");
   }
+  if (value.can_invite !== undefined && typeof value.can_invite !== "boolean") throw new Error("Invalid invitation eligibility");
   return value as unknown as NeighborList;
 }
 

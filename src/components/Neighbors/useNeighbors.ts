@@ -1,16 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import { publishNotice } from "../../lib/notices";
+import { listen } from "../../lib/bridge";
 import { neighborClient, type NeighborClient } from "./neighborClient";
 import { neighborName, type NeighborCommand, type NeighborList } from "./neighborModel";
+import type { ReferralClaim } from "./referralTrial";
 
 interface LoadedNeighbors {
   identity: string | null;
   list: NeighborList | null;
   error: string | null;
+  referral: ReferralClaim | null;
 }
 
 export function useNeighbors(identity: string | null, client: NeighborClient = neighborClient) {
-  const [loaded, setLoaded] = useState<LoadedNeighbors>({ identity, list: null, error: null });
+  const [loaded, setLoaded] = useState<LoadedNeighbors>({ identity, list: null, error: null, referral: null });
   const [revision, setRevision] = useState(0);
   const [pending, setPending] = useState(false);
   const busy = useRef(false);
@@ -33,16 +36,21 @@ export function useNeighbors(identity: string | null, client: NeighborClient = n
     const epoch = ++generation.current;
     const controller = new AbortController();
     if (!identity) {
-      setLoaded({ identity, list: null, error: null });
+      setLoaded({ identity, list: null, error: null, referral: null });
       return () => controller.abort();
     }
     let latest = 0;
     async function load() {
       const request = ++latest;
+      let referral: ReferralClaim | null = null;
+      let referralError: string | null = null;
       try {
+        try { referral = await client.claimReferralTrial(controller.signal); }
+        catch { referralError = "Your referral could not be checked. Refresh Neighbors to try again."; }
+        if (controller.signal.aborted || generation.current !== epoch || request !== latest) return;
         const list = await client.list(controller.signal);
         if (controller.signal.aborted || generation.current !== epoch || request !== latest) return;
-        setLoaded({ identity, list, error: null });
+        setLoaded({ identity, list, referral, error: referralError });
         for (const incoming of list.incoming) {
           if (seen.current.has(incoming.request_id)) continue;
           publishNotice({ kind: "toast", severity: "Info", id: `neighbor-request:${incoming.request_id}`,
@@ -54,14 +62,19 @@ export function useNeighbors(identity: string | null, client: NeighborClient = n
         catch { /* Notifications remain deduplicated for this session. */ }
       } catch (failure: unknown) {
         if (!controller.signal.aborted && generation.current === epoch && request === latest) {
-          setLoaded(previous => ({ identity, list: previous.identity === identity ? previous.list : null,
+          setLoaded(previous => ({ identity, list: previous.identity === identity && previous.list ? { ...previous.list, can_invite: false } : null, referral,
             error: failure instanceof Error ? failure.message : "Neighbors unavailable" }));
         }
       }
     }
     void load();
     window.addEventListener("focus", load);
-    return () => { controller.abort(); generation.current++; window.removeEventListener("focus", load); };
+    let unlisten: (() => void) | undefined;
+    void listen("entitlement-changed", load).then(stop => {
+      if (controller.signal.aborted) stop();
+      else unlisten = stop;
+    });
+    return () => { controller.abort(); generation.current++; window.removeEventListener("focus", load); unlisten?.(); };
   }, [identity, client, revision]);
 
   async function apply(command: Exclude<NeighborCommand, { operation: "list" }>): Promise<boolean> {
@@ -75,6 +88,7 @@ export function useNeighbors(identity: string | null, client: NeighborClient = n
       return true;
     } catch (failure: unknown) {
       if (currentIdentity.current === identity) setLoaded(previous => ({ ...previous,
+        list: command.operation === "request" && previous.list ? { ...previous.list, can_invite: false } : previous.list,
         error: failure instanceof Error ? failure.message : "Neighbors request failed" }));
       return false;
     } finally {
@@ -84,6 +98,7 @@ export function useNeighbors(identity: string | null, client: NeighborClient = n
   }
 
   return { list: loaded.identity === identity ? loaded.list : null,
+    referral: loaded.identity === identity ? loaded.referral : null,
     error: loaded.identity === identity ? loaded.error : null, pending, apply,
     refresh: () => setRevision(value => value + 1) };
 }
