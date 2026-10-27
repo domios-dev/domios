@@ -68,7 +68,7 @@ kill_dev
     const shutdown = ['scripts/dev-rebuild-stop.mjs', 'C:/fixture/selected/provenance.json',
       'C:/fixture/.domios-dev-selected', '17996', 'selected', 'C:/fixture/selected/domios-dev-app.exe'];
     assert.deepEqual(result.stdout.trim().split(/\r?\n/), shutdownExit === 0
-      ? [...shutdown, 'watcher', 'static', 'leftovers', 'scripts/reap-dev-sidecars.mjs', 'C:/fixture/.domios-dev-selected'] : shutdown);
+      ? [...shutdown, 'watcher', 'static', 'leftovers'] : shutdown);
   });
 }
 

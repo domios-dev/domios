@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
-import { generateKeyPairSync, verify } from 'node:crypto';
+import { generateKeyPairSync, sign, verify } from 'node:crypto';
 import { once } from 'node:events';
 import test from 'node:test';
-import { createIssuer, tokenUid } from '../dev-entitlements-issuer.mjs';
+import { checkRefusedModes, createIssuer, tokenUid, verdict, verifiesWith } from '../dev-entitlements-issuer.mjs';
 
 test('local DEV bearer requires the local uid and matching installation', () => {
   const bearer = 'Bearer domios-local-dev.uid=local-dev-user&installation_id=fixture-installation';
@@ -37,4 +37,25 @@ test('loopback issuer signs a verifiable Sponsor verdict for local-dev-user', as
     server.closeAllConnections();
     await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
+});
+
+test('tampered and unsigned serve the paid payload but fail verification while pro passes', () => {
+  const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+  const issue = (mode) => verdict(privateKey, 'fixture-qa-project', mode, 'local-dev-user', 'fixture-installation');
+  const pro = issue('pro').grant;
+  assert(verifiesWith(pro, publicKey));
+  for (const mode of ['tampered', 'unsigned']) {
+    const { grant, billing } = issue(mode);
+    assert.equal(billing.plan, 'pro');
+    assert.equal(JSON.parse(Buffer.from(grant.payload, 'base64url')).authority, 'billing');
+    assert.equal(verifiesWith(grant, publicKey), false, mode);
+  }
+  const tampered = issue('tampered').grant;
+  const genuine = sign(null, Buffer.from(tampered.payload, 'base64url'), privateKey);
+  const served = Buffer.from(tampered.signature, 'base64url');
+  assert.equal(served.length, genuine.length);
+  assert.equal(genuine.filter((byte, index) => byte !== served[index]).length, 1);
+  assert.equal(issue('unsigned').grant.signature, '');
+  assert.deepEqual(checkRefusedModes(privateKey, publicKey, 'fixture-qa-project', 'local-dev-user', 'fixture-installation'), ['pro', 'tampered', 'unsigned']);
+  assert.throws(() => checkRefusedModes(privateKey, generateKeyPairSync('ed25519').publicKey, 'p', 'u', 'i'), /pro verdict failed/);
 });

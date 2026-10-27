@@ -372,6 +372,10 @@ def main() -> int:
     audit_parser.add_argument("--body-file", required=True)
     range_parser = subparsers.add_parser("range-start")
     range_parser.add_argument("--releases-file", required=True)
+    included_parser = subparsers.add_parser("included")
+    included_parser.add_argument("--version", required=True)
+    included_parser.add_argument("--source-sha", required=True)
+    included_parser.add_argument("--output-dir", required=True)
     args = parser.parse_args()
     try:
         if args.command == "parse":
@@ -396,11 +400,16 @@ def main() -> int:
             print(json.dumps(resolve_sources(read_json(args.commits_file), read_json(args.prs_file)), indent=2))
         elif args.command == "plan-close":
             print(json.dumps(plan_close(read_json(args.resolved_file), read_json(args.states_file), args.version), indent=2))
+        elif args.command == "included":
+            from release_issue_resolution import resolve_included
+            result = resolve_included(args.version, args.source_sha, args.output_dir)
+            print(json.dumps({"start": result["start"], "commits": len(result["commits"]),
+                              "prs": len(result["prs"]), "remote_calls": result["remote_calls"]}))
         else:
             start = select_range_start(read_json(args.releases_file))
             if start:
                 print(start)
-    except (ContractError, OSError, json.JSONDecodeError) as error:
+    except (ValueError, OSError, subprocess.SubprocessError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
     return 0

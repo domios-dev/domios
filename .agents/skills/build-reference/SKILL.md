@@ -12,8 +12,8 @@ Dev/prod isolation, hooks, signing, outputs, icons, platform notes, and project 
 Dev builds (`npx tauri dev`) run with `tauri.dev.conf.json` overrides:
 - **Identifier:** `com.domios.dev` (vs `com.domios.app` in prod)
 - **API port:** 7686 (vs 7685 in prod)
-- **Data directory:** `~/.codeterm-dev/` (vs `~/.codeterm/`)
-- **Socket prefix:** `codeterm-dev` (vs `codeterm`)
+- **Data directory:** `~/.domios-dev/` (vs `~/.domios/`)
+- **Socket prefix:** `domios-dev` (vs `domios`)
 - **Single-instance:** Disabled (dev and prod can run side by side)
 
 ### macOS dev launch contract

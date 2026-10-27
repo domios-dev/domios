@@ -85,6 +85,16 @@ async fn drop_confirms_command_parent_and_child_exit_by_retained_handles() {
     assert_tree_exit("drop").await;
 }
 
+#[tokio::test]
+async fn finish_retires_grandchild_after_intermediary_exit() {
+    assert_tree_exit("orphan").await;
+}
+
+#[tokio::test]
+async fn natural_server_exit_retires_command_tree() {
+    assert_tree_exit("natural-exit").await;
+}
+
 async fn assert_tree_exit(action: &str) {
     let dir = tempfile::tempdir().unwrap();
     let mut cap = capability();
@@ -106,7 +116,7 @@ async fn assert_tree_exit(action: &str) {
             &RpcCall {
                 target: None,
                 method: "fixture/tree".into(),
-                params: serde_json::json!({}),
+                params: serde_json::json!({"orphan": action == "orphan"}),
             },
             None,
         )
@@ -116,8 +126,21 @@ async fn assert_tree_exit(action: &str) {
     let pids: Vec<u32> = serde_json::from_value(result["pids"].clone()).unwrap();
     assert_eq!(pids.len(), 2);
     let members = process.boundary.as_ref().unwrap().snapshot().unwrap();
-    for pid in &pids {
-        let member = members.iter().find(|member| member.pid == *pid).unwrap();
+    let live_pids = if action == "orphan" {
+        &pids[1..]
+    } else {
+        &pids[..]
+    };
+    for pid in live_pids {
+        let member = members
+            .iter()
+            .find(|member| member.pid == *pid)
+            .unwrap_or_else(|| {
+                panic!(
+                    "{action}: command {pid} missing from boundary members {:?}",
+                    members.iter().map(|member| member.pid).collect::<Vec<_>>()
+                )
+            });
         assert!(
             !member.exited().unwrap(),
             "{action}: command {pid} must start alive"
@@ -128,6 +151,20 @@ async fn assert_tree_exit(action: &str) {
         "finish" => process.finish().await.unwrap(),
         "stop" => process.stop(),
         "drop" => drop(process),
+        "orphan" => process.finish().await.unwrap(),
+        "natural-exit" => {
+            let _ = process
+                .client
+                .request_guarded(
+                    &RpcCall {
+                        target: None,
+                        method: "fixture/exit".into(),
+                        params: serde_json::json!({}),
+                    },
+                    None,
+                )
+                .await;
+        }
         _ => unreachable!(),
     }
     tokio::time::timeout(Duration::from_secs(10), async {
@@ -142,6 +179,15 @@ async fn assert_tree_exit(action: &str) {
         "{action}: {:?}",
         *ended.borrow()
     );
+    if action == "natural-exit" {
+        assert!(matches!(
+            *ended.borrow(),
+            Some(RuntimeFailure::ProcessExited {
+                requested: false,
+                ..
+            })
+        ));
+    }
     for member in members {
         assert!(
             member.exited().unwrap(),

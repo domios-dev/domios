@@ -24,9 +24,11 @@ pub(super) fn requires_composer(svc: &ServiceContext, provider: &str, tab: &str)
         })
         .unwrap_or(false)
         && !has_resume_session
-        && svc.mux.read().get_tab(tab).is_some_and(|tab| {
-            matches!(tab.backing, crate::multiplexer::types::TabBacking::Pty)
-        })
+        && svc
+            .mux
+            .read()
+            .get_tab(tab)
+            .is_some_and(|tab| matches!(tab.backing, crate::multiplexer::types::TabBacking::Pty))
 }
 
 pub(super) fn observe(
@@ -44,9 +46,11 @@ pub(super) fn observe(
     let current_launch = LaunchAttempt::current(&svc.mux, &attempt.tab_id, &attempt.pty_id)
         .as_ref()
         == Some(attempt);
-    let plain = svc.mux.read().get_tab(&attempt.tab_id).is_some_and(|tab| {
-        matches!(tab.backing, crate::multiplexer::types::TabBacking::Pty)
-    });
+    let plain = svc
+        .mux
+        .read()
+        .get_tab(&attempt.tab_id)
+        .is_some_and(|tab| matches!(tab.backing, crate::multiplexer::types::TabBacking::Pty));
     if !should_latch_user_input(lazy_session, evidence, current_launch, plain) {
         return;
     }

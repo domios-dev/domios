@@ -27,7 +27,7 @@ Domios is a distributed OS for AI agents, with a terminal at its heart. It runs 
 
 Keep a conversation going with one agent, or give a goal to a meta-team. The **Orchestrator** coordinates and verifies, the **Planner** designs tasks and fits each Worker's role and model to the work, and named **Workers** execute in isolated lanes. Reports and review carry the work into the canonical checkout.
 
-Built with Tauri v2, Rust, React, TypeScript, and xterm.js. The product is called Domios; the primary CLI command is `domios`, with `codeterm` available as a working alias. Repository and package names are unchanged.
+Built with Tauri v2, Rust, React, TypeScript, and xterm.js. The primary CLI command is `domios`, with `codeterm` available as a working alias. Source lives at [domios-dev/domios](https://github.com/domios-dev/domios); SDK packages retain their `@codeterm` names.
 
 ## Capabilities
 
@@ -68,23 +68,27 @@ The [capability map](essences/capabilities.md) distinguishes shipped capabilitie
 
 ## Installation
 
-Get the current desktop installer from [domios.dev](https://domios.dev) or [the latest public release](https://github.com/rollacode/codeterm-releases/releases/latest).
+Get the current desktop installer from [domios.dev](https://domios.dev) or [the latest public release](https://github.com/domios-dev/domios/releases/latest).
 
 ### macOS (Homebrew)
 
+Planned tap, pending publication and native install verification:
+
 ```bash
-brew tap rollacode/codeterm
-brew install --cask codeterm
+brew tap domios-dev/domios
+brew install --cask domios-dev/domios/domios
 ```
 
 ### Windows (Scoop)
 
+Planned bucket, pending publication and native install verification:
+
 ```powershell
-scoop bucket add codeterm https://github.com/rollacode/scoop-codeterm
-scoop install codeterm
+scoop bucket add domios https://github.com/domios-dev/scoop-domios
+scoop install domios/domios
 ```
 
-The Homebrew tap and Scoop bucket may trail the current release; use the desktop installer for the latest build.
+Use the desktop installers until these repositories are approved and published. Reviewable definitions and their release checklist are in [distribution/](distribution/README.md).
 
 ### Desktop installers
 
@@ -106,8 +110,8 @@ Privacy policy: [legal/PRIVACY.md](legal/PRIVACY.md), also published at [domios.
 Use Node.js 22, pnpm 10 (the exact version is in [package.json](package.json)), and Rust via rustup (the toolchain is pinned in [rust-toolchain.toml](rust-toolchain.toml)). Install the [Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/) for your OS: Xcode Command Line Tools on macOS, MSVC Build Tools and WebView2 on Windows, or the Linux system libraries.
 
 ```bash
-git clone https://github.com/rollacode/codeterm.git
-cd codeterm
+git clone https://github.com/domios-dev/domios.git
+cd domios
 pnpm install --frozen-lockfile
 ./build.sh dev
 ```
@@ -116,7 +120,7 @@ For a production build, run `./build.sh build`. On Windows PowerShell, use `.\bu
 
 ## Links
 
-- [Website and trailer](https://domios.dev) · [Public releases](https://github.com/rollacode/codeterm-releases/releases/latest)
+- [Website and trailer](https://domios.dev) · [Source and issues](https://github.com/domios-dev/domios) · [Public releases](https://github.com/domios-dev/domios/releases/latest)
 - [CLI reference](generated/cli/cli.md) · [API reference](prod-docs/API.md) · [Configuration](prod-docs/CONFIG.md)
 - [Orchestration](prod-docs/ORCHESTRATION.md) · [Lanes](prod-docs/LANES.md) · [Mesh](prod-docs/MESH.md) · [Memory](prod-docs/MEMORY.md)
 - [Telegram setup](prod-docs/TELEGRAM-SETUP.md) · [Voice transcription](prod-docs/TRANSCRIBE.md) · [Accounts](prod-docs/ACCOUNT.md)

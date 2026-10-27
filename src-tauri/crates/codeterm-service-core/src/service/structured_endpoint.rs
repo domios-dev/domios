@@ -54,4 +54,3 @@ pub(crate) fn sse_for_nonce(tab: &str, nonce: &str) -> Option<(String, String)> 
         Endpoint::Sse { base_url, cwd } => Some((base_url.clone(), cwd.clone())),
     }
 }
-

@@ -43,7 +43,9 @@ class Events:
             event = self.queue.get(timeout=remaining)
             if "error" in event:
                 raise RuntimeError(event["error"])
-            kind, data = event.get("event_type", ""), event.get("data") or {}
+            kind = event.get("event_type", "")
+            data = event.get("data")
+            data = data if isinstance(data, dict) else {}
             if (kind == f"tab-chat-{tab}" or
                     data.get("tab_id", data.get("id")) == tab and kind in
                     ("chat-send-status", "tab-status-changed", "tab-state-surface")):
@@ -81,6 +83,12 @@ def run(args):
     def phase():
         return get(f"/api/tabs/{args.tab}/status").get("status", "").lower()
 
+    root = script.resolve().parents[2]
+    sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    dirty = subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=normal"], cwd=root, text=True)
+    build = get("/api/health").get("build")
+    if build != sha or dirty:
+        raise RuntimeError("DEV build must match the clean execution SHA")
     events = Events(base + "/api/events/stream", headers, args.timeout)
     inspect()
     if not args.transcript.is_file():
@@ -126,7 +134,7 @@ def run(args):
                     break
                 if new and new[0]["state"] in ("delivered", "submit_unconfirmed", "held", "failed"):
                     state = new[0]["state"]
-                    if state == "delivered" and evidence or state == "failed":
+                    if state == "delivered" and len(evidence) == 1 or state == "failed":
                         break
                     if phase() == "idle" and state != "held":
                         break
@@ -138,6 +146,7 @@ def run(args):
                     state = new[0]["state"]
                     break
             row = {"provider": args.provider, "path": args.path, "mode": args.mode,
+                   "execution_sha": sha, "build_sha": build,
                    "tab_id": args.tab, "session_id": args.session, "launch_nonce": nonce,
                    "index": index, "payload": payload, "anchor": anchor,
                    "send_id": new[0]["send_id"], "state": state, "evidence": evidence}
@@ -154,7 +163,7 @@ def run(args):
                 for row in rows:
                     row["state"] = statuses.get(row["send_id"], {}).get("state", "absent")
                     row["evidence"] = matching_records(args.transcript, row["anchor"], args.session, row["payload"])
-                if all(row["state"] == "delivered" and row["evidence"] for row in rows):
+                if all(row["state"] == "delivered" and len(row["evidence"]) == 1 for row in rows):
                     break
                 if phase() == "idle" and all(row["state"] != "written" for row in rows):
                     break
@@ -168,7 +177,7 @@ def run(args):
         for path in pad.glob(f"delivery-confirmation-{run_id}-*.txt"):
             path.unlink()
     print(json.dumps(summarize(rows), indent=2))
-    return 0 if len(rows) == 10 and all(row["state"] == "delivered" and row["evidence"] for row in rows) else 1
+    return 0 if len(rows) == 10 and all(row["state"] == "delivered" and len(row["evidence"]) == 1 for row in rows) else 1
 
 
 if __name__ == "__main__":

@@ -103,7 +103,8 @@ mod platform {
         if flags < 0 || unsafe { libc::fcntl(raw, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
             return Err(io::Error::last_os_error());
         }
-        Ok(Notifications(AsyncFd::new(fd)?))
+        // SAFETY: OwnedFd keeps the same descriptor open until AsyncFd releases it.
+        Ok(Notifications(unsafe { AsyncFd::register(fd) }?))
     }
 
     impl Notifications {

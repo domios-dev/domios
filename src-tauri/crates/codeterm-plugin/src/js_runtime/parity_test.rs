@@ -67,10 +67,10 @@ mod plugin_lifecycle;
 mod provider_compat;
 #[path = "parity_test/rotterdom.rs"]
 mod rotterdom;
-#[path = "parity_test/sqlite_fixture.rs"]
-mod sqlite_fixture;
 #[path = "parity_test/runtime_modes.rs"]
 mod runtime_modes;
+#[path = "parity_test/sqlite_fixture.rs"]
+mod sqlite_fixture;
 #[path = "parity_test/unbound_submit_recovery.rs"]
 mod unbound_submit_recovery;
 #[path = "parity_test/update_prompt.rs"]

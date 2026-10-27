@@ -76,7 +76,11 @@ fn store_agent_state_and_record_turn_resume_edge(
 ) -> (bool, bool) {
     let mut new_state = new_state;
     finished_turn::carry_summary(tab.agent_state.as_ref(), &mut new_state);
-    if matches!(tab.backing, crate::multiplexer::types::TabBacking::ChatBackend { .. }) || tab.agent_state.as_ref() == Some(&new_state) {
+    if matches!(
+        tab.backing,
+        crate::multiplexer::types::TabBacking::ChatBackend { .. }
+    ) || tab.agent_state.as_ref() == Some(&new_state)
+    {
         return (false, false);
     }
     tab.record_activity();

@@ -1,0 +1,38 @@
+{
+  "version": "@VERSION@",
+  "description": "Domios desktop and server for AI agents",
+  "homepage": "https://github.com/domios-dev/domios",
+  "license": "AGPL-3.0-only",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/domios-dev/domios/releases/download/v@VERSION@/Domios_@VERSION@_x64-setup.exe#/installer.exe",
+      "hash": "@SHA256_WINDOWS_X64@"
+    },
+    "arm64": {
+      "url": "https://github.com/domios-dev/domios/releases/download/v@VERSION@/Domios_@VERSION@_arm64-setup.exe#/installer.exe",
+      "hash": "@SHA256_WINDOWS_ARM64@"
+    }
+  },
+  "pre_install": [
+    "if ($global) { throw 'Domios supports a per-user installation only.' }"
+  ],
+  "installer": {
+    "script": [
+      "$process = Start-Process -FilePath \"$dir\\installer.exe\" -ArgumentList @('/S', ('/D=' + $dir)) -Wait -PassThru",
+      "if ($process.ExitCode -ne 0) { throw \"Domios installer failed: $($process.ExitCode)\" }",
+      "foreach ($file in @('domios-app.exe', 'domios-server\\domios-server.exe', 'server-component.json', 'cli\\domios.exe', 'cli\\codeterm.exe')) { if (!(Test-Path -LiteralPath \"$dir\\$file\" -PathType Leaf)) { throw \"Missing desktop package component: $file\" } }",
+      "if ((Get-FileHash -LiteralPath \"$dir\\cli\\domios.exe\").Hash -ne (Get-FileHash -LiteralPath \"$dir\\cli\\codeterm.exe\").Hash) { throw 'Bundled CLI aliases differ.' }"
+    ]
+  },
+  "bin": ["cli\\domios.exe", "cli\\codeterm.exe"],
+  "shortcuts": [["domios-app.exe", "Domios"]],
+  "uninstaller": {
+    "script": [
+      "$running = Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith(($dir + '\\'), [StringComparison]::OrdinalIgnoreCase) }",
+      "if ($running) { throw 'Quit this Domios installation before uninstalling or upgrading it.' }",
+      "$process = Start-Process -FilePath \"$dir\\uninstall.exe\" -ArgumentList @('/S', ('_?=' + $dir)) -Wait -PassThru",
+      "if ($process.ExitCode -ne 0) { throw \"Domios uninstaller failed: $($process.ExitCode)\" }"
+    ]
+  },
+  "notes": "Launch Domios from the Start menu. domios and codeterm shims select the bundled CLI; keep the desktop/server pair together."
+}

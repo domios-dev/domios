@@ -2,6 +2,7 @@ import json
 import os
 import pathlib
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -146,11 +147,11 @@ class EvidenceTests(unittest.TestCase):
     def test_observer_uses_dev_run_url_and_refuses_prod(self):
         root = pathlib.Path(__file__).parent
         env = {**os.environ, 'PYTHONPATH': str(root), 'CODETERM_API_URL': 'http://127.0.0.1:7692'}
-        result = subprocess.run(['python3', '-c', 'import observe; print(observe.BASE)'], env=env, capture_output=True, text=True)
+        result = subprocess.run([sys.executable, '-c', 'import observe; print(observe.BASE)'], env=env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.stdout.strip(), env['CODETERM_API_URL'])
         env['CODETERM_API_URL'] = 'http://127.0.0.1:7685'
-        result = subprocess.run(['python3', '-c', 'import observe'], env=env, capture_output=True)
+        result = subprocess.run([sys.executable, '-c', 'import observe'], env=env, capture_output=True)
         self.assertNotEqual(result.returncode, 0)
 
     def test_selected_phases_require_setup_and_complete_groups(self):

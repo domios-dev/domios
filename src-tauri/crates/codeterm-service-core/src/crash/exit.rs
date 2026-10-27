@@ -69,4 +69,3 @@ fn shutdown_sidecar_log_records(
     });
     records
 }
-

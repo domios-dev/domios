@@ -67,4 +67,3 @@ pub(crate) fn resolve(
         first_turn_will_be_delivered,
     }
 }
-

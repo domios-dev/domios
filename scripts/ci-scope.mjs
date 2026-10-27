@@ -14,7 +14,7 @@ const pluginTooling = new Set([
 ]);
 
 const frontendFiles = new Set([
-  "index.html", "vite.config.ts", "vitest.config.ts", "package.json",
+  "index.html", "vite.config.mts", "vitest.config.ts", "package.json",
   "pnpm-lock.yaml", "pnpm-workspace.yaml", "frontend-release-contract.json",
   "biome.json", "knip.json", "scripts/vitest-owned-tests.json",
   "scripts/run-ts-unit-tests.mjs", "scripts/run-ts-unit-tests.test.mjs",
