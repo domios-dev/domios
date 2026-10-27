@@ -1,4 +1,5 @@
 pub(super) mod callable;
+mod concierge;
 mod gateway;
 mod listener;
 pub(crate) mod logout;
@@ -37,6 +38,16 @@ pub struct NeighborRuntimeCell {
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum NeighborRuntimeCommand {
+    History {
+        friendship_id: String,
+        before: Option<String>,
+        limit: Option<usize>,
+    },
+    ChangeAgent {
+        friendship_id: String,
+        provider: String,
+        model: Option<String>,
+    },
     Status,
     Enroll {
         takeover_confirmed: bool,
@@ -75,6 +86,7 @@ struct Outgoing {
     kind: Kind,
     body: OutboundBody,
     in_reply_to: Option<String>,
+    author: super::history::Author,
 }
 
 enum OutboundBody {
@@ -92,6 +104,18 @@ pub(super) fn authoring_allowed(
 }
 
 impl ServiceContext {
+    pub(super) fn neighbor_history_generation(&self) -> u64 {
+        self.neighbor_cell().generation.load(Ordering::Acquire)
+    }
+
+    pub(super) fn require_neighbor_history_generation(
+        &self,
+        generation: u64,
+    ) -> codeterm_neighbors::Result<()> {
+        self.require_neighbors_enabled()?;
+        self.require_neighbor_generation(generation)
+            .map_err(|_| Error::Revoked)
+    }
     fn neighbor_cell(&self) -> &NeighborRuntimeCell {
         self.extensions.get_or_init(NeighborRuntimeCell::default)
     }
@@ -169,7 +193,7 @@ impl ServiceContext {
         Ok((transport, registry, scope, metadata))
     }
 
-    fn require_neighbor_general(
+    pub fn require_neighbor_general(
         &self,
         caller: Option<&str>,
         nonce: Option<&str>,
@@ -216,6 +240,37 @@ impl ServiceContext {
         nonce: Option<&str>,
         generation: u64,
     ) -> Result<Value, String> {
+        if matches!(
+            &command,
+            NeighborRuntimeCommand::SetPermission { .. }
+                | NeighborRuntimeCommand::Bind { .. }
+                | NeighborRuntimeCommand::ChangeAgent { .. }
+                | NeighborRuntimeCommand::Permission { .. }
+        ) && caller.is_some()
+        {
+            self.require_neighbor_general(caller, nonce)?;
+        }
+        if let NeighborRuntimeCommand::History {
+            friendship_id,
+            before,
+            limit,
+        } = &command
+        {
+            let account = self.account().await?;
+            let session = account
+                .session()
+                .await
+                .ok_or("Sign in to read Neighbor history")?;
+            let metadata = Metadata::new(self.account_data_root()?, &session.identity.uid);
+            let page = metadata
+                .history_page(friendship_id, before.as_deref(), limit.unwrap_or(50))
+                .await
+                .map_err(|error| error.to_string())?;
+            if !super::same_session(account.session().await.as_ref(), &session) {
+                return Err("Neighbor account changed".into());
+            }
+            return Ok(page);
+        }
         if !matches!(
             &command,
             NeighborRuntimeCommand::Status
@@ -226,11 +281,6 @@ impl ServiceContext {
         ) {
             self.require_neighbors_enabled()
                 .map_err(|error| error.to_string())?;
-        }
-        if matches!(&command, NeighborRuntimeCommand::SetPermission { .. })
-            || (caller.is_some() && matches!(&command, NeighborRuntimeCommand::Bind { .. }))
-        {
-            self.require_neighbor_general(caller, nonce)?;
         }
         let (transport, registry, scope, metadata) = self.neighbor_ports().await?;
         let registry = match &command {
@@ -260,6 +310,13 @@ impl ServiceContext {
         };
         let result: codeterm_neighbors::Result<Value> = async {
             match command {
+                NeighborRuntimeCommand::History { .. } => Err(Error::InvalidEnvelope),
+                NeighborRuntimeCommand::ChangeAgent { friendship_id, provider, model } => {
+                    if !hex_id(&friendship_id, 64) { return Err(Error::InvalidEnvelope); }
+                    transport.peer_keys(&friendship_id).await?;
+                    let tab = self.replace_neighbor_concierge(&metadata, &friendship_id, Some(provider), model).await.map_err(|_| Error::Gateway)?;
+                    Ok(json!({"gateway_tab":tab}))
+                }
                 NeighborRuntimeCommand::Status => {
                     let settings = metadata.settings().await?;
                     let keys = if receiver_status.receiving_here() { lifecycle.reconcile().await? } else { None };
@@ -313,17 +370,36 @@ impl ServiceContext {
                     permission.validate()?;
                     transport.peer_keys(&friendship_id).await?;
                     let mut settings = metadata.settings().await?;
-                    settings.permissions.insert(friendship_id, permission);
-                    self.stop_neighbor_listeners();
-                    metadata.save_settings(settings).await?;
-                    Ok(json!({"status":"saved"}))
+                    let mut created = None;
+                    if settings.bindings.get(&friendship_id).is_none_or(|tab| self.validate_neighbor_gateway(tab).is_err()) {
+                        let tab = self.create_neighbor_concierge(&friendship_id, None, None).await.map_err(|_| Error::Gateway)?;
+                        settings.bindings.insert(friendship_id.clone(), tab.clone());
+                        created = Some(tab);
+                    }
+                    settings.permissions.insert(friendship_id.clone(), permission);
+                    let gateway_tab = settings.bindings.get(&friendship_id).cloned();
+                    if let Err(error) = metadata.save_settings(settings).await {
+                        if let Some(tab) = created { let _ = self.close_tab_async(&tab).await; }
+                        return Err(error);
+                    }
+                    if created.is_some() {
+                        self.stop_neighbor_listeners();
+                        self.emit_state_changed(crate::service::MuxEmitCause::TabMetadata);
+                        self.ui.emit("neighbor-agent-changed", json!({"friendship_id":friendship_id,"gateway_tab":gateway_tab}));
+                    }
+                    self.ui.emit("neighbor-permission-changed", json!({"friendship_id":friendship_id}));
+                    Ok(json!({"status":"saved","gateway_tab":gateway_tab}))
                 }
                 NeighborRuntimeCommand::Send { friendship_id, kind, body, in_reply_to } => {
-                    self.send_neighbor(&transport, &lifecycle, &metadata, Outgoing { friendship: friendship_id, kind, body: OutboundBody::Granted(Zeroizing::new(body)), in_reply_to }).await
+                    self.send_neighbor(&transport, &lifecycle, &metadata, Outgoing { friendship: friendship_id, kind, body: OutboundBody::Granted(Zeroizing::new(body)), in_reply_to, author: self.neighbor_author(caller)? }).await
                 }
                 NeighborRuntimeCommand::DeliveryStatus { message_id } => {
                     if !hex_id(&message_id, 32) { return Err(Error::InvalidEnvelope); }
-                    Ok(json!(transport.delivery_status(&message_id).await?))
+                    let result = transport.delivery_status(&message_id).await?;
+                    if self.require_neighbors_enabled().is_ok() {
+                        self.update_neighbor_history_status(&metadata, &message_id, result.status).await?;
+                    }
+                    Ok(json!(result))
                 }
             }
         }.await;
@@ -366,11 +442,13 @@ impl ServiceContext {
         outgoing: Outgoing,
     ) -> codeterm_neighbors::Result<Value> {
         self.require_neighbors_enabled()?;
+        let generation = self.neighbor_history_generation();
         let Outgoing {
             friendship,
             kind,
             body,
             in_reply_to,
+            author,
         } = outgoing;
         if !hex_id(&friendship, 64) {
             return Err(Error::InvalidEnvelope);
@@ -382,9 +460,18 @@ impl ServiceContext {
             .get(&friendship)
             .cloned()
             .unwrap_or_default();
+        let refusal = kind == Kind::Refusal && in_reply_to.is_some();
+        if refusal
+            && !metadata
+                .has_incoming(&friendship, in_reply_to.as_deref().ok_or(Error::Gateway)?)
+                .await?
+        {
+            return Err(Error::Gateway);
+        }
         let body = match body {
-            OutboundBody::Granted(body) if permission.allows(kind) => body,
-            OutboundBody::Refusal if kind == Kind::Answer && in_reply_to.is_some() => {
+            OutboundBody::Granted(body) if refusal && body.len() <= 256 => body,
+            OutboundBody::Granted(body) if kind != Kind::Refusal && permission.allows(kind) => body,
+            OutboundBody::Refusal if refusal => {
                 Zeroizing::new(codeterm_neighbors::gateway::REFUSAL_BODY.to_owned())
             }
             _ => return Err(Error::Gateway),
@@ -406,12 +493,12 @@ impl ServiceContext {
             .ok_or(Error::InvalidKey)?;
         let mut envelope = Envelope {
             schema: SCHEMA.into(),
-            friendship_id: friendship,
+            friendship_id: friendship.clone(),
             message_id: uuid::Uuid::new_v4().simple().to_string(),
             sender_uid: transport.uid.clone(),
             recipient_uid: peers.peer_uid,
             kind,
-            in_reply_to,
+            in_reply_to: in_reply_to.clone(),
             ciphertext: String::new(),
             nonce: String::new(),
             enc_key_ids: EncryptionKeyIds {
@@ -430,8 +517,41 @@ impl ServiceContext {
             &mut rand::rngs::OsRng,
         )?;
         let signed = keys.sign(envelope)?;
-        self.require_neighbors_enabled()?;
-        match transport.send(&signed).await {
+        self.require_neighbor_history_generation(generation)?;
+        self.append_neighbor_history(
+            metadata,
+            &friendship,
+            super::history::Entry {
+                direction: "out".into(),
+                author,
+                body: body.to_string(),
+                sender_uid: transport.uid.clone(),
+                at: now().seconds * 1000 + u64::from(now().nanoseconds / 1_000_000),
+                message_id: signed.envelope.message_id.clone(),
+                kind,
+                in_reply_to,
+                outcome: None,
+                reason: None,
+                delivery_status: Some(codeterm_neighbors::wire::DeliveryStatus::Pending),
+            },
+        )
+        .await?;
+        self.require_neighbor_history_generation(generation)?;
+        let result = transport.send(&signed).await;
+        let status = match &result {
+            Ok(status) => *status,
+            Err(Error::Transport) => codeterm_neighbors::wire::DeliveryStatus::Pending,
+            Err(_) => codeterm_neighbors::wire::DeliveryStatus::NotDelivered,
+        };
+        if self.require_neighbor_history_generation(generation).is_ok() {
+            if let Err(error) = self
+                .update_neighbor_history_status(metadata, &signed.envelope.message_id, status)
+                .await
+            {
+                log::debug!("[neighbors] local delivery status write failed: {error}");
+            }
+        }
+        match result {
             Ok(status) => Ok(json!({"message_id":signed.envelope.message_id,"status":status})),
             Err(Error::Transport) => Ok(
                 json!({"message_id":signed.envelope.message_id,"status":"pending","submission":"unconfirmed"}),

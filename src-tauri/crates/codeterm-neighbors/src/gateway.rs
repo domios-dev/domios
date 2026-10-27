@@ -2,7 +2,8 @@ use crate::{permissions::Permission, receive::GatewayReceipt, wire::Kind, Result
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-pub const REFUSAL_BODY: &str = "Request refused.";
+pub const REFUSAL_BODY: &str =
+    "Sorry, that request is not allowed by the permissions for this Neighbor.";
 
 #[async_trait]
 pub trait RequestPorts: Send + Sync {
@@ -17,7 +18,7 @@ pub async fn route_request(
 ) -> Result<GatewayReceipt> {
     if permission.allows(kind) {
         ports.local_turn().await
-    } else if kind == Kind::Answer {
+    } else if matches!(kind, Kind::Answer | Kind::Refusal) {
         Ok(GatewayReceipt::Delivered)
     } else {
         ports.refusal().await

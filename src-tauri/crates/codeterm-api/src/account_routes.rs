@@ -230,7 +230,21 @@ pub async fn neighbors(
     caller: Option<Extension<CallerIdentity>>,
     Json(command): Json<codeterm_service_core::service::neighbors::NeighborCommand>,
 ) -> Result<Json<serde_json::Value>, Error> {
-    admit(caller.as_ref())?;
+    match caller.as_ref().map(|caller| &caller.0) {
+        Some(CallerIdentity::Local) => {}
+        Some(CallerIdentity::Tab(actor))
+            if matches!(
+                &command,
+                codeterm_service_core::service::neighbors::NeighborCommand::List {}
+            ) =>
+        {
+            state
+                .svc
+                .require_neighbor_general(Some(&actor.tab_id), Some(&actor.binding_nonce))
+                .map_err(|message| (StatusCode::FORBIDDEN, message))?;
+        }
+        _ => return Err((StatusCode::FORBIDDEN, "Account access is local-only".into())),
+    }
     state
         .svc
         .neighbor_registry(command)
@@ -242,7 +256,7 @@ pub async fn neighbors(
 pub async fn neighbor_runtime(
     State(state): State<AppState>,
     caller: Option<Extension<CallerIdentity>>,
-    headers: axum::http::HeaderMap,
+    _headers: axum::http::HeaderMap,
     Json(command): Json<codeterm_service_core::service::neighbors::NeighborRuntimeCommand>,
 ) -> Result<Json<serde_json::Value>, Response> {
     let (tab, nonce) = match caller.as_ref().map(|caller| &caller.0) {
@@ -250,12 +264,7 @@ pub async fn neighbor_runtime(
             Some(caller.tab_id.clone()),
             Some(caller.binding_nonce.as_str()),
         ),
-        Some(CallerIdentity::Local) => (
-            crate::tab_routes::caller_tab_header(&headers),
-            headers
-                .get("x-codeterm-binding-nonce")
-                .and_then(|value| value.to_str().ok()),
-        ),
+        Some(CallerIdentity::Local) => (None, None),
         _ => return Err((StatusCode::FORBIDDEN, "Account access is local-only").into_response()),
     };
     state

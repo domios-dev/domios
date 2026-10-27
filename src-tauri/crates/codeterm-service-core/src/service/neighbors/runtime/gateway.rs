@@ -66,6 +66,27 @@ impl NeighborGateway for Gateway {
             Resume::Unconfirmed => return Ok(GatewayReceipt::SubmitUnconfirmed),
             Resume::Admit => {}
         }
+        self.current()?;
+        self.service
+            .append_neighbor_history(
+                &self.metadata,
+                &self.friendship,
+                super::super::history::Entry {
+                    direction: "in".into(),
+                    author: super::super::history::Author::Person("friend".into()),
+                    sender_uid: message.doc.envelope.sender_uid.clone(),
+                    body: plaintext.to_string(),
+                    at: message.doc.received_at.seconds * 1000
+                        + u64::from(message.doc.received_at.nanoseconds / 1_000_000),
+                    message_id: message.doc.envelope.message_id.clone(),
+                    delivery_status: None,
+                    kind: message.doc.envelope.kind,
+                    in_reply_to: message.doc.envelope.in_reply_to.clone(),
+                    outcome: None,
+                    reason: None,
+                },
+            )
+            .await?;
         let permission = self
             .metadata
             .settings()
