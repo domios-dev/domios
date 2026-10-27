@@ -143,6 +143,23 @@ impl IdentityProvider for Provider {
     }
 }
 
+struct Enrollment(String);
+
+#[async_trait]
+impl KeyRegistry for Enrollment {
+    async fn enroll(&self, _: &str, _: &str, _: bool) -> codeterm_neighbors::Result<String> {
+        Ok(self.0.clone())
+    }
+
+    async fn revoke(&self, _: &str) -> codeterm_neighbors::Result<()> {
+        panic!("fixture enrollment must not revoke another key")
+    }
+
+    async fn active_key_ids(&self) -> codeterm_neighbors::Result<Vec<String>> {
+        Ok(vec![self.0.clone()])
+    }
+}
+
 async fn logout(local: bool, enrolled: bool, uncertain: bool, uncertain_confirmation: bool) {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
@@ -165,21 +182,33 @@ async fn logout(local: bool, enrolled: bool, uncertain: bool, uncertain_confirma
         .set(account.clone())
         .unwrap_or_else(|_| panic!("account initialized"));
     if enrolled {
-        let scope =
-            KeyScope::installation(&service.installation_id().await.unwrap(), "owner").unwrap();
+        let installation_id = service.installation_id().await.unwrap();
+        let scope = KeyScope::installation(installation_id.as_str(), "owner").unwrap();
         let mut rng = StdRng::seed_from_u64(42);
-        for slot in [Slot::Current, Slot::Candidate] {
-            let keys = PrivateKeys::generate(&mut rng);
-            evidence.active.lock().push(keys.verifier_key_id("owner"));
-            KeyStore::save(evidence.as_ref(), &scope, slot, keys.storage_bytes())
-                .await
-                .unwrap();
+        let enrollment = Enrollment(PrivateKeys::generate(&mut rng.clone()).verifier_key_id("owner"));
+        let keys = InstallationKeys {
+            store: evidence.as_ref(),
+            registry: &enrollment,
+            scope: scope.clone(),
+            uid: "owner",
         }
+        .enroll(true, &mut rng)
+        .await
+        .unwrap();
+        let current = KeyStore::load(evidence.as_ref(), &scope, Slot::Current)
+            .await
+            .unwrap()
+            .unwrap();
+        KeyStore::save(evidence.as_ref(), &scope, Slot::Candidate, current)
+            .await
+            .unwrap();
+        evidence.active.lock().push(keys.verifier_key_id("owner"));
         let inventory_only = PrivateKeys::generate(&mut rng);
         evidence
             .active
             .lock()
             .push(inventory_only.verifier_key_id("owner"));
+        evidence.events.lock().clear();
         assert!(
             !Metadata::new(service.account_data_root().unwrap(), "owner")
                 .settings()
