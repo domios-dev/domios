@@ -9,7 +9,7 @@ export function AccountLimits({ limits, usage = {} }: { limits: FreeLimits | nul
     ["Concurrent tabs", "agent.tabs", limits.max["agent.tabs"]], ["Mesh machines", "mesh.machines", limits.meshMax],
     ["Memory items", "mem.items", limits.memoryMax],
   ];
-  return <dl aria-label="Your plan limits" className="m-0 grid w-full grid-cols-[minmax(0,1fr)_auto_auto] items-baseline gap-x-3 gap-y-2 text-xs">
+  return <dl aria-label="Your plan limits" className="m-0 grid w-full grid-cols-[max-content_max-content_minmax(0,1fr)] items-baseline gap-x-6 gap-y-2 text-xs">
     {entries.filter(([, , max]) => max !== undefined).map(([name, key, max]) => {
       const used = usage[key];
       return <div key={key} className="col-span-3 grid grid-cols-subgrid items-baseline">
