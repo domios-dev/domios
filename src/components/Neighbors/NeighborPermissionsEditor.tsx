@@ -7,6 +7,8 @@ import { useFolderPicker } from "../../hooks/useFolderPicker";
 import { Segmented } from "../shared/Segmented";
 import { DropdownMenu } from "../shared/DropdownMenu";
 import { useMemoryAreas } from "./useMemoryAreas";
+import { useMuxSelector } from "../../store/multiplexer";
+import { TRUST_OPTIONS, trustPresetFields, trustPresetOf, type TrustPreset } from "./neighborTrustPresets";
 import { UI_INPUT } from "../shared/design";
 import { validNeighborLimit, type Neighbor } from "./neighborModel";
 import type { MachineAccess, NeighborPermission } from "./neighborRuntimeClient";
@@ -21,7 +23,8 @@ const SCOPE_LIMIT = 8192;
 const samePermission = (a: NeighborPermission, b: NeighborPermission) => a.allowed === b.allowed && a.scope === b.scope
   && a.allow_tab_requests === b.allow_tab_requests && (a.allow_interactive_content ?? false) === (b.allow_interactive_content ?? false)
   && (a.allow_memory ?? true) === (b.allow_memory ?? true) && (a.allow_files ?? true) === (b.allow_files ?? true)
-  && (a.folder ?? null) === (b.folder ?? null) && (a.memory_areas ?? []).join("\n") === (b.memory_areas ?? []).join("\n") && (a.machine_access ?? "read_only") === (b.machine_access ?? "read_only");
+  && (a.folder ?? null) === (b.folder ?? null) && (a.memory_areas ?? []).join("\n") === (b.memory_areas ?? []).join("\n") && (a.machine_access ?? "read_only") === (b.machine_access ?? "read_only")
+  && (a.workspaces ?? []).join("\n") === (b.workspaces ?? []).join("\n");
 const scopeBytes = (scope: string) => new TextEncoder().encode(scope).length;
 
 /** Allowing requests needs a written scope; the relay refuses an empty or oversized one. */
@@ -49,6 +52,9 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
   const { pickFolder, folderPicker } = useFolderPicker();
   const accessLabel = useId();
   const areas = useMemoryAreas(draft?.allow_memory !== false);
+  // The owner's own workspaces; General is the machine's home, not a place to share.
+  const allWorkspaces = useMuxSelector(state => state.workspaces);
+  const workspaceOptions = allWorkspaces.filter(workspace => !workspace.protected).map(workspace => ({ value: workspace.id, label: workspace.name }));
   const access: MachineAccess = draft?.machine_access ?? "read_only";
   const [daily, setDaily] = useState(neighbor.my_daily_limit == null ? "" : String(neighbor.my_daily_limit));
   const [dailyError, setDailyError] = useState<string | null>(null);
@@ -71,6 +77,8 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
   const problem = draft ? permissionProblem(draft) : null;
   const edit = (patch: Partial<NeighborPermission>) => setDraft(current => current ? { ...current, ...patch } : current);
   return <div className="neighbor-permissions">
+    <Segmented<TrustPreset> aria-label="Trust" value={draft ? trustPresetOf(draft) : "custom"} height={28} options={TRUST_OPTIONS}
+      onChange={preset => { if (draft && !saving && preset !== "custom") edit(trustPresetFields(preset)); }} />
     <SettingsSection title="Requests">
     <SwitchTile label={`Allow requests from ${name}`} hint="Their agents may ask yours for help."
       checked={draft?.allowed === true} onChange={allowed => { if (draft && !saving) edit({ allowed }); }} />
@@ -80,6 +88,8 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
     </FormRow>
     <SwitchTile label={`Show interactive content from ${name}`} hint="Runs their html and diagrams. Only for people you trust."
       checked={draft?.allow_interactive_content === true} onChange={allow_interactive_content => { if (draft && !saving) edit({ allow_interactive_content }); }} />
+    {draft && <ChoiceMenu label="Workspaces" menuLabel="Workspaces" every="All workspaces" noun="workspaces" disabled={saving}
+      options={workspaceOptions} chosen={draft.workspaces ?? []} onChange={chosen => edit({ workspaces: chosen.length > 0 ? chosen : null })} />}
     </SettingsSection>
     <SettingsSection title="Access">
     <SwitchTile label="Read my memory"
@@ -199,12 +209,22 @@ function FileDailyLimit({ neighbor, name, onSave }: { neighbor: Neighbor; name: 
 /** Narrow what their agents may ask about to a few memory areas; nothing chosen shares every non-secret area. */
 function MemoryAreas({ areas, chosen, disabled, onChange }: { areas: string[] | null; chosen: string[]; disabled: boolean; onChange: (chosen: string[]) => void }) {
   const known = [...new Set([...(areas ?? []), ...chosen])].sort((a, b) => a.localeCompare(b));
-  const summary = chosen.length === 0 ? "All areas" : chosen.length <= 2 ? chosen.join(", ") : `${chosen.length} areas`;
+  return <ChoiceMenu label="Only these areas" menuLabel="Memory areas" every="All areas" noun="areas" disabled={disabled}
+    options={known.map(area => ({ value: area, label: area }))} chosen={chosen} onChange={onChange} />;
+}
+
+/** A labelled pill that opens the shared menu with one checkbox per choice; nothing chosen means every choice. */
+function ChoiceMenu({ label, menuLabel, every, noun, options, chosen, disabled, onChange }: {
+  label: string; menuLabel: string; every: string; noun: string; options: { value: string; label: string }[];
+  chosen: string[]; disabled: boolean; onChange: (chosen: string[]) => void;
+}) {
+  const names = chosen.map(value => options.find(option => option.value === value)?.label ?? value);
+  const summary = chosen.length === 0 ? every : chosen.length <= 2 ? names.join(", ") : `${chosen.length} ${noun}`;
   return <div className="neighbor-areas">
-    <span className="neighbor-permissions__label">Only these areas</span>
-    <DropdownMenu menuLabel="Memory areas" disabled={disabled || known.length === 0}
-      items={known.map(area => ({ label: area, checked: chosen.includes(area), keepOpen: true,
-        onClick: () => onChange(chosen.includes(area) ? chosen.filter(entry => entry !== area) : [...chosen, area]) }))}
-      trigger={<button type="button" className="ct-bar-pill" aria-label={`Memory areas: ${summary}`}>{summary}</button>} />
+    <span className="neighbor-permissions__label">{label}</span>
+    <DropdownMenu menuLabel={menuLabel} disabled={disabled || options.length === 0}
+      items={options.map(option => ({ label: option.label, checked: chosen.includes(option.value), keepOpen: true,
+        onClick: () => onChange(chosen.includes(option.value) ? chosen.filter(entry => entry !== option.value) : [...chosen, option.value]) }))}
+      trigger={<button type="button" className="ct-bar-pill" aria-label={`${menuLabel}: ${summary}`}>{summary}</button>} />
   </div>;
 }
