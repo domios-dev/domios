@@ -5,7 +5,7 @@ import { NeighborsView } from "./NeighborsView";
 import { SidebarNeighborsSection } from "./SidebarNeighborsSection";
 import { NeighborConversationView } from "./NeighborConversationView";
 import type { HistoryEntry, NeighborConciergeClient, NeighborNotify } from "./neighborConciergeClient";
-import { takeNeighborFocus } from "./neighborFocus";
+import { openNeighborPage, takeNeighborFocus } from "./neighborFocus";
 import { missingConciergeLine, parseConciergeStatus } from "./useConciergeStatus";
 import { useNeighborGatewayIds } from "./neighborGateways";
 import type { NeighborClient } from "./neighborClient";
@@ -867,4 +867,30 @@ it("opens a friend as a window with its two header actions and closes it with Es
   expect(hasButton("Messages")).toBe(false);
   await act(async () => { dialog.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
   expect(document.querySelector('[role="dialog"][aria-modal="true"]')).toBeNull();
+});
+
+it("saves a cleared daily message limit as no limit", async () => {
+  const conciergeClient = concierge([]);
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [{ ...neighbor, my_daily_limit: 5 }], incoming: [], outgoing: [] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
+  await act(async () => button("Ada, connected").click());
+  const input = Array.from(document.querySelectorAll<HTMLLabelElement>("label")).find(label => label.textContent === "Messages per day")!.control as HTMLInputElement;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  expect(button("Save daily limit").disabled).toBe(false);
+  await act(async () => button("Save daily limit").click());
+  expect(conciergeClient.setDailyLimit).toHaveBeenCalledExactlyOnceWith("pair", null);
+});
+
+it("opens the friend window at Permissions when another surface asks for it", async () => {
+  await render();
+  await act(async () => openNeighborPage("pair", "permissions"));
+  expect(document.querySelector('[role="dialog"][aria-modal="true"]')?.textContent).toContain("Ada");
+  expect(hasButton("Save permissions")).toBe(true);
 });

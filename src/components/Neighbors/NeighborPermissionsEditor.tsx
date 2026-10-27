@@ -61,7 +61,10 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
   const dailyField = useId();
   const dailyValue = daily.trim() === "" ? null : Number(daily);
   const dailyValid = dailyValue === null || (Number.isInteger(dailyValue) && dailyValue >= 1 && dailyValue <= 10000);
-  const dailyChanged = dailyValue !== (neighbor.my_daily_limit ?? null);
+  // Compared with what was last saved here too, so clearing a limit just set can still be saved as no limit.
+  const [savedDaily, setSavedDaily] = useState<number | null>(neighbor.my_daily_limit ?? null);
+  useEffect(() => { setSavedDaily(neighbor.my_daily_limit ?? null); }, [neighbor.my_daily_limit]);
+  const dailyChanged = dailyValue !== savedDaily;
   const scopeField = useId();
   const limitField = useId();
   const [awaitingFolder, setAwaitingFolder] = useState(false);
@@ -156,7 +159,7 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
           setSaving(true); setError(null);
           // A preset also sets the daily message limit, which saves through its own operation.
           const saves = [changed ? onSave(draft).then(() => setBaseline(draft)) : Promise.resolve(),
-            dailyChanged && dailyValid ? onSaveDailyLimit(dailyValue) : Promise.resolve()];
+            dailyChanged && dailyValid ? onSaveDailyLimit(dailyValue).then(() => setSavedDaily(dailyValue)) : Promise.resolve()];
           void Promise.all(saves).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : "Permissions could not be saved."))
             .finally(() => setSaving(false));
         }}>Save permissions</Button>
@@ -167,7 +170,8 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
       event.preventDefault();
       if (!dailyValid) return;
       setDailyError(null);
-      void onSaveDailyLimit(dailyValue).catch((failure: unknown) => setDailyError(failure instanceof Error ? failure.message : "The daily limit could not be saved."));
+      void onSaveDailyLimit(dailyValue).then(() => setSavedDaily(dailyValue))
+        .catch((failure: unknown) => setDailyError(failure instanceof Error ? failure.message : "The daily limit could not be saved."));
     }}>
       <FormRow label="Messages per day" htmlFor={dailyField}
         hint={dailyValid ? "Empty for no limit." : "Use a whole number from 1 to 10000, or leave it empty."}>
