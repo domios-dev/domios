@@ -34,6 +34,7 @@ async fn local_reads_bypass_blocked_network_owner_and_return_metadata() {
             scope: "opaque scope".into(),
             allow_tab_requests: false,
             allow_interactive_content: true,
+            ..Default::default()
         },
     );
     metadata.save_settings(settings).await.unwrap();

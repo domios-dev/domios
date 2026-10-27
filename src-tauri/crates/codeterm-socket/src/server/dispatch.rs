@@ -13,6 +13,18 @@ pub(super) fn dispatch(
         .strip_prefix("sentinel.")
         .map(|suffix| format!("blueprint.{suffix}"));
     let method = canonical_method.as_deref().unwrap_or(method);
+    if codeterm_service_core::service::neighbors::capabilities::rpc_capability(method).is_some()
+        && params
+            .as_ref()
+            .is_some_and(|params| params["caller_tab_id"].is_string())
+    {
+        codeterm_service_core::async_runtime::block_on(svc.authorize_neighbor_rpc(method, params.as_ref()))
+        .map_err(|message| JsonRpcError {
+            code: -32003,
+            data: Some(serde_json::json!({"reason":message.split(':').next().unwrap_or("neighbor_forbidden")})),
+            message,
+        })?;
+    }
     // System methods are tiny — handle inline.
     match method {
         "plugin.refresh_installed" => {

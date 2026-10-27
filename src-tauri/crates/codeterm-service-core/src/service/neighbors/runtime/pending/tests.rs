@@ -212,6 +212,7 @@ async fn receiver_move_keeps_local_concierge_and_never_copies_bindings_or_permis
             scope: "opaque scope".into(),
             allow_tab_requests: false,
             allow_interactive_content: false,
+            ..Default::default()
         },
     );
     let local = Metadata::new(fixture.temp.path().to_owned(), "owner");

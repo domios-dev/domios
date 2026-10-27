@@ -16,6 +16,7 @@ impl ServiceContext {
         }
         let metadata = Metadata::new(self.account_data_root()?, &session.identity.uid);
         let mut settings = metadata.settings().await.map_err(|e| e.to_string())?;
+        self.remember_neighbor_concierge_accounts(&session.identity.uid, &settings);
         settings.enabled = false;
         settings.cleanup_pending = true;
         metadata

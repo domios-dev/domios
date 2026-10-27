@@ -28,6 +28,8 @@ Look up friendship IDs with `domios account neighbors list` (or `--json`). It sh
 
 Setting permissions automatically creates and binds a concierge inside the friend view. Changing its provider and model replaces the agent while retaining the friendship scope and limits. An independent local agent can also be bound; General, Team and role-bound agents cannot be gateways. Each delivered message carries the current permission hint in a `from="neighbor"` envelope. Tab requests need an explicit grant.
 
+The daemon enforces concierge capability grants using the authenticated tab's current binding nonce. `allow_memory` defaults true and permits only memory search, get and wake-up reads; memory writes always return `neighbor_memory_read_only`. Turning it off refuses those reads with HTTP 403 `neighbor_memory_not_allowed`. All secret routes are refused to concierges with `neighbor_secrets_not_allowed`. `allow_tab_requests` also controls concierge tab/agent creation and dispatch, returning `tab_requests_not_allowed` when disabled. `allow_files` defaults true and controls only the bound concierge's read access to its friend's saved files, with `neighbor_files_not_allowed` on refusal. It does not control receiving downloads. Owner and General retain permission-edit authority.
+
 ```bash
 domios account neighbors permission FRIENDSHIP_ID
 domios account neighbors grant FRIENDSHIP_ID --from-pad scope.md
@@ -95,4 +97,4 @@ Restored runtime concierges start in the background when this machine prepares r
 
 The account signal watch applies confirmed delivery and expiry events to local outgoing history and emits `neighbor-history-changed`. On reconnect or a signal revision gap, it checks delivery once for up to 256 locally pending outgoing messages across at most 200 locally configured friendships. It never polls delivery. Confirmed terminal delivery cannot regress to pending when an earlier send response arrives late.
 
-<!-- revision: 19 -->
+<!-- revision: 20 -->
