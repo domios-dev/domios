@@ -263,7 +263,12 @@ fn create_runtime_context(
         #[cfg(test)]
         {
             let gates = rquickjs::Object::new(ctx.clone()).map_err(initialization_error)?;
-            super::super::call_gate::install(&gates, &vm.sandbox).map_err(initialization_error)?;
+            super::super::call_gate::install(&gates, &vm.sandbox).map_err(|e| {
+                failure(
+                    RuntimeFailureCode::HookFailed,
+                    format!("{method} initialization: {e}"),
+                )
+            })?;
             ctx.globals()
                 .set("__runtime_test_gate__", gates)
                 .map_err(initialization_error)?;
