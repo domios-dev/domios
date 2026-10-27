@@ -82,6 +82,7 @@ async fn denied_requests_refuse_without_local_information_access_and_answers_do_
         scope: "opaque scope".into(),
         allow_tab_requests: false,
         allow_interactive_content: false,
+        ..Default::default()
     };
     route_request(&permission, Kind::Question, &ports)
         .await

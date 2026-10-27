@@ -119,6 +119,9 @@ impl AuthenticatedCall for Calls {
 }
 
 fn refusal(body: &Value) -> Error {
+    if let Some(failure) = codeterm_neighbors::files::refusal::Failure::from_callable(body) {
+        return Error::File(failure);
+    }
     match body
         .pointer("/error/details/reason")
         .and_then(Value::as_str)
@@ -136,7 +139,7 @@ fn refusal(body: &Value) -> Error {
         }
         Some("limit_out_of_range") => Error::LimitOutOfRange,
         Some("invalid_request") => Error::InvalidRequest,
-        Some("friendship_not_found") => Error::FriendshipNotFound,
+        Some("friendship_not_found" | "not_friends") => Error::FriendshipNotFound,
         Some("invalid_envelope") => Error::InvalidEnvelope,
         Some("too_large") => Error::MessageTooLarge {
             limit: codeterm_neighbors::wire::MAX_PLAINTEXT_BYTES as u64,

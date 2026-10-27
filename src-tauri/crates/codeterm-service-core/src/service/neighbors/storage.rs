@@ -37,6 +37,13 @@ impl codeterm_neighbors::keys::EnrollmentState for Metadata {
 }
 
 impl Metadata {
+    pub(super) fn friend_folder(&self, friendship: &str) -> Result<PathBuf> {
+        if !hex_id(friendship, 64) {
+            return Err(Error::InvalidEnvelope);
+        }
+        Ok(self.root.join("friends").join(friendship))
+    }
+
     pub fn new(root: PathBuf, uid: &str) -> Self {
         Self {
             root: root.join("neighbors").join(sha256_hex(uid.as_bytes())),

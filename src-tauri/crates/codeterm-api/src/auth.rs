@@ -574,6 +574,28 @@ fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
             return (StatusCode::FORBIDDEN, message).into_response().into();
         }
         req.extensions_mut().insert(identity.clone());
+        if let CallerIdentity::Tab(caller) = identity {
+            if let Some(capability) =
+                codeterm_service_core::service::neighbors::capabilities::http_capability(
+                    method.as_str(),
+                    &path,
+                )
+            {
+                if let Err(message) = codeterm_service_core::async_runtime::block_on(
+                    state.svc.authorize_neighbor_capability(caller, capability),
+                ) {
+                    let reason = message.split(':').next().unwrap_or("neighbor_forbidden");
+                    return (
+                        StatusCode::FORBIDDEN,
+                        axum::Json(
+                            serde_json::json!({"code":reason,"reason":reason,"message":message}),
+                        ),
+                    )
+                        .into_response()
+                        .into();
+                }
+            }
+        }
     }
     match caller {
         Ok(CallerIdentity::Local | CallerIdentity::Tab(_)) => AuthOutcome::Allowed(req, false),
