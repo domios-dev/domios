@@ -6,19 +6,19 @@ Neighbors is on by default for each instance. Its switch stops receiving, sendin
 
 ## Receive on this machine
 
-Open a Neighbor in Neighborhood, choose Messages, then Enable encrypted channel. Confirm that receiving moves to this machine and other machines stop receiving. One installation key pair serves all gateway tabs. Reopening or recreating a gateway tab keeps the same keys. Rotate keys explicitly, or revoke them when signing out. Messages waiting for a revoked key become `not_delivered`. Receiving on several machines at once is outside this version's scope.
+Open a Neighbor in Neighborhood, choose Messages, then Receive here. Confirm that receiving moves to this machine and other machines stop receiving. One installation key pair serves all gateway tabs. Reopening or recreating a gateway tab keeps the same keys. Rotate keys explicitly, or revoke them when signing out. Messages waiting for a revoked key become `not_delivered`. Receiving on several machines at once is outside this version's scope.
 
 The equivalent local commands are:
 
 ```bash
 domios account neighbors status
-domios account neighbors enroll --confirm-takeover
+domios account neighbors enroll --confirm-takeover --expected-receiver-revision 0
 domios account neighbors own-keys
 domios account neighbors rotate
 domios account neighbors revoke
 ```
 
-Keys stay in Windows Credential Manager, macOS Keychain or Linux Secret Service. An unavailable or locked store refuses the operation; plaintext file storage is never a fallback. Sign-out revokes Neighbor keys before discarding account credentials; an unconfirmed revocation must be retried while signed in.
+Keys stay in Windows Credential Manager, macOS Keychain or Linux Secret Service. An unavailable or locked store refuses the operation; plaintext file storage is never a fallback. Sign-out clears local account access first. Revoking the receiver session disables receiving on the server; local cleanup removes only this installation's private keys.
 
 ## General Agent permissions
 
@@ -58,4 +58,6 @@ Messages are end-to-end encrypted. The backend holds inbox ciphertext until the 
 
 Local gateway history and pending delivery records use user-only permissions. Closing the gateway removes its local pending delivery data under the tab cleanup lifecycle. Native crash dumps remain a residual risk while sensitive data is live in process memory; Neighbor code does not log or upload payloads or private keys.
 
-<!-- revision: 5 -->
+Use the revision returned by status when confirming Receive here. Receiving on another machine never moves automatically. If the revision is stale, read status and confirm again. Runtime status and receiver-change events expose `receiving_here`, `receiver_machine_label`, `receiving_enabled`, and `revision`. A Neighbor marked not receiving right now cannot receive a new message.
+
+<!-- revision: 6 -->

@@ -130,3 +130,27 @@ fn key_scope_binds_installation_and_account_without_exporting_ids() {
     assert_ne!(a.name(Slot::Current), c.name(Slot::Current));
     assert!(!a.name(Slot::Current).contains("alice"));
 }
+
+#[tokio::test]
+async fn revocation_preserves_keys_owned_by_another_installation() {
+    let store = Store::default();
+    let registry = Registry::default();
+    let lifecycle = InstallationKeys {
+        store: &store,
+        registry: &registry,
+        scope: KeyScope::installation("machine", "owner").unwrap(),
+        uid: "owner",
+    };
+    let mut rng = StdRng::seed_from_u64(18);
+    let local = lifecycle.enroll(true, &mut rng).await.unwrap();
+    let foreign = PrivateKeys::generate(&mut rng).verifier_key_id("owner");
+    registry.active.lock().unwrap().push(foreign.clone());
+    lifecycle.revoke().await.unwrap();
+    assert_eq!(*registry.active.lock().unwrap(), vec![foreign]);
+    assert!(lifecycle.load().await.unwrap().is_none());
+    assert!(!registry
+        .active
+        .lock()
+        .unwrap()
+        .contains(&local.verifier_key_id("owner")));
+}

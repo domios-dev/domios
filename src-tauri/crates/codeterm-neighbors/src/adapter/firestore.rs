@@ -1,3 +1,4 @@
+pub(super) mod control;
 use super::FirebaseTransport;
 use crate::receive::{InboxEvent, InboxListener};
 use crate::wire::{hex_id, Cursor, InboxDocument, InboxMessage, Timestamp};

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ChannelStatus, NeighborListenerState, NeighborPermission, NeighborReceipt, NeighborRuntimeClient } from "./neighborRuntimeClient";
-import { receipt } from "./neighborRuntimeClient";
+import { receipt, NeighborRuntimeFailure } from "./neighborRuntimeClient";
 
 export function useNeighborChannel(owner: string, friendship: string, client: NeighborRuntimeClient) {
   const [status, setStatus] = useState<ChannelStatus | null>(null);
@@ -25,7 +25,16 @@ export function useNeighborChannel(owner: string, friendship: string, client: Ne
     let unsubscribe: (() => void) | undefined;
     let observedEvent = false;
     void client.subscribe(event => {
-      if (generation.current === current && event.friendship_id === friendship) {
+      if (generation.current !== current) return;
+      if ("receiving_here" in event) {
+        setStatus(previous => previous && event.revision >= previous.revision ? { ...previous, ...event } : previous);
+        if (!event.receiving_here) setReception("stopped");
+        void client.status(controller.signal).then(channel => {
+          if (generation.current === current) setStatus(previous => previous && previous.revision > channel.revision ? previous : channel);
+        }).catch(() => {});
+      } else if ("receiver_unavailable" in event) {
+        setStatus(null); setReception("stopped"); setError("Receiving status unavailable. Retry to refresh.");
+      } else if (event.friendship_id === friendship) {
         observedEvent = true; setReception(event.status);
       }
     }).then(stop => {
@@ -34,7 +43,7 @@ export function useNeighborChannel(owner: string, friendship: string, client: Ne
       return Promise.all([client.status(controller.signal), client.permission(friendship, controller.signal)])
         .then(([channel, policy]) => {
           if (generation.current === current) {
-            setStatus(channel); setPermission(policy);
+            setStatus(previous => previous && previous.revision > channel.revision ? previous : channel); setPermission(policy);
             if (!observedEvent) setReception(channel.listeners?.[friendship] ?? "stopped");
           }
         });
@@ -56,15 +65,25 @@ export function useNeighborChannel(owner: string, friendship: string, client: Ne
     inFlight.current = current;
     setPending(true); setError(null);
     try { const value = await action(); if (generation.current === current) apply(value); }
-    catch { if (generation.current === current) setError("The Neighbor operation could not be confirmed. Check delivery before sending again."); }
+    catch (failure) {
+      if (generation.current === current) {
+        if (failure instanceof NeighborRuntimeFailure) {
+          if (["operation_id_conflict", "receiver_revision_stale", "receiver_elsewhere", "not_receiver"].includes(failure.reason)) {
+            try { const refreshed = await client.status(); if (generation.current === current) setStatus(refreshed); }
+            catch { if (generation.current === current) setStatus(null); }
+          }
+          if (generation.current === current) setError(failure.reason === "session_revoked" ? "This machine was signed out. Sign in again." : failure.reason === "neighbors_disabled" ? "Neighbors is off on this machine." : failure.reason === "installation_unverified" ? "Sign in on this installation again." : failure.reason === "recipient_not_receiving" ? "This Neighbor is not receiving right now." : failure.reason === "not_receiver" ? "This machine is not receiving." : failure.reason === "operation_id_conflict" || failure.reason === "receiver_revision_stale" || failure.reason === "receiver_elsewhere" ? "Receiving changed. Review the receiving machine and confirm again." : "The Neighbor operation could not be confirmed. Check delivery before sending again.");
+        } else setError("The Neighbor operation could not be confirmed. Check delivery before sending again.");
+      }
+    }
     finally {
       if (inFlight.current === current) inFlight.current = null;
       if (generation.current === current) setPending(false);
     }
   }
 
-  async function enroll() {
-    await run(async () => { await client.enroll(); return client.status(); }, setStatus);
+  async function enroll(revision: number) {
+    await run(async () => { await client.enroll(revision); return client.status(); }, setStatus);
   }
   async function rotate() {
     await run(async () => { await client.rotate(); return client.status(); }, setStatus);

@@ -580,3 +580,39 @@ async fn portal_no_billing_customer_keeps_its_code_and_message() {
         StatusCode::SERVICE_UNAVAILABLE
     );
 }
+
+#[tokio::test]
+async fn receiver_refusals_retain_machine_readable_codes() {
+    for code in [
+        "receiver_elsewhere",
+        "receiver_revision_stale",
+        "not_receiver",
+        "recipient_not_receiving",
+        "installation_unverified",
+        "operation_id_conflict",
+        "session_revoked",
+    ] {
+        let message = format!("{code}: opaque explanation");
+        let response = neighbor_failure(message.clone());
+        assert_eq!(
+            response.status(),
+            if code == "session_revoked" {
+                StatusCode::UNAUTHORIZED
+            } else {
+                StatusCode::CONFLICT
+            }
+        );
+        let body = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            body,
+            serde_json::json!({"code":code,"reason":code,"message":message,"error":message})
+        );
+    }
+    assert_eq!(
+        neighbor_failure("unavailable".into()).status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+}

@@ -5,6 +5,15 @@ use codeterm_neighbors::wire::{InboxDocument, Timestamp};
 async fn disabled_gateway_never_admits_or_records_a_message() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    *fixture.service.neighbor_cell().receiver.lock() =
+        Some(codeterm_neighbors::adapter::ReceiverStatus {
+            receiver_revision: 1,
+            receiver_installation_id: Some("machine".into()),
+            receiver_key_id: None,
+            receiver_machine_label: Some("Here".into()),
+            receiving_enabled: true,
+            is_me: true,
+        });
     fixture
         .service
         .ext::<crate::config::ConfigState>()

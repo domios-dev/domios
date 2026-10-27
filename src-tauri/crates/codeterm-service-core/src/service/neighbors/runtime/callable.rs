@@ -46,13 +46,19 @@ impl AuthenticatedCall for Calls {
             }) => {
                 if codeterm_account::session_revocation::is_session_revoked(&body) {
                     self.service.session_revocations().revoked(&session).await;
-                    return Err(Error::Revoked);
+                    return Err(Error::SessionRevoked);
                 }
                 return Err(
                     match body
                         .pointer("/error/details/reason")
                         .and_then(Value::as_str)
                     {
+                        Some("operation_id_conflict") => Error::OperationIdConflict,
+                        Some("installation_unverified") => Error::InstallationUnverified,
+                        Some("receiver_elsewhere") => Error::ReceiverElsewhere,
+                        Some("receiver_revision_stale") => Error::ReceiverRevisionStale,
+                        Some("not_receiver") => Error::NotReceiver,
+                        Some("recipient_not_receiving") => Error::RecipientNotReceiving,
                         Some("friends_locked") => Error::Locked,
                         Some("key_revoked" | "unknown_key") => Error::Revoked,
                         Some("key_not_found") => Error::KeyNotFound,

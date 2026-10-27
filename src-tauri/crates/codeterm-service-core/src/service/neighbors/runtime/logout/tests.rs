@@ -12,6 +12,7 @@ struct Evidence {
     active: Mutex<Vec<String>>,
     slots: Mutex<HashMap<String, Zeroizing<Vec<u8>>>>,
     credential: Mutex<Option<codeterm_account::Secret>>,
+    fail_delete: Mutex<bool>,
     uncertain: bool,
     uncertain_confirmation: bool,
 }
@@ -56,7 +57,9 @@ impl KeyStore for Evidence {
         Ok(())
     }
     async fn delete(&self, scope: &KeyScope, slot: Slot) -> codeterm_neighbors::Result<()> {
-        assert!(self.active.lock().is_empty());
+        if *self.fail_delete.lock() {
+            return Err(Error::SecretStore);
+        }
         self.events.lock().push("delete_key");
         self.slots.lock().remove(&scope.name(slot));
         Ok(())
@@ -69,12 +72,12 @@ impl AuthenticatedCall for Evidence {
         match route {
             "friendsOwnKeys" => {
                 self.events.lock().push("inventory");
-                if self.uncertain || self.uncertain_confirmation && self.active.lock().is_empty() {
+                if self.uncertain || self.uncertain_confirmation && self.active.lock().len() == 1 {
                     return Err(Error::Transport);
                 }
                 let ids = self.active.lock().clone();
-                if ids.is_empty() {
-                    self.events.lock().push("confirmed_empty");
+                if ids.len() <= 1 {
+                    self.events.lock().push("confirmed_local_absent");
                 }
                 Ok(json!(ids
                     .iter()
@@ -246,6 +249,9 @@ async fn logout(
             registry: Arc::new(FirebaseRegistry {
                 calls: evidence.clone(),
                 uid: "owner".into(),
+                installation_id: "machine".into(),
+                machine_label: "Fixture".into(),
+                enrollment: None,
             }),
         })
         .ok()
@@ -287,31 +293,19 @@ async fn logout(
     let scope =
         KeyScope::installation(service.installation_id().await.unwrap().as_str(), "owner").unwrap();
     let ports = service.ext::<LogoutKeyPorts>();
+    let active_before = evidence.active.lock().clone();
     let retry = service
         .retry_neighbor_logout(&metadata, &scope, "owner", ports.registry.as_ref())
         .await;
-    let uncertain_cleanup = uncertain || uncertain_confirmation;
-    assert_eq!(retry.is_err(), uncertain_cleanup);
-    assert_eq!(
-        metadata.settings().await.unwrap().cleanup_pending,
-        uncertain_cleanup
-    );
-    if uncertain_cleanup {
-        assert_eq!(evidence.slots.lock().len(), 2);
-        assert!(!evidence.events.lock().contains(&"delete_key"));
-    } else {
-        assert!(evidence.slots.lock().is_empty());
-        let events = evidence.events.lock();
-        let confirmed = events
-            .iter()
-            .position(|event| *event == "confirmed_empty")
-            .unwrap();
-        let deleted = events
-            .iter()
-            .position(|event| *event == "delete_credential")
-            .unwrap();
-        assert!(deleted < confirmed);
-    }
+    assert!(retry.is_ok());
+    assert!(!metadata.settings().await.unwrap().cleanup_pending);
+    assert!(evidence.slots.lock().is_empty());
+    assert!(!evidence
+        .events
+        .lock()
+        .iter()
+        .any(|event| matches!(*event, "inventory" | "revoke")));
+    assert_eq!(*evidence.active.lock(), active_before);
 }
 
 #[tokio::test]
@@ -319,23 +313,56 @@ async fn local_account_logout_does_not_use_neighbor_ports() {
     logout(true, false, false, false, false).await;
 }
 #[tokio::test]
-async fn never_enrolled_logout_confirms_inventory_without_opening_secret_store() {
+async fn never_enrolled_logout_clears_only_local_slots() {
     logout(false, false, false, false, false).await;
 }
 #[tokio::test]
-async fn emulator_logout_uses_callable_registry_and_deletes_only_after_confirmed_revocation() {
+async fn logout_cleanup_keeps_another_installations_keys() {
     logout(false, true, false, false, false).await;
 }
 #[tokio::test]
-async fn uncertain_inventory_keeps_cleanup_queued_after_local_sign_out() {
+async fn local_cleanup_does_not_require_inventory_after_local_sign_out() {
     logout(false, true, true, false, false).await;
 }
 #[tokio::test]
-async fn uncertain_revocation_keeps_cleanup_queued_after_local_sign_out() {
+async fn local_cleanup_does_not_require_revocation_after_local_sign_out() {
     logout(false, true, false, true, false).await;
 }
 
 #[tokio::test]
 async fn self_session_revocation_keeps_local_sign_out_when_backend_is_unavailable() {
     logout(false, true, false, false, true).await;
+}
+
+#[tokio::test]
+async fn failed_local_key_cleanup_remains_pending_until_the_store_accepts_it() {
+    let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let service = &fixture.service;
+    let evidence = Arc::new(Evidence::default());
+    *evidence.fail_delete.lock() = true;
+    service
+        .set_ext(LogoutKeyPorts {
+            store: evidence.clone(),
+            registry: Arc::new(Enrollment("unused".into())),
+        })
+        .ok()
+        .unwrap();
+    let metadata = Metadata::new(service.account_data_root().unwrap(), "owner");
+    let mut settings = metadata.settings().await.unwrap();
+    settings.cleanup_pending = true;
+    metadata.save_settings(settings).await.unwrap();
+    let scope = KeyScope::installation("machine", "owner").unwrap();
+    let registry = Enrollment("unused".into());
+    assert!(service
+        .retry_neighbor_logout(&metadata, &scope, "owner", &registry)
+        .await
+        .is_err());
+    assert!(metadata.settings().await.unwrap().cleanup_pending);
+    *evidence.fail_delete.lock() = false;
+    service
+        .retry_neighbor_logout(&metadata, &scope, "owner", &registry)
+        .await
+        .unwrap();
+    assert!(!metadata.settings().await.unwrap().cleanup_pending);
 }

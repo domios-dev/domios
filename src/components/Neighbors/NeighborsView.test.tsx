@@ -31,7 +31,7 @@ vi.mock("../Settings/useAccount", () => ({ useAccount: () => ({ model: account.m
 vi.mock("../../store/multiplexer", () => ({ useMuxSelector: (select: (state: typeof mux) => unknown) => select(mux) }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const neighbor = { uid: "peer", displayName: "Ada", photoURL: null, friendship_id: "pair", inbound_per_hour: 10, outbound_per_hour: 20, since: 1700000000 };
+const neighbor = { uid: "peer", displayName: "Ada", photoURL: null, friendship_id: "pair", inbound_per_hour: 10, outbound_per_hour: 20, receiving: true, since: 1700000000 };
 const request = { uid: "requester", displayName: "Grace", photoURL: null, request_id: "request", created_at: 1700000000 };
 const signedIn = account.model;
 let mounted: { root: ReturnType<typeof createRoot>; host: HTMLDivElement } | null = null;
@@ -57,7 +57,7 @@ function emit(event: string, payload: unknown = null) {
 
 function runtime(bindings: Record<string, string> = {}): NeighborRuntimeClient {
   return {
-    subscribe: vi.fn(async () => () => {}), status: vi.fn(async () => ({ enrolled: false, bindings })), enroll: vi.fn(async () => {}), rotate: vi.fn(async () => {}),
+    subscribe: vi.fn(async () => () => {}), status: vi.fn(async () => ({ enrolled: false, bindings, receiving_here: false, receiving_enabled: false, receiver_machine_label: null, revision: 0 })), enroll: vi.fn(async () => {}), rotate: vi.fn(async () => {}),
     permission: vi.fn(async () => ({ allowed: false, scope: "", allow_tab_requests: false })), send: vi.fn(), deliveryStatus: vi.fn(), retry: vi.fn(async () => {}),
   };
 }

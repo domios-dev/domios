@@ -14,8 +14,11 @@ pub(super) fn handle(json_mode: bool, action: NeighborAction) {
     let command = match action {
         NeighborAction::List => json!({"operation":"list"}),
         NeighborAction::Status => json!({"operation":"status"}),
-        NeighborAction::Enroll { confirm_takeover } => {
-            json!({"operation":"enroll","takeover_confirmed":confirm_takeover})
+        NeighborAction::Enroll {
+            confirm_takeover,
+            expected_receiver_revision,
+        } => {
+            json!({"operation":"enroll","takeover_confirmed":confirm_takeover,"expected_receiver_revision":expected_receiver_revision})
         }
         NeighborAction::Rotate => json!({"operation":"rotate"}),
         NeighborAction::Revoke => json!({"operation":"revoke"}),
@@ -111,7 +114,11 @@ fn render_list(result: &Value) -> String {
                 };
                 lines.push(format!(
                     "  {id}\t{name}\t{}\tscope: {scope}\ttab requests: {}",
-                    text("status"),
+                    if row["receiving"] == false {
+                        "not receiving right now"
+                    } else {
+                        text("status")
+                    },
                     permission["allow_tab_requests"] == true
                 ));
             } else {

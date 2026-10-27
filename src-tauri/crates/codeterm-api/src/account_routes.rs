@@ -267,17 +267,25 @@ pub async fn neighbor_runtime(
 }
 
 fn neighbor_failure(message: String) -> Response {
-    if message.starts_with("neighbors_disabled:") {
-        (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(serde_json::json!({
-                "error":message,"code":"neighbors_disabled","reason":"neighbors_disabled"
-            })),
-        )
-            .into_response()
-    } else {
-        unavailable(message).into_response()
-    }
+    let reason = message.split_once(':').map(|(reason, _)| reason);
+    let status = match reason {
+        Some("session_revoked") => StatusCode::UNAUTHORIZED,
+        Some("neighbors_disabled") => StatusCode::SERVICE_UNAVAILABLE,
+        Some(
+            "receiver_elsewhere"
+            | "receiver_revision_stale"
+            | "not_receiver"
+            | "recipient_not_receiving"
+            | "installation_unverified"
+            | "operation_id_conflict",
+        ) => StatusCode::CONFLICT,
+        _ => return unavailable(message).into_response(),
+    };
+    (
+        status,
+        Json(serde_json::json!({"code":reason,"reason":reason,"message":message,"error":message})),
+    )
+        .into_response()
 }
 
 #[derive(serde::Deserialize)]

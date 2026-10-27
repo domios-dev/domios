@@ -3,6 +3,7 @@ mod gateway;
 mod listener;
 pub(crate) mod logout;
 mod owner;
+mod receiver;
 
 use super::storage::Metadata;
 use crate::service::ServiceContext;
@@ -27,6 +28,8 @@ pub struct NeighborRuntimeCell {
     listener_generation: AtomicU64,
     listeners: parking_lot::Mutex<listener::Slots>,
     states: parking_lot::Mutex<HashMap<String, codeterm_neighbors::supervisor::ListenerState>>,
+    receiver: parking_lot::Mutex<Option<codeterm_neighbors::adapter::ReceiverStatus>>,
+    control: parking_lot::Mutex<Option<tokio::task::JoinHandle<()>>>,
     bootstrapped: std::sync::atomic::AtomicBool,
 }
 
@@ -36,6 +39,7 @@ pub enum NeighborRuntimeCommand {
     Status,
     Enroll {
         takeover_confirmed: bool,
+        expected_receiver_revision: u64,
     },
     Rotate,
     Retry {
@@ -104,6 +108,16 @@ impl ServiceContext {
             .map_err(|_| "Sign in to use Neighbors")?
             .ok_or("Sign in to use Neighbors")?;
         let uid = session.identity.uid.clone();
+        let installation_id = self.installation_id().await?.as_str().to_owned();
+        let configured_label = self.configuration().mesh.instance_name.clone();
+        let machine_label = if configured_label.trim().is_empty() {
+            hostname::get()
+                .ok()
+                .and_then(|name| name.into_string().ok())
+                .unwrap_or_else(|| "This machine".into())
+        } else {
+            configured_label
+        };
         let registry = Arc::new(FirebaseRegistry {
             calls: Arc::new(callable::Calls {
                 service: self.clone(),
@@ -111,6 +125,9 @@ impl ServiceContext {
                 generation: session.login_generation,
             }),
             uid: uid.clone(),
+            installation_id: installation_id.clone(),
+            machine_label,
+            enrollment: None,
         });
         let scope = KeyScope::installation(self.installation_id().await?.as_str(), &uid)
             .map_err(|e| e.to_string())?;
@@ -146,6 +163,7 @@ impl ServiceContext {
             calls: registry.calls.clone(),
             project,
             uid: registry.uid.clone(),
+            installation_id: registry.installation_id.clone(),
         });
         Ok((transport, registry, scope, metadata))
     }
@@ -214,6 +232,25 @@ impl ServiceContext {
             self.require_neighbor_general(caller, nonce)?;
         }
         let (transport, registry, scope, metadata) = self.neighbor_ports().await?;
+        let registry = match &command {
+            NeighborRuntimeCommand::Enroll {
+                takeover_confirmed: true,
+                expected_receiver_revision,
+            } => Arc::new(FirebaseRegistry {
+                enrollment: Some(codeterm_neighbors::adapter::Enrollment {
+                    expected_revision: *expected_receiver_revision,
+                    takeover: true,
+                }),
+                ..registry.as_ref().clone()
+            }),
+            NeighborRuntimeCommand::Enroll { .. } => {
+                return Err("Receive here requires confirmation".into())
+            }
+            _ => registry,
+        };
+        let receiver_status = self
+            .refresh_neighbor_receiver(&registry, generation)
+            .await?;
         let lifecycle = InstallationKeys {
             store: &OsKeyStore,
             registry: registry.as_ref(),
@@ -224,12 +261,13 @@ impl ServiceContext {
             match command {
                 NeighborRuntimeCommand::Status => {
                     let settings = metadata.settings().await?;
-                    let keys = lifecycle.reconcile().await?;
+                    let keys = if receiver_status.receiving_here() { lifecycle.reconcile().await? } else { None };
                     let id = keys.map(|keys| keys.verifier_key_id(&transport.uid));
                     let states = self.neighbor_cell().states.lock().clone();
-                    Ok(json!({"enabled":self.configuration().neighbors.enabled,"enrolled":id.is_some(),"verifier_key_id":id,"bindings":settings.bindings,"listeners":states}))
+                    Ok(json!({"enabled":self.configuration().neighbors.enabled,"enrolled":id.is_some(),"verifier_key_id":id,"bindings":settings.bindings,"listeners":states,"receiving_here":receiver_status.receiving_here(),"receiver_machine_label":receiver_status.receiver_machine_label,"receiving_enabled":receiver_status.receiving_enabled,"revision":receiver_status.receiver_revision}))
                 }
-                NeighborRuntimeCommand::Enroll { takeover_confirmed } => {
+                NeighborRuntimeCommand::Enroll { takeover_confirmed, expected_receiver_revision } => {
+                    if expected_receiver_revision != receiver_status.receiver_revision { return Err(Error::ReceiverRevisionStale); }
                     let keys = lifecycle.enroll_and_enable(takeover_confirmed, &mut rand::rngs::OsRng, &metadata).await?;
                     Ok(json!({"verifier_key_id":keys.verifier_key_id(&transport.uid)}))
                 }
@@ -239,13 +277,15 @@ impl ServiceContext {
                     Ok(json!({"status":"reconnecting"}))
                 }
                 NeighborRuntimeCommand::Rotate => {
+                    if !receiver_status.receiving_here() { return Err(Error::NotReceiver); }
                     self.stop_neighbor_listeners();
                     let keys = lifecycle.rotate(&mut rand::rngs::OsRng).await?;
                     Ok(json!({"verifier_key_id":keys.verifier_key_id(&transport.uid)}))
                 }
                 NeighborRuntimeCommand::Revoke => {
                     self.stop_neighbor_listeners();
-                    lifecycle.revoke().await?;
+                    registry.disable_receiving(receiver_status.receiver_revision).await?;
+                    lifecycle.forget().await?;
                     let mut settings = metadata.settings().await?;
                     settings.enabled = false;
                     metadata.save_settings(settings).await?;
@@ -285,7 +325,21 @@ impl ServiceContext {
                 }
             }
         }.await;
-        let result = result.map_err(|e| e.to_string())?;
+        let result = match result {
+            Ok(result) => result,
+            Err(error) => {
+                if matches!(
+                    error,
+                    Error::ReceiverRevisionStale
+                        | Error::ReceiverElsewhere
+                        | Error::Transport
+                        | Error::NotReceiver
+                ) {
+                    let _ = self.refresh_neighbor_receiver(&registry, generation).await;
+                }
+                return Err(error.to_string());
+            }
+        };
         self.require_neighbor_generation(generation)?;
         let scope = lifecycle.scope.clone();
         drop(lifecycle);
@@ -404,7 +458,20 @@ impl ServiceContext {
         }
     }
 
+    pub(super) async fn neighbor_receiver_changed(&self) -> Result<(), String> {
+        self.require_neighbors_enabled()
+            .map_err(|e| e.to_string())?;
+        self.neighbor_cell().receiver.lock().take();
+        self.stop_neighbor_listeners();
+        self.neighbor_operation(owner::Operation::ReceiverChanged)
+            .await?;
+        Ok(())
+    }
+
     pub(super) fn pause_neighbor_reception(&self) {
+        if let Some(task) = self.neighbor_cell().control.lock().take() {
+            task.abort();
+        }
         self.stop_neighbor_listeners();
         self.neighbor_cell()
             .bootstrapped
@@ -421,6 +488,15 @@ impl ServiceContext {
     ) -> Result<(), String> {
         self.require_neighbors_enabled()
             .map_err(|error| error.to_string())?;
+        self.watch_neighbor_receiver(transport.clone(), generation)
+            .await?;
+        let status = self
+            .refresh_neighbor_receiver(&registry, generation)
+            .await?;
+        if !status.receiving_here() {
+            self.stop_neighbor_listeners();
+            return Ok(());
+        }
         let settings = metadata.settings().await.map_err(|e| e.to_string())?;
         let recovered = (InstallationKeys {
             store: &OsKeyStore,
@@ -487,6 +563,7 @@ impl ServiceContext {
                     friendship,
                     tab,
                     generation: listener_generation,
+                    receiver_revision: status.receiver_revision,
                     retry: retry.clone(),
                     registry: registry.clone(),
                     stopped,
@@ -524,6 +601,10 @@ impl ServiceContext {
     }
 
     pub(crate) fn neighbor_identity_changed(&self) {
+        if let Some(task) = self.neighbor_cell().control.lock().take() {
+            task.abort();
+        }
+        self.neighbor_cell().receiver.lock().take();
         self.stop_neighbor_updates();
         self.neighbor_cell()
             .generation

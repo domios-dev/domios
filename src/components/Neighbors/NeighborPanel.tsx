@@ -72,6 +72,7 @@ export function NeighborPanel({ neighbor, name, locked, pending, channel, gatewa
   return <aside className="neighbor-panel" aria-label={name}>
     <PanelHead name={name} photoURL={neighbor.photoURL} status={locked ? "paused" : "connected"}
       meta={`since ${new Date(neighbor.since * 1000).toLocaleDateString()}`} onClose={onClose} />
+    {neighbor.receiving === false && <p role="status" className="neighbor-note">Not receiving right now</p>}
     {locked && <div role="status" className="ct-card ct-card--static neighbor-perk">
       <div className="min-w-0 flex-1">
         <p className="ct-card__title">Messages are paused by your plan</p>

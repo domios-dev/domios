@@ -8,6 +8,7 @@ pub(super) enum Operation {
         caller: Option<String>,
         nonce: Option<String>,
     },
+    ReceiverChanged,
     Refuse {
         friendship: String,
         message_id: String,
@@ -66,6 +67,18 @@ impl ServiceContext {
     ) -> Result<Outcome, String> {
         self.require_neighbor_generation(generation)?;
         match operation {
+            Operation::ReceiverChanged => {
+                let (transport, registry, scope, metadata) = self.neighbor_ports().await?;
+                self.start_neighbor_listeners(
+                    transport.clone(),
+                    registry,
+                    scope,
+                    metadata,
+                    generation,
+                )
+                .await?;
+                Ok(Outcome::Value(Value::Null))
+            }
             Operation::Command {
                 command,
                 caller,
