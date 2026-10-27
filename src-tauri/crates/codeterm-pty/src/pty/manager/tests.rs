@@ -563,14 +563,16 @@ fn shell_exit_ends_the_pty_stream_with_its_exit_code() {
 
     let stream_end = eof_rx.recv_timeout(std::time::Duration::from_secs(30));
     eprintln!(
-        "PTY stream end={stream_end:?}, child_exit={:?}",
-        session.child_exit.resolved()
+        "PTY stream end={stream_end:?}, child_exit={:?}, pair_release={}",
+        session.child_exit.resolved(),
+        session.child_exit.release_diagnostic()
     );
     assert!(
         stream_end.is_ok(),
-        "PTY stream end={stream_end:?}, shell={}, child_exit={:?}, child_status={:?}, output={:?}",
+        "PTY stream end={stream_end:?}, shell={}, child_exit={:?}, pair_release={}, child_status={:?}, output={:?}",
         detect_default_shell(),
         session.child_exit.resolved(),
+        session.child_exit.release_diagnostic(),
         session.child.lock().unwrap().try_wait(),
         String::from_utf8_lossy(&output.lock().unwrap())
     );
