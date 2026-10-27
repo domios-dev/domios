@@ -1,5 +1,5 @@
 /**
- * Compile-time build stamps injected by Vite `define` (see vite.config.ts).
+ * Compile-time build stamps injected by Vite `define` (see vite.config.mts).
  * `define` substitutes the bare identifier only — reading the same name as a
  * property of globalThis is never substituted and silently yields the unbuilt
  * fallback. The typeof guard keeps the genuinely unbuilt case (tsx test runs,
