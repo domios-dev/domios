@@ -690,3 +690,27 @@
   width: 5px;
   height: 5px;
 }
+
+/* An invitation is an empty seat: a dashed outline and the typed address, never a face. */
+.neighbor-edge[data-kind="invited"] {
+  stroke-dasharray: 2 6;
+  stroke: color-mix(in srgb, var(--ct-fg) 14%, transparent);
+}
+
+.neighbor-node--invited {
+  cursor: default;
+}
+
+.neighbor-node--invited .neighbor-node__disc {
+  align-items: center;
+  justify-content: center;
+  border: 1.5px dashed color-mix(in srgb, var(--ct-muted-fg) 55%, transparent);
+  background: var(--ct-bg);
+  box-shadow: none;
+  color: var(--ct-muted-fg);
+}
+
+.neighbor-node--invited .neighbor-node__name {
+  color: var(--ct-muted-fg);
+  font-weight: 500;
+}

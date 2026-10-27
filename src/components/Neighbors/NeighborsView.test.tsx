@@ -57,8 +57,8 @@ function runtime(bindings: Record<string, string> = {}): NeighborRuntimeClient {
   };
 }
 
-async function render(access: NeighborList["access"] = "paid", options: { canInvite?: boolean; omitEligibility?: boolean; claim?: ReferralClaim; bindings?: Record<string, string> } = {}) {
-  const list: NeighborList = { schema_version: 1, access, can_invite: options.omitEligibility ? undefined : options.canInvite ?? access === "paid", friends: [neighbor], incoming: [request], outgoing: [] };
+async function render(access: NeighborList["access"] = "paid", options: { canInvite?: boolean; omitEligibility?: boolean; claim?: ReferralClaim; bindings?: Record<string, string>; outgoing?: NeighborList["outgoing"] } = {}) {
+  const list: NeighborList = { schema_version: 1, access, can_invite: options.omitEligibility ? undefined : options.canInvite ?? access === "paid", friends: [neighbor], incoming: [request], outgoing: options.outgoing ?? [] };
   const client: NeighborClient = { list: vi.fn(async () => structuredClone(list)), apply: vi.fn(async () => {}),
     claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => options.claim ?? { schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null }) };
   const host = document.createElement("div"); document.body.append(host);
@@ -270,4 +270,15 @@ it("opens a Neighbor's gateway tab from the sidebar, or the neighborhood when no
     window.removeEventListener("codeterm:focus-tab", focused);
     window.removeEventListener("codeterm:open-panel", panels);
   }
+});
+
+it("shows a sent invitation as its typed email with no profile and no action", async () => {
+  const { client } = await render("paid", { outgoing: [{ id: "b".repeat(64), typed_email: "new@example.test", created_at: 1700000000, state: "pending" }] });
+  const node = Array.from(document.querySelectorAll<HTMLElement>('[data-status="invited"]'));
+  expect(node).toHaveLength(1);
+  expect(node[0].tagName).toBe("DIV");
+  expect(node[0].textContent).toContain("new@example.test");
+  expect(node[0].querySelector("img")).toBeNull();
+  expect(hasButton("new@example.test")).toBe(false);
+  expect(client.apply).not.toHaveBeenCalled();
 });

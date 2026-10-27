@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
-import { Plus, RefreshCw, UserRound } from "lucide-react";
+import { Mail, Plus, RefreshCw, UserRound } from "lucide-react";
+import { formatAge } from "../../lib/timeLabels";
 import { useAccount } from "../Settings/useAccount";
 import { accountTrayModel } from "../Titlebar/accountTrayModel";
 import { AccountAvatar } from "../Titlebar/AccountAvatar";
@@ -100,13 +101,16 @@ function NeighborhoodPage({ identity, account, client, runtimeClient }: {
 
   const people = (list?.friends.length ?? 0);
   const requests = (list?.incoming.length ?? 0);
+  const invited = (list?.outgoing.length ?? 0);
+  const summary = [`${people} ${people === 1 ? "neighbor" : "neighbors"}`,
+    ...(requests ? [`${requests} ${requests === 1 ? "request" : "requests"}`] : []), ...(invited ? [`${invited} invited`] : [])].join(", ");
   const panelOpen = Boolean(friend || request);
 
   return <div className="neighbors-view absolute inset-0 flex flex-col bg-[var(--ct-bg)] pt-[var(--ct-safe-top,0px)]">
     <div className={`${UI_PANEL.toolbar} ct-section-toolbar gap-3 px-4 py-0 text-[var(--ct-fg)] whitespace-nowrap`}>
       <strong>Neighborhood</strong>
       <span className={`${UI_TEXT.meta} opacity-70`}>
-        {identity && list ? `${people} ${people === 1 ? "neighbor" : "neighbors"}${requests ? `, ${requests} ${requests === 1 ? "request" : "requests"}` : ""}` : null}
+        {identity && list ? summary : null}
       </span>
       {identity && <button type="button" className="neighbors-refresh ct-liquid-interactive" aria-label="Refresh Neighbors" title="Refresh Neighbors"
         disabled={neighbors.pending} onClick={neighbors.refresh}>
@@ -139,6 +143,7 @@ function NeighborhoodPage({ identity, account, client, runtimeClient }: {
           </div>
           {nodes.map((node, index) => <NodeButton key={node.id} node={node} index={index} selected={node.id === selected}
             canInvite={list?.can_invite} onSelect={() => {
+              if (node.kind === "invited") return;
               if (node.kind === "add") {
                 if (list?.can_invite) setAdding(true);
                 else if (list?.can_invite === false) openPlans();
@@ -148,7 +153,7 @@ function NeighborhoodPage({ identity, account, client, runtimeClient }: {
             }} />)}
           {identity && list === null && !neighbors.error && <div className="neighbors-loading"><BusyState inline label="Loading Neighbors" phase="work" /></div>}
         </div>
-        {identity && list && people + requests === 0 && <p className="neighbors-caption">Add someone you trust. Your agents can then ask theirs for help, and you decide what they may share.</p>}
+        {identity && list && people + requests + invited === 0 && <p className="neighbors-caption">Add someone you trust. Your agents can then ask theirs for help, and you decide what they may share.</p>}
         {referral && <div role="status" className="ct-card ct-card--static neighbors-referral">
           <p className="ct-card__meta">{referral}</p>
           {neighbors.referral?.trial_end !== null && neighbors.referral?.trial_end !== undefined && <Button size="sm" variant="accent" onClick={openPlans}>Subscribe</Button>}
@@ -195,6 +200,14 @@ function NodeButton({ node, index, selected, canInvite, onSelect }: {
       <span className="neighbor-node__disc" aria-hidden="true"><Plus size={20} /></span>
       <span className="neighbor-node__name">{label}</span>
     </button>;
+  }
+  if (node.kind === "invited") {
+    const sent = node.createdAt * 1000;
+    return <div className="neighbor-node neighbor-node--invited" style={style} data-status="invited" title={`Waiting for ${node.email} to accept. Sent ${new Date(sent).toLocaleString()}`}>
+      <span className="neighbor-node__disc" aria-hidden="true"><Mail size={18} /></span>
+      <span className="neighbor-node__name">{node.email}</span>
+      <span className="neighbor-status"><span className="neighbor-dot" data-tone="muted" aria-hidden="true" />invited {formatAge(sent, Date.now())}</span>
+    </div>;
   }
   return <button type="button" data-neighbor-node className="neighbor-node" style={style} data-status={node.status}
     aria-pressed={selected} aria-label={`${node.name}, ${STATUS_LABEL[node.status]}`} onClick={onSelect}>
