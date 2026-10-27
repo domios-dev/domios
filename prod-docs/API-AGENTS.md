@@ -192,4 +192,31 @@ With `background_work_guard` enabled, restarts and restart-based model switches 
 
 `spawn.capabilityProbe: stream_json_initialize` supports `capability_probe_enabled` (default false). `POST /api/tabs/{id}/agent/capabilities/refresh` refreshes the project/binary cache: `status` is `pending`, `ready` with typed `data`, or `unavailable` with typed `reason`. Binary/login changes invalidate and rebuild. Render/switch/send never probe. Cached commands carry argument hints; the composer badge shows subscription/modes. No user turn or usage request is sent.
 
-<!-- revision: 73 -->
+
+## Additional REST routes
+
+Runtime requests remain bound to the target tab's session and epoch. Provider CLI fields: API-CLI.
+
+| Method | Path | Operation |
+|--------|------|-----------|
+| DELETE | `/api/remote-workers` | Forget a remote Worker record. |
+| GET | `/api/agents/done` | List completed agent runs. |
+| GET | `/api/agents/providers/{id}/cli` | Read provider CLI status. |
+| GET | `/api/agents/providers/{id}/model-usage` | Read provider model-group usage. |
+| GET | `/api/tabs/{id}/agent/runtime/background-processes` | Read attributed runtime background processes. |
+| POST | `/api/agents/general/complete-first-run` | Complete General first-run setup. |
+| POST | `/api/agents/general/restart` | Restart the protected General Agent. |
+| POST | `/api/agents/general/sessions` | Create an independent General session. |
+| POST | `/api/agents/general/{tab_id}/restart` | Restart a named General session. |
+| POST | `/api/agents/providers/{id}/cli` | Install or update the provider CLI; operation selects the action. |
+| POST | `/api/agents/providers/{id}/install-in-tab` | Install a provider CLI in a utility tab. |
+| POST | `/api/remote-workers` | Record a remote Worker observation. |
+| POST | `/api/tabs/{id}/agent/capabilities/refresh` | Refresh this tab's provider capabilities. |
+| POST | `/api/tabs/{id}/agent/fork` | Fork an owned agent conversation. |
+| POST | `/api/tabs/{id}/agent/runtime/background-processes` | Stop an attributed runtime background process. |
+| POST | `/api/tabs/{id}/agent/runtime/goal` | Set the bound runtime thread goal. |
+| POST | `/api/tabs/{id}/agent/runtime/questions/{item}/answer` | Answer an exact pending runtime question. |
+| POST | `/api/tabs/{id}/agent/runtime/retry` | Retry initialization of the same runtime session. |
+| POST | `/api/tabs/{id}/agent/runtime/thread-history` | Read runtime-owned thread history. |
+
+<!-- revision: 74 -->

@@ -51,9 +51,10 @@ filler histories, size evidence and hidden-tab metadata. CLI:
 
 #### Web Mirror
 
+The daemon root serves the static web mirror through its fallback when the frontend is available. API requests remain authenticated. `?a11y=1` enables the screen-reader terminal DOM.
+
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
-| GET | `/` | — | The Domios web mirror: the same React bundle as the desktop app, served static at the daemon root (public route; every API call it makes stays token-gated). `?a11y=1` enables the screen-reader terminal DOM. |
 | GET | `/api/mux/state` | — | Published multiplexer snapshot (workspaces/tabs + focus). Writers and rebuilds do not delay reads or cause 503. Genuine storage unavailability still returns 503. Publication sends `mux-state-changed`; callers must not poll. |
 | POST | `/api/workspaces/{id}/tabs/{tab_id}/focus` | — | Switch active tab. |
 | POST | `/api/workspaces/{id}/tabs/{tab_id}/close` | — | Close a tab. |
@@ -208,4 +209,4 @@ Responses carry `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, an
 
 Related documents — service registration, health, and activity: `domios docs API-SERVICES`. Bridge and cron integrations: `domios docs API-INTEGRATIONS`.
 
-<!-- revision: 36 -->
+<!-- revision: 37 -->

@@ -34,4 +34,29 @@ Authenticated `GET /api/debug/events/stats` includes `streams` alongside the mux
 
 POST `/api/ci/webhook` uses a dedicated Bearer credential from the secret-store entry `ci-webhook`, a JSON registration `{token, repo, plan}`. It accepts `{repo, run, attempt, sha, job, step, test, exit, log_url}`; `test` and `exit` may be null when unavailable. Run and attempt are positive decimal strings, SHA is 40 hex characters, and the log URL must name that repository/run/attempt on GitHub. Authenticated events route one message and notification to the registered plan's live, session-verified Orchestrator. Missing owners fail delivery; events never fall back to another tab. Duplicate repository/run/attempt/job events are suppressed by the gateway's bounded process-local cache. Requests are capped at 16 KiB and retain the API's Tailnet access restrictions.
 
-<!-- revision: 9 -->
+
+## Additional REST routes
+
+Blueprint scope and payload contracts: BLUEPRINTS. Notification controls: API-TABS.
+
+| Method | Path | Operation |
+|--------|------|-----------|
+| DELETE | `/api/automation/blueprints/{id}` | Delete a Blueprint. |
+| DELETE | `/api/automation/sentinels/{id}` | Delete a Blueprint (sentinel route alias). |
+| DELETE | `/api/notifications/{id}` | Delete one notification. |
+| DELETE | `/api/sentinels/{id}` | Delete a Blueprint (sentinel route alias). |
+| GET | `/api/automation/graph` | Read the scoped Blueprint graph snapshot. |
+| GET | `/api/automation/graph/workspace` | Read the scoped Blueprint graph snapshot. |
+| POST | `/api/automation/blueprints/solutions/archive` | Archive a saved Blueprint solution. |
+| POST | `/api/automation/blueprints/solutions/list` | List saved Blueprint solutions. |
+| POST | `/api/automation/blueprints/solutions/save` | Save a Blueprint solution. |
+| POST | `/api/automation/blueprints/{id}/stop` | Stop a Blueprint. |
+| POST | `/api/automation/node-files` | Manage Blueprint node files. |
+| POST | `/api/automation/sentinels/{id}/stop` | Stop a Blueprint (sentinel route alias). |
+| POST | `/api/ci/webhook` | Receive authenticated CI failure events; credential and limits above. |
+| POST | `/api/notifications/{id}/read` | Mark one notification read. |
+| POST | `/api/repo-watch/subscribe` | Subscribe to repository changes. |
+| POST | `/api/repo-watch/unsubscribe` | Unsubscribe from repository changes. |
+| POST | `/api/sentinels/{id}/stop` | Stop a Blueprint (sentinel route alias). |
+
+<!-- revision: 10 -->
