@@ -1,6 +1,6 @@
 import { useId } from "react";
 import { Button } from "../shared/Button";
-import { giftDurationLabel } from "./giftRedemption";
+import { giftDurationLabel } from "./giftRedemptionModel";
 import { tierName } from "./desktopBilling";
 import { useGiftRedemption } from "./useGiftRedemption";
 

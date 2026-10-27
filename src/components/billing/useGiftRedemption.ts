@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { giftFailure, redeemGift, type GiftReceipt } from "./giftRedemption";
+import { giftFailure, redeemGift, type GiftReceipt } from "./giftRedemptionModel";
 
 export function useGiftRedemption(identity: string) {
   const [key, setKey] = useState("");

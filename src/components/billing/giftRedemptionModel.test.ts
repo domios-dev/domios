@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { giftFailure, parseGiftReceipt } from "./giftRedemption";
+import { giftFailure, parseGiftReceipt } from "./giftRedemptionModel";
 
 const finite = { schema_version: 1, status: "redeemed", plan: "max", duration: "1m", expires_at: 1_900_000_000 };
 
