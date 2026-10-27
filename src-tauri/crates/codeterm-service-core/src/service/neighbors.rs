@@ -4,6 +4,8 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 mod history;
+mod notifications;
+pub use notifications::NeighborNotify;
 mod referral;
 pub(crate) mod runtime;
 mod storage;
@@ -149,8 +151,10 @@ fn annotate_list(result: &mut Value, settings: &storage::Settings) -> Result<(),
             .ok_or("Invalid Neighbors response")?;
         let permission = settings.permissions.get(id).cloned().unwrap_or_default();
         let gateway_tab = settings.bindings.get(id).cloned();
+        let notify = settings.neighbor_notify(id);
         friend["permission"] = json!(permission);
         friend["gateway_tab"] = json!(gateway_tab);
+        friend["notify"] = json!(notify);
         friend["status"] = json!(status);
     }
     Ok(())

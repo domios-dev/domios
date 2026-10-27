@@ -25,6 +25,7 @@ fn list_includes_local_scopes_and_preserves_backend_outgoing_requests() {
     assert!(list["friends"][0]["my_daily_limit"].is_null());
     assert_eq!(list["friends"][0]["their_daily_limit"], 7);
     assert_eq!(list["friends"][0]["sent_today"], 2);
+    assert_eq!(list["friends"][0]["notify"], "in_app");
     assert_eq!(list["friends"][1]["permission"]["allowed"], false);
     assert_eq!(list["outgoing"], outgoing);
     assert_eq!(list["incoming"][0]["request_id"], "in");

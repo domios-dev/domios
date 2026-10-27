@@ -32,6 +32,7 @@ pub struct NeighborRuntimeCell {
     states: parking_lot::Mutex<HashMap<String, codeterm_neighbors::supervisor::ListenerState>>,
     failures: parking_lot::Mutex<HashMap<String, Value>>,
     pending_counts: parking_lot::Mutex<HashMap<String, u64>>,
+    names: parking_lot::Mutex<HashMap<String, String>>,
     receiver: parking_lot::Mutex<Option<codeterm_neighbors::adapter::ReceiverStatus>>,
     control: parking_lot::Mutex<Option<tokio::task::JoinHandle<()>>>,
     bootstrapped: std::sync::atomic::AtomicBool,
@@ -40,6 +41,13 @@ pub struct NeighborRuntimeCell {
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum NeighborRuntimeCommand {
+    NotificationPreference {
+        friendship_id: String,
+    },
+    SetNotificationPreference {
+        friendship_id: String,
+        notify: super::NeighborNotify,
+    },
     SetDailyLimit {
         friendship_id: String,
         daily_limit: Option<serde_json::Number>,
@@ -110,6 +118,11 @@ pub(super) fn authoring_allowed(
 }
 
 impl ServiceContext {
+    pub(super) fn neighbor_cell_names(
+        &self,
+    ) -> parking_lot::MutexGuard<'_, HashMap<String, String>> {
+        self.neighbor_cell().names.lock()
+    }
     pub(super) fn neighbor_history_generation(&self) -> u64 {
         self.neighbor_cell().generation.load(Ordering::Acquire)
     }
@@ -253,6 +266,8 @@ impl ServiceContext {
                 | NeighborRuntimeCommand::ChangeAgent { .. }
                 | NeighborRuntimeCommand::Permission { .. }
                 | NeighborRuntimeCommand::SetDailyLimit { .. }
+                | NeighborRuntimeCommand::NotificationPreference { .. }
+                | NeighborRuntimeCommand::SetNotificationPreference { .. }
         ) && caller.is_some()
         {
             self.require_neighbor_general(caller, nonce)?;
@@ -281,6 +296,7 @@ impl ServiceContext {
         if !matches!(
             &command,
             NeighborRuntimeCommand::Status
+                | NeighborRuntimeCommand::NotificationPreference { .. }
                 | NeighborRuntimeCommand::Permission { .. }
                 | NeighborRuntimeCommand::OwnKeys
                 | NeighborRuntimeCommand::DeliveryStatus { .. }
@@ -317,6 +333,20 @@ impl ServiceContext {
         };
         let result: codeterm_neighbors::Result<Value> = async {
             match command {
+                NeighborRuntimeCommand::NotificationPreference { friendship_id } => {
+                    if !hex_id(&friendship_id, 64) { return Err(Error::InvalidEnvelope); }
+                    Ok(json!({"friendship_id":friendship_id,"notify":metadata.settings().await?.neighbor_notify(&friendship_id)}))
+                }
+                NeighborRuntimeCommand::SetNotificationPreference { friendship_id, notify } => {
+                    if !hex_id(&friendship_id, 64) { return Err(Error::InvalidEnvelope); }
+                    transport.peer_keys(&friendship_id).await?;
+                    let mut settings = metadata.settings().await?;
+                    settings.notifications.insert(friendship_id.clone(), notify);
+                    self.require_neighbor_history_generation(generation)?;
+                    metadata.save_settings(settings).await?;
+                    self.ui.emit("neighbor-notification-changed", json!({"friendship_id":friendship_id,"notify":notify}));
+                    Ok(json!({"friendship_id":friendship_id,"notify":notify}))
+                }
                 NeighborRuntimeCommand::SetDailyLimit { friendship_id, daily_limit } => {
                     if !hex_id(&friendship_id, 64) { return Err(Error::InvalidEnvelope); }
                     let result = transport.calls.invoke("friendsSetDailyLimit", json!({"friendship_id":friendship_id,"daily_limit":daily_limit})).await?;
@@ -334,11 +364,12 @@ impl ServiceContext {
                     let settings = metadata.settings().await?;
                     let friends = self.neighbor_registry(super::NeighborCommand::List {}).await.map_err(|_| Error::Transport)?;
                     let concierges = self.neighbor_concierge_views(&settings, &receiver_status, &friends);
+                    let notification_preferences = Self::neighbor_notification_preferences(&settings, &friends);
                     let keys = if receiver_status.receiving_here() { lifecycle.reconcile().await? } else { None };
                     let id = keys.map(|keys| keys.verifier_key_id(&transport.uid));
                     let states = self.neighbor_cell().states.lock().clone();
                     let failures = self.neighbor_cell().failures.lock().clone();
-                    Ok(json!({"enabled":self.configuration().neighbors.enabled,"enrolled":id.is_some(),"verifier_key_id":id,"bindings":settings.bindings,"concierges":concierges,"listeners":states,"listener_errors":failures,"receiving_here":receiver_status.receiving_here(),"receiver_machine_label":receiver_status.receiver_machine_label,"receiving_enabled":receiver_status.receiving_enabled,"revision":receiver_status.receiver_revision}))
+                    Ok(json!({"enabled":self.configuration().neighbors.enabled,"enrolled":id.is_some(),"verifier_key_id":id,"bindings":settings.bindings,"concierges":concierges,"notification_preferences":notification_preferences,"listeners":states,"listener_errors":failures,"receiving_here":receiver_status.receiving_here(),"receiver_machine_label":receiver_status.receiver_machine_label,"receiving_enabled":receiver_status.receiving_enabled,"revision":receiver_status.receiver_revision}))
                 }
                 NeighborRuntimeCommand::Enroll { takeover_confirmed, expected_receiver_revision } => {
                     if expected_receiver_revision != receiver_status.receiver_revision { return Err(Error::ReceiverRevisionStale); }
@@ -678,6 +709,7 @@ impl ServiceContext {
         let friends = self
             .neighbor_registry(super::NeighborCommand::List {})
             .await?;
+        self.remember_neighbor_names(&friends);
         if friends.get("access").and_then(Value::as_str) != Some("paid") {
             self.stop_neighbor_listeners();
             return Ok(());
@@ -771,6 +803,7 @@ impl ServiceContext {
     }
 
     pub(crate) fn neighbor_identity_changed(&self) {
+        self.neighbor_cell().names.lock().clear();
         if let Some(task) = self.neighbor_cell().control.lock().take() {
             task.abort();
         }

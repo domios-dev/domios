@@ -49,7 +49,7 @@ fn request(token: &str, command: &Value) -> axum::extract::Request {
         .unwrap()
 }
 
-fn commands() -> [Value; 5] {
+fn commands() -> [Value; 7] {
     [
         json!({"operation":"set_permission","friendship_id":"a".repeat(64),
             "permission":{"allowed":true,"scope":"opaque scope","allow_tab_requests":false}}),
@@ -57,6 +57,8 @@ fn commands() -> [Value; 5] {
         json!({"operation":"permission","friendship_id":"a".repeat(64)}),
         json!({"operation":"change_agent","friendship_id":"a".repeat(64),"provider":"fixture","model":null}),
         json!({"operation":"set_daily_limit","friendship_id":"a".repeat(64),"daily_limit":null}),
+        json!({"operation":"notification_preference","friendship_id":"a".repeat(64)}),
+        json!({"operation":"set_notification_preference","friendship_id":"a".repeat(64),"notify":"in_app_and_bridges"}),
     ]
 }
 

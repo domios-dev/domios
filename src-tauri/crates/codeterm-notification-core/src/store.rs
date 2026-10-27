@@ -564,6 +564,7 @@ impl NotificationStore {
                     severity.clone(),
                     &provenance,
                     level,
+                    ask.actions.clone(),
                 ))
             .then_some(id)
         });
@@ -605,6 +606,7 @@ impl NotificationStore {
         severity: NotificationSeverity,
         provenance: &NotificationProvenance,
         level: NotifyLevel,
+        actions: Option<Vec<NotificationAction>>,
     ) -> bool {
         let Some(target) = self.notifications.iter_mut().find(|n| n.id == id) else {
             return false;
@@ -619,6 +621,7 @@ impl NotificationStore {
         target.peer_name = provenance.peer_name.clone();
         target.read = false;
         target.push_failed = None;
+        target.actions = actions;
         self.sync_persisted();
         true
     }

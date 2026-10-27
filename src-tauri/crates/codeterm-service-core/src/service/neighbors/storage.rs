@@ -23,6 +23,8 @@ pub(super) struct Settings {
     pub cleanup_pending: bool,
     pub bindings: BTreeMap<String, String>,
     pub permissions: BTreeMap<String, Permission>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub notifications: BTreeMap<String, super::NeighborNotify>,
 }
 
 #[async_trait]

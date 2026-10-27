@@ -52,6 +52,56 @@ fn create_notification_announcing_resolution(
 }
 
 impl ServiceContext {
+    pub(super) fn create_in_app_notice(
+        &self,
+        title: String,
+        actions: Vec<codeterm_notification_core::contract::NotificationAction>,
+        origin: NotificationOrigin,
+        intent: PushIntent,
+        include_push: bool,
+    ) -> String {
+        let declared = intent.level;
+        let plan = self.resolve_push_plan(if include_push {
+            intent.clone()
+        } else {
+            PushIntent::default()
+        });
+        let push_enabled = include_push && (!plan.targets.is_empty() || !plan.refusals.is_empty());
+        create_notification_with_delivery(
+            if push_enabled {
+                NotificationAdmission::Explicit
+            } else {
+                NotificationAdmission::LocalEvent
+            },
+            &self.notif,
+            |_, _| {},
+            title,
+            None,
+            Some("info"),
+            Ask::offering(Some(actions)),
+            Some(false),
+            origin,
+            |candidate| self.resolve_tab_provenance(candidate),
+            PushDispatch {
+                intent,
+                per_scope_limit: plan.per_scope_limit,
+                deliver: move |envelope| {
+                    super::notification_push::deliver_plan(
+                        &plan.targets,
+                        &plan.refusals,
+                        self,
+                        &envelope,
+                    )
+                },
+            },
+            SurfaceDispatch {
+                declared,
+                desktop: crate::notification::desktop::DesktopPolicy::silent(),
+            },
+            |payload| self.ui.emit("notification-created", payload),
+        )
+    }
+
     fn notify_created(&self, payload: serde_json::Value) {
         self.notify_event("notification-created", payload);
     }

@@ -173,6 +173,7 @@ impl ServiceContext {
         self.require_neighbor_history_generation(generation)?;
         let mut history = metadata.history(friendship).await?;
         let outgoing = entry.direction == "out";
+        let arrival = super::notifications::Arrival::from_entry(&entry);
         let message_id = entry.message_id.clone();
         let (history, changed) = tokio::task::spawn_blocking(move || {
             let changed = history.append(entry)?;
@@ -210,6 +211,14 @@ impl ServiceContext {
             "neighbor-history-changed",
             json!({"friendship_id":friendship}),
         );
+        if let Some(arrival) = arrival {
+            if let Err(error) = self
+                .notify_neighbor_arrival(metadata, friendship, arrival, generation)
+                .await
+            {
+                log::debug!("[neighbors] arrival notification unavailable: {error}");
+            }
+        }
         Ok(())
     }
 
