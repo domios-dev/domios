@@ -18,13 +18,14 @@ const { request, rawBody, state } = vi.hoisted(() => ({
   request: vi.fn(), rawBody: vi.fn(() => "opaque-sensitive-response"), state: {
     identity:null as null | {uid:string;display_name:string;email:null;provider:string},
     failure:null as null | {stage:"redemption";error:"provider"},
-    revoked:false, failLogin:false, failStatus:false, failPlan:false, failBillingAction:false, loginHeldElsewhere:false,
+    revoked:false, failLogin:false, failLogout:false, failStatus:false, failPlan:false, failBillingAction:false, loginHeldElsewhere:false,
   },
 }));
 vi.mock("../../lib/webApi", async (importOriginal) => ({
   ...await importOriginal<typeof import("../../lib/webApi")>(),
   localFetch: async (url:string) => {
   request(url);
+  if (url.endsWith("/logout") && state.failLogout) return {ok:false,status:503,text:rawBody};
   if (url.endsWith("/status") && state.failStatus) throw new Error("opaque background status failure");
   if (url.endsWith("/plan") && state.failPlan) throw new Error("opaque background plan failure");
   if (url.endsWith("/billing")) return { ok: true, json: async () => ({ current_tier: "pro", paid_subscription: { tier: "pro", status: "active", period_end: 1700604800 }, period_end: 1700604800, pending_change: null }) };
@@ -59,13 +60,31 @@ it.each([
   expect(message).toContain("Retry");
 });
 
-function Surface({name}:{name:string}) {
-  const {model,signIn,signOut} = useAccount();
+function Surface({name,onSignOutFailure}:{name:string;onSignOutFailure?:(message:string)=>void}) {
+  const {model,signIn,signOut} = useAccount(onSignOutFailure);
   return <section aria-label={name}><output>{model.kind === "signed_in" ? model.identity.uid : model.kind}</output>
     <button type="button" onClick={() => {void signIn({provider:"email",mode:"signup"});}}>Login</button>
     <button type="button" onClick={() => {void signOut();}}>Logout</button>
   </section>;
 }
+
+it("surfaces a failed logout response instead of silently retaining the identity", async () => {
+  state.identity = {uid:"user",display_name:"Ada",email:null,provider:"fake"};
+  state.failure = null; state.failLogout = true;
+  const onFailure = vi.fn();
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<Surface name="account" onSignOutFailure={onFailure} />));
+    expect(host.querySelector("output")?.textContent).toBe("user");
+    await act(async () => host.querySelectorAll("button")[1].click());
+    expect(host.querySelector("output")?.textContent).toBe("error");
+    expect(onFailure).toHaveBeenCalledOnce();
+    expect(state.identity?.uid).toBe("user");
+  } finally {
+    await act(async () => root.unmount()); host.remove(); state.failLogout = false; state.identity = null;
+  }
+});
 
 function AccountTabWithToasts() {
   const [toasts, setToasts] = useState<Notification[]>([]);

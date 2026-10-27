@@ -15,12 +15,10 @@ pub(super) enum Operation {
     },
     #[cfg(not(any(test, feature = "test-support")))]
     Restore,
-    Logout,
 }
 
 pub(super) enum Outcome {
     Value(Value),
-    Logout(codeterm_account::Status),
 }
 
 pub(super) struct Request {
@@ -119,7 +117,6 @@ impl ServiceContext {
                     .await?;
                 Ok(Outcome::Value(Value::Null))
             }
-            Operation::Logout => self.account_logout_owned().await.map(Outcome::Logout),
         }
     }
 }
