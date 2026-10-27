@@ -1249,3 +1249,11 @@ button.neighbor-file:hover {
 .neighbor-permissions .neighbor-confirm__actions + .ct-settings-section {
   margin-top: 0.4rem;
 }
+
+.neighbor-folder--needed {
+  align-items: center;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--ct-accent) 45%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--ct-accent) 6%, var(--ct-bg));
+}

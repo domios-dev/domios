@@ -8,7 +8,7 @@ import { Segmented } from "../shared/Segmented";
 import { DropdownMenu } from "../shared/DropdownMenu";
 import { useMemoryAreas } from "./useMemoryAreas";
 import { useMuxSelector } from "../../store/multiplexer";
-import { TRUST_OPTIONS, trustPresetFields, trustPresetOf, type TrustPreset } from "./neighborTrustPresets";
+import { applyTrustPreset, TRUST_OPTIONS, trustPresetOf, type TrustPreset } from "./neighborTrustPresets";
 import { UI_INPUT } from "../shared/design";
 import { validNeighborLimit, type Neighbor } from "./neighborModel";
 import type { MachineAccess, NeighborPermission } from "./neighborRuntimeClient";
@@ -64,6 +64,7 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
   const dailyChanged = dailyValue !== (neighbor.my_daily_limit ?? null);
   const scopeField = useId();
   const limitField = useId();
+  const [awaitingFolder, setAwaitingFolder] = useState(false);
   const [incoming, setIncoming] = useState<NeighborPermission | null>(null);
   const changed = draft !== null && baseline !== null && !samePermission(draft, baseline);
   const dirty = useRef(changed);
@@ -77,8 +78,14 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
   const problem = draft ? permissionProblem(draft) : null;
   const edit = (patch: Partial<NeighborPermission>) => setDraft(current => current ? { ...current, ...patch } : current);
   return <div className="neighbor-permissions">
-    <Segmented<TrustPreset> aria-label="Trust" value={draft ? trustPresetOf(draft) : "custom"} height={28} options={TRUST_OPTIONS}
-      onChange={preset => { if (draft && !saving && preset !== "custom") edit(trustPresetFields(preset)); }} />
+    <Segmented<TrustPreset> aria-label="Trust" value={awaitingFolder ? "collaborator" : draft ? trustPresetOf(draft, dailyValue) : "custom"} height={28} options={TRUST_OPTIONS}
+      onChange={preset => {
+        if (!draft || saving || preset === "custom") return;
+        const applied = applyTrustPreset(preset, draft);
+        edit(applied.patch);
+        setDaily(String(applied.dailyLimit));
+        setAwaitingFolder(applied.needsFolder);
+      }} />
     <SettingsSection title="Requests">
     <SwitchTile label={`Allow requests from ${name}`} hint="Their agents may ask yours for help."
       checked={draft?.allowed === true} onChange={allowed => { if (draft && !saving) edit({ allowed }); }} />
@@ -88,7 +95,7 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
     </FormRow>
     <SwitchTile label={`Show interactive content from ${name}`} hint="Runs their html and diagrams. Only for people you trust."
       checked={draft?.allow_interactive_content === true} onChange={allow_interactive_content => { if (draft && !saving) edit({ allow_interactive_content }); }} />
-    {draft && <ChoiceMenu label="Workspaces" menuLabel="Workspaces" every="All workspaces" noun="workspaces" disabled={saving}
+    {draft && <ChoiceMenu label="Workspaces" menuLabel="Workspaces" every="None" noun="workspaces" disabled={saving}
       options={workspaceOptions} chosen={draft.workspaces ?? []} onChange={chosen => edit({ workspaces: chosen.length > 0 ? chosen : null })} />}
     </SettingsSection>
     <SettingsSection title="Access">
@@ -103,11 +110,22 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
       <Segmented<MachineAccess> aria-label="Machine access" value={access} height={26} options={ACCESS_OPTIONS}
         onChange={next => {
           if (!draft || saving) return;
+          setAwaitingFolder(false);
           if (next !== "folder" || draft.folder) { edit({ machine_access: next }); return; }
           // This folder only means nothing until a folder is chosen; cancelling keeps the previous access.
           void pickFolder(`Folder for ${name}'s concierge`, draft.effective_folder).then(folder => { if (folder) edit({ machine_access: "folder", folder }); });
         }} />
-      {access === "read_only" && <p className="neighbor-note">Looks things up; changes nothing on this machine.</p>}
+      {awaitingFolder && <div role="status" className="neighbor-folder neighbor-folder--needed">
+        <p className="neighbor-note">Project collaborator works in one folder.</p>
+        <Button size="sm" variant="accent" disabled={saving} onClick={() => {
+          void pickFolder(`Folder for ${name}'s concierge`, draft?.effective_folder).then(folder => {
+            if (!folder) return;
+            edit({ machine_access: "folder", folder });
+            setAwaitingFolder(false);
+          });
+        }}>Choose folder</Button>
+      </div>}
+      {access === "read_only" && !awaitingFolder && <p className="neighbor-note">Looks things up; changes nothing on this machine.</p>}
       {access === "full" && <p role="note" className="neighbor-note neighbor-access__warning">Their requests can change anything your agents on this machine can reach.</p>}
       {access === "folder" && <div className="neighbor-folder">
         <div className="min-w-0">
@@ -132,11 +150,14 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
     {problem && changed && <p role="alert" className="neighbor-note">{problem}</p>}
     {error && <InlineErrorNotice error={error} operation="saving Neighbor permissions" role="alert" />}
     <div className="neighbor-confirm__actions">
-      <Button size="sm" variant="primary" loading={saving} disabled={!changed || problem !== null}
+      <Button size="sm" variant="primary" loading={saving} disabled={(!changed && !(dailyChanged && dailyValid)) || problem !== null}
         onClick={() => {
           if (!draft) return;
           setSaving(true); setError(null);
-          void onSave(draft).then(() => setBaseline(draft)).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : "Permissions could not be saved."))
+          // A preset also sets the daily message limit, which saves through its own operation.
+          const saves = [changed ? onSave(draft).then(() => setBaseline(draft)) : Promise.resolve(),
+            dailyChanged && dailyValid ? onSaveDailyLimit(dailyValue) : Promise.resolve()];
+          void Promise.all(saves).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : "Permissions could not be saved."))
             .finally(() => setSaving(false));
         }}>Save permissions</Button>
       <Button size="sm" variant="accent" onClick={onEditWithGeneral}>Edit with General</Button>

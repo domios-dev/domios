@@ -810,13 +810,15 @@ it("fills permissions from a trust preset, turns Custom on any later change, and
   const root = createRoot(host); mounted = { root, host };
   await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
   await act(async () => button("Ada, connected").click());
+  expect(button("Custom").getAttribute("aria-selected")).toBe("true");
   await act(async () => button("Acquaintance").click());
   expect(button("Read my memory").getAttribute("aria-checked")).toBe("false");
   expect(button("Acquaintance").getAttribute("aria-selected")).toBe("true");
-  await act(async () => button("Read files").click());
-  expect(button("Custom").getAttribute("aria-selected")).toBe("true");
-  await act(async () => { button("Workspaces: All workspaces").dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 })); });
+  await act(async () => { button("Workspaces: None").dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 })); });
   await act(async () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]')).find(item => item.textContent === "Work")!.click());
   await act(async () => button("Save permissions").click());
   expect(conciergeClient.setPermission).toHaveBeenCalledExactlyOnceWith("pair", expect.objectContaining({ allow_memory: false, allow_files: true, workspaces: ["ws-work"] }));
+  expect(conciergeClient.setDailyLimit).toHaveBeenCalledExactlyOnceWith("pair", 20);
+  await act(async () => button("Read files").click());
+  expect(button("Custom").getAttribute("aria-selected")).toBe("true");
 });

@@ -20,7 +20,8 @@ export interface ChannelStatus extends ReceiverState {
   enrolled: boolean;
   bindings: Record<string, string>;
 }
-export type MachineAccess = "read_only" | "folder" | "full";
+/** "none" is typed but no provider can honour it yet, so the editor never offers it; reads fall back to read only. */
+export type MachineAccess = "none" | "read_only" | "folder" | "full";
 export interface NeighborPermission {
   allowed: boolean;
   scope: string;
@@ -41,7 +42,7 @@ export interface NeighborPermission {
   machine_access?: MachineAccess;
   /** Read-only: the folder actually in effect, and how much of it the platform enforces. */
   effective_folder?: string;
-  folder_enforcement?: { writes: "provider_sandbox" | "advisory"; reads: "not_confined"; note: string };
+  folder_enforcement?: { writes: "provider_sandbox" | "unrestricted" | "advisory"; reads: "not_confined"; network?: "disabled" | "not_confined"; note: string };
 }
 export interface NeighborReceipt {
   message_id: string;
