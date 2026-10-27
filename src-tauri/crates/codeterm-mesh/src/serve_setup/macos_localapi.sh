@@ -1,25 +1,21 @@
-home=$1
+task_home=$1
 path=$2
-case "$path" in /localapi/v0/status|/localapi/v0/serve-config) ;; *) exit 1 ;; esac
+valid_endpoint "$path" || exit 1
 
 fetch() {
-    case "$port" in ''|*[!0-9]*) return 1 ;; esac
-    [ "$port" -gt 0 ] && [ "$port" -le 65535 ] || return 1
-    case "$proof" in ''|*[!0-9a-fA-F]*) return 1 ;; esac
-    printf 'user = ":%s"\n' "$proof" | \
-        /usr/bin/curl --config - --silent --fail --max-time 3 --noproxy '*' \
-        "http://127.0.0.1:$port$path"
+    response=$(/usr/bin/curl --disable --config - --include --raw --silent --fail \
+        --max-time 3 --max-filesize 1048576 --noproxy '*' && printf '.') || return 1
+    printf '%s' "${response%?}" | /usr/bin/base64
 }
 
-for file in "$home"/Library/Group\ Containers/*group.io.tailscale.ipn.macos/sameuserproof-*; do
+for file in "$task_home"/Library/Group\ Containers/*group.io.tailscale.ipn.macos/sameuserproof-*; do
     [ -f "$file" ] || continue
-    rest=${file##*/sameuserproof-}
-    port=${rest%%-*}
-    proof=${rest#*-}
-    result=$(fetch) && { printf '%s' "$result"; exit 0; }
+    config=$(app_store_request_config "${file##*/}" "$path") || continue
+    result=$(printf '%s\n' "$config" | fetch && printf '.') && { printf '%s' "${result%?}"; exit 0; }
 done
 
 port=$(/usr/bin/readlink /Library/Tailscale/ipnport) || exit 1
-case "$port" in ''|*[!0-9]*) exit 1 ;; esac
+valid_port "$port" || exit 1
 proof=$(/bin/cat "/Library/Tailscale/sameuserproof-$port") || exit 1
-fetch
+config=$(request_config "$port" "$proof" "$path") || exit 1
+printf '%s\n' "$config" | fetch

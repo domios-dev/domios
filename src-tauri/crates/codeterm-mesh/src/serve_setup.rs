@@ -19,6 +19,7 @@ use super::discovery::{run_with_timeout, tailscale_binary};
 /// probes because `tailscale cert` provisioning can take a few seconds.
 const SERVE_TIMEOUT: Duration = Duration::from_secs(10);
 /// Read probe budget for `serve status --json`.
+#[cfg(not(target_os = "macos"))]
 const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 /// Preferred public HTTPS port — phone-friendly, no port suffix in the URL.
 const DEFAULT_HTTPS_PORT: u16 = 443;

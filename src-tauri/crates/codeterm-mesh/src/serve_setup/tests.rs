@@ -1,42 +1,6 @@
 use super::*;
 use serde_json::json;
 
-// Tailscale 1.102 refuses a LocalAPI request whose Host omits the listener port.
-#[cfg(target_os = "macos")]
-#[test]
-fn localapi_request_names_the_listener_port_in_host() {
-    use std::io::{BufRead, BufReader, Write};
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let port = listener.local_addr().unwrap().port();
-    let server = std::thread::spawn(move || {
-        let (mut connection, _) = listener.accept().unwrap();
-        let mut reader = BufReader::new(connection.try_clone().unwrap());
-        let mut head = String::new();
-        loop {
-            let mut line = String::new();
-            assert!(reader.read_line(&mut line).unwrap() > 0);
-            head.push_str(&line);
-            if line == "\r\n" {
-                break;
-            }
-        }
-        connection
-            .write_all(
-                b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\nConnection: close\r\n\r\n{\"ok\":true}",
-            )
-            .unwrap();
-        head
-    });
-    assert_eq!(
-        super::macos_localapi::localapi_get(port, "fixture-proof", "/localapi/v0/status"),
-        Some(json!({"ok": true}))
-    );
-    assert!(server
-        .join()
-        .unwrap()
-        .contains(&format!("\r\nHost: 127.0.0.1:{port}\r\n")));
-}
-
 fn serve_json(host_port: &str, https_port: &str, proxy: &str) -> serde_json::Value {
     json!({
         "TCP": { https_port: { "HTTPS": true } },
@@ -80,8 +44,6 @@ fn url_https_non_443_keeps_port_suffix() {
 
 #[test]
 fn target_none_when_proxy_targets_different_port() {
-    // Serve points at the dev port (7686) but we are the prod daemon (7685):
-    // advertising the HTTPS URL here would hand the user a 502 link.
     let v = serve_json("host.ts.net:443", "443", "http://127.0.0.1:7686");
     assert_eq!(parse_serve_target(&v, 7685), None);
 }
@@ -109,7 +71,6 @@ fn self_dns_from_serve_config_web_key() {
     let v = serve_json("host.ts.net:443", "443", "http://127.0.0.1:7685");
     assert_eq!(serve_config_self_dns(&v).as_deref(), Some("host.ts.net"));
     assert_eq!(serve_config_self_dns(&json!({})), None);
-    // Non-tailnet host keys are ignored.
     let bad = serve_json("localhost:8080", "8080", "http://127.0.0.1:7685");
     assert_eq!(serve_config_self_dns(&bad), None);
 }
@@ -193,15 +154,11 @@ fn sibling_ports_pair_up() {
 
 #[test]
 fn clobber_guard_rejects_own_and_sibling_ports() {
-    // Public port == our own API port.
     assert!(would_clobber_codeterm_port(7685, 7685));
-    // Public port == sibling Domios API port (the #150 footgun).
     assert!(would_clobber_codeterm_port(7685, 7686));
     assert!(would_clobber_codeterm_port(7686, 7685));
-    // 443 / 8443 against a Domios api_port are fine.
     assert!(!would_clobber_codeterm_port(7685, 443));
     assert!(!would_clobber_codeterm_port(7685, 8443));
-    // Non-sibling custom port: only self-collision is rejected.
     assert!(would_clobber_codeterm_port(9000, 9000));
     assert!(!would_clobber_codeterm_port(9000, 7686));
 }

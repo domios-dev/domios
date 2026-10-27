@@ -6,7 +6,7 @@ fn macsys_localapi_status_supplies_connected_listener_addresses() {
     let value = json!({
         "BackendState": "Running",
         "Self": {
-            "TailscaleIPs": ["100.110.3.12", "fd7a:115c:a1e0::c401:389"],
+            "TailscaleIPs": ["192.0.2.1", "2001:db8::1"],
             "DNSName": "host.example.ts.net."
         }
     });
@@ -15,10 +15,8 @@ fn macsys_localapi_status_supplies_connected_listener_addresses() {
     assert_eq!(
         listener_addresses(&status, true, 7685),
         vec![
-            "100.110.3.12:7685".parse::<SocketAddr>().unwrap(),
-            "[fd7a:115c:a1e0::c401:389]:7685"
-                .parse::<SocketAddr>()
-                .unwrap(),
+            "192.0.2.1:7685".parse::<SocketAddr>().unwrap(),
+            "[2001:db8::1]:7685".parse::<SocketAddr>().unwrap(),
         ]
     );
 }
