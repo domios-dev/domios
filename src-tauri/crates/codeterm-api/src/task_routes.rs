@@ -278,6 +278,7 @@ pub async fn canvas_focus(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use codeterm_service_core::plan::OrchestratorRef;
     use codeterm_service_core::service::plan::task_queries::{TaskListEmptyReason, TaskSummary};
 
     fn summary() -> TaskSummary {
