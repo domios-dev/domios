@@ -117,7 +117,11 @@ pub(crate) async fn dispatch(
     headers: HeaderMap,
     Json(mut request): Json<RpcRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    let token = headers.get("authorization").and_then(|value| value.to_str().ok()).and_then(|value| value.strip_prefix("Bearer ")).unwrap_or_default();
+    let token = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .unwrap_or_default();
     if !remote.ip().is_loopback() || state.svc.authenticate_local_credential(token).is_err() {
         return Err((
             StatusCode::FORBIDDEN,
@@ -126,8 +130,15 @@ pub(crate) async fn dispatch(
             ),
         ));
     }
-    state.svc.bind_local_rpc(token, &request.method, &mut request.params)
-        .map_err(|message| (StatusCode::FORBIDDEN, Json(serde_json::json!({"error":{"code":-32003,"message":message,"data":null}}))))?;
+    state
+        .svc
+        .bind_local_rpc(token, &request.method, &mut request.params)
+        .map_err(|message| {
+            (
+                StatusCode::FORBIDDEN,
+                Json(serde_json::json!({"error":{"code":-32003,"message":message,"data":null}})),
+            )
+        })?;
     let bridge = codeterm_service_core::ports::socket::bridge();
     if let Some(error) = (bridge.version_skew_gate)(request.protocol_version.as_ref()) {
         return Err((

@@ -25,12 +25,15 @@ fn independent_plugins_do_not_share_the_install_barrier() {
 #[test]
 fn bounded_reader_refuses_an_installation_that_holds_the_bundle() {
     let access = super::BundleAccess::for_plugin("close-bundle-deadline");
-    access.install(|| {
-        let reader = access.clone();
-        std::thread::spawn(move || {
-            assert!(reader.read_until(std::time::Instant::now()).is_err());
-        }).join().unwrap();
-        Ok(())
-    }).unwrap();
+    access
+        .install(|| {
+            let reader = access.clone();
+            std::thread::spawn(move || {
+                assert!(reader.read_until(std::time::Instant::now()).is_err());
+            })
+            .join()
+            .unwrap();
+            Ok(())
+        })
+        .unwrap();
 }
-

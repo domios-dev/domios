@@ -40,8 +40,9 @@ pub async fn gate_ask(
     Json(mut body): Json<GateAskBody>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    body.asked_by_tab_id = crate::auth::caller_claim(&state, &headers, body.asked_by_tab_id.as_deref())
-        .map_err(|(status, message)| text_err(status, message))?;
+    body.asked_by_tab_id =
+        crate::auth::caller_claim(&state, &headers, body.asked_by_tab_id.as_deref())
+            .map_err(|(status, message)| text_err(status, message))?;
     if let Some(owner) = state
         .svc
         .planner_gate_owner_answerer(&id, body.asked_by_tab_id.as_deref())
@@ -231,8 +232,9 @@ pub async fn gate_answer(
     Json(mut body): Json<GateAnswerBody>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    body.answered_by_tab_id = crate::auth::caller_claim(&state, &headers, body.answered_by_tab_id.as_deref())
-        .map_err(|(status, message)| text_err(status, message))?;
+    body.answered_by_tab_id =
+        crate::auth::caller_claim(&state, &headers, body.answered_by_tab_id.as_deref())
+            .map_err(|(status, message)| text_err(status, message))?;
     let gate = state
         .svc
         .plan_store

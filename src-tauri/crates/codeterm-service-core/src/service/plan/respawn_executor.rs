@@ -69,7 +69,10 @@ impl ServiceContext {
                 return if receipts.0.lock().get(&key) == Some(&identity) {
                     Ok(())
                 } else {
-                    Err("respawn source tab is absent without confirmed executor termination".into())
+                    Err(
+                        "respawn source tab is absent without confirmed executor termination"
+                            .into(),
+                    )
                 };
             };
             validate_source(tab, draft)?;
@@ -97,9 +100,10 @@ fn validate_source(tab: &Tab, draft: &TaskRespawnDraft) -> Result<(), String> {
         || binding.and_then(|binding| binding.plan_id.as_deref()) != Some(draft.plan_id.as_str())
         || binding.and_then(|binding| binding.task_id.as_deref()) != Some(draft.task_id.as_str())
         || binding.and_then(|binding| binding.attempt_id.as_deref()) != Some(source.id.as_str())
-        || source.session_id.as_ref().is_some_and(|session| {
-            tab.agent_session_id.as_ref() != Some(session)
-        })
+        || source
+            .session_id
+            .as_ref()
+            .is_some_and(|session| tab.agent_session_id.as_ref() != Some(session))
         || source.session_binding_nonce.as_ref().is_some_and(|nonce| {
             tab.session_binding_nonce.as_ref() != Some(nonce)
                 || tab.reported_session_binding_nonce.as_ref() != Some(nonce)
@@ -137,7 +141,9 @@ fn validate_snapshot(
     draft: &TaskRespawnDraft,
     expected: &[Tab],
 ) -> Result<(), String> {
-    let tab = mux.get_tab(tab_id).ok_or("respawn source executor disappeared")?;
+    let tab = mux
+        .get_tab(tab_id)
+        .ok_or("respawn source executor disappeared")?;
     validate_source(tab, draft)?;
     let current = closing_tabs(mux, tab_id);
     if current.len() != expected.len()

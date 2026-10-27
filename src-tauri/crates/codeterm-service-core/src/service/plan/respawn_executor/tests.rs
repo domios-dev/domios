@@ -73,11 +73,16 @@ fn provider_change_retires_the_old_writer_before_replacement_and_keeps_dirty_wor
     })
     .unwrap();
     assert!(svc.mux.read().get_tab(tab_id).is_none());
-    assert_eq!(live_writers.get(), 0, "replacement must not overlap its source");
+    assert_eq!(
+        live_writers.get(),
+        0,
+        "replacement must not overlap its source"
+    );
     live_writers.set(live_writers.get() + 1);
     assert_eq!(live_writers.get(), 1);
     assert_eq!(std::fs::read(&dirty).unwrap(), b"owned dirty work");
-    svc.retire_respawn_executor_with(&draft, |_| panic!("already confirmed")).unwrap();
+    svc.retire_respawn_executor_with(&draft, |_| panic!("already confirmed"))
+        .unwrap();
     let mut stale = draft.clone();
     stale.source_attempt.session_binding_nonce = Some("foreign-nonce".into());
     assert!(svc.retire_respawn_executor(&stale).is_err());
@@ -102,7 +107,13 @@ fn failed_termination_retains_source_and_never_authorizes_missing_tab_reuse() {
 fn unknown_pty_refuses_repeated_retirement() {
     let (fixture, draft) = fixture();
     let tab_id = &draft.source_attempt.executor_tab_id;
-    fixture.service.mux.write().get_tab_mut(tab_id).unwrap().pty_id = Some("unknown-pty".into());
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(tab_id)
+        .unwrap()
+        .pty_id = Some("unknown-pty".into());
     assert!(fixture.service.retire_respawn_executor(&draft).is_err());
     assert!(fixture.service.retire_respawn_executor(&draft).is_err());
     assert!(fixture.service.mux.read().get_tab(tab_id).is_some());
@@ -110,11 +121,22 @@ fn unknown_pty_refuses_repeated_retirement() {
 
 #[test]
 fn stale_attempt_session_nonce_and_role_refuse_before_termination() {
-    for field in ["plan", "task", "attempt", "session", "nonce", "reported_nonce", "role", "protected"] {
+    for field in [
+        "plan",
+        "task",
+        "attempt",
+        "session",
+        "nonce",
+        "reported_nonce",
+        "role",
+        "protected",
+    ] {
         let (fixture, draft) = fixture();
         {
             let mut mux = fixture.service.mux.write();
-            let tab = mux.get_tab_mut(&draft.source_attempt.executor_tab_id).unwrap();
+            let tab = mux
+                .get_tab_mut(&draft.source_attempt.executor_tab_id)
+                .unwrap();
             match field {
                 "plan" => tab.task_binding.as_mut().unwrap().plan_id = Some("foreign".into()),
                 "task" => tab.task_binding.as_mut().unwrap().task_id = Some("foreign".into()),
@@ -127,7 +149,10 @@ fn stale_attempt_session_nonce_and_role_refuse_before_termination() {
                 _ => unreachable!(),
             }
         }
-        assert!(fixture.service.retire_respawn_executor_with(&draft, |_| panic!("foreign owner")).is_err());
+        assert!(fixture
+            .service
+            .retire_respawn_executor_with(&draft, |_| panic!("foreign owner"))
+            .is_err());
     }
 }
 
@@ -153,9 +178,15 @@ fn retirement_terminates_owned_utility_ptys_and_leaves_other_children() {
     };
     svc.retire_respawn_executor_with(&draft, |tabs| {
         assert_eq!(tabs.len(), 2);
-        assert_eq!(tabs.iter().filter_map(|tab| tab.pty_id.as_deref()).collect::<Vec<_>>(), ["owned-shell"]);
+        assert_eq!(
+            tabs.iter()
+                .filter_map(|tab| tab.pty_id.as_deref())
+                .collect::<Vec<_>>(),
+            ["owned-shell"]
+        );
         Ok(())
-    }).unwrap();
+    })
+    .unwrap();
     let mux = svc.mux.read();
     assert!(mux.get_tab(&shell).is_none());
     assert!(mux.get_tab(&unrelated).is_some());
@@ -178,7 +209,12 @@ fn generation_change_during_termination_refuses_tab_removal_and_replacement() {
 #[test]
 fn missing_tab_and_remote_source_do_not_supply_termination_proof() {
     let (fixture, mut draft) = fixture();
-    fixture.service.mux.write().close_tab(&draft.source_attempt.executor_tab_id).unwrap();
+    fixture
+        .service
+        .mux
+        .write()
+        .close_tab(&draft.source_attempt.executor_tab_id)
+        .unwrap();
     assert!(fixture.service.retire_respawn_executor(&draft).is_err());
     draft.source_attempt.mesh_peer = Some("peer".into());
     assert!(fixture.service.retire_respawn_executor(&draft).is_err());
@@ -189,13 +225,22 @@ fn native_pty_exit_is_observed_before_retirement_returns() {
     let (fixture, draft) = fixture();
     let svc = &fixture.service;
     let gate = svc.pty.lock().spawn_gate();
-    let built = crate::pty::manager::build_session(gate, None, None, 80, 24, Default::default()).unwrap();
+    let built =
+        crate::pty::manager::build_session(gate, None, None, 80, 24, Default::default()).unwrap();
     let (pty_id, session) = svc.pty.lock().register_session(None, built);
-    svc.mux.write().get_tab_mut(&draft.source_attempt.executor_tab_id).unwrap().pty_id = Some(pty_id.clone());
+    svc.mux
+        .write()
+        .get_tab_mut(&draft.source_attempt.executor_tab_id)
+        .unwrap()
+        .pty_id = Some(pty_id.clone());
     svc.retire_respawn_executor(&draft).unwrap();
     assert!(session.child.lock().unwrap().try_wait().unwrap().is_some());
     assert!(svc.pty.lock().get_session(&pty_id).is_none());
-    assert!(svc.mux.read().get_tab(&draft.source_attempt.executor_tab_id).is_none());
+    assert!(svc
+        .mux
+        .read()
+        .get_tab(&draft.source_attempt.executor_tab_id)
+        .is_none());
 }
 
 #[test]
@@ -210,13 +255,24 @@ fn runtime_provider_change_keeps_one_live_executor_after_confirmed_exit() {
         let mut mux = svc.mux.write();
         let tab = mux.get_tab_mut(source).unwrap();
         tab.agent_type = Some("source-provider".into());
-        tab.backing = TabBacking::ChatBackend { plugin_id: "source-provider".into(), session_id: "source-session".into() };
+        tab.backing = TabBacking::ChatBackend {
+            plugin_id: "source-provider".into(),
+            session_id: "source-session".into(),
+        };
         tab.clone()
     };
     let _old_runtime = engine::test_support::live_runtime(&prepared);
-    let old_process = engine::for_tab(source).unwrap().process.lock().clone().unwrap();
+    let old_process = engine::for_tab(source)
+        .unwrap()
+        .process
+        .lock()
+        .clone()
+        .unwrap();
     svc.retire_respawn_executor(&draft).unwrap();
-    assert!(matches!(*old_process.ended.borrow(), Some(RuntimeFailure::ProcessExited { .. })));
+    assert!(matches!(
+        *old_process.ended.borrow(),
+        Some(RuntimeFailure::ProcessExited { .. })
+    ));
     assert!(engine::for_tab(source).is_none());
     let replacement = {
         let mut mux = svc.mux.write();
@@ -229,5 +285,11 @@ fn runtime_provider_change_keeps_one_live_executor_after_confirmed_exit() {
         tab.clone()
     };
     let _replacement_runtime = engine::test_support::live_runtime(&replacement);
-    assert_eq!([source.as_str(), replacement.id.as_str()].into_iter().filter(|id| engine::for_tab(id).is_some()).count(), 1);
+    assert_eq!(
+        [source.as_str(), replacement.id.as_str()]
+            .into_iter()
+            .filter(|id| engine::for_tab(id).is_some())
+            .count(),
+        1
+    );
 }

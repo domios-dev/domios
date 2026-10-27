@@ -260,7 +260,20 @@ fn explicit_dev_with_default_port_cannot_inherit_production_authority() {
 fn tab_connections_never_read_owner_authority_or_send_credentials_to_a_foreign_selection() {
     let root = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join(".secrets"), "unreadable fixture").unwrap();
-    assert_eq!(resolve_connection_token(root.path(), Some("tab"), Some("launch-token"), false).unwrap().as_deref(), Some("launch-token"));
-    assert!(resolve_connection_token(root.path(), Some("tab"), None, false).unwrap_err().contains("no launch credential"));
-    assert!(resolve_connection_token(root.path(), Some("tab"), Some("launch-token"), true).unwrap_err().contains("another instance"));
+    assert_eq!(
+        resolve_connection_token(root.path(), Some("tab"), Some("launch-token"), false)
+            .unwrap()
+            .as_deref(),
+        Some("launch-token")
+    );
+    assert!(
+        resolve_connection_token(root.path(), Some("tab"), None, false)
+            .unwrap_err()
+            .contains("no launch credential")
+    );
+    assert!(
+        resolve_connection_token(root.path(), Some("tab"), Some("launch-token"), true)
+            .unwrap_err()
+            .contains("another instance")
+    );
 }

@@ -5,7 +5,10 @@ use super::*;
 use serde_json::json;
 
 fn caller() -> TabCaller {
-    TabCaller { tab_id: "own-tab".into(), binding_nonce: "own-launch".into() }
+    TabCaller {
+        tab_id: "own-tab".into(),
+        binding_nonce: "own-launch".into(),
+    }
 }
 
 #[test]
@@ -26,12 +29,18 @@ fn refuses_cross_tab_and_peer_provenance_before_forwarding() {
     for field in ["spawned_by_tab_id", "creator_tab_id", "origin_peer"] {
         let mut body = json!({});
         body[field] = json!("foreign");
-        assert!(bind(&caller(), "POST", "/api/agents/spawn", &mut body).is_err(), "{field}");
+        assert!(
+            bind(&caller(), "POST", "/api/agents/spawn", &mut body).is_err(),
+            "{field}"
+        );
     }
     for field in ["source_tab", "source_peer", "system_context"] {
         let mut body = json!({});
         body[field] = json!("foreign");
-        assert!(bind(&caller(), "POST", "/api/tabs/target/send", &mut body).is_err(), "{field}");
+        assert!(
+            bind(&caller(), "POST", "/api/tabs/target/send", &mut body).is_err(),
+            "{field}"
+        );
     }
 }
 

@@ -185,7 +185,8 @@ async fn logout(local: bool, enrolled: bool, uncertain: bool, uncertain_confirma
         let installation_id = service.installation_id().await.unwrap();
         let scope = KeyScope::installation(installation_id.as_str(), "owner").unwrap();
         let mut rng = StdRng::seed_from_u64(42);
-        let enrollment = Enrollment(PrivateKeys::generate(&mut rng.clone()).verifier_key_id("owner"));
+        let enrollment =
+            Enrollment(PrivateKeys::generate(&mut rng.clone()).verifier_key_id("owner"));
         let keys = InstallationKeys {
             store: evidence.as_ref(),
             registry: &enrollment,

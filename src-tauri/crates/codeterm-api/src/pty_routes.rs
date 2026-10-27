@@ -32,7 +32,9 @@ pub async fn pty_spawn(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     if let Some(caller) = crate::auth::tab_caller(&state, &headers)? {
-        caller.validate_claim(body.tab_id.as_deref()).map_err(|error| (StatusCode::FORBIDDEN, error))?;
+        caller
+            .validate_claim(body.tab_id.as_deref())
+            .map_err(|error| (StatusCode::FORBIDDEN, error))?;
         body.tab_id = Some(caller.tab_id);
     }
     let pty_id = codeterm_commands::commands::spawn_pty_core(

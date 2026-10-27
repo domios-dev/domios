@@ -1,6 +1,10 @@
 use std::path::Path;
 
-pub(super) fn read(data_root: &Path, remote: bool, caller_tab: Option<&str>) -> Result<Option<String>, String> {
+pub(super) fn read(
+    data_root: &Path,
+    remote: bool,
+    caller_tab: Option<&str>,
+) -> Result<Option<String>, String> {
     admit(remote, caller_tab)?;
     codeterm_util::instance_token::read_at(data_root)
 }

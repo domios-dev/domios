@@ -797,7 +797,8 @@ fn call_json_inner_interruptible<R: serde::de::DeserializeOwned>(
                 if let Some(inner) = vm.inner.try_lock() {
                     inner._ctx.with(|ctx| {
                         if let Ok(take) = ctx.globals().get::<_, Function>("__ct_await_take__") {
-                            let _ = take.call::<_, rquickjs::Value>((pending.continuation.as_str(),));
+                            let _ =
+                                take.call::<_, rquickjs::Value>((pending.continuation.as_str(),));
                         }
                     });
                 }
@@ -831,7 +832,11 @@ fn enter_call(
     interrupt: Option<(crate::converter::ConversionCancellation, std::time::Instant)>,
     timing: Option<&mut timing::HookTiming<'_>>,
 ) -> Result<String, VmError> {
-    let inner = VmEntry::acquire(vm, method, interrupt.as_ref().map(|(_, deadline)| *deadline))?;
+    let inner = VmEntry::acquire(
+        vm,
+        method,
+        interrupt.as_ref().map(|(_, deadline)| *deadline),
+    )?;
     if let Some(timing) = timing {
         timing.enter("execute");
     }
@@ -912,7 +917,11 @@ fn resume_call(
     strict: bool,
     interrupt: Option<(crate::converter::ConversionCancellation, std::time::Instant)>,
 ) -> Result<String, VmError> {
-    let inner = VmEntry::acquire(vm, method, interrupt.as_ref().map(|(_, deadline)| *deadline))?;
+    let inner = VmEntry::acquire(
+        vm,
+        method,
+        interrupt.as_ref().map(|(_, deadline)| *deadline),
+    )?;
     if let Some((cancellation, deadline)) = interrupt.clone() {
         inner._rt.set_interrupt_handler(Some(Box::new(move || {
             cancellation.is_cancelled() || std::time::Instant::now() >= deadline
@@ -988,15 +997,25 @@ struct VmEntry<'a> {
 }
 
 impl<'a> VmEntry<'a> {
-    fn acquire(vm: &'a PluginVm, method: &'a str, deadline: Option<std::time::Instant>) -> Result<Self, VmError> {
+    fn acquire(
+        vm: &'a PluginVm,
+        method: &'a str,
+        deadline: Option<std::time::Instant>,
+    ) -> Result<Self, VmError> {
         let bundle_reader = match deadline {
-            Some(deadline) => vm.bundle_access.read_until(deadline).map_err(|error| VmError::Script(error.into()))?,
+            Some(deadline) => vm
+                .bundle_access
+                .read_until(deadline)
+                .map_err(|error| VmError::Script(error.into()))?,
             None => vm.bundle_access.read(),
         };
         let started = std::time::Instant::now();
         let previous = vm.holder.lock().clone();
         let inner = match deadline {
-            Some(deadline) => vm.inner.try_lock_until(deadline).ok_or(VmError::AsyncJobTimedOut)?,
+            Some(deadline) => vm
+                .inner
+                .try_lock_until(deadline)
+                .ok_or(VmError::AsyncJobTimedOut)?,
             None => vm.inner.lock(),
         };
         let waited = started.elapsed();

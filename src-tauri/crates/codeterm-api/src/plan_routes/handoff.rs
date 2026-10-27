@@ -61,8 +61,10 @@ pub async fn create(
     Json(mut body): Json<HandoffCreateRequest>,
 ) -> HandoffRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    body.from = Some(crate::auth::actor_ref(&state, &headers, body.from)
-        .map_err(|(status, message)| text_err(status, message))?);
+    body.from = Some(
+        crate::auth::actor_ref(&state, &headers, body.from)
+            .map_err(|(status, message)| text_err(status, message))?,
+    );
     let result = state
         .svc
         .plan_store

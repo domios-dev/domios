@@ -12,8 +12,8 @@ use super::ServiceContext;
 use crate::agent::chat_types::StructuredChat;
 use crate::chatbackend::ChatBackendProvider;
 use crate::multiplexer::commands::MuxState;
-mod liveness;
 mod close;
+mod liveness;
 mod recovery;
 mod runtime_liveness;
 
@@ -148,7 +148,9 @@ impl TabReopenGuards {
         transition: impl FnOnce() -> Result<T, String>,
     ) -> Result<T, String> {
         let lock = self.lock_for(tab_id);
-        let _held = lock.try_lock_until(deadline).ok_or("chat backend close lock deadline")?;
+        let _held = lock
+            .try_lock_until(deadline)
+            .ok_or("chat backend close lock deadline")?;
         transition()
     }
 }

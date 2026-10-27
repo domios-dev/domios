@@ -1143,12 +1143,12 @@ mod launch_artifacts;
 mod no_native_fallback_recursion;
 
 mod availability;
+#[path = "parity_test/chat_close.rs"]
+mod chat_close;
 mod codex;
 mod codex_launch_session;
 mod codex_user_images;
 mod context_owner;
-#[path = "parity_test/chat_close.rs"]
-mod chat_close;
 mod cursor;
 mod find_session;
 mod manifest_launch_template;

@@ -976,10 +976,19 @@ fn child_launch_uses_only_its_explicit_tab_credential() {
     apply_pty_env(&mut command, &HashMap::new());
     assert_eq!(command.get_env("CODETERM_API_TOKEN"), None);
     assert_eq!(command.get_env("CODETERM_TAB_ID"), None);
-    apply_pty_env(&mut command, &HashMap::from([
-        ("CODETERM_API_TOKEN".into(), "own-launch-token".into()),
-        ("CODETERM_TAB_ID".into(), "own-tab".into()),
-    ]));
-    assert_eq!(command.get_env("CODETERM_API_TOKEN"), Some(std::ffi::OsStr::new("own-launch-token")));
-    assert_eq!(command.get_env("CODETERM_TAB_ID"), Some(std::ffi::OsStr::new("own-tab")));
+    apply_pty_env(
+        &mut command,
+        &HashMap::from([
+            ("CODETERM_API_TOKEN".into(), "own-launch-token".into()),
+            ("CODETERM_TAB_ID".into(), "own-tab".into()),
+        ]),
+    );
+    assert_eq!(
+        command.get_env("CODETERM_API_TOKEN"),
+        Some(std::ffi::OsStr::new("own-launch-token"))
+    );
+    assert_eq!(
+        command.get_env("CODETERM_TAB_ID"),
+        Some(std::ffi::OsStr::new("own-tab"))
+    );
 }

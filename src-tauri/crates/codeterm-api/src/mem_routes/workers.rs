@@ -96,8 +96,16 @@ pub async fn workers_progress(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     if let Some(caller) = crate::auth::tab_caller(&state, &headers)? {
-        if !state.svc.workers.get(&id).is_some_and(|worker| worker.tab_id == caller.tab_id) {
-            return Err((StatusCode::FORBIDDEN, "Worker reports require the owning tab credential".into()));
+        if !state
+            .svc
+            .workers
+            .get(&id)
+            .is_some_and(|worker| worker.tab_id == caller.tab_id)
+        {
+            return Err((
+                StatusCode::FORBIDDEN,
+                "Worker reports require the owning tab credential".into(),
+            ));
         }
     }
     state
@@ -142,8 +150,16 @@ pub async fn workers_report(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     if let Some(caller) = crate::auth::tab_caller(&state, &headers)? {
-        if !state.svc.workers.get(&id).is_some_and(|worker| worker.tab_id == caller.tab_id) {
-            return Err((StatusCode::FORBIDDEN, "Worker reports require the owning tab credential".into()));
+        if !state
+            .svc
+            .workers
+            .get(&id)
+            .is_some_and(|worker| worker.tab_id == caller.tab_id)
+        {
+            return Err((
+                StatusCode::FORBIDDEN,
+                "Worker reports require the owning tab credential".into(),
+            ));
         }
     }
     let owner = state.clone();

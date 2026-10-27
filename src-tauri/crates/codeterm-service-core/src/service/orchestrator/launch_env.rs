@@ -117,7 +117,12 @@ pub(super) fn direct_environment(
         return Err("launch spec cannot remove host launch identity or PATH".into());
     }
     let credentials = ["CODETERM_API_TOKEN", "CODETERM_TAB_ID"];
-    if spec.env_set.keys().chain(spec.env_unset.iter()).any(|key| credentials.iter().any(|host| same_key(key, host))) {
+    if spec
+        .env_set
+        .keys()
+        .chain(spec.env_unset.iter())
+        .any(|key| credentials.iter().any(|host| same_key(key, host)))
+    {
         return Err("launch spec cannot replace or remove tab credentials".into());
     }
     for (key, value) in &spec.env_set {

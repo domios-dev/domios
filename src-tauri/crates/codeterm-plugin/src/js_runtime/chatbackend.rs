@@ -421,7 +421,9 @@ impl ChatBackendProvider for JsChatBackend {
         deadline: std::time::Instant,
     ) -> Result<(), ChatBackendError> {
         let _guard = self.exec_env_scope(session_id);
-        let receipt = super::vm::call_json_interruptible::<crate::chatbackend_provider::ChatBackendCloseReceipt>(
+        let receipt = super::vm::call_json_interruptible::<
+            crate::chatbackend_provider::ChatBackendCloseReceipt,
+        >(
             &self.vm,
             "closeSession",
             &[json!(session_id)],
@@ -430,7 +432,9 @@ impl ChatBackendProvider for JsChatBackend {
         )
         .map_err(|error| map_err("closeSession", error))?;
         if receipt.session_id != session_id || !receipt.process_exited {
-            return Err(ChatBackendError::Call("closeSession did not confirm the owned session process exit".into()));
+            return Err(ChatBackendError::Call(
+                "closeSession did not confirm the owned session process exit".into(),
+            ));
         }
         self.session_exec_env.lock().remove(session_id);
         Ok(())

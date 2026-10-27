@@ -106,7 +106,10 @@ pub(crate) async fn configure(
     }
     let actor = crate::auth::caller_claim(&state, &headers, Some(&body.caller_tab_id))
         .map_err(|_| (StatusCode::FORBIDDEN, "webhook management refused"))?
-        .ok_or((StatusCode::FORBIDDEN, "webhook management requires a tab credential"))?;
+        .ok_or((
+            StatusCode::FORBIDDEN,
+            "webhook management requires a tab credential",
+        ))?;
     let caller = state
         .svc
         .sentinel_caller(&actor, body.session_binding_nonce.as_deref())

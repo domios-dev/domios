@@ -29,7 +29,7 @@ pub async fn milestone_add(
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let from = crate::auth::actor_ref(&state, &headers, body.from)
-            .map_err(|(status, message)| text_err(status, message))?;
+        .map_err(|(status, message)| text_err(status, message))?;
     let mid = state
         .svc
         .plan_store

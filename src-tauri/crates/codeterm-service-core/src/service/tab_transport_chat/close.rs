@@ -17,16 +17,26 @@ impl ServiceContext {
         let (plugin_id, session_id, nonce) = {
             let mux = self.mux.read();
             let tab = mux.get_tab(tab_id).ok_or("chat backend tab is absent")?;
-            let TabBacking::ChatBackend { plugin_id, session_id } = &tab.backing else {
+            let TabBacking::ChatBackend {
+                plugin_id,
+                session_id,
+            } = &tab.backing
+            else {
                 return Err("tab has no chat backend".into());
             };
-            (plugin_id.clone(), session_id.clone(), tab.session_binding_nonce.clone())
+            (
+                plugin_id.clone(),
+                session_id.clone(),
+                tab.session_binding_nonce.clone(),
+            )
         };
         let guards = self.ext::<Arc<TabReopenGuards>>();
         let deadline = Instant::now() + Duration::from_secs(5);
         guards.serialized_until(tab_id, deadline, || {
             let runtime = engine::for_tab(tab_id);
-            let process = runtime.as_ref().and_then(|session| session.process.lock().clone());
+            let process = runtime
+                .as_ref()
+                .and_then(|session| session.process.lock().clone());
             let key = (plugin_id.clone(), session_id.clone());
             let bound = guards.sessions.lock().get(&key).cloned();
             if let Some(runtime) = &runtime {
@@ -46,27 +56,36 @@ impl ServiceContext {
                     return Err("chat backend adapter belongs to another tab".into());
                 }
                 bound.fail("chat backend session is closing");
-                bound.provider.close_session_confirmed(
-                    &session_id,
-                    deadline,
-                ).map_err(|error| error.to_string())?;
+                bound
+                    .provider
+                    .close_session_confirmed(&session_id, deadline)
+                    .map_err(|error| error.to_string())?;
             }
             if let Some(runtime) = runtime {
                 engine::stop_confirmed_blocking(self, tab_id, runtime)?;
             }
             if process.as_ref().is_some_and(|process| {
-                !matches!(*process.ended.borrow(), Some(RuntimeFailure::ProcessExited { .. }))
+                !matches!(
+                    *process.ended.borrow(),
+                    Some(RuntimeFailure::ProcessExited { .. })
+                )
             }) {
                 return Err("chat backend process exit was not confirmed".into());
             }
             if let Some(bound) = bound {
                 let mut sessions = guards.sessions.lock();
-                if !sessions.get(&key).is_some_and(|current| Arc::ptr_eq(current, &bound)) {
+                if !sessions
+                    .get(&key)
+                    .is_some_and(|current| Arc::ptr_eq(current, &bound))
+                {
                     return Err("chat backend adapter changed during close".into());
                 }
                 sessions.remove(&key);
             }
-            Ok(ChatBackendCloseReceipt { tab_id: tab_id.into(), session_id })
+            Ok(ChatBackendCloseReceipt {
+                tab_id: tab_id.into(),
+                session_id,
+            })
         })
     }
 }

@@ -49,8 +49,13 @@ pub async fn retrospective_write(
         return Err(text_err(StatusCode::BAD_REQUEST, "body is required"));
     }
     let now = epoch_ms();
-    let from = crate::auth::actor_ref(&state, &headers, body.get("from").and_then(|value| serde_json::from_value(value.clone()).ok()))
-        .map_err(|(status, message)| text_err(status, message))?;
+    let from = crate::auth::actor_ref(
+        &state,
+        &headers,
+        body.get("from")
+            .and_then(|value| serde_json::from_value(value.clone()).ok()),
+    )
+    .map_err(|(status, message)| text_err(status, message))?;
     let store = state.svc.plan_store.clone();
     let stride_id = store
         .add_retrospective(&plan_id, &text, from, now)

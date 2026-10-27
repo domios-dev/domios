@@ -922,7 +922,9 @@ mod token_tests;
 pub fn handle_api_token(remote: bool) {
     let caller = crate::nonempty_env("CODETERM_TAB_ID");
     let token = super::host_credentials::read(&crate::data_root(), remote, caller.as_deref())
-        .and_then(|token| token.ok_or_else(|| "No local instance API credential; start Domios first".into()));
+        .and_then(|token| {
+            token.ok_or_else(|| "No local instance API credential; start Domios first".into())
+        });
     match token {
         Ok(token) => print!("{token}"),
         Err(error) => crate::cmd::print::fail(if remote { 7 } else { 1 }, error),

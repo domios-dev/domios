@@ -332,7 +332,10 @@ impl ServiceContext {
         reason: TabCloseReason,
         validate: impl FnOnce(&crate::multiplexer::state::MultiplexerState, &str) -> Result<(), String>,
         teardown: impl FnOnce() -> Result<(), String>,
-        validate_commit: impl FnOnce(&crate::multiplexer::state::MultiplexerState, &str) -> Result<(), String>,
+        validate_commit: impl FnOnce(
+            &crate::multiplexer::state::MultiplexerState,
+            &str,
+        ) -> Result<(), String>,
     ) -> Result<(), String> {
         let (pre_focus, reservation, provider_id, canonical_tab_id, session_id) = {
             let mut mux = self.mux.write();

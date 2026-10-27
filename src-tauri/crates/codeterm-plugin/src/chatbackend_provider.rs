@@ -196,7 +196,9 @@ pub trait ChatBackendProvider: Send + Sync {
         deadline: std::time::Instant,
     ) -> Result<(), ChatBackendError> {
         let _ = (session_id, deadline);
-        Err(ChatBackendError::Call("confirmed session close is unsupported".into()))
+        Err(ChatBackendError::Call(
+            "confirmed session close is unsupported".into(),
+        ))
     }
 
     /// Models this backend offers, for the tab's model picker.

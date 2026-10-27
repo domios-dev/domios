@@ -66,7 +66,8 @@ pub async fn cron_create(
     Json(mut body): Json<codeterm_service_core::cron::store::CronCreateParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(status, error)| (status, error.to_string()))?;
-    body.creator_tab_id = crate::auth::caller_claim(&state, &headers, body.creator_tab_id.as_deref())?;
+    body.creator_tab_id =
+        crate::auth::caller_claim(&state, &headers, body.creator_tab_id.as_deref())?;
     let job = off_runtime(&state, move |svc, cron, wake| {
         svc.cron_create(cron, wake, body)
     })

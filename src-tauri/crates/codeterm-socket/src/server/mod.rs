@@ -5,9 +5,9 @@ mod agent_commands;
 mod blueprint;
 mod bridge;
 mod canvas;
-mod cron;
 #[cfg(test)]
 mod credential_tests;
+mod cron;
 mod dispatch;
 mod error_codes;
 mod local_api;
@@ -763,7 +763,12 @@ mod tests {
             .set_ext::<codeterm_service_core::CronWake>(wake)
             .is_ok());
 
-        fixture.service.ext::<codeterm_service_core::config::ConfigState>().lock().api.token = Some("flush-owner-credential".into());
+        fixture
+            .service
+            .ext::<codeterm_service_core::config::ConfigState>()
+            .lock()
+            .api
+            .token = Some("flush-owner-credential".into());
         let request = serde_json::json!({
             "jsonrpc": "2.0",
             "credential": "flush-owner-credential",

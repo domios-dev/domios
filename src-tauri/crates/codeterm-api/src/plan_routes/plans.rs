@@ -791,12 +791,7 @@ pub async fn reconcile(
         .map_err(|(status, message)| text_err(status, message))?;
     let report = state
         .svc
-        .reconcile_plan(
-            &id,
-            q.fix == Some(true),
-            caller.as_deref(),
-            epoch_ms(),
-        )
+        .reconcile_plan(&id, q.fix == Some(true), caller.as_deref(), epoch_ms())
         .map_err(plan_err)?;
     Ok(Json(serde_json::to_value(report).unwrap_or_default()))
 }

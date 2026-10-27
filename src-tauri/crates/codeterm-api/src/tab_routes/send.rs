@@ -484,13 +484,29 @@ pub async fn send_text(
         })?;
     if svc_token_match.is_none() && crate::auth::caller_peer_id(&state, &headers).is_none() {
         body.source_tab = crate::auth::caller_claim(&state, &headers, body.source_tab.as_deref())
-            .map_err(|(status, message)| SendRejection {status, body: serde_json::json!({"ok":false,"error":{"code":"forbidden","message":message}})})?;
-        if crate::auth::tab_caller(&state, &headers).map_err(|_| SendRejection::from((StatusCode::FORBIDDEN, "Invalid caller credential")))?.is_some()
-            && (body.source_peer.is_some() || body.system_context.is_some()) {
-            return Err(SendRejection::from((StatusCode::FORBIDDEN, "Tab credentials cannot supply peer or system provenance")));
+            .map_err(|(status, message)| SendRejection {
+            status,
+            body: serde_json::json!({"ok":false,"error":{"code":"forbidden","message":message}}),
+        })?;
+        if crate::auth::tab_caller(&state, &headers)
+            .map_err(|_| SendRejection::from((StatusCode::FORBIDDEN, "Invalid caller credential")))?
+            .is_some()
+            && (body.source_peer.is_some() || body.system_context.is_some())
+        {
+            return Err(SendRejection::from((
+                StatusCode::FORBIDDEN,
+                "Tab credentials cannot supply peer or system provenance",
+            )));
         }
-    } else if svc_token_match.is_some() && (body.source_tab.is_some() || body.source_peer.is_some() || body.system_context.is_some()) {
-        return Err(SendRejection::from((StatusCode::FORBIDDEN, "Service push cannot claim a tab sender")));
+    } else if svc_token_match.is_some()
+        && (body.source_tab.is_some()
+            || body.source_peer.is_some()
+            || body.system_context.is_some())
+    {
+        return Err(SendRejection::from((
+            StatusCode::FORBIDDEN,
+            "Service push cannot claim a tab sender",
+        )));
     }
     let owner = state.clone();
     let target = tab_id.clone();

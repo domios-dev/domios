@@ -5,7 +5,11 @@ use super::*;
 use crate::multiplexer::state::MultiplexerState;
 use crate::service::test_fixture::ServiceFixture;
 
-fn runtime_fixture() -> (ServiceFixture, String, crate::service::agent_runtime::engine::test_support::LiveRuntime) {
+fn runtime_fixture() -> (
+    ServiceFixture,
+    String,
+    crate::service::agent_runtime::engine::test_support::LiveRuntime,
+) {
     let (mut mux, _) = MultiplexerState::new();
     let workspace = mux.list_workspaces()[0].id.clone();
     let id = mux.create_tab(&workspace).unwrap();
@@ -14,7 +18,10 @@ fn runtime_fixture() -> (ServiceFixture, String, crate::service::agent_runtime::
     tab.agent_session_id = Some("thread".into());
     tab.session_binding_nonce = Some("nonce".into());
     tab.reported_session_binding_nonce = Some("nonce".into());
-    tab.backing = TabBacking::ChatBackend { plugin_id: "fixture".into(), session_id: "thread".into() };
+    tab.backing = TabBacking::ChatBackend {
+        plugin_id: "fixture".into(),
+        session_id: "thread".into(),
+    };
     let prepared = tab.clone();
     let fixture = ServiceFixture::new(mux);
     let live = engine::test_support::live_runtime(&prepared);
@@ -29,7 +36,10 @@ fn confirmed_runtime_close_waits_for_the_pinned_process_exit() {
     let receipt = fixture.service.chatbackend_close_confirmed(&id).unwrap();
     assert_eq!(receipt.tab_id, id);
     assert_eq!(receipt.session_id, "thread");
-    assert!(matches!(*process.ended.borrow(), Some(RuntimeFailure::ProcessExited { .. })));
+    assert!(matches!(
+        *process.ended.borrow(),
+        Some(RuntimeFailure::ProcessExited { .. })
+    ));
     assert!(engine::for_tab(&id).is_none());
 }
 
@@ -38,7 +48,13 @@ fn changed_runtime_nonce_refuses_without_stopping_another_session() {
     let (fixture, id, _live) = runtime_fixture();
     let session = engine::for_tab(&id).unwrap();
     let process = session.process.lock().clone().unwrap();
-    fixture.service.mux.write().get_tab_mut(&id).unwrap().session_binding_nonce = Some("foreign".into());
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&id)
+        .unwrap()
+        .session_binding_nonce = Some("foreign".into());
     assert!(fixture.service.chatbackend_close_confirmed(&id).is_err());
     assert!(process.ended.borrow().is_none());
     assert!(engine::for_tab(&id).is_some());
@@ -56,7 +72,8 @@ fn close_lock_deadline_refuses_before_entering_the_transition() {
     let guards = TabReopenGuards::default();
     let lock = guards.lock_for("tab");
     let _held = lock.lock();
-    let result = guards.serialized_until::<()>("tab", Instant::now(), || panic!("close lock is held"));
+    let result =
+        guards.serialized_until::<()>("tab", Instant::now(), || panic!("close lock is held"));
     assert!(result.is_err());
 }
 
@@ -67,7 +84,12 @@ fn stale_pinned_runtime_refuses_the_new_runtime() {
     let old_process = old.process.lock().clone().unwrap();
     let prepared = fixture.service.mux.read().get_tab(&id).unwrap().clone();
     let _new_live = engine::test_support::live_runtime(&prepared);
-    let new_process = engine::for_tab(&id).unwrap().process.lock().clone().unwrap();
+    let new_process = engine::for_tab(&id)
+        .unwrap()
+        .process
+        .lock()
+        .clone()
+        .unwrap();
     assert!(engine::stop_confirmed_blocking(&fixture.service, &id, old).is_err());
     assert!(new_process.ended.borrow().is_none());
     crate::async_runtime::block_on(old_process.finish()).unwrap();

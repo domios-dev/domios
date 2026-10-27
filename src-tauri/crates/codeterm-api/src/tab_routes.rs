@@ -324,7 +324,8 @@ pub async fn create_shell_tab(
         codeterm_service_core::service::tab::validate_tab_title(title)
             .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
     }
-    body.creator_tab_id = crate::auth::caller_claim(&state, &headers, body.creator_tab_id.as_deref())?;
+    body.creator_tab_id =
+        crate::auth::caller_claim(&state, &headers, body.creator_tab_id.as_deref())?;
     if let Some(timeout) = body.timeout.as_deref() {
         codeterm_service_core::service::utility_deadline_model_parse_timeout(timeout)
             .map_err(|error| (StatusCode::BAD_REQUEST, error))?;

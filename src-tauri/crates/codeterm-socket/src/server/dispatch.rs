@@ -486,7 +486,11 @@ pub(crate) fn dispatch_mesh_rpc(
         );
     }
     if method == "api.request" {
-        return Err(JsonRpcError {code: -32003, message: "Local API forwarding is unavailable to mesh callers".into(), data: None});
+        return Err(JsonRpcError {
+            code: -32003,
+            message: "Local API forwarding is unavailable to mesh callers".into(),
+            data: None,
+        });
     }
     if method.starts_with("model_provider.") || method.starts_with("rest_api.") {
         return Err(JsonRpcError {

@@ -124,7 +124,10 @@ fn stop_blocking_with(
     expected: Option<Arc<Session>>,
 ) -> Result<(), String> {
     if let Some(expected) = expected.as_ref() {
-        if !for_tab(tab).as_ref().is_some_and(|current| Arc::ptr_eq(current, expected)) {
+        if !for_tab(tab)
+            .as_ref()
+            .is_some_and(|current| Arc::ptr_eq(current, expected))
+        {
             return Err(RuntimeFailure::Superseded.to_string());
         }
     }
@@ -132,12 +135,14 @@ fn stop_blocking_with(
     if expected.is_none() && for_tab(tab).is_none() {
         return Ok(());
     }
-    let finish = || crate::async_runtime::block_on(async {
-        match expected {
-            Some(session) => stop_session(svc, tab, session).await,
-            None => stop(svc, tab).await,
-        }
-    });
+    let finish = || {
+        crate::async_runtime::block_on(async {
+            match expected {
+                Some(session) => stop_session(svc, tab, session).await,
+                None => stop(svc, tab).await,
+            }
+        })
+    };
     match tokio::runtime::Handle::try_current() {
         Ok(handle) if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
             tokio::task::block_in_place(finish)
@@ -178,8 +183,16 @@ pub async fn stop(svc: &ServiceContext, tab: &str) -> Result<(), String> {
     stop_session(svc, tab, session).await
 }
 
-async fn stop_session(svc: &ServiceContext, tab: &str, session: Arc<Session>) -> Result<(), String> {
-    if !SESSIONS.lock().get(tab).is_some_and(|current| Arc::ptr_eq(current, &session)) {
+async fn stop_session(
+    svc: &ServiceContext,
+    tab: &str,
+    session: Arc<Session>,
+) -> Result<(), String> {
+    if !SESSIONS
+        .lock()
+        .get(tab)
+        .is_some_and(|current| Arc::ptr_eq(current, &session))
+    {
         return Err(RuntimeFailure::Superseded.to_string());
     }
     cancel_stop_retry(svc, tab);

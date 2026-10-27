@@ -50,7 +50,10 @@ impl BundleAccess {
         if INSTALLING.with(|ids| ids.borrow().contains(&self.id)) {
             Ok(None)
         } else {
-            self.gate.try_read_until(deadline).map(Some).ok_or("plugin bundle access deadline")
+            self.gate
+                .try_read_until(deadline)
+                .map(Some)
+                .ok_or("plugin bundle access deadline")
         }
     }
 

@@ -128,9 +128,12 @@ pub fn resolve_api_config() -> ResolvedApiConfig {
         port_source,
     );
     let token = resolve_connection_token(
-        &config_dir, crate::nonempty_env("CODETERM_TAB_ID").as_deref(),
-        env_token.as_deref(), require_stored,
-    ).unwrap_or_else(|error| crate::cmd::print::fail(1, error));
+        &config_dir,
+        crate::nonempty_env("CODETERM_TAB_ID").as_deref(),
+        env_token.as_deref(),
+        require_stored,
+    )
+    .unwrap_or_else(|error| crate::cmd::print::fail(1, error));
 
     ResolvedApiConfig {
         data_dir: config_dir,
@@ -143,12 +146,19 @@ pub fn resolve_api_config() -> ResolvedApiConfig {
     }
 }
 
-fn resolve_connection_token(data_root: &std::path::Path, caller_tab: Option<&str>, environment: Option<&str>, require_stored: bool) -> Result<Option<String>, String> {
+fn resolve_connection_token(
+    data_root: &std::path::Path,
+    caller_tab: Option<&str>,
+    environment: Option<&str>,
+    require_stored: bool,
+) -> Result<Option<String>, String> {
     if caller_tab.is_some() {
         if require_stored {
             return Err("A tab credential cannot authenticate another instance; use an owner shell on the target instance".into());
         }
-        return environment.filter(|token| !token.is_empty()).map(|token| Some(token.to_owned()))
+        return environment
+            .filter(|token| !token.is_empty())
+            .map(|token| Some(token.to_owned()))
             .ok_or_else(|| "This tab has no launch credential; restart the tab".into());
     }
     codeterm_util::instance_token::resolve_at(data_root, environment, require_stored)

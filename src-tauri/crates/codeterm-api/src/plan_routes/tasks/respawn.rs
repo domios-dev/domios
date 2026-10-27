@@ -153,7 +153,10 @@ pub async fn task_respawn(
     })
     .await
     .map_err(|error| {
-        text_err(axum::http::StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
+        text_err(
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            error.to_string(),
+        )
     })?
     .map_err(|error| text_err(axum::http::StatusCode::CONFLICT, error))?;
     let description =

@@ -99,13 +99,7 @@ pub(super) fn start(
     };
     let nonce = svc.rotate_session_binding_nonce(&tab_id);
     let credential = svc.mint_tab_credential(&tab_id, &nonce);
-    let mut env_vars = general_agent_env_vars(
-        &tab_id,
-        pad.env_value(),
-        nonce,
-        config,
-        credential,
-    );
+    let mut env_vars = general_agent_env_vars(&tab_id, pad.env_value(), nonce, config, credential);
     match svc.model_provider_launch_env(provider_name) {
         Ok(keys) => env_vars.extend(keys),
         Err(error) => {
