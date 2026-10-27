@@ -283,7 +283,17 @@ fn context_binds_audience_policy_and_session() {
             Refusal::Audience,
         ),
         (
-            with(paid(), json!({"policy_version": 2})),
+            with(
+                paid(),
+                json!({"policy_version": 3,
+                "limits": {
+                    "mesh.machines": {"max": null, "scope": "account"},
+                    "workspaces": {"max": null, "scope": "installation"},
+                    "mem.items": {"max": null, "scope": "installation"},
+                    "teams": {"max": null, "scope": "installation"},
+                    "agent.tabs": {"max": null, "scope": "installation"}
+                }}),
+            ),
             Refusal::PolicyVersion,
         ),
         (
