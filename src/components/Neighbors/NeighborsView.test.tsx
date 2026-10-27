@@ -627,3 +627,22 @@ it("keeps an ended conversation readable but takes no new messages", async () =>
   expect(document.body.textContent).toContain("This connection with Ada has ended.");
   expect(document.querySelector<HTMLTextAreaElement>("textarea")!.disabled).toBe(true);
 });
+
+it("keeps a message that is too long in the composer instead of sending it", async () => {
+  const runtimeClient = runtime();
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtimeClient} conciergeClient={concierge([])} />));
+  const input = document.querySelector<HTMLTextAreaElement>("textarea")!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "é".repeat(4100));
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => { document.querySelector<HTMLButtonElement>("[data-testid=composer-send-button]")!.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, button: 0 })); });
+  expect(runtimeClient.send).not.toHaveBeenCalled();
+  expect(document.body.textContent).toContain("This message is too long for Ada.");
+  expect(input.value.length).toBe(4100);
+});

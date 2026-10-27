@@ -52,6 +52,8 @@ export function NeighborConversationView({ friendship, enabled = true, client, r
 /** A friend from the fresh list, or the remembered one while it loads. */
 type ConversationFriend = CachedFriend & Partial<Omit<Neighbor, keyof CachedFriend>>;
 
+const MESSAGE_LIMIT_BYTES = 8176;
+
 function Conversation({ friend, locked, enabled, runtimeClient, conciergeClient, onSent }: {
   friend: ConversationFriend; locked: boolean; enabled: boolean; runtimeClient: NeighborRuntimeClient; conciergeClient: NeighborConciergeClient; onSent: () => void;
 }) {
@@ -143,6 +145,11 @@ function Conversation({ friend, locked, enabled, runtimeClient, conciergeClient,
   const canSend = enabled && !locked && !limitReached && !ended;
   const send = async (body: string): Promise<boolean> => {
     if (sending || !canSend) return false;
+    // The encrypted envelope carries at most 8176 UTF-8 bytes of text; the draft stays for trimming.
+    if (new TextEncoder().encode(body).length > MESSAGE_LIMIT_BYTES) {
+      setError(`This message is too long for ${name}. Keep it under 8 KB.`);
+      return false;
+    }
     setSending(true); setError(null); stickToEnd.current = true;
     try {
       await runtimeClient.send(friendship, body);
