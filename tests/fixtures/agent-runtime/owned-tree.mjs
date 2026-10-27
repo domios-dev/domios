@@ -10,6 +10,9 @@ if (role === "leaf") {
   process.send({ pids: [process.pid] });
 } else if (role === "command") {
   const child = spawn(process.execPath, [import.meta.filename, "leaf"], {
+    // libuv otherwise kills this child with the intermediary's Windows Job.
+    detached: orphan && process.platform === "win32",
+    windowsHide: true,
     stdio: ["ignore", "ignore", "inherit", "ipc"],
   });
   child.once("message", ({ pids }) => {
