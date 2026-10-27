@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useState } from "react";
 import { Button } from "../shared/Button";
 import type { NeighborRuntimeClient } from "./neighborRuntimeClient";
@@ -12,7 +13,7 @@ export function NeighborChannel({ owner, friendship, locked, client }: {
   const [body, setBody] = useState("");
   const tooLarge = new TextEncoder().encode(body).length > 8176;
   return <section aria-label="Encrypted Neighbor channel">
-    {channel.error && <p role="alert">{channel.error}</p>}
+    {channel.error && <InlineErrorNotice error={channel.error} operation="using your Neighbor channel" role="alert" />}
     {!locked && channel.status && !channel.status.enrolled && (confirmTakeover ? <div role="group" aria-label="Receive on this machine">
       <p>Receive Neighbors on this machine. Other machines will stop receiving.</p>
       <Button type="button" disabled={channel.pending} onClick={() => { setConfirmTakeover(false); void channel.enroll(); }}>Confirm this machine</Button>

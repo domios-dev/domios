@@ -84,6 +84,9 @@ impl ServiceContext {
 
     async fn neighbor_ports(&self) -> Result<(Arc<FirebaseTransport>, KeyScope, Metadata), String> {
         let account = self.account().await?;
+        if account.status().await.provider == "local" {
+            return Err("Sign in with a hosted account to use Neighbors".into());
+        }
         let session = account
             .fresh_session()
             .await
@@ -351,7 +354,7 @@ impl ServiceContext {
                 .map_err(|e| e.to_string())?;
         }
         if self
-            .neighbor_registry(super::NeighborCommand::List)
+            .neighbor_registry(super::NeighborCommand::List {})
             .await?
             .get("access")
             .and_then(Value::as_str)
@@ -417,6 +420,9 @@ impl ServiceContext {
         let Some(session) = self.account().await?.session().await else {
             return Ok(());
         };
+        if self.account().await?.status().await.provider == "local" {
+            return Ok(());
+        }
         let metadata = Metadata::new(self.account_data_root()?, &session.identity.uid);
         let mut settings = metadata.settings().await.map_err(|e| e.to_string())?;
         let (transport, scope, _) = self.neighbor_ports().await?;

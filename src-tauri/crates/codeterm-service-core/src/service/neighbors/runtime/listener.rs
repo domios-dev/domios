@@ -39,7 +39,7 @@ impl InboxSession for Session {
         let _operation = self.service.neighbor_cell().operations.lock().await;
         if self
             .service
-            .neighbor_registry(super::super::NeighborCommand::List)
+            .neighbor_registry(super::super::NeighborCommand::List {})
             .await
             .map_err(|_| Error::Transport)?
             .get("access")
