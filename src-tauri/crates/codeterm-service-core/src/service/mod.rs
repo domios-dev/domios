@@ -25,6 +25,7 @@ pub mod agent_runtime;
 pub mod agent_transition;
 pub(crate) mod ai_helper_spawn;
 pub mod lazy_restore;
+pub mod tab_mutation_authority;
 pub mod tab_sleep_policy;
 pub mod tab_todos;
 pub use ai_helper_spawn::AiHelperRequest;

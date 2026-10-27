@@ -169,3 +169,80 @@ fn local_api_bridge_cannot_promote_a_tab_credential_to_the_host() {
     assert_eq!(owner.result.unwrap()["status"], 200);
     assert!(dispatch_mesh_rpc("api.request", None, &svc, "peer").is_err());
 }
+
+#[test]
+fn socket_api_tab_mutations_enforce_target_authority_and_preserve_owner_access() {
+    use codeterm_service_core::multiplexer::types::AgentRole;
+
+    let (mut mux, initial) = MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&initial).unwrap();
+    let owner = mux.create_tab(&workspace).unwrap();
+    let member = mux.create_tab(&workspace).unwrap();
+    let foreign = mux.create_tab(&workspace).unwrap();
+    for id in [&owner, &foreign] {
+        mux.set_orchestrator_role(id).unwrap();
+        mux.resolve_or_mint_team_for_parent(id).unwrap();
+    }
+    mux.set_tab_role_kind(&member, AgentRole::Manager, Some("planner"), Some(&owner))
+        .unwrap();
+    let fixture = ServiceFixture::new(mux);
+    let state = codeterm_api::test_support::app_state(&fixture);
+    state.config.lock().api.token = Some("host-fixture".into());
+    let svc = state.svc.clone();
+    let token = |id: &str| {
+        svc.frontend_pty_env(Some(id))
+            .remove("CODETERM_API_TOKEN")
+            .unwrap()
+    };
+    let member_token = token(&member);
+    let foreign_token = token(&foreign);
+    let owner_token = token(&owner);
+    assert!(svc
+        .set_ext(codeterm_service_core::ports::rest::LocalApiRouter(
+            codeterm_api::routes::create_router_with_frontend(state, None)
+        ))
+        .is_ok());
+    for (credential, target) in [
+        (&member_token, &member),
+        (&foreign_token, &member),
+        (&owner_token, &owner),
+    ] {
+        for (method, suffix, body) in [
+            ("POST", "role", json!({"role":"Orchestrator"})),
+            ("DELETE", "role", json!({})),
+            ("POST", "can-spawn", json!({"can_spawn":true})),
+            ("POST", "make-orchestrator", json!({})),
+            ("POST", "make-planner", json!({"plan_id":"missing"})),
+        ] {
+            let result = request(
+                &svc,
+                credential,
+                "api.request",
+                json!({
+                    "method":method,"path":format!("/api/tabs/{target}/{suffix}"),
+                    "headers":{"content-type":"application/json"},"body":body.to_string(),
+                    "authenticated_api_credential":"host-fixture"
+                }),
+            );
+            assert_eq!(result.result.unwrap()["status"], 403, "{suffix}");
+            assert!(!svc.mux.read().get_tab(&member).unwrap().can_spawn);
+            assert_eq!(
+                svc.mux.read().get_tab(&member).unwrap().role,
+                Some(AgentRole::Manager)
+            );
+        }
+    }
+    for (credential, target) in [(owner_token.as_str(), &member), ("host-fixture", &foreign)] {
+        let result = request(
+            &svc,
+            credential,
+            "api.request",
+            json!({
+                "method":"POST","path":format!("/api/tabs/{target}/can-spawn"),
+                "headers":{"content-type":"application/json"},"body":"{\"can_spawn\":true}"
+            }),
+        );
+        assert_eq!(result.result.unwrap()["status"], 200);
+        assert!(svc.mux.read().get_tab(target).unwrap().can_spawn);
+    }
+}
