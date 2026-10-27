@@ -189,6 +189,16 @@ fn call_runtime_hook_with_clock<R: serde::de::DeserializeOwned>(
 }
 
 fn caught_message(error: rquickjs::CaughtError<'_>) -> String {
+    if let rquickjs::CaughtError::Exception(exception) = &error {
+        if let Some(message) = exception.message().filter(|message| !message.is_empty()) {
+            return message;
+        }
+        if let Ok(Some(name)) = exception.as_object().get::<_, Option<String>>("name") {
+            if !name.is_empty() {
+                return name;
+            }
+        }
+    }
     if let rquickjs::CaughtError::Value(value) = &error {
         if let Some(object) = value.as_object() {
             if let Ok(Some(message)) = object.get::<_, Option<String>>("message") {

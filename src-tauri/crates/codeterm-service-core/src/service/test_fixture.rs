@@ -434,6 +434,7 @@ impl ServiceFixture {
         ));
         let mut extensions = crate::service::extensions::ExtensionsBuilder::default();
         extensions.insert_service_slots();
+        extensions.insert_late::<super::neighbors::runtime::logout::LogoutKeyPorts>();
         extensions.insert_late::<FixtureLimitGate>();
         extensions.insert(config);
         extensions.insert(crate::service::account::AccountDataRoot(data_dir.clone()));
