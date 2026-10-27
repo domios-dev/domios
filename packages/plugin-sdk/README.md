@@ -12,7 +12,7 @@ diff helpers are bundled only when imported as values.
 For plugin-owned storage, use `host.dataDir()`. `host.fs.expandHome("~/.domios")`
 and paths beneath `~/.domios/` resolve to the running instance's data directory,
 including development and named instances. Other `~/` paths use the user's home;
-`~/.codeterm` has no special mapping. Filesystem grants still apply after expansion.
+the former product directory has no special mapping. Filesystem grants still apply after expansion.
 The SDK package name and `CODETERM_*` host environment variables remain the
 public technical contract; they do not select a legacy data root.
 
