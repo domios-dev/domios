@@ -212,7 +212,7 @@ export function PlanCards({ currentPlan = null, subscribedPlan = null, subscript
   const intentOffer = intent.kind === "idle" ? null : offerIdForPlan(offers, intent.planKey);
   const view = intentView(intent, signedInAs);
   return (
-    <div ref={viewTarget} className="flex min-w-0 flex-col gap-3">
+    <div ref={viewTarget} className="flex min-w-0 flex-col gap-5">
       <div className="ct-plan-row-frame">
         <div ref={row.row} role="group" aria-label="Subscription plans" tabIndex={0} className="ct-plan-row" onKeyDown={row.onKeyDown} onFocus={row.onFocus}>
           {offers.offers.map((offer, index) => (

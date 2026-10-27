@@ -121,7 +121,7 @@ export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) 
         {desktopBilling.error && <InlineErrorNotice error={desktopBilling.error} operation="managing your plan" />}
         {signedIn && <Button type="button" size="sm" variant="ghost" onClick={desktopBilling.refresh}>Refresh plan offers</Button>}
         {!signedIn && <p className={MUTED}>You’ll sign in when you choose a plan.</p>}
-        <div className="w-full">
+        <div className="mt-3 w-full">
           <SettingsCardAnchor id="subscription-plans" focused={focusCard === "subscription-plans"} focusRequest={plansRequest}>
             {signedIn && !desktopBilling.catalog ? <p role="status" className={MUTED}>
               {desktopBilling.loading ? "Loading current plan offers…" : "Refresh plan offers to choose a subscription."}
