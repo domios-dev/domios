@@ -1,10 +1,10 @@
 id: sp_onee92
 plan_id: null
-canonical_project_path: /Users/rollacode/Developer/codeterm
+canonical_project_path: /Users/example/Developer/codeterm
 canvas:
   viewport: null
 created_at: 1782375823747
-project_path: /Users/rollacode/Developer/codeterm
+project_path: /Users/example/Developer/codeterm
 sections: []
 status: active
 title: Worker spec-first proof

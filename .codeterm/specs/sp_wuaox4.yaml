@@ -1,10 +1,10 @@
 id: sp_wuaox4
 plan_id: null
-canonical_project_path: /Users/rollacode/Developer/codeterm
+canonical_project_path: /Users/example/Developer/codeterm
 canvas:
   viewport: null
 created_at: 1783315758978
-project_path: /Users/rollacode/Developer/codeterm
+project_path: /Users/example/Developer/codeterm
 sections: []
 status: active
 title: Plan storage v2 — structure/prose separation, out-of-worktree state

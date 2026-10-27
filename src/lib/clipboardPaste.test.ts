@@ -62,8 +62,8 @@ assert("space → single-quote wrap",
   "'/Users/me/Hello World.png'");
 
 assert("cyrillic + space → single-quote wrap (utf-8 preserved)",
-  quotePathForPaste("/Users/rollacode/Desktop/Снимок экрана 2026-05-05 в 10.49.45.png"),
-  "'/Users/rollacode/Desktop/Снимок экрана 2026-05-05 в 10.49.45.png'");
+  quotePathForPaste("/Users/example/Desktop/Снимок экрана 2026-05-05 в 10.49.45.png"),
+  "'/Users/example/Desktop/Снимок экрана 2026-05-05 в 10.49.45.png'");
 
 assert("windows backslash without space → unchanged (cmd.exe compatibility)",
   quotePathForPaste("C:\\Users\\me\\file.png"),
@@ -156,9 +156,9 @@ assertEq("RFC 2483 comments are skipped",
 
 assertEq("Windows Explorer single file (file:///C:/...)",
   extractFilePathsFromClipboard(fakeClipboard({
-    "text/uri-list": "file:///C:/Users/Andrey/Pictures/screenshot.png",
+    "text/uri-list": "file:///C:/Users/example/Pictures/screenshot.png",
   })),
-  ["C:/Users/Andrey/Pictures/screenshot.png"]);
+  ["C:/Users/example/Pictures/screenshot.png"]);
 
 assertEq("plain text path falls back when uri-list empty",
   extractFilePathsFromClipboard(fakeClipboard({
@@ -205,9 +205,9 @@ assertEq("trims surrounding whitespace from plain text path",
 
 assertEq("Windows backslash plain text path",
   extractFilePathsFromClipboard(fakeClipboard({
-    "text/plain": "C:\\Users\\Andrey\\photo.png",
+    "text/plain": "C:\\Users\\example\\photo.png",
   })),
-  ["C:\\Users\\Andrey\\photo.png"]);
+  ["C:\\Users\\example\\photo.png"]);
 
 assertEq("uri-list mixed with non-file URI keeps only file URIs",
   extractFilePathsFromClipboard(fakeClipboard({
