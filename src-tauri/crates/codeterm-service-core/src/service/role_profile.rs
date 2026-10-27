@@ -43,6 +43,8 @@ impl SpawnAgentParams {
             can_spawn: params.get("can_spawn").and_then(|v| v.as_bool()),
             task: json_str(params, "task"),
             starter_prompt: Default::default(),
+            // Neighbor authority is host-owned; callers can never supply it.
+            neighbor_authority: None,
             task_id: json_str(params, "task_id"),
             task_launch_authority: None,
             remote_task_binding: None,
