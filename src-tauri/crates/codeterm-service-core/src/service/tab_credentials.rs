@@ -117,6 +117,17 @@ impl TabCredentials {
         true
     }
 
+    fn session_changed(&self, tab_id: &str, next: Option<&str>) {
+        let mut credentials = self.0.lock();
+        if let Some(credential) = credentials.get_mut(tab_id) {
+            if credential.session.is_some() || next.is_none() {
+                credentials.remove(tab_id);
+            } else {
+                credential.session = next.map(str::to_owned);
+            }
+        }
+    }
+
     fn revoke_token(&self, token: &str) {
         self.0.lock().retain(|_, credential| {
             !super::tokens::constant_time_eq(credential.token.as_bytes(), token.as_bytes())
@@ -163,9 +174,17 @@ impl super::ServiceContext {
                 }
                 for field in ["from", "owner"] {
                     if field == "owner" && method != "plan.create" { continue; }
-                    if let Some(selected) = body.get(field).filter(|value| !value.is_null()) {
-                        let selected: crate::plan::AgentRef = serde_json::from_value(selected.clone()).map_err(|_| "Invalid actor reference")?;
-                        caller.validate_claim(selected.tab_id.as_deref())?;
+                    let selected = body.get(field).filter(|value| !value.is_null());
+                    let derive_missing = if field == "owner" {
+                        method == "plan.create"
+                    } else {
+                        matches!(method, "plan.milestone.add" | "plan.stride.add" | "plan.handoff.create" | "plan.pause" | "plan.retrospective" | "plan.groups.close")
+                    };
+                    if selected.is_some() || derive_missing {
+                        if let Some(selected) = selected {
+                            let selected: crate::plan::AgentRef = serde_json::from_value(selected.clone()).map_err(|_| "Invalid actor reference")?;
+                            caller.validate_claim(selected.tab_id.as_deref())?;
+                        }
                         let title = self.mux.read().get_tab(&caller.tab_id).map(|tab| tab.title.clone()).ok_or("Caller tab has closed")?;
                         let actor = crate::plan::AgentRef {tab_id: Some(caller.tab_id.clone()), session_id: session.clone(), title: Some(title)};
                         body.insert(field.into(), serde_json::to_value(actor).map_err(|error| error.to_string())?);
@@ -213,10 +232,15 @@ impl super::ServiceContext {
         let tab = mux.get_tab(tab_id)?;
         let binding_nonce = tab.session_binding_nonce.as_ref().filter(|nonce| !nonce.is_empty())?;
         if binding_nonce.as_str() != expected_nonce { return None; }
-        Some(self.tab_credentials.mint(TabCaller {
+        let token = self.tab_credentials.mint(TabCaller {
             tab_id: tab.id.clone(),
             binding_nonce: binding_nonce.clone(),
-        }))
+        });
+        self.tab_credentials.verify_session(
+            &token,
+            tab.agent_session_id.as_deref(),
+            tab.reported_session_binding_nonce.as_deref() == Some(binding_nonce.as_str()),
+        ).then_some(token)
     }
 
     pub fn identify_tab_credential(&self, token: &str) -> Option<TabCaller> {
@@ -234,6 +258,10 @@ impl super::ServiceContext {
         }
         (self.tab_credentials.verify_session(token, tab.agent_session_id.as_deref(), attested))
             .then_some(caller)
+    }
+
+    pub(crate) fn tab_credential_session_changed(&self, tab_id: &str, next: Option<&str>) {
+        self.tab_credentials.session_changed(tab_id, next);
     }
 
     pub(crate) fn revoke_tab_credential(&self, tab_id: &str) {

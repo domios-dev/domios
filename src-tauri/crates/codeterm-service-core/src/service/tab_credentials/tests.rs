@@ -140,3 +140,36 @@ fn nested_batch_actor_claims_are_bound_and_foreign_claims_refuse() {
     let mut forged = Some(json!({"ops":[{"op":"add_milestone","task":"owned","kind":"note","from":{"tab_id":other}}]}));
     assert!(svc.bind_local_rpc(&credential, "plan.batch", &mut forged).is_err());
 }
+
+#[test]
+fn tab_system_rpc_accepts_null_params_without_synthetic_caller_fields() {
+    let (fixture, tab, _) = fixture();
+    let credential = token(&fixture.service, &tab);
+    let mut params = Some(serde_json::Value::Null);
+    fixture.service.bind_local_rpc(&credential, "system.identify", &mut params).unwrap();
+    assert_eq!(params, Some(json!({})));
+}
+
+#[test]
+fn new_launch_can_bind_its_first_session_over_a_retained_previous_session() {
+    let (fixture, tab, _) = fixture();
+    let svc = &fixture.service;
+    svc.set_agent_session_id(&tab, Some("previous-launch-session".into()));
+    svc.rotate_session_binding_nonce(&tab);
+    let credential = token(svc, &tab);
+    svc.set_agent_session_id(&tab, Some("new-launch-session".into()));
+    assert!(svc.identify_tab_credential(&credential).is_some());
+    svc.set_agent_session_id(&tab, Some("unrelated-session".into()));
+    assert!(svc.identify_tab_credential(&credential).is_none());
+}
+
+#[test]
+fn omitted_plan_actor_references_derive_the_authenticated_tab() {
+    let (fixture, tab, _) = fixture();
+    let credential = token(&fixture.service, &tab);
+    for (method, field) in [("plan.create", "owner"), ("plan.handoff.create", "from"), ("plan.milestone.add", "from")] {
+        let mut params = Some(json!({}));
+        fixture.service.bind_local_rpc(&credential, method, &mut params).unwrap();
+        assert_eq!(params.unwrap()[field]["tab_id"], tab, "{method}");
+    }
+}
