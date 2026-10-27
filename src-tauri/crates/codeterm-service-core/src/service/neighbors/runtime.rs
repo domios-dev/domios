@@ -1,4 +1,4 @@
-mod callable;
+pub(super) mod callable;
 mod gateway;
 mod listener;
 pub(crate) mod logout;
@@ -215,6 +215,22 @@ impl ServiceContext {
         nonce: Option<&str>,
         generation: u64,
     ) -> Result<Value, String> {
+        if !matches!(
+            &command,
+            NeighborRuntimeCommand::Status
+                | NeighborRuntimeCommand::Permission { .. }
+                | NeighborRuntimeCommand::OwnKeys
+                | NeighborRuntimeCommand::DeliveryStatus { .. }
+                | NeighborRuntimeCommand::Revoke
+        ) {
+            self.require_neighbors_enabled()
+                .map_err(|error| error.to_string())?;
+        }
+        if matches!(&command, NeighborRuntimeCommand::SetPermission { .. })
+            || (caller.is_some() && matches!(&command, NeighborRuntimeCommand::Bind { .. }))
+        {
+            self.require_neighbor_general(caller, nonce)?;
+        }
         let (transport, registry, scope, metadata) = self.neighbor_ports().await?;
         let registry = match &command {
             NeighborRuntimeCommand::Enroll {
@@ -248,7 +264,7 @@ impl ServiceContext {
                     let keys = if receiver_status.receiving_here() { lifecycle.reconcile().await? } else { None };
                     let id = keys.map(|keys| keys.verifier_key_id(&transport.uid));
                     let states = self.neighbor_cell().states.lock().clone();
-                    Ok(json!({"enrolled":id.is_some(),"verifier_key_id":id,"bindings":settings.bindings,"listeners":states,"receiving_here":receiver_status.receiving_here(),"receiver_machine_label":receiver_status.receiver_machine_label,"receiving_enabled":receiver_status.receiving_enabled,"revision":receiver_status.receiver_revision}))
+                    Ok(json!({"enabled":self.configuration().neighbors.enabled,"enrolled":id.is_some(),"verifier_key_id":id,"bindings":settings.bindings,"listeners":states,"receiving_here":receiver_status.receiving_here(),"receiver_machine_label":receiver_status.receiver_machine_label,"receiving_enabled":receiver_status.receiving_enabled,"revision":receiver_status.receiver_revision}))
                 }
                 NeighborRuntimeCommand::Enroll { takeover_confirmed, expected_receiver_revision } => {
                     if expected_receiver_revision != receiver_status.receiver_revision { return Err(Error::ReceiverRevisionStale); }
@@ -291,7 +307,6 @@ impl ServiceContext {
                     Ok(json!(metadata.settings().await?.permissions.get(&friendship_id).cloned().unwrap_or_default()))
                 }
                 NeighborRuntimeCommand::SetPermission { friendship_id, permission } => {
-                    self.require_neighbor_general(caller, nonce).map_err(|_| Error::Gateway)?;
                     if !hex_id(&friendship_id, 64) { return Err(Error::InvalidEnvelope); }
                     permission.validate()?;
                     transport.peer_keys(&friendship_id).await?;
@@ -348,6 +363,7 @@ impl ServiceContext {
         metadata: &Metadata,
         outgoing: Outgoing,
     ) -> codeterm_neighbors::Result<Value> {
+        self.require_neighbors_enabled()?;
         let Outgoing {
             friendship,
             kind,
@@ -412,6 +428,7 @@ impl ServiceContext {
             &mut rand::rngs::OsRng,
         )?;
         let signed = keys.sign(envelope)?;
+        self.require_neighbors_enabled()?;
         match transport.send(&signed).await {
             Ok(status) => Ok(json!({"message_id":signed.envelope.message_id,"status":status})),
             Err(Error::Transport) => Ok(
@@ -441,6 +458,22 @@ impl ServiceContext {
         }
     }
 
+    pub(super) async fn neighbor_receiver_changed(&self) -> Result<(), String> {
+        self.require_neighbors_enabled().map_err(|e| e.to_string())?;
+        self.neighbor_cell().receiver.lock().take();
+        self.stop_neighbor_listeners();
+        self.neighbor_operation(owner::Operation::ReceiverChanged).await?;
+        Ok(())
+    }
+
+    pub(super) fn pause_neighbor_reception(&self) {
+        if let Some(task) = self.neighbor_cell().control.lock().take() { task.abort(); }
+        self.stop_neighbor_listeners();
+        self.neighbor_cell()
+            .bootstrapped
+            .store(false, Ordering::Release);
+    }
+
     async fn start_neighbor_listeners(
         &self,
         transport: Arc<FirebaseTransport>,
@@ -449,6 +482,8 @@ impl ServiceContext {
         metadata: Metadata,
         generation: u64,
     ) -> Result<(), String> {
+        self.require_neighbors_enabled()
+            .map_err(|error| error.to_string())?;
         self.watch_neighbor_receiver(transport.clone(), generation)
             .await?;
         let status = self
@@ -545,6 +580,9 @@ impl ServiceContext {
 
     #[cfg(not(any(test, feature = "test-support")))]
     pub(crate) fn restore_neighbors_once(&self) {
+        if self.require_neighbors_enabled().is_err() {
+            return;
+        }
         if self
             .neighbor_cell()
             .bootstrapped
@@ -563,6 +601,7 @@ impl ServiceContext {
             task.abort();
         }
         self.neighbor_cell().receiver.lock().take();
+        self.stop_neighbor_updates();
         self.neighbor_cell()
             .generation
             .fetch_add(1, Ordering::AcqRel);

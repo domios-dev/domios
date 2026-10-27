@@ -77,14 +77,6 @@ impl ServiceContext {
                     generation,
                 )
                 .await?;
-                let list = self
-                    .neighbor_registry(super::super::NeighborCommand::List {})
-                    .await?;
-                self.require_neighbor_generation(generation)?;
-                self.ui.emit(
-                    "neighbors-changed",
-                    json!({"uid":transport.uid,"list":list}),
-                );
                 Ok(Outcome::Value(Value::Null))
             }
             Operation::Command {

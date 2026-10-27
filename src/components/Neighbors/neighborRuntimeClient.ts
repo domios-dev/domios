@@ -57,13 +57,13 @@ async function call(command: Record<string, unknown>, signal?: AbortSignal): Pro
   });
   if (!response.ok) {
     const failure: unknown = await response.json().catch(() => null);
-    const reason = record(failure) && (["installation_unverified", "receiver_elsewhere", "receiver_revision_stale", "not_receiver", "recipient_not_receiving"] as const).find(reason => reason === failure.code);
+    const reason = record(failure) && (["neighbors_disabled", "installation_unverified", "receiver_elsewhere", "receiver_revision_stale", "not_receiver", "recipient_not_receiving"] as const).find(reason => reason === failure.code);
     throw new NeighborRuntimeFailure(reason || "unavailable");
   }
   return response.json();
 }
 
-export type ReceiverRefusal = "installation_unverified" | "receiver_elsewhere" | "receiver_revision_stale" | "not_receiver" | "recipient_not_receiving" | "unavailable";
+export type ReceiverRefusal = "neighbors_disabled" | "installation_unverified" | "receiver_elsewhere" | "receiver_revision_stale" | "not_receiver" | "recipient_not_receiving" | "unavailable";
 export class NeighborRuntimeFailure extends Error {
   constructor(readonly reason: ReceiverRefusal) { super(reason); }
 }

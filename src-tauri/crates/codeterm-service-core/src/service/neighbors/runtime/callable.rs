@@ -5,7 +5,7 @@ use codeterm_neighbors::{adapter::AuthenticatedCall, Error, Result};
 use serde_json::Value;
 use zeroize::Zeroizing;
 
-pub(super) struct Calls {
+pub(in crate::service::neighbors) struct Calls {
     pub service: ServiceContext,
     pub uid: String,
     pub generation: u64,

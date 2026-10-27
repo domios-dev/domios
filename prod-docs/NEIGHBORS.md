@@ -2,6 +2,8 @@
 
 Neighbors connect two Domios accounts through an encrypted channel. Manage connections in Neighborhood at the bottom of the sidebar; connected Neighbors also appear in the Neighbors sidebar section. Free keeps existing connections and can accept, configure or remove them; its message channel is locked and offers an upgrade.
 
+Neighbors is on by default for each instance. Its switch stops receiving, sending and request notifications immediately without restarting Domios; connections, keys and local scopes remain saved, and listing connections still works. Turning it back on resumes the signed-in account's listeners. A disabled channel refuses sends, grants, gateway binding and incoming admission with `neighbors_disabled`. Signing out separately revokes this installation's receiving keys.
+
 ## Receive on this machine
 
 Open a Neighbor in Neighborhood, choose Messages, then Receive here. Confirm that receiving moves to this machine and other machines stop receiving. One installation key pair serves all gateway tabs. Reopening or recreating a gateway tab keeps the same keys. Rotate keys explicitly, or revoke them when signing out. Messages waiting for a revoked key become `not_delivered`. Receiving on several machines at once is outside this version's scope.
@@ -52,8 +54,10 @@ The encrypted payload is at most 8192 bytes including its authentication tag, le
 
 A failed receive stream reconnects with fresh authentication from the durable cursor, using at most three bounded recovery attempts. Reception status shows connecting, receiving, reconnecting or stopped. Use **Retry reception** in the channel UI after it stops. The retry resumes receiving; it never resends an uncertain message.
 
-The server stores ciphertext and content-free delivery metadata. Plaintext may appear in the local gateway history, provider session transcript and local delivery stores with user-only permissions. Closing the gateway removes its local pending delivery data under the tab cleanup lifecycle. Native crash dumps remain a residual risk while sensitive data is live in process memory; Neighbor code does not log or upload payloads or private keys.
+Messages are end-to-end encrypted. The backend holds inbox ciphertext until the receiver acknowledges delivery, then deletes it. Domios keeps no message archive: conversation history lives only in the gateway tab on the receiving machine, including its local session transcript. The backend retains friendships and pending connection requests, public keys, and content-free delivery receipt metadata; it cannot read message bodies.
+
+Local gateway history and pending delivery records use user-only permissions. Closing the gateway removes its local pending delivery data under the tab cleanup lifecycle. Native crash dumps remain a residual risk while sensitive data is live in process memory; Neighbor code does not log or upload payloads or private keys.
 
 Use the revision returned by status when confirming Receive here. Receiving on another machine never moves automatically. If the revision is stale, read status and confirm again. Runtime status and receiver-change events expose `receiving_here`, `receiver_machine_label`, `receiving_enabled`, and `revision`. A Neighbor marked not receiving right now cannot receive a new message.
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->

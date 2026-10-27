@@ -2,6 +2,7 @@ use super::{auth::CallerIdentity, routes::AppState};
 use axum::{
     extract::{rejection::JsonRejection, Query, State},
     http::StatusCode,
+    response::{IntoResponse, Response},
     Extension, Json,
 };
 use codeterm_account::Status;
@@ -243,38 +244,56 @@ pub async fn neighbor_runtime(
     caller: Option<Extension<CallerIdentity>>,
     headers: axum::http::HeaderMap,
     Json(command): Json<codeterm_service_core::service::neighbors::NeighborRuntimeCommand>,
-) -> Result<Json<serde_json::Value>, axum::response::Response> {
-    use axum::response::IntoResponse;
-    admit(caller.as_ref()).map_err(IntoResponse::into_response)?;
-    let tab = crate::tab_routes::caller_tab_header(&headers);
-    let nonce = headers
-        .get("x-codeterm-binding-nonce")
-        .and_then(|value| value.to_str().ok());
+) -> Result<Json<serde_json::Value>, Response> {
+    let (tab, nonce) = match caller.as_ref().map(|caller| &caller.0) {
+        Some(CallerIdentity::Tab(caller)) => (
+            Some(caller.tab_id.clone()),
+            Some(caller.binding_nonce.as_str()),
+        ),
+        Some(CallerIdentity::Local) => (
+            crate::tab_routes::caller_tab_header(&headers),
+            headers
+                .get("x-codeterm-binding-nonce")
+                .and_then(|value| value.to_str().ok()),
+        ),
+        _ => return Err((StatusCode::FORBIDDEN, "Account access is local-only").into_response()),
+    };
     state
         .svc
         .neighbor_runtime(command, tab.as_deref(), nonce)
         .await
         .map(Json)
-        .map_err(neighbor_runtime_failure)
+        .map_err(neighbor_failure)
 }
 
-fn neighbor_runtime_failure(message: String) -> axum::response::Response {
-    use axum::response::IntoResponse;
+fn neighbor_failure(message: String) -> Response {
     let reason = message.split_once(':').map(|(reason, _)| reason);
-    match reason {
-        Some(
-            code @ ("receiver_elsewhere"
-            | "receiver_revision_stale"
-            | "not_receiver"
-            | "recipient_not_receiving"
-            | "installation_unverified"),
-        ) => (
-            StatusCode::CONFLICT,
-            Json(serde_json::json!({"code":code,"message":message})),
-        )
-            .into_response(),
-        _ => unavailable(message).into_response(),
-    }
+    let status = match reason {
+        Some("neighbors_disabled") => StatusCode::SERVICE_UNAVAILABLE,
+        Some("receiver_elsewhere" | "receiver_revision_stale" | "not_receiver" | "recipient_not_receiving" | "installation_unverified") => StatusCode::CONFLICT,
+        _ => return unavailable(message).into_response(),
+    };
+    (status, Json(serde_json::json!({"code":reason,"reason":reason,"message":message,"error":message}))).into_response()
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NeighborEnabled {
+    enabled: bool,
+}
+
+pub async fn neighbors_set_enabled(
+    State(state): State<AppState>,
+    caller: Option<Extension<CallerIdentity>>,
+    Json(body): Json<NeighborEnabled>,
+) -> Result<Json<serde_json::Value>, Error> {
+    admit(caller.as_ref())?;
+    let enabled = state
+        .svc
+        .set_neighbors_enabled(body.enabled)
+        .await
+        .map_err(unavailable)?;
+    Ok(Json(serde_json::json!({"ok":true,"enabled":enabled})))
 }
 
 pub async fn billing_operation(

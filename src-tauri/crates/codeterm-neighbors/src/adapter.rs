@@ -1,5 +1,4 @@
 mod firestore;
-pub use firestore::control::ControlChange;
 mod receiver;
 pub use receiver::{Enrollment, ReceiverStatus};
 #[cfg(test)]
@@ -25,6 +24,12 @@ pub struct FirebaseTransport {
     pub project: String,
     pub uid: String,
     pub installation_id: String,
+}
+
+impl FirebaseTransport {
+    pub async fn listen_registry(&self) -> Result<Box<dyn crate::registry::RegistryListener>> {
+        firestore::registry::listen(self).await
+    }
 }
 
 #[async_trait]

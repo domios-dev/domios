@@ -60,6 +60,7 @@ impl ServiceContext {
         transport: Arc<FirebaseTransport>,
         generation: u64,
     ) -> Result<(), String> {
+        self.require_neighbors_enabled().map_err(|e| e.to_string())?;
         if self
             .neighbor_cell()
             .control
@@ -80,14 +81,12 @@ impl ServiceContext {
         self.require_neighbor_generation(generation)?;
         let service = self.clone();
         let task = tokio::spawn(async move {
-            while let Ok(Some(change)) = listener.changed().await {
+            while let Ok(Some(())) = listener.changed().await {
                 if service.require_neighbor_generation(generation).is_err() {
                     return;
                 }
-                if matches!(change, codeterm_neighbors::adapter::ControlChange::Receiver) {
-                    service.neighbor_cell().receiver.lock().take();
-                    service.stop_neighbor_listeners();
-                }
+                service.neighbor_cell().receiver.lock().take();
+                service.stop_neighbor_listeners();
                 let _ = service
                     .neighbor_operation(owner::Operation::ReceiverChanged)
                     .await;
@@ -101,7 +100,9 @@ impl ServiceContext {
                 );
             }
         });
-        *self.neighbor_cell().control.lock() = Some(task);
+        let mut slot = self.neighbor_cell().control.lock();
+        if self.require_neighbors_enabled().is_err() { task.abort(); return Err(Error::Disabled.to_string()); }
+        *slot = Some(task);
         Ok(())
     }
 }

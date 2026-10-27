@@ -33,6 +33,7 @@ pub(super) struct Session {
 
 impl Session {
     fn current(&self) -> codeterm_neighbors::Result<()> {
+        self.service.require_neighbors_enabled()?;
         self.service
             .require_neighbor_receiver(Some(self.receiver_revision))?;
         if self

@@ -14,7 +14,7 @@ import { localFetch } from "../../lib/webApi";
 
 const notices = vi.hoisted(() => ({ publishNotice: vi.fn() }));
 const transport = vi.hoisted(() => ({ localFetch: vi.fn() }));
-const bridge = vi.hoisted(() => ({ handlers: {} as Record<string, (event?: { payload: unknown }) => void>, invoke: vi.fn(async () => undefined) }));
+const bridge = vi.hoisted(() => ({ handlers: {} as Record<string, Set<(event: { payload: unknown }) => void>>, invoke: vi.fn(async () => undefined) }));
 const account = vi.hoisted(() => ({ model: { kind: "signed_in", identity: { uid: "owner", email: "me@example.test", display_name: "Me", photo_url: null } } as Record<string, unknown>, signIn: vi.fn() }));
 const mux = vi.hoisted(() => ({
   workspaces: [{ id: "ws-general", name: "General", tabs: ["tab-general"], protected: true }, { id: "ws-work", name: "Work", tabs: ["tab-gateway"] }],
@@ -22,9 +22,10 @@ const mux = vi.hoisted(() => ({
 }));
 vi.mock("../../lib/webApi", async actual => ({ ...await actual<object>(), ...transport }));
 vi.mock("../../lib/notices", () => notices);
-vi.mock("../../lib/bridge", () => ({ invoke: bridge.invoke, listen: vi.fn(async (event: string, handler: (event?: { payload: unknown }) => void) => {
-  bridge.handlers[event] = handler;
-  return () => { delete bridge.handlers[event]; };
+vi.mock("../../lib/bridge", () => ({ invoke: bridge.invoke, listen: vi.fn(async (event: string, handler: (event: { payload: unknown }) => void) => {
+  const handlers = bridge.handlers[event] ??= new Set();
+  handlers.add(handler);
+  return () => { handlers.delete(handler); if (handlers.size === 0) delete bridge.handlers[event]; };
 }) }));
 vi.mock("../Settings/useAccount", () => ({ useAccount: () => ({ model: account.model, signIn: account.signIn, signOut: vi.fn() }) }));
 vi.mock("../../store/multiplexer", () => ({ useMuxSelector: (select: (state: typeof mux) => unknown) => select(mux) }));
@@ -50,6 +51,10 @@ function button(label: string): HTMLButtonElement {
 }
 const hasButton = (label: string) => Array.from(document.querySelectorAll("button")).some(element => element.getAttribute("aria-label") === label || element.textContent === label);
 
+function emit(event: string, payload: unknown = null) {
+  for (const handler of bridge.handlers[event] ?? []) handler({ payload });
+}
+
 function runtime(bindings: Record<string, string> = {}): NeighborRuntimeClient {
   return {
     subscribe: vi.fn(async () => () => {}), status: vi.fn(async () => ({ enrolled: false, bindings, receiving_here: false, receiving_enabled: false, receiver_machine_label: null, revision: 0 })), enroll: vi.fn(async () => {}), rotate: vi.fn(async () => {}),
@@ -69,14 +74,29 @@ async function render(access: NeighborList["access"] = "paid", options: { canInv
 
 const sentText = () => bridge.invoke.mock.calls.map(call => (call as unknown as [string, { tabId: string; text: string }])[1]);
 
-it("draws you, each Neighbor and request, and notifies once for a new request", async () => {
+it("draws you, each Neighbor and request without duplicating daemon notifications", async () => {
   const { client } = await render();
   expect(hasButton("Ada, connected")).toBe(true);
   expect(hasButton("Grace, wants to connect")).toBe(true);
-  expect(notices.publishNotice).toHaveBeenCalledTimes(1);
+  expect(notices.publishNotice).not.toHaveBeenCalled();
   await act(async () => button("Refresh Neighbors").click());
   expect(client.list).toHaveBeenCalledTimes(2);
-  expect(notices.publishNotice).toHaveBeenCalledTimes(1);
+  expect(notices.publishNotice).not.toHaveBeenCalled();
+});
+
+it("updates the graph from an own-account push and ignores foreign or stale loads", async () => {
+  const { client, list } = await render();
+  let finish!: (value: NeighborList) => void;
+  vi.mocked(client.list).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  await act(async () => button("Refresh Neighbors").click());
+  const newer = { ...list, friends: [{ ...neighbor, displayName: "Lin" }], incoming: [] };
+  await act(async () => { emit("neighbors-changed", { uid: "other", list: newer }); });
+  expect(hasButton("Ada, connected")).toBe(true);
+  await act(async () => { emit("neighbors-changed", { uid: "owner", list: newer }); });
+  expect(hasButton("Lin, connected")).toBe(true);
+  expect(hasButton("Grace, wants to connect")).toBe(false);
+  await act(async () => finish(list));
+  expect(hasButton("Lin, connected")).toBe(true);
 });
 
 it("saves an email request once, then starts the permission interview in the General Agent", async () => {
@@ -183,7 +203,7 @@ it("refreshes the server's channel lock when signed entitlement access changes",
   expect(hasButton("View plans")).toBe(false);
   list.access = "locked";
   expect(bridge.handlers["entitlement-changed"]).toBeDefined();
-  await act(async () => bridge.handlers["entitlement-changed"]!());
+  await act(async () => emit("entitlement-changed"));
   expect(button("View plans")).toBeDefined();
   expect(button("Subscribe")).toBeDefined();
 });
@@ -254,6 +274,17 @@ it("keeps the sidebar Neighbors section away until there is a Neighbor", async (
   expect(document.querySelector('[data-testid="neighbors-section-toggle"]')).toBeNull();
 });
 
+it("updates the sidebar immediately from an own-account push and removes its subscription on unmount", async () => {
+  await renderSection([]);
+  const list = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
+  await act(async () => { emit("neighbors-changed", { uid: "owner", list }); });
+  expect(hasButton("Open Ada in Neighbors")).toBe(true);
+  await act(async () => mounted!.root.unmount());
+  expect(bridge.handlers["neighbors-changed"]).toBeUndefined();
+  mounted!.host.remove();
+  mounted = null;
+});
+
 it("opens a Neighbor's gateway tab from the sidebar, or the neighborhood when none is bound", async () => {
   await renderSection([neighbor, { ...neighbor, uid: "peer-2", displayName: "Lin", friendship_id: "pair-2" }], { pair: "tab-gateway" });
   const focused = vi.fn();
@@ -286,9 +317,9 @@ it("shows a sent invitation as its typed email with no profile and no action", a
 it("follows the daemon's pushed list for this account and ignores another account's", async () => {
   const { list } = await render();
   const pushed = { ...list, friends: [], incoming: [], outgoing: [{ id: "c".repeat(64), typed_email: "pushed@example.test", created_at: 1700000000, state: "pending" as const }] };
-  await act(async () => bridge.handlers["neighbors-changed"]!({ payload: { uid: "someone-else", list: pushed } }));
+  await act(async () => emit("neighbors-changed", { uid: "someone-else", list: pushed }));
   expect(hasButton("Ada, connected")).toBe(true);
-  await act(async () => bridge.handlers["neighbors-changed"]!({ payload: { uid: "owner", list: pushed } }));
+  await act(async () => emit("neighbors-changed", { uid: "owner", list: pushed }));
   expect(hasButton("Ada, connected")).toBe(false);
   expect(document.querySelector('[data-status="invited"]')?.textContent).toContain("pushed@example.test");
 });

@@ -1,5 +1,20 @@
 use super::*;
 
+mod neighbor_authority;
+
+#[tokio::test]
+async fn neighbor_disabled_response_keeps_a_typed_reason() {
+    let response =
+        neighbor_failure("neighbors_disabled: Neighbors is turned off on this instance".into());
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let bytes = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["code"], "neighbors_disabled");
+    assert_eq!(body["reason"], "neighbors_disabled");
+}
+
 #[tokio::test]
 async fn pending_login_route_is_compiled_out_without_debug_assertions() {
     use axum::{body::Body, http::Request};
@@ -576,16 +591,16 @@ async fn receiver_refusals_retain_machine_readable_codes() {
         "installation_unverified",
     ] {
         let message = format!("{code}: opaque explanation");
-        let response = neighbor_runtime_failure(message.clone());
+        let response = neighbor_failure(message.clone());
         assert_eq!(response.status(), StatusCode::CONFLICT);
         let body = axum::body::to_bytes(response.into_body(), 4096)
             .await
             .unwrap();
         let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(body, serde_json::json!({"code":code,"message":message}));
+        assert_eq!(body, serde_json::json!({"code":code,"reason":code,"message":message,"error":message}));
     }
     assert_eq!(
-        neighbor_runtime_failure("unavailable".into()).status(),
+        neighbor_failure("unavailable".into()).status(),
         StatusCode::SERVICE_UNAVAILABLE
     );
 }

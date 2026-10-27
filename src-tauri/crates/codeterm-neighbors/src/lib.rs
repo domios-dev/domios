@@ -5,6 +5,7 @@ pub mod gateway;
 pub mod keys;
 pub mod permissions;
 pub mod receive;
+pub mod registry;
 pub mod supervisor;
 pub mod wire;
 
@@ -30,6 +31,7 @@ pub enum Error {
     NotReceiver,
     RecipientNotReceiving,
     InstallationUnverified,
+    Disabled,
 }
 
 impl std::fmt::Display for Error {
@@ -61,6 +63,7 @@ impl std::fmt::Display for Error {
                 "recipient_not_receiving: This Neighbor is not receiving right now"
             }
             Self::Refused => "Neighbor request refused",
+            Self::Disabled => "neighbors_disabled: Neighbors is turned off on this instance",
         })
     }
 }
