@@ -13,8 +13,8 @@ import { UI_PANEL } from "../shared/design";
 import { useMuxSelector } from "../../store/multiplexer";
 import { askGeneralAgent, permissionInterviewTask } from "./neighborAgent";
 import type { NeighborClient } from "./neighborClient";
-import { neighborConciergeClient, type HistoryEntry, type NeighborConciergeClient, type NeighborNotify } from "./neighborConciergeClient";
-import { NOTIFY_CHOICES } from "./NeighborFriendPage";
+import { neighborConciergeClient, type HistoryEntry, type NeighborConciergeClient } from "./neighborConciergeClient";
+import { NOTIFY_CHOICES, useNeighborNotify } from "./neighborNotify";
 import { authorKind, continuesGroup, dayLabel, DELIVERY_LABEL, mergeHistory, refusalLine, speaker } from "./neighborConversationModel";
 import { openNeighborPage } from "./neighborFocus";
 import { neighborName, type Neighbor } from "./neighborModel";
@@ -93,22 +93,6 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
       (failure: unknown) => setError(failure instanceof Error ? failure.message : "Delivery could not be checked."))
       .finally(() => setChecking(null));
   };
-  const [notify, setNotify] = useState<NeighborNotify>(friend.notify ?? "in_app");
-  useEffect(() => { if (friend.notify) setNotify(friend.notify); }, [friend.notify]);
-  useEffect(() => {
-    let stop: (() => void) | undefined;
-    let live = true;
-    void conciergeClient.onNotifyChanged((changed, value) => { if (changed === friendship) setNotify(value); })
-      .then(unlisten => { if (live) stop = unlisten; else unlisten(); });
-    return () => { live = false; stop?.(); };
-  }, [conciergeClient, friendship]);
-  const changeNotify = (next: NeighborNotify) => {
-    const previous = notify;
-    setNotify(next);
-    void conciergeClient.setNotify(friendship, next).then(setNotify, (failure: unknown) => {
-      setNotify(previous); setError(failure instanceof Error ? failure.message : "Notifications could not be changed.");
-    });
-  };
   const concierge = useConciergeStatus(runtimeClient, enabled)[friendship] ?? null;
   const setUpWithGeneral = () => {
     void askGeneralAgent({ workspaces, tabs }, permissionInterviewTask({ name, friendshipId: friendship }))
@@ -120,6 +104,7 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
   const [historyEnded, setEnded] = useState(false);
   const ended = historyEnded || removed;
   const [error, setError] = useState<string | null>(null);
+  const [notify, changeNotify] = useNeighborNotify(conciergeClient, friendship, friend.notify, setError);
   const [sending, setSending] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
   const stickToEnd = useRef(true);

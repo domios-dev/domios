@@ -23,13 +23,8 @@ import { formatAge, formatUntil } from "../../lib/timeLabels";
 import type { NeighborPermission, NeighborRuntimeClient } from "./neighborRuntimeClient";
 import { useConciergeStatus, type ConciergeStatus } from "./useConciergeStatus";
 import { useNeighborPermission } from "./useNeighborPermission";
+import { NOTIFY_CHOICES, useNeighborNotify } from "./neighborNotify";
 import { receivingLine, useReceiverState } from "./useReceiverState";
-
-export const NOTIFY_CHOICES: { value: NeighborNotify; label: string }[] = [
-  { value: "off", label: "Off" },
-  { value: "in_app", label: "In Domios" },
-  { value: "in_app_and_bridges", label: "In Domios and your bridges" },
-];
 
 function conciergeState(status: ConciergeStatus | null, bound: boolean): { label: string; tone: "green" | "amber" | "muted" | "accent" } {
   if (status?.state === "concierge_missing" || (!status && !bound)) return { label: "missing", tone: "amber" };
@@ -61,8 +56,8 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
   const { providers } = useAgentProviders();
   const [changing, setChanging] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
-  const [notify, setNotify] = useState<NeighborNotify>(friend.notify ?? "in_app");
   const [error, setError] = useState<string | null>(null);
+  const [notify, changeNotify] = useNeighborNotify(conciergeClient, friendship, friend.notify, setError);
   const [quota, setQuota] = useState<NeighborFileQuota | null>(null);
   // The newest page of the conversation dates the last message and counts today's from them, as a floor when older pages remain.
   const [recent, setRecent] = useState<HistoryPage | null>(null);
@@ -83,14 +78,6 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
   const provider = gateway?.agent_type ? providers.find(entry => entry.id === gateway.agent_type) : undefined;
   const model = gateway?.agent_provider_resolved_model;
 
-  useEffect(() => { if (friend.notify) setNotify(friend.notify); }, [friend.notify]);
-  useEffect(() => {
-    let stop: (() => void) | undefined;
-    let live = true;
-    void conciergeClient.onNotifyChanged((changed, value) => { if (changed === friendship) setNotify(value); })
-      .then(unlisten => { if (live) stop = unlisten; else unlisten(); });
-    return () => { live = false; stop?.(); };
-  }, [conciergeClient, friendship]);
   const conciergeCard = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const target = section === "permissions" ? permissions.current : section === "concierge" ? conciergeCard.current : null;
@@ -189,12 +176,7 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
 
         <SettingsCard icon={<Bell size={16} />} title="Notifications" description={`Where ${name}'s messages reach you. Previews show only a first line.`}
           headerRight={<DropdownSelect aria-label="Notifications" value={notify} options={NOTIFY_CHOICES}
-            onChange={value => {
-              const next = value as NeighborNotify;
-              const previous = notify;
-              setNotify(next);
-              void conciergeClient.setNotify(friendship, next).then(setNotify, (failure: unknown) => { setNotify(previous); fail(failure, "Notifications could not be changed."); });
-            }} />} />
+            onChange={value => changeNotify(value as NeighborNotify)} />} />
 
         <SettingsCard icon={<UserX size={16} />} title="Remove friend" className="neighbor-friend__danger"
           description={`${name}'s agents lose access to yours, and you would need a new request to reconnect.`}
