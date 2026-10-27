@@ -138,3 +138,124 @@ fn cli_api_request_wire_cannot_downgrade_the_concierge_to_local_or_relay_foreign
         assert_eq!(response.error.unwrap().code, -32003, "{path}");
     }
 }
+
+#[test]
+fn own_pad_resolution_unblocks_named_reply_admission_and_foreign_pads_stay_denied() {
+    let (fixture, concierge, token) = fixture();
+    let foreign = {
+        let mut mux = fixture.service.mux.write();
+        let workspace = mux.find_workspace_for_tab(&concierge).unwrap();
+        mux.create_tab(&workspace).unwrap()
+    };
+    let result = request(
+        &fixture,
+        &token,
+        "tab.agent_pad",
+        Some(json!({"tab_id":concierge})),
+    )
+    .result
+    .unwrap();
+    let pad = std::path::Path::new(result["path"].as_str().unwrap());
+    assert!(pad.starts_with(fixture.temp.path()));
+    assert_eq!(pad.file_name().unwrap().to_str(), Some(concierge.as_str()));
+    std::fs::write(pad.join("answer.md"), b"opaque reply").unwrap();
+    let reply = std::fs::read_to_string(pad.join("answer.md")).unwrap();
+    assert_eq!(
+        request(
+            &fixture,
+            &token,
+            "tab.agent_pad",
+            Some(json!({"tab_id":foreign}))
+        )
+        .error
+        .unwrap()
+        .code,
+        -32003
+    );
+    assert!(!fixture
+        .temp
+        .path()
+        .join("runtime/agent-pads")
+        .join(foreign)
+        .exists());
+    let command = json!({"method":"POST","path":"/api/account/neighbors/runtime","body":{"operation":"send","friendship_id":"a".repeat(64),"kind":"answer","body":reply,"in_reply_to":"1".repeat(32)}});
+    assert!(codeterm_service_core::async_runtime::block_on(
+        fixture
+            .service
+            .authorize_neighbor_rpc_credential(&token, "api.request", Some(&command))
+    )
+    .is_ok());
+}
+
+#[test]
+fn concierge_self_discovery_and_todo_reads_expose_only_the_allowed_surface() {
+    let (fixture, concierge, token) = fixture();
+    assert_eq!(
+        request(&fixture, &token, "system.identify", None)
+            .result
+            .unwrap()["name"],
+        codeterm_build_info::PRODUCT_NAME
+    );
+    let discovery = request(&fixture, &token, "system.capabilities", None)
+        .result
+        .unwrap();
+    let methods = discovery["methods"].as_array().unwrap();
+    assert!(methods.iter().any(|method| method == "tab.agent_pad"));
+    assert!(!methods.iter().any(|method| method == "tab.get_output"
+        || method == "model_provider.discover"
+        || method == "notification.create"));
+    assert_eq!(discovery["plugins"], json!([]));
+    assert!(request(
+        &fixture,
+        &token,
+        "tab.todo.list",
+        Some(json!({"tab_id":concierge}))
+    )
+    .result
+    .is_some());
+    assert_eq!(
+        request(
+            &fixture,
+            &token,
+            "tab.todo.list",
+            Some(json!({"tab_id":"foreign"}))
+        )
+        .error
+        .unwrap()
+        .code,
+        -32003
+    );
+}
+
+#[test]
+fn pad_resolution_requires_an_explicit_own_target_and_current_credential_nonce() {
+    let (fixture, concierge, token) = fixture();
+    for params in [
+        None,
+        Some(json!({})),
+        Some(json!({"tab_id":concierge,"caller_tab_id":"foreign"})),
+    ] {
+        assert_eq!(
+            request(&fixture, &token, "tab.agent_pad", params)
+                .error
+                .unwrap()
+                .code,
+            -32003
+        );
+    }
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&concierge)
+        .unwrap()
+        .session_binding_nonce = Some("replacement-nonce".into());
+    assert!(request(
+        &fixture,
+        &token,
+        "tab.agent_pad",
+        Some(json!({"tab_id":concierge}))
+    )
+    .error
+    .is_some());
+}

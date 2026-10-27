@@ -153,6 +153,19 @@ pub(crate) async fn dispatch(
             })),
         ));
     }
+    if let Some(value) = state
+        .svc
+        .neighbor_rpc_discovery(token, &request.method)
+        .await
+        .map_err(|message| {
+            (
+                StatusCode::FORBIDDEN,
+                Json(serde_json::json!({"error":{"code":-32003,"message":message}})),
+            )
+        })?
+    {
+        return Ok(Json(serde_json::json!({"result":value})));
+    }
     if matches!(
         request.method.as_str(),
         "agent.startup_ack" | "agent.ack" | "agent.report" | "tab.send_text"

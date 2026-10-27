@@ -272,3 +272,40 @@ async fn a_ready_credential_is_revoked_when_its_session_is_removed_before_a_hook
         StatusCode::UNAUTHORIZED
     );
 }
+
+#[tokio::test]
+async fn own_todo_read_is_intrinsic_but_foreign_todos_never_reach_http_dispatch() {
+    use axum::{body::Body, http::Request, Router};
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+    use tower::ServiceExt;
+    let (_fixture, state, concierge, token) = concierge_fixture(false).await;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let downstream = calls.clone();
+    let router = Router::new()
+        .fallback(move || {
+            let calls = downstream.clone();
+            async move {
+                calls.fetch_add(1, Ordering::SeqCst);
+                StatusCode::NO_CONTENT
+            }
+        })
+        .layer(axum::middleware::from_fn_with_state(state, auth_middleware));
+    for (target, expected) in [
+        (concierge.as_str(), StatusCode::NO_CONTENT),
+        ("foreign", StatusCode::FORBIDDEN),
+    ] {
+        let request = Request::builder()
+            .uri(format!("/api/tabs/{target}/todos"))
+            .header("authorization", format!("Bearer {token}"))
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(
+            router.clone().oneshot(request).await.unwrap().status(),
+            expected
+        );
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
