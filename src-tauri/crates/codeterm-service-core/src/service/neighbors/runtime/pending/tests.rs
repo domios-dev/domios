@@ -38,6 +38,75 @@ fn receiving() -> ReceiverStatus {
     }
 }
 
+#[test]
+fn restored_concierge_reports_starting_until_its_own_runtime_is_live_and_ready() {
+    use crate::multiplexer::types::TabBacking;
+    use codeterm_types::pty::BootStage;
+
+    let (mut mux, general) = MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&general).unwrap();
+    let gateway = mux.create_tab(&workspace).unwrap();
+    let tab = mux.get_tab_mut(&gateway).unwrap();
+    tab.agent_type = Some("neighbor-runtime-fixture".into());
+    tab.agent_session_id = Some("saved-thread".into());
+    tab.session_binding_nonce = Some("own-nonce".into());
+    tab.reported_session_binding_nonce = Some("own-nonce".into());
+    tab.restored_from_snapshot = true;
+    tab.agent_booting = true;
+    tab.boot_stage = Some(BootStage::AgentLaunching);
+    tab.backing = TabBacking::ChatBackend {
+        plugin_id: "neighbor-runtime-fixture".into(),
+        session_id: "saved-thread".into(),
+    };
+    let fixture = ServiceFixture::new(mux);
+    let service = &fixture.service;
+    let manifest = codeterm_plugin::js_runtime::PluginManifest::from_json_str(
+        &json!({"id":"neighbor-runtime-fixture","version":"1.0.0","displayName":"Fixture",
+            "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true},
+                "agentRuntime":{"runtimeModes":[],"runtime":"stdio-jsonrpc",
+                    "command":{"binary":"fixture-cli","args":[]},
+                    "requestMethods":{"initialize":["handshake"]},"notificationMethods":[]}},
+            "permissions":{"subprocess":{"allow":["fixture-cli"]}}})
+        .to_string(),
+    )
+    .unwrap();
+    let vm = Arc::new(
+        codeterm_plugin::js_runtime::PluginVm::from_source(
+            "neighbor-runtime-fixture",
+            "module.exports={}".into(),
+        )
+        .unwrap(),
+    );
+    service.agent_registry.register_provider(Box::new(
+        codeterm_plugin::js_runtime::JsProvider::new(manifest, vm),
+    ));
+    let friendship = "a".repeat(64);
+    let mut settings = Settings::default();
+    settings
+        .bindings
+        .insert(friendship.clone(), gateway.clone());
+    let state =
+        || service.neighbor_concierge_view(&friendship, &settings, &receiving())["state"].clone();
+    assert_eq!(state(), "concierge_starting");
+    {
+        let mut mux = service.mux.write();
+        let tab = mux.get_tab_mut(&gateway).unwrap();
+        tab.agent_booting = false;
+        tab.boot_stage = Some(BootStage::AgentReady);
+    }
+    assert_eq!(state(), "concierge_starting");
+    let prepared = service.mux.read().get_tab(&gateway).unwrap().clone();
+    let _live = crate::service::agent_runtime::engine::test_support::live_runtime(&prepared);
+    assert_eq!(state(), "ready");
+    service
+        .mux
+        .write()
+        .get_tab_mut(&gateway)
+        .unwrap()
+        .reported_session_binding_nonce = Some("foreign-nonce".into());
+    assert_eq!(state(), "concierge_starting");
+}
+
 #[tokio::test]
 async fn missing_concierge_never_admits_acknowledges_or_advances_a_cursor() {
     let (mux, _) = MultiplexerState::new();
@@ -150,7 +219,7 @@ async fn receiver_move_keeps_local_concierge_and_never_copies_bindings_or_permis
     let mut receiver = receiving();
     assert_eq!(
         service.neighbor_concierge_view(&friendship, &settings, &receiver)["state"],
-        "ready"
+        "concierge_starting"
     );
     receiver.is_me = false;
     receiver.receiver_machine_label = Some("Other machine".into());

@@ -25,6 +25,38 @@ pub(super) struct Gateway {
 }
 
 impl ServiceContext {
+    pub(super) fn neighbor_gateway_ready(&self, tab_id: &str) -> bool {
+        let runtime = crate::service::agent_runtime::requested_for_tab(self, tab_id);
+        let mux = self.mux.read();
+        mux.get_tab(tab_id).is_some_and(|tab| {
+            !tab.frozen
+                && !tab.agent_booting
+                && tab.boot_stage == Some(codeterm_types::pty::BootStage::AgentReady)
+                && tab.launch_session_authenticated()
+                && (!runtime || crate::service::agent_runtime::engine::has_live_bound_session(tab))
+        })
+    }
+
+    pub(super) async fn prepare_neighbor_gateway(&self, tab_id: &str) -> Result<()> {
+        self.validate_neighbor_gateway(tab_id)
+            .map_err(|_| Error::Gateway)?;
+        if crate::service::agent_runtime::requested_for_tab(self, tab_id) {
+            let service = self.clone();
+            let tab = tab_id.to_owned();
+            tokio::task::spawn_blocking(move || service.wake_frozen_tab(&tab))
+                .await
+                .map_err(|_| Error::Gateway)?
+                .map_err(|_| Error::Gateway)?;
+            crate::service::agent_runtime::engine::ensure(self, tab_id)
+                .await
+                .map_err(|error| {
+                    log::debug!("[neighbors] concierge startup tab={tab_id}: {error}");
+                    Error::Gateway
+                })?;
+        }
+        Ok(())
+    }
+
     pub(super) fn validate_neighbor_gateway(
         &self,
         tab_id: &str,
