@@ -138,6 +138,9 @@ fn refusal(body: &Value) -> Error {
         Some("invalid_request") => Error::InvalidRequest,
         Some("friendship_not_found") => Error::FriendshipNotFound,
         Some("invalid_envelope") => Error::InvalidEnvelope,
+        Some("too_large") => Error::MessageTooLarge {
+            limit: codeterm_neighbors::wire::MAX_PLAINTEXT_BYTES as u64,
+        },
         Some("operation_id_conflict") => Error::OperationIdConflict,
         Some("installation_unverified") => Error::InstallationUnverified,
         Some("receiver_elsewhere") => Error::ReceiverElsewhere,

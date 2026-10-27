@@ -36,6 +36,7 @@ fn plaintext_size_boundary_is_typed_in_utf8_bytes() {
     );
     let mut envelope: Envelope = serde_json::from_value(vector["envelope"].clone()).unwrap();
     let mut body = "é".repeat(crate::wire::MAX_PLAINTEXT_BYTES / 2);
+    assert_eq!(body.len(), 32752);
     assert!(sender
         .encrypt_with_nonce(
             &mut envelope,
@@ -44,6 +45,15 @@ fn plaintext_size_boundary_is_typed_in_utf8_bytes() {
             [0; 12]
         )
         .is_ok());
+    assert_eq!(
+        crate::wire::decode_url(&envelope.ciphertext, 16, crate::wire::MAX_CIPHERTEXT_BYTES)
+            .unwrap()
+            .len(),
+        32768
+    );
+    let mut oversized_envelope = envelope.clone();
+    oversized_envelope.ciphertext = URL_SAFE_NO_PAD.encode(vec![0; 32769]);
+    assert_eq!(oversized_envelope.validate(), Err(Error::InvalidEnvelope));
     body.push('x');
     assert_eq!(
         sender.encrypt_with_nonce(
@@ -52,7 +62,7 @@ fn plaintext_size_boundary_is_typed_in_utf8_bytes() {
             &body,
             [0; 12]
         ),
-        Err(Error::MessageTooLarge { limit: 8176 })
+        Err(Error::MessageTooLarge { limit: 32752 })
     );
 }
 

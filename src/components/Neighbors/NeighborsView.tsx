@@ -26,7 +26,6 @@ import { useNeighborsSwitch } from "./neighborsSwitch";
 import { readNeighborCache, writeNeighborCache, type CachedNeighbors } from "./neighborListCache";
 import { ActivityDots } from "../shared/ActivityDots";
 import { receivingLine, useReceiverState } from "./useReceiverState";
-import { takeoverWarning } from "./NeighborChannel";
 
 const openPlans = () => window.dispatchEvent(new CustomEvent("codeterm:open-panel", { detail: { panel: "settings:plans" } }));
 
@@ -232,6 +231,12 @@ function NodeButton({ node, index, selected, canInvite, onSelect }: {
 }
 
 /** Taking over receiving names who stops, and that concierges and permissions stay per machine. */
+function takeoverWarning(status: ReceiverState): string {
+  const perMachine = "Concierges and permissions are per machine: friends without a concierge on this machine will wait until you set their permissions here.";
+  if (!status.receiving_enabled) return `This machine will start receiving Neighbor messages. ${perMachine}`;
+  return `${status.receiver_machine_label ?? "The other machine"} will stop receiving Neighbor messages. ${perMachine}`;
+}
+
 function ReceiveHere({ receiver, client }: { receiver: ReceiverState; client: NeighborRuntimeClient }) {
   const [confirming, setConfirming] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);

@@ -10,11 +10,11 @@ async fn oversized_sends_are_typed_before_the_network_operation_queue() {
     let command = NeighborRuntimeCommand::Send {
         friendship_id: "a".repeat(64),
         kind: Kind::Question,
-        body: "x".repeat(8177),
+        body: "x".repeat(32753),
         in_reply_to: None,
     };
     tokio::select! {
-        result = fixture.service.neighbor_runtime(command, None, None) => assert_eq!(result.unwrap_err(), "message_too_large: {\"limit\":8176}"),
+        result = fixture.service.neighbor_runtime(command, None, None) => assert_eq!(result.unwrap_err(), "message_too_large: {\"limit\":32752}"),
         _ = queued.recv() => panic!("An oversized body cannot reach network work"),
     }
 }
