@@ -98,11 +98,11 @@ describe("free-limit model", () => {
   });
 
   it("names each limit with its maximum", () => {
-    expect(limitHeadline("workspaces")).toBe("The free version includes 2 workspaces.");
-    expect(limitHeadline("teams")).toBe("The free version includes 6 Teams across all workspaces.");
-    expect(limitHeadline("agent.tabs")).toBe("The free version allows 35 tabs running at once.");
-    expect(limitHeadline("workspaces", 3)).toBe("The free version includes 3 workspaces.");
-    expect(limitHeadline("mesh.machines", 2)).toBe("The free version includes 2 machines in your mesh.");
+    expect(limitHeadline("workspaces")).toBe("Your plan includes 2 workspaces.");
+    expect(limitHeadline("teams")).toBe("Your plan includes 6 Teams across all workspaces.");
+    expect(limitHeadline("agent.tabs")).toBe("Your plan allows 35 tabs running at once.");
+    expect(limitHeadline("workspaces", 3)).toBe("Your plan includes 3 workspaces.");
+    expect(limitHeadline("mesh.machines", 2)).toBe("Your plan includes 2 machines in your mesh.");
   });
 });
 

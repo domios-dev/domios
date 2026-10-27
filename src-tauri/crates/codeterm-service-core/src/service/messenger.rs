@@ -1,6 +1,8 @@
 mod input;
 mod turn_resume;
-pub use input::{AgentInput, FramedDelivery, HumanInput, HumanKeys, LaunchBootstrap};
+pub use input::{
+    AgentInput, FramedDelivery, HumanInput, HumanKeys, InputProvenance, LaunchBootstrap,
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -19,6 +21,7 @@ pub struct MessageEnvelope {
     pub purpose: Option<String>,
     pub from_mesh: Option<String>,
     pub from_plugin: Option<String>,
+    pub from_neighbor: Option<String>,
     pub plugin_icon_svg: Option<String>,
     pub peer: Option<String>,
     pub set_at: Option<u64>,
@@ -312,7 +315,11 @@ impl Messenger {
     pub fn routed_frame(&self, body: &str) -> codeterm_wire::domios::DomiosFrame {
         codeterm_wire::domios::DomiosFrame {
             opening_tag: self.build(),
-            body: body.to_string(),
+            body: if self.envelope.from_neighbor.is_some() {
+                input::escape_neighbor_text(body)
+            } else {
+                body.to_string()
+            },
             suffix: self
                 .reply_hint()
                 .map(|hint| format!(" <tip>{hint}</tip>"))
@@ -747,7 +754,13 @@ impl Messenger {
             svc.chatbackend_send(
                 plugin_id,
                 session_id,
-                &AgentInput::Framed(Self::restore_framed_delivery(&marked)?),
+                &AgentInput::Framed(Self::restore_framed_delivery(&marked)?.with_provenance(
+                    if envelope.from_neighbor.is_some() {
+                        InputProvenance::Neighbor
+                    } else {
+                        InputProvenance::Local
+                    },
+                )),
             )
         }) {
             if inserted {
@@ -764,13 +777,17 @@ impl Messenger {
 
     /// Render the opening `<domios>` tag for this envelope.
     pub fn build(&self) -> String {
-        let marker_kind =
-            if self.envelope.kind == MessageKind::Message && self.envelope.from_tab.is_empty() {
-                "cli"
-            } else {
-                self.envelope.kind.marker_kind()
-            };
+        let marker_kind = if self.envelope.from_neighbor.is_some() {
+            "neighbor"
+        } else if self.envelope.kind == MessageKind::Message && self.envelope.from_tab.is_empty() {
+            "cli"
+        } else {
+            self.envelope.kind.marker_kind()
+        };
         let mut attrs = vec![("from", marker_kind.to_string())];
+        if let Some(friendship) = &self.envelope.from_neighbor {
+            attrs.push(("friendship", friendship.clone()));
+        }
         if marker_kind == "cli" {
             return domios_opening_tag(&attrs);
         }
@@ -1048,6 +1065,7 @@ fn inbound_model_context(envelope: &MessageEnvelope, body: &str) -> String {
                 .map(str::to_string),
         ),
         ("plugin", envelope.from_plugin.clone()),
+        ("friendship", envelope.from_neighbor.clone()),
     ] {
         if let Some(value) = value.filter(|value| !value.trim().is_empty()) {
             attrs.push((key, value));
@@ -1055,14 +1073,20 @@ fn inbound_model_context(envelope: &MessageEnvelope, body: &str) -> String {
     }
     codeterm_wire::domios::DomiosFrame {
         opening_tag: domios_opening_tag(&attrs),
-        body: body.to_string(),
+        body: if envelope.from_neighbor.is_some() {
+            input::escape_neighbor_text(body)
+        } else {
+            body.to_string()
+        },
         suffix: String::new(),
     }
     .to_message()
 }
 
 fn envelope_inbound_kind(envelope: &MessageEnvelope) -> &'static str {
-    if envelope.from_plugin.is_some() {
+    if envelope.from_neighbor.is_some() {
+        "neighbor"
+    } else if envelope.from_plugin.is_some() {
         "plugin"
     } else if envelope.kind == MessageKind::Message && envelope.from_tab.is_empty() {
         "cli"

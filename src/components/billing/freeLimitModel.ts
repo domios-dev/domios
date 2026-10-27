@@ -12,6 +12,8 @@ export type FreeLimitKey = LocalLimitKey | "mesh.machines";
 
 export interface FreeLimits {
   enforcing: boolean;
+  memoryMax?: number | null;
+  meshMax?: number | null;
   max: Record<LocalLimitKey, number | null>;
 }
 
@@ -43,7 +45,10 @@ export function parseFreeLimits(value: unknown): FreeLimits | null {
     if (!isMax(entry)) return null;
     max[key] = entry;
   }
-  return { enforcing: record.enforcing, max };
+  return { enforcing: record.enforcing, max,
+    ...(isMax(record["mem.items"]) ? { memoryMax: record["mem.items"] } : {}),
+    ...(isMax(record["mesh.machines"]) ? { meshMax: record["mesh.machines"] } : {}),
+  };
 }
 
 /** Local items only, mirroring the daemon: the protected General workspace and peer projections never count. */
@@ -99,15 +104,15 @@ const UNLOCKED: LockedView = { locked: false };
 
 /** Reads the daemon's `locked` mark on a workspace, tab, or Team; the daemon is the only authority. */
 export function lockedView(limit: LocalLimitKey, item: { locked?: boolean } | null | undefined): LockedView {
-  return item?.locked === true ? { locked: true, limit, label: `${LOCKED_NOUN[limit]} locked by the free plan` } : UNLOCKED;
+  return item?.locked === true ? { locked: true, limit, label: `${LOCKED_NOUN[limit]} locked by your plan` } : UNLOCKED;
 }
 
 /** A tab inherits the workspace and Team lock marks. */
 export function tabLockedView(tab: { locked?: boolean } | null | undefined, workspace: { locked?: boolean } | null | undefined, team?: { locked?: boolean } | null): LockedView {
   const own = lockedView("agent.tabs", tab);
   if (own.locked) return own;
-  if (workspace?.locked === true) return { locked: true, limit: "workspaces", label: "Tab locked: its workspace is over the free plan" };
-  if (team?.locked === true) return { locked: true, limit: "teams", label: "Tab locked: its Team is over the free plan" };
+  if (workspace?.locked === true) return { locked: true, limit: "workspaces", label: "Tab locked: its workspace is over your plan" };
+  if (team?.locked === true) return { locked: true, limit: "teams", label: "Tab locked: its Team is over your plan" };
   return own;
 }
 
@@ -124,10 +129,10 @@ export function freeLimitBlocked(key: FreeLimitKey): Error {
 export function limitHeadline(key: FreeLimitKey, max?: number | null): string {
   const count = max ?? COMPILED_FREE_MAX[key];
   switch (key) {
-    case "workspaces": return `The free version includes ${count} workspaces.`;
-    case "teams": return `The free version includes ${count} Teams across all workspaces.`;
-    case "agent.tabs": return `The free version allows ${count} ${TAB_LIMIT_NOUN}.`;
-    case "mesh.machines": return `The free version includes ${count} machines in your mesh.`;
+    case "workspaces": return `Your plan includes ${count} workspaces.`;
+    case "teams": return `Your plan includes ${count} Teams across all workspaces.`;
+    case "agent.tabs": return `Your plan allows ${count} ${TAB_LIMIT_NOUN}.`;
+    case "mesh.machines": return `Your plan includes ${count} machines in your mesh.`;
   }
 }
 

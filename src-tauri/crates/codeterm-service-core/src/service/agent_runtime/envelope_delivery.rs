@@ -24,10 +24,12 @@ fn outcome(status: ChatSendStatus) -> Result<Delivery, String> {
 pub(super) fn send(
     svc: &ServiceContext,
     tab: &str,
-    input: &str,
+    frame: &crate::service::messenger::FramedDelivery,
     token: &str,
     observer: Option<crate::service::messenger::DeliveryWriteObserver>,
 ) -> Result<Delivery, String> {
+    let rendered = frame.to_message();
+    let input = rendered.as_str();
     svc.wake_frozen_tab(tab)?;
     let token = format!("runtime-envelope:{token}");
     svc.restore_durable_user_statuses(tab)?;
@@ -65,7 +67,7 @@ pub(super) fn send(
         return outcome(status);
     }
     let store = &svc.pending_delivery_payloads.user_sends;
-    let record = store.admit_runtime_envelope(&reservation, input, observer)?;
+    let record = store.admit_runtime_envelope(&reservation, input, observer, frame.provenance())?;
     let status = svc.chat_send_ledger.admit_user(&record);
     let status = svc
         .chat_send_ledger

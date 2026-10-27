@@ -69,7 +69,12 @@ mod tests {
             .reserve(authority(), None, || ledger.reserve_identity())
             .unwrap();
         let record = store
-            .admit_runtime_envelope(&later, "opaque envelope", None)
+            .admit_runtime_envelope(
+                &later,
+                "opaque envelope",
+                None,
+                crate::service::messenger::InputProvenance::Local,
+            )
             .unwrap();
         ledger.admit_user(&record);
         assert!(!store.eligible(&record));

@@ -30,6 +30,8 @@ The cloud service supplies subscription entitlements. Without a cloud endpoint, 
 
 When free-plan limits are enforced, creating one more workspace, Team or tab past the limit is refused with `free_limit_reached`. Items that already exist beyond the limit (for example after a downgrade) are never deleted or hidden: every listing still returns them. Instead the oldest items up to the limit stay usable and the newer ones are marked locked; the General workspace never counts and never locks. Acting on a locked item is refused with the stable code `plan_limit_locked`, naming the item and the limit. Workspace, tab and Team payloads carry `locked: true` on locked items; when the entitlement changes, Domios recomputes the marks and emits `entitlement-changed` without a restart. Order is fixed by each item's creation time, so reordering never moves a lock. Upgrading unlocks everything; closing older items frees their slots. Builds that do not enforce limits lock nothing. The app shows a lock badge on locked items, treats every tab inside a locked workspace as locked, and opens the plans dialog when one is clicked; its terminal and composer take no input. Opening a locked item from the command palette or keyboard lands on a view that already shows the lock overlay and locked composer.
 
+Encrypted channels between accounts are managed in General > Neighbors and through `domios account neighbors`. The General Agent authors local permission scopes; see `domios docs NEIGHBORS` for enrollment, gateway binding, key rotation and delivery status. Account and Mesh credentials use the private file described above; Neighbor private keys use a dedicated OS secret store.
+
 ## Product analytics
 
 Product analytics is off by default. Settings > Privacy or `domios analytics status|enable|disable` records opt-in consent. Turning it off clears queued events and installation/account identifiers. If the analytics service is unavailable, the app holds the queue; analytics status reports `vendor_available=false`. Delivery follows the consent gate, the closed product event catalog below, and a bounded retry policy.
@@ -102,4 +104,4 @@ Mesh enrollment never fails sign-in. Only a `mesh.machines` refusal (`{reason, l
 
 Authenticated server refusals with `UNAUTHENTICATED` and `details: {"reason":"session_revoked"}` clear the local account session, keep its installation key, block Mesh, and open sign-in with “This machine was signed out from your account”. A real sign-in restores access. My machines and Mesh ask for confirmation naming the selected machine. Remove from mesh offers an optional “Also sign it out” checkbox; the account menu offers Sign out this machine alongside normal Sign out.
 
-<!-- revision: 17 -->
+<!-- revision: 18 -->

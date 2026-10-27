@@ -20,6 +20,8 @@ pub struct Snapshot {
     pub access: Option<Access>,
     /// No verified answer yet for an account last seen paid: the UI may defer showing locks.
     pub checking: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signed_tier: Option<String>,
     #[serde(skip)]
     pub grant: Option<Verdict>,
 }
@@ -157,13 +159,19 @@ impl Billing {
             .grant
             .as_ref()
             .filter(|verdict| verdict.state.retains_grant())
-            .map_or(Plan::Free, |verdict| match verdict.label {
+            .map_or(Plan::Free, |verdict| match &verdict.label {
                 codeterm_entitlements::Label::Admin | codeterm_entitlements::Label::Pro => {
                     Plan::Pro
                 }
                 codeterm_entitlements::Label::Sponsor => Plan::Sponsor,
                 codeterm_entitlements::Label::Free => Plan::Free,
+                codeterm_entitlements::Label::Paid(_) => Plan::Pro,
             });
+        snapshot.signed_tier = snapshot
+            .grant
+            .as_ref()
+            .filter(|verdict| verdict.state.retains_grant())
+            .map(|verdict| verdict.label.as_str().to_owned());
         snapshot.checking = self.checking(cache);
         snapshot
     }
@@ -538,6 +546,7 @@ impl Billing {
                         stale: false,
                         access: Some(access),
                         checking: false,
+                        signed_tier: None,
                         grant: None,
                     };
                 }
@@ -573,6 +582,13 @@ impl Billing {
     }
     pub async fn portal_url(&self, session: &codeterm_account::Session) -> Result<url::Url> {
         self.provider.portal_url(session).await
+    }
+    pub async fn plan_operation(
+        &self,
+        session: &codeterm_account::Session,
+        operation: PlanOperation,
+    ) -> Result<serde_json::Value> {
+        self.provider.plan_operation(session, operation).await
     }
     pub fn checkout_browser_opened(&self, session: &codeterm_account::Session, plan: Plan) {
         self.browser_opened(session);

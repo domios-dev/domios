@@ -22,6 +22,8 @@ impl Plan {
 pub enum CheckoutKey {
     ProMonthly,
     ProYearly,
+    MaxMonthly,
+    MaxYearly,
     SponsorMonthly,
     SponsorYearly,
 }
@@ -30,6 +32,8 @@ impl CheckoutKey {
         match value {
             "pro_monthly" => Ok(Self::ProMonthly),
             "pro_yearly" => Ok(Self::ProYearly),
+            "max_monthly" => Ok(Self::MaxMonthly),
+            "max_yearly" => Ok(Self::MaxYearly),
             "sponsor_monthly" => Ok(Self::SponsorMonthly),
             "sponsor_yearly" => Ok(Self::SponsorYearly),
             _ => Err("Unknown billing plan".into()),
@@ -39,6 +43,8 @@ impl CheckoutKey {
         match self {
             Self::ProMonthly => "pro_monthly",
             Self::ProYearly => "pro_yearly",
+            Self::MaxMonthly => "max_monthly",
+            Self::MaxYearly => "max_yearly",
             Self::SponsorMonthly => "sponsor_monthly",
             Self::SponsorYearly => "sponsor_yearly",
         }
@@ -46,6 +52,7 @@ impl CheckoutKey {
     pub fn plan(self) -> Plan {
         match self {
             Self::ProMonthly | Self::ProYearly => Plan::Pro,
+            Self::MaxMonthly | Self::MaxYearly => Plan::Pro,
             Self::SponsorMonthly | Self::SponsorYearly => Plan::Sponsor,
         }
     }

@@ -360,6 +360,8 @@ fn checkout_keys_map_to_entitlement_plans_and_reject_plan_names() {
     for (key, plan) in [
         ("pro_monthly", Plan::Pro),
         ("pro_yearly", Plan::Pro),
+        ("max_monthly", Plan::Pro),
+        ("max_yearly", Plan::Pro),
         ("sponsor_monthly", Plan::Sponsor),
         ("sponsor_yearly", Plan::Sponsor),
     ] {

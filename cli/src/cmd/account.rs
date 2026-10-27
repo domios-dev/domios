@@ -3,6 +3,8 @@ use crate::{
     cmd::print::{fail, fail_http, print_human},
 };
 
+mod neighbors;
+
 pub fn handle(json_mode: bool, action: AccountAction) {
     let client = crate::build_local_api().unwrap_or_else(|error| fail(1, error.to_string()));
     let request = match action {
@@ -14,6 +16,7 @@ pub fn handle(json_mode: bool, action: AccountAction) {
         AccountAction::Status => client.get("/api/account/status"),
         AccountAction::Login => client.post("/api/account/login"),
         AccountAction::Logout => client.post("/api/account/logout"),
+        AccountAction::Neighbors { action } => return neighbors::handle(json_mode, action),
     };
     let response = request
         .send()

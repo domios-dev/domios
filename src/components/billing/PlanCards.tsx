@@ -80,6 +80,8 @@ function useIntentFocus(kind: PurchaseIntentView["kind"] | undefined) {
 }
 
 export interface PlanCardProps {
+  onChangePlan?: (priceId: string, tier: string, direction: "upgrade" | "downgrade") => void;
+  changeDirection?: "upgrade" | "downgrade";
   offer: PlanOffer;
   interval: BillingInterval;
   current?: boolean;
@@ -92,8 +94,10 @@ export interface PlanCardProps {
   manageBusy?: boolean;
 }
 
-export function PlanCard({ offer, interval, current = false, canPurchase = true, onChoose, intent, onCancel, action: givenAction, onManage, manageBusy = false }: PlanCardProps) {
+export function PlanCard({ offer, interval, current = false, canPurchase = true, onChoose, onChangePlan, changeDirection, intent, onCancel, action: givenAction, onManage, manageBusy = false }: PlanCardProps) {
   const price = offerPrice(offer, interval);
+  const selectedPrice = offer.prices[interval];
+  const trial = selectedPrice?.trialEligible && selectedPrice.trialDays;
   const action: PlanCardAction = givenAction ?? (price.planKey ? { kind: "choose", planKey: price.planKey } : { kind: "none" });
   const border = offer.recommended ? "border-[var(--ct-accent)]" : "border-[var(--ct-border-subtle)]";
   const focus = useIntentFocus(intent?.kind);
@@ -121,6 +125,7 @@ export function PlanCard({ offer, interval, current = false, canPurchase = true,
           <span className="text-xs text-[var(--ct-muted-fg)]">{price.per}</span>
         </p>
         <p className="m-0 text-xs text-[var(--ct-muted-fg)]">{price.note}</p>
+        {trial ? <p>{trial}-day free trial. Payment method required; renews at the displayed monthly price unless canceled.</p> : null}
       </div>
       <ul className="m-0 flex flex-1 list-none flex-col gap-1.5 p-0">
         {offer.features.map((feature) => (
@@ -148,12 +153,19 @@ export function PlanCard({ offer, interval, current = false, canPurchase = true,
           detail={intent.staff ? "Included with your Domios team access." : intent.signedInAs && `Signed in as ${intent.signedInAs}.`} />
       ) : action.kind === "choose" && !current && onChoose ? (
         <Button ref={focus.choose} size="lg" variant="outline" disabled={!canPurchase} onClick={() => onChoose(action.planKey)}>
-          Choose {offer.name}
+          {trial ? `Start ${trial}-day ${offer.name} trial` : `Choose ${offer.name}`}
         </Button>
       ) : action.kind === "manage" && onManage ? (
         <div className="flex flex-col gap-2">
+          {!current && onChangePlan && changeDirection && selectedPrice?.priceId ? <>
+            <Button size="lg" variant="outline" disabled={!canPurchase || manageBusy} onClick={() => onChangePlan(selectedPrice.priceId!, offer.id, changeDirection)}>
+              {changeDirection === "upgrade" ? "Upgrade" : "Downgrade"} to {offer.name}
+            </Button>
+            <p>{changeDirection === "upgrade" ? "Upgrade now with prorated billing." : "Your current tier stays active until the next renewal."} Keep the same billing interval.</p>
+          </> : <>
           <Button size="lg" variant="outline" disabled={manageBusy} loading={manageBusy} onClick={onManage}>Manage subscription</Button>
-          <p className="m-0 text-xs text-[var(--ct-muted-fg)]">To switch plans, cancel in Manage subscription and choose a new plan after it ends, or contact us.</p>
+          <p className="m-0 text-xs text-[var(--ct-muted-fg)]">Manage billing and cancellation in your subscription portal.</p>
+          </>}
         </div>
       ) : null}
     </section>
@@ -167,7 +179,8 @@ function intentView(intent: PurchaseIntent, signedInAs: string | null): Purchase
 }
 
 /** One card per offer, then the interval switch beside the purchase terms; yearly by default. */
-export function PlanCards({ currentPlan = null, subscribedPlan = null, onManage, manageBusy = false, canPurchase = true, onChoose, catalog, interval: controlledInterval, onIntervalChange, intent = IDLE_INTENT, signedInAs = null, onCancel, viewRequested = false }: {
+export function PlanCards({ currentPlan = null, subscribedPlan = null, onManage, onChangePlan, manageBusy = false, canPurchase = true, onChoose, catalog, interval: controlledInterval, onIntervalChange, intent = IDLE_INTENT, signedInAs = null, onCancel, viewRequested = false }: {
+  onChangePlan?: PlanCardProps["onChangePlan"];
   viewRequested?: boolean;
   currentPlan?: string | null;
   /** A live paid subscription; while set, other paid cards offer Manage subscription instead of a checkout. */
@@ -195,7 +208,7 @@ export function PlanCards({ currentPlan = null, subscribedPlan = null, onManage,
   return (
     <div ref={viewTarget} className="flex flex-col gap-3">
       <div role="group" aria-label="Subscription plans" className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
-        {offers.offers.map((offer) => (
+        {offers.offers.map((offer, index) => (
           <PlanCard
             key={offer.id}
             offer={offer}
@@ -207,6 +220,8 @@ export function PlanCards({ currentPlan = null, subscribedPlan = null, onManage,
             onCancel={onCancel}
             action={planCardAction(offers, offer, interval, subscribedPlan)}
             onManage={onManage}
+            onChangePlan={offers.changesAvailable && offers.offers.some(entry => entry.id === currentOffer) ? onChangePlan : undefined}
+            changeDirection={index > offers.offers.findIndex(entry => entry.id === currentOffer) ? "upgrade" : "downgrade"}
             manageBusy={manageBusy}
           />
         ))}

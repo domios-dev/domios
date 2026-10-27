@@ -596,6 +596,18 @@ pub(super) fn create_router_with_preview_admission(
         .route("/api/account/upgrade", post(super::account_routes::upgrade))
         .route("/api/account/portal", post(super::account_routes::portal))
         .route(
+            "/api/account/neighbors",
+            post(super::account_routes::neighbors),
+        )
+        .route(
+            "/api/account/neighbors/runtime",
+            post(super::account_routes::neighbor_runtime),
+        )
+        .route(
+            "/api/account/billing",
+            post(super::account_routes::billing_operation),
+        )
+        .route(
             "/api/account/plan/refresh",
             post(super::account_routes::refresh_plan),
         )

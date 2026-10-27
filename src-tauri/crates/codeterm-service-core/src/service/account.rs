@@ -33,6 +33,7 @@ struct AccountIdentity(std::sync::Weak<super::ServiceContext>);
 impl codeterm_account::IdentityObserver for AccountIdentity {
     async fn changed(&self, _identity: Option<&codeterm_account::Identity>) {
         if let Some(service) = self.0.upgrade() {
+            service.neighbor_identity_changed();
             service.ui.emit("account-changed", serde_json::Value::Null);
         }
     }
@@ -129,11 +130,14 @@ impl super::ServiceContext {
             })
             .await?;
         self.account_mesh_restored();
+        #[cfg(not(any(test, feature = "test-support")))]
+        self.restore_neighbors_once();
         Ok(account.clone())
     }
     /// Mesh blocks and attempts endpoint withdrawal while this account's credentials still exist.
     pub async fn account_logout(&self) -> Result<codeterm_account::Status, String> {
         let account = self.account().await?;
+        self.revoke_neighbors_for_logout().await?;
         let logout = account.logout();
         let status = match self.account_mesh().await {
             Ok(mesh) => {

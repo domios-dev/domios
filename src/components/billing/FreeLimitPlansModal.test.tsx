@@ -89,8 +89,8 @@ describe("plans modal", () => {
     expect(dialog()).toBeNull();
     freeLimitGate.setLimits({ enforcing: true, max: { workspaces: 3, teams: 6, "agent.tabs": 35 } });
     await act(async () => freeLimitGate.open("workspaces"));
-    expect(dialog()?.querySelector("h2")?.textContent).toBe("The free version includes 3 workspaces.");
-    expect(dialog()?.querySelectorAll("section[aria-label$=' plan']")).toHaveLength(4);
+    expect(dialog()?.querySelector("h2")?.textContent).toBe("Your plan includes 3 workspaces.");
+    expect(dialog()?.querySelectorAll("section[aria-label$=' plan']")).toHaveLength(5);
     expect(dialog()?.querySelector("section[aria-label='Enterprise plan']")).not.toBeNull();
   });
 
@@ -142,7 +142,7 @@ describe("plans modal", () => {
     expect(upgrade).toHaveBeenCalledExactlyOnceWith("sponsor_yearly");
     expect(toasts).toHaveLength(0);
     expect(button("Choose Pro")).toBeUndefined();
-    expect([...dialog()!.querySelectorAll("button")].filter((candidate) => candidate.textContent === "Manage subscription")).toHaveLength(2);
+    expect([...dialog()!.querySelectorAll("button")].filter((candidate) => candidate.textContent === "Manage subscription")).toHaveLength(3);
     expect([...dialog()!.querySelectorAll("button")].map((candidate) => candidate.textContent)).not.toContain("Upgrade");
   });
 

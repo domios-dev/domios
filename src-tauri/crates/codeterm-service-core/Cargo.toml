@@ -30,6 +30,7 @@ codeterm-agent-detect = { path = "../codeterm-agent-detect" }
 codeterm-notification-core = { path = "../codeterm-notification-core" }
 codeterm-repowatch = { path = "../codeterm-repowatch" }
 codeterm-account = { path = "../codeterm-account" }
+codeterm-neighbors = { path = "../codeterm-neighbors" }
 codeterm-billing = { path = "../codeterm-billing" }
 codeterm-entitlements = { path = "../codeterm-entitlements" }
 codeterm-analytics = { path = "../codeterm-analytics" }

@@ -12,6 +12,32 @@ use std::{sync::Arc, time::Instant};
 pub struct BillingCell(pub Arc<tokio::sync::OnceCell<Arc<Billing>>>);
 
 impl ServiceContext {
+    pub async fn billing_plan_operation(
+        &self,
+        operation: codeterm_billing::PlanOperation,
+    ) -> Result<serde_json::Value, String> {
+        let account = self.account().await?;
+        let session = account
+            .fresh_session()
+            .await
+            .map_err(|_| "Sign in to manage your plan")?
+            .ok_or("Sign in to manage your plan")?;
+        let result = self
+            .billing()
+            .await?
+            .plan_operation(&session, operation)
+            .await?;
+        if account
+            .session()
+            .await
+            .as_ref()
+            .map(|current| &current.identity.uid)
+            != Some(&session.identity.uid)
+        {
+            return Err("Account changed while managing your plan".into());
+        }
+        Ok(result)
+    }
     /// Capture before taking the mux lock. Before billing starts it is the compiled free baseline.
     pub fn limit_gate(&self) -> LimitGate {
         #[cfg(any(test, feature = "test-support"))]

@@ -24,6 +24,7 @@ vi.mock("./useAccountPlan", () => ({ useAccountPlan: () => ({
   upgrade: fixture.upgrade,
 }) }));
 vi.mock("../billing/PlanCards", () => ({ PlanCards: ({ onChoose }: { onChoose: (key: string) => void }) => <button onClick={() => onChoose("team")}>Choose plan</button> }));
+vi.mock("../billing/useDesktopBilling", () => ({ useDesktopBilling: () => ({ catalog: null, subscription: null, error: null, refresh: vi.fn() }) }));
 
 import { AccountTab } from "./AccountTab";
 
