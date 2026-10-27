@@ -29,8 +29,15 @@ pub(in crate::service::neighbors::runtime) async fn prefetch(session: &listener:
                         Ok(peer) => peer,
                         Err(_) => continue,
                     };
-                    let plaintext = lifecycle.decrypt_for(&message.doc.envelope, peer).await?;
-                    session.service.receive_neighbor_files(&session.metadata, &message, plaintext, session.generation).await?;
+                    let plaintext = match lifecycle.decrypt_for(&message.doc.envelope, peer).await {
+                        Ok(plaintext) => plaintext,
+                        Err(Error::Decryption | Error::InvalidEnvelope | Error::InvalidKey) => continue,
+                        Err(error) => return Err(error),
+                    };
+                    match session.service.receive_neighbor_files(&session.metadata, &message, plaintext, session.generation).await {
+                        Ok(_) | Err(Error::InvalidEnvelope | Error::MessageTooLarge { .. }) => {},
+                        Err(error) => return Err(error),
+                    }
                 }
             }
             None => return Err(Error::Transport),
@@ -133,7 +140,8 @@ impl ReceivePorts for Ports<'_> {
     }
     async fn confirm(&self, manifest: &Manifest, outcome: &'static str) -> codeterm_neighbors::Result<()> {
         self.current()?;
-        self.transport.calls.invoke("friendsFileConfirm", json!({"installation_id":self.transport.installation_id,"file_id":manifest.file_id,"sender_uid":self.envelope.sender_uid,"outcome":outcome})).await?;
+        let result = self.transport.calls.invoke("friendsFileConfirm", json!({"installation_id":self.transport.installation_id,"file_id":manifest.file_id,"sender_uid":self.envelope.sender_uid,"outcome":outcome})).await?;
+        if result["schema_version"] != 1 || result["file_id"] != manifest.file_id || result["state"] != "deleted" { return Err(Error::Transport); }
         self.current()
     }
 }
