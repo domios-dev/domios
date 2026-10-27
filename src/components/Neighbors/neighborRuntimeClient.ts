@@ -29,6 +29,8 @@ export interface NeighborPermission {
   allow_interactive_content?: boolean;
   /** On by default: their agents may ask yours about what your memory holds. */
   allow_memory?: boolean;
+  /** Only these memory areas; null shares every area that is not secret. */
+  memory_areas?: string[] | null;
   /** On by default: their agents may ask for files. */
   allow_files?: boolean;
   /** Where their concierge works; null means the friend's own folder. */

@@ -781,3 +781,22 @@ it("shows a message's files with their state and opens a saved one from the frie
   await act(async () => button("Open notes.txt").click());
   expect(filesClient.open).toHaveBeenCalledExactlyOnceWith("pair", "file-1");
 });
+
+it("narrows a friend's memory to chosen areas", async () => {
+  vi.mocked(localFetch).mockImplementation(async (path: string) => path === "/api/mem/taxonomy"
+    ? new Response(JSON.stringify({ work: 3, family: 2, "(none)": 1 }), { status: 200 }) : new Response("null", { status: 404 }));
+  const conciergeClient = concierge([]);
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
+  await act(async () => button("Ada, connected").click());
+  await act(async () => { button("Memory areas: All areas").dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 })); });
+  const options = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]'));
+  expect(options.map(option => option.textContent)).toEqual(["family", "work"]);
+  await act(async () => options.find(option => option.textContent === "work")!.click());
+  await act(async () => button("Save permissions").click());
+  expect(conciergeClient.setPermission).toHaveBeenCalledExactlyOnceWith("pair", expect.objectContaining({ memory_areas: ["work"] }));
+});

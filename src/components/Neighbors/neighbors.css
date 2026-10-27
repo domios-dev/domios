@@ -1228,3 +1228,11 @@ button.neighbor-file:hover {
 .neighbor-access__warning {
   color: color-mix(in srgb, var(--ct-red) 75%, var(--ct-fg));
 }
+
+.neighbor-areas {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin: -0.25rem 0 0 0.25rem;
+}

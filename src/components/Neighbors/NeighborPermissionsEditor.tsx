@@ -5,6 +5,8 @@ import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { SwitchTile } from "../Settings/shared";
 import { useFolderPicker } from "../../hooks/useFolderPicker";
 import { Segmented } from "../shared/Segmented";
+import { DropdownMenu } from "../shared/DropdownMenu";
+import { useMemoryAreas } from "./useMemoryAreas";
 import { UI_INPUT } from "../shared/design";
 import { validNeighborLimit, type Neighbor } from "./neighborModel";
 import type { MachineAccess, NeighborPermission } from "./neighborRuntimeClient";
@@ -19,7 +21,9 @@ const SCOPE_LIMIT = 8192;
 const samePermission = (a: NeighborPermission, b: NeighborPermission) => a.allowed === b.allowed && a.scope === b.scope
   && a.allow_tab_requests === b.allow_tab_requests && (a.allow_interactive_content ?? false) === (b.allow_interactive_content ?? false)
   && (a.allow_memory ?? true) === (b.allow_memory ?? true) && (a.allow_files ?? true) === (b.allow_files ?? true)
-  && (a.folder ?? null) === (b.folder ?? null) && (a.machine_access ?? "read_only") === (b.machine_access ?? "read_only");
+  && (a.folder ?? null) === (b.folder ?? null) && (a.memory_areas ?? []).join("
+") === (b.memory_areas ?? []).join("
+") && (a.machine_access ?? "read_only") === (b.machine_access ?? "read_only");
 const scopeBytes = (scope: string) => new TextEncoder().encode(scope).length;
 
 /** Allowing requests needs a written scope; the relay refuses an empty or oversized one. */
@@ -46,6 +50,7 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
   const [limit, setLimit] = useState(neighbor.inbound_per_hour);
   const { pickFolder, folderPicker } = useFolderPicker();
   const accessLabel = useId();
+  const areas = useMemoryAreas(draft?.allow_memory !== false);
   const access: MachineAccess = draft?.machine_access ?? "read_only";
   const [daily, setDaily] = useState(neighbor.my_daily_limit == null ? "" : String(neighbor.my_daily_limit));
   const [dailyError, setDailyError] = useState<string | null>(null);
@@ -78,6 +83,8 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
       checked={draft?.allow_interactive_content === true} onChange={allow_interactive_content => { if (draft && !saving) edit({ allow_interactive_content }); }} />
     <SwitchTile label="Read my memory" hint="Their agents may ask what your memory holds, within the scope above."
       checked={draft !== null && draft.allow_memory !== false} onChange={allow_memory => { if (draft && !saving) edit({ allow_memory }); }} />
+    {draft && draft.allow_memory !== false && <MemoryAreas areas={areas} chosen={draft.memory_areas ?? []} disabled={saving}
+      onChange={chosen => edit({ memory_areas: chosen.length > 0 ? chosen : null })} />}
     <SwitchTile label="Read files" hint="Their agents may ask for files and receive copies."
       checked={draft !== null && draft.allow_files !== false} onChange={allow_files => { if (draft && !saving) edit({ allow_files }); }} />
     <div className="neighbor-access">
@@ -183,4 +190,17 @@ function FileDailyLimit({ neighbor, name, onSave }: { neighbor: Neighbor; name: 
     </FormRow>
     {error && <InlineErrorNotice error={error} operation="saving the file limit" role="alert" />}
   </form>;
+}
+
+/** Narrow what their agents may ask about to a few memory areas; nothing chosen shares every non-secret area. */
+function MemoryAreas({ areas, chosen, disabled, onChange }: { areas: string[] | null; chosen: string[]; disabled: boolean; onChange: (chosen: string[]) => void }) {
+  const known = [...new Set([...(areas ?? []), ...chosen])].sort((a, b) => a.localeCompare(b));
+  const summary = chosen.length === 0 ? "All areas" : chosen.length <= 2 ? chosen.join(", ") : `${chosen.length} areas`;
+  return <div className="neighbor-areas">
+    <span className="neighbor-permissions__label">Only these areas</span>
+    <DropdownMenu menuLabel="Memory areas" disabled={disabled || known.length === 0}
+      items={known.map(area => ({ label: area, checked: chosen.includes(area), keepOpen: true,
+        onClick: () => onChange(chosen.includes(area) ? chosen.filter(entry => entry !== area) : [...chosen, area]) }))}
+      trigger={<button type="button" className="ct-bar-pill" aria-label={`Memory areas: ${summary}`}>{summary}</button>} />
+  </div>;
 }
