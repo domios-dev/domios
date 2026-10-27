@@ -4,9 +4,16 @@ use crate::service::tab_credentials::TabCaller;
 #[cfg(test)]
 mod tests;
 
-async fn concierge_file_views(metadata: &Metadata, friendship: &str, entries: &[storage::Entry]) -> Value {
+async fn concierge_file_views(
+    metadata: &Metadata,
+    friendship: &str,
+    entries: &[storage::Entry],
+) -> Value {
     let mut files = vec![];
-    for entry in entries.iter().filter(|entry| entry.direction == "in" && entry.state == "saved") {
+    for entry in entries
+        .iter()
+        .filter(|entry| entry.direction == "in" && entry.state == "saved")
+    {
         if let Ok(path) = metadata.saved_file(friendship, entry).await {
             let mut view = json!(entry);
             view["path"] = json!(path.to_string_lossy());

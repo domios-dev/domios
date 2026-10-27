@@ -34,7 +34,10 @@ async fn many_file_listing_resolves_the_single_loaded_index_snapshot() {
     assert_eq!(files.len(), 64);
     for (id, file) in files.iter().enumerate() {
         assert_eq!(file["file_id"], format!("{id:032x}"));
-        assert_eq!(std::fs::read(file["path"].as_str().unwrap()).unwrap(), b"opaque");
+        assert_eq!(
+            std::fs::read(file["path"].as_str().unwrap()).unwrap(),
+            b"opaque"
+        );
     }
     let path = metadata.saved_file(&friendship, &loaded[7]).await.unwrap();
     assert_eq!(std::fs::read(path).unwrap(), b"opaque");
@@ -52,7 +55,10 @@ async fn entry_path_resolution_refuses_out_of_folder_ids_and_unsaved_files() {
     let mut outgoing = entry(3);
     outgoing.direction = "out".into();
     for entry in [outside, unsaved, outgoing] {
-        assert!(matches!(metadata.saved_file(&friendship, &entry).await, Err(Error::InvalidRequest)));
+        assert!(matches!(
+            metadata.saved_file(&friendship, &entry).await,
+            Err(Error::InvalidRequest)
+        ));
     }
 }
 
@@ -71,7 +77,10 @@ async fn listing_and_entry_resolution_refuse_symlinks_inside_and_outside_the_fol
     let entries = vec![entry(1), entry(2)];
     for (entry, target) in entries.iter().zip([inside, outside]) {
         std::os::unix::fs::symlink(target, folder.join(entry.filename())).unwrap();
-        assert!(matches!(metadata.saved_file(&friendship, entry).await, Err(Error::InvalidRequest)));
+        assert!(matches!(
+            metadata.saved_file(&friendship, entry).await,
+            Err(Error::InvalidRequest)
+        ));
     }
     let view = concierge_file_views(&metadata, &friendship, &entries).await;
     assert_eq!(view["files"], json!([]));
