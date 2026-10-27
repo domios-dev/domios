@@ -414,7 +414,7 @@ it("shows the conversation with a refused question, its linked refusal and deliv
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "Lunch on Friday?");
     input.dispatchEvent(new Event("input", { bubbles: true }));
   });
-  await act(async () => button("Send").click());
+  await act(async () => { document.querySelector<HTMLButtonElement>("[data-testid=composer-send-button]")!.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, button: 0 })); });
   expect(runtimeClient.send).toHaveBeenCalledExactlyOnceWith("pair", "Lunch on Friday?");
   expect(conciergeClient.history).toHaveBeenCalledTimes(2);
   await act(async () => conciergeClient.changed("other-pair"));

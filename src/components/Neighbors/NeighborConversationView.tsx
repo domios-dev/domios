@@ -1,5 +1,5 @@
-import { Fragment, useCallback, useEffect, useId, useRef, useState } from "react";
-import { Bot, Send } from "lucide-react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { Bot } from "lucide-react";
 import { ChatDaySeparator, formatMessageTime, ReplyQuote, RichMarkdown } from "@codeterm/chat-ui";
 import { AccountAvatar } from "../Titlebar/AccountAvatar";
 import { accountInitials } from "../Settings/accountModel";
@@ -9,7 +9,7 @@ import { DropdownMenu } from "../shared/DropdownMenu";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { RowMenuButton } from "../shared/RowMenuButton";
 import { BusyState } from "../shared/BusyState";
-import { UI_INPUT, UI_PANEL } from "../shared/design";
+import { UI_PANEL } from "../shared/design";
 import { useMuxSelector } from "../../store/multiplexer";
 import { formatUntil } from "../../lib/timeLabels";
 import { askGeneralAgent, permissionInterviewTask } from "./neighborAgent";
@@ -18,7 +18,8 @@ import { neighborConciergeClient, type HistoryEntry, type NeighborConciergeClien
 import { dayLabel, DELIVERY_LABEL, mergeHistory, speaker } from "./neighborConversationModel";
 import { openNeighbor } from "./neighborFocus";
 import { neighborName, type Neighbor } from "./neighborModel";
-import { MissingConciergeNotice, NeighborPrivacyNote } from "./NeighborPanel";
+import { MissingConciergeNotice } from "./NeighborPanel";
+import { NeighborComposer } from "./NeighborComposer";
 import { useConciergeStatus } from "./useConciergeStatus";
 import { neighborRuntimeClient, type NeighborRuntimeClient } from "./neighborRuntimeClient";
 import { useNeighbors } from "./useNeighbors";
@@ -58,9 +59,7 @@ function Conversation({ friend, locked, enabled, runtimeClient, conciergeClient,
   const [entries, setEntries] = useState<HistoryEntry[] | null>(null);
   const [before, setBefore] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
-  const field = useId();
   const scroller = useRef<HTMLDivElement>(null);
   const stickToEnd = useRef(true);
   // Only the first page sets the cursor for older messages; later refreshes only add new ones.
@@ -103,14 +102,18 @@ function Conversation({ friend, locked, enabled, runtimeClient, conciergeClient,
   const allowance = typeof friend.their_daily_limit === "number" ? { limit: friend.their_daily_limit, sent: friend.sent_today ?? 0 } : null;
   const limitReached = allowance !== null && allowance.sent >= allowance.limit;
   const canSend = enabled && !locked && !limitReached;
-  const send = () => {
-    const body = draft.trim();
-    if (!body || sending || !canSend) return;
+  const send = async (body: string): Promise<boolean> => {
+    if (sending || !canSend) return false;
     setSending(true); setError(null); stickToEnd.current = true;
-    setDraft("");
-    void runtimeClient.send(friendship, body).then(() => { onSent(); return loadLatest(); },
-      (failure: unknown) => { setDraft(body); setError(failure instanceof Error ? failure.message : "The message was not sent."); })
-      .finally(() => setSending(false));
+    try {
+      await runtimeClient.send(friendship, body);
+      onSent();
+      await loadLatest();
+      return true;
+    } catch (failure: unknown) {
+      setError(failure instanceof Error ? failure.message : "The message was not sent.");
+      return false;
+    } finally { setSending(false); }
   };
 
   return <div className="neighbor-chat absolute inset-0 flex flex-col bg-[var(--ct-bg)] pt-[var(--ct-safe-top,0px)]">
@@ -159,15 +162,9 @@ function Conversation({ friend, locked, enabled, runtimeClient, conciergeClient,
     <div className="neighbor-chat__composer">
       {error && <InlineErrorNotice error={error} operation={`messaging ${name}`} role="alert" />}
       {limitReached && enabled && !locked && <p role="status" className="neighbor-note neighbor-chat__limit">Limit reached: {name} allows {allowance!.limit} {allowance!.limit === 1 ? "message" : "messages"} a day. Ask them to raise it.</p>}
-      <form className="neighbor-chat__form" onSubmit={event => { event.preventDefault(); send(); }}>
-        <label htmlFor={field} className="sr-only">Message to {name}</label>
-        <textarea id={field} className={`${UI_INPUT.full} neighbor-chat__input`} rows={1} value={draft} disabled={!canSend}
-          placeholder={!enabled ? "Neighbors is off" : locked ? "Messages are paused by your plan" : limitReached ? "Daily limit reached" : `Message ${name}`}
-          onChange={event => setDraft(event.currentTarget.value)}
-          onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); send(); } }} />
-        <Button type="submit" variant="primary" size="sm" aria-label="Send" loading={sending} disabled={!canSend || !draft.trim()}><Send size={14} aria-hidden="true" /></Button>
-      </form>
-      <NeighborPrivacyNote className="neighbor-chat__privacy" />
+      <NeighborComposer name={name} disabled={!canSend} sending={sending} onError={setError}
+        placeholder={!enabled ? "Neighbors is off" : locked ? "Messages are paused by your plan" : limitReached ? "Daily limit reached" : `Message ${name}`}
+        onSend={send} />
     </div>
   </div>;
 }
