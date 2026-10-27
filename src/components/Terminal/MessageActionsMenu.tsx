@@ -4,6 +4,7 @@ import { messageClipboard, messageMarkdownClipboard, sourceDiffersFromVisible, t
 import { writeClipboardFlavours } from "@codeterm/chat-ui";
 import { createPortal } from "react-dom";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
+import { useMessageHoverBridge } from "./useMessageHoverBridge";
 
 export type DotSide = "start" | "end";
 type OpenedBy = "hover" | "focus" | "click";
@@ -79,6 +80,7 @@ export function MessageActionsDot({ metadata, clip, touch = false, whole = false
     onOpenChange(false);
     if (refocus) (touch ? wrapRef.current?.closest<HTMLElement>("[data-message-id]") : buttonRef.current)?.focus({ preventScroll: true });
   };
+  const onHoverLeave = useMessageHoverBridge({ open: open && !touch, anchor: buttonRef, menu: menuRef, isHover: () => openedBy.current === "hover", onClose: hide });
 
   const items = () => Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>("[role='menuitem'], [role='menuitemradio']") ?? []);
   const focusMenuItem = (which: "first" | "last") => {
@@ -99,7 +101,7 @@ export function MessageActionsDot({ metadata, clip, touch = false, whole = false
       if (!wrapRef.current?.contains(event.target as Node) && !menuRef.current?.contains(event.target as Node)) hide();
     };
     const onKey = (event: globalThis.KeyboardEvent) => {
-      if (!touch || event.code !== "Escape" || event.defaultPrevented) return;
+      if (event.code !== "Escape" || event.defaultPrevented) return;
       event.preventDefault();
       hide(true);
     };
@@ -175,10 +177,7 @@ export function MessageActionsDot({ metadata, clip, touch = false, whole = false
       data-open={open || undefined}
       data-hint={hint || undefined}
       onPointerEnter={(event) => { if (event.pointerType === "mouse") show("hover"); }}
-      onPointerLeave={(event) => {
-        if (event.pointerType === "mouse" && openedBy.current === "hover"
-          && !menuRef.current?.contains(event.relatedTarget as Node | null)) hide();
-      }}
+      onPointerLeave={onHoverLeave}
       onBlur={(event) => {
         if (touch) return;
         if (openedBy.current !== "hover" && !wrapRef.current?.contains(event.relatedTarget as Node | null) && !menuRef.current?.contains(event.relatedTarget as Node | null)) hide();
