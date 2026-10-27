@@ -19,7 +19,7 @@ async function mount() {
   const root = createRoot(host); mounted = { root, host };
   await act(async () => root.render(<Harness />));
 }
-const readback = { billing_interval: "month", current_tier: "max", period_end: 1700000000, pending_change: null };
+const readback = { billing_interval: "month", current_tier: "max", paid_subscription: { tier: "max", status: "active", period_end: 1700000000 }, period_end: 1700000000, pending_change: null };
 const ok = (value: unknown) => new Response(JSON.stringify(value), { status: 200 });
 const setup = (change: () => Promise<Response>) => transport.localFetch.mockImplementation(async (_url: string, init: RequestInit) => {
   const { operation } = JSON.parse(String(init.body)) as { operation: string };

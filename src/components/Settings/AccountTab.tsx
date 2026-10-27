@@ -1,9 +1,10 @@
 import { createNoticePublisher } from "../../lib/notices";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { CreditCard, UserRound } from "lucide-react";
 import { Button } from "../shared/Button";
 import { PlanCards } from "../billing/PlanCards";
+import { GiftRedemption } from "../billing/GiftRedemption";
 import { AccountLimits } from "../billing/AccountLimits";
 import { useDesktopBilling } from "../billing/useDesktopBilling";
 import { scheduledPlanCopy, tierName } from "../billing/desktopBilling";
@@ -36,16 +37,25 @@ export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) 
   const notify = createNoticePublisher({ upsertToast });
   const retryHint = useRef<LoginHint | undefined>(undefined);
   const signedIn = model.kind === "signed_in";
+  const identity = signedIn ? model.identity.uid : null;
+  useEffect(() => setRefusedAsSubscribed(false), [identity]);
+  const offersReady = desktopBilling.catalog !== null && desktopBilling.subscription !== null;
+  const paidSubscription = desktopBilling.subscription?.paid_subscription;
+  const subscriptionPlan = paidSubscription === undefined ? undefined : paidSubscription?.tier ?? null;
   const purchase = usePurchaseIntent({
     account: { model, signIn },
     billing,
     catalog,
+    subscriptionPlan,
+    ready: !signedIn || offersReady,
+    failed: signedIn && !desktopBilling.loading && !offersReady,
     notify,
     retrySignIn: () => { void signIn(retryHint.current); },
     onAlreadySubscribed: () => setRefusedAsSubscribed(true),
   });
   const revealPlans = () => setPlansRequest((count) => count + 1);
   const manageSubscription = async () => {
+    if (subscriptionPlan === null) { revealPlans(); return; }
     const failure = await billing.manage(revealPlans);
     if (failure) notify(billingFailureToast(failure, "managing your subscription", billing.plan?.status, () => manageSubscription()));
   };
@@ -100,24 +110,29 @@ export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) 
             onClick={() => void manageSubscription()}>{billing.pending ? "Opening subscription…" : "Manage subscription"}</Button>}
         </div>
         {billing.plan?.periodEnd && <p className={MUTED}>
-          {billing.plan.cancelAtPeriodEnd ? "Ends" : "Renews"} {new Date(billing.plan.periodEnd * 1000).toLocaleDateString()}
+          {subscriptionPlan === null ? "Access ends" : billing.plan.cancelAtPeriodEnd ? "Ends" : "Renews"} {new Date(billing.plan.periodEnd * 1000).toLocaleDateString()}
         </p>}
         {billing.plan?.stale && <p role="status" className={MUTED}>Showing the last known plan.</p>}
         <AccountLimits limits={billing.plan?.limits ?? null} />
+        {identity && <GiftRedemption key={identity} identity={identity} verifiedPlan={billing.plan?.stale ? null : billing.plan?.plan ?? null} />}
         {desktopBilling.subscription && <p role="status">{scheduledPlanCopy(desktopBilling.subscription, seconds => new Date(seconds * 1000).toLocaleDateString())}</p>}
         {desktopBilling.error && <InlineErrorNotice error={desktopBilling.error} operation="managing your plan" />}
         {signedIn && <Button type="button" size="sm" variant="ghost" onClick={desktopBilling.refresh}>Refresh plan offers</Button>}
         {!signedIn && <p className={MUTED}>You’ll sign in when you choose a plan.</p>}
         <div className="w-full">
           <SettingsCardAnchor id="subscription-plans" focused={focusCard === "subscription-plans"} focusRequest={plansRequest}>
-            <PlanCards viewRequested={focusCard === "subscription-plans" || plansRequest > 0} catalog={catalog} currentPlan={billing.plan?.plan ?? null}
-              onChangePlan={desktopBilling.subscription && !desktopBilling.subscription.pending_change && !desktopBilling.submitted
+            {signedIn && !desktopBilling.catalog ? <p role="status" className={MUTED}>
+              {desktopBilling.loading ? "Loading current plan offers…" : "Refresh plan offers to choose a subscription."}
+            </p> : <PlanCards viewRequested={focusCard === "subscription-plans" || plansRequest > 0} catalog={catalog}
+              currentPlan={subscriptionPlan === undefined ? billing.plan?.plan ?? null : subscriptionPlan}
+              onChangePlan={paidSubscription && !desktopBilling.subscription?.pending_change && !desktopBilling.submitted
                 ? (priceId, tier, direction) => { if (model.kind === "signed_in") setPlanChange({ priceId, tier, direction, identity: model.identity.uid }); } : undefined}
               subscriptionInterval={desktopBilling.subscription?.billing_interval ?? null}
-              subscribedPlan={subscribedPlan(billing.plan, refusedAsSubscribed)} onManage={() => void manageSubscription()} manageBusy={billing.pending}
-              canPurchase={!billing.pending && !purchase.busy && !(signedIn && billing.planLoad === "loading")}
+              subscribedPlan={subscriptionPlan === undefined ? subscribedPlan(billing.plan, refusedAsSubscribed)
+                : subscriptionPlan ?? (refusedAsSubscribed ? "already_subscribed" : null)} onManage={() => void manageSubscription()} manageBusy={billing.pending}
+              canPurchase={!billing.pending && !purchase.busy && !(signedIn && (billing.planLoad === "loading" || !offersReady))}
               onChoose={purchase.choose} intent={purchase.intent} onCancel={purchase.cancel}
-              signedInAs={signedIn ? model.identity.email ?? model.identity.display_name : null} />
+              signedInAs={signedIn ? model.identity.email ?? model.identity.display_name : null} />}
           </SettingsCardAnchor>
         </div>
         {planChange && model.kind === "signed_in" && planChange.identity === model.identity.uid && <PlanChangeDialog selection={planChange} currentTier={billing.plan?.plan ?? "free"}

@@ -4,8 +4,6 @@ export type BillingInterval = "month" | "year";
 
 export interface PlanPrice {
   priceId?: string;
-  trialDays?: number;
-  trialEligible?: boolean;
   /** The provider's checkout key for this price, e.g. a Paddle price id or `pro_yearly`. */
   planKey: string;
   amount: number;

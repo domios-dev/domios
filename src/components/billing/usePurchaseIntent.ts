@@ -12,6 +12,9 @@ export interface PurchaseIntentPorts {
   account: { model: AccountModel; signIn: (hint?: LoginHint) => Promise<SignInFailure | null> };
   billing: { plan: PlanModel | null; planLoad: PlanLoad; upgrade: (planKey: string) => Promise<unknown | null> };
   catalog: PlanCatalog;
+  subscriptionPlan?: string | null;
+  ready?: boolean;
+  failed?: boolean;
   notify: (notice: Notice) => void;
   /** Retry for sign-in failures this surface did not start for a purchase; without it they stay with their owner. */
   retrySignIn?: () => void;
@@ -40,6 +43,17 @@ export function usePurchaseIntent(ports: PurchaseIntentPorts) {
   const mounted = useRef(false);
   const shownFailure = useRef<string | null>(null);
   const abandonedSignIn = useRef(false);
+  const identity = ports.account.model.kind === "signed_in" ? ports.account.model.identity.uid : null;
+  const owner = useRef(identity);
+  const ownerGeneration = useRef(0);
+  if (owner.current !== identity) { owner.current = identity; ownerGeneration.current++; }
+
+  useEffect(() => {
+    if (current.current.kind === "opening" || current.current.kind === "owned") {
+      current.current = IDLE_INTENT;
+      setIntent(IDLE_INTENT);
+    }
+  }, [identity]);
 
   function dispatch(event: PurchaseEvent): PurchaseIntent {
     const next = purchaseIntent(current.current, event);
@@ -49,8 +63,9 @@ export function usePurchaseIntent(ports: PurchaseIntentPorts) {
   }
 
   async function openCheckout(planKey: string) {
+    const generation = ownerGeneration.current;
     const failure = await latest.current.billing.upgrade(planKey);
-    if (!mounted.current || current.current.kind !== "opening" || current.current.planKey !== planKey) return;
+    if (!mounted.current || ownerGeneration.current !== generation || current.current.kind !== "opening" || current.current.planKey !== planKey) return;
     dispatch({ type: "checkoutSettled" });
     const { billing, notify, onCheckoutOpened, onAlreadySubscribed } = latest.current;
     if (failure instanceof AlreadySubscribedError && onAlreadySubscribed) onAlreadySubscribed();
@@ -62,7 +77,11 @@ export function usePurchaseIntent(ports: PurchaseIntentPorts) {
     const { account, billing, catalog } = latest.current;
     const before = current.current;
     const signedIn = purchaseAccount(account.model) === "signed_in";
-    const next = dispatch({ type: "choose", planKey, account: purchaseAccount(account.model), plan: billing.plan, catalog });
+    if (signedIn && latest.current.ready === false) {
+      latest.current.notify(planUnknownToast(() => choose(planKey)));
+      return;
+    }
+    const next = dispatch({ type: "choose", planKey, account: purchaseAccount(account.model), plan: billing.plan, catalog, subscriptionPlan: latest.current.subscriptionPlan });
     if (next === before) {
       if (signedIn && !billing.plan && before.kind === "idle") latest.current.notify(planUnknownToast(() => choose(planKey)));
       return;
@@ -91,7 +110,8 @@ export function usePurchaseIntent(ports: PurchaseIntentPorts) {
     const retry = () => choose(waiting.planKey);
     if (model.kind === "signed_in") {
       if (planLoad === "loading") return;
-      const next = dispatch({ type: "signedIn", plan, catalog });
+      if (latest.current.ready === false && !latest.current.failed) return;
+      const next = dispatch({ type: "signedIn", plan: latest.current.failed ? null : plan, catalog, subscriptionPlan: latest.current.subscriptionPlan });
       if (next.kind === "opening") void openCheckout(next.planKey);
       else if (next.kind === "idle") notify(planUnknownToast(retry));
       return;
@@ -101,7 +121,7 @@ export function usePurchaseIntent(ports: PurchaseIntentPorts) {
       shownFailure.current = failureKey(model.failure);
       notify(signInFailureToast(model.failure, retry));
     }
-  }, [intent, model, plan, planLoad]);
+  }, [intent, model, plan, planLoad, ports.ready, ports.failed, ports.subscriptionPlan]);
 
   useEffect(() => {
     if (model.kind !== "error" || !model.failure) {
