@@ -188,14 +188,17 @@ impl Gateway {
             .len();
         let limit = {
             let mux = self.service.mux.read();
-            let provider = mux
-                .get_tab(&self.tab)
-                .and_then(|tab| tab.agent_type.as_deref())
-                .ok_or(Error::Gateway)?;
-            self.service
-                .agent_registry
-                .with_provider(provider, |provider| provider.paste_limit_bytes())
-                .flatten()
+            let tab = mux.get_tab(&self.tab).ok_or(Error::Gateway)?;
+            let provider = tab.agent_type.as_deref().ok_or(Error::Gateway)?;
+            // A paste limit bounds PTY input only; runtime-backed tabs take the turn as structured input.
+            if matches!(tab.backing, crate::multiplexer::types::TabBacking::Pty) {
+                self.service
+                    .agent_registry
+                    .with_provider(provider, |provider| provider.paste_limit_bytes())
+                    .flatten()
+            } else {
+                None
+            }
         };
         if limit.is_some_and(|limit| framed_bytes > limit) {
             return Err(Error::Gateway);
