@@ -1,5 +1,7 @@
 use super::*;
 
+mod neighbor_authority;
+
 #[tokio::test]
 async fn pending_login_route_is_compiled_out_without_debug_assertions() {
     use axum::{body::Body, http::Request};

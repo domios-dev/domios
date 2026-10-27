@@ -244,11 +244,19 @@ pub async fn neighbor_runtime(
     headers: axum::http::HeaderMap,
     Json(command): Json<codeterm_service_core::service::neighbors::NeighborRuntimeCommand>,
 ) -> Result<Json<serde_json::Value>, Error> {
-    admit(caller.as_ref())?;
-    let tab = crate::tab_routes::caller_tab_header(&headers);
-    let nonce = headers
-        .get("x-codeterm-binding-nonce")
-        .and_then(|value| value.to_str().ok());
+    let (tab, nonce) = match caller.as_ref().map(|caller| &caller.0) {
+        Some(CallerIdentity::Tab(caller)) => (
+            Some(caller.tab_id.clone()),
+            Some(caller.binding_nonce.as_str()),
+        ),
+        Some(CallerIdentity::Local) => (
+            crate::tab_routes::caller_tab_header(&headers),
+            headers
+                .get("x-codeterm-binding-nonce")
+                .and_then(|value| value.to_str().ok()),
+        ),
+        _ => return Err((StatusCode::FORBIDDEN, "Account access is local-only".into())),
+    };
     state
         .svc
         .neighbor_runtime(command, tab.as_deref(), nonce)
