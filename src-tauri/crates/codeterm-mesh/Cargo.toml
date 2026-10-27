@@ -5,7 +5,7 @@ version = "0.0.0"
 edition = "2021"
 
 [dependencies]
-base64 = "0.22"
+base64 = "0.23"
 codeterm-entitlements = { path = "../codeterm-entitlements" }
 codeterm-paths = { path = "../codeterm-paths" }
 codeterm-build-info = { path = "../codeterm-build-info" }

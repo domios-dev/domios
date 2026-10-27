@@ -16,7 +16,7 @@ log = { version = "0.4", features = ["release_max_level_info"] }
 codeterm-types = { path = "../codeterm-types" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
-base64 = "0.22"
+base64 = "0.23"
 dirs = "6"
 regex = "1"
 workspace-hack = { version = "0.1", path = "../workspace-hack" }

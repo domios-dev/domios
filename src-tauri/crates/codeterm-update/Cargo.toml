@@ -12,7 +12,7 @@ workspace = true
 dev-updater-allowlocal = []
 
 [dependencies]
-base64 = "0.22"
+base64 = "0.23"
 minisign-verify = "0.2"
 tempfile = "3"
 codeterm-build-info = { path = "../codeterm-build-info" }
