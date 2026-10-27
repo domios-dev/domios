@@ -108,6 +108,13 @@ impl Session {
 
     async fn refresh(&self, signal: RegistrySignal, seen: &mut notifications::Seen) -> Result<()> {
         self.current()?;
+        let history_generation = self.service.neighbor_history_generation();
+        for friendship in &signal.removed {
+            self.service
+                .end_neighbor_friendship(&self.metadata, friendship, history_generation)
+                .await?;
+            self.current()?;
+        }
         if signal.receiver_revision.is_some() {
             self.service
                 .neighbor_receiver_changed()
@@ -119,6 +126,10 @@ impl Session {
             .transport
             .calls
             .invoke("friendsList", json!({}))
+            .await?;
+        self.current()?;
+        self.service
+            .end_missing_neighbor_friendships(&self.metadata, &list, history_generation)
             .await?;
         annotate_list(&mut list, &self.metadata.settings().await?).map_err(|_| Error::Transport)?;
         let notices = notifications::changes(seen, &list, &signal.accepted)?;

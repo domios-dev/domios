@@ -71,4 +71,6 @@ Notifications default to `in_app` per friend. Choose `off`, `in_app` or `in_app_
 
 When an agent's send is refused by a daily, hourly or plan limit, or because the recipient is not receiving, the owner gets a metadata-only notice under that friend's notification preference. It names the failed reply or agent message and the refusal reason, including reset or retry timing when supplied. Owner-authored sends stay silent. Outgoing history and receipts preserve `reason`, `limit`, `resets_at` and `retry_after_seconds` where applicable. An uncertain submission remains pending and does not generate a rejection notice.
 
-<!-- revision: 11 -->
+When a friendship ends, its local inbox targets stop and its concierge closes into Recently closed with its transcript. Its binding is cleared; the local friend conversation remains available as ended. This happens for either side's removal and does not affect other friendships.
+
+<!-- revision: 12 -->

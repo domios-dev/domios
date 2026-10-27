@@ -6,6 +6,7 @@ use serde_json::{json, Value};
 mod delivery;
 pub(crate) mod history;
 mod notifications;
+mod removal;
 pub use notifications::NeighborNotify;
 mod referral;
 pub(crate) mod runtime;
@@ -98,28 +99,18 @@ impl ServiceContext {
             .ok_or_else(|| "Invalid Neighbors response".to_owned())?;
         if let Some(friendship) = removed.filter(|_| self.require_neighbors_enabled().is_ok()) {
             let metadata = storage::Metadata::new(self.account_data_root()?, &session.identity.uid);
-            self.end_neighbor_history(&metadata, &friendship, history_generation)
+            self.end_neighbor_friendship(&metadata, &friendship, history_generation)
                 .await
                 .map_err(|error| error.to_string())?;
-            self.stop_neighbor_listeners();
         }
         if name == "friendsList" {
             let metadata = storage::Metadata::new(self.account_data_root()?, &session.identity.uid);
             let settings = metadata.settings().await.map_err(|e| e.to_string())?;
             annotate_list(&mut result, &settings)?;
             if self.require_neighbors_enabled().is_ok() {
-                if let Some(friends) = result["friends"].as_array() {
-                    for friendship in settings.bindings.keys() {
-                        if !friends
-                            .iter()
-                            .any(|friend| friend["friendship_id"] == *friendship)
-                        {
-                            self.end_neighbor_history(&metadata, friendship, history_generation)
-                                .await
-                                .map_err(|error| error.to_string())?;
-                        }
-                    }
-                }
+                self.end_missing_neighbor_friendships(&metadata, &result, history_generation)
+                    .await
+                    .map_err(|error| error.to_string())?;
             }
             if !same_session(account.session().await.as_ref(), &session) {
                 return Err("Account changed while listing Neighbors".into());

@@ -672,6 +672,40 @@ impl ServiceContext {
         })
     }
 
+    pub(super) fn stop_neighbor_friendship_listeners(
+        &self,
+        friendship: &str,
+    ) -> Vec<tokio::task::JoinHandle<()>> {
+        let mut targets = vec![];
+        {
+            let mut listeners = self.neighbor_cell().listeners.lock();
+            if let Some(handle) = listeners.active.remove(friendship) {
+                let _ = handle.shutdown.send(true);
+                targets.push(handle.task);
+            }
+            if let Some(task) = listeners.retired.remove(friendship) {
+                targets.push(task);
+            }
+        }
+        self.neighbor_cell()
+            .pending_counts
+            .lock()
+            .remove(friendship);
+        self.neighbor_cell().states.lock().remove(friendship);
+        self.neighbor_cell().failures.lock().remove(friendship);
+        targets
+    }
+
+    pub(super) fn neighbor_listener_friendships(&self) -> Vec<String> {
+        let listeners = self.neighbor_cell().listeners.lock();
+        listeners
+            .active
+            .keys()
+            .chain(listeners.retired.keys())
+            .cloned()
+            .collect()
+    }
+
     pub(crate) fn stop_neighbor_listeners(&self) {
         self.neighbor_cell().pending_counts.lock().clear();
         self.neighbor_cell()
