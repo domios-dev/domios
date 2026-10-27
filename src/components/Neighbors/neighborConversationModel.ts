@@ -31,6 +31,8 @@ export function refusalLine(entry: HistoryEntry, friendName: string, now: number
       return `Limit reached: ${friendName} allows ${entry.limit ?? "a few"} messages a day; ask them to raise it.${entry.resets_at ? ` Resets ${formatUntil(entry.resets_at, now)}.` : ""}`;
     case "rate_limited": return `Not delivered: ${friendName} is getting too many messages right now.${retry}`;
     case "aggregate_limited": return `Not delivered: you have sent too many Neighbor messages for now.${retry}`;
+    case "aggregate_daily_limited":
+      return `You reached today's sending limit${entry.limit !== undefined ? ` (${entry.limit})` : ""}.${entry.resets_at ? ` It resets ${formatUntil(entry.resets_at, now)}.` : ""}`;
     case "friends_locked": return "Not delivered: your plan pauses Neighbor messages.";
     case "recipient_locked": return `Not delivered: ${friendName}'s plan pauses their Neighbor messages.`;
     case "recipient_not_receiving": return `Not delivered: ${friendName} is not receiving right now.`;

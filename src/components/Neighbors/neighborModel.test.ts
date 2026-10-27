@@ -38,5 +38,7 @@ it("explains each delivery refusal in plain words and says when to retry only wh
   expect(refusalLine({ ...base, reason: "rate_limited", retry_after_seconds: 600 }, "Ada", now)).toBe("Not delivered: Ada is getting too many messages right now. Try again in 10m.");
   expect(refusalLine({ ...base, reason: "aggregate_limited" }, "Ada", now)).toBe("Not delivered: you have sent too many Neighbor messages for now.");
   expect(refusalLine({ ...base, reason: "recipient_locked" }, "Ada", now)).toBe("Not delivered: Ada's plan pauses their Neighbor messages.");
+  expect(refusalLine({ ...base, reason: "aggregate_daily_limited", limit: 200, resets_at: now + 9 * 3_600_000 }, "Ada", now))
+    .toBe("You reached today's sending limit (200). It resets in 9h.");
   expect(refusalLine({ ...base, reason: "something_new" }, "Ada", now)).toBeNull();
 });
