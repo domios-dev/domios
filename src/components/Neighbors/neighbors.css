@@ -714,3 +714,20 @@
   color: var(--ct-muted-fg);
   font-weight: 500;
 }
+
+.sidebar-neighbors-off {
+  padding: 4px 16px 0;
+  color: var(--ct-muted-fg);
+  font-size: 10.5px;
+}
+
+.sidebar-neighbors[data-off] .sidebar-tab-body {
+  opacity: 0.5;
+  filter: grayscale(1);
+}
+
+.neighbor-me[data-off] .neighbor-me__ring {
+  opacity: 0.55;
+  filter: grayscale(1);
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--ct-muted-fg) 40%, transparent), var(--ct-shadow-capsule);
+}

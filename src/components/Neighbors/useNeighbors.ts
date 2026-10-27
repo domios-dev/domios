@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { publishNotice } from "../../lib/notices";
 import { listen } from "../../lib/bridge";
 import { neighborClient, type NeighborClient } from "./neighborClient";
-import { neighborName, type NeighborCommand, type NeighborList } from "./neighborModel";
+import { neighborName, parseNeighbors, type NeighborCommand, type NeighborList } from "./neighborModel";
 import type { ReferralClaim } from "./referralTrial";
 
 interface LoadedNeighbors {
@@ -69,12 +69,18 @@ export function useNeighbors(identity: string | null, client: NeighborClient = n
     }
     void load();
     window.addEventListener("focus", load);
-    let unlisten: (() => void) | undefined;
-    void listen("entitlement-changed", load).then(stop => {
-      if (controller.signal.aborted) stop();
-      else unlisten = stop;
-    });
-    return () => { controller.abort(); generation.current++; window.removeEventListener("focus", load); unlisten?.(); };
+    const stops: Array<() => void> = [];
+    const keep = (stop: () => void) => { if (controller.signal.aborted) stop(); else stops.push(stop); };
+    void listen("entitlement-changed", load).then(keep);
+    // The daemon pushes this account's list as it changes; another account's push is ignored.
+    void listen<{ uid?: unknown; list?: unknown }>("neighbors-changed", event => {
+      if (controller.signal.aborted || generation.current !== epoch || event.payload?.uid !== identity) return;
+      try {
+        const list = parseNeighbors(event.payload.list);
+        setLoaded(previous => ({ ...previous, identity, list, error: null }));
+      } catch { void load(); }
+    }).then(keep);
+    return () => { controller.abort(); generation.current++; window.removeEventListener("focus", load); stops.forEach(stop => stop()); };
   }, [identity, client, revision]);
 
   async function apply(command: Exclude<NeighborCommand, { operation: "list" }>): Promise<boolean> {
