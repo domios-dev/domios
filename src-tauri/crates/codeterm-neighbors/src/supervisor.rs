@@ -78,6 +78,7 @@ pub async fn supervise(
             Err(
                 Error::Transport
                 | Error::Firestore { .. }
+                | Error::ListenProtocol { .. }
                 | Error::LocalKeyUnavailable
                 | Error::SecretStore,
             ) if attempt < 3 => {}

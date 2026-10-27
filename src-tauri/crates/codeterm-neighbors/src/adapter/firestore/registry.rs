@@ -52,6 +52,7 @@ pub(in crate::adapter) async fn listen(
     Ok(Box::new(Listener {
         stream,
         _requests: requests,
+        membership: Default::default(),
         calls: transport.calls.clone(),
         state: SignalState {
             path,
@@ -62,6 +63,7 @@ pub(in crate::adapter) async fn listen(
 }
 
 struct Listener {
+    membership: super::watch::Membership,
     calls: std::sync::Arc<dyn AuthenticatedCall>,
     stream: tonic::Streaming<fs::ListenResponse>,
     _requests: tokio::sync::mpsc::Sender<fs::ListenRequest>,
@@ -95,6 +97,7 @@ impl RegistryListener for Listener {
                     ));
                 }
             }
+            self.membership.observe(&response)?;
             if let Some(signal) = self.state.observe(response)? {
                 return Ok(Some(signal));
             }
@@ -132,7 +135,12 @@ impl SignalState {
                     return Ok(Some(std::mem::take(&mut self.pending)));
                 }
             }
-            Some(ResponseType::Filter(_)) | None => return Err(Error::Transport),
+            Some(ResponseType::Filter(_)) => {}
+            None => {
+                return Err(Error::ListenProtocol {
+                    kind: "response_missing",
+                })
+            }
         }
         Ok(None)
     }

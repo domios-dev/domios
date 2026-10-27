@@ -14,6 +14,7 @@ use zeroize::Zeroizing;
 
 const PAGE_SIZE: i32 = 100;
 pub(super) mod registry;
+mod watch;
 
 async fn connection(
     transport: &FirebaseTransport,
@@ -55,6 +56,26 @@ fn rpc_failure(
     target: &str,
     status: tonic::Status,
 ) -> Error {
+    use std::error::Error as _;
+    if let Some(source) = status.source() {
+        let mut source = Some(source);
+        let mut kind = "source_other";
+        while let Some(error) = source {
+            if let Some(error) = error.downcast_ref::<std::io::Error>() {
+                let kind = format!("io_{:?}", error.kind());
+                calls.firestore_failure(operation, target, Some(status.code() as i32), &kind);
+                break;
+            }
+            let text = error.to_string().to_ascii_lowercase();
+            if text.contains("http2") || text.contains("http/2") || text.contains("h2") {
+                kind = "http2";
+            } else if text.contains("decode") || text.contains("protobuf") {
+                kind = "response_decode";
+            }
+            source = error.source();
+        }
+        calls.firestore_failure(operation, target, Some(status.code() as i32), kind);
+    }
     code_failure(calls, operation, target, status.code() as i32)
 }
 
@@ -80,6 +101,12 @@ fn authenticated_request<T>(token: &str, database: &str, message: T) -> Result<t
     request.metadata_mut().insert(
         "google-cloud-resource-prefix",
         database.parse().map_err(|_| Error::Transport)?,
+    );
+    request.metadata_mut().insert(
+        "x-goog-request-params",
+        format!("database={database}")
+            .parse()
+            .map_err(|_| Error::Transport)?,
     );
     Ok(request)
 }
@@ -109,11 +136,15 @@ pub(super) async fn listen(
         requests: None,
         buffered: HashMap::new(),
         pending: None,
+        membership: Default::default(),
+        resetting: false,
         calls: transport.calls.clone(),
     }))
 }
 
 struct Listener {
+    resetting: bool,
+    membership: watch::Membership,
     calls: std::sync::Arc<dyn AuthenticatedCall>,
     client: FirestoreClient<Channel>,
     token: Zeroizing<String>,
@@ -129,6 +160,44 @@ struct Listener {
 }
 
 impl Listener {
+    fn target(&self) -> fs::Target {
+        fs::Target {
+            target_type: Some(fs::target::TargetType::Query(fs::target::QueryTarget {
+                parent: self.parent.clone(),
+                query_type: Some(fs::target::query_target::QueryType::StructuredQuery(
+                    self.query(None),
+                )),
+            })),
+            target_id: 1,
+            ..Default::default()
+        }
+    }
+
+    async fn reset_target(&mut self) -> Result<()> {
+        let sender = self.requests.as_ref().ok_or(Error::ListenProtocol {
+            kind: "request_stream_missing",
+        })?;
+        for target_change in [
+            fs::listen_request::TargetChange::RemoveTarget(1),
+            fs::listen_request::TargetChange::AddTarget(self.target()),
+        ] {
+            sender
+                .send(fs::ListenRequest {
+                    database: self.database.clone(),
+                    target_change: Some(target_change),
+                    ..Default::default()
+                })
+                .await
+                .map_err(|_| Error::ListenProtocol {
+                    kind: "request_stream_closed",
+                })?;
+        }
+        self.membership = Default::default();
+        self.buffered.clear();
+        self.resetting = true;
+        Ok(())
+    }
+
     fn request<T>(&self, message: T) -> Result<tonic::Request<T>> {
         authenticated_request(&self.token, &self.database, message)
     }
@@ -253,16 +322,7 @@ impl InboxListener for Listener {
             sender
                 .send(fs::ListenRequest {
                     database: self.database.clone(),
-                    target_change: Some(fs::listen_request::TargetChange::AddTarget(fs::Target {
-                        target_type: Some(fs::target::TargetType::Query(fs::target::QueryTarget {
-                            parent: self.parent.clone(),
-                            query_type: Some(fs::target::query_target::QueryType::StructuredQuery(
-                                self.query(None),
-                            )),
-                        })),
-                        target_id: 1,
-                        ..Default::default()
-                    })),
+                    target_change: Some(fs::listen_request::TargetChange::AddTarget(self.target())),
                     ..Default::default()
                 })
                 .await
@@ -283,7 +343,9 @@ impl InboxListener for Listener {
             let response = self
                 .stream
                 .as_mut()
-                .ok_or(Error::Transport)?
+                .ok_or(Error::ListenProtocol {
+                    kind: "response_stream_missing",
+                })?
                 .message()
                 .await
                 .map_err(|status| {
@@ -295,15 +357,47 @@ impl InboxListener for Listener {
                     )
                 })?;
             let Some(response) = response else {
-                return Ok(None);
+                return Err(Error::ListenProtocol {
+                    kind: "stream_closed",
+                });
             };
+            if self.resetting
+                && matches!(&response.response_type, Some(fs::listen_response::ResponseType::TargetChange(change)) if change.cause.is_none() && change.target_change_type == fs::target_change::TargetChangeType::Remove as i32 && change.target_ids.contains(&1))
+            {
+                self.resetting = false;
+                continue;
+            }
+            match self.membership.observe(&response) {
+                Err(Error::ListenProtocol {
+                    kind: "existence_filter_mismatch",
+                }) => {
+                    self.calls.firestore_failure(
+                        "inbox.listen.reset",
+                        &self.parent,
+                        None,
+                        "existence_filter_mismatch",
+                    );
+                    self.reset_target().await?;
+                    continue;
+                }
+                Ok(true) => self.buffered.clear(),
+                result => {
+                    result?;
+                }
+            }
             use fs::listen_response::ResponseType;
             match response.response_type {
                 Some(ResponseType::DocumentChange(change)) => {
-                    let message =
-                        parse_document(change.document.ok_or(Error::Transport)?, &self.parent)?;
+                    let message = parse_document(
+                        change.document.ok_or(Error::ListenProtocol {
+                            kind: "document_missing",
+                        })?,
+                        &self.parent,
+                    )?;
                     if self.buffered.len() >= 500 {
-                        return Err(Error::Transport);
+                        return Err(Error::ListenProtocol {
+                            kind: "document_buffer_limit",
+                        });
                     }
                     self.buffered.insert(message.id.clone(), message);
                 }
@@ -341,8 +435,12 @@ impl InboxListener for Listener {
                         return Ok(Some(InboxEvent::Messages(messages)));
                     }
                 }
-                Some(ResponseType::Filter(_)) => return Err(Error::Transport),
-                None => return Err(Error::Transport),
+                Some(ResponseType::Filter(_)) => {}
+                None => {
+                    return Err(Error::ListenProtocol {
+                        kind: "response_missing",
+                    })
+                }
             }
         }
     }
@@ -358,10 +456,15 @@ fn target_checkpoint(change: &fs::TargetChange) -> Result<TargetCheckpoint> {
     if change.cause.is_some() {
         return Err(Error::Transport);
     }
-    let kind =
-        TargetChangeType::try_from(change.target_change_type).map_err(|_| Error::Transport)?;
-    if matches!(kind, TargetChangeType::Remove | TargetChangeType::Reset) {
-        return Err(Error::Transport);
+    let kind = TargetChangeType::try_from(change.target_change_type).map_err(|_| {
+        Error::ListenProtocol {
+            kind: "target_change_unknown",
+        }
+    })?;
+    if kind == TargetChangeType::Remove {
+        return Err(Error::ListenProtocol {
+            kind: "target_removed",
+        });
     }
     let own_target = change.target_ids.is_empty() || change.target_ids.contains(&1);
     Ok(TargetCheckpoint {
