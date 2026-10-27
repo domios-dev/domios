@@ -64,7 +64,7 @@
     "@tailwindcss/browser": "4.2.1",
     "@tailwindcss/vite": "^4.2.1",
     "@tauri-apps/cli": "^2.12.4",
-    "@types/node": "^25.9.2",
+    "@types/node": "^26.6.5",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
