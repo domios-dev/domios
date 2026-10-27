@@ -1,5 +1,104 @@
 use super::*;
 use crate::store::UsageStore;
+use chrono::{FixedOffset, LocalResult, NaiveDate, NaiveDateTime, Offset};
+
+#[derive(Clone, Copy, Debug)]
+struct TransitionZone {
+    at_ms: i64,
+    before: i32,
+    after: i32,
+}
+
+#[derive(Clone, Debug)]
+struct TransitionOffset {
+    zone: TransitionZone,
+    seconds: i32,
+}
+
+impl std::fmt::Display for TransitionOffset {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.fix(), f)
+    }
+}
+
+impl Offset for TransitionOffset {
+    fn fix(&self) -> FixedOffset {
+        FixedOffset::east_opt(self.seconds).unwrap()
+    }
+}
+
+impl TimeZone for TransitionZone {
+    type Offset = TransitionOffset;
+
+    fn from_offset(offset: &Self::Offset) -> Self {
+        offset.zone
+    }
+
+    fn offset_from_local_date(&self, date: &NaiveDate) -> LocalResult<Self::Offset> {
+        self.offset_from_local_datetime(&date.and_hms_opt(0, 0, 0).unwrap())
+    }
+
+    fn offset_from_local_datetime(&self, local: &NaiveDateTime) -> LocalResult<Self::Offset> {
+        let candidates: Vec<_> = [self.before, self.after]
+            .into_iter()
+            .filter(|seconds| {
+                let utc = *local - chrono::Duration::seconds(i64::from(*seconds));
+                self.offset_from_utc_datetime(&utc).seconds == *seconds
+            })
+            .map(|seconds| TransitionOffset {
+                zone: *self,
+                seconds,
+            })
+            .collect();
+        match candidates.as_slice() {
+            [] => LocalResult::None,
+            [one] => LocalResult::Single(one.clone()),
+            [a, b] => LocalResult::Ambiguous(a.clone(), b.clone()),
+            _ => unreachable!(),
+        }
+    }
+
+    fn offset_from_utc_date(&self, date: &NaiveDate) -> Self::Offset {
+        self.offset_from_utc_datetime(&date.and_hms_opt(0, 0, 0).unwrap())
+    }
+
+    fn offset_from_utc_datetime(&self, utc: &NaiveDateTime) -> Self::Offset {
+        TransitionOffset {
+            zone: *self,
+            seconds: if utc.and_utc().timestamp_millis() < self.at_ms {
+                self.before
+            } else {
+                self.after
+            },
+        }
+    }
+}
+
+fn utc(value: &str) -> i64 {
+    DateTime::parse_from_rfc3339(value)
+        .unwrap()
+        .timestamp_millis()
+}
+
+fn date(value: &str) -> NaiveDate {
+    NaiveDate::parse_from_str(value, "%Y-%m-%d").unwrap()
+}
+
+fn riga_spring() -> Calendar<TransitionZone> {
+    Calendar(TransitionZone {
+        at_ms: utc("2026-03-29T01:00:00Z"),
+        before: 7200,
+        after: 10800,
+    })
+}
+
+fn riga_fall() -> Calendar<TransitionZone> {
+    Calendar(TransitionZone {
+        at_ms: utc("2026-10-25T01:00:00Z"),
+        before: 10800,
+        after: 7200,
+    })
+}
 
 const RESETS_A: i64 = 9_000_000_000_000;
 const RESETS_B: i64 = RESETS_A + 7 * 24 * 3_600_000;
@@ -35,7 +134,11 @@ fn insert(
 }
 
 fn now_at_hour(hour: u32) -> i64 {
-    let base = local_start_of_day_ms(chrono::Utc::now().timestamp_millis());
+    let base = Local
+        .with_ymd_and_hms(2026, 1, 15, 0, 0, 0)
+        .earliest()
+        .unwrap()
+        .timestamp_millis();
     base + (hour as i64) * 3_600_000
 }
 
@@ -122,7 +225,7 @@ fn recent_rate_zero_when_zero_dt() {
 fn baseline_shape_sums_to_one() {
     let p = unique_provider("shape-sum");
     let s = store();
-    let today_start = local_start_of_day_ms(chrono::Utc::now().timestamp_millis());
+    let today_start = now_at_hour(0);
     for d in 1..=14 {
         let day = today_start - d * DAY_MS;
         insert(&s, &p, day + 13 * 3_600_000, Some(0.0), Some(RESETS_A));
@@ -139,7 +242,7 @@ fn baseline_shape_sums_to_one() {
 fn ratio_clamped_to_two_when_we_far_exceeds_wd() {
     let p = unique_provider("ratio-clamp");
     let s = store();
-    let today_start = local_start_of_day_ms(chrono::Utc::now().timestamp_millis());
+    let today_start = now_at_hour(0);
     for d in 1..=14 {
         let day = today_start - d * DAY_MS;
         let dow = local_from_ms(day).weekday().num_days_from_sunday();
@@ -233,7 +336,7 @@ fn shape_skips_offdevice_jump_pair() {
     // must NOT pin the 35% to a single hour — that pair gets dropped from per-hour aggregation entirely.
     let p = unique_provider("offdev");
     let s = store();
-    let today_start = local_start_of_day_ms(chrono::Utc::now().timestamp_millis());
+    let today_start = now_at_hour(0);
     // Need ≥3 days for confidence>=Medium; replicate across 4 weekdays.
     let mut wd_days_seeded = 0;
     for d in 1..=14 {
@@ -274,7 +377,7 @@ fn median_resists_vacation_outlier() {
     // sampling: 8 samples through the day (~4% per pair).
     let p = unique_provider("vac");
     let s = store();
-    let today_start = local_start_of_day_ms(chrono::Utc::now().timestamp_millis());
+    let today_start = now_at_hour(0);
     let hours_of_day = [9, 10, 11, 12, 14, 15, 16, 17];
     let mut mondays = 0;
     for d in 1..=84 {
@@ -361,7 +464,7 @@ fn from_yest_ignored_when_gap_too_large() {
 fn mid_day_reset_skipped_in_pair_walk() {
     let p = unique_provider("mid-day-reset");
     let s = store();
-    let today_start = local_start_of_day_ms(chrono::Utc::now().timestamp_millis());
+    let today_start = now_at_hour(0);
     insert(&s, &p, today_start + 3_600_000, Some(95.0), Some(RESETS_A));
     insert(&s, &p, today_start + 5_400_000, Some(98.0), Some(RESETS_A));
     insert(&s, &p, today_start + 7_200_000, Some(0.0), Some(RESETS_A));
@@ -398,7 +501,7 @@ fn day_actuals_emits_one_bucket_per_cycle_day() {
     let s = store();
     let now = now_at_hour(15);
     let cycle_end = now + 5 * DAY_MS;
-    let actuals = compute_day_actuals(&s, &p, None, now, cycle_end).unwrap();
+    let actuals = compute_day_actuals(&s, &p, None, cycle_end, &Calendar(Local)).unwrap();
     // 7 days back from cycle_end, aligned to local-start-of-day → at least 7, possibly 8 if the cycle's start time crossed a midnight boundary.
     assert!(
         (7..=8).contains(&actuals.len()),
@@ -456,7 +559,7 @@ fn day_actuals_sparse_history_attributes_only_observed_spend() {
         Some(cycle_end),
     );
     insert(&s, &p, now, Some(22.0), Some(cycle_end));
-    let actuals = compute_day_actuals(&s, &p, None, today_start, cycle_end).unwrap();
+    let actuals = compute_day_actuals(&s, &p, None, cycle_end, &Calendar(Local)).unwrap();
     // Today bucket is the LAST one (day_start_ms == today_start).
     let today_bucket = actuals
         .iter()
@@ -505,7 +608,7 @@ fn day_actuals_skip_other_cycle_rows() {
         Some(99.0),
         Some(RESETS_B),
     );
-    let actuals = compute_day_actuals(&s, &p, None, today_start, cycle_end).unwrap();
+    let actuals = compute_day_actuals(&s, &p, None, cycle_end, &Calendar(Local)).unwrap();
     let yest = actuals
         .iter()
         .find(|a| a.day_start_ms == today_start - DAY_MS)
@@ -543,7 +646,7 @@ fn day_actuals_match_a_reset_restamped_with_millisecond_jitter() {
         Some(cycle_end + 15),
     );
     insert(&s, &p, now, Some(25.0), Some(cycle_end - 700));
-    let actuals = compute_day_actuals(&s, &p, None, today_start, cycle_end).unwrap();
+    let actuals = compute_day_actuals(&s, &p, None, cycle_end, &Calendar(Local)).unwrap();
     let day = |start: i64| {
         actuals
             .iter()
@@ -558,4 +661,277 @@ fn day_actuals_match_a_reset_restamped_with_millisecond_jitter() {
         (day(today_start).unwrap() - 5.0).abs() < 0.01,
         "today bridges across jittered resets"
     );
+}
+
+fn assert_riga_windows(calendar: Calendar<TransitionZone>, dates: [&str; 4], endpoints: [&str; 4]) {
+    let starts = endpoints.map(utc);
+    let windows = calendar.windows(starts[0], starts[3]).unwrap();
+    assert_eq!(windows.len(), 3);
+    for (i, window) in windows.iter().enumerate() {
+        assert_eq!(window.date, date(dates[i]));
+        assert_eq!((window.start_ms, window.end_ms), (starts[i], starts[i + 1]));
+        assert_eq!(
+            calendar.at(window.start_ms).unwrap().date_naive(),
+            date(dates[i])
+        );
+        assert_eq!(
+            calendar.at(window.end_ms - 1).unwrap().date_naive(),
+            date(dates[i])
+        );
+        assert_eq!(
+            calendar.at(window.end_ms).unwrap().date_naive(),
+            date(dates[i + 1])
+        );
+    }
+    for midnight in &starts[1..3] {
+        for sample in [midnight - 1, *midnight, midnight + 1] {
+            assert_eq!(
+                windows
+                    .iter()
+                    .filter(|w| sample >= w.start_ms && sample < w.end_ms)
+                    .count(),
+                1
+            );
+        }
+    }
+    let actuals = compute_day_actuals(&store(), "calendar", None, starts[3], &calendar).unwrap();
+    assert!(actuals
+        .windows(2)
+        .all(|pair| pair[0].day_start_ms < pair[1].day_start_ms));
+    let keys: Vec<_> = actuals
+        .iter()
+        .map(|a| calendar.at(a.day_start_ms).unwrap().date_naive())
+        .collect();
+    assert!(keys
+        .windows(2)
+        .all(|pair| pair[0].succ_opt() == Some(pair[1])));
+}
+
+#[test]
+fn riga_spring_has_contiguous_civil_dates_and_exact_utc_endpoints() {
+    assert_riga_windows(
+        riga_spring(),
+        ["2026-03-28", "2026-03-29", "2026-03-30", "2026-03-31"],
+        [
+            "2026-03-27T22:00:00Z",
+            "2026-03-28T22:00:00Z",
+            "2026-03-29T21:00:00Z",
+            "2026-03-30T21:00:00Z",
+        ],
+    );
+}
+
+#[test]
+fn riga_fall_has_contiguous_civil_dates_and_exact_utc_endpoints() {
+    assert_riga_windows(
+        riga_fall(),
+        ["2026-10-24", "2026-10-25", "2026-10-26", "2026-10-27"],
+        [
+            "2026-10-23T21:00:00Z",
+            "2026-10-24T21:00:00Z",
+            "2026-10-25T22:00:00Z",
+            "2026-10-26T22:00:00Z",
+        ],
+    );
+}
+
+#[test]
+fn calendar_crosses_month_and_year_with_unique_dates() {
+    for (first, last, expected) in [
+        (
+            "2026-12-31T22:00:00Z",
+            "2027-01-02T22:00:00Z",
+            ["2027-01-01", "2027-01-02"],
+        ),
+        (
+            "2026-01-30T22:00:00Z",
+            "2026-02-01T22:00:00Z",
+            ["2026-01-31", "2026-02-01"],
+        ),
+    ] {
+        let windows = Calendar(FixedOffset::east_opt(7200).unwrap())
+            .windows(utc(first), utc(last))
+            .unwrap();
+        assert_eq!(
+            windows.iter().map(|w| w.date).collect::<Vec<_>>(),
+            expected.map(date)
+        );
+        assert_eq!(windows[0].end_ms, windows[1].start_ms);
+        assert!(windows.iter().all(|w| w.end_ms - w.start_ms == DAY_MS));
+    }
+}
+
+#[test]
+fn actuals_attribute_midnight_and_both_repeated_hours_once() {
+    let calendar = riga_fall();
+    let s = store();
+    let p = unique_provider("fall-membership");
+    let reset = utc("2026-10-26T10:00:00Z");
+    let points = [
+        ("2026-10-24T20:00:00Z", 0.0),
+        ("2026-10-24T20:59:59.999Z", 1.0),
+        ("2026-10-24T21:00:00Z", 3.0),
+        ("2026-10-24T21:00:00.001Z", 6.0),
+        ("2026-10-25T00:30:00Z", 10.0),
+        ("2026-10-25T01:30:00Z", 15.0),
+        ("2026-10-25T21:59:59.999Z", 21.0),
+        ("2026-10-25T22:00:00Z", 28.0),
+        ("2026-10-25T22:00:00.001Z", 36.0),
+        ("2026-10-26T09:59:59.999Z", 45.0),
+        ("2026-10-26T10:00:00Z", 99.0),
+        ("2026-10-26T10:00:00.001Z", 100.0),
+    ];
+    for (at, pct) in points {
+        insert(&s, &p, utc(at), Some(pct), Some(reset));
+    }
+    assert_eq!(calendar.at(utc("2026-10-25T00:30:00Z")).unwrap().hour(), 3);
+    assert_eq!(calendar.at(utc("2026-10-25T01:30:00Z")).unwrap().hour(), 3);
+    let actuals = compute_day_actuals(&s, &p, None, reset, &calendar).unwrap();
+    let totals: Vec<_> = actuals.iter().filter_map(|a| a.pct).collect();
+    assert_eq!(totals, [1.0, 20.0, 24.0]);
+    assert_eq!(totals.iter().sum::<f64>(), 45.0);
+    assert_eq!(
+        latest_weekly(&s, &p, None, reset - 1).unwrap(),
+        Some((45.0, reset))
+    );
+    let windows = calendar.windows(reset - 7 * DAY_MS, reset).unwrap();
+    assert_eq!(windows.last().unwrap().end_ms, reset);
+    assert!(windows.first().unwrap().start_ms <= reset - 7 * DAY_MS);
+    assert!(windows.first().unwrap().end_ms > reset - 7 * DAY_MS);
+}
+
+#[test]
+fn spring_actuals_share_midnight_endpoints_without_drifting_an_hour() {
+    let calendar = riga_spring();
+    let s = store();
+    let p = unique_provider("spring-membership");
+    let reset = utc("2026-03-30T21:00:00Z");
+    for (at, pct) in [
+        ("2026-03-28T21:00:00Z", 0.0),
+        ("2026-03-28T21:59:59.999Z", 1.0),
+        ("2026-03-28T22:00:00Z", 3.0),
+        ("2026-03-28T22:00:00.001Z", 6.0),
+        ("2026-03-29T00:59:59.999Z", 10.0),
+        ("2026-03-29T01:00:00Z", 15.0),
+        ("2026-03-29T20:59:59.999Z", 21.0),
+        ("2026-03-29T21:00:00Z", 28.0),
+        ("2026-03-29T21:00:00.001Z", 36.0),
+        ("2026-03-30T21:00:00Z", 99.0),
+    ] {
+        insert(&s, &p, utc(at), Some(pct), Some(reset));
+    }
+    let actuals = compute_day_actuals(&s, &p, None, reset, &calendar).unwrap();
+    let totals: Vec<_> = actuals.iter().filter_map(|a| a.pct).collect();
+    assert_eq!(totals, [1.0, 20.0, 15.0]);
+    assert_eq!(totals.iter().sum::<f64>(), 36.0);
+}
+
+#[test]
+fn future_weekday_sums_visit_each_civil_date_once() {
+    let estimates = [1.0, 10.0, 100.0, 1000.0, 10000.0, 100000.0, 1000000.0];
+    for (calendar, now, end) in [
+        (
+            riga_spring(),
+            "2026-03-28T10:00:00Z",
+            "2026-03-30T21:00:00Z",
+        ),
+        (
+            riga_spring(),
+            "2026-03-28T10:00:00Z",
+            "2026-03-29T21:30:00Z",
+        ),
+        (riga_fall(), "2026-10-24T10:00:00Z", "2026-10-26T22:00:00Z"),
+    ] {
+        assert_eq!(
+            calendar
+                .future_spend(utc(now), utc(end), &estimates)
+                .unwrap(),
+            11.0
+        );
+        assert_eq!(
+            calendar
+                .future_spend(
+                    utc(now),
+                    calendar.shift_start(utc(now), 1).unwrap(),
+                    &estimates
+                )
+                .unwrap(),
+            0.0
+        );
+    }
+}
+
+#[test]
+fn baseline_lookback_and_day_grouping_share_the_injected_calendar() {
+    for (calendar, now, boundary, previous, early, late, repeated, end) in [
+        (
+            riga_spring(),
+            "2026-03-30T10:00:00Z",
+            "2025-12-29T22:00:00Z",
+            "2025-12-29T21:30:00Z",
+            "2026-03-28T22:30:00Z",
+            "2026-03-29T20:30:00Z",
+            "2026-03-29T00:30:00Z",
+            "2026-03-29T21:00:00Z",
+        ),
+        (
+            riga_fall(),
+            "2026-10-26T10:00:00Z",
+            "2026-07-27T21:00:00Z",
+            "2026-07-27T20:30:00Z",
+            "2026-10-24T21:30:00Z",
+            "2026-10-25T21:30:00Z",
+            "2026-10-25T01:30:00Z",
+            "2026-10-25T22:00:00Z",
+        ),
+    ] {
+        assert_eq!(calendar.shift_start(utc(now), -90).unwrap(), utc(boundary));
+        let s = store();
+        let p = unique_provider("calendar-baseline");
+        for (at, pct) in [
+            (utc(previous) - 1000, 0.0),
+            (utc(previous), 99.0),
+            (utc(boundary), 0.0),
+            (utc(boundary) + 1000, 2.0),
+            (utc(early), 10.0),
+            (utc(repeated), 13.0),
+            (utc(late), 20.0),
+            (utc(end), 70.0),
+            (utc(end) + 1000, 99.0),
+        ] {
+            insert(&s, &p, at, Some(pct), Some(RESETS_A));
+        }
+        let b = compute_baseline_with_calendar(&s, &p, None, utc(now), &calendar).unwrap();
+        assert_eq!(b.dow_n[0], 1);
+        assert_eq!(b.dow_total[0], 10.0);
+        assert_eq!(b.dow_n.iter().sum::<u32>(), 2);
+        assert_eq!(b.wd_total_avg, 2.0);
+    }
+}
+
+#[test]
+fn midnight_resolution_chooses_earliest_fold_and_first_valid_gap_instant() {
+    let day = date("2026-01-02");
+    let gap = Calendar(TransitionZone {
+        at_ms: utc("2026-01-02T00:00:00Z"),
+        before: 0,
+        after: 3600,
+    });
+    assert_eq!(gap.start(day).unwrap(), utc("2026-01-02T00:00:00Z"));
+    assert_eq!(gap.at(gap.start(day).unwrap()).unwrap().hour(), 1);
+    let fold = Calendar(TransitionZone {
+        at_ms: utc("2026-01-02T00:00:00Z"),
+        before: 3600,
+        after: 0,
+    });
+    assert_eq!(fold.start(day).unwrap(), utc("2026-01-01T23:00:00Z"));
+    let skipped = Calendar(TransitionZone {
+        at_ms: utc("2026-01-02T12:00:00Z"),
+        before: -43200,
+        after: 43200,
+    });
+    assert!(skipped
+        .start(day)
+        .unwrap_err()
+        .contains("local civil date does not exist"));
 }
