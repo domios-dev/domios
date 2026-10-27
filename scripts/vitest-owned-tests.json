@@ -4,7 +4,7 @@
   "src/components/billing/giftRedemptionModel.test.ts",
   "src/components/Terminal/contextCompaction.wiring.test.tsx",
   "src/components/Neighbors/NeighborChannel.test.tsx",
-  "src/components/Neighbors/NeighborsSection.test.tsx",
+  "src/components/Neighbors/NeighborsView.test.tsx",
   "src/components/Neighbors/neighborModel.test.ts",
   "src/components/billing/desktopBilling.test.ts",
   "src/components/billing/PlanChanges.test.tsx",
