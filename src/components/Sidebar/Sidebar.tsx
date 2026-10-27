@@ -842,6 +842,15 @@ export const Sidebar = memo(function Sidebar({
               aria-label="Sidebar views"
               className={`sidebar-footer ${isCompact ? "px-1 py-2 flex flex-col items-center" : "flex flex-col"}`}
             >
+              <SidebarNavButton
+                testId="nav-memory"
+                label="Memory"
+                title="Memory Graph (Ctrl+Shift+M)"
+                icon={<MemoryGraphIcon size={navIconSize} />}
+                current={mainView === "memory"}
+                onClick={onOpenMemory}
+                {...navButtonLayout}
+              />
               <div className={`flex items-center ${isCompact ? "justify-center" : "gap-1 w-full"}`}>
                 <SidebarNavButton
                   testId="nav-neighbors"
@@ -862,15 +871,6 @@ export const Sidebar = memo(function Sidebar({
                   />
                 )}
               </div>
-              <SidebarNavButton
-                testId="nav-memory"
-                label="Memory"
-                title="Memory Graph (Ctrl+Shift+M)"
-                icon={<MemoryGraphIcon size={navIconSize} />}
-                current={mainView === "memory"}
-                onClick={onOpenMemory}
-                {...navButtonLayout}
-              />
               <div className={`flex items-center ${isCompact ? "justify-center" : "gap-1 w-full"}`}>
                 <SidebarNavButton
                   testId="nav-mesh"
