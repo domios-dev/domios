@@ -456,6 +456,16 @@ pub enum RegistryRefusal {
     Forbidden,
     #[serde(rename = "conflict")]
     Conflict,
+    #[serde(rename = "key_conflict")]
+    KeyConflict,
+    #[serde(rename = "generation_mismatch")]
+    GenerationMismatch,
+    #[serde(rename = "challenge_invalid")]
+    ChallengeInvalid,
+    #[serde(rename = "enrollment_budget")]
+    EnrollmentBudget,
+    #[serde(rename = "proof_invalid")]
+    ProofInvalid,
     #[serde(rename = "rate-limited")]
     RateLimited { retry_after_seconds: u64 },
     #[serde(rename = "mesh.machines")]

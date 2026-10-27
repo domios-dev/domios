@@ -98,6 +98,16 @@ impl<T: CallableTransport> CallableRegistry<T> {
             .transport
             .call(route, session.id_token.expose(), data)
             .await;
+        if let Err(failure) = &response {
+            let status = match failure {
+                CallableFailure::Offline => None,
+                CallableFailure::Status { status, .. } => Some(*status),
+            };
+            log::debug!(
+                "Account mesh callable failed: route={route} status={status:?} kind={:?}",
+                refusal(failure)
+            );
+        }
         let body = match response {
             Ok(body) if !is_session_revoked(&body) => body,
             response => {
@@ -119,7 +129,9 @@ impl<T: CallableTransport> CallableRegistry<T> {
                     .unwrap_or(RegistryRefusal::Unavailable));
             }
         };
-        result(body)
+        result(body).inspect_err(|refusal| {
+            log::debug!("Account mesh callable result failed: route={route} kind={refusal:?}");
+        })
     }
 }
 

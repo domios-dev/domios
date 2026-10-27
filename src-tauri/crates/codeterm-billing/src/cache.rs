@@ -26,6 +26,21 @@ pub struct Snapshot {
 
 /// Failure bound for the checking state when the first refresh never answers.
 pub const CHECKING_DEADLINE_SECS: u64 = 15;
+
+pub(crate) fn refresh_error_kind(error: &str) -> &'static str {
+    match error {
+        "Installation proof unavailable" => "installation_proof_unavailable",
+        "Billing server unreachable" => "transport",
+        "Invalid billing response" | "Invalid callable response" => "response_decode",
+        "Invalid billing request" | "Invalid installation proof" => "request_encode",
+        "Invalid billing endpoint" => "configuration",
+        "Cloud billing is unavailable: no build-time endpoint configured" => "unconfigured",
+        codeterm_account::session_revocation::SESSION_REVOKED => "session_revoked",
+        "Billing request refused" => "backend_refusal",
+        _ => "provider_failure",
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum RefreshEvent {
     SignIn,
@@ -535,7 +550,13 @@ impl Billing {
                         grant: None,
                     };
                 }
-                Err(_) => cache.snapshot.stale = true,
+                Err(error) => {
+                    log::debug!(
+                        "Entitlement refresh failed: kind={}",
+                        refresh_error_kind(&error)
+                    );
+                    cache.snapshot.stale = true;
+                }
             }
         }
         let snapshot = self.recompute(&cache);

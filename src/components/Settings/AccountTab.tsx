@@ -16,6 +16,8 @@ import { ACCOUNT_ENTRY_OPTIONS, SIGN_IN_PROVIDER_OPTIONS } from "./accountSignIn
 import { CopyRow, SettingsCard, SettingsPage, SettingsPill } from "./shared";
 import { useAccountPlan } from "./useAccountPlan";
 import { useAccount } from "./useAccount";
+import { useAccountEnrollmentFailure } from "./useAccountEnrollmentFailure";
+import { failureMessage } from "../MeshPanel/accountMachines";
 import { SettingsCardAnchor } from "./SettingsCardAnchor";
 import type { SettingsCardAnchorId } from "./sections";
 import { useMultiplexer } from "../../store/multiplexer";
@@ -38,6 +40,7 @@ export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) 
   const retryHint = useRef<LoginHint | undefined>(undefined);
   const signedIn = model.kind === "signed_in";
   const identity = signedIn ? model.identity.uid : null;
+  const enrollmentFailure = useAccountEnrollmentFailure(identity);
   useEffect(() => setRefusedAsSubscribed(false), [identity]);
   const usage = useAccountUsage(identity);
   const offersReady = desktopBilling.catalog !== null && desktopBilling.subscription !== null;
@@ -82,6 +85,7 @@ export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) 
           </div>
           {model.sessionOnly && <p role="status" className={MUTED}>Signed in for this session only: secure storage is unavailable, so sign in again after restarting Domios.</p>}
           <CopyRow label="Account ID" value={model.identity.uid} />
+          {enrollmentFailure && <p role="status" className={MUTED}>{failureMessage(enrollmentFailure)}</p>}
         </div>;
       })() : <div className="flex flex-col items-start gap-3 text-xs">
         {model.kind === "signed_out" && model.sessionRevoked && <p role="status" className={MUTED}>{SESSION_REVOKED_MESSAGE}</p>}

@@ -24,7 +24,10 @@ impl InstallationProofSource for codeterm_account::account_mesh::AccountMesh {
     ) -> Result<codeterm_account::account_mesh::wire::InstallationProof> {
         self.entitlements_proof(session, installation_id)
             .await
-            .map_err(|_| "Installation proof unavailable".into())
+            .map_err(|refusal| {
+                log::debug!("Entitlement installation proof failed: kind={refusal:?}");
+                "Installation proof unavailable".into()
+            })
     }
 }
 #[async_trait]

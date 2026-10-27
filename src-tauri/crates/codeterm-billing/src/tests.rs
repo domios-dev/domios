@@ -1177,3 +1177,6 @@ mod startup;
 
 #[path = "observer_tests.rs"]
 mod observer;
+
+#[path = "refresh_error_tests.rs"]
+mod refresh_error;
