@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { listen } from "../../lib/bridge";
 import { receiverState, type NeighborRuntimeClient } from "./neighborRuntimeClient";
 
@@ -33,8 +33,12 @@ export function parseConciergeStatus(value: unknown): ConciergeStatus | null {
 /** Each friendship's concierge on this machine, from the runtime status and its per-friendship events. */
 export function useConciergeStatus(client: NeighborRuntimeClient, active: boolean): Record<string, ConciergeStatus> {
   const [byFriendship, setByFriendship] = useState<Record<string, ConciergeStatus>>({});
+  // The client is held by reference so the subscription restarts only when the hook turns on or off.
+  const clientRef = useRef(client);
+  clientRef.current = client;
   useEffect(() => {
     if (!active) { setByFriendship({}); return; }
+    const client = clientRef.current;
     const controller = new AbortController();
     const stops: Array<() => void> = [];
     const keep = (stop: () => void) => { if (controller.signal.aborted) stop(); else stops.push(stop); };
@@ -68,7 +72,7 @@ export function useConciergeStatus(client: NeighborRuntimeClient, active: boolea
     void client.subscribe(event => { if (receiverState(event)) refresh(); }).then(keep);
     refresh();
     return () => { controller.abort(); stops.forEach(stop => stop()); };
-  }, [client, active]);
+  }, [active]);
   return byFriendship;
 }
 
