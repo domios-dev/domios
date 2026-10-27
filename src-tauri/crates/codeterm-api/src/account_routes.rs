@@ -275,7 +275,49 @@ pub async fn neighbor_runtime(
         .map_err(neighbor_failure)
 }
 
+fn file_failure(message: &str) -> Option<Response> {
+    let (reason, detail) = message.split_once(':')?;
+    let status = match reason {
+        "file_too_large" => StatusCode::PAYLOAD_TOO_LARGE,
+        "file_daily_limit" | "sender_quota" | "file_rate_limited" => StatusCode::TOO_MANY_REQUESTS,
+        "file_not_found" => StatusCode::NOT_FOUND,
+        "files_disabled" | "entitlements_unavailable" => StatusCode::SERVICE_UNAVAILABLE,
+        "file_not_ready" | "upload_mismatch" | "recipient_files_unsupported" => {
+            StatusCode::CONFLICT
+        }
+        _ => return None,
+    };
+    let mut details = serde_json::from_str::<serde_json::Value>(detail).ok()?;
+    details["code"] = reason.into();
+    details["message"] = reason.replace('_', " ").into();
+    Some((status, Json(details)).into_response())
+}
+
+pub async fn neighbor_files(
+    State(state): State<AppState>,
+    caller: Option<Extension<CallerIdentity>>,
+    Json(command): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, Response> {
+    let (tab, nonce) = match caller.as_ref().map(|caller| &caller.0) {
+        Some(CallerIdentity::Local) => (None, None),
+        Some(CallerIdentity::Tab(caller)) => (
+            Some(caller.tab_id.as_str()),
+            Some(caller.binding_nonce.as_str()),
+        ),
+        _ => return Err((StatusCode::FORBIDDEN, "Account access is local-only").into_response()),
+    };
+    state
+        .svc
+        .neighbor_files(command, tab, nonce)
+        .await
+        .map(Json)
+        .map_err(neighbor_failure)
+}
+
 fn neighbor_failure(message: String) -> Response {
+    if let Some(response) = file_failure(&message) {
+        return response;
+    }
     if let Some(detail) = message.strip_prefix("message_too_large:") {
         if let Ok(data) = serde_json::from_str::<serde_json::Value>(detail) {
             if let Some(limit) = data["limit"].as_u64() {

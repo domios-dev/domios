@@ -141,6 +141,7 @@ async fn receiver_enrollment_requires_explicit_revision_and_never_replays_uncert
         assert_eq!(data["installation_id"], "machine");
         assert_eq!(data["machine_label"], "Here");
         assert_eq!(data["takeover"], true);
+        assert_eq!(data["features"], json!(["files.v1"]));
         let operation_id = data["operation_id"].as_str().unwrap();
         assert!((16..=64).contains(&operation_id.len()));
         assert!(operation_id

@@ -1,6 +1,7 @@
 #[cfg(feature = "runtime")]
 pub mod adapter;
 pub mod crypto;
+pub mod files;
 pub mod gateway;
 pub mod keys;
 pub mod permissions;
@@ -11,6 +12,7 @@ pub mod wire;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
+    File(files::refusal::Failure),
     InvalidEnvelope,
     MessageTooLarge { limit: u64 },
     TabRequestsNotAllowed,
@@ -54,6 +56,9 @@ pub enum Error {
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Self::File(failure) = self {
+            return std::fmt::Display::fmt(failure, f);
+        }
         if let Self::MessageTooLarge { limit } = self {
             return write!(f, "message_too_large: {{\"limit\":{limit}}}");
         }
@@ -127,7 +132,7 @@ impl std::fmt::Display for Error {
             Self::FriendshipNotFound => "friendship_not_found: Neighbor friendship not found",
             Self::FriendshipEnded => "friendship_ended: This Neighbor conversation has ended; refresh the friendship before sending",
             Self::RecipientLocked => "recipient_locked: This Neighbor's plan does not allow the channel",
-            Self::MessageTooLarge { .. } | Self::Firestore { .. } | Self::DailyLimit { .. } | Self::AggregateDailyLimited { .. } | Self::ListenProtocol { .. } | Self::RateLimited { .. } | Self::AggregateLimited { .. } => unreachable!(),
+            Self::File(_) | Self::MessageTooLarge { .. } | Self::Firestore { .. } | Self::DailyLimit { .. } | Self::AggregateDailyLimited { .. } | Self::ListenProtocol { .. } | Self::RateLimited { .. } | Self::AggregateLimited { .. } => unreachable!(),
         })
     }
 }

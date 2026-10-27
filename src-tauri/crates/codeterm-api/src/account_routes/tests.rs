@@ -1,6 +1,7 @@
 use super::*;
 
 mod neighbor_authority;
+mod neighbor_files;
 
 #[tokio::test]
 async fn aggregate_daily_send_limit_returns_429_with_limit_and_reset() {

@@ -151,6 +151,13 @@ type CountFuture<'a> = std::pin::Pin<
 >;
 
 async fn observe(session: &listener::Session) -> codeterm_neighbors::Result<()> {
+    tokio::select! {
+        result = observe_count(session) => result,
+        result = super::files::prefetch(session) => result,
+    }
+}
+
+async fn observe_count(session: &listener::Session) -> codeterm_neighbors::Result<()> {
     session.prepare().await?;
     let mut stopped = session.stopped.clone();
     let mut inbox = tokio::select! {

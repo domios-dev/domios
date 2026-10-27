@@ -138,6 +138,7 @@ impl KeyRegistry for FirebaseRegistry {
             "expected_receiver_revision":enrollment.expected_revision,
             "operation_id":enrollment.operation_id.clone().unwrap_or_else(receiver::operation_id),
             "takeover":enrollment.takeover && replace_others,
+            "features":["files.v1"],
         });
         let body = match self.calls.invoke("friendsEnrollVerifierKey", data).await {
             Ok(body) => body,

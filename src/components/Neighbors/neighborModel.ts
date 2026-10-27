@@ -12,6 +12,10 @@ export interface Neighbor {
   /** Messages a day they allow you; null means no limit. */
   their_daily_limit?: number | null;
   sent_today?: number;
+  /** Bytes of files a day you accept from them; null means the 50 MiB default, 0 blocks files. */
+  my_file_daily_limit_bytes?: number | null;
+  /** Bytes of files a day they accept from you, with the same meaning. */
+  their_file_daily_limit_bytes?: number | null;
   /** This friendship's concierge tab on this machine, when one is bound. */
   gateway_tab?: string | null;
   /** Where this friend's messages notify you; the daemon defaults to in_app. */

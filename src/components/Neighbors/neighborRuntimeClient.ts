@@ -20,6 +20,7 @@ export interface ChannelStatus extends ReceiverState {
   enrolled: boolean;
   bindings: Record<string, string>;
 }
+export type MachineAccess = "read_only" | "folder" | "full";
 export interface NeighborPermission {
   allowed: boolean;
   scope: string;
@@ -28,8 +29,17 @@ export interface NeighborPermission {
   allow_interactive_content?: boolean;
   /** On by default: their agents may ask yours about what your memory holds. */
   allow_memory?: boolean;
+  /** Only these memory areas; null shares every area that is not secret. */
+  memory_areas?: string[] | null;
   /** On by default: their agents may ask for files. */
   allow_files?: boolean;
+  /** Where their concierge works; null means the friend's own folder. */
+  folder?: string | null;
+  /** How far their concierge may act on this machine; read only unless the owner widens it. */
+  machine_access?: MachineAccess;
+  /** Read-only: the folder actually in effect, and how much of it the platform enforces. */
+  effective_folder?: string;
+  folder_enforcement?: { writes: "provider_sandbox" | "advisory"; reads: "not_confined"; note: string };
 }
 export interface NeighborReceipt {
   message_id: string;

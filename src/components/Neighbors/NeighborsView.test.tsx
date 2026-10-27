@@ -722,3 +722,81 @@ it("keeps a removed friend's conversation readable and closed", async () => {
   expect(document.body.textContent).toContain("Old note");
   expect(document.querySelector<HTMLTextAreaElement>("textarea")!.disabled).toBe(true);
 });
+
+it("sets machine access: the folder with its honest note, and a warning for full access", async () => {
+  const conciergeClient = concierge([]);
+  const runtimeClient = runtime();
+  vi.mocked(runtimeClient.permission).mockResolvedValue({ allowed: true, scope: "Project questions", allow_tab_requests: false, machine_access: "folder", folder: "/work/shared",
+    effective_folder: "/work/shared", folder_enforcement: { writes: "advisory", reads: "not_confined", note: "Writes are advisory with this agent; reads are not confined." } });
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtimeClient} conciergeClient={conciergeClient} />));
+  await act(async () => button("Ada, connected").click());
+  expect(document.body.textContent).toContain("/work/shared");
+  expect(document.body.textContent).toContain("Writes are advisory with this agent; reads are not confined.");
+  await act(async () => button("Full access").click());
+  expect(document.body.textContent).toContain("Their requests can change anything your agents on this machine can reach.");
+  await act(async () => button("Save permissions").click());
+  expect(conciergeClient.setPermission).toHaveBeenCalledExactlyOnceWith("pair", expect.objectContaining({ machine_access: "full" }));
+});
+
+it("blocks files from one friend with a zero daily file limit", async () => {
+  const filesClient = { send: vi.fn(), list: vi.fn(async () => ({ folder: "/neighbors/ada", files: [] })), open: vi.fn(), openFolder: vi.fn(async () => {}),
+    setDailyLimit: vi.fn(async () => {}), usage: vi.fn(async () => null), onFilesChanged: vi.fn(async () => () => {}) };
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtime()} conciergeClient={concierge([])} filesClient={filesClient} />));
+  await act(async () => button("Ada, connected").click());
+  const input = Array.from(document.querySelectorAll<HTMLLabelElement>("label")).find(label => label.textContent === "Files per day from this friend")!.control as HTMLInputElement;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "0");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => button("Save file limit").click());
+  expect(filesClient.setDailyLimit).toHaveBeenCalledExactlyOnceWith("pair", 0);
+});
+
+it("shows a message's files with their state and opens a saved one from the friend", async () => {
+  const entries: HistoryEntry[] = [{ direction: "in", kind: "question", author: "friend", body: "Here you go", at: 1700000000000, message_id: "f1" }];
+  const filesClient = { send: vi.fn(), open: vi.fn(async () => {}), openFolder: vi.fn(async () => {}), setDailyLimit: vi.fn(async () => {}),
+    usage: vi.fn(async () => null), onFilesChanged: vi.fn(async () => () => {}),
+    list: vi.fn(async () => ({ folder: "/neighbors/ada", files: [
+      { file_id: "file-1", name: "notes.txt", size_bytes: 2048, state: "saved" as const, message_id: "f1", direction: "in" as const },
+      { file_id: "file-2", name: "old.zip", size_bytes: 4096, state: "expired" as const, message_id: "f1", direction: "in" as const },
+    ] })) };
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtime()} conciergeClient={concierge(entries)} filesClient={filesClient} />));
+  expect(document.getElementById("neighbor-msg-f1")?.textContent).toContain("expired");
+  expect(hasButton("Open old.zip")).toBe(false);
+  await act(async () => button("Open notes.txt").click());
+  expect(filesClient.open).toHaveBeenCalledExactlyOnceWith("pair", "file-1");
+});
+
+it("narrows a friend's memory to chosen areas", async () => {
+  vi.mocked(localFetch).mockImplementation(async (path: string) => path === "/api/mem/taxonomy"
+    ? new Response(JSON.stringify({ work: 3, family: 2, "(none)": 1 }), { status: 200 }) : new Response("null", { status: 404 }));
+  const conciergeClient = concierge([]);
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
+  await act(async () => button("Ada, connected").click());
+  await act(async () => { button("Memory areas: All areas").dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 })); });
+  const options = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]'));
+  expect(options.map(option => option.textContent)).toEqual(["family", "work"]);
+  await act(async () => options.find(option => option.textContent === "work")!.click());
+  await act(async () => button("Save permissions").click());
+  expect(conciergeClient.setPermission).toHaveBeenCalledExactlyOnceWith("pair", expect.objectContaining({ memory_areas: ["work"] }));
+});
