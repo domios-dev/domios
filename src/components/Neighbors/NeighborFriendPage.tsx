@@ -114,8 +114,10 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
   }, [origin]);
   const close = () => {
     if (closing) return;
-    // Without motion there is no animation end to wait for, so the window closes at once.
-    const still = typeof window.matchMedia !== "function" || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    // Without a running animation (reduced motion, or no styles at all) there is no animation end to wait for.
+    const reduced = typeof window.matchMedia !== "function" || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const animated = windowRef.current !== null && getComputedStyle(windowRef.current).animationName !== "none" && getComputedStyle(windowRef.current).animationName !== "";
+    const still = reduced || !animated;
     if (still) onBack();
     else setClosing(true);
   };

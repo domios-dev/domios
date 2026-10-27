@@ -323,11 +323,11 @@ it("offers the concierge actions: change agent, view permissions and edit with G
   expect(items).toEqual(["Change agent", "View permissions", "Edit with General"]);
   const viewPermissions = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent === "View permissions")!;
   await act(async () => viewPermissions.click());
-  expect(takeNeighborFocus()).toEqual({ id: "pair", section: "configure" });
+  expect(takeNeighborFocus()).toEqual({ id: "pair", section: "permissions" });
 });
 
 it("saves permissions directly and refuses an allowed grant without a scope", async () => {
-  const conciergeClient = { history: vi.fn(), onHistoryChanged: vi.fn(async () => () => {}), onPermissionChanged: vi.fn(async () => () => {}),
+  const conciergeClient = { history: vi.fn(async () => ({ entries: [], next_before: null, ended: false })), onHistoryChanged: vi.fn(async () => () => {}), onPermissionChanged: vi.fn(async () => () => {}),
     onAgentChanged: vi.fn(async () => () => {}), setPermission: vi.fn(async () => {}), changeAgent: vi.fn(),
     setDailyLimit: vi.fn(async () => {}), onDailyLimitChanged: vi.fn(async () => () => {}),
     setNotify: vi.fn(async (_friendship: string, notify: NeighborNotify) => notify), onNotifyChanged: vi.fn(async () => () => {}) };
