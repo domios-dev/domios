@@ -20,8 +20,6 @@ pub struct Snapshot {
     pub access: Option<Access>,
     /// No verified answer yet for an account last seen paid: the UI may defer showing locks.
     pub checking: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub signed_tier: Option<String>,
     #[serde(skip)]
     pub grant: Option<Verdict>,
 }
@@ -159,19 +157,7 @@ impl Billing {
             .grant
             .as_ref()
             .filter(|verdict| verdict.state.retains_grant())
-            .map_or(Plan::Free, |verdict| match &verdict.label {
-                codeterm_entitlements::Label::Admin | codeterm_entitlements::Label::Pro => {
-                    Plan::Pro
-                }
-                codeterm_entitlements::Label::Sponsor => Plan::Sponsor,
-                codeterm_entitlements::Label::Free => Plan::Free,
-                codeterm_entitlements::Label::Paid(_) => Plan::Pro,
-            });
-        snapshot.signed_tier = snapshot
-            .grant
-            .as_ref()
-            .filter(|verdict| verdict.state.retains_grant())
-            .map(|verdict| verdict.label.as_str().to_owned());
+            .map_or(Plan::Free, |verdict| Plan::from(&verdict.label));
         snapshot.checking = self.checking(cache);
         snapshot
     }
@@ -546,7 +532,6 @@ impl Billing {
                         stale: false,
                         access: Some(access),
                         checking: false,
-                        signed_tier: None,
                         grant: None,
                     };
                 }
@@ -555,7 +540,7 @@ impl Billing {
         }
         let snapshot = self.recompute(&cache);
         if refreshed {
-            cache.snapshot.entitlements.plan = snapshot.entitlements.plan;
+            cache.snapshot.entitlements.plan = snapshot.entitlements.plan.clone();
         }
         drop(cache);
         self.rearm.notify_one();
@@ -566,7 +551,7 @@ impl Billing {
         {
             if let Some(observer) = &self.observer {
                 observer(ProductEvent::SubscriptionChanged {
-                    plan: snapshot.entitlements.plan,
+                    plan: snapshot.entitlements.plan.clone(),
                     status: snapshot.entitlements.status,
                 });
             }

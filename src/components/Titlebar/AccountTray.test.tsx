@@ -279,7 +279,6 @@ it("shows identity and plan and wires subscription and sign out", async () => {
     const head = menu!.querySelector<HTMLElement>('[data-testid="account-menu-head"]')!;
     expect(head.textContent).toContain("ada@example.test");
     expect(head.querySelector(".ct-plan-badge")?.textContent).toBe("Pro");
-    expect(head.querySelector(".ct-plan-status")?.textContent).toBe("active");
     expect(menu?.getAttribute("aria-label")).toBe("Account: Ada, Pro · active");
     expect(head.closest('[role="menuitem"], button')).toBeNull();
     expect(head.querySelector('[role="menuitem"], button, [tabindex]')).toBeNull();

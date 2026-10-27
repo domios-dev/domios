@@ -143,7 +143,9 @@ it("staff are never sent to checkout, for any plan", async () => {
   await finishLogin("ok");
   expect(daemon.state.upgrades).toEqual([]);
   expect(card("Sponsor").querySelector('[role="status"]')).not.toBeNull();
-  expect(button(card("Pro"), "Choose Pro")).toBeUndefined();
+  await click(card("Pro"), "Choose Pro");
+  expect(daemon.state.upgrades).toEqual([]);
+  expect(card("Pro").querySelector('[role="status"]')).not.toBeNull();
 });
 
 it("a Pro subscriber choosing Sponsor still goes to checkout", async () => {

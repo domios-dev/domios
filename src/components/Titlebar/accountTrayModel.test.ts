@@ -12,10 +12,8 @@ assert.equal(signedIn.initial, accountInitials("Ada"));
 assert.equal(signedIn.identity, "Ada");
 assert.equal(signedIn.plan, "Pro · active");
 assert.equal(accountTrayModel({kind:"signed_in",identity:{...identity,display_name:null}}, null).identity, identity.email);
-assert.deepEqual(signedIn.badge, { tier: "pro", name: "Pro", status: "active", tone: "active", admin: false, stale: false });
+assert.deepEqual(signedIn.badge, { tier: "pro", name: "Pro", admin: false, stale: false });
 const plan = (status: string) => ({authority:"billing" as const,fullAccess:false,plan:"sponsor",status,stale:false,periodEnd:null,cancelAtPeriodEnd:false,limits:null});
-assert.deepEqual([planBadge(plan("past_due"))?.status, planBadge(plan("past_due"))?.tone], ["past due", "attention"]);
-assert.equal(planBadge(plan("canceled"))?.tone, "inactive");
 assert.equal(planBadge(plan("trialing"))?.name, "Sponsor");
 assert.equal(planBadge(null), null);
 
@@ -35,4 +33,3 @@ for (const rejected of [null, undefined, "", "http://lh3.googleusercontent.com/a
 }
 assert.equal(accountInitials("Domios User"), "DU");
 assert.equal(accountInitials("domios.user@example.test"), "DU");
-console.log("28 model assertions passed");

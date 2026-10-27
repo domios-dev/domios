@@ -15,7 +15,7 @@ pub use model::{
     checkout_url_with_theme, Capability, CheckoutKey, CheckoutTheme, Entitlements, Plan, Status,
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProductEvent {
     CheckoutStarted { plan: Plan },
     SubscriptionChanged { plan: Plan, status: Status },

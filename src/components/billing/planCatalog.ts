@@ -12,11 +12,14 @@ export interface PlanPrice {
   currency: string;
 }
 
+export type PlanLimits = Record<"mesh.machines" | "workspaces" | "mem.items" | "teams" | "agent.tabs" | "neighbors", number | null>;
+
 export interface PlanOffer {
   id: string;
   name: string;
   tagline: string;
   features: string[];
+  limits?: PlanLimits;
   prices: Partial<Record<BillingInterval, PlanPrice>>;
   recommended?: boolean;
 }
@@ -52,29 +55,18 @@ export const BUILTIN_PLAN_CATALOG: PlanCatalog = {
   offers: [
     {
       id: "free",
+      limits: { ...FREE_LIMITS, neighbors: 0 },
       name: "Free",
       tagline: "Everything you need on one or two machines.",
-      features: [
-        `${FREE_LIMITS["mesh.machines"]} machines in your mesh`,
-        `${FREE_LIMITS.workspaces} workspaces`,
-        `${FREE_LIMITS["mem.items"]} memory items`,
-        `${FREE_LIMITS.teams} Teams across all workspaces`,
-        `${FREE_LIMITS["agent.tabs"]} ${TAB_LIMIT_NOUN}`,
-      ],
+      features: [],
       prices: {},
     },
     {
       id: "pro",
+      limits: { "mesh.machines": 5, workspaces: 7, "mem.items": 1500, teams: 10, "agent.tabs": 70, neighbors: 5 },
       name: "Pro",
       tagline: "More room for your agents and Neighbors.",
-      features: [
-        "5 machines in your mesh",
-        "7 workspaces",
-        "1500 memory items",
-        "10 Teams across all workspaces",
-        "70 tabs running at once",
-        "5 Neighbors",
-      ],
+      features: [],
       prices: {
         month: { planKey: "pro_monthly", amount: 9.99, currency: "USD" },
         year: { planKey: "pro_yearly", amount: 72, currency: "USD" },
@@ -83,9 +75,10 @@ export const BUILTIN_PLAN_CATALOG: PlanCatalog = {
     },
     {
       id: "max",
+      limits: { "mesh.machines": 12, workspaces: 20, "mem.items": 5000, teams: null, "agent.tabs": null, neighbors: 20 },
       name: "Max",
       tagline: "Space for larger projects and Teams.",
-      features: ["12 machines in your mesh", "20 workspaces", "5000 memory items", "Unlimited Teams across all workspaces", "Unlimited concurrent tabs", "20 Neighbors"],
+      features: [],
       prices: {
         month: { planKey: "max_monthly", amount: 24.99, currency: "USD" },
         year: { planKey: "max_yearly", amount: 180, currency: "USD" },
@@ -93,9 +86,10 @@ export const BUILTIN_PLAN_CATALOG: PlanCatalog = {
     },
     {
       id: "sponsor",
+      limits: { "mesh.machines": null, workspaces: null, "mem.items": null, teams: null, "agent.tabs": null, neighbors: null },
       name: "Sponsor",
       tagline: "Support the people building Domios.",
-      features: ["Unlimited machines in your mesh", "Unlimited workspaces", "Unlimited memory items", "Unlimited Teams across all workspaces", "Unlimited concurrent tabs", "Unlimited Neighbors", "Sponsor role in Discord", "Priority support"],
+      features: ["Sponsor role in Discord", "Priority support"],
       prices: {
         month: { planKey: "sponsor_monthly", amount: 75, currency: "USD" },
         year: { planKey: "sponsor_yearly", amount: 900, currency: "USD" },
@@ -128,6 +122,16 @@ function parsePrice(value: unknown): PlanPrice | null {
   return { planKey: value.planKey, amount: value.amount, currency: value.currency };
 }
 
+export function parsePlanLimits(value: Record<string, unknown>): PlanLimits {
+  const limits = {} as PlanLimits;
+  for (const key of ["mesh.machines", "workspaces", "mem.items", "teams", "agent.tabs", "neighbors"] as const) {
+    const max = value[key];
+    if (max !== null && (typeof max !== "number" || !Number.isSafeInteger(max) || max < 0)) throw new Error("Invalid tier limit");
+    limits[key] = max;
+  }
+  return limits;
+}
+
 function parseOffer(value: unknown): PlanOffer | null {
   if (!isRecord(value) || !isText(value.id) || !isText(value.name)) return null;
   const prices: PlanOffer["prices"] = {};
@@ -145,6 +149,7 @@ function parseOffer(value: unknown): PlanOffer | null {
     tagline: typeof value.tagline === "string" ? value.tagline : "",
     features: Array.isArray(value.features) ? value.features.filter(isText) : [],
     prices,
+    ...(isRecord(value.limits) ? { limits: parsePlanLimits(value.limits) } : {}),
     ...(value.recommended === true ? { recommended: true } : {}),
   };
 }
@@ -213,4 +218,20 @@ export function upgradePlanKey(catalog: PlanCatalog, interval: BillingInterval):
 export function offerIdForPlan(catalog: PlanCatalog, plan: string | null | undefined): string {
   if (!plan) return "free";
   return catalog.offers.find((offer) => offer.id === plan || Object.values(offer.prices).some((price) => price?.planKey === plan))?.id ?? plan;
+}
+
+export function planChangePrice(offer: PlanOffer, interval: BillingInterval | null): PlanPrice | null {
+  const price = interval ? offer.prices[interval] : undefined;
+  return price?.priceId ? price : null;
+}
+
+export function planFeatures(offer: PlanOffer): string[] {
+  const limits = offer.limits;
+  if (!limits) return offer.features;
+  const nouns: Record<keyof PlanLimits, string> = { "mesh.machines": "machines in your mesh", workspaces: "workspaces",
+    "mem.items": "memory items", teams: "Teams across all workspaces", "agent.tabs": TAB_LIMIT_NOUN, neighbors: "Neighbors" };
+  return [...Object.entries(nouns).flatMap(([key, noun]) => {
+    const max = limits[key as keyof PlanLimits];
+    return key === "neighbors" && max === 0 ? [] : [`${max === null ? "Unlimited" : max} ${noun}`];
+  }), ...offer.features];
 }

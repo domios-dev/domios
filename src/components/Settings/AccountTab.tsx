@@ -9,7 +9,7 @@ import { useDesktopBilling } from "../billing/useDesktopBilling";
 import { scheduledPlanCopy, tierName } from "../billing/desktopBilling";
 import { PlanChangeDialog, type SelectedPlanChange } from "../billing/PlanChangeDialog";
 import { usePlanCatalog } from "../billing/planCatalogContext";
-import { displayedPlan, subscribedPlan } from "../billing/purchaseIntent";
+import { subscribedPlan } from "../billing/purchaseIntent";
 import { usePurchaseIntent } from "../billing/usePurchaseIntent";
 import { ACCOUNT_ENTRY_OPTIONS, SIGN_IN_PROVIDER_OPTIONS } from "./accountSignInOptions";
 import { CopyRow, SettingsCard, SettingsPage, SettingsPill } from "./shared";
@@ -93,7 +93,7 @@ export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) 
     <SettingsCard icon={<CreditCard size={16} />} title="Plan">
       <div className="flex flex-col items-start gap-3">
         <div className="flex w-full items-center gap-2">
-          <span className="text-xl font-semibold text-[var(--ct-fg)]">{tierName(displayedPlan(billing.plan) ?? "free")}</span>
+          <span className="text-xl font-semibold text-[var(--ct-fg)]">{tierName(billing.plan?.plan ?? "free")}</span>
           {staff ? <SettingsPill tone="accent">team access</SettingsPill>
             : billing.plan && <SettingsPill tone={billing.plan.status === "active" ? "green" : "muted"}>{billing.plan.status}</SettingsPill>}
           {signedIn && <Button size="sm" variant="ghost" className="ml-auto text-xs" disabled={billing.pending} aria-busy={billing.pending}
@@ -110,9 +110,10 @@ export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) 
         {!signedIn && <p className={MUTED}>You’ll sign in when you choose a plan.</p>}
         <div className="w-full">
           <SettingsCardAnchor id="subscription-plans" focused={focusCard === "subscription-plans"} focusRequest={plansRequest}>
-            <PlanCards viewRequested={focusCard === "subscription-plans" || plansRequest > 0} catalog={catalog} currentPlan={displayedPlan(billing.plan)}
+            <PlanCards viewRequested={focusCard === "subscription-plans" || plansRequest > 0} catalog={catalog} currentPlan={billing.plan?.plan ?? null}
               onChangePlan={desktopBilling.subscription && !desktopBilling.subscription.pending_change && !desktopBilling.submitted
                 ? (priceId, tier, direction) => { if (model.kind === "signed_in") setPlanChange({ priceId, tier, direction, identity: model.identity.uid }); } : undefined}
+              subscriptionInterval={desktopBilling.subscription?.billing_interval ?? null}
               subscribedPlan={subscribedPlan(billing.plan, refusedAsSubscribed)} onManage={() => void manageSubscription()} manageBusy={billing.pending}
               canPurchase={!billing.pending && !purchase.busy && !(signedIn && billing.planLoad === "loading")}
               onChoose={purchase.choose} intent={purchase.intent} onCancel={purchase.cancel}

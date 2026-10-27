@@ -101,7 +101,7 @@ impl Capabilities {
                 sponsor: false,
                 priority_support: false,
             },
-            Plan::Pro => Self {
+            Plan::Pro | Plan::Max | Plan::Admin | Plan::Paid(_) => Self {
                 max_mesh_machines: None,
                 max_workspaces: None,
                 sponsor: false,
@@ -120,8 +120,12 @@ impl Access {
     /// Mirrors the producer's non-admin projection for adapters that hold plain entitlements.
     pub fn for_entitlements(entitlements: &Entitlements) -> Self {
         let paid = matches!(entitlements.status, Status::Active | Status::Trialing);
-        let plan = if paid { entitlements.plan } else { Plan::Free };
-        let capabilities = Capabilities::for_plan(plan);
+        let plan = if paid {
+            entitlements.plan.clone()
+        } else {
+            Plan::Free
+        };
+        let capabilities = Capabilities::for_plan(plan.clone());
         Self {
             authority: if plan == Plan::Free {
                 Authority::Free
@@ -159,7 +163,10 @@ impl From<ApplicationEnvelope> for Reading {
         let entitlements = match envelope.billing_inventory {
             BillingInventory::RequiresInventory => None,
             BillingInventory::Verified => Some(Entitlements {
-                plan: envelope.billing.as_ref().map_or(Plan::Free, |b| b.plan),
+                plan: envelope
+                    .billing
+                    .as_ref()
+                    .map_or(Plan::Free, |b| b.plan.clone()),
                 status: Status::Active,
                 current_period_end: envelope
                     .billing
