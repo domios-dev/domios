@@ -276,6 +276,15 @@ pub async fn neighbor_runtime(
 }
 
 fn neighbor_failure(message: String) -> Response {
+    for reason in ["rate_limited", "aggregate_limited"] {
+        if let Some(detail) = message.strip_prefix(&format!("{reason}:")) {
+            if let Ok(data) = serde_json::from_str::<serde_json::Value>(detail) {
+                if data["retry_after_seconds"].as_u64().is_some() {
+                    return (StatusCode::TOO_MANY_REQUESTS, Json(serde_json::json!({"code":reason,"reason":reason,"retry_after_seconds":data["retry_after_seconds"],"message":"Neighbor send limit reached"}))).into_response();
+                }
+            }
+        }
+    }
     if let Some(detail) = message.strip_prefix("neighbor_daily_limit:") {
         if let Ok(data) = serde_json::from_str::<serde_json::Value>(detail) {
             if data["limit"].as_u64().is_some() && data["resets_at"].as_u64().is_some() {
@@ -290,6 +299,7 @@ fn neighbor_failure(message: String) -> Response {
         Some("limit_out_of_range") => StatusCode::BAD_REQUEST,
         Some("invalid_request") => StatusCode::BAD_REQUEST,
         Some("friendship_not_found") => StatusCode::NOT_FOUND,
+        Some("friends_locked" | "recipient_locked") => StatusCode::FORBIDDEN,
         Some(
             "receiver_elsewhere"
             | "receiver_revision_stale"

@@ -31,10 +31,34 @@ fn daily_limit_refusals_preserve_the_server_limit_and_reset_time() {
         Error::Refused
     );
     for (reason, error) in [
+        ("recipient_locked", Error::RecipientLocked),
         ("invalid_request", Error::InvalidRequest),
         ("friendship_not_found", Error::FriendshipNotFound),
         ("invalid_envelope", Error::InvalidEnvelope),
     ] {
         assert_eq!(refusal(&json!({"error":{"message":reason}})), error);
+    }
+    for (reason, expected) in [
+        (
+            "rate_limited",
+            Error::RateLimited {
+                retry_after_seconds: 42,
+            },
+        ),
+        (
+            "aggregate_limited",
+            Error::AggregateLimited {
+                retry_after_seconds: 42,
+            },
+        ),
+    ] {
+        assert_eq!(
+            refusal(&json!({"error":{"details":{"reason":reason,"retry_after_seconds":42}}})),
+            expected
+        );
+        assert_eq!(
+            refusal(&json!({"error":{"details":{"reason":reason,"retry_after_seconds":"42"}}})),
+            Error::Refused
+        );
     }
 }

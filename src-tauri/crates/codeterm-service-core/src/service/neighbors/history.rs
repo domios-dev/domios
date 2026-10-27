@@ -38,6 +38,8 @@ pub(super) struct Entry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resets_at: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_after_seconds: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delivery_status: Option<DeliveryStatus>,
 }
 
@@ -227,7 +229,7 @@ impl ServiceContext {
         metadata: &Metadata,
         message_id: &str,
         status: DeliveryStatus,
-        refusal: Option<(u64, u64)>,
+        refusal: Option<super::delivery::Rejection>,
         generation: u64,
     ) -> Result<()> {
         let _guard = self
@@ -259,10 +261,11 @@ impl ServiceContext {
             return Ok(());
         }
         entry.delivery_status = Some(status);
-        if let Some((limit, resets_at)) = refusal {
-            entry.reason = Some("neighbor_daily_limit".into());
-            entry.limit = Some(limit);
-            entry.resets_at = Some(resets_at);
+        if let Some(refusal) = refusal {
+            entry.reason = Some(refusal.reason.into());
+            entry.limit = refusal.limit;
+            entry.resets_at = refusal.resets_at;
+            entry.retry_after_seconds = refusal.retry_after_seconds;
         }
         self.require_neighbor_history_generation(generation)?;
         metadata

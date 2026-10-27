@@ -3,6 +3,7 @@ use codeterm_account::account_mesh::callable::{CallableFailure, CallableTranspor
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+mod delivery;
 pub(crate) mod history;
 mod notifications;
 pub use notifications::NeighborNotify;

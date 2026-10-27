@@ -15,6 +15,7 @@ fn entry(id: usize, direction: &str, kind: Kind, reply: Option<String>) -> Entry
         reason: None,
         limit: None,
         resets_at: None,
+        retry_after_seconds: None,
         delivery_status: (direction == "out").then_some(DeliveryStatus::Pending),
     }
 }
@@ -227,7 +228,10 @@ async fn local_history_retains_daily_limit_details_on_explicit_status_checks() {
             &metadata,
             &outgoing.message_id,
             DeliveryStatus::NotDelivered,
-            Some((9, 1000)),
+            super::super::delivery::Rejection::from_error(Error::DailyLimit {
+                limit: 9,
+                resets_at: 1000,
+            }),
             service.neighbor_history_generation(),
         )
         .await

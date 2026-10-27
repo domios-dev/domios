@@ -97,6 +97,21 @@ fn refusal(body: &Value) -> Error {
         Some("receiver_revision_stale") => Error::ReceiverRevisionStale,
         Some("not_receiver") => Error::NotReceiver,
         Some("recipient_not_receiving") => Error::RecipientNotReceiving,
+        Some("recipient_locked") => Error::RecipientLocked,
+        Some(reason @ ("rate_limited" | "aggregate_limited")) => {
+            match body
+                .pointer("/error/details/retry_after_seconds")
+                .and_then(Value::as_u64)
+            {
+                Some(retry_after_seconds) if reason == "rate_limited" => Error::RateLimited {
+                    retry_after_seconds,
+                },
+                Some(retry_after_seconds) => Error::AggregateLimited {
+                    retry_after_seconds,
+                },
+                None => Error::Refused,
+            }
+        }
         Some("friends_locked") => Error::Locked,
         Some("key_revoked" | "unknown_key") => Error::Revoked,
         Some("key_not_found") => Error::KeyNotFound,
