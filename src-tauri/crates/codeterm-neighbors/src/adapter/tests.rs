@@ -65,6 +65,7 @@ async fn receiver_enrollment_requires_explicit_revision_and_never_replays_uncert
         registry.enrollment = Some(Enrollment {
             expected_revision: 6,
             takeover: true,
+            operation_id: None,
         });
         assert_eq!(
             registry.enroll("signing", "encryption", true).await,
@@ -129,7 +130,7 @@ async fn callable_delivery_and_ack_preserve_key_revoked_reason() {
 }
 
 #[test]
-fn final_receiver_status_preserves_disabled_machine_and_accepts_legacy_metadata() {
+fn final_receiver_status_preserves_disabled_machine_and_exposes_legacy_metadata() {
     let status: ReceiverStatus = serde_json::from_value(json!({
         "schema_version":1,"receiver_revision":8,"receiver_installation_id":"machine",
         "receiver_key_id":null,"receiver_session_id":null,"receiver_machine_label":"Here",
@@ -144,6 +145,6 @@ fn final_receiver_status_preserves_disabled_machine_and_accepts_legacy_metadata(
         "receiver_machine_label":null,"receiving_enabled":false,"is_me":false,"legacy_active":true
     }))
     .unwrap();
-    assert!(!legacy.receiving_here());
+    assert!(legacy.legacy_active);
     assert_eq!(legacy.receiver_revision, 0);
 }

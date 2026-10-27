@@ -13,6 +13,7 @@ async fn disabled_gateway_never_admits_or_records_a_message() {
             receiver_machine_label: Some("Here".into()),
             receiving_enabled: true,
             is_me: true,
+            legacy_active: false,
         });
     fixture
         .service
