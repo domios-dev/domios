@@ -5,6 +5,7 @@ use codeterm_neighbors::permissions::Permission;
 #[cfg(any(test, feature = "test-support"))]
 mod fixture;
 mod memory;
+mod self_reads;
 
 #[derive(Clone, Copy, Debug)]
 pub enum Capability {
@@ -15,6 +16,8 @@ pub enum Capability {
     Report,
     Answer,
     Lifecycle,
+    SelfRead,
+    Discovery,
     Route,
     Denied,
 }
@@ -30,9 +33,13 @@ impl Capability {
             Self::Spawn => "tab_requests_not_allowed",
             Self::Files if permission.allowed && permission.allow_files => return Ok(()),
             Self::Files => "neighbor_files_not_allowed",
-            Self::Neighbor | Self::Report | Self::Answer | Self::Lifecycle | Self::Route => {
-                return Ok(())
-            }
+            Self::Neighbor
+            | Self::Report
+            | Self::Answer
+            | Self::Lifecycle
+            | Self::SelfRead
+            | Self::Discovery
+            | Self::Route => return Ok(()),
             Self::Denied => "neighbor_capability_denied",
         };
         Err(format!(
@@ -48,6 +55,8 @@ pub fn rpc_capability(method: &str) -> Option<Capability> {
             Capability::Spawn
         }
         "agent.report" => Capability::Report,
+        "tab.agent_pad" | "tab.todo.list" => Capability::SelfRead,
+        "system.identify" | "system.capabilities" => Capability::Discovery,
         "api.request" => Capability::Route,
         _ => Capability::Denied,
     })
@@ -64,6 +73,12 @@ pub fn http_capability(method: &str, path: &str) -> Option<Capability> {
         Some(Capability::Report)
     } else if method == "POST" && lifecycle_hook(path) {
         Some(Capability::Lifecycle)
+    } else if method == "GET"
+        && path.starts_with("/api/tabs/")
+        && path.ends_with("/todos")
+        && path.matches('/').count() == 4
+    {
+        Some(Capability::SelfRead)
     } else if method == "POST"
         && path.starts_with("/api/tabs/")
         && path.contains("/agent/runtime/questions/")
@@ -385,7 +400,7 @@ impl ServiceContext {
         let Some((_, permission)) = self
             .neighbor_capability_permission_for(
                 caller,
-                !matches!(capability, Capability::Lifecycle),
+                !matches!(capability, Capability::Lifecycle | Capability::SelfRead),
             )
             .await?
         else {
@@ -399,7 +414,7 @@ impl ServiceContext {
         }
         if matches!(
             capability,
-            Capability::Answer | Capability::Report | Capability::Lifecycle
+            Capability::Answer | Capability::Report | Capability::Lifecycle | Capability::SelfRead
         ) {
             let target = path
                 .strip_prefix("/api/tabs/")
@@ -429,8 +444,12 @@ impl ServiceContext {
                 params["method"].as_str() == Some("POST")
                     && params["path"].as_str().is_some_and(lifecycle_hook)
             });
+        let intrinsic = matches!(
+            rpc_capability(method),
+            Some(Capability::SelfRead | Capability::Discovery)
+        );
         let Some((_, permission)) = self
-            .neighbor_capability_permission_for(&caller, !own_launch_hook)
+            .neighbor_capability_permission_for(&caller, !own_launch_hook && !intrinsic)
             .await?
         else {
             return Ok(());
@@ -443,6 +462,11 @@ impl ServiceContext {
         }
         let capability = rpc_capability(method).unwrap_or(Capability::Denied);
         capability.require(&permission)?;
+        if matches!(capability, Capability::SelfRead)
+            && params.and_then(|params| params["tab_id"].as_str()) != Some(caller.tab_id.as_str())
+        {
+            return Capability::Denied.require(&permission);
+        }
         if matches!(capability, Capability::MemoryRead) {
             self.authorize_neighbor_memory_operation(
                 &permission,

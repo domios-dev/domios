@@ -115,3 +115,43 @@ async fn loopback_rpc_memory_grant_reaches_dispatch_but_revocation_stops_it_befo
         "neighbor_memory_not_allowed"
     );
 }
+
+#[tokio::test]
+async fn loopback_self_reads_reach_dispatch_only_for_the_credential_owner_and_discovery_is_filtered(
+) {
+    let (_fixture, state, concierge, token) = fixture().await;
+    codeterm_service_core::ports::socket::register_test_stub();
+    for method in ["tab.agent_pad", "tab.todo.list"] {
+        let (status, body) = call(
+            state.clone(),
+            &token,
+            method,
+            Some(json!({"tab_id":concierge})),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body.0["error"]["message"], "rpc bridge test stub");
+        assert_eq!(
+            call(
+                state.clone(),
+                &token,
+                method,
+                Some(json!({"tab_id":"foreign"}))
+            )
+            .await
+            .unwrap_err()
+            .0,
+            StatusCode::FORBIDDEN
+        );
+    }
+    let Json(response) = call(state, &token, "system.capabilities", None)
+        .await
+        .unwrap();
+    assert_eq!(response["result"]["plugins"], json!([]));
+    assert!(response["result"]["methods"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|method| method != "tab.get_output"));
+}
