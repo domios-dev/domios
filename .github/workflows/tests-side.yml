@@ -1,0 +1,244 @@
+name: Side PR CI
+on:
+  pull_request:
+    branches: [develop]
+    types: [opened, synchronize, reopened, ready_for_review]
+permissions:
+  contents: read
+concurrency:
+  group: side-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+env:
+  CI_HOSTED: 'true'
+  CODETERM_USE_SCCACHE: '0'
+  RUSTC_WRAPPER: ''
+jobs:
+  guards:
+    name: Repository guards
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12"
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Fetch scoped policy history
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: node scripts/ci-git-history.mjs policy
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs bash,curl,git,node,python,tar
+      - name: Embedded docs and generated contract preflight
+        if: ${{ !cancelled() }}
+        run: node scripts/check-ci-docs.mjs
+      - name: Select guard change set
+        id: change
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        shell: bash
+        run: |-
+          set -euo pipefail
+          head=$(git rev-parse HEAD)
+          if [ "$EVENT_NAME" = pull_request ]; then
+            base=$(git merge-base "$PR_BASE_SHA" "$PR_HEAD_SHA")
+          elif git cat-file -e "$PUSH_BEFORE^{commit}" 2>/dev/null; then
+            base="$PUSH_BEFORE"
+          else
+            base=$(git rev-parse HEAD^)
+          fi
+          git diff --name-only --diff-filter=ACMR "$base" "$head" > "$RUNNER_TEMP/ci-changed.txt"
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+      - name: Installed application identity
+        run: node scripts/check-installed-identity.mjs
+        if: ${{ !cancelled() }}
+      - name: Archive-portable Rust test paths
+        run: node scripts/check-archive-portable-test-paths.mjs
+        if: ${{ !cancelled() }}
+      - name: Run file-size discipline check
+        run: bash scripts/check-file-sizes.sh --fail
+        if: ${{ !cancelled() }}
+      - name: Check provider boundary
+        if: ${{ !cancelled() }}
+        run: node scripts/check-provider-boundary.mjs
+      - name: Check crate layering and the thin native client
+        run: bash scripts/check-crate-layering.sh
+        if: ${{ !cancelled() }}
+      - name: Check API docs
+        run: bash scripts/check-api-docs.sh
+        if: ${{ !cancelled() }}
+      - name: Check prompt docs
+        run: bash scripts/check-prompts-doc.sh
+        if: ${{ !cancelled() }}
+      - name: Scan new commits and working tree
+        env:
+          SCAN_BASE: ${{ steps.change.outputs.base }}
+        run: bash scripts/secret-scan.sh "$SCAN_BASE"
+        if: ${{ !cancelled() }}
+  fmt:
+    name: fmt-check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - &checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - &node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+      - &rust
+        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
+        with:
+          toolchain: 1.99.1
+          components: rustfmt
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs bash,cargo,git,node
+      - run: bash scripts/check-rustfmt.sh
+  ts-static:
+    name: ts static checks
+    needs: guards
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - *checkout
+      - *node
+      - &pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
+      - &preflight
+        name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs bash,git,node,pnpm
+      - &install
+        name: Install dependencies
+        run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
+      - name: TypeScript
+        run: pnpm exec tsc --noEmit
+      - name: Unused exports
+        if: ${{ !cancelled() }}
+        run: pnpm check:unused-exports
+      - name: Knip report
+        if: ${{ !cancelled() }}
+        run: pnpm knip:report
+      - name: API effects
+        if: ${{ !cancelled() }}
+        run: pnpm check:api-effects
+      - name: Biome
+        if: ${{ !cancelled() }}
+        run: pnpm lint
+  ts-unit:
+    name: ts unit
+    needs: guards
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - *checkout
+      - *node
+      - *pnpm
+      - *preflight
+      - *install
+      - run: pnpm test:unit
+  ts-vitest:
+    name: ts vitest
+    needs: guards
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - *checkout
+      - *node
+      - *pnpm
+      - *preflight
+      - *install
+      - run: pnpm test:vitest --maxWorkers=4
+  plugins:
+    name: plugin bundles + tests
+    needs: guards
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - *checkout
+      - *node
+      - *pnpm
+      - *preflight
+      - *install
+      - run: pnpm check:plugin-bundles
+      - if: ${{ !cancelled() }}
+        run: pnpm test:plugins
+  rust-check:
+    name: Rust workspace check
+    needs: guards
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      OPENSSL_NO_VENDOR: '1'
+      CARGO_INCREMENTAL: '0'
+      SCCACHE_GHA_ENABLED: 'true'
+      RUSTC_WRAPPER: sccache
+    steps:
+      - *checkout
+      - *node
+      - *rust
+      - name: Linux build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get -o Acquire::Retries=3 install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libgtk-3-dev pkg-config
+      - name: Cargo dependency cache
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: side-cargo-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: side-cargo-${{ runner.os }}-${{ runner.arch }}-
+      - name: Hosted sccache
+        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
+      - name: Runner preflight
+        run: node scripts/ci-runner-paths.mjs bash,cargo,git,node
+      - name: Prepare compile fixtures
+        run: node scripts/ci-rust-prepare.mjs
+      - name: Check all workspace targets
+        run: cargo check --manifest-path src-tauri/Cargo.toml --workspace --all-targets --locked
+      - name: Clean compile fixtures
+        if: always()
+        run: node scripts/ci-rust-prepare.mjs cleanup
+  result:
+    name: CI result
+    if: ${{ always() }}
+    needs: [guards, fmt, ts-static, ts-unit, ts-vitest, plugins, rust-check]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Require every side PR check
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          node --input-type=module - <<'JS'
+          const jobs = JSON.parse(process.env.RESULTS);
+          const failed = Object.entries(jobs).filter(([, job]) => job.result !== 'success');
+          for (const [name, job] of failed) console.error(name + ': ' + job.result);
+          if (failed.length) process.exit(1);
+          JS

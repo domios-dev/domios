@@ -37,7 +37,7 @@ each failed run. An untested proposal must not become an established recipe.
 
 ## Public repository policy
 
-Follow [the public repository handoff](../../../docs/release/public-repo.md) before enabling public Actions. Only owner release/X.Y.Z pushes, admitted master merge publication and reviewed release dispatches may acquire release runners and secrets, behind the `release` environment approval. Non-release jobs use no environment. All PR checks run hosted and secret-free; repository-level runners must be removed or replaced with workflow-restricted organization runners before public Actions is enabled.
+Follow [the public repository handoff](../../../docs/release/public-repo.md) before enabling public Actions. Only trusted owner release/X.Y.Z PRs, admitted master merge publication and reviewed release dispatches may acquire release runners and secrets, behind the `release` environment approval. Non-release jobs use no environment. Side PR checks into develop run hosted and secret-free; trusted owner release PRs into master retain their existing heavy graph and runner policy; repository-level runners must be removed or replaced with workflow-restricted organization runners before public Actions is enabled.
 
 ## Choose the release kind
 
@@ -85,12 +85,11 @@ verifies the anonymous download. Every install refreshes `codeterm-core` from th
    that committed head and `git diff --check`.
    Keep the release branch separate from moving `develop`. Commit release fixes on that line,
    then real-merge the release into `develop`; never pull unrelated dev work into the release.
-   Push release/X.Y.Z and open its PR into master. The push's single tests.yml
-   run checks out its exact SHA for full CI, records qualification, then calls
+   Push release/X.Y.Z and open its PR into master. The release PR's tests.yml
+   run checks out its exact head SHA for full CI, records qualification, then calls
    release.yml with dry_run=true to build and sign every platform and retain bytes.
-   New branch pushes cancel the previous run through per-ref concurrency. All PR
-   runs remain hosted and secret-free; they never duplicate full CI or packaging.
-   Develop skips a SHA already owned by a release push run with a clear notice.
+   New PR pushes cancel the previous run through per-PR concurrency. Side PR
+   runs into develop remain hosted and secret-free; they never run full CI or packaging.
    With publication GO, an admin squash-merges the green PR; publication checks that master carries the qualified tree.
    The master push discovers that merged release PR, verifies both merge parents,
    and publishes the exact head's retained green push run through promote_run_id.
@@ -123,6 +122,20 @@ verifies the anonymous download. Every install refreshes `codeterm-core` from th
    the admin merges with `gh pr merge <n> --merge --admin` (never squash or rebase). Merge within
    three days of the green run: its qualification artifact expires after that. Synchronize develop
    through an admin merge PR. A later correction takes a new version.
+
+## PR CI tiers
+
+All PRs into develop, including forks and Dependabot, use tests-side.yml:
+repository guards, fmt-check, TS static/unit/Vitest, plugin bundles/tests and
+one cargo check --workspace --all-targets --locked. Every job is pinned to
+ubuntu-24.04 with read-only permissions and no repository/environment secrets.
+Compilation uses hosted sccache; forks require no private store access.
+CI result requires every light job to succeed. No Rust suites, qualification
+receipt or packaging run on this path. Require that aggregate in develop's
+rules as an owner operation and inspect the first Dependabot run's actual
+runners after merge. Trusted release/X.Y.Z PRs into master retain tests.yml
+and its existing heavy graph; other master PRs remain refused.
+See [CI admission](../../../docs/release/ci.md).
 
 ## Dry runs and narrow diagnostics
 
@@ -492,4 +505,4 @@ never sweep caches or delete worktrees merely because the release ended.
 Implementation entry points: [release stage](../../../scripts/release-stage.mjs),
 [macOS x64 helper](../../../scripts/release-macos-x86_64.sh).
 
-<!-- revision: 13 -->
+<!-- revision: 14 -->
