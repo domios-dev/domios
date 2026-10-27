@@ -44,7 +44,7 @@ export function parseDesktopCatalog(value: unknown): PlanCatalog {
     const month = price(tier.prices.monthly, tier.tier, "monthly", providerPrices);
     const year = price(tier.prices.yearly, tier.tier, "yearly", providerPrices);
     return { id: tier.tier, name: tierName(tier.tier), tagline: "", features: [], limits,
-      prices: { ...(month ? { month } : {}), ...(year ? { year } : {}) }, ...(tier.tier === "pro" ? { recommended: true } : {}) };
+      prices: { ...(month ? { month } : {}), ...(year ? { year } : {}) }, ...(tier.tier === "pro" ? { upgradeDefault: true } : {}), ...(tier.tier === "max" ? { recommended: true } : {}) };
   });
   if (new Set(offers.map(offer => offer.id)).size !== offers.length) throw new Error("Duplicate catalog tier");
   return { offers, changesAvailable: true };
