@@ -140,14 +140,14 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, conciergeC
             </span>
             {me.kind === "signed_in" && !enabled ? <div className="neighbor-me__signin" role="status">
                 <p className="neighbor-me__title">Neighbors is off</p>
-                <p className="neighbor-note">Your agents don't send or receive Neighbor messages. Your connections and their permissions are kept.</p>
+                <p className="neighbor-me__hint">Your connections and permissions are kept.</p>
                 <Button size="sm" variant="primary" onClick={onEnable}>Turn on Neighbors</Button>
               </div>
               : me.kind === "signed_in" ? <><span className="neighbor-node__name">You</span>
                 {receiver && <span role="status" className="neighbor-note neighbor-me__receiving">{receivingLine(receiver)}</span>}</>
               : <div className="neighbor-me__signin">
                 <p className="neighbor-me__title">Sign in to meet your neighbors</p>
-                <p className="neighbor-note">Your agents can message a friend's agents, end-to-end encrypted. Invited? Sign in with that email to start your 7-day trial, no card needed.</p>
+                <p className="neighbor-me__hint">Invited? Sign in with that email for a free week.</p>
                 <Button size="sm" variant="primary" disabled={account.model.kind === "pending"} loading={account.model.kind === "pending"}
                   onClick={() => { void account.signIn(); }}>Sign in or create account</Button>
               </div>}
@@ -167,7 +167,6 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, conciergeC
         </div>
         {identity && enabled && list && people + requests + invited === 0 && <p className="neighbors-caption">Add someone you trust. Your agents can then ask theirs for help, and you decide what they may share.</p>}
         {identity && enabled && receiver && !receiver.receiving_here && <ReceiveHere receiver={receiver} client={runtimeClient} />}
-        {identity && <NeighborPrivacyNote className="neighbors-privacy" />}
         {referral && <div role="status" className="ct-card ct-card--static neighbors-referral">
           <p className="ct-card__meta">{referral}</p>
           {neighbors.referral?.trial_end !== null && neighbors.referral?.trial_end !== undefined && <Button size="sm" variant="accent" onClick={openPlans}>Subscribe</Button>}
@@ -184,6 +183,7 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, conciergeC
         onDecline={() => { void neighbors.apply({ operation: "respond", request_id: request.request_id, accept: false }).then(ok => { if (ok) setSelected(null); }); }}
         onClose={() => setSelected(null)} />}
     </div>
+    <NeighborPrivacyNote className="neighbors-privacy" />
     {enabled && friend && identity && <NeighborFriendPage key={friend.friendship_id} owner={identity} friend={friend} locked={!paid} enabled={enabled}
       pending={neighbors.pending} focusPermissions={openSection === "configure"} runtimeClient={runtimeClient} conciergeClient={conciergeClient}
       onBack={() => { setSelected(null); setOpenSection(null); }} onPlans={openPlans}

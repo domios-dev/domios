@@ -33,7 +33,8 @@ export interface NeighborConciergeClient {
   history(friendship: string, before?: string, signal?: AbortSignal): Promise<HistoryPage>;
   onHistoryChanged(handler: (friendship: string) => void): Promise<() => void>;
   onPermissionChanged(handler: (friendship: string) => void): Promise<() => void>;
-  onAgentChanged(handler: (friendship: string, gatewayTab: string) => void): Promise<() => void>;
+  /** A null tab means the friendship no longer has a concierge here, for example after removal. */
+  onAgentChanged(handler: (friendship: string, gatewayTab: string | null) => void): Promise<() => void>;
   setPermission(friendship: string, permission: NeighborPermission): Promise<void>;
   changeAgent(friendship: string, provider: string, model?: string): Promise<string>;
   setDailyLimit(friendship: string, dailyLimit: number | null): Promise<void>;
@@ -85,7 +86,8 @@ export const neighborConciergeClient: NeighborConciergeClient = {
     if (typeof event.payload?.friendship_id === "string") handler(event.payload.friendship_id);
   }),
   onAgentChanged: handler => listen<{ friendship_id?: unknown; gateway_tab?: unknown }>("neighbor-agent-changed", event => {
-    if (typeof event.payload?.friendship_id === "string" && typeof event.payload.gateway_tab === "string") handler(event.payload.friendship_id, event.payload.gateway_tab);
+    const tab = event.payload?.gateway_tab;
+    if (typeof event.payload?.friendship_id === "string" && (tab === null || typeof tab === "string")) handler(event.payload.friendship_id, tab);
   }),
   setPermission: async (friendship, permission) => { await runtimeCall({ operation: "set_permission", friendship_id: friendship, permission }); },
   setNotify: async (friendship, notify) => {

@@ -80,7 +80,12 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
   useEffect(() => {
     let stop: (() => void) | undefined;
     let live = true;
-    void conciergeClient.onAgentChanged((friendship, gatewayTab) => setBindings(current => ({ ...current, [friendship]: gatewayTab })))
+    void conciergeClient.onAgentChanged((friendship, gatewayTab) => setBindings(current => {
+      const next = { ...current };
+      if (gatewayTab) next[friendship] = gatewayTab;
+      else delete next[friendship];
+      return next;
+    }))
       .then(unlisten => { if (live) stop = unlisten; else unlisten(); });
     return () => { live = false; stop?.(); };
   }, [conciergeClient]);
