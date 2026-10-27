@@ -880,7 +880,7 @@
   max-width: 22rem;
 }
 
-/* Authorship reads at a glance: you in the accent bubble, your agent outlined with a bot beside it,
+/* Authorship reads at a glance: your side in the accent bubble, captioned when an agent spoke for you;
    your friend and their concierge in neutral bubbles behind their avatar. */
 .neighbor-msg {
   display: flex;
@@ -904,15 +904,6 @@
   height: 1.6rem;
   flex: none;
   margin-bottom: 1.15rem;
-}
-
-.neighbor-msg__avatar--agent {
-  align-items: center;
-  justify-content: center;
-  border: 1px solid color-mix(in srgb, var(--ct-accent) 45%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--ct-accent) 10%, var(--ct-bg));
-  color: var(--ct-accent);
 }
 
 .neighbor-msg__badge {
@@ -948,10 +939,10 @@
   color: var(--ct-fg);
 }
 
-.neighbor-msg[data-author="my-agent"] .neighbor-msg__bubble {
-  border: 1px solid color-mix(in srgb, var(--ct-accent) 40%, transparent);
-  border-radius: var(--ct-bubble-radius) var(--ct-bubble-radius) var(--ct-bubble-tail-radius) var(--ct-bubble-radius);
-  background: color-mix(in srgb, var(--ct-accent) 3%, var(--ct-bg));
+.neighbor-msg__caption {
+  color: var(--ct-muted-fg);
+  font-size: 10.5px;
+  font-weight: 600;
 }
 
 .neighbor-msg[data-side="in"] .neighbor-msg__bubble {
