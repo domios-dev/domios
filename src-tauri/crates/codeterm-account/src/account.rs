@@ -25,6 +25,8 @@ fn token_expiring(expires_at: u64) -> bool {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct Status {
     #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub server_stop_unconfirmed: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub session_revoked: bool,
     pub provider: String,
     pub identity: Option<Identity>,
@@ -53,6 +55,7 @@ pub struct Account {
     refresh_cancel: Notify,
     deadline: Duration,
     observer: Option<Arc<dyn IdentityObserver>>,
+    admission: Option<Arc<dyn SessionAdmission>>,
     browser_return_to_app: bool,
 }
 impl Account {
@@ -66,6 +69,7 @@ impl Account {
             store,
             deadline,
             observer: None,
+            admission: None,
             browser_return_to_app: false,
             state: Mutex::new(State::default()),
             operation: Mutex::new(()),
@@ -76,6 +80,10 @@ impl Account {
         self.observer = Some(observer);
         self
     }
+    pub fn with_session_admission(mut self, admission: Arc<dyn SessionAdmission>) -> Self {
+        self.admission = Some(admission);
+        self
+    }
     pub fn with_browser_return_to_app(mut self, enabled: bool) -> Self {
         self.browser_return_to_app = enabled;
         self
@@ -83,6 +91,7 @@ impl Account {
     pub async fn status(&self) -> Status {
         let state = self.state.lock().await;
         Status {
+            server_stop_unconfirmed: false,
             session_revoked: state.session_revoked,
             provider: self.provider.id().into(),
             identity: state
@@ -234,6 +243,11 @@ impl Account {
         attempt: &mut SignInAttempt,
         announce_sign_in: bool,
     ) -> Result<()> {
+        if let Some(admission) = &self.admission {
+            attempt
+                .run(SignInStage::Publication, admission.admit(&tokens.session))
+                .await?;
+        }
         let mut state = self.state.lock().await;
         attempt
             .run(SignInStage::Publication, async {

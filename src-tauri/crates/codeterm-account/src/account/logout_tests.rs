@@ -84,6 +84,70 @@ fn fixture() -> (Arc<Account>, Arc<Store>, Arc<Provider>) {
     (account, store, provider)
 }
 
+struct RefusedAdmission;
+#[async_trait]
+impl SessionAdmission for RefusedAdmission {
+    async fn admit(&self, _: &Session) -> Result<()> {
+        Err(Error::Transport)
+    }
+}
+
+#[tokio::test]
+async fn deferred_server_stop_refusal_prevents_new_session_and_credential_publication() {
+    let store = Arc::new(Store::default());
+    let account = Account::new(
+        Arc::new(Provider::default()),
+        store.clone(),
+        Duration::from_secs(1),
+    )
+    .with_session_admission(Arc::new(RefusedAdmission));
+    assert_eq!(
+        account.login(Arc::new(NoBrowser)).await.unwrap_err(),
+        Error::Transport
+    );
+    assert!(account.session().await.is_none());
+    assert!(account.status().await.identity.is_none());
+    assert!(store.token.lock().is_none());
+    assert_eq!(store.saves.load(Ordering::SeqCst), 0);
+}
+
+#[derive(Default)]
+struct GatedAdmission {
+    started: Notify,
+    release: Notify,
+}
+#[async_trait]
+impl SessionAdmission for GatedAdmission {
+    async fn admit(&self, _: &Session) -> Result<()> {
+        self.started.notify_one();
+        self.release.notified().await;
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn sign_out_during_server_stop_admission_never_publishes_the_waiting_session() {
+    let store = Arc::new(Store::default());
+    let admission = Arc::new(GatedAdmission::default());
+    let account = Arc::new(
+        Account::new(
+            Arc::new(Provider::default()),
+            store.clone(),
+            Duration::from_secs(1),
+        )
+        .with_session_admission(admission.clone()),
+    );
+    let caller = account.clone();
+    let signing_in = tokio::spawn(async move { caller.login(Arc::new(NoBrowser)).await });
+    admission.started.notified().await;
+    assert!(account.logout().await.unwrap().identity.is_none());
+    admission.release.notify_one();
+    assert_eq!(signing_in.await.unwrap().unwrap_err(), Error::Cancelled);
+    assert!(account.session().await.is_none());
+    assert!(store.token.lock().is_none());
+    assert_eq!(store.saves.load(Ordering::SeqCst), 0);
+}
+
 #[tokio::test(start_paused = true)]
 async fn refresh_saves_only_a_changed_refresh_token() {
     let (account, store, provider) = fixture();

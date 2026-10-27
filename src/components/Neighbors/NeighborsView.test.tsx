@@ -613,3 +613,17 @@ it("says nothing about receiving until the daemon knows", async () => {
   expect(document.body.textContent).not.toContain("Receiver not chosen yet");
   expect(hasButton("Receive here")).toBe(false);
 });
+
+it("keeps an ended conversation readable but takes no new messages", async () => {
+  const conciergeClient = concierge([{ direction: "in", kind: "question", author: "friend", body: "Bye for now", at: 1700000000000, message_id: "e1" }]);
+  vi.mocked(conciergeClient.history).mockResolvedValue({ entries: [{ direction: "in", kind: "question", author: "friend", body: "Bye for now", at: 1700000000000, message_id: "e1" }], next_before: null, ended: true });
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
+  expect(document.body.textContent).toContain("Bye for now");
+  expect(document.body.textContent).toContain("This connection with Ada has ended.");
+  expect(document.querySelector<HTMLTextAreaElement>("textarea")!.disabled).toBe(true);
+});

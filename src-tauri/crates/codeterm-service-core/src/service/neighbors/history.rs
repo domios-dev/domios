@@ -116,7 +116,7 @@ impl History {
                     || entry.delivery_status == Some(DeliveryStatus::Delivered))
         }) {
             if let Some(incoming) = reply.in_reply_to.as_ref() {
-                let outcome = match reply.kind {
+                let outcome: (String, Option<String>) = match reply.kind {
                     Kind::Answer => ("answered".into(), None),
                     Kind::Refusal => (
                         "refused".into(),

@@ -215,6 +215,21 @@ pub struct SessionRevokedResult {
     pub revoked_at: u64,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PriorSessionsTarget {
+    pub installation_id: String,
+    pub cutoff: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PriorSessionsRevokedResult {
+    pub schema_version: u32,
+    pub revoked_count: u32,
+    pub receiver_disabled: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RevokedResult {
@@ -444,6 +459,10 @@ fn tailnet(ip: IpAddr) -> bool {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "reason", deny_unknown_fields)]
 pub enum RegistryRefusal {
+    #[serde(rename = "installation_unverified")]
+    InstallationUnverified,
+    #[serde(rename = "cutoff_after_current_session")]
+    CutoffAfterCurrentSession,
     #[serde(rename = "invalid")]
     Invalid,
     #[serde(rename = "unauthenticated")]
