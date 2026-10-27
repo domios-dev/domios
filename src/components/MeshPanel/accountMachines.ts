@@ -1,4 +1,5 @@
 import { projectLinkRequests } from "./accountLinkProjection";
+import { DEV_BUILD } from "../../lib/devBuild";
 import type { Notification } from "../../lib/notificationTypes";
 import type { AccountMachineRow, AccountMeshFailure, AccountMeshSnapshot, LocalPairFact, MeshTarget } from "./accountMeshClient";
 
@@ -278,8 +279,13 @@ export function meshFailureToast(operation: string, failure: AccountMeshFailure)
   };
 }
 
-export function failureMessage(failure: AccountMeshFailure): string {
+export function failureMessage(failure: AccountMeshFailure, devBuild = DEV_BUILD): string {
   switch (failure.reason) {
+    case "key_conflict": return "This installation is already registered with a different key. Use the instance that registered it.";
+    case "generation_mismatch": return "This installation's key generation does not match the account registry. Refresh and try again.";
+    case "challenge_invalid": return "The installation challenge was rejected. Try enrolling this machine again.";
+    case "enrollment_budget": return "The account's installation enrollment budget has been reached. Try again later.";
+    case "proof_invalid": return "This build cannot join this account's mesh (proof rejected)." + (devBuild ? " DEV builds use the QA target." : "");
     case "mesh.machines": return `Your plan allows ${failure.limit} machines.`;
     case "rate-limited": return `Too many requests. Try again in ${failure.retry_after_seconds} seconds.`;
     case "declined": return "Declined. Try again to request approval.";

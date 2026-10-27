@@ -79,6 +79,11 @@ pub fn admission_refusal(refusal: AccountMeshRefusal) -> mesh::AdmissionRefusal 
         AccountMeshRefusal::Cancelled => M::Cancelled,
         AccountMeshRefusal::Invalid
         | AccountMeshRefusal::Conflict
+        | AccountMeshRefusal::KeyConflict
+        | AccountMeshRefusal::GenerationMismatch
+        | AccountMeshRefusal::ChallengeInvalid
+        | AccountMeshRefusal::EnrollmentBudget
+        | AccountMeshRefusal::ProofInvalid
         | AccountMeshRefusal::VerificationUnavailable => M::handshake(reason(&refusal)),
     }
 }

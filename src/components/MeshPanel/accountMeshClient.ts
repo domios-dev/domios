@@ -47,6 +47,7 @@ export interface LocalPairFact {
 }
 
 export type AccountMeshFailure =
+  | { reason: "key_conflict" | "generation_mismatch" | "challenge_invalid" | "enrollment_budget" | "proof_invalid" }
   | { reason: "invalid" | "unauthenticated" | "app-check" | "forbidden" | "conflict" | "authority-unavailable" | "unavailable" }
   | { reason: "rate-limited"; retry_after_seconds: number }
   | { reason: "mesh.machines"; limit: number; active_count: number }
@@ -160,6 +161,7 @@ export const AccountMeshClientProvider = AccountMeshClientContext.Provider;
 export const useAccountMeshClient = () => useContext(AccountMeshClientContext);
 
 const FAILURE_REASONS = new Set<string>([
+  "key_conflict", "generation_mismatch", "challenge_invalid", "enrollment_budget", "proof_invalid",
   "invalid", "unauthenticated", "app-check", "forbidden", "conflict", "authority-unavailable", "unavailable",
   "rate-limited", "mesh.machines", "offline", "peer-unreachable", "handshake-failed", "signed-out",
   "declined", "expired", "revoked", "cancelled", "verification-unavailable", "reauth_required",
