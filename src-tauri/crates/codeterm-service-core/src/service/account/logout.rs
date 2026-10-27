@@ -193,8 +193,12 @@ async fn retry(
         intent.expire(now);
     }
     ports.save(&intents).await?;
-    while let Some(intent) = intents.first() {
-        if let Some(fresh) = fresh.filter(|session| session.identity.uid == intent.identity.uid) {
+    while let Some(index) = intents.iter().position(|intent| match fresh {
+        Some(session) => session.identity.uid == intent.identity.uid,
+        None => intent.id_token.is_some(),
+    }) {
+        let intent = &intents[index];
+        if let Some(fresh) = fresh {
             let cutoff = auth_time(fresh).ok_or(AccountMeshRefusal::Invalid)?;
             if intent.auth_time.is_none_or(|previous| previous >= cutoff) {
                 return Err(AccountMeshRefusal::ReauthRequired);
@@ -205,10 +209,14 @@ async fn retry(
         } else {
             return Err(AccountMeshRefusal::Unauthenticated);
         }
-        intents.remove(0);
+        intents.remove(index);
         ports.save(&intents).await?;
     }
-    Ok(())
+    if fresh.is_none() && !intents.is_empty() {
+        Err(AccountMeshRefusal::Unauthenticated)
+    } else {
+        Ok(())
+    }
 }
 
 pub(super) struct SignInAdmission(pub std::sync::Weak<ServiceContext>);
