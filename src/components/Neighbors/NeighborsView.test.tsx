@@ -677,3 +677,20 @@ it("reads an accepted, undelivered message as sent and a starting concierge as s
   expect(parseConciergeStatus({ gateway_tab: "tab", concierge_missing: false, pending_count: null, receiving_here: true, receiver_machine_label: null, state: "concierge_starting" })?.state)
     .toBe("concierge_starting");
 });
+
+it("marks who wrote each message: you, your agent, your friend and their concierge", async () => {
+  const entries: HistoryEntry[] = [
+    { direction: "in", kind: "question", author: "friend", body: "Q", at: 1700000000000, message_id: "a1" },
+    { direction: "out", kind: "answer", author: { agent: "tab-gateway", name: "Concierge" }, body: "A", at: 1700000001000, message_id: "a2", in_reply_to: "a1" },
+    { direction: "out", kind: "question", author: "me", body: "Mine", at: 1700000002000, message_id: "a3" },
+    { direction: "in", kind: "refusal", author: "friend", body: "No", at: 1700000003000, message_id: "a4", in_reply_to: "a3" },
+  ];
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtime()} conciergeClient={concierge(entries)} />));
+  expect(["a1", "a2", "a3", "a4"].map(id => document.getElementById(`neighbor-msg-${id}`)?.getAttribute("data-author")))
+    .toEqual(["friend", "my-agent", "me", "friend-agent"]);
+});

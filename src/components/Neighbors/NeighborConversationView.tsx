@@ -15,7 +15,7 @@ import { askGeneralAgent, permissionInterviewTask } from "./neighborAgent";
 import type { NeighborClient } from "./neighborClient";
 import { neighborConciergeClient, type HistoryEntry, type NeighborConciergeClient, type NeighborNotify } from "./neighborConciergeClient";
 import { NOTIFY_CHOICES } from "./NeighborFriendPage";
-import { dayLabel, DELIVERY_LABEL, mergeHistory, refusalLine, speaker } from "./neighborConversationModel";
+import { authorKind, continuesGroup, dayLabel, DELIVERY_LABEL, mergeHistory, refusalLine, speaker } from "./neighborConversationModel";
 import { openNeighborPage } from "./neighborFocus";
 import { neighborName, type Neighbor } from "./neighborModel";
 import { MissingConciergeNotice } from "./NeighborPanel";
@@ -200,7 +200,7 @@ function Conversation({ friend, locked, enabled, runtimeClient, conciergeClient,
           const quoted = entry.in_reply_to ? byId.get(entry.in_reply_to) : undefined;
           return <Fragment key={entry.message_id}>
             {day && <ChatDaySeparator label={day} />}
-            <Entry entry={entry} friend={friend} friendName={name} interactive={friendInteractive && entry.direction === "in" && entry.author === "friend"}
+            <Entry entry={entry} friend={friend} friendName={name} grouped={!day && continuesGroup(entry, index > 0 ? entries![index - 1] : null)} interactive={friendInteractive && entry.direction === "in" && entry.author === "friend"}
               checking={checking === entry.message_id} onCheckDelivery={() => checkDelivery(entry.message_id)} quoted={quoted ? { label: speaker(quoted, name), excerpt: quoted.body } : null}
               onOpenQuoted={() => document.getElementById(`neighbor-msg-${entry.in_reply_to}`)?.scrollIntoView({ block: "center", behavior: "smooth" })} />
           </Fragment>;
@@ -218,24 +218,33 @@ function Conversation({ friend, locked, enabled, runtimeClient, conciergeClient,
   </div>;
 }
 
-function Entry({ entry, friend, friendName, interactive, checking, onCheckDelivery, quoted, onOpenQuoted }: {
-  entry: HistoryEntry; friend: ConversationFriend; friendName: string; interactive: boolean; checking: boolean; onCheckDelivery: () => void;
+function Entry({ entry, friend, friendName, grouped, interactive, checking, onCheckDelivery, quoted, onOpenQuoted }: {
+  entry: HistoryEntry; friend: ConversationFriend; friendName: string; grouped: boolean; interactive: boolean; checking: boolean; onCheckDelivery: () => void;
   quoted: { label: string; excerpt: string } | null; onOpenQuoted: () => void;
 }) {
   const time = formatMessageTime(entry.at);
-  const refusal = entry.direction === "out" ? refusalLine(entry, friendName, Date.now()) : null;
+  const author = authorKind(entry);
+  const mine = entry.direction === "out";
+  const refusal = mine ? refusalLine(entry, friendName, Date.now()) : null;
+  const refused = entry.kind === "refusal" || entry.outcome === "refused" || refusal !== null;
   // The relay accepted it and delivery is awaited; "sending" is only for before acceptance.
   const sent = entry.delivery_status === "pending" && entry.submission === "accepted";
-  const mine = entry.direction === "out";
-  const agent = typeof entry.author === "object" ? entry.author : null;
-  return <div id={`neighbor-msg-${entry.message_id}`} className="neighbor-msg" data-side={mine ? "out" : "in"} data-kind={entry.kind}>
-    {!mine && <span className="neighbor-msg__avatar"><AccountAvatar url={friend.photoURL} initial={accountInitials(friendName)} label="" size="node" /></span>}
+  const agentName = typeof entry.author === "object" ? entry.author.name : `${friendName}'s concierge`;
+  const avatar = grouped ? <span className="neighbor-msg__avatar" aria-hidden="true" />
+    : author === "me" ? null
+    : author === "my-agent" ? <span className="neighbor-msg__avatar neighbor-msg__avatar--agent" title={agentName}><Bot size={13} aria-hidden="true" /></span>
+    : <span className="neighbor-msg__avatar" title={author === "friend-agent" ? agentName : friendName}>
+      <AccountAvatar url={friend.photoURL} initial={accountInitials(friendName)} label="" size="node" />
+      {author === "friend-agent" && <span className="neighbor-msg__badge"><Bot size={8} aria-hidden="true" /></span>}
+    </span>;
+  return <div id={`neighbor-msg-${entry.message_id}`} className="neighbor-msg" data-side={mine ? "out" : "in"} data-author={author}
+    data-kind={entry.kind} data-grouped={grouped || undefined} data-refused={refused || undefined}
+    aria-label={author === "me" ? "You" : author === "my-agent" ? agentName : author === "friend-agent" ? agentName : friendName}>
+    {!mine && avatar}
     <div className="neighbor-msg__stack">
-      {(agent || !mine) && <p className="neighbor-msg__who">{agent ? <><Bot size={11} aria-hidden="true" />{agent.name}</> : friendName}
-        {entry.kind === "tab_request" && <span className="neighbor-note"> asked to open a tab</span>}
-        {entry.kind === "refusal" && <span className="neighbor-note"> declined</span>}</p>}
+      {entry.kind === "tab_request" && <p className="neighbor-note">asked to open a tab</p>}
       {quoted && <ReplyQuote label={quoted.label} excerpt={quoted.excerpt} onOpen={onOpenQuoted} />}
-      <div className={mine ? `ct-user-bubble${agent ? " ct-user-bubble--relayed" : ""} neighbor-msg__bubble` : "neighbor-msg__body"}>
+      <div className={author === "me" ? "ct-user-bubble neighbor-msg__bubble" : "neighbor-msg__bubble"}>
         <RichMarkdown text={entry.body} localArtifacts={false} interactivePreviews={interactive} />
       </div>
       <p className="neighbor-msg__meta">
@@ -250,5 +259,6 @@ function Entry({ entry, friend, friendName, interactive, checking, onCheckDelive
         {!mine && entry.outcome === "answered" && <span className="neighbor-status"><span className="neighbor-dot" data-tone="ok" aria-hidden="true" />answered</span>}
       </p>
     </div>
+    {mine && avatar}
   </div>;
 }

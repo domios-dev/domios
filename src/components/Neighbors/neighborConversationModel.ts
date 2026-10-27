@@ -37,3 +37,19 @@ export function refusalLine(entry: HistoryEntry, friendName: string, now: number
     default: return null;
   }
 }
+
+/** Who a message is from, as the reader sees it: you, your agent, your friend, or your friend's concierge. */
+export type AuthorKind = "me" | "my-agent" | "friend" | "friend-agent";
+
+export function authorKind(entry: HistoryEntry): AuthorKind {
+  if (entry.direction === "out") return entry.author === "me" ? "me" : "my-agent";
+  return entry.kind === "answer" || entry.kind === "refusal" ? "friend-agent" : "friend";
+}
+
+/** A message continues its author's group when the same author spoke last on the same day. */
+export function continuesGroup(entry: HistoryEntry, previous: HistoryEntry | null): boolean {
+  if (!previous || authorKind(entry) !== authorKind(previous)) return false;
+  if (new Date(entry.at).toDateString() !== new Date(previous.at).toDateString()) return false;
+  const name = (value: HistoryEntry) => typeof value.author === "object" ? value.author.agent : value.author;
+  return name(entry) === name(previous);
+}
