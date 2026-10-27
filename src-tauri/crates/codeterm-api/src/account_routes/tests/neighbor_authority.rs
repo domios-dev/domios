@@ -49,12 +49,42 @@ fn request(token: &str, command: &Value) -> axum::extract::Request {
         .unwrap()
 }
 
-fn commands() -> [Value; 2] {
+fn commands() -> [Value; 4] {
     [
         json!({"operation":"set_permission","friendship_id":"a".repeat(64),
             "permission":{"allowed":true,"scope":"opaque scope","allow_tab_requests":false}}),
         json!({"operation":"bind","friendship_id":"a".repeat(64),"gateway_tab":"target"}),
+        json!({"operation":"permission","friendship_id":"a".repeat(64)}),
+        json!({"operation":"change_agent","friendship_id":"a".repeat(64),"provider":"fixture","model":null}),
     ]
+}
+
+#[tokio::test]
+async fn only_general_may_read_registry_and_registry_mutations_remain_owner_only() {
+    let (_fixture, state, _, _, general, other) = fixture();
+    let router = crate::routes::create_router(state);
+    for (token, operation, status) in [
+        (general.as_str(), "list", StatusCode::SERVICE_UNAVAILABLE),
+        (other.as_str(), "list", StatusCode::FORBIDDEN),
+        (general.as_str(), "remove", StatusCode::FORBIDDEN),
+    ] {
+        let command = if operation == "list" {
+            json!({"operation":"list"})
+        } else {
+            json!({"operation":"remove","friendship_id":"a".repeat(64)})
+        };
+        let mut request = request(token, &command);
+        *request.uri_mut() = "/api/account/neighbors".parse().unwrap();
+        let response = router.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), status);
+        if operation == "list" && token == general {
+            let body = to_bytes(response.into_body(), 4096).await.unwrap();
+            assert_eq!(
+                std::str::from_utf8(&body).unwrap(),
+                "Sign in to manage Neighbors"
+            );
+        }
+    }
 }
 
 #[tokio::test]
@@ -93,6 +123,17 @@ async fn general_credentials_reach_neighbor_service_and_other_tabs_cannot_author
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(
             std::str::from_utf8(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap(),
+            "Sign in with a hosted account to use Neighbors"
+        );
+        let owner_without_tab = router
+            .clone()
+            .oneshot(request("preview-test-token", &command))
+            .await
+            .unwrap();
+        assert_eq!(owner_without_tab.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            std::str::from_utf8(&to_bytes(owner_without_tab.into_body(), 4096).await.unwrap())
+                .unwrap(),
             "Sign in with a hosted account to use Neighbors"
         );
     }

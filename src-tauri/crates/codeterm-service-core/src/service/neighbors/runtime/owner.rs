@@ -108,15 +108,27 @@ impl ServiceContext {
                     scope,
                     uid: &transport.uid,
                 };
+                let author = self
+                    .neighbor_author(
+                        metadata
+                            .settings()
+                            .await
+                            .map_err(|e| e.to_string())?
+                            .bindings
+                            .get(&friendship)
+                            .map(String::as_str),
+                    )
+                    .map_err(|e| e.to_string())?;
                 self.send_neighbor(
                     transport.as_ref(),
                     &lifecycle,
                     &metadata,
                     Outgoing {
                         friendship,
-                        kind: Kind::Answer,
+                        kind: Kind::Refusal,
                         body: OutboundBody::Refusal,
                         in_reply_to: Some(message_id),
+                        author,
                     },
                 )
                 .await

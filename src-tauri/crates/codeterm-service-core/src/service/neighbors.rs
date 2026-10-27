@@ -3,6 +3,7 @@ use codeterm_account::account_mesh::callable::{CallableFailure, CallableTranspor
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+mod history;
 mod referral;
 pub(crate) mod runtime;
 mod storage;
@@ -66,6 +67,11 @@ impl ServiceContext {
         let base = codeterm_account::firebase_endpoints::current().functions;
         let transport = HttpCallable::new(base).map_err(|_| "Neighbors unavailable")?;
         let (name, data) = command.callable();
+        let removed = if name == "friendsRemove" {
+            data["friendship_id"].as_str().map(str::to_owned)
+        } else {
+            None
+        };
         let response = transport.call(name, session.id_token.expose(), data).await;
         let body = match response {
             Ok(body) => body,
@@ -86,10 +92,31 @@ impl ServiceContext {
             .get("result")
             .cloned()
             .ok_or_else(|| "Invalid Neighbors response".to_owned())?;
+        if let Some(friendship) = removed.filter(|_| self.require_neighbors_enabled().is_ok()) {
+            let metadata = storage::Metadata::new(self.account_data_root()?, &session.identity.uid);
+            self.end_neighbor_history(&metadata, &friendship)
+                .await
+                .map_err(|error| error.to_string())?;
+            self.stop_neighbor_listeners();
+        }
         if name == "friendsList" {
             let metadata = storage::Metadata::new(self.account_data_root()?, &session.identity.uid);
             let settings = metadata.settings().await.map_err(|e| e.to_string())?;
             annotate_list(&mut result, &settings)?;
+            if self.require_neighbors_enabled().is_ok() {
+                if let Some(friends) = result["friends"].as_array() {
+                    for friendship in settings.bindings.keys() {
+                        if !friends
+                            .iter()
+                            .any(|friend| friend["friendship_id"] == *friendship)
+                        {
+                            self.end_neighbor_history(&metadata, friendship)
+                                .await
+                                .map_err(|error| error.to_string())?;
+                        }
+                    }
+                }
+            }
             if !same_session(account.session().await.as_ref(), &session) {
                 return Err("Account changed while listing Neighbors".into());
             }
@@ -120,7 +147,9 @@ fn annotate_list(result: &mut Value, settings: &storage::Settings) -> Result<(),
             .as_str()
             .ok_or("Invalid Neighbors response")?;
         let permission = settings.permissions.get(id).cloned().unwrap_or_default();
+        let gateway_tab = settings.bindings.get(id).cloned();
         friend["permission"] = json!(permission);
+        friend["gateway_tab"] = json!(gateway_tab);
         friend["status"] = json!(status);
     }
     Ok(())

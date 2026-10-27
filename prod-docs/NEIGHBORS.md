@@ -22,11 +22,11 @@ Keys stay in Windows Credential Manager, macOS Keychain or Linux Secret Service.
 
 ## General Agent permissions
 
-Only the local, authenticated General Agent can author permission policy. Start with a deny policy. Ask the owner what this Neighbor may request and what information may be shared, then write a short, specific scope into the General Agent's own pad. Avoid broad grants such as access to every project or every secret. These are instructions for the gateway agent; a grant does not turn a Neighbor into a trusted machine or give it local command authority.
+The local owner can view and edit permissions in the friend view. Among agents, only the authenticated General Agent may view or author permissions. The scope accepts up to 8192 UTF-8 bytes. Start with deny and ask what this Neighbor may request and share. These instructions bound the concierge; a grant gives the Neighbor no local command authority.
 
 Look up friendship IDs with `domios account neighbors list` (or `--json`). It shows connected or paused friendships, local scopes, and pending request IDs. Outgoing requests appear when supplied by the account service; an unavailable outgoing list is reported explicitly.
 
-Use an independent local agent tab as the gateway. The General Agent, Team agents and role-bound tabs cannot be gateways. A gateway receives the sender's identity and the local permission hint in a normal `from="neighbor"` envelope. Denied requests must be refused without accessing or sharing local information. Tab requests need a separate explicit grant. Read its conversation by opening the Neighbor's bound gateway tab.
+Setting permissions automatically creates and binds a concierge inside the friend view. Changing its provider and model replaces the agent while retaining the friendship scope and limits. An independent local agent can also be bound; General, Team and role-bound agents cannot be gateways. Each delivered message carries the current permission hint in a `from="neighbor"` envelope. Tab requests need an explicit grant.
 
 ```bash
 domios account neighbors permission FRIENDSHIP_ID
@@ -45,6 +45,7 @@ The local grant also bounds what the gateway may share. Author a message in your
 ```bash
 domios account neighbors send FRIENDSHIP_ID --from-pad request.md
 domios account neighbors send FRIENDSHIP_ID --from-pad reply.md --kind answer --in-reply-to MESSAGE_ID
+domios account neighbors send FRIENDSHIP_ID --from-pad refusal.md --kind refusal --in-reply-to MESSAGE_ID
 domios account neighbors delivery-status MESSAGE_ID
 ```
 
@@ -54,10 +55,12 @@ The encrypted payload is at most 8192 bytes including its authentication tag, le
 
 A failed receive stream reconnects with fresh authentication from the durable cursor, using at most three bounded recovery attempts. Reception status shows connecting, receiving, reconnecting or stopped. Use **Retry reception** in the channel UI after it stops. The retry resumes receiving; it never resends an uncertain message.
 
-Messages are end-to-end encrypted. The backend holds inbox ciphertext until the receiver acknowledges delivery, then deletes it. Domios keeps no message archive: conversation history lives only in the gateway tab on the receiving machine, including its local session transcript. The backend retains friendships and pending connection requests, public keys, and content-free delivery receipt metadata; it cannot read message bodies.
+Messages are end-to-end encrypted. The backend deletes inbox ciphertext after acknowledgment and retains content-free delivery receipts. Each machine keeps its own bounded conversation history per friendship, including incoming messages and outgoing UI, CLI and agent messages with author and delivery status. Sign-out and switching Neighbors off stop writes while retaining history. Removing a friendship marks its retained history ended. Replacing or closing the concierge retains the conversation log.
+
+Denied requests receive a polite linked refusal without accessing local information. Concierge refusals carry a short reason, up to 256 UTF-8 bytes. Incoming history entries show refused with the reason or answered when a linked answer is sent. Answers and refusals do not generate automatic refusal loops.
 
 Local gateway history and pending delivery records use user-only permissions. Closing the gateway removes its local pending delivery data under the tab cleanup lifecycle. Native crash dumps remain a residual risk while sensitive data is live in process memory; Neighbor code does not log or upload payloads or private keys.
 
 Use the revision returned by status when confirming Receive here. Receiving on another machine never moves automatically. If the revision is stale, read status and confirm again. Runtime status and receiver-change events expose `receiving_here`, `receiver_machine_label`, `receiving_enabled`, and `revision`. A Neighbor marked not receiving right now cannot receive a new message.
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->
