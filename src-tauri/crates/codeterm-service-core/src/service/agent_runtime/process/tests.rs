@@ -131,7 +131,15 @@ async fn assert_tree_exit(action: &str) {
         &pids[..]
     };
     for pid in live_pids {
-        let member = members.iter().find(|member| member.pid == *pid).unwrap();
+        let member = members
+            .iter()
+            .find(|member| member.pid == *pid)
+            .unwrap_or_else(|| {
+                panic!(
+                    "{action}: command {pid} missing from boundary members {:?}",
+                    members.iter().map(|member| member.pid).collect::<Vec<_>>()
+                )
+            });
         assert!(
             !member.exited().unwrap(),
             "{action}: command {pid} must start alive"
