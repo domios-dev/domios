@@ -559,7 +559,7 @@ Mesh peers run the same verbs in their own gateway, with their own warm cache an
 
 | Verb | What happens |
 |---|---|
-| `./build.sh peer-setup <peer>` | One bounded build tab on the peer clones `rollacode/codeterm` into the configured checkout if missing, sets the push URL to `fetch-only.invalid`, detaches at the pushed `origin/develop` (or `--sha REF`, which must be pushed and contain `scripts/build-peer.mjs`), runs `./build.sh peer-toolchain` (rustc must equal `rust-toolchain.toml`, plus MSVC on Windows, Xcode CLT on macOS, `cc` on Linux, node, cargo-nextest, sccache) and opens the peer's `Buildpeer` status shell. `--install-toolchain` first runs `peer-toolchain --install`: a user-scope rustup (`rustup-init -y --no-modify-path --profile minimal`, the pinned toolchain with clippy and rustfmt) and the prebuilt cargo-nextest into `~/.cargo/bin`; no machine PATH or env change. |
+| `./build.sh peer-setup <peer>` | One bounded build tab on the peer clones `domios-dev/domios` into the configured checkout if missing, sets the push URL to `fetch-only.invalid`, detaches at the pushed `origin/develop` (or `--sha REF`, which must be pushed and contain `scripts/build-peer.mjs`), runs `./build.sh peer-toolchain` (rustc must equal `rust-toolchain.toml`, plus MSVC on Windows, Xcode CLT on macOS, `cc` on Linux, node, cargo-nextest, sccache) and opens the peer's `Buildpeer` status shell. `--install-toolchain` first runs `peer-toolchain --install`: a user-scope rustup (`rustup-init -y --no-modify-path --profile minimal`, the pinned toolchain with clippy and rustfmt) and the prebuilt cargo-nextest into `~/.cargo/bin`; no machine PATH or env change. |
 | `./build.sh check-queue <sha> --peer <name\|auto> [--lane] [--os OS]` | The peer fetches `develop` and the SHA, detaches its checkout at the SHA and runs `./build.sh check-queue <sha> [flags] --wait-build` in its gateway. `--lane`, `--all`, `--touched-only`, `--max-errors` and `--max-warnings` pass through unchanged. |
 | `./build.sh nextest <scope> [filterset] --peer <name\|auto> [--sha SHA]` | Same, running `./build.sh nextest <scope> [filterset] --wait-build` at the SHA (default HEAD). |
 | `./build.sh check-linux [sha] [--force]` | Once per batch: `./build.sh check-workspace <sha>` (`cargo check --workspace --all-targets` for the app workspace and the CLI, any warning fails) on the idle Linux peer, so `cfg(unix)` paths compile. A second call for the same SHA prints the existing receipt; `--force` dispatches again. |
@@ -1327,7 +1327,7 @@ Preserve domios://auth/callback, domios://billing/return and authenticated
 entitlement refresh when integrating either external service.
 
 Run `./build.sh fmt` in a fresh lane before direct pnpm checks; it prepares the checkout-local dependencies automatically. Direct pnpm commands bypass that wrapper. A failed dependency lookup selected no executable tests.
-<!-- revision: 55 -->
+<!-- revision: 56 -->
 
 ### Lane and batch scopes
 

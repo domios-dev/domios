@@ -1,6 +1,6 @@
 # @codeterm/plugin-sdk
 
-SDK for authoring [Domios](https://github.com/rollacode/codeterm)
+SDK for authoring [Domios](https://github.com/domios-dev/domios)
 plugin **logic** in TypeScript.
 
 A Domios plugin's logic half runs in a confined QuickJS VM and talks to the

@@ -8,7 +8,7 @@ After deploying the receiver with owner GO, register its destination through the
 Get-Content -Raw <private-registration.json> | domios mem secret save --name ci-webhook
 ```
 
-The private JSON is `{ "token": "<random dedicated token>", "repo": "rollacode/codeterm", "plan": "<owning release plan id>" }`. Use `--overwrite` only when intentionally replacing a registration. The stored plan selects its current live, verified Orchestrator; incoming events cannot choose a tab or a plan. Update the registration for a new release plan.
+The private JSON is `{ "token": "<random dedicated token>", "repo": "domios-dev/domios", "plan": "<owning release plan id>" }`. Use `--overwrite` only when intentionally replacing a registration. The stored plan selects its current live, verified Orchestrator; incoming events cannot choose a tab or a plan. Update the registration for a new release plan.
 
 Set repository Actions secrets `DOMIOS_CI_WEBHOOK_URL` to `http://<receiver Tailnet address>:7685/api/ci/webhook` and `DOMIOS_CI_WEBHOOK_TOKEN` to the same dedicated token. Use the approved listener's port if it differs. Runners must reach that Tailnet listener. Keep the token separate from the instance API token and Pebble credential. No plugin registration is needed.
 

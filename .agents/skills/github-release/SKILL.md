@@ -456,7 +456,7 @@ Every release-branch push restarts the full graph, so a fix must not introduce t
 
 ## Publication, notes and issue closure
 
-Private source: `rollacode/codeterm`. Public updater mirror: `rollacode/codeterm-releases`.
+Public source and desktop downloads: `domios-dev/domios`. Retained updater/plugin mirror: `rollacode/codeterm-releases`.
 Manifest URLs must be anonymously reachable public assets. macOS updater uses arch-specific
 .app.tar.gz, Linux AppImage, Windows NSIS .exe; a DMG is not a macOS updater archive.
 Keep signatures/fragments paired to the exact bytes from their producing run.
@@ -505,4 +505,4 @@ never sweep caches or delete worktrees merely because the release ended.
 Implementation entry points: [release stage](../../../scripts/release-stage.mjs),
 [macOS x64 helper](../../../scripts/release-macos-x86_64.sh).
 
-<!-- revision: 14 -->
+<!-- revision: 15 -->
