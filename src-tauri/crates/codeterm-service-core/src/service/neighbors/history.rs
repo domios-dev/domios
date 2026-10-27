@@ -77,13 +77,15 @@ impl From<DeliveryStatus> for HistoryReceipt {
 #[derive(Default, Deserialize, Serialize)]
 pub(super) struct History {
     pub ended: bool,
+    #[serde(default)]
+    pub active_since: Option<u64>,
     pub entries: Vec<Entry>,
 }
 
 impl History {
     fn append(&mut self, entry: Entry) -> Result<bool> {
         if self.ended {
-            return Err(Error::Revoked);
+            return Err(Error::FriendshipEnded);
         }
         if self
             .entries
@@ -211,6 +213,50 @@ impl Metadata {
 pub(crate) struct HistoryCell(tokio::sync::Mutex<()>);
 
 impl ServiceContext {
+    pub(super) async fn refresh_active_neighbor_history(
+        &self,
+        metadata: &Metadata,
+        list: &Value,
+        generation: u64,
+    ) -> Result<()> {
+        let friends = list["friends"]
+            .as_array()
+            .filter(|friends| friends.len() <= 200)
+            .ok_or(Error::InvalidEnvelope)?;
+        for friend in friends {
+            let (Some(friendship), Some(since)) =
+                (friend["friendship_id"].as_str(), friend["since"].as_u64())
+            else {
+                continue;
+            };
+            let _guard = self
+                .extensions
+                .get_or_init(HistoryCell::default)
+                .0
+                .lock()
+                .await;
+            self.require_neighbor_history_generation(generation)?;
+            let mut history = metadata.history(friendship).await?;
+            if history
+                .active_since
+                .is_some_and(|previous| since <= previous)
+            {
+                continue;
+            }
+            history.active_since = Some(since);
+            history.ended = false;
+            self.require_neighbor_history_generation(generation)?;
+            metadata
+                .write(format!("history-{friendship}.json"), history)
+                .await?;
+            self.ui.emit(
+                "neighbor-history-changed",
+                json!({"friendship_id":friendship}),
+            );
+        }
+        Ok(())
+    }
+
     pub(super) fn neighbor_author(&self, caller: Option<&str>) -> Result<Author> {
         match caller {
             None => Ok(Author::Person("me".into())),

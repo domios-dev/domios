@@ -20,6 +20,8 @@ impl ServiceContext {
         list: &serde_json::Value,
         generation: u64,
     ) -> Result<()> {
+        self.refresh_active_neighbor_history(metadata, list, generation)
+            .await?;
         let friends = list["friends"]
             .as_array()
             .filter(|friends| friends.len() <= 200)

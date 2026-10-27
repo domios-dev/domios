@@ -81,4 +81,6 @@ Permissions include `allow_interactive_content`, default false. The owner or Gen
 
 History, permission, notification-preference and status reads use local files and cached runtime state directly, outside the network-operation queue. They retain the same caller and account checks and never refresh Firestore. Status includes `receiver_status_known`; false means the current receiver snapshot has not arrived yet. Receiver and registry events update these local snapshots.
 
-<!-- revision: 14 -->
+Accepting the same person again reactivates their retained history from the authoritative friendship's newer `since` value. Prior entries remain bounded and available. An ended conversation that has not been reactivated refuses new appends with `friendship_ended` (HTTP 409), independently of installation-key state. Local send failures retain the daemon's diagnostic text in the messaging alert.
+
+<!-- revision: 15 -->
