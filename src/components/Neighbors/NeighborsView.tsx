@@ -70,7 +70,8 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, conciergeC
   // Where the friend's window grows from: the node that was clicked, or the friend's node when another surface opened it.
   const [origin, setOrigin] = useState<{ x: number; y: number } | null>(null);
   const nodeCentre = (id: string) => {
-    const box = document.querySelector(`[data-node-id="${CSS.escape(id)}"] .neighbor-node__disc`)?.getBoundingClientRect();
+    // Friendship and request ids are hex, so they sit in the selector as they are.
+    const box = document.querySelector(`[data-node-id="${id}"] .neighbor-node__disc`)?.getBoundingClientRect();
     return box ? { x: box.left + box.width / 2, y: box.top + box.height / 2 } : null;
   };
   const [adding, setAdding] = useState(false);
