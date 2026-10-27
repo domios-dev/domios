@@ -22,7 +22,9 @@ async fn concierge_capability_refusals_keep_typed_http_403() {
     }
 }
 
-async fn concierge_fixture() -> (
+async fn concierge_fixture(
+    ready: bool,
+) -> (
     codeterm_service_core::service::test_fixture::ServiceFixture,
     AppState,
     String,
@@ -33,9 +35,9 @@ async fn concierge_fixture() -> (
     let concierge = mux.create_tab(&workspace).unwrap();
     let tab = mux.get_tab_mut(&concierge).unwrap();
     tab.agent_type = Some("fixture".into());
-    tab.agent_session_id = Some("own-session".into());
+    tab.agent_session_id = ready.then(|| "own-session".into());
     tab.session_binding_nonce = Some("own-nonce".into());
-    tab.reported_session_binding_nonce = Some("own-nonce".into());
+    tab.reported_session_binding_nonce = ready.then(|| "own-nonce".into());
     let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
     fixture
         .seed_neighbor_concierge(
@@ -65,7 +67,7 @@ async fn authenticated_http_allowlist_runs_before_every_route_and_custom_auth_ex
         Arc,
     };
     use tower::ServiceExt;
-    let (_fixture, state, concierge, token) = concierge_fixture().await;
+    let (_fixture, state, concierge, token) = concierge_fixture(true).await;
     let calls = Arc::new(AtomicUsize::new(0));
     let downstream = calls.clone();
     let router = Router::new()
@@ -149,13 +151,7 @@ async fn own_launch_hooks_work_before_attestation_but_foreign_hooks_and_self_app
         Arc,
     };
     use tower::ServiceExt;
-    let (fixture, state, concierge, token) = concierge_fixture().await;
-    {
-        let mut mux = fixture.service.mux.write();
-        let tab = mux.get_tab_mut(&concierge).unwrap();
-        tab.agent_session_id = None;
-        tab.reported_session_binding_nonce = None;
-    }
+    let (fixture, state, concierge, token) = concierge_fixture(false).await;
     let calls = Arc::new(AtomicUsize::new(0));
     let downstream = calls.clone();
     let router = Router::new()
@@ -226,7 +222,7 @@ async fn own_launch_hooks_work_before_attestation_but_foreign_hooks_and_self_app
 async fn real_history_route_refuses_other_friendships_without_identity_headers() {
     use axum::{body::Body, http::Request};
     use tower::ServiceExt;
-    let (_fixture, state, _, token) = concierge_fixture().await;
+    let (_fixture, state, _, token) = concierge_fixture(true).await;
     let router = crate::routes::create_router(state);
     for (friendship, status) in [
         ("a".repeat(64), StatusCode::OK),
@@ -247,4 +243,32 @@ async fn real_history_route_refuses_other_friendships_without_identity_headers()
             status
         );
     }
+}
+
+#[tokio::test]
+async fn a_ready_credential_is_revoked_when_its_session_is_removed_before_a_hook() {
+    use axum::{body::Body, http::Request, Router};
+    use tower::ServiceExt;
+    let (fixture, state, concierge, token) = concierge_fixture(true).await;
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&concierge)
+        .unwrap()
+        .agent_session_id = None;
+    let router = Router::new()
+        .fallback(|| async { StatusCode::NO_CONTENT })
+        .layer(axum::middleware::from_fn_with_state(state, auth_middleware));
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/api/tabs/{concierge}/hook/session_start"))
+        .header("authorization", format!("Bearer {token}"))
+        .header("x-codeterm-binding-nonce", "own-nonce")
+        .body(Body::empty())
+        .unwrap();
+    assert_eq!(
+        router.oneshot(request).await.unwrap().status(),
+        StatusCode::UNAUTHORIZED
+    );
 }
