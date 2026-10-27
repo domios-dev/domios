@@ -44,7 +44,7 @@ pub fn install(fixture: &ServiceFixture) -> Arc<Calls> {
         fixture.temp.path().join("model-provider.json"),
         json!({"providers": [{
             "id": "existing", "kind": "openai-compatible",
-            "base_url": "https://caller-chosen.invalid/v1", "models": ["fixture-model"]
+            "baseUrl": "https://caller-chosen.invalid/v1", "models": ["fixture-model"]
         }]})
         .to_string(),
     )
