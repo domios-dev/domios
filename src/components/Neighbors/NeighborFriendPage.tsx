@@ -15,7 +15,7 @@ import { focusTab, workspaceOfTab } from "./neighborAgent";
 import type { HistoryPage, NeighborConciergeClient, NeighborNotify } from "./neighborConciergeClient";
 import { Chip } from "../shared/Chip";
 import { openNeighbor, type NeighborSection } from "./neighborFocus";
-import { neighborName, type Neighbor } from "./neighborModel";
+import { listedPaused, neighborName, type Neighbor } from "./neighborModel";
 import { MissingConciergeNotice } from "./NeighborPanel";
 import { NeighborPermissionsEditor } from "./NeighborPermissionsEditor";
 import { formatBytes, neighborFilesClient, type NeighborFileQuota, type NeighborFilesClient } from "./neighborFilesClient";
@@ -24,7 +24,7 @@ import type { NeighborPermission, NeighborRuntimeClient } from "./neighborRuntim
 import { useConciergeStatus, type ConciergeStatus } from "./useConciergeStatus";
 import { useNeighborPermission } from "./useNeighborPermission";
 import { NOTIFY_CHOICES, useNeighborNotify } from "./neighborNotify";
-import { setFriendPaused, usePausedFriends } from "./neighborPause";
+import { pausedLine, setFriendPaused, theyPausedLine, usePausedFriends } from "./neighborPause";
 import { LiquidToggle } from "../shared/LiquidToggle";
 import { receivingLine, useReceiverState } from "./useReceiverState";
 
@@ -60,7 +60,7 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notify, changeNotify] = useNeighborNotify(conciergeClient, friendship, friend.notify, setError);
-  const paused = usePausedFriends(conciergeClient)(friendship, friend.paused);
+  const paused = usePausedFriends(conciergeClient)(friendship, listedPaused(friend));
   const [quota, setQuota] = useState<NeighborFileQuota | null>(null);
   // The newest page of the conversation dates the last message and counts today's from them, as a floor when older pages remain.
   const [recent, setRecent] = useState<HistoryPage | null>(null);
@@ -132,6 +132,8 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
           <p className="neighbor-status"><span className="neighbor-dot" data-tone={enabled && !locked ? "ok" : "muted"} aria-hidden="true" />{status}
             <span className="neighbor-note">, since {new Date(friend.since * 1000).toLocaleDateString()}</span></p>
           {receiver && <p className="neighbor-note">{receivingLine(receiver)}</p>}
+          {paused && <p className="neighbor-note">{pausedLine(name)}</p>}
+          {friend.their_paused && <p className="neighbor-note">{theyPausedLine(name)}</p>}
           <FriendStats friend={friend} quota={quota} page={recent} />
         </div>
         <div className="neighbor-window__actions">

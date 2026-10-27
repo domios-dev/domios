@@ -947,3 +947,9 @@ it("pauses a friend from the window header and resumes them with the same switch
   await act(async () => button("Pause Ada").click());
   expect(conciergeClient.setPaused).toHaveBeenLastCalledWith("pair", false);
 });
+
+it("shows a friend you paused as paused on the graph", async () => {
+  await render("paid", { friend: { ...neighbor, my_paused: true } });
+  expect(hasButton("Ada, paused")).toBe(true);
+  expect(document.querySelector('[data-node-id="pair"]')?.hasAttribute("data-paused")).toBe(true);
+});

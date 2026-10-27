@@ -43,6 +43,10 @@ export function setFriendPaused(client: NeighborConciergeClient, friendship: str
   });
 }
 
+/** Pausing is one way: it stops their messages to you and leaves yours to them. */
+export const pausedLine = (name: string) => `You paused ${name}. They can't write to you until you resume; you can still write to them.`;
+export const theyPausedLine = (name: string) => `${name} paused messages from you.`;
+
 /** Forget local pause changes; they belong to the account they were made in. */
 export function resetPausedFriends() {
   changed.clear();

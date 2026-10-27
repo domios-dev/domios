@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
-import { Mail, Plus, RefreshCw, UserRound } from "lucide-react";
+import { Mail, Pause, Plus, RefreshCw, UserRound } from "lucide-react";
 import { formatAge } from "../../lib/timeLabels";
 import { useAccount } from "../Settings/useAccount";
 import { accountTrayModel } from "../Titlebar/accountTrayModel";
@@ -17,7 +17,8 @@ import { askGeneralAgent, permissionInterviewTask, talkAboutTask, type NeighborS
 import type { NeighborClient } from "./neighborClient";
 import { onNeighborFocus, takeNeighborFocus, type NeighborSection } from "./neighborFocus";
 import { neighborhoodNodes, STATUS_LABEL, type NeighborhoodNode } from "./neighborhoodModel";
-import { neighborName } from "./neighborModel";
+import { listedPaused, neighborName } from "./neighborModel";
+import { usePausedFriends } from "./neighborPause";
 import { neighborRuntimeClient, type NeighborRuntimeClient, type ReceiverState } from "./neighborRuntimeClient";
 import { neighborConciergeClient, type NeighborConciergeClient } from "./neighborConciergeClient";
 import type { NeighborFilesClient } from "./neighborFilesClient";
@@ -65,6 +66,8 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, conciergeC
   const tabMap = useTabMap();
   const me = accountTrayModel(account.model, null);
   const receiver = useReceiverState(runtimeClient, Boolean(identity) && enabled);
+  const isPaused = usePausedFriends(conciergeClient);
+  const pausedInList = (id: string) => { const friend = graph?.friends.find(entry => entry.friendship_id === id); return friend ? listedPaused(friend) : undefined; };
   const [selected, setSelected] = useState<string | null>(null);
   const [openSection, setOpenSection] = useState<NeighborSection | null>(null);
   // Where the friend's window grows from: the node that was clicked, or the friend's node when another surface opened it.
@@ -160,6 +163,7 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, conciergeC
               </div>}
           </div>
           {nodes.map((node, index) => <NodeButton key={node.id} node={node} index={index} selected={node.id === selected}
+            paused={node.kind === "neighbor" && isPaused(node.id, pausedInList(node.id))}
             canInvite={graph?.can_invite} onSelect={() => {
               if (node.kind === "invited") return;
               if (node.kind === "add") {
@@ -209,8 +213,8 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, conciergeC
   </div>;
 }
 
-function NodeButton({ node, index, selected, canInvite, onSelect }: {
-  node: NeighborhoodNode; index: number; selected: boolean; canInvite: boolean | undefined; onSelect: () => void;
+function NodeButton({ node, index, selected, paused, canInvite, onSelect }: {
+  node: NeighborhoodNode; index: number; selected: boolean; paused: boolean; canInvite: boolean | undefined; onSelect: () => void;
 }) {
   const style = { left: `${node.x}%`, top: `${node.y}%`, "--neighbor-from-x": `${(50 - node.x) * 2}%`, "--neighbor-from-y": `${(50 - node.y) * 2}%`,
     "--neighbor-delay": `${index * 45}ms` } as CSSProperties;
@@ -232,10 +236,11 @@ function NodeButton({ node, index, selected, canInvite, onSelect }: {
     </div>;
   }
   return <button type="button" data-neighbor-node data-node-id={node.id} className="neighbor-node" style={style} data-status={node.status}
-    aria-pressed={selected} aria-label={`${node.name}, ${STATUS_LABEL[node.status]}`} onClick={onSelect}>
-    <span className="neighbor-node__disc"><AccountAvatar url={node.photoURL} initial={accountInitials(node.name)} label="" size="node" /></span>
+    aria-pressed={selected} aria-label={`${node.name}, ${paused ? "paused" : STATUS_LABEL[node.status]}`} onClick={onSelect} data-paused={paused || undefined}>
+    <span className="neighbor-node__disc"><AccountAvatar url={node.photoURL} initial={accountInitials(node.name)} label="" size="node" />
+      {paused && <span className="neighbor-pause-glyph" aria-hidden="true"><Pause size={12} /></span>}</span>
     <span className="neighbor-node__name">{node.name}</span>
-    <span className="neighbor-status"><span className="neighbor-dot" data-tone={node.status === "connected" ? "ok" : node.status === "request" ? "progress" : "muted"} aria-hidden="true" />{STATUS_LABEL[node.status]}</span>
+    <span className="neighbor-status"><span className="neighbor-dot" data-tone={paused ? "muted" : node.status === "connected" ? "ok" : node.status === "request" ? "progress" : "muted"} aria-hidden="true" />{paused ? "paused" : STATUS_LABEL[node.status]}</span>
   </button>;
 }
 

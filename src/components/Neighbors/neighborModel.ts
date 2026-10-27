@@ -20,9 +20,16 @@ export interface Neighbor {
   gateway_tab?: string | null;
   /** Where this friend's messages notify you; the daemon defaults to in_app. */
   notify?: "off" | "in_app" | "in_app_and_bridges";
-  /** You paused this friend: they cannot write to you until you resume, and the friendship stays. */
+  /** You paused this friend: they cannot write to you until you resume, you can still write to them, and the friendship stays. */
+  my_paused?: boolean;
+  /** The runtime's name for my_paused. */
   paused?: boolean;
+  /** They paused you: your messages to them are refused until they resume. */
+  their_paused?: boolean;
 }
+
+/** Whether the list says you paused this friend, under either field name. */
+export const listedPaused = (friend: { my_paused?: boolean; paused?: boolean }): boolean | undefined => friend.my_paused ?? friend.paused;
 
 export interface NeighborRequest {
   uid: string;
