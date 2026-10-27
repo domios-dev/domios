@@ -967,3 +967,27 @@ it("pauses a friend from their sidebar row menu and shows the row as paused", as
   expect(conciergeClient.setPaused).toHaveBeenCalledExactlyOnceWith("pair", true);
   expect(button("Open Ada").textContent).toContain("paused");
 });
+
+async function renderConversation(friend: NeighborList["friends"][number]) {
+  const conciergeClient = concierge([]);
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [friend], incoming: [], outgoing: [] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
+  return conciergeClient;
+}
+
+it("keeps writing open to a friend you paused and offers Resume", async () => {
+  const conciergeClient = await renderConversation({ ...neighbor, my_paused: true });
+  expect(document.querySelector<HTMLTextAreaElement>("textarea")!.disabled).toBe(false);
+  await act(async () => button("Resume").click());
+  expect(conciergeClient.setPaused).toHaveBeenCalledExactlyOnceWith("pair", false);
+});
+
+it("closes the composer while the friend has paused messages from you", async () => {
+  await renderConversation({ ...neighbor, their_paused: true });
+  expect(document.querySelector<HTMLTextAreaElement>("textarea")!.disabled).toBe(true);
+  expect(hasButton("Resume")).toBe(false);
+});

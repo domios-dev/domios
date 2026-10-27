@@ -15,9 +15,10 @@ import { askGeneralAgent, permissionInterviewTask } from "./neighborAgent";
 import type { NeighborClient } from "./neighborClient";
 import { neighborConciergeClient, type HistoryEntry, type NeighborConciergeClient } from "./neighborConciergeClient";
 import { NOTIFY_CHOICES, useNeighborNotify } from "./neighborNotify";
+import { pausedLine, setFriendPaused, theyPausedLine, usePausedFriends } from "./neighborPause";
 import { authorKind, continuesGroup, dayLabel, DELIVERY_LABEL, mergeHistory, refusalLine, speaker } from "./neighborConversationModel";
 import { openNeighborPage } from "./neighborFocus";
-import { neighborName, type Neighbor } from "./neighborModel";
+import { listedPaused, neighborName, type Neighbor } from "./neighborModel";
 import { MissingConciergeNotice } from "./NeighborPanel";
 import { NeighborComposer } from "./NeighborComposer";
 import { useConciergeStatus } from "./useConciergeStatus";
@@ -150,7 +151,10 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
   const agentLabel = (entry: HistoryEntry) => typeof entry.author === "object" && tabs[entry.author.agent]?.protected ? "General" : "Your concierge";
   const allowance = typeof friend.their_daily_limit === "number" ? { limit: friend.their_daily_limit, sent: friend.sent_today ?? 0 } : null;
   const limitReached = allowance !== null && allowance.sent >= allowance.limit;
-  const canSend = enabled && !locked && !limitReached && !ended;
+  // Pausing is one way: your own pause leaves the composer open, theirs closes it.
+  const paused = usePausedFriends(conciergeClient)(friendship, listedPaused(friend));
+  const theyPaused = friend.their_paused === true;
+  const canSend = enabled && !locked && !limitReached && !ended && !theyPaused;
   const send = async (body: string): Promise<boolean> => {
     if (sending || !canSend) return false;
     // The encrypted envelope carries at most 32752 UTF-8 bytes of text; the draft stays for trimming.
@@ -241,8 +245,14 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
       {error && <InlineErrorNotice error={error} operation={`messaging ${name}`} role="alert" />}
       {ended && <p role="status" className="neighbor-note neighbor-chat__limit">This connection with {name} has ended. The conversation stays here for you to read.</p>}
       {!ended && limitReached && enabled && !locked && <p role="status" className="neighbor-note neighbor-chat__limit">Limit reached: {name} allows {allowance!.limit} {allowance!.limit === 1 ? "message" : "messages"} a day. Ask them to raise it.</p>}
+      {!ended && paused && <div role="status" className="neighbor-note neighbor-chat__limit neighbor-chat__paused">
+        <span>{pausedLine(name)}</span>
+        <Button size="sm" onClick={() => setFriendPaused(conciergeClient, friendship, false, true, setError)}>Resume</Button>
+      </div>}
+      {!ended && theyPaused && <p role="status" className="neighbor-note neighbor-chat__limit">{theyPausedLine(name)}</p>}
       <NeighborComposer name={name} disabled={!canSend} sending={sending} onError={setError}
-        placeholder={ended ? "This connection has ended" : !enabled ? "Neighbors is off" : locked ? "Messages are paused by your plan" : limitReached ? "Daily limit reached" : `Message ${name}`}
+        placeholder={ended ? "This connection has ended" : !enabled ? "Neighbors is off" : locked ? "Messages are paused by your plan" : theyPaused ? `${name} paused messages from you`
+          : limitReached ? "Daily limit reached" : `Message ${name}`}
         onSend={send} onSendFiles={sendFiles} />
     </div>
   </div>;
@@ -325,6 +335,7 @@ function fileRefusal(failure: unknown, name: string): string {
     case "files_disabled": return `${name} does not accept files.`;
     case "recipient_files_unsupported": return `${name}'s Domios cannot receive files yet.`;
     case "file_rate_limited": return "Too many files right now. Try again shortly.";
+    case "recipient_paused": return `Not sent: ${name} paused messages from you.`;
     default: return failure.message;
   }
 }

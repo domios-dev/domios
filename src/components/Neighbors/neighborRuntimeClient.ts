@@ -5,8 +5,8 @@ export type NeighborDeliveryStatus = "pending" | "delivered" | "not_delivered";
 export type NeighborListenerState = "connecting" | "receiving" | "reconnecting" | "stopped";
 export interface ReceiverState { receiving_here: boolean; receiver_machine_label: string | null; receiving_enabled: boolean; revision: number }
 export type NeighborListenerEvent = { friendship_id: string; status: NeighborListenerState } | ReceiverState | { receiver_unavailable: true };
-export type DeliveryRefusal = "key_revoked" | "neighbor_daily_limit" | "rate_limited" | "aggregate_limited" | "aggregate_daily_limited" | "friends_locked" | "recipient_locked" | "recipient_not_receiving";
-const DELIVERY_REFUSALS: readonly string[] = ["key_revoked", "neighbor_daily_limit", "rate_limited", "aggregate_limited", "aggregate_daily_limited", "friends_locked", "recipient_locked", "recipient_not_receiving"];
+export type DeliveryRefusal = "key_revoked" | "neighbor_daily_limit" | "rate_limited" | "aggregate_limited" | "aggregate_daily_limited" | "friends_locked" | "recipient_locked" | "recipient_not_receiving" | "recipient_paused";
+const DELIVERY_REFUSALS: readonly string[] = ["key_revoked", "neighbor_daily_limit", "rate_limited", "aggregate_limited", "aggregate_daily_limited", "friends_locked", "recipient_locked", "recipient_not_receiving", "recipient_paused"];
 export interface DeliveryResult {
   status: NeighborDeliveryStatus;
   reason?: DeliveryRefusal;

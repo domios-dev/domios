@@ -1176,6 +1176,14 @@
   filter: grayscale(0.6);
 }
 
+.neighbor-chat__paused {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
 .sidebar-neighbor-concierge[data-paused] {
   opacity: 0.6;
 }
