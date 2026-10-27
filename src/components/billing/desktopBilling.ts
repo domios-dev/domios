@@ -1,17 +1,11 @@
-import type { PlanCatalog, PlanOffer, PlanPrice } from "./planCatalog";
+import { parsePlanLimits, type PlanCatalog, type PlanOffer, type PlanPrice, type BillingInterval } from "./planCatalog";
 import { localFetch } from "../../lib/webApi";
 
 export interface SubscriptionReadback {
   current_tier: string;
+  billing_interval: BillingInterval | null;
   period_end: number | null;
   pending_change: { to_tier: string; effective_at: number; status: "scheduled" | "confirmation_pending" } | null;
-}
-
-export interface PlanChangeResult {
-  status: "scheduled" | "awaiting_webhook";
-  current_plan: string;
-  target_plan: string;
-  effective_at: number;
 }
 
 const record = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
@@ -36,13 +30,8 @@ export function parseDesktopCatalog(value: unknown): PlanCatalog {
     || catalog.tiers.length === 0 || catalog.tiers.length > 32) throw new Error("Invalid plan catalog");
   const offers = catalog.tiers.map((tier): PlanOffer => {
     if (!record(tier) || !text(tier.tier) || !record(tier.limits) || !record(tier.prices)) throw new Error("Invalid tier");
-    const fields = [["mesh_machines", "machines in your mesh"], ["workspaces", "workspaces"], ["mem_items", "memory items"],
-      ["teams", "Teams across all workspaces"], ["agent_tabs", "tabs running at once"], ["neighbors", "Neighbors"]];
-    const features = fields.map(([key, noun]) => {
-      const max = (tier.limits as Record<string, unknown>)[key];
-      if (max !== null && !seconds(max)) throw new Error("Invalid tier limit");
-      return `${max === null ? "Unlimited" : max} ${noun}`;
-    });
+    const limits = parsePlanLimits({ "mesh.machines": tier.limits.mesh_machines, workspaces: tier.limits.workspaces,
+      "mem.items": tier.limits.mem_items, teams: tier.limits.teams, "agent.tabs": tier.limits.agent_tabs, neighbors: tier.limits.neighbors });
     const month = price(tier.prices.monthly, tier.tier, "monthly");
     const year = price(tier.prices.yearly, tier.tier, "yearly");
     const trial = catalog.trial_offer;
@@ -51,19 +40,25 @@ export function parseDesktopCatalog(value: unknown): PlanCatalog {
       month.trialDays = trial.days;
       month.trialEligible = trial.eligible;
     }
-    return { id: tier.tier, name: tierName(tier.tier), tagline: "", features,
+    return { id: tier.tier, name: tierName(tier.tier), tagline: "", features: [], limits,
       prices: { ...(month ? { month } : {}), ...(year ? { year } : {}) }, ...(tier.tier === "pro" ? { recommended: true } : {}) };
   });
   if (new Set(offers.map(offer => offer.id)).size !== offers.length) throw new Error("Duplicate catalog tier");
-  return { offers, changesAvailable: catalog.mode === "test" };
+  return { offers, changesAvailable: true };
 }
 
 export function parseSubscription(value: unknown): SubscriptionReadback {
   if (!record(value) || !text(value.current_tier) || (value.period_end !== null && !seconds(value.period_end))) throw new Error("Invalid subscription response");
+  const interval = value.billing_interval ?? null;
+  if (interval !== null && interval !== "month" && interval !== "year") throw new Error("Invalid subscription interval");
   const pending = value.pending_change;
-  if (pending !== null && (!record(pending) || !text(pending.to_tier) || !seconds(pending.effective_at)
-    || !["scheduled", "confirmation_pending"].includes(String(pending.status)))) throw new Error("Invalid pending plan change");
-  return value as unknown as SubscriptionReadback;
+  let pendingChange: SubscriptionReadback["pending_change"] = null;
+  if (pending !== null) {
+    if (!record(pending) || !text(pending.to_tier) || !seconds(pending.effective_at)
+      || (pending.status !== "scheduled" && pending.status !== "confirmation_pending")) throw new Error("Invalid pending plan change");
+    pendingChange = { to_tier: pending.to_tier, effective_at: pending.effective_at, status: pending.status };
+  }
+  return { current_tier: value.current_tier, billing_interval: interval, period_end: value.period_end, pending_change: pendingChange };
 }
 
 export function scheduledPlanCopy(value: SubscriptionReadback, formatDate: (seconds: number) => string): string | null {

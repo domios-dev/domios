@@ -75,7 +75,7 @@ Discovery must lead to decisions and implementation, review or verification; res
 Duplicate Worker guidance in `plan doctor` is advisory. Summarize a green draft and ask the owner; after UI approval verify `planning_state=approved`, after conversational approval run `domios plan approve <plan>` once and verify it. Record Planner waivers.
 ## Dispatch contract
 
-Workers default to full machine access; `--execution-intent` governs task and report authority, not OS permissions. Confine one with `--sandbox read-only|workspace-write` on `agent spawn` or local `plan task dispatch`. Task-less verification reports omit `--status` and `--task`.
+Workers default to full machine access; `--execution-intent` governs task and report authority, not OS permissions. Confine one with `--sandbox read-only|workspace-write` on `agent spawn` or local `plan task dispatch`. A caller with a recorded sandbox, or the owner's `agent.sandbox_ceiling`, caps delegation: a request above that ceiling, including an omitted `--sandbox`, is refused. Task-less verification reports omit `--status` and `--task`.
 
 ## Worker kinds
 
@@ -103,4 +103,4 @@ The default Curator control loop replaces the Orchestrator heartbeat. It mirrors
 
 A `[provider access lost]` notice means recover the login or respawn on another provider, never a completed task; routing is in `ORCHESTRATION-TASKS`.
 
-<!-- revision: 141 -->
+<!-- revision: 142 -->

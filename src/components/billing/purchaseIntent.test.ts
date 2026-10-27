@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PlanModel } from "../Settings/accountPlanModel";
 import { BUILTIN_PLAN_CATALOG as catalog } from "./planCatalog";
-import { subscribedPlan, displayedPlan, IDLE_INTENT, owns, purchaseIntent, type PurchaseEvent, type PurchaseIntent } from "./purchaseIntent";
+import { subscribedPlan, IDLE_INTENT, owns, purchaseIntent, type PurchaseEvent, type PurchaseIntent } from "./purchaseIntent";
 
 function plan(overrides: Partial<PlanModel> = {}): PlanModel {
   return { authority: "free", fullAccess: false, plan: "free", status: "active", stale: false, periodEnd: null, cancelAtPeriodEnd: false, limits: null, ...overrides };
@@ -84,11 +84,6 @@ describe("purchaseIntent", () => {
     expect(run([choose("sponsor_yearly", "signed_in", PRO)], owned)).toEqual({ kind: "opening", planKey: "sponsor_yearly" });
   });
 
-  it("staff display as Pro", () => {
-    expect(displayedPlan(STAFF)).toBe("pro");
-    expect(displayedPlan(PRO)).toBe("pro_yearly");
-    expect(displayedPlan(null)).toBeNull();
-  });
 });
 
 

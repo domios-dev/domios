@@ -19,7 +19,7 @@ async function mount() {
   const root = createRoot(host); mounted = { root, host };
   await act(async () => root.render(<Harness />));
 }
-const readback = { current_tier: "max", period_end: 1700000000, pending_change: null };
+const readback = { billing_interval: "month", current_tier: "max", period_end: 1700000000, pending_change: null };
 const ok = (value: unknown) => new Response(JSON.stringify(value), { status: 200 });
 const setup = (change: () => Promise<Response>) => transport.localFetch.mockImplementation(async (_url: string, init: RequestInit) => {
   const { operation } = JSON.parse(String(init.body)) as { operation: string };
@@ -34,16 +34,19 @@ it("keeps an unconfirmed payable request from being submitted again", async () =
   await act(async () => { expect(await state.change("pri_pro")).toBe(false); state.refresh(); });
   await act(async () => { expect(await state.change("pri_pro")).toBe(false); });
   expect(change).toHaveBeenCalledTimes(1);
-  expect(state.error).toContain("could not be confirmed");
+  expect(state.subscription).toEqual(readback);
   expect(state.submitted).toBe(true);
 });
 
 it("shows the server's staff-only sandbox refusal honestly", async () => {
-  setup(async () => new Response("test_billing_restricted: Test billing is limited to Domios staff", { status: 503 }));
+  const change = vi.fn(async () => new Response("test_billing_restricted: opaque-refusal-detail", { status: 503 }));
+  setup(change);
   await mount();
   await act(async () => { await state.change("pri_pro"); });
-  expect(state.error).toBe("Test billing is limited to Domios staff");
+  expect(state.subscription).toEqual(readback);
   expect(state.submitted).toBe(false);
+  await act(async () => { await state.change("pri_pro"); });
+  expect(change).toHaveBeenCalledTimes(2);
 });
 
 it("does not publish an old identity's pending change into a new account", async () => {

@@ -122,4 +122,17 @@ Memory skills, workers, sync, and dreaming: `domios docs MEMORY-SERVICES`. Servi
 
 Connection failures use JSON `{error: {code, message}}`; codes include unavailable, authentication_failed, unknown_adapter, invalid_model and invalid_request. Token values are never returned.
 
-<!-- revision: 21 -->
+
+## Additional REST routes
+
+Memory writes and graph repairs retain the authority and field contracts above.
+
+| Method | Path | Operation |
+|--------|------|-----------|
+| GET | `/api/mem/dream/diary` | Read Dreamer diary entries. |
+| POST | `/api/mem/graph/repair/collapse-synonym-edges` | Collapse synonym edges. |
+| POST | `/api/mem/graph/repair/prune-dream-hub-edges` | Prune Dreamer hub edges. |
+| POST | `/api/mem/graph/repair/prune-thin-vectors` | Prune thin-vector graph edges. |
+| POST | `/api/mem/items/{id}/append` | Append text to a memory item. |
+
+<!-- revision: 22 -->

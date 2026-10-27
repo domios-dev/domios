@@ -70,9 +70,22 @@ assert.equal(tabActivity({ ...agent, agent_state: { state: "working", phase: "st
 assert.equal(tabActivity({ ...agent, agent_state: { state: "working", phase: "streaming" } }).phase, "streaming");
 const compacting = tabActivity({ ...agent, agent_state: { state: "working", phase: "compacting" } });
 assert.equal(compacting.kind, "working");
-assert.equal(compacting.phase, "work");
+assert.equal(compacting.phase, "compacting");
+assert.equal(compacting.genericWork, false);
 assert.notEqual(compacting.label, tabActivity({ ...agent, agent_state: { state: "working" } }).label);
-assert.equal(tabActivity({ ...agent, agent_state: { state: "working", phase: "compacting", status_line: "Reading" } }).label, "Reading");
+assert.equal(tabActivity({ ...agent, agent_state: { state: "working", phase: "compacting", status_line: "Reading" } }).label, compacting.label);
+for (const backing of [undefined, { kind: "chat_backend", plugin_id: "another-fixture", session_id: "thread" }] as const) {
+  const input = { ...agent, backing, agent_state: { state: "working", phase: "compacting" } } as const;
+  assert.equal(tabActivity(input).phase, "compacting");
+  assert.equal(tabActivity(input).canStop, true);
+  for (const state of ["idle", "question"] as const) {
+    assert.equal(tabActivity({ ...input, agent_state: { state, phase: "compacting" } }).phase, "work");
+  }
+  for (const status of ["Dead", "Error"] as const) {
+    assert.equal(tabActivity(input, status).phase, "work");
+  }
+  assert.equal(tabActivity({ ...input, agent_state: { state: "working" } }).phase, "work");
+}
 const interrupted = tabActivity({ ...agent, agent_state: { state: "idle", phase: "interrupted" } });
 assert.equal(interrupted.kind, "idle");
 assert.notEqual(interrupted.label, tabActivity({ ...agent, agent_state: { state: "idle", phase: "failed" } }).label);

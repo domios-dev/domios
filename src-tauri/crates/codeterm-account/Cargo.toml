@@ -7,7 +7,7 @@ edition = "2021"
 [dependencies]
 log = "0.4"
 async-trait = "0.1"
-base64 = "0.22"
+base64 = "0.23"
 codeterm-entitlements = { path = "../codeterm-entitlements" }
 codeterm-util = { path = "../codeterm-util" }
 parking_lot = "0.12"

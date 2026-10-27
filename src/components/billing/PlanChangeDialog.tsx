@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useId } from "react";
 import { Button } from "../shared/Button";
 import { FormDialog } from "../shared/FormDialog";
@@ -20,7 +21,7 @@ export function PlanChangeDialog({ selection, currentTier, periodEnd, pending, e
     <p>{selection.direction === "upgrade" ? "Your upgrade takes effect after payment confirmation. Paddle prorates the charge for the remaining billing period."
       : `${tierName(currentTier)} until ${date}, ${tierName(selection.tier)} from ${date}.`}</p>
     <p>Plan changes keep the same billing interval. Final charges are determined by Paddle.</p>
-    {error && <p role="status">{error}</p>}
+    {error && <InlineErrorNotice error={error} operation="changing your plan" role="status" />}
     <Button type="submit" disabled={pending || submitted}>Confirm plan change</Button>
     <Button type="button" onClick={onClose}>Cancel</Button>
   </FormDialog>;

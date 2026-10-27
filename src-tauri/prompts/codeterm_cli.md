@@ -79,6 +79,8 @@ Each command's `--help` has the flags; the Docs column has the depth.
 
 Plans, tasks, Teams: `domios plan --help` / `domios task --help` / `domios team --help`, with the full rules in `domios docs PLAN-EDITING` and `domios docs ORCHESTRATION`. Orchestrator, Planner and Worker launches carry their own flag contract.
 
+The live Plan owner may complete pending, blocked or in-progress work directly with `domios plan task close <plan> <task> --result-file <file>`, or `domios plan record <plan> --task <task> --status done --step status_update:@<file>`. A nonblank result note is required for that task. Workers submit reports for review.
+
 Workers default to full machine access for either execution intent. For explicit confinement pass `--sandbox read-only` or `--sandbox workspace-write` to `domios agent spawn` or local `domios plan task dispatch`. Execution intent still limits task and report authority; saved sandbox policies remain immutable.
 
 Every agent tab, Orchestrator included, keeps its own checklist with `domios todo write --from-pad todos.json` instead of the built-in todo tool. The JSON array declares the whole list as `{ "content", "status": "pending|in_progress|completed|blocked|skipped", "activeForm", "id?", "link?", "reason?" }`: the first write creates it; later writes match `id` first, then exact title, append new content and remove omitted items you added, while omitted locked items remain unchanged. Entries with `id` may omit `content` and `activeForm`; they change only status/reason. At most one item is `in_progress`; `blocked`/`skipped` need a `reason`; completed back to `in_progress` is a restart.

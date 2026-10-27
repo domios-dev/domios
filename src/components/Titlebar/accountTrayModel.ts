@@ -15,20 +15,11 @@ export function accountAvatarUrl(value: string | null | undefined): string | nul
   }
 }
 
-export type PlanTone = "active" | "attention" | "inactive";
-
-/** The plan as a badge: its tier name, the subscription status with a tone, and whether it is admin or last-known. */
-export interface PlanBadge { tier: string; name: string; status: string; tone: PlanTone; admin: boolean; stale: boolean }
-
-function statusTone(status: string): PlanTone {
-  if (["active", "trialing"].includes(status)) return "active";
-  if (["past_due", "unpaid", "incomplete", "paused"].includes(status)) return "attention";
-  return "inactive";
-}
+export interface PlanBadge { tier: string; name: string; admin: boolean; stale: boolean }
 
 export function planBadge(plan: PlanModel | null): PlanBadge | null {
   if (!plan) return null;
-  return { tier: plan.plan, name: capitalized(plan.plan), status: plan.status.replace(/_/g, " "), tone: statusTone(plan.status), admin: plan.authority === "admin", stale: plan.stale };
+  return { tier: plan.plan, name: capitalized(plan.plan), admin: plan.authority === "admin", stale: plan.stale };
 }
 
 export function accountTrayModel(account: AccountModel, plan: PlanModel | null) {

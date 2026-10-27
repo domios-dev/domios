@@ -479,7 +479,10 @@ function TabItemInner({
             {rowText.title}
           </span>
           {hasAgent && (
-            <TabWorkingActivity activity={tabState} />
+            <TabWorkingActivity activity={tabState} label={tabState.label} />
+          )}
+          {hasAgent && tabState.phase === "compacting" && (
+            <span className="truncate text-[10px] text-[var(--ct-muted-fg)]">{tabState.label}</span>
           )}
           {shellRunning && <TabWorkingActivity activity={tabState} label={`${displayTitle} working`} />}
         </span>
@@ -543,9 +546,9 @@ function TabItemInner({
         role="status"
         aria-live="polite"
         aria-atomic="true"
-        aria-label={`${accessibleTitle} tab status ${tabState.status}`}
+        aria-label={`${accessibleTitle} tab status ${tabState.phase === "compacting" ? tabState.label : tabState.status}`}
       >
-        {accessibleTitle} tab status {tabState.status}
+        {accessibleTitle} tab status {tabState.phase === "compacting" ? tabState.label : tabState.status}
       </span>}
       <div className={`shrink-0 relative z-[1] flex items-center justify-end ${touchMode ? "" : `sidebar-tab-end ${tabText}`}`}>
         {!attachment && !touchMode && <MeshDot label={meshLabel} />}

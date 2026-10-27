@@ -106,9 +106,15 @@ async fn account_routes_local_journey_persists_and_deletes_credential() {
             )
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        let value: serde_json::Value =
-            serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+        let status = response.status();
+        let body = to_bytes(response.into_body(), 4096).await.unwrap();
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "{method} {path}: {}",
+            String::from_utf8_lossy(&body)
+        );
+        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(value["identity"].is_object(), signed_in);
         if signed_in {
             assert_eq!(value["identity"]["uid"], "local-dev-user");
@@ -187,9 +193,15 @@ async fn account_plan_routes_local_journey() {
             )
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        let value: serde_json::Value =
-            serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+        let status = response.status();
+        let body = to_bytes(response.into_body(), 4096).await.unwrap();
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "{method} {path}: {}",
+            String::from_utf8_lossy(&body)
+        );
+        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
         if !expected_plan.is_empty() {
             assert_eq!(value["entitlements"]["plan"], expected_plan);
             assert_eq!(value["stale"], stale);

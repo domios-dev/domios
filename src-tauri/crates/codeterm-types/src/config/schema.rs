@@ -571,6 +571,8 @@ pub struct AgentConfig {
     /// One system continue for agent tabs that were mid-turn when Domios stopped.
     pub continue_after_restart: bool,
     pub full_access: Option<bool>,
+    /// Owner-set `read-only` or `workspace-write` limit for delegated launches; unset keeps no limit.
+    pub sandbox_ceiling: Option<String>,
 }
 
 impl Default for AgentConfig {
@@ -582,6 +584,7 @@ impl Default for AgentConfig {
             resume_sessions: true,
             continue_after_restart: true,
             full_access: None,
+            sandbox_ceiling: None,
         }
     }
 }

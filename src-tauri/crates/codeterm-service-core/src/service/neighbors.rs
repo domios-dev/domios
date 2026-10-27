@@ -10,7 +10,7 @@ pub use runtime::{NeighborRuntimeCell, NeighborRuntimeCommand};
 #[derive(Debug, Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum NeighborCommand {
-    List,
+    List {},
     Request {
         email: String,
     },
@@ -30,7 +30,7 @@ pub enum NeighborCommand {
 impl NeighborCommand {
     fn callable(self) -> (&'static str, Value) {
         match self {
-            Self::List => ("friendsList", json!({})),
+            Self::List {} => ("friendsList", json!({})),
             Self::Request { email } => ("friendsRequest", json!({"email": email})),
             Self::Respond { request_id, accept } => (
                 "friendsRespond",

@@ -1,11 +1,13 @@
 mod callable;
 mod gateway;
 mod listener;
+mod logout;
+mod owner;
 
 use super::storage::Metadata;
 use crate::service::ServiceContext;
 use codeterm_neighbors::{
-    adapter::FirebaseTransport,
+    adapter::{FirebaseRegistry, FirebaseTransport},
     keys::{InstallationKeys, KeyRegistry, KeyScope, OsKeyStore},
     permissions::Permission,
     receive::{CursorStore, NeighborTransport, Receiver},
@@ -14,14 +16,16 @@ use codeterm_neighbors::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::{collections::HashMap, sync::Arc};
-use tokio::sync::Mutex;
 use zeroize::Zeroizing;
 
 #[derive(Default)]
 pub struct NeighborRuntimeCell {
-    operations: Mutex<()>,
-    listeners: parking_lot::Mutex<HashMap<String, tokio::task::JoinHandle<()>>>,
+    owner: parking_lot::Mutex<Option<tokio::sync::mpsc::Sender<owner::Request>>>,
+    generation: AtomicU64,
+    listener_generation: AtomicU64,
+    listeners: parking_lot::Mutex<listener::Slots>,
     states: parking_lot::Mutex<HashMap<String, codeterm_neighbors::supervisor::ListenerState>>,
     bootstrapped: std::sync::atomic::AtomicBool,
 }
@@ -64,8 +68,13 @@ pub enum NeighborRuntimeCommand {
 struct Outgoing {
     friendship: String,
     kind: Kind,
-    body: Zeroizing<String>,
+    body: OutboundBody,
     in_reply_to: Option<String>,
+}
+
+enum OutboundBody {
+    Granted(Zeroizing<String>),
+    Refusal,
 }
 
 pub(super) fn authoring_allowed(
@@ -82,14 +91,45 @@ impl ServiceContext {
         self.extensions.get_or_init(NeighborRuntimeCell::default)
     }
 
-    async fn neighbor_ports(&self) -> Result<(Arc<FirebaseTransport>, KeyScope, Metadata), String> {
+    async fn neighbor_key_ports(
+        &self,
+    ) -> Result<(Arc<FirebaseRegistry>, KeyScope, Metadata), String> {
         let account = self.account().await?;
+        if account.status().await.provider == "local" {
+            return Err("Sign in with a hosted account to use Neighbors".into());
+        }
         let session = account
             .fresh_session()
             .await
             .map_err(|_| "Sign in to use Neighbors")?
             .ok_or("Sign in to use Neighbors")?;
         let uid = session.identity.uid.clone();
+        let registry = Arc::new(FirebaseRegistry {
+            calls: Arc::new(callable::Calls {
+                service: self.clone(),
+                uid: uid.clone(),
+                generation: session.login_generation,
+            }),
+            uid: uid.clone(),
+        });
+        let scope = KeyScope::installation(self.installation_id().await?.as_str(), &uid)
+            .map_err(|e| e.to_string())?;
+        let metadata = Metadata::new(self.account_data_root()?, &uid);
+        Ok((registry, scope, metadata))
+    }
+
+    async fn neighbor_ports(
+        &self,
+    ) -> Result<
+        (
+            Arc<FirebaseTransport>,
+            Arc<FirebaseRegistry>,
+            KeyScope,
+            Metadata,
+        ),
+        String,
+    > {
+        let (registry, scope, metadata) = self.neighbor_key_ports().await?;
         let endpoints = codeterm_account::firebase_endpoints::current();
         if endpoints.emulator {
             return Err("Native Neighbor streaming requires the QA or production project".into());
@@ -100,20 +140,12 @@ impl ServiceContext {
             "domios-d9357"
         }
         .to_string();
-        let calls = Arc::new(callable::Calls {
-            service: self.clone(),
-            uid: uid.clone(),
-            generation: session.login_generation,
-        });
         let transport = Arc::new(FirebaseTransport {
-            calls,
+            calls: registry.calls.clone(),
             project,
-            uid: uid.clone(),
+            uid: registry.uid.clone(),
         });
-        let scope = KeyScope::installation(self.installation_id().await?.as_str(), &uid)
-            .map_err(|e| e.to_string())?;
-        let metadata = Metadata::new(self.account_data_root()?, &uid);
-        Ok((transport, scope, metadata))
+        Ok((transport, registry, scope, metadata))
     }
 
     fn require_neighbor_general(
@@ -144,11 +176,30 @@ impl ServiceContext {
         caller: Option<&str>,
         nonce: Option<&str>,
     ) -> Result<Value, String> {
-        let _operation = self.neighbor_cell().operations.lock().await;
-        let (transport, scope, metadata) = self.neighbor_ports().await?;
+        let result = self
+            .neighbor_operation(owner::Operation::Command {
+                command,
+                caller: caller.map(str::to_owned),
+                nonce: nonce.map(str::to_owned),
+            })
+            .await?;
+        match result {
+            owner::Outcome::Value(value) => Ok(value),
+            owner::Outcome::Logout(_) => Err("Unexpected Neighbor operation result".into()),
+        }
+    }
+
+    async fn neighbor_runtime_owned(
+        &self,
+        command: NeighborRuntimeCommand,
+        caller: Option<&str>,
+        nonce: Option<&str>,
+        generation: u64,
+    ) -> Result<Value, String> {
+        let (transport, registry, scope, metadata) = self.neighbor_ports().await?;
         let lifecycle = InstallationKeys {
             store: &OsKeyStore,
-            registry: transport.as_ref(),
+            registry: registry.as_ref(),
             scope,
             uid: &transport.uid,
         };
@@ -167,7 +218,7 @@ impl ServiceContext {
                 }
                 NeighborRuntimeCommand::Retry { friendship_id } => {
                     if !hex_id(&friendship_id, 64) { return Err(Error::InvalidEnvelope); }
-                    if let Some(task) = self.neighbor_cell().listeners.lock().remove(&friendship_id) { task.abort(); }
+                    if let Some(listener) = self.neighbor_cell().listeners.lock().active.get(&friendship_id) { listener.retry.notify_one(); }
                     Ok(json!({"status":"reconnecting"}))
                 }
                 NeighborRuntimeCommand::Rotate => {
@@ -205,11 +256,12 @@ impl ServiceContext {
                     transport.peer_keys(&friendship_id).await?;
                     let mut settings = metadata.settings().await?;
                     settings.permissions.insert(friendship_id, permission);
+                    self.stop_neighbor_listeners();
                     metadata.save_settings(settings).await?;
                     Ok(json!({"status":"saved"}))
                 }
                 NeighborRuntimeCommand::Send { friendship_id, kind, body, in_reply_to } => {
-                    self.send_neighbor(&transport, &lifecycle, &metadata, Outgoing { friendship: friendship_id, kind, body: Zeroizing::new(body), in_reply_to }).await
+                    self.send_neighbor(&transport, &lifecycle, &metadata, Outgoing { friendship: friendship_id, kind, body: OutboundBody::Granted(Zeroizing::new(body)), in_reply_to }).await
                 }
                 NeighborRuntimeCommand::DeliveryStatus { message_id } => {
                     if !hex_id(&message_id, 32) { return Err(Error::InvalidEnvelope); }
@@ -218,10 +270,11 @@ impl ServiceContext {
             }
         }.await;
         let result = result.map_err(|e| e.to_string())?;
+        self.require_neighbor_generation(generation)?;
         let scope = lifecycle.scope.clone();
         drop(lifecycle);
         if self
-            .start_neighbor_listeners(transport, scope, metadata)
+            .start_neighbor_listeners(transport, registry, scope, metadata, generation)
             .await
             .is_err()
         {
@@ -256,11 +309,16 @@ impl ServiceContext {
             .get(&friendship)
             .cloned()
             .unwrap_or_default();
-        if !permission.allows(kind) {
-            return Err(Error::Gateway);
-        }
+        let body = match body {
+            OutboundBody::Granted(body) if permission.allows(kind) => body,
+            OutboundBody::Refusal if kind == Kind::Answer && in_reply_to.is_some() => {
+                Zeroizing::new(codeterm_neighbors::gateway::REFUSAL_BODY.to_owned())
+            }
+            _ => return Err(Error::Gateway),
+        };
         let keys = lifecycle.load().await?.ok_or(Error::Revoked)?;
-        if !transport
+        if !lifecycle
+            .registry
             .active_key_ids()
             .await?
             .contains(&keys.verifier_key_id(&transport.uid))
@@ -309,8 +367,14 @@ impl ServiceContext {
     }
 
     pub(crate) fn stop_neighbor_listeners(&self) {
-        for (friendship, listener) in self.neighbor_cell().listeners.lock().drain() {
-            listener.abort();
+        self.neighbor_cell()
+            .listener_generation
+            .fetch_add(1, Ordering::AcqRel);
+        let mut listeners = self.neighbor_cell().listeners.lock();
+        let active = std::mem::take(&mut listeners.active);
+        for (friendship, listener) in active {
+            let _ = listener.shutdown.send(true);
+            listeners.retired.insert(friendship.clone(), listener.task);
             self.neighbor_cell().states.lock().insert(
                 friendship.clone(),
                 codeterm_neighbors::supervisor::ListenerState::Stopped,
@@ -325,13 +389,15 @@ impl ServiceContext {
     async fn start_neighbor_listeners(
         &self,
         transport: Arc<FirebaseTransport>,
+        registry: Arc<FirebaseRegistry>,
         scope: KeyScope,
         metadata: Metadata,
+        generation: u64,
     ) -> Result<(), String> {
         let settings = metadata.settings().await.map_err(|e| e.to_string())?;
         let recovered = (InstallationKeys {
             store: &OsKeyStore,
-            registry: transport.as_ref(),
+            registry: registry.as_ref(),
             scope: scope.clone(),
             uid: &transport.uid,
         })
@@ -351,7 +417,7 @@ impl ServiceContext {
                 .map_err(|e| e.to_string())?;
         }
         if self
-            .neighbor_registry(super::NeighborCommand::List)
+            .neighbor_registry(super::NeighborCommand::List {})
             .await?
             .get("access")
             .and_then(Value::as_str)
@@ -360,14 +426,20 @@ impl ServiceContext {
             self.stop_neighbor_listeners();
             return Ok(());
         }
+        self.require_neighbor_generation(generation)?;
+        let listener_generation = self
+            .neighbor_cell()
+            .listener_generation
+            .load(Ordering::Acquire);
         for (friendship, tab) in settings.bindings {
             if !hex_id(&friendship, 64) || self.validate_neighbor_gateway(&tab).is_err() {
                 continue;
             }
             let mut listeners = self.neighbor_cell().listeners.lock();
             if listeners
+                .active
                 .get(&friendship)
-                .is_some_and(|task| !task.is_finished())
+                .is_some_and(|task| !task.task.is_finished())
             {
                 continue;
             }
@@ -376,10 +448,32 @@ impl ServiceContext {
             let metadata = metadata.clone();
             let scope = scope.clone();
             let id = friendship.clone();
+            let retry = Arc::new(tokio::sync::Notify::new());
+            let (shutdown, stopped) = tokio::sync::watch::channel(false);
+            let previous = listeners.retired.remove(&friendship);
             let task = tokio::spawn(listener::run(
-                service, transport, scope, metadata, friendship, tab,
+                listener::Session {
+                    service,
+                    transport,
+                    scope,
+                    metadata,
+                    friendship,
+                    tab,
+                    generation: listener_generation,
+                    retry: retry.clone(),
+                    registry: registry.clone(),
+                    stopped,
+                },
+                previous,
             ));
-            listeners.insert(id, task);
+            listeners.active.insert(
+                id,
+                listener::Handle {
+                    task,
+                    retry,
+                    shutdown,
+                },
+            );
         }
         Ok(())
     }
@@ -395,43 +489,25 @@ impl ServiceContext {
         }
         let service = self.clone();
         tokio::spawn(async move {
-            let _operation = service.neighbor_cell().operations.lock().await;
-            if let Ok((transport, scope, metadata)) = service.neighbor_ports().await {
-                let _ = service
-                    .start_neighbor_listeners(transport, scope, metadata)
-                    .await;
-            }
+            let _ = service.neighbor_operation(owner::Operation::Restore).await;
         });
     }
 
     pub(crate) fn neighbor_identity_changed(&self) {
+        self.neighbor_cell()
+            .generation
+            .fetch_add(1, Ordering::AcqRel);
         self.stop_neighbor_listeners();
         self.neighbor_cell()
             .bootstrapped
             .store(false, std::sync::atomic::Ordering::Release);
     }
 
-    pub(crate) async fn revoke_neighbors_for_logout(&self) -> Result<(), String> {
-        let _operation = self.neighbor_cell().operations.lock().await;
-        self.neighbor_identity_changed();
-        let Some(session) = self.account().await?.session().await else {
-            return Ok(());
-        };
-        let metadata = Metadata::new(self.account_data_root()?, &session.identity.uid);
-        let mut settings = metadata.settings().await.map_err(|e| e.to_string())?;
-        let (transport, scope, _) = self.neighbor_ports().await?;
-        let keys = InstallationKeys {
-            store: &OsKeyStore,
-            registry: transport.as_ref(),
-            scope,
-            uid: &transport.uid,
-        };
-        keys.revoke().await.map_err(|e| e.to_string())?;
-        settings.enabled = false;
-        metadata
-            .save_settings(settings)
-            .await
-            .map_err(|e| e.to_string())
+    pub(crate) async fn logout_neighbor_account(&self) -> Result<codeterm_account::Status, String> {
+        match self.neighbor_operation(owner::Operation::Logout).await? {
+            owner::Outcome::Logout(status) => Ok(status),
+            owner::Outcome::Value(_) => Err("Unexpected logout operation result".into()),
+        }
     }
 }
 

@@ -17,6 +17,8 @@ pub(super) struct Gateway {
     pub metadata: Metadata,
     pub friendship: String,
     pub tab: String,
+    pub generation: u64,
+    pub stopped: tokio::sync::watch::Receiver<bool>,
 }
 
 impl ServiceContext {
@@ -46,16 +48,16 @@ impl NeighborGateway for Gateway {
         message: &InboxMessage,
         plaintext: Zeroizing<String>,
     ) -> Result<GatewayReceipt> {
-        self.service
-            .validate_neighbor_gateway(&self.tab)
-            .map_err(|_| Error::Gateway)?;
+        self.current()?;
         let events = self.service.events.subscribe();
         let path = format!("gateway-{}.json", self.friendship);
         let previous: Option<Receipt> = self.metadata.read(path.clone()).await?;
         match resume(previous.as_ref(), &message.id, &self.tab) {
             Resume::Delivered => return Ok(GatewayReceipt::Delivered),
             Resume::Wait(delivery_id) => {
-                return self.await_pending(message, path, delivery_id, events).await
+                return self
+                    .await_pending(message, path.to_owned(), delivery_id, events)
+                    .await
             }
             Resume::WrongGateway => return Err(Error::Gateway),
             Resume::Unconfirmed => return Ok(GatewayReceipt::SubmitUnconfirmed),
@@ -69,9 +71,105 @@ impl NeighborGateway for Gateway {
             .get(&self.friendship)
             .cloned()
             .unwrap_or_default();
+        codeterm_neighbors::gateway::route_request(
+            &permission,
+            message.doc.envelope.kind,
+            &Request {
+                gateway: self,
+                message,
+                plaintext,
+                path,
+                events: parking_lot::Mutex::new(Some(events)),
+                permission: permission.clone(),
+            },
+        )
+        .await
+    }
+}
+
+struct Request<'a> {
+    gateway: &'a Gateway,
+    message: &'a InboxMessage,
+    plaintext: Zeroizing<String>,
+    path: String,
+    events: parking_lot::Mutex<Option<tokio::sync::broadcast::Receiver<codeterm_events::SeqEvent>>>,
+    permission: codeterm_neighbors::permissions::Permission,
+}
+
+#[async_trait]
+impl codeterm_neighbors::gateway::RequestPorts for Request<'_> {
+    async fn local_turn(&self) -> Result<GatewayReceipt> {
+        let events = self.events.lock().take().ok_or(Error::Gateway)?;
+        self.gateway
+            .deliver_allowed(
+                self.message,
+                &self.plaintext,
+                &self.permission,
+                &self.path,
+                events,
+            )
+            .await
+    }
+    async fn refusal(&self) -> Result<GatewayReceipt> {
+        self.gateway
+            .save_receipt(self.message, &self.path, ReceiptState::Claimed)
+            .await?;
+        let result = self
+            .gateway
+            .service
+            .neighbor_operation(super::owner::Operation::Refuse {
+                friendship: self.gateway.friendship.clone(),
+                message_id: self.message.doc.envelope.message_id.clone(),
+                listener_generation: self.gateway.generation,
+            })
+            .await;
+        match result {
+            Ok(super::owner::Outcome::Value(value)) if value.get("submission").is_none() => {
+                self.gateway
+                    .save_receipt(self.message, &self.path, ReceiptState::Delivered)
+                    .await?;
+                Ok(GatewayReceipt::Delivered)
+            }
+            _ => {
+                self.gateway
+                    .save_receipt(self.message, &self.path, ReceiptState::SubmitUnconfirmed)
+                    .await?;
+                Ok(GatewayReceipt::SubmitUnconfirmed)
+            }
+        }
+    }
+}
+
+impl Gateway {
+    fn current(&self) -> Result<()> {
+        use std::sync::atomic::Ordering;
+        if self
+            .service
+            .neighbor_cell()
+            .listener_generation
+            .load(Ordering::Acquire)
+            != self.generation
+        {
+            return Err(Error::Revoked);
+        }
+        Ok(())
+    }
+
+    async fn deliver_allowed(
+        &self,
+        message: &InboxMessage,
+        plaintext: &str,
+        permission: &codeterm_neighbors::permissions::Permission,
+        path: &str,
+        events: tokio::sync::broadcast::Receiver<codeterm_events::SeqEvent>,
+    ) -> Result<GatewayReceipt> {
+        self.current()?;
+        self.service
+            .validate_neighbor_gateway(&self.tab)
+            .map_err(|_| Error::Gateway)?;
         let hint = permission.hint(message.doc.envelope.kind);
         let body = Zeroizing::new(format!("{hint}\nFriendship: {}\nMessage: {}\nReply through the encrypted Neighbor channel with this message as in_reply_to; there is no local tab return address.\n\n{}",
-            self.friendship, message.doc.envelope.message_id, plaintext.as_str()));
+            self.friendship, message.doc.envelope.message_id, plaintext));
         let envelope = MessageEnvelope {
             from_label: message.doc.envelope.sender_uid.clone(),
             from_neighbor: Some(self.friendship.clone()),
@@ -124,7 +222,8 @@ impl NeighborGateway for Gateway {
                     },
                 )
                 .await?;
-                self.await_pending(message, path, delivery_id, events).await
+                self.await_pending(message, path.to_owned(), delivery_id, events)
+                    .await
             }
             Ok(Delivery::Unconfirmed { .. }) | Err(true) => {
                 self.save_receipt(message, &path, ReceiptState::SubmitUnconfirmed)
@@ -147,6 +246,7 @@ impl Gateway {
         path: &str,
         state: ReceiptState,
     ) -> Result<()> {
+        self.current()?;
         self.metadata
             .write(
                 path.into(),
@@ -202,7 +302,14 @@ impl Gateway {
                 }
             }
         };
-        match tokio::time::timeout(std::time::Duration::from_secs(90), wait).await {
+        let mut stopped = self.stopped.clone();
+        self.current()?;
+        let result = tokio::select! {
+                biased;
+            _ = stopped.changed() => return Err(Error::Revoked),
+            result = tokio::time::timeout(std::time::Duration::from_secs(90), wait) => result,
+        };
+        match result {
             Ok(Ok(())) => {
                 self.save_receipt(message, &path, ReceiptState::Delivered)
                     .await?;

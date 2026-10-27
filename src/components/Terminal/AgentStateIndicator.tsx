@@ -62,12 +62,13 @@ export function AgentStateIndicator({
   const phase = activity.phase;
   const work = useComposerBackgroundWorkStatus();
   const background = backgroundOwnsTool(activeTool, work.items);
-  const runningTool = activity.kind === "working" && !background ? activeTool : undefined;
-  const statusMessage = background && activity.kind === "working"
+  const compacting = phase === "compacting";
+  const runningTool = activity.kind === "working" && !background && !compacting ? activeTool : undefined;
+  const statusMessage = background && activity.kind === "working" && !compacting
     ? activity.status
     : runningTool ? activityLabel(runningTool) : activity.label;
-  const stableMessage = useStableStatusLabel(statusMessage, activity.kind, !runningTool && !background && activity.genericWork === true);
-  const status = runtimeActivityLabel(stableMessage, activity.kind, runtimeState, Date.now(), activity.lastTurnMs);
+  const stableMessage = useStableStatusLabel(statusMessage, compacting ? "compacting" : activity.kind, !runningTool && !background && activity.genericWork === true);
+  const status = compacting ? "" : runtimeActivityLabel(stableMessage, activity.kind, runtimeState, Date.now(), activity.lastTurnMs);
   const detail = runningTool ? activityCommand(runningTool) : undefined;
   const actualEffort = reasoningEffort?.actual_source === "session-owned"
     ? reasoningEffort.actual?.trim()
@@ -80,7 +81,7 @@ export function AgentStateIndicator({
   const restingWithoutLabel = !animated && activity.kind !== "starting" && !status;
   const dots = channelLoadingLabel
     ? <ChatChannelLoadingStatus label={channelLoadingLabel} />
-    : !showActivity || restingWithoutLabel ? null : (
+    : !showActivity || compacting || restingWithoutLabel ? null : (
       <span data-testid="agent-activity-slot" className="inline-flex w-6 shrink-0 items-center justify-center">
         {activity.kind === "starting"
           ? <TabLoadingIndicator label={tab ? tabStartingLabel(tab) : "Agent starting"} compact />

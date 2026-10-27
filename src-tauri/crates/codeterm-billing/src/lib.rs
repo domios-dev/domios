@@ -15,7 +15,7 @@ pub use model::{
     checkout_url_with_theme, Capability, CheckoutKey, CheckoutTheme, Entitlements, Plan, Status,
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProductEvent {
     CheckoutStarted { plan: Plan },
     SubscriptionChanged { plan: Plan, status: Status },
@@ -27,16 +27,16 @@ pub type Result<T> = std::result::Result<T, String>;
 #[derive(Debug, serde::Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlanOperation {
-    Catalog,
-    Subscription,
+    Catalog {},
+    Subscription {},
     Change { price_id: String },
 }
 
 impl PlanOperation {
     pub fn callable(self) -> (&'static str, serde_json::Value) {
         match self {
-            Self::Catalog => ("getAppCatalog", serde_json::json!({})),
-            Self::Subscription => ("getSubscriptionPlan", serde_json::json!({})),
+            Self::Catalog {} => ("getAppCatalog", serde_json::json!({})),
+            Self::Subscription {} => ("getSubscriptionPlan", serde_json::json!({})),
             Self::Change { price_id } => (
                 "changeSubscriptionPlan",
                 serde_json::json!({"price_id":price_id}),

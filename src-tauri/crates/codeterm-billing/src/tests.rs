@@ -360,8 +360,8 @@ fn checkout_keys_map_to_entitlement_plans_and_reject_plan_names() {
     for (key, plan) in [
         ("pro_monthly", Plan::Pro),
         ("pro_yearly", Plan::Pro),
-        ("max_monthly", Plan::Pro),
-        ("max_yearly", Plan::Pro),
+        ("max_monthly", Plan::Max),
+        ("max_yearly", Plan::Max),
         ("sponsor_monthly", Plan::Sponsor),
         ("sponsor_yearly", Plan::Sponsor),
     ] {
@@ -1007,12 +1007,13 @@ fn single_grant_verification_timing() {
 }
 
 fn signed_paid_revisions() -> (codeterm_entitlements::Activation, Reading, Reading) {
-    signed_paid_revisions_at(1_700_000_000, 1_700_000_000)
+    signed_paid_revisions_at(1_700_000_000, 1_700_000_000, "pro")
 }
 
 fn signed_paid_revisions_at(
     newer_issued: u64,
     older_issued: u64,
+    label: &str,
 ) -> (codeterm_entitlements::Activation, Reading, Reading) {
     use base64::{
         engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
@@ -1043,6 +1044,7 @@ fn signed_paid_revisions_at(
             .unwrap(),
     )
     .unwrap();
+    payload["label"] = label.into();
     let mut sign = |revision, issued| {
         for (field, delta) in [
             ("issued_at", 0),

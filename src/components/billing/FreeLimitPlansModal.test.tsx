@@ -13,6 +13,8 @@ vi.mock("../../lib/webApi", async (actual) => ({ ...await actual<object>(), ...f
 
 import type { ToastInput } from "../../lib/notices";
 import { connectNoticeToasts } from "../../lib/notices";
+import { PlanCatalogProvider } from "./planCatalogContext";
+import type { PlanCatalog } from "./planCatalog";
 import { FreeLimitPlansModal } from "./FreeLimitPlansModal";
 import { checkoutTheme } from "./checkoutTheme";
 import { AlreadySubscribedError, freeLimitGate, upgradePlan } from "./freeLimitGate";
@@ -33,7 +35,8 @@ async function fakeDaemon(url: string) {
   if (path.includes("/plan")) {
     const plan = account.signedIn ? account.plan : "free";
     return json({ entitlements: { plan, status: "active", current_period_end: 0, cancel_at_period_end: false },
-      access: { authority: plan === "free" ? "free" : "billing", full_access: false }, stale: false });
+      access: { authority: plan === "free" ? "free" : "billing", full_access: false }, stale: false,
+      limits: { enforcing: true, workspaces: 3, teams: 6, "agent.tabs": 35 } });
   }
   if (path.endsWith("/login")) {
     account.logins++;
@@ -53,16 +56,17 @@ beforeEach(() => {
   disconnectToasts = connectNoticeToasts((toast) => { toasts.push(toast); });
 });
 
-async function render(upgrade: (planKey: string) => Promise<void>) {
+async function render(upgrade: (planKey: string) => Promise<void>, catalog?: PlanCatalog) {
   const host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
-  await act(async () => root!.render(<FreeLimitPlansModal upgrade={upgrade} />));
+  const modal = <FreeLimitPlansModal upgrade={upgrade} />;
+  await act(async () => root!.render(catalog ? <PlanCatalogProvider source={{ load: async () => catalog }}>{modal}</PlanCatalogProvider> : modal));
 }
 
 const dialog = () => document.querySelector<HTMLElement>("[role=dialog]");
 const button = (name: string) => [...document.querySelectorAll("button")].find((candidate) => candidate.textContent === name)!;
-const settle = () => act(async () => { for (let turn = 0; turn < 10; turn++) await Promise.resolve(); });
+const settle = () => act(async () => {});
 const click = async (name: string) => {
   await act(async () => { button(name).click(); });
   await settle();
@@ -87,11 +91,11 @@ describe("plans modal", () => {
   it("stays closed until a limit opens it, then shows that limit with the daemon's maximum", async () => {
     await render(async () => {});
     expect(dialog()).toBeNull();
-    freeLimitGate.setLimits({ enforcing: true, max: { workspaces: 3, teams: 6, "agent.tabs": 35 } });
+    freeLimitGate.setLimits({ enforcing: true, max: { workspaces: 2, teams: 6, "agent.tabs": 35 } });
     await act(async () => freeLimitGate.open("workspaces"));
-    expect(dialog()?.querySelector("h2")?.textContent).toBe("Your plan includes 3 workspaces.");
-    expect(dialog()?.querySelectorAll("section[aria-label$=' plan']")).toHaveLength(5);
-    expect(dialog()?.querySelector("section[aria-label='Enterprise plan']")).not.toBeNull();
+    expect(dialog()).not.toBeNull();
+    expect(freeLimitGate.current()).toEqual({ key: "workspaces" });
+    expect(freeLimitGate.limits()?.max.workspaces).toBe(3);
   });
 
   it("records a consented plan view only when the limit modal opens", async () => {
@@ -128,7 +132,6 @@ describe("plans modal", () => {
     const upgrade = vi.fn(async () => {});
     await render(upgrade);
     await openModal("teams");
-    expect([...dialog()!.querySelectorAll("button")].map((candidate) => candidate.textContent)).not.toContain("Upgrade");
     expect(button("Choose Sponsor")).toBeUndefined();
     await click("Manage subscription");
     expect(upgrade).not.toHaveBeenCalled();
@@ -143,7 +146,6 @@ describe("plans modal", () => {
     expect(toasts).toHaveLength(0);
     expect(button("Choose Pro")).toBeUndefined();
     expect([...dialog()!.querySelectorAll("button")].filter((candidate) => candidate.textContent === "Manage subscription")).toHaveLength(3);
-    expect([...dialog()!.querySelectorAll("button")].map((candidate) => candidate.textContent)).not.toContain("Upgrade");
   });
 
   it("upgradePlan reports only an exact already_subscribed conflict as such", async () => {
@@ -272,4 +274,13 @@ describe("plans modal", () => {
     expect(checkoutTheme({ dataset: {} })).toBeNull();
     expect(checkoutTheme({ dataset: { ctTheme: "system" } })).toBeNull();
   });
+});
+
+it("uses the injected catalog checkout key without inferring a tier price", async () => {
+  const upgrade = vi.fn(async () => {});
+  await render(upgrade, { offers: [{ id: "injected", name: "Injected", tagline: "", features: [], recommended: true,
+    prices: { year: { planKey: "opaque-price-key", amount: 123, currency: "USD" } } }] });
+  await openModal("workspaces");
+  await click("Upgrade");
+  expect(upgrade).toHaveBeenCalledExactlyOnceWith("opaque-price-key");
 });

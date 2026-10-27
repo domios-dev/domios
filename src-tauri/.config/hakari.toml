@@ -32,6 +32,8 @@ platforms = [
 # reach the app or the CLI through the workspace-hack.
 [final-excludes]
 third-party = [
+    { name = "utf-8" },
+    { name = "digest", version = "0.11.3" },
     { name = "candle-core" },
     { name = "candle-nn" },
     { name = "candle-transformers" },

@@ -91,7 +91,10 @@ pub async fn batch(
         let credential = headers.get("authorization").and_then(|value| value.to_str().ok()).and_then(|value| value.strip_prefix("Bearer ")).unwrap_or_default();
         state.svc.bind_local_rpc(credential, "plan.batch", &mut params).map_err(|error| text_err(StatusCode::FORBIDDEN, error))?;
     }
-    let result = apply_authorized_batch(&state.svc.plan_store, &id, &params.unwrap_or_default(), epoch_ms())?;
+    let body = params.unwrap_or_default();
+    state.svc.authorize_batch_completions(&id, &body)
+        .map_err(|message| text_err(StatusCode::FORBIDDEN, message))?;
+    let result = apply_authorized_batch(&state.svc.plan_store, &id, &body, epoch_ms())?;
     emit_plan_changed(&state, &id);
     Ok(Json(serde_json::to_value(result).unwrap_or_default()))
 }

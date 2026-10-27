@@ -128,6 +128,10 @@ pub use orchestrator::tab_relink_signal::{await_relink, await_relink_async};
 mod directory_pre_trust;
 pub(crate) mod directory_trust;
 pub(crate) mod execution_sandbox;
+pub use execution_sandbox::{
+    enforce_delegation_ceiling as execution_sandbox_enforce_delegation_ceiling,
+    refuse_confined_mesh_delegation as execution_sandbox_refuse_confined_mesh_delegation,
+};
 mod folder_trust_carryover;
 pub mod orchestrator_digests;
 mod output;
