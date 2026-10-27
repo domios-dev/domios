@@ -18,7 +18,7 @@ impl ServiceContext {
     ) -> Result<serde_json::Value, String> {
         let account = self.account().await?;
         let session = account
-            .fresh_session()
+            .current_session()
             .await
             .map_err(|_| "Sign in to manage your plan")?
             .ok_or("Sign in to manage your plan")?;

@@ -77,7 +77,7 @@ impl ServiceContext {
         }
         let account = self.account().await.map_err(|_| "unavailable")?;
         let session = account
-            .fresh_session()
+            .current_session()
             .await
             .map_err(|_| "sign_in_required")?
             .ok_or("sign_in_required")?;

@@ -1,5 +1,98 @@
 use super::*;
+use codeterm_account::{CredentialStore, IdentityProvider};
 use serde_json::json;
+use std::{sync::Arc, time::Duration};
+
+struct ExpiredProvider;
+#[async_trait]
+impl IdentityProvider for ExpiredProvider {
+    fn id(&self) -> &str {
+        "fixture"
+    }
+    fn needs_browser_callback(&self) -> bool {
+        false
+    }
+    async fn start_login(
+        &self,
+        flow: &codeterm_account::LoginFlow,
+    ) -> codeterm_account::Result<codeterm_account::LoginStart> {
+        let codeterm_account::LoginStart::Immediate(mut tokens) =
+            codeterm_account::adapters::local::Local
+                .start_login(flow)
+                .await?
+        else {
+            panic!("local immediate login");
+        };
+        tokens.session.expires_at = Some(1);
+        Ok(codeterm_account::LoginStart::Immediate(tokens))
+    }
+    async fn redeem(
+        &self,
+        _: codeterm_account::Redemption,
+    ) -> codeterm_account::Result<codeterm_account::Tokens> {
+        panic!("no callback")
+    }
+    async fn refresh(
+        &self,
+        _: &codeterm_account::Secret,
+    ) -> codeterm_account::Result<codeterm_account::Tokens> {
+        panic!("post-call validation must not refresh")
+    }
+    async fn revoke(&self, _: &codeterm_account::Secret) -> codeterm_account::Result<()> {
+        panic!("no remote logout")
+    }
+}
+
+struct MemoryCredential;
+#[async_trait]
+impl CredentialStore for MemoryCredential {
+    async fn load(&self, _: &str) -> codeterm_account::Result<Option<codeterm_account::Secret>> {
+        Ok(None)
+    }
+    async fn save(&self, _: &str, _: &codeterm_account::Secret) -> codeterm_account::Result<()> {
+        Ok(())
+    }
+    async fn delete(&self, _: &str) -> codeterm_account::Result<()> {
+        Ok(())
+    }
+}
+
+struct NoBrowser;
+#[async_trait]
+impl codeterm_account::Browser for NoBrowser {
+    async fn open(&self, _: &url::Url) -> codeterm_account::Result<()> {
+        panic!("no browser")
+    }
+}
+
+#[tokio::test]
+async fn post_call_validation_never_refreshes_and_rejects_logout_or_new_login() {
+    let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let account = Arc::new(codeterm_account::Account::new(
+        Arc::new(ExpiredProvider),
+        Arc::new(MemoryCredential),
+        Duration::from_secs(1),
+    ));
+    account.login(Arc::new(NoBrowser)).await.unwrap();
+    let captured = account.session().await.unwrap();
+    assert!(fixture
+        .service
+        .ext::<crate::service::account::AccountCell>()
+        .0
+        .set(account.clone())
+        .is_ok());
+    let calls = Calls {
+        service: fixture.service.clone(),
+        uid: captured.identity.uid.clone(),
+        generation: captured.login_generation,
+    };
+    calls.validate_session(&captured).await.unwrap();
+    account.logout().await.unwrap();
+    assert_eq!(calls.validate_session(&captured).await, Err(Error::Revoked));
+    account.login(Arc::new(NoBrowser)).await.unwrap();
+    assert_eq!(calls.validate_session(&captured).await, Err(Error::Revoked));
+}
 
 #[test]
 fn daily_limit_refusals_preserve_the_server_limit_and_reset_time() {

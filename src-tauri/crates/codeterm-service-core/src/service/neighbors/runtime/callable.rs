@@ -15,10 +15,10 @@ impl Calls {
     async fn session(&self) -> Result<codeterm_account::Session> {
         let account = self.service.account().await.map_err(|_| Error::Transport)?;
         let session = account
-            .fresh_session()
+            .current_session()
             .await
             .map_err(|error| {
-                log::debug!("[neighbor-listen] operation=auth.refresh kind={error:?}");
+                log::debug!("[neighbor-listen] operation=auth.session kind={error:?}");
                 Error::Transport
             })?
             .ok_or(Error::Revoked)?;
@@ -26,6 +26,15 @@ impl Calls {
             return Err(Error::Revoked);
         }
         Ok(session)
+    }
+
+    async fn validate_session(&self, expected: &codeterm_account::Session) -> Result<()> {
+        let account = self.service.account().await.map_err(|_| Error::Transport)?;
+        if super::super::same_session(account.session().await.as_ref(), expected) {
+            Ok(())
+        } else {
+            Err(Error::Revoked)
+        }
     }
 }
 
@@ -66,7 +75,7 @@ impl AuthenticatedCall for Calls {
             }
             Err(_) => return Err(Error::Transport),
         };
-        self.session().await?;
+        self.validate_session(&session).await?;
         body.get("result").cloned().ok_or(Error::Transport)
     }
 }

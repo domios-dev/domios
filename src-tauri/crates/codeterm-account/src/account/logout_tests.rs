@@ -29,6 +29,7 @@ struct Provider {
     started: Notify,
     release: Notify,
     next_token: StoreMutex<String>,
+    failure: StoreMutex<Option<Error>>,
 }
 #[async_trait]
 impl IdentityProvider for Provider {
@@ -53,6 +54,9 @@ impl IdentityProvider for Provider {
         self.started.notify_one();
         if self.pause.load(Ordering::SeqCst) {
             self.release.notified().await;
+        }
+        if let Some(error) = *self.failure.lock() {
+            return Err(error);
         }
         let mut tokens = adapters::local::Local
             .refresh(&Secret::new("local-dev-credential"))
@@ -202,4 +206,79 @@ async fn logout_cancels_refresh_and_stays_signed_out_after_reconnect_and_restart
     assert_eq!(restarted.refresh().await.unwrap_err(), Error::Credentials);
     assert!(restarted.status().await.identity.is_none());
     assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn current_session_reuses_a_valid_token_even_with_less_than_a_minute_left() {
+    let (account, _, provider) = fixture();
+    account.login(Arc::new(NoBrowser)).await.unwrap();
+    account
+        .state
+        .lock()
+        .await
+        .session
+        .as_mut()
+        .unwrap()
+        .expires_at = Some(unix_time().unwrap() + 30);
+    let initial = account.session().await.unwrap().id_token;
+    for _ in 0..3 {
+        assert_eq!(
+            account
+                .current_session()
+                .await
+                .unwrap()
+                .unwrap()
+                .id_token
+                .expose(),
+            initial.expose()
+        );
+    }
+    assert_eq!(provider.calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn concurrent_expiry_and_explicit_refreshes_share_success_and_failure() {
+    for failure in [None, Some(Error::Transport), Some(Error::Credentials)] {
+        let (account, _, provider) = fixture();
+        account.login(Arc::new(NoBrowser)).await.unwrap();
+        account
+            .state
+            .lock()
+            .await
+            .session
+            .as_mut()
+            .unwrap()
+            .expires_at = Some(1);
+        provider.pause.store(true, Ordering::SeqCst);
+        *provider.failure.lock() = failure;
+        let reads = async {
+            tokio::join!(
+                account.current_session(),
+                account.current_session(),
+                account.fresh_session(),
+                async {
+                    account.refresh().await?;
+                    Ok::<_, Error>(account.session().await)
+                }
+            )
+        };
+        tokio::pin!(reads);
+        tokio::select! {
+            _ = provider.started.notified() => {}
+            _ = &mut reads => panic!("refresh must wait for its explicit release"),
+        }
+        provider.release.notify_one();
+        let (first, second, third, fourth) = reads.await;
+        for result in [first, second, third, fourth] {
+            match failure {
+                Some(error) => assert_eq!(result.unwrap_err(), error),
+                None => assert_eq!(result.unwrap().unwrap().id_token.expose(), "id-0"),
+            }
+        }
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            account.session().await.is_none(),
+            failure == Some(Error::Credentials)
+        );
+    }
 }
