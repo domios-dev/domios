@@ -21,3 +21,10 @@ it("permits only integer inbound limits from one through two hundred", () => {
   for (const value of [1, 42, 200]) expect(validNeighborLimit(value)).toBe(true);
   for (const value of [0, -1, 201, 1.5, NaN]) expect(validNeighborLimit(value)).toBe(false);
 });
+
+it("preserves the server's receiving flag and refuses an untyped flag", () => {
+  const friend = { uid: "peer", displayName: null, photoURL: null, friendship_id: "pair", since: 1, inbound_per_hour: 10, outbound_per_hour: 10, receiving: false };
+  const list = { schema_version: 1, access: "paid", friends: [friend], incoming: [], outgoing: [] };
+  expect(parseNeighbors(list).friends[0].receiving).toBe(false);
+  expect(() => parseNeighbors({ ...list, friends: [{ ...friend, receiving: "false" }] })).toThrow();
+});

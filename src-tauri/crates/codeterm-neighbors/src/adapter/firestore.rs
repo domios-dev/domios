@@ -1,3 +1,4 @@
+pub(super) mod control;
 use super::FirebaseTransport;
 use crate::receive::{InboxEvent, InboxListener};
 use crate::wire::{hex_id, Cursor, InboxDocument, InboxMessage, Timestamp};
@@ -30,13 +31,7 @@ pub(super) async fn listen(
     if let Some(cursor) = cursor {
         cursor.validate()?;
     }
-    let channel = Channel::from_static("https://firestore.googleapis.com")
-        .tls_config(ClientTlsConfig::new().with_native_roots())
-        .map_err(|_| Error::Transport)?
-        .connect_timeout(Duration::from_secs(15))
-        .connect()
-        .await
-        .map_err(|_| Error::Transport)?;
+    let channel = connect().await?;
     let token = transport.calls.id_token().await?;
     let database = format!("projects/{}/databases/(default)", transport.project);
     let parent = format!("{database}/documents/friendInbox/{}", transport.uid);
@@ -71,18 +66,7 @@ struct Listener {
 
 impl Listener {
     fn request<T>(&self, message: T) -> Result<tonic::Request<T>> {
-        let mut request = tonic::Request::new(message);
-        let header = Zeroizing::new(format!("Bearer {}", self.token.as_str()));
-        let mut metadata = header
-            .parse::<tonic::metadata::MetadataValue<_>>()
-            .map_err(|_| Error::Transport)?;
-        metadata.set_sensitive(true);
-        request.metadata_mut().insert("authorization", metadata);
-        request.metadata_mut().insert(
-            "google-cloud-resource-prefix",
-            self.database.parse().map_err(|_| Error::Transport)?,
-        );
-        Ok(request)
+        authenticated_request(message, &self.token, &self.database)
     }
 
     fn query(&self, limit: Option<i32>) -> fs::StructuredQuery {
@@ -375,4 +359,34 @@ fn parse_document(document: fs::Document, parent: &str) -> Result<InboxMessage> 
             expires_at,
         },
     })
+}
+
+async fn connect() -> Result<Channel> {
+    let channel = Channel::from_static("https://firestore.googleapis.com")
+        .tls_config(ClientTlsConfig::new().with_native_roots())
+        .map_err(|_| Error::Transport)?
+        .connect_timeout(Duration::from_secs(15))
+        .connect()
+        .await
+        .map_err(|_| Error::Transport)?;
+    Ok(channel)
+}
+
+fn authenticated_request<T>(
+    message: T,
+    token: &Zeroizing<String>,
+    database: &str,
+) -> Result<tonic::Request<T>> {
+    let mut request = tonic::Request::new(message);
+    let header = Zeroizing::new(format!("Bearer {}", token.as_str()));
+    let mut metadata = header
+        .parse::<tonic::metadata::MetadataValue<_>>()
+        .map_err(|_| Error::Transport)?;
+    metadata.set_sensitive(true);
+    request.metadata_mut().insert("authorization", metadata);
+    request.metadata_mut().insert(
+        "google-cloud-resource-prefix",
+        database.parse().map_err(|_| Error::Transport)?,
+    );
+    Ok(request)
 }

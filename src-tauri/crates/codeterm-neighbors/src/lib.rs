@@ -25,6 +25,11 @@ pub enum Error {
     Revoked,
     KeyNotFound,
     Refused,
+    ReceiverElsewhere,
+    ReceiverRevisionStale,
+    NotReceiver,
+    RecipientNotReceiving,
+    InstallationUnverified,
 }
 
 impl std::fmt::Display for Error {
@@ -44,6 +49,17 @@ impl std::fmt::Display for Error {
             Self::Locked => "friends_locked: Upgrade to use your Neighbors channel",
             Self::Revoked => "Neighbor installation key revoked",
             Self::KeyNotFound => "Neighbor installation key not found",
+            Self::ReceiverElsewhere => "receiver_elsewhere: Receiving on another machine",
+            Self::ReceiverRevisionStale => {
+                "receiver_revision_stale: Receiving changed; refresh and confirm again"
+            }
+            Self::NotReceiver => "not_receiver: This machine is not receiving",
+            Self::InstallationUnverified => {
+                "installation_unverified: Sign in on this installation again"
+            }
+            Self::RecipientNotReceiving => {
+                "recipient_not_receiving: This Neighbor is not receiving right now"
+            }
             Self::Refused => "Neighbor request refused",
         })
     }

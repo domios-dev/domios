@@ -30,6 +30,9 @@ pub enum NeighborAction {
     Enroll {
         #[arg(long, required = true)]
         confirm_takeover: bool,
+        /// Receiver revision shown by status; refresh and confirm again if stale
+        #[arg(long)]
+        expected_receiver_revision: u64,
     },
     /// Rotate this installation's keys and revoke the previous pair
     Rotate,

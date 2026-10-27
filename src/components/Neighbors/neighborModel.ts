@@ -6,6 +6,7 @@ export interface Neighbor {
   inbound_per_hour: number;
   outbound_per_hour: number;
   since: number;
+  receiving: boolean;
 }
 
 export interface NeighborRequest {
@@ -52,7 +53,7 @@ export function parseNeighbors(value: unknown): NeighborList {
     || !Array.isArray(value.friends) || !Array.isArray(value.incoming) || !Array.isArray(value.outgoing)
     || value.friends.length > 200 || value.incoming.length > 200 || value.outgoing.length > 200
     || !value.friends.every(friend => profile(friend) && text(friend.friendship_id) && count(friend.since)
-      && count(friend.inbound_per_hour) && count(friend.outbound_per_hour))
+      && count(friend.inbound_per_hour) && count(friend.outbound_per_hour) && typeof friend.receiving === "boolean")
     || !value.incoming.every(request => profile(request) && text(request.request_id) && count(request.created_at))
     || !value.outgoing.every(request => record(request) && typeof request.id === "string" && /^[0-9a-f]{64}$/.test(request.id)
       && text(request.typed_email) && request.typed_email.length <= 254 && count(request.created_at) && request.state === "pending")) {

@@ -26,12 +26,15 @@ pub(super) struct Session {
     pub friendship: String,
     pub tab: String,
     pub generation: u64,
+    pub receiver_revision: u64,
     pub retry: Arc<tokio::sync::Notify>,
     pub stopped: tokio::sync::watch::Receiver<bool>,
 }
 
 impl Session {
     fn current(&self) -> codeterm_neighbors::Result<()> {
+        self.service
+            .require_neighbor_receiver(Some(self.receiver_revision))?;
         if self
             .service
             .neighbor_cell()
@@ -65,6 +68,10 @@ impl InboxSession for Session {
     }
     async fn prepare(&self) -> codeterm_neighbors::Result<()> {
         self.current()?;
+        let status = self.registry.receiver_status().await?;
+        if !status.receiving_here() || status.receiver_revision != self.receiver_revision {
+            return Err(Error::NotReceiver);
+        }
         self.keys().load().await?.ok_or(Error::Revoked)?;
         self.current()
     }
@@ -73,6 +80,11 @@ impl InboxSession for Session {
     }
     async fn receive(&self, messages: &mut [InboxMessage]) -> codeterm_neighbors::Result<()> {
         self.current()?;
+        let status = self.registry.receiver_status().await?;
+        if !status.receiving_here() || status.receiver_revision != self.receiver_revision {
+            self.service.stop_neighbor_listeners();
+            return Err(Error::NotReceiver);
+        }
         if self
             .service
             .neighbor_registry(super::super::NeighborCommand::List {})

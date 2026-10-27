@@ -142,6 +142,7 @@ impl codeterm_neighbors::gateway::RequestPorts for Request<'_> {
 
 impl Gateway {
     fn current(&self) -> Result<()> {
+        self.service.require_neighbor_receiver(None)?;
         use std::sync::atomic::Ordering;
         if self
             .service

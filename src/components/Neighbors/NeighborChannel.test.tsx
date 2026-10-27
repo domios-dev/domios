@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 import { useNeighborChannel } from "./useNeighborChannel";
 import { NeighborChannel } from "./NeighborChannel";
+import { NeighborRuntimeFailure } from "./neighborRuntimeClient";
 import type { NeighborRuntimeClient, NeighborListenerEvent } from "./neighborRuntimeClient";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -23,7 +24,7 @@ async function render(enrolled = true, locked = false, probe = false) {
   const client: NeighborRuntimeClient = {
     subscribe: vi.fn(async handler => { onReception = handler; return () => {}; }),
     retry: vi.fn(async () => {}),
-    status: vi.fn(async () => ({ enrolled, bindings: {} })),
+    status: vi.fn(async () => ({ enrolled, bindings: {}, receiving_here: enrolled, receiving_enabled: true, receiver_machine_label: "Other", revision: 7 })),
     enroll: vi.fn(async () => {}), rotate: vi.fn(async () => {}),
     permission: vi.fn(async () => ({ allowed: true, scope: "Public status", allow_tab_requests: false })),
     send: vi.fn(async () => ({ message_id: "a".repeat(32), status: "pending" as const })),
@@ -39,11 +40,11 @@ async function render(enrolled = true, locked = false, probe = false) {
 
 it("requires a deliberate machine takeover confirmation", async () => {
   const client = await render(false);
-  await act(async () => button("Enable encrypted channel").click());
+  await act(async () => button("Receive here").click());
   expect(client.enroll).not.toHaveBeenCalled();
   await act(async () => button("Cancel").click());
   expect(client.enroll).not.toHaveBeenCalled();
-  await act(async () => button("Enable encrypted channel").click());
+  await act(async () => button("Receive here").click());
   await act(async () => button("Confirm this machine").click());
   expect(client.enroll).toHaveBeenCalledTimes(1);
 });
@@ -90,4 +91,36 @@ it("preserves a revoked-key reason when checking sender delivery", async () => {
   vi.mocked(client.deliveryStatus).mockResolvedValue({ status: "not_delivered", reason: "key_revoked" });
   await act(async () => button("Check delivery").click());
   expect(JSON.parse(localStorage.getItem("domios.neighbor-deliveries:owner:pair")!)[0].reason).toBe("key_revoked");
+});
+
+it("requires fresh confirmation after receiving moves during a confirmation", async () => {
+  const client = await render(false);
+  await act(async () => button("Receive here").click());
+  await act(async () => client.emit({ receiving_here: false, receiving_enabled: true, receiver_machine_label: "Laptop", revision: 8 }));
+  expect(document.body.textContent).toContain("Receiving on Laptop");
+  await act(async () => button("Confirm this machine").click());
+  expect(client.enroll).not.toHaveBeenCalled();
+  await act(async () => button("Confirm this machine").click());
+  expect(client.enroll).toHaveBeenCalledExactlyOnceWith(8);
+});
+
+it("refreshes a stale receiver revision and waits for another confirmation", async () => {
+  const client = await render(false);
+  vi.mocked(client.enroll).mockRejectedValueOnce(new NeighborRuntimeFailure("receiver_revision_stale"));
+  vi.mocked(client.status).mockResolvedValue({ enrolled: false, bindings: {}, receiving_here: false, receiving_enabled: true, receiver_machine_label: "Laptop", revision: 9 });
+  await act(async () => button("Receive here").click());
+  await act(async () => button("Confirm this machine").click());
+  expect(client.enroll).toHaveBeenCalledExactlyOnceWith(7);
+  expect(document.body.textContent).toContain("Receiving on Laptop");
+  await act(async () => button("Receive here").click());
+  expect(client.enroll).toHaveBeenCalledTimes(1);
+  await act(async () => button("Confirm this machine").click());
+  expect(client.enroll).toHaveBeenLastCalledWith(9);
+});
+
+it("keeps recipient-not-receiving as a specific UI refusal", async () => {
+  const client = await render(true, false, true);
+  vi.mocked(client.send).mockRejectedValueOnce(new NeighborRuntimeFailure("recipient_not_receiving"));
+  await act(async () => client.state().send("opaque"));
+  expect(client.state().error).toBe("This Neighbor is not receiving right now.");
 });

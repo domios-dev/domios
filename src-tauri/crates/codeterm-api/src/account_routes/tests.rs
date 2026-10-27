@@ -565,3 +565,27 @@ async fn portal_no_billing_customer_keeps_its_code_and_message() {
         StatusCode::SERVICE_UNAVAILABLE
     );
 }
+
+#[tokio::test]
+async fn receiver_refusals_retain_machine_readable_codes() {
+    for code in [
+        "receiver_elsewhere",
+        "receiver_revision_stale",
+        "not_receiver",
+        "recipient_not_receiving",
+        "installation_unverified",
+    ] {
+        let message = format!("{code}: opaque explanation");
+        let response = neighbor_runtime_failure(message.clone());
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let body = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body, serde_json::json!({"code":code,"message":message}));
+    }
+    assert_eq!(
+        neighbor_runtime_failure("unavailable".into()).status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+}

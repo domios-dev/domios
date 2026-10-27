@@ -243,8 +243,9 @@ pub async fn neighbor_runtime(
     caller: Option<Extension<CallerIdentity>>,
     headers: axum::http::HeaderMap,
     Json(command): Json<codeterm_service_core::service::neighbors::NeighborRuntimeCommand>,
-) -> Result<Json<serde_json::Value>, Error> {
-    admit(caller.as_ref())?;
+) -> Result<Json<serde_json::Value>, axum::response::Response> {
+    use axum::response::IntoResponse;
+    admit(caller.as_ref()).map_err(IntoResponse::into_response)?;
     let tab = crate::tab_routes::caller_tab_header(&headers);
     let nonce = headers
         .get("x-codeterm-binding-nonce")
@@ -254,7 +255,26 @@ pub async fn neighbor_runtime(
         .neighbor_runtime(command, tab.as_deref(), nonce)
         .await
         .map(Json)
-        .map_err(unavailable)
+        .map_err(neighbor_runtime_failure)
+}
+
+fn neighbor_runtime_failure(message: String) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let reason = message.split_once(':').map(|(reason, _)| reason);
+    match reason {
+        Some(
+            code @ ("receiver_elsewhere"
+            | "receiver_revision_stale"
+            | "not_receiver"
+            | "recipient_not_receiving"
+            | "installation_unverified"),
+        ) => (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({"code":code,"message":message})),
+        )
+            .into_response(),
+        _ => unavailable(message).into_response(),
+    }
 }
 
 pub async fn billing_operation(

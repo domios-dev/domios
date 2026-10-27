@@ -47,7 +47,7 @@ impl ServiceContext {
             scope: scope.clone(),
             uid,
         }
-        .revoke()
+        .forget()
         .await;
         if let Err(error) = result {
             log::warn!("Account sign-out cleanup failed: stage=neighbor_keys error_kind={error:?}");
