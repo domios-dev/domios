@@ -92,7 +92,12 @@ export const neighborConciergeClient: NeighborConciergeClient = {
     const tab = event.payload?.gateway_tab;
     if (typeof event.payload?.friendship_id === "string" && (tab === null || typeof tab === "string")) handler(event.payload.friendship_id, tab);
   }),
-  setPermission: async (friendship, permission) => { await runtimeCall({ operation: "set_permission", friendship_id: friendship, permission }); },
+  setPermission: async (friendship, permission) => {
+    // Only what the owner edits travels; the effective folder and its enforcement are the daemon's to report.
+    const { allowed, scope, allow_tab_requests, allow_interactive_content, allow_memory, allow_files, folder } = permission;
+    await runtimeCall({ operation: "set_permission", friendship_id: friendship,
+      permission: { allowed, scope, allow_tab_requests, allow_interactive_content, allow_memory, allow_files, folder } });
+  },
   setNotify: async (friendship, notify) => {
     const value = await runtimeCall({ operation: "set_notification_preference", friendship_id: friendship, notify });
     if (!record(value) || !isNotify(value.notify)) throw new Error("Invalid notification preference");

@@ -30,6 +30,11 @@ export interface NeighborPermission {
   allow_memory?: boolean;
   /** On by default: their agents may ask for files. */
   allow_files?: boolean;
+  /** Where their concierge works; null means the friend's own folder. */
+  folder?: string | null;
+  /** Read-only: the folder actually in effect, and how much of it the platform enforces. */
+  effective_folder?: string;
+  folder_enforcement?: { writes: "provider_sandbox" | "advisory"; reads: "not_confined"; note: string };
 }
 export interface NeighborReceipt {
   message_id: string;

@@ -1157,3 +1157,21 @@
 .neighbor-chat__who:hover {
   background: var(--ct-hover);
 }
+
+.neighbor-folder {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.neighbor-folder__path {
+  overflow: hidden;
+  max-width: 28rem;
+  color: var(--ct-muted-fg);
+  font-family: var(--ct-font-mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

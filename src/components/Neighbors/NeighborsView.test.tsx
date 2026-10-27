@@ -722,3 +722,22 @@ it("keeps a removed friend's conversation readable and closed", async () => {
   expect(document.body.textContent).toContain("Old note");
   expect(document.querySelector<HTMLTextAreaElement>("textarea")!.disabled).toBe(true);
 });
+
+it("shows the concierge folder with its honest enforcement note and can return to the friend's own folder", async () => {
+  const conciergeClient = concierge([]);
+  const runtimeClient = runtime();
+  vi.mocked(runtimeClient.permission).mockResolvedValue({ allowed: true, scope: "Project questions", allow_tab_requests: false, folder: "/work/shared",
+    effective_folder: "/work/shared", folder_enforcement: { writes: "advisory", reads: "not_confined", note: "Writes are advisory with this agent; reads are not confined." } });
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtimeClient} conciergeClient={conciergeClient} />));
+  await act(async () => button("Ada, connected").click());
+  expect(document.body.textContent).toContain("/work/shared");
+  expect(document.body.textContent).toContain("Writes are advisory with this agent; reads are not confined.");
+  await act(async () => button("Use their folder").click());
+  await act(async () => button("Save permissions").click());
+  expect(conciergeClient.setPermission).toHaveBeenCalledExactlyOnceWith("pair", expect.objectContaining({ folder: null }));
+});
