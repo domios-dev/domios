@@ -132,6 +132,40 @@ fn key_scope_binds_installation_and_account_without_exporting_ids() {
 }
 
 #[tokio::test]
+async fn rotation_recovery_preserves_keys_owned_by_another_installation() {
+    let store = Store::default();
+    let registry = Registry::default();
+    let lifecycle = InstallationKeys {
+        store: &store,
+        registry: &registry,
+        scope: KeyScope::installation("machine", "owner").unwrap(),
+        uid: "owner",
+    };
+    let mut rng = StdRng::seed_from_u64(23);
+    let old = PrivateKeys::generate(&mut rng);
+    let candidate = PrivateKeys::generate(&mut rng);
+    let foreign = PrivateKeys::generate(&mut rng).verifier_key_id("owner");
+    store
+        .save(&lifecycle.scope, Slot::Current, old.storage_bytes())
+        .await
+        .unwrap();
+    store
+        .save(&lifecycle.scope, Slot::Candidate, candidate.storage_bytes())
+        .await
+        .unwrap();
+    *registry.active.lock().unwrap() = vec![
+        old.verifier_key_id("owner"),
+        candidate.verifier_key_id("owner"),
+        foreign.clone(),
+    ];
+    lifecycle.reconcile().await.unwrap().unwrap();
+    assert_eq!(
+        *registry.active.lock().unwrap(),
+        [candidate.verifier_key_id("owner"), foreign]
+    );
+}
+
+#[tokio::test]
 async fn revocation_preserves_keys_owned_by_another_installation() {
     let store = Store::default();
     let registry = Registry::default();

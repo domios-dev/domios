@@ -139,20 +139,24 @@ impl InstallationKeys<'_> {
         if let Some(candidate) = candidate {
             let id = candidate.verifier_key_id(self.uid);
             if active.contains(&id) {
-                // Keep the candidate until both the local promotion and server revocation are confirmed.
-                self.store
-                    .save(&self.scope, Slot::Current, candidate.storage_bytes())
-                    .await?;
-                if let Some(previous) = &current {
-                    let previous = previous.verifier_key_id(self.uid);
-                    if previous != id && active.contains(&previous) {
-                        self.registry.revoke(&previous).await?;
+                let previous = current
+                    .as_ref()
+                    .map(|keys| keys.verifier_key_id(self.uid))
+                    .filter(|previous| previous != &id);
+                if let Some(previous) = &previous {
+                    if active.contains(previous) {
+                        self.registry.revoke(previous).await?;
                     }
                 }
                 let confirmed = self.registry.active_key_ids().await?;
-                if !confirmed.contains(&id) {
+                if !confirmed.contains(&id)
+                    || previous.is_some_and(|previous| confirmed.contains(&previous))
+                {
                     return Err(Error::Transport);
                 }
+                self.store
+                    .save(&self.scope, Slot::Current, candidate.storage_bytes())
+                    .await?;
                 self.store.delete(&self.scope, Slot::Candidate).await?;
                 return Ok(Some(candidate));
             }

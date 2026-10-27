@@ -9,6 +9,8 @@ use std::collections::{HashMap, VecDeque};
 struct Vault {
     slots: Mutex<HashMap<String, Zeroizing<Vec<u8>>>>,
     fail_current: Mutex<bool>,
+    fail_candidate_delete: Mutex<bool>,
+    events: std::sync::Arc<Mutex<Vec<&'static str>>>,
 }
 #[async_trait]
 impl KeyStore for Vault {
@@ -20,10 +22,18 @@ impl KeyStore for Vault {
         {
             return Err(Error::SecretStore);
         }
+        if matches!(slot, Slot::Current) {
+            self.events.lock().unwrap().push("current_saved");
+        }
         self.slots.lock().unwrap().insert(scope.name(slot), bytes);
         Ok(())
     }
     async fn delete(&self, scope: &KeyScope, slot: Slot) -> Result<()> {
+        if matches!(slot, Slot::Candidate)
+            && std::mem::take(&mut *self.fail_candidate_delete.lock().unwrap())
+        {
+            return Err(Error::SecretStore);
+        }
         self.slots.lock().unwrap().remove(&scope.name(slot));
         Ok(())
     }
@@ -33,6 +43,7 @@ struct Registry {
     active: Mutex<Vec<String>>,
     receipt: Mutex<DeliveryResult>,
     uncertain: Mutex<bool>,
+    events: std::sync::Arc<Mutex<Vec<&'static str>>>,
 }
 impl Registry {
     fn new(uid: &str, active: Vec<String>) -> Self {
@@ -41,6 +52,7 @@ impl Registry {
             active: Mutex::new(active),
             receipt: Mutex::new(DeliveryStatus::Pending.into()),
             uncertain: Mutex::new(false),
+            events: Default::default(),
         }
     }
 }
@@ -63,6 +75,7 @@ impl KeyRegistry for Registry {
     }
     async fn revoke(&self, id: &str) -> Result<()> {
         self.active.lock().unwrap().retain(|other| other != id);
+        self.events.lock().unwrap().push("old_revoked");
         *self.receipt.lock().unwrap() = DeliveryResult {
             status: DeliveryStatus::NotDelivered,
             reason: Some(DeliveryReason::KeyRevoked),
@@ -92,26 +105,13 @@ async fn rotation_crash(window: usize) {
         .save(&scope, Slot::Candidate, candidate.storage_bytes())
         .await
         .unwrap();
-    if window == 3 {
-        vault
-            .save(&scope, Slot::Current, candidate.storage_bytes())
-            .await
-            .unwrap();
-        for slot in [Slot::Current, Slot::Candidate] {
-            let bytes = vault.load(&scope, slot).await.unwrap().unwrap();
-            assert_eq!(
-                PrivateKeys::from_storage(&bytes)
-                    .unwrap()
-                    .encryption_key_id(),
-                candidate.encryption_key_id()
-            );
-        }
-    }
     let mut active = vec![candidate.verifier_key_id(uid)];
     if window != 1 {
         active.push(old.verifier_key_id(uid));
     }
-    let registry = Registry::new(uid, active);
+    let mut registry = Registry::new(uid, active);
+    registry.events = vault.events.clone();
+    vault.events.lock().unwrap().clear();
     let lifecycle = InstallationKeys {
         store: &vault,
         registry: &registry,
@@ -148,6 +148,30 @@ async fn rotation_crash(window: usize) {
                 .unwrap()
                 .as_str(),
             vector()["body"].as_str().unwrap()
+        );
+    }
+    if window == 3 {
+        *vault.fail_candidate_delete.lock().unwrap() = true;
+        assert!(matches!(
+            lifecycle.reconcile().await,
+            Err(Error::SecretStore)
+        ));
+        for slot in [Slot::Current, Slot::Candidate] {
+            let bytes = vault.load(&lifecycle.scope, slot).await.unwrap().unwrap();
+            assert_eq!(
+                PrivateKeys::from_storage(&bytes)
+                    .unwrap()
+                    .encryption_key_id(),
+                candidate.encryption_key_id()
+            );
+        }
+        assert_eq!(
+            *vault.events.lock().unwrap(),
+            ["old_revoked", "current_saved"]
+        );
+        assert_eq!(
+            registry.active_key_ids().await.unwrap(),
+            [candidate.verifier_key_id(uid)]
         );
     }
     lifecycle.reconcile().await.unwrap().unwrap();
@@ -209,7 +233,7 @@ async fn crash_before_current_persistence_recovers_to_gateway_and_ack() {
 }
 
 #[tokio::test]
-async fn crash_after_current_copy_before_old_revoke_finishes_rotation_and_ack() {
+async fn crash_after_current_copy_before_candidate_cleanup_finishes_rotation_and_ack() {
     rotation_crash(3).await;
 }
 
