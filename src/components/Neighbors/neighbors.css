@@ -1149,6 +1149,44 @@
   gap: 0.35rem;
 }
 
+.neighbor-window__pause {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0 0.35rem;
+  color: var(--ct-muted-fg);
+  font-size: var(--ct-font-size-sm);
+}
+
+.neighbor-window__pause[data-paused] {
+  color: var(--ct-yellow);
+}
+
+/* A paused friend stays on every surface, just quieter. */
+.neighbor-window[data-paused] .neighbor-window__avatar,
+.neighbor-node[data-paused] .neighbor-node__disc,
+.sidebar-neighbor-avatar[data-paused] {
+  position: relative;
+}
+
+.neighbor-window[data-paused] .neighbor-window__avatar > :not(.neighbor-pause-glyph),
+.neighbor-node[data-paused] .neighbor-node__disc > :not(.neighbor-pause-glyph),
+.sidebar-neighbor-avatar[data-paused] > :not(.neighbor-pause-glyph) {
+  opacity: 0.55;
+  filter: grayscale(0.6);
+}
+
+.neighbor-pause-glyph {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  display: inline-flex;
+  padding: 1px;
+  border-radius: 999px;
+  background: var(--ct-bg);
+  color: var(--ct-yellow);
+}
+
 .neighbor-window__close {
   display: inline-flex;
   width: 1.9rem;

@@ -1,5 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
-import { Bell, Bot, FolderOpen, MessagesSquare, ShieldCheck, Sparkles, UserX, X } from "lucide-react";
+import { Bell, Bot, FolderOpen, MessagesSquare, Pause, ShieldCheck, Sparkles, UserX, X } from "lucide-react";
 import { AccountAvatar } from "../Titlebar/AccountAvatar";
 import { accountInitials } from "../Settings/accountModel";
 import { SettingsCard, SettingsPage, SettingsPill } from "../Settings/shared";
@@ -24,6 +24,8 @@ import type { NeighborPermission, NeighborRuntimeClient } from "./neighborRuntim
 import { useConciergeStatus, type ConciergeStatus } from "./useConciergeStatus";
 import { useNeighborPermission } from "./useNeighborPermission";
 import { NOTIFY_CHOICES, useNeighborNotify } from "./neighborNotify";
+import { setFriendPaused, usePausedFriends } from "./neighborPause";
+import { LiquidToggle } from "../shared/LiquidToggle";
 import { receivingLine, useReceiverState } from "./useReceiverState";
 
 function conciergeState(status: ConciergeStatus | null, bound: boolean): { label: string; tone: "green" | "amber" | "muted" | "accent" } {
@@ -58,6 +60,7 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notify, changeNotify] = useNeighborNotify(conciergeClient, friendship, friend.notify, setError);
+  const paused = usePausedFriends(conciergeClient)(friendship, friend.paused);
   const [quota, setQuota] = useState<NeighborFileQuota | null>(null);
   // The newest page of the conversation dates the last message and counts today's from them, as a floor when older pages remain.
   const [recent, setRecent] = useState<HistoryPage | null>(null);
@@ -113,7 +116,7 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
 
   return <div ref={layer} className="neighbor-window-layer" data-closing={closing || undefined}
     onMouseDown={event => { if (event.target === event.currentTarget) close(); }}>
-    <section ref={windowRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} className="neighbor-window" style={fromStyle}
+    <section ref={windowRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} className="neighbor-window" style={fromStyle} data-paused={paused || undefined}
       onKeyDown={event => {
         // The concierge dialog above owns the keyboard while it is open.
         if (changing) return;
@@ -122,7 +125,8 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
       }}
       onAnimationEnd={event => { if (closing && event.target === event.currentTarget) onBack(); }}>
       <header className="neighbor-window__hero">
-        <span className="neighbor-window__avatar"><AccountAvatar url={friend.photoURL} initial={accountInitials(name)} label="" size="node" /></span>
+        <span className="neighbor-window__avatar"><AccountAvatar url={friend.photoURL} initial={accountInitials(name)} label="" size="node" />
+          {paused && <span className="neighbor-pause-glyph" aria-hidden="true"><Pause size={12} /></span>}</span>
         <div className="min-w-0 flex-1">
           <h2 id={titleId} className="neighbor-friend__name">{name}</h2>
           <p className="neighbor-status"><span className="neighbor-dot" data-tone={enabled && !locked ? "ok" : "muted"} aria-hidden="true" />{status}
@@ -134,6 +138,11 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
           {locked ? <Button size="sm" variant="accent" onClick={onPlans}>View plans</Button>
             : <Button size="sm" variant="primary" onClick={() => openNeighbor(friendship)}><MessagesSquare size={14} aria-hidden="true" />Open conversation</Button>}
           <Button size="sm" onClick={onTalkAbout}><Sparkles size={14} aria-hidden="true" />Talk about {name}</Button>
+          <span className="neighbor-window__pause" data-paused={paused || undefined}>
+            <LiquidToggle aria-label={`Pause ${name}`} checked={paused} disabled={pending}
+              onCheckedChange={next => setFriendPaused(conciergeClient, friendship, next, paused, setError)} />
+            <span aria-hidden="true">{paused ? "Paused" : "Active"}</span>
+          </span>
           <button type="button" className="neighbor-window__close ct-liquid-interactive" aria-label={`Close ${name}`} onClick={close}><X size={15} aria-hidden="true" /></button>
         </div>
       </header>

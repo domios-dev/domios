@@ -930,3 +930,20 @@ it("shows today's received count as a floor while older pages may hold more of t
   await act(async () => button("Ada, connected").click());
   expect(document.querySelector('[aria-label="Today with this friend"]')?.textContent).toContain("2+ received today");
 });
+
+it("pauses a friend from the window header and resumes them with the same switch", async () => {
+  const conciergeClient = concierge([]);
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
+  await act(async () => button("Ada, connected").click());
+  expect(button("Pause Ada").getAttribute("aria-checked")).toBe("false");
+  await act(async () => button("Pause Ada").click());
+  expect(conciergeClient.setPaused).toHaveBeenLastCalledWith("pair", true);
+  expect(button("Pause Ada").getAttribute("aria-checked")).toBe("true");
+  await act(async () => button("Pause Ada").click());
+  expect(conciergeClient.setPaused).toHaveBeenLastCalledWith("pair", false);
+});
