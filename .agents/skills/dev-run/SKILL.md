@@ -277,6 +277,10 @@ Agent launchers for dev, build, check, QA batch and install-local (PowerShell an
 `kill` also reaps orphaned Codex RPC launchers whose `--ws-token-file` is
 inside this instance's `codex-rpc` directory. Unix cleanup requires an owned
 group leader; Windows cleanup terminates the identified launcher's tree.
+Windows `kill` first uses the rebuild shutdown verifier to pin the selected
+server, exact native executable and their descendants, then confirms their
+exit. Missing or conflicting authenticated ownership refuses before cleanup;
+an orphaned native window without a live server still requires owner diagnosis.
 A launcher in an unidentified Unix group fails cleanup rather than risking
 another instance. Inspect the scoped count with:
 
