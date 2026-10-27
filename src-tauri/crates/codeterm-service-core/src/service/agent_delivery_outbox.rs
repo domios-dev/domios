@@ -411,8 +411,7 @@ impl ServiceContext {
     ) -> AgentDeliveryRecovery {
         let captured = self.chat_send_anchor(tab_id);
         let anchor = captured.anchor.filter(|anchor| {
-            super::codex_rpc::lifecycle::for_tab(tab_id).is_none()
-                && payload
+            payload
                     .expected_session_id
                     .as_deref()
                     .is_some_and(|expected| anchor.session_id == expected)

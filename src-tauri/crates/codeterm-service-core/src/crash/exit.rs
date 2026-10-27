@@ -70,16 +70,3 @@ fn shutdown_sidecar_log_records(
     records
 }
 
-use crate::service::codex_rpc::exit::{begin, Shutdown};
-
-pub struct SidecarShutdown(Shutdown);
-
-pub fn begin_sidecar_shutdown() -> SidecarShutdown {
-    SidecarShutdown(begin())
-}
-
-impl SidecarShutdown {
-    pub fn wait(self) {
-        self.0.wait();
-    }
-}

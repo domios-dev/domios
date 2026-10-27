@@ -198,18 +198,6 @@ fn build_agent_command_inner(
                 tab_id, session,
             );
         }
-        if execution_policy.is_none() {
-            if let Some(command) = crate::service::codex_rpc::launch::defer(
-                service,
-                tab_id,
-                agent_cmd,
-                &resolved_params,
-                task,
-                injected_session_id,
-            ) {
-                return command.into();
-            }
-        }
     }
     let structured_prompt_server = params.structured_prompt_server.clone().or_else(|| {
         notice_context.and_then(|(service, tab_id)| {

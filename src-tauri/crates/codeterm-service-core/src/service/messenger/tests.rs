@@ -1,32 +1,5 @@
 use super::*;
 
-#[tokio::test]
-async fn codex_rpc_send_messenger_preserves_routed_frame_and_queues_while_active() {
-    use crate::service::codex_rpc::send::{
-        route_or_pty, test_start_params as start_params, test_submit as submit, Origin,
-    };
-    let frame =
-        Messenger::from(MessageEnvelope::tab("sender", "sender-a")).routed_frame("opaque payload");
-    let text = frame.to_message();
-    let params = start_params("thread-a", "client-a", &text, None, serde_json::json!({}));
-    let mut writes = Vec::new();
-    let result = submit(Origin::Agent, Some("active-a"), params, |method, params| {
-        writes.push((method, params));
-        std::future::ready(Ok(serde_json::json!({"turn":{"startedAt":null}})))
-    })
-    .await;
-    route_or_pty(Some(result.map(|_| ())), || {
-        panic!("messenger must not paste after RPC")
-    })
-    .unwrap();
-    assert_eq!(writes.len(), 1);
-    assert_eq!(writes[0].0, "turn/start");
-    assert_eq!(writes[0].1["clientUserMessageId"], "client-a");
-    assert_eq!(writes[0].1["input"][0]["text"], text);
-    assert!(text.starts_with(&frame.opening_tag));
-    assert!(text.ends_with(codeterm_wire::domios::DOMIOS_CLOSE_TAG));
-}
-
 #[test]
 fn every_pty_envelope_uses_the_shared_submit_transaction() {
     assert_eq!(

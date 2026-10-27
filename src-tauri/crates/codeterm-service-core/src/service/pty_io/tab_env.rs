@@ -234,28 +234,22 @@ impl ServiceContext {
     }
 
     pub(crate) fn tab_env(&self, tab_id: &str) -> HashMap<String, String> {
-        let mut env = compose_launch_env(
+        compose_launch_env(
             &InstanceEnv::from_api_config(self.configuration().api),
             Some(&self.tab_launch_env(tab_id)),
             LaunchSurface::Service,
-        );
-        crate::service::codex_rpc::lifecycle::launch_env(self, tab_id, &mut env);
-        env
+        )
     }
 
     /// Frontend/REST spawn, including the post-update auto-resume path. A
     /// `None` tab id is a PTY with no tab record yet: instance vars only.
     pub fn frontend_pty_env(&self, tab_id: Option<&str>) -> HashMap<String, String> {
         let tab = tab_id.map(|tab_id| self.tab_launch_env(tab_id));
-        let mut env = compose_launch_env(
+        compose_launch_env(
             &InstanceEnv::from_api_config(self.configuration().api),
             tab.as_ref(),
             LaunchSurface::Frontend,
-        );
-        if let Some(tab_id) = tab_id {
-            crate::service::codex_rpc::lifecycle::launch_env(self, tab_id, &mut env);
-        }
-        env
+        )
     }
 }
 

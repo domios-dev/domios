@@ -691,13 +691,7 @@ impl ServiceContext {
             .with_provider(&agent_cmd, |provider| provider.is_tool_less())
             .unwrap_or(false)
         {
-            let carries_startup_attempt =
-                crate::service::codex_rpc::launch::carries_startup_attempt(
-                    self,
-                    &agent_cmd,
-                    params.args.as_ref().is_some_and(|args| !args.is_empty()),
-                );
-            apply_startup_handshake(&mut params, startup_supervised, carries_startup_attempt);
+            apply_startup_handshake(&mut params, startup_supervised, true);
         }
         let fallback_bootstrap =
             fallback_bootstrap.map(|body| team_bootstrap_payload(system_prompt_capable, body));

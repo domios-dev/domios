@@ -72,11 +72,7 @@ impl RunWatcherRegistry {
                     .ok_or("cron binding missing")?,
             )
         };
-        let messages = if crate::service::codex_rpc::lifecycle::for_tab(tab_id).is_some() {
-            crate::service::codex_rpc::transcript::snapshot(svc, tab_id)?.0
-        } else {
-            crate::service::tab_chat::session_chat_snapshot(svc, &provider, &cwd, &session, 0)?.0
-        };
+        let messages = crate::service::tab_chat::session_chat_snapshot(svc, &provider, &cwd, &session, 0)?.0;
         let path = svc
             .agent_registry
             .with_provider(&provider, |p| p.session_file_path(&cwd, &session))
@@ -239,27 +235,7 @@ impl RunWatcherRegistry {
         };
         let service = svc.clone();
         crate::async_runtime::spawn(async move {
-            let messages = if let Some(sidecar) =
-                crate::service::codex_rpc::lifecycle::for_tab(&state.tab_id)
-            {
-                match crate::service::codex_rpc::transcript::history(&sidecar.client, &scope.2)
-                    .await
-                {
-                    Ok(history)
-                        if history.active_turn.is_none() && !history.completed_turns.is_empty() =>
-                    {
-                        history
-                            .messages
-                            .into_iter()
-                            .filter(|message| {
-                                message.kind != "assistant"
-                                    || history.final_assistant_ids.contains(&message.id)
-                            })
-                            .collect()
-                    }
-                    _ => return,
-                }
-            } else {
+            let messages = {
                 let reader = service.clone();
                 let (provider, cwd, session) = (scope.0.clone(), scope.1.clone(), scope.2.clone());
                 match crate::async_runtime::spawn_blocking(move || {

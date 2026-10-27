@@ -958,7 +958,6 @@ impl ServiceContext {
     /// Kill the PTY process for a tab without removing the tab from the mux.
     /// Different from `close_tab`, which both kills the PTY and removes the tab.
     pub fn kill_tab_pty(&self, tab_id: &str) -> Result<(), String> {
-        crate::service::codex_rpc::lifecycle::stop_tab(tab_id);
         // A chatBackend tab has no PTY process — close the plugin session.
         if let Some((plugin_id, session_id)) = self.tab_chat_backing(tab_id) {
             self.chatbackend_close(&plugin_id, &session_id)?;

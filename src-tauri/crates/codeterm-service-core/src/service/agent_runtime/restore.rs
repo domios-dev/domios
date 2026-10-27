@@ -130,7 +130,7 @@ fn sanitize_saved_controls(
                 model_efforts
             };
             let mut modes: Vec<String> = provider
-                .structured_control()
+                .agent_runtime()
                 .map(|control| {
                     control
                         .runtime_modes

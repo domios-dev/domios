@@ -30,7 +30,17 @@ class EvidenceTests(unittest.TestCase):
 
     def row(self, sid='own'):
         return dict(agent_type='codex', agent_session_id=sid, session_binding_nonce='n',
-                    reported_session_binding_nonce='n', boot_stage='agent_ready', structured_control_active=True)
+                    reported_session_binding_nonce='n', boot_stage='agent_ready', backing={"kind": "chat_backend", "session_id": sid},
+                    agent_runtime_state={"state": "loaded"})
+
+    def test_runtime_requires_loaded_own_thread_and_explicit_backing(self):
+        for mutation in ({'agent_runtime_state': None},
+                         {'agent_runtime_state': {'state': 'loading', 'thread_id': 'own'}},
+                         {'backing': {'kind': 'chat_backend', 'session_id': 'foreign'}},
+                         {'backing': {}}):
+            with self.subTest(mutation=mutation), self.assertRaises(AssertionError):
+                oracle.bindings({'a': {**self.row(), **mutation}})
+        oracle.bindings({'a': {**self.row(), 'backing': {'kind': 'pty'}, 'agent_runtime_state': None}})
 
     def test_duplicate_and_foreign_nonce_refused(self):
         with self.assertRaisesRegex(AssertionError, 'duplicate'):

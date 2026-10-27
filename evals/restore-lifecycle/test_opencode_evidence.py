@@ -25,7 +25,7 @@ class OpenCodeEvidenceTests(unittest.TestCase):
 
     def test_lazy_session_restore_requires_own_provider_and_session(self):
         row = dict(agent_type='opencode', agent_session_id='own', session_binding_nonce='n',
-                   reported_session_binding_nonce='n', boot_stage='agent_ready', structured_control_active=False)
+                   reported_session_binding_nonce='n', boot_stage='agent_ready', backing={"kind": "pty"})
         oracle.bindings({'a': row}, {'a': row}, provider='opencode')
         with self.assertRaisesRegex(AssertionError, 'changed'):
             oracle.bindings({'a': {**row, 'agent_session_id': 'foreign'}}, {'a': row}, provider='opencode')

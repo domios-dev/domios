@@ -209,7 +209,6 @@ pub fn resume(svc: &ServiceState, tab_id: &str, token: &str) -> Result<ChatResum
         )
     };
     if crate::service::agent_runtime::requested_for_tab(svc, tab_id)
-        || super::item_sidecar_owns(tab_id)
     {
         return Ok(ChatResumeResult::Unsupported {
             source_kind: ResumeSourceKind::Items,

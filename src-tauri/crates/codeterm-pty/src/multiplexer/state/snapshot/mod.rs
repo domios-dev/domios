@@ -696,7 +696,7 @@ fn install_leaf(
             pending_model_selection: None,
             agent_planned_model: agent_planned_model.clone(),
             agent_requested_model: agent_requested_model.clone(),
-            structured_control_active: false,
+
             agent_runtime_state: agent_identity
                 .as_ref()
                 .and_then(|identity| identity.agent_runtime_state.clone()),
