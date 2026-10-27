@@ -3,7 +3,7 @@ use codeterm_account::account_mesh::callable::{CallableFailure, CallableTranspor
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-mod history;
+pub(crate) mod history;
 mod referral;
 pub(crate) mod runtime;
 mod storage;
