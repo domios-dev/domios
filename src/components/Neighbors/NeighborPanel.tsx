@@ -3,10 +3,10 @@ import { Lock, MessageSquare, MessagesSquare, SlidersHorizontal, SquareArrowOutU
 import { AccountAvatar } from "../Titlebar/AccountAvatar";
 import { accountInitials } from "../Settings/accountModel";
 import { Button } from "../shared/Button";
-import { FormRow } from "../shared/FormRow";
-import { UI_INPUT } from "../shared/design";
-import { validNeighborLimit, type Neighbor, type NeighborRequest } from "./neighborModel";
+import type { Neighbor, NeighborRequest } from "./neighborModel";
 import { NeighborChannelView, type NeighborChannelState } from "./NeighborChannel";
+import { NeighborPermissionsEditor } from "./NeighborPermissionsEditor";
+import type { NeighborPermission } from "./neighborRuntimeClient";
 import { STATUS_LABEL, type NeighborNodeStatus } from "./neighborhoodModel";
 
 type Section = "messages" | "configure" | "revoke";
@@ -57,16 +57,15 @@ export function NeighborRequestPanel({ request, pending, onAccept, onDecline, on
   </aside>;
 }
 
-export function NeighborPanel({ neighbor, name, locked, pending, channel, gateway, onOpenGateway, onTalkAbout, onInterview, onLimit, onRemove, onPlans, onClose }: {
-  neighbor: Neighbor; name: string; locked: boolean; pending: boolean;
+export function NeighborPanel({ neighbor, name, locked, pending, channel, gateway, initialSection = null, onOpenGateway, onTalkAbout, onInterview, onSavePermission, onLimit, onRemove, onPlans, onClose }: {
+  neighbor: Neighbor; name: string; locked: boolean; pending: boolean; initialSection?: "configure" | null;
   channel: NeighborChannelState | null;
   gateway: { title: string } | null;
   onOpenGateway: () => void; onTalkAbout: () => void; onInterview: () => void;
+  onSavePermission: (permission: NeighborPermission) => Promise<void>;
   onLimit: (limit: number) => Promise<boolean>; onRemove: () => Promise<boolean>; onPlans: () => void; onClose: () => void;
 }) {
-  const [open, setOpen] = useState<Section | null>(null);
-  const [limit, setLimit] = useState(neighbor.inbound_per_hour);
-  const limitField = useId();
+  const [open, setOpen] = useState<Section | null>(initialSection);
   const toggle = (section: Section) => setOpen(current => current === section ? null : section);
   const permission = channel?.permission;
   return <aside className="neighbor-panel" aria-label={name}>
@@ -89,20 +88,7 @@ export function NeighborPanel({ neighbor, name, locked, pending, channel, gatewa
       <ActionRow icon={<SlidersHorizontal size={15} />} label="Configure" hint={permission ? (permission.allowed ? "Some requests allowed" : "Nothing allowed yet") : "What they may ask for"}
         expanded={open === "configure"} onClick={() => toggle("configure")} />
       {open === "configure" && <div className="neighbor-panel__section">
-        <dl className="neighbor-facts">
-          <dt>They may ask</dt><dd>{permission ? (permission.allowed ? permission.scope : "Nothing yet") : "Unknown"}</dd>
-          <dt>Tab requests</dt><dd>{permission ? (permission.allow_tab_requests ? "Allowed" : "Not allowed") : "Unknown"}</dd>
-        </dl>
-        <Button size="sm" variant="accent" onClick={onInterview}>Set up with General Agent</Button>
-        <form className="neighbor-limit" onSubmit={event => { event.preventDefault(); if (validNeighborLimit(limit)) void onLimit(limit); }}>
-          <FormRow label="Incoming requests per hour" htmlFor={limitField} hint={`They accept up to ${neighbor.outbound_per_hour} per hour from you.`}>
-            <div className="neighbor-limit__row">
-              <input id={limitField} type="number" min={1} max={200} step={1} className={`${UI_INPUT.compact} neighbor-limit__input`} value={limit}
-                onChange={event => setLimit(event.currentTarget.valueAsNumber)} />
-              <Button size="sm" type="submit" disabled={pending || !validNeighborLimit(limit)}>Save limit</Button>
-            </div>
-          </FormRow>
-        </form>
+        <NeighborPermissionsEditor neighbor={neighbor} name={name} permission={permission} pending={pending} onSave={onSavePermission} onLimit={onLimit} onEditWithGeneral={onInterview} />
       </div>}
       <ActionRow icon={<UserX size={15} />} label="Revoke" hint="End their access to your agents" danger expanded={open === "revoke"} onClick={() => toggle("revoke")} />
       {open === "revoke" && <div role="group" aria-label="Confirm removal" className="neighbor-panel__section neighbor-confirm">

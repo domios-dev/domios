@@ -19,6 +19,7 @@ const account = vi.hoisted(() => ({ model: { kind: "signed_in", identity: { uid:
 const mux = vi.hoisted(() => ({
   workspaces: [{ id: "ws-general", name: "General", tabs: ["tab-general"], protected: true }, { id: "ws-work", name: "Work", tabs: ["tab-gateway"] }],
   tabs: { "tab-general": { id: "tab-general", title: "Main", protected: true }, "tab-gateway": { id: "tab-gateway", title: "Concierge" } },
+  tabStatuses: {},
 }));
 vi.mock("../../lib/webApi", async actual => ({ ...await actual<object>(), ...transport }));
 vi.mock("../../lib/notices", () => notices);
@@ -278,29 +279,63 @@ it("updates the sidebar immediately from an own-account push and removes its sub
   await renderSection([]);
   const list = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
   await act(async () => { emit("neighbors-changed", { uid: "owner", list }); });
-  expect(hasButton("Open Ada in Neighbors")).toBe(true);
+  expect(hasButton("Open Ada")).toBe(true);
   await act(async () => mounted!.root.unmount());
   expect(bridge.handlers["neighbors-changed"]).toBeUndefined();
   mounted!.host.remove();
   mounted = null;
 });
 
-it("opens a Neighbor's gateway tab from the sidebar, or the neighborhood when none is bound", async () => {
+it("nests each concierge under its Neighbor; the Neighbor opens the neighborhood and the concierge its chat", async () => {
   await renderSection([neighbor, { ...neighbor, uid: "peer-2", displayName: "Lin", friendship_id: "pair-2" }], { pair: "tab-gateway" });
   const focused = vi.fn();
   const panels = vi.fn();
   window.addEventListener("codeterm:focus-tab", focused);
   window.addEventListener("codeterm:open-panel", panels);
   try {
-    await act(async () => button("Open Ada's conversation in Concierge").click());
+    expect(hasButton("Open Lin's concierge")).toBe(false);
+    await act(async () => button("Open Ada's concierge").click());
     expect((focused.mock.calls[0][0] as CustomEvent).detail).toEqual({ tabId: "tab-gateway", workspaceId: "ws-work" });
-    await act(async () => button("Open Lin in Neighbors").click());
+    await act(async () => button("Open Lin").click());
     expect((panels.mock.calls[0][0] as CustomEvent).detail).toEqual({ panel: "neighbors" });
-    expect(takeNeighborFocus()).toBe("pair-2");
+    expect(takeNeighborFocus()).toEqual({ id: "pair-2", section: null });
   } finally {
     window.removeEventListener("codeterm:focus-tab", focused);
     window.removeEventListener("codeterm:open-panel", panels);
   }
+});
+
+it("offers the concierge actions: change agent, view permissions and edit with General", async () => {
+  await renderSection([neighbor], { pair: "tab-gateway" });
+  await act(async () => { button("Actions for Ada's concierge").dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 })); });
+  const items = Array.from(document.querySelectorAll('[role="menuitem"]')).map(item => item.textContent);
+  expect(items).toEqual(["Change agent", "View permissions", "Edit with General"]);
+  const viewPermissions = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent === "View permissions")!;
+  await act(async () => viewPermissions.click());
+  expect(takeNeighborFocus()).toEqual({ id: "pair", section: "configure" });
+});
+
+it("saves permissions directly and refuses an allowed grant without a scope", async () => {
+  const conciergeClient = { history: vi.fn(), onHistoryChanged: vi.fn(async () => () => {}), onPermissionChanged: vi.fn(async () => () => {}),
+    onAgentChanged: vi.fn(async () => () => {}), setPermission: vi.fn(async () => {}), changeAgent: vi.fn() };
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
+  await act(async () => button("Ada, connected").click());
+  await act(async () => button("Configure").click());
+  const allow = document.querySelector<HTMLButtonElement>('button[aria-labelledby][role="switch"], .neighbor-permissions button[aria-labelledby]')!;
+  await act(async () => allow.click());
+  expect(button("Save permissions").disabled).toBe(true);
+  const scope = document.querySelector<HTMLTextAreaElement>(".neighbor-permissions textarea")!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(scope, "Questions about our shared project");
+    scope.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => button("Save permissions").click());
+  expect(conciergeClient.setPermission).toHaveBeenCalledExactlyOnceWith("pair", { allowed: true, scope: "Questions about our shared project", allow_tab_requests: false });
 });
 
 it("shows a sent invitation as its typed email with no profile and no action", async () => {

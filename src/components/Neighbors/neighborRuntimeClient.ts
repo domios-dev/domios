@@ -51,7 +51,7 @@ export function receipt(value: unknown): NeighborReceipt {
     ...(value.submission === "unconfirmed" ? { submission: "unconfirmed" as const } : {}) };
 }
 
-async function call(command: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
+export async function runtimeCall(command: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
   const response = await localFetch("/api/account/neighbors/runtime", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(command), signal,
   });
@@ -74,28 +74,28 @@ export function receiverState(value: unknown): value is ReceiverState {
 }
 
 export const neighborRuntimeClient: NeighborRuntimeClient = {
-  retry: async friendship => { await call({ operation: "retry", friendship_id: friendship }); },
+  retry: async friendship => { await runtimeCall({ operation: "retry", friendship_id: friendship }); },
   subscribe: handler => listen<NeighborListenerEvent>("neighbor-runtime-status", event => {
     const value = event.payload;
     if (receiverState(value) || ("receiver_unavailable" in value && value.receiver_unavailable === true)
       || ("friendship_id" in value && typeof value.friendship_id === "string" && ["connecting", "receiving", "reconnecting", "stopped"].includes(value.status))) handler(value);
   }),
   status: async signal => {
-    const value = await call({ operation: "status" }, signal);
+    const value = await runtimeCall({ operation: "status" }, signal);
     if (!record(value) || !receiverState(value) || typeof value.enrolled !== "boolean" || !record(value.bindings)
       || !Object.values(value.bindings).every(id => typeof id === "string")) throw new Error("Invalid Neighbor channel status");
     return value as unknown as ChannelStatus;
   },
-  enroll: async revision => { await call({ operation: "enroll", takeover_confirmed: true, expected_receiver_revision: revision }); },
-  rotate: async () => { await call({ operation: "rotate" }); },
+  enroll: async revision => { await runtimeCall({ operation: "enroll", takeover_confirmed: true, expected_receiver_revision: revision }); },
+  rotate: async () => { await runtimeCall({ operation: "rotate" }); },
   permission: async (friendship, signal) => {
-    const value = await call({ operation: "permission", friendship_id: friendship }, signal);
+    const value = await runtimeCall({ operation: "permission", friendship_id: friendship }, signal);
     if (!record(value) || typeof value.allowed !== "boolean" || typeof value.scope !== "string" || typeof value.allow_tab_requests !== "boolean") throw new Error("Invalid Neighbor permission");
     return value as unknown as NeighborPermission;
   },
-  send: async (friendship, body) => receipt(await call({ operation: "send", friendship_id: friendship, kind: "question", body, in_reply_to: null })),
+  send: async (friendship, body) => receipt(await runtimeCall({ operation: "send", friendship_id: friendship, kind: "question", body, in_reply_to: null })),
   deliveryStatus: async id => {
-    const result = await call({ operation: "delivery_status", message_id: id });
+    const result = await runtimeCall({ operation: "delivery_status", message_id: id });
     if (!record(result)) throw new Error("Invalid Neighbor delivery status");
     return deliveryResult(result);
   },

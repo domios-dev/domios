@@ -17,7 +17,8 @@ import type { NeighborClient } from "./neighborClient";
 import { onNeighborFocus, takeNeighborFocus } from "./neighborFocus";
 import { neighborhoodNodes, STATUS_LABEL, type NeighborhoodNode } from "./neighborhoodModel";
 import { neighborName, type Neighbor } from "./neighborModel";
-import { neighborRuntimeClient, type NeighborRuntimeClient } from "./neighborRuntimeClient";
+import { neighborRuntimeClient, type NeighborPermission, type NeighborRuntimeClient } from "./neighborRuntimeClient";
+import { neighborConciergeClient, type NeighborConciergeClient } from "./neighborConciergeClient";
 import { referralStatus } from "./referralTrial";
 import { useNeighborChannel } from "./useNeighborChannel";
 import { useNeighbors } from "./useNeighbors";
@@ -31,9 +32,9 @@ function useTabMap() {
   return { workspaces, tabs };
 }
 
-function SelectedNeighbor({ owner, neighbor, locked, pending, runtimeClient, onTalkAbout, onInterview, onLimit, onRemove, onClose }: {
-  owner: string; neighbor: Neighbor; locked: boolean; pending: boolean; runtimeClient: NeighborRuntimeClient;
-  onTalkAbout: () => void; onInterview: () => void;
+function SelectedNeighbor({ owner, neighbor, locked, pending, runtimeClient, initialSection, onTalkAbout, onInterview, onSavePermission, onLimit, onRemove, onClose }: {
+  owner: string; neighbor: Neighbor; locked: boolean; pending: boolean; runtimeClient: NeighborRuntimeClient; initialSection: "configure" | null;
+  onTalkAbout: () => void; onInterview: () => void; onSavePermission: (permission: NeighborPermission) => Promise<void>;
   onLimit: (limit: number) => Promise<boolean>; onRemove: () => Promise<boolean>; onClose: () => void;
 }) {
   const channel = useNeighborChannel(owner, neighbor.friendship_id, runtimeClient);
@@ -43,6 +44,7 @@ function SelectedNeighbor({ owner, neighbor, locked, pending, runtimeClient, onT
   return <NeighborPanel neighbor={neighbor} name={neighborName(neighbor)} locked={locked} pending={pending} channel={channel}
     gateway={gatewayId && gatewayTab ? { title: gatewayTab.title } : null}
     onOpenGateway={() => { if (gatewayId) focusTab(gatewayId, workspaceOfTab(tabMap, gatewayId)); }}
+    initialSection={initialSection} onSavePermission={onSavePermission}
     onTalkAbout={onTalkAbout} onInterview={onInterview} onLimit={onLimit} onRemove={onRemove} onPlans={openPlans} onClose={onClose} />;
 }
 
@@ -56,29 +58,31 @@ function moveFocus(event: KeyboardEvent<HTMLDivElement>) {
   nodes[(index + step + nodes.length) % nodes.length].focus();
 }
 
-export function NeighborsView({ config, client, runtimeClient = neighborRuntimeClient }: {
-  config?: object | null; client?: NeighborClient; runtimeClient?: NeighborRuntimeClient;
+export function NeighborsView({ config, client, runtimeClient = neighborRuntimeClient, conciergeClient = neighborConciergeClient }: {
+  config?: object | null; client?: NeighborClient; runtimeClient?: NeighborRuntimeClient; conciergeClient?: NeighborConciergeClient;
 }) {
   const neighborsSwitch = useNeighborsSwitch(config);
   const account = useAccount();
   const identity = account.model.kind === "signed_in" ? account.model.identity.uid : null;
-  return <NeighborhoodPage key={identity} identity={identity} account={account} client={client} runtimeClient={runtimeClient}
+  return <NeighborhoodPage key={identity} identity={identity} account={account} client={client} runtimeClient={runtimeClient} conciergeClient={conciergeClient}
     enabled={neighborsSwitch.enabled} onEnable={() => { void neighborsSwitch.setEnabled(true); }} />;
 }
 
-function NeighborhoodPage({ identity, account, client, runtimeClient, enabled, onEnable }: {
+function NeighborhoodPage({ identity, account, client, runtimeClient, conciergeClient, enabled, onEnable }: {
   identity: string | null; account: ReturnType<typeof useAccount>; client?: NeighborClient; runtimeClient: NeighborRuntimeClient;
+  conciergeClient: NeighborConciergeClient;
   enabled: boolean; onEnable: () => void;
 }) {
   const neighbors = useNeighbors(identity, client);
   const tabMap = useTabMap();
   const me = accountTrayModel(account.model, null);
   const [selected, setSelected] = useState<string | null>(null);
+  const [openSection, setOpenSection] = useState<"configure" | null>(null);
   const [adding, setAdding] = useState(false);
   const [agentError, setAgentError] = useState<string | null>(null);
   const awaitingAccept = useRef<string | null>(null);
   useEffect(() => {
-    const take = () => { const id = takeNeighborFocus(); if (id) setSelected(id); };
+    const take = () => { const focus = takeNeighborFocus(); if (focus) { setSelected(focus.id); setOpenSection(focus.section); } };
     take();
     return onNeighborFocus(take);
   }, []);
@@ -160,6 +164,7 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, enabled, o
                 else if (list?.can_invite === false) openPlans();
                 return;
               }
+              setOpenSection(null);
               setSelected(current => current === node.id ? null : node.id);
             }} />)}
           {identity && list === null && !neighbors.error && <div className="neighbors-loading"><BusyState inline label="Loading Neighbors" phase="work" /></div>}
@@ -171,8 +176,9 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, enabled, o
           {neighbors.referral?.trial_end !== null && neighbors.referral?.trial_end !== undefined && <Button size="sm" variant="accent" onClick={openPlans}>Subscribe</Button>}
         </div>}
       </div>
-      {enabled && friend && identity && <SelectedNeighbor key={friend.friendship_id} owner={identity} neighbor={friend} locked={!paid} pending={neighbors.pending}
-        runtimeClient={runtimeClient}
+      {enabled && friend && identity && <SelectedNeighbor key={`${friend.friendship_id}:${openSection ?? ""}`} owner={identity} neighbor={friend} locked={!paid} pending={neighbors.pending}
+        runtimeClient={runtimeClient} initialSection={openSection}
+        onSavePermission={permission => conciergeClient.setPermission(friend.friendship_id, permission)}
         onTalkAbout={() => ask(talkAboutTask({ name: neighborName(friend), friendshipId: friend.friendship_id }))}
         onInterview={() => interview({ name: neighborName(friend), friendshipId: friend.friendship_id })}
         onLimit={per_hour => neighbors.apply({ operation: "set_limit", friendship_id: friend.friendship_id, per_hour })}
