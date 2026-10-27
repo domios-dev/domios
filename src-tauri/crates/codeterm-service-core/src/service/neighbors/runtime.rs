@@ -143,7 +143,7 @@ impl ServiceContext {
         self.require_neighbor_generation(generation)
             .map_err(|_| Error::Revoked)
     }
-    fn neighbor_cell(&self) -> &NeighborRuntimeCell {
+    pub(super) fn neighbor_cell(&self) -> &NeighborRuntimeCell {
         self.extensions.get_or_init(NeighborRuntimeCell::default)
     }
 
