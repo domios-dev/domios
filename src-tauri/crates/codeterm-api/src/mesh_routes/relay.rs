@@ -10,6 +10,7 @@ use axum::{
 use std::sync::LazyLock;
 
 mod caller;
+mod capability;
 
 fn sync_input_for_access<'a>(
     full_access: bool,
@@ -392,18 +393,7 @@ pub async fn mesh_relay_to_peer(
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     if crate::auth::caller_peer_id(&state, &headers).is_none() {
         if let Some(caller) = crate::auth::tab_caller(&state, &headers)? {
-            if let Some(capability) =
-                codeterm_service_core::service::neighbors::capabilities::http_capability(
-                    &req.method.to_ascii_uppercase(),
-                    req.path.split('?').next().unwrap_or(&req.path),
-                )
-            {
-                state
-                    .svc
-                    .authorize_neighbor_capability(&caller, capability)
-                    .await
-                    .map_err(|message| (StatusCode::FORBIDDEN, message))?;
-            }
+            capability::authorize(&state, &caller, &req.method, &req.path).await?;
             caller::bind(&caller, &req.method, &req.path, &mut req.body)
                 .map_err(|message| (StatusCode::FORBIDDEN, message))?;
         }

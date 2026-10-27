@@ -302,7 +302,14 @@ fn neighbor_failure(message: String) -> Response {
     let reason = message.split_once(':').map(|(reason, _)| reason);
     let status = match reason {
         Some("neighbor_forbidden") => StatusCode::FORBIDDEN,
-        Some("tab_requests_not_allowed" | "neighbor_permission_denied") => StatusCode::FORBIDDEN,
+        Some(
+            "tab_requests_not_allowed"
+            | "neighbor_permission_denied"
+            | "neighbor_memory_not_allowed"
+            | "neighbor_memory_read_only"
+            | "neighbor_secrets_not_allowed"
+            | "neighbor_files_not_allowed",
+        ) => StatusCode::FORBIDDEN,
         Some("session_revoked") => StatusCode::UNAUTHORIZED,
         Some("neighbors_disabled") => StatusCode::SERVICE_UNAVAILABLE,
         Some("limit_out_of_range") => StatusCode::BAD_REQUEST,

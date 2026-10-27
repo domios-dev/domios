@@ -5,6 +5,22 @@ use codeterm_service_core::service::test_fixture::ServiceFixture;
 use std::sync::Arc;
 
 #[test]
+fn caller_nonce_is_required_before_memory_or_agent_creation_dispatch() {
+    let (mux, tab) = MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    for method in ["mem.search", "agent.spawn", "tab.create"] {
+        let error = dispatch_service_rpc(
+            method,
+            Some(serde_json::json!({"caller_tab_id":tab})),
+            &Arc::new(fixture.service.clone()),
+        )
+        .unwrap_err();
+        assert_eq!(error.code, -32003);
+        assert_eq!(error.data.unwrap()["reason"], "neighbor_forbidden");
+    }
+}
+
+#[test]
 fn identify_uses_the_shared_product_name() {
     let (mux, _) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);

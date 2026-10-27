@@ -32,6 +32,8 @@ The daemon enforces concierge capability grants using the authenticated tab's cu
 
 `folder` is an optional absolute directory; absent or null selects the friend's own local folder. A folder change replaces the concierge while preserving provider, model and permissions. The daemon selects the strongest supported provider filesystem sandbox and disables permission bypass. Permission reads and status `permissions[friendship_id]` add `effective_folder` and `folder_enforcement: {writes, reads, note}`. `writes` is `provider_sandbox` only when a sandbox policy is active, otherwise `advisory`; `reads` is `not_confined`. The note names additional host writable roots and the platform's limitations. Daemon memory/file route grants are enforced independently; they do not imply that the provider's shell cannot read other OS files. Unsupported providers have advisory folder boundaries.
 
+A denied concierge tool call returns the typed refusal with instructions to reply politely to the current Neighbor request using its `message_id` as `in_reply_to`. The daemon does not guess a request from the latest history row. Permission-off and disallowed incoming tab requests still receive the automatic linked refusal before agent involvement. Generic file-path serving and browsing routes are unavailable to concierges; received files must be read through their friendship-checked handles.
+
 ```bash
 domios account neighbors permission FRIENDSHIP_ID
 domios account neighbors grant FRIENDSHIP_ID --from-pad scope.md
@@ -99,4 +101,4 @@ Restored runtime concierges start in the background when this machine prepares r
 
 The account signal watch applies confirmed delivery and expiry events to local outgoing history and emits `neighbor-history-changed`. On reconnect or a signal revision gap, it checks delivery once for up to 256 locally pending outgoing messages across at most 200 locally configured friendships. It never polls delivery. Confirmed terminal delivery cannot regress to pending when an earlier send response arrives late.
 
-<!-- revision: 21 -->
+<!-- revision: 22 -->

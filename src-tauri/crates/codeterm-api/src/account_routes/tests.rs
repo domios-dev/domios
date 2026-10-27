@@ -12,7 +12,14 @@ async fn size_and_permission_refusals_keep_their_typed_reason_and_limit() {
     let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(body["reason"], "message_too_large");
     assert_eq!(body["limit"], 32752);
-    for reason in ["tab_requests_not_allowed", "neighbor_permission_denied"] {
+    for reason in [
+        "tab_requests_not_allowed",
+        "neighbor_permission_denied",
+        "neighbor_memory_not_allowed",
+        "neighbor_memory_read_only",
+        "neighbor_secrets_not_allowed",
+        "neighbor_files_not_allowed",
+    ] {
         let response = neighbor_failure(format!("{reason}: This request is not allowed"));
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
         let body = axum::body::to_bytes(response.into_body(), 4096)

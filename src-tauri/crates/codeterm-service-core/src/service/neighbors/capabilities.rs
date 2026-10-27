@@ -9,6 +9,7 @@ pub enum Capability {
     Secrets,
     Spawn,
     Files,
+    FilePaths,
 }
 
 impl Capability {
@@ -22,9 +23,10 @@ impl Capability {
             Self::Spawn => "tab_requests_not_allowed",
             Self::Files if permission.allowed && permission.allow_files => return Ok(()),
             Self::Files => "neighbor_files_not_allowed",
+            Self::FilePaths => "neighbor_files_not_allowed",
         };
         Err(format!(
-            "{reason}: This concierge capability is not allowed for the Neighbor"
+            "{reason}: This concierge capability is not allowed for the Neighbor. Politely refuse the current request through the Neighbor channel with --kind refusal and --in-reply-to set to its message_id."
         ))
     }
 }
@@ -55,7 +57,12 @@ pub fn rpc_capability(method: &str) -> Option<Capability> {
 }
 
 pub fn http_capability(method: &str, path: &str) -> Option<Capability> {
-    if path == "/api/secrets" || path.starts_with("/api/secrets/") {
+    if path == "/api/serve-file"
+        || path.starts_with("/api/fs/")
+        || path == "/api/attachments/clipboard-file"
+    {
+        Some(Capability::FilePaths)
+    } else if path == "/api/secrets" || path.starts_with("/api/secrets/") {
         Some(Capability::Secrets)
     } else if path.starts_with("/api/mem/") {
         let item = path
@@ -125,6 +132,7 @@ impl ServiceContext {
         Ok(())
     }
 
+    #[cfg(test)]
     async fn neighbor_capability_permission_at(
         &self,
         metadata: &Metadata,
@@ -134,6 +142,14 @@ impl ServiceContext {
             .settings()
             .await
             .map_err(|error| error.to_string())?;
+        self.neighbor_capability_permission_in(&settings, caller)
+    }
+
+    fn neighbor_capability_permission_in(
+        &self,
+        settings: &super::storage::Settings,
+        caller: &TabCaller,
+    ) -> Result<Option<(String, Permission)>, String> {
         let Some((friendship, _)) = settings
             .bindings
             .iter()
@@ -205,9 +221,7 @@ impl ServiceContext {
             .await
             .map_err(|error| error.to_string())?;
         self.remember_neighbor_concierge_accounts(&session.identity.uid, &settings);
-        let result = self
-            .neighbor_capability_permission_at(&metadata, caller)
-            .await?;
+        let result = self.neighbor_capability_permission_in(&settings, caller)?;
         if result.is_none()
             && self
                 .neighbor_cell()

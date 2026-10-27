@@ -35,6 +35,7 @@ fn concierge_spawn_and_file_access_require_their_own_grants() {
         .unwrap_err()
         .starts_with("tab_requests_not_allowed:"));
     assert!(Capability::Files.require(&permission).is_ok());
+    assert!(Capability::FilePaths.require(&permission).is_err());
     permission.allow_tab_requests = true;
     permission.allow_files = false;
     assert!(Capability::Spawn.require(&permission).is_ok());
@@ -99,6 +100,14 @@ fn rpc_and_http_classify_memory_secrets_and_creation_routes_before_dispatch() {
     }
     assert!(http_capability("GET", "/api/tabs").is_none());
     assert!(rpc_capability("system.identify").is_none());
+    assert!(matches!(
+        http_capability("GET", "/api/serve-file"),
+        Some(Capability::FilePaths)
+    ));
+    assert!(matches!(
+        http_capability("GET", "/api/fs/list-dir"),
+        Some(Capability::FilePaths)
+    ));
 }
 
 #[tokio::test]

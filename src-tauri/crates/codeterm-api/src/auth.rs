@@ -10,6 +10,8 @@ pub(crate) mod remote;
 mod tab;
 pub(crate) use tab::{actor_ref, caller_claim, tab_caller};
 #[cfg(test)]
+mod neighbor_tests;
+#[cfg(test)]
 mod remote_tests;
 
 use super::routes::AppState;
@@ -479,6 +481,15 @@ pub async fn auth_middleware(
     }
 }
 
+fn neighbor_capability_failure(message: String) -> Response {
+    let reason = message.split(':').next().unwrap_or("neighbor_forbidden");
+    (
+        StatusCode::FORBIDDEN,
+        axum::Json(serde_json::json!({"code":reason,"reason":reason,"message":message})),
+    )
+        .into_response()
+}
+
 fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
     #[cfg(test)]
     if let Some(entered) = req
@@ -584,15 +595,7 @@ fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
                 if let Err(message) = codeterm_service_core::async_runtime::block_on(
                     state.svc.authorize_neighbor_capability(caller, capability),
                 ) {
-                    let reason = message.split(':').next().unwrap_or("neighbor_forbidden");
-                    return (
-                        StatusCode::FORBIDDEN,
-                        axum::Json(
-                            serde_json::json!({"code":reason,"reason":reason,"message":message}),
-                        ),
-                    )
-                        .into_response()
-                        .into();
+                    return neighbor_capability_failure(message).into();
                 }
             }
         }
