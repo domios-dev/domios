@@ -114,7 +114,6 @@ export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) 
         {billing.plan?.periodEnd && <p className={MUTED}>
           {subscriptionPlan === null ? "Access ends" : billing.plan.cancelAtPeriodEnd ? "Ends" : "Renews"} {new Date(billing.plan.periodEnd * 1000).toLocaleDateString()}
         </p>}
-        {billing.plan?.stale && <p role="status" className={MUTED}>Showing the last known plan.</p>}
         <AccountLimits limits={billing.plan?.limits ?? null} usage={usage} />
         {identity && <GiftRedemption key={identity} identity={identity} verifiedPlan={billing.plan?.stale ? null : billing.plan?.plan ?? null} />}
         {desktopBilling.subscription && <p role="status">{scheduledPlanCopy(desktopBilling.subscription, seconds => new Date(seconds * 1000).toLocaleDateString())}</p>}
