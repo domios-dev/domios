@@ -1,5 +1,5 @@
 import { useId, useState, type ReactNode } from "react";
-import { MessageSquare, MessagesSquare, SlidersHorizontal, SquareArrowOutUpRight, UserX, X } from "lucide-react";
+import { Lock, MessageSquare, MessagesSquare, SlidersHorizontal, SquareArrowOutUpRight, UserX, X } from "lucide-react";
 import { AccountAvatar } from "../Titlebar/AccountAvatar";
 import { accountInitials } from "../Settings/accountModel";
 import { Button } from "../shared/Button";
@@ -10,6 +10,14 @@ import { NeighborChannelView, type NeighborChannelState } from "./NeighborChanne
 import { STATUS_LABEL, type NeighborNodeStatus } from "./neighborhoodModel";
 
 type Section = "messages" | "configure" | "revoke";
+
+/** What the relay keeps: ciphertext only until delivery, never the history. */
+export function NeighborPrivacyNote({ className = "" }: { className?: string }) {
+  return <p className={`neighbor-privacy ${className}`.trim()}>
+    <Lock size={11} aria-hidden="true" />
+    <span>End-to-end encrypted. Messages are deleted from our servers once delivered; your history lives only on your machines.</span>
+  </p>;
+}
 
 function PanelHead({ name, photoURL, status, meta, onClose }: { name: string; photoURL: string | null; status: NeighborNodeStatus; meta?: string; onClose: () => void }) {
   return <header className="neighbor-panel__head">
@@ -104,5 +112,6 @@ export function NeighborPanel({ neighbor, name, locked, pending, channel, gatewa
         </div>
       </div>}
     </nav>
+    <NeighborPrivacyNote className="neighbor-panel__privacy" />
   </aside>;
 }

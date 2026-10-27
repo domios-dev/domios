@@ -11,7 +11,7 @@ import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { UI_PANEL, UI_TEXT } from "../shared/design";
 import { useMuxSelector } from "../../store/multiplexer";
 import { AddNeighborDialog } from "./AddNeighborDialog";
-import { NeighborPanel, NeighborRequestPanel } from "./NeighborPanel";
+import { NeighborPanel, NeighborPrivacyNote, NeighborRequestPanel } from "./NeighborPanel";
 import { askGeneralAgent, focusTab, permissionInterviewTask, talkAboutTask, workspaceOfTab, type NeighborSubject } from "./neighborAgent";
 import type { NeighborClient } from "./neighborClient";
 import { onNeighborFocus, takeNeighborFocus } from "./neighborFocus";
@@ -165,6 +165,7 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, enabled, o
           {identity && list === null && !neighbors.error && <div className="neighbors-loading"><BusyState inline label="Loading Neighbors" phase="work" /></div>}
         </div>
         {identity && enabled && list && people + requests + invited === 0 && <p className="neighbors-caption">Add someone you trust. Your agents can then ask theirs for help, and you decide what they may share.</p>}
+        {identity && <NeighborPrivacyNote className="neighbors-privacy" />}
         {referral && <div role="status" className="ct-card ct-card--static neighbors-referral">
           <p className="ct-card__meta">{referral}</p>
           {neighbors.referral?.trial_end !== null && neighbors.referral?.trial_end !== undefined && <Button size="sm" variant="accent" onClick={openPlans}>Subscribe</Button>}

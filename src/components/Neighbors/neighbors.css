@@ -731,3 +731,31 @@
   filter: grayscale(1);
   box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--ct-muted-fg) 40%, transparent), var(--ct-shadow-capsule);
 }
+
+.neighbor-privacy {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  color: var(--ct-muted-fg);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.neighbor-privacy svg {
+  flex: none;
+  translate: 0 1px;
+}
+
+.neighbors-privacy {
+  position: relative;
+  z-index: 1;
+  max-width: 26rem;
+  margin-top: 1rem;
+  text-align: center;
+}
+
+.neighbor-panel__privacy {
+  margin-top: auto;
+  padding-top: 0.75rem;
+  border-top: 1px solid color-mix(in srgb, var(--ct-fg) 6%, transparent);
+}
