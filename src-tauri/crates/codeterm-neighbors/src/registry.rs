@@ -8,6 +8,7 @@ pub struct Acceptance {
 
 #[derive(Default)]
 pub struct RegistrySignal {
+    pub receiver_revision: Option<u64>,
     pub accepted: Vec<Acceptance>,
 }
 

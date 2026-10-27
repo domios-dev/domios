@@ -108,6 +108,13 @@ impl Session {
 
     async fn refresh(&self, signal: RegistrySignal, seen: &mut notifications::Seen) -> Result<()> {
         self.current()?;
+        if signal.receiver_revision.is_some() {
+            self.service
+                .neighbor_receiver_changed()
+                .await
+                .map_err(|_| Error::Transport)?;
+            self.current()?;
+        }
         let mut list = self
             .transport
             .calls
@@ -203,7 +210,14 @@ async fn run(
             .map_err(|_| Error::CursorStore)?,
         &uid,
     );
+    let installation_id = service
+        .installation_id()
+        .await
+        .map_err(|_| Error::Transport)?
+        .as_str()
+        .to_owned();
     let transport = FirebaseTransport {
+        installation_id,
         project: if endpoints.qa {
             "domios-signin-qa"
         } else {

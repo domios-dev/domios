@@ -3,9 +3,10 @@ import { localFetch } from "../../lib/webApi";
 
 export type NeighborDeliveryStatus = "pending" | "delivered" | "not_delivered";
 export type NeighborListenerState = "connecting" | "receiving" | "reconnecting" | "stopped";
-export interface NeighborListenerEvent { friendship_id: string; status: NeighborListenerState }
+export interface ReceiverState { receiving_here: boolean; receiver_machine_label: string | null; receiving_enabled: boolean; revision: number }
+export type NeighborListenerEvent = { friendship_id: string; status: NeighborListenerState } | ReceiverState | { receiver_unavailable: true };
 export interface DeliveryResult { status: NeighborDeliveryStatus; reason?: "key_revoked" }
-export interface ChannelStatus {
+export interface ChannelStatus extends ReceiverState {
   listeners?: Record<string, NeighborListenerState>;
   enrolled: boolean;
   bindings: Record<string, string>;
@@ -23,7 +24,7 @@ export interface NeighborReceipt {
 }
 export interface NeighborRuntimeClient {
   status(signal?: AbortSignal): Promise<ChannelStatus>;
-  enroll(): Promise<void>;
+  enroll(revision: number): Promise<void>;
   rotate(): Promise<void>;
   permission(friendship: string, signal?: AbortSignal): Promise<NeighborPermission>;
   send(friendship: string, body: string): Promise<NeighborReceipt>;
@@ -54,23 +55,38 @@ async function call(command: Record<string, unknown>, signal?: AbortSignal): Pro
   const response = await localFetch("/api/account/neighbors/runtime", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(command), signal,
   });
-  if (!response.ok) throw new Error(await response.text());
+  if (!response.ok) {
+    const failure: unknown = await response.json().catch(() => null);
+    const reason = record(failure) && (["session_revoked", "operation_id_conflict", "neighbors_disabled", "installation_unverified", "receiver_elsewhere", "receiver_revision_stale", "not_receiver", "recipient_not_receiving"] as const).find(reason => reason === failure.code);
+    throw new NeighborRuntimeFailure(reason || "unavailable");
+  }
   return response.json();
+}
+
+export type ReceiverRefusal = "session_revoked" | "operation_id_conflict" | "neighbors_disabled" | "installation_unverified" | "receiver_elsewhere" | "receiver_revision_stale" | "not_receiver" | "recipient_not_receiving" | "unavailable";
+export class NeighborRuntimeFailure extends Error {
+  constructor(readonly reason: ReceiverRefusal) { super(reason); }
+}
+export function receiverState(value: unknown): value is ReceiverState {
+  return record(value) && typeof value.receiving_here === "boolean" && typeof value.receiving_enabled === "boolean"
+    && (value.receiver_machine_label === null || typeof value.receiver_machine_label === "string")
+    && typeof value.revision === "number" && Number.isSafeInteger(value.revision) && value.revision >= 0;
 }
 
 export const neighborRuntimeClient: NeighborRuntimeClient = {
   retry: async friendship => { await call({ operation: "retry", friendship_id: friendship }); },
   subscribe: handler => listen<NeighborListenerEvent>("neighbor-runtime-status", event => {
     const value = event.payload;
-    if (typeof value.friendship_id === "string" && ["connecting", "receiving", "reconnecting", "stopped"].includes(value.status)) handler(value);
+    if (receiverState(value) || ("receiver_unavailable" in value && value.receiver_unavailable === true)
+      || ("friendship_id" in value && typeof value.friendship_id === "string" && ["connecting", "receiving", "reconnecting", "stopped"].includes(value.status))) handler(value);
   }),
   status: async signal => {
     const value = await call({ operation: "status" }, signal);
-    if (!record(value) || typeof value.enrolled !== "boolean" || !record(value.bindings)
+    if (!record(value) || !receiverState(value) || typeof value.enrolled !== "boolean" || !record(value.bindings)
       || !Object.values(value.bindings).every(id => typeof id === "string")) throw new Error("Invalid Neighbor channel status");
     return value as unknown as ChannelStatus;
   },
-  enroll: async () => { await call({ operation: "enroll", takeover_confirmed: true }); },
+  enroll: async revision => { await call({ operation: "enroll", takeover_confirmed: true, expected_receiver_revision: revision }); },
   rotate: async () => { await call({ operation: "rotate" }); },
   permission: async (friendship, signal) => {
     const value = await call({ operation: "permission", friendship_id: friendship }, signal);

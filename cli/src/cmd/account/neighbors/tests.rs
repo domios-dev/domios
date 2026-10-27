@@ -49,7 +49,9 @@ fn takeover_needs_confirmation_and_authored_text_stays_in_pad_files() {
         "account",
         "neighbors",
         "enroll",
-        "--confirm-takeover"
+        "--confirm-takeover",
+        "--expected-receiver-revision",
+        "7"
     ])
     .is_ok());
     assert!(Cli::try_parse_from([

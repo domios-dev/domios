@@ -652,7 +652,10 @@ fn install_leaf(
         && ownership.is_none();
     let restored_boot_stage = restored_agent_type
         .as_ref()
-        .map(|_| codeterm_types::pty::BootStage::PtyStarting);
+        .map(|_| match &restored_backing {
+            TabBacking::ChatBackend { .. } => codeterm_types::pty::BootStage::AgentLaunching,
+            _ => codeterm_types::pty::BootStage::PtyStarting,
+        });
     let restored_locked = *agent_type_locked || restored_agent_type.is_some();
     tabs.insert(
         tab_id.clone(),

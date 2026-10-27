@@ -26,6 +26,13 @@ pub enum Error {
     Revoked,
     KeyNotFound,
     Refused,
+    ReceiverElsewhere,
+    ReceiverRevisionStale,
+    NotReceiver,
+    RecipientNotReceiving,
+    InstallationUnverified,
+    SessionRevoked,
+    OperationIdConflict,
     Disabled,
     Firestore { code: i32, operation: &'static str },
 }
@@ -50,6 +57,19 @@ impl std::fmt::Display for Error {
             Self::Locked => "friends_locked: Upgrade to use your Neighbors channel",
             Self::Revoked => "Neighbor installation key revoked",
             Self::KeyNotFound => "Neighbor installation key not found",
+            Self::ReceiverElsewhere => "receiver_elsewhere: Receiving on another machine",
+            Self::ReceiverRevisionStale => {
+                "receiver_revision_stale: Receiving changed; refresh and confirm again"
+            }
+            Self::NotReceiver => "not_receiver: This machine is not receiving",
+            Self::SessionRevoked => "session_revoked: This machine was signed out; sign in again",
+            Self::OperationIdConflict => "operation_id_conflict: Receiving operation conflicted; refresh status and confirm again",
+            Self::InstallationUnverified => {
+                "installation_unverified: Sign in on this installation again"
+            }
+            Self::RecipientNotReceiving => {
+                "recipient_not_receiving: This Neighbor is not receiving right now"
+            }
             Self::Refused => "Neighbor request refused",
             Self::Disabled => "neighbors_disabled: Neighbors is turned off on this instance",
             Self::Firestore { .. } => unreachable!(),
