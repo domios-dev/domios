@@ -111,7 +111,8 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
       const name = neighborName(friend);
       const conciergeId = allBindings[friend.friendship_id];
       const concierge = conciergeId ? tabs[conciergeId] : undefined;
-      const missing = enabled && concierges[friend.friendship_id]?.concierge_missing ? concierges[friend.friendship_id] : null;
+      // A bound concierge wins over a stale missing state.
+      const missing = enabled && !concierge && concierges[friend.friendship_id]?.concierge_missing ? concierges[friend.friendship_id] : null;
       const status = !enabled ? "off" : missing ? missingConciergeLine(missing).replace("No concierge on this machine", "no concierge here") : paid ? "connected" : "paused by plan";
       return <li key={friend.friendship_id}>
         <SurfaceOwnerBlock ownerId={`neighbor:${friend.friendship_id}`} attachments={concierge ? [concierge] : []} compact={false}

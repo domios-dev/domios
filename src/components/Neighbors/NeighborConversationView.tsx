@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bot } from "lucide-react";
 import { ChatDaySeparator, formatMessageTime, ReplyQuote, RichMarkdown } from "@codeterm/chat-ui";
 import { AccountAvatar } from "../Titlebar/AccountAvatar";
@@ -23,6 +23,8 @@ import { NeighborComposer } from "./NeighborComposer";
 import { useConciergeStatus } from "./useConciergeStatus";
 import { neighborRuntimeClient, type NeighborRuntimeClient } from "./neighborRuntimeClient";
 import { useNeighbors } from "./useNeighbors";
+import { readNeighborCache, type CachedFriend } from "./neighborListCache";
+import { useNeighborPermission } from "./useNeighborPermission";
 import { receivingLine, useReceiverState } from "./useReceiverState";
 
 /** Your conversation with one Neighbor: what they asked, what you and your agents answered, and how it was delivered. */
@@ -32,25 +34,43 @@ export function NeighborConversationView({ friendship, enabled = true, client, r
   const { model } = useAccount();
   const identity = model.kind === "signed_in" ? model.identity.uid : null;
   const neighbors = useNeighbors(identity, client);
-  const friend = neighbors.list?.friends.find(entry => entry.friendship_id === friendship);
+  // The remembered friend opens the conversation at once; the fresh list fills in limits and status behind it.
+  const cached = useMemo(() => readNeighborCache(identity), [identity]);
+  const fresh = neighbors.list?.friends.find(entry => entry.friendship_id === friendship);
+  const friend: ConversationFriend | undefined = fresh ?? (neighbors.list === null ? cached?.friends.find(entry => entry.friendship_id === friendship) : undefined);
   if (!friend) {
     return <div className="neighbor-chat absolute inset-0 flex items-center justify-center bg-[var(--ct-bg)]">
       {neighbors.list === null ? <BusyState inline label="Loading conversation" phase="work" />
         : <p className="neighbor-note">This Neighbor is no longer connected.</p>}
     </div>;
   }
-  return <Conversation key={friendship} friend={friend} locked={neighbors.list?.access !== "paid"} enabled={enabled}
+  const access = neighbors.list?.access ?? cached?.access;
+  return <Conversation key={friendship} friend={friend} locked={access !== "paid"} enabled={enabled}
     runtimeClient={runtimeClient} conciergeClient={conciergeClient} onSent={neighbors.refresh} />;
 }
 
+/** A friend from the fresh list, or the remembered one while it loads. */
+type ConversationFriend = CachedFriend & Partial<Omit<Neighbor, keyof CachedFriend>>;
+
 function Conversation({ friend, locked, enabled, runtimeClient, conciergeClient, onSent }: {
-  friend: Neighbor; locked: boolean; enabled: boolean; runtimeClient: NeighborRuntimeClient; conciergeClient: NeighborConciergeClient; onSent: () => void;
+  friend: ConversationFriend; locked: boolean; enabled: boolean; runtimeClient: NeighborRuntimeClient; conciergeClient: NeighborConciergeClient; onSent: () => void;
 }) {
   const name = neighborName(friend);
   const friendship = friend.friendship_id;
   const workspaces = useMuxSelector(state => state.workspaces);
   const tabs = useMuxSelector(state => state.tabs);
   const receiver = useReceiverState(runtimeClient, enabled);
+  const { permission } = useNeighborPermission(runtimeClient, conciergeClient, friendship);
+  // Their html and diagrams run only when the owner allowed interactive content from this friend.
+  const friendInteractive = permission?.allow_interactive_content === true;
+  const [checking, setChecking] = useState<string | null>(null);
+  const checkDelivery = (messageId: string) => {
+    if (checking) return;
+    setChecking(messageId); setError(null);
+    void runtimeClient.deliveryStatus(messageId).then(() => loadLatest(),
+      (failure: unknown) => setError(failure instanceof Error ? failure.message : "Delivery could not be checked."))
+      .finally(() => setChecking(null));
+  };
   const [notify, setNotify] = useState<NeighborNotify>(friend.notify ?? "in_app");
   useEffect(() => { if (friend.notify) setNotify(friend.notify); }, [friend.notify]);
   useEffect(() => {
@@ -153,7 +173,7 @@ function Conversation({ friend, locked, enabled, runtimeClient, conciergeClient,
     </div>
     {receiver && !receiver.receiving_here && receiver.receiving_enabled && <p role="status" className="neighbor-chat__moved">
       {receivingLine(receiver)}. {name}'s messages arrive there, and concierges here stay idle.</p>}
-    {concierge?.concierge_missing && <div className="neighbor-chat__notice"><MissingConciergeNotice status={concierge}
+    {concierge?.concierge_missing && !concierge.gateway_tab && !friend.gateway_tab && <div className="neighbor-chat__notice"><MissingConciergeNotice status={concierge}
       onSetUpWithGeneral={setUpWithGeneral} onEditPermissions={() => openNeighborPage(friendship, "configure")} /></div>}
     <div ref={scroller} className="neighbor-chat__scroll" onScroll={event => {
       const element = event.currentTarget;
@@ -161,17 +181,17 @@ function Conversation({ friend, locked, enabled, runtimeClient, conciergeClient,
     }}>
       <div className="neighbor-chat__column" role="log" aria-label={`Conversation with ${name}`}>
         {before && <div className="neighbor-chat__earlier"><Button size="sm" onClick={() => { void loadEarlier(); }}>Show earlier messages</Button></div>}
-        {entries === null && !error && <BusyState inline label="Loading conversation" phase="work" />}
-        {entries !== null && entries.length === 0 && <div className="neighbor-chat__empty">
-          <p className="neighbor-me__title">No messages with {name} yet</p>
-          <p className="neighbor-note">Their questions to your agents, and your answers, appear here.</p>
+        {(entries === null || entries.length === 0) && !error && <div className="neighbor-chat__empty">
+          <p className="neighbor-me__title">No messages yet</p>
+          <p className="neighbor-me__hint">Say hi to {name}. Your concierge answers their agents within the permissions you set.</p>
         </div>}
         {(entries ?? []).map((entry, index) => {
           const day = dayLabel(entry.at, index > 0 ? entries![index - 1].at : null);
           const quoted = entry.in_reply_to ? byId.get(entry.in_reply_to) : undefined;
           return <Fragment key={entry.message_id}>
             {day && <ChatDaySeparator label={day} />}
-            <Entry entry={entry} friend={friend} friendName={name} quoted={quoted ? { label: speaker(quoted, name), excerpt: quoted.body } : null}
+            <Entry entry={entry} friend={friend} friendName={name} interactive={friendInteractive && entry.direction === "in" && entry.author === "friend"}
+              checking={checking === entry.message_id} onCheckDelivery={() => checkDelivery(entry.message_id)} quoted={quoted ? { label: speaker(quoted, name), excerpt: quoted.body } : null}
               onOpenQuoted={() => document.getElementById(`neighbor-msg-${entry.in_reply_to}`)?.scrollIntoView({ block: "center", behavior: "smooth" })} />
           </Fragment>;
         })}
@@ -187,8 +207,9 @@ function Conversation({ friend, locked, enabled, runtimeClient, conciergeClient,
   </div>;
 }
 
-function Entry({ entry, friend, friendName, quoted, onOpenQuoted }: {
-  entry: HistoryEntry; friend: Neighbor; friendName: string; quoted: { label: string; excerpt: string } | null; onOpenQuoted: () => void;
+function Entry({ entry, friend, friendName, interactive, checking, onCheckDelivery, quoted, onOpenQuoted }: {
+  entry: HistoryEntry; friend: ConversationFriend; friendName: string; interactive: boolean; checking: boolean; onCheckDelivery: () => void;
+  quoted: { label: string; excerpt: string } | null; onOpenQuoted: () => void;
 }) {
   const time = formatMessageTime(entry.at);
   const refusal = entry.direction === "out" ? refusalLine(entry, friendName, Date.now()) : null;
@@ -202,13 +223,15 @@ function Entry({ entry, friend, friendName, quoted, onOpenQuoted }: {
         {entry.kind === "refusal" && <span className="neighbor-note"> declined</span>}</p>}
       {quoted && <ReplyQuote label={quoted.label} excerpt={quoted.excerpt} onOpen={onOpenQuoted} />}
       <div className={mine ? `ct-user-bubble${agent ? " ct-user-bubble--relayed" : ""} neighbor-msg__bubble` : "neighbor-msg__body"}>
-        <RichMarkdown text={entry.body} localArtifacts={false} interactivePreviews={false} />
+        <RichMarkdown text={entry.body} localArtifacts={false} interactivePreviews={interactive} />
       </div>
       <p className="neighbor-msg__meta">
         <time dateTime={new Date(entry.at).toISOString()} title={new Date(entry.at).toLocaleString()}>{time}</time>
         {mine && refusal ? <span className="neighbor-status neighbor-msg__refused"><span className="neighbor-dot" data-tone="danger" aria-hidden="true" />{refusal}</span>
         : mine && entry.delivery_status && <span className="neighbor-status"><span className="neighbor-dot"
           data-tone={entry.delivery_status === "delivered" ? "ok" : entry.delivery_status === "pending" ? "progress" : "danger"} aria-hidden="true" />{DELIVERY_LABEL[entry.delivery_status]}</span>}
+        {mine && entry.submission === "unconfirmed" && <span className="neighbor-note">submission unconfirmed</span>}
+        {mine && !refusal && entry.delivery_status === "pending" && <Button size="compact" loading={checking} onClick={onCheckDelivery}>Check delivery</Button>}
         {!mine && entry.outcome === "refused" && <span className="neighbor-status neighbor-msg__refused"><span className="neighbor-dot" data-tone="danger" aria-hidden="true" />refused{entry.reason ? `: ${entry.reason}` : ""}</span>}
         {!mine && entry.outcome === "answered" && <span className="neighbor-status"><span className="neighbor-dot" data-tone="ok" aria-hidden="true" />answered</span>}
       </p>

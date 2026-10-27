@@ -23,6 +23,8 @@ export interface HistoryEntry {
   at: number;
   message_id: string;
   delivery_status?: NeighborDeliveryStatus;
+  /** Outgoing only: whether the relay took the message at all. */
+  submission?: "accepted" | "unconfirmed" | "refused";
 }
 
 export type NeighborNotify = "off" | "in_app" | "in_app_and_bridges";
@@ -72,6 +74,7 @@ export function parseHistory(value: unknown): HistoryPage {
         ...(typeof entry.limit === "number" ? { limit: entry.limit } : {}),
         ...(typeof entry.resets_at === "number" ? { resets_at: unixMillis(entry.resets_at) } : {}),
         ...(typeof entry.retry_after_seconds === "number" ? { retry_after_seconds: entry.retry_after_seconds } : {}),
+        ...(entry.submission === "accepted" || entry.submission === "unconfirmed" || entry.submission === "refused" ? { submission: entry.submission } : {}),
         ...(entry.delivery_status === undefined ? {} : { delivery_status: deliveryStatus(entry.delivery_status) }) };
     }),
   };

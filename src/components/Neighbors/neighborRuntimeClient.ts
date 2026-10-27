@@ -5,7 +5,16 @@ export type NeighborDeliveryStatus = "pending" | "delivered" | "not_delivered";
 export type NeighborListenerState = "connecting" | "receiving" | "reconnecting" | "stopped";
 export interface ReceiverState { receiving_here: boolean; receiver_machine_label: string | null; receiving_enabled: boolean; revision: number }
 export type NeighborListenerEvent = { friendship_id: string; status: NeighborListenerState } | ReceiverState | { receiver_unavailable: true };
-export interface DeliveryResult { status: NeighborDeliveryStatus; reason?: "key_revoked" }
+export type DeliveryRefusal = "key_revoked" | "neighbor_daily_limit" | "rate_limited" | "aggregate_limited" | "friends_locked" | "recipient_locked" | "recipient_not_receiving";
+const DELIVERY_REFUSALS: readonly string[] = ["key_revoked", "neighbor_daily_limit", "rate_limited", "aggregate_limited", "friends_locked", "recipient_locked", "recipient_not_receiving"];
+export interface DeliveryResult {
+  status: NeighborDeliveryStatus;
+  reason?: DeliveryRefusal;
+  /** Daily limit metadata, and how long hourly or overall limits ask to wait. */
+  limit?: number;
+  resets_at?: number;
+  retry_after_seconds?: number;
+}
 export interface ChannelStatus extends ReceiverState {
   listeners?: Record<string, NeighborListenerState>;
   enrolled: boolean;
@@ -15,11 +24,13 @@ export interface NeighborPermission {
   allowed: boolean;
   scope: string;
   allow_tab_requests: boolean;
+  /** Off by default: their html and diagrams stay inert code. */
+  allow_interactive_content?: boolean;
 }
 export interface NeighborReceipt {
   message_id: string;
   status: NeighborDeliveryStatus;
-  reason?: "key_revoked";
+  reason?: DeliveryRefusal;
   submission?: "unconfirmed";
 }
 export interface NeighborRuntimeClient {
@@ -42,7 +53,12 @@ export function deliveryStatus(value: unknown): NeighborDeliveryStatus {
 }
 export function deliveryResult(value: unknown): DeliveryResult {
   if (!record(value)) throw new Error("Invalid Neighbor delivery result");
-  return { status: deliveryStatus(value.status), ...(value.reason === "key_revoked" ? { reason: "key_revoked" as const } : {}) };
+  const count = (field: unknown) => typeof field === "number" && Number.isFinite(field) && field >= 0;
+  return { status: deliveryStatus(value.status),
+    ...(typeof value.reason === "string" && DELIVERY_REFUSALS.includes(value.reason) ? { reason: value.reason as DeliveryRefusal } : {}),
+    ...(count(value.limit) ? { limit: value.limit as number } : {}),
+    ...(count(value.resets_at) ? { resets_at: value.resets_at as number } : {}),
+    ...(count(value.retry_after_seconds) ? { retry_after_seconds: value.retry_after_seconds as number } : {}) };
 }
 
 export function receipt(value: unknown): NeighborReceipt {

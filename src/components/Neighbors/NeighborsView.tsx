@@ -184,7 +184,7 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, conciergeC
         onClose={() => setSelected(null)} />}
     </div>
     <NeighborPrivacyNote className="neighbors-privacy" />
-    {enabled && friend && identity && <NeighborFriendPage key={friend.friendship_id} owner={identity} friend={friend} locked={!paid} enabled={enabled}
+    {enabled && friend && identity && <NeighborFriendPage key={friend.friendship_id} friend={friend} locked={!paid} enabled={enabled}
       pending={neighbors.pending} focusPermissions={openSection === "configure"} runtimeClient={runtimeClient} conciergeClient={conciergeClient}
       onBack={() => { setSelected(null); setOpenSection(null); }} onPlans={openPlans}
       onTalkAbout={() => ask(talkAboutTask({ name: neighborName(friend), friendshipId: friend.friendship_id }))}

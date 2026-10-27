@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "../shared/Button";
 import { FormRow } from "../shared/FormRow";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
@@ -8,6 +8,8 @@ import { validNeighborLimit, type Neighbor } from "./neighborModel";
 import type { NeighborPermission } from "./neighborRuntimeClient";
 
 const SCOPE_LIMIT = 8192;
+const samePermission = (a: NeighborPermission, b: NeighborPermission) => a.allowed === b.allowed && a.scope === b.scope
+  && a.allow_tab_requests === b.allow_tab_requests && (a.allow_interactive_content ?? false) === (b.allow_interactive_content ?? false);
 const scopeBytes = (scope: string) => new TextEncoder().encode(scope).length;
 
 /** Allowing requests needs a written scope; the relay refuses an empty or oversized one. */
@@ -37,9 +39,16 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
   const dailyChanged = dailyValue !== (neighbor.my_daily_limit ?? null);
   const scopeField = useId();
   const limitField = useId();
-  useEffect(() => { if (permission) { setBaseline(permission); setDraft(permission); } }, [permission]);
-  const changed = draft !== null && baseline !== null
-    && (draft.allowed !== baseline.allowed || draft.scope !== baseline.scope || draft.allow_tab_requests !== baseline.allow_tab_requests);
+  const [incoming, setIncoming] = useState<NeighborPermission | null>(null);
+  const changed = draft !== null && baseline !== null && !samePermission(draft, baseline);
+  const dirty = useRef(changed);
+  dirty.current = changed;
+  // A change saved elsewhere replaces a clean form; with unsaved edits it waits for the owner to choose.
+  useEffect(() => {
+    if (!permission) return;
+    if (dirty.current) { setIncoming(permission); return; }
+    setBaseline(permission); setDraft(permission); setIncoming(null);
+  }, [permission]);
   const problem = draft ? permissionProblem(draft) : null;
   const edit = (patch: Partial<NeighborPermission>) => setDraft(current => current ? { ...current, ...patch } : current);
   return <div className="neighbor-permissions">
@@ -49,8 +58,17 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
       <textarea id={scopeField} className={`${UI_INPUT.full} neighbor-textarea`} rows={4} disabled={!draft || saving}
         placeholder={draft ? "Nothing allowed yet" : "Reading their permissions"} value={draft?.scope ?? ""} onChange={event => edit({ scope: event.currentTarget.value })} />
     </FormRow>
+    <SwitchTile label={`Show interactive content from ${name}`} hint="Runs their html previews and diagrams in your chat. Only for people you trust."
+      checked={draft?.allow_interactive_content === true} onChange={allow_interactive_content => { if (draft && !saving) edit({ allow_interactive_content }); }} />
     <SwitchTile label="May ask to open tabs" hint="A separate grant: without it, their agents can only ask questions."
       checked={draft?.allow_tab_requests === true} onChange={allow_tab_requests => { if (draft && !saving) edit({ allow_tab_requests }); }} />
+    {incoming && !samePermission(incoming, baseline ?? incoming) && <div role="status" className="neighbor-confirm">
+      <p>These permissions were changed elsewhere while you were editing.</p>
+      <div className="neighbor-confirm__actions">
+        <Button size="sm" onClick={() => { setBaseline(incoming); setDraft(incoming); setIncoming(null); }}>Load the new ones</Button>
+        <Button size="sm" onClick={() => { setBaseline(incoming); setIncoming(null); }}>Keep my edits</Button>
+      </div>
+    </div>}
     {problem && changed && <p role="alert" className="neighbor-note">{problem}</p>}
     {error && <InlineErrorNotice error={error} operation="saving Neighbor permissions" role="alert" />}
     <div className="neighbor-confirm__actions">

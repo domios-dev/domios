@@ -19,7 +19,7 @@ import { MissingConciergeNotice } from "./NeighborPanel";
 import { NeighborPermissionsEditor } from "./NeighborPermissionsEditor";
 import type { NeighborPermission, NeighborRuntimeClient } from "./neighborRuntimeClient";
 import { useConciergeStatus, type ConciergeStatus } from "./useConciergeStatus";
-import { useNeighborChannel } from "./useNeighborChannel";
+import { useNeighborPermission } from "./useNeighborPermission";
 import { receivingLine, useReceiverState } from "./useReceiverState";
 
 export const NOTIFY_CHOICES: { value: NeighborNotify; label: string }[] = [
@@ -36,16 +36,16 @@ function conciergeState(status: ConciergeStatus | null, bound: boolean): { label
 }
 
 /** One Neighbor's settings: the conversation, their concierge, what they may ask, notifications, and removal. */
-export function NeighborFriendPage({ owner, friend, locked, enabled, pending, focusPermissions, runtimeClient, conciergeClient,
+export function NeighborFriendPage({ friend, locked, enabled, pending, focusPermissions, runtimeClient, conciergeClient,
   onBack, onTalkAbout, onInterview, onLimit, onRemove, onPlans }: {
-  owner: string; friend: Neighbor; locked: boolean; enabled: boolean; pending: boolean; focusPermissions: boolean;
+  friend: Neighbor; locked: boolean; enabled: boolean; pending: boolean; focusPermissions: boolean;
   runtimeClient: NeighborRuntimeClient; conciergeClient: NeighborConciergeClient;
   onBack: () => void; onTalkAbout: () => void; onInterview: () => void;
   onLimit: (limit: number) => Promise<boolean>; onRemove: () => Promise<boolean>; onPlans: () => void;
 }) {
   const name = neighborName(friend);
   const friendship = friend.friendship_id;
-  const channel = useNeighborChannel(owner, friendship, runtimeClient);
+  const { permission } = useNeighborPermission(runtimeClient, conciergeClient, friendship);
   const receiver = useReceiverState(runtimeClient, enabled);
   const concierge = useConciergeStatus(runtimeClient, enabled)[friendship] ?? null;
   const workspaces = useMuxSelector(state => state.workspaces);
@@ -56,7 +56,7 @@ export function NeighborFriendPage({ owner, friend, locked, enabled, pending, fo
   const [notify, setNotify] = useState<NeighborNotify>(friend.notify ?? "in_app");
   const [error, setError] = useState<string | null>(null);
   const permissions = useRef<HTMLDivElement>(null);
-  const gatewayId = concierge?.gateway_tab ?? friend.gateway_tab ?? channel.status?.bindings[friendship] ?? null;
+  const gatewayId = concierge?.gateway_tab ?? friend.gateway_tab ?? null;
   const gateway = gatewayId ? tabs[gatewayId] : undefined;
   const state = conciergeState(concierge, Boolean(gateway));
   const provider = gateway?.agent_type ? providers.find(entry => entry.id === gateway.agent_type) : undefined;
@@ -97,7 +97,7 @@ export function NeighborFriendPage({ owner, friend, locked, enabled, pending, fo
           </div>
         </header>
         {error && <InlineErrorNotice error={error} operation={`managing ${name}`} role="alert" />}
-        {concierge?.concierge_missing && <MissingConciergeNotice status={concierge} onSetUpWithGeneral={onInterview}
+        {concierge?.concierge_missing && !gateway && <MissingConciergeNotice status={concierge} onSetUpWithGeneral={onInterview}
           onEditPermissions={() => permissions.current?.scrollIntoView({ block: "start", behavior: "smooth" })} />}
 
         <SettingsCard icon={<MessagesSquare size={16} />} title="Conversation"
@@ -121,7 +121,7 @@ export function NeighborFriendPage({ owner, friend, locked, enabled, pending, fo
 
         <div ref={permissions}>
           <SettingsCard icon={<ShieldCheck size={16} />} title="Permissions" description={`What ${name}'s agents may ask yours for, and how often.`}>
-            <NeighborPermissionsEditor neighbor={friend} name={name} permission={channel.permission} pending={pending}
+            <NeighborPermissionsEditor neighbor={friend} name={name} permission={permission} pending={pending}
               onSave={(permission: NeighborPermission) => conciergeClient.setPermission(friendship, permission)}
               onSaveDailyLimit={dailyLimit => conciergeClient.setDailyLimit(friendship, dailyLimit)}
               onLimit={onLimit} onEditWithGeneral={onInterview} />

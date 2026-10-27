@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { listen } from "../../lib/bridge";
-import type { NeighborRuntimeClient } from "./neighborRuntimeClient";
+import { receiverState, type NeighborRuntimeClient } from "./neighborRuntimeClient";
 
 export interface ConciergeStatus {
   gateway_tab: string | null;
@@ -36,26 +36,38 @@ export function useConciergeStatus(client: NeighborRuntimeClient, active: boolea
   useEffect(() => {
     if (!active) { setByFriendship({}); return; }
     const controller = new AbortController();
-    let stop: (() => void) | undefined;
+    const stops: Array<() => void> = [];
+    const keep = (stop: () => void) => { if (controller.signal.aborted) stop(); else stops.push(stop); };
+    // Each read supersedes the ones before it; a slow answer never replaces a newer one.
+    let generation = 0;
+    const refresh = () => {
+      const current = ++generation;
+      client.status(controller.signal).then(status => {
+        if (controller.signal.aborted || current !== generation) return;
+        const concierges = (status as unknown as Record<string, unknown>).concierges;
+        if (!record(concierges)) return;
+        const parsed: Record<string, ConciergeStatus> = {};
+        for (const [friendship, value] of Object.entries(concierges)) {
+          const entry = parseConciergeStatus(value);
+          if (entry) parsed[friendship] = entry;
+        }
+        setByFriendship(parsed);
+      }, () => {});
+    };
     void listen<unknown>("neighbor-concierge-status", event => {
       const payload = event.payload;
       const status = parseConciergeStatus(payload);
       if (status && record(payload) && typeof payload.friendship_id === "string") {
         const friendship = payload.friendship_id;
+        generation++;
         setByFriendship(current => ({ ...current, [friendship]: status }));
       }
-    }).then(unlisten => { if (controller.signal.aborted) unlisten(); else stop = unlisten; });
-    client.status(controller.signal).then(status => {
-      const concierges = (status as unknown as Record<string, unknown>).concierges;
-      if (!record(concierges)) return;
-      const parsed: Record<string, ConciergeStatus> = {};
-      for (const [friendship, value] of Object.entries(concierges)) {
-        const entry = parseConciergeStatus(value);
-        if (entry) parsed[friendship] = entry;
-      }
-      setByFriendship(parsed);
-    }, () => {});
-    return () => { controller.abort(); stop?.(); };
+    }).then(keep);
+    // Binding or replacing a concierge, and moving the receiver, change every friend's state at once.
+    void listen("neighbor-agent-changed", refresh).then(keep);
+    void client.subscribe(event => { if (receiverState(event)) refresh(); }).then(keep);
+    refresh();
+    return () => { controller.abort(); stops.forEach(stop => stop()); };
   }, [client, active]);
   return byFriendship;
 }
@@ -65,7 +77,7 @@ const PENDING_CAP = 100;
 
 /** "No concierge on this machine", with the waiting count only once it has been observed. */
 export function missingConciergeLine(status: ConciergeStatus): string {
-  if (status.pending_count === null) return "No concierge on this machine";
+  if (status.pending_count === null || status.pending_count === 0) return "No concierge on this machine";
   const count = status.pending_count_capped || status.pending_count >= PENDING_CAP ? `${status.pending_count}+` : String(status.pending_count);
   return `No concierge on this machine — ${count} ${status.pending_count === 1 ? "message" : "messages"} waiting`;
 }
