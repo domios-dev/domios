@@ -27,7 +27,7 @@ serde_json = "1"
 codeterm-service-core = { path = "../../crates/codeterm-service-core", default-features = false, features = ["test-support"] }
 codeterm-bridge = { path = "../../crates/codeterm-bridge" }
 axum = { version = "0.8", features = ["multipart"] }
-base64 = "0.22"
+base64 = "0.23"
 tokio = { version = "1", features = ["full", "test-util"] }
 
 # Cross-domain integration tests that belong to no single domain crate.

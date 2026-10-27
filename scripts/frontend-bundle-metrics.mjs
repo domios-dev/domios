@@ -18,7 +18,7 @@ export function staticChunkClosure(entries, graph) {
 }
 
 export async function bundleMetrics(directory) {
-  await init;
+  await init();
   const root = path.resolve(directory);
   const graph = new Map();
   const visit = (relative) => {
@@ -27,8 +27,8 @@ export async function bundleMetrics(directory) {
     if (!absolute.startsWith(root + path.sep)) throw new Error(`Chunk outside bundle: ${relative}`);
     const source = fs.readFileSync(absolute, 'utf8');
     const [imports] = parse(source);
-    const dependencies = imports.filter(item => item.d === -1 && item.n?.startsWith('.'))
-      .map(item => path.posix.normalize(path.posix.join(path.posix.dirname(relative), item.n)));
+    const dependencies = imports.filter(item => (item.type === 'static' || item.type === 'reexport-star') && item.specifier.startsWith('.'))
+      .map(item => path.posix.normalize(path.posix.join(path.posix.dirname(relative), item.specifier)));
     graph.set(relative, { bytes: Buffer.byteLength(source), imports: dependencies });
     dependencies.forEach(visit);
   };

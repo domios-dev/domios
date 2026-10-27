@@ -45,7 +45,7 @@ codeterm-usage = { path = "../codeterm-usage" }
 codeterm-build-info = { path = "../codeterm-build-info" }
 log = { version = "0.4", features = ["release_max_level_info"] }
 parking_lot = "0.12"
-base64 = "0.22"
+base64 = "0.23"
 toml = "0.8"
 dirs = "6"
 axum = { version = "0.8", features = ["multipart"] }
