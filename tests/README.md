@@ -101,6 +101,7 @@ on a file two runners discover, on an empty test file, on an invalid field, on a
 | `rust-events` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-events` | `.agents/skills/gates/SKILL.md` |
 | `rust-config` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-config` | `.agents/skills/gates/SKILL.md` |
 | `rust-secrets` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-secrets` | `.agents/skills/gates/SKILL.md` |
+| `rust-neighbors` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-neighbors` | `.agents/skills/gates/SKILL.md` |
 | `rust-keepawake` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-keepawake` | `.agents/skills/gates/SKILL.md` |
 | `rust-cron` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-cron` | `.agents/skills/gates/SKILL.md` |
 | `rust-shutdown` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-shutdown` | `.agents/skills/gates/SKILL.md` |
