@@ -381,15 +381,7 @@ kill_dev() {
       rm -f "$CT_DATA_DIR/daemon.pid"
     fi
   else
-    local dev_pid
-    dev_pid=$(netstat -ano 2>/dev/null | grep ":$CT_PORT.*LISTEN" | awk '{print $5}' | head -1 || true)
-    if [ -n "$dev_pid" ] && [ "$dev_pid" != "0" ]; then
-      request_dev_clean_restart 2>/dev/null || true
-      if ! wait_for_dev_exit "$dev_pid"; then
-        echo "Clean shutdown deadline elapsed; force-killing dev instance (PID $dev_pid on port $CT_PORT)..."
-        taskkill //PID "$dev_pid" //T //F 2>/dev/null || true
-      fi
-    fi
+    node scripts/dev-rebuild-stop.mjs "$(dev_provenance_record)" "$CT_DATA_DIR" "$CT_PORT" "$CT_INSTANCE" "$(dev_app_path)" || return
     kill_web_watch 2>/dev/null || true
     kill_dev_static_server 2>/dev/null || true
     local vite_pid
