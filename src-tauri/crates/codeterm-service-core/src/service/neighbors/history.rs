@@ -368,9 +368,11 @@ impl ServiceContext {
         else {
             return Ok(());
         };
+        let accepted_retry = entry.submission == Some(Submission::Refused)
+            && receipt.submission == Some(Submission::Accepted);
         let status = match (entry.delivery_status, receipt.delivery.status) {
             (Some(DeliveryStatus::Delivered), _) => DeliveryStatus::Delivered,
-            (Some(DeliveryStatus::NotDelivered), DeliveryStatus::Pending) => {
+            (Some(DeliveryStatus::NotDelivered), DeliveryStatus::Pending) if !accepted_retry => {
                 DeliveryStatus::NotDelivered
             }
             (_, status) => status,
@@ -385,6 +387,12 @@ impl ServiceContext {
             return Ok(());
         }
         entry.delivery_status = Some(status);
+        if accepted_retry {
+            entry.reason = None;
+            entry.limit = None;
+            entry.resets_at = None;
+            entry.retry_after_seconds = None;
+        }
         if status == DeliveryStatus::Delivered {
             entry.submission = Some(Submission::Accepted);
         }
