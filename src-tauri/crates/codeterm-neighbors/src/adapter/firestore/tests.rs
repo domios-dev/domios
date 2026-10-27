@@ -1,4 +1,5 @@
 use super::*;
+mod size_boundary;
 
 #[test]
 fn grpc_failure_keeps_code_operation_and_only_safe_diagnostic_fields() {

@@ -13,6 +13,9 @@ use tonic::transport::{Channel, ClientTlsConfig};
 use zeroize::Zeroizing;
 
 const PAGE_SIZE: i32 = 100;
+const MAX_ENVELOPE_STRING_BYTES: usize = crate::wire::MAX_CIPHERTEXT_BYTES
+    .saturating_mul(4)
+    .div_ceil(3);
 mod pending;
 pub(super) mod registry;
 pub(super) use pending::count as pending_count;
@@ -564,7 +567,7 @@ fn json(value: fs::Value, depth: usize) -> Result<serde_json::Value> {
     }
     use fs::value::ValueType;
     match value.value_type {
-        Some(ValueType::StringValue(s)) if s.len() <= 12_000 => Ok(s.into()),
+        Some(ValueType::StringValue(s)) if s.len() <= MAX_ENVELOPE_STRING_BYTES => Ok(s.into()),
         Some(ValueType::IntegerValue(i)) if i >= 0 && i as u64 <= crate::wire::MAX_SAFE_INTEGER => {
             Ok(i.into())
         }
