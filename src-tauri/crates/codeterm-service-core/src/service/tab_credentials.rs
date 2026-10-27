@@ -21,6 +21,9 @@ impl TabCaller {
         method: &str,
         params: &mut Option<serde_json::Value>,
     ) -> Result<(), String> {
+        if method.starts_with("model_provider.") || method == "rest_api.restart" {
+            return Err("RPC requires the local owner credential".into());
+        }
         let body = params.get_or_insert_with(|| serde_json::json!({}));
         if body.is_null() {
             *body = serde_json::json!({});
@@ -39,10 +42,7 @@ impl TabCaller {
                 self.validate_claim(Some(claim))?;
             }
         }
-        if method.starts_with("model_provider.")
-            || method.starts_with("system.")
-            || method.starts_with("rest_api.")
-        {
+        if method.starts_with("system.") || method.starts_with("rest_api.") {
             return Ok(());
         }
         body.insert("caller_tab_id".into(), self.tab_id.clone().into());

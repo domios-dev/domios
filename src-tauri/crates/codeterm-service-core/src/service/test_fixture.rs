@@ -1,3 +1,5 @@
+pub mod model_provider;
+
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;

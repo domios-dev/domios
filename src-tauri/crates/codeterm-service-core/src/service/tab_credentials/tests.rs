@@ -228,3 +228,36 @@ fn omitted_plan_actor_references_derive_the_authenticated_tab() {
         assert_eq!(params.unwrap()[field]["tab_id"], tab, "{method}");
     }
 }
+
+#[test]
+fn owner_only_rpc_rejects_tab_authority_before_binding_params() {
+    let (fixture, tab, _) = fixture();
+    let svc = &fixture.service;
+    svc.ext::<crate::config::ConfigState>().lock().api.token = Some("owner-secret".into());
+    let credential = token(svc, &tab);
+    for method in [
+        "model_provider.discover",
+        "model_provider.list",
+        "model_provider.future",
+        "rest_api.restart",
+    ] {
+        for mut params in [
+            None,
+            Some(json!(null)),
+            Some(json!({"authority":"Local","authenticated_api_credential":"owner-secret"})),
+        ] {
+            let original = params.clone();
+            assert_eq!(
+                svc.bind_local_rpc(&credential, method, &mut params),
+                Err("RPC requires the local owner credential".into())
+            );
+            assert_eq!(params, original);
+            svc.bind_local_rpc("owner-secret", method, &mut params)
+                .unwrap();
+            assert_eq!(params, original);
+        }
+    }
+    for method in ["system.identify", "system.capabilities", "rest_api.status"] {
+        svc.bind_local_rpc(&credential, method, &mut None).unwrap();
+    }
+}
