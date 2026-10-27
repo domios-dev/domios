@@ -77,12 +77,24 @@ pub(super) fn runtime_fixture_with_notifications(
             manifest,
             Arc::new(PluginVm::from_source(PROVIDER, source.into()).unwrap()),
         )));
-    super::super::super::authority::record_spawn(&fixture.service, &tab_id, PROVIDER, &nonce)
+    let (peer, cleanup) = attach_runtime_peer(&fixture, &tab_id);
+    (fixture, tab_id, peer, cleanup)
+}
+
+pub(super) fn attach_runtime_peer(
+    fixture: &ServiceFixture,
+    tab_id: &str,
+) -> (tokio::io::DuplexStream, Cleanup) {
+    let tab = fixture.service.mux.read().get_tab(tab_id).unwrap().clone();
+    let provider = tab.agent_type.unwrap();
+    let nonce = tab.session_binding_nonce.unwrap();
+    let thread = tab.agent_session_id.unwrap();
+    super::super::super::authority::record_spawn(&fixture.service, tab_id, &provider, &nonce)
         .unwrap();
     let adapter = fixture
         .service
         .agent_registry
-        .provider_arc(PROVIDER)
+        .provider_arc(&provider)
         .unwrap();
     let (process, peer) = crate::async_runtime::block_on(async {
         let (host, peer) = tokio::io::duplex(65536);
@@ -94,20 +106,20 @@ pub(super) fn runtime_fixture_with_notifications(
             peer,
         )
     });
-    let mut state = RuntimeState::unloaded(Some("own-thread".into()));
+    let mut state = RuntimeState::unloaded(Some(thread.clone()));
     let epoch = state.begin();
-    assert!(state.load(epoch, "own-thread"));
+    assert!(state.load(epoch, &thread));
     let session = Arc::new(Session {
         update_generation: std::sync::atomic::AtomicU64::new(0),
         update_recovery_available: std::sync::atomic::AtomicBool::new(false),
-        provider: PROVIDER.into(),
+        provider,
         adapter: Mutex::new(Some(adapter)),
         context: Mutex::new(RuntimeContext {
             host_owned: Default::default(),
             epoch,
-            tab_id: tab_id.clone(),
+            tab_id: tab_id.into(),
             binding_nonce: nonce,
-            thread_id: Some("own-thread".into()),
+            thread_id: Some(thread),
             cwd: crate::test_support::fixture_manifest_dir()
                 .to_string_lossy()
                 .into_owned()
@@ -138,9 +150,9 @@ pub(super) fn runtime_fixture_with_notifications(
         control_changes: tokio::sync::watch::channel(()).0,
         reverted_thread: Mutex::new(None),
     });
-    SESSIONS.lock().insert(tab_id.clone(), session);
-    let cleanup = Cleanup(tab_id.clone());
-    (fixture, tab_id, peer, cleanup)
+    SESSIONS.lock().insert(tab_id.into(), session);
+    let cleanup = Cleanup(tab_id.into());
+    (peer, cleanup)
 }
 
 #[test]
