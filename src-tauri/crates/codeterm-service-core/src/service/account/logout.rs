@@ -15,7 +15,7 @@ const STOP_DEADLINE: Duration = Duration::from_secs(15);
 pub(crate) type StopResult = Result<Option<SessionRevokedResult>, AccountMeshRefusal>;
 
 #[derive(Default)]
-pub(super) struct LogoutCell(pub tokio::sync::Mutex<()>);
+pub(crate) struct LogoutCell(pub tokio::sync::Mutex<()>);
 
 #[derive(Clone, Serialize, Deserialize)]
 struct Intent {

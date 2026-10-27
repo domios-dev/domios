@@ -9,7 +9,7 @@ use std::{sync::Arc, time::Duration};
 pub struct AccountCell(pub Arc<tokio::sync::OnceCell<Arc<Account>>>);
 
 mod credentials;
-mod logout;
+pub(crate) mod logout;
 pub(crate) use credentials::AccountCredentialCell;
 pub use credentials::AccountCredentials;
 #[cfg(any(test, feature = "test-support"))]
