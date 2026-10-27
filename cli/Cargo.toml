@@ -1,7 +1,7 @@
 [package]
 license = "AGPL-3.0-only"
 name = "codeterm-cli"
-version = "1.16.0"
+version = "1.16.1"
 edition = "2021"
 # One workspace and one lockfile with the app and server, so shared dependencies resolve identically.
 workspace = "../src-tauri"
