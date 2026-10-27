@@ -188,7 +188,7 @@ fn build_agent_command_inner(
         model_arguments.as_deref().unwrap_or_default(),
     );
     let mut args = resolved_params.args.clone().unwrap_or_default();
-    if let Some((service, tab_id)) = notice_context {
+    if let Some((_, tab_id)) = notice_context {
         if let Some(session) = params
             .resume_session_id
             .as_deref()

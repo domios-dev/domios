@@ -457,6 +457,7 @@ impl ServiceContext {
         self.agent_switch_model_with_options(tab_id, requested, requested_effort, false)
     }
 
+    #[cfg(test)]
     pub(crate) fn agent_switch_model_with_options(
         &self,
         tab_id: &str,

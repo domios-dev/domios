@@ -43,7 +43,6 @@ mod public_send;
 #[path = "launch/reader_readiness.rs"]
 mod reader_readiness;
 mod resume_binding;
-pub(crate) use resume_binding::deferred_launch_nonce;
 mod startup_readiness;
 #[cfg(any(test, feature = "test-support"))]
 #[path = "launch/test_support.rs"]
@@ -883,24 +882,20 @@ pub fn launch_agent_in_background_with_env(
         }
         let startup_binding_deadline = crate::service::worker_ack::STARTUP_BINDING_DEADLINE;
         let binding_deadline = std::time::Instant::now() + startup_binding_deadline;
-        let readiness_receiver = (!structured).then(|| {
-            svc.observe_launch_readiness(
-                readiness_attempt.clone(),
-                startup_binding_deadline,
-                session_starts_on_first_turn,
-            )
-        });
-        if readiness_receiver.is_some() {
-            readiness_registration
-                .as_mut()
-                .expect("launch readiness registered")
-                .handoff();
-            crate::startup::boot_timing::mark(
-                &tab_id,
-                Some(&pty_id),
-                "readiness_observer_scheduled",
-            );
-        }
+        let readiness_receiver = svc.observe_launch_readiness(
+            readiness_attempt.clone(),
+            startup_binding_deadline,
+            session_starts_on_first_turn,
+        );
+        readiness_registration
+            .as_mut()
+            .expect("launch readiness registered")
+            .handoff();
+        crate::startup::boot_timing::mark(
+            &tab_id,
+            Some(&pty_id),
+            "readiness_observer_scheduled",
+        );
 
         let (provider_readiness, composer_cursor_position) = svc
             .agent_registry
@@ -920,8 +915,9 @@ pub fn launch_agent_in_background_with_env(
             provider_readiness.requires_composer(),
         );
         let user_composer_required = user_input::requires_composer(&svc, &agent_cmd, &tab_id);
-        let launch_input_readiness = if !structured
-            && (fallback_spec.is_some() || session_starts_on_first_turn || user_composer_required)
+        let launch_input_readiness = if fallback_spec.is_some()
+            || session_starts_on_first_turn
+            || user_composer_required
         {
             let readiness = owner_prompt_wait::await_input_readiness(
                 &svc,
@@ -1039,19 +1035,12 @@ pub fn launch_agent_in_background_with_env(
         }
 
         set_booting(&launch, false);
-        let readiness = if structured {
-            crate::service::launch_readiness::LaunchSettlement::Ready
-        } else {
-            readiness_receiver
-                .expect("plain launch readiness observer")
-                .recv()
-                .unwrap_or_else(|_| {
-                    crate::service::launch_readiness::LaunchSettlement::Provisional {
-                        stage: BootStage::LaunchDeadlineElapsed,
-                        reason: "launch readiness observer stopped before session binding".into(),
-                    }
-                })
-        };
+        let readiness = readiness_receiver.recv().unwrap_or_else(|_| {
+            crate::service::launch_readiness::LaunchSettlement::Provisional {
+                stage: BootStage::LaunchDeadlineElapsed,
+                reason: "launch readiness observer stopped before session binding".into(),
+            }
+        });
         if let Some(finished) =
             startup_readiness::finish_waiting_for_first_turn(&mut launch, &readiness, &svc, origin)
         {
