@@ -15,6 +15,7 @@ pub enum ListenerState {
 
 #[async_trait]
 pub trait InboxSession: Send + Sync {
+    async fn stopped(&self);
     async fn prepare(&self) -> Result<()>;
     async fn cursor(&self) -> Result<Option<Cursor>>;
     async fn receive(&self, messages: &mut [InboxMessage]) -> Result<()>;
@@ -35,7 +36,12 @@ pub async fn supervise(
     for attempt in 0..=3 {
         if attempt > 0 {
             events.state(ListenerState::Reconnecting);
-            if let Err(error) = events.retry_after_failure(attempt).await {
+            let recovery = tokio::select! {
+                biased;
+                _ = session.stopped() => Err(Error::Revoked),
+                result = events.retry_after_failure(attempt) => result,
+            };
+            if let Err(error) = recovery {
                 events.state(ListenerState::Stopped);
                 return Err(error);
             }
@@ -44,10 +50,18 @@ pub async fn supervise(
         let result = async {
             session.prepare().await?;
             let cursor = session.cursor().await?;
-            let mut listener = transport
-                .listen_from_cursor(friendship, cursor.as_ref())
-                .await?;
-            while let Some(event) = listener.next().await? {
+            let mut listener = tokio::select! {
+                biased;
+                _ = session.stopped() => return Err(Error::Revoked),
+                result = transport.listen_from_cursor(friendship, cursor.as_ref()) => result?,
+            };
+            loop {
+                let event = tokio::select! {
+                biased;
+                    _ = session.stopped() => return Err(Error::Revoked),
+                    result = listener.next() => result?,
+                };
+                let Some(event) = event else { break };
                 match event {
                     InboxEvent::Ready => events.state(ListenerState::Receiving),
                     InboxEvent::Messages(mut messages) => session.receive(&mut messages).await?,

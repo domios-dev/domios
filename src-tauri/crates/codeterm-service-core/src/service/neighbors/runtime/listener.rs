@@ -5,25 +5,40 @@ use codeterm_neighbors::{
     wire::{Cursor, InboxMessage},
 };
 
+#[derive(Default)]
+pub(super) struct Slots {
+    pub active: HashMap<String, Handle>,
+    pub retired: HashMap<String, tokio::task::JoinHandle<()>>,
+}
+
 pub(super) struct Handle {
     pub task: tokio::task::JoinHandle<()>,
     pub retry: Arc<tokio::sync::Notify>,
+    pub shutdown: tokio::sync::watch::Sender<bool>,
 }
 
-struct Session {
-    service: ServiceContext,
-    transport: Arc<FirebaseTransport>,
-    scope: KeyScope,
-    metadata: Metadata,
-    friendship: String,
-    tab: String,
-    generation: u64,
-    retry: Arc<tokio::sync::Notify>,
+pub(super) struct Session {
+    pub service: ServiceContext,
+    pub transport: Arc<FirebaseTransport>,
+    pub scope: KeyScope,
+    pub registry: Arc<FirebaseRegistry>,
+    pub metadata: Metadata,
+    pub friendship: String,
+    pub tab: String,
+    pub generation: u64,
+    pub retry: Arc<tokio::sync::Notify>,
+    pub stopped: tokio::sync::watch::Receiver<bool>,
 }
 
 impl Session {
     fn current(&self) -> codeterm_neighbors::Result<()> {
-        if self.service.neighbor_cell().listener_generation.load(Ordering::Acquire) != self.generation {
+        if self
+            .service
+            .neighbor_cell()
+            .listener_generation
+            .load(Ordering::Acquire)
+            != self.generation
+        {
             return Err(Error::Revoked);
         }
         Ok(())
@@ -32,7 +47,7 @@ impl Session {
     fn keys(&self) -> InstallationKeys<'_> {
         InstallationKeys {
             store: &OsKeyStore,
-            registry: self.transport.as_ref(),
+            registry: self.registry.as_ref(),
             scope: self.scope.clone(),
             uid: &self.transport.uid,
         }
@@ -41,6 +56,13 @@ impl Session {
 
 #[async_trait]
 impl InboxSession for Session {
+    async fn stopped(&self) {
+        let mut stopped = self.stopped.clone();
+        if *stopped.borrow_and_update() {
+            return;
+        }
+        let _ = stopped.changed().await;
+    }
     async fn prepare(&self) -> codeterm_neighbors::Result<()> {
         self.current()?;
         self.keys().load().await?.ok_or(Error::Revoked)?;
@@ -70,6 +92,7 @@ impl InboxSession for Session {
             friendship: self.friendship.clone(),
             tab: self.tab.clone(),
             generation: self.generation,
+            stopped: self.stopped.clone(),
         };
         Receiver {
             transport: self.transport.as_ref(),
@@ -88,7 +111,9 @@ impl InboxSession for Session {
 #[async_trait]
 impl ReceptionEvents for Session {
     fn state(&self, status: ListenerState) {
-        if self.current().is_err() { return; }
+        if self.current().is_err() {
+            return;
+        }
         self.service
             .neighbor_cell()
             .states
@@ -105,26 +130,13 @@ impl ReceptionEvents for Session {
     }
 }
 
-pub(super) async fn run(
-    service: ServiceContext,
-    transport: Arc<FirebaseTransport>,
-    scope: KeyScope,
-    metadata: Metadata,
-    friendship: String,
-    tab: String,
-    generation: u64,
-    retry: Arc<tokio::sync::Notify>,
-) {
-    let session = Session {
-        service,
-        transport,
-        scope,
-        metadata,
-        friendship,
-        tab,
-        generation,
-        retry,
-    };
+pub(super) async fn run(session: Session, previous: Option<tokio::task::JoinHandle<()>>) {
+    if let Some(previous) = previous {
+        let _ = previous.await;
+    }
+    if session.current().is_err() {
+        return;
+    }
     let _ = supervise(
         session.transport.as_ref(),
         &session.friendship,

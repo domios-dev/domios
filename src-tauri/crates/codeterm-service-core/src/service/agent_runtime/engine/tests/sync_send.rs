@@ -28,7 +28,8 @@ module.exports = {
 };
 "#;
 
-pub(in crate::service::agent_runtime) fn runtime_fixture() -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
+pub(in crate::service::agent_runtime) fn runtime_fixture(
+) -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
     runtime_fixture_with(RUNTIME_FIXTURE_SOURCE)
 }
 
