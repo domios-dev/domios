@@ -61,7 +61,11 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
     runtimeClient.status(controller.signal).then(status => setBindings(status.bindings), () => setBindings({}));
     return () => controller.abort();
   }, [friendKey, runtimeClient]);
-  useEffect(() => { publishNeighborGateways(bindings); }, [bindings]);
+  // The list row names the bound concierge; the runtime status and agent events fill in or update the rest.
+  const listBindings = Object.fromEntries(friends.flatMap(friend => friend.gateway_tab ? [[friend.friendship_id, friend.gateway_tab]] : []));
+  const allBindings = { ...listBindings, ...bindings };
+  const bindingKey = JSON.stringify(allBindings);
+  useEffect(() => { publishNeighborGateways(JSON.parse(bindingKey) as Record<string, string>); }, [bindingKey]);
   useEffect(() => {
     let stop: (() => void) | undefined;
     let live = true;
@@ -88,7 +92,7 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
     {expanded && !enabled && <p role="status" className="sidebar-neighbors-off">Neighbors is off</p>}
     {expanded && <ul aria-label="Your Neighbors" className="sidebar-neighbors" data-off={enabled ? undefined : true}>{friends.map(friend => {
       const name = neighborName(friend);
-      const conciergeId = bindings[friend.friendship_id];
+      const conciergeId = allBindings[friend.friendship_id];
       const concierge = conciergeId ? tabs[conciergeId] : undefined;
       const missing = enabled && concierges[friend.friendship_id]?.concierge_missing ? concierges[friend.friendship_id] : null;
       const status = !enabled ? "off" : missing ? missingConciergeLine(missing).replace("No concierge on this machine", "no concierge here") : paid ? "connected" : "paused by plan";

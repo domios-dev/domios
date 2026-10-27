@@ -6,6 +6,7 @@ import { SidebarNeighborsSection } from "./SidebarNeighborsSection";
 import { NeighborConversationView } from "./NeighborConversationView";
 import type { HistoryEntry, NeighborConciergeClient } from "./neighborConciergeClient";
 import { takeNeighborFocus } from "./neighborFocus";
+import { useNeighborGatewayIds } from "./neighborGateways";
 import type { NeighborClient } from "./neighborClient";
 import type { NeighborList } from "./neighborModel";
 import { parseNeighbors } from "./neighborModel";
@@ -468,4 +469,18 @@ it("says when a friend has no concierge on this machine, with the waiting count 
   expect(document.body.textContent).not.toContain("messages waiting");
   await act(async () => button("Set up with General").click());
   expect(sentText()[0].text).toContain("pair");
+});
+
+it("nests a concierge bound from any workspace under its friend and marks it hidden from workspace lists", async () => {
+  const seen: Array<ReadonlySet<string>> = [];
+  function Probe() { seen.push(useNeighborGatewayIds()); return null; }
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, incoming: [], outgoing: [],
+    friends: [{ ...neighbor, gateway_tab: "tab-gateway" }] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<><SidebarNeighborsSection touchMode={false} client={client} runtimeClient={runtime()} /><Probe /></>));
+  expect(hasButton("Open Ada's concierge")).toBe(true);
+  expect(seen[seen.length - 1]?.has("tab-gateway")).toBe(true);
 });

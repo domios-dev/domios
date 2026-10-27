@@ -12,6 +12,8 @@ export interface Neighbor {
   /** Messages a day they allow you; null means no limit. */
   their_daily_limit?: number | null;
   sent_today?: number;
+  /** This friendship's concierge tab on this machine, when one is bound. */
+  gateway_tab?: string | null;
 }
 
 export interface NeighborRequest {

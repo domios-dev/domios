@@ -30,6 +30,7 @@ import { SidebarShellRow, SidebarOwnerTabRow, SidebarSortableBlock } from "./Sid
 import { surfaceAttachmentsByOwner } from "./surfaceAttachmentModel";
 import { AgentChecklistDisclosure, type ChecklistToggle } from "./AgentChecklist";
 import { showsChecklist } from "./agentChecklistModel";
+import { useNeighborGatewayIds } from "../Neighbors/neighborGateways";
 
 import {
   addableTeamRoles,
@@ -165,9 +166,11 @@ export function SidebarWorkspaceTabs({
   onOpenSentinelJob,
 }: SidebarWorkspaceTabsProps) {
   const { jobs: workspaceCrons, refresh: refreshCrons } = useWorkspaceCrons(ws.id);
+  const conciergeIds = useNeighborGatewayIds();
+  // A tab bound to a Neighbor lives under that Neighbor, wherever it was created.
   const sortedTabs = useMemo(
-    () => visibleWorkspaceTabs(allSortedTabs, tabs),
-    [allSortedTabs, tabs],
+    () => visibleWorkspaceTabs(allSortedTabs, tabs).filter((tab) => !conciergeIds.has(tab.id)),
+    [allSortedTabs, tabs, conciergeIds],
   );
   const membersByTeam = useMemo(() => groupWorkspaceTeamMembers(sortedTabs), [sortedTabs]);
   // Workspace-wide so a surface follows its owner into a Team card even when the surface carries no team.
