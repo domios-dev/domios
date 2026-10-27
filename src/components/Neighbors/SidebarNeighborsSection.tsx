@@ -12,7 +12,6 @@ import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import { tabActivity } from "../../lib/tabActivity";
 import { publishNotice } from "../../lib/notices";
 import { useMuxSelector } from "../../store/multiplexer";
-import { ChangeConciergeDialog } from "./ChangeConciergeDialog";
 import { askGeneralAgent, focusTab, permissionInterviewTask, workspaceOfTab } from "./neighborAgent";
 import type { NeighborClient } from "./neighborClient";
 import { neighborConciergeClient, type NeighborConciergeClient } from "./neighborConciergeClient";
@@ -48,7 +47,6 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
   const tabStatuses = useMuxSelector(state => state.tabStatuses);
   const [expanded, setExpanded] = useState(readExpanded);
   const [bindings, setBindings] = useState<Record<string, string>>({});
-  const [changing, setChanging] = useState<{ friend: CachedFriend; tab: Tab } | null>(null);
   // Until the fresh list arrives, draw the friends this account had last time; an empty past keeps the section away.
   const cached = useMemo(() => readNeighborCache(identity), [identity]);
   const loading = identity !== null && neighbors.list === null;
@@ -134,13 +132,11 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
           renderAttachment={tab => <ConciergeRow tab={tab} friendName={name} text={text} touchMode={touchMode}
             activity={idleNote ?? tabActivity(tab, tabStatuses[tab.id]).label}
             onOpen={() => { focusTab(tab.id, workspaceOfTab({ workspaces, tabs }, tab.id)); onNavigateToTab?.(); }}
-            onChangeAgent={() => setChanging({ friend, tab })}
-            onViewPermissions={() => openNeighborPage(friend.friendship_id, "configure")}
+            onChangeAgent={() => openNeighborPage(friend.friendship_id, "concierge")}
+            onViewPermissions={() => openNeighborPage(friend.friendship_id, "permissions")}
             onEditWithGeneral={() => editWithGeneral(friend)} />} />
       </li>;
     })}</ul>}
-    {changing && <ChangeConciergeDialog friendship={changing.friend.friendship_id} name={neighborName(changing.friend)}
-      currentProvider={changing.tab.agent_type ?? null} client={conciergeClient} onClose={() => setChanging(null)} />}
   </SidebarStructuralSection>;
 }
 

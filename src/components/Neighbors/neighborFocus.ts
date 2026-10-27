@@ -1,6 +1,8 @@
 const EVENT = "codeterm:neighbor-focus";
 
-export interface NeighborFocus { id: string; section: "configure" | null }
+/** The part of a friend's window an entry point wants in view. */
+export type NeighborSection = "permissions" | "concierge";
+export interface NeighborFocus { id: string; section: NeighborSection | null }
 let pending: NeighborFocus | null = null;
 
 /** Opens one Neighbor's page in the neighborhood; the page may mount after this call. */

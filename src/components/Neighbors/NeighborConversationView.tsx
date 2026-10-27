@@ -216,7 +216,7 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
       <DropdownMenu menuLabel={`${name} actions`} items={[
         { label: "Notifications", submenu: { label: "Notifications", items: NOTIFY_CHOICES.map(choice => ({
           label: choice.label, selected: notify === choice.value, onClick: () => changeNotify(choice.value) })) } },
-        { label: "View permissions", onClick: () => openNeighborPage(friendship, "configure") },
+        { label: "View permissions", onClick: () => openNeighborPage(friendship, "permissions") },
         { label: "Edit with General", onClick: () => {
           void askGeneralAgent({ workspaces, tabs }, permissionInterviewTask({ name, friendshipId: friendship }))
             .catch((failure: unknown) => setError(failure instanceof Error ? failure.message : "The General Agent could not be reached."));
@@ -227,7 +227,7 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
     {receiver && !receiver.receiving_here && receiver.receiving_enabled && <p role="status" className="neighbor-chat__moved">
       {receivingLine(receiver)}. {name}'s messages arrive there, and concierges here stay idle.</p>}
     {concierge?.concierge_missing && !concierge.gateway_tab && !friend.gateway_tab && <div className="neighbor-chat__notice"><MissingConciergeNotice status={concierge}
-      onSetUpWithGeneral={setUpWithGeneral} onEditPermissions={() => openNeighborPage(friendship, "configure")} /></div>}
+      onSetUpWithGeneral={setUpWithGeneral} onEditPermissions={() => openNeighborPage(friendship, "permissions")} /></div>}
     <div ref={scroller} className="neighbor-chat__scroll" onScroll={event => {
       const element = event.currentTarget;
       stickToEnd.current = element.scrollHeight - element.scrollTop - element.clientHeight < 48;

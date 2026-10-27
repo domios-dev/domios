@@ -1,20 +1,19 @@
-import { useEffect, useRef, useState } from "react";
-import { Bell, Bot, FolderOpen, MessagesSquare, ShieldCheck, UserX } from "lucide-react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { Bell, Bot, FolderOpen, MessagesSquare, ShieldCheck, Sparkles, UserX, X } from "lucide-react";
 import { AccountAvatar } from "../Titlebar/AccountAvatar";
 import { accountInitials } from "../Settings/accountModel";
 import { SettingsCard, SettingsPage, SettingsPill } from "../Settings/shared";
-import { BackPill } from "../shared/BackPill";
 import { Button } from "../shared/Button";
-import { DropdownMenu, DropdownSelect } from "../shared/DropdownMenu";
+import { DropdownSelect } from "../shared/DropdownMenu";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
-import { RowMenuButton } from "../shared/RowMenuButton";
+import { useBackDismissal } from "../../lib/backDismissal";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { useMuxSelector } from "../../store/multiplexer";
 import { ChangeConciergeDialog } from "./ChangeConciergeDialog";
 import { focusTab, workspaceOfTab } from "./neighborAgent";
 import type { HistoryEntry, NeighborConciergeClient, NeighborNotify } from "./neighborConciergeClient";
 import { Chip } from "../shared/Chip";
-import { openNeighbor } from "./neighborFocus";
+import { openNeighbor, type NeighborSection } from "./neighborFocus";
 import { neighborName, type Neighbor } from "./neighborModel";
 import { MissingConciergeNotice } from "./NeighborPanel";
 import { NeighborPermissionsEditor } from "./NeighborPermissionsEditor";
@@ -40,9 +39,13 @@ function conciergeState(status: ConciergeStatus | null, bound: boolean): { label
 }
 
 /** One Neighbor's settings: the conversation, their concierge, what they may ask, notifications, and removal. */
-export function NeighborFriendPage({ friend, locked, enabled, pending, focusPermissions, runtimeClient, conciergeClient, filesClient = neighborFilesClient,
+export function NeighborFriendPage({ friend, locked, enabled, pending, section, origin, runtimeClient, conciergeClient, filesClient = neighborFilesClient,
   onBack, onTalkAbout, onInterview, onLimit, onRemove, onPlans }: {
-  friend: Neighbor; locked: boolean; enabled: boolean; pending: boolean; focusPermissions: boolean;
+  friend: Neighbor; locked: boolean; enabled: boolean; pending: boolean;
+  /** The section the window opens scrolled to, when an entry point asked for one. */
+  section: NeighborSection | null;
+  /** Viewport centre of the node that opened this window, so it can grow from and fold back into it. */
+  origin?: { x: number; y: number } | null;
   runtimeClient: NeighborRuntimeClient; conciergeClient: NeighborConciergeClient; filesClient?: NeighborFilesClient;
   onBack: () => void; onTalkAbout: () => void; onInterview: () => void;
   onLimit: (limit: number) => Promise<boolean>; onRemove: () => Promise<boolean>; onPlans: () => void;
@@ -87,42 +90,65 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, focusPerm
       .then(unlisten => { if (live) stop = unlisten; else unlisten(); });
     return () => { live = false; stop?.(); };
   }, [conciergeClient, friendship]);
-  useEffect(() => { if (focusPermissions) permissions.current?.scrollIntoView({ block: "start" }); }, [focusPermissions]);
+  const conciergeCard = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const target = section === "permissions" ? permissions.current : section === "concierge" ? conciergeCard.current : null;
+    target?.scrollIntoView({ block: "start" });
+  }, [section]);
 
   const fail = (failure: unknown, fallback: string) => setError(failure instanceof Error ? failure.message : fallback);
+
+  // The window grows out of the node that was clicked and folds back into it on close.
+  const titleId = useId();
+  const layer = useRef<HTMLDivElement>(null);
+  const windowRef = useRef<HTMLElement>(null);
+  const [closing, setClosing] = useState(false);
+  const [fromStyle, setFromStyle] = useState<CSSProperties | undefined>(undefined);
+  useLayoutEffect(() => {
+    const box = layer.current?.getBoundingClientRect();
+    if (box && origin) {
+      setFromStyle({ "--neighbor-from-dx": `${origin.x - box.left - box.width / 2}px`, "--neighbor-from-dy": `${origin.y - box.top - box.height / 2}px` } as CSSProperties);
+    }
+    windowRef.current?.focus({ preventScroll: true });
+  }, [origin]);
+  const close = () => {
+    if (closing) return;
+    // Without motion there is no animation end to wait for, so the window closes at once.
+    const still = typeof window.matchMedia !== "function" || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (still) onBack();
+    else setClosing(true);
+  };
+  useBackDismissal(true, close);
   const status = !enabled ? "Neighbors is off" : locked ? "paused by plan" : "connected";
 
-  return <div className="neighbor-friend absolute inset-0 z-10 flex flex-col bg-[var(--ct-bg)] pt-[var(--ct-safe-top,0px)]">
-    <div className="ct-jobs-header ct-settings-head">
-      <BackPill label="Neighborhood" onBack={onBack} />
-      <h2 className="ct-settings-head__title">{name}</h2>
-      <span className="ml-auto" />
-      <DropdownMenu menuLabel={`${name} actions`} items={[
-        { label: `Talk about ${name}`, onClick: onTalkAbout },
-        { label: "Edit with General", onClick: onInterview },
-      ]} trigger={<RowMenuButton label={`More actions for ${name}`} title="More actions" />} />
-    </div>
-    <div className="flex-1 overflow-y-auto px-5 py-5">
+  return <div ref={layer} className="neighbor-window-layer" data-closing={closing || undefined}
+    onMouseDown={event => { if (event.target === event.currentTarget) close(); }}>
+    <section ref={windowRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} className="neighbor-window" style={fromStyle}
+      onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); close(); } }}
+      onAnimationEnd={event => { if (closing && event.target === event.currentTarget) onBack(); }}>
+      <header className="neighbor-window__hero">
+        <span className="neighbor-window__avatar"><AccountAvatar url={friend.photoURL} initial={accountInitials(name)} label="" size="node" /></span>
+        <div className="min-w-0 flex-1">
+          <h2 id={titleId} className="neighbor-friend__name">{name}</h2>
+          <p className="neighbor-status"><span className="neighbor-dot" data-tone={enabled && !locked ? "ok" : "muted"} aria-hidden="true" />{status}
+            <span className="neighbor-note">, since {new Date(friend.since * 1000).toLocaleDateString()}</span></p>
+          {receiver && <p className="neighbor-note">{receivingLine(receiver)}</p>}
+          <FriendStats friend={friend} quota={quota} history={recent} />
+        </div>
+        <div className="neighbor-window__actions">
+          {locked ? <Button size="sm" variant="accent" onClick={onPlans}>View plans</Button>
+            : <Button size="sm" variant="primary" onClick={() => openNeighbor(friendship)}><MessagesSquare size={14} aria-hidden="true" />Open conversation</Button>}
+          <Button size="sm" onClick={onTalkAbout}><Sparkles size={14} aria-hidden="true" />Talk about {name}</Button>
+          <button type="button" className="neighbor-window__close ct-liquid-interactive" aria-label={`Close ${name}`} onClick={close}><X size={15} aria-hidden="true" /></button>
+        </div>
+      </header>
+      <div className="neighbor-window__body">
       <SettingsPage title={name}>
-        <header className="neighbor-friend__hero">
-          <span className="neighbor-friend__avatar"><AccountAvatar url={friend.photoURL} initial={accountInitials(name)} label="" size="node" /></span>
-          <div className="min-w-0">
-            <p className="neighbor-friend__name">{name}</p>
-            <p className="neighbor-status"><span className="neighbor-dot" data-tone={enabled && !locked ? "ok" : "muted"} aria-hidden="true" />{status}
-              <span className="neighbor-note">, since {new Date(friend.since * 1000).toLocaleDateString()}</span></p>
-            {receiver && <p className="neighbor-note">{receivingLine(receiver)}</p>}
-            <FriendStats friend={friend} quota={quota} history={recent} />
-          </div>
-        </header>
         {error && <InlineErrorNotice error={error} operation={`managing ${name}`} role="alert" />}
         {concierge?.concierge_missing && !gateway && <MissingConciergeNotice status={concierge} onSetUpWithGeneral={onInterview}
           onEditPermissions={() => permissions.current?.scrollIntoView({ block: "start", behavior: "smooth" })} />}
 
-        <SettingsCard icon={<MessagesSquare size={16} />} title="Conversation"
-          description={locked ? "Messages are paused by your plan. You can keep and manage this connection." : `What ${name} asked and what you and your agents answered.`}
-          headerRight={locked ? <Button size="sm" variant="accent" onClick={onPlans}>View plans</Button>
-            : <Button size="sm" variant="accent" onClick={() => openNeighbor(friendship)}>Open conversation</Button>} />
-
+        <div ref={conciergeCard}>
         <SettingsCard icon={<Bot size={16} />} title="Concierge" description={`The agent that answers ${name} within the permissions below.`}
           headerRight={<SettingsPill tone={state.tone}>{state.label}</SettingsPill>}>
           <div className="neighbor-friend__row">
@@ -136,6 +162,7 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, focusPerm
             </span>
           </div>
         </SettingsCard>
+        </div>
 
         <div ref={permissions}>
           <SettingsCard icon={<ShieldCheck size={16} />} title="Permissions" description={`What ${name}'s agents may ask yours for, and how often.`}>
@@ -173,7 +200,8 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, focusPerm
           </div>}
         </SettingsCard>
       </SettingsPage>
-    </div>
+      </div>
+    </section>
     {changing && <ChangeConciergeDialog friendship={friendship} name={name} currentProvider={gateway?.agent_type ?? null}
       client={conciergeClient} onClose={() => setChanging(false)} />}
   </div>;

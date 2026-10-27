@@ -149,8 +149,7 @@ it("opens a friend's own page: limit, talk about, and removal only after confirm
   });
   await act(async () => button("Save limit").click());
   expect(client.apply).toHaveBeenCalledWith({ operation: "set_limit", friendship_id: "pair", per_hour: 42 });
-  await act(async () => { button("More actions for Ada").dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 })); });
-  await act(async () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent === "Talk about Ada")!.click());
+  await act(async () => button("Talk about Ada").click());
   expect(sentText()[0].text).toContain("pair");
   await act(async () => button("Remove friend").click());
   expect(client.apply).not.toHaveBeenCalledWith({ operation: "remove", friendship_id: "pair" });
@@ -856,4 +855,16 @@ it("shows today's numbers under the friend's name and leaves out what is unknown
   expect(stats).toContain("3 of 20 sent today");
   expect(stats).toContain("1 received today");
   expect(stats).not.toContain("files today");
+});
+
+it("opens a friend as a window with its two header actions and closes it with Escape", async () => {
+  await render();
+  await act(async () => button("Ada, connected").click());
+  const dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-modal="true"]')!;
+  expect(dialog.textContent).toContain("Ada");
+  expect(hasButton("Open conversation")).toBe(true);
+  expect(hasButton("Talk about Ada")).toBe(true);
+  expect(hasButton("Messages")).toBe(false);
+  await act(async () => { dialog.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+  expect(document.querySelector('[role="dialog"][aria-modal="true"]')).toBeNull();
 });

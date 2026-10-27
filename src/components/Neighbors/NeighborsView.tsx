@@ -15,7 +15,7 @@ import { NeighborPrivacyNote, NeighborRequestPanel } from "./NeighborPanel";
 import { NeighborFriendPage } from "./NeighborFriendPage";
 import { askGeneralAgent, permissionInterviewTask, talkAboutTask, type NeighborSubject } from "./neighborAgent";
 import type { NeighborClient } from "./neighborClient";
-import { onNeighborFocus, takeNeighborFocus } from "./neighborFocus";
+import { onNeighborFocus, takeNeighborFocus, type NeighborSection } from "./neighborFocus";
 import { neighborhoodNodes, STATUS_LABEL, type NeighborhoodNode } from "./neighborhoodModel";
 import { neighborName } from "./neighborModel";
 import { neighborRuntimeClient, type NeighborRuntimeClient, type ReceiverState } from "./neighborRuntimeClient";
@@ -66,12 +66,18 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, conciergeC
   const me = accountTrayModel(account.model, null);
   const receiver = useReceiverState(runtimeClient, Boolean(identity) && enabled);
   const [selected, setSelected] = useState<string | null>(null);
-  const [openSection, setOpenSection] = useState<"configure" | null>(null);
+  const [openSection, setOpenSection] = useState<NeighborSection | null>(null);
+  // Where the friend's window grows from: the node that was clicked, or the friend's node when another surface opened it.
+  const [origin, setOrigin] = useState<{ x: number; y: number } | null>(null);
+  const nodeCentre = (id: string) => {
+    const box = document.querySelector(`[data-node-id="${CSS.escape(id)}"] .neighbor-node__disc`)?.getBoundingClientRect();
+    return box ? { x: box.left + box.width / 2, y: box.top + box.height / 2 } : null;
+  };
   const [adding, setAdding] = useState(false);
   const [agentError, setAgentError] = useState<string | null>(null);
   const awaitingAccept = useRef<string | null>(null);
   useEffect(() => {
-    const take = () => { const focus = takeNeighborFocus(); if (focus) { setSelected(focus.id); setOpenSection(focus.section); } };
+    const take = () => { const focus = takeNeighborFocus(); if (focus) { setOrigin(nodeCentre(focus.id)); setSelected(focus.id); setOpenSection(focus.section); } };
     take();
     return onNeighborFocus(take);
   }, []);
@@ -161,6 +167,7 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, conciergeC
                 return;
               }
               setOpenSection(null);
+              setOrigin(nodeCentre(node.id));
               setSelected(current => current === node.id ? null : node.id);
             }} />)}
           {identity && list === null && !updating && !neighbors.error && <div className="neighbors-loading"><BusyState inline label="Loading Neighbors" phase="work" /></div>}
@@ -185,8 +192,8 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, conciergeC
     </div>
     <NeighborPrivacyNote className="neighbors-privacy" />
     {enabled && friend && identity && <NeighborFriendPage key={friend.friendship_id} friend={friend} locked={!paid} enabled={enabled}
-      pending={neighbors.pending} focusPermissions={openSection === "configure"} runtimeClient={runtimeClient} conciergeClient={conciergeClient} filesClient={filesClient}
-      onBack={() => { setSelected(null); setOpenSection(null); }} onPlans={openPlans}
+      pending={neighbors.pending} section={openSection} origin={origin} runtimeClient={runtimeClient} conciergeClient={conciergeClient} filesClient={filesClient}
+      onBack={() => { setSelected(null); setOpenSection(null); setOrigin(null); }} onPlans={openPlans}
       onTalkAbout={() => ask(talkAboutTask({ name: neighborName(friend), friendshipId: friend.friendship_id }))}
       onInterview={() => interview({ name: neighborName(friend), friendshipId: friend.friendship_id })}
       onLimit={per_hour => neighbors.apply({ operation: "set_limit", friendship_id: friend.friendship_id, per_hour })}
@@ -223,7 +230,7 @@ function NodeButton({ node, index, selected, canInvite, onSelect }: {
       <span className="neighbor-status"><span className="neighbor-dot" data-tone="muted" aria-hidden="true" />invited {formatAge(sent, Date.now())}</span>
     </div>;
   }
-  return <button type="button" data-neighbor-node className="neighbor-node" style={style} data-status={node.status}
+  return <button type="button" data-neighbor-node data-node-id={node.id} className="neighbor-node" style={style} data-status={node.status}
     aria-pressed={selected} aria-label={`${node.name}, ${STATUS_LABEL[node.status]}`} onClick={onSelect}>
     <span className="neighbor-node__disc"><AccountAvatar url={node.photoURL} initial={accountInitials(node.name)} label="" size="node" /></span>
     <span className="neighbor-node__name">{node.name}</span>
