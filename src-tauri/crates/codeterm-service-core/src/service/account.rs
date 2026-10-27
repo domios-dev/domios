@@ -9,6 +9,7 @@ use std::{sync::Arc, time::Duration};
 pub struct AccountCell(pub Arc<tokio::sync::OnceCell<Arc<Account>>>);
 
 mod credentials;
+mod logout;
 pub(crate) use credentials::AccountCredentialCell;
 pub use credentials::AccountCredentials;
 #[cfg(any(test, feature = "test-support"))]
@@ -130,7 +131,8 @@ impl super::ServiceContext {
                     )
                     .with_identity_observer(Arc::new(
                         codeterm_account::account_mesh::IdentityObservers(observers),
-                    )),
+                    ))
+                    .with_session_admission(Arc::new(logout::SignInAdmission(self.weak_self()))),
                 );
                 let _ = account.refresh().await;
                 #[cfg(not(any(test, feature = "test-support")))]
@@ -156,21 +158,41 @@ impl super::ServiceContext {
     }
 
     pub(crate) async fn account_logout_owned(&self) -> Result<codeterm_account::Status, String> {
+        self.account_sign_out_owned()
+            .await
+            .map(|(status, _)| status)
+    }
+
+    pub(crate) async fn account_sign_out_owned(
+        &self,
+    ) -> Result<(codeterm_account::Status, logout::StopResult), String> {
         let account = self.account().await?;
+        let cell = self
+            .extensions
+            .get_or_init::<logout::LogoutCell>(Default::default);
+        let _guard = cell.0.lock().await;
         let session = account.session().await;
+        let mesh = self.account_mesh().await.ok();
         self.neighbor_identity_changed();
         let block = async {
-            match self.account_mesh().await {
-                Ok(mesh) => mesh.mesh.sign_out_local().await,
-                Err(_) => self.sign_out_without_account_mesh().await,
+            match mesh.as_ref() {
+                Some(mesh) => mesh.mesh.sign_out_local().await,
+                None => self.sign_out_without_account_mesh().await,
             }
         };
-        let (status, persisted) = tokio::join!(account.logout(), block);
-        if let Err(error) = persisted {
+        if let Err(error) = block.await {
             log::warn!("Account sign-out cleanup failed: stage=mesh_block error={error}");
         }
-        if let Some(session) = session {
-            if let Err(error) = self.queue_neighbor_logout(&session).await {
+        if let Some(session) = session.as_ref().filter(|s| s.identity.provider != "local") {
+            if let Err(error) = self.queue_server_stop(session).await {
+                log::warn!(
+                    "Account sign-out cleanup failed: stage=server_stop_queue error_kind={error:?}"
+                );
+            }
+        }
+        let status = account.logout().await;
+        if let Some(session) = session.as_ref() {
+            if let Err(error) = self.queue_neighbor_logout(session).await {
                 log::warn!("Account sign-out cleanup failed: stage=neighbor_queue error={error}");
             }
         }
@@ -178,7 +200,15 @@ impl super::ServiceContext {
             log::warn!("Account sign-out cleanup failed: stage=plan_grant error={error}");
         }
         self.ui.emit("account-changed", serde_json::Value::Null);
-        status.map_err(|e| e.to_string())
+        let result = self
+            .revoke_signed_out_session(
+                mesh,
+                session.as_ref().filter(|s| s.identity.provider != "local"),
+            )
+            .await;
+        let mut status = status.map_err(|e| e.to_string())?;
+        status.server_stop_unconfirmed = result.is_err();
+        Ok((status, result))
     }
     pub async fn account_login(
         &self,

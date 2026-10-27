@@ -27,7 +27,12 @@ import { SESSION_REVOKED_MESSAGE, accountInitials, type LoginHint } from "./acco
 const MUTED = "m-0 text-xs text-[var(--ct-muted-fg)]";
 
 export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) {
-  const { model, signIn, signOut } = useAccount();
+  const { upsertToast } = useMultiplexer();
+  const notify = createNoticePublisher({ upsertToast });
+  const { model, signIn, signOut } = useAccount((message) => notify({
+    kind: "toast", id: "account-sign-out-failure", title: "Sign-out status", detail: message,
+    severity: "Warning", tabId: null, workspaceId: null,
+  }));
   const billing = useAccountPlan(model.kind === "signed_in" ? model.identity.uid : null);
   const fallbackCatalog = usePlanCatalog();
   const desktopBilling = useDesktopBilling(model.kind === "signed_in" ? model.identity.uid : null);
@@ -35,8 +40,6 @@ export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) 
   const [planChange, setPlanChange] = useState<(SelectedPlanChange & { identity: string }) | null>(null);
   const [plansRequest, setPlansRequest] = useState(0);
   const [refusedAsSubscribed, setRefusedAsSubscribed] = useState(false);
-  const { upsertToast } = useMultiplexer();
-  const notify = createNoticePublisher({ upsertToast });
   const retryHint = useRef<LoginHint | undefined>(undefined);
   const signedIn = model.kind === "signed_in";
   const identity = signedIn ? model.identity.uid : null;

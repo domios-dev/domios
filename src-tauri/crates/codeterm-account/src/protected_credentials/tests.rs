@@ -52,6 +52,31 @@ fn unavailable_private_file_keeps_refresh_credential_in_memory_only() {
 }
 
 #[test]
+fn pending_server_stop_requires_persistent_private_storage() {
+    let root = tempfile::tempdir().unwrap();
+    let bad_root = root.path().join("file");
+    std::fs::write(&bad_root, "occupied").unwrap();
+    let store = ProtectedCredentials::new(bad_root);
+    assert_eq!(
+        store.save_persistent("stop", &Secret::new("id-token")),
+        Err(Error::Credentials)
+    );
+    assert!(store.load("stop").unwrap().is_none());
+    let store = ProtectedCredentials::new(root.path());
+    store
+        .save_persistent("stop", &Secret::new("id-token"))
+        .unwrap();
+    assert_eq!(
+        ProtectedCredentials::new(root.path())
+            .load("stop")
+            .unwrap()
+            .unwrap()
+            .expose(),
+        "id-token"
+    );
+}
+
+#[test]
 fn interrupted_migration_retries_after_restart() {
     let root = tempfile::tempdir().unwrap();
     let store = ProtectedCredentials::new(root.path());

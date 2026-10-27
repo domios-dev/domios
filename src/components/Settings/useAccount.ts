@@ -70,6 +70,7 @@ export function useAccount(onSignOutFailure?: (message: string) => void) {
       const status = await request(action, undefined, hint);
       if (generation === active.current) setModel(accountModel(status));
       if (action === "login") signInFailure = status.last_sign_in_failure ?? null;
+      if (action === "logout" && status.server_stop_unconfirmed) onSignOutFailure?.("Signed out locally. Server stop unconfirmed; Domios will retry when connected.");
       changed = true;
     } catch (error) {
       let failure = accountFailure(error);

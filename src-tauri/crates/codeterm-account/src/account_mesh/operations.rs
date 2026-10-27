@@ -830,6 +830,20 @@ impl AccountMesh {
             .await
     }
 
+    pub async fn revoke_prior_sessions(&self, session: &Session, cutoff: u64) -> Outcome<()> {
+        let target = PriorSessionsTarget {
+            installation_id: self.installation(),
+            cutoff,
+        };
+        let result = self
+            .call(self.ports.registry.revoke_prior_sessions(session, &target))
+            .await?;
+        if result.schema_version != 1 || result.revoked_count > 1 {
+            return Err(AccountMeshRefusal::Invalid);
+        }
+        Ok(())
+    }
+
     async fn revoke_signed_session(
         &self,
         signed: &Signed,

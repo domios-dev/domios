@@ -340,6 +340,13 @@ impl FakeRegistry {
 
 #[async_trait]
 impl MeshRegistry for FakeRegistry {
+    async fn revoke_prior_sessions(
+        &self,
+        _: &Session,
+        _: &PriorSessionsTarget,
+    ) -> RegistryResult<PriorSessionsRevokedResult> {
+        Err(RegistryRefusal::Unavailable)
+    }
     async fn challenge(
         &self,
         session: &Session,

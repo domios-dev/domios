@@ -16,6 +16,7 @@ export interface AccountStatus {
   pending: boolean;
   session_only?: boolean;
   session_revoked?: boolean;
+  server_stop_unconfirmed?: boolean;
   last_sign_in_failure?: SignInFailure | null;
 }
 export type AccountModel =

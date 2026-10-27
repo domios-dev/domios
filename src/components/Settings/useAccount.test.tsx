@@ -18,7 +18,7 @@ const { request, rawBody, state } = vi.hoisted(() => ({
   request: vi.fn(), rawBody: vi.fn(() => "opaque-sensitive-response"), state: {
     identity:null as null | {uid:string;display_name:string;email:null;provider:string},
     failure:null as null | {stage:"redemption";error:"provider"},
-    revoked:false, failLogin:false, failLogout:false, failStatus:false, failPlan:false, failBillingAction:false, loginHeldElsewhere:false,
+    revoked:false, serverStopUnconfirmed:false, failLogin:false, failLogout:false, failStatus:false, failPlan:false, failBillingAction:false, loginHeldElsewhere:false,
   },
 }));
 vi.mock("../../lib/webApi", async (importOriginal) => ({
@@ -39,7 +39,7 @@ vi.mock("../../lib/webApi", async (importOriginal) => ({
   if (url.endsWith("/plan")) return {ok:true,json:async () => ({entitlements:{plan:"free",status:"active",current_period_end:0,cancel_at_period_end:false},stale:false})};
   if (url.split("?")[0].endsWith("/login")) state.identity = {uid:"user",display_name:"Ada",email:null,provider:"fake"};
   if (url.endsWith("/logout")) state.identity = null;
-  return {ok:true,json:async () => ({identity:state.identity,pending:false,last_sign_in_failure:state.failure,session_revoked:state.revoked})};
+  return {ok:true,json:async () => ({identity:state.identity,pending:false,last_sign_in_failure:state.failure,session_revoked:state.revoked,server_stop_unconfirmed:state.serverStopUnconfirmed})};
   },
 }));
 import { signInFailureToastMessage, useAccount } from "./useAccount";
@@ -67,6 +67,23 @@ function Surface({name,onSignOutFailure}:{name:string;onSignOutFailure?:(message
     <button type="button" onClick={() => {void signOut();}}>Logout</button>
   </section>;
 }
+
+it("keeps the signed-out account state while surfacing an unconfirmed server stop", async () => {
+  state.identity = {uid:"user",display_name:"Ada",email:null,provider:"fake"};
+  state.failure = null; state.serverStopUnconfirmed = true;
+  const onFailure = vi.fn();
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<Surface name="settings" onSignOutFailure={onFailure} />));
+    await act(async () => host.querySelectorAll("button")[1].click());
+    expect(host.querySelector("output")?.textContent).toBe("signed_out");
+    expect(onFailure).toHaveBeenCalledWith(expect.stringContaining("Server stop unconfirmed"));
+  } finally {
+    state.serverStopUnconfirmed = false;
+    await act(async () => root.unmount()); host.remove();
+  }
+});
 
 it("surfaces a failed logout response instead of silently retaining the identity", async () => {
   state.identity = {uid:"user",display_name:"Ada",email:null,provider:"fake"};

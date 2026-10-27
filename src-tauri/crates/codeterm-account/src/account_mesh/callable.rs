@@ -137,6 +137,14 @@ impl<T: CallableTransport> CallableRegistry<T> {
 
 #[async_trait]
 impl<T: CallableTransport> MeshRegistry for CallableRegistry<T> {
+    async fn revoke_prior_sessions(
+        &self,
+        session: &Session,
+        target: &PriorSessionsTarget,
+    ) -> RegistryResult<PriorSessionsRevokedResult> {
+        self.call("revokePriorInstallationSessions", session, target)
+            .await
+    }
     async fn challenge(
         &self,
         session: &Session,
