@@ -6,6 +6,7 @@ import {
   offerPrice,
   parsePlanCatalog,
   planCardAction,
+  planFeatures,
   remoteCatalogSource,
   upgradePlanKey,
   type PlanOffer,
@@ -63,6 +64,13 @@ void (async () => {
   assert.equal(loaded.offers[0].prices.year?.amount, 60);
   await assert.rejects(remoteCatalogSource(async () => ({ nope: true })).load());
 })().catch((error: unknown) => { console.error(error); process.exitCode = 1; });
+
+const maxOffer = BUILTIN_PLAN_CATALOG.offers.find((item) => item.id === "max")!;
+assert.deepEqual(planFeatures(maxOffer).filter((feature) => feature.kind === "limit").map((feature) => feature.amount), [12, 20, 5000, null, null, 20]);
+assert.deepEqual(planFeatures(sponsor).filter((feature) => feature.kind === "text"), [
+  { kind: "text", text: "Sponsor role in Discord" }, { kind: "text", text: "Priority support" },
+]);
+assert.equal(planFeatures(freeOffer).length, 5, "a zero Neighbors limit is not a benefit");
 
 assert.deepEqual(BUILTIN_PLAN_CATALOG.offers.map(offer => offer.limits), [
   { "mesh.machines": 2, workspaces: 2, "mem.items": 500, teams: 6, "agent.tabs": 35, neighbors: 0 },

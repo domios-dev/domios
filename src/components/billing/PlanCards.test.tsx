@@ -6,6 +6,7 @@ import { siteLinks } from "../../../shared/siteLinks";
 import { PlanCards } from "./PlanCards";
 import { emitDotMatrixWave, sampleDotMatrixWave } from "../brand/dotMatrixModel";
 import { FREE_LIMITS } from "./planCatalog";
+import { accessibleName } from "../../test/semanticRoles";
 
 const bridge = vi.hoisted(() => ({ openUrl: vi.fn(async () => undefined) }));
 const analytics = vi.hoisted(() => ({ localJson: vi.fn(async () => ({ consent: "off" })) }));
@@ -106,6 +107,15 @@ async function renderWith(element: React.ReactElement) {
 const card = (host: HTMLElement, plan: string) => host.querySelector<HTMLElement>(`section[aria-label="${plan} plan"]`)!;
 const buttonIn = (scope: HTMLElement, name: string) =>
   Array.from(scope.querySelectorAll("button")).find((button) => button.textContent?.trim() === name);
+
+it("names an unlimited limit Unlimited and keeps its sign out of the accessibility tree", async () => {
+  const host = await renderWith(<PlanCards />);
+  const benefits = Array.from(card(host, "Max").querySelectorAll("li"));
+  expect(benefits.map(accessibleName)).toContain("Unlimited Teams");
+  expect(benefits.map(accessibleName)).toContain("12 machines in your mesh");
+  const unlimited = benefits.find((item) => accessibleName(item) === "Unlimited Teams")!;
+  expect(Array.from(unlimited.querySelectorAll("svg")).every((sign) => sign.getAttribute("aria-hidden") === "true")).toBe(true);
+});
 
 it("keeps every Choose button live by default, signed out or not", async () => {
   const host = await renderWith(<PlanCards onChoose={() => {}} />);

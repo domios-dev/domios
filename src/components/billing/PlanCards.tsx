@@ -22,6 +22,7 @@ import {
   type PlanCatalog,
   type PlanOffer,
 } from "./planCatalog";
+import { LimitAmount } from "./LimitAmount";
 import { usePlanCatalog } from "./planCatalogContext";
 import { usePlanViewed } from "./usePlanViewed";
 import { IDLE_INTENT, type PurchaseIntent } from "./purchaseIntent";
@@ -133,9 +134,9 @@ export function PlanCard({ offer, interval, current = false, canPurchase = true,
       </div>
       <ul className="m-0 flex flex-1 list-none flex-col gap-1.5 p-0">
         {planFeatures(offer).map((feature) => (
-          <li key={feature} className="flex items-start gap-2 text-xs text-[var(--ct-fg)]">
-            <Check size={14} className="mt-px shrink-0 text-[var(--ct-accent)]" aria-hidden="true" />
-            {feature}
+          <li key={feature.kind === "limit" ? feature.noun : feature.text} className="flex items-center gap-2 whitespace-nowrap text-xs text-[var(--ct-fg)]">
+            <Check size={14} className="shrink-0 text-[var(--ct-accent)]" aria-hidden="true" />
+            {feature.kind === "limit" ? <span><LimitAmount amount={feature.amount} /> {feature.noun}</span> : feature.text}
           </li>
         ))}
       </ul>
