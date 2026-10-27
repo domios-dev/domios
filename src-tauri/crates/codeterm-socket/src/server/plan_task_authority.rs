@@ -375,7 +375,6 @@ pub(super) fn verify_owner_epoch_for_task_mutation(
         method,
         "task.list"
             | "task.show"
-            | "task.add"
             | "plan.task.attempts"
             | "plan.task.attempt.show"
             | "plan.task.adopt_checkpoint"

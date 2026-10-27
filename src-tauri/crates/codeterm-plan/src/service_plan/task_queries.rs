@@ -4,11 +4,8 @@ use std::path::Path;
 
 use super::readback::pending_after_verified;
 use super::state::{dependency_waits, DependencyWait, TaskPresentation};
-use super::{NewTask, PlanError, PlanStore};
-use crate::plan::{
-    OrchestratorRef, Plan, PlanMode, PlanStatus, Section, Task, TaskStatus, INBOX_PLAN_ID,
-    INBOX_PLAN_TITLE,
-};
+use super::{PlanError, PlanStore};
+use crate::plan::{OrchestratorRef, Plan, PlanMode, PlanStatus, Section, Task, TaskStatus};
 
 #[derive(Debug, Clone, Default)]
 pub struct TaskListFilter {
@@ -96,7 +93,7 @@ pub struct TaskListResult {
     pub empty_reason: Option<TaskListEmptyReason>,
 }
 
-fn canonical_project(project_path: &str) -> String {
+pub(super) fn canonical_project(project_path: &str) -> String {
     super::paths::project_root(Path::new(project_path))
         .display()
         .to_string()
@@ -231,38 +228,6 @@ fn include_task(filter: &TaskListFilter, task: &Task) -> bool {
 }
 
 impl PlanStore {
-    pub fn ensure_inbox_plan(
-        &self,
-        project_path: &str,
-        owner: OrchestratorRef,
-        now_ms: u64,
-    ) -> Result<Plan, PlanError> {
-        let project_path = canonical_project(project_path);
-        if let Some(plan) = self.get(INBOX_PLAN_ID) {
-            if plan.project_path == project_path {
-                return Ok(plan);
-            }
-        }
-        let mut plan = Plan::new(INBOX_PLAN_TITLE.into(), project_path, owner);
-        plan.id = INBOX_PLAN_ID.into();
-        plan.status = PlanStatus::Archived;
-        self.save(&mut plan, now_ms)
-            .map_err(|e| PlanError::Io(e.to_string()))?;
-        Ok(plan)
-    }
-
-    pub fn add_inbox_task(
-        &self,
-        project_path: &str,
-        owner: OrchestratorRef,
-        new: NewTask,
-        now_ms: u64,
-    ) -> Result<(String, String), PlanError> {
-        let plan = self.ensure_inbox_plan(project_path, owner, now_ms)?;
-        let task_id = self.add_task(&plan.id, new, now_ms)?;
-        Ok((plan.id, task_id))
-    }
-
     pub fn list_tasks(&self, filter: TaskListFilter) -> Vec<TaskSummary> {
         self.list_tasks_with_reason(filter).tasks
     }

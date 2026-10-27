@@ -342,7 +342,7 @@ pub fn convert_plan_dir(
         plan_dir: plan_dir.to_path_buf(),
         message: format!("legacy load failed: {e}"),
     })?;
-    if legacy.id != plan_id && plan_id != crate::plan::INBOX_PLAN_FILE_STEM {
+    if legacy.id != plan_id {
         return Err(ConvertError {
             plan_id: plan_id.clone(),
             plan_dir: plan_dir.to_path_buf(),

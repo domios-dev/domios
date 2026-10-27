@@ -66,6 +66,7 @@ pub mod plan_task_update;
 pub mod plugin;
 pub mod print;
 pub mod quoted_handoff;
+pub mod radar;
 mod remote_team;
 pub mod report_attribution;
 pub mod report_body;

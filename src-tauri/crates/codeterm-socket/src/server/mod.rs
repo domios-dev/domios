@@ -45,6 +45,7 @@ pub(crate) mod plan_task_dispatch;
 mod plan_task_rpc;
 mod plan_time;
 pub(crate) mod protocol;
+mod radar;
 mod receiver_target;
 mod remote_team_rpc;
 mod remote_worker_policy;

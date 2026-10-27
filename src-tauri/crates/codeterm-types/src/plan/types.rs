@@ -8,10 +8,6 @@ use super::{
 };
 use serde::{Deserialize, Serialize};
 
-pub const INBOX_PLAN_ID: &str = "inbox";
-pub const INBOX_PLAN_FILE_STEM: &str = "_inbox";
-pub const INBOX_PLAN_TITLE: &str = "Tasks";
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum PlanStatus {

@@ -95,7 +95,6 @@ pub use args::cron::CronAction;
 pub use args::delayed::DelayedAction;
 pub use args::effort::EffortAction;
 pub use args::essence_map::EssenceMapAction;
-pub use args::inbox::InboxAction;
 pub use args::mem::{
     MemAction, MemCalibrationAction, MemDreamAction, MemEmbedderAction, MemEmbedderKeyAction,
     MemGraphAction, MemSecretAction, MemSkillAction, MemWorkerAction,
@@ -107,6 +106,7 @@ pub use args::misc::{
 pub use args::pad::PadAction;
 pub use args::plan::PlanAction;
 pub use args::plugin::{PluginAction, PluginChannelAction};
+pub use args::radar::RadarAction;
 pub use args::service::ServiceAction;
 pub use args::sessions::SessionsAction;
 pub use args::spec::SpecAction;
@@ -547,8 +547,8 @@ fn main_impl() {
             return;
         }
 
-        Commands::Inbox { action } => {
-            cmd::task::handle_inbox(&mut client, cli.json, action);
+        Commands::Radar { action } => {
+            cmd::radar::handle_radar(&mut client, cli.json, action);
             return;
         }
 

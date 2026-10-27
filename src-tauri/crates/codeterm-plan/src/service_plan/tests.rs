@@ -930,63 +930,6 @@ fn list_tasks_is_strictly_project_scoped() {
 }
 
 #[test]
-fn public_inbox_mutation_cannot_create_active_teamless_plan() {
-    let root = tempfile::tempdir().unwrap();
-    let store = PlanStore::new_for_test(root.path());
-    let first = store
-        .ensure_inbox_plan(
-            root.path().to_str().unwrap(),
-            OrchestratorRef::from_tab("owner"),
-            1,
-        )
-        .unwrap();
-    let second = store
-        .ensure_inbox_plan(
-            root.path().to_str().unwrap(),
-            OrchestratorRef::from_tab("other"),
-            2,
-        )
-        .unwrap();
-
-    assert_eq!(first.id, crate::plan::INBOX_PLAN_ID);
-    assert_eq!(first.title, crate::plan::INBOX_PLAN_TITLE);
-    assert_eq!(first.status, crate::plan::PlanStatus::Archived);
-    assert_eq!(first.team_id, None);
-    assert!(first.sections.is_empty());
-    assert_eq!(second.created_at, first.created_at);
-    assert!(root
-        .path()
-        .join(".domios/plans/archive/_inbox/plan.yaml")
-        .exists());
-}
-
-#[test]
-fn public_task_add_lands_in_archived_inbox_artifact() {
-    let root = tempfile::tempdir().unwrap();
-    let store = PlanStore::new_for_test(root.path());
-    let (plan_id, task_id) = store
-        .add_inbox_task(
-            root.path().to_str().unwrap(),
-            OrchestratorRef::from_tab("owner"),
-            NewTask {
-                name: "standalone".into(),
-                kind: "fix".into(),
-                competition: None,
-                ..Default::default()
-            },
-            3,
-        )
-        .unwrap();
-
-    assert_eq!(plan_id, crate::plan::INBOX_PLAN_ID);
-    let plan = store.get(&plan_id).unwrap();
-    assert_eq!(plan.status, crate::plan::PlanStatus::Archived);
-    assert_eq!(plan.team_id, None);
-    assert_eq!(plan.tasks.len(), 1);
-    assert_eq!(plan.tasks[0].id, task_id);
-    assert_eq!(plan.tasks[0].name, "standalone");
-}
-#[test]
 fn index_projection_keeps_canonical_ownership_separate_from_central_storage() {
     let storage = tempfile::tempdir().unwrap();
     let project = tempfile::tempdir().unwrap();

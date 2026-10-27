@@ -959,7 +959,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
         | Commands::Curator { .. }
         | Commands::Persona { .. }
         | Commands::Task { .. }
-        | Commands::Inbox { .. }
+        | Commands::Radar { .. }
         | Commands::Canvas { .. }
         | Commands::CliManifest { .. }
         | Commands::Capabilities

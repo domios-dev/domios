@@ -38,12 +38,6 @@ pub(crate) fn plan_id_from(plan: &serde_json::Value, path: &Path) -> Option<Stri
             path.parent()?
                 .file_name()
                 .and_then(|s| s.to_str())
-                .map(|stem| {
-                    if stem == "_inbox" {
-                        "inbox".to_string()
-                    } else {
-                        stem.to_string()
-                    }
-                })
+                .map(str::to_string)
         })
 }

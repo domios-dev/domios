@@ -12,7 +12,7 @@ After a committed restoration, rollback must preserve the current nonce and rece
 
 ### Durable task keys and references
 
-Every socket, REST, and CLI argument that names a task accepts its `task_xxxxxx` id, its handle, or its human key (`PREFIX-N`, any case). The id stays primary. A new key is issued once from the plan's owning local workspace: a 2-4 character uppercase prefix derived from the workspace name (collisions take the next deterministic candidate), fixed by the first key, plus a counter that never decreases or reuses a number. A legacy task stores no `key`; its display key is its id without `task_`, uppercased. An exact id wins; a handle and key naming different tasks are refused as `ref_ambiguous`. Task list/detail JSON carries `display_key` beside `task.id` (`task.key` only when stored), sibling/parent labels carry `display_key`, and `plan.task.add`, `POST /api/plans/{id}/tasks`, and `POST /api/tasks` return `key`.
+Every socket, REST, and CLI argument that names a task accepts its `task_xxxxxx` id, its handle, or its human key (`PREFIX-N`, any case). The id stays primary. A new key is issued once from the plan's owning local workspace: a 2-4 character uppercase prefix derived from the workspace name (collisions take the next deterministic candidate), fixed by the first key, plus a counter that never decreases or reuses a number. A legacy task stores no `key`; its display key is its id without `task_`, uppercased. An exact id wins; a handle and key naming different tasks are refused as `ref_ambiguous`. Task list/detail JSON carries `display_key` beside `task.id` (`task.key` only when stored), sibling/parent labels carry `display_key`, and `plan.task.add` and `POST /api/plans/{id}/tasks` return `key`.
 
 `plan task add|update --group <key>` declares an unknown group with its key as label (`plan groups set` relabels), so `plan groups close` accepts every group a heartbeat names.
 
@@ -116,8 +116,16 @@ The Plan Orchestrator can create child tasks beneath an in-progress task with `d
 
 
 
+### Workspace Radar
+
+Radar holds items noticed in a workspace before any plan owns them. An item has an `rd_` id, a title, an optional body and tags, a status (`open` or `pulled`) and an optional source identity: `provider`, `external_id`, `url`. Items persist one file each beside the plan database and belong to the workspace root of the path that created them. Adding an item whose `(provider, external_id)` already exists in that workspace refreshes the title, body, tags and URL of the same item and returns `created: false`; this is the seam an integration uses to import from GitHub, Linear or similar systems without duplicates.
+
+Socket methods: `radar.add` (`project`, `title`, optional `body`, `tags`, `source_provider` with `source_id`, `source_url`), `radar.list` (optional `project`, `status` of `open` (default), `pulled` or `all`, `tag`, `provider`, `query`), `radar.show`, `radar.update` (`item_id` plus any of `title`, `body`, `tags`), `radar.drop` and `radar.pull` (`item_id`, `plan_id`, optional `type`, `sections`). CLI: `domios radar add|list|show|edit|drop|pull`. Local integrations without the socket reach the same methods through the authenticated loopback `POST /api/cli/rpc` route.
+
+`radar.pull` creates one task in an active plan of the item's own workspace, under the same caller authority as `plan.task.add`. The task takes the item's title and body; a GitHub issue URL in the source becomes the task's external reference. The item becomes `pulled` and records `{plan_id, task_id, pulled_at}`; a second pull is refused with that link. Dropping an item deletes it and never touches a task it was pulled into. The earlier hidden Inbox plan and `domios inbox add` are gone: on start, every task of that legacy plan becomes an open Radar item, with its criteria, plans and legacy state folded into the body, and the hidden plan is deleted.
+
 ### Lane cleanup progress
 
 `plan.lanes_clean` accepts optional `stream: true` and returns `{job_id}` immediately. The cleanup runs outside the async runtime. `plan.lanes_clean_next` with `{job_id, cursor: 0}` waits for events, then returns `{events, cursor, done, result}`. Each event contains `{lane, finished}`; pass the returned cursor to receive the next events. A final response contains the ordinary `{plan_id, dry_run, lanes}` result and retires the job. Without `stream`, the call returns that final result directly. Dry runs remain available while confirmed cleanup runs; overlapping mutations for the same plan are refused. The existing owner authorization applies to confirmation and fetch.
 
-<!-- revision: 38 -->
+<!-- revision: 39 -->

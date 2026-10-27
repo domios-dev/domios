@@ -100,7 +100,7 @@ pub fn router() -> Router<AppState> {
             delete(plan_routes::spec::link_rm),
         )
         .route("/api/plans/{id}/tasks", post(plan_routes::task_add))
-        .route("/api/tasks", get(task_routes::list).post(task_routes::add))
+        .route("/api/tasks", get(task_routes::list))
         .route("/api/tasks/{id}", get(task_routes::show))
         .route("/api/tasks/{id}/take", post(task_routes::take))
         .route("/api/tasks/{id}/drop", post(task_routes::drop_task))
