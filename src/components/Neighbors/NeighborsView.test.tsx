@@ -484,3 +484,30 @@ it("nests a concierge bound from any workspace under its friend and marks it hid
   expect(hasButton("Open Ada's concierge")).toBe(true);
   expect(seen[seen.length - 1]?.has("tab-gateway")).toBe(true);
 });
+
+function pendingClient(): NeighborClient {
+  return { list: vi.fn(() => new Promise<NeighborList>(() => {})), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+}
+
+it("draws last known friends at once with a quiet refresh indicator, and stays away when there were none", async () => {
+  localStorage.setItem("domios.neighbors.last-known:owner", JSON.stringify({ access: "paid", friends: [{ friendship_id: "pair", uid: "peer", displayName: "Ada", photoURL: null, gateway_tab: "tab-gateway" }] }));
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<SidebarNeighborsSection touchMode={false} client={pendingClient()} runtimeClient={runtime()} />));
+  expect(hasButton("Open Ada")).toBe(true);
+  expect(hasButton("Open Ada's concierge")).toBe(true);
+  expect(document.querySelector('[aria-label="Refreshing Neighbors"]')).not.toBeNull();
+  localStorage.setItem("domios.neighbors.last-known:owner", JSON.stringify({ access: "paid", friends: [] }));
+  await act(async () => root.render(<SidebarNeighborsSection key="empty" touchMode={false} client={pendingClient()} runtimeClient={runtime()} />));
+  expect(document.querySelector('[data-testid="neighbors-section-toggle"]')).toBeNull();
+});
+
+it("remembers only names, avatars and the concierge binding, and forgets them on sign-out", async () => {
+  await renderSection([{ ...neighbor, gateway_tab: "tab-gateway", my_daily_limit: 5 }]);
+  const stored = JSON.parse(localStorage.getItem("domios.neighbors.last-known:owner")!);
+  expect(stored).toEqual({ access: "paid", friends: [{ friendship_id: "pair", uid: "peer", displayName: "Ada", photoURL: null, gateway_tab: "tab-gateway" }] });
+  account.model = { kind: "signed_out" };
+  await act(async () => mounted!.root.render(<SidebarNeighborsSection touchMode={false} runtimeClient={runtime()} />));
+  expect(localStorage.getItem("domios.neighbors.last-known:owner")).toBeNull();
+});

@@ -982,3 +982,14 @@
   margin: 0.75rem auto 0;
   padding: 0 1rem;
 }
+
+.sidebar-neighbors-loading {
+  display: inline-flex;
+  align-items: center;
+  padding-right: 4px;
+  animation: neighbor-fade-in var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle) both;
+}
+
+@keyframes neighbor-fade-in {
+  from { opacity: 0; }
+}

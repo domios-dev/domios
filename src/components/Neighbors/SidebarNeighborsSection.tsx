@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Bot } from "lucide-react";
 import type { Tab } from "../../lib/types";
 import { useAccount } from "../Settings/useAccount";
@@ -18,9 +18,11 @@ import type { NeighborClient } from "./neighborClient";
 import { neighborConciergeClient, type NeighborConciergeClient } from "./neighborConciergeClient";
 import { openNeighbor, openNeighborChat } from "./neighborFocus";
 import { publishNeighborGateways } from "./neighborGateways";
-import { neighborName, type Neighbor } from "./neighborModel";
+import { neighborName } from "./neighborModel";
 import { neighborRuntimeClient, type NeighborRuntimeClient } from "./neighborRuntimeClient";
 import { useNeighbors } from "./useNeighbors";
+import { clearNeighborCaches, readNeighborCache, writeNeighborCache, type CachedFriend, type CachedNeighbors } from "./neighborListCache";
+import { ActivityDots } from "../shared/ActivityDots";
 import { receivingLine, useReceiverState } from "./useReceiverState";
 import { missingConciergeLine, useConciergeStatus } from "./useConciergeStatus";
 
@@ -46,9 +48,18 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
   const tabStatuses = useMuxSelector(state => state.tabStatuses);
   const [expanded, setExpanded] = useState(readExpanded);
   const [bindings, setBindings] = useState<Record<string, string>>({});
-  const [changing, setChanging] = useState<{ friend: Neighbor; tab: Tab } | null>(null);
-  const friends = neighbors.list?.friends ?? [];
-  const paid = neighbors.list?.access === "paid";
+  const [changing, setChanging] = useState<{ friend: CachedFriend; tab: Tab } | null>(null);
+  // Until the fresh list arrives, draw the friends this account had last time; an empty past keeps the section away.
+  const cached = useMemo(() => readNeighborCache(identity), [identity]);
+  const loading = identity !== null && neighbors.list === null;
+  const shown: CachedNeighbors | null = neighbors.list ?? (loading ? cached : null);
+  const friends: CachedFriend[] = shown?.friends ?? [];
+  const paid = shown?.access === "paid";
+  useEffect(() => {
+    if (model.kind === "signed_out") clearNeighborCaches();
+    else if (identity) clearNeighborCaches(identity);
+  }, [model.kind, identity]);
+  useEffect(() => { if (identity && neighbors.list) writeNeighborCache(identity, neighbors.list); }, [identity, neighbors.list]);
   const friendKey = friends.map(friend => friend.friendship_id).join(",");
   const receiver = useReceiverState(runtimeClient, friends.length > 0 && enabled);
   const concierges = useConciergeStatus(runtimeClient, friends.length > 0 && enabled);
@@ -78,13 +89,14 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
   const text = touchMode ? pickUiFontScaleValue(uiFontScale, ["text-[13px]", "text-[14px]", "text-[15px]", "text-base"])
     : pickUiFontScaleValue(uiFontScale, ["text-[11px]", "text-xs", "text-sm", "text-base"]);
   const rowPadding = touchMode ? "min-h-11 pl-5 pr-2 py-2" : "pl-4 pr-4 py-1.5";
-  const editWithGeneral = (friend: Neighbor) => {
+  const editWithGeneral = (friend: CachedFriend) => {
     void askGeneralAgent({ workspaces, tabs }, permissionInterviewTask({ name: neighborName(friend), friendshipId: friend.friendship_id }))
       .catch((failure: unknown) => publishNotice({ kind: "toast", severity: "Error", id: `neighbor-general:${friend.friendship_id}`,
         title: "General Agent unavailable", detail: failure instanceof Error ? failure.message : "Open General and try again." }));
   };
 
   return <SidebarStructuralSection label="NEIGHBORS" ariaLabel="Neighbors" testId="neighbors-section-toggle" expanded={expanded}
+    action={loading ? <span className="sidebar-neighbors-loading" role="status" aria-label="Refreshing Neighbors"><ActivityDots size="small" tone="muted" active /></span> : null}
     onToggle={() => setExpanded(value => {
       try { localStorage.setItem(STORAGE_KEY, String(!value)); } catch { /* Storage can be unavailable in a private viewer. */ }
       return !value;
