@@ -23,7 +23,7 @@ test('build identity follows the checkout CLI binary and its own environment con
   ].join('\n'));
   const identity = readBuildIdentity(root, { env: { CARGO_TARGET_DIR: path.join(root, 'cache') } });
   assert.equal(identity.binaryName, 'domios');
-  assert.equal(identity.executable, path.join(root, 'cache/cli/debug', `domios${process.platform === 'win32' ? '.exe' : ''}`));
+  assert.equal(identity.executable, path.join(root, 'cache/debug', `domios${process.platform === 'win32' ? '.exe' : ''}`));
   assert.deepEqual(identity.request, { instance: 'DOMIOS_INSTANCE', port: 'DOMIOS_API_PORT' });
   assert.deepEqual(identity.development, { instance: 'DOMIOS_DEV_INSTANCE', port: 'DOMIOS_DEV_API_PORT' });
   assert.deepEqual(identity.cli, { instance: 'DOMIOS_INSTANCE', port: 'DOMIOS_API_PORT', apiToken: 'DOMIOS_API_TOKEN',
@@ -32,7 +32,7 @@ test('build identity follows the checkout CLI binary and its own environment con
   const slug = 'cj-named';
   const key = `${slug}-x${createHash('sha256').update(instance).digest('hex').slice(0, 10)}`;
   const named = readBuildIdentity(root, { env: { CARGO_TARGET_DIR: path.join(root, 'ignored'), CORE_JOURNEY_REQUESTED_INSTANCE: instance } });
-  assert.equal(named.executable, path.join(root, 'src-tauri/target/dev-instances', key, 'cli/debug', `domios${process.platform === 'win32' ? '.exe' : ''}`));
+  assert.equal(named.executable, path.join(root, 'src-tauri/target/dev-instances', key, 'debug', `domios${process.platform === 'win32' ? '.exe' : ''}`));
 });
 
 test('build identity rejects incomplete environment contracts instead of guessing', (t) => {
