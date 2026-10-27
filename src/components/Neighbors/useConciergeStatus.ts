@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
-import { listen } from "../../lib/bridge";
-import { receiverState, type NeighborRuntimeClient } from "./neighborRuntimeClient";
+import { useMemo } from "react";
+import type { NeighborRuntimeClient } from "./neighborRuntimeClient";
+import { useNeighborStatus } from "./neighborStatusStore";
 
 export interface ConciergeStatus {
   gateway_tab: string | null;
@@ -32,48 +32,15 @@ export function parseConciergeStatus(value: unknown): ConciergeStatus | null {
 
 /** Each friendship's concierge on this machine, from the runtime status and its per-friendship events. */
 export function useConciergeStatus(client: NeighborRuntimeClient, active: boolean): Record<string, ConciergeStatus> {
-  const [byFriendship, setByFriendship] = useState<Record<string, ConciergeStatus>>({});
-  // The client is held by reference so the subscription restarts only when the hook turns on or off.
-  const clientRef = useRef(client);
-  clientRef.current = client;
-  useEffect(() => {
-    if (!active) { setByFriendship({}); return; }
-    const client = clientRef.current;
-    const controller = new AbortController();
-    const stops: Array<() => void> = [];
-    const keep = (stop: () => void) => { if (controller.signal.aborted) stop(); else stops.push(stop); };
-    // Each read supersedes the ones before it; a slow answer never replaces a newer one.
-    let generation = 0;
-    const refresh = () => {
-      const current = ++generation;
-      client.status(controller.signal).then(status => {
-        if (controller.signal.aborted || current !== generation) return;
-        const concierges = (status as unknown as Record<string, unknown>).concierges;
-        if (!record(concierges)) return;
-        const parsed: Record<string, ConciergeStatus> = {};
-        for (const [friendship, value] of Object.entries(concierges)) {
-          const entry = parseConciergeStatus(value);
-          if (entry) parsed[friendship] = entry;
-        }
-        setByFriendship(parsed);
-      }, () => {});
-    };
-    void listen<unknown>("neighbor-concierge-status", event => {
-      const payload = event.payload;
-      const status = parseConciergeStatus(payload);
-      if (status && record(payload) && typeof payload.friendship_id === "string") {
-        const friendship = payload.friendship_id;
-        generation++;
-        setByFriendship(current => ({ ...current, [friendship]: status }));
-      }
-    }).then(keep);
-    // Binding or replacing a concierge, and moving the receiver, change every friend's state at once.
-    void listen("neighbor-agent-changed", refresh).then(keep);
-    void client.subscribe(event => { if (receiverState(event)) refresh(); }).then(keep);
-    refresh();
-    return () => { controller.abort(); stops.forEach(stop => stop()); };
-  }, [active]);
-  return byFriendship;
+  const status = useNeighborStatus(client, active);
+  return useMemo(() => {
+    const parsed: Record<string, ConciergeStatus> = {};
+    for (const [friendship, value] of Object.entries(status?.concierges ?? {})) {
+      const entry = parseConciergeStatus(value);
+      if (entry) parsed[friendship] = entry;
+    }
+    return parsed;
+  }, [status]);
 }
 
 // The daemon stops counting the waiting inbox at this many.

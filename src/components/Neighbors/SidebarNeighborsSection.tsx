@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Bot } from "lucide-react";
 import type { Tab } from "../../lib/types";
 import { useAccount } from "../Settings/useAccount";
@@ -24,6 +24,7 @@ import { clearNeighborCaches, readNeighborCache, writeNeighborCache, type Cached
 import { ActivityDots } from "../shared/ActivityDots";
 import { receivingLine, useReceiverState } from "./useReceiverState";
 import { missingConciergeLine, useConciergeStatus } from "./useConciergeStatus";
+import { resetNeighborStatus, useNeighborStatus } from "./neighborStatusStore";
 
 const STORAGE_KEY = "codeterm.sidebar.neighbors-expanded";
 const ROW = "sidebar-tab sidebar-tab-dimmed group flex items-center hover:bg-[var(--ct-hover)]";
@@ -47,6 +48,7 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
   const tabStatuses = useMuxSelector(state => state.tabStatuses);
   const [expanded, setExpanded] = useState(readExpanded);
   const [bindings, setBindings] = useState<Record<string, string>>({});
+  const lastIdentity = useRef<string | null>(null);
   // Until the fresh list arrives, draw the friends this account had last time; an empty past keeps the section away.
   const cached = useMemo(() => readNeighborCache(identity), [identity]);
   const loading = identity !== null && neighbors.list === null;
@@ -56,6 +58,9 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
   useEffect(() => {
     if (model.kind === "signed_out") clearNeighborCaches();
     else if (identity) clearNeighborCaches(identity);
+    // The shared runtime status belongs to the account it was read for.
+    if (model.kind === "signed_out" || (identity && lastIdentity.current && lastIdentity.current !== identity)) resetNeighborStatus();
+    if (identity) lastIdentity.current = identity;
   }, [model.kind, identity]);
   useEffect(() => { if (identity && neighbors.list) writeNeighborCache(identity, neighbors.list); }, [identity, neighbors.list]);
   const friendKey = friends.map(friend => friend.friendship_id).join(",");
@@ -64,25 +69,18 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
   // Concierges only work on the receiving machine; elsewhere they wait.
   const idleNote = receiver && !receiver.receiving_here && receiver.receiving_enabled ? `idle, ${receivingLine(receiver).toLowerCase()}` : null;
 
-  useEffect(() => {
-    if (!friendKey) { setBindings({}); return; }
-    const controller = new AbortController();
-    runtimeClient.status(controller.signal).then(status => setBindings(status.bindings), () => setBindings({}));
-    return () => controller.abort();
-  }, [friendKey, runtimeClient]);
-  // The list row names the bound concierge; the runtime status and agent events fill in or update the rest.
+  // The list row names the bound concierge; the shared runtime status and agent events fill in or update the rest.
+  const status = useNeighborStatus(runtimeClient, friendKey !== "");
   const listBindings = Object.fromEntries(friends.flatMap(friend => friend.gateway_tab ? [[friend.friendship_id, friend.gateway_tab]] : []));
-  const allBindings = { ...listBindings, ...bindings };
+  const allBindings = Object.fromEntries(Object.entries({ ...listBindings, ...(status?.bindings ?? {}), ...bindings }).filter(([, tab]) => tab !== ""));
   const bindingKey = JSON.stringify(allBindings);
   useEffect(() => { publishNeighborGateways(JSON.parse(bindingKey) as Record<string, string>); }, [bindingKey]);
   useEffect(() => {
     let stop: (() => void) | undefined;
     let live = true;
     void conciergeClient.onAgentChanged((friendship, gatewayTab) => setBindings(current => {
-      const next = { ...current };
-      if (gatewayTab) next[friendship] = gatewayTab;
-      else delete next[friendship];
-      return next;
+      // An empty tab marks a removed concierge, so it also hides whatever the list or the snapshot still names.
+      return { ...current, [friendship]: gatewayTab ?? "" };
     }))
       .then(unlisten => { if (live) stop = unlisten; else unlisten(); });
     return () => { live = false; stop?.(); };

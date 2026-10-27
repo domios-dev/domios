@@ -1,25 +1,11 @@
-import { useEffect, useState } from "react";
 import { receiverState, type NeighborRuntimeClient, type ReceiverState } from "./neighborRuntimeClient";
+import { useNeighborStatus } from "./neighborStatusStore";
 
-/** Which machine receives Neighbor messages, kept current from status reads and receiver events. */
+/** Which machine receives Neighbor messages, from the shared status snapshot; unknown until the daemon's watcher reports. */
 export function useReceiverState(client: NeighborRuntimeClient, active: boolean): ReceiverState | null {
-  const [state, setState] = useState<ReceiverState | null>(null);
-  useEffect(() => {
-    if (!active) { setState(null); return; }
-    const controller = new AbortController();
-    let stop: (() => void) | undefined;
-    void client.subscribe(event => {
-      if (receiverState(event)) setState(event);
-      else if ("receiver_unavailable" in event) setState(null);
-    }).then(unlisten => { if (controller.signal.aborted) unlisten(); else stop = unlisten; });
-    // Until the receiver watcher reports, the cached receiver fields are not an answer yet; events fill them in.
-    client.status(controller.signal).then(status => {
-      const known = (status as unknown as { receiver_status_known?: unknown }).receiver_status_known !== false;
-      setState(known && receiverState(status) ? status : null);
-    }, () => setState(null));
-    return () => { controller.abort(); stop?.(); };
-  }, [client, active]);
-  return state;
+  const status = useNeighborStatus(client, active);
+  if (!status || status.receiver_status_known === false || !receiverState(status)) return null;
+  return status;
 }
 
 export function receivingLine(state: ReceiverState): string {
