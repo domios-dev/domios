@@ -94,6 +94,8 @@ function Conversation({ friend, locked, enabled, runtimeClient, conciergeClient,
   };
   const [entries, setEntries] = useState<HistoryEntry[] | null>(null);
   const [before, setBefore] = useState<string | null>(null);
+  // An ended friendship keeps its history readable but takes no new messages.
+  const [ended, setEnded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
@@ -105,6 +107,7 @@ function Conversation({ friend, locked, enabled, runtimeClient, conciergeClient,
     try {
       const page = await conciergeClient.history(friendship);
       setEntries(current => mergeHistory(current ?? [], page.entries));
+      setEnded(page.ended);
       if (!paged.current) { paged.current = true; setBefore(page.next_before); }
       setError(null);
     } catch (failure: unknown) { setError(failure instanceof Error ? failure.message : "The conversation could not be loaded."); }
@@ -137,7 +140,7 @@ function Conversation({ friend, locked, enabled, runtimeClient, conciergeClient,
   const byId = new Map((entries ?? []).map(entry => [entry.message_id, entry]));
   const allowance = typeof friend.their_daily_limit === "number" ? { limit: friend.their_daily_limit, sent: friend.sent_today ?? 0 } : null;
   const limitReached = allowance !== null && allowance.sent >= allowance.limit;
-  const canSend = enabled && !locked && !limitReached;
+  const canSend = enabled && !locked && !limitReached && !ended;
   const send = async (body: string): Promise<boolean> => {
     if (sending || !canSend) return false;
     setSending(true); setError(null); stickToEnd.current = true;
@@ -199,9 +202,10 @@ function Conversation({ friend, locked, enabled, runtimeClient, conciergeClient,
     </div>
     <div className="neighbor-chat__composer">
       {error && <InlineErrorNotice error={error} operation={`messaging ${name}`} role="alert" />}
-      {limitReached && enabled && !locked && <p role="status" className="neighbor-note neighbor-chat__limit">Limit reached: {name} allows {allowance!.limit} {allowance!.limit === 1 ? "message" : "messages"} a day. Ask them to raise it.</p>}
+      {ended && <p role="status" className="neighbor-note neighbor-chat__limit">This connection with {name} has ended. The conversation stays here for you to read.</p>}
+      {!ended && limitReached && enabled && !locked && <p role="status" className="neighbor-note neighbor-chat__limit">Limit reached: {name} allows {allowance!.limit} {allowance!.limit === 1 ? "message" : "messages"} a day. Ask them to raise it.</p>}
       <NeighborComposer name={name} disabled={!canSend} sending={sending} onError={setError}
-        placeholder={!enabled ? "Neighbors is off" : locked ? "Messages are paused by your plan" : limitReached ? "Daily limit reached" : `Message ${name}`}
+        placeholder={ended ? "This connection has ended" : !enabled ? "Neighbors is off" : locked ? "Messages are paused by your plan" : limitReached ? "Daily limit reached" : `Message ${name}`}
         onSend={send} />
     </div>
   </div>;
