@@ -7,6 +7,8 @@ export interface ConciergeStatus {
   concierge_missing: boolean;
   /** Null until an inbox count has been observed; never a stand-in zero. */
   pending_count: number | null;
+  /** The daemon stops counting at its cap; the real number may be higher. */
+  pending_count_capped?: boolean;
   receiving_here: boolean;
   receiver_machine_label: string | null;
   state: "ready" | "concierge_missing" | "receiving_elsewhere" | "not_receiving";
@@ -24,6 +26,7 @@ export function parseConciergeStatus(value: unknown): ConciergeStatus | null {
   return {
     gateway_tab: value.gateway_tab, concierge_missing: value.concierge_missing, pending_count: value.pending_count as number | null,
     receiving_here: value.receiving_here, receiver_machine_label: value.receiver_machine_label, state: value.state as ConciergeStatus["state"],
+    ...(value.pending_count_capped === true ? { pending_count_capped: true } : {}),
   };
 }
 
@@ -57,8 +60,12 @@ export function useConciergeStatus(client: NeighborRuntimeClient, active: boolea
   return byFriendship;
 }
 
+// The daemon stops counting the waiting inbox at this many.
+const PENDING_CAP = 100;
+
 /** "No concierge on this machine", with the waiting count only once it has been observed. */
 export function missingConciergeLine(status: ConciergeStatus): string {
   if (status.pending_count === null) return "No concierge on this machine";
-  return `No concierge on this machine — ${status.pending_count} ${status.pending_count === 1 ? "message" : "messages"} waiting`;
+  const count = status.pending_count_capped || status.pending_count >= PENDING_CAP ? `${status.pending_count}+` : String(status.pending_count);
+  return `No concierge on this machine — ${count} ${status.pending_count === 1 ? "message" : "messages"} waiting`;
 }

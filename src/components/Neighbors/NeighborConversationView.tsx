@@ -202,7 +202,7 @@ function Entry({ entry, friend, friendName, quoted, onOpenQuoted }: {
         {entry.kind === "refusal" && <span className="neighbor-note"> declined</span>}</p>}
       {quoted && <ReplyQuote label={quoted.label} excerpt={quoted.excerpt} onOpen={onOpenQuoted} />}
       <div className={mine ? `ct-user-bubble${agent ? " ct-user-bubble--relayed" : ""} neighbor-msg__bubble` : "neighbor-msg__body"}>
-        <RichMarkdown text={entry.body} localArtifacts={false} />
+        <RichMarkdown text={entry.body} localArtifacts={false} interactivePreviews={false} />
       </div>
       <p className="neighbor-msg__meta">
         <time dateTime={new Date(entry.at).toISOString()} title={new Date(entry.at).toLocaleString()}>{time}</time>

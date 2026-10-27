@@ -6,6 +6,7 @@ import { SidebarNeighborsSection } from "./SidebarNeighborsSection";
 import { NeighborConversationView } from "./NeighborConversationView";
 import type { HistoryEntry, NeighborConciergeClient, NeighborNotify } from "./neighborConciergeClient";
 import { takeNeighborFocus } from "./neighborFocus";
+import { missingConciergeLine } from "./useConciergeStatus";
 import { useNeighborGatewayIds } from "./neighborGateways";
 import type { NeighborClient } from "./neighborClient";
 import type { NeighborList } from "./neighborModel";
@@ -535,4 +536,25 @@ it("draws the last known graph at once and says it is updating instead of loadin
   expect(document.querySelector('[data-status="invited"]')?.textContent).toContain("later@example.test");
   expect(document.body.textContent).toContain("Updating");
   expect(document.body.textContent).not.toContain("Loading Neighbors");
+});
+
+it("never runs a Neighbor's html or diagram fences: they stay code, with no script-capable frame", async () => {
+  const entries: HistoryEntry[] = [
+    { direction: "in", kind: "question", author: "friend", body: "```html\n<script>for(;;){}</script>\n```", at: 1700000000000, message_id: "h1" },
+    { direction: "in", kind: "question", author: "friend", body: "```mermaid\ngraph TD; A-->B\n```", at: 1700000001000, message_id: "h2" },
+  ];
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtime()} conciergeClient={concierge(entries)} />));
+  expect(document.querySelector("iframe")).toBeNull();
+  expect(document.querySelector("svg[id^=mermaid]")).toBeNull();
+  expect(document.getElementById("neighbor-msg-h1")?.textContent).toContain("<script>for(;;){}</script>");
+});
+
+it("caps the waiting count the way the daemon does", () => {
+  expect(missingConciergeLine({ gateway_tab: null, concierge_missing: true, pending_count: 100, receiving_here: true, receiver_machine_label: null, state: "concierge_missing" }))
+    .toBe("No concierge on this machine — 100+ messages waiting");
 });
