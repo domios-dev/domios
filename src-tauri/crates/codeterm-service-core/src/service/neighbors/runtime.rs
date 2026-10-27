@@ -130,6 +130,8 @@ impl ServiceContext {
         String,
     > {
         let (registry, scope, metadata) = self.neighbor_key_ports().await?;
+        self.retry_neighbor_logout(&metadata, &scope, &registry.uid, registry.as_ref())
+            .await?;
         let endpoints = codeterm_account::firebase_endpoints::current();
         if endpoints.emulator {
             return Err("Native Neighbor streaming requires the QA or production project".into());
@@ -185,7 +187,6 @@ impl ServiceContext {
             .await?;
         match result {
             owner::Outcome::Value(value) => Ok(value),
-            owner::Outcome::Logout(_) => Err("Unexpected Neighbor operation result".into()),
         }
     }
 
@@ -206,6 +207,11 @@ impl ServiceContext {
         ) {
             self.require_neighbors_enabled()
                 .map_err(|error| error.to_string())?;
+        }
+        if matches!(&command, NeighborRuntimeCommand::SetPermission { .. })
+            || (caller.is_some() && matches!(&command, NeighborRuntimeCommand::Bind { .. }))
+        {
+            self.require_neighbor_general(caller, nonce)?;
         }
         let (transport, registry, scope, metadata) = self.neighbor_ports().await?;
         let lifecycle = InstallationKeys {
@@ -261,7 +267,6 @@ impl ServiceContext {
                     Ok(json!(metadata.settings().await?.permissions.get(&friendship_id).cloned().unwrap_or_default()))
                 }
                 NeighborRuntimeCommand::SetPermission { friendship_id, permission } => {
-                    self.require_neighbor_general(caller, nonce).map_err(|_| Error::Gateway)?;
                     if !hex_id(&friendship_id, 64) { return Err(Error::InvalidEnvelope); }
                     permission.validate()?;
                     transport.peer_keys(&friendship_id).await?;
@@ -527,13 +532,6 @@ impl ServiceContext {
         self.neighbor_cell()
             .bootstrapped
             .store(false, std::sync::atomic::Ordering::Release);
-    }
-
-    pub(crate) async fn logout_neighbor_account(&self) -> Result<codeterm_account::Status, String> {
-        match self.neighbor_operation(owner::Operation::Logout).await? {
-            owner::Outcome::Logout(status) => Ok(status),
-            owner::Outcome::Value(_) => Err("Unexpected logout operation result".into()),
-        }
     }
 }
 

@@ -57,11 +57,11 @@ export function useNeighbors(identity: string | null, client: NeighborClient = n
       else unlisteners.push(stop);
     };
     void listen("entitlement-changed", load).then(retain);
-    void listen<{ uid: string; list: unknown }>("neighbors-changed", event => {
+    void listen<{ uid?: unknown; list?: unknown }>("neighbors-changed", event => {
       if (controller.signal.aborted || generation.current !== epoch || event.payload?.uid !== identity) return;
       let list: NeighborList;
       try { list = parseNeighbors(event.payload.list); }
-      catch { return; }
+      catch { void load(); return; }
       pushes++;
       setLoaded(previous => ({ identity, list, error: null, referral: previous.identity === identity ? previous.referral : null }));
     }).then(retain);

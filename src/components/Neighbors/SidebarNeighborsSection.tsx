@@ -20,8 +20,8 @@ function readExpanded(): boolean {
 }
 
 /** Your connected Neighbors as sidebar rows; the section stays away until you have one. */
-export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTab, client, runtimeClient = neighborRuntimeClient }: {
-  uiFontScale?: number; touchMode: boolean; onNavigateToTab?: () => void; client?: NeighborClient; runtimeClient?: NeighborRuntimeClient;
+export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTab, enabled = true, client, runtimeClient = neighborRuntimeClient }: {
+  uiFontScale?: number; touchMode: boolean; onNavigateToTab?: () => void; enabled?: boolean; client?: NeighborClient; runtimeClient?: NeighborRuntimeClient;
 }) {
   const { model } = useAccount();
   const identity = model.kind === "signed_in" ? model.identity.uid : null;
@@ -49,17 +49,19 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
       try { localStorage.setItem(STORAGE_KEY, String(!value)); } catch { /* Storage can be unavailable in a private viewer. */ }
       return !value;
     })}>
-    {expanded && <ul aria-label="Your Neighbors" className="sidebar-neighbors">{friends.map(friend => {
+    {expanded && !enabled && <p role="status" className="sidebar-neighbors-off">Neighbors is off</p>}
+    {expanded && <ul aria-label="Your Neighbors" className="sidebar-neighbors" data-off={enabled ? undefined : true}>{friends.map(friend => {
       const name = neighborName(friend);
       const gateway = bindings[friend.friendship_id];
-      const gatewayTab = gateway ? tabs[gateway] : undefined;
-      const status = paid ? "connected" : "paused by plan";
+      // While Neighbors is off nothing reaches their tab, so a row only opens the neighborhood.
+      const gatewayTab = enabled && gateway ? tabs[gateway] : undefined;
+      const status = !enabled ? "off" : paid ? "connected" : "paused by plan";
       return <li key={friend.friendship_id}
         className={`sidebar-tab sidebar-tab-dimmed group flex items-center ${touchMode ? "min-h-11 pl-5 pr-2 py-2" : "pl-4 pr-4 py-1.5"} hover:bg-[var(--ct-hover)]`}>
         <button type="button" className={`sidebar-tab-activation flex flex-1 items-center min-w-0 border-0 bg-transparent p-0 text-left text-inherit cursor-pointer ${touchMode ? "gap-2.5" : "gap-2"}`}
           aria-label={gatewayTab ? `Open ${name}'s conversation in ${gatewayTab.title}` : `Open ${name} in Neighbors`}
           onClick={() => {
-            if (gateway && gatewayTab) focusTab(gateway, workspaceOfTab({ workspaces, tabs }, gateway));
+            if (gatewayTab) focusTab(gateway, workspaceOfTab({ workspaces, tabs }, gateway));
             else openNeighbor(friend.friendship_id);
             onNavigateToTab?.();
           }}>
@@ -69,7 +71,7 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
               <span className={`${text} block truncate min-w-0 text-[var(--ct-fg)]`}>{name}</span>
             </span>
             <span className="sidebar-tab-body__sub neighbor-status text-[10px] leading-3">
-              <span className="neighbor-dot" data-tone={paid ? "ok" : "muted"} aria-hidden="true" />{gatewayTab ? `${status} · ${gatewayTab.title}` : status}
+              <span className="neighbor-dot" data-tone={enabled && paid ? "ok" : "muted"} aria-hidden="true" />{gatewayTab ? `${status} · ${gatewayTab.title}` : status}
             </span>
           </span>
         </button>

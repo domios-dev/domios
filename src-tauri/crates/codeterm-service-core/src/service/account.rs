@@ -148,28 +148,36 @@ impl super::ServiceContext {
         self.restore_neighbors_once();
         Ok(account.clone())
     }
-    /// Mesh blocks and attempts endpoint withdrawal while this account's credentials still exist.
     pub async fn account_logout(&self) -> Result<codeterm_account::Status, String> {
-        self.logout_neighbor_account().await
+        let service = self.clone();
+        tokio::spawn(async move { service.account_logout_owned().await })
+            .await
+            .map_err(|_| Error::Cancelled.to_string())?
     }
 
     pub(crate) async fn account_logout_owned(&self) -> Result<codeterm_account::Status, String> {
         let account = self.account().await?;
-        self.revoke_neighbors_owned().await?;
-        let logout = account.logout();
-        let status = match self.account_mesh().await {
-            Ok(mesh) => {
-                let (_, persisted, status) = mesh.mesh.sign_out(logout).await;
-                persisted?;
-                status
-            }
-            Err(_) => {
-                let block = self.sign_out_without_account_mesh().await;
-                let status = logout.await;
-                block?;
-                status
+        let session = account.session().await;
+        self.neighbor_identity_changed();
+        let block = async {
+            match self.account_mesh().await {
+                Ok(mesh) => mesh.mesh.sign_out_local().await,
+                Err(_) => self.sign_out_without_account_mesh().await,
             }
         };
+        let (status, persisted) = tokio::join!(account.logout(), block);
+        if let Err(error) = persisted {
+            log::warn!("Account sign-out cleanup failed: stage=mesh_block error={error}");
+        }
+        if let Some(session) = session {
+            if let Err(error) = self.queue_neighbor_logout(&session).await {
+                log::warn!("Account sign-out cleanup failed: stage=neighbor_queue error={error}");
+            }
+        }
+        if let Err(error) = self.clear_account_plan().await {
+            log::warn!("Account sign-out cleanup failed: stage=plan_grant error={error}");
+        }
+        self.ui.emit("account-changed", serde_json::Value::Null);
         status.map_err(|e| e.to_string())
     }
     pub async fn account_login(

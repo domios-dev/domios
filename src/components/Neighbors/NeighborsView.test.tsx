@@ -14,7 +14,7 @@ import { localFetch } from "../../lib/webApi";
 
 const notices = vi.hoisted(() => ({ publishNotice: vi.fn() }));
 const transport = vi.hoisted(() => ({ localFetch: vi.fn() }));
-const bridge = vi.hoisted(() => ({ changed: null as null | (() => void), updates: new Set<(event: { payload: unknown }) => void>(), invoke: vi.fn(async () => undefined) }));
+const bridge = vi.hoisted(() => ({ handlers: {} as Record<string, Set<(event: { payload: unknown }) => void>>, invoke: vi.fn(async () => undefined) }));
 const account = vi.hoisted(() => ({ model: { kind: "signed_in", identity: { uid: "owner", email: "me@example.test", display_name: "Me", photo_url: null } } as Record<string, unknown>, signIn: vi.fn() }));
 const mux = vi.hoisted(() => ({
   workspaces: [{ id: "ws-general", name: "General", tabs: ["tab-general"], protected: true }, { id: "ws-work", name: "Work", tabs: ["tab-gateway"] }],
@@ -23,12 +23,9 @@ const mux = vi.hoisted(() => ({
 vi.mock("../../lib/webApi", async actual => ({ ...await actual<object>(), ...transport }));
 vi.mock("../../lib/notices", () => notices);
 vi.mock("../../lib/bridge", () => ({ invoke: bridge.invoke, listen: vi.fn(async (event: string, handler: (event: { payload: unknown }) => void) => {
-  if (event === "neighbors-changed") {
-    bridge.updates.add(handler);
-    return () => { bridge.updates.delete(handler); };
-  }
-  bridge.changed = () => handler({ payload: null });
-  return () => { bridge.changed = null; };
+  const handlers = bridge.handlers[event] ??= new Set();
+  handlers.add(handler);
+  return () => { handlers.delete(handler); if (handlers.size === 0) delete bridge.handlers[event]; };
 }) }));
 vi.mock("../Settings/useAccount", () => ({ useAccount: () => ({ model: account.model, signIn: account.signIn, signOut: vi.fn() }) }));
 vi.mock("../../store/multiplexer", () => ({ useMuxSelector: (select: (state: typeof mux) => unknown) => select(mux) }));
@@ -54,6 +51,10 @@ function button(label: string): HTMLButtonElement {
 }
 const hasButton = (label: string) => Array.from(document.querySelectorAll("button")).some(element => element.getAttribute("aria-label") === label || element.textContent === label);
 
+function emit(event: string, payload: unknown = null) {
+  for (const handler of bridge.handlers[event] ?? []) handler({ payload });
+}
+
 function runtime(bindings: Record<string, string> = {}): NeighborRuntimeClient {
   return {
     subscribe: vi.fn(async () => () => {}), status: vi.fn(async () => ({ enrolled: false, bindings })), enroll: vi.fn(async () => {}), rotate: vi.fn(async () => {}),
@@ -61,8 +62,8 @@ function runtime(bindings: Record<string, string> = {}): NeighborRuntimeClient {
   };
 }
 
-async function render(access: NeighborList["access"] = "paid", options: { canInvite?: boolean; omitEligibility?: boolean; claim?: ReferralClaim; bindings?: Record<string, string> } = {}) {
-  const list: NeighborList = { schema_version: 1, access, can_invite: options.omitEligibility ? undefined : options.canInvite ?? access === "paid", friends: [neighbor], incoming: [request], outgoing: [] };
+async function render(access: NeighborList["access"] = "paid", options: { canInvite?: boolean; omitEligibility?: boolean; claim?: ReferralClaim; bindings?: Record<string, string>; outgoing?: NeighborList["outgoing"] } = {}) {
+  const list: NeighborList = { schema_version: 1, access, can_invite: options.omitEligibility ? undefined : options.canInvite ?? access === "paid", friends: [neighbor], incoming: [request], outgoing: options.outgoing ?? [] };
   const client: NeighborClient = { list: vi.fn(async () => structuredClone(list)), apply: vi.fn(async () => {}),
     claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => options.claim ?? { schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null }) };
   const host = document.createElement("div"); document.body.append(host);
@@ -89,9 +90,9 @@ it("updates the graph from an own-account push and ignores foreign or stale load
   vi.mocked(client.list).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
   await act(async () => button("Refresh Neighbors").click());
   const newer = { ...list, friends: [{ ...neighbor, displayName: "Lin" }], incoming: [] };
-  await act(async () => { for (const receive of bridge.updates) receive({ payload: { uid: "other", list: newer } }); });
+  await act(async () => { emit("neighbors-changed", { uid: "other", list: newer }); });
   expect(hasButton("Ada, connected")).toBe(true);
-  await act(async () => { for (const receive of bridge.updates) receive({ payload: { uid: "owner", list: newer } }); });
+  await act(async () => { emit("neighbors-changed", { uid: "owner", list: newer }); });
   expect(hasButton("Lin, connected")).toBe(true);
   expect(hasButton("Grace, wants to connect")).toBe(false);
   await act(async () => finish(list));
@@ -201,8 +202,8 @@ it("refreshes the server's channel lock when signed entitlement access changes",
   await act(async () => button("Ada, connected").click());
   expect(hasButton("View plans")).toBe(false);
   list.access = "locked";
-  expect(bridge.changed).not.toBeNull();
-  await act(async () => bridge.changed!());
+  expect(bridge.handlers["entitlement-changed"]).toBeDefined();
+  await act(async () => emit("entitlement-changed"));
   expect(button("View plans")).toBeDefined();
   expect(button("Subscribe")).toBeDefined();
 });
@@ -276,10 +277,10 @@ it("keeps the sidebar Neighbors section away until there is a Neighbor", async (
 it("updates the sidebar immediately from an own-account push and removes its subscription on unmount", async () => {
   await renderSection([]);
   const list = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
-  await act(async () => { for (const receive of bridge.updates) receive({ payload: { uid: "owner", list } }); });
+  await act(async () => { emit("neighbors-changed", { uid: "owner", list }); });
   expect(hasButton("Open Ada in Neighbors")).toBe(true);
   await act(async () => mounted!.root.unmount());
-  expect(bridge.updates.size).toBe(0);
+  expect(bridge.handlers["neighbors-changed"]).toBeUndefined();
   mounted!.host.remove();
   mounted = null;
 });
@@ -300,4 +301,41 @@ it("opens a Neighbor's gateway tab from the sidebar, or the neighborhood when no
     window.removeEventListener("codeterm:focus-tab", focused);
     window.removeEventListener("codeterm:open-panel", panels);
   }
+});
+
+it("shows a sent invitation as its typed email with no profile and no action", async () => {
+  const { client } = await render("paid", { outgoing: [{ id: "b".repeat(64), typed_email: "new@example.test", created_at: 1700000000, state: "pending" }] });
+  const node = Array.from(document.querySelectorAll<HTMLElement>('[data-status="invited"]'));
+  expect(node).toHaveLength(1);
+  expect(node[0].tagName).toBe("DIV");
+  expect(node[0].textContent).toContain("new@example.test");
+  expect(node[0].querySelector("img")).toBeNull();
+  expect(hasButton("new@example.test")).toBe(false);
+  expect(client.apply).not.toHaveBeenCalled();
+});
+
+it("follows the daemon's pushed list for this account and ignores another account's", async () => {
+  const { list } = await render();
+  const pushed = { ...list, friends: [], incoming: [], outgoing: [{ id: "c".repeat(64), typed_email: "pushed@example.test", created_at: 1700000000, state: "pending" as const }] };
+  await act(async () => emit("neighbors-changed", { uid: "someone-else", list: pushed }));
+  expect(hasButton("Ada, connected")).toBe(true);
+  await act(async () => emit("neighbors-changed", { uid: "owner", list: pushed }));
+  expect(hasButton("Ada, connected")).toBe(false);
+  expect(document.querySelector('[data-status="invited"]')?.textContent).toContain("pushed@example.test");
+});
+
+it("shows a calm off state with a way back on, and draws no ring while Neighbors is off", async () => {
+  vi.mocked(localFetch).mockResolvedValue(new Response(JSON.stringify({ ok: true, enabled: true }), { status: 200 }));
+  const client: NeighborClient = { list: vi.fn(async () => ({ schema_version: 1 as const, access: "paid" as const, can_invite: true, friends: [neighbor], incoming: [], outgoing: [] })),
+    apply: vi.fn(async () => {}), claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborsView config={{ neighbors: { enabled: false } }} client={client} runtimeClient={runtime()} />));
+  expect(hasButton("Ada, connected")).toBe(false);
+  expect(hasButton("Add Neighbor")).toBe(false);
+  await act(async () => button("Turn on Neighbors").click());
+  const [path, init] = vi.mocked(localFetch).mock.calls[0];
+  expect(path).toBe("/api/account/neighbors/enabled");
+  expect(JSON.parse(String(init?.body))).toEqual({ enabled: true });
+  expect(hasButton("Ada, connected")).toBe(true);
 });

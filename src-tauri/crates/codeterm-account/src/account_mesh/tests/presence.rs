@@ -49,6 +49,49 @@ async fn enrolled() -> Harness {
 }
 
 #[tokio::test]
+async fn account_mesh_local_sign_out_blocks_offline_and_after_reconnect_and_restart() {
+    let mut harness = enrolled().await;
+    harness.log.lock().unwrap().clear();
+    harness.registry.script.lock().unwrap().presence = Some(RegistryRefusal::Offline);
+    harness.mesh.sign_out_local().await.unwrap();
+    *harness.sessions.0.lock().unwrap() = None;
+    assert_eq!(harness.state().traffic(), Traffic::BlockedSignedOut);
+    assert_eq!(harness.calls("presence"), 0);
+    assert_eq!(harness.registry.slot(UID), Some(1));
+    harness.registry.script.lock().unwrap().presence = None;
+    assert_eq!(
+        harness.mesh.refresh(EnrollTrigger::Network).await,
+        Err(AccountMeshRefusal::SignedOut)
+    );
+    harness.restart().await;
+    assert_eq!(harness.state().traffic(), Traffic::BlockedSignedOut);
+    assert_eq!(
+        harness.mesh.refresh(EnrollTrigger::Network).await,
+        Err(AccountMeshRefusal::SignedOut)
+    );
+    assert_eq!(harness.calls("presence"), 0);
+    assert_eq!(harness.registry.slot(UID), Some(1));
+}
+
+#[tokio::test]
+async fn account_mesh_outgoing_revocation_never_restores_the_local_session() {
+    let harness = enrolled().await;
+    let captured = harness.sessions.0.lock().unwrap().clone().unwrap();
+    harness.mesh.sign_out_local().await.unwrap();
+    *harness.sessions.0.lock().unwrap() = None;
+    let result = harness
+        .mesh
+        .revoke_outgoing_session(&captured)
+        .await
+        .unwrap();
+    assert_eq!(result.target_installation_id, INSTALLATION);
+    assert_eq!(harness.calls("session_revoke"), 1);
+    assert!(harness.sessions.0.lock().unwrap().is_none());
+    assert_eq!(harness.state().traffic(), Traffic::BlockedSignedOut);
+    assert_eq!(harness.registry.slot(UID), Some(1));
+}
+
+#[tokio::test]
 async fn account_mesh_presence_sign_out_is_blocked_and_announced_before_credentials_release() {
     let harness = enrolled().await;
     harness.log.lock().unwrap().clear();

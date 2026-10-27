@@ -1,5 +1,7 @@
 use super::*;
 
+mod neighbor_authority;
+
 #[tokio::test]
 async fn neighbor_disabled_response_keeps_a_typed_reason() {
     let response =

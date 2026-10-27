@@ -23,6 +23,7 @@ import { MemoryGraphIcon, MeshIcon, NeighborsIcon, SidebarNavButton } from "./Si
 import { OrchestrationCreate, type OrchestrationCreateResult } from "./OrchestrationCreate";
 import { SidebarStructuralSection } from "./SidebarStructuralSection";
 import { SidebarNeighborsSection } from "../Neighbors/SidebarNeighborsSection";
+import { useNeighborsSwitch } from "../Neighbors/neighborsSwitch";
 import { RecentlyClosed } from "./RecentlyClosed";
 import {
   keepPressFocusInPlace,
@@ -364,6 +365,8 @@ export const Sidebar = memo(function Sidebar({
       setMeshEnabledOverride(null);
     }
   }, [meshPresence]);
+
+  const neighborsSwitch = useNeighborsSwitch(config);
 
   const toggleExpanded = useCallback((wsId: string) => {
     setExpandedWorkspaces((prev) => {
@@ -780,7 +783,7 @@ export const Sidebar = memo(function Sidebar({
                   onOpenJobs={onOpenWorkspaceAutomation}
                 />
               )}
-              {!isCompact && !restoring && <SidebarNeighborsSection uiFontScale={uiFontScale} touchMode={touchMode} onNavigateToTab={onNavigateToTab} />}
+              {!isCompact && !restoring && <SidebarNeighborsSection uiFontScale={uiFontScale} touchMode={touchMode} onNavigateToTab={onNavigateToTab} enabled={neighborsSwitch.enabled} />}
               {!isCompact && !restoring && <SidebarStructuralSection label="WORKSPACES" testId="workspaces-section-toggle"
                 expanded={workspacesSectionExpanded} onToggle={toggleWorkspacesSection}>
                 {workspaceSectionBodyVisible(isCompact, workspacesSectionExpanded) && (
@@ -839,14 +842,26 @@ export const Sidebar = memo(function Sidebar({
               aria-label="Sidebar views"
               className={`sidebar-footer ${isCompact ? "px-1 py-2 flex flex-col items-center" : "flex flex-col"}`}
             >
-              <SidebarNavButton
-                testId="nav-neighbors"
-                label="Neighborhood"
-                icon={<NeighborsIcon size={navIconSize} />}
-                current={mainView === "neighbors"}
-                onClick={onOpenNeighbors}
-                {...navButtonLayout}
-              />
+              <div className={`flex items-center ${isCompact ? "justify-center" : "gap-1 w-full"}`}>
+                <SidebarNavButton
+                  testId="nav-neighbors"
+                  label="Neighborhood"
+                  icon={<NeighborsIcon size={navIconSize} />}
+                  current={mainView === "neighbors"}
+                  onClick={onOpenNeighbors}
+                  grow
+                  {...navButtonLayout}
+                />
+                {!isCompact && (
+                  <LiquidFlip
+                    data-testid="neighbors-toggle"
+                    aria-label="Neighbors"
+                    className="shrink-0 text-[10px]"
+                    checked={neighborsSwitch.enabled}
+                    onCheckedChange={neighborsSwitch.setEnabled}
+                  />
+                )}
+              </div>
               <SidebarNavButton
                 testId="nav-memory"
                 label="Memory"

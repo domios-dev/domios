@@ -97,8 +97,18 @@ impl AuthenticatedCall for Evidence {
 }
 
 struct Provider(bool);
+struct NoBrowser;
+#[async_trait]
+impl codeterm_account::Browser for NoBrowser {
+    async fn open(&self, _: &url::Url) -> codeterm_account::Result<()> {
+        panic!("no browser")
+    }
+}
 #[async_trait]
 impl IdentityProvider for Provider {
+    fn needs_browser_callback(&self) -> bool {
+        false
+    }
     fn id(&self) -> &str {
         if self.0 {
             "local"
@@ -110,7 +120,9 @@ impl IdentityProvider for Provider {
         &self,
         _: &codeterm_account::LoginFlow,
     ) -> codeterm_account::Result<codeterm_account::LoginStart> {
-        Err(codeterm_account::Error::Provider)
+        self.refresh(&codeterm_account::Secret::new("fresh-sign-in"))
+            .await
+            .map(codeterm_account::LoginStart::Immediate)
     }
     async fn redeem(
         &self,
@@ -160,10 +172,20 @@ impl KeyRegistry for Enrollment {
     }
 }
 
-async fn logout(local: bool, enrolled: bool, uncertain: bool, uncertain_confirmation: bool) {
+async fn logout(
+    local: bool,
+    enrolled: bool,
+    uncertain: bool,
+    uncertain_confirmation: bool,
+    self_sign_out: bool,
+) {
+    use codeterm_billing::GrantStore;
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     let service = &fixture.service;
+    let grants = codeterm_billing::FileGrantStore::new(service.account_data_root().unwrap());
+    grants.save(&json!({"opaque":"cached-grant"})).unwrap();
+    grants.save_hint(true).unwrap();
     let evidence = Arc::new(Evidence {
         uncertain,
         uncertain_confirmation,
@@ -228,19 +250,58 @@ async fn logout(local: bool, enrolled: bool, uncertain: bool, uncertain_confirma
         })
         .ok()
         .unwrap();
-    let result = service.account_logout().await;
-    let should_refuse = !local && (uncertain || uncertain_confirmation);
-    assert_eq!(result.is_err(), should_refuse);
-    assert_eq!(account.session().await.is_some(), should_refuse);
-    assert_eq!(evidence.credential.lock().is_some(), should_refuse);
-    let events = evidence.events.lock();
-    if should_refuse {
-        assert!(!events.contains(&"delete_key"));
-        assert!(!events.contains(&"delete_credential"));
-        assert_eq!(evidence.slots.lock().len(), 2);
-    } else if local {
-        assert_eq!(*events, ["delete_credential"]);
+    let result = if self_sign_out {
+        let outcome = service.account_mesh_session_revoke(None).await.unwrap();
+        assert!(matches!(
+            outcome,
+            crate::service::account_mesh::AccountMeshOutcome::Refused {
+                local_signed_out: true,
+                ..
+            }
+        ));
+        account.status().await
     } else {
+        service.account_logout().await.unwrap()
+    };
+    assert!(result.identity.is_none());
+    assert!(account.session().await.is_none());
+    assert!(evidence.credential.lock().is_none());
+    assert!(grants.load().unwrap().is_none());
+    assert!(!grants.load_hint().unwrap());
+    assert_eq!(*evidence.events.lock(), ["delete_credential"]);
+    assert_eq!(evidence.slots.lock().len(), if enrolled { 2 } else { 0 });
+    let calls = callable::Calls {
+        service: service.clone(),
+        uid: "owner".into(),
+        generation: 0,
+    };
+    assert!(matches!(calls.id_token().await, Err(Error::Revoked)));
+    assert_eq!(*evidence.events.lock(), ["delete_credential"]);
+    if local {
+        return;
+    }
+    let metadata = Metadata::new(service.account_data_root().unwrap(), "owner");
+    assert!(metadata.settings().await.unwrap().cleanup_pending);
+    assert!(!metadata.settings().await.unwrap().enabled);
+    account.login(Arc::new(NoBrowser)).await.unwrap();
+    let scope =
+        KeyScope::installation(service.installation_id().await.unwrap().as_str(), "owner").unwrap();
+    let ports = service.ext::<LogoutKeyPorts>();
+    let retry = service
+        .retry_neighbor_logout(&metadata, &scope, "owner", ports.registry.as_ref())
+        .await;
+    let uncertain_cleanup = uncertain || uncertain_confirmation;
+    assert_eq!(retry.is_err(), uncertain_cleanup);
+    assert_eq!(
+        metadata.settings().await.unwrap().cleanup_pending,
+        uncertain_cleanup
+    );
+    if uncertain_cleanup {
+        assert_eq!(evidence.slots.lock().len(), 2);
+        assert!(!evidence.events.lock().contains(&"delete_key"));
+    } else {
+        assert!(evidence.slots.lock().is_empty());
+        let events = evidence.events.lock();
         let confirmed = events
             .iter()
             .position(|event| *event == "confirmed_empty")
@@ -249,40 +310,32 @@ async fn logout(local: bool, enrolled: bool, uncertain: bool, uncertain_confirma
             .iter()
             .position(|event| *event == "delete_credential")
             .unwrap();
-        assert!(confirmed < deleted);
-        if enrolled {
-            assert!(
-                events
-                    .iter()
-                    .position(|event| *event == "delete_key")
-                    .unwrap()
-                    > confirmed
-            );
-            assert!(evidence.slots.lock().is_empty());
-        } else {
-            assert!(!events.contains(&"load_key"));
-            assert!(!events.contains(&"delete_key"));
-        }
+        assert!(deleted < confirmed);
     }
 }
 
 #[tokio::test]
 async fn local_account_logout_does_not_use_neighbor_ports() {
-    logout(true, false, false, false).await;
+    logout(true, false, false, false, false).await;
 }
 #[tokio::test]
 async fn never_enrolled_logout_confirms_inventory_without_opening_secret_store() {
-    logout(false, false, false, false).await;
+    logout(false, false, false, false, false).await;
 }
 #[tokio::test]
 async fn emulator_logout_uses_callable_registry_and_deletes_only_after_confirmed_revocation() {
-    logout(false, true, false, false).await;
+    logout(false, true, false, false, false).await;
 }
 #[tokio::test]
-async fn uncertain_inventory_preserves_account_credentials_and_both_key_slots() {
-    logout(false, true, true, false).await;
+async fn uncertain_inventory_keeps_cleanup_queued_after_local_sign_out() {
+    logout(false, true, true, false, false).await;
 }
 #[tokio::test]
-async fn uncertain_revocation_confirmation_preserves_credentials_and_both_key_slots() {
-    logout(false, true, false, true).await;
+async fn uncertain_revocation_keeps_cleanup_queued_after_local_sign_out() {
+    logout(false, true, false, true, false).await;
+}
+
+#[tokio::test]
+async fn self_session_revocation_keeps_local_sign_out_when_backend_is_unavailable() {
+    logout(false, true, false, false, true).await;
 }

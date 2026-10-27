@@ -19,6 +19,8 @@ pub(super) struct Metadata {
 pub(super) struct Settings {
     #[serde(default)]
     pub enabled: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cleanup_pending: bool,
     pub bindings: BTreeMap<String, String>,
     pub permissions: BTreeMap<String, Permission>,
 }

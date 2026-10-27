@@ -900,7 +900,7 @@ function AppInner() {
               aria-hidden={mainView !== "neighbors"}
               inert={mainView !== "neighbors" || undefined}
             >
-              <NeighborsView />
+              <NeighborsView config={config} />
             </div>
           )}
           {mountedExtensions && (

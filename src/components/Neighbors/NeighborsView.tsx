@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
-import { Plus, RefreshCw, UserRound } from "lucide-react";
+import { Mail, Plus, RefreshCw, UserRound } from "lucide-react";
+import { formatAge } from "../../lib/timeLabels";
 import { useAccount } from "../Settings/useAccount";
 import { accountTrayModel } from "../Titlebar/accountTrayModel";
 import { AccountAvatar } from "../Titlebar/AccountAvatar";
@@ -10,7 +11,7 @@ import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { UI_PANEL, UI_TEXT } from "../shared/design";
 import { useMuxSelector } from "../../store/multiplexer";
 import { AddNeighborDialog } from "./AddNeighborDialog";
-import { NeighborPanel, NeighborRequestPanel } from "./NeighborPanel";
+import { NeighborPanel, NeighborPrivacyNote, NeighborRequestPanel } from "./NeighborPanel";
 import { askGeneralAgent, focusTab, permissionInterviewTask, talkAboutTask, workspaceOfTab, type NeighborSubject } from "./neighborAgent";
 import type { NeighborClient } from "./neighborClient";
 import { onNeighborFocus, takeNeighborFocus } from "./neighborFocus";
@@ -20,6 +21,7 @@ import { neighborRuntimeClient, type NeighborRuntimeClient } from "./neighborRun
 import { referralStatus } from "./referralTrial";
 import { useNeighborChannel } from "./useNeighborChannel";
 import { useNeighbors } from "./useNeighbors";
+import { useNeighborsSwitch } from "./neighborsSwitch";
 
 const openPlans = () => window.dispatchEvent(new CustomEvent("codeterm:open-panel", { detail: { panel: "settings:plans" } }));
 
@@ -54,14 +56,19 @@ function moveFocus(event: KeyboardEvent<HTMLDivElement>) {
   nodes[(index + step + nodes.length) % nodes.length].focus();
 }
 
-export function NeighborsView({ client, runtimeClient = neighborRuntimeClient }: { client?: NeighborClient; runtimeClient?: NeighborRuntimeClient }) {
+export function NeighborsView({ config, client, runtimeClient = neighborRuntimeClient }: {
+  config?: object | null; client?: NeighborClient; runtimeClient?: NeighborRuntimeClient;
+}) {
+  const neighborsSwitch = useNeighborsSwitch(config);
   const account = useAccount();
   const identity = account.model.kind === "signed_in" ? account.model.identity.uid : null;
-  return <NeighborhoodPage key={identity} identity={identity} account={account} client={client} runtimeClient={runtimeClient} />;
+  return <NeighborhoodPage key={identity} identity={identity} account={account} client={client} runtimeClient={runtimeClient}
+    enabled={neighborsSwitch.enabled} onEnable={() => { void neighborsSwitch.setEnabled(true); }} />;
 }
 
-function NeighborhoodPage({ identity, account, client, runtimeClient }: {
+function NeighborhoodPage({ identity, account, client, runtimeClient, enabled, onEnable }: {
   identity: string | null; account: ReturnType<typeof useAccount>; client?: NeighborClient; runtimeClient: NeighborRuntimeClient;
+  enabled: boolean; onEnable: () => void;
 }) {
   const neighbors = useNeighbors(identity, client);
   const tabMap = useTabMap();
@@ -77,7 +84,7 @@ function NeighborhoodPage({ identity, account, client, runtimeClient }: {
   }, []);
   const list = neighbors.list;
   const paid = list?.access === "paid";
-  const nodes = identity ? neighborhoodNodes(list, list !== null) : [];
+  const nodes = identity && enabled ? neighborhoodNodes(list, list !== null) : [];
   const friend = list?.friends.find(entry => entry.friendship_id === selected);
   const request = list?.incoming.find(entry => entry.request_id === selected);
   const referral = neighbors.referral && list ? referralStatus(neighbors.referral, list.access, seconds => new Date(seconds * 1000).toLocaleString()) : null;
@@ -100,13 +107,16 @@ function NeighborhoodPage({ identity, account, client, runtimeClient }: {
 
   const people = (list?.friends.length ?? 0);
   const requests = (list?.incoming.length ?? 0);
-  const panelOpen = Boolean(friend || request);
+  const invited = (list?.outgoing.length ?? 0);
+  const summary = [`${people} ${people === 1 ? "neighbor" : "neighbors"}`,
+    ...(requests ? [`${requests} ${requests === 1 ? "request" : "requests"}`] : []), ...(invited ? [`${invited} invited`] : [])].join(", ");
+  const panelOpen = enabled && Boolean(friend || request);
 
   return <div className="neighbors-view absolute inset-0 flex flex-col bg-[var(--ct-bg)] pt-[var(--ct-safe-top,0px)]">
     <div className={`${UI_PANEL.toolbar} ct-section-toolbar gap-3 px-4 py-0 text-[var(--ct-fg)] whitespace-nowrap`}>
       <strong>Neighborhood</strong>
       <span className={`${UI_TEXT.meta} opacity-70`}>
-        {identity && list ? `${people} ${people === 1 ? "neighbor" : "neighbors"}${requests ? `, ${requests} ${requests === 1 ? "request" : "requests"}` : ""}` : null}
+        {identity && list ? summary : null}
       </span>
       {identity && <button type="button" className="neighbors-refresh ct-liquid-interactive" aria-label="Refresh Neighbors" title="Refresh Neighbors"
         disabled={neighbors.pending} onClick={neighbors.refresh}>
@@ -124,12 +134,17 @@ function NeighborhoodPage({ identity, account, client, runtimeClient }: {
             {nodes.map(node => <line key={node.id} className="neighbor-edge" data-kind={node.kind} data-active={node.id === selected || undefined}
               x1={50} y1={50} x2={node.x} y2={node.y} vectorEffect="non-scaling-stroke" />)}
           </svg>
-          <div className="neighbor-me" data-signed-in={identity ? true : undefined}>
+          <div className="neighbor-me" data-signed-in={identity ? true : undefined} data-off={identity && !enabled ? true : undefined}>
             <span className="neighbor-me__ring">
               {me.kind === "signed_in" ? <AccountAvatar url={me.avatarUrl} initial={me.initial} label="" size="node" />
                 : <span className="neighbor-me__ghost"><UserRound size={26} aria-hidden="true" /></span>}
             </span>
-            {me.kind === "signed_in" ? <span className="neighbor-node__name">You</span>
+            {me.kind === "signed_in" && !enabled ? <div className="neighbor-me__signin" role="status">
+                <p className="neighbor-me__title">Neighbors is off</p>
+                <p className="neighbor-note">Your agents don't send or receive Neighbor messages. Your connections and their permissions are kept.</p>
+                <Button size="sm" variant="primary" onClick={onEnable}>Turn on Neighbors</Button>
+              </div>
+              : me.kind === "signed_in" ? <span className="neighbor-node__name">You</span>
               : <div className="neighbor-me__signin">
                 <p className="neighbor-me__title">Sign in to meet your neighbors</p>
                 <p className="neighbor-note">Your agents can message a friend's agents, end-to-end encrypted. Invited? Sign in with that email to start your 7-day trial, no card needed.</p>
@@ -139,6 +154,7 @@ function NeighborhoodPage({ identity, account, client, runtimeClient }: {
           </div>
           {nodes.map((node, index) => <NodeButton key={node.id} node={node} index={index} selected={node.id === selected}
             canInvite={list?.can_invite} onSelect={() => {
+              if (node.kind === "invited") return;
               if (node.kind === "add") {
                 if (list?.can_invite) setAdding(true);
                 else if (list?.can_invite === false) openPlans();
@@ -148,20 +164,21 @@ function NeighborhoodPage({ identity, account, client, runtimeClient }: {
             }} />)}
           {identity && list === null && !neighbors.error && <div className="neighbors-loading"><BusyState inline label="Loading Neighbors" phase="work" /></div>}
         </div>
-        {identity && list && people + requests === 0 && <p className="neighbors-caption">Add someone you trust. Your agents can then ask theirs for help, and you decide what they may share.</p>}
+        {identity && enabled && list && people + requests + invited === 0 && <p className="neighbors-caption">Add someone you trust. Your agents can then ask theirs for help, and you decide what they may share.</p>}
+        {identity && <NeighborPrivacyNote className="neighbors-privacy" />}
         {referral && <div role="status" className="ct-card ct-card--static neighbors-referral">
           <p className="ct-card__meta">{referral}</p>
           {neighbors.referral?.trial_end !== null && neighbors.referral?.trial_end !== undefined && <Button size="sm" variant="accent" onClick={openPlans}>Subscribe</Button>}
         </div>}
       </div>
-      {friend && identity && <SelectedNeighbor key={friend.friendship_id} owner={identity} neighbor={friend} locked={!paid} pending={neighbors.pending}
+      {enabled && friend && identity && <SelectedNeighbor key={friend.friendship_id} owner={identity} neighbor={friend} locked={!paid} pending={neighbors.pending}
         runtimeClient={runtimeClient}
         onTalkAbout={() => ask(talkAboutTask({ name: neighborName(friend), friendshipId: friend.friendship_id }))}
         onInterview={() => interview({ name: neighborName(friend), friendshipId: friend.friendship_id })}
         onLimit={per_hour => neighbors.apply({ operation: "set_limit", friendship_id: friend.friendship_id, per_hour })}
         onRemove={() => neighbors.apply({ operation: "remove", friendship_id: friend.friendship_id })}
         onClose={() => setSelected(null)} />}
-      {request && <NeighborRequestPanel request={{ ...request, name: neighborName(request) }} pending={neighbors.pending}
+      {enabled && request && <NeighborRequestPanel request={{ ...request, name: neighborName(request) }} pending={neighbors.pending}
         onAccept={() => {
           awaitingAccept.current = request.uid;
           void neighbors.apply({ operation: "respond", request_id: request.request_id, accept: true }).then(ok => {
@@ -195,6 +212,14 @@ function NodeButton({ node, index, selected, canInvite, onSelect }: {
       <span className="neighbor-node__disc" aria-hidden="true"><Plus size={20} /></span>
       <span className="neighbor-node__name">{label}</span>
     </button>;
+  }
+  if (node.kind === "invited") {
+    const sent = node.createdAt * 1000;
+    return <div className="neighbor-node neighbor-node--invited" style={style} data-status="invited" title={`Waiting for ${node.email} to accept. Sent ${new Date(sent).toLocaleString()}`}>
+      <span className="neighbor-node__disc" aria-hidden="true"><Mail size={18} /></span>
+      <span className="neighbor-node__name">{node.email}</span>
+      <span className="neighbor-status"><span className="neighbor-dot" data-tone="muted" aria-hidden="true" />invited {formatAge(sent, Date.now())}</span>
+    </div>;
   }
   return <button type="button" data-neighbor-node className="neighbor-node" style={style} data-status={node.status}
     aria-pressed={selected} aria-label={`${node.name}, ${STATUS_LABEL[node.status]}`} onClick={onSelect}>

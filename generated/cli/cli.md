@@ -97,6 +97,10 @@ General Agent only: grant a bounded scope authored in its pad
 - `<friendship_id>`
 - `--from-pad`
 
+#### `domios account neighbors list`
+
+List friendships, local scopes and pending incoming/outgoing requests
+
 #### `domios account neighbors own-keys`
 
 List active own key IDs

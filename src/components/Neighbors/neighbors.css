@@ -690,3 +690,72 @@
   width: 5px;
   height: 5px;
 }
+
+/* An invitation is an empty seat: a dashed outline and the typed address, never a face. */
+.neighbor-edge[data-kind="invited"] {
+  stroke-dasharray: 2 6;
+  stroke: color-mix(in srgb, var(--ct-fg) 14%, transparent);
+}
+
+.neighbor-node--invited {
+  cursor: default;
+}
+
+.neighbor-node--invited .neighbor-node__disc {
+  align-items: center;
+  justify-content: center;
+  border: 1.5px dashed color-mix(in srgb, var(--ct-muted-fg) 55%, transparent);
+  background: var(--ct-bg);
+  box-shadow: none;
+  color: var(--ct-muted-fg);
+}
+
+.neighbor-node--invited .neighbor-node__name {
+  color: var(--ct-muted-fg);
+  font-weight: 500;
+}
+
+.sidebar-neighbors-off {
+  padding: 4px 16px 0;
+  color: var(--ct-muted-fg);
+  font-size: 10.5px;
+}
+
+.sidebar-neighbors[data-off] .sidebar-tab-body {
+  opacity: 0.5;
+  filter: grayscale(1);
+}
+
+.neighbor-me[data-off] .neighbor-me__ring {
+  opacity: 0.55;
+  filter: grayscale(1);
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--ct-muted-fg) 40%, transparent), var(--ct-shadow-capsule);
+}
+
+.neighbor-privacy {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  color: var(--ct-muted-fg);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.neighbor-privacy svg {
+  flex: none;
+  translate: 0 1px;
+}
+
+.neighbors-privacy {
+  position: relative;
+  z-index: 1;
+  max-width: 26rem;
+  margin-top: 1rem;
+  text-align: center;
+}
+
+.neighbor-panel__privacy {
+  margin-top: auto;
+  padding-top: 0.75rem;
+  border-top: 1px solid color-mix(in srgb, var(--ct-fg) 6%, transparent);
+}
