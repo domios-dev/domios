@@ -2,13 +2,21 @@ use super::{storage::Metadata, ServiceContext};
 use crate::service::tab_credentials::TabCaller;
 use codeterm_neighbors::permissions::Permission;
 
+#[cfg(any(test, feature = "test-support"))]
+mod fixture;
+mod memory;
+
 #[derive(Clone, Copy, Debug)]
 pub enum Capability {
     MemoryRead,
-    MemoryWrite,
-    Secrets,
     Spawn,
     Files,
+    Neighbor,
+    Report,
+    Answer,
+    Lifecycle,
+    Route,
+    Denied,
 }
 
 impl Capability {
@@ -16,71 +24,81 @@ impl Capability {
         let reason = match self {
             Self::MemoryRead if permission.allowed && permission.allow_memory => return Ok(()),
             Self::MemoryRead => "neighbor_memory_not_allowed",
-            Self::MemoryWrite => "neighbor_memory_read_only",
-            Self::Secrets => "neighbor_secrets_not_allowed",
-            Self::Spawn if permission.allowed && permission.allow_tab_requests => return Ok(()),
+            Self::Spawn if permission.allowed && permission.allow_tab_requests => {
+                "neighbor_capability_denied"
+            }
             Self::Spawn => "tab_requests_not_allowed",
             Self::Files if permission.allowed && permission.allow_files => return Ok(()),
             Self::Files => "neighbor_files_not_allowed",
+            Self::Neighbor | Self::Report | Self::Answer | Self::Lifecycle | Self::Route => {
+                return Ok(())
+            }
+            Self::Denied => "neighbor_capability_denied",
         };
         Err(format!(
-            "{reason}: This concierge capability is not allowed for the Neighbor"
+            "{reason}: This concierge capability is not allowed for the Neighbor. Politely refuse the current request through the Neighbor channel with --kind refusal and --in-reply-to set to its message_id."
         ))
     }
 }
 
 pub fn rpc_capability(method: &str) -> Option<Capability> {
-    if method.starts_with("mem.secret.") || method.starts_with("secret.") {
-        Some(Capability::Secrets)
-    } else if matches!(method, "mem.search" | "mem.get" | "mem.wake_up") {
-        Some(Capability::MemoryRead)
-    } else if method.starts_with("mem.") {
-        Some(Capability::MemoryWrite)
-    } else if matches!(
-        method,
-        "tab.create"
-            | "tab.new"
-            | "agent.spawn"
-            | "orchestration.new"
-            | "plan.task.dispatch"
-            | "plan.task.respawn"
-            | "blueprint.apply"
-            | "sentinel.apply"
-            | "cron.create"
-    ) {
-        Some(Capability::Spawn)
-    } else {
-        None
-    }
+    Some(match method {
+        "mem.search" | "mem.get" | "mem.wake_up" => Capability::MemoryRead,
+        "tab.create" | "tab.new" | "agent.spawn" | "plan.task.dispatch" | "plan.task.respawn" => {
+            Capability::Spawn
+        }
+        "agent.report" => Capability::Report,
+        "api.request" => Capability::Route,
+        _ => Capability::Denied,
+    })
 }
 
 pub fn http_capability(method: &str, path: &str) -> Option<Capability> {
-    if path == "/api/secrets" || path.starts_with("/api/secrets/") {
-        Some(Capability::Secrets)
-    } else if path.starts_with("/api/mem/") {
-        let item = path
-            .strip_prefix("/api/mem/items/")
-            .is_some_and(|id| !id.is_empty() && !id.contains('/'));
-        if method == "GET" && (item || matches!(path, "/api/mem/search" | "/api/mem/wake-up")) {
-            Some(Capability::MemoryRead)
-        } else {
-            Some(Capability::MemoryWrite)
-        }
+    if method == "POST" && path == "/api/cli/rpc" {
+        Some(Capability::Route)
+    } else if method == "POST" && path == "/api/account/neighbors/runtime" {
+        Some(Capability::Neighbor)
+    } else if method == "POST" && path == "/api/account/neighbors/files" {
+        Some(Capability::Files)
+    } else if method == "POST" && path.starts_with("/api/tabs/") && path.ends_with("/report") {
+        Some(Capability::Report)
+    } else if method == "POST" && lifecycle_hook(path) {
+        Some(Capability::Lifecycle)
     } else if method == "POST"
-        && (matches!(
-            path,
-            "/api/tabs" | "/api/agents/spawn" | "/api/pty/spawn" | "/api/agents/helper"
-        ) || path.starts_with("/api/workspaces/") && path.ends_with("/tabs")
+        && path.starts_with("/api/tabs/")
+        && path.contains("/agent/runtime/questions/")
+        && path.ends_with("/answer")
+    {
+        Some(Capability::Answer)
+    } else if method == "GET"
+        && (matches!(path, "/api/mem/search" | "/api/mem/wake-up")
+            || path
+                .strip_prefix("/api/mem/items/")
+                .is_some_and(|id| !id.is_empty() && !id.contains('/')))
+    {
+        Some(Capability::MemoryRead)
+    } else if method == "POST"
+        && (matches!(path, "/api/tabs" | "/api/agents/spawn")
+            || path.starts_with("/api/workspaces/") && path.ends_with("/tabs")
             || path.starts_with("/api/plans/")
-                && (path.ends_with("/dispatch") || path.ends_with("/respawn"))
-            || path.starts_with("/api/automation/blueprints/") && path.ends_with("/apply")
-            || path == "/api/crons"
-            || path.starts_with("/api/crons/") && path.ends_with("/trigger"))
+                && (path.ends_with("/dispatch") || path.ends_with("/respawn")))
     {
         Some(Capability::Spawn)
     } else {
-        None
+        Some(Capability::Denied)
     }
+}
+
+fn lifecycle_hook(path: &str) -> bool {
+    let Some(rest) = path.strip_prefix("/api/tabs/") else {
+        return false;
+    };
+    let Some((tab, event)) = rest.split_once("/hook/") else {
+        return false;
+    };
+    !tab.is_empty()
+        && !tab.contains('/')
+        && matches!(event, "session_start" | "stop" | "context" | "permission")
 }
 
 impl ServiceContext {
@@ -89,17 +107,36 @@ impl ServiceContext {
         uid: &str,
         settings: &super::storage::Settings,
     ) {
+        let known: Vec<_> = self
+            .neighbor_cell()
+            .concierge_accounts
+            .lock()
+            .keys()
+            .cloned()
+            .collect();
+        let live: std::collections::HashSet<_> = {
+            let mux = self.mux.read();
+            known
+                .into_iter()
+                .filter(|id| mux.get_tab(id).is_some())
+                .collect()
+        };
         let mut accounts = self.neighbor_cell().concierge_accounts.lock();
-        accounts.retain(|_, owner| owner != uid);
+        accounts.retain(|id, _| live.contains(id));
         for tab in settings.bindings.values() {
             accounts.insert(tab.clone(), uid.to_owned());
         }
     }
 
-    fn verify_neighbor_capability_caller(&self, caller: &TabCaller) -> Result<(), String> {
+    fn verify_neighbor_capability_caller(
+        &self,
+        caller: &TabCaller,
+        require_attested: bool,
+    ) -> Result<(), String> {
         let mux = self.mux.read();
         if !mux.get_tab(&caller.tab_id).is_some_and(|tab| {
-            tab.launch_session_authenticated()
+            (!require_attested || tab.launch_session_authenticated())
+                && tab.agent_type.is_some()
                 && tab.session_binding_nonce.as_deref() == Some(caller.binding_nonce.as_str())
         }) {
             return Err("neighbor_forbidden: Concierge caller binding changed".into());
@@ -107,6 +144,7 @@ impl ServiceContext {
         Ok(())
     }
 
+    #[cfg(test)]
     async fn neighbor_capability_permission_at(
         &self,
         metadata: &Metadata,
@@ -116,6 +154,15 @@ impl ServiceContext {
             .settings()
             .await
             .map_err(|error| error.to_string())?;
+        self.neighbor_capability_permission_in(&settings, caller, true)
+    }
+
+    fn neighbor_capability_permission_in(
+        &self,
+        settings: &super::storage::Settings,
+        caller: &TabCaller,
+        require_attested: bool,
+    ) -> Result<Option<(String, Permission)>, String> {
         let Some((friendship, _)) = settings
             .bindings
             .iter()
@@ -123,7 +170,7 @@ impl ServiceContext {
         else {
             return Ok(None);
         };
-        self.verify_neighbor_capability_caller(caller)?;
+        self.verify_neighbor_capability_caller(caller, require_attested)?;
         self.require_neighbors_enabled()
             .map_err(|error| error.to_string())?;
         Ok(Some((
@@ -140,12 +187,23 @@ impl ServiceContext {
         &self,
         caller: &TabCaller,
     ) -> Result<Option<(String, Permission)>, String> {
+        self.neighbor_capability_permission_for(caller, true).await
+    }
+
+    async fn neighbor_capability_permission_for(
+        &self,
+        caller: &TabCaller,
+        require_attested: bool,
+    ) -> Result<Option<(String, Permission)>, String> {
         {
             let mux = self.mux.read();
             let tab = mux.get_tab(&caller.tab_id).ok_or("neighbor_forbidden")?;
             if crate::service::general_agent::is_general_agent(tab)
-                || tab.team_id.is_some()
-                || tab.role.is_some()
+                && !self
+                    .neighbor_cell()
+                    .concierge_accounts
+                    .lock()
+                    .contains_key(&caller.tab_id)
             {
                 return Ok(None);
             }
@@ -187,9 +245,16 @@ impl ServiceContext {
             .await
             .map_err(|error| error.to_string())?;
         self.remember_neighbor_concierge_accounts(&session.identity.uid, &settings);
-        let result = self
-            .neighbor_capability_permission_at(&metadata, caller)
-            .await?;
+        let result = self.neighbor_capability_permission_in(&settings, caller, require_attested)?;
+        if result.is_none()
+            && self
+                .neighbor_cell()
+                .concierge_accounts
+                .lock()
+                .contains_key(&caller.tab_id)
+        {
+            return Err("neighbor_forbidden: Concierge binding ended".into());
+        }
         self.require_neighbor_generation(generation)?;
         let account = account.ok_or("neighbor_forbidden: Concierge account unavailable")?;
         if !super::same_session(account.session().await.as_ref(), &session) {
@@ -224,30 +289,105 @@ impl ServiceContext {
         Capability::Files.require(&permission)
     }
 
-    pub async fn authorize_neighbor_rpc(
+    pub async fn authorize_neighbor_http(
         &self,
+        caller: &TabCaller,
+        method: &str,
+        path: &str,
+    ) -> Result<(), String> {
+        let path = path.split('?').next().unwrap_or(path);
+        let capability =
+            http_capability(&method.to_ascii_uppercase(), path).unwrap_or(Capability::Denied);
+        let Some((_, permission)) = self
+            .neighbor_capability_permission_for(
+                caller,
+                !matches!(capability, Capability::Lifecycle),
+            )
+            .await?
+        else {
+            return Ok(());
+        };
+        capability.require(&permission)?;
+        if matches!(capability, Capability::MemoryRead) {
+            let item = path.strip_prefix("/api/mem/items/");
+            self.authorize_neighbor_memory_operation(&permission, path == "/api/mem/wake-up", item)
+                .await?;
+        }
+        if matches!(
+            capability,
+            Capability::Answer | Capability::Report | Capability::Lifecycle
+        ) {
+            let target = path
+                .strip_prefix("/api/tabs/")
+                .and_then(|path| path.split('/').next());
+            if target
+                .and_then(|id| self.mux.read().resolve_tab_id(id))
+                .as_deref()
+                != Some(caller.tab_id.as_str())
+            {
+                return Capability::Denied.require(&permission);
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn authorize_neighbor_rpc_credential(
+        &self,
+        credential: &str,
         method: &str,
         params: Option<&serde_json::Value>,
     ) -> Result<(), String> {
-        let Some(capability) = rpc_capability(method) else {
+        let Some(caller) = self.authenticate_local_credential(credential)? else {
             return Ok(());
         };
-        let Some(tab_id) = params.and_then(|params| params["caller_tab_id"].as_str()) else {
+        let own_launch_hook = method == "api.request"
+            && params.is_some_and(|params| {
+                params["method"].as_str() == Some("POST")
+                    && params["path"].as_str().is_some_and(lifecycle_hook)
+            });
+        let Some((_, permission)) = self
+            .neighbor_capability_permission_for(&caller, !own_launch_hook)
+            .await?
+        else {
             return Ok(());
         };
-        let binding_nonce = params
-            .and_then(|params| params["session_binding_nonce"].as_str())
-            .ok_or("neighbor_forbidden: Missing caller nonce")?;
-        self.authorize_neighbor_capability(
-            &TabCaller {
-                tab_id: tab_id.into(),
-                binding_nonce: binding_nonce.into(),
-            },
-            capability,
-        )
-        .await
+        if params
+            .and_then(|params| params["caller_tab_id"].as_str())
+            .is_some_and(|id| id != caller.tab_id)
+        {
+            return Capability::Denied.require(&permission);
+        }
+        let capability = rpc_capability(method).unwrap_or(Capability::Denied);
+        capability.require(&permission)?;
+        if matches!(capability, Capability::MemoryRead) {
+            self.authorize_neighbor_memory_operation(
+                &permission,
+                method == "mem.wake_up",
+                if method == "mem.get" {
+                    params.and_then(|params| params["id"].as_str())
+                } else {
+                    None
+                },
+            )
+            .await?;
+        }
+        if matches!(capability, Capability::Report) {
+            caller.validate_claim(params.and_then(|params| params["tab_id"].as_str()))?;
+        }
+        if matches!(capability, Capability::Route) {
+            let method = params
+                .and_then(|params| params["method"].as_str())
+                .ok_or("neighbor_capability_denied: Missing route method")?;
+            let path = params
+                .and_then(|params| params["path"].as_str())
+                .ok_or("neighbor_capability_denied: Missing route path")?;
+            self.authorize_neighbor_http(&caller, method, path).await?;
+        }
+        Ok(())
     }
 }
 
+#[cfg(test)]
+mod boundary_tests;
 #[cfg(test)]
 mod tests;

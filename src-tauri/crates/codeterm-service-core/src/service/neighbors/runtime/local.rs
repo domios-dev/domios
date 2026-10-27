@@ -64,13 +64,13 @@ impl ServiceContext {
                 if !hex_id(friendship_id, 64) {
                     return Err(Error::InvalidEnvelope);
                 }
-                Ok(json!(metadata
-                    .settings()
-                    .await?
+                let settings = metadata.settings().await?;
+                let permission = settings
                     .permissions
                     .get(friendship_id)
                     .cloned()
-                    .unwrap_or_default()))
+                    .unwrap_or_default();
+                self.neighbor_permission_projection(metadata, friendship_id, &permission, &settings)
             }
             NeighborRuntimeCommand::NotificationPreference { friendship_id } => {
                 if !hex_id(friendship_id, 64) {
@@ -104,8 +104,18 @@ impl ServiceContext {
                     .and_then(|receiver| receiver.receiver_key_id.clone());
                 let states = self.neighbor_cell().states.lock().clone();
                 let failures = self.neighbor_cell().failures.lock().clone();
+                let permissions: serde_json::Map<String, Value> = settings
+                    .permissions
+                    .iter()
+                    .map(|(friendship, permission)| {
+                        self.neighbor_permission_projection(
+                            metadata, friendship, permission, &settings,
+                        )
+                        .map(|value| (friendship.clone(), value))
+                    })
+                    .collect::<codeterm_neighbors::Result<_>>()?;
                 Ok(
-                    json!({"enabled":self.configuration().neighbors.enabled,"enrolled":key.is_some(),"verifier_key_id":key,"bindings":settings.bindings,"permissions":settings.permissions,"concierges":concierges,"notification_preferences":notification_preferences,"listeners":states,"listener_errors":failures,"receiving_here":here,"receiver_machine_label":receiver.as_ref().and_then(|receiver| receiver.receiver_machine_label.clone()),"receiving_enabled":receiver.as_ref().is_some_and(|receiver| receiver.receiving_enabled),"revision":receiver.as_ref().map(|receiver| receiver.receiver_revision).unwrap_or(0),"receiver_status_known":receiver.is_some()}),
+                    json!({"enabled":self.configuration().neighbors.enabled,"enrolled":key.is_some(),"verifier_key_id":key,"bindings":settings.bindings,"permissions":permissions,"concierges":concierges,"notification_preferences":notification_preferences,"listeners":states,"listener_errors":failures,"receiving_here":here,"receiver_machine_label":receiver.as_ref().and_then(|receiver| receiver.receiver_machine_label.clone()),"receiving_enabled":receiver.as_ref().is_some_and(|receiver| receiver.receiving_enabled),"revision":receiver.as_ref().map(|receiver| receiver.receiver_revision).unwrap_or(0),"receiver_status_known":receiver.is_some()}),
                 )
             }
             _ => Err(Error::InvalidEnvelope),

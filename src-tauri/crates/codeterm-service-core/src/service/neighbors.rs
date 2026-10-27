@@ -4,6 +4,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 pub mod capabilities;
+mod confinement;
 mod delivery;
 pub(crate) mod history;
 mod notifications;

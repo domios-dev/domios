@@ -406,7 +406,7 @@ impl ServiceContext {
                             model,
                         )
                         .await
-                        .map_err(|_| Error::Gateway)?;
+                        .map_err(concierge::launch_error)?;
                     Ok(json!({"gateway_tab":tab}))
                 }
                 NeighborRuntimeCommand::Enroll {
@@ -490,43 +490,13 @@ impl ServiceContext {
                     }
                     permission.validate()?;
                     transport.peer_keys(&friendship_id).await?;
-                    let mut settings = metadata.settings().await?;
-                    let mut created = None;
-                    if settings
-                        .bindings
-                        .get(&friendship_id)
-                        .is_none_or(|tab| self.validate_neighbor_gateway(tab).is_err())
-                    {
-                        let tab = self
-                            .create_neighbor_concierge(&friendship_id, None, None)
-                            .await
-                            .map_err(|_| Error::Gateway)?;
-                        settings.bindings.insert(friendship_id.clone(), tab.clone());
-                        created = Some(tab);
-                    }
-                    settings
-                        .permissions
-                        .insert(friendship_id.clone(), permission);
-                    let gateway_tab = settings.bindings.get(&friendship_id).cloned();
-                    if let Err(error) = metadata.save_settings(settings).await {
-                        if let Some(tab) = created {
-                            let _ = self.close_tab_async(&tab).await;
-                        }
-                        return Err(error);
-                    }
-                    if created.is_some() {
-                        self.stop_neighbor_listeners();
-                        self.emit_state_changed(crate::service::MuxEmitCause::TabMetadata);
-                        self.ui.emit(
-                            "neighbor-agent-changed",
-                            json!({"friendship_id":friendship_id,"gateway_tab":gateway_tab}),
-                        );
-                    }
-                    self.ui.emit(
-                        "neighbor-permission-changed",
-                        json!({"friendship_id":friendship_id}),
-                    );
-                    Ok(json!({"status":"saved","gateway_tab":gateway_tab}))
+                    self.set_neighbor_permission(
+                        &metadata,
+                        &transport.uid,
+                        &friendship_id,
+                        permission,
+                    )
+                    .await
                 }
                 NeighborRuntimeCommand::Send {
                     friendship_id,

@@ -66,6 +66,9 @@ mod workspace;
 
 pub(crate) use dispatch::{dispatch_mesh_rpc, dispatch_service_rpc};
 
+#[cfg(test)]
+mod neighbor_tests;
+
 use std::io::{self, BufRead, BufReader, Read, Write};
 
 use serde::{Deserialize, Serialize};
@@ -521,6 +524,11 @@ fn respond_to_request(
         object.remove("authenticated_mesh_peer_id");
     }
     if let Err(message) = svc.bind_local_rpc(&req.credential, &req.method, &mut local_params) {
+        return JsonRpcResponse::error(id, -32003, message);
+    }
+    if let Err(message) = codeterm_service_core::async_runtime::block_on(
+        svc.authorize_neighbor_rpc_credential(&req.credential, &req.method, local_params.as_ref()),
+    ) {
         return JsonRpcResponse::error(id, -32003, message);
     }
     // catch_unwind so a panic inside any dispatch handler does not silently drop the socket and leave the CLI with an "EOF while parsing" mystery.

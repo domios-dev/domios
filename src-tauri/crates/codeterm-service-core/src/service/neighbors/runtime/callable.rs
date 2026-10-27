@@ -127,13 +127,16 @@ fn refusal(body: &Value) -> Error {
         .and_then(Value::as_str)
         .or_else(|| body.pointer("/error/message").and_then(Value::as_str))
     {
-        Some("neighbor_daily_limit") => {
+        Some(reason @ ("neighbor_daily_limit" | "aggregate_daily_limited")) => {
             match (
                 body.pointer("/error/details/limit").and_then(Value::as_u64),
                 body.pointer("/error/details/resets_at")
                     .and_then(Value::as_u64),
             ) {
-                (Some(limit), Some(resets_at)) => Error::DailyLimit { limit, resets_at },
+                (Some(limit), Some(resets_at)) if reason == "neighbor_daily_limit" => {
+                    Error::DailyLimit { limit, resets_at }
+                }
+                (Some(limit), Some(resets_at)) => Error::AggregateDailyLimited { limit, resets_at },
                 _ => Error::Refused,
             }
         }

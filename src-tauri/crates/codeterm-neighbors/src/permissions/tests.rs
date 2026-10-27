@@ -1,6 +1,31 @@
 use super::*;
 
 #[test]
+fn machine_access_and_memory_areas_round_trip_without_accepting_unknown_fields() {
+    for access in ["none", "read_only", "folder", "full"] {
+        let folder = std::env::temp_dir().to_string_lossy().into_owned();
+        let value = serde_json::json!({"allowed":true,"scope":"opaque","allow_tab_requests":false,"machine_access":access,"folder":folder,"memory_areas":["project"]});
+        let permission: Permission = serde_json::from_value(value).unwrap();
+        permission.validate().unwrap();
+        let stored = serde_json::to_value(&permission).unwrap();
+        assert_eq!(stored["machine_access"], access);
+        assert_eq!(stored["memory_areas"], serde_json::json!(["project"]));
+        assert_eq!(
+            serde_json::from_value::<Permission>(stored).unwrap(),
+            permission
+        );
+    }
+    let mut permission = Permission {
+        machine_access: MachineAccess::Folder,
+        ..Default::default()
+    };
+    assert_eq!(permission.validate(), Err(Error::InvalidRequest));
+    permission.machine_access = MachineAccess::ReadOnly;
+    permission.memory_areas = Some(vec!["\n".into()]);
+    assert_eq!(permission.validate(), Err(Error::InvalidRequest));
+}
+
+#[test]
 fn capability_defaults_keep_existing_metadata_readable_and_reject_relative_folders() {
     let mut permission: Permission = serde_json::from_value(
         serde_json::json!({"allowed":true,"scope":"opaque","allow_tab_requests":false}),
@@ -9,6 +34,8 @@ fn capability_defaults_keep_existing_metadata_readable_and_reject_relative_folde
     assert!(permission.allow_memory);
     assert!(permission.allow_files);
     assert!(permission.folder.is_none());
+    assert_eq!(permission.machine_access, MachineAccess::ReadOnly);
+    assert!(permission.memory_areas.is_none());
     permission.folder = Some("relative/folder".into());
     assert_eq!(permission.validate(), Err(Error::InvalidRequest));
     let folder = std::env::temp_dir();

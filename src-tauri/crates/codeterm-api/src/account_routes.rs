@@ -334,10 +334,12 @@ fn neighbor_failure(message: String) -> Response {
             }
         }
     }
-    if let Some(detail) = message.strip_prefix("neighbor_daily_limit:") {
-        if let Ok(data) = serde_json::from_str::<serde_json::Value>(detail) {
-            if data["limit"].as_u64().is_some() && data["resets_at"].as_u64().is_some() {
-                return (StatusCode::TOO_MANY_REQUESTS, Json(serde_json::json!({"code":"neighbor_daily_limit","reason":"neighbor_daily_limit","limit":data["limit"],"resets_at":data["resets_at"],"message":"Neighbor daily message limit reached"}))).into_response();
+    for reason in ["neighbor_daily_limit", "aggregate_daily_limited"] {
+        if let Some(detail) = message.strip_prefix(&format!("{reason}:")) {
+            if let Ok(data) = serde_json::from_str::<serde_json::Value>(detail) {
+                if data["limit"].as_u64().is_some() && data["resets_at"].as_u64().is_some() {
+                    return (StatusCode::TOO_MANY_REQUESTS, Json(serde_json::json!({"code":reason,"reason":reason,"limit":data["limit"],"resets_at":data["resets_at"],"message":"Daily sending limit reached"}))).into_response();
+                }
             }
         }
     }
@@ -347,12 +349,21 @@ fn neighbor_failure(message: String) -> Response {
         Some(
             "tab_requests_not_allowed"
             | "neighbor_permission_denied"
+            | "neighbor_memory_not_allowed"
+            | "neighbor_memory_read_only"
+            | "neighbor_secrets_not_allowed"
+            | "neighbor_capability_denied"
+            | "neighbor_memory_area_denied"
             | "neighbor_files_not_allowed",
         ) => StatusCode::FORBIDDEN,
         Some("session_revoked") => StatusCode::UNAUTHORIZED,
         Some("neighbors_disabled") => StatusCode::SERVICE_UNAVAILABLE,
         Some("limit_out_of_range") => StatusCode::BAD_REQUEST,
-        Some("invalid_request") => StatusCode::BAD_REQUEST,
+        Some(
+            "invalid_request"
+            | "neighbor_machine_access_unsupported"
+            | "neighbor_memory_area_unknown",
+        ) => StatusCode::BAD_REQUEST,
         Some("friendship_not_found") => StatusCode::NOT_FOUND,
         Some("friends_locked" | "recipient_locked") => StatusCode::FORBIDDEN,
         Some(

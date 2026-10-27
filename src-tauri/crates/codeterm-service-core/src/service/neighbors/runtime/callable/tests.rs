@@ -1,4 +1,31 @@
 use super::*;
+
+#[test]
+fn aggregate_daily_refusal_preserves_limit_and_utc_reset_without_guessing_missing_fields() {
+    let error = refusal(
+        &json!({"error":{"status":"RESOURCE_EXHAUSTED","details":{"reason":"aggregate_daily_limited","limit":500,"resets_at":1793145600u64}}}),
+    );
+    assert_eq!(
+        error,
+        Error::AggregateDailyLimited {
+            limit: 500,
+            resets_at: 1793145600
+        }
+    );
+    let display = error.to_string();
+    let details: Value =
+        serde_json::from_str(display.strip_prefix("aggregate_daily_limited:").unwrap()).unwrap();
+    assert_eq!(details, json!({"limit":500,"resets_at":1793145600u64}));
+    for details in [
+        json!({"reason":"aggregate_daily_limited","limit":500}),
+        json!({"reason":"aggregate_daily_limited","limit":"500","resets_at":1793145600u64}),
+    ] {
+        assert_eq!(
+            refusal(&json!({"error":{"details":details}})),
+            Error::Refused
+        );
+    }
+}
 use codeterm_account::{CredentialStore, IdentityProvider};
 use serde_json::json;
 use std::{sync::Arc, time::Duration};

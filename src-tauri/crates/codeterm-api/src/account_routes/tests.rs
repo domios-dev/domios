@@ -4,6 +4,22 @@ mod neighbor_authority;
 mod neighbor_files;
 
 #[tokio::test]
+async fn aggregate_daily_send_limit_returns_429_with_limit_and_reset() {
+    let response = neighbor_failure(
+        "aggregate_daily_limited: {\"limit\":500,\"resets_at\":1793145600}".into(),
+    );
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    let body = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(body["reason"], "aggregate_daily_limited");
+    assert_eq!(body["code"], "aggregate_daily_limited");
+    assert_eq!(body["limit"], 500);
+    assert_eq!(body["resets_at"], 1793145600u64);
+}
+
+#[tokio::test]
 async fn size_and_permission_refusals_keep_their_typed_reason_and_limit() {
     let response = neighbor_failure("message_too_large: {\"limit\":32752}".into());
     assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
@@ -13,7 +29,14 @@ async fn size_and_permission_refusals_keep_their_typed_reason_and_limit() {
     let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(body["reason"], "message_too_large");
     assert_eq!(body["limit"], 32752);
-    for reason in ["tab_requests_not_allowed", "neighbor_permission_denied"] {
+    for reason in [
+        "tab_requests_not_allowed",
+        "neighbor_permission_denied",
+        "neighbor_memory_not_allowed",
+        "neighbor_memory_read_only",
+        "neighbor_secrets_not_allowed",
+        "neighbor_files_not_allowed",
+    ] {
         let response = neighbor_failure(format!("{reason}: This request is not allowed"));
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
         let body = axum::body::to_bytes(response.into_body(), 4096)
