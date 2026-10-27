@@ -187,9 +187,10 @@ pub async fn stop(
             "peer-origin automation stop is unavailable".into(),
         )));
     }
+    let caller = crate::auth::caller_claim(&state, &headers, body.caller_tab_id.as_deref()).map_err(failure)?;
     let team = explicit_team(&body.team_id).map_err(|e| failure((StatusCode::BAD_REQUEST, e)))?;
     let result = tokio::task::spawn_blocking(move || {
-        if let Some(tab) = body.caller_tab_id {
+        if let Some(tab) = caller {
             state.svc.automation_graph_stop_tab(
                 &body.workspace_id,
                 team.as_deref(),

@@ -176,7 +176,8 @@ fn launch(
     svc.set_agent_session_id(&tab_id, session_id.clone());
     let nonce = svc.ensure_session_binding_nonce(&tab_id);
     let pad = svc.ensure_agent_pad(&tab_id)?;
-    let mut env = general_agent_env_vars(&tab_id, pad.env_value(), nonce, config);
+    let credential = svc.mint_tab_credential(&tab_id, &nonce);
+    let mut env = general_agent_env_vars(&tab_id, pad.env_value(), nonce, config, credential);
     env.extend(
         svc.model_provider_launch_env(provider)
             .map_err(|error| error.to_string())?,

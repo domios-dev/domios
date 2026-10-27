@@ -6,6 +6,8 @@ mod blueprint;
 mod bridge;
 mod canvas;
 mod cron;
+#[cfg(test)]
+mod credential_tests;
 mod dispatch;
 mod error_codes;
 mod local_api;
@@ -95,6 +97,8 @@ struct JsonRpcRequest {
     jsonrpc: String,
     id: Option<serde_json::Value>,
     method: String,
+    #[serde(default)]
+    credential: String,
     params: Option<serde_json::Value>,
     /// Lenient by design: any non-integer value gates as the oldest protocol.
     #[serde(default)]
@@ -513,6 +517,9 @@ fn respond_to_request(
     {
         object.remove("authenticated_mesh_peer_id");
     }
+    if let Err(message) = svc.bind_local_rpc(&req.credential, &req.method, &mut local_params) {
+        return JsonRpcResponse::error(id, -32003, message);
+    }
     // catch_unwind so a panic inside any dispatch handler does not silently drop the socket and leave the CLI with an "EOF while parsing" mystery.
     // We surface a real JSON-RPC error instead.
     let dispatched = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -755,8 +762,10 @@ mod tests {
             .set_ext::<codeterm_service_core::CronWake>(wake)
             .is_ok());
 
+        fixture.service.ext::<codeterm_service_core::config::ConfigState>().lock().api.token = Some("flush-owner-credential".into());
         let request = serde_json::json!({
             "jsonrpc": "2.0",
+            "credential": "flush-owner-credential",
             "id": 1,
             "protocol_version": protocol::PROTOCOL_VERSION,
             "method": "cron.complete",

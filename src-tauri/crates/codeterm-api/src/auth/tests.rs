@@ -1,6 +1,8 @@
 use super::*;
 use codeterm_service_core::api_support::access_policy::check_access;
 
+mod credentials;
+
 #[test]
 fn tailnet_webhooks_reach_handler_authentication_only_on_exact_post_routes() {
     for path in [

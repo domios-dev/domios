@@ -263,7 +263,8 @@ fn link_peer(json_mode: bool, base: &str, peer_name: &str, query: bool) {
 }
 
 fn config_api_token() -> Option<String> {
-    codeterm_util::instance_token::read_at(&crate::data_root())
+    let caller = crate::nonempty_env("CODETERM_TAB_ID");
+    super::host_credentials::read(&crate::data_root(), false, caller.as_deref())
         .unwrap_or_else(|error| crate::cmd::print::fail(1, error))
 }
 

@@ -631,6 +631,7 @@ impl ServiceFixture {
         )));
         install_test_runtime();
         let service = ServiceContext {
+            tab_credentials: Default::default(),
             lifecycle_journal: Arc::new(crate::session::lifecycle::TabLifecycleJournal::for_dir(
                 data_dir.join("sessions"),
             )),

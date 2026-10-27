@@ -18,6 +18,7 @@ pub(super) fn spawn_backend_pty(
         svc.model_provider_launch_env(provider_id)
             .map_err(|error| LaunchFailure::PtySpawn(error.to_string()))?,
     );
+    env_vars.extend(svc.tab_env(tab_id));
     crate::service::agent_restart::timing::stage(tab_id, "pending", "relaunch-pty-request");
     let (pty_id, _) = {
         let gate = svc.pty.lock().spawn_gate();

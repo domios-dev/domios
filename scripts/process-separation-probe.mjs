@@ -501,7 +501,15 @@ function socketName(name) {
   if (process.platform === 'win32') return `\\\\.\\pipe\\${name}`;
   return process.platform === 'linux' ? `\0${name}` : `/tmp/${name}`;
 }
-async function socketProof(ready) {
+export function socketProbeRequest(reply, protocolSource = readFileSync(path.join(REPO, 'cli/src/protocol.rs'), 'utf8')) {
+  const version = Number(protocolSource.match(/const PROTOCOL_VERSION: u64 = (\d+);/)?.[1]);
+  if (!Number.isSafeInteger(version) || version <= 0) throw new Error('Socket protocol contract is absent');
+  if (typeof reply.api_token !== 'string' || !reply.api_token) throw new Error('Broker credential is absent');
+  return { jsonrpc: '2.0', id: 1, method: 'system.identify', protocol_version: version, credential: reply.api_token };
+}
+async function socketProof(reply) {
+  const ready = reply.ready;
+  const request = socketProbeRequest(reply);
   const name = ready.socket_address.split(/[\\/]/).at(-1);
   const socket = net.createConnection(socketName(name));
   let pending = '';
@@ -517,7 +525,7 @@ async function socketProof(ready) {
     signal.addEventListener('abort', () => reject(new Error('Socket acknowledgement deadline')), { once: true });
   });
   await once(socket, 'connect', { signal: deadline() });
-  socket.write(`${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'system.identify', protocol_version: 6 })}\n`);
+  socket.write(`${JSON.stringify(request)}\n`);
   try { assert.ok((await data).result?.version); }
   finally { socket.destroy(); }
 }
@@ -621,7 +629,7 @@ async function run(options) {
       await helper.exit;
     }
     const reattached = await inspect(receipt.executable, reply, undefined, env);
-    await socketProof(reply.ready);
+    await socketProof(reply);
     await foreignExecutableRefuses(reply.ready);
     const tabs = await api(reattached, '/api/tabs?local_only=true');
     const same = tabs.find(row => row.id === tab.id);

@@ -82,9 +82,8 @@ pub async fn create(
             .map(|p| p.display().to_string())
             .unwrap_or_default()
     });
-    let owner = body
-        .owner
-        .unwrap_or_else(|| OrchestratorRef::from_tab("unknown"));
+    let owner = crate::auth::actor_ref(&state, &headers, body.owner)
+        .map_err(|(status, message)| text_err(status, message))?;
     let kinds = body
         .kinds
         .as_deref()
@@ -788,12 +787,14 @@ pub async fn reconcile(
     Query(q): Query<ReconcileQuery>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    let caller = crate::auth::caller_claim(&state, &headers, q.caller_tab_id.as_deref())
+        .map_err(|(status, message)| text_err(status, message))?;
     let report = state
         .svc
         .reconcile_plan(
             &id,
             q.fix == Some(true),
-            q.caller_tab_id.as_deref(),
+            caller.as_deref(),
             epoch_ms(),
         )
         .map_err(plan_err)?;

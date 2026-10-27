@@ -68,8 +68,10 @@ The updater and Git surfaces are not transport; they live in API-INTEGRATIONS.
 ### Protocol
 Newline-delimited JSON:
 ```json
-{"jsonrpc":"2.0","id":1,"method":"system.identify","params":null,"protocol_version":1}
+{"jsonrpc":"2.0","id":1,"method":"system.identify","params":null,"protocol_version":8,"credential":"<launch-or-host-credential>"}
 ```
+
+Every local request requires `credential`, including over a same-user socket. Tabs present their launch credential; the host presents its instance credential. Caller/sender/creator claims must match the authenticated tab and are filled from its live identity when omitted. A tab request never becomes a human request by omitting caller fields. Agent ACKs and reports require a tab credential. Host UI context selection and signed mesh authority remain separate. The REST-backed `api.request` method preserves the presented credential.
 
 #### Protocol version skew
 
@@ -214,8 +216,8 @@ A `team pair` mints its Team with the two launch attempts it reserves and holds 
 
 `team.adopt_agent` and the `agent.spawn` / `tab` creation `{team_id, creator_tab_id}` pair share one membership check: the caller tab must exist, carry that `team_id`, and sit in the Team's workspace, and the Team must have a live anchoring Orchestrator; any failure refuses before the tab is created or mutated. `team.adopt_agent` additionally refuses a missing tab, a tab already bound to a Team, and a role-bearing tab — a role- or plan-task-bound spawn derives its Team from that binding, so `agent.spawn` rejects `team_id` combined with `role` or `plan_task`.
 
-For `team.rename`, an omitted `caller_tab_id` is the trusted direct-user path on the local socket. Destructive `team.close` requires a caller tab or a matching `force: true` and `confirm` echo; HTTP Team close applies the same body rule without a caller-tab header. `team.adopt_plan` requires a non-empty caller belonging to the destination Team as its Orchestrator or planner-profile Manager; missing callers, Workers, and foreign tabs are rejected before mutation. Adoption keeps the structured `team_already_has_active_plan` conflict when the Team owns another active plan. Events emit only after persistence succeeds.
+For `team.rename`, the host credential without selected tab context uses the trusted direct-user path; a tab credential always supplies its own caller. Destructive `team.close` requires a caller tab or a matching `force: true` and `confirm` echo; HTTP Team close applies the same body rule without a caller-tab header. `team.adopt_plan` requires a non-empty caller belonging to the destination Team as its Orchestrator or planner-profile Manager; missing callers, Workers, and foreign tabs are rejected before mutation. Adoption keeps the structured `team_already_has_active_plan` conflict when the Team owns another active plan. Events emit only after persistence succeeds.
 
 Plan writes require the live bound session of the Plan owner or Planner. They, and a Planner-authored `plan.create` from a live launch presenting its own nonce, wait on the binding event through the startup deadline without blocking the HTTP runtime. On expiry HTTP returns `503` with `{ "type": "session_binding_pending", "retryable": true }`; the socket error carries the same type and retryability in `data`. A settled launch without a registered session remains the distinct `plan_binding_session_unregistered` error on both transports. Pending status never authorizes the mutation.
 
-<!-- revision: 60 -->
+<!-- revision: 61 -->

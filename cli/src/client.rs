@@ -36,6 +36,7 @@ pub struct ResolvedSocket {
 /// A JSON-RPC client that connects to the CodeTerm socket API.
 pub struct SocketClient {
     transport: ClientTransport,
+    credential: String,
     next_id: u64,
 }
 
@@ -54,6 +55,7 @@ struct JsonRpcRequest<'a> {
     jsonrpc: &'static str,
     id: u64,
     method: &'a str,
+    credential: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     params: Option<serde_json::Value>,
     protocol_version: u64,
@@ -278,6 +280,7 @@ impl SocketClient {
     fn from_socket(stream: interprocess::local_socket::Stream) -> Self {
         Self {
             transport: ClientTransport::Socket(BufReader::new(stream)),
+            credential: crate::resolve_api_config().token.unwrap_or_default(),
             next_id: 1,
         }
     }
@@ -381,6 +384,7 @@ impl SocketClient {
                 token,
                 headers,
             },
+            credential: config.token,
             next_id: 1,
         })
     }
@@ -414,6 +418,7 @@ impl SocketClient {
             jsonrpc: "2.0",
             id,
             method,
+            credential: self.credential.clone(),
             params: params.clone(),
             protocol_version: crate::protocol::PROTOCOL_VERSION,
         };

@@ -4,7 +4,7 @@ Config file: `~/.domios/config.toml` on every platform, auto-created with defaul
 
 Sensitive configuration and state use private file writes: Unix files use `0600`; Windows removes inherited and broad access while preserving explicit narrow grants. Data-root, CLI, agent-pad and browser permissions are retained, and shell umasks are unchanged. Startup protects `config.toml` and `.secrets` directly; named state files are tightened in a bounded background pass after the early listener starts. Unrelated state-file errors are logged, never fatal. The instance API credential is stored at `<data_dir>/.secrets` under `domios.instance:api_token`, read once at daemon startup and retained across configuration reloads. DEV (`~/.domios-dev/`, or `~/.domios-dev-<instance>/`) and production (`~/.domios/`) keep separate credentials. An existing `[api].token` is rotated once on startup: the replacement persists before the legacy entry leaves `config.toml`. Existing backups and corrupt copies are retained and their old bearer is refused. A failed rotation preserves the original configuration and active credential, holds config writes until restart, and reports the error.
 
-`domios system api-token` prints only the selected local instance credential, without a newline or a daemon connection. Capture it privately; `--mesh` is refused. Tabs continue to receive `CODETERM_API_TOKEN`.
+`domios system api-token` prints only the selected local host credential, without a newline or a daemon connection. Capture it privately; tab callers and `--mesh` are refused. Tabs receive distinct launch-scoped credentials through `CODETERM_API_TOKEN`; they never receive or fall back to the host credential.
 
 ## Full Reference
 

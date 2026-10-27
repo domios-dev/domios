@@ -243,6 +243,7 @@ pub(crate) mod tab_conditions;
 pub(crate) mod tab_lifecycle;
 pub mod tab_repair;
 pub(crate) mod tab_session_binding;
+pub mod tab_credentials;
 pub mod tab_transport;
 pub mod tab_transport_chat;
 pub mod task_lane_guard;
@@ -358,6 +359,7 @@ pub use extensions::ExtensionsBuilder;
 /// Both API routes, Tauri commands, and Socket server hold a clone of this.
 #[derive(Clone)]
 pub struct ServiceContext {
+    pub(crate) tab_credentials: Arc<tab_credentials::TabCredentials>,
     pub lifecycle_journal: Arc<crate::session::lifecycle::TabLifecycleJournal>,
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) ready_user_send_tasks: Arc<test_fixture::TestReadySendTasks>,

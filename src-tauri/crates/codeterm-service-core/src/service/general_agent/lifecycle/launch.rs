@@ -97,11 +97,14 @@ pub(super) fn start(
             return;
         }
     };
+    let nonce = svc.rotate_session_binding_nonce(&tab_id);
+    let credential = svc.mint_tab_credential(&tab_id, &nonce);
     let mut env_vars = general_agent_env_vars(
         &tab_id,
         pad.env_value(),
-        svc.rotate_session_binding_nonce(&tab_id),
+        nonce,
         config,
+        credential,
     );
     match svc.model_provider_launch_env(provider_name) {
         Ok(keys) => env_vars.extend(keys),
@@ -110,6 +113,7 @@ pub(super) fn start(
             return;
         }
     }
+    env_vars.extend(svc.tab_env(&tab_id));
     crate::service::codex_rpc::lifecycle::launch_env_for_provider(
         svc,
         &tab_id,

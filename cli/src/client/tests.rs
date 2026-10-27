@@ -448,6 +448,7 @@ fn version_skew_error_renders_the_daemon_message_verbatim() {
 fn version_skew_request_envelope_carries_the_protocol_integer() {
     let req = JsonRpcRequest {
         jsonrpc: "2.0",
+        credential: "fixture-credential".into(),
         id: 1,
         method: "tab.list",
         params: None,

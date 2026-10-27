@@ -43,6 +43,9 @@ impl ServiceContext {
         let mut changed = false;
         if let Some(tab) = mux.get_tab_mut(tab_id) {
             changed = tab.agent_session_id != session_id;
+            if changed {
+                self.tab_credential_session_changed(tab_id, session_id.as_deref());
+            }
             if changed && session_id.is_none() && tab.agent_session_id.is_some() {
                 tab.remember_superseded_binding_nonce();
             }
@@ -135,6 +138,7 @@ impl ServiceContext {
         resume_target: Option<&str>,
         launch_starting: bool,
     ) -> String {
+        self.revoke_tab_credential(tab_id);
         self.invalidate_guarded_agent_input(tab_id);
         self.open_lifecycle_epoch(tab_id);
         let nonce = uuid::Uuid::new_v4().to_string();

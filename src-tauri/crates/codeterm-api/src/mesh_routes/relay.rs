@@ -9,6 +9,8 @@ use axum::{
 };
 use std::sync::LazyLock;
 
+mod caller;
+
 fn sync_input_for_access<'a>(
     full_access: bool,
     sender_id: Option<&str>,
@@ -385,9 +387,15 @@ fn spawn_registration_from_relay(
 pub async fn mesh_relay_to_peer(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Json(req): Json<PeerRelayCommand>,
+    Json(mut req): Json<PeerRelayCommand>,
 ) -> Result<Json<PeerRelayResponse>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    if crate::auth::caller_peer_id(&state, &headers).is_none() {
+        if let Some(caller) = crate::auth::tab_caller(&state, &headers)? {
+            caller::bind(&caller, &req.method, &req.path, &mut req.body)
+                .map_err(|message| (StatusCode::FORBIDDEN, message))?;
+        }
+    }
     let (client, peer_id, peer_name, peer_version) = {
         let mesh = state.mesh.lock();
         resolve_relay_peer(&mesh, &req.target_peer_id)?

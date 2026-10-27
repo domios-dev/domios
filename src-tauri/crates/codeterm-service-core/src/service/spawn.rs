@@ -924,26 +924,11 @@ impl ServiceContext {
         let (api_url, api_port) = crate::config::api_callback_url(&api_cfg);
         env_vars.insert("CODETERM_API_URL".into(), api_url);
         env_vars.insert("CODETERM_API_PORT".into(), api_port);
-        match api_cfg.token {
-            Some(ref tok) if !tok.is_empty() => {
-                log::debug!(
-                    "[spawn-token] tab={} injecting CODETERM_API_TOKEN {}",
-                    tab_id,
-                    crate::service::tokens::token_fp(tok)
-                );
-                env_vars.insert("CODETERM_API_TOKEN".into(), tok.clone());
-            }
-            _ => {
-                log::warn!(
-                    "[spawn-token] tab={} NO api token from load_config — CODETERM_API_TOKEN unset",
-                    tab_id
-                );
-            }
-        }
         for (k, v) in &agent.extra_env {
             env_vars.insert(k.clone(), v.clone());
         }
         env_vars.extend(provider_key_env);
+        env_vars.extend(self.tab_env(&tab_id));
         crate::service::launch_diagnostics::log_launch_environment(
             "provider_spawn",
             &tab_id,

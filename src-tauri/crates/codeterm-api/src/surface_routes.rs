@@ -97,8 +97,10 @@ pub(crate) async fn close(
     Json(request): Json<SurfaceCloseRequest>,
 ) -> RouteResult {
     authorize(&state, &headers)?;
+    let caller = crate::auth::caller_claim(&state, &headers, request.caller_tab_id.as_deref())
+        .map_err(|(status, message)| refusal(status, "forbidden", &message))?;
     on_blocking_pool(state.svc.clone(), move |svc| {
-        svc.close_surface(request.caller_tab_id.as_deref(), &request.tab_id)
+        svc.close_surface(caller.as_deref(), &request.tab_id)
     })
     .await
 }
