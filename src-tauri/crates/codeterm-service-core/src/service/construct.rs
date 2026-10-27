@@ -54,8 +54,9 @@ pub fn build_service_context(
     let plan_store = Arc::new(crate::service::plan::PlanStore::new());
     let plan_turn_counter = Arc::new(crate::service::plan::reminders::TurnCounter::new());
     plan_store.bind_turn_counter(plan_turn_counter.clone());
+    let payload_snapshot = states.mux.read().snapshot();
     let live_pending_delivery_keys =
-        crate::service::pending_delivery_payloads::live_payload_keys(&states.mux.read().snapshot());
+        crate::service::pending_delivery_payloads::live_payload_keys(&payload_snapshot);
     let pending_delivery_payloads = Arc::new(
         crate::service::pending_delivery_payloads::PendingDeliveryPayloadStore::open(
             &crate::paths::data_dir(),
@@ -63,6 +64,27 @@ pub fn build_service_context(
         )
         .expect("pending delivery payload store init"),
     );
+
+    let persisted_payload_owners = states.storage.storage().and_then(|storage| {
+        match crate::session::store::StorageDeskAdapter::from_storage(storage.clone()).snapshot() {
+            Ok(snapshot) => Some(snapshot),
+            Err(error) => {
+                log::error!("[user-send] payload owner inventory unavailable: {error}");
+                None
+            }
+        }
+    });
+    let payload_owners =
+        super::pending_delivery_payloads::user_sends::retention::RestoredPayloadOwners::new(
+            &payload_snapshot,
+            persisted_payload_owners.as_ref(),
+        );
+    if let Err(error) = pending_delivery_payloads
+        .user_sends
+        .sweep_closed_tabs(&payload_owners)
+    {
+        log::error!("[user-send] startup payload retention failed: {error}");
+    }
 
     let user_last_activity = crate::user_last_activity::UserLastActivity::new();
     states.mesh.lock().build_hash = codeterm_build_info::hash().to_string();
