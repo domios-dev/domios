@@ -115,16 +115,26 @@ export function TimelineMarkerRow({ message }: { message: ChatMessage }): ReactN
   if (!marker || marker.kind === "queued") return null;
   if (marker.kind === "history_gap") return <HistoryGapRow message={message} />;
   if (marker.kind === "context_compaction") {
+    const compaction = message.contextCompaction;
+    const running = compaction?.state === "running";
+    const failed = compaction?.state === "failed";
+    const label = running ? "Compacting context…" : failed ? "Context compaction failed" : "Context compacted";
+    const duration = compaction?.endedAt == null ? null : Math.max(0, compaction.endedAt - compaction.startedAt);
     return (
       <div
-        role="separator"
-        aria-label="context compacted"
+        role={running || failed ? "status" : "separator"}
+        aria-label={label}
+        aria-busy={running || undefined}
         data-testid="chat-context-compacted-divider"
         className="mb-3 flex w-full max-w-4xl min-w-0 items-center gap-3 mx-auto"
-        style={{ color: "var(--ct-muted-fg)" }}
+        style={{ color: failed ? "var(--ct-err)" : "var(--ct-muted-fg)" }}
       >
         <span className="h-px flex-1" style={{ background: "var(--ct-border)" }} />
-        <span className="max-w-[70%] text-center text-[11px]">context compacted</span>
+        <span className="inline-flex max-w-[70%] items-center gap-2 text-center text-[11px]">
+          {running && <svg aria-hidden="true" viewBox="0 0 16 16" width="12" height="12" className="motion-safe:animate-spin"><circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" strokeWidth="1.5" opacity="0.2" /><path d="M8 2.5a5.5 5.5 0 0 1 5.5 5.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>}
+          {label}
+          {duration != null && <span className="tabular-nums opacity-70">{(duration / 1000).toFixed(1)}s</span>}
+        </span>
         <span className="h-px flex-1" style={{ background: "var(--ct-border)" }} />
       </div>
     );

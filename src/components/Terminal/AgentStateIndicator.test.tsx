@@ -30,7 +30,7 @@ async function main(): Promise<void> {
     await act(async () => phaseRow.root.render(<AgentStateIndicator activity={activity} activeTool={phase === "compacting" ? { toolKind: "command", toolDetail: "opaque previous command" } : undefined} />));
     const status = phaseRow.host.querySelector('[role="status"]');
     assert(status?.getAttribute("data-agent-phase") === activity.phase, "reported phase reaches the status view");
-    assert(status?.textContent === activity.label, "phase transitions replace stale tool and stabilized labels immediately");
+    assert(status?.textContent === (phase === "compacting" ? "" : activity.label), "phase transitions replace stale activity while inline compaction keeps the composer clear");
   }
   await act(async () => phaseRow.root.unmount());
   phaseRow.host.remove();
