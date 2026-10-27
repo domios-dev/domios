@@ -42,7 +42,7 @@ it("never lets a late first answer replace a newer receiver event", async () => 
   await probe.first;
   await act(async () => emit(status(true, 2)));
   await act(async () => old.resolve(status(false, 1)));
-  expect(probe.seen.at(-1)).toBe(true);
+  expect(probe.seen[probe.seen.length - 1]).toBe(true);
   expect(probe.seen).not.toContain(false);
 });
 
@@ -53,5 +53,5 @@ it("stays empty when an answer lands after the surface turned off", async () => 
   await probe.first;
   await probe.render(false);
   await act(async () => late.resolve(status(true, 1)));
-  expect(probe.seen.at(-1)).toBeNull();
+  expect(probe.seen[probe.seen.length - 1]).toBeNull();
 });
