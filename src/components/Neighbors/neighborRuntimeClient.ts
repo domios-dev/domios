@@ -73,18 +73,20 @@ export async function runtimeCall(command: Record<string, unknown>, signal?: Abo
   });
   if (!response.ok) {
     const detail = await response.text();
-    let failure: unknown = null;
-    try { failure = JSON.parse(detail); } catch { /* Plain daemon errors retain their diagnostic text. */ }
-    const reason = record(failure) && (["friendship_ended", "neighbor_forbidden", "session_revoked", "operation_id_conflict", "neighbors_disabled", "installation_unverified", "receiver_elsewhere", "receiver_revision_stale", "not_receiver", "recipient_not_receiving"] as const).find(reason => reason === failure.code);
+    const failure: unknown = (() => {
+      try { return JSON.parse(detail); } catch { return null; }
+    })();
+    const reason = record(failure) && (["message_too_large", "tab_requests_not_allowed", "neighbor_permission_denied", "friendship_ended", "neighbor_forbidden", "session_revoked", "operation_id_conflict", "neighbors_disabled", "installation_unverified", "receiver_elsewhere", "receiver_revision_stale", "not_receiver", "recipient_not_receiving"] as const).find(reason => reason === failure.code);
     const message = record(failure) && typeof failure.message === "string" ? failure.message : detail;
-    throw new NeighborRuntimeFailure(reason || "unavailable", message.trim() || `Neighbor operation failed (HTTP ${response.status})`);
+    const limit = record(failure) && typeof failure.limit === "number" ? failure.limit : undefined;
+    throw new NeighborRuntimeFailure(reason || "unavailable", message.trim() || `Neighbor operation failed (HTTP ${response.status})`, limit);
   }
   return response.json();
 }
 
-export type ReceiverRefusal = "friendship_ended" | "neighbor_forbidden" | "session_revoked" | "operation_id_conflict" | "neighbors_disabled" | "installation_unverified" | "receiver_elsewhere" | "receiver_revision_stale" | "not_receiver" | "recipient_not_receiving" | "unavailable";
+export type ReceiverRefusal = "message_too_large" | "tab_requests_not_allowed" | "neighbor_permission_denied" | "friendship_ended" | "neighbor_forbidden" | "session_revoked" | "operation_id_conflict" | "neighbors_disabled" | "installation_unverified" | "receiver_elsewhere" | "receiver_revision_stale" | "not_receiver" | "recipient_not_receiving" | "unavailable";
 export class NeighborRuntimeFailure extends Error {
-  constructor(readonly reason: ReceiverRefusal, detail?: string) { super(detail || reason); }
+  constructor(readonly reason: ReceiverRefusal, detail?: string, readonly limit?: number) { super(detail || reason); }
 }
 export function receiverState(value: unknown): value is ReceiverState {
   return record(value) && typeof value.receiving_here === "boolean" && typeof value.receiving_enabled === "boolean"

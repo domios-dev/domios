@@ -110,9 +110,7 @@ impl PrivateKeys {
         body: &str,
         nonce: [u8; 12],
     ) -> Result<()> {
-        if body.len() > MAX_CIPHERTEXT_BYTES - 16 {
-            return Err(Error::InvalidEnvelope);
-        }
+        crate::wire::validate_message_size(body)?;
         let ids = EncryptionKeyIds {
             sender: self.encryption_key_id(),
             recipient: encryption_key_id(peer_spki),

@@ -87,4 +87,8 @@ Receiver and registry snapshots are reused until their watches or account state 
 
 An inbox stream may re-add its target at most three times for existence-filter mismatches. Exhaustion stops reception with `existence_filter_retry_limit` until an explicit Retry reception. Durable delivery cursors remain intact, and a retry resumes through the existing catch-up path.
 
-<!-- revision: 16 -->
+Switching Neighbors on starts the receiver and registry watches directly, outside the send/mutation queue. Startup uses the existing local key only when it matches the server's receiver key; key repair and pending sign-out cleanup remain serialized before admission. Off and sign-out cancel the startup task. Receiver and per-friend status events publish actual stream progress without a timer or warmup delay.
+
+An outgoing text over 8176 UTF-8 bytes fails before network dispatch with HTTP 413, `reason: message_too_large` and `limit: 8176`. A denied tab request returns HTTP 403 and `tab_requests_not_allowed`; other denied grants use `neighbor_permission_denied`. Incoming denied requests still receive the polite automatic linked refusal without involving the concierge.
+
+<!-- revision: 17 -->

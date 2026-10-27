@@ -39,6 +39,11 @@ fn deny_by_default_and_tab_requests_need_an_explicit_grant() {
     };
     assert!(granted.allows(Kind::Question));
     assert!(!granted.allows(Kind::TabRequest));
+    assert_eq!(
+        granted.require(Kind::TabRequest),
+        Err(Error::TabRequestsNotAllowed)
+    );
+    assert_eq!(denied.require(Kind::Question), Err(Error::PermissionDenied));
     granted.allow_tab_requests = true;
     assert!(granted.allows(Kind::TabRequest));
     assert_ne!(

@@ -276,6 +276,13 @@ pub async fn neighbor_runtime(
 }
 
 fn neighbor_failure(message: String) -> Response {
+    if let Some(detail) = message.strip_prefix("message_too_large:") {
+        if let Ok(data) = serde_json::from_str::<serde_json::Value>(detail) {
+            if let Some(limit) = data["limit"].as_u64() {
+                return (StatusCode::PAYLOAD_TOO_LARGE, Json(serde_json::json!({"code":"message_too_large","reason":"message_too_large","limit":limit,"message":format!("Neighbor messages allow at most {limit} UTF-8 bytes")}))).into_response();
+            }
+        }
+    }
     for reason in ["rate_limited", "aggregate_limited"] {
         if let Some(detail) = message.strip_prefix(&format!("{reason}:")) {
             if let Ok(data) = serde_json::from_str::<serde_json::Value>(detail) {
@@ -295,6 +302,7 @@ fn neighbor_failure(message: String) -> Response {
     let reason = message.split_once(':').map(|(reason, _)| reason);
     let status = match reason {
         Some("neighbor_forbidden") => StatusCode::FORBIDDEN,
+        Some("tab_requests_not_allowed" | "neighbor_permission_denied") => StatusCode::FORBIDDEN,
         Some("session_revoked") => StatusCode::UNAUTHORIZED,
         Some("neighbors_disabled") => StatusCode::SERVICE_UNAVAILABLE,
         Some("limit_out_of_range") => StatusCode::BAD_REQUEST,
