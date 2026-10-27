@@ -760,3 +760,23 @@ it("blocks files from one friend with a zero daily file limit", async () => {
   await act(async () => button("Save file limit").click());
   expect(filesClient.setDailyLimit).toHaveBeenCalledExactlyOnceWith("pair", 0);
 });
+
+it("shows a message's files with their state and opens a saved one from the friend", async () => {
+  const entries: HistoryEntry[] = [{ direction: "in", kind: "question", author: "friend", body: "Here you go", at: 1700000000000, message_id: "f1" }];
+  const filesClient = { send: vi.fn(), open: vi.fn(async () => {}), openFolder: vi.fn(async () => {}), setDailyLimit: vi.fn(async () => {}),
+    usage: vi.fn(async () => null), onFilesChanged: vi.fn(async () => () => {}),
+    list: vi.fn(async () => ({ folder: "/neighbors/ada", files: [
+      { file_id: "file-1", name: "notes.txt", size_bytes: 2048, state: "saved" as const, message_id: "f1", direction: "in" as const },
+      { file_id: "file-2", name: "old.zip", size_bytes: 4096, state: "expired" as const, message_id: "f1", direction: "in" as const },
+    ] })) };
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtime()} conciergeClient={concierge(entries)} filesClient={filesClient} />));
+  expect(document.getElementById("neighbor-msg-f1")?.textContent).toContain("expired");
+  expect(hasButton("Open old.zip")).toBe(false);
+  await act(async () => button("Open notes.txt").click());
+  expect(filesClient.open).toHaveBeenCalledExactlyOnceWith("pair", "file-1");
+});

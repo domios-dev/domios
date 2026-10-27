@@ -6,15 +6,22 @@ import { beginComposition, createCompositionGate, endComposition, isImeKeyEvent 
 import { classifyComposerDevice, composerEnterIntent } from "../Terminal/composerKeyboard";
 import { ComposerTextInput } from "../Terminal/ComposerTextInput";
 import { withTranscripts } from "../Surface/surfaceChromeModel";
+import { ComposerBubbleRow } from "../Terminal/ComposerBubbles";
+import { isVoiceNote } from "./neighborFilesClient";
 
-/** The chat composer, sending text to a Neighbor: voice is transcribed into the message, files stay on this machine. */
-export function NeighborComposer({ name, placeholder, disabled, sending, onSend, onError, transcribe = composerAttachmentHandoff.transcribeLocal }: {
+const MAX_FILES = 4;
+
+/** The chat composer, sending to a Neighbor: voice is transcribed into the message, and files go along when the conversation allows them. */
+export function NeighborComposer({ name, placeholder, disabled, sending, onSend, onSendFiles, onError, transcribe = composerAttachmentHandoff.transcribeLocal }: {
   name: string; placeholder: string; disabled: boolean; sending: boolean;
   onSend: (body: string) => Promise<boolean>; onError: (message: string) => void;
+  /** Present when files can go along; without it the paperclip stays away. */
+  onSendFiles?: (body: string, paths: string[]) => Promise<boolean>;
   transcribe?: (path: string) => Promise<string>;
 }) {
   const [draft, setDraft] = useState("");
   const [transcribing, setTranscribing] = useState(false);
+  const [files, setFiles] = useState<string[]>([]);
   const latest = useRef(draft);
   latest.current = draft;
   const touchMode = useTouchOptimizedUi();
@@ -22,13 +29,26 @@ export function NeighborComposer({ name, placeholder, disabled, sending, onSend,
     maxTouchPoints: navigator.maxTouchPoints, touchOptimizedUi: touchMode });
   const gate = useRef(createCompositionGate()).current;
   const busy = sending || transcribing;
-  const hasText = draft.trim().length > 0;
+  const hasText = draft.trim().length > 0 || files.length > 0;
 
   const send = (text = latest.current) => {
     const body = text.trim();
-    if (!body || busy || disabled) return;
+    const attached = files;
+    if ((!body && attached.length === 0) || busy || disabled) return;
     setDraft("");
-    void onSend(body).then(ok => { if (!ok) setDraft(body); });
+    setFiles([]);
+    const sent = attached.length > 0 && onSendFiles ? onSendFiles(body, attached) : onSend(body);
+    void sent.then(ok => { if (!ok) { setDraft(body); setFiles(attached); } });
+  };
+  // Recorded voice notes become words; anything else picked or dropped rides along as a file.
+  const attach = (paths: string[]) => {
+    const voice = paths.filter(isVoiceNote);
+    const picked = paths.filter(path => !isVoiceNote(path));
+    if (voice.length > 0) void applyVoice(voice, false);
+    if (picked.length === 0) return;
+    const next = [...files, ...picked.filter(path => !files.includes(path))];
+    if (next.length > MAX_FILES) onError(`Up to ${MAX_FILES} files per message.`);
+    setFiles(next.slice(0, MAX_FILES));
   };
   const applyVoice = async (paths: string[], andSend: boolean) => {
     setTranscribing(true);
@@ -42,9 +62,10 @@ export function NeighborComposer({ name, placeholder, disabled, sending, onSend,
   };
 
   return <div className="neighbor-composer">
-    <ComposerActions canAttach={false} onAttach={paths => void applyVoice(paths, false)} onSend={() => send()}
+    <ComposerActions canAttach={Boolean(onSendFiles) && !disabled} onAttach={paths => onSendFiles ? attach(paths) : void applyVoice(paths, false)} onSend={() => send()}
       onSendWithAttachments={paths => void applyVoice(paths, true)} onError={onError}
-      sendDisabled={disabled || busy || !hasText} hasText={hasText}>
+      sendDisabled={disabled || busy || !hasText} hasText={hasText}
+      cardHeader={files.length > 0 && <ComposerBubbleRow attachments={files} onRemove={path => setFiles(current => current.filter(entry => entry !== path))} />}>
       <ComposerTextInput aria-label={`Message to ${name}`} placeholder={placeholder} value={draft} readOnly={busy} disabled={disabled}
         enterKeyHint="send" onChange={event => setDraft(event.target.value)}
         onKeyDown={event => {
