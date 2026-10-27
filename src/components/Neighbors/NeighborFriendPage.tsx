@@ -115,7 +115,7 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, focusPerm
             </span>
             <span className="neighbor-confirm__actions">
               {gateway && gatewayId && <Button size="sm" onClick={() => focusTab(gatewayId, workspaceOfTab({ workspaces, tabs }, gatewayId))}>Open its chat</Button>}
-              <Button size="sm" onClick={() => setChanging(true)}>Change agent</Button>
+              <Button size="sm" variant={gateway ? "ghost" : "accent"} onClick={() => setChanging(true)}>{gateway ? "Change agent" : "Set up concierge"}</Button>
             </span>
           </div>
         </SettingsCard>

@@ -166,8 +166,10 @@ function Conversation({ friend, locked, enabled, runtimeClient, conciergeClient,
 
   return <div className="neighbor-chat absolute inset-0 flex flex-col bg-[var(--ct-bg)] pt-[var(--ct-safe-top,0px)]">
     <div className={`${UI_PANEL.toolbar} ct-section-toolbar gap-3 px-4 py-0 text-[var(--ct-fg)] whitespace-nowrap`}>
-      <span className="neighbor-chat__avatar"><AccountAvatar url={friend.photoURL} initial={accountInitials(name)} label="" size="node" /></span>
-      <strong className="min-w-0 truncate">{name}</strong>
+      <button type="button" className="neighbor-chat__who ct-liquid-interactive" aria-label={`Open ${name}'s page`} onClick={() => openNeighborPage(friendship)}>
+        <span className="neighbor-chat__avatar"><AccountAvatar url={friend.photoURL} initial={accountInitials(name)} label="" size="node" /></span>
+        <strong className="min-w-0 truncate">{name}</strong>
+      </button>
       <span className="neighbor-status"><span className="neighbor-dot" data-tone={enabled && !locked ? "ok" : "muted"} aria-hidden="true" />
         {!enabled ? "Neighbors is off" : locked ? "paused by plan" : "connected"}</span>
       {allowance && <span className="neighbor-note" title={`${name} allows you ${allowance.limit} messages a day`}>{allowance.limit}/day, {allowance.sent} sent today</span>}
