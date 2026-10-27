@@ -46,6 +46,233 @@
           "subcommands": []
         },
         {
+          "name": "neighbors",
+          "about": "Manage the encrypted Neighbors channel on this machine",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "bind",
+              "about": "Bind a friendship to an independent local gateway agent tab",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "friendship_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "FRIENDSHIP_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "tab",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "TAB",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "delivery-status",
+              "about": "Read pending, delivered or not_delivered from the relay receipt",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "message_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "MESSAGE_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "deny",
+              "about": "General Agent only: deny this Neighbor's requests",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "friendship_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "FRIENDSHIP_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "enroll",
+              "about": "Receive Neighbors on this machine; other machines stop receiving",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "confirm-takeover",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "CONFIRM_TAKEOVER",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "grant",
+              "about": "General Agent only: grant a bounded scope authored in its pad",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "allow-tab-requests",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "ALLOW_TAB_REQUESTS",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "friendship_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "FRIENDSHIP_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "from-pad",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "FROM_PAD",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "own-keys",
+              "about": "List active own key IDs",
+              "aliases": [],
+              "args": [],
+              "subcommands": []
+            },
+            {
+              "name": "permission",
+              "about": "Read a Neighbor's local permission policy",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "friendship_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "FRIENDSHIP_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "revoke",
+              "about": "Revoke this machine's Neighbor keys",
+              "aliases": [],
+              "args": [],
+              "subcommands": []
+            },
+            {
+              "name": "rotate",
+              "about": "Rotate this installation's keys and revoke the previous pair",
+              "aliases": [],
+              "args": [],
+              "subcommands": []
+            },
+            {
+              "name": "send",
+              "about": "Encrypt and send one authored message; prints only its ID and status",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "friendship_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "FRIENDSHIP_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "from-pad",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "FROM_PAD",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "in-reply-to",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "IN_REPLY_TO",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "kind",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "KIND",
+                  "possible_values": [
+                    "question",
+                    "answer",
+                    "refusal",
+                    "tab_request"
+                  ],
+                  "default": "question",
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "status",
+              "about": "Show local channel enrollment and gateway bindings",
+              "aliases": [],
+              "args": [],
+              "subcommands": []
+            }
+          ]
+        },
+        {
           "name": "plan",
           "about": "Show the current plan and stale-cache marker",
           "aliases": [],

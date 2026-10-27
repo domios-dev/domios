@@ -60,6 +60,74 @@ Sign in using the system browser and wait for completion
 
 Sign out and delete the saved credential
 
+#### `domios account neighbors`
+
+Manage the encrypted Neighbors channel on this machine
+
+#### `domios account neighbors bind`
+
+Bind a friendship to an independent local gateway agent tab
+
+- `<friendship_id>`
+- `--tab`
+
+#### `domios account neighbors delivery-status`
+
+Read pending, delivered or not_delivered from the relay receipt
+
+- `<message_id>`
+
+#### `domios account neighbors deny`
+
+General Agent only: deny this Neighbor's requests
+
+- `<friendship_id>`
+
+#### `domios account neighbors enroll`
+
+Receive Neighbors on this machine; other machines stop receiving
+
+- `--confirm-takeover`
+
+#### `domios account neighbors grant`
+
+General Agent only: grant a bounded scope authored in its pad
+
+- `--allow-tab-requests`
+- `<friendship_id>`
+- `--from-pad`
+
+#### `domios account neighbors own-keys`
+
+List active own key IDs
+
+#### `domios account neighbors permission`
+
+Read a Neighbor's local permission policy
+
+- `<friendship_id>`
+
+#### `domios account neighbors revoke`
+
+Revoke this machine's Neighbor keys
+
+#### `domios account neighbors rotate`
+
+Rotate this installation's keys and revoke the previous pair
+
+#### `domios account neighbors send`
+
+Encrypt and send one authored message; prints only its ID and status
+
+- `<friendship_id>`
+- `--from-pad`
+- `--in-reply-to`
+- `--kind`
+
+#### `domios account neighbors status`
+
+Show local channel enrollment and gateway bindings
+
 #### `domios account plan`
 
 Show the current plan and stale-cache marker
