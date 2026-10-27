@@ -604,3 +604,12 @@ it("runs a friend's html only once the owner allowed interactive content from th
   await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtimeClient} conciergeClient={concierge(entries)} />));
   expect(document.querySelector("iframe")).not.toBeNull();
 });
+
+it("says nothing about receiving until the daemon knows", async () => {
+  const runtimeClient = runtime();
+  vi.mocked(runtimeClient.status).mockResolvedValue({ enrolled: true, bindings: {}, receiving_here: false, receiving_enabled: false, receiver_machine_label: null, revision: 0,
+    receiver_status_known: false } as unknown as Awaited<ReturnType<NeighborRuntimeClient["status"]>>);
+  await render("paid", { runtimeClient });
+  expect(document.body.textContent).not.toContain("Receiver not chosen yet");
+  expect(hasButton("Receive here")).toBe(false);
+});

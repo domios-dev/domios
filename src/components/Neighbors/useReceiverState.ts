@@ -12,7 +12,11 @@ export function useReceiverState(client: NeighborRuntimeClient, active: boolean)
       if (receiverState(event)) setState(event);
       else if ("receiver_unavailable" in event) setState(null);
     }).then(unlisten => { if (controller.signal.aborted) unlisten(); else stop = unlisten; });
-    client.status(controller.signal).then(status => setState(receiverState(status) ? status : null), () => setState(null));
+    // Until the receiver watcher reports, the cached receiver fields are not an answer yet; events fill them in.
+    client.status(controller.signal).then(status => {
+      const known = (status as unknown as { receiver_status_known?: unknown }).receiver_status_known !== false;
+      setState(known && receiverState(status) ? status : null);
+    }, () => setState(null));
     return () => { controller.abort(); stop?.(); };
   }, [client, active]);
   return state;
