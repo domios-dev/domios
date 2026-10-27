@@ -3,6 +3,7 @@ use crate::crypto::tests::{recipient, vector};
 use crate::crypto::PrivateKeys;
 use crate::wire::PeerKey;
 use std::sync::Mutex;
+mod attachments;
 
 struct Fixture {
     peer_reads: Mutex<usize>,

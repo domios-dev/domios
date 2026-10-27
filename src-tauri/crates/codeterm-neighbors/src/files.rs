@@ -8,6 +8,9 @@ use rand::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, Zeroizing};
 
+pub mod refusal;
+pub mod transfer;
+
 pub const MAX_FILE_BYTES: usize = 2 * 1024 * 1024;
 pub const FILE_OVERHEAD: usize = 32;
 pub const MAX_ATTACHMENTS: usize = 4;

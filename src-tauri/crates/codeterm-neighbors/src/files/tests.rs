@@ -59,7 +59,7 @@ fn attachment_body_projects_handles_without_manifest_or_key() {
     let parsed = AttachmentBody::parse(&wire, &binding()).unwrap().unwrap();
     let text = parsed.agent_text();
     assert_eq!(text, "hello\n[Neighbor attachment: photo.png (6 bytes), handle cccccccccccccccccccccccccccccccc]");
-    for private in [&key, &object, "key_b64u", "ciphertext_sha256", "plaintext_sha256"] {
+    for private in [key.as_str(), object.as_str(), "key_b64u", "ciphertext_sha256", "plaintext_sha256"] {
         assert!(!text.contains(private));
     }
     assert!(AttachmentBody::parse("ordinary text", &binding()).unwrap().is_none());
