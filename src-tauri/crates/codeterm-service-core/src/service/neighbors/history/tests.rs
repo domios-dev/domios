@@ -127,6 +127,10 @@ async fn linked_outcomes_require_accepted_submission_and_reconcile_delivery_fail
         metadata.history_page(&friendship, None, 50).await.unwrap()["entries"][2]["outcome"],
         "refused"
     );
+    let page = metadata.history_page(&friendship, None, 50).await.unwrap();
+    assert_eq!(page["entries"][0]["delivery_status"], "pending");
+    assert!(page["entries"][0]["reason"].is_null());
+    assert!(page["entries"][0]["limit"].is_null());
 }
 
 #[test]

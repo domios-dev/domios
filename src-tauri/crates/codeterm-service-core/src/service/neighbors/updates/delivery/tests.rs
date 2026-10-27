@@ -165,6 +165,23 @@ async fn delivery_signal_updates_only_own_outgoing_history_and_emits_change_with
         Some(DeliveryStatus::NotDelivered)
     );
     service
+        .update_neighbor_history_status(
+            &metadata,
+            &signal.message_id,
+            HistoryReceipt {
+                delivery: DeliveryStatus::Pending.into(),
+                rejection: None,
+                submission: Some(Submission::Accepted),
+            },
+            generation,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        metadata.history(&friendship).await.unwrap().entries[1].delivery_status,
+        Some(DeliveryStatus::NotDelivered)
+    );
+    service
         .neighbor_cell()
         .generation
         .fetch_add(1, Ordering::AcqRel);
