@@ -47,7 +47,7 @@ fn discovery() -> Value {
 fn denied_requests() -> Vec<(&'static str, Value)> {
     let provider = json!({
         "id": "endpoint", "kind": "openai-compatible",
-        "base_url": "https://caller-chosen.invalid/v1",
+        "baseUrl": "https://caller-chosen.invalid/v1",
         "models": ["fixture-model"], "secretName": "slot"
     });
     vec![
