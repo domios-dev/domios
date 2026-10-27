@@ -1218,3 +1218,13 @@ button.neighbor-file:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.neighbor-access {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.neighbor-access__warning {
+  color: color-mix(in srgb, var(--ct-red) 75%, var(--ct-fg));
+}

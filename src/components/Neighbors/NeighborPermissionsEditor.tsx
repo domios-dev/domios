@@ -4,21 +4,29 @@ import { FormRow } from "../shared/FormRow";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { SwitchTile } from "../Settings/shared";
 import { useFolderPicker } from "../../hooks/useFolderPicker";
+import { Segmented } from "../shared/Segmented";
 import { UI_INPUT } from "../shared/design";
 import { validNeighborLimit, type Neighbor } from "./neighborModel";
-import type { NeighborPermission } from "./neighborRuntimeClient";
+import type { MachineAccess, NeighborPermission } from "./neighborRuntimeClient";
+
+const ACCESS_OPTIONS: { value: MachineAccess; label: string }[] = [
+  { value: "read_only", label: "Read only" },
+  { value: "folder", label: "This folder only" },
+  { value: "full", label: "Full access" },
+];
 
 const SCOPE_LIMIT = 8192;
 const samePermission = (a: NeighborPermission, b: NeighborPermission) => a.allowed === b.allowed && a.scope === b.scope
   && a.allow_tab_requests === b.allow_tab_requests && (a.allow_interactive_content ?? false) === (b.allow_interactive_content ?? false)
   && (a.allow_memory ?? true) === (b.allow_memory ?? true) && (a.allow_files ?? true) === (b.allow_files ?? true)
-  && (a.folder ?? null) === (b.folder ?? null);
+  && (a.folder ?? null) === (b.folder ?? null) && (a.machine_access ?? "read_only") === (b.machine_access ?? "read_only");
 const scopeBytes = (scope: string) => new TextEncoder().encode(scope).length;
 
 /** Allowing requests needs a written scope; the relay refuses an empty or oversized one. */
 export function permissionProblem(permission: NeighborPermission): string | null {
   if (scopeBytes(permission.scope) > SCOPE_LIMIT) return "The scope is too long. Keep it to the essentials.";
   if (permission.allowed && !permission.scope.trim()) return "Write what they may ask before allowing requests.";
+  if (permission.machine_access === "folder" && !permission.folder) return "Choose the folder their concierge may work in.";
   return null;
 }
 
@@ -37,6 +45,8 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
   const [error, setError] = useState<string | null>(null);
   const [limit, setLimit] = useState(neighbor.inbound_per_hour);
   const { pickFolder, folderPicker } = useFolderPicker();
+  const accessLabel = useId();
+  const access: MachineAccess = draft?.machine_access ?? "read_only";
   const [daily, setDaily] = useState(neighbor.my_daily_limit == null ? "" : String(neighbor.my_daily_limit));
   const [dailyError, setDailyError] = useState<string | null>(null);
   const dailyField = useId();
@@ -70,19 +80,26 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
       checked={draft !== null && draft.allow_memory !== false} onChange={allow_memory => { if (draft && !saving) edit({ allow_memory }); }} />
     <SwitchTile label="Read files" hint="Their agents may ask for files and receive copies."
       checked={draft !== null && draft.allow_files !== false} onChange={allow_files => { if (draft && !saving) edit({ allow_files }); }} />
-    <div className="neighbor-folder">
-      <div className="min-w-0">
-        <p className="neighbor-permissions__label">Limit to folder</p>
-        <p className="neighbor-folder__path" title={draft?.folder ?? draft?.effective_folder ?? undefined}>
-          {draft?.folder ?? (draft?.effective_folder ? `${name}'s folder: ${draft.effective_folder}` : `${name}'s own folder`)}</p>
-        {draft?.folder_enforcement?.note && <p className="neighbor-note">{draft.folder_enforcement.note}</p>}
-      </div>
-      <div className="neighbor-confirm__actions">
+    <div className="neighbor-access">
+      <p id={accessLabel} className="neighbor-permissions__label">Machine access</p>
+      <Segmented<MachineAccess> aria-label="Machine access" value={access} height={26} options={ACCESS_OPTIONS}
+        onChange={next => {
+          if (!draft || saving) return;
+          if (next !== "folder" || draft.folder) { edit({ machine_access: next }); return; }
+          // This folder only means nothing until a folder is chosen; cancelling keeps the previous access.
+          void pickFolder(`Folder for ${name}'s concierge`, draft.effective_folder).then(folder => { if (folder) edit({ machine_access: "folder", folder }); });
+        }} />
+      {access === "read_only" && <p className="neighbor-note">Their concierge can look things up for them but change nothing on this machine.</p>}
+      {access === "full" && <p role="note" className="neighbor-note neighbor-access__warning">Their requests can change anything your agents on this machine can reach.</p>}
+      {access === "folder" && <div className="neighbor-folder">
+        <div className="min-w-0">
+          <p className="neighbor-folder__path" title={draft?.folder ?? undefined}>{draft?.folder ?? "No folder chosen"}</p>
+          {draft?.folder_enforcement?.note && <p className="neighbor-note">{draft.folder_enforcement.note}</p>}
+        </div>
         <Button size="sm" disabled={!draft || saving} onClick={() => {
           void pickFolder(`Folder for ${name}'s concierge`, draft?.folder ?? draft?.effective_folder).then(folder => { if (folder) edit({ folder }); });
         }}>Choose folder</Button>
-        {draft?.folder && <Button size="sm" disabled={saving} onClick={() => edit({ folder: null })}>Use their folder</Button>}
-      </div>
+      </div>}
     </div>
     <SwitchTile label="Open tabs and agents" hint="A separate grant: without it, their agents can only ask questions."
       checked={draft?.allow_tab_requests === true} onChange={allow_tab_requests => { if (draft && !saving) edit({ allow_tab_requests }); }} />

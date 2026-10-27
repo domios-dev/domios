@@ -723,10 +723,10 @@ it("keeps a removed friend's conversation readable and closed", async () => {
   expect(document.querySelector<HTMLTextAreaElement>("textarea")!.disabled).toBe(true);
 });
 
-it("shows the concierge folder with its honest enforcement note and can return to the friend's own folder", async () => {
+it("sets machine access: the folder with its honest note, and a warning for full access", async () => {
   const conciergeClient = concierge([]);
   const runtimeClient = runtime();
-  vi.mocked(runtimeClient.permission).mockResolvedValue({ allowed: true, scope: "Project questions", allow_tab_requests: false, folder: "/work/shared",
+  vi.mocked(runtimeClient.permission).mockResolvedValue({ allowed: true, scope: "Project questions", allow_tab_requests: false, machine_access: "folder", folder: "/work/shared",
     effective_folder: "/work/shared", folder_enforcement: { writes: "advisory", reads: "not_confined", note: "Writes are advisory with this agent; reads are not confined." } });
   const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
   const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
@@ -737,9 +737,10 @@ it("shows the concierge folder with its honest enforcement note and can return t
   await act(async () => button("Ada, connected").click());
   expect(document.body.textContent).toContain("/work/shared");
   expect(document.body.textContent).toContain("Writes are advisory with this agent; reads are not confined.");
-  await act(async () => button("Use their folder").click());
+  await act(async () => button("Full access").click());
+  expect(document.body.textContent).toContain("Their requests can change anything your agents on this machine can reach.");
   await act(async () => button("Save permissions").click());
-  expect(conciergeClient.setPermission).toHaveBeenCalledExactlyOnceWith("pair", expect.objectContaining({ folder: null }));
+  expect(conciergeClient.setPermission).toHaveBeenCalledExactlyOnceWith("pair", expect.objectContaining({ machine_access: "full" }));
 });
 
 it("blocks files from one friend with a zero daily file limit", async () => {
