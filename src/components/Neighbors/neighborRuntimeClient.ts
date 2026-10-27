@@ -20,6 +20,9 @@ export interface ChannelStatus extends ReceiverState {
   enrolled: boolean;
   bindings: Record<string, string>;
 }
+/** Off until the daemon's permission accepts and enforces workspaces: the editor hides them and saves never send them. */
+export const PERMISSION_WORKSPACES = false as boolean;
+
 /** "none" is typed but no provider can honour it yet, so the editor never offers it; reads fall back to read only. */
 export type MachineAccess = "none" | "read_only" | "folder" | "full";
 export interface NeighborPermission {

@@ -1,5 +1,5 @@
 import { listen } from "../../lib/bridge";
-import { deliveryStatus, runtimeCall, type NeighborDeliveryStatus, type NeighborPermission } from "./neighborRuntimeClient";
+import { deliveryStatus, PERMISSION_WORKSPACES, runtimeCall, type NeighborDeliveryStatus, type NeighborPermission } from "./neighborRuntimeClient";
 
 export type HistoryAuthor = "me" | "friend" | { agent: string; name: string };
 
@@ -96,7 +96,8 @@ export const neighborConciergeClient: NeighborConciergeClient = {
     // Only what the owner edits travels; the effective folder and its enforcement are the daemon's to report.
     const { allowed, scope, allow_tab_requests, allow_interactive_content, allow_memory, allow_files, folder, machine_access, memory_areas, workspaces } = permission;
     await runtimeCall({ operation: "set_permission", friendship_id: friendship,
-      permission: { allowed, scope, allow_tab_requests, allow_interactive_content, allow_memory, allow_files, folder, machine_access, memory_areas, workspaces } });
+      permission: { allowed, scope, allow_tab_requests, allow_interactive_content, allow_memory, allow_files, folder, machine_access, memory_areas,
+        ...(PERMISSION_WORKSPACES ? { workspaces } : {}) } });
   },
   setNotify: async (friendship, notify) => {
     const value = await runtimeCall({ operation: "set_notification_preference", friendship_id: friendship, notify });

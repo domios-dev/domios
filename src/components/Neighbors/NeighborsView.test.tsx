@@ -801,7 +801,7 @@ it("narrows a friend's memory to chosen areas", async () => {
   expect(conciergeClient.setPermission).toHaveBeenCalledExactlyOnceWith("pair", expect.objectContaining({ memory_areas: ["work"] }));
 });
 
-it("fills permissions from a trust preset, turns Custom on any later change, and limits workspaces", async () => {
+it("fills permissions from a trust preset, turns Custom on any later change, and holds workspaces back", async () => {
   const conciergeClient = concierge([]);
   const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
   const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
@@ -814,10 +814,10 @@ it("fills permissions from a trust preset, turns Custom on any later change, and
   await act(async () => button("Acquaintance").click());
   expect(button("Read my memory").getAttribute("aria-checked")).toBe("false");
   expect(button("Acquaintance").getAttribute("aria-selected")).toBe("true");
-  await act(async () => { button("Workspaces: None").dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 })); });
-  await act(async () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]')).find(item => item.textContent === "Work")!.click());
+  // The daemon does not accept workspaces yet, so the editor offers none.
+  expect(hasButton("Workspaces: None")).toBe(false);
   await act(async () => button("Save permissions").click());
-  expect(conciergeClient.setPermission).toHaveBeenCalledExactlyOnceWith("pair", expect.objectContaining({ allow_memory: false, allow_files: true, workspaces: ["ws-work"] }));
+  expect(conciergeClient.setPermission).toHaveBeenCalledExactlyOnceWith("pair", expect.objectContaining({ allow_memory: false, allow_files: true }));
   expect(conciergeClient.setDailyLimit).toHaveBeenCalledExactlyOnceWith("pair", 20);
   await act(async () => button("Read files").click());
   expect(button("Custom").getAttribute("aria-selected")).toBe("true");

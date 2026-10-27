@@ -11,7 +11,7 @@ import { useMuxSelector } from "../../store/multiplexer";
 import { applyTrustPreset, TRUST_OPTIONS, trustPresetOf, type TrustPreset } from "./neighborTrustPresets";
 import { UI_INPUT } from "../shared/design";
 import { validNeighborLimit, type Neighbor } from "./neighborModel";
-import type { MachineAccess, NeighborPermission } from "./neighborRuntimeClient";
+import { PERMISSION_WORKSPACES, type MachineAccess, type NeighborPermission } from "./neighborRuntimeClient";
 
 const ACCESS_OPTIONS: { value: MachineAccess; label: string }[] = [
   { value: "read_only", label: "Read only" },
@@ -98,7 +98,7 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
     </FormRow>
     <SwitchTile label={`Show interactive content from ${name}`} hint="Runs their html and diagrams. Only for people you trust."
       checked={draft?.allow_interactive_content === true} onChange={allow_interactive_content => { if (draft && !saving) edit({ allow_interactive_content }); }} />
-    {draft && <ChoiceMenu label="Workspaces" menuLabel="Workspaces" every="None" noun="workspaces" disabled={saving}
+    {PERMISSION_WORKSPACES && draft && <ChoiceMenu label="Workspaces" menuLabel="Workspaces" every="None" noun="workspaces" disabled={saving}
       options={workspaceOptions} chosen={draft.workspaces ?? []} onChange={chosen => edit({ workspaces: chosen.length > 0 ? chosen : null })} />}
     </SettingsSection>
     <SettingsSection title="Access">
