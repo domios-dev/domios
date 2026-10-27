@@ -201,19 +201,8 @@ Recurring schedules must contain exactly five fields and have a fire time within
 | POST | `/api/tabs/{id}/permission-auto-confirm` | `{enabled}` | Opt the tab in/out of auto-confirming provider permission prompts the provider positively recognizes (`permissionPromptResponse`) and a hook PermissionRequest backs. Persisted in the session snapshot; journaled. Returns `{ok, tab_id, enabled}`. CLI: `domios tab auto-confirm on\|off`. |
 | GET | `/api/tabs/{id}/permission-auto-confirm` | — | `{tab_id, enabled, recent}` — `recent` holds the last auto-confirmations (`tool_name`, `option_label`, `rule`, `question`, `options`, `prompt_fingerprint`, `session_id`, `confirmed_at_ms`). CLI: `domios tab auto-confirm status`. |
 
-#### Git
-| Method | Path | Body / Query | Description |
-|--------|------|------|-------------|
-| GET | `/api/git/graph` | — | Commit graph for configured repositories |
-| GET | `/api/git/commit/{sha}/files` | — | Files changed by a commit |
-| GET | `/api/git/commit/{sha}/diff` | — | Diff for a commit |
-| GET | `/api/git/workdir-diff` | — | Current working tree diff |
-| GET | `/api/git/workdir-files` | — | Current working tree changed-file list |
-| POST | `/api/git/revert-file` | `{path}` | Revert one file through the API guardrails |
-| GET | `/api/git/repos` | — | Known repositories |
-
 ## Related documents
 
 Service registration, health, usage, logs, and activity: `domios docs API-SERVICES`. Notifications and webhooks: `domios docs API-TABS`. Secret storage and updates: `domios docs API-STATE`.
 
-<!-- revision: 35 -->
+<!-- revision: 36 -->

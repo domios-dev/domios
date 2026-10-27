@@ -1,0 +1,137 @@
+[
+  {
+    "method": "GET",
+    "path": "/api/debug/clock",
+    "reason": "Internal diagnostic or test-clock control; not a public automation contract."
+  },
+  {
+    "method": "GET",
+    "path": "/api/debug/events/stats",
+    "reason": "Internal diagnostic or test-clock control; not a public automation contract."
+  },
+  {
+    "method": "GET",
+    "path": "/api/events/stream",
+    "reason": "Internal UI or transport protocol; use the documented tab, workspace or Mesh controls."
+  },
+  {
+    "method": "GET",
+    "path": "/api/mesh/peers/{id}/services",
+    "reason": "Internal UI or transport protocol; use the documented tab, workspace or Mesh controls."
+  },
+  {
+    "method": "GET",
+    "path": "/api/mux/state",
+    "reason": "Internal web mirror snapshot and recovery protocol; public workspace and tab controls are documented."
+  },
+  {
+    "method": "GET",
+    "path": "/api/pty/{id}/read",
+    "reason": "Low-level terminal transport for the web mirror; public tab operations own lifecycle and delivery."
+  },
+  {
+    "method": "GET",
+    "path": "/web",
+    "reason": "Retired web URL returns 404; the current web interface is the daemon root fallback."
+  },
+  {
+    "method": "GET",
+    "path": "/web/{*path}",
+    "reason": "Retired web URL returns 404; the current web interface is the daemon root fallback."
+  },
+  {
+    "method": "POST",
+    "path": "/api/debug/clock/advance",
+    "reason": "Internal diagnostic or test-clock control; not a public automation contract."
+  },
+  {
+    "method": "POST",
+    "path": "/api/debug/events/force-latch",
+    "reason": "Internal diagnostic or test-clock control; not a public automation contract."
+  },
+  {
+    "method": "POST",
+    "path": "/api/debug/events/reset-latch",
+    "reason": "Internal diagnostic or test-clock control; not a public automation contract."
+  },
+  {
+    "method": "POST",
+    "path": "/api/debug/shutdown/clean-restart",
+    "reason": "Internal diagnostic or test-clock control; not a public automation contract."
+  },
+  {
+    "method": "POST",
+    "path": "/api/mux/restore-orphaned",
+    "reason": "Internal web mirror snapshot and recovery protocol; public workspace and tab controls are documented."
+  },
+  {
+    "method": "POST",
+    "path": "/api/pty/spawn",
+    "reason": "Low-level terminal transport for the web mirror; public tab operations own lifecycle and delivery."
+  },
+  {
+    "method": "POST",
+    "path": "/api/pty/{id}/launch-command",
+    "reason": "Low-level terminal transport for the web mirror; public tab operations own lifecycle and delivery."
+  },
+  {
+    "method": "POST",
+    "path": "/api/pty/{id}/resize",
+    "reason": "Low-level terminal transport for the web mirror; public tab operations own lifecycle and delivery."
+  },
+  {
+    "method": "POST",
+    "path": "/api/pty/{id}/write",
+    "reason": "Low-level terminal transport for the web mirror; public tab operations own lifecycle and delivery."
+  },
+  {
+    "method": "POST",
+    "path": "/api/tabs/{id}/chat-raw/backfill",
+    "reason": "Internal chat-view streaming lifecycle; public send, history and transcript operations are documented."
+  },
+  {
+    "method": "POST",
+    "path": "/api/tabs/{id}/chat-raw/start",
+    "reason": "Internal chat-view streaming lifecycle; public send, history and transcript operations are documented."
+  },
+  {
+    "method": "POST",
+    "path": "/api/tabs/{id}/chat-raw/stop",
+    "reason": "Internal chat-view streaming lifecycle; public send, history and transcript operations are documented."
+  },
+  {
+    "method": "POST",
+    "path": "/api/tabs/{id}/chat-view",
+    "reason": "Internal chat-view streaming lifecycle; public send, history and transcript operations are documented."
+  },
+  {
+    "method": "POST",
+    "path": "/api/tabs/{id}/resize-owner",
+    "reason": "Internal UI or transport protocol; use the documented tab, workspace or Mesh controls."
+  },
+  {
+    "method": "POST",
+    "path": "/api/transcribe-voice",
+    "reason": "Internal UI or transport protocol; use the documented tab, workspace or Mesh controls."
+  },
+  {
+    "method": "POST",
+    "path": "/api/workspaces/{id}/tabs/{tab_id}/close",
+    "reason": "Internal UI or transport protocol; use the documented tab, workspace or Mesh controls."
+  },
+  {
+    "method": "POST",
+    "path": "/api/workspaces/{id}/tabs/{tab_id}/focus",
+    "reason": "Internal UI or transport protocol; use the documented tab, workspace or Mesh controls."
+  },
+  {
+    "method": "GET",
+    "path": "/api/account/login/pending",
+    "reason": "Debug-only local login inspection; unavailable in release builds."
+  },
+  {
+    "method": "POST",
+    "path": "/api/dev/inject-cast",
+    "reason": "Development-only cast injection, not a public client operation."
+  }
+]

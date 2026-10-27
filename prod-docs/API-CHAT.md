@@ -77,4 +77,18 @@ Backfill accepts `offset_kind` (`bytes` or `items`) alongside `before_offset`; p
 
 A transcript read that starts after its source's first record begins with a gap row: `type: "system"`, `systemSubtype: "history_gap"`, `timelineMarker: {kind: "history_gap", source, session_id, before_offset}` with `source` `provider_session` (an archived context epoch) or `chat_backend` (a chat-backend log). `POST /api/tabs/{id}/chat-raw/history` with `{source, session_id, before_offset}` returns `{messages}`: the older page ending at that offset, led by a new gap row while older records remain. The session must be the Tab's own chat-backend session or one of its archived epochs; any other session is refused with 409.
 
-<!-- revision: 9 -->
+
+## Additional REST routes
+
+Chat requests use the target tab's owned session. Bridge thread changes require explicit selection and caller authority.
+
+| Method | Path | Operation |
+|--------|------|-----------|
+| DELETE | `/api/tabs/{id}/bridge/thread` | Close its bridge thread. |
+| GET | `/api/tabs/{id}/bridge/thread` | Read the selected tab's bridge-thread state. |
+| POST | `/api/tabs/{id}/bridge/thread` | Open its bridge thread with explicit selection authority. |
+| POST | `/api/tabs/{id}/chat-raw/history` | Read paginated raw chat history. |
+| POST | `/api/tabs/{id}/chat-raw/resume` | Resume raw chat streaming. |
+| POST | `/api/tabs/{id}/chat-send/admissions` | Read admission results for submitted chat sends. |
+
+<!-- revision: 10 -->
