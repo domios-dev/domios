@@ -16,7 +16,7 @@ import { ChangeConciergeDialog } from "./ChangeConciergeDialog";
 import { askGeneralAgent, focusTab, permissionInterviewTask, workspaceOfTab } from "./neighborAgent";
 import type { NeighborClient } from "./neighborClient";
 import { neighborConciergeClient, type NeighborConciergeClient } from "./neighborConciergeClient";
-import { openNeighbor, openNeighborChat } from "./neighborFocus";
+import { openNeighborPage, openNeighbor } from "./neighborFocus";
 import { publishNeighborGateways } from "./neighborGateways";
 import { neighborName } from "./neighborModel";
 import { neighborRuntimeClient, type NeighborRuntimeClient } from "./neighborRuntimeClient";
@@ -113,7 +113,7 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
           renderOwner={() => <div className={`${ROW} ${rowPadding}`} data-active={activeChat === friend.friendship_id || undefined}>
             <button type="button" className={`sidebar-tab-activation flex flex-1 items-center min-w-0 border-0 bg-transparent p-0 text-left text-inherit cursor-pointer ${touchMode ? "gap-2.5" : "gap-2"}`}
               aria-label={`Open ${name}`} aria-current={activeChat === friend.friendship_id ? "page" : undefined}
-              onClick={() => openNeighborChat(friend.friendship_id)}>
+              onClick={() => openNeighbor(friend.friendship_id)}>
               <span className={`sidebar-tab-body flex-1 min-w-0 ${touchMode ? "gap-x-2.5" : "gap-x-2"}`}>
                 <span data-testid="tab-tab-icon" className="sidebar-tab-body__icon sidebar-neighbor-avatar"><AccountAvatar url={friend.photoURL} initial={accountInitials(name)} label="" size="node" /></span>
                 <span className="sidebar-tab-body__title flex min-w-0 items-center gap-1.5">
@@ -129,7 +129,7 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
             activity={idleNote ?? tabActivity(tab, tabStatuses[tab.id]).label}
             onOpen={() => { focusTab(tab.id, workspaceOfTab({ workspaces, tabs }, tab.id)); onNavigateToTab?.(); }}
             onChangeAgent={() => setChanging({ friend, tab })}
-            onViewPermissions={() => openNeighbor(friend.friendship_id, "configure")}
+            onViewPermissions={() => openNeighborPage(friend.friendship_id, "configure")}
             onEditWithGeneral={() => editWithGeneral(friend)} />} />
       </li>;
     })}</ul>}

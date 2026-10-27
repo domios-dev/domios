@@ -14,6 +14,8 @@ export interface Neighbor {
   sent_today?: number;
   /** This friendship's concierge tab on this machine, when one is bound. */
   gateway_tab?: string | null;
+  /** Where this friend's messages notify you; the daemon defaults to in_app. */
+  notify?: "off" | "in_app" | "in_app_and_bridges";
 }
 
 export interface NeighborRequest {

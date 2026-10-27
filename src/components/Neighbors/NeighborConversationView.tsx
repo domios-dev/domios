@@ -14,9 +14,10 @@ import { useMuxSelector } from "../../store/multiplexer";
 import { formatUntil } from "../../lib/timeLabels";
 import { askGeneralAgent, permissionInterviewTask } from "./neighborAgent";
 import type { NeighborClient } from "./neighborClient";
-import { neighborConciergeClient, type HistoryEntry, type NeighborConciergeClient } from "./neighborConciergeClient";
+import { neighborConciergeClient, type HistoryEntry, type NeighborConciergeClient, type NeighborNotify } from "./neighborConciergeClient";
+import { NOTIFY_CHOICES } from "./NeighborFriendPage";
 import { dayLabel, DELIVERY_LABEL, mergeHistory, speaker } from "./neighborConversationModel";
-import { openNeighbor } from "./neighborFocus";
+import { openNeighborPage } from "./neighborFocus";
 import { neighborName, type Neighbor } from "./neighborModel";
 import { MissingConciergeNotice } from "./NeighborPanel";
 import { NeighborComposer } from "./NeighborComposer";
@@ -51,6 +52,22 @@ function Conversation({ friend, locked, enabled, runtimeClient, conciergeClient,
   const workspaces = useMuxSelector(state => state.workspaces);
   const tabs = useMuxSelector(state => state.tabs);
   const receiver = useReceiverState(runtimeClient, enabled);
+  const [notify, setNotify] = useState<NeighborNotify>(friend.notify ?? "in_app");
+  useEffect(() => { if (friend.notify) setNotify(friend.notify); }, [friend.notify]);
+  useEffect(() => {
+    let stop: (() => void) | undefined;
+    let live = true;
+    void conciergeClient.onNotifyChanged((changed, value) => { if (changed === friendship) setNotify(value); })
+      .then(unlisten => { if (live) stop = unlisten; else unlisten(); });
+    return () => { live = false; stop?.(); };
+  }, [conciergeClient, friendship]);
+  const changeNotify = (next: NeighborNotify) => {
+    const previous = notify;
+    setNotify(next);
+    void conciergeClient.setNotify(friendship, next).then(setNotify, (failure: unknown) => {
+      setNotify(previous); setError(failure instanceof Error ? failure.message : "Notifications could not be changed.");
+    });
+  };
   const concierge = useConciergeStatus(runtimeClient, enabled)[friendship] ?? null;
   const setUpWithGeneral = () => {
     void askGeneralAgent({ workspaces, tabs }, permissionInterviewTask({ name, friendshipId: friendship }))
@@ -125,18 +142,20 @@ function Conversation({ friend, locked, enabled, runtimeClient, conciergeClient,
       {allowance && <span className="neighbor-note" title={`${name} allows you ${allowance.limit} messages a day`}>{allowance.limit}/day, {allowance.sent} sent today</span>}
       <span className="ml-auto" />
       <DropdownMenu menuLabel={`${name} actions`} items={[
-        { label: "View permissions", onClick: () => openNeighbor(friendship, "configure") },
+        { label: "Notifications", submenu: { label: "Notifications", items: NOTIFY_CHOICES.map(choice => ({
+          label: choice.label, selected: notify === choice.value, onClick: () => changeNotify(choice.value) })) } },
+        { label: "View permissions", onClick: () => openNeighborPage(friendship, "configure") },
         { label: "Edit with General", onClick: () => {
           void askGeneralAgent({ workspaces, tabs }, permissionInterviewTask({ name, friendshipId: friendship }))
             .catch((failure: unknown) => setError(failure instanceof Error ? failure.message : "The General Agent could not be reached."));
         } },
-        { label: "Open in Neighborhood", onClick: () => openNeighbor(friendship) },
+        { label: "Open in Neighborhood", onClick: () => openNeighborPage(friendship) },
       ]} trigger={<RowMenuButton label={`Actions for ${name}`} title={`${name} actions`} />} />
     </div>
     {receiver && !receiver.receiving_here && receiver.receiving_enabled && <p role="status" className="neighbor-chat__moved">
       {receivingLine(receiver)}. {name}'s messages arrive there, and concierges here stay idle.</p>}
     {concierge?.concierge_missing && <div className="neighbor-chat__notice"><MissingConciergeNotice status={concierge}
-      onSetUpWithGeneral={setUpWithGeneral} onEditPermissions={() => openNeighbor(friendship, "configure")} /></div>}
+      onSetUpWithGeneral={setUpWithGeneral} onEditPermissions={() => openNeighborPage(friendship, "configure")} /></div>}
     <div ref={scroller} className="neighbor-chat__scroll" onScroll={event => {
       const element = event.currentTarget;
       stickToEnd.current = element.scrollHeight - element.scrollTop - element.clientHeight < 48;

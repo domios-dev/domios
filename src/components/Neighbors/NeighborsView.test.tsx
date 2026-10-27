@@ -4,7 +4,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { NeighborsView } from "./NeighborsView";
 import { SidebarNeighborsSection } from "./SidebarNeighborsSection";
 import { NeighborConversationView } from "./NeighborConversationView";
-import type { HistoryEntry, NeighborConciergeClient } from "./neighborConciergeClient";
+import type { HistoryEntry, NeighborConciergeClient, NeighborNotify } from "./neighborConciergeClient";
 import { takeNeighborFocus } from "./neighborFocus";
 import { useNeighborGatewayIds } from "./neighborGateways";
 import type { NeighborClient } from "./neighborClient";
@@ -76,7 +76,8 @@ async function render(access: NeighborList["access"] = "paid", options: { canInv
   return { client, list };
 }
 
-const sentText = () => bridge.invoke.mock.calls.map(call => (call as unknown as [string, { tabId: string; text: string }])[1]);
+const sentText = () => (bridge.invoke.mock.calls as unknown as Array<[string, { tabId: string; text: string }]>)
+  .filter(([command]) => command === "chat_send_text").map(([, args]) => args);
 
 it("draws you, each Neighbor and request without duplicating daemon notifications", async () => {
   const { client } = await render();
@@ -136,10 +137,10 @@ it("accepts a request and interviews about the new connection once it exists", a
   expect(sentText()[0].text).toContain("pair-grace");
 });
 
-it("manages a Neighbor from its panel: limit, talk about, and revoke only after confirmation", async () => {
+it("opens a friend's own page: limit, talk about, and removal only after confirmation", async () => {
   const { client } = await render();
   await act(async () => button("Ada, connected").click());
-  await act(async () => button("Configure").click());
+  expect(document.querySelector('[data-settings-page="ada"]')).not.toBeNull();
   const input = Array.from(document.querySelectorAll<HTMLLabelElement>("label")).find(label => label.textContent === "Incoming requests per hour")!.control as HTMLInputElement;
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "42");
@@ -147,23 +148,31 @@ it("manages a Neighbor from its panel: limit, talk about, and revoke only after 
   });
   await act(async () => button("Save limit").click());
   expect(client.apply).toHaveBeenCalledWith({ operation: "set_limit", friendship_id: "pair", per_hour: 42 });
-  await act(async () => button("Talk about Ada").click());
+  await act(async () => { button("More actions for Ada").dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 })); });
+  await act(async () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent === "Talk about Ada")!.click());
   expect(sentText()[0].text).toContain("pair");
-  await act(async () => button("Revoke").click());
+  await act(async () => button("Remove friend").click());
   expect(client.apply).not.toHaveBeenCalledWith({ operation: "remove", friendship_id: "pair" });
-  await act(async () => button("Confirm revoke").click());
+  await act(async () => button("Confirm remove").click());
   expect(client.apply).toHaveBeenCalledWith({ operation: "remove", friendship_id: "pair" });
 });
 
-it("opens the gateway tab only when one receives this Neighbor", async () => {
+it("opens the conversation and the concierge's chat from the friend page", async () => {
   await render("paid", { bindings: { pair: "tab-gateway" } });
   const focused = vi.fn();
+  const panels = vi.fn();
   window.addEventListener("codeterm:focus-tab", focused);
+  window.addEventListener("codeterm:open-panel", panels);
   try {
     await act(async () => button("Ada, connected").click());
-    await act(async () => button("Open their tab").click());
+    await act(async () => button("Open conversation").click());
+    expect((panels.mock.calls[0][0] as CustomEvent).detail).toEqual({ panel: "neighbor:pair" });
+    await act(async () => button("Open its chat").click());
     expect((focused.mock.calls[0][0] as CustomEvent).detail).toEqual({ tabId: "tab-gateway", workspaceId: "ws-work" });
-  } finally { window.removeEventListener("codeterm:focus-tab", focused); }
+  } finally {
+    window.removeEventListener("codeterm:focus-tab", focused);
+    window.removeEventListener("codeterm:open-panel", panels);
+  }
 });
 
 it.each([false, undefined])("requires explicit server invitation permission, even with paid channel access (%s)", async canInvite => {
@@ -194,8 +203,7 @@ it("keeps a server-locked Neighbor manageable, offers plans and never unlocks th
   } });
   await act(async () => button("Ada, paused by plan").click());
   expect(button("View plans")).toBeDefined();
-  await act(async () => button("Messages").click());
-  expect(hasButton("Enable encrypted channel")).toBe(false);
+  expect(hasButton("Open conversation")).toBe(false);
   expect(client.apply).not.toHaveBeenCalled();
 });
 
@@ -320,7 +328,8 @@ it("offers the concierge actions: change agent, view permissions and edit with G
 it("saves permissions directly and refuses an allowed grant without a scope", async () => {
   const conciergeClient = { history: vi.fn(), onHistoryChanged: vi.fn(async () => () => {}), onPermissionChanged: vi.fn(async () => () => {}),
     onAgentChanged: vi.fn(async () => () => {}), setPermission: vi.fn(async () => {}), changeAgent: vi.fn(),
-    setDailyLimit: vi.fn(async () => {}), onDailyLimitChanged: vi.fn(async () => () => {}) };
+    setDailyLimit: vi.fn(async () => {}), onDailyLimitChanged: vi.fn(async () => () => {}),
+    setNotify: vi.fn(async (_friendship: string, notify: NeighborNotify) => notify), onNotifyChanged: vi.fn(async () => () => {}) };
   const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
   const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
     claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
@@ -328,8 +337,7 @@ it("saves permissions directly and refuses an allowed grant without a scope", as
   const root = createRoot(host); mounted = { root, host };
   await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
   await act(async () => button("Ada, connected").click());
-  await act(async () => button("Configure").click());
-  const allow = document.querySelector<HTMLButtonElement>('button[aria-labelledby][role="switch"], .neighbor-permissions button[aria-labelledby]')!;
+  const allow = button("Allow requests from Ada");
   await act(async () => allow.click());
   expect(button("Save permissions").disabled).toBe(true);
   const scope = document.querySelector<HTMLTextAreaElement>(".neighbor-permissions textarea")!;
@@ -386,6 +394,7 @@ function concierge(entries: HistoryEntry[]): NeighborConciergeClient & { changed
     onPermissionChanged: vi.fn(async () => () => {}), onAgentChanged: vi.fn(async () => () => {}),
     setPermission: vi.fn(async () => {}), changeAgent: vi.fn(async () => "tab-gateway"),
     setDailyLimit: vi.fn(async () => {}), onDailyLimitChanged: vi.fn(async () => () => {}),
+    setNotify: vi.fn(async (_friendship: string, notify: NeighborNotify) => notify), onNotifyChanged: vi.fn(async () => () => {}),
     changed: (friendship: string) => changed(friendship),
   };
 }
@@ -445,11 +454,11 @@ it("tells the old machine that receiving moved, and warns before taking it over"
   vi.mocked(runtimeClient.status).mockResolvedValue({ enrolled: true, bindings: { pair: "tab-gateway" }, receiving_here: false, receiving_enabled: true, receiver_machine_label: "Studio", revision: 4 });
   await render("paid", { runtimeClient });
   expect(document.body.textContent).toContain("Receiving moved to Studio");
-  await act(async () => button("Ada, connected").click());
-  await act(async () => button("Messages").click());
   await act(async () => button("Receive here").click());
   expect(document.querySelector('[aria-label="Receive on this machine"]')?.textContent)
     .toContain("Studio will stop receiving Neighbor messages. Concierges and permissions are per machine");
+  await act(async () => button("Receive Neighbor messages here").click());
+  expect(runtimeClient.enroll).toHaveBeenCalledExactlyOnceWith(4);
 });
 
 it("says when a friend has no concierge on this machine, with the waiting count only once it is known", async () => {

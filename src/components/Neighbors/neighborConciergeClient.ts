@@ -23,6 +23,8 @@ export interface HistoryEntry {
   delivery_status?: NeighborDeliveryStatus;
 }
 
+export type NeighborNotify = "off" | "in_app" | "in_app_and_bridges";
+
 export interface HistoryPage { entries: HistoryEntry[]; next_before: string | null; ended: boolean }
 
 export interface NeighborConciergeClient {
@@ -34,11 +36,14 @@ export interface NeighborConciergeClient {
   changeAgent(friendship: string, provider: string, model?: string): Promise<string>;
   setDailyLimit(friendship: string, dailyLimit: number | null): Promise<void>;
   onDailyLimitChanged(handler: (friendship: string) => void): Promise<() => void>;
+  setNotify(friendship: string, notify: NeighborNotify): Promise<NeighborNotify>;
+  onNotifyChanged(handler: (friendship: string, notify: NeighborNotify) => void): Promise<() => void>;
 }
 
 const KINDS: readonly HistoryKind[] = ["question", "answer", "refusal", "tab_request"];
 // Reset times may arrive in seconds or milliseconds; anything before 2001 in milliseconds is seconds.
 const unixMillis = (value: number) => value < 1e12 ? value * 1000 : value;
+export const isNotify = (value: unknown): value is NeighborNotify => value === "off" || value === "in_app" || value === "in_app_and_bridges";
 const record = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 
 function author(value: unknown): HistoryAuthor {
@@ -80,6 +85,14 @@ export const neighborConciergeClient: NeighborConciergeClient = {
     if (typeof event.payload?.friendship_id === "string" && typeof event.payload.gateway_tab === "string") handler(event.payload.friendship_id, event.payload.gateway_tab);
   }),
   setPermission: async (friendship, permission) => { await runtimeCall({ operation: "set_permission", friendship_id: friendship, permission }); },
+  setNotify: async (friendship, notify) => {
+    const value = await runtimeCall({ operation: "set_notification_preference", friendship_id: friendship, notify });
+    if (!record(value) || !isNotify(value.notify)) throw new Error("Invalid notification preference");
+    return value.notify;
+  },
+  onNotifyChanged: handler => listen<{ friendship_id?: unknown; notify?: unknown }>("neighbor-notification-changed", event => {
+    if (typeof event.payload?.friendship_id === "string" && isNotify(event.payload.notify)) handler(event.payload.friendship_id, event.payload.notify);
+  }),
   setDailyLimit: async (friendship, dailyLimit) => { await runtimeCall({ operation: "set_daily_limit", friendship_id: friendship, daily_limit: dailyLimit }); },
   onDailyLimitChanged: handler => listen<{ friendship_id?: unknown }>("neighbor-daily-limit-changed", event => {
     if (typeof event.payload?.friendship_id === "string") handler(event.payload.friendship_id);

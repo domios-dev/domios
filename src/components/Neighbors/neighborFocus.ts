@@ -3,8 +3,8 @@ const EVENT = "codeterm:neighbor-focus";
 export interface NeighborFocus { id: string; section: "configure" | null }
 let pending: NeighborFocus | null = null;
 
-/** Opens the neighborhood with one connection selected; the page may mount after this call. */
-export function openNeighbor(friendshipId: string, section: NeighborFocus["section"] = null) {
+/** Opens one Neighbor's page in the neighborhood; the page may mount after this call. */
+export function openNeighborPage(friendshipId: string, section: NeighborFocus["section"] = null) {
   pending = { id: friendshipId, section };
   window.dispatchEvent(new CustomEvent(EVENT));
   window.dispatchEvent(new CustomEvent("codeterm:open-panel", { detail: { panel: "neighbors" } }));
@@ -21,7 +21,7 @@ export function onNeighborFocus(handler: () => void): () => void {
   return () => window.removeEventListener(EVENT, handler);
 }
 
-/** Opens the conversation with one Neighbor as its own view. */
-export function openNeighborChat(friendshipId: string) {
+/** Opens the conversation with one Neighbor; notification actions (domios://neighbor/<id>) land here too. */
+export function openNeighbor(friendshipId: string) {
   window.dispatchEvent(new CustomEvent("codeterm:open-panel", { detail: { panel: `neighbor:${friendshipId}` } }));
 }
