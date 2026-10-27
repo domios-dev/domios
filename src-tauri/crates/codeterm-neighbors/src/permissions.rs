@@ -22,7 +22,17 @@ impl Permission {
     }
 
     pub fn allows(&self, kind: Kind) -> bool {
-        self.allowed && (kind != Kind::TabRequest || self.allow_tab_requests)
+        self.require(kind).is_ok()
+    }
+
+    pub fn require(&self, kind: Kind) -> Result<()> {
+        if kind == Kind::TabRequest && !self.allow_tab_requests {
+            return Err(Error::TabRequestsNotAllowed);
+        }
+        if !self.allowed {
+            return Err(Error::PermissionDenied);
+        }
+        Ok(())
     }
 
     pub fn scope_sha256(&self) -> Result<String> {

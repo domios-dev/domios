@@ -2,6 +2,24 @@ use super::*;
 use crate::{multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture};
 
 #[tokio::test]
+async fn oversized_sends_are_typed_before_the_network_operation_queue() {
+    let (mux, _) = MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let (owner, mut queued) = tokio::sync::mpsc::channel(1);
+    *fixture.service.neighbor_cell().owner.lock() = Some(owner);
+    let command = NeighborRuntimeCommand::Send {
+        friendship_id: "a".repeat(64),
+        kind: Kind::Question,
+        body: "x".repeat(8177),
+        in_reply_to: None,
+    };
+    tokio::select! {
+        result = fixture.service.neighbor_runtime(command, None, None) => assert_eq!(result.unwrap_err(), "message_too_large: {\"limit\":8176}"),
+        _ = queued.recv() => panic!("An oversized body cannot reach network work"),
+    }
+}
+
+#[tokio::test]
 async fn local_reads_bypass_blocked_network_owner_and_return_metadata() {
     let (mux, _) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);

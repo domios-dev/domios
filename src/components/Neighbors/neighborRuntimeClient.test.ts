@@ -14,3 +14,10 @@ it("preserves plain local failure details", async () => {
   vi.mocked(localFetch).mockResolvedValueOnce(new Response("Neighbor cursor storage unavailable", { status: 503 }));
   await expect(runtimeCall({ operation: "send" })).rejects.toMatchObject({ message: "Neighbor cursor storage unavailable" });
 });
+
+it("keeps size and tab-request refusals typed", async () => {
+  vi.mocked(localFetch).mockResolvedValueOnce(new Response(JSON.stringify({ code: "message_too_large", limit: 8176, message: "At most 8176 UTF-8 bytes" }), { status: 413 }));
+  await expect(runtimeCall({ operation: "send" })).rejects.toMatchObject({ reason: "message_too_large", limit: 8176, message: "At most 8176 UTF-8 bytes" });
+  vi.mocked(localFetch).mockResolvedValueOnce(new Response(JSON.stringify({ code: "tab_requests_not_allowed", message: "Tab requests are not allowed" }), { status: 403 }));
+  await expect(runtimeCall({ operation: "send" })).rejects.toMatchObject({ reason: "tab_requests_not_allowed" });
+});

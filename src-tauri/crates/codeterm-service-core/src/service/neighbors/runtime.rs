@@ -8,6 +8,7 @@ pub(crate) mod logout;
 mod owner;
 mod pending;
 mod receiver;
+mod restoration;
 mod snapshots;
 
 use super::storage::Metadata;
@@ -39,7 +40,10 @@ pub struct NeighborRuntimeCell {
     names: parking_lot::Mutex<HashMap<String, String>>,
     receiver: parking_lot::Mutex<Option<codeterm_neighbors::adapter::ReceiverStatus>>,
     control: parking_lot::Mutex<Option<tokio::task::JoinHandle<()>>>,
+    control_start: tokio::sync::Mutex<()>,
+    control_cancel: tokio::sync::Notify,
     bootstrapped: std::sync::atomic::AtomicBool,
+    restoration: parking_lot::Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 #[derive(Deserialize)]
@@ -199,6 +203,14 @@ impl ServiceContext {
         let (registry, scope, metadata) = self.neighbor_key_ports().await?;
         self.retry_neighbor_logout(&metadata, &scope, &registry.uid, registry.as_ref())
             .await?;
+        let transport = self.neighbor_transport(&registry)?;
+        Ok((transport, registry, scope, metadata))
+    }
+
+    fn neighbor_transport(
+        &self,
+        registry: &FirebaseRegistry,
+    ) -> Result<Arc<FirebaseTransport>, String> {
         let endpoints = codeterm_account::firebase_endpoints::current();
         if endpoints.emulator {
             return Err("Native Neighbor streaming requires the QA or production project".into());
@@ -215,7 +227,7 @@ impl ServiceContext {
             uid: registry.uid.clone(),
             installation_id: registry.installation_id.clone(),
         });
-        Ok((transport, registry, scope, metadata))
+        Ok(transport)
     }
 
     pub fn require_neighbor_general(
@@ -248,6 +260,10 @@ impl ServiceContext {
     ) -> Result<Value, String> {
         self.authorize_neighbor_runtime(&command, caller, nonce)
             .await?;
+        if let NeighborRuntimeCommand::Send { body, .. } = &command {
+            codeterm_neighbors::wire::validate_message_size(body)
+                .map_err(|error| error.to_string())?;
+        }
         if command.is_local_read() {
             return self.neighbor_local_read(&command, caller, nonce).await;
         }
@@ -647,7 +663,10 @@ impl ServiceContext {
         }
         let body = match body {
             OutboundBody::Granted(body) if refusal && body.len() <= 256 => body,
-            OutboundBody::Granted(body) if kind != Kind::Refusal && permission.allows(kind) => body,
+            OutboundBody::Granted(body) if kind != Kind::Refusal => {
+                permission.require(kind)?;
+                body
+            }
             OutboundBody::Refusal if refusal => {
                 Zeroizing::new(codeterm_neighbors::gateway::REFUSAL_BODY.to_owned())
             }
@@ -843,6 +862,8 @@ impl ServiceContext {
     }
 
     pub(super) fn pause_neighbor_reception(&self) {
+        self.neighbor_cell().control_cancel.notify_waiters();
+        self.cancel_neighbor_restoration();
         self.forget_neighbor_registry();
         self.neighbor_cell().receiver.lock().take();
         if let Some(task) = self.neighbor_cell().control.lock().take() {
@@ -862,29 +883,61 @@ impl ServiceContext {
         metadata: Metadata,
         generation: u64,
     ) -> Result<(), String> {
+        self.start_neighbor_listeners_mode(transport, registry, scope, metadata, generation, true)
+            .await
+    }
+
+    async fn start_neighbor_listeners_mode(
+        &self,
+        transport: Arc<FirebaseTransport>,
+        registry: Arc<FirebaseRegistry>,
+        scope: KeyScope,
+        metadata: Metadata,
+        generation: u64,
+        recover_keys: bool,
+    ) -> Result<(), String> {
         self.require_neighbors_enabled()
             .map_err(|error| error.to_string())?;
         self.watch_neighbor_receiver(transport.clone(), generation)
             .await?;
-        let status = self
-            .refresh_neighbor_receiver(&registry, &scope, generation)
-            .await?;
+        let status = if recover_keys {
+            self.refresh_neighbor_receiver(&registry, &scope, generation)
+                .await?
+        } else {
+            self.refresh_neighbor_receiver_readonly(&registry, generation)
+                .await?
+        };
         if !status.receiving_here() {
             self.stop_neighbor_listeners();
             return Ok(());
         }
         let settings = metadata.settings().await.map_err(|e| e.to_string())?;
-        let recovered = (InstallationKeys {
+        let keys = InstallationKeys {
             store: &OsKeyStore,
             registry: registry.as_ref(),
             scope: scope.clone(),
             uid: &transport.uid,
-        })
-        .reconcile()
-        .await
+        };
+        let recovered = if recover_keys {
+            keys.reconcile().await
+        } else {
+            keys.load().await
+        }
         .map_err(|e| e.to_string())?;
         if recovered.is_none() {
-            return Ok(());
+            return if recover_keys {
+                Ok(())
+            } else {
+                Err(Error::LocalKeyUnavailable.to_string())
+            };
+        }
+        if !recover_keys
+            && recovered.as_ref().is_some_and(|keys| {
+                status.receiver_key_id.as_deref()
+                    != Some(keys.verifier_key_id(&transport.uid).as_str())
+            })
+        {
+            return Err(Error::LocalKeyUnavailable.to_string());
         }
         drop(recovered);
         if !settings.enabled {
@@ -978,25 +1031,9 @@ impl ServiceContext {
         Ok(())
     }
 
-    #[cfg(not(any(test, feature = "test-support")))]
-    pub(crate) fn restore_neighbors_once(&self) {
-        if self.require_neighbors_enabled().is_err() {
-            return;
-        }
-        if self
-            .neighbor_cell()
-            .bootstrapped
-            .swap(true, std::sync::atomic::Ordering::AcqRel)
-        {
-            return;
-        }
-        let service = self.clone();
-        tokio::spawn(async move {
-            let _ = service.neighbor_operation(owner::Operation::Restore).await;
-        });
-    }
-
     pub(crate) fn neighbor_identity_changed(&self) {
+        self.neighbor_cell().control_cancel.notify_waiters();
+        self.cancel_neighbor_restoration();
         self.forget_neighbor_registry();
         self.neighbor_cell().names.lock().clear();
         if let Some(task) = self.neighbor_cell().control.lock().take() {

@@ -47,6 +47,27 @@ impl ServiceContext {
                 true,
             )
             .await;
+        self.finish_neighbor_receiver_refresh(result, generation)
+    }
+
+    pub(super) async fn refresh_neighbor_receiver_readonly(
+        &self,
+        registry: &FirebaseRegistry,
+        generation: u64,
+    ) -> Result<ReceiverStatus, String> {
+        self.require_neighbor_generation(generation)?;
+        if let Some(status) = self.neighbor_cell().receiver.lock().clone() {
+            return Ok(status);
+        }
+        let result = registry.receiver_status().await;
+        self.finish_neighbor_receiver_refresh(result, generation)
+    }
+
+    fn finish_neighbor_receiver_refresh(
+        &self,
+        result: codeterm_neighbors::Result<ReceiverStatus>,
+        generation: u64,
+    ) -> Result<ReceiverStatus, String> {
         self.require_neighbor_generation(generation)?;
         let status = match result {
             Ok(status) => status,
@@ -75,8 +96,38 @@ impl ServiceContext {
         transport: Arc<FirebaseTransport>,
         generation: u64,
     ) -> Result<(), String> {
+        let epoch = self
+            .neighbor_cell()
+            .listener_generation
+            .load(Ordering::Acquire);
+        let cancelled = self.neighbor_cell().control_cancel.notified();
+        tokio::pin!(cancelled);
+        cancelled.as_mut().enable();
         self.require_neighbors_enabled()
-            .map_err(|e| e.to_string())?;
+            .map_err(|error| error.to_string())?;
+        if epoch
+            != self
+                .neighbor_cell()
+                .listener_generation
+                .load(Ordering::Acquire)
+        {
+            return Err("Neighbor listener changed".into());
+        }
+        let _start = tokio::select! {
+            biased;
+            _ = &mut cancelled => return Err(Error::Disabled.to_string()),
+            guard = self.neighbor_cell().control_start.lock() => guard,
+        };
+        self.require_neighbors_enabled()
+            .map_err(|error| error.to_string())?;
+        if epoch
+            != self
+                .neighbor_cell()
+                .listener_generation
+                .load(Ordering::Acquire)
+        {
+            return Err("Neighbor listener changed".into());
+        }
         if self
             .neighbor_cell()
             .control
@@ -86,7 +137,12 @@ impl ServiceContext {
         {
             return Ok(());
         }
-        let mut listener = match transport.listen_control().await {
+        let connection = tokio::select! {
+            biased;
+            _ = &mut cancelled => return Err(Error::Disabled.to_string()),
+            result = transport.listen_control() => result,
+        };
+        let mut listener = match connection {
             Ok(listener) => listener,
             Err(error) => {
                 self.neighbor_cell().receiver.lock().take();
@@ -103,9 +159,18 @@ impl ServiceContext {
                 }
                 service.neighbor_cell().receiver.lock().take();
                 service.stop_neighbor_listeners();
-                let _ = service
-                    .neighbor_operation(owner::Operation::ReceiverChanged)
-                    .await;
+                match service.restore_neighbor_watches(generation).await {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        let _ = service
+                            .neighbor_operation(owner::Operation::ReceiverChanged)
+                            .await;
+                    }
+                    Err(error) => {
+                        log::debug!("[neighbors] receiver watch restoration failed: {error}");
+                        service.ui.emit("neighbor-runtime-status", json!({"receiver_unavailable":true,"reason":"neighbor_reception_start_failed","message":error}));
+                    }
+                }
             }
             if service.require_neighbor_generation(generation).is_ok() {
                 service.neighbor_cell().receiver.lock().take();
