@@ -169,6 +169,7 @@ pub struct Script {
     pub list: Option<RegistryRefusal>,
     pub permit: Option<RegistryRefusal>,
     pub gate: Option<Arc<Notify>>,
+    pub list_gate: Option<Arc<Notify>>,
     pub peer_unpublished: bool,
     pub peer_key: Option<(String, u64)>,
     pub peer_active: Option<bool>,
@@ -201,6 +202,7 @@ pub struct FakeRegistry {
     log: Log,
     pub script: Mutex<Script>,
     pub entered: Notify,
+    pub list_entered: Notify,
     accounts: Mutex<HashMap<String, Account>>,
     challenged: Mutex<Option<serde_json::Value>>,
 }
@@ -213,6 +215,7 @@ impl FakeRegistry {
             log,
             script: Mutex::new(Script::default()),
             entered: Notify::new(),
+            list_entered: Notify::new(),
             accounts: Mutex::new(HashMap::new()),
             challenged: Mutex::new(None),
         }
@@ -437,6 +440,13 @@ impl MeshRegistry for FakeRegistry {
             MeshOperation::Link { .. } => "link",
         };
         self.admit(session, label);
+        if matches!(envelope.request.operation, MeshOperation::List { .. }) {
+            let gate = self.script.lock().unwrap().list_gate.clone();
+            if let Some(gate) = gate {
+                self.list_entered.notify_one();
+                gate.notified().await;
+            }
+        }
         let membership_op = matches!(
             envelope.request.operation,
             MeshOperation::Enroll { .. } | MeshOperation::Renew { .. }

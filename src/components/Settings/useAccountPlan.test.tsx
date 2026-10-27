@@ -32,9 +32,10 @@ function response(body: unknown = {}, ok = true) {
 }
 
 const outcome: { failure?: unknown } = {};
+let identity = 0;
 
 function Harness() {
-  const billing = useAccountPlan("user");
+  const billing = useAccountPlan(`user-${identity}`);
   return <div>
     <output aria-label="Current plan">{billing.plan?.plan ?? "none"}</output>
     <output aria-label="Billing action state">{billing.pending ? "Opening subscription" : "Ready"}</output>
@@ -66,6 +67,8 @@ afterEach(async () => {
     mounted = null;
   }
   network.request.mockReset();
+  vi.restoreAllMocks();
+  identity++;
   delete outcome.failure;
 });
 
@@ -112,4 +115,19 @@ it("an entitlement change re-reads the plan without a window focus", async () =>
 
   expect(host.querySelector('[aria-label="Current plan"]')?.textContent).toBe("pro");
   expect(network.request).toHaveBeenLastCalledWith("/api/account/plan", expect.objectContaining({ method: "GET" }));
+});
+
+it("shares focus refreshes across consumers and uses the focus endpoint once a minute", async () => {
+  let now = 0;
+  vi.spyOn(Date, "now").mockImplementation(() => now);
+  const value = plan("billing", "pro", "active");
+  await mount(value, async () => response(value));
+  await act(async () => mounted!.root.render(<><Harness /><Harness /></>));
+  expect(network.request).toHaveBeenCalledTimes(1);
+  await act(async () => window.dispatchEvent(new Event("focus")));
+  expect(network.request).toHaveBeenCalledTimes(1);
+  now = 60_000;
+  await act(async () => window.dispatchEvent(new Event("focus")));
+  expect(network.request).toHaveBeenCalledTimes(2);
+  expect(network.request).toHaveBeenLastCalledWith("/api/account/plan/refresh?focus=true", { method: "POST" });
 });

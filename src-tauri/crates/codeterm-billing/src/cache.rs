@@ -377,14 +377,14 @@ impl Billing {
             return Err(self.recompute(&cache));
         }
         if event == RefreshEvent::Focus
-            && !cache
+            && !cache.checkout_pending
+            && (cache
                 .verified
                 .as_ref()
-                .is_some_and(|grant| grant.verdict(self.now()).state == TimeState::Stale)
-            && !cache.checkout_pending
-            && cache
-                .last_focus
-                .is_some_and(|last| now.saturating_duration_since(last) < Duration::from_secs(60))
+                .is_some_and(|grant| grant.verdict(self.now()).state == TimeState::Fresh)
+                || cache.last_focus.is_some_and(|last| {
+                    now.saturating_duration_since(last) < Duration::from_secs(60)
+                }))
         {
             return Err(self.recompute(&cache));
         }

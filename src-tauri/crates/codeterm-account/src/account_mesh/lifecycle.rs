@@ -114,6 +114,7 @@ pub(super) struct Inner {
     pub(super) metadata_revision: Option<u64>,
     pub(super) registry_presence: Option<RegistryPresence>,
     pub(super) registry_notices: super::notice::RegistryNotices,
+    pub(super) registry_flight: Option<super::registry_read::RegistryFlight>,
     pub(super) published_endpoint: Option<super::wire::MeshEndpoint>,
     pub(super) published_until: u64,
     pub(super) sync_pending: bool,
@@ -152,6 +153,7 @@ impl Inner {
     fn begin_epoch(&mut self) {
         self.cancel_flight();
         self.notice_epoch = None;
+        self.registry_flight = None;
         self.retry = Default::default();
         self.metadata_revision = None;
         self.registry_presence = None;
@@ -201,6 +203,7 @@ impl AccountMesh {
                 metadata_revision: None,
                 registry_presence: None,
                 registry_notices: Default::default(),
+                registry_flight: None,
                 resolved: HashMap::new(),
                 published_endpoint: None,
                 published_until: 0,
@@ -481,6 +484,9 @@ impl AccountMesh {
                 return Err(AccountMeshRefusal::ReauthRequired);
             }
             let epoch = inner.state.account_epoch;
+            if matches!(trigger, EnrollTrigger::Explicit | EnrollTrigger::Network) {
+                inner.retry.resume();
+            }
             if let Some(refusal) = inner.retry.pending(self.now()) {
                 return Err(refusal);
             }
@@ -563,6 +569,7 @@ impl AccountMesh {
             let retry_at = inner.retry.deadline;
             let rerun = if owned
                 && retry_at.is_none()
+                && !inner.retry.exhausted()
                 && *result != Err(AccountMeshRefusal::ReauthRequired)
             {
                 inner

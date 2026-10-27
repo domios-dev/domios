@@ -194,7 +194,7 @@ it("consumes an idempotent referral claim before listing requests without openin
   expect(button("Subscribe")).toBeDefined();
   expect(client.apply).not.toHaveBeenCalled();
   await act(async () => button("Refresh Neighbors").click());
-  expect(client.claimReferralTrial).toHaveBeenCalledTimes(2);
+  expect(client.claimReferralTrial).toHaveBeenCalledTimes(1);
   expect(client.apply).not.toHaveBeenCalled();
 });
 

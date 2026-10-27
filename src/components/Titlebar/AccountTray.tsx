@@ -46,10 +46,10 @@ export function AccountTray({ onOpenPlans, locked = false }: { onOpenPlans: () =
     severity: "Warning", tabId: null, workspaceId: null,
   }));
   const billing = useAccountPlan(account.model.kind === "signed_in" ? account.model.identity.uid : null);
-  const desktopBilling = useDesktopBilling(account.model.kind === "signed_in" ? account.model.identity.uid : null);
+  const [open, setOpen] = useState(false);
+  const desktopBilling = useDesktopBilling(account.model.kind === "signed_in" ? account.model.identity.uid : null, open);
   const hasPaidSubscription = !!desktopBilling.subscription?.paid_subscription;
   const model = accountTrayModel(account.model, billing.plan);
-  const [open, setOpen] = useState(false);
   const [confirmSignOut, setConfirmSignOut] = useState(false);
   const pending = model.kind === "pending";
   const startSignIn = async (hint: SignInOption["hint"]) => {

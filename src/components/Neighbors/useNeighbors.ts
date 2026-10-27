@@ -3,6 +3,7 @@ import { listen } from "../../lib/bridge";
 import { neighborClient, type NeighborClient } from "./neighborClient";
 import { parseNeighbors, type NeighborCommand, type NeighborList } from "./neighborModel";
 import type { ReferralClaim } from "./referralTrial";
+import { neighborReads } from "./neighborReads";
 
 interface LoadedNeighbors {
   identity: string | null;
@@ -23,23 +24,29 @@ export function useNeighbors(identity: string | null, client: NeighborClient = n
   useEffect(() => {
     const epoch = ++generation.current;
     const controller = new AbortController();
+    const shared = neighborReads(client, identity);
     if (!identity) {
       setLoaded({ identity, list: null, error: null, referral: null });
       return () => controller.abort();
     }
+    if (!shared) return;
+    const unsubscribe = shared.list.subscribe(list => {
+      if (!controller.signal.aborted && generation.current === epoch) setLoaded(previous => ({ ...previous, identity, list }));
+    });
     let latest = 0;
     let pushes = 0;
-    async function load() {
+    async function load(force = false) {
       const request = ++latest;
       const push = pushes;
       let referral: ReferralClaim | null = null;
       let referralError: string | null = null;
       try {
-        try { referral = await client.claimReferralTrial(controller.signal); }
-        catch { referralError = "Your referral could not be checked. Refresh Neighbors to try again."; }
+        try { referral = await shared!.referral(client); }
+        catch { referralError = "Your referral could not be checked."; }
         if (controller.signal.aborted || generation.current !== epoch || request !== latest) return;
-        const list = await client.list(controller.signal);
+        const list = await shared!.list.read(() => client.list(), force);
         if (controller.signal.aborted || generation.current !== epoch || request !== latest) return;
+        shared!.observe(list);
         setLoaded(previous => pushes === push ? { identity, list, referral, error: referralError }
           : { ...previous, referral, error: referralError });
       } catch (failure: unknown) {
@@ -49,25 +56,32 @@ export function useNeighbors(identity: string | null, client: NeighborClient = n
         }
       }
     }
-    void load();
-    window.addEventListener("focus", load);
+    void load(revision > 0);
+    const onFocus = () => { void load(); };
+    const reload = () => { void load(true); };
+    window.addEventListener("focus", onFocus);
     const unlisteners: (() => void)[] = [];
     const retain = (stop: () => void) => {
       if (controller.signal.aborted) stop();
       else unlisteners.push(stop);
     };
-    void listen("entitlement-changed", load).then(retain);
+    void listen("entitlement-changed", reload).then(retain);
     // Daily limits live on the list rows; a change on either side reloads them.
-    void listen("neighbor-daily-limit-changed", load).then(retain);
+    void listen("neighbor-daily-limit-changed", reload).then(retain);
     void listen<{ uid?: unknown; list?: unknown }>("neighbors-changed", event => {
       if (controller.signal.aborted || generation.current !== epoch || event.payload?.uid !== identity) return;
       let list: NeighborList;
       try { list = parseNeighbors(event.payload.list); }
-      catch { void load(); return; }
+      catch { void load(true); return; }
       pushes++;
+      shared.observe(list);
+      shared.list.write(list);
       setLoaded(previous => ({ identity, list, error: null, referral: previous.identity === identity ? previous.referral : null }));
+      void shared.referral(client).then(referral => {
+        if (!controller.signal.aborted && generation.current === epoch) setLoaded(previous => ({ ...previous, referral }));
+      }).catch(() => {});
     }).then(retain);
-    return () => { controller.abort(); generation.current++; window.removeEventListener("focus", load); unlisteners.forEach(stop => stop()); };
+    return () => { unsubscribe(); controller.abort(); generation.current++; window.removeEventListener("focus", onFocus); unlisteners.forEach(stop => stop()); };
   }, [identity, client, revision]);
 
   async function apply(command: Exclude<NeighborCommand, { operation: "list" }>): Promise<boolean> {
