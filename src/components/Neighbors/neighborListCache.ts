@@ -1,7 +1,7 @@
 import type { Neighbor, NeighborList, NeighborRequest, OutgoingNeighborRequest } from "./neighborModel";
 
 /** What the sidebar and the graph need before the fresh list arrives: names, avatars and addresses, never messages or permissions. */
-export type CachedFriend = Pick<Neighbor, "friendship_id" | "uid" | "displayName" | "photoURL"> & { gateway_tab?: string | null };
+export type CachedFriend = Pick<Neighbor, "friendship_id" | "uid" | "displayName" | "photoURL" | "paused"> & { gateway_tab?: string | null };
 export type CachedRequest = Pick<NeighborRequest, "request_id" | "uid" | "displayName" | "photoURL">;
 export type CachedInvite = Pick<OutgoingNeighborRequest, "id" | "typed_email" | "created_at">;
 export interface CachedNeighbors { access: NeighborList["access"]; can_invite?: boolean; friends: CachedFriend[]; incoming: CachedRequest[]; outgoing: CachedInvite[] }

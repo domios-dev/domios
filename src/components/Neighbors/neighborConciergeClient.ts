@@ -43,6 +43,9 @@ export interface NeighborConciergeClient {
   onDailyLimitChanged(handler: (friendship: string) => void): Promise<() => void>;
   setNotify(friendship: string, notify: NeighborNotify): Promise<NeighborNotify>;
   onNotifyChanged(handler: (friendship: string, notify: NeighborNotify) => void): Promise<() => void>;
+  /** Pausing keeps the friendship but stops their messages until you resume; resolves to the saved state. */
+  setPaused(friendship: string, paused: boolean): Promise<boolean>;
+  onPausedChanged(handler: (friendship: string, paused: boolean) => void): Promise<() => void>;
 }
 
 const KINDS: readonly HistoryKind[] = ["question", "answer", "refusal", "tab_request"];
@@ -106,6 +109,13 @@ export const neighborConciergeClient: NeighborConciergeClient = {
   },
   onNotifyChanged: handler => listen<{ friendship_id?: unknown; notify?: unknown }>("neighbor-notification-changed", event => {
     if (typeof event.payload?.friendship_id === "string" && isNotify(event.payload.notify)) handler(event.payload.friendship_id, event.payload.notify);
+  }),
+  setPaused: async (friendship, paused) => {
+    const value = await runtimeCall({ operation: paused ? "pause_friend" : "resume_friend", friendship_id: friendship });
+    return record(value) && typeof value.paused === "boolean" ? value.paused : paused;
+  },
+  onPausedChanged: handler => listen<{ friendship_id?: unknown; paused?: unknown }>("neighbor-friend-paused", event => {
+    if (typeof event.payload?.friendship_id === "string" && typeof event.payload.paused === "boolean") handler(event.payload.friendship_id, event.payload.paused);
   }),
   setDailyLimit: async (friendship, dailyLimit) => { await runtimeCall({ operation: "set_daily_limit", friendship_id: friendship, daily_limit: dailyLimit }); },
   onDailyLimitChanged: handler => listen<{ friendship_id?: unknown }>("neighbor-daily-limit-changed", event => {

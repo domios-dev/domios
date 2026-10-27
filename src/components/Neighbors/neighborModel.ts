@@ -20,6 +20,8 @@ export interface Neighbor {
   gateway_tab?: string | null;
   /** Where this friend's messages notify you; the daemon defaults to in_app. */
   notify?: "off" | "in_app" | "in_app_and_bridges";
+  /** You paused this friend: they cannot write to you until you resume, and the friendship stays. */
+  paused?: boolean;
 }
 
 export interface NeighborRequest {

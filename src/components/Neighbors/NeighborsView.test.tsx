@@ -6,6 +6,7 @@ import { SidebarNeighborsSection } from "./SidebarNeighborsSection";
 import { NeighborConversationView } from "./NeighborConversationView";
 import type { HistoryEntry, NeighborConciergeClient, NeighborNotify } from "./neighborConciergeClient";
 import { openNeighborPage, takeNeighborFocus } from "./neighborFocus";
+import { resetPausedFriends } from "./neighborPause";
 import { missingConciergeLine, parseConciergeStatus } from "./useConciergeStatus";
 import { useNeighborGatewayIds } from "./neighborGateways";
 import type { NeighborClient } from "./neighborClient";
@@ -43,6 +44,7 @@ let mounted: { root: ReturnType<typeof createRoot>; host: HTMLDivElement } | nul
 afterEach(async () => {
   if (mounted) { await act(async () => mounted!.root.unmount()); mounted.host.remove(); mounted = null; }
   localStorage.clear();
+  resetPausedFriends();
   notices.publishNotice.mockClear();
   transport.localFetch.mockReset();
   transport.localFetch.mockImplementation(async () => new Response("{}", { status: 200 }));
@@ -330,7 +332,8 @@ it("saves permissions directly and refuses an allowed grant without a scope", as
   const conciergeClient = { history: vi.fn(async () => ({ entries: [], next_before: null, ended: false })), onHistoryChanged: vi.fn(async () => () => {}), onPermissionChanged: vi.fn(async () => () => {}),
     onAgentChanged: vi.fn(async () => () => {}), setPermission: vi.fn(async () => {}), changeAgent: vi.fn(),
     setDailyLimit: vi.fn(async () => {}), onDailyLimitChanged: vi.fn(async () => () => {}),
-    setNotify: vi.fn(async (_friendship: string, notify: NeighborNotify) => notify), onNotifyChanged: vi.fn(async () => () => {}) };
+    setNotify: vi.fn(async (_friendship: string, notify: NeighborNotify) => notify), onNotifyChanged: vi.fn(async () => () => {}),
+    setPaused: vi.fn(async (_friendship: string, paused: boolean) => paused), onPausedChanged: vi.fn(async () => () => {}) };
   const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
   const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
     claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
@@ -396,6 +399,7 @@ function concierge(entries: HistoryEntry[]): NeighborConciergeClient & { changed
     setPermission: vi.fn(async () => {}), changeAgent: vi.fn(async () => "tab-gateway"),
     setDailyLimit: vi.fn(async () => {}), onDailyLimitChanged: vi.fn(async () => () => {}),
     setNotify: vi.fn(async (_friendship: string, notify: NeighborNotify) => notify), onNotifyChanged: vi.fn(async () => () => {}),
+    setPaused: vi.fn(async (_friendship: string, paused: boolean) => paused), onPausedChanged: vi.fn(async () => () => {}),
     changed: (friendship: string) => changed(friendship),
   };
 }
