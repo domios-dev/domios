@@ -94,7 +94,9 @@ async function main() {
   const ready = await inspect(target);
   const token = spawnSync(record.artifacts.cli.path, ['system', 'api-token'], {
     encoding: 'utf8', windowsHide: true, timeout: 10_000,
-    env: { ...process.env, CODETERM_API_TOKEN: '', CODETERM_API_URL: '', CODETERM_DATA_DIR: data, CODETERM_API_PORT: String(port) },
+    // The calling tab belongs to the parent instance; its identity must not reach this dev instance.
+    env: { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !['CODETERM_TAB_ID', 'CODETERM_SESSION_ID', 'CODETERM_SESSION_BINDING_NONCE'].includes(key))),
+      CODETERM_API_TOKEN: '', CODETERM_API_URL: '', CODETERM_DATA_DIR: data, CODETERM_API_PORT: String(port) },
   });
   if (token.status !== 0 || !token.stdout.trim()) throw Error('DEV shutdown credential unavailable');
   const response = await fetch(`http://127.0.0.1:${port}/api/app/quit/snapshot`, {

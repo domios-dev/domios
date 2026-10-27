@@ -419,7 +419,7 @@ request_dev_clean_restart() {
   local token cli="$CT_DATA_DIR/bin/codeterm"
   [ -x "$cli" ] || cli="$cli.exe"
   [ -x "$cli" ] || return 1
-  token=$(env -u CODETERM_API_TOKEN -u CODETERM_API_URL \
+  token=$(env -u CODETERM_API_TOKEN -u CODETERM_API_URL -u CODETERM_TAB_ID -u CODETERM_SESSION_ID -u CODETERM_SESSION_BINDING_NONCE \
     CODETERM_DATA_DIR="$CT_DATA_DIR" CODETERM_API_PORT="$CT_PORT" \
     "$cli" system api-token) || return 1
   [ -n "$token" ] || return 1
