@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useId, useState } from "react";
 import { useAccount } from "../Settings/useAccount";
 import { Button } from "../shared/Button";
@@ -63,7 +64,7 @@ export function NeighborsInventory({ identity, onOpenGeneral, client, runtimeCli
     <SidebarDisclosure expanded={expanded} aria-controls={contentId} onClick={() => { setExpanded(value => !value); setAdding(false); setSelectedId(null); }}>Neighbors</SidebarDisclosure>
     <div id={contentId} hidden={!expanded}>
       {!identity ? <p>Sign in to manage your Neighbors.</p> : <>
-        {neighbors.error && <p role="alert">{neighbors.error}</p>}
+        {neighbors.error && <InlineErrorNotice error={neighbors.error} operation="managing your Neighbors" role="alert" />}
         {neighbors.list === null && !neighbors.error && <p role="status">Loading Neighbors…</p>}
         <Button type="button" disabled={neighbors.pending} onClick={neighbors.refresh}>Refresh Neighbors</Button>
         {paid ? <Button type="button" onClick={() => { setAdding(true); setSent(false); }}>Add Neighbor</Button>
@@ -88,7 +89,7 @@ export function NeighborsInventory({ identity, onOpenGeneral, client, runtimeCli
           <h2 id={title}>Add Neighbor</h2>
           <label>Email address<input type="email" required maxLength={254} value={email} onChange={event => { setEmail(event.currentTarget.value); setSent(false); }} /></label>
           <p>Enter their Domios account email. Requests and invitations receive the same confirmation to protect account privacy.</p>
-          {neighbors.error && <p role="alert">{neighbors.error}</p>}
+          {neighbors.error && <InlineErrorNotice error={neighbors.error} operation="managing your Neighbors" role="alert" />}
           {sent && <p role="status">Request or invitation saved.</p>}
           <Button type="submit" disabled={neighbors.pending || sent || email.trim().length === 0}>Send request or invitation</Button>
           <Button type="button" onClick={() => setAdding(false)}>Close</Button>

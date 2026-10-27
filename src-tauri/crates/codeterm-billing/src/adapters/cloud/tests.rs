@@ -81,10 +81,13 @@ fn plan_operations_pin_callable_names_and_reject_injected_fields() {
         let operation: PlanOperation = serde_json::from_value(input).unwrap();
         assert_eq!(operation.callable(), (name, data));
     }
-    assert!(serde_json::from_value::<PlanOperation>(
-        serde_json::json!({"operation":"catalog","uid":"foreign"})
-    )
-    .is_err());
+    for input in [
+        serde_json::json!({"operation":"catalog","uid":"foreign"}),
+        serde_json::json!({"operation":"subscription","uid":"foreign"}),
+        serde_json::json!({"operation":"change","price_id":"pri_fixture","uid":"foreign"}),
+    ] {
+        assert!(serde_json::from_value::<PlanOperation>(input).is_err());
+    }
 }
 
 fn id() -> codeterm_account::InstallationId {

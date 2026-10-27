@@ -53,7 +53,7 @@ impl InboxSession for Session {
         self.current()?;
         if self
             .service
-            .neighbor_registry(super::super::NeighborCommand::List)
+            .neighbor_registry(super::super::NeighborCommand::List {})
             .await
             .map_err(|_| Error::Transport)?
             .get("access")

@@ -105,7 +105,7 @@ export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) 
         {billing.plan?.stale && <p role="status" className={MUTED}>Showing the last known plan.</p>}
         <AccountLimits limits={billing.plan?.limits ?? null} />
         {desktopBilling.subscription && <p role="status">{scheduledPlanCopy(desktopBilling.subscription, seconds => new Date(seconds * 1000).toLocaleDateString())}</p>}
-        {desktopBilling.error && <p role="status">{desktopBilling.error}</p>}
+        {desktopBilling.error && <InlineErrorNotice error={desktopBilling.error} operation="managing your plan" />}
         {signedIn && <Button type="button" size="sm" variant="ghost" onClick={desktopBilling.refresh}>Refresh plan offers</Button>}
         {!signedIn && <p className={MUTED}>You’ll sign in when you choose a plan.</p>}
         <div className="w-full">

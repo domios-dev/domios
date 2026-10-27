@@ -76,6 +76,7 @@ const DOCS: &[EmbeddedDoc] = embedded_docs![
     "SURFACES",
     "MESH",
     "MESH-SERVICES",
+    "NEIGHBORS",
     "MEMORY",
     "MEMORY-SERVICES",
     "MEMORY-USAGE",

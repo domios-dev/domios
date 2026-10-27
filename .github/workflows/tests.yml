@@ -89,7 +89,7 @@ jobs:
       - name: Runner preflight
         run: node scripts/ci-runner-paths.mjs bash,curl,git,node,tar
       - name: Embedded docs and generated contract preflight
-        if: ${{ !cancelled() }}
+        if: ${{ success() }}
         run: node scripts/check-ci-docs.mjs
       - name: Select guard change set
         id: change
@@ -113,27 +113,27 @@ jobs:
           echo "base=$base" >> "$GITHUB_OUTPUT"
       - name: Installed application identity
         run: node scripts/check-installed-identity.mjs
-        if: ${{ !cancelled() }}
+        if: ${{ success() }}
       - name: Archive-portable Rust test paths
         run: node scripts/check-archive-portable-test-paths.mjs
-        if: ${{ !cancelled() }}
+        if: ${{ success() }}
       - name: Run file-size discipline check
         run: bash scripts/check-file-sizes.sh --fail
-        if: ${{ !cancelled() }}
+        if: ${{ success() }}
       - name: Check crate layering and the thin native client
         run: bash scripts/check-crate-layering.sh
-        if: ${{ !cancelled() }}
+        if: ${{ success() }}
       - name: Check API docs
         run: bash scripts/check-api-docs.sh
-        if: ${{ !cancelled() }}
+        if: ${{ success() }}
       - name: Check prompt docs
         run: bash scripts/check-prompts-doc.sh
-        if: ${{ !cancelled() }}
+        if: ${{ success() }}
       - name: Scan new commits and working tree
         env:
           SCAN_BASE: ${{ steps.change.outputs.base }}
         run: bash scripts/secret-scan.sh "$SCAN_BASE"
-        if: ${{ !cancelled() }}
+        if: ${{ success() }}
       - name: Require a release branch
         env:
           HEAD_REF: ${{ github.head_ref }}
@@ -149,7 +149,7 @@ jobs:
             exit 1
           fi
           echo "release branch $HEAD_REF"
-        if: ${{ !cancelled() && github.event_name == 'pull_request' && github.base_ref == 'master' }}
+        if: ${{ success() && github.event_name == 'pull_request' && github.base_ref == 'master' }}
     needs: admission
   pr:
     name: Pull request checks
