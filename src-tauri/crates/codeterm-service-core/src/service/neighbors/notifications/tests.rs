@@ -16,6 +16,7 @@ fn incoming(id: u64) -> Entry {
         limit: None,
         resets_at: None,
         retry_after_seconds: None,
+        submission: None,
         delivery_status: None,
     }
 }

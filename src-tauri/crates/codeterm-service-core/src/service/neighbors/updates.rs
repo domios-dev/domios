@@ -132,6 +132,7 @@ impl Session {
             .end_missing_neighbor_friendships(&self.metadata, &list, history_generation)
             .await?;
         annotate_list(&mut list, &self.metadata.settings().await?).map_err(|_| Error::Transport)?;
+        self.service.remember_neighbor_names(&list);
         let notices = notifications::changes(seen, &list, &signal.accepted)?;
         self.metadata
             .write(

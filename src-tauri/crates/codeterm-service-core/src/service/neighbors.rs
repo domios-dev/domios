@@ -107,6 +107,7 @@ impl ServiceContext {
             let metadata = storage::Metadata::new(self.account_data_root()?, &session.identity.uid);
             let settings = metadata.settings().await.map_err(|e| e.to_string())?;
             annotate_list(&mut result, &settings)?;
+            self.remember_neighbor_names(&result);
             if self.require_neighbors_enabled().is_ok() {
                 self.end_missing_neighbor_friendships(&metadata, &result, history_generation)
                     .await

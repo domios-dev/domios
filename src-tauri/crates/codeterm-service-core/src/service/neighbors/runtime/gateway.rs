@@ -88,6 +88,7 @@ impl NeighborGateway for Gateway {
                     limit: None,
                     resets_at: None,
                     retry_after_seconds: None,
+                    submission: None,
                 },
                 history_generation,
             )

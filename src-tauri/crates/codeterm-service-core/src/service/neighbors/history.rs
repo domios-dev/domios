@@ -1,7 +1,7 @@
 use super::storage::Metadata;
 use crate::service::ServiceContext;
 use codeterm_neighbors::{
-    wire::{hex_id, DeliveryStatus, Kind},
+    wire::{hex_id, DeliveryResult, DeliveryStatus, Kind},
     Error, Result,
 };
 use serde::{Deserialize, Serialize};
@@ -41,6 +41,37 @@ pub(super) struct Entry {
     pub retry_after_seconds: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delivery_status: Option<DeliveryStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub submission: Option<Submission>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum Submission {
+    Accepted,
+    Unconfirmed,
+    Refused,
+}
+
+pub(super) struct HistoryReceipt {
+    pub delivery: DeliveryResult,
+    pub rejection: Option<super::delivery::Rejection>,
+    pub submission: Option<Submission>,
+}
+
+impl From<DeliveryResult> for HistoryReceipt {
+    fn from(delivery: DeliveryResult) -> Self {
+        Self {
+            delivery,
+            rejection: None,
+            submission: None,
+        }
+    }
+}
+impl From<DeliveryStatus> for HistoryReceipt {
+    fn from(status: DeliveryStatus) -> Self {
+        DeliveryResult::from(status).into()
+    }
 }
 
 #[derive(Default, Deserialize, Serialize)]
@@ -61,24 +92,8 @@ impl History {
         {
             return Ok(false);
         }
-        if entry.direction == "out" {
-            if let Some(incoming) = self.entries.iter_mut().find(|old| {
-                old.direction == "in" && Some(&old.message_id) == entry.in_reply_to.as_ref()
-            }) {
-                match entry.kind {
-                    Kind::Refusal => {
-                        incoming.outcome = Some("refused".into());
-                        incoming.reason = Some(entry.body.chars().take(256).collect());
-                    }
-                    Kind::Answer => {
-                        incoming.outcome = Some("answered".into());
-                        incoming.reason = None;
-                    }
-                    _ => {}
-                }
-            }
-        }
         self.entries.push(entry);
+        self.reconcile_outcomes();
         while self.entries.len() > MAX_ENTRIES
             || serde_json::to_vec(self)
                 .map_err(|_| Error::CursorStore)?
@@ -88,6 +103,37 @@ impl History {
             self.entries.remove(0);
         }
         Ok(true)
+    }
+
+    fn reconcile_outcomes(&mut self) {
+        let mut outcomes = BTreeMap::new();
+        for reply in self.entries.iter().filter(|entry| {
+            entry.direction == "out"
+                && entry.delivery_status != Some(DeliveryStatus::NotDelivered)
+                && (entry.submission == Some(Submission::Accepted)
+                    || entry.delivery_status == Some(DeliveryStatus::Delivered))
+        }) {
+            if let Some(incoming) = reply.in_reply_to.as_ref() {
+                let outcome = match reply.kind {
+                    Kind::Answer => ("answered".into(), None),
+                    Kind::Refusal => (
+                        "refused".into(),
+                        Some(reply.body.chars().take(256).collect::<String>()),
+                    ),
+                    _ => continue,
+                };
+                outcomes.insert(incoming.clone(), outcome);
+            }
+        }
+        for incoming in self
+            .entries
+            .iter_mut()
+            .filter(|entry| entry.direction == "in")
+        {
+            let outcome = outcomes.get(&incoming.message_id);
+            incoming.outcome = outcome.map(|(outcome, _)| outcome.clone());
+            incoming.reason = outcome.and_then(|(_, reason)| reason.clone());
+        }
     }
 
     fn page(&self, before: Option<&str>, limit: usize) -> Value {
@@ -105,6 +151,26 @@ impl History {
 }
 
 impl Metadata {
+    pub(super) async fn outgoing_friendship(&self, message_id: &str) -> Result<Option<String>> {
+        if !hex_id(message_id, 32) {
+            return Err(Error::InvalidEnvelope);
+        }
+        let index: BTreeMap<String, String> = self
+            .read(format!("history-index-{}.json", &message_id[..2]))
+            .await?
+            .unwrap_or_default();
+        let Some(friendship) = index.get(message_id) else {
+            return Ok(None);
+        };
+        Ok(self
+            .history(friendship)
+            .await?
+            .entries
+            .iter()
+            .any(|entry| entry.direction == "out" && entry.message_id == message_id)
+            .then(|| friendship.clone()))
+    }
+
     async fn history(&self, friendship: &str) -> Result<History> {
         if !hex_id(friendship, 64) {
             return Err(Error::InvalidEnvelope);
@@ -228,8 +294,7 @@ impl ServiceContext {
         &self,
         metadata: &Metadata,
         message_id: &str,
-        status: DeliveryStatus,
-        refusal: Option<super::delivery::Rejection>,
+        receipt: HistoryReceipt,
         generation: u64,
     ) -> Result<()> {
         let _guard = self
@@ -257,16 +322,33 @@ impl ServiceContext {
         else {
             return Ok(());
         };
-        if entry.delivery_status == Some(status) && refusal.is_none() {
+        let status = receipt.delivery.status;
+        if entry.delivery_status == Some(status)
+            && receipt.rejection.is_none()
+            && receipt.submission.is_none()
+            && receipt.delivery.reason.is_none()
+        {
             return Ok(());
         }
         entry.delivery_status = Some(status);
-        if let Some(refusal) = refusal {
+        if let Some(submission) = receipt.submission {
+            entry.submission = Some(submission);
+        }
+        if let Some(reason) = receipt.delivery.reason {
+            entry.reason = Some(
+                match reason {
+                    codeterm_neighbors::wire::DeliveryReason::KeyRevoked => "key_revoked",
+                }
+                .into(),
+            );
+        }
+        if let Some(refusal) = receipt.rejection {
             entry.reason = Some(refusal.reason.into());
             entry.limit = refusal.limit;
             entry.resets_at = refusal.resets_at;
             entry.retry_after_seconds = refusal.retry_after_seconds;
         }
+        history.reconcile_outcomes();
         self.require_neighbor_history_generation(generation)?;
         metadata
             .write(format!("history-{friendship}.json"), history)

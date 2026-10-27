@@ -16,8 +16,117 @@ fn entry(id: usize, direction: &str, kind: Kind, reply: Option<String>) -> Entry
         limit: None,
         resets_at: None,
         retry_after_seconds: None,
+        submission: None,
         delivery_status: (direction == "out").then_some(DeliveryStatus::Pending),
     }
+}
+
+#[tokio::test]
+async fn linked_outcomes_require_accepted_submission_and_reconcile_delivery_failure_reasons() {
+    let (mux, _) = MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let service = &fixture.service;
+    let metadata = Metadata::new(fixture.temp.path().to_owned(), "owner");
+    let friendship = "a".repeat(64);
+    let incoming = entry(1, "in", Kind::Question, None);
+    let outgoing = entry(2, "out", Kind::Answer, Some(incoming.message_id.clone()));
+    let generation = service.neighbor_history_generation();
+    for row in [incoming, outgoing.clone()] {
+        service
+            .append_neighbor_history(&metadata, &friendship, row, generation)
+            .await
+            .unwrap();
+    }
+    assert!(
+        metadata.history_page(&friendship, None, 50).await.unwrap()["entries"][1]["outcome"]
+            .is_null()
+    );
+    for submission in [
+        Submission::Unconfirmed,
+        Submission::Refused,
+        Submission::Accepted,
+    ] {
+        service
+            .update_neighbor_history_status(
+                &metadata,
+                &outgoing.message_id,
+                HistoryReceipt {
+                    delivery: DeliveryStatus::Pending.into(),
+                    rejection: None,
+                    submission: Some(submission),
+                },
+                generation,
+            )
+            .await
+            .unwrap();
+        let page = metadata.history_page(&friendship, None, 50).await.unwrap();
+        assert_eq!(
+            page["entries"][1]["outcome"],
+            if submission == Submission::Accepted {
+                json!("answered")
+            } else {
+                Value::Null
+            }
+        );
+    }
+    service
+        .update_neighbor_history_status(
+            &metadata,
+            &outgoing.message_id,
+            DeliveryResult {
+                status: DeliveryStatus::NotDelivered,
+                reason: Some(codeterm_neighbors::wire::DeliveryReason::KeyRevoked),
+            }
+            .into(),
+            generation,
+        )
+        .await
+        .unwrap();
+    let page = metadata.history_page(&friendship, None, 50).await.unwrap();
+    assert_eq!(page["entries"][0]["reason"], "key_revoked");
+    assert!(page["entries"][1]["outcome"].is_null());
+    let refusal = entry(3, "out", Kind::Refusal, Some(format!("{:032x}", 1)));
+    service
+        .append_neighbor_history(&metadata, &friendship, refusal.clone(), generation)
+        .await
+        .unwrap();
+    service
+        .update_neighbor_history_status(
+            &metadata,
+            &refusal.message_id,
+            HistoryReceipt {
+                delivery: DeliveryStatus::NotDelivered.into(),
+                rejection: super::super::delivery::Rejection::from_error(Error::DailyLimit {
+                    limit: 1,
+                    resets_at: 100,
+                }),
+                submission: Some(Submission::Refused),
+            },
+            generation,
+        )
+        .await
+        .unwrap();
+    assert!(
+        metadata.history_page(&friendship, None, 50).await.unwrap()["entries"][2]["outcome"]
+            .is_null()
+    );
+    service
+        .update_neighbor_history_status(
+            &metadata,
+            &refusal.message_id,
+            HistoryReceipt {
+                delivery: DeliveryStatus::Pending.into(),
+                rejection: None,
+                submission: Some(Submission::Accepted),
+            },
+            generation,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        metadata.history_page(&friendship, None, 50).await.unwrap()["entries"][2]["outcome"],
+        "refused"
+    );
 }
 
 #[test]
@@ -36,14 +145,9 @@ fn bounded_history_pages_newest_first_and_links_answer_and_refusal() {
     assert_eq!(first["entries"][0]["message_id"], format!("{:032x}", 299));
     let second = history.page(first["next_before"].as_str(), 2);
     assert_eq!(second["entries"][0]["message_id"], format!("{:032x}", 297));
-    history
-        .append(entry(
-            300,
-            "out",
-            Kind::Refusal,
-            Some(format!("{:032x}", 299)),
-        ))
-        .unwrap();
+    let mut refusal = entry(300, "out", Kind::Refusal, Some(format!("{:032x}", 299)));
+    refusal.submission = Some(Submission::Accepted);
+    history.append(refusal).unwrap();
     let incoming = history
         .entries
         .iter()
@@ -51,14 +155,9 @@ fn bounded_history_pages_newest_first_and_links_answer_and_refusal() {
         .unwrap();
     assert_eq!(incoming.outcome.as_deref(), Some("refused"));
     assert_eq!(incoming.reason.as_deref(), Some("opaque-300"));
-    history
-        .append(entry(
-            301,
-            "out",
-            Kind::Answer,
-            Some(format!("{:032x}", 298)),
-        ))
-        .unwrap();
+    let mut answer = entry(301, "out", Kind::Answer, Some(format!("{:032x}", 298)));
+    answer.submission = Some(Submission::Accepted);
+    history.append(answer).unwrap();
     assert_eq!(
         history
             .entries
@@ -107,8 +206,7 @@ async fn private_history_persists_status_and_end_and_stops_writing_when_disabled
         .update_neighbor_history_status(
             &metadata,
             &outgoing.message_id,
-            DeliveryStatus::Delivered,
-            None,
+            DeliveryStatus::Delivered.into(),
             service.neighbor_history_generation(),
         )
         .await
@@ -227,11 +325,14 @@ async fn local_history_retains_daily_limit_details_on_explicit_status_checks() {
         .update_neighbor_history_status(
             &metadata,
             &outgoing.message_id,
-            DeliveryStatus::NotDelivered,
-            super::super::delivery::Rejection::from_error(Error::DailyLimit {
-                limit: 9,
-                resets_at: 1000,
-            }),
+            HistoryReceipt {
+                delivery: DeliveryStatus::NotDelivered.into(),
+                rejection: super::super::delivery::Rejection::from_error(Error::DailyLimit {
+                    limit: 9,
+                    resets_at: 1000,
+                }),
+                submission: Some(Submission::Refused),
+            },
             service.neighbor_history_generation(),
         )
         .await
@@ -240,8 +341,7 @@ async fn local_history_retains_daily_limit_details_on_explicit_status_checks() {
         .update_neighbor_history_status(
             &metadata,
             &outgoing.message_id,
-            DeliveryStatus::NotDelivered,
-            None,
+            DeliveryStatus::NotDelivered.into(),
             service.neighbor_history_generation(),
         )
         .await
@@ -269,8 +369,7 @@ async fn local_history_retains_daily_limit_details_on_explicit_status_checks() {
             .update_neighbor_history_status(
                 &metadata,
                 &outgoing.message_id,
-                DeliveryStatus::Delivered,
-                None,
+                DeliveryStatus::Delivered.into(),
                 old_generation
             )
             .await,

@@ -100,19 +100,30 @@ async fn general_credentials_reach_neighbor_service_and_other_tabs_cannot_author
                 general_token.as_str(),
                 "Sign in with a hosted account to use Neighbors",
             ),
-            (
-                other_token.as_str(),
-                "Only your authenticated General Agent may author Neighbor permissions",
-            ),
+            (other_token.as_str(), "neighbor_forbidden"),
         ] {
             let response = router
                 .clone()
                 .oneshot(request(token, &command))
                 .await
                 .unwrap();
-            assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+            assert_eq!(
+                response.status(),
+                if token == other_token {
+                    StatusCode::FORBIDDEN
+                } else {
+                    StatusCode::SERVICE_UNAVAILABLE
+                }
+            );
             let body = to_bytes(response.into_body(), 4096).await.unwrap();
-            assert_eq!(std::str::from_utf8(&body).unwrap(), expected);
+            if token == other_token {
+                assert_eq!(
+                    serde_json::from_slice::<Value>(&body).unwrap()["reason"],
+                    expected
+                );
+            } else {
+                assert_eq!(std::str::from_utf8(&body).unwrap(), expected);
+            }
         }
         let mut local = request("preview-test-token", &command);
         local
@@ -162,6 +173,47 @@ async fn general_credentials_reach_neighbor_service_and_other_tabs_cannot_author
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+}
+
+#[tokio::test]
+async fn unrelated_tabs_are_refused_all_runtime_surfaces_and_lifecycle_is_owner_only() {
+    let (_fixture, state, _, _, general, other) = fixture();
+    let router = crate::routes::create_router(state);
+    for command in [
+        json!({"operation":"status"}),
+        json!({"operation":"history","friendship_id":"a".repeat(64)}),
+        json!({"operation":"send","friendship_id":"a".repeat(64),"kind":"question","body":"opaque"}),
+        json!({"operation":"delivery_status","message_id":"b".repeat(32)}),
+        json!({"operation":"retry","friendship_id":"a".repeat(64)}),
+        json!({"operation":"own_keys"}),
+        json!({"operation":"enroll","takeover_confirmed":true,"expected_receiver_revision":0}),
+        json!({"operation":"rotate"}),
+        json!({"operation":"revoke"}),
+    ] {
+        let response = router
+            .clone()
+            .oneshot(request(&other, &command))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let body: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["reason"], "neighbor_forbidden");
+        if matches!(
+            command["operation"].as_str(),
+            Some("enroll" | "rotate" | "revoke")
+        ) {
+            assert_eq!(
+                router
+                    .clone()
+                    .oneshot(request(&general, &command))
+                    .await
+                    .unwrap()
+                    .status(),
+                StatusCode::FORBIDDEN
+            );
+        }
     }
 }
 

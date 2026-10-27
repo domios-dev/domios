@@ -16,6 +16,27 @@ fn count(value: i32) -> fs::ListenResponse {
 }
 
 #[test]
+fn observe_only_watch_retains_no_document_names_and_does_not_restart_on_count_filters() {
+    let mut membership = Membership::new(true);
+    for id in 0..1000 {
+        membership
+            .observe(&response(ResponseType::DocumentChange(
+                fs::DocumentChange {
+                    document: Some(fs::Document {
+                        name: format!("documents/{id}"),
+                        ..Default::default()
+                    }),
+                    target_ids: vec![1],
+                    ..Default::default()
+                },
+            )))
+            .unwrap();
+    }
+    assert!(membership.documents.is_empty());
+    assert_eq!(membership.observe(&count(100)), Ok(false));
+}
+
+#[test]
 fn current_then_matching_existence_filter_keeps_empty_watch_alive() {
     let mut membership = Membership::default();
     let current = response(ResponseType::TargetChange(fs::TargetChange {

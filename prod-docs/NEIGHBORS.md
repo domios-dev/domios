@@ -57,7 +57,7 @@ A failed receive stream reconnects with fresh authentication from the durable cu
 
 Messages are end-to-end encrypted. The backend deletes inbox ciphertext after acknowledgment and retains content-free delivery receipts. Each machine keeps its own bounded conversation history per friendship, including incoming messages and outgoing UI, CLI and agent messages with author and delivery status. Sign-out and switching Neighbors off stop writes while retaining history. Removing a friendship marks its retained history ended. Replacing or closing the concierge retains the conversation log.
 
-Denied requests receive a polite linked refusal without accessing local information. Concierge refusals carry a short reason, up to 256 UTF-8 bytes. Incoming history entries show refused with the reason or answered when a linked answer is sent. Answers and refusals do not generate automatic refusal loops.
+Denied requests receive a polite linked refusal without accessing local information. Concierge refusals carry a short reason, up to 256 UTF-8 bytes. Incoming history entries show refused with the reason or answered only after a linked reply's submission is confirmed accepted. Outgoing history includes `submission` as `accepted`, `unconfirmed` or `refused` after a send attempt. A later failed delivery removes that reply's incoming outcome and preserves the failure reason, including `key_revoked`. Answers and refusals do not generate automatic refusal loops.
 
 The owner or authenticated General Agent can set their own inbound daily limit through the local runtime API: `POST /api/account/neighbors/runtime` with `{"operation":"set_daily_limit","friendship_id":"...","daily_limit":20}`. Use null to remove the limit. The registry returns `my_daily_limit`, `their_daily_limit` and `sent_today` on each friend. A send refused by the recipient's daily limit returns a `not_delivered` receipt with `reason: neighbor_daily_limit`, `limit` and `resets_at` (Unix seconds), and keeps these details in local history. Ask the recipient to raise their limit. Linked answers and refusals carry `in_reply_to` to the server for its once-per-inbound-message exemption; clients never decide the exemption locally.
 
@@ -73,4 +73,12 @@ When an agent's send is refused by a daily, hourly or plan limit, or because the
 
 When a friendship ends, its local inbox targets stop and its concierge closes into Recently closed with its transcript. Its binding is cleared; the local friend conversation remains available as ended. This happens for either side's removal and does not affect other friendships.
 
-<!-- revision: 12 -->
+Runtime receiving lifecycle operations (`enroll`, `rotate`, `revoke`, including takeover) require the local owner. General may read status, manage permissions and send across friendships. Other authenticated agents may read history, send and retry only for the friendship bound to their exact live concierge tab. A delivery-status read also requires a local outgoing-history entry for that friendship. Other tabs cannot read status, enumerate friendships or control receiving; refusals return `neighbor_forbidden` with HTTP 403.
+
+Missing-concierge counts are bounded at 100. Status and `neighbor-concierge-status` include `pending_count_capped`; when true, display the count as `100+`. Observe-only streams retain no message names, and count refreshes coalesce while one request is in flight. Normal verified delivery catch-up is unchanged.
+
+Permissions include `allow_interactive_content`, default false. The owner or General may set it through `set_permission`. Permission reads, friend-list permission objects and status `permissions[friendship_id]` return it. Keep incoming HTML and runnable fences inert unless this per-friend permission is true.
+
+History, permission, notification-preference and status reads use local files and cached runtime state directly, outside the network-operation queue. They retain the same caller and account checks and never refresh Firestore. Status includes `receiver_status_known`; false means the current receiver snapshot has not arrived yet. Receiver and registry events update these local snapshots.
+
+<!-- revision: 14 -->

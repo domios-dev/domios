@@ -63,7 +63,9 @@ fn count_query(friendship: &str) -> fs::StructuredAggregationQuery {
         )),
         aggregations: vec![aggregation::Aggregation {
             alias: "pending".into(),
-            operator: Some(Operator::Count(Count { up_to: None })),
+            operator: Some(Operator::Count(Count {
+                up_to: Some(super::super::PENDING_COUNT_LIMIT as i64),
+            })),
         }],
     }
 }
@@ -74,7 +76,9 @@ fn parse_count(result: fs::AggregationResult) -> Result<u64> {
         .get("pending")
         .and_then(|value| value.value_type.as_ref())
     {
-        Some(fs::value::ValueType::IntegerValue(count)) if *count >= 0 => Ok(*count as u64),
+        Some(fs::value::ValueType::IntegerValue(count)) if *count >= 0 => {
+            Ok((*count as u64).min(super::super::PENDING_COUNT_LIMIT))
+        }
         _ => Err(Error::Transport),
     }
 }

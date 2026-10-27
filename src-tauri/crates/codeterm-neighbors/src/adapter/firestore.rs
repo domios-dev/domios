@@ -156,7 +156,7 @@ async fn listen_mode(
         requests: None,
         buffered: HashMap::new(),
         pending: None,
-        membership: Default::default(),
+        membership: watch::Membership::new(observe_only),
         resetting: false,
         calls: transport.calls.clone(),
     }))
@@ -187,7 +187,10 @@ impl Listener {
             target_type: Some(fs::target::TargetType::Query(fs::target::QueryTarget {
                 parent: self.parent.clone(),
                 query_type: Some(fs::target::query_target::QueryType::StructuredQuery(
-                    self.query(None),
+                    self.query(
+                        self.observe_only
+                            .then_some(super::PENDING_COUNT_LIMIT as i32),
+                    ),
                 )),
             })),
             target_id: 1,
@@ -214,7 +217,7 @@ impl Listener {
                     kind: "request_stream_closed",
                 })?;
         }
-        self.membership = Default::default();
+        self.membership = watch::Membership::new(self.observe_only);
         self.buffered.clear();
         self.resetting = true;
         Ok(())
@@ -392,7 +395,10 @@ impl InboxListener for Listener {
                     self.reset_target().await?;
                     continue;
                 }
-                Ok(true) => self.buffered.clear(),
+                Ok(true) => {
+                    self.buffered.clear();
+                    self.dirty = true;
+                }
                 result => {
                     result?;
                 }
@@ -466,7 +472,11 @@ impl InboxListener for Listener {
                         return Ok(Some(InboxEvent::Messages(messages)));
                     }
                 }
-                Some(ResponseType::Filter(_)) => {}
+                Some(ResponseType::Filter(_)) => {
+                    if self.observe_only {
+                        self.dirty = true;
+                    }
+                }
                 None => {
                     return Err(Error::ListenProtocol {
                         kind: "response_missing",
