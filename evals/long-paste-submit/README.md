@@ -1,107 +1,72 @@
 # Long-paste submit bench
 
-This bench drives the dev daemon's Rust PTY delivery path with a real Codex TUI.
-It compares a short mid-turn send, a 36,435-character idle send, a 4,096 / 16,384
-/ 36,435 / 65,536-character mid-turn curve, and a mid-turn 36,435-character send
-followed by a second send after the first successful CR write is observed.
-
-Production evidence restored the reported screenshot to the CodeTerm-send
-evidence table: its source was a 36,458-byte CodeTerm send that normalized to
-Codex's `[Pasted Content 36435 chars]`. The production audit recorded bracketed
-`MultilineTui` encoding, successful CR writes at approximately 0.15s, 1s, and
-2s, then exact-turn confirmation and an `Idle -> Working` transition several
-seconds after the third key. This bench measures the missing relationship:
-collapsed-frame render time versus that key burst.
-
-The mid-turn cases ask Codex to run `gate.py` as a foreground tool command. The
-helper connects to a bench-owned loopback socket and blocks on that connection,
-so `Working` is an observed provider state rather than a timed approximation.
-Measurement sends use the same `/chat-send` ledger seam as the Chat panel. The
-bench follows the dev log until the first and third successful `key-write`
-events, taking visible-screen snapshots around the burst. It releases the
-control turn only after those observations and waits on both `Idle -> Working`
-and the send's exact-turn confirmation, with bounded failure deadlines, to show
-whether the queued payload starts without another input. No readiness sleep or
-polling loop is used.
-
-PTY capture is armed only after the control turn reaches `Working`. Each
-`sequence.txt` lists the actual input and output timestamps. A bracketed paste
-must appear as one frame ending in `ESC [ 201 ~`; every Enter must be a separate
-`0d` frame. The summary timestamps the first `[Pasted Content N chars]` output
-against the paste write and includes submit-cycle, submit-audit, recovery,
-idle-poll, and status log events.
-
-`recovered=false` is printed only as diagnostic context. It is not an oracle:
-production telemetry reports it on nearly all transactions, including tiny
-sends, because the transaction samples a lagging status synchronously. The
-informative outcomes are collapsed-frame timing, `Idle -> Working`, exact-turn
-confirmation, and the visible composer state.
-
-Each case also preserves `inspect.json` and prints `provider-selection.txt`.
-That distinction matters because public-send recovery resolves
-`verifySubmit` from the tab record's `agent_type`; `MultilineTui` alone cannot
-distinguish Codex from Claude because both providers declare
-`tui_input_drained`. Codex adds a 150ms initial-key offset, while Claude does
-not. The public readiness gate itself checks `BootStage::AgentReady` and does
-not run provider prompt detection.
-
-`transcript-summary.txt` records whether each unique payload token is already
-present in Codex's parsed transcript after the third key write.
-It supplements the visible screen; it does not replace the composer-state
-observation.
-
-Run only against a matching dev build from the canonical integration checkout:
+Run only in canonical DEV under the Orchestrator's execution authority, with
+its build SHA equal to the clean checkout SHA:
 
 ```bash
 bash evals/long-paste-submit/run.sh
 ```
 
-Optional bounds:
+The default provider matrix is Claude and Codex. The runner reads each provider's
+advertised `transport`, launches that provider, and refuses a mismatching tab
+provider or backing. Runtime tabs never receive terminal actions or capture
+requests. All CLI and HTTP operations use the DEV-locked `evals/_lib/lib.sh`.
+
+Each provider retains 4096, 16384, 36435 and 65536 byte ASCII payloads at idle
+and mid-turn: eight size cases. There is also a short mid-turn control. PTY
+backings retain the original long-mid-turn-next-send recovery-cancellation
+case, whose second send follows the first observed successful submit key.
+`PROVIDERS`, `PAYLOAD_SIZES`, `LONG_PAYLOAD_CHARS`, `EVENT_TIMEOUT`,
+`LOG_EVENT_TIMEOUT` and `TURN_START_TIMEOUT` can narrow a diagnostic invocation;
+a narrowed invocation is not a complete matrix receipt.
+
+The mid-turn control asks the agent to run `gate.py` in the foreground. A
+bench-owned loopback connection plus authoritative Working status establishes
+the busy precondition. Initial readiness requires AgentReady, idle status,
+and an acknowledged own-session nonce. Waits consume daemon events or the
+existing PTY log stream; deadlines only bound failures. No screen, collapsed
+paste rendering or elapsed time proves delivery.
+
+Before a measurement send, `evidence-anchor.json` records the exact session,
+nonce, provider, backing, PTY identity, normalized transcript count and existing
+row IDs. The final observer reads the suffix after that count and refuses a
+changed binding before or after the read. It requires one exact complete user
+payload row, excluding inherited and pre-anchor rows, followed by an assistant
+reply, plus one delivered ledger receipt with an own-session source claim.
+Runtime receipts must name a structured item on that exact thread. PTY cases
+additionally require exactly one raw or closed bracketed payload frame in
+`trace.cast`. Duplicate payload writes or rows fail. This normalized append
+boundary is bench evidence; it does not establish persistence of the product's
+native JSONL byte anchor or runtime cursor across restart.
+
+PTY screen snapshots, submit-key timestamps, collapsed paste rendering and
+recovery diagnostics remain artifacts. They are not readiness or delivery
+oracles. The runtime path uses transcript and ledger evidence without a PTY.
+Missing evidence fails rather than replaying input. The runner retains all
+failure artifacts and closes only its created tabs and workspace.
+
+Receipts are under `target-check/evals/long-paste-submit/<run>/<provider>/<case>/`.
+`source-identity.txt` records execution and build SHAs; `providers.json` records
+the capability inventory. Each case retains `spawn.json`, `inspect.json`, the
+append boundary, the post-read binding, `assert-transcript.json`,
+`assert-ledger.json` and send response. PTY cases also retain capture and log
+observations. Exit zero requires explicit completion and executed assertions.
+These receipts do not replace the separate ten-message-per-condition composer
+and CLI confirmation drill or remote interactive-input acceptance.
+
+Offline oracle fixtures (no daemon or live agent):
 
 ```bash
-PAYLOAD_SIZES="4096 16384 36435 65536" LONG_PAYLOAD_CHARS=36435 \
-  EVENT_TIMEOUT=120 LOG_EVENT_TIMEOUT=15 TURN_START_TIMEOUT=15 \
-  bash evals/long-paste-submit/run.sh
+python3 -m unittest discover -s evals/long-paste-submit -p 'test_*.py' -v
+bash -n evals/long-paste-submit/run.sh
 ```
 
-The script sources `evals/_lib/lib.sh`; every Domios CLI operation uses `dc`,
-which refuses to fall through to prod. Artifacts are written beneath
-`target-check/evals/long-paste-submit/` and the temporary workspace and tabs are
-closed on exit.
+For an isolation-first red/green demonstration, run
+`OutcomeTests.test_runtime_needs_no_pty_capture` with the payload frame check
+temporarily made unconditional; it must fail on zero captured payload writes.
+Restore the transport-aware assertion and run that selector,
+then the file. Run `OutcomeTests.test_second_payload_write_fails` with duplicate
+write rejection removed; it must fail because the second write was accepted.
+Neither demonstration has been executed in the Worker lane.
 
-Interpret the cases from observed evidence:
-
-- The first mid-turn size whose collapsed-frame render lands after CR #3 is the
-  measured ingestion threshold. If that case stays in the composer, the key
-  burst ended before Codex finished ingesting the paste.
-- If 65,536 characters submit with exact turn evidence and the collapsed frame
-  renders before CR #3, the byte-scaled-delay candidate is refuted and must not
-  be proposed.
-- If a size submits before its collapsed frame renders, Codex did not require the
-  collapsed-frame signal for that run; do not infer a render gate from it.
-- If a single mid-turn case submits but `long-mid-turn-next-send` does not, and its first
-  cycle has fewer recovery CR frames after the second generation claim, the new
-  send cancelled the older recovery cycle.
-- If the 36,435-character idle case also sticks, mid-turn is not required. If
-  only the mid-turn curve shifts, busy Codex changes ingestion or queues the CR.
-- If the capture shows CR in the bracketed-paste frame, framing is the cause. If
-  it shows a closed paste frame followed by a separate `0d`, that hypothesis is
-  falsified for the captured run.
-- If no `key-write` follows the paste within the transaction deadline, inspect
-  the captured write result: the write-queue acknowledgement bound, not Codex's
-  handling of CR, prevented submission.
-
-Timing remains diagnostic. Each case must also prove one `delivered` ledger
-row, exactly one matching own-session user turn followed by an assistant reply,
-and exactly one captured payload frame. Missing evidence fails the bench.
-`assert-transcript.json`, `assert-ledger.json`, and `trace.cast` retain that oracle.
-Exit zero requires at least one executed assertion and completion of all cases.
-A non-reproduction of the timing symptom is valid only when these delivery
-assertions pass; retain all screens and audit events.
-
-The runner supports macOS Bash 3.2, Linux Bash, and Windows Git Bash. It requires
-`python3`, `curl`, `mktemp`, and `mkfifo`; missing prerequisites fail before setup.
-The gate uses a FIFO and a saved background PID so early child exit cannot erase
-its output or status during cleanup.
-
-<!-- revision: 6 -->
+<!-- revision: 7 -->
