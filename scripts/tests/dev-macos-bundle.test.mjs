@@ -33,7 +33,7 @@ test('named macOS DEV refuses absent, ad-hoc or malformed signing configuration'
 async function fixture(t, run) {
   const repo = mkdtempSync(path.join(realpathSync.native(os.tmpdir()), 'named-macos-dev-'));
   t.after(() => rmSync(repo, { recursive: true, force: true }));
-  const client = path.join(repo, 'target/dev-instances/opaque-instance/debug/codeterm');
+  const client = path.join(repo, 'target/dev-instances/opaque-instance/debug/domios-app');
   const server = path.join(path.dirname(client), 'domios-server');
   const cli = path.join(repo, 'cli/target/debug/codeterm');
   const serverSource = path.join(repo, 'src-tauri/crates/domios-server/src/main.rs');
