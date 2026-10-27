@@ -26,6 +26,10 @@ export interface NeighborPermission {
   allow_tab_requests: boolean;
   /** Off by default: their html and diagrams stay inert code. */
   allow_interactive_content?: boolean;
+  /** On by default: their agents may ask yours about what your memory holds. */
+  allow_memory?: boolean;
+  /** On by default: their agents may ask for files. */
+  allow_files?: boolean;
 }
 export interface NeighborReceipt {
   message_id: string;

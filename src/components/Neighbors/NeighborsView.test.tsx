@@ -694,3 +694,19 @@ it("marks who wrote each message: you, your agent, your friend and their concier
   expect(["a1", "a2", "a3", "a4"].map(id => document.getElementById(`neighbor-msg-${id}`)?.getAttribute("data-author")))
     .toEqual(["friend", "my-agent", "me", "friend-agent"]);
 });
+
+it("turns off reading memory and files for one friend and saves it", async () => {
+  const conciergeClient = concierge([]);
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
+  await act(async () => button("Ada, connected").click());
+  expect(button("Read my memory").getAttribute("aria-checked")).toBe("true");
+  await act(async () => button("Read my memory").click());
+  await act(async () => button("Read files").click());
+  await act(async () => button("Save permissions").click());
+  expect(conciergeClient.setPermission).toHaveBeenCalledExactlyOnceWith("pair", expect.objectContaining({ allow_memory: false, allow_files: false }));
+});
