@@ -107,11 +107,37 @@ use launch::{require_launch_authority, validate_loaded_settings};
 pub(crate) mod test_support;
 
 pub fn stop_blocking(svc: &ServiceContext, tab: &str) -> Result<(), String> {
+    stop_blocking_with(svc, tab, None)
+}
+
+pub(crate) fn stop_confirmed_blocking(
+    svc: &ServiceContext,
+    tab: &str,
+    session: Arc<Session>,
+) -> Result<(), String> {
+    stop_blocking_with(svc, tab, Some(session))
+}
+
+fn stop_blocking_with(
+    svc: &ServiceContext,
+    tab: &str,
+    expected: Option<Arc<Session>>,
+) -> Result<(), String> {
+    if let Some(expected) = expected.as_ref() {
+        if !for_tab(tab).as_ref().is_some_and(|current| Arc::ptr_eq(current, expected)) {
+            return Err(RuntimeFailure::Superseded.to_string());
+        }
+    }
     super::login::close_cli(tab);
-    if for_tab(tab).is_none() {
+    if expected.is_none() && for_tab(tab).is_none() {
         return Ok(());
     }
-    let finish = || crate::async_runtime::block_on(stop(svc, tab));
+    let finish = || crate::async_runtime::block_on(async {
+        match expected {
+            Some(session) => stop_session(svc, tab, session).await,
+            None => stop(svc, tab).await,
+        }
+    });
     match tokio::runtime::Handle::try_current() {
         Ok(handle) if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
             tokio::task::block_in_place(finish)
@@ -145,12 +171,18 @@ pub(crate) fn stop_removed_provider(svc: &ServiceContext, provider: &str) {
 }
 
 pub async fn stop(svc: &ServiceContext, tab: &str) -> Result<(), String> {
-    if let Err(error) = super::capacity_retry::cancel(svc, tab) {
-        log::warn!("[runtime-retry] queued retry cleanup failed for {tab}: {error}");
-    }
     let Some(session) = for_tab(tab) else {
+        cancel_stop_retry(svc, tab);
         return Ok(());
     };
+    stop_session(svc, tab, session).await
+}
+
+async fn stop_session(svc: &ServiceContext, tab: &str, session: Arc<Session>) -> Result<(), String> {
+    if !SESSIONS.lock().get(tab).is_some_and(|current| Arc::ptr_eq(current, &session)) {
+        return Err(RuntimeFailure::Superseded.to_string());
+    }
+    cancel_stop_retry(svc, tab);
     let permit = session.gate.try_acquire().ok();
     session.gate.close();
     let process = session.process.lock().clone();
@@ -191,6 +223,12 @@ pub async fn stop(svc: &ServiceContext, tab: &str) -> Result<(), String> {
     session.control_changes.send_replace(());
     session.process.close();
     Ok(())
+}
+
+fn cancel_stop_retry(svc: &ServiceContext, tab: &str) {
+    if let Err(error) = super::capacity_retry::cancel(svc, tab) {
+        log::warn!("[runtime-retry] queued retry cleanup failed for {tab}: {error}");
+    }
 }
 
 pub async fn ensure(svc: &ServiceContext, tab: &str) -> Result<Arc<Session>, RuntimeFailure> {
