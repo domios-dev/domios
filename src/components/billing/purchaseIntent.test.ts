@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PlanModel } from "../Settings/accountPlanModel";
 import { BUILTIN_PLAN_CATALOG as catalog } from "./planCatalog";
-import { subscribedPlan, IDLE_INTENT, owns, purchaseIntent, type PurchaseEvent, type PurchaseIntent } from "./purchaseIntent";
+import { IDLE_INTENT, owns, purchaseIntent, type PurchaseEvent, type PurchaseIntent } from "./purchaseIntent";
 
 function plan(overrides: Partial<PlanModel> = {}): PlanModel {
   return { authority: "free", fullAccess: false, plan: "free", status: "active", stale: false, periodEnd: null, cancelAtPeriodEnd: false, limits: null, ...overrides };
@@ -92,19 +92,4 @@ describe("purchaseIntent", () => {
     expect(run([choose("sponsor_yearly", "signed_in", PRO)], owned)).toEqual({ kind: "opening", planKey: "sponsor_yearly" });
   });
 
-});
-
-
-describe("subscription status whitelist", () => {
-  it("only live provider subscriptions route to management", () => {
-    for (const status of ["active", "trialing", "past_due"]) {
-      expect(subscribedPlan(plan({ plan: "pro", status }))).toBe("pro");
-    }
-    for (const status of ["canceled", "revoked", "incomplete", "unpaid", "paused", "unknown", ""]) {
-      expect(subscribedPlan(plan({ plan: "pro", status }))).toBeNull();
-    }
-    expect(subscribedPlan(STAFF)).toBeNull();
-    expect(subscribedPlan(FREE)).toBeNull();
-    expect(subscribedPlan(null, true)).toBe("already_subscribed");
-  });
 });

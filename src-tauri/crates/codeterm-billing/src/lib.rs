@@ -47,6 +47,7 @@ impl PlanOperation {
 
 /// Checkout refusal for an account that already holds a live subscription; the app offers Manage subscription instead.
 pub const ALREADY_SUBSCRIBED: &str = "already_subscribed";
+pub const NO_BILLING_CUSTOMER: &str = "There is no paid subscription to manage. Your current access is not billed through Paddle.";
 #[async_trait]
 pub trait BillingProvider: Send + Sync {
     async fn plan_operation(

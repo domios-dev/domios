@@ -27,6 +27,7 @@ vi.mock("../../lib/webApi", async (importOriginal) => ({
   request(url);
   if (url.endsWith("/status") && state.failStatus) throw new Error("opaque background status failure");
   if (url.endsWith("/plan") && state.failPlan) throw new Error("opaque background plan failure");
+  if (url.endsWith("/billing")) return { ok: true, json: async () => ({ current_tier: "pro", paid_subscription: { tier: "pro", status: "active", period_end: 1700604800 }, period_end: 1700604800, pending_change: null }) };
   if (url.endsWith("/portal") && state.failBillingAction) return {ok:false,text:rawBody};
   if (url.split("?")[0].endsWith("/login") && state.loginHeldElsewhere) return {ok:false,text:rawBody};
   if (url.endsWith("/status") && state.loginHeldElsewhere) return {ok:true,json:async () => ({identity:null,pending:true,last_sign_in_failure:null})};

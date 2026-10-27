@@ -77,3 +77,14 @@ it("keeps effective gifted access separate from an actual Paddle subscription", 
     expect(() => parseSubscription({ ...gifted, paid_subscription: paid })).toThrow();
   }
 });
+
+it("accepts only live paid subscription statuses independently of the effective tier", () => {
+  const value = { current_tier: "pro", period_end: 1700604800, pending_change: null,
+    paid_subscription: { tier: "max", status: "active", period_end: 1700604800 } };
+  for (const status of ["active", "trialing", "past_due"]) {
+    expect(parseSubscription({ ...value, paid_subscription: { ...value.paid_subscription, status } }).paid_subscription?.tier).toBe("max");
+  }
+  for (const status of ["canceled", "revoked", "incomplete", "unpaid", "paused", "unknown", ""]) {
+    expect(() => parseSubscription({ ...value, paid_subscription: { ...value.paid_subscription, status } })).toThrow();
+  }
+});

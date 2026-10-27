@@ -5,12 +5,12 @@ import { CreditCard, UserRound } from "lucide-react";
 import { Button } from "../shared/Button";
 import { PlanCards } from "../billing/PlanCards";
 import { GiftRedemption } from "../billing/GiftRedemption";
+import { useAccountUsage } from "../billing/useAccountUsage";
 import { AccountLimits } from "../billing/AccountLimits";
 import { useDesktopBilling } from "../billing/useDesktopBilling";
 import { scheduledPlanCopy, tierName } from "../billing/desktopBilling";
 import { PlanChangeDialog, type SelectedPlanChange } from "../billing/PlanChangeDialog";
 import { usePlanCatalog } from "../billing/planCatalogContext";
-import { subscribedPlan } from "../billing/purchaseIntent";
 import { usePurchaseIntent } from "../billing/usePurchaseIntent";
 import { ACCOUNT_ENTRY_OPTIONS, SIGN_IN_PROVIDER_OPTIONS } from "./accountSignInOptions";
 import { CopyRow, SettingsCard, SettingsPage, SettingsPill } from "./shared";
@@ -39,6 +39,7 @@ export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) 
   const signedIn = model.kind === "signed_in";
   const identity = signedIn ? model.identity.uid : null;
   useEffect(() => setRefusedAsSubscribed(false), [identity]);
+  const usage = useAccountUsage(identity);
   const offersReady = desktopBilling.catalog !== null && desktopBilling.subscription !== null;
   const paidSubscription = desktopBilling.subscription?.paid_subscription;
   const subscriptionPlan = paidSubscription === undefined ? undefined : paidSubscription?.tier ?? null;
@@ -55,8 +56,8 @@ export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) 
   });
   const revealPlans = () => setPlansRequest((count) => count + 1);
   const manageSubscription = async () => {
-    if (subscriptionPlan === null) { revealPlans(); return; }
-    const failure = await billing.manage(revealPlans);
+    if (!paidSubscription && !refusedAsSubscribed) { revealPlans(); return; }
+    const failure = await billing.manage();
     if (failure) notify(billingFailureToast(failure, "managing your subscription", billing.plan?.status, () => manageSubscription()));
   };
   const staff = billing.plan?.fullAccess === true;
@@ -107,13 +108,14 @@ export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) 
           {staff ? <SettingsPill tone="accent">team access</SettingsPill>
             : billing.plan && <SettingsPill tone={billing.plan.status === "active" ? "green" : "muted"}>{billing.plan.status}</SettingsPill>}
           {signedIn && <Button size="sm" variant="ghost" className="ml-auto text-xs" disabled={billing.pending} aria-busy={billing.pending}
-            onClick={() => void manageSubscription()}>{billing.pending ? "Opening subscription…" : "Manage subscription"}</Button>}
+            onClick={() => void manageSubscription()}>{paidSubscription || refusedAsSubscribed
+              ? billing.pending ? "Opening subscription…" : "Manage subscription" : "Upgrade"}</Button>}
         </div>
         {billing.plan?.periodEnd && <p className={MUTED}>
           {subscriptionPlan === null ? "Access ends" : billing.plan.cancelAtPeriodEnd ? "Ends" : "Renews"} {new Date(billing.plan.periodEnd * 1000).toLocaleDateString()}
         </p>}
         {billing.plan?.stale && <p role="status" className={MUTED}>Showing the last known plan.</p>}
-        <AccountLimits limits={billing.plan?.limits ?? null} />
+        <AccountLimits limits={billing.plan?.limits ?? null} usage={usage} />
         {identity && <GiftRedemption key={identity} identity={identity} verifiedPlan={billing.plan?.stale ? null : billing.plan?.plan ?? null} />}
         {desktopBilling.subscription && <p role="status">{scheduledPlanCopy(desktopBilling.subscription, seconds => new Date(seconds * 1000).toLocaleDateString())}</p>}
         {desktopBilling.error && <InlineErrorNotice error={desktopBilling.error} operation="managing your plan" />}
@@ -128,8 +130,7 @@ export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) 
               onChangePlan={paidSubscription && !desktopBilling.subscription?.pending_change && !desktopBilling.submitted
                 ? (priceId, tier, direction) => { if (model.kind === "signed_in") setPlanChange({ priceId, tier, direction, identity: model.identity.uid }); } : undefined}
               subscriptionInterval={desktopBilling.subscription?.billing_interval ?? null}
-              subscribedPlan={subscriptionPlan === undefined ? subscribedPlan(billing.plan, refusedAsSubscribed)
-                : subscriptionPlan ?? (refusedAsSubscribed ? "already_subscribed" : null)} onManage={() => void manageSubscription()} manageBusy={billing.pending}
+              subscribedPlan={subscriptionPlan ?? (refusedAsSubscribed ? "already_subscribed" : null)} onManage={() => void manageSubscription()} manageBusy={billing.pending}
               canPurchase={!billing.pending && !purchase.busy && !(signedIn && (billing.planLoad === "loading" || !offersReady))}
               onChoose={purchase.choose} intent={purchase.intent} onCancel={purchase.cancel}
               signedInAs={signedIn ? model.identity.email ?? model.identity.display_name : null} />}
