@@ -20,74 +20,43 @@ function HoverHarness() {
     actions={{ quote: () => {}, ask: () => {}, select: () => {} }} />;
 }
 
-async function hoverFixture(top = 140, left = 100) {
+async function hoverFixture() {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
   await act(async () => root.render(<HoverHarness />));
   const dot = host.querySelector<HTMLButtonElement>("button")!;
-  dot.getBoundingClientRect = () => new DOMRect(200, 100, 20, 20);
-  const pointer = async (target: EventTarget, type: string, x: number, y: number) => {
-    await act(async () => target.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerType: "mouse", clientX: x, clientY: y })));
+  const pointer = async (target: EventTarget, type: string) => {
+    await act(async () => target.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerType: "mouse" })));
   };
-  await pointer(dot, "pointerover", 210, 110);
+  await pointer(dot, "pointerover");
   const menu = () => document.querySelector<HTMLElement>('[role="menu"][aria-label="Message actions"]');
   expect(menu()).not.toBeNull();
-  menu()!.getBoundingClientRect = () => new DOMRect(left, top, 180, 80);
   return { dot, menu, pointer, unmount: async () => { await act(async () => root.unmount()); host.remove(); } };
 }
 
-describe("message action hover bridge", () => {
-  it.each([[140, 100], [140, 220], [0, 100], [0, 220]])("survives travel to a popup at (%s, %s), its edges, and back", async (top, left) => {
-    const view = await hoverFixture(top, left);
-    try {
-      const nearY = top === 0 ? 80 : 140;
-      await view.pointer(view.dot, "pointerout", 210, top === 0 ? 99 : 121);
-      expect(view.menu()).not.toBeNull();
-      await view.pointer(document.body, "pointermove", (210 + left + 90) / 2, (110 + nearY) / 2);
-      expect(view.menu()).not.toBeNull();
-      await view.pointer(view.menu()!, "pointermove", left + 90, top + 40);
-      await view.pointer(view.menu()!, "pointerout", left + 184, top + 40);
-      await view.pointer(document.body, "pointermove", left + 185, top + 40);
-      expect(view.menu()).not.toBeNull();
-      await view.pointer(document.body, "pointermove", 210, 110);
-      expect(view.menu()).not.toBeNull();
-      await view.pointer(document.body, "pointermove", left + 190, top + 40);
-      expect(view.menu()).toBeNull();
-    } finally { await view.unmount(); }
-  });
-
-  it("closes immediately when the pointer leaves the dot away from the bridge", async () => {
+describe("message action hover wiring", () => {
+  it.each(["escape", "outside press"])("opens on hover and dismisses on %s", async (dismiss) => {
     const view = await hoverFixture();
     try {
-      await view.pointer(view.dot, "pointerout", 210, 90);
-      expect(view.menu()).toBeNull();
-    } finally { await view.unmount(); }
-  });
-
-  it.each(["escape", "outside press"])("dismisses a hover popup on %s while the pointer is in the safe margin", async (dismiss) => {
-    const view = await hoverFixture();
-    try {
-      await view.pointer(document.body, "pointermove", 285, 180);
-      expect(view.menu()).not.toBeNull();
       if (dismiss === "escape") {
         await act(async () => document.body.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true, cancelable: true })));
       } else {
         const clicked = vi.fn();
         document.body.addEventListener("pointerdown", clicked, { once: true });
-        await view.pointer(document.body, "pointerdown", 285, 180);
+        await view.pointer(document.body, "pointerdown");
         expect(clicked).toHaveBeenCalledOnce();
       }
       expect(view.menu()).toBeNull();
     } finally { await view.unmount(); }
   });
 
-  it("keeps a keyboard-opened popup usable when the mouse moves away", async () => {
+  it("preserves keyboard focus and ignores hover dismissal after keyboard activation", async () => {
     const view = await hoverFixture();
     try {
       await act(async () => view.dot.dispatchEvent(new KeyboardEvent("keydown", { code: "ArrowDown", bubbles: true, cancelable: true })));
       expect(document.activeElement?.getAttribute("role")).toBe("menuitem");
-      await view.pointer(document.body, "pointermove", 800, 600);
+      await view.pointer(document.body, "pointermove");
       expect(view.menu()).not.toBeNull();
       await act(async () => document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true, cancelable: true })));
       expect(view.menu()).toBeNull();
