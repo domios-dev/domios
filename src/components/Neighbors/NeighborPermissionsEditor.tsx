@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "../shared/Button";
 import { FormRow } from "../shared/FormRow";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
-import { SwitchTile } from "../Settings/shared";
+import { SettingsSection, SwitchTile } from "../Settings/shared";
 import { useFolderPicker } from "../../hooks/useFolderPicker";
 import { Segmented } from "../shared/Segmented";
 import { DropdownMenu } from "../shared/DropdownMenu";
@@ -73,19 +73,22 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
   const problem = draft ? permissionProblem(draft) : null;
   const edit = (patch: Partial<NeighborPermission>) => setDraft(current => current ? { ...current, ...patch } : current);
   return <div className="neighbor-permissions">
-    <SwitchTile label={`Allow requests from ${name}`} hint="Their agents may ask yours for help within the scope below."
+    <SettingsSection title="Requests">
+    <SwitchTile label={`Allow requests from ${name}`} hint="Their agents may ask yours for help."
       checked={draft?.allowed === true} onChange={allowed => { if (draft && !saving) edit({ allowed }); }} />
-    <FormRow label="What they may ask" htmlFor={scopeField} hint="Plain words your concierge follows, for example: questions about our shared project, never files or secrets.">
+    <FormRow label="What they may ask" htmlFor={scopeField} hint="Plain words your concierge follows.">
       <textarea id={scopeField} className={`${UI_INPUT.full} neighbor-textarea`} rows={4} disabled={!draft || saving}
         placeholder={draft ? "Nothing allowed yet" : "Reading their permissions"} value={draft?.scope ?? ""} onChange={event => edit({ scope: event.currentTarget.value })} />
     </FormRow>
-    <SwitchTile label={`Show interactive content from ${name}`} hint="Runs their html previews and diagrams in your chat. Only for people you trust."
+    <SwitchTile label={`Show interactive content from ${name}`} hint="Runs their html and diagrams. Only for people you trust."
       checked={draft?.allow_interactive_content === true} onChange={allow_interactive_content => { if (draft && !saving) edit({ allow_interactive_content }); }} />
-    <SwitchTile label="Read my memory" hint="Their agents may ask what your memory holds, within the scope above."
+    </SettingsSection>
+    <SettingsSection title="Access">
+    <SwitchTile label="Read my memory"
       checked={draft !== null && draft.allow_memory !== false} onChange={allow_memory => { if (draft && !saving) edit({ allow_memory }); }} />
     {draft && draft.allow_memory !== false && <MemoryAreas areas={areas} chosen={draft.memory_areas ?? []} disabled={saving}
       onChange={chosen => edit({ memory_areas: chosen.length > 0 ? chosen : null })} />}
-    <SwitchTile label="Read files" hint="Their agents may ask for files and receive copies."
+    <SwitchTile label="Read files"
       checked={draft !== null && draft.allow_files !== false} onChange={allow_files => { if (draft && !saving) edit({ allow_files }); }} />
     <div className="neighbor-access">
       <p id={accessLabel} className="neighbor-permissions__label">Machine access</p>
@@ -96,7 +99,7 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
           // This folder only means nothing until a folder is chosen; cancelling keeps the previous access.
           void pickFolder(`Folder for ${name}'s concierge`, draft.effective_folder).then(folder => { if (folder) edit({ machine_access: "folder", folder }); });
         }} />
-      {access === "read_only" && <p className="neighbor-note">Their concierge can look things up for them but change nothing on this machine.</p>}
+      {access === "read_only" && <p className="neighbor-note">Looks things up; changes nothing on this machine.</p>}
       {access === "full" && <p role="note" className="neighbor-note neighbor-access__warning">Their requests can change anything your agents on this machine can reach.</p>}
       {access === "folder" && <div className="neighbor-folder">
         <div className="min-w-0">
@@ -108,8 +111,9 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
         }}>Choose folder</Button>
       </div>}
     </div>
-    <SwitchTile label="Open tabs and agents" hint="A separate grant: without it, their agents can only ask questions."
+    <SwitchTile label="Open tabs and agents"
       checked={draft?.allow_tab_requests === true} onChange={allow_tab_requests => { if (draft && !saving) edit({ allow_tab_requests }); }} />
+    </SettingsSection>
     {incoming && !samePermission(incoming, baseline ?? incoming) && <div role="status" className="neighbor-confirm">
       <p>These permissions were changed elsewhere while you were editing.</p>
       <div className="neighbor-confirm__actions">
@@ -129,6 +133,7 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
         }}>Save permissions</Button>
       <Button size="sm" variant="accent" onClick={onEditWithGeneral}>Edit with General</Button>
     </div>
+    <SettingsSection title="Limits">
     <form className="neighbor-limit" onSubmit={event => {
       event.preventDefault();
       if (!dailyValid) return;
@@ -136,12 +141,12 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
       void onSaveDailyLimit(dailyValue).catch((failure: unknown) => setDailyError(failure instanceof Error ? failure.message : "The daily limit could not be saved."));
     }}>
       <FormRow label="Messages per day" htmlFor={dailyField}
-        hint={dailyValid ? `How many messages ${name} may send you a day. Leave empty for no limit.` : "Use a whole number from 1 to 10000, or leave it empty."}>
+        hint={dailyValid ? "Empty for no limit." : "Use a whole number from 1 to 10000, or leave it empty."}>
         <div className="neighbor-limit__row">
           <input id={dailyField} type="number" min={1} max={10000} step={1} inputMode="numeric" placeholder="No limit"
             className={`${UI_INPUT.compact} neighbor-limit__input`} value={daily} aria-invalid={!dailyValid}
             onChange={event => setDaily(event.currentTarget.value)} />
-          <Button size="sm" type="submit" disabled={!dailyValid || !dailyChanged}>Save daily limit</Button>
+          <Button size="sm" type="submit" aria-label="Save daily limit" disabled={!dailyValid || !dailyChanged}>Save</Button>
         </div>
       </FormRow>
       {dailyError && <InlineErrorNotice error={dailyError} operation="saving the daily limit" role="alert" />}
@@ -152,10 +157,11 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
         <div className="neighbor-limit__row">
           <input id={limitField} type="number" min={1} max={200} step={1} className={`${UI_INPUT.compact} neighbor-limit__input`} value={limit}
             onChange={event => setLimit(event.currentTarget.valueAsNumber)} />
-          <Button size="sm" type="submit" disabled={pending || !validNeighborLimit(limit)}>Save limit</Button>
+          <Button size="sm" type="submit" aria-label="Save limit" disabled={pending || !validNeighborLimit(limit)}>Save</Button>
         </div>
       </FormRow>
     </form>
+    </SettingsSection>
     {folderPicker}
   </div>;
 }
@@ -172,7 +178,7 @@ function FileDailyLimit({ neighbor, name, onSave }: { neighbor: Neighbor; name: 
   const mib = value.trim() === "" ? null : Number(value);
   const valid = mib === null || (Number.isFinite(mib) && mib >= 0 && mib <= 1024);
   const bytes = mib === null ? null : Math.round(mib * MIB);
-  const hint = current === 0 ? `Files from ${name} are blocked.` : `Leave empty for the ${DEFAULT_FILE_LIMIT_MIB} MiB default; 0 blocks files from ${name}.`;
+  const hint = current === 0 ? `Files from ${name} are blocked.` : `Empty for ${DEFAULT_FILE_LIMIT_MIB} MiB; 0 blocks files.`;
   return <form className="neighbor-limit" onSubmit={event => {
     event.preventDefault();
     if (!valid || !onSave) return;
@@ -185,7 +191,7 @@ function FileDailyLimit({ neighbor, name, onSave }: { neighbor: Neighbor; name: 
           className={`${UI_INPUT.compact} neighbor-limit__input`} value={value} aria-invalid={!valid} disabled={!onSave}
           onChange={event => setValue(event.currentTarget.value)} />
         <span className="neighbor-note">MiB</span>
-        {onSave && <Button size="sm" type="submit" disabled={!valid || bytes === current}>Save file limit</Button>}
+        {onSave && <Button size="sm" type="submit" aria-label="Save file limit" disabled={!valid || bytes === current}>Save</Button>}
       </div>
     </FormRow>
     {error && <InlineErrorNotice error={error} operation="saving the file limit" role="alert" />}

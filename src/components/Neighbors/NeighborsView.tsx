@@ -111,13 +111,13 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, conciergeC
   const panelOpen = enabled && Boolean(request);
 
   return <div className="neighbors-view absolute inset-0 flex flex-col bg-[var(--ct-bg)] pt-[var(--ct-safe-top,0px)]">
-    <div className={`${UI_PANEL.toolbar} ct-section-toolbar gap-3 px-4 py-0 text-[var(--ct-fg)] whitespace-nowrap`}>
+    <div className={`${UI_PANEL.toolbar} ct-section-toolbar justify-start gap-3 px-4 py-0 text-[var(--ct-fg)] whitespace-nowrap`}>
       <strong>Neighborhood</strong>
       <span className={`${UI_TEXT.meta} opacity-70`}>
         {identity && graph ? summary : null}
       </span>
       {updating && <span role="status" className="neighbors-updating"><ActivityDots size="small" tone="muted" active />Updating</span>}
-      {identity && <button type="button" className="neighbors-refresh ct-liquid-interactive" aria-label="Refresh Neighbors" title="Refresh Neighbors"
+      {identity && <button type="button" className="neighbors-refresh ct-liquid-interactive ml-auto" aria-label="Refresh Neighbors" title="Refresh Neighbors"
         disabled={neighbors.pending} onClick={neighbors.refresh}>
         <BusySpinner icon={RefreshCw} size={13} spinning={neighbors.pending} />
       </button>}

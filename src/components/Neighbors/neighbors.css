@@ -1236,3 +1236,16 @@ button.neighbor-file:hover {
   gap: 0.6rem;
   margin: -0.25rem 0 0 0.25rem;
 }
+
+/* Under a message, Check delivery reads as part of the quiet meta line, not as a full button. */
+.neighbor-msg__meta .ct-btn {
+  min-height: 0;
+  padding: 0 0.35rem;
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+
+.neighbor-permissions .ct-settings-section + .ct-settings-section,
+.neighbor-permissions .neighbor-confirm__actions + .ct-settings-section {
+  margin-top: 0.4rem;
+}
