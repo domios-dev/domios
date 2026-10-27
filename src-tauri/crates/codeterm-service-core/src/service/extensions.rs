@@ -126,6 +126,7 @@ impl ExtensionsBuilder {
         self.insert_late::<crate::service::account_mesh::AccountMeshCell>();
         self.insert_late::<crate::service::lane_git_queue::LaneGitQueue>();
         self.insert_late::<crate::service::durable_delivery::DurableDeliveryRuntime>();
+        self.insert_late::<crate::service::model_providers::ModelProviderClientState>();
     }
 
     pub fn finish(self) -> Extensions {
