@@ -165,7 +165,7 @@ Tips for writing good evals:
 - **Use technical expectations whenever possible** — they're matched by regex without an LLM call, so they're free and deterministic. Reserve behavioral expectations (LLM-as-judge) for things you genuinely can't grep for.
 - **Negative expectations matter.** "Does NOT use workspace create" is just as important as "Uses send". They prevent regressions in the *other* direction.
 - **Test the eval first** by running it against the *unchanged* prompt and confirming it passes. If it fails on the unchanged prompt, the eval is wrong, not the prompt.
-- **Eval prompts should be realistic** — copy real user messages from `~/.codeterm-dev/general/MEMORY.md` daily notes or actual logs, don't synthesize "test inputs".
+- **Eval prompts should be realistic** — use retained session excerpts found through `domios sessions search` or owned DEV logs, don't synthesize "test inputs".
 
 ## Existing eval sets
 
@@ -219,4 +219,4 @@ eval (`live` / `cached` / `k/N cached`). Treat them as part of the numbers:
 
 To debug a single eval without rerunning the whole set: `python runner.py --prompt-file ... --eval-set ... --only-id 8 --runs 1 --verbose`. The runner will print the full agent response and matcher decisions for that one eval.
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->

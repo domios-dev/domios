@@ -826,20 +826,12 @@ fn expand_home_resolves_domios_paths_in_the_instance_data_dir() {
 }
 
 #[test]
-fn expand_home_keeps_the_legacy_plugin_data_prefix_inside_the_instance_data_dir() {
-    let data = codeterm_paths::data_dir();
-    assert_eq!(
-        PluginManifest::expand_home("~/.codeterm"),
-        Some(data.clone())
-    );
-    assert_eq!(
-        PluginManifest::expand_home("~/.codeterm/teams-client"),
-        Some(data.join("teams-client"))
-    );
-    if let Some(home) = dirs::home_dir() {
+fn expand_home_treats_the_former_data_prefix_as_an_ordinary_home_path() {
+    let home = dirs::home_dir();
+    for suffix in [".codeterm", ".codeterm/teams-client", ".codeterm-fixture-41/x"] {
         assert_eq!(
-            PluginManifest::expand_home("~/.codeterm-fixture-41/x"),
-            Some(home.join(".codeterm-fixture-41/x"))
+            PluginManifest::expand_home(&format!("~/{suffix}")),
+            home.as_ref().map(|home| home.join(suffix))
         );
     }
 }

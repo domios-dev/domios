@@ -393,7 +393,7 @@ verify the named instance's live listener set first.
 
 **Important:** the dev CLI config is separate from prod. Dev PTYs receive the
 active data-directory CLI first on `PATH`; production shells continue using
-`~/.codeterm/bin/`. From outside a dev PTY, use the dev environment wrapper:
+`~/.domios/bin/`. From outside a dev PTY, use the dev environment wrapper:
 
 ```bash
 source evals/_lib/lib.sh
@@ -579,7 +579,7 @@ Claude Code should auto-load this skill whenever the user mentions:
 
 Don't preemptively run `./build.sh dev` on every edit — only when the user asks or when you have a Rust/prompt change that definitely needs a live binary to verify.
 
-<!-- revision: 14 -->
+<!-- revision: 15 -->
 
 ### REST listener bind recovery
 

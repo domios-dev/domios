@@ -46,22 +46,21 @@ For rebind recovery, use two disposable sessions A and B from the same runtime p
 
 ## Setup
 
-Run a dev instance with at least one Claude Tab so there's an agent to
-target:
+The DEV owner starts the intended instance through the dev-run skill. Select
+an owned disposable agent in a QA shell using the dev-locked library:
 
 ```bash
-./build.sh dev
-# Open a workspace, spawn `claude` in a tab, let it idle
-TAB=$(curl -s http://127.0.0.1:7686/api/tabs \
-  -H "Authorization: Bearer $TOKEN" \
-  | python3 -c "import sys,json;print([p['id'] for p in json.load(sys.stdin) if p.get('agent_type')=='claude'][0])")
-echo "Target tab: $TAB"
+source evals/_lib/lib.sh
+TOKEN="$(dev_token)"
+dc tab list
+# Select an owned disposable DEV agent from the list.
+TAB='<owned-dev-tab-id>'
 ```
 
 ## 1. Graceful restart
 
 ```bash
-~/.codeterm-dev/bin/codeterm agent restart --tab $TAB
+dc agent restart --tab $TAB
 ```
 
 Expected:
@@ -83,7 +82,7 @@ SIGSTOP to the PTY's child process (Windows: use Process Explorer to
 suspend the process). Then:
 
 ```bash
-~/.codeterm-dev/bin/codeterm agent restart --tab $TAB --force --grace-secs 3
+dc agent restart --tab $TAB --force --grace-secs 3
 ```
 
 Expected:
