@@ -8,6 +8,31 @@ use std::sync::Mutex;
 
 const PACKET: &str = include_str!("account-mesh-packet.json");
 
+#[tokio::test]
+async fn entitlements_challenge_uses_the_online_route_and_exact_body() {
+    let registry = registry(Ok(json!({"result":{"nonce":"fixture-nonce"}})));
+    let request = ChallengeRequest {
+        endpoint: ProofEndpoint::GetEntitlements,
+        key_id: "1".repeat(64),
+        body: json!({"installation_id":"desk-7f3a"}),
+    };
+    assert_eq!(
+        registry
+            .challenge(&session("user-1"), &request)
+            .await
+            .unwrap(),
+        "fixture-nonce"
+    );
+    assert_eq!(
+        registry.transport_calls(),
+        vec![(
+            "issueInstallationChallenge".into(),
+            "token-user-1".into(),
+            json!({"installation_id":"desk-7f3a", "key_id":"1".repeat(64), "endpoint":"getEntitlements", "body":request.body})
+        )]
+    );
+}
+
 struct Scripted {
     reply: Result<Value, CallableFailure>,
     seen: Mutex<Vec<(String, String, Value)>>,

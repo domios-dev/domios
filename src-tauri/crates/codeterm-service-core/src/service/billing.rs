@@ -86,6 +86,7 @@ impl ServiceContext {
                     adapters::cloud::Cloud::configured(
                         config.get("endpoint").and_then(|v| v.as_str()),
                         installation_id.clone(),
+                        self.account_mesh().await?.mesh.clone(),
                         self.session_revocations(),
                     )?;
                 let mut billing = Billing::new(adapter).with_grants(

@@ -78,5 +78,12 @@ impl Activation {
                 })
                 .collect(),
         })
+        .map(|policy| {
+            if self.policy_version == 2 {
+                policy.with_versions(&[1, 2])
+            } else {
+                policy
+            }
+        })
     }
 }

@@ -97,6 +97,44 @@ fn valid_verdict_is_paid() {
 }
 
 #[test]
+fn activation_accepts_policy_one_and_two_without_relaxing_other_pins() {
+    let signer = LocalSigner::new();
+    let mut activation = authority_for(&signer).activation();
+    activation.policy_version = PRODUCTION.policy_version;
+    let authority = PinnedAuthority::new(activation);
+    for version in [1, 2] {
+        let mut payload = enforced(paid());
+        payload["policy_version"] = json!(version);
+        if version == 2 {
+            payload["limits"]["teams"] = json!({"max":null,"scope":"installation"});
+            payload["limits"]["agent.tabs"] = json!({"max":null,"scope":"installation"});
+        }
+        let grant = signer.sign(&payload);
+        assert_eq!(access_of(&authority, Some(&grant), T), Authority::Billing);
+        for patch in [
+            json!({"policy_epoch":"wrong"}),
+            json!({"aud":{"project":PROJECT,"env":"live"}}),
+            json!({"policy_version":3}),
+        ] {
+            assert_eq!(
+                access_of(
+                    &authority,
+                    Some(&signer.sign(&with(payload.clone(), patch))),
+                    T
+                ),
+                Authority::Free
+            );
+        }
+        let mut wrong_key = grant;
+        wrong_key.key_id = "unknown".into();
+        assert_eq!(access_of(&authority, Some(&wrong_key), T), Authority::Free);
+    }
+    for version in [0, 3, u64::MAX] {
+        assert!(!activation.policy().unwrap().accepts_version(version));
+    }
+}
+
+#[test]
 fn flipped_signature_byte_is_free() {
     let signer = LocalSigner::new();
     let mut grant = signer.sign(&enforced(paid()));
