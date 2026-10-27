@@ -32,6 +32,10 @@ impl ServiceContext {
         scope: &KeyScope,
         generation: u64,
     ) -> Result<ReceiverStatus, String> {
+        self.require_neighbor_generation(generation)?;
+        if let Some(status) = self.neighbor_cell().receiver.lock().clone() {
+            return Ok(status);
+        }
         let result = registry
             .receiver_status_for(
                 &InstallationKeys {

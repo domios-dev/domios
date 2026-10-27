@@ -2,6 +2,21 @@ use super::{fs, Error, Result};
 use std::collections::HashSet;
 
 #[derive(Default)]
+pub(super) struct ResetBudget(u8);
+
+impl ResetBudget {
+    pub(super) fn consume(&mut self) -> Result<()> {
+        if self.0 >= 3 {
+            return Err(Error::ListenProtocol {
+                kind: "existence_filter_retry_limit",
+            });
+        }
+        self.0 += 1;
+        Ok(())
+    }
+}
+
+#[derive(Default)]
 pub(super) struct Membership {
     documents: HashSet<String>,
     observe_only: bool,

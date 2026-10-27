@@ -8,6 +8,7 @@ pub(crate) mod logout;
 mod owner;
 mod pending;
 mod receiver;
+mod snapshots;
 
 use super::storage::Metadata;
 use crate::service::ServiceContext;
@@ -27,6 +28,7 @@ use zeroize::Zeroizing;
 
 #[derive(Default)]
 pub struct NeighborRuntimeCell {
+    registry_snapshot: parking_lot::Mutex<Option<Value>>,
     owner: parking_lot::Mutex<Option<tokio::sync::mpsc::Sender<owner::Request>>>,
     generation: AtomicU64,
     listener_generation: AtomicU64,
@@ -166,6 +168,8 @@ impl ServiceContext {
         };
         let registry = Arc::new(FirebaseRegistry {
             calls: Arc::new(callable::Calls {
+                own_keys: Default::default(),
+                receiver_status: Default::default(),
                 service: self.clone(),
                 uid: uid.clone(),
                 generation: session.login_generation,
@@ -310,6 +314,12 @@ impl ServiceContext {
             scope,
             uid: &transport.uid,
         };
+        let receiver_mutation = matches!(
+            &command,
+            NeighborRuntimeCommand::Enroll { .. }
+                | NeighborRuntimeCommand::Rotate
+                | NeighborRuntimeCommand::Revoke
+        );
         let result: codeterm_neighbors::Result<Value> = async {
             match command {
                 NeighborRuntimeCommand::SetNotificationPreference {
@@ -534,6 +544,9 @@ impl ServiceContext {
             }
         }
         .await;
+        if receiver_mutation {
+            self.neighbor_cell().receiver.lock().take();
+        }
         let result = match result {
             Ok(result) => result,
             Err(error) => {
@@ -766,6 +779,7 @@ impl ServiceContext {
         &self,
         friendship: &str,
     ) -> Vec<tokio::task::JoinHandle<()>> {
+        self.forget_neighbor_registry_friendship(friendship);
         let mut targets = vec![];
         {
             let mut listeners = self.neighbor_cell().listeners.lock();
@@ -829,6 +843,8 @@ impl ServiceContext {
     }
 
     pub(super) fn pause_neighbor_reception(&self) {
+        self.forget_neighbor_registry();
+        self.neighbor_cell().receiver.lock().take();
         if let Some(task) = self.neighbor_cell().control.lock().take() {
             task.abort();
         }
@@ -879,9 +895,14 @@ impl ServiceContext {
                 .await
                 .map_err(|e| e.to_string())?;
         }
-        let friends = self
-            .neighbor_registry(super::NeighborCommand::List {})
-            .await?;
+        let cached_friends = self.neighbor_cell().registry_snapshot.lock().clone();
+        let friends = match cached_friends {
+            Some(friends) => friends,
+            None => {
+                self.neighbor_registry(super::NeighborCommand::List {})
+                    .await?
+            }
+        };
         self.remember_neighbor_names(&friends);
         if friends.get("access").and_then(Value::as_str) != Some("paid") {
             self.stop_neighbor_listeners();
@@ -976,6 +997,7 @@ impl ServiceContext {
     }
 
     pub(crate) fn neighbor_identity_changed(&self) {
+        self.forget_neighbor_registry();
         self.neighbor_cell().names.lock().clear();
         if let Some(task) = self.neighbor_cell().control.lock().take() {
             task.abort();

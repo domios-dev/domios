@@ -116,6 +116,10 @@ impl ServiceContext {
             if !same_session(account.session().await.as_ref(), &session) {
                 return Err("Account changed while listing Neighbors".into());
             }
+            self.require_neighbor_generation(history_generation)?;
+            self.remember_neighbor_registry(&result);
+        } else if name != "friendsRemove" {
+            self.forget_neighbor_registry();
         }
         if name == "claimReferralTrial" && referral::refresh_required(&result)? {
             self.refresh_billing(codeterm_billing::RefreshEvent::Explicit)

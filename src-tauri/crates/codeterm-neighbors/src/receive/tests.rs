@@ -5,6 +5,7 @@ use crate::wire::PeerKey;
 use std::sync::Mutex;
 
 struct Fixture {
+    peer_reads: Mutex<usize>,
     events: Mutex<Vec<&'static str>>,
     cursor: Mutex<Option<Cursor>>,
     fail_ack: Mutex<bool>,
@@ -16,6 +17,7 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         Self {
+            peer_reads: Mutex::new(0),
             events: Mutex::new(vec![]),
             cursor: Mutex::new(None),
             fail_ack: Mutex::new(false),
@@ -64,6 +66,7 @@ impl NeighborTransport for Fixture {
         }
     }
     async fn peer_keys(&self, _: &str) -> Result<PeerKeys> {
+        *self.peer_reads.lock().unwrap() += 1;
         Ok(self.peers())
     }
     async fn delivery_status(&self, _: &str) -> Result<DeliveryResult> {
@@ -150,6 +153,51 @@ const NOW: Timestamp = Timestamp {
     seconds: 50,
     nanoseconds: 0,
 };
+
+#[tokio::test]
+async fn peer_keys_are_read_once_per_nonduplicate_batch_and_never_reused_across_batches() {
+    let fixture = Fixture::new();
+    let keys = recipient();
+    let template = message();
+    let vector = vector();
+    let sender = crate::crypto::tests::keys(
+        vector["senderSeed"].as_str().unwrap(),
+        vector["seed"].as_str().unwrap(),
+    );
+    let message = |id| {
+        let mut message = template.clone();
+        message.doc.envelope.message_id = format!("{id:032x}");
+        message.doc.signature = sender.sign(message.doc.envelope.clone()).unwrap().signature;
+        message.id = format!(
+            "{}_{}",
+            message.doc.envelope.sender_uid, message.doc.envelope.message_id
+        );
+        message.doc.received_at.seconds += id;
+        message
+    };
+    let mut receiver = receiver(&fixture, &keys, &template);
+    assert_eq!(
+        receiver
+            .catch_up(&mut [message(1), message(2)], NOW)
+            .await
+            .unwrap(),
+        vec![ReceiveOutcome::Delivered, ReceiveOutcome::Delivered]
+    );
+    assert_eq!(*fixture.peer_reads.lock().unwrap(), 1);
+    assert_eq!(
+        receiver.catch_up(&mut [message(3)], NOW).await.unwrap(),
+        vec![ReceiveOutcome::Delivered]
+    );
+    assert_eq!(*fixture.peer_reads.lock().unwrap(), 2);
+    assert_eq!(
+        receiver
+            .catch_up(&mut [message(1), message(2)], NOW)
+            .await
+            .unwrap(),
+        vec![ReceiveOutcome::Duplicate, ReceiveOutcome::Duplicate]
+    );
+    assert_eq!(*fixture.peer_reads.lock().unwrap(), 2);
+}
 
 #[tokio::test]
 async fn verified_decrypted_gateway_delivery_precedes_ack_and_cursor() {

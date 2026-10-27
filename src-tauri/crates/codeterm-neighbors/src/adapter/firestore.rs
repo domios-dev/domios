@@ -158,6 +158,7 @@ async fn listen_mode(
         pending: None,
         membership: watch::Membership::new(observe_only),
         resetting: false,
+        reset_budget: Default::default(),
         calls: transport.calls.clone(),
     }))
 }
@@ -166,6 +167,7 @@ struct Listener {
     observe_only: bool,
     dirty: bool,
     resetting: bool,
+    reset_budget: watch::ResetBudget,
     membership: watch::Membership,
     calls: std::sync::Arc<dyn AuthenticatedCall>,
     client: FirestoreClient<Channel>,
@@ -199,6 +201,7 @@ impl Listener {
     }
 
     async fn reset_target(&mut self) -> Result<()> {
+        self.reset_budget.consume()?;
         let sender = self.requests.as_ref().ok_or(Error::ListenProtocol {
             kind: "request_stream_missing",
         })?;

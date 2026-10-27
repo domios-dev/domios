@@ -83,4 +83,8 @@ History, permission, notification-preference and status reads use local files an
 
 Accepting the same person again reactivates their retained history from the authoritative friendship's newer `since` value. Prior entries remain bounded and available. An ended conversation that has not been reactivated refuses new appends with `friendship_ended` (HTTP 409), independently of installation-key state. Local send failures retain the daemon's diagnostic text in the messaging alert.
 
-<!-- revision: 15 -->
+Receiver and registry snapshots are reused until their watches or account state change. Missing or failed freshness watches stop reception and invalidate those snapshots; receiving lifecycle mutations also invalidate the receiver snapshot. Own-key and receiver lookups are shared within an operation and invalidated before key/receiver mutations. Each incoming batch reads the peer's active keys once, with full verification for every message; peer keys are not cached across batches without a trusted rotation/revocation signal.
+
+An inbox stream may re-add its target at most three times for existence-filter mismatches. Exhaustion stops reception with `existence_filter_retry_limit` until an explicit Retry reception. Durable delivery cursors remain intact, and a retry resumes through the existing catch-up path.
+
+<!-- revision: 16 -->
