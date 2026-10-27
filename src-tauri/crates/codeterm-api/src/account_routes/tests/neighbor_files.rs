@@ -12,7 +12,9 @@ async fn file_refusals_preserve_quota_fields_and_http_status() {
     ] {
         let response = neighbor_failure(format!("{reason}: {{\"reason\":\"{reason}\",\"limit_bytes\":52428800,\"limit_files\":25,\"resets_at\":1234}}"));
         assert_eq!(response.status(), status);
-        let bytes = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+        let bytes = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
         let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(body["reason"], reason);
         assert_eq!(body["code"], reason);
@@ -28,6 +30,8 @@ async fn file_endpoint_rejects_nonlocal_callers_before_dispatch() {
     let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
     let state = crate::transport_tabs::fixture::app_state(&fixture);
     let input = serde_json::json!({"operation":"list","friendship_id":"a".repeat(64)});
-    let response = crate::account_routes::neighbor_files(State(state), None, Json(input)).await.unwrap_err();
+    let response = crate::account_routes::neighbor_files(State(state), None, Json(input))
+        .await
+        .unwrap_err();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }

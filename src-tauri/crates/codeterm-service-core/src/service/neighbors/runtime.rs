@@ -10,8 +10,8 @@ mod owner;
 mod pending;
 mod receiver;
 mod restoration;
-mod snapshots;
 mod send;
+mod snapshots;
 
 use super::storage::Metadata;
 use crate::service::ServiceContext;
@@ -116,7 +116,10 @@ struct Outgoing {
 
 enum OutboundBody {
     Granted(Zeroizing<String>),
-    Files { text: Zeroizing<String>, paths: Vec<String> },
+    Files {
+        text: Zeroizing<String>,
+        paths: Vec<String>,
+    },
     Refusal,
 }
 

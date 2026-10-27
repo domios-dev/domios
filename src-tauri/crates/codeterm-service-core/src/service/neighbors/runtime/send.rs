@@ -76,9 +76,10 @@ impl ServiceContext {
                 permission.require(kind)?;
                 (text, paths)
             }
-            OutboundBody::Refusal if refusal => {
-                (Zeroizing::new(codeterm_neighbors::gateway::REFUSAL_BODY.to_owned()), vec![])
-            }
+            OutboundBody::Refusal if refusal => (
+                Zeroizing::new(codeterm_neighbors::gateway::REFUSAL_BODY.to_owned()),
+                vec![],
+            ),
             _ => return Err(Error::Gateway),
         };
         let keys = lifecycle.load().await?.ok_or(Error::Revoked)?;
@@ -115,9 +116,9 @@ impl ServiceContext {
             verifier_key_id: keys.verifier_key_id(&transport.uid),
             issued_at: now().seconds,
         };
-        let (body, visible_body, attachments) = self.prepare_neighbor_files(
-            transport, metadata, &envelope, body, paths,
-        ).await?;
+        let (body, visible_body, attachments) = self
+            .prepare_neighbor_files(transport, metadata, &envelope, body, paths)
+            .await?;
         keys.encrypt(
             &mut envelope,
             &peer.encryption_public_key_spki_b64,
@@ -209,5 +210,4 @@ impl ServiceContext {
             rejection: None,
         })
     }
-
 }

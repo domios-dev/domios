@@ -177,12 +177,15 @@ impl Receiver<'_> {
             }
         };
         let envelope = &message.doc.envelope;
-        if let Err(reason) = crate::files::AttachmentBody::parse(&plaintext, &crate::files::Binding {
-            friendship_id: &envelope.friendship_id,
-            sender_uid: &envelope.sender_uid,
-            recipient_uid: &envelope.recipient_uid,
-            message_id: &envelope.message_id,
-        }) {
+        if let Err(reason) = crate::files::AttachmentBody::parse(
+            &plaintext,
+            &crate::files::Binding {
+                friendship_id: &envelope.friendship_id,
+                sender_uid: &envelope.sender_uid,
+                recipient_uid: &envelope.recipient_uid,
+                message_id: &envelope.message_id,
+            },
+        ) {
             self.cursors.save(self.friendship_id, &cursor).await?;
             return Ok(ReceiveOutcome::Rejected(reason));
         }

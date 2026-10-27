@@ -72,7 +72,10 @@ impl ServiceContext {
     ) -> Result<Outcome, String> {
         self.require_neighbor_generation(generation)?;
         match operation {
-            Operation::Files(command) => self.neighbor_files_owned(command, generation).await.map(Outcome::Value),
+            Operation::Files(command) => self
+                .neighbor_files_owned(command, generation)
+                .await
+                .map(Outcome::Value),
             Operation::ReceiverChanged | Operation::RegistryChanged => {
                 let (transport, registry, scope, metadata) = self.neighbor_ports().await?;
                 self.start_neighbor_listeners(

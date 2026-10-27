@@ -2,10 +2,22 @@ use super::*;
 use crate::service::tab_credentials::TabCaller;
 
 impl ServiceContext {
-    pub(super) async fn neighbor_file_local(&self, command: &Command, concierge: Option<&TabCaller>) -> Result<Value, String> {
+    pub(super) async fn neighbor_file_local(
+        &self,
+        command: &Command,
+        concierge: Option<&TabCaller>,
+    ) -> Result<Value, String> {
         let generation = self.neighbor_history_generation();
-        let account = self.ext::<crate::service::account::AccountCell>().0.get().cloned().ok_or("Sign in to use Neighbor files")?;
-        let session = account.session().await.ok_or("Sign in to use Neighbor files")?;
+        let account = self
+            .ext::<crate::service::account::AccountCell>()
+            .0
+            .get()
+            .cloned()
+            .ok_or("Sign in to use Neighbor files")?;
+        let session = account
+            .session()
+            .await
+            .ok_or("Sign in to use Neighbor files")?;
         let metadata = Metadata::new(self.account_data_root()?, &session.identity.uid);
         let friendship = command.friendship();
         let value: codeterm_neighbors::Result<Value> = async {
@@ -47,7 +59,10 @@ impl ServiceContext {
         if !crate::service::neighbors::same_session(account.session().await.as_ref(), &session) {
             return Err("neighbor_forbidden: Neighbor account changed".into());
         }
-        if let Some(caller) = concierge { self.authorize_neighbor_file_read(caller, friendship).await?; }
+        if let Some(caller) = concierge {
+            self.authorize_neighbor_file_read(caller, friendship)
+                .await?;
+        }
         value.map_err(|error| error.to_string())
     }
 }

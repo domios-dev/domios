@@ -5,12 +5,22 @@ use codeterm_neighbors::{files::transfer::ReceivePorts, wire::InboxMessage};
 #[cfg(test)]
 mod tests;
 
-pub(in crate::service::neighbors::runtime) async fn prefetch(session: &listener::Session) -> codeterm_neighbors::Result<()> {
+pub(in crate::service::neighbors::runtime) async fn prefetch(
+    session: &listener::Session,
+) -> codeterm_neighbors::Result<()> {
     use codeterm_neighbors::{keys::RecipientKeys, receive::InboxEvent, supervisor::InboxSession};
     session.current()?;
     let cursor = session.metadata.load(&session.friendship).await?;
-    let mut inbox = session.transport.listen_from_cursor(&session.friendship, cursor.as_ref()).await?;
-    let lifecycle = InstallationKeys { store: &OsKeyStore, registry: session.registry.as_ref(), scope: session.scope.clone(), uid: &session.transport.uid };
+    let mut inbox = session
+        .transport
+        .listen_from_cursor(&session.friendship, cursor.as_ref())
+        .await?;
+    let lifecycle = InstallationKeys {
+        store: &OsKeyStore,
+        registry: session.registry.as_ref(),
+        scope: session.scope.clone(),
+        uid: &session.transport.uid,
+    };
     loop {
         let event = tokio::select! {
             biased;
@@ -19,23 +29,41 @@ pub(in crate::service::neighbors::runtime) async fn prefetch(session: &listener:
         };
         session.current()?;
         match event {
-            Some(InboxEvent::Ready) => {},
+            Some(InboxEvent::Ready) => {}
             Some(InboxEvent::Messages(messages)) => {
                 let peers = session.transport.peer_keys(&session.friendship).await?;
                 for message in messages {
                     session.current()?;
-                    if message.doc.envelope.friendship_id != session.friendship { return Err(Error::WrongPeer); }
-                    let peer = match session.transport.verify(&message.doc, &peers, &session.transport.uid, super::super::now()) {
+                    if message.doc.envelope.friendship_id != session.friendship {
+                        return Err(Error::WrongPeer);
+                    }
+                    let peer = match session.transport.verify(
+                        &message.doc,
+                        &peers,
+                        &session.transport.uid,
+                        super::super::now(),
+                    ) {
                         Ok(peer) => peer,
                         Err(_) => continue,
                     };
                     let plaintext = match lifecycle.decrypt_for(&message.doc.envelope, peer).await {
                         Ok(plaintext) => plaintext,
-                        Err(Error::Decryption | Error::InvalidEnvelope | Error::InvalidKey) => continue,
+                        Err(Error::Decryption | Error::InvalidEnvelope | Error::InvalidKey) => {
+                            continue
+                        }
                         Err(error) => return Err(error),
                     };
-                    match session.service.receive_neighbor_files(&session.metadata, &message, plaintext, session.generation).await {
-                        Ok(_) | Err(Error::InvalidEnvelope | Error::MessageTooLarge { .. }) => {},
+                    match session
+                        .service
+                        .receive_neighbor_files(
+                            &session.metadata,
+                            &message,
+                            plaintext,
+                            session.generation,
+                        )
+                        .await
+                    {
+                        Ok(_) | Err(Error::InvalidEnvelope | Error::MessageTooLarge { .. }) => {}
                         Err(error) => return Err(error),
                     }
                 }
@@ -47,14 +75,23 @@ pub(in crate::service::neighbors::runtime) async fn prefetch(session: &listener:
 
 impl ServiceContext {
     pub(in crate::service::neighbors::runtime) async fn receive_neighbor_files(
-        &self, metadata: &Metadata, message: &InboxMessage, plaintext: Zeroizing<String>, listener_generation: u64,
+        &self,
+        metadata: &Metadata,
+        message: &InboxMessage,
+        plaintext: Zeroizing<String>,
+        listener_generation: u64,
     ) -> codeterm_neighbors::Result<Zeroizing<String>> {
         let envelope = &message.doc.envelope;
-        let Some(body) = AttachmentBody::parse(&plaintext, &binding(envelope))? else { return Ok(plaintext) };
+        let Some(body) = AttachmentBody::parse(&plaintext, &binding(envelope))? else {
+            return Ok(plaintext);
+        };
         let visible = Zeroizing::new(body.agent_text());
         let (transport, _, _, _) = self.neighbor_ports().await.map_err(|_| Error::Transport)?;
         for manifest in &body.attachments {
-            let id = format!("{}:{}:{}", envelope.recipient_uid, envelope.sender_uid, manifest.file_id);
+            let id = format!(
+                "{}:{}:{}",
+                envelope.recipient_uid, envelope.sender_uid, manifest.file_id
+            );
             let lock = {
                 let mut transfers = self.file_cell().transfers.lock();
                 transfers.retain(|_, weak| weak.strong_count() > 0);
@@ -68,22 +105,67 @@ impl ServiceContext {
                 }
             };
             let _transfer = lock.lock().await;
-            let ports = Ports { service: self, metadata, transport: transport.as_ref(), envelope, listener_generation };
+            let ports = Ports {
+                service: self,
+                metadata,
+                transport: transport.as_ref(),
+                envelope,
+                listener_generation,
+            };
             ports.current()?;
             let entries = metadata.file_entries(&envelope.friendship_id).await?;
-            if entries.iter().any(|entry| entry.file_id == manifest.file_id && entry.direction == "in" && matches!(entry.state.as_str(), "saved" | "failed" | "expired")) {
+            if entries.iter().any(|entry| {
+                entry.file_id == manifest.file_id
+                    && entry.direction == "in"
+                    && matches!(entry.state.as_str(), "saved" | "failed" | "expired")
+            }) {
                 continue;
             }
-            self.record_neighbor_file(metadata, &envelope.friendship_id, storage::Entry::new(manifest, envelope, "in", "downloading")).await?;
-            let result = codeterm_neighbors::files::transfer::receive(&ports, manifest, &binding(envelope)).await;
+            self.record_neighbor_file(
+                metadata,
+                &envelope.friendship_id,
+                storage::Entry::new(manifest, envelope, "in", "downloading"),
+            )
+            .await?;
+            let result =
+                codeterm_neighbors::files::transfer::receive(&ports, manifest, &binding(envelope))
+                    .await;
             if let Err(error) = result {
                 ports.current()?;
-                let already_saved = metadata.file_entries(&envelope.friendship_id).await?.iter().any(|entry| entry.file_id == manifest.file_id && entry.direction == "in" && entry.state == "saved");
+                let already_saved = metadata
+                    .file_entries(&envelope.friendship_id)
+                    .await?
+                    .iter()
+                    .any(|entry| {
+                        entry.file_id == manifest.file_id
+                            && entry.direction == "in"
+                            && entry.state == "saved"
+                    });
                 if !already_saved {
-                    let state = if matches!(error, Error::File(files::refusal::Failure { reason: files::refusal::Reason::FileNotFound, .. })) { "expired" } else { "failed" };
-                    self.record_neighbor_file(metadata, &envelope.friendship_id, storage::Entry::new(manifest, envelope, "in", state)).await?;
+                    let state = if matches!(
+                        error,
+                        Error::File(files::refusal::Failure {
+                            reason: files::refusal::Reason::FileNotFound,
+                            ..
+                        })
+                    ) {
+                        "expired"
+                    } else {
+                        "failed"
+                    };
+                    self.record_neighbor_file(
+                        metadata,
+                        &envelope.friendship_id,
+                        storage::Entry::new(manifest, envelope, "in", state),
+                    )
+                    .await?;
                 }
-                if matches!(error, Error::Revoked | Error::SessionRevoked | Error::NotReceiver | Error::Disabled) { return Err(error); }
+                if matches!(
+                    error,
+                    Error::Revoked | Error::SessionRevoked | Error::NotReceiver | Error::Disabled
+                ) {
+                    return Err(error);
+                }
             }
         }
         Ok(visible)
@@ -102,7 +184,15 @@ impl Ports<'_> {
     fn current(&self) -> codeterm_neighbors::Result<()> {
         self.service.require_neighbors_enabled()?;
         self.service.require_neighbor_receiver(None)?;
-        if self.service.neighbor_cell().listener_generation.load(Ordering::Acquire) != self.listener_generation { return Err(Error::Revoked); }
+        if self
+            .service
+            .neighbor_cell()
+            .listener_generation
+            .load(Ordering::Acquire)
+            != self.listener_generation
+        {
+            return Err(Error::Revoked);
+        }
         Ok(())
     }
 }
@@ -113,35 +203,72 @@ impl ReceivePorts for Ports<'_> {
         self.current()?;
         let result = self.transport.calls.invoke("friendsFileDownload", json!({"installation_id":self.transport.installation_id,"file_id":manifest.file_id,"sender_uid":self.envelope.sender_uid})).await?;
         self.current()?;
-        if result["schema_version"] != 1 || result["file_id"] != manifest.file_id || result["ciphertext_size"] != manifest.ciphertext_size || result["ciphertext_sha256"] != manifest.ciphertext_sha256 { return Err(Error::Decryption); }
-        let encoded = result["ciphertext_b64url"].as_str().ok_or(Error::Transport)?.to_owned();
+        if result["schema_version"] != 1
+            || result["file_id"] != manifest.file_id
+            || result["ciphertext_size"] != manifest.ciphertext_size
+            || result["ciphertext_sha256"] != manifest.ciphertext_sha256
+        {
+            return Err(Error::Decryption);
+        }
+        let encoded = result["ciphertext_b64url"]
+            .as_str()
+            .ok_or(Error::Transport)?
+            .to_owned();
         let size = manifest.ciphertext_size;
-        tokio::task::spawn_blocking(move || codeterm_neighbors::wire::decode_url(&encoded, size, size))
-            .await.map_err(|_| Error::Decryption)?
+        tokio::task::spawn_blocking(move || {
+            codeterm_neighbors::wire::decode_url(&encoded, size, size)
+        })
+        .await
+        .map_err(|_| Error::Decryption)?
     }
-    async fn verify(&self, manifest: &Manifest, _: &Binding<'_>, object: Vec<u8>) -> codeterm_neighbors::Result<Zeroizing<Vec<u8>>> {
+    async fn verify(
+        &self,
+        manifest: &Manifest,
+        _: &Binding<'_>,
+        object: Vec<u8>,
+    ) -> codeterm_neighbors::Result<Zeroizing<Vec<u8>>> {
         self.current()?;
         let envelope = self.envelope.clone();
         let manifest = manifest.clone();
-        let plaintext = tokio::task::spawn_blocking(move || manifest.open(&binding(&envelope), &object)).await.map_err(|_| Error::Decryption)??;
+        let plaintext =
+            tokio::task::spawn_blocking(move || manifest.open(&binding(&envelope), &object))
+                .await
+                .map_err(|_| Error::Decryption)??;
         self.current()?;
         Ok(plaintext)
     }
-    async fn save(&self, manifest: &Manifest, plaintext: Zeroizing<Vec<u8>>) -> codeterm_neighbors::Result<()> {
+    async fn save(
+        &self,
+        manifest: &Manifest,
+        plaintext: Zeroizing<Vec<u8>>,
+    ) -> codeterm_neighbors::Result<()> {
         self.current()?;
         let entry = storage::Entry::new(manifest, self.envelope, "in", "saved");
         let metadata = self.metadata.clone();
         let friendship = self.envelope.friendship_id.clone();
-        let folder = tokio::task::spawn_blocking(move || metadata.friend_folder(&friendship)).await.map_err(|_| Error::CursorStore)??;
+        let folder = tokio::task::spawn_blocking(move || metadata.friend_folder(&friendship))
+            .await
+            .map_err(|_| Error::CursorStore)??;
         self.current()?;
         storage::save(folder, entry.clone(), plaintext).await?;
         self.current()?;
-        self.service.record_neighbor_file(self.metadata, &self.envelope.friendship_id, entry).await
+        self.service
+            .record_neighbor_file(self.metadata, &self.envelope.friendship_id, entry)
+            .await
     }
-    async fn confirm(&self, manifest: &Manifest, outcome: &'static str) -> codeterm_neighbors::Result<()> {
+    async fn confirm(
+        &self,
+        manifest: &Manifest,
+        outcome: &'static str,
+    ) -> codeterm_neighbors::Result<()> {
         self.current()?;
         let result = self.transport.calls.invoke("friendsFileConfirm", json!({"installation_id":self.transport.installation_id,"file_id":manifest.file_id,"sender_uid":self.envelope.sender_uid,"outcome":outcome})).await?;
-        if result["schema_version"] != 1 || result["file_id"] != manifest.file_id || result["state"] != "deleted" { return Err(Error::Transport); }
+        if result["schema_version"] != 1
+            || result["file_id"] != manifest.file_id
+            || result["state"] != "deleted"
+        {
+            return Err(Error::Transport);
+        }
         self.current()
     }
 }

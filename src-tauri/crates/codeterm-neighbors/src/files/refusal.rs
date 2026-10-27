@@ -30,7 +30,13 @@ pub struct Failure {
 
 impl Failure {
     pub fn too_large() -> Self {
-        Self { reason: Reason::FileTooLarge, limit_bytes: Some((super::MAX_FILE_BYTES - super::FILE_OVERHEAD) as u64), limit_files: None, resets_at: None, retry_after_seconds: None }
+        Self {
+            reason: Reason::FileTooLarge,
+            limit_bytes: Some((super::MAX_FILE_BYTES - super::FILE_OVERHEAD) as u64),
+            limit_files: None,
+            resets_at: None,
+            retry_after_seconds: None,
+        }
     }
 
     pub fn from_callable(body: &serde_json::Value) -> Option<Self> {
