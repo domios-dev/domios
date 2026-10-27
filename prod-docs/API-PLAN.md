@@ -12,7 +12,7 @@ After a committed restoration, rollback must preserve the current nonce and rece
 
 ### Durable task keys and references
 
-Every socket, REST, and CLI argument that names a task accepts its `task_xxxxxx` id, its handle, or its human key (`PREFIX-N`, any case). The id stays primary. A new key is issued once from the plan's owning local workspace: a 2-4 character uppercase prefix derived from the workspace name (collisions take the next deterministic candidate), fixed by the first key, plus a counter that never decreases or reuses a number. A legacy task stores no `key`; its display key is its id without `task_`, uppercased. An exact id wins; a handle and key naming different tasks are refused as `ref_ambiguous`. Task list/detail JSON carries `display_key` beside `task.id` (`task.key` only when stored), sibling/parent labels carry `display_key`, and `plan.task.add`, `POST /api/plans/{id}/tasks`, and `POST /api/tasks` return `key`.
+Every socket, REST, and CLI argument that names a task accepts its `task_xxxxxx` id, its handle, or its human key (`PREFIX-N`, any case). The id stays primary. A new key is issued once from the plan's owning local workspace: a 2-4 character uppercase prefix derived from the workspace name (collisions take the next deterministic candidate), fixed by the first key, plus a counter that never decreases or reuses a number. A legacy task stores no `key`; its display key is its id without `task_`, uppercased. An exact id wins; a handle and key naming different tasks are refused as `ref_ambiguous`. Task list/detail JSON carries `display_key` beside `task.id` (`task.key` only when stored), sibling/parent labels carry `display_key`, and `plan.task.add` and `POST /api/plans/{id}/tasks` return `key`.
 
 `plan task add|update --group <key>` declares an unknown group with its key as label (`plan groups set` relabels), so `plan groups close` accepts every group a heartbeat names.
 
@@ -77,6 +77,14 @@ The immediate response to `plan.task.dispatch` reports `state` `awaiting_worker_
 The Plan Orchestrator can create child tasks beneath an in-progress task with `domios plan task split <plan> <task> --child <name>` or a JSON child file. Children inherit the parent's sections, tags (including its `work:<value>`), executor role, model routing, and quality fields unless overridden; a child tag replaces the inherited tag of the same facet key. They retain the same plan approval and may be dispatched while the parent remains in progress; each dispatch provisions the child's own lane. Task detail and plan state expose child statuses, and the parent presents as `blocked_on_subtasks` while any child is open. Marking the parent done or cancelled is refused until all children are done or cancelled. Worker briefs carry the parent task id; a Worker may propose children in its report but cannot dispatch or spawn them.
 
 
+
+### Workspace Radar
+
+Radar holds items noticed in a workspace before any plan owns them. An item has an `rd_` id, a title, an optional body and tags, a status (`open` or `pulled`) and an optional source identity: `provider`, `external_id`, `url`. Items persist one file each beside the plan database and belong to the workspace root of the path that created them. Adding an item whose `(provider, external_id)` already exists in that workspace refreshes the title, body, tags and URL of the same item and returns `created: false`; this is the seam an integration uses to import from GitHub, Linear or similar systems without duplicates.
+
+Socket methods: `radar.add` (`project`, `title`, optional `body`, `tags`, `source_provider` with `source_id`, `source_url`), `radar.list` (optional `project`, `status` of `open` (default), `pulled` or `all`, `tag`, `provider`, `query`), `radar.show`, `radar.update` (`item_id` plus any of `title`, `body`, `tags`), `radar.drop` and `radar.pull` (`item_id`, `plan_id`, optional `type`, `sections`). CLI: `domios radar add|list|show|edit|drop|pull`. Local integrations without the socket reach the same methods through the authenticated loopback `POST /api/cli/rpc` route.
+
+`radar.pull` creates one task in an active plan of the item's own workspace, under the same caller authority as `plan.task.add`. The task takes the item's title and body; a GitHub issue URL in the source becomes the task's external reference. The item becomes `pulled` and records `{plan_id, task_id, pulled_at}`; a second pull is refused with that link. Dropping an item deletes it and never touches a task it was pulled into. The earlier hidden Inbox plan and `domios inbox add` are gone: on start, every task of that legacy plan becomes an open Radar item, with its criteria, plans and legacy state folded into the body, and the hidden plan is deleted.
 
 ### Lane cleanup progress
 
@@ -169,8 +177,7 @@ Task writes require current caller, session and binding authority (API). Executi
 | POST | `/api/plans/{id}/unarchive` | Unarchive the plan. |
 | POST | `/api/specs` | Create a specification. |
 | POST | `/api/specs/{id}/sections` | Add a section. |
-| POST | `/api/tasks` | Create a task. |
 | POST | `/api/tasks/{id}/drop` | Drop task ownership. |
 | POST | `/api/tasks/{id}/take` | Take task ownership. |
 
-<!-- revision: 39 -->
+<!-- revision: 40 -->

@@ -84,11 +84,7 @@ fn plan_id_from_path(path: &Path) -> Option<String> {
         if stem.is_empty() {
             return None;
         }
-        return Some(if stem == crate::plan::INBOX_PLAN_FILE_STEM {
-            crate::plan::INBOX_PLAN_ID.to_string()
-        } else {
-            stem.to_string()
-        });
+        return Some(stem.to_string());
     }
     None
 }
@@ -136,16 +132,6 @@ mod tests {
         assert_eq!(
             plan_id_from_path(Path::new("/tmp/project/.domios/plans/archive/pl_2")),
             Some("pl_2".into())
-        );
-    }
-
-    #[test]
-    fn plan_id_maps_inbox_stem() {
-        assert_eq!(
-            plan_id_from_path(Path::new(
-                "/tmp/project/.domios/plans/active/_inbox/plan.json"
-            )),
-            Some(crate::plan::INBOX_PLAN_ID.into())
         );
     }
 

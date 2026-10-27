@@ -1,10 +1,10 @@
 use super::*;
 use crate::args::agent::AgentAction;
 use crate::args::delayed::DelayedAction;
-use crate::args::inbox::InboxAction;
 use crate::args::mem::MemAction;
 use crate::args::misc::TabAction;
 use crate::args::orchestrator::OrchestratorAction;
+use crate::args::radar::RadarAction;
 use crate::args::task::TaskAction;
 use clap::{CommandFactory, Parser};
 
@@ -37,9 +37,9 @@ struct TaskOnly {
 }
 
 #[derive(Parser)]
-struct InboxOnly {
+struct RadarOnly {
     #[command(subcommand)]
-    action: InboxAction,
+    action: RadarAction,
 }
 
 #[derive(Parser)]
@@ -267,20 +267,51 @@ fn task_show_parses_siblings_flags() {
 }
 
 #[test]
-fn standalone_task_add_parses_qa_plan_file() {
-    let parsed = InboxOnly::try_parse_from([
-        "inbox",
+fn radar_add_parses_repeated_tags_and_source_identity() {
+    let parsed = RadarOnly::try_parse_from([
+        "radar",
         "add",
-        "--name",
-        "QA lifecycle",
-        "--qa-plan-file",
-        "qa-plan.md",
+        "--title",
+        "Noticed",
+        "--tag",
+        "ux",
+        "--tag",
+        "mesh",
+        "--source-provider",
+        "github",
+        "--source-id",
+        "acme/widgets#4",
     ])
-    .expect("inbox add --qa-plan-file parses");
+    .expect("radar add parses");
     match parsed.action {
-        InboxAction::Add { qa_plan_file, .. } => {
-            assert_eq!(qa_plan_file.as_deref(), Some("qa-plan.md"))
+        RadarAction::Add {
+            title,
+            tag,
+            source_provider,
+            source_id,
+            ..
+        } => {
+            assert_eq!(title, "Noticed");
+            assert_eq!(tag, ["ux", "mesh"]);
+            assert_eq!(source_provider.as_deref(), Some("github"));
+            assert_eq!(source_id.as_deref(), Some("acme/widgets#4"));
         }
+        _ => panic!("expected radar add"),
+    }
+}
+
+#[test]
+fn radar_refuses_conflicting_workspace_and_tag_flags() {
+    for argv in [
+        vec!["radar", "list", "--project", "/w", "--all-workspaces"],
+        vec!["radar", "edit", "rd_1", "--tag", "ux", "--clear-tags"],
+        vec!["radar", "list", "--status", "done"],
+        vec!["radar", "pull", "rd_1"],
+    ] {
+        assert!(
+            RadarOnly::try_parse_from(argv.clone()).is_err(),
+            "{argv:?} must not parse"
+        );
     }
 }
 
@@ -293,6 +324,7 @@ fn removed_spellings_are_rejected() {
         vec!["codeterm", "notify", "hello"],
         vec!["codeterm", "orchestration", "new"],
         vec!["codeterm", "task", "add", "--name", "x"],
+        vec!["codeterm", "inbox", "add", "--name", "x"],
     ] {
         assert!(
             Cli::try_parse_from(argv.clone()).is_err(),
@@ -356,13 +388,13 @@ fn retained_spellings_still_parse() {
         }
     ));
 
-    let inbox =
-        Cli::try_parse_from(["codeterm", "inbox", "add", "--name", "x"]).expect("inbox add parses");
+    let radar = Cli::try_parse_from(["codeterm", "radar", "pull", "rd_1", "--plan", "pl_1"])
+        .expect("radar pull parses");
     assert!(matches!(
-        inbox.command,
-        Commands::Inbox {
-            action: InboxAction::Add { ref name, .. }
-        } if name == "x"
+        radar.command,
+        Commands::Radar {
+            action: RadarAction::Pull { ref item_id, ref plan, .. }
+        } if item_id == "rd_1" && plan == "pl_1"
     ));
 
     for leaf in [
@@ -522,7 +554,7 @@ fn task_read_leaves_are_preserved() {
     ));
     assert!(
         Cli::try_parse_from(["codeterm", "inbox", "list"]).is_err(),
-        "the inbox group holds only `add`"
+        "the inbox group is gone; Radar replaces it"
     );
 }
 

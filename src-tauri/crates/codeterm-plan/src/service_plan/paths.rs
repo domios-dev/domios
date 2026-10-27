@@ -156,14 +156,9 @@ pub fn plan_state_dir_unchecked(
     status: &crate::plan::PlanStatus,
     plan_id: &str,
 ) -> PathBuf {
-    let stem = if plan_id == crate::plan::INBOX_PLAN_ID {
-        crate::plan::INBOX_PLAN_FILE_STEM
-    } else {
-        plan_id
-    };
     plan_state_root_for(project)
         .join(plan_bucket(status))
-        .join(stem)
+        .join(plan_id)
 }
 
 pub fn plan_json_path(

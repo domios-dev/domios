@@ -152,8 +152,8 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
             Commands::Task { action } => {
                 crate::cmd::task::handle_task(&mut client, cli.json, action)
             }
-            Commands::Inbox { action } => {
-                crate::cmd::task::handle_inbox(&mut client, cli.json, action)
+            Commands::Radar { action } => {
+                crate::cmd::radar::handle_radar(&mut client, cli.json, action)
             }
             _ => unreachable!(),
         }

@@ -1,38 +1,10 @@
-use std::io::Read;
-
-use crate::args::inbox::InboxAction;
 use crate::args::task::{CanvasAction, TaskAction};
 use crate::client::RpcClient;
-use crate::cmd::hints::{
-    extract_hints_from_value, maybe_orchestration_reminder, print_hints_stderr, push_hints,
-    task_model_hint, task_quality_guard_hint, task_sections_hint,
-};
+use crate::cmd::hints::{extract_hints_from_value, print_hints_stderr};
 use crate::cmd::plan::inject_trusted_session;
 use crate::cmd::plan_output::canonical_mutation_id;
 use crate::cmd::print::{exit_with_cli_error, print_object, CliError};
 use serde_json::{json, Value};
-
-fn read_path_or_stdin(path: &str) -> Result<String, String> {
-    if path == "-" {
-        let mut buf = String::new();
-        std::io::stdin()
-            .read_to_string(&mut buf)
-            .map_err(|e| format!("failed to read stdin: {}", e))?;
-        Ok(buf)
-    } else {
-        std::fs::read_to_string(path).map_err(|e| format!("failed to read {}: {}", path, e))
-    }
-}
-
-fn resolve_text(value: Option<String>, file: Option<String>) -> Result<Option<String>, String> {
-    if let Some(path) = file {
-        return read_path_or_stdin(&path).map(Some);
-    }
-    match value {
-        Some(v) if v == "-" => read_path_or_stdin("-").map(Some),
-        other => Ok(other),
-    }
-}
 
 fn call(client: &mut dyn RpcClient, method: &str, params: Value) -> Result<Value, String> {
     crate::cmd::plan::call_plan_rpc(client, method, params)
@@ -60,12 +32,6 @@ pub fn handle_task(client: &mut dyn RpcClient, json: bool, action: TaskAction) {
     let (val, show_opts) = run_task(client, json, action)
         .unwrap_or_else(|e| exit_with_cli_error(json, &CliError::new(e)));
     print_task_result(json, &val, show_opts);
-}
-
-pub fn handle_inbox(client: &mut dyn RpcClient, json: bool, action: InboxAction) {
-    let val =
-        run_inbox(client, action).unwrap_or_else(|e| exit_with_cli_error(json, &CliError::new(e)));
-    print_task_result(json, &val, None);
 }
 
 pub fn handle_canvas(client: &mut dyn RpcClient, json: bool, action: CanvasAction) {
@@ -152,109 +118,6 @@ fn run_task(
             let mut params = json!({ "task_id": task_id });
             inject_trusted_session(&mut params);
             call(client, "task.drop", params).map(|val| (val, None))
-        }
-    }
-}
-
-fn run_inbox(client: &mut dyn RpcClient, action: InboxAction) -> Result<Value, String> {
-    match action {
-        InboxAction::Add {
-            name,
-            kind,
-            model,
-            why,
-            why_file,
-            criterion,
-            test_plan,
-            qa_plan,
-            qa_plan_file,
-            correctness,
-            body,
-            body_file,
-            intent,
-            intent_file,
-            execution_intent,
-            assign_tab,
-        } => {
-            let has_model = model.as_deref().is_some_and(|s| !s.trim().is_empty());
-            let why_text = resolve_text(why, why_file)?;
-            let body_text = resolve_text(body, body_file)?;
-            let qa_plan_text = resolve_text(qa_plan, qa_plan_file)?;
-            let has_why = why_text.as_deref().is_some_and(|s| !s.trim().is_empty());
-            let has_body = body_text.as_deref().is_some_and(|s| !s.trim().is_empty());
-            let has_criteria = criterion.iter().any(|s| !s.trim().is_empty());
-            let has_test_plan = test_plan.as_deref().is_some_and(|s| !s.trim().is_empty());
-            let has_correctness = correctness.as_deref().is_some_and(|s| !s.trim().is_empty());
-            let mut params = json!({
-                "name": name,
-                "type": kind.unwrap_or_else(|| "task".to_string()),
-            });
-            if let Some(project) = cwd_project(client) {
-                params["project"] = json!(project);
-            }
-            if let Some(caller) = caller_tab(client) {
-                params["caller_tab_id"] = json!(caller);
-                params["owner"] = json!({ "tab_id": caller });
-            }
-            if let Some(m) = model {
-                params["model"] = json!(m);
-            }
-            if let Some(w) = why_text {
-                params["why"] = json!(w);
-            }
-            if !criterion.is_empty() {
-                params["acceptance_criteria"] = json!(criterion);
-            }
-            if let Some(test_plan) = test_plan {
-                params["test_plan"] = json!(test_plan);
-            }
-            if let Some(qa_plan) = qa_plan_text {
-                params["qa_plan"] = json!(qa_plan);
-            }
-            if let Some(correctness) = correctness {
-                params["correctness"] = json!(correctness);
-            }
-            if let Some(b) = body_text {
-                params["body"] = json!(b);
-            }
-            if let Some(i) = resolve_text(intent, intent_file)? {
-                params["intent"] = json!(i);
-            }
-            if let Some(execution_intent) = execution_intent {
-                params["execution_intent"] = json!(execution_intent);
-            }
-            if let Some(tab) = assign_tab {
-                params["assign_tab"] = json!(tab);
-            }
-            let mut val = call(client, "task.add", params)?;
-            if let (Some(plan_id), Some(task_id)) = (
-                val.get("plan_id")
-                    .and_then(|v| v.as_str())
-                    .map(str::to_string),
-                val.get("task_id")
-                    .and_then(|v| v.as_str())
-                    .map(str::to_string),
-            ) {
-                let mut hints = vec![task_sections_hint(&plan_id, &task_id)];
-                if !has_model || !has_why {
-                    hints.push(task_model_hint(&plan_id, &task_id));
-                }
-                if let Some(hint) = task_quality_guard_hint(
-                    &plan_id,
-                    &task_id,
-                    has_body,
-                    has_criteria,
-                    has_test_plan,
-                    has_correctness,
-                ) {
-                    hints.push(hint);
-                }
-                if let Some(hint) = maybe_orchestration_reminder() {
-                    hints.push(hint);
-                }
-                push_hints(&mut val, hints);
-            }
-            Ok(val)
         }
     }
 }
