@@ -14,6 +14,9 @@ import {
   offerIdForPlan,
   offerPrice,
   planCardAction,
+  planChangePrice,
+  planFeatures,
+  type PlanPrice,
   type BillingInterval,
   type PlanCardAction,
   type PlanCatalog,
@@ -82,6 +85,7 @@ function useIntentFocus(kind: PurchaseIntentView["kind"] | undefined) {
 export interface PlanCardProps {
   onChangePlan?: (priceId: string, tier: string, direction: "upgrade" | "downgrade") => void;
   changeDirection?: "upgrade" | "downgrade";
+  changePrice?: PlanPrice | null;
   offer: PlanOffer;
   interval: BillingInterval;
   current?: boolean;
@@ -94,7 +98,7 @@ export interface PlanCardProps {
   manageBusy?: boolean;
 }
 
-export function PlanCard({ offer, interval, current = false, canPurchase = true, onChoose, onChangePlan, changeDirection, intent, onCancel, action: givenAction, onManage, manageBusy = false }: PlanCardProps) {
+export function PlanCard({ offer, interval, current = false, canPurchase = true, onChoose, onChangePlan, changeDirection, changePrice, intent, onCancel, action: givenAction, onManage, manageBusy = false }: PlanCardProps) {
   const price = offerPrice(offer, interval);
   const selectedPrice = offer.prices[interval];
   const trial = selectedPrice?.trialEligible && selectedPrice.trialDays;
@@ -128,7 +132,7 @@ export function PlanCard({ offer, interval, current = false, canPurchase = true,
         {trial ? <p>{trial}-day free trial. Payment method required; renews at the displayed monthly price unless canceled.</p> : null}
       </div>
       <ul className="m-0 flex flex-1 list-none flex-col gap-1.5 p-0">
-        {offer.features.map((feature) => (
+        {planFeatures(offer).map((feature) => (
           <li key={feature} className="flex items-start gap-2 text-xs text-[var(--ct-fg)]">
             <Check size={14} className="mt-px shrink-0 text-[var(--ct-accent)]" aria-hidden="true" />
             {feature}
@@ -157,8 +161,8 @@ export function PlanCard({ offer, interval, current = false, canPurchase = true,
         </Button>
       ) : action.kind === "manage" && onManage ? (
         <div className="flex flex-col gap-2">
-          {!current && onChangePlan && changeDirection && selectedPrice?.priceId ? <>
-            <Button size="lg" variant="outline" disabled={!canPurchase || manageBusy} onClick={() => onChangePlan(selectedPrice.priceId!, offer.id, changeDirection)}>
+          {!current && onChangePlan && changeDirection ? <>
+            <Button size="lg" variant="outline" disabled={!canPurchase || manageBusy || !changePrice?.priceId} onClick={() => { if (changePrice?.priceId) onChangePlan(changePrice.priceId, offer.id, changeDirection); }}>
               {changeDirection === "upgrade" ? "Upgrade" : "Downgrade"} to {offer.name}
             </Button>
             <p>{changeDirection === "upgrade" ? "Upgrade now with prorated billing." : "Your current tier stays active until the next renewal."} Keep the same billing interval.</p>
@@ -179,12 +183,13 @@ function intentView(intent: PurchaseIntent, signedInAs: string | null): Purchase
 }
 
 /** One card per offer, then the interval switch beside the purchase terms; yearly by default. */
-export function PlanCards({ currentPlan = null, subscribedPlan = null, onManage, onChangePlan, manageBusy = false, canPurchase = true, onChoose, catalog, interval: controlledInterval, onIntervalChange, intent = IDLE_INTENT, signedInAs = null, onCancel, viewRequested = false }: {
+export function PlanCards({ currentPlan = null, subscribedPlan = null, subscriptionInterval = null, onManage, onChangePlan, manageBusy = false, canPurchase = true, onChoose, catalog, interval: controlledInterval, onIntervalChange, intent = IDLE_INTENT, signedInAs = null, onCancel, viewRequested = false }: {
   onChangePlan?: PlanCardProps["onChangePlan"];
   viewRequested?: boolean;
   currentPlan?: string | null;
   /** A live paid subscription; while set, other paid cards offer Manage subscription instead of a checkout. */
   subscribedPlan?: string | null;
+  subscriptionInterval?: BillingInterval | null;
   onManage?: () => void;
   manageBusy?: boolean;
   canPurchase?: boolean;
@@ -221,6 +226,7 @@ export function PlanCards({ currentPlan = null, subscribedPlan = null, onManage,
             action={planCardAction(offers, offer, interval, subscribedPlan)}
             onManage={onManage}
             onChangePlan={offers.changesAvailable && offers.offers.some(entry => entry.id === currentOffer) ? onChangePlan : undefined}
+            changePrice={planChangePrice(offer, subscriptionInterval)}
             changeDirection={index > offers.offers.findIndex(entry => entry.id === currentOffer) ? "upgrade" : "downgrade"}
             manageBusy={manageBusy}
           />

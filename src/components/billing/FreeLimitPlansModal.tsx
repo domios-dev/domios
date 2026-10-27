@@ -10,7 +10,7 @@ import { freeLimitGate, upgradePlan, UPGRADE_PLAN_KEY, useFreeLimitPrompt } from
 import { limitHeadline, meshMachinesDetail, type FreeLimitKey } from "./freeLimitModel";
 import { offerIdForPlan, upgradePlanKey, type BillingInterval, type PlanCatalog } from "./planCatalog";
 import { usePlanCatalog } from "./planCatalogContext";
-import { displayedPlan, subscribedPlan } from "./purchaseIntent";
+import { subscribedPlan } from "./purchaseIntent";
 import { billingFailureToast } from "../Settings/accountFailureToast";
 import { usePurchaseIntent } from "./usePurchaseIntent";
 
@@ -73,7 +73,7 @@ function PlansModal({ limit, max, detail, onClose, onUpgrade, catalog }: {
       onSubmit={(event) => { event.preventDefault(); if (!blocked && !subscribed) purchase.choose(upgradePlanKey(offers, interval) ?? UPGRADE_PLAN_KEY); }}>
       <h2 id={titleId} className="m-0 text-base font-semibold">{limitHeadline(limit, max)}</h2>
       {detail && <p id={descriptionId} className="m-0 text-xs text-[var(--ct-muted-fg)]">{detail}</p>}
-      <PlanCards viewRequested catalog={offers} currentPlan={displayedPlan(billing.plan)} canPurchase={!blocked}
+      <PlanCards viewRequested catalog={offers} currentPlan={billing.plan?.plan ?? null} canPurchase={!blocked}
         interval={interval} onIntervalChange={setInterval}
         subscribedPlan={subscribed} onManage={() => void manage()} manageBusy={billing.pending}
         onChoose={purchase.choose} intent={intent} onCancel={purchase.cancel}

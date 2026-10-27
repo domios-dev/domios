@@ -143,8 +143,8 @@ fn product_billing_enum_contract_matches_serialized_authority() {
     use codeterm_billing::{Plan, Status};
     for plan in [Plan::Free, Plan::Pro] {
         assert_eq!(
-            serde_json::to_value(plan).unwrap(),
-            serde_json::to_value(billing_plan(plan)).unwrap()
+            serde_json::to_value(&plan).unwrap(),
+            serde_json::to_value(billing_plan(plan.clone())).unwrap()
         );
         for status in [
             Status::Active,
@@ -156,7 +156,7 @@ fn product_billing_enum_contract_matches_serialized_authority() {
             Status::Unpaid,
             Status::Paused,
         ] {
-            let payload = serde_json::to_value(subscription_event(plan, status)).unwrap();
+            let payload = serde_json::to_value(subscription_event(plan.clone(), status)).unwrap();
             assert_eq!(
                 payload["event_properties"]["status"],
                 serde_json::to_value(status).unwrap()

@@ -33,7 +33,6 @@ function AccountHeader({ identity, email, avatarUrl, initial, badge, summary }: 
     <div className="ct-account-plan">
       {badge ? <>
         <span className="ct-plan-badge" data-tier={badge.tier}>{badge.admin ? `Admin · ${badge.name}` : badge.name}</span>
-        <span className="ct-plan-status" data-tone={badge.tone}><span className="ct-plan-status__dot" aria-hidden="true" />{badge.status}</span>
         {badge.stale && <span className="ct-plan-status" data-tone="inactive">last known</span>}
       </> : <span className="ct-plan-status" data-tone="inactive">Plan unavailable</span>}
     </div>

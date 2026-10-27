@@ -4,23 +4,23 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../lib/webApi", async (actual) => ({ ...await actual<object>(), localFetch: vi.fn() }));
 
-import { closeScenario, LINES, openScenario, PLAN_PAYLOADS } from "./scenario";
+import { closeScenario, PROMPTS, openScenario, PLAN_PAYLOADS } from "./scenario";
 
 afterEach(closeScenario);
 
 describe("expired subscription", () => {
   it("refuses new items over the free limits and keeps every existing one", async () => {
     const scenario = await openScenario(PLAN_PAYLOADS.expired, { workspaces: 4, teams: 9, tabs: 50 });
-    expect(scenario.tray).toBe("Pro · canceled");
+    expect(scenario.tray?.tier).toBe("pro");
     const before = scenario.app.state();
     const existing = { workspaces: before.workspaces.length, teams: before.teams?.length, tabs: Object.keys(before.tabs).length };
 
     await scenario.createWorkspace("/new/fifth");
-    expect(scenario.modalLine()).toBe(LINES.workspaces);
+    expect(scenario.modalPrompt()).toEqual(PROMPTS.workspaces);
     await scenario.createTab();
-    expect(scenario.modalLine()).toBe(LINES.tabs);
+    expect(scenario.modalPrompt()).toEqual(PROMPTS.tabs);
     await scenario.createPair();
-    expect(scenario.modalLine()).toBe(LINES.teams);
+    expect(scenario.modalPrompt()).toEqual(PROMPTS.teams);
 
     expect(scenario.daemon.created("mux_create_workspace") + scenario.daemon.created("mux_create_tab")
       + scenario.daemon.created("mux_create_orchestration_pair")).toBe(0);
@@ -32,10 +32,10 @@ describe("expired subscription", () => {
   it("admits up to the limit and refuses exactly at it", async () => {
     const scenario = await openScenario(PLAN_PAYLOADS.expired, { workspaces: 1, tabs: 34 });
     await scenario.createTab();
-    expect(scenario.modalLine()).toBeNull();
+    expect(scenario.modalPrompt()).toBeNull();
     expect(scenario.daemon.counts()["agent.tabs"]).toBe(35);
     await scenario.createTab();
-    expect(scenario.modalLine()).toBe(LINES.tabs);
+    expect(scenario.modalPrompt()).toEqual(PROMPTS.tabs);
     expect(scenario.daemon.counts()["agent.tabs"]).toBe(35);
   });
 });

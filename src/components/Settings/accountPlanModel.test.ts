@@ -23,8 +23,7 @@ assert.equal(manageActionForPlan(null),"plans");
 assert.equal(manageActionForPlan({...paid,authority:"free"}),"portal");
 assert.equal(manageActionForPlan({...admin,plan:"sponsor"}),"portal");
 const future = accountPlanModel({
-  signed_tier: "future-tier",
-  entitlements: { plan: "pro", status: "active", current_period_end: 2000000000, cancel_at_period_end: false },
+  entitlements: { plan: "future-tier", status: "active", current_period_end: 2000000000, cancel_at_period_end: false },
   access: { authority: "billing", full_access: false }, stale: false,
   limits: { enforcing: true, workspaces: 19, teams: 8, "agent.tabs": 64 },
 });
@@ -32,4 +31,5 @@ assert.equal(future.plan, "future-tier");
 assert.equal(future.limits?.max.workspaces, 19);
 assert.equal(future.limits?.max.teams, 8);
 assert.equal(future.limits?.max["agent.tabs"], 64);
-console.log("22 model assertions passed");
+
+assert.equal(manageActionForPlan({ ...admin, plan: "admin" }), "plans");

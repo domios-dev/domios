@@ -1,14 +1,14 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { performTabMenuAction } from "../Terminal/tabMenuActions";
 import { freeLimitGate } from "./freeLimitGate";
-import { fakeDaemon, mountApp, modal, modalLine, seedState, toastTitles, unmountAll, WORKSPACE, type Daemon } from "./freeLimitHarness";
+import { fakeDaemon, mountApp, modal, modalPrompt, seedState, toastTitles, unmountAll, WORKSPACE, type Daemon } from "./freeLimitHarness";
 import type { FreeLimits } from "./freeLimitModel";
 
 const FREE: FreeLimits = { enforcing: true, max: { workspaces: 2, teams: 6, "agent.tabs": 35 } };
 const DORMANT: FreeLimits = { ...FREE, enforcing: false };
-const WORKSPACES = "Your plan includes 2 workspaces.";
-const TEAMS = "Your plan includes 6 Teams across all workspaces.";
-const TABS = "Your plan allows 35 tabs running at once.";
+const WORKSPACES = { key: "workspaces" };
+const TEAMS = { key: "teams" };
+const TABS = { key: "agent.tabs" };
 
 const atLimits = () => seedState({ workspaces: 2, teams: 6, tabs: 35 });
 
@@ -31,7 +31,7 @@ describe("a daemon limit refusal opens the plans modal from every creation trigg
     const { daemon, app } = await refusedBy();
     await app.run(() => trigger(app.actions()));
     expect(daemon.created(command)).toBe(1);
-    expect(modalLine()).toBe(line);
+    expect(modalPrompt()).toEqual(line);
     expect(toastTitles(app.state() as never)).toEqual([]);
   });
 
@@ -39,14 +39,14 @@ describe("a daemon limit refusal opens the plans modal from every creation trigg
     const daemon = fakeDaemon(seedState({ workspaces: 1, teams: 6, tabs: 3 }), FREE);
     const app = await mountApp(daemon);
     await app.run(() => app.actions().createOrchestrationPair({ orchestratorAgent: "claude", plannerAgent: "claude", workspaceId: WORKSPACE }).catch(() => null));
-    expect(modalLine()).toBe(TEAMS);
+    expect(modalPrompt()).toEqual(TEAMS);
   });
 
   it("Claude spawn shortcut opens the modal instead of a failure toast", async () => {
     const { app } = await refusedBy();
     await app.run(async () => app.actions().spawnClaudeTab(WORKSPACE, "/repo"));
-    expect(modalLine()).toBe(TABS);
-    expect(toastTitles(app.state() as never)).not.toContain("Session start failed");
+    expect(modalPrompt()).toEqual(TABS);
+    expect(toastTitles(app.state() as never)).toHaveLength(0);
   });
 
   it.each([
@@ -55,7 +55,7 @@ describe("a daemon limit refusal opens the plans modal from every creation trigg
   ])("tab menu %s", async (_name, action, line) => {
     const { app } = await refusedBy();
     await app.run(() => performTabMenuAction("tab-0", action, { sessionBindingNonce: "opaque-nonce" }));
-    expect(modalLine()).toBe(line);
+    expect(modalPrompt()).toEqual(line);
   });
 });
 
@@ -72,7 +72,7 @@ describe("the pre-check opens the modal without a create call", () => {
     freeLimitGate.setLimits(FREE);
     await app.run(() => trigger(app.actions()));
     expect(daemon.created(command)).toBe(0);
-    expect(modalLine()).toBe(line);
+    expect(modalPrompt()).toEqual(line);
   });
 
   it("a folder that is already a workspace still reaches the daemon, which reuses it", async () => {
@@ -103,7 +103,7 @@ describe("the pre-check opens the modal without a create call", () => {
     freeLimitGate.setLimits(DORMANT);
     await app.run(() => app.actions().createTab(WORKSPACE));
     expect(daemon.created("mux_create_tab")).toBe(1);
-    expect(modalLine()).toBe(TABS);
+    expect(modalPrompt()).toEqual(TABS);
   });
 });
 
@@ -118,7 +118,7 @@ describe("errors that are not limits keep their toasts", () => {
     const { app } = await failing("mux_spawn_tab");
     await app.run(async () => app.actions().spawnClaudeTab(WORKSPACE, "/repo"));
     expect(modal()).toBeNull();
-    expect(toastTitles(app.state() as never)).toContain("Session start failed");
+    expect(toastTitles(app.state() as never)).toHaveLength(1);
   });
 
   it("new tab and tab menu", async () => {
