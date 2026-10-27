@@ -16,15 +16,53 @@ enum ExitState {
     Recorded(Option<i32>),
 }
 
+#[derive(Debug, Default)]
+enum PairRelease {
+    #[default]
+    WaitingForExit,
+    ObservationFailed(String),
+    SessionGone,
+    WaitingForPair,
+    ReleasingPair,
+    Released,
+    PairAlreadyTaken,
+    PairPoisoned,
+}
+
 /// The child's exit, recorded once by the watcher and waitable by readers that
 /// saw the output stream end first.
 #[derive(Debug, Default)]
 pub struct ChildExit {
     state: Mutex<ExitState>,
     resolved: Condvar,
+    pair_release: Mutex<PairRelease>,
 }
 
 impl ChildExit {
+    fn set_pair_release(&self, phase: PairRelease) {
+        *self.pair_release.lock().unwrap_or_else(|p| p.into_inner()) = phase;
+        log::debug!("[pty-exit] pair release phase={}", self.release_diagnostic());
+    }
+
+    pub(super) fn release_diagnostic(&self) -> String {
+        let phase = self.pair_release.lock().unwrap_or_else(|p| p.into_inner());
+        match &*phase {
+            PairRelease::ObservationFailed(error) => format!("ObservationFailed({error})"),
+            phase => format!("{phase:?}"),
+        }
+    }
+
+    fn observed(&self, result: Result<Option<i32>, String>, release: impl FnOnce()) {
+        match result {
+            Ok(code) if self.record(code) => release(),
+            Ok(_) => {}
+            Err(error) => {
+                self.set_pair_release(PairRelease::ObservationFailed(error));
+                self.mark_unobservable();
+            }
+        }
+    }
+
     fn state(&self) -> MutexGuard<'_, ExitState> {
         self.state
             .lock()
@@ -87,6 +125,9 @@ pub(super) fn watch(
 ) {
     let Some(exit) = platform::ExitWait::for_child(child) else {
         log::warn!("[pty-exit] no exit handle for pty child {label}; exit stays unobserved");
+        child_exit.set_pair_release(PairRelease::ObservationFailed(
+            "no native exit handle".into(),
+        ));
         child_exit.mark_unobservable();
         return;
     };
@@ -95,19 +136,44 @@ pub(super) fn watch(
     let spawned = std::thread::Builder::new()
         .name("pty-child-exit".into())
         .spawn(move || {
-            let code = exit.wait();
-            if !recorder.record(code) {
-                return;
-            }
-            log::info!("[pty-exit] child of pty {thread_label} exited code={code:?}");
-            let Some(session) = session.upgrade() else {
-                return;
-            };
-            let released = session.pair.lock().map(|mut pair| pair.take());
-            drop(released);
+            log::debug!("[pty-exit] native wait started for {thread_label}");
+            let result = exit.wait();
+            log::debug!("[pty-exit] native wait for {thread_label}: {result:?}");
+            recorder.observed(result, || {
+                let Some(session) = session.upgrade() else {
+                    recorder.set_pair_release(PairRelease::SessionGone);
+                    return;
+                };
+                log::debug!(
+                    "[pty-exit] releasing pair for {thread_label}, generation={}",
+                    session.generation
+                );
+                recorder.set_pair_release(PairRelease::WaitingForPair);
+                let released = match session.pair.lock() {
+                    Ok(mut pair) => pair.take(),
+                    Err(_) => {
+                        recorder.set_pair_release(PairRelease::PairPoisoned);
+                        return;
+                    }
+                };
+                if released.is_none() {
+                    recorder.set_pair_release(PairRelease::PairAlreadyTaken);
+                    return;
+                }
+                recorder.set_pair_release(PairRelease::ReleasingPair);
+                drop(released);
+                recorder.set_pair_release(PairRelease::Released);
+                log::debug!(
+                    "[pty-exit] pair released for {thread_label}, generation={}",
+                    session.generation
+                );
+            });
         });
     if let Err(error) = spawned {
         log::warn!("[pty-exit] watcher spawn failed for pty child {label}: {error}");
+        child_exit.set_pair_release(PairRelease::ObservationFailed(format!(
+            "watcher spawn: {error}"
+        )));
         child_exit.mark_unobservable();
     }
 }
@@ -145,17 +211,35 @@ mod platform {
                     DUPLICATE_SAME_ACCESS,
                 )
             };
-            (ok != 0 && !owned.is_null()).then_some(Self(owned))
+            if ok == 0 || owned.is_null() {
+                log::debug!(
+                    "[pty-exit] DuplicateHandle failed: {}",
+                    std::io::Error::last_os_error()
+                );
+                return None;
+            }
+            Some(Self(owned))
         }
 
-        pub(super) fn wait(self) -> Option<i32> {
+        pub(super) fn wait(self) -> Result<Option<i32>, String> {
             // SAFETY: `self.0` is an owned process handle open until drop.
             unsafe {
-                if WaitForSingleObject(self.0, INFINITE) != WAIT_OBJECT_0 {
-                    return None;
+                let result = WaitForSingleObject(self.0, INFINITE);
+                if result != WAIT_OBJECT_0 {
+                    return Err(format!(
+                        "WaitForSingleObject result={result:#x}: {}",
+                        std::io::Error::last_os_error()
+                    ));
                 }
                 let mut code = 0u32;
-                (GetExitCodeProcess(self.0, &mut code) != 0).then_some(code as i32)
+                if GetExitCodeProcess(self.0, &mut code) == 0 {
+                    log::debug!(
+                        "[pty-exit] GetExitCodeProcess after signaled exit: {}",
+                        std::io::Error::last_os_error()
+                    );
+                    return Ok(None);
+                }
+                Ok(Some(code as i32))
             }
         }
     }
@@ -180,7 +264,7 @@ mod platform {
         }
 
         /// `WNOWAIT` leaves the zombie in place, so teardown's `wait` still reaps it.
-        pub(super) fn wait(self) -> Option<i32> {
+        pub(super) fn wait(self) -> Result<Option<i32>, String> {
             loop {
                 // SAFETY: zeroed siginfo_t is a valid out-parameter for waitid.
                 let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
@@ -195,16 +279,20 @@ mod platform {
                 if rc == 0 {
                     // SAFETY: waitid filled a SIGCHLD record for an exited child.
                     let status = unsafe { info.si_status() };
-                    return Some(if info.si_code == libc::CLD_EXITED {
+                    return Ok(Some(if info.si_code == libc::CLD_EXITED {
                         status
                     } else {
                         128 + status
-                    });
+                    }));
                 }
-                if std::io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
-                    return None;
+                let error = std::io::Error::last_os_error();
+                if error.raw_os_error() != Some(libc::EINTR) {
+                    return Err(format!("waitid: {error}"));
                 }
             }
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
