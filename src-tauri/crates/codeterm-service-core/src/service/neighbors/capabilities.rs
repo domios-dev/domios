@@ -69,7 +69,11 @@ pub fn http_capability(method: &str, path: &str) -> Option<Capability> {
     } else if method == "POST"
         && (matches!(
             path,
-            "/api/tabs" | "/api/agents/spawn" | "/api/pty/spawn" | "/api/agents/helper"
+            "/api/tabs"
+                | "/api/agents/spawn"
+                | "/api/pty/spawn"
+                | "/api/agents/helper"
+                | "/api/mesh/worker-dispatch"
         ) || path.starts_with("/api/workspaces/") && path.ends_with("/tabs")
             || path.starts_with("/api/plans/")
                 && (path.ends_with("/dispatch") || path.ends_with("/respawn"))
@@ -89,8 +93,22 @@ impl ServiceContext {
         uid: &str,
         settings: &super::storage::Settings,
     ) {
+        let known: Vec<_> = self
+            .neighbor_cell()
+            .concierge_accounts
+            .lock()
+            .keys()
+            .cloned()
+            .collect();
+        let live: std::collections::HashSet<_> = {
+            let mux = self.mux.read();
+            known
+                .into_iter()
+                .filter(|id| mux.get_tab(id).is_some())
+                .collect()
+        };
         let mut accounts = self.neighbor_cell().concierge_accounts.lock();
-        accounts.retain(|_, owner| owner != uid);
+        accounts.retain(|id, _| live.contains(id));
         for tab in settings.bindings.values() {
             accounts.insert(tab.clone(), uid.to_owned());
         }
@@ -190,6 +208,15 @@ impl ServiceContext {
         let result = self
             .neighbor_capability_permission_at(&metadata, caller)
             .await?;
+        if result.is_none()
+            && self
+                .neighbor_cell()
+                .concierge_accounts
+                .lock()
+                .contains_key(&caller.tab_id)
+        {
+            return Err("neighbor_forbidden: Concierge binding ended".into());
+        }
         self.require_neighbor_generation(generation)?;
         let account = account.ok_or("neighbor_forbidden: Concierge account unavailable")?;
         if !super::same_session(account.session().await.as_ref(), &session) {

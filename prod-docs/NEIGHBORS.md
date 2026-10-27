@@ -30,6 +30,8 @@ Setting permissions automatically creates and binds a concierge inside the frien
 
 The daemon enforces concierge capability grants using the authenticated tab's current binding nonce. `allow_memory` defaults true and permits only memory search, get and wake-up reads; memory writes always return `neighbor_memory_read_only`. Turning it off refuses those reads with HTTP 403 `neighbor_memory_not_allowed`. All secret routes are refused to concierges with `neighbor_secrets_not_allowed`. `allow_tab_requests` also controls concierge tab/agent creation and dispatch, returning `tab_requests_not_allowed` when disabled. `allow_files` defaults true and controls only the bound concierge's read access to its friend's saved files, with `neighbor_files_not_allowed` on refusal. It does not control receiving downloads. Owner and General retain permission-edit authority.
 
+`folder` is an optional absolute directory; absent or null selects the friend's own local folder. A folder change replaces the concierge while preserving provider, model and permissions. The daemon selects the strongest supported provider filesystem sandbox and disables permission bypass. Permission reads and status `permissions[friendship_id]` add `effective_folder` and `folder_enforcement: {writes, reads, note}`. `writes` is `provider_sandbox` only when a sandbox policy is active, otherwise `advisory`; `reads` is `not_confined`. The note names additional host writable roots and the platform's limitations. Daemon memory/file route grants are enforced independently; they do not imply that the provider's shell cannot read other OS files. Unsupported providers have advisory folder boundaries.
+
 ```bash
 domios account neighbors permission FRIENDSHIP_ID
 domios account neighbors grant FRIENDSHIP_ID --from-pad scope.md
@@ -97,4 +99,4 @@ Restored runtime concierges start in the background when this machine prepares r
 
 The account signal watch applies confirmed delivery and expiry events to local outgoing history and emits `neighbor-history-changed`. On reconnect or a signal revision gap, it checks delivery once for up to 256 locally pending outgoing messages across at most 200 locally configured friendships. It never polls delivery. Confirmed terminal delivery cannot regress to pending when an earlier send response arrives late.
 
-<!-- revision: 20 -->
+<!-- revision: 21 -->

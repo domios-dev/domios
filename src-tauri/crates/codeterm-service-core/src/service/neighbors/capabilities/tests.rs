@@ -140,6 +140,18 @@ async fn capability_lookup_requires_the_exact_live_bound_concierge_nonce() {
         .unwrap();
     assert_eq!(bound.0, friendship);
     assert!(Capability::MemoryRead.require(&bound.1).is_ok());
+    let stored = metadata.settings().await.unwrap();
+    fixture
+        .service
+        .remember_neighbor_concierge_accounts("owner", &stored);
+    fixture
+        .service
+        .remember_neighbor_concierge_accounts("owner", &Default::default());
+    assert!(fixture
+        .service
+        .authorize_neighbor_capability(&caller, Capability::MemoryRead)
+        .await
+        .is_err());
     caller.binding_nonce = "stale".into();
     assert!(fixture
         .service
