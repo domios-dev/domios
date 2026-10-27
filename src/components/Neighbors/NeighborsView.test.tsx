@@ -58,7 +58,7 @@ function runtime(bindings: Record<string, string> = {}): NeighborRuntimeClient {
 }
 
 async function render(access: NeighborList["access"] = "paid", options: { canInvite?: boolean; omitEligibility?: boolean; claim?: ReferralClaim; bindings?: Record<string, string> } = {}) {
-  const list: NeighborList = { schema_version: 1, access, can_invite: options.omitEligibility ? undefined : options.canInvite ?? access === "paid", friends: [neighbor], incoming: [request] };
+  const list: NeighborList = { schema_version: 1, access, can_invite: options.omitEligibility ? undefined : options.canInvite ?? access === "paid", friends: [neighbor], incoming: [request], outgoing: [] };
   const client: NeighborClient = { list: vi.fn(async () => structuredClone(list)), apply: vi.fn(async () => {}),
     claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => options.claim ?? { schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null }) };
   const host = document.createElement("div"); document.body.append(host);
@@ -193,7 +193,7 @@ it("discards a claim that completes after switching accounts", async () => {
   const previous = new Promise<ReferralClaim>(resolve => { complete = resolve; });
   const client: NeighborClient = {
     claimReferralTrial: vi.fn<NeighborClient["claimReferralTrial"]>().mockReturnValueOnce(previous).mockResolvedValue({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null }),
-    list: vi.fn(async () => ({ schema_version: 1 as const, access: "locked" as const, can_invite: false, friends: [], incoming: [] })),
+    list: vi.fn(async () => ({ schema_version: 1 as const, access: "locked" as const, can_invite: false, friends: [], incoming: [], outgoing: [] })),
     apply: vi.fn(async () => {}),
   };
   const host = document.createElement("div"); document.body.append(host);
@@ -226,8 +226,8 @@ it("rejects unrecognized or malformed claims and never substitutes channel acces
     { schema_version: 1, outcome: "unknown", trial_end: null, friend_request_id: null },
     { schema_version: 1, outcome: "granted", trial_end: 1700604800, friend_request_id: "foreign" },
   ]) expect(() => parseReferralClaim(value)).toThrow();
-  expect(parseNeighbors({ schema_version: 1, access: "paid", friends: [], incoming: [] }).can_invite).toBeUndefined();
-  expect(() => parseNeighbors({ schema_version: 1, access: "paid", can_invite: "yes", friends: [], incoming: [] })).toThrow();
+  expect(parseNeighbors({ schema_version: 1, access: "paid", friends: [], incoming: [], outgoing: [] }).can_invite).toBeUndefined();
+  expect(() => parseNeighbors({ schema_version: 1, access: "paid", can_invite: "yes", friends: [], incoming: [], outgoing: [] })).toThrow();
 });
 
 it("sends an empty authenticated referral command without user IDs, checkout or a local deadline", async () => {
@@ -241,7 +241,7 @@ it("sends an empty authenticated referral command without user IDs, checkout or 
 });
 
 async function renderSection(friends: NeighborList["friends"], bindings: Record<string, string> = {}) {
-  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends, incoming: [] };
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends, incoming: [], outgoing: [] };
   const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
     claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
   const host = document.createElement("div"); document.body.append(host);

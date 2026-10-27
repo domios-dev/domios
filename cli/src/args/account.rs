@@ -22,6 +22,8 @@ pub enum AccountAction {
 
 #[derive(Subcommand)]
 pub enum NeighborAction {
+    /// List friendships, local scopes and pending incoming/outgoing requests
+    List,
     /// Show local channel enrollment and gateway bindings
     Status,
     /// Receive Neighbors on this machine; other machines stop receiving
