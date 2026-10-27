@@ -12,7 +12,7 @@ fn list_includes_local_scopes_and_preserves_backend_outgoing_requests() {
         },
     );
     let mut list = json!({"schema_version":1,"access":"paid",
-        "friends":[{"friendship_id":"granted","displayName":"Pat"},{"friendship_id":"denied"}],
+        "friends":[{"friendship_id":"granted","displayName":"Pat","my_daily_limit":null,"their_daily_limit":7,"sent_today":2},{"friendship_id":"denied"}],
         "incoming":[{"request_id":"in","uid":"peer","created_at":1}],
         "outgoing":[{"id":"out","typed_email":"recipient@example.test","created_at":2,"state":"pending"}]});
     let outgoing = list["outgoing"].clone();
@@ -22,6 +22,9 @@ fn list_includes_local_scopes_and_preserves_backend_outgoing_requests() {
         "Read shared notes"
     );
     assert_eq!(list["friends"][0]["status"], "connected");
+    assert!(list["friends"][0]["my_daily_limit"].is_null());
+    assert_eq!(list["friends"][0]["their_daily_limit"], 7);
+    assert_eq!(list["friends"][0]["sent_today"], 2);
     assert_eq!(list["friends"][1]["permission"]["allowed"], false);
     assert_eq!(list["outgoing"], outgoing);
     assert_eq!(list["incoming"][0]["request_id"], "in");

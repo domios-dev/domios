@@ -13,6 +13,8 @@ fn entry(id: usize, direction: &str, kind: Kind, reply: Option<String>) -> Entry
         in_reply_to: reply,
         outcome: None,
         reason: None,
+        limit: None,
+        resets_at: None,
         delivery_status: (direction == "out").then_some(DeliveryStatus::Pending),
     }
 }
@@ -83,15 +85,31 @@ async fn private_history_persists_status_and_end_and_stops_writing_when_disabled
     let friendship = "a".repeat(64);
     let outgoing = entry(1, "out", Kind::Question, None);
     service
-        .append_neighbor_history(&metadata, &friendship, outgoing.clone())
+        .append_neighbor_history(
+            &metadata,
+            &friendship,
+            outgoing.clone(),
+            service.neighbor_history_generation(),
+        )
         .await
         .unwrap();
     service
-        .append_neighbor_history(&metadata, &friendship, outgoing.clone())
+        .append_neighbor_history(
+            &metadata,
+            &friendship,
+            outgoing.clone(),
+            service.neighbor_history_generation(),
+        )
         .await
         .unwrap();
     service
-        .update_neighbor_history_status(&metadata, &outgoing.message_id, DeliveryStatus::Delivered)
+        .update_neighbor_history_status(
+            &metadata,
+            &outgoing.message_id,
+            DeliveryStatus::Delivered,
+            None,
+            service.neighbor_history_generation(),
+        )
         .await
         .unwrap();
     let page = metadata.history_page(&friendship, None, 50).await.unwrap();
@@ -111,7 +129,12 @@ async fn private_history_persists_status_and_end_and_stops_writing_when_disabled
         .enabled = false;
     assert!(matches!(
         service
-            .append_neighbor_history(&metadata, &friendship, entry(2, "in", Kind::Question, None))
+            .append_neighbor_history(
+                &metadata,
+                &friendship,
+                entry(2, "in", Kind::Question, None),
+                service.neighbor_history_generation()
+            )
             .await,
         Err(Error::Disabled)
     ));
@@ -128,7 +151,11 @@ async fn private_history_persists_status_and_end_and_stops_writing_when_disabled
         .neighbors
         .enabled = true;
     service
-        .end_neighbor_history(&metadata, &friendship)
+        .end_neighbor_history(
+            &metadata,
+            &friendship,
+            service.neighbor_history_generation(),
+        )
         .await
         .unwrap();
     assert!(
@@ -138,7 +165,12 @@ async fn private_history_persists_status_and_end_and_stops_writing_when_disabled
     );
     assert!(matches!(
         service
-            .append_neighbor_history(&metadata, &friendship, entry(3, "in", Kind::Question, None))
+            .append_neighbor_history(
+                &metadata,
+                &friendship,
+                entry(3, "in", Kind::Question, None),
+                service.neighbor_history_generation()
+            )
             .await,
         Err(Error::Revoked)
     ));
@@ -170,5 +202,78 @@ fn history_author_is_owner_or_the_actual_local_agent() {
             agent: id,
             name: "General".into()
         }
+    );
+}
+
+#[tokio::test]
+async fn local_history_retains_daily_limit_details_on_explicit_status_checks() {
+    let (mux, _) = MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let service = &fixture.service;
+    let metadata = Metadata::new(fixture.temp.path().to_owned(), "owner");
+    let friendship = "a".repeat(64);
+    let outgoing = entry(1, "out", Kind::Question, None);
+    service
+        .append_neighbor_history(
+            &metadata,
+            &friendship,
+            outgoing.clone(),
+            service.neighbor_history_generation(),
+        )
+        .await
+        .unwrap();
+    service
+        .update_neighbor_history_status(
+            &metadata,
+            &outgoing.message_id,
+            DeliveryStatus::NotDelivered,
+            Some((9, 1000)),
+            service.neighbor_history_generation(),
+        )
+        .await
+        .unwrap();
+    service
+        .update_neighbor_history_status(
+            &metadata,
+            &outgoing.message_id,
+            DeliveryStatus::NotDelivered,
+            None,
+            service.neighbor_history_generation(),
+        )
+        .await
+        .unwrap();
+    let page = metadata.history_page(&friendship, None, 1).await.unwrap();
+    assert_eq!(page["entries"][0]["delivery_status"], "not_delivered");
+    assert_eq!(page["entries"][0]["reason"], "neighbor_daily_limit");
+    assert_eq!(page["entries"][0]["limit"], 9);
+    assert_eq!(page["entries"][0]["resets_at"], 1000);
+    let old_generation = service.neighbor_history_generation();
+    service.neighbor_identity_changed();
+    assert!(matches!(
+        service
+            .append_neighbor_history(
+                &metadata,
+                &friendship,
+                entry(2, "in", Kind::Question, None),
+                old_generation
+            )
+            .await,
+        Err(Error::Revoked)
+    ));
+    assert!(matches!(
+        service
+            .update_neighbor_history_status(
+                &metadata,
+                &outgoing.message_id,
+                DeliveryStatus::Delivered,
+                None,
+                old_generation
+            )
+            .await,
+        Err(Error::Revoked)
+    ));
+    assert_eq!(
+        metadata.history_page(&friendship, None, 1).await.unwrap()["entries"][0]["delivery_status"],
+        "not_delivered"
     );
 }

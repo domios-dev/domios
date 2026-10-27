@@ -58,6 +58,7 @@ impl NeighborCommand {
 
 impl ServiceContext {
     pub async fn neighbor_registry(&self, command: NeighborCommand) -> Result<Value, String> {
+        let history_generation = self.neighbor_history_generation();
         let account = self.account().await?;
         let session = account
             .fresh_session()
@@ -94,7 +95,7 @@ impl ServiceContext {
             .ok_or_else(|| "Invalid Neighbors response".to_owned())?;
         if let Some(friendship) = removed.filter(|_| self.require_neighbors_enabled().is_ok()) {
             let metadata = storage::Metadata::new(self.account_data_root()?, &session.identity.uid);
-            self.end_neighbor_history(&metadata, &friendship)
+            self.end_neighbor_history(&metadata, &friendship, history_generation)
                 .await
                 .map_err(|error| error.to_string())?;
             self.stop_neighbor_listeners();
@@ -110,7 +111,7 @@ impl ServiceContext {
                             .iter()
                             .any(|friend| friend["friendship_id"] == *friendship)
                         {
-                            self.end_neighbor_history(&metadata, friendship)
+                            self.end_neighbor_history(&metadata, friendship, history_generation)
                                 .await
                                 .map_err(|error| error.to_string())?;
                         }

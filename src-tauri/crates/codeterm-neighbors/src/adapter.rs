@@ -51,6 +51,9 @@ impl NeighborTransport for FirebaseTransport {
             .invoke("friendsSend", {
                 let mut data = serde_json::to_value(message).map_err(|_| Error::InvalidEnvelope)?;
                 data["installation_id"] = self.installation_id.clone().into();
+                if let Some(reply) = &message.envelope.in_reply_to {
+                    data["in_reply_to"] = reply.clone().into();
+                }
                 data
             })
             .await?;
