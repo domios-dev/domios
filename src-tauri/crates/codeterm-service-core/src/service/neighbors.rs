@@ -111,6 +111,9 @@ fn neighbor_refusal(body: &Value) -> String {
         .and_then(Value::as_str)
     {
         Some("friends_locked") => "friends_locked: Upgrade to use your Neighbors channel".into(),
+        Some("invite_requires_paid_plan") => {
+            "invite_requires_paid_plan: Inviting Neighbors requires an active paid plan.".into()
+        }
         Some("neighbor_limit") => "neighbor_limit: Your plan's Neighbor allowance is full".into(),
         Some("duplicate_request") => "A request or invitation has already been sent".into(),
         Some("self_request") => "Choose another person's email address".into(),

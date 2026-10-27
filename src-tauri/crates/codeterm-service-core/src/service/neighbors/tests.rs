@@ -51,6 +51,14 @@ fn server_locked_and_count_refusals_have_upgrade_paths() {
 }
 
 #[test]
+fn invitation_refusal_explains_the_paid_plan_requirement() {
+    assert_eq!(
+        neighbor_refusal(&json!({"error":{"details":{"reason":"invite_requires_paid_plan"}}})),
+        "invite_requires_paid_plan: Inviting Neighbors requires an active paid plan."
+    );
+}
+
+#[test]
 fn registry_results_require_the_same_account_and_login_generation() {
     let session = |uid: &str, login_generation| codeterm_account::Session {
         login_generation,
