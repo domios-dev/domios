@@ -1,5 +1,5 @@
 [
-  "src/components/billing/giftRedemption.test.ts",
+  "src/components/billing/giftRedemptionModel.test.ts",
   "src/components/Terminal/contextCompaction.wiring.test.tsx",
   "src/components/Neighbors/NeighborChannel.test.tsx",
   "src/components/Neighbors/NeighborsSection.test.tsx",
