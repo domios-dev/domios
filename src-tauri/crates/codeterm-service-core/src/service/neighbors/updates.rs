@@ -1,3 +1,4 @@
+mod delivery;
 mod notifications;
 #[cfg(test)]
 mod tests;
@@ -110,7 +111,7 @@ impl Session {
         }
     }
 
-    async fn refresh(&self, signal: RegistrySignal, seen: &mut notifications::Seen) -> Result<()> {
+    async fn refresh(&self, signal: &RegistrySignal, seen: &mut notifications::Seen) -> Result<()> {
         self.current()?;
         let history_generation = self.service.neighbor_history_generation();
         for friendship in &signal.removed {
@@ -285,9 +286,16 @@ async fn run(
         session.state(ListenerState::Connecting);
         let result = async {
             let mut listener = session.transport.listen_registry().await?;
+            let mut revisions = delivery::Revisions::default();
             loop {
                 let signal = listener.next().await?.ok_or(Error::Transport)?;
-                session.refresh(signal, &mut seen).await?;
+                let Some(catch_up) = revisions.observe(signal.revision) else {
+                    continue;
+                };
+                if catch_up || signal.delivery.is_none() && !signal.ignored {
+                    session.refresh(&signal, &mut seen).await?;
+                }
+                session.delivery(&signal, catch_up).await?;
                 session.state(ListenerState::Receiving);
             }
         };

@@ -110,7 +110,36 @@ fn empty_signal_target_refreshes_once_and_does_not_poll_unchanged_checkpoints() 
         .is_none());
     let mut malformed = document("own");
     malformed.fields.insert("type".into(), string("unknown"));
-    assert!(parse_signal(malformed).is_err());
+    assert!(parse_signal(malformed).unwrap().ignored);
+}
+
+#[test]
+fn delivery_signals_validate_identity_timestamp_and_terminal_status() {
+    for (kind, expected) in [
+        ("message_delivered", crate::wire::DeliveryStatus::Delivered),
+        ("message_expired", crate::wire::DeliveryStatus::NotDelivered),
+    ] {
+        let mut doc = document("own");
+        doc.fields.insert("type".into(), string(kind));
+        doc.fields
+            .insert("message_id".into(), string(&"a".repeat(32)));
+        doc.fields.insert(
+            "at".into(),
+            value(fs::value::ValueType::IntegerValue(1793130000)),
+        );
+        let signal = parse_signal(doc.clone()).unwrap();
+        assert_eq!(signal.revision, Some(2));
+        let delivery = signal.delivery.unwrap();
+        assert_eq!(delivery.friendship_id, "b".repeat(64));
+        assert_eq!(delivery.message_id, "a".repeat(32));
+        assert_eq!(delivery.status, expected);
+        assert!(signal.accepted.is_empty());
+        let mut missing_time = doc.clone();
+        missing_time.fields.remove("at");
+        assert!(parse_signal(missing_time).is_err());
+        doc.fields.insert("message_id".into(), string("bad"));
+        assert!(parse_signal(doc).is_err());
+    }
 }
 
 #[test]

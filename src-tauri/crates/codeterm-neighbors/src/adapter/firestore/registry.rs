@@ -4,7 +4,7 @@ use super::{
 };
 use crate::adapter::AuthenticatedCall;
 use crate::{
-    registry::{Acceptance, RegistryListener, RegistrySignal},
+    registry::{Acceptance, DeliverySignal, RegistryListener, RegistrySignal},
     wire::{hex_id, uid},
     Error, Result,
 };
@@ -165,9 +165,7 @@ fn parse_signal(document: fs::Document) -> Result<RegistrySignal> {
         return Err(Error::InvalidEnvelope);
     }
     let revision = field("revision")?;
-    if revision.as_u64().is_none() {
-        return Err(Error::InvalidEnvelope);
-    }
+    let revision = Some(revision.as_u64().ok_or(Error::InvalidEnvelope)?);
     let event = field("event_id")?;
     let event_id = event
         .as_str()
@@ -182,9 +180,15 @@ fn parse_signal(document: fs::Document) -> Result<RegistrySignal> {
                 | "request_declined"
                 | "friend_removed"
                 | "receiver_changed"
+                | "message_delivered"
+                | "message_expired"
         )
     ) {
-        return Err(Error::InvalidEnvelope);
+        return Ok(RegistrySignal {
+            revision,
+            ignored: true,
+            ..Default::default()
+        });
     }
     let request = field("request_id")?;
     let friendship = field("friendship_id")?;
@@ -213,7 +217,32 @@ fn parse_signal(document: fs::Document) -> Result<RegistrySignal> {
     } else {
         None
     };
+    let delivery = match kind.as_str() {
+        Some(kind @ ("message_delivered" | "message_expired")) => {
+            if !request.is_null() || field("at")?.as_u64().is_none() {
+                return Err(Error::InvalidEnvelope);
+            }
+            let message_id = field("message_id")?;
+            Some(DeliverySignal {
+                friendship_id: friendship.as_str().ok_or(Error::InvalidEnvelope)?.into(),
+                message_id: message_id
+                    .as_str()
+                    .filter(|id| hex_id(id, 32))
+                    .ok_or(Error::InvalidEnvelope)?
+                    .into(),
+                status: if kind == "message_delivered" {
+                    crate::wire::DeliveryStatus::Delivered
+                } else {
+                    crate::wire::DeliveryStatus::NotDelivered
+                },
+            })
+        }
+        _ => None,
+    };
     Ok(RegistrySignal {
+        revision,
+        delivery,
+        ignored: false,
         accepted,
         receiver_revision,
         removed: if kind == "friend_removed" {
