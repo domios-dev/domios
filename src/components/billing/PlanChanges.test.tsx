@@ -19,11 +19,12 @@ async function render(element: React.ReactNode) {
 }
 const button = (label: string) => Array.from(document.querySelectorAll("button")).find(element => element.textContent?.trim() === label)!;
 
-it("starts the eligible trial and changes a paid tier through separate handlers", async () => {
+it("chooses an ordinary subscription and changes a paid tier through separate handlers", async () => {
   const catalog = parseDesktopCatalog({ ...desktopCatalogFixture, catalog: { ...desktopCatalogFixture.catalog, mode: "live" } });
   const choose = vi.fn();
   await render(<PlanCards catalog={catalog} interval="month" onChoose={choose} />);
-  await act(async () => button("Start 7-day Pro trial").click());
+  expect(button("Start 7-day Pro trial")).toBeUndefined();
+  await act(async () => button("Choose Pro").click());
   expect(choose).toHaveBeenCalledExactlyOnceWith("pro_monthly");
   const change = vi.fn();
   await act(async () => mounted!.root.render(<PlanCards catalog={catalog} interval="year" subscriptionInterval="month" currentPlan="max" subscribedPlan="max" onManage={vi.fn()} onChangePlan={change} />));

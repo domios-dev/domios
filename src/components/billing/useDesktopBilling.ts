@@ -7,10 +7,11 @@ interface LoadedBilling {
   catalog: PlanCatalog | null;
   subscription: SubscriptionReadback | null;
   error: string | null;
+  settled: boolean;
 }
 
 export function useDesktopBilling(identity: string | null) {
-  const [loaded, setLoaded] = useState<LoadedBilling>({ identity, catalog: null, subscription: null, error: null });
+  const [loaded, setLoaded] = useState<LoadedBilling>({ identity, catalog: null, subscription: null, error: null, settled: false });
   const [revision, setRevision] = useState(0);
   const [changing, setChanging] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -27,7 +28,7 @@ export function useDesktopBilling(identity: string | null) {
     const epoch = ++generation.current;
     const controller = new AbortController();
     if (!identity) {
-      setLoaded({ identity, catalog: null, subscription: null, error: null });
+      setLoaded({ identity, catalog: null, subscription: null, error: null, settled: true });
       return () => controller.abort();
     }
     let latest = 0;
@@ -43,10 +44,11 @@ export function useDesktopBilling(identity: string | null) {
         targetTier.current = null;
         changeNotice.current = null;
       }
-      setLoaded({ identity,
+      setLoaded({ identity, settled: true,
         catalog: catalog.status === "fulfilled" ? catalog.value : null,
         subscription: subscription.status === "fulfilled" ? subscription.value : null,
-        error: catalog.status === "rejected" ? "Current plan offers are unavailable. Refresh to try again." : changeNotice.current,
+        error: catalog.status === "rejected" ? "Current plan offers are unavailable. Refresh to try again."
+          : subscription.status === "rejected" ? "Your subscription status is unavailable. Refresh before choosing a plan." : changeNotice.current,
       });
     }
     void load();
@@ -89,5 +91,6 @@ export function useDesktopBilling(identity: string | null) {
 
   const visible = loaded.identity === identity ? loaded : null;
   return { catalog: visible?.catalog ?? null, subscription: visible?.subscription ?? null,
-    error: visible?.error ?? null, changing, submitted, change, refresh: () => setRevision(value => value + 1) };
+    error: visible?.error ?? null, loading: identity !== null && !visible?.settled,
+    changing, submitted, change, refresh: () => setRevision(value => value + 1) };
 }

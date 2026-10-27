@@ -15,6 +15,14 @@ const choose = (planKey: string, account: "signed_in" | "signed_out" | "pending"
   ({ type: "choose", planKey, account, plan: current, catalog });
 const signedIn = (current: PlanModel | null): PurchaseEvent => ({ type: "signedIn", plan: current, catalog });
 
+it("uses explicit subscription readback for commercial ownership without changing effective access", () => {
+  expect(purchaseIntent(IDLE_INTENT, { type: "choose", planKey: "pro_yearly", account: "signed_in", plan: PRO, catalog, subscriptionPlan: null }))
+    .toEqual({ kind: "opening", planKey: "pro_yearly" });
+  expect(purchaseIntent(IDLE_INTENT, { type: "choose", planKey: "pro_yearly", account: "signed_in", plan: PRO, catalog, subscriptionPlan: "pro" }))
+    .toEqual({ kind: "owned", planKey: "pro_yearly", staff: false });
+  expect(PRO.plan).toBe("pro_yearly");
+});
+
 describe("purchaseIntent", () => {
   it("signed out: choose waits for sign-in, then opens checkout with no second choose", () => {
     const signing = run([choose("pro_yearly", "signed_out")]);

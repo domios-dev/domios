@@ -101,8 +101,6 @@ export interface PlanCardProps {
 
 export function PlanCard({ offer, interval, current = false, canPurchase = true, onChoose, onChangePlan, changeDirection, changePrice, intent, onCancel, action: givenAction, onManage, manageBusy = false }: PlanCardProps) {
   const price = offerPrice(offer, interval);
-  const selectedPrice = offer.prices[interval];
-  const trial = selectedPrice?.trialEligible && selectedPrice.trialDays;
   const action: PlanCardAction = givenAction ?? (price.planKey ? { kind: "choose", planKey: price.planKey } : { kind: "none" });
   const border = offer.recommended ? "border-[var(--ct-accent)]" : "border-[var(--ct-border-subtle)]";
   const focus = useIntentFocus(intent?.kind);
@@ -130,7 +128,6 @@ export function PlanCard({ offer, interval, current = false, canPurchase = true,
           <span className="text-xs text-[var(--ct-muted-fg)]">{price.per}</span>
         </p>
         <p className="m-0 text-xs text-[var(--ct-muted-fg)]">{price.note}</p>
-        {trial ? <p>{trial}-day free trial. Payment method required; renews at the displayed monthly price unless canceled.</p> : null}
       </div>
       <ul className="m-0 flex flex-1 list-none flex-col gap-1.5 p-0">
         {planFeatures(offer).map((feature) => (
@@ -158,7 +155,7 @@ export function PlanCard({ offer, interval, current = false, canPurchase = true,
           detail={intent.staff ? "Included with your Domios team access." : intent.signedInAs && `Signed in as ${intent.signedInAs}.`} />
       ) : action.kind === "choose" && !current && onChoose ? (
         <Button ref={focus.choose} size="lg" variant="outline" disabled={!canPurchase} onClick={() => onChoose(action.planKey)}>
-          {trial ? `Start ${trial}-day ${offer.name} trial` : `Choose ${offer.name}`}
+          Choose {offer.name}
         </Button>
       ) : action.kind === "manage" && onManage ? (
         <div className="flex flex-col gap-2">

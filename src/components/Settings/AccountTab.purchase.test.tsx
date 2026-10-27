@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { Notification } from "../../lib/types";
 import { MultiplexerActionsContext, type MultiplexerActionsContextType } from "../../store/multiplexer/context";
 import { NotificationToastContainer } from "../Notifications/NotificationToast";
+import { desktopCatalogFixture } from "../billing/desktopBilling.testdata";
 
 const daemon = vi.hoisted(() => {
   const state = {
@@ -11,10 +12,15 @@ const daemon = vi.hoisted(() => {
     pending: false,
     failure: null as null | { stage: "redemption"; error: "provider" },
     account: { plan: "free", fullAccess: false },
+    paidPlan: undefined as string | null | undefined,
+    subscriptionUnavailable: false,
+    catalogUnavailable: false,
+    portals: 0,
     logins: 0,
     login: null as null | ((outcome: "ok" | "fail") => void),
     upgrades: [] as string[],
     upgradeFails: false,
+    upgradeWait: null as Promise<Response> | null,
   };
   const ok = (body: unknown) => ({ ok: true, json: async () => body, text: async () => "" });
   const status = () => ({ identity: state.identity, pending: state.pending, last_sign_in_failure: state.failure });
@@ -31,6 +37,15 @@ const daemon = vi.hoisted(() => {
     const path = url.split("?")[0];
     if (path.endsWith("/status")) return ok(status());
     if (path.endsWith("/plan") || path.endsWith("/plan/refresh")) return ok(plan());
+    if (path.endsWith("/billing")) {
+      const operation = JSON.parse(String(init?.body)).operation;
+      if (operation === "catalog") return state.catalogUnavailable ? { ok: false, text: async () => "unavailable" } : ok(desktopCatalogFixture);
+      if (state.subscriptionUnavailable) return { ok: false, text: async () => "unavailable" };
+      const paid = state.paidPlan === undefined ? state.account.plan === "free" ? null : state.account.plan : state.paidPlan;
+      return ok({ current_tier: state.account.plan, period_end: 1700604800, pending_change: null, billing_interval: paid ? "year" : null,
+        paid_subscription: paid ? { tier: paid, status: "active", period_end: 1700604800 } : null });
+    }
+    if (path.endsWith("/portal")) { state.portals++; return ok({}); }
     if (path.endsWith("/login")) {
       state.logins++;
       state.pending = true;
@@ -47,6 +62,7 @@ const daemon = vi.hoisted(() => {
     }
     if (path.endsWith("/upgrade")) {
       state.upgrades.push(JSON.parse(String(init?.body)).plan);
+      if (state.upgradeWait) return state.upgradeWait;
       return state.upgradeFails ? { ok: false, text: async () => "opaque-billing-failure" } : ok({});
     }
     return ok({});
@@ -82,7 +98,7 @@ let host: HTMLDivElement;
 beforeEach(() => {
   Object.assign(daemon.state, {
     identity: null, pending: false, failure: null, account: { plan: "free", fullAccess: false },
-    logins: 0, login: null, upgrades: [], upgradeFails: false,
+    logins: 0, login: null, upgrades: [], upgradeFails: false, upgradeWait: null, paidPlan: undefined, subscriptionUnavailable: false, catalogUnavailable: false, portals: 0,
   });
 });
 
@@ -202,4 +218,67 @@ it("a checkout failure is a toast whose Retry checks out again", async () => {
   daemon.state.upgradeFails = false;
   await click(toast() as HTMLElement, "Retry");
   expect(daemon.state.upgrades).toEqual(["pro_yearly", "pro_yearly"]);
+});
+
+it("lets a referral or gift recipient subscribe to Pro without changing their signed-in identity", async () => {
+  daemon.state.identity = { uid: "invited-user", display_name: "Ada", email: "ada@example.test", provider: "fake" };
+  daemon.state.account = { plan: "pro", fullAccess: false };
+  daemon.state.paidPlan = null;
+  await mount();
+  await click(card("Pro"), "Choose Pro");
+  expect(daemon.state.upgrades).toEqual(["pro_yearly"]);
+  expect(daemon.state.identity.uid).toBe("invited-user");
+  expect(daemon.state.account.plan).toBe("pro");
+  expect(daemon.state.logins).toBe(0);
+});
+
+it("preserves an already-paying recipient and directs management to their existing subscription", async () => {
+  daemon.state.identity = { uid: "paid-user", display_name: "Ada", email: "ada@example.test", provider: "fake" };
+  daemon.state.account = { plan: "pro", fullAccess: false };
+  daemon.state.paidPlan = "pro";
+  await mount();
+  expect(button(card("Pro"), "Choose Pro")).toBeUndefined();
+  await click(host, "Manage subscription");
+  expect(daemon.state.portals).toBe(1);
+  expect(daemon.state.upgrades).toEqual([]);
+  expect(daemon.state.identity.uid).toBe("paid-user");
+});
+
+it("does not offer checkout when actual subscription status could not be verified", async () => {
+  daemon.state.identity = { uid: "invited-user", display_name: "Ada", email: "ada@example.test", provider: "fake" };
+  daemon.state.account = { plan: "pro", fullAccess: false };
+  daemon.state.paidPlan = null;
+  daemon.state.subscriptionUnavailable = true;
+  await mount();
+  const choices = Array.from(host.querySelectorAll<HTMLButtonElement>("button")).filter(element => element.textContent?.startsWith("Choose "));
+  expect(choices.length).toBeGreaterThan(0);
+  for (const choose of choices) {
+    expect(choose.disabled).toBe(true);
+  }
+  expect(host.querySelector('[role="alert"]')).not.toBeNull();
+  expect(daemon.state.upgrades).toEqual([]);
+});
+
+it("does not apply a previous account's late checkout refusal to the next account", async () => {
+  let finish!: (response: Response) => void;
+  daemon.state.upgradeWait = new Promise(resolve => { finish = resolve; });
+  daemon.state.identity = { uid: "previous", display_name: "Ada", email: "ada@example.test", provider: "fake" };
+  await mount();
+  await click(card("Pro"), "Choose Pro");
+  daemon.state.identity = { uid: "current", display_name: "Grace", email: "grace@example.test", provider: "fake" };
+  await act(async () => window.dispatchEvent(new Event("domios:account-changed")));
+  await settle();
+  await act(async () => finish(new Response("already_subscribed", { status: 409 })));
+  expect(button(card("Pro"), "Choose Pro")?.disabled).toBe(false);
+  expect(daemon.state.upgrades).toEqual(["pro_yearly"]);
+  expect(daemon.state.identity.uid).toBe("current");
+});
+
+it("does not substitute built-in prices when a signed-in account's catalog is unavailable", async () => {
+  daemon.state.identity = { uid: "invited-user", display_name: "Ada", email: "ada@example.test", provider: "fake" };
+  daemon.state.catalogUnavailable = true;
+  await mount();
+  expect(host.querySelector('[role="group"][aria-label="Subscription plans"]')).toBeNull();
+  expect(host.querySelector('[role="alert"]')).not.toBeNull();
+  expect(daemon.state.upgrades).toEqual([]);
 });
