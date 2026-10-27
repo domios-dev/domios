@@ -675,7 +675,7 @@ impl AccountMesh {
     }
 
     /// One bounded online read of the account registry; a stale observation for display only.
-    async fn read_registry(&self, signed: &Signed) -> Outcome<RegistryObservation> {
+    pub(super) async fn read_registry(&self, signed: &Signed) -> Outcome<RegistryObservation> {
         let mut rows = Vec::new();
         let mut cursor = None;
         let mut registry_revision = 0;
@@ -726,23 +726,6 @@ impl AccountMesh {
             self.push().await;
         }
         Ok(observation)
-    }
-
-    pub async fn list(&self) -> Outcome<RegistryObservation> {
-        let signed = self.signed(None).await?;
-        let result = self.read_registry(&signed).await;
-        self.with(|inner| {
-            if !inner.is_current(signed.epoch) {
-                return Err(AccountMeshRefusal::Cancelled);
-            }
-            match result {
-                Ok(observation) => Ok(observation),
-                Err(refusal) => {
-                    inner.update(&self.watch, |state| state.registry_failure = Some(refusal));
-                    Err(refusal)
-                }
-            }
-        })
     }
 
     /// Server `update`, actor-only: renames this installation.

@@ -2,11 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import { listen } from "../../lib/bridge";
 import { DEV_BUILD } from "../../lib/devBuild";
 import { localFetch } from "../../lib/webApi";
+import { SharedRead } from "../../lib/sharedRead";
 import { freeLimitGate, upgradePlan } from "../billing/freeLimitGate";
 import { accountPlanModel, NoBillingCustomer, SubscriptionServiceUnavailable, type AccountPlan, type PlanModel } from "./accountPlanModel";
 
-async function fetchPlan(focus: boolean, signal?: AbortSignal): Promise<PlanModel> {
-  const response = await localFetch(`/api/account/plan${focus ? "/refresh" : ""}`, {method:focus ? "POST" : "GET",signal});
+const plans = new Map<string | null, SharedRead<PlanModel>>();
+
+async function fetchPlan(focus: boolean): Promise<PlanModel> {
+  const response = await localFetch(`/api/account/plan${focus ? "/refresh?focus=true" : ""}`, {method:focus ? "POST" : "GET"});
   if (!response.ok) throw new Error(await response.text());
   return accountPlanModel(await response.json() as AccountPlan);
 }
@@ -44,10 +47,20 @@ export function useAccountPlan(identityKey: string | null) {
   useEffect(() => {
     const generation = ++active.current;
     const controller = new AbortController();
+    if (identityKey === null) for (const key of plans.keys()) { if (key !== null) plans.delete(key); }
+    let shared = plans.get(identityKey);
+    if (!shared) { shared = new SharedRead<PlanModel>(); plans.set(identityKey, shared); }
+    const resource = shared;
+    const unsubscribe = resource.subscribe(plan => {
+      if (active.current === generation) {
+        freeLimitGate.setLimits(plan.limits);
+        setLoaded({ key: identityKey, plan, failed: false });
+      }
+    });
     setLoaded({ key: identityKey, plan: null, failed: false });
-    async function refresh(focus = false): Promise<PlanModel | null> {
+    async function refresh(focus = false, force = false): Promise<PlanModel | null> {
       try {
-        const current = await fetchPlan(focus, controller.signal);
+        const current = await resource.read(() => fetchPlan(focus), force);
         if (active.current === generation) {
           freeLimitGate.setLimits(current.limits);
           setLoaded({ key: identityKey, plan: current, failed: false });
@@ -65,11 +78,11 @@ export function useAccountPlan(identityKey: string | null) {
     const onFocus = () => { void refresh(true); };
     window.addEventListener("focus",onFocus);
     let unlisten: (() => void) | undefined;
-    void listen("entitlement-changed", () => { void refresh(); }).then((fn) => {
+    void listen("entitlement-changed", () => { void refresh(false, true); }).then((fn) => {
       if (active.current === generation) unlisten = fn;
       else fn();
     });
-    return () => { controller.abort(); active.current++; window.removeEventListener("focus",onFocus); unlisten?.(); };
+    return () => { unsubscribe(); controller.abort(); active.current++; window.removeEventListener("focus",onFocus); unlisten?.(); };
   }, [identityKey]);
   async function run(action: () => Promise<void>): Promise<unknown | null> {
     if (busy.current) return null;

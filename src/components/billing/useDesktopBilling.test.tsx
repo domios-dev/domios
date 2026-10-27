@@ -9,10 +9,11 @@ vi.mock("../../lib/webApi", () => transport);
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let mounted: { root: ReturnType<typeof createRoot>; host: HTMLDivElement } | null = null;
 let state: ReturnType<typeof useDesktopBilling>;
-function Harness({ identity = "owner" }: { identity?: string }) { state = useDesktopBilling(identity); return null; }
+function Harness({ identity = "owner", enabled = true }: { identity?: string; enabled?: boolean }) { state = useDesktopBilling(identity, enabled); return null; }
 afterEach(async () => {
   if (mounted) { await act(async () => mounted!.root.unmount()); mounted.host.remove(); mounted = null; }
   transport.localFetch.mockReset();
+  vi.restoreAllMocks();
 });
 async function mount() {
   const host = document.createElement("div"); document.body.append(host);
@@ -59,4 +60,23 @@ it("does not publish an old identity's pending change into a new account", async
   await act(async () => { complete(ok({ status: "scheduled", target_plan: "pro" })); expect(await change).toBe(false); });
   expect(state.subscription?.pending_change).toBeNull();
   expect(state.submitted).toBe(false);
+});
+
+it("defers closed consumers and shares catalog and account reads on open and focus", async () => {
+  let now = Date.now() + 120_000;
+  vi.spyOn(Date, "now").mockImplementation(() => now);
+  setup(async () => ok({}));
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<Harness identity="shared-owner" enabled={false} />));
+  expect(transport.localFetch).not.toHaveBeenCalled();
+  await act(async () => root.render(<><Harness identity="shared-owner" /><Harness identity="shared-owner" /></>));
+  expect(transport.localFetch).toHaveBeenCalledTimes(2);
+  await act(async () => window.dispatchEvent(new Event("focus")));
+  expect(transport.localFetch).toHaveBeenCalledTimes(2);
+  now += 60_000;
+  await act(async () => window.dispatchEvent(new Event("focus")));
+  expect(transport.localFetch).toHaveBeenCalledTimes(4);
+  await act(async () => root.render(<><Harness identity="shared-owner" /><Harness identity="shared-other" /></>));
+  expect(transport.localFetch).toHaveBeenCalledTimes(5);
 });

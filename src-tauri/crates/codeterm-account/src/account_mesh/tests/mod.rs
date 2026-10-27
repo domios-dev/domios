@@ -8,6 +8,7 @@ mod presence;
 mod reauthentication;
 mod refusals;
 mod rejoin;
+mod request_volume;
 mod startup;
 mod support;
 

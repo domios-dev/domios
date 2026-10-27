@@ -10,6 +10,7 @@ mod operations;
 mod ports;
 mod registry_keys;
 mod registry_presence;
+mod registry_read;
 mod rejoin;
 mod retry;
 mod state;
