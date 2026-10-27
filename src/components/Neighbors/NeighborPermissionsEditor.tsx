@@ -21,9 +21,7 @@ const SCOPE_LIMIT = 8192;
 const samePermission = (a: NeighborPermission, b: NeighborPermission) => a.allowed === b.allowed && a.scope === b.scope
   && a.allow_tab_requests === b.allow_tab_requests && (a.allow_interactive_content ?? false) === (b.allow_interactive_content ?? false)
   && (a.allow_memory ?? true) === (b.allow_memory ?? true) && (a.allow_files ?? true) === (b.allow_files ?? true)
-  && (a.folder ?? null) === (b.folder ?? null) && (a.memory_areas ?? []).join("
-") === (b.memory_areas ?? []).join("
-") && (a.machine_access ?? "read_only") === (b.machine_access ?? "read_only");
+  && (a.folder ?? null) === (b.folder ?? null) && (a.memory_areas ?? []).join("\n") === (b.memory_areas ?? []).join("\n") && (a.machine_access ?? "read_only") === (b.machine_access ?? "read_only");
 const scopeBytes = (scope: string) => new TextEncoder().encode(scope).length;
 
 /** Allowing requests needs a written scope; the relay refuses an empty or oversized one. */
