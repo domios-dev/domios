@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tokio::sync::{oneshot, Mutex};
+use tokio::sync::{oneshot, Mutex, Notify};
 
 const ID_TOKEN_REFRESH_WINDOW_SECONDS: u64 = 60;
 
@@ -38,6 +38,7 @@ struct State {
     session: Option<Session>,
     pending: Option<(LoginFlow, oneshot::Sender<Redemption>)>,
     generation: u64,
+    refresh_blocked: bool,
     busy: bool,
     login_cancel: Option<oneshot::Sender<()>>,
     #[cfg(debug_assertions)]
@@ -49,6 +50,7 @@ pub struct Account {
     store: Arc<dyn CredentialStore>,
     state: Mutex<State>,
     operation: Mutex<()>,
+    refresh_cancel: Notify,
     deadline: Duration,
     observer: Option<Arc<dyn IdentityObserver>>,
 }
@@ -65,6 +67,7 @@ impl Account {
             observer: None,
             state: Mutex::new(State::default()),
             operation: Mutex::new(()),
+            refresh_cancel: Notify::new(),
         }
     }
     pub fn with_identity_observer(mut self, observer: Arc<dyn IdentityObserver>) -> Self {
@@ -76,7 +79,11 @@ impl Account {
         Status {
             session_revoked: state.session_revoked,
             provider: self.provider.id().into(),
-            identity: state.session.as_ref().map(|s| s.identity.clone()),
+            identity: state
+                .session
+                .as_ref()
+                .filter(|_| !state.refresh_blocked)
+                .map(|s| s.identity.clone()),
             pending: state.busy,
             session_only: state.session.is_some() && self.store.session_only(self.provider.id()),
             last_sign_in_failure: state.last_sign_in_failure,
@@ -194,7 +201,11 @@ impl Account {
                 session.login_generation = generation;
             }
         }
-        state.last_sign_in_failure = attempt.failure(result.as_ref().err().copied());
+        state.last_sign_in_failure = if state.refresh_blocked && result == Err(Error::Cancelled) {
+            None
+        } else {
+            attempt.failure(result.as_ref().err().copied())
+        };
         if let Some(failure) = state.last_sign_in_failure {
             log::info!(target: "codeterm_account::sign_in", "sign_in attempt outcome=failure stage={} error_kind={}", failure.stage.name(), crate::sign_in_diagnostic::error_kind(failure.error));
         } else {
@@ -227,12 +238,15 @@ impl Account {
                 }
             })
             .await?;
-        attempt
-            .run(
-                SignInStage::CredentialSave,
-                self.store.save(self.provider.id(), &tokens.refresh_token),
-            )
-            .await?;
+        let saved = self.store.load(self.provider.id()).await?;
+        if saved.as_ref().map(Secret::expose) != Some(tokens.refresh_token.expose()) {
+            attempt
+                .run(
+                    SignInStage::CredentialSave,
+                    self.store.save(self.provider.id(), &tokens.refresh_token),
+                )
+                .await?;
+        }
         attempt.enter(SignInStage::Publication);
         log::debug!(target: "codeterm_account::sign_in", "sign_in detail stage={} identity_present=true", SignInStage::Publication.name());
         tokens.session.login_generation = generation;
@@ -240,6 +254,7 @@ impl Account {
             || state.session.as_ref().map(|session| &session.identity)
                 != Some(&tokens.session.identity);
         state.session = Some(tokens.session);
+        state.refresh_blocked = false;
         state.session_revoked = false;
         state.last_sign_in_failure = None;
         if let Some(observer) = self.observer.as_ref().filter(|_| announce_identity) {
@@ -255,14 +270,27 @@ impl Account {
         Ok(self.status().await)
     }
     async fn refresh_locked(&self) -> Result<()> {
-        let generation = self.state.lock().await.generation;
+        let cancelled = self.refresh_cancel.notified();
+        tokio::pin!(cancelled);
+        cancelled.as_mut().enable();
+        let generation = {
+            let state = self.state.lock().await;
+            if state.refresh_blocked {
+                return Err(Error::Cancelled);
+            }
+            state.generation
+        };
         tokio::time::timeout(self.deadline, async {
             let token = self
                 .store
                 .load(self.provider.id())
                 .await?
                 .ok_or(Error::Credentials)?;
-            let tokens = self.provider.refresh(&token).await?;
+            let tokens = tokio::select! {
+                biased;
+                _ = &mut cancelled => return Err(Error::Cancelled),
+                result = self.provider.refresh(&token) => result?,
+            };
             self.commit_tokens(tokens, generation, &mut SignInAttempt::default(), false)
                 .await
         })
@@ -271,12 +299,15 @@ impl Account {
         Ok(())
     }
     pub async fn logout(&self) -> Result<Status> {
-        let token = {
+        {
             let mut state = self.state.lock().await;
             state.generation += 1;
+            state.refresh_blocked = true;
+            state.session = None;
             if let Some(cancel) = state.login_cancel.take() {
                 let _ = cancel.send(());
             }
+            self.refresh_cancel.notify_waiters();
             state.pending = None;
             #[cfg(debug_assertions)]
             {
@@ -285,21 +316,13 @@ impl Account {
             state.busy = false;
             state.session = None;
             state.session_revoked = false;
+            state.last_sign_in_failure = None;
+            tokio::time::timeout(self.deadline, self.store.delete(self.provider.id()))
+                .await
+                .map_err(|_| Error::Timeout)??;
             if let Some(observer) = &self.observer {
                 observer.changed(None).await;
             }
-            tokio::time::timeout(self.deadline, async {
-                let token = self.store.load(self.provider.id()).await?;
-                self.store.delete(self.provider.id()).await?;
-                Ok::<_, Error>(token)
-            })
-            .await
-            .map_err(|_| Error::Timeout)??
-        };
-        if let Some(token) = token {
-            tokio::time::timeout(self.deadline, self.provider.revoke(&token))
-                .await
-                .map_err(|_| Error::Timeout)??;
         }
         Ok(self.status().await)
     }
@@ -323,6 +346,7 @@ impl Account {
             return Ok(false);
         }
         state.generation += 1;
+        state.refresh_blocked = true;
         state.session = None;
         state.session_revoked = true;
         state.last_sign_in_failure = None;
@@ -345,10 +369,16 @@ impl Account {
         self.session_with_refresh(true).await
     }
     async fn session_with_refresh(&self, force: bool) -> Result<Option<Session>> {
-        let current = self.state.lock().await.session.clone();
+        let (current, refresh_blocked) = {
+            let state = self.state.lock().await;
+            (state.session.clone(), state.refresh_blocked)
+        };
         let Some(current) = current else {
             return Ok(None);
         };
+        if refresh_blocked {
+            return Ok(None);
+        }
         if !force && !current.expires_at.is_some_and(token_expiring) {
             return Ok(Some(current));
         }
@@ -407,3 +437,7 @@ mod sign_in_tests;
 #[cfg(test)]
 #[path = "account/listener_tests.rs"]
 mod listener_tests;
+
+#[cfg(test)]
+#[path = "account/logout_tests.rs"]
+mod logout_tests;

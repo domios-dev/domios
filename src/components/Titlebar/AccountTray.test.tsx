@@ -35,6 +35,7 @@ vi.mock("../../lib/webApi", async (importOriginal) => ({
 vi.mock("../../lib/nativeBridge", () => ({nativeBridge:{openUrl}}));
 import { siteLinks } from "../../../shared/siteLinks";
 import { AccountTray } from "./AccountTray";
+import { SelfSessionSignOut } from "./SelfSessionSignOut";
 import { AccountMeshClientProvider } from "../MeshPanel/accountMeshClient";
 import { FakeAccountMeshClient, snapshot } from "../MeshPanel/accountMachines.testdata";
 import { accountInitials } from "../Settings/accountModel";
@@ -462,6 +463,25 @@ it("keeps normal sign-out and confirms self session revocation separately", asyn
   } finally {
     await act(async () => root.unmount()); host.remove(); state.signedIn = false;
   }
+});
+
+it("keeps local sign-out final and explains an unconfirmed machine revocation", async () => {
+  const client = new FakeAccountMeshClient(snapshot());
+  client.sessionRevokeOutcomes.push({ ok: false, failure: { reason: "offline" }, local_signed_out: true });
+  const closed = vi.fn();
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<AccountMeshClientProvider value={client}><SelfSessionSignOut onClose={closed} /></AccountMeshClientProvider>));
+    const dialog = document.querySelector('[role="dialog"]')!;
+    await act(async () => dialog.querySelector<HTMLButtonElement>('button[type="submit"]')!.click());
+    expect(dialog.querySelector('[role="status"]')?.textContent).toContain("You are signed out.");
+    expect(dialog.querySelector('[role="status"]')?.textContent).toContain("Account > machines");
+    expect(dialog.querySelector('button[type="submit"]')).toBeNull();
+    expect(client.sessionRevokeCalls).toEqual([undefined]);
+    await act(async () => dialog.querySelector<HTMLButtonElement>("button")!.click());
+    expect(closed).toHaveBeenCalledOnce();
+  } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
 it("offers Upgrade for granted access without a paid subscription", async () => {

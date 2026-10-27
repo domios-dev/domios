@@ -807,20 +807,38 @@ impl AccountMesh {
         crate::InstallationId::parse(installation_id.clone())
             .map_err(|_| AccountMeshRefusal::Invalid)?;
         let signed = self.signed(None).await?;
+        let result = self.revoke_signed_session(&signed, installation_id).await?;
+        if !self.with(|inner| inner.is_current(signed.epoch)) {
+            return Err(AccountMeshRefusal::Cancelled);
+        }
+        Ok(result)
+    }
+
+    pub async fn revoke_outgoing_session(
+        &self,
+        session: &Session,
+    ) -> Outcome<SessionRevokedResult> {
+        let signed = self.outgoing_signed(session).await?;
+        self.revoke_signed_session(&signed, self.installation())
+            .await
+    }
+
+    async fn revoke_signed_session(
+        &self,
+        signed: &Signed,
+        installation_id: String,
+    ) -> Outcome<SessionRevokedResult> {
         let target = SessionTarget {
             installation_id: installation_id.clone(),
         };
         let MeshResult::SessionRevoked(result) = self
-            .admission(&signed, MeshOperation::SessionRevoke { target })
+            .admission(signed, MeshOperation::SessionRevoke { target })
             .await?
         else {
             return Err(AccountMeshRefusal::Invalid);
         };
         if result.target_installation_id != installation_id || result.revoked_at == 0 {
             return Err(AccountMeshRefusal::Invalid);
-        }
-        if !self.with(|inner| inner.is_current(signed.epoch)) {
-            return Err(AccountMeshRefusal::Cancelled);
         }
         Ok(result)
     }

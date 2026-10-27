@@ -395,6 +395,12 @@ impl AccountMesh {
         (cleanup, persisted, release.await)
     }
 
+    pub async fn sign_out_local(&self) -> Result<(), String> {
+        self.with(|inner| Self::block(inner, &self.watch));
+        self.push().await;
+        self.persist_checked().await
+    }
+
     /// Without a signed-in account there is nothing to sign out of, so legacy continuity stays.
     async fn block_and_withdraw(&self) -> (Cleanup, Result<(), String>) {
         let session = self.ports.sessions.session().await.ok().flatten();

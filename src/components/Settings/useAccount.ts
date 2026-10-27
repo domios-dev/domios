@@ -20,7 +20,7 @@ export function signInFailureToastMessage(failure: SignInFailure): string {
   return `Sign-in could not be completed: ${stageMessage[failure.stage]}. Choose Retry to try again.`;
 }
 
-export function useAccount() {
+export function useAccount(onSignOutFailure?: (message: string) => void) {
   const [model, setModel] = useState<AccountModel>({ kind: "pending" });
   const active = useRef(0);
   const acting = useRef(false);
@@ -91,6 +91,7 @@ export function useAccount() {
         failure = { kind: "error", message: signInFailureToastMessage(signInFailure), failure: signInFailure };
       }
       if (generation === active.current) setModel(failure);
+      if (action === "logout") onSignOutFailure?.("Sign-out could not be completed. Try again.");
     } finally {
       acting.current = false;
       if (changed) window.dispatchEvent(new Event("domios:account-changed"));

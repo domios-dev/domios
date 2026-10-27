@@ -40,8 +40,11 @@ function AccountHeader({ identity, email, avatarUrl, initial, badge, summary }: 
 }
 
 export function AccountTray({ onOpenPlans, locked = false }: { onOpenPlans: () => void; locked?: boolean }) {
-  const account = useAccount();
   const { upsertToast } = useMultiplexer();
+  const account = useAccount((message) => createNoticePublisher({ upsertToast })({
+    kind: "toast", id: "account-sign-out-failure", title: "Sign-out failed", detail: message,
+    severity: "Warning", tabId: null, workspaceId: null,
+  }));
   const billing = useAccountPlan(account.model.kind === "signed_in" ? account.model.identity.uid : null);
   const desktopBilling = useDesktopBilling(account.model.kind === "signed_in" ? account.model.identity.uid : null);
   const hasPaidSubscription = !!desktopBilling.subscription?.paid_subscription;
