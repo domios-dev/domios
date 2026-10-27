@@ -79,6 +79,27 @@ test('scope rules map identity, CLI, crate, native and remaining files separatel
   assert.equal(classifyScope('docs/architecture.md'), 'docs');
 });
 
+test('checked-in relaunch exceptions preserve rejection inputs without allowing old product prose', (t) => {
+  const root = fixture(t);
+  const file = `src-tauri/crates/${marker}-paths/src/relaunch_env.rs`;
+  write(root, file, [
+    'const MARKER: &str = "CODETERM";',
+    'const PREFIX: &str = "CODETERM_";',
+    'const FORMER_TERM: &str = "CodeTerm";',
+    'const FORMER_ROOT: &str = ".codeterm";',
+    'const FORMER_DEV_ROOT: &str = ".codeterm-dev";',
+  ].join('\n'));
+  commit(root, 'seed retained relaunch rejection inputs');
+  const accepted = cli(root, allowlistPath, ['--scope', 'identity']);
+  assert.equal(accepted.status, 0, accepted.stdout + accepted.stderr);
+  write(root, file, `CodeTerm still owns the product data root.\n`);
+  const prose = cli(root, allowlistPath, ['--scope', 'identity']);
+  assert.equal(prose.status, 1, prose.stdout + prose.stderr);
+  write(root, file, `const FORMER_ROOT: &str = ".codeterm-other";\n`);
+  const sibling = cli(root, allowlistPath, ['--scope', 'identity']);
+  assert.equal(sibling.status, 1, sibling.stdout + sibling.stderr);
+});
+
 test('each checked-in allowlist exception has a reason and Firebase values match the tracked recipe', () => {
   const parsed = JSON.parse(readFileSync(allowlistPath, 'utf8'));
   assert.ok(parsed.rules.length >= 9);

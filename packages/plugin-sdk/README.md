@@ -9,6 +9,13 @@ contracts for that surface — the `host` global, and the capability interfaces 
 plugin can implement. Type imports have zero runtime weight. The optional pure
 diff helpers are bundled only when imported as values.
 
+For plugin-owned storage, use `host.dataDir()`. `host.fs.expandHome("~/.domios")`
+and paths beneath `~/.domios/` resolve to the running instance's data directory,
+including development and named instances. Other `~/` paths use the user's home;
+`~/.codeterm` has no special mapping. Filesystem grants still apply after expansion.
+The SDK package name and `CODETERM_*` host environment variables remain the
+public technical contract; they do not select a legacy data root.
+
 `capabilities.localRecordingTrigger` declares a USB vendor/product and HID
 usage-page/usage tuple. It permits a host-owned `receiverTarget` tab-menu item
 without a webhook receiver. `local_recording` needs an explicit persisted user

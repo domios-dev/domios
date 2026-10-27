@@ -7,8 +7,8 @@ skill for process identity and safe lifecycle commands.
 
 Dev builds use identifier `com.domios.dev` and are fully isolated from production:
 - **API port:** 7686 (prod: 7685)
-- **Data directory:** `~/.codeterm-dev/` (prod: `~/.codeterm/`)
-- **Socket prefix:** `codeterm-dev` (prod: `codeterm`)
+- **Data directory:** `~/.domios-dev/` (prod: `~/.domios/`)
+- **Socket prefix:** `domios-dev` (prod: `domios`)
 - **Single-instance:** Disabled in dev builds, so dev and prod can run side by side.
 
 
